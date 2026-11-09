@@ -1,0 +1,138 @@
+# GitHub reads in-process
+
+> fleetd reads GitHub over Node's HTTPS client inside the `host` connector adapter, not through one `plot-host.sh` process tree per question: the open PR listing, the `--state all` and merged deltas, the issue read and the default-branch re-ask. The partial-answer contracts stay, every rule copied out of `plot-host.sh` is a declared duplicate with a corpus test, a gate holds the second transport to `packages/domain/src/adapters/host/`, and both transports charge one budget.
+
+## Status
+
+- **State:** Draft
+- **Type:** feature
+- **Issue:** #3170
+- **Story:** nothing-changed-nothing-runs
+- **Review:** pr
+- **Impl:** own branches
+
+## Changelog
+
+- On a GitHub repository, fleetd asks GitHub for pull requests, issues and the default branch's CI runs from inside its own process. An idle fleetd pass starts no `bash`, `gh`, `jq` or `node` process for these reads, and the answers, the completeness claims and the rate-limit record stay the same.
+- A new CI gate refuses an HTTPS request to a host from any file outside `packages/domain/src/adapters/host/`.
+
+Board impact: none on the plan format, the template, the helper scripts or the `docs/plans` layout. The board reads the same `prs`, `issues` and `defaultBranch` readings over the channel; `plot-host.sh` keeps every op for the shell consumers and the merge path.
+
+## Motivation
+
+fleetd asks GitHub through `plot-host.sh` today, and each question starts a process tree. Three paths in `packages/fleet` reach it:
+
+| Read | Caller | Route today |
+|---|---|---|
+| The scan's listing: `pr-list --state open --rich`, then `--state all` with or without `--since` | `readGithubListing`, `packages/fleet/src/shared/fleet-scan.ts:522-536`; one call at `:491` | `Scripts.hostSaid(['pr-list', …])` |
+| The PR index refresh and its re-ask of open rows | `packages/fleet/src/shared/pr-refresh.ts:1426-1441`, `:1563-1566` | `Scripts.hostSaid(['pr-list', …])` |
+| The merged set and its `--since` delta | `mergedBranches`, `packages/fleet/src/server/entry/registryd-main.ts:883`, `:903`, `:945` | `Host.prList` → `host-shell.ts:454` → `plot-host.sh pr-list` |
+| The issue read | `refreshIssueIndex`, `packages/fleet/src/shared/issue-refresh.ts:446`, `:523`, `:527`, `:536` | `Tracker` → `tracker-github.ts:143-152` → `tracker-shell.ts:311` → `plot-host.sh issue-list` |
+| The default-branch re-ask | `packages/fleet/src/shared/default-branch-refresh.ts:130`, `:286` | `Build.runsForSha` → `build-shell.ts:194-195` → `plot-host.sh runs-for-sha` |
+
+One `pr-list` call starts `bash` for `plot-host.sh` (6,064 lines), `gh`, several `jq`, `sed` and `awk` processes, and one `node` for the page count (`plot-host.sh:3321`). The story's 30-second sample of fleetd's direct children names `plot-host.sh pr-list` per state among about 160 children. The census rows S4 (an idle fleetd pass) and S6 (one PR whose CI turns green) read 1099.5 and 2671 `execve` on the sprint head with 5 open PRs (story, *Measures*). S4's target is 0 outside the safety-net pass, and the host reads are one of the five sources Phase 5 names.
+
+The risk is high and silent. Two partial-answer contracts decide whether a missing row means "no PR" or "not read": the `.list-complete` whole-page claim (`renderScanListing`, `packages/domain/src/rules/scan-listing.ts:142-151`; `wholePage` reads the shell's `page complete` notice at `:259`) and the refusal to fold a delta when a carried OPEN row is absent from both answers (`foldScanListing`, `scan-listing.ts:292`). The shell states both on stderr (`pr_list_report_truncation` and `pr_list_report_complete`, `plot-host.sh:3313-3349`). A second transport that drops a notice reads every truncated page as whole, and nothing fails.
+
+## Design
+
+This plan depends on `the-snapshot-entity` (delivered). `triggers-replace-the-tick` depends on this plan. It shares no source file with `refs-from-files`, `one-cat-file-batch`, `desk-probes-in-domain`, `node-worker-wrapper` or `liveness-token`; every one of them, this plan included, changes census counts and may touch the census fixture under `packages/fleet/test/census/` (`stub-host.ts`, `sandbox.ts`), so the second to merge rebases its fixture change and states its own measured delta. The AgentMonitor's per-desk `plot-host.sh pr-state` call (`plot-agent-monitor.sh:257-264`) stays: `liveness-token` ends those loops.
+
+### Approach
+
+**A typed read first, then a second transport behind it.** The fleet's callers read `pr-list` stdout and stderr through `Scripts.hostSaid`. An HTTPS adapter cannot produce a shell's stderr notices without imitating them, so the first slice gives the read a type and moves the callers to it, with the shell still answering.
+
+**Slice 1: the seam (no transport change).**
+
+- `ports/host.ts` gains `prListing(query)`. The query names `state` (`open`, `all`, `merged`), `limit`, `since`, `rich` and `richOpen`. The answer is a `PrListing`: the rows, and for each asked state one completeness word, `whole` or `possibly-truncated`, and the refusal kind on a failed call. `host-shell.ts` answers it from `plot-host.sh pr-list`, and reads the per-state notices into the completeness words with the patterns `scan-listing.ts:259` and `:390` use today.
+- `readGithubListing`, the PR index refresh and `mergedBranches` call `prListing`. `foldScanListing` and `foldPulseListing` take the completeness word instead of reading notice text. The Bitbucket arm keeps `hostSaid`: Phase 7's `bitbucket-reads-in-process` moves it.
+- Every existing contract and fleet test passes unchanged. This slice moves no census row.
+
+**Slice 2: the client, its credentials, its budget and its gate.**
+
+- `adapters/host/github-api.ts` is the one module that opens a connection to the GitHub API. It takes the base URL from `GITHUB_API_URL` (default `https://api.github.com`), as `skills/plot/scripts/plot-github-app.mjs:24` does, and the repository from the `origin` remote, as `gh_origin_slug` does (`plot-host.sh:2560`).
+- **Credentials.** The reads run as the identity `gh` runs as today, so the budget account does not change: `budget_account` names the `user:` in `gh`'s `hosts.yml` (`plot-host.sh:3513-3534`). The client takes the token from `GH_TOKEN` or `GITHUB_TOKEN`, and otherwise runs `gh auth token` once at start. On a `401` it runs `gh auth token` once more and retries the request once; a second `401` is a `failed` answer with the refusal kind `auth`. That process runs in answer to a trigger (start, a refused credential), which *Target Shape* allows. The token travels in a request header only, never in argv, a file or a log line, as `plot-github-app.mjs:12-14` states for the App flow.
+- **The App keys stay with their writes.** `Review app`, `Merger app` and `Writer app` sign `plot/review` statuses, merges and pushes (`plot-commit-status.mjs`, `plot-merger-token.mjs`, `plot-push-writer-app.mjs`). The client never reads with one of them: each App installation has its own rate window, and a read charged to it would spend the review or merge identity's budget. An App identity for reads is Open Question 2.
+- **Budget and slots.** Every request takes a host slot through the `Slots` port with the account and bound `host_slot_take` uses (`plot-host.sh:3849-3873`), and appends one `BudgetEntry` through the `BudgetRecord` port (`ports/budget.ts`, `adapters/budget/budget-file.ts`), the ledger `plot-host.sh` writes as `budget.tsv`. The bucket and the window come from `X-RateLimit-Resource`, `-Limit`, `-Remaining` and `-Reset`, so each in-process entry has the basis `actual`, where `gh pr list` records a guess from its argv (`gh_bucket_of_argv`, `plot-host.sh:3560`). A `403` or `429` with a secondary-limit message maps to the `LimitObservation` `secondary`, and an exhausted window to `throttled`, through `Host.observe`.
+- **The gate.** `scripts/check-host-https-callers.sh` refuses `node:https`, `undici`, `api.github.com`, `GITHUB_API_URL` and a `fetch(` call in `packages/*/src` outside `packages/domain/src/adapters/host/`. `packages/board/src/app/` is exempt by name: its 27 `fetch(` calls ask the board's own server by a relative path. The scripts that already reach GitHub over HTTPS (`plot-github-app.mjs` and its three callers) are named exceptions, each with its write. Measured in this worktree: 0 hits outside those two places. A contract test runs the gate over a fixture tree with one violation per pattern. The domain purity gate (`ci.yml:1416-1425`) already refuses `https` outside `adapters/`; the new gate narrows it to `adapters/host/` and adds the fleet and board packages.
+- **The census sees the new transport.** A `PATH` stub cannot see an in-process request. `packages/fleet/test/census/stub-host.ts` gains a local HTTP server that serves the same recorded answers as the stub `gh`, and the census sandbox sets `GITHUB_API_URL` to it and `GH_TOKEN` to a fixture value. The story planned this for Phase 7 (*Phase 1*, fixtures bullet); GitHub moves first.
+
+**Slice 3: the PR reads in-process.**
+
+- `adapters/host/github-pr-listing.ts` answers `prListing` for a GitHub backend. It sends the GraphQL queries `gh pr list` sends today for the open rich listing, the `--state all` listing and the merged listing, with the same fields, the same `updated:>` search for `--since` (exclusive, `plot-host.sh:4562-4575`) and the same `--limit`. It keeps the split read of `--rich-open` (`plot-host.sh:4620-4655`): the open rows rich, the terminal rows plain with the absent values. The decision of 2026-11-05 stands: the read stays unconditional GraphQL at today's cadence.
+- **Completeness.** A state's page is `whole` when its row count is below the limit, the rule `pr_list_report_truncation` applies to GitHub (`plot-host.sh:3322-3327`) and `pagePossiblyTruncated` holds in the domain (`packages/domain/src/rules/listing-page.ts:51`). A failed or partial page is never `whole`. `foldScanListing`'s refusal of an absent carried OPEN row does not change: it reads rows, not the transport.
+- **The declared duplicates.** Three jq programs in `plot-host.sh` decide what a rule reads: `CHECKS_OF` (`:713`, the check rollup to `green`, `pending`, `failing` or `none`, and `ciChecks` without `plot/review`), `MERGEABLE_OF` (`:725`) and the row projection of the listing arm. They become `rules/checks-of.ts`, `rules/mergeable-of.ts` and `rules/github-pr-row.ts`, arrow functions over values. The shell keeps its jq copies for `pr-state` and the shell consumers.
+- **The corpus.** `packages/domain/corpus/github-pr-listing.corpus.test.ts` feeds one recorded GitHub answer to both transports: the GraphQL response to the stub server for the in-process adapter, and the `gh pr list --json` output recorded from the same request to a stub `gh` for `host-shell.ts`. It compares every row field by field, and the completeness word per state. The recorder is a script that captures both with `GH_DEBUG=api`; the corpus tier runs with no host token (`packages/domain/corpus/no-host-token.ts`), so the test reads recordings only. `checks-of.corpus.test.ts` runs `jq` with `CHECKS_OF` and `MERGEABLE_OF` and the TypeScript rules over the same rollups. A disagreement names both answers and the PR, as *A Shell Script Asks The Domain* requires.
+- **"Differs" covers every field a rule reads.** `recordReading` compares the `prs` reading by content (`packages/domain/src/rules/snapshot-record.ts:35`), so a field the in-process row omits can never mark a change. `PrIndexRowSchema` holds 22 fields (`packages/domain/src/entities/pr-index.ts:30`). A unit row per field changes that field alone in one recorded answer and asserts that the in-process read yields a different `prs` reading, so that `recordReading` reports `changed: ['prs']`. The corpus then holds that the shell sets no field the in-process row leaves absent.
+
+**Slice 4: the issue read and the default-branch re-ask.**
+
+- `tracker-github.ts`'s four reads (`issueListOpen`, `issueListClosed`, `issueListChanged`, `issueListInbox`) call the client, as `trackerGitHost` is built over the host connector (`CLAUDE.md`, *A connector is a kind of adapter*). The query is the one `gh issue list` sends (`plot-host.sh:5472`), with the same page token and the same `issue-list` exit outcomes: an empty list, a failed question and `unaskable` stay three answers. The issue writes stay in `plot-host.sh`, where `issue-writes-have-a-rest-route` moves them to REST.
+- `build-actions.ts`'s `runsForSha` calls the client with the request `gh run list --branch <b> --limit <n> --json headSha,conclusion,…` sends (`plot-host.sh:5156`), `GET /repos/{owner}/{repo}/actions/runs`, and applies the newest-first, first-match rule of `run-for-sha` (`plot-host.sh:5142`). That rule is a declared duplicate with a corpus row.
+- Both reads keep the `Tracker` and `Build` ports. Only the adapter's transport changes, and a Bitbucket, Jira or Jenkins repository runs the shell route as before.
+
+**Slice 5: the cutover and the measurement.**
+
+- fleetd's composition root picks the in-process reads when `Host.backend()` answers `github` and the client resolves a token, and the shell reads otherwise. `PLOT_HOST_TRANSPORT=shell` forces the shell reads for one fleetd process (Open Question 3).
+- The census rows S4 and S6 run on the GitHub fixture against the merge base, and the slice records both numbers in the story's *Measures*. The PR states how many `execve` each read removed.
+- The board's own reads (`plot-pr-reader.mjs` with no fleetd) take the same composition, so a board with no fleetd also reads in-process.
+
+### Open Questions
+
+- [ ] **GraphQL or REST for the deltas.** The decision of 2026-11-05 keeps the reads on unconditional GraphQL. #3271 then moved `pr-review`, `pr-state`, `pr-merge` and `commit-status` to REST because GitHub's secondary GraphQL limit refused them while REST had budget (`docs/plans/2026-11-08-issue-writes-have-a-rest-route.md`, *Motivation*). The open rich listing needs GraphQL: its check rollup and mergeability cost one REST request per PR. The `--state all` delta, the merged delta and the issue read have REST forms (`GET /pulls?state=all&sort=updated`, `GET /issues`) in the `core` bucket. This plan keeps GraphQL for all of them, so the corpus can feed one recorded request to both transports. Recommendation: keep GraphQL here, and move the deltas to REST in a follow-up plan with its own corpus once the transports agree. A person decides.
+- [ ] **Which identity reads.** The plan reads as the person `gh` is signed in as, with one `gh auth token` at start and on a `401`. A fleetd that runs where no person is signed in (a server, a CI runner) has no such token. A fourth App key (`Reader app`) would give fleetd its own installation token, refreshed in-process before its 1-hour `expires_at` with the JWT exchange of `plot-github-app.mjs:93-139`, and its own rate window and budget account. Recommendation: no new key in this plan; the client takes `GH_TOKEN` where no person is signed in, and a `Reader app` waits for a repository that needs it. A person decides.
+- [ ] **A rollback switch.** `PLOT_HOST_TRANSPORT=shell` keeps a way back while the corpus is young, and it is one more branch to test. Recommendation: keep it until `triggers-replace-the-tick` is delivered, then remove it in that plan. A person decides.
+- [ ] **The merged listing's limit.** `mergedBranches` asks `--limit 500` on GitHub (`registryd-main.ts:900`), which the GraphQL listing pages at 100 rows (`GH_PAGE_ROWS`, `listing-page.ts:99`): 5 requests per full read. The in-process read keeps that. Should the full read move to the 24-hour cadence of `PR_FULL_READ_MS` (`pr-refresh.ts:362`) with the delta in between, as the scan's listing does? Recommendation: no change in this plan; it changes request counts, not processes.
+
+## Done when
+
+| Claim | Check | Slice |
+|---|---|---|
+| The fleet's PR listings read a typed answer | `readGithubListing`, the PR index refresh and `mergedBranches` call `Host.prListing`; `grep "hostSaid(\['pr-list'" packages/fleet/src` finds only the Bitbucket arm | Seam |
+| The seam changes no answer | every existing fleet and contract test passes unchanged; census S4 and S6 stay within the gate's tolerance against the merge base | Seam |
+| A notice-less page is never whole | a `host-shell.ts` row: a `pr-list` run that prints no `page complete` notice for a state answers `possibly-truncated` for that state | Seam |
+| An HTTPS request outside `adapters/host/` is refused | the gate's contract test over a fixture tree with one violation per pattern; the gate passes on this tree | Client |
+| A refused token is refreshed once | a client row against the stub server: a first `401` runs the token source again and retries once; a second `401` answers `failed` with kind `auth` | Client |
+| Every request charges the shared ledger | a client row: one request appends one `BudgetEntry` with the bucket and window from the response headers and basis `actual`, under the account `budget_account` names | Client |
+| A secondary limit reads as one | a client row: a `403` with GitHub's secondary-limit message reports the observation `secondary` | Client |
+| The census sees in-process requests | a census sandbox row: the stub server counts one request per in-process read, and `GH_TOKEN` is the fixture token | Client |
+| Both transports return the same rows | `github-pr-listing.corpus.test.ts` over the recorded answers: every row field and every per-state completeness word agree | PR reads |
+| The check rollup folds the same way | `checks-of.corpus.test.ts`: `CHECKS_OF`, `MERGEABLE_OF` and the TypeScript rules agree on every recorded rollup | PR reads |
+| A truncated page is never whole | a page that returns exactly `limit` rows answers `possibly-truncated`; `foldScanListing` refuses it with `no-whole-page-claim` | PR reads |
+| An absent carried OPEN row still refuses the fold | the existing `foldScanListing` rows pass with the in-process answer as input | PR reads |
+| A change in any rule-read field is a change | one row per `PrIndexRowSchema` field: that field alone changed yields `changed: ['prs']` | PR reads |
+| The issue read keeps its three outcomes | tracker rows against the stub server: an empty list, a failed request and `unaskable` stay apart | Issues and runs |
+| The default-branch re-ask picks the same run | a corpus row: `runsForSha` and `plot-host.sh runs-for-sha` pick the same run from one recorded runs list | Issues and runs |
+| An idle fleetd pass starts no process for a GitHub read | census S4 on the GitHub fixture: no `gh`, and no `bash` whose argv names `plot-host.sh`, for `pr-list`, `issue-list` or `runs-for-sha` | Cutover |
+| The removed processes are counted | the slice's PR states S4 and S6 against the merge base, and the story's *Measures* holds them | Cutover |
+| Bitbucket is unchanged | census S4 on the Bitbucket fixture stays within the gate's tolerance against the merge base | Cutover |
+
+## Slices
+
+### Seam
+
+- `feature/github-reads-in-process-seam` — `Host.prListing` and `PrListing` in `ports/host.ts`, the shell answer in `host-shell.ts`, the three fleet callers moved to it, and the completeness word in `foldScanListing` and `foldPulseListing` <!-- builds: Host.prListing, a typed PR listing with a per-state completeness word -->
+
+### Client
+
+- `feature/github-reads-in-process-client` — `adapters/host/github-api.ts` with the token source and its refresh, slots and the shared budget ledger, the rate-limit observations, `scripts/check-host-https-callers.sh` with its contract test, and the census stub server <!-- builds: githubApi, the one in-process GitHub HTTPS client -->
+
+### PR reads
+
+- `feature/github-reads-in-process-prs` — `adapters/host/github-pr-listing.ts`, `rules/checks-of.ts`, `rules/mergeable-of.ts`, `rules/github-pr-row.ts`, the recorder, `github-pr-listing.corpus.test.ts`, `checks-of.corpus.test.ts` and the per-field change rows <!-- builds: the in-process GitHub PR listing, with the corpus against plot-host.sh pr-list -->
+
+### Issues and runs
+
+- `feature/github-reads-in-process-issues-runs` — the four GitHub issue reads in `tracker-github.ts` and `runsForSha` in `build-actions.ts` over the client, with tracker rows and the `runs-for-sha` corpus row <!-- builds: in-process GitHub issue and Actions-run reads -->
+
+### Cutover
+
+- `feature/github-reads-in-process-cutover` — the composition switch in fleetd and in `plot-pr-reader.mjs`, `PLOT_HOST_TRANSPORT`, the census S4 and S6 measurement and the story's *Measures*; a changeset for `plot` <!-- builds: the GitHub transport switch in fleetd's composition root -->
+
+## Notes
+
+- Phase 5 of the story [`nothing-changed-nothing-runs`](../stories/nothing-changed-nothing-runs/STORY-nothing-changed-nothing-runs.md), candidate plan `github-reads-in-process`.
+- Line numbers checked in the worktree of `idea/batch-refs-from-files` (cut from `origin/sprint/the-board-reads-the-channel` at `11a270538`) on 2026-11-09. The story cites `plot-host.sh` at 6,050 lines; it holds 6,064 here. `CLAUDE.md` cites `host-shell.ts:30` for `DRIVES`; that list is gone, and drivability is the script's `HOST_DRIVES` (`plot-host.sh:3360`).
+- #3271 (`bug/github-arms-use-rest`, merged 2026-11-08) moved `pr-review`, `pr-state`, `pr-merge` and `commit-status` to REST through `gh api` and named the repository with `gh_origin_slug`, with no API call. This plan reuses that slug rule, and its REST arms stay in `plot-host.sh` for the merge path.
+- Deliverable search (`plot-deliverable-search.sh`) for "GitHub HTTPS client", "in-process host read", "host API gate", "token refresh", "checksOf" and "installation token" found no existing deliverable. It found the App exchange in `skills/plot/scripts/plot-github-app.mjs` and the GitHub completeness rule `pagePossiblyTruncated` in `rules/listing-page.ts`, which this plan reuses.
+- Definition of Done: docs/definition-of-done.md.
