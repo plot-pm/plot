@@ -29,6 +29,7 @@ All work for this sprint goes to the integration branch `sprint/desk-probes-and-
 ### Should Have
 - [ ] [ci-reuses-green-runs] CI reuses green runs <!-- pr: #3308, branch: infra/ci-reuses-green-runs -->
 - [ ] [board-api-starts-nothing] The board API starts nothing (#3170) <!-- pr: #3308, branch: feature/board-api-starts-nothing-census -->
+- [ ] [bundle-gate-reads-the-default-branch] The bundle gate reads the default branch (#3344) <!-- pr: #3345, branch: bug/bundle-gate-reads-the-default-branch -->
 
 ### Could Have
 
@@ -45,6 +46,7 @@ All work for this sprint goes to the integration branch `sprint/desk-probes-and-
 ## Notes
 
 ### Scope Changes
+- 2026-11-09: Added [bundle-gate-reads-the-default-branch] to Should — issue #3344, approved 2026-11-09 by jwloka
 
 <!-- Log scope changes here: added/removed items, tier changes, with date and reason -->
 <!-- Format: - YYYY-MM-DD: Added/Moved/Removed [slug] reason -->

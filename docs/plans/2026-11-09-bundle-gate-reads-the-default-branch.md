@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Type:** bug
+- **Sprint:** desk-probes-and-liveness
 - **Issue:** #3344
 - **Review:** pr
 - **Impl:** own branches
