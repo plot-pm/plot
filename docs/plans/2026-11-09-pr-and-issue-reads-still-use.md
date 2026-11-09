@@ -62,7 +62,7 @@ Measured on this repository, 2026-11-08 and 2026-11-09 (issue #3317):
 
 | Claim | Check | Slice |
 |---|---|---|
-| No op starts a GraphQL call | a stub `gh` that fails `gh api graphql` and every GraphQL-backed subcommand (`pr list`, `issue view`, `issue list`, `repo view`); all five ops still answer | REST reads |
+| No op fails while GraphQL refuses | a stub `gh` that fails `gh api graphql` and every GraphQL-backed subcommand (`pr list`, `issue view`, `issue list`, `repo view`); all five ops still answer, and `pr-list --rich` answers its base fields with the four rich fields unread | REST reads |
 | The approve controller approves a plan whose PR is open | the stubbed run above through `plot-approve` | REST reads |
 | The idea controller reads an issue | the stubbed run through the idea controller | REST reads |
 | `pr-merged` answers `merged` for a merged branch | the stubbed run, reading `merged_at` | REST reads |
