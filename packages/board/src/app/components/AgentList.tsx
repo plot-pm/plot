@@ -3,7 +3,6 @@ import {
   type AgentRow,
   type Fleet,
   type FleetSprint,
-  type WaitingGroup,
   type Slice,
   UNNAMED_SLICE,
   isOneSlicePlan,
@@ -78,31 +77,28 @@ import {
   readMineOnly,
   readMineStrict,
   agentsForReader,
-  draftsForReader,
   readerFrom,
-  rowsForReader,
   ticketsForReader,
   writeMineOnly,
   writeMineStrict,
 } from '../lib/agent-rows/mine-filter.js';
 import { mineMode, planIndexOf } from '@plot-pm/domain';
-import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
-import { GROUPS, groupByPlan, planWaitingDays, rowsBySection, sectionTally, tallyLabel, unfilteredNote, showPlanHeading, showsSliceFold, sortByWaiting, planGroupShape, sliceGroupsFor, slicesElsewhere, sliceKeyOf, headSliceNames } from '../lib/agent-rows/sections.js';
+import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows } from '../lib/agent-rows/activity.js';
+import { deliveryMapping } from '../lib/agent-rows/delivery-readings.js';
+import { machineLine, placeMapping, reasonWords, type PlacedAgentView, type PlacedItemView } from '../lib/agent-rows/delivery-view.js';
 import { shrinkNote } from '../lib/agent-rows/actions.js';
-import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, inMachineSection, issueNote, prStatusEntry, scanHostNote } from '../lib/agent-rows/host-notes.js';
-import { isUnbegun, rowKey } from '../lib/agent-rows/row-identity.js';
-import { SLICE_LINKING_KINDS, groupBySlice, sliceLabel } from '../lib/agent-rows/slices.js';
+import { issueNote, prStatusEntry, scanHostNote } from '../lib/agent-rows/host-notes.js';
+import { rowKey } from '../lib/agent-rows/row-identity.js';
+import { SLICE_LINKING_KINDS, sliceLabel } from '../lib/agent-rows/slices.js';
 // THE ROW ESTATE, in three modules beside this one. `AgentList` is the shell:
 // it reads the fleet, decides the sections, and mounts the rows — the rows,
 // their marks and their menus are declared next door.
-import { ActivityMark } from '../lib/agent-rows/marks.js';
 import { waitingView } from '../lib/agent-rows/waiting-view.js';
-import { HeaderRow, IssueRowView, PlanLink, PlanRow, Row, SliceRow, RegistryRow, type AgentListProps } from '../lib/agent-rows/rows.js';
-import { workingAgentRows, claimedWithoutWorkerRows, brokenAgentRows, quietEndedDeskRows, draftPlanRows } from '../lib/agent-rows/working-agents.js';
+import { HeaderRow, IssueRowView, Row, RegistryRow, type AgentListProps } from '../lib/agent-rows/rows.js';
+import { workingAgentRows, draftPlanRows } from '../lib/agent-rows/working-agents.js';
 import { DraftPlanRowView } from '../lib/agent-rows/draft-plan-row.js';
-import { PlanLevelRowView, planFileFromFleet, sectionCount, verificationRows } from '../lib/agent-rows/plan-level-row.js';
+import { PlanLevelRowView, planFileFromFleet, verificationRows } from '../lib/agent-rows/plan-level-row.js';
 import { specRows } from '../lib/agent-rows/spec-row.js';
-import { hasExceptions } from '../lib/agent-rows/stuck.js';
 // RE-EXPORTED, not redefined — the same allowance `splitBranch` above is given.
 // These moved out of this file when the row estate was split into three
 // modules; the unit suite and `App.tsx` import them from here, and a second
@@ -160,15 +156,6 @@ export function soleSliceFor(planName: string, slices: Slice[] | undefined): Sli
  * @param planHeads Whether this section draws plan heads at all. Where it does
  *   not, the rows are never folded and this is trivially true.
  */
-const sliceRowsShown = (
-  planHeads: boolean,
-  rows: AgentRow[],
-  sliceCount: number,
-  plan: string,
-  openPlans: Set<string>,
-): boolean => !planHeads
-  || hasExceptions(rows)
-  || (sliceCount > 1 ? openPlans.has(`open:${plan}`) : !openPlans.has(`shut:${plan}`));
 
 /**
  * What the server writes where a plan divides its work into no slices at all.
@@ -338,9 +325,6 @@ export function AgentList({
   planFileForSlug,
   cards,
   dispatch,
-  approve,
-  reslice,
-  deliver,
   implement,
   drop,
   continueWith,
@@ -395,8 +379,8 @@ export function AgentList({
   // move its own furniture. The same rule is why a row falling into a folded
   // group changes the count and nothing else: whoever folded `quiet` was asking
   // not to be interrupted by it.
-  const [collapsed, setCollapsed] = useState<Set<WaitingGroup>>(() => readCollapsed());
-  const toggle = (key: WaitingGroup) => {
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => readCollapsed());
+  const toggle = (key: string) => {
     setCollapsed((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -406,24 +390,6 @@ export function AgentList({
     });
   };
 
-  // UNFOLD ONE SECTION — never fold. `BlockedByMark` reveals a blocker that has
-  // completed into a section a reader keeps closed (DONE, folded by default),
-  // and a folded section is REMOVED from the tree, so its row is unreachable by
-  // any selector until this runs. One direction only: the reader asked which
-  // slice, and the mark may open a section to answer, never close one out from
-  // under them. Persisted through `writeCollapsed`, the same as `toggle` — the
-  // reveal changes the reader's layout because silence was the defect being
-  // removed, not a cost to design away. A no-op where the section is already
-  // open, so a reader who has DONE unfolded pays nothing.
-  const expandSection = (key: WaitingGroup) => {
-    setCollapsed((prev) => {
-      if (!prev.has(key)) return prev;
-      const next = new Set(prev);
-      next.delete(key);
-      writeCollapsed(next);
-      return next;
-    });
-  };
 
   // Whether the reader asked to see only their own work.
   //
@@ -456,27 +422,6 @@ export function AgentList({
     });
   };
 
-  // Which plans in NOT STARTED have their branches showing. Keyed by plan name,
-  // which is what the group is keyed by.
-  //
-  // Collapsed by default and NOT persisted, unlike the section-level fold. The
-  // two are different in kind: folding QUIET is a standing preference about a
-  // section a reader has decided not to watch, while opening one plan's slices is
-  // a momentary question — *what were the three branches again* — asked and
-  // answered. Persisting it would restore an opened plan on a board reloaded
-  // several times an hour, which rebuilds the crowding the fold removes.
-  //
-  // Never derived from the rows, for the same reason the section fold is not: a
-  // view that repaints every four seconds must not move its own furniture.
-  const [openPlans, setOpenPlans] = useState<Set<string>>(() => new Set());
-  const togglePlan = (plan: string) => {
-    setOpenPlans((prev) => {
-      const next = new Set(prev);
-      if (next.has(plan)) next.delete(plan);
-      else next.add(plan);
-      return next;
-    });
-  };
 
   // THE SAME FOLD, ONE LEVEL DOWN — a slice's branches, where it holds more than
   // one. Every argument above applies unchanged: collapsed by default, not
@@ -529,26 +474,6 @@ export function AgentList({
   // call is what lets the rule, rather than this component, decide that.
   const ownAgents = agentsForReader(fleet?.agents ?? [], reader, mode);
   const workingRows = workingAgentRows(ownAgents, rowByBranch);
-  // THE BROKEN AGENTS — `stalled` and `unknown` — for WAITING ON YOU.
-  // A problem report: the worker stopped and needs a person to look. Joined to
-  // branch rows by the same rule as `workingRows`, so the row's plan and PR
-  // travel with it where one exists.
-  const brokenRows = brokenAgentRows(ownAgents, rowByBranch);
-  // A RELEASED FREE DESK'S NOTE — for QUIET. `endedDeskPlacement` answers
-  // `section: 'quiet'` for a desk whose free wait ran out clean, which
-  // `brokenRows` above filters out of Waiting on you; this is its landing.
-  const quietRows = quietEndedDeskRows(ownAgents, rowByBranch);
-  // THE DRAFT PLANS NO BRANCH ROW CARRIES — for WAITING ON YOU. Tested against
-  // the unfiltered `fleet.rows`, like the joins above: a row the sprint filter
-  // hides still means the plan has one. `?? []` because the client casts the
-  // fleet, and an older server sends no `draftPlans` at all.
-  //
-  // FILTERED BY OWNERSHIP THE SAME PLACE `visibleRows` IS — a Draft plan row
-  // now carries `assignee`/`author`/`approver` like every other owned row, so
-  // «Mine» applies to it too. Under `mine-and-unknown` a plan naming nobody,
-  // or naming only someone ownership cannot resolve, stays visible and only a
-  // row somebody ELSE owns hides; under `mine` only the reader's own stays.
-  const draftRows = draftsForReader(draftPlanRows(fleet?.draftPlans ?? [], fleet?.rows ?? []), reader, mode);
   // THE FLEET'S OWN VERIFY RUNS — a run ON A PLAN, not on a branch. `halted`,
   // `running` and `rows` come from `.plot/state/auto-verify-in-flight.json` as
   // the daemon last wrote it; `null` (the file unreadable) answers no rows and
@@ -575,17 +500,6 @@ export function AgentList({
   const planFileOf = (slug: string): string =>
     planFileFromFleet(slug, fleet?.rows ?? [], fleet?.draftPlans ?? []) || (planFileForSlug?.(slug) ?? '');
 
-  const [openSlices, setOpenSlices] = useState<Set<string>>(() => new Set());
-  const sliceKey = sliceKeyOf;
-  const toggleSlice = (plan: string, wave: string) => {
-    setOpenSlices((prev) => {
-      const next = new Set(prev);
-      const k = sliceKey(plan, wave);
-      if (next.has(k)) next.delete(k);
-      else next.add(k);
-      return next;
-    });
-  };
 
   // Seconds since this payload arrived. The ages the server sent are true at the
   // moment of the poll and stale a second later, so a countdown built from them
@@ -745,22 +659,6 @@ export function AgentList({
   const filteredRows = !sprintFilterOn
     ? fleet.rows
     : fleet.rows.filter((r) => rowInSprintSelection(r, selectedSprints, membership));
-  // THE ROWS THIS READER ASKED FOR. Applied AFTER the sprint filter and BEFORE
-  // `rowsBySection`, for the reason the sprint filter states about itself: both
-  // answer *which rows does this reader want*, and the sections answer *where do
-  // those rows belong*.
-  //
-  // COMPOSED RATHER THAN MERGED. The sprint filter reports what it withheld per
-  // section, counted against the ownership-filtered `fleet.rows`
-  // (`unfilteredSectionedRows` below); folding ownership into that count
-  // would make one number the answer to two different questions, and a reader
-  // told `3 hidden` could not tell which filter hid them. So this narrows the
-  // rows and contributes nothing to that accounting.
-  //
-  // A row somebody else owns is the only row hidden — an unowned row, and a row
-  // whose owner cannot be determined, both stay. Off, the array is returned
-  // untouched.
-  const visibleRows = rowsForReader(filteredRows, reader, mode);
 
   // THE CHIP ROW'S READINGS — `chipRow()` (`@plot-pm/domain`) decides every
   // chip's label, on/off, hidden count and disabled reason from these;
@@ -1109,1652 +1007,281 @@ export function AgentList({
           banners as well; a section break has to read as a bigger break than a
           row break (35–36 px rows, `py-2`), and 16 px was not it. */}
       <div data-sections className="space-y-8">
-      {(() => { const sectionedRows = rowsBySection(visibleRows);
-        // THE UNFILTERED ROWS, for computing how many each section hides. A
-        // section that says `(3)` while hiding 5 looks complete when it is
-        // not — the spec says a filtered section must say what it withheld.
-        // ONLY COMPUTED WHEN A FILTER IS ACTIVE: when no filter applies, every
-        // row is shown and no section hides anything to report.
-        //
-        // THE OWNERSHIP FILTER IS APPLIED TO BOTH SIDES, so the difference is
-        // what the SPRINT filter alone withheld. Against bare `fleet.rows` a row
-        // hidden by «Only my work» was counted a second time under the label
-        // `hidden by Sprint only`.
-        const unfilteredSectionedRows = sprintFilterOn
-          ? rowsBySection(rowsForReader(fleet.rows, reader, mode))
-          : sectionedRows;
-        // THE SERVER-DERIVED SLICES, bound once beside the rows so every
-        // `sliceGroupsFor`/`ungroupedRows` call below asks the same list rather
-        // than re-reading `fleet.slices` seven times. `undefined` on a cast
-        // payload from a pre-#349 server — the field the client CASTS rather
-        // than parses, so its schema `.default([])` never fired — and
-        // `sliceGroupsFor` falls back to the row's own state for exactly that
-        // case. See `the-sections-ask-the-wave`.
-        const slices = fleet.slices; return GROUPS.map(({ key, icon, label, hint }) => {
-        // EVERY SECTION IS ITS `group`, WAITING ON A MACHINE INCLUDED. It
-        // asked a second question until 2026-08-20 — admitting any row that
-        // carried a process — and that is what listed live agents as machines
-        // to wait on. See `inMachineSection` for why the answer is `group`
-        // alone; it is called by name here because the section's membership is
-        // the thing that plan settled, and a reader who follows the rule back
-        // should land on the argument rather than on a bare comparison.
-        //
-        // FILTERED OVER `sectionedRows`, NOT `fleet.rows`. A slice whose branches
-        // disagree on `state` carries two `group`s on its rows and would split
-        // across two sections; `rowsBySection` rewrites every row of such a slice
-        // to the ONE section the slice belongs in (a slice is where its unfinished
-        // work is), so `Inverted`'s merged and open branches land together. A
-        // uniform slice is untouched — its rows already share a group.
-        const rows = key === 'waiting-on-machine'
-          ? sectionedRows.filter(inMachineSection)
-          : sectionedRows.filter((r) => r.group === key);
-        // HOW MANY ROWS THE FILTER WITHHELD from this section. The spec says
-        // `none` is never the whole answer when rows exist, and a section
-        // showing 13 of 46 looks complete — both cases need the hidden count.
-        // ONLY COMPUTED WHEN A FILTER IS ACTIVE: `unfilteredSectionedRows ===
-        // sectionedRows` otherwise, so `hiddenCount` is zero by construction.
-        const unfilteredRows = key === 'waiting-on-machine'
-          ? unfilteredSectionedRows.filter(inMachineSection)
-          : unfilteredSectionedRows.filter((r) => r.group === key);
-        const hiddenCount = unfilteredRows.length - rows.length;
-        // WORKING RENDERS FROM THE REGISTRY, so its body, its count and its fold
-        // are the AGENTS, not the branch rows `rows` holds for it. Every other
-        // section is untouched: `workingSection` gates only WORKING, and the
-        // branch `rows` above still flows to the shared header machinery for the
-        // five sections that render branches. The one number that must be the
-        // agents is the tally — Done when #1, N entries → N rows — so `countOf`
-        // answers the agents here and the rows everywhere else.
-        const workingSection = key === 'working';
-        // THE COUNT IS OF WHAT THE SECTION HOLDS — branches, issues and broken
-        // agents where applicable. WORKING counts its registry entries AND the
-        // fleet's own plan-level runs; WAITING ON YOU adds issues, broken agents,
-        // draft plans and the fleet's failed verify runs to its branch rows.
-        // THE CLAIMED BRANCHES WITH NO KNOWN WORKER, drawn below the registry
-        // rows. No registry entry names them, so `workingRows` cannot hold them.
-        const claimedRows = workingSection ? claimedWithoutWorkerRows(rows) : [];
-        const countOf = sectionCount(key, {
-          branches: rows.length,
-          registry: workingRows.length,
-          claimedWithoutWorker: claimedRows.length,
-          broken: brokenRows.length,
-          drafts: draftRows.length,
-          quiet: quietRows.length,
-          planLevel: { working: workingPlanRows.length, waiting: verificationWaitingRows.length },
+      {(() => {
+        // THE RULE DECIDES; THIS BLOCK RENDERS. `placeDelivery` placed every
+        // work item and every agent once; `deliveryView` orders that answer by
+        // `DELIVERY_LAYOUT`. Nothing below computes a section, a group, a link
+        // target or a reason.
+        const mapping = deliveryMapping({
+          rows: filteredRows,
+          slices: fleet.slices ?? [],
+          agents: fleet.agents ?? [],
+          drafts: draftPlanRows(fleet.draftPlans ?? [], fleet.rows ?? []),
+          reader,
+          mode,
+          config: fleet.placementConfig ?? { autoReview: false, correctionBudget: 2 },
         });
-        // WAITING ON YOU is the section for what needs a human DECISION, and an
-        // unplanned issue is exactly that — the decision being *is this worth a
-        // plan?* rather than *fix it*. No other section can hold it: the row has
-        // no branch to be working, quiet or done, and nothing about it is
-        // waiting on a machine.
-        //
-        // Rendered only where the tracker actually ANSWERED. `unsupported` (a
-        // host with no issue listing) and `failed` (a lookup that did not come
-        // back) both yield no rows here, and the second says so below rather
-        // than passing for an empty inbox.
-        const issues = key === 'waiting-on-you' && fleet.issueAnswer === 'answered'
-          ? filteredIssues
-          : [];
-        // THE BROKEN AGENTS — `stalled` and `unknown` — for WAITING ON YOU only.
-        // A problem report, not a branch: the worker stopped and needs a person to
-        // look. Rendered AFTER the branch rows and the issues, because actionable
-        // work outranks problem reports — a PR a person can merge is more urgent
-        // than a worker a person can go check.
-        const broken = key === 'waiting-on-you' ? brokenRows : [];
-        // A RELEASED FREE DESK'S NOTE, for QUIET only — `brokenRows` above is
-        // what this entry would have been had its desk owed a person; here it
-        // owes nothing and only waits to be reaped.
-        const quiet = key === 'quiet' ? quietRows : [];
-        // THE DRAFT PLANS, for WAITING ON YOU only: a decision owed on a plan
-        // with no branch. Rendered after the issues and before the broken
-        // agents — a decision outranks a problem report.
-        const drafts = key === 'waiting-on-you' ? draftRows : [];
-        // THE FLEET'S OWN FAILED VERIFY RUNS, for WAITING ON YOU only — a run on
-        // a PLAN, not a branch, same non-branch shape as a draft. Rendered after
-        // the drafts and before the broken agents: a decision owed on a plan
-        // (draft or failed verification) outranks a worker problem report.
-        const verifications = key === 'waiting-on-you' ? verificationWaitingRows : [];
-        // THE FLEET-HALTED SENTENCES, for WAITING ON YOU only, and only when no
-        // row above already says so in its own `reason` — `verificationRows`
-        // and `specRows` each withhold their own `haltedLine` in that case, so
-        // this reads the values they already decided rather than re-deciding
-        // here. A verify halt and a design halt are independent facts, so both
-        // can be non-null at once — two short lines, not one merged sentence.
-        const verificationHaltedLine = key === 'waiting-on-you' ? haltedLine : null;
-        const designHaltedLine = key === 'waiting-on-you' ? specHaltedLine : null;
-        // Every waiting-group is grouped the same way, `done` included: it is
-        // the group that grows fastest over a working day, so it is the first to
-        // become a list one scrolls past. A rule with an exception for the group
-        // nobody reads is a rule someone has to remember.
-        const grouped = groupByPlan(rows);
-        // NOT STARTED counts PLANS. Its rows are not branches — measured live,
-        // every one of them carried `pr=—` and `age=—`, because the name comes
-        // from the plan's `## Branches` section and no branch was ever created
-        // for it. Six rows for four plans, one plan saying the same thing three
-        // times. So the plan becomes the row here and its branches fold beneath
-        // it, and the section sorts by the only clock that ticks in it.
-        //
-        // Confined to this one key on purpose. Every other section holds
-        // branches that exist, with real PRs and real tips, and the branch is
-        // rightly their subject — this is not a new row shape spreading, it is
-        // the one section whose rows were never branches saying so.
-        const countsPlans = key === 'not-started';
-        const plans = countsPlans ? sortByWaiting(grouped) : grouped;
-        // Headings are decided PER GROUP, not per section — see
-        // `showPlanHeading`. A section-wide answer gave a heading to every
-        // group once any group earned one, so a plan with a single row got a
-        // heading that labelled the one line beneath it.
-        //
-        // THE HALF THIS USED TO CARRY IS NOW STRUCTURAL. A group without a
-        // heading had nowhere else to name its plan, so its row had to print
-        // the name itself — and a headed group's rows had to suppress it, which
-        // is the `planInHeading` flag the collapse removed. In the tuple the
-        // plan is one of slot 4's LINKS, beside the branch it governs, so every
-        // row names its plan whether or not a heading above it does. The
-        // heading and the link are no longer two spellings of one fact: the
-        // heading groups, the link opens.
-        // An empty group is never foldable — it hides nothing, and its header
-        // carries the HINT rather than `(0)`, which is the one thing in there
-        // worth reading when there is nothing to list.
-        // Issue rows and broken agent rows count toward the fold and the tally:
-        // they are rows a reader sees, and a section reading `(2)` above four
-        // lines is the mismatch NOT STARTED already had to fix once. Broken
-        // agents are already in countOf for WAITING ON YOU, so only issues add.
-        const collapsible = isCollapsible(countOf + issues.length);
-        const isFolded = collapsible && collapsed.has(key);
-        // The count and the hint occupy the same slot, and the count SURVIVES
-        // folding: `QUIET (7)` states plainly that seven rows are hidden, while
-        // a folded header with no number reads as *nothing here* — worse than
-        // the crowding this fixes.
-        // WAITING ON A MACHINE is the one group whose default hint makes a
-        // CLAIM (*CI will finish*), so it is the one that must withdraw the
-        // claim where the host cannot support it — see `hostCannotReportCi`.
-        //
-        // TWO WAYS TO LOSE THE CLAIM, AND NOT-YET-ASKED OUTRANKS CANNOT-REPORT.
-        // `hostCannotReportCi` concludes from the rows that this HOST will
-        // never answer; before the first fetch there are no PR rows to conclude
-        // from, so it answers `false` on its own guard and the section would
-        // fall back to the claiming hint. Asking `hostAnswer` first is what
-        // keeps the earlier, weaker fact from being narrated by the later,
-        // stronger one — and the order matters only because the two are true at
-        // once on a fresh board pointed at Bitbucket.
-        //
-        // THE HINT ONLY, NOT THE LABEL. The section keeps its name so a reader
-        // scanning headers finds it in the same place; what changes is the one
-        // slot that was making the false promise.
-        const answer = hostAnswer(fleet);
-        const emptyHint =
-          key !== 'waiting-on-machine'
-            ? hint
-            : answer !== 'answered'
-              ? HOST_ANSWER_HINT[answer]
-              : hostCannotReportCi(fleet.rows)
-                ? HOST_CANNOT_REPORT_HINT
-                : hint;
-        // THE TALLY COUNTS WHAT THE SECTION SHOWS — and where a grouped section
-        // renders plan heads over more slices than heads, it names both units and
-        // says which is which.
-        //
-        // A count beside a section must be derivable from that section's rows,
-        // or say what else it counts. Everywhere the section renders one line
-        // per row, the number is that count and matches what a reader sees. But
-        // a grouped section renders plan HEADS, each folded with its own slice
-        // count — so `DONE (19)` sat above ten heads, the header counting slices
-        // while the reader counted plans. `sectionTally` derives both figures
-        // the way the component renders, group by group, so the header equals
-        // the section by construction: `plans` is the visible-line count,
-        // `slices` the scope a reader reaches by expanding every head.
-        //
-        // WORKING is the exception the plan preserves (Done when #4): it renders
-        // the REGISTRY, one row per agent, and its number is `agents.length` —
-        // `the-working-section-shows-every-worker`, slice Counted (#403). It has
-        // no plan grouping to fold, so it keeps the single figure.
-        const unplanned = { tickets: issues.length, drafts: drafts.length, agents: broken.length };
-        const tallyOf = workingSection
-          ? { plans: countOf, slices: countOf, branches: 0, tickets: 0, agents: 0 }
-          : sectionTally(rows, key, slices, { ...unplanned, planLevel: verifications.length });
-        // EACH KIND UNDER ITS OWN NAME — and the wording is `tallyLabel`'s, not
-        // this component's: a label built here could only be asserted by
-        // rendering a page. One number where there is one kind and nothing
-        // diverges, so QUIET at 0/0 still reads `(0)`.
-        const shownLabel = tallyLabel(tallyOf);
-        // THE HIDDEN SUFFIX. A filtered section says what it withheld, so
-        // `none` is never the whole answer when rows exist and the reader has
-        // forgotten the toggle is on. ONLY PRINTED WHERE HIDING HAPPENED:
-        // printing `0 hidden` on an unfiltered section fails (Done when #5).
-        const hiddenSuffix = hiddenCount > 0
-          ? ` — ${hiddenCount} hidden by Sprint only`
-          : '';
-        // WHAT THE SPRINT FILTER NEVER SAW — named, and without a number. The
-        // figures are already in the header under their own names, so a sum here
-        // would state the same rows a second time and ask the reader to
-        // reconcile two counts of one thing. `unfilteredNote` names only the
-        // kinds present. `data-sprint-unfiltered` keeps its number for the test.
-        const unfilteredCount = sprintFilterOn
-          ? issues.length + drafts.length + broken.length
-          : 0;
-        const unfilteredSuffix = unfilteredNote(unplanned, sprintFilterOn);
-        const tally = (
-          <span className="font-normal normal-case tracking-normal text-slate-400 dark:text-slate-600">
-            {countOf + issues.length > 0 ? shownLabel : emptyHint}{hiddenSuffix}
-            {unfilteredSuffix && <span data-sprint-unfiltered={unfilteredCount}>{unfilteredSuffix}</span>}
-          </span>
-        );
-        // Whether anything in this section is moving — and at which pace. The
-        // heading carries the same mark its rows do, because a folded group
-        // reports its STOCK (`(4)`) and never its motion, and QUIET and DONE
-        // start folded and stay that way across sessions.
-        //
-        // Derived here, from the same `active` set the rows below are rendered
-        // from, so the heading and its rows cannot disagree. See `groupPace`.
-        const pace = groupPace(rows, active);
-        // The mark rides INSIDE the toggle button on a collapsible section and
-        // beside the label otherwise — one element either way, so a section that
-        // gains or loses its fold does not gain or lose a mark. Placed after the
-        // tally rather than before the caret: the caret and icon are the
-        // heading's controls, the mark is a fact about what is behind them.
-        const groupMark = pace && <ActivityMark pace={pace} place="heading" />;
-        return (
-          // A SECTION BREAK MUST READ AS A BIGGER BREAK THAN A ROW BREAK.
-          //
-          // Measured on the live board 2026-08-19: 16 px between one section's
-          // block and the next section's heading, against 4 px between that
-          // heading and the block it introduces. A heading four pixels from its
-          // own rows and sixteen from the group above belongs almost equally to
-          // both — and 16 px is barely more than the gap between two rows, so
-          // the strongest structural break on the page was drawn with the
-          // page's weakest signal.
-          //
-          // The gap is set on the sections' OWN container (`space-y-8`, see
-          // `data-sections` below) rather than on the page container that also
-          // holds the stale and dead-server banners: those are notices about
-          // the page, not sections of it, and widening the page's `space-y`
-          // would push them apart too. It cannot be an `mt-*` on the section
-          // either — `space-y-*` writes its margin through
-          // `& > :not([hidden]) ~ :not([hidden])`, which outranks a plain
-          // utility class and would silently win.
-          //
-          // The rows themselves stay at `py-2`, which is the density an
-          // operator watching a fleet wants.
-          //
-          // A SECTION IS NOT A ROW, AND WAS DRAWN SMALLER THAN ONE.
-          //
-          // The gap above fixed the spacing and left the SIZE, and measured on
-          // 2026-08-20 the size was not merely equal to a row's — it was under
-          // it. `text-xs` is 12px; the row's `<li>` is `text-sm` and its branch
-          // name renders 13px. So the strongest structural break on the page
-          // was set two-thirds of a step BELOW the weakest thing inside it,
-          // which is the same finding as the gap, one property along.
-          //
-          // This branch proposed `text-sm` — 14px, one step above the 13px
-          // branch name, on the argument that a dense fleet view cannot afford
-          // a heading that shouts. While it waited, main answered the same
-          // defect at `text-base` and darkened the colour with it, and that is
-          // what stands here: a heading two steps clear of its rows rather
-          // than one. Two hands reading the same rendered board reached for
-          // the same property and only disagreed on how far, which is a
-          // stronger signal about the defect than either fix alone.
-          //
-          // `mb-2` because the heading grew — 4px under a 16px line reads
-          // tighter than 4px under 12px did, not the same. The space below a
-          // heading belongs to the heading; `space-y-8` separates one section
-          // from the next and says nothing about the distance from a heading
-          // to its own rows.
-          <section key={key}>
-            <h2 className="mb-2 flex items-baseline gap-2 px-3 text-base font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-300">
-              {collapsible ? (
-                // A real button, so the header is reachable and operable by
-                // keyboard. `aria-expanded` is what tells a screen reader the
-                // section is folded — the caret alone is a visual fact.
+        const view = placeMapping(mapping);
+        const slices = fleet.slices;
+        const issues = fleet.issueAnswer === 'answered' ? filteredIssues : [];
+        const scrollTo = (anchor: string) => (e: { preventDefault: () => void }) => {
+          e.preventDefault();
+          document.getElementById(anchor)?.scrollIntoView({ block: 'center' });
+        };
+        const linkLine = (key: string, links: { label: string; anchor: string }[], arrow: string) =>
+          links.length === 0 ? null : (
+            <li key={key} role="row" data-delivery-link className="px-3 pb-1 text-xs text-slate-500 dark:text-slate-400">
+              <span role="gridcell">
+                {arrow}{' '}
+                {links.map((l, i) => (
+                  <span key={l.anchor}>
+                    {i > 0 && ', '}
+                    <a href={`#${l.anchor}`} onClick={scrollTo(l.anchor)} className="font-mono text-blue-600 hover:underline dark:text-blue-400">
+                      {l.label}
+                    </a>
+                  </span>
+                ))}
+              </span>
+            </li>
+          );
+        const rowProps = (r: AgentRow) => ({
+          row: r,
+          onOpenPlan,
+          sprintExempt: sprintFilterOn && rowIsSprintExempt(r),
+          card: cardForPlanFile?.(r.planFile) ?? null,
+          dispatch,
+          implement,
+          continueWith,
+          restartWith,
+          pulse,
+          onStarting,
+          marked: marked.has(rowKey(r)),
+          active: active.has(rowKey(r)),
+          agent: agentByBranch.get(r.branch) ?? null,
+          sliceName: SLICE_LINKING_KINDS.has(r.kind) ? null : sliceLabel(r),
+          onRevealBranch,
+          highlighted: r.branch === highlightBranch,
+          showSprintSlug,
+          planIndex,
+        });
+        const itemBody = (item: PlacedItemView) => [
+          <li key={`anchor-${item.anchor}`} role="presentation" id={item.anchor} className="h-0" />,
+          ...item.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} />),
+          ...(item.draft !== null
+            ? [<DraftPlanRowView key={`draft-${item.draft.plan}`} draft={item.draft} onOpenPlan={onOpenPlan} planIndex={planIndex} />]
+            : []),
+          item.placement.section === 'you' ? (
+            <li key={`reason-${item.anchor}`} role="row" data-placement-reason={item.placement.reason} className="px-3 pb-1 text-xs text-amber-700 dark:text-amber-500">
+              <span role="gridcell">{reasonWords(item.placement.reason)}</span>
+            </li>
+          ) : null,
+          linkLine(`links-${item.anchor}`, item.links, '← agents:'),
+        ];
+        const agentBody = (agent: PlacedAgentView) => [
+          <li key={`anchor-${agent.anchor}`} role="presentation" id={agent.anchor} className="h-0" />,
+          agent.entry !== null ? (
+            <RegistryRow
+              key={agentRowKey(agent.entry)}
+              agent={agent.entry}
+              row={agent.row}
+              slices={slices}
+              onOpenPlan={onOpenPlan}
+              card={agent.row ? cardForPlanFile?.(agent.row.planFile) ?? null : null}
+              dispatch={dispatch}
+              implement={implement}
+              continueWith={continueWith}
+              restartWith={restartWith}
+              drop={drop}
+              pulse={pulse}
+              onStarting={onStarting}
+              marked={agent.row ? marked.has(rowKey(agent.row)) : false}
+              active={agent.row ? active.has(rowKey(agent.row)) : false}
+              onRevealBranch={onRevealBranch}
+              highlighted={agent.entry.branch !== '' && agent.entry.branch === highlightBranch}
+              planIndex={planIndex}
+            />
+          ) : null,
+          linkLine(`links-${agent.anchor}`, agent.links, '→ acts on:'),
+        ];
+        const fold = (key: string, count: number, heading: React.ReactNode) => {
+          const foldable = isCollapsible(count);
+          const folded = foldable && collapsed.has(key);
+          return { folded, header: (
+            <div className="flex items-center gap-2">
+              {foldable && (
                 <button
                   type="button"
-                  data-group-toggle={key}
-                  aria-expanded={!isFolded}
+                  data-collapse-toggle={key}
+                  aria-expanded={!folded}
+                  aria-label={`${folded ? 'Expand' : 'Collapse'} ${key}`}
                   onClick={() => toggle(key)}
-                  // The heading's own fold, given the same treatment as the
-                  // plan row's for the same reason: it was a 10px caret, the
-                  // outlier size on a board that uses 12px 82 times. `py-1
-                  // -my-1` makes the whole heading line a 24px-tall target
-                  // without moving it — the label is part of the button
-                  // already, so the target was never as small as the caret,
-                  // but the caret is what a reader aims at.
-                  //
-                  // THAT REASONING IS ABOUT THE TARGET AND IT HOLDS: `py-1
-                  // -my-1` stays, and the button still measures 24px tall. The
-                  // operator's later complaint — *"expand / collapse icons
-                  // still too small"* — is about SEEING the glyph, which is a
-                  // different property of the same control. Easy to hit and
-                  // hard to read are not the same failure, so the glyph grows
-                  // and the target does not move. The test asserts both, or a
-                  // later hand shrinking the padding would pass it.
-                  className="-my-1 flex items-center gap-2 py-1 uppercase tracking-wide hover:text-slate-900 dark:hover:text-slate-100"
+                  className="text-slate-500"
                 >
-                  {/* One glyph rotated, matching the plan row's fold — see
-                      there for why a rotation beats a second glyph.
-
-                      The glyph tracks the heading's own size, because a
-                      caret is a shape rather than a letter: a triangle set at
-                      the text's size reads smaller than the text beside it,
-                      having no x-height or stem to fill the em. `w-4` because
-                      the box has to widen with the glyph — `w-3` was cut for a
-                      13px mark and would clip this one, or shift it off centre
-                      when it rotates. */}
-                  <span
-                    aria-hidden
-                    className={`inline-block w-4 text-center text-base leading-none transition-transform ${isFolded ? '' : 'rotate-90'}`}
-                  >
-                    ▸
-                  </span>
-                  <span aria-hidden>{icon}</span>
-                  {label}
-                  {tally}
-                  {/* The mark stays whether the section is FOLDED OR OPEN.
-                      Hiding it on expand was considered — the rows show it
-                      themselves, so the heading repeats them — and rejected
-                      because the mark would then vanish at the moment of
-                      opening, which reads as *it stopped*. A marker that
-                      disappears when you look closer is worse than one that
-                      repeats itself. */}
-                  {groupMark}
+                  {folded ? '▸' : '▾'}
                 </button>
-              ) : (
-                <>
-                  <span aria-hidden>{icon}</span>
-                  {label}
-                  {tally}
-                  {groupMark}
-                </>
               )}
-              {/* THE TWO FLEET CONTROLS, each on the section it is ABOUT and
-                  OUTSIDE the collapse button above — a control nested in the
-                  fold's `<button>` would be a button inside a button, invalid
-                  markup that swallows its own clicks. Placed here they sit in the
-                  same header flex row whether or not the section folds, and the
-                  spinbutton keeps its own keyboard handling clear of the fold's.
-
-                  The switch belongs to NOT STARTED (*is the queue served?*) and
-                  the stepper to WORKING (*how many at once?*). Both read the
-                  SHARED state off `fleet.fleetControls` and write it back through
-                  /api/fleet-controls; neither dispatches anything in this slice. */}
-              {/* THE COUNTS A READER READS, on the left where text belongs and
-                  beside the tally they qualify. Only what disagrees with
-                  something is printed — see `WorkingCounts`. */}
-              {key === 'working' && (
-                <WorkingCounts
-                  notWorking={agentsNotWorking}
-                  hiddenByFilter={workersHiddenByFilter}
-                  registry={fleet?.registry}
-                />
-              )}
-              {/* THE CONTROL COLUMN — `ml-auto` on the control itself, which is
-                  the last child of this flex row.
-
-                  An auto margin absorbs every pixel of free space in a flex
-                  row, so the control lands on the heading's right edge and
-                  nothing before it moves. That is the whole fix: the stepper
-                  used to sit immediately after a tally whose width changed with
-                  the data, so the control an operator aims at moved between
-                  renders. Right-aligned it lands in the same place on every
-                  section that has one, and both sections share the column
-                  because both headings carry the same `px-3` and the same flex
-                  row.
-
-                  A GEOMETRY PROPERTY, NOT A CLASS NAME. Two sections agreeing is
-                  what the test asserts — the boxes' right edges against each
-                  other — because a later hand right-aligning only WORKING would
-                  pass any assertion about the presence of `ml-auto`.
-
-                  STILL OUTSIDE THE FOLD'S `<button>` above, and that has not
-                  changed: a control nested in the fold would be a button inside
-                  a button, invalid markup that swallows its own clicks. This is
-                  a layout change to the `<h2>`, never a re-parenting. */}
-              {key === 'not-started' && (
-                <span data-fleet-control-column className="ml-auto flex items-center">
-                  <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
-                </span>
-              )}
-              {key === 'working' && (
-                <span data-fleet-control-column className="ml-auto flex items-center">
-                  <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} />
-                </span>
-              )}
-            </h2>
-            {/* THE FLEET ALERT — a sibling of the heading, on its own line.
-
-                It is neither a control nor a count, so it competes for neither
-                edge: nested in the stepper it was read by a screen reader as
-                part of the `spinbutton`'s value, and right-aligning the control
-                would have carried it into the control column. THE SECTION
-                CARRIES IT, NOT EACH ROW — one fact said once, where marking
-                every row would repeat it N times.
-
-                The WORKING rows below are untouched by it. `fleet.ts:383` —
-                "THE WORKING SECTION IS THE REGISTRY" — reads manifests and
-                worktrees from disk and never the supervisor, so a stopped fleet
-                does not empty the section, and each row's `running` stays
-                literally true because the pids still exist. Hiding them would
-                lose real processes an operator may need to stop by hand. */}
-            {key === 'working' && <FleetAlert supervisor={fleet?.supervisor} />}
-            {/* THE FLEET-HALTED SENTENCES — siblings of the heading, same
-                reason as the alert above: each fact said once, outside
-                `tupleFromPlan` and outside any row, never counted in the
-                section's own count. Two independent facts, so both can show
-                at once — a verify halt does not imply a design halt. */}
-            {verificationHaltedLine && (
-              <p
-                data-verification-halted-line
-                className="border-t border-slate-200 px-3 py-2 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400"
-              >
-                {verificationHaltedLine}
-              </p>
-            )}
-            {designHaltedLine && (
-              <p
-                data-design-halted-line
-                className="border-t border-slate-200 px-3 py-2 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400"
-              >
-                {designHaltedLine}
-              </p>
-            )}
-            {/* The body goes, the header stays — including its count. Removed
-                from the tree rather than hidden with CSS: a folded group should
-                cost no vertical space at all, which is the entire complaint
-                this answers. */}
-            {!isFolded && (
-            // `role="grid"` rather than a `<table>`: the rows carry interactive
-            // controls and this list nests a collapsible group structure with
-            // per-plan sub-headings inside it, which table markup would fight
-            // rather than serve. The role gains the semantics and keeps the DOM.
-            //
-            // `aria-label` rather than the group's `<h2>`: the heading is
-            // outside the grid and reads "⚠ Waiting on you (4)", which is the
-            // section's name and not this grid's.
-            <ul
-              role="grid"
-              aria-label={`${label} — agent branches`}
-              className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40"
-            >
-              <HeaderRow />
-              {workingSection ? (
-                // WORKING IS THE REGISTRY. One row per entry, joined to a branch
-                // row where one exists and standing alone where none does —
-                // `the-working-section-shows-every-worker`, slice 1. This section
-                // does NOT group by plan or fold into slices the way the branch
-                // sections do: an agent is a WHO, not a slice of a plan, and its
-                // row names what it is working on rather than being nested under
-                // it. The five registry states each render their own word, and a
-                // merged branch's worker sits here while that branch keeps its
-                // DONE row — both true, neither moved.
-                workingRows.length > 0 || workingPlanRows.length > 0 || claimedRows.length > 0 ? (
-                  <>
-                    {workingRows.map(({ agent, row }) => (
-                      <RegistryRow
-                        // One desk gives one key: `agentRowKey` decides it.
-                        key={agentRowKey(agent)}
-                        agent={agent}
-                        row={row}
-                        slices={slices}
-                        onOpenPlan={onOpenPlan}
-                        card={row ? cardForPlanFile?.(row.planFile) ?? null : null}
-                        dispatch={dispatch}
-                        implement={implement}
-                        continueWith={continueWith}
-                        restartWith={restartWith}
-                        pulse={pulse}
-                        onStarting={onStarting}
-                        marked={row ? marked.has(rowKey(row)) : false}
-                        active={row ? active.has(rowKey(row)) : false}
-                        onRevealBranch={onRevealBranch}
-                        highlighted={agent.branch !== '' && agent.branch === highlightBranch}
-                        planIndex={planIndex}
+              {heading}
+            </div>
+          ) };
+        };
+        return (
+          <>
+            {view.sections.map((section) => {
+              const { folded, header } = fold(section.key, section.count, (
+                <h2 data-delivery-section={section.key} className="text-base font-semibold text-slate-800 dark:text-slate-100">
+                  <span aria-hidden="true">{section.icon}</span> {section.label}
+                  {section.groups.length > 0 && <span className="ml-1 font-normal text-slate-500">({section.count})</span>}
+                </h2>
+              ));
+              return (
+                <section key={section.key} data-section={section.key} className="space-y-2">
+                  {header}
+                  {section.key === 'release-delivery' && (
+                    <p data-release-line className="px-3 text-sm text-slate-600 dark:text-slate-300">{view.releaseLine}</p>
+                  )}
+                  {section.key === 'fleet' && (
+                    <div className="flex flex-wrap items-center gap-2 px-3">
+                      <WorkingCounts
+                        notWorking={agentsNotWorking}
+                        hiddenByFilter={workersHiddenByFilter}
+                        registry={fleet?.registry}
                       />
-                    ))}
-                    {/* A CLAIMED OR `wip` BRANCH NO WORKER IS KNOWN ON — a branch
-                        row, never a live one: no pulse and no worker log. */}
-                    {claimedRows.map((r) => (
-                      <Row
-                        key={rowKey(r)}
-                        row={r}
-                        onOpenPlan={onOpenPlan}
-                        card={cardForPlanFile?.(r.planFile) ?? null}
-                        dispatch={dispatch}
-                        implement={implement}
-                        continueWith={continueWith}
-                        restartWith={restartWith}
-                        pulse={pulse}
-                        onStarting={onStarting}
-                        marked={marked.has(rowKey(r))}
-                        active={active.has(rowKey(r))}
-                        section={key}
-                        agent={agentByBranch.get(r.branch) ?? null}
-                        onRevealBranch={onRevealBranch}
-                        highlighted={r.branch === highlightBranch}
-                        planIndex={planIndex}
-                      />
-                    ))}
-                    {/* THE FLEET'S OWN RUNNING VERIFY RUNS — a plan, a sentence,
-                        no branch and no registry entry: the fleet daemon runs
-                        these directly rather than through a dispatched agent. */}
-                    {workingPlanRows.map((row) => (
-                      <PlanLevelRowView
-                        key={`plan-level-${row.kind}-${row.plan}`}
-                        row={row}
-                        planFile={planFileOf(row.plan)}
-                        onOpenPlan={onOpenPlan}
-                        planIndex={planIndex}
-                      />
-                    ))}
-                  </>
-                ) : (
-                  <li role="row" className="px-3 py-2 text-sm text-slate-400 dark:text-slate-600">
-                    <span role="gridcell">none</span>
-                  </li>
-                )
-              ) : rows.length > 0 ? (
-                plans.map((group) => {
-                  // ONE answer per group, read by both the heading and its
-                  // rows. Computing it twice is how they drift: a heading that
-                  // renders while its rows also print the plan name says it
-                  // twice, and the reverse loses the name entirely.
-                  //
-                  // In NOT STARTED the PLAN ROW carries the name instead, so no
-                  // sub-heading is drawn: the heading exists to save the rows
-                  // repeating the plan, and here the plan row already does that
-                  // job with a clock and a slice summary the heading has no room
-                  // for. Two labels for one plan would be the repetition this
-                  // section is removing, one level up.
-                  // NOT IN WAITING ON YOU, and this is the operator's call
-                  // rather than a rule derived from the shape.
-                  //
-                  // `showPlanHeading` is right about what it measures: two rows
-                  // under one plan, so the name prints once above them instead of
-                  // twice. What made it wrong HERE is that the section's rows are
-                  // a mixed bag — a PR, a plan under review, a release, a ticket
-                  // — and grouping two of them by a shared plan says *these two
-                  // belong together* about rows whose only relation is a name
-                  // they each already print in slot 4. The heading saved no
-                  // repetition, because every row still carries its own plan
-                  // link.
-                  //
-                  // Measured on the mock: the group rendered box, tint and
-                  // heading around a PR and a plan row, with its rows at the same
-                  // x as the four ungrouped ones — a heading over rows
-                  // indistinguishable from their neighbours. Indenting them was
-                  // tried first and is not what was wanted: the grouping itself
-                  // is what does not belong in a section that asks *what needs
-                  // me next*, one question per row.
-                  //
-                  // The other sections keep it. WORKING and QUIET hold branches
-                  // of one plan doing one thing, which is the case the heading
-                  // was built for.
-                  const headed = !countsPlans && key !== 'waiting-on-you'
-                    && showPlanHeading(group);
-                  // A PLAN ROW HEADS ITS SLICES, where every row in the group is
-                  // one. That is the shape NOT STARTED already draws, and the one
-                  // a text heading cannot: a plan has a phase, an approval clock
-                  // and a menu, none of which an `h3` can carry.
-                  //
-                  // `group.plan` must be named — a group of rows no plan claims
-                  // has no plan row to draw — and the slice groups must account
-                  // for every row, or a plan row would head a set it does not
-                  // describe.
-                  // A PLAN GROUP IS HOMOGENEOUS BY CONSTRUCTION, which is why
-                  // this predicate can require that EVERY row be slice-grouped
-                  // rather than handling a mixture.
-                  //
-                  // The operator's observation, 2026-08-20: *"a plan group will
-                  // barely have mixed WAVES. Once a plan is approved the slices
-                  // land in NOT STARTED."* A plan's branches move through the
-                  // lifecycle together — in review here, then dispatchable in NOT
-                  // STARTED, then working, then done — so a group holding some
-                  // slices and some loose rows is a transient, not a shape to
-                  // design for.
-                  //
-                  // So the `=== 0` is a GATE rather than a limitation: where a
-                  // mixture does occur, the group falls back to the text heading
-                  // and every row renders as itself. Nothing is hidden, and the
-                  // plan row appears only where it describes the whole set.
-                  const planShape = planGroupShape(group.rows, key, slices);
-                  const planHeads = !countsPlans && Boolean(group.plan) && planShape.heads;
-                  // ARE THIS GROUP'S SLICE ROWS ON THE PAGE? Read by THREE things
-                  // that must agree: the plan row's caret (`expanded`), the list
-                  // that draws the rows, and the plan row's decision whether to
-                  // state its sole slice's verdict. Computed once here, where
-                  // `planHeads` and the slice groups are already in hand — read
-                  // from `planShape.slices` rather than recomputed, so the two
-                  // cannot drift apart.
-                  const planSliceGroups = planShape.slices;
-                  const planSliceRowsShown = sliceRowsShown(
-                    planHeads, group.rows, planSliceGroups.length, group.plan, openPlans,
-                  );
-                  // A GROUP WITH NO PLAN HAS NOTHING TO HEAD — the rule
-                  // `showPlanHeading` and `planHeads` already apply, and
-                  // `sectionTally` reads the same guard. Without it every
-                  // plan-less row in the section folded under one `PlanRow`
-                  // with an empty name, and the tally counted that bucket as a
-                  // plan. Such a group renders its rows as themselves, below.
-                  if (countsPlans && group.plan) {
-                    const foldable = showsSliceFold(group);
-                    // A FOLD WITH EXCEPTIONS STAYS OPEN — the reader must see
-                    // the conflict, claim, or structural issue the fold holds.
-                    // The toggle still works (hasExceptions is a DEFAULT, not a
-                    // lock), so a reader who has dealt with the exception can
-                    // collapse the fold; but a fresh board renders it open
-                    // rather than hiding the problem.
-                    const groupHasExceptions = hasExceptions(group.rows);
-                    const expanded = foldable
-                      ? openPlans.has(group.plan) || groupHasExceptions
-                      : null;
-                    // THE SLICE ROWS THIS SECTION WILL DRAW, hoisted from the list
-                    // below so the plan row can ask whether any exist. Pure in
-                    // `group.rows`, so moving it up costs nothing and the two
-                    // readers cannot disagree.
-                    //
-                    // AN ALL-DEFERRED PLAN DRAWS NONE: `isUnbegun` filters every
-                    // row out, so the list is empty and the plan row keeps the
-                    // verdict — the only place it can appear.
-                    const unbegunSliceGroups = groupBySlice(group.rows.filter(isUnbegun));
-                    return (
-                      // THE RULE BELONGS TO THE GROUP, NOT TO ITS ROWS.
-                      //
-                      // A plan and its branches are one thing on this board, and
-                      // the border used to be drawn by every row including the
-                      // plan's own — so the line fell BETWEEN a plan and its
-                      // first branch, and no line fell between one plan and the
-                      // next. Each visual block therefore held one plan's
-                      // branches and the following plan's heading: the separator
-                      // was dividing exactly the wrong pair.
-                      //
-                      // `last:border-0` could not save it, because the plan row
-                      // is never the last child of its own group.
-                      //
-                      // Drawn here, once per plan, and the rows inside drop
-                      // theirs (see `PlanRow` / `Row`, keyed on `inPlanGroup`).
-                      //
-                      // AND THE EDGE IS THE GROUP'S OWN, not a row divider
-                      // reused.
-                      //
-                      // Measured on the board 2026-08-19: two issue rows (#227,
-                      // #228) rendered beneath the heading
-                      // `the-row-says-what-it-knows (5)` and belonged to no plan
-                      // at all. They are not misfiled — they arrive in the
-                      // separate `issues` field and render after the plan's
-                      // branches — but the group suppressed the dividers between
-                      // its own rows and then drew its closing line in exactly
-                      // the weight a row divider uses. The one arrangement that
-                      // makes a group look like it continues past its last
-                      // member.
-                      //
-                      // So: a full `border` at the group's own weight, and
-                      // `last:border-0` is GONE. The last group needs its
-                      // bottom edge most of all — that is the edge the issue
-                      // rows sat below — and the grid's own rounded border sits
-                      // further out, so the two do not collide. A plan with five
-                      // branches and two unrelated rows after it now reads as a
-                      // plan with five, which is what the `(5)` beside its name
-                      // has been saying all along.
-                      <li
-                        role="rowgroup"
-                        data-plan-group={group.plan}
-                        // An OUTLINE and no margin, for the reason spelled out
-                        // on the headed group below: a border plus a margin
-                        // insets the rows inside it, and a plan row's cells have
-                        // to land at the same x as every other row's in the
-                        // fleet. An outline is drawn outside the layout box and
-                        // costs nothing.
-                        className="block rounded-sm bg-slate-50/60 outline outline-slate-300 -outline-offset-1 dark:bg-slate-900/30 dark:outline-slate-700"
-                      >
-                        <PlanRow
-                          group={group}
-                          slices={fleet.slices}
-                          onOpenPlan={onOpenPlan}
-                          expanded={expanded}
-                          onToggle={foldable ? () => togglePlan(group.plan) : undefined}
-                          // The plan is active if ANY of its branches is —
-                          // including one folded out of sight, which is the case
-                          // the mark most needs to reach.
-                          active={group.rows.some((r) => active.has(rowKey(r)))}
-                          marked={group.rows.some((r) => marked.has(rowKey(r)))}
-                          // The PLAN's card, looked up by the group's own plan
-                          // file rather than by any branch's — the approval is
-                          // the plan's act and the card is the plan's record.
-                          card={cardForPlanFile?.(group.planFile) ?? null}
-                          approve={approve}
-                          deliver={deliver}
-                          implement={implement}
-                          dispatch={dispatch}
-                          pulse={pulse}
-                          onApproving={onStarting}
-                          // HOW MANY OF THIS PLAN'S SLICES ARE NOT UNDER THIS HEAD.
-                          // Counted against the slices this head's own ROWS belong
-                          // to, not against the section it renders in: a slice
-                          // carries one of two sections while a row carries one of
-                          // six, so the section comparison called a head's own
-                          // slice elsewhere whenever the row needed attention.
-                          elsewhere={slicesElsewhere(fleet.slices, group.plan, key,
-                            headSliceNames(group))}
-                          // A ONE-SLICE plan carries its slice's *Start work* on
-                          // this row. Never its verdict: a plan row states plan
-                          // facts only, and the slice row prints the verdict.
-                          soleSlice={soleSliceFor(group.plan, slices)}
-                          // …and the slice row's *Start work* rides here too,
-                          // dispatching that one slice.
-                          onStarting={onStarting}
-                          planIndex={planIndex}
-                        />
-                        {/* The branches, folded. Removed from the tree rather
-                            than hidden with CSS, the same as the section fold:
-                            a folded group should cost no vertical space, which
-                            is the whole complaint this answers.
-
-                            A plan with ONE branch renders it unconditionally —
-                            `expanded` is null there, meaning *there was never a
-                            fold*, and hiding the row behind a control the reader
-                            was not given would lose it entirely. */}
-                        {(expanded === null || expanded) && (
-                          // INDENTED, because grouping is a visual fact and a
-                          // heading above a row is not one. Measured 2026-08-20:
-                          // `TupleRow` carried **zero** `pl-*` or `ml-*`, so rows
-                          // of one plan were distinguished only by the heading
-                          // over them — siblings looked like neighbours, and a
-                          // reader scanning past the heading lost the set.
-                          //
-                          // `pl-6` matches the fold caret's own 24px box, so the
-                          // indent lines the children up with the space the
-                          // disclosure occupies on the parent — the shape a file
-                          // tree uses, and the one a reader already reads.
-                          //
-                          // The left border draws the set as one run rather than
-                          // three rows that happen to be shifted. Without it the
-                          // indent alone is ambiguous at the boundary: the last
-                          // child and the next plan's row differ only by 24px of
-                          // whitespace.
-                          <ul
-                            role="presentation"
-                            data-slice-list={group.plan}
-                            className="ml-6 border-l border-slate-200 dark:border-slate-800"
-                          >
-                            {/* SLICES, NOT BRANCHES — the eighth kind, and the
-                                one this section had been rendering as its own
-                                branches all along.
-
-                                `groupBySlice` partitions the plan's rows; each
-                                partition is ONE row naming the slice, carrying
-                                the scan's verdict as its status and its branches
-                                as its artifact links. A slice holding one branch
-                                (20 of 21 unfinished slices) is therefore one row
-                                and no fold; one holding several gets the
-                                disclosure and its branches beneath. */}
-                            {/* A DEFERRED BRANCH IS NOT PART OF A SLICE'S WORK,
-                                and it keeps its own row.
-
-                                `isUnbegun` already draws this line and
-                                `sliceSummaryFor` already refuses to count a
-                                deferred branch as a slice: *"not a wave nobody
-                                reached, a branch somebody set down"*. The slice
-                                grouping has to honour it, because a slice row
-                                shows the SLICE's verdict and clock — and a
-                                deferred branch carries a PR and an age of its
-                                own that appear nowhere else. Folded into a
-                                single-branch slice they would be unreachable,
-                                which is exactly the loss `fleet.ts` warns of:
-                                *"a branch started and then shelved read as never
-                                begun, with its age and its PR erased."* */}
-                            {/* SLICE ROWS NAME THEIR SLICES, however many slices
-                                the plan has. A one-slice plan's branches belong to
-                                that slice, and its name is part of their identity.
-                                This row gets no `soleRow`, so it states the SLICE's
-                                verdict; the plan row above it therefore yields the
-                                verdict whenever this row is drawn. Where none is
-                                drawn — every branch deferred — the plan row keeps
-                                it. */}
-                            {(() => {
-                              const oneSlice = soleSliceFor(group.plan, slices);
-                              return unbegunSliceGroups.map((wg) => {
-                              const many = wg.rows.length > 1;
-                              const sliceOpen = many
-                                ? openSlices.has(sliceKey(group.plan, wg.wave))
-                                : null;
-                              return (
-                                <li key={wg.wave} className="block">
-                                  <SliceRow
-                                    group={wg}
-                                    plan={group.plan}
-                                    waitingDays={planWaitingDays(group)}
-                                    expanded={sliceOpen}
-                                    onToggle={many ? () => toggleSlice(group.plan, wg.wave) : undefined}
-                                    active={wg.rows.some((r) => active.has(rowKey(r)))}
-                                    marked={wg.rows.some((r) => marked.has(rowKey(r)))}
-                                    // THE PLAN'S CARD, looked up by the group's
-                                    // own plan file — dispatch is a plan-level
-                                    // act, so the card is the plan's, exactly as
-                                    // it is on the plan row above.
-                                    //
-                                    // NO DISPATCH for a one-slice plan: the plan
-                                    // row carries its slice's Start-work, so the
-                                    // slice row withholds it. The slice row exists
-                                    // for its NAME — a branch row cannot carry a
-                                    // slice name — not for its controls.
-                                    card={oneSlice ? null : (cardForPlanFile?.(group.planFile) ?? null)}
-                                    dispatch={oneSlice ? undefined : dispatch}
-                                    reslice={reslice}
-                                    pulse={pulse}
-                                    onStarting={onStarting}
-                                    slices={slices}
-                                    onExpandSection={expandSection}
-                                    planIndex={planIndex}
-                                  />
-                                  {/* The branches of a MULTI-branch slice, folded
-                                      and indented again — the same `ml-6` and the
-                                      same rule the plan's own list draws, one
-                                      level deeper. A single-branch slice renders
-                                      none: its branch is already the artifact
-                                      link on the row above, and a fold over one
-                                      row the reader can see is the control this
-                                      estate has removed twice. */}
-                                  {many && sliceOpen && (
-                                    <ul
-                                      role="presentation"
-                                      data-slice-branch-list={wg.wave || '(unnamed)'}
-                                      className="ml-6 border-l border-slate-200 dark:border-slate-800"
-                                    >
-                                      {wg.rows.map((r) => (
-                                        <Row
-                                          key={rowKey(r)}
-                                          row={r}
-                                          onOpenPlan={onOpenPlan}
-                                          inPlanGroup
-                                          // Inside a SLICE's fold: the verdict is
-                                          // one line up, so a bare `open` here
-                                          // contradicts it rather than adding to
-                                          // it.
-                                          inSliceGroup
-                                          card={cardForPlanFile?.(r.planFile) ?? null}
-                                          dispatch={dispatch}
-                                          implement={implement}
-                                          continueWith={continueWith}
-                                          restartWith={restartWith}
-                                          pulse={pulse}
-                                          onStarting={onStarting}
-                                          marked={marked.has(rowKey(r))}
-                                          active={active.has(rowKey(r))}
-                                          section={key}
-                                          agent={agentByBranch.get(r.branch) ?? null}
-                                          // NO SLICE BADGE. The row is nested
-                                          // under the slice that names it, so the
-                                          // badge would repeat one line up —
-                                          // which is the duplication this whole
-                                          // slice removes.
-                                          onRevealBranch={onRevealBranch}
-                                          highlighted={r.branch === highlightBranch}
-                                          showSprintSlug={showSprintSlug}
-                                          planIndex={planIndex}
-                                        />
-                                      ))}
-                                    </ul>
-                                  )}
-                                </li>
-                              );
-                            });
-                            })()}
-                            {/* The rows that are not a slice's unbegun work —
-                                a deferred branch, with its own PR and its own
-                                age. Rendered as BRANCH rows, because that is
-                                what they are: something somebody started. */}
-                            {group.rows.filter((r) => !isUnbegun(r)).map((r) => (
-                              <Row
-                                key={rowKey(r)}
-                                row={r}
-                                onOpenPlan={onOpenPlan}
-                                inPlanGroup
-                                card={cardForPlanFile?.(r.planFile) ?? null}
-                                dispatch={dispatch}
-                                implement={implement}
-                                continueWith={continueWith}
-                                restartWith={restartWith}
-                                pulse={pulse}
-                                onStarting={onStarting}
-                                marked={marked.has(rowKey(r))}
-                                active={active.has(rowKey(r))}
-                                section={key}
-                                agent={agentByBranch.get(r.branch) ?? null}
-                                onRevealBranch={onRevealBranch}
-                                highlighted={r.branch === highlightBranch}
-                                showSprintSlug={showSprintSlug}
-                                planIndex={planIndex}
-                              />
-                            ))}
-                          </ul>
-                        )}
-                      </li>
-                    );
-                  }
-                  return (
-                  // `rowgroup`, so the grid's children are rows and groups of
-                  // rows rather than an unnamed `<li>` the tree cannot place.
-                  // The per-plan sub-heading and its rows are exactly what a
-                  // rowgroup is for.
-                  // THE HEADED GROUP GETS THE SAME EDGE AS THE PLAN GROUP.
-                  //
-                  // This is the arrangement the plan measured: two issue rows
-                  // (#227, #228) under a heading reading
-                  // `the-row-says-what-it-knows (5)`, belonging to no plan at
-                  // all. They arrive in the separate `issues` field and render
-                  // after the plan's branches — nothing claims they belong to
-                  // the plan; the layout simply offered no place where the
-                  // plan's group ended.
-                  //
-                  // A plan heading with five branches under it and two
-                  // unrelated rows after it reads as a plan with seven, and the
-                  // count beside the name says `(5)`: the reader has to
-                  // arbitrate between the number and the layout.
-                  //
-                  // Only where a HEADING was drawn. A nameless group heads
-                  // nothing and claims nothing, so there is no boundary to
-                  // assert and a box around it would invent one.
-                  <li
-                    role="rowgroup"
-                    key={group.plan}
-                    data-plan-group={headed || planHeads ? group.plan : undefined}
-                    // AN OUTLINE, NOT A BORDER — and no margin.
-                    //
-                    // A border plus `m-1` drew exactly the edge this needs and
-                    // moved its rows 5 px right, so a HEADED group's branch cell
-                    // stopped landing at the same x as an unheaded group's:
-                    // measured 321 against 326, and
-                    // `agents-tab.browser.test.ts` catches it. That alignment is
-                    // the property the tracks exist for and this must not spend
-                    // it.
-                    //
-                    // `outline` is drawn outside the box and takes no layout, so
-                    // the rows inside are where they were. `outline-offset` lifts
-                    // it clear of the grid's own rounded border, and the tinted
-                    // background does the rest of the work of reading as one
-                    // block.
-                    className={
-                      headed || planHeads
-                        ? 'block rounded-sm bg-slate-50/70 outline outline-slate-300 -outline-offset-1 dark:bg-slate-900/30 dark:outline-slate-700'
-                        : undefined
-                    }
-                  >
-                    {/* A nameless group holds rows no plan claims, so there is
-                        nothing to head them WITH: rendering the heading anyway
-                        printed a bare "(3)", a label that labels nothing.
-                        `showPlanHeading` already refuses those. */}
-                    {/* THE PLAN, as a ROW rather than as a text heading — where
-                        its rows are slices.
-
-                        *"We need to group branches for plans. Which should be
-                        Plan group with WAVES"* and *"PLANS are missing with their
-                        age"*. NOT STARTED has drawn exactly this since the slice
-                        kind landed: a plan row carrying the plan's phase and its
-                        approval clock, with its slices indented beneath. A text
-                        heading carries neither — it is a label, and a plan has a
-                        phase, an age and a menu.
-
-                        Only where every row under it is a slice. A group holding a
-                        release and a ticket has no plan to head it with, and the
-                        `h3` below still serves the mixed case. */}
-                    {planHeads && (
-                      <PlanRow
-                        group={group}
-                        slices={fleet.slices}
-                        onOpenPlan={onOpenPlan}
-                        // THE FRESHEST BRANCH CLOCK, because `waitingDays` is
-                        // null here.
-                        //
-                        // `planWaitingDays` reads the approval clock, and its own
-                        // docstring says why that is right in NOT STARTED: *"the
-                        // branches have no tip to date"*. In THIS section the
-                        // reverse holds — measured, `waitingDays: null` on every
-                        // row while `ageMinutes` reads 178, 127, 120 — so the
-                        // plan row showed no age at all.
-                        //
-                        // The freshest of its branches, which is what a slice row
-                        // already uses: the plan's clock is the clock of the work
-                        // in it.
-                        ageMinutes={Math.min(
-                          ...group.rows.map((r) => r.ageMinutes)
-                            .filter((a): a is number => a !== null),
-                        )}
-                        // FOLDABLE, and OPEN by default — the reverse of NOT
-                        // STARTED, where a plan is collapsed because its list is
-                        // there to browse. Here the slices are what the section is
-                        // showing, so hiding them would hide the rows a reader
-                        // came for; but eight plans of four slices is 40 lines,
-                        // and a reader who has dealt with one plan wants it out
-                        // of the way.
-                        //
-                        // `openPlans` holds what is COLLAPSED in this section
-                        // rather than what is expanded — one Set, two defaults,
-                        // and the same click either way.
-                        // COLLAPSED BY DEFAULT WHERE IT HOLDS MORE THAN ONE
-                        // SLICE, open where it holds one.
-                        //
-                        // A plan of one slice collapsed shows a reader nothing
-                        // they did not already have — the plan row states its
-                        // phase and its clock, and the one slice beneath is the
-                        // only content. A plan of four is 5 lines, and eight such
-                        // plans are 40: that is the crowding the fold answers.
-                        //
-                        // The default is a QUESTION ABOUT THE GROUP, so the Set
-                        // holds the reader's overrides rather than the state
-                        // itself — one click flips whichever default applies.
-                        //
-                        // A FOLD WITH EXCEPTIONS STAYS OPEN — the same rule as
-                        // NOT STARTED, for the same reason: *folding may hide
-                        // repetition, never exceptions*. A reader must see the
-                        // conflict, claim, or structural issue the fold holds.
-                        //
-                        // `sliceRowsShown` IS THE ONE EXPRESSION, read here and
-                        // by the list guard below — two readers that must agree.
-                        expanded={planSliceRowsShown}
-                        // THE KEY FOLLOWS THE DEFAULT, which differs by slice
-                        // count: a plan of several is folded until opened, a plan
-                        // of one open until shut. `sliceRowsShown` reads the same
-                        // count, so the click and the state agree.
-                        onToggle={() => togglePlan(
-                          planSliceGroups.length > 1
-                            ? `open:${group.plan}` : `shut:${group.plan}`,
-                        )}
-                        active={group.rows.some((r) => active.has(rowKey(r)))}
-                        marked={group.rows.some((r) => marked.has(rowKey(r)))}
-                        card={cardForPlanFile?.(group.planFile) ?? null}
-                        approve={approve}
-                        deliver={deliver}
-                        implement={implement}
-                        dispatch={dispatch}
-                        pulse={pulse}
-                        onApproving={onStarting}
-                        // HOW MANY OF THIS PLAN'S SLICES ARE ELSEWHERE — the same
-                        // count the NOT STARTED head carries, keyed on THIS
-                        // section (`key`). A DONE head whose plan also has an
-                        // unstarted slice says so here rather than reading as a
-                        // plan wholly done.
-                        elsewhere={slicesElsewhere(fleet.slices, group.plan, key,
-                          headSliceNames(group))}
-                        // A ONE-SLICE plan carries its slice's *Start work* on
-                        // this row. Never its verdict: a plan row states plan
-                        // facts only, and the slice row prints the verdict.
-                        soleSlice={soleSliceFor(group.plan, slices)}
-                        // …and the slice row's *Start work* rides here too,
-                        // dispatching that one slice.
-                        onStarting={onStarting}
-                        planIndex={planIndex}
-                      />
-                    )}
-                    {headed && !planHeads && (
-                      // AND WHERE THE `h3` SURVIVES, IT KEEPS THE SIZE #302 GAVE IT.
-                      // The plan row above answers the grouped case; this
-                      // heading answers the MIXED one, where a group holds a
-                      // release or a ticket beside its slices and no single plan
-                      // heads it. That case still had the original defect: at
-                      // `text-[11px]` this label sat under the 13px branch names
-                      // it labels, the section's defect one level down.
-                      //
-                      // `py-0.5` with it, because the type grew and the padding
-                      // did not have to — 2px around a 13px label in a tinted
-                      // band holds the proportion `py-1` held around an 11px
-                      // one. Taking either side of this conflict whole would
-                      // have lost one of the two: #304's structure drops the
-                      // sizing, #302's sizing drops the structure. Both are
-                      // wanted, and they are about different rows.
-                      <h3 className="border-b border-slate-200/60 bg-slate-50 px-3 py-0.5 text-[13px] font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
-                        {/* The heading CARRIES the link, because the rows below
-                            no longer print the plan name. Grouping moved the
-                            name up here; the way to reach the plan has to move
-                            with it, or the tab keeps the tidier layout and
-                            loses the click. Once per group rather than once per
-                            row, which is the point of grouping. */}
-                        <PlanLink
-                          plan={group.plan}
-                          planFile={group.planFile}
-                          onOpenPlan={onOpenPlan}
-                          planIndex={planIndex}
-                        />
-                        <span className="ml-1.5 font-normal text-slate-400 dark:text-slate-600">
-                          ({group.rows.length})
+                      <span data-fleet-control-column className="ml-auto flex items-center gap-3">
+                        <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
+                        <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} />
+                      </span>
+                      <FleetAlert supervisor={fleet?.supervisor} />
+                    </div>
+                  )}
+                  {section.key === 'machine' && (
+                    <p data-machine-line className="px-3 text-sm text-slate-600 dark:text-slate-300">{machineLine(fleet.rows)}</p>
+                  )}
+                  {!folded && section.groups.map((group) => {
+                    const g = fold(group.key, group.count, (
+                      <h3 data-delivery-group={group.key} className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                        {group.label}
+                        <span className="ml-1 font-normal text-slate-500">
+                          ({group.count > 0 ? group.count : group.hint})
                         </span>
                       </h3>
-                    )}
-                    {/* INDENTED WHERE THERE IS A HEADING, and only there —
-                        *grouping means indented*, the same `ml-6` and left rule
-                        the slice list carries one section over.
-
-                        Measured before it: a headed group rendered box, tint and
-                        heading with its rows at **x=17, the same x as the
-                        ungrouped rows beside them**, so a reader scanning past
-                        the heading lost the set. With it, x=42.
-
-                        On the WRAPPER rather than on the group box, which keeps
-                        the alignment argument above intact: that comment rejects
-                        a margin on the OUTLINE because it moved the rows 5px and
-                        broke the cross-section column. Here the box does not
-                        move; its children do, and only where a heading is there
-                        to explain why. An unheaded group gets no class at all, so
-                        its rows sit where every other row in the fleet does. */}
-                    {/* FOLDED AWAY where the plan row's caret says so — removed
-                        from the tree rather than hidden with CSS, the same as
-                        every other fold on this board: a collapsed group should
-                        cost no vertical space, which is the whole complaint it
-                        answers.
-
-                        A FOLD WITH EXCEPTIONS STAYS OPEN — same logic as the
-                        `expanded` prop above, and the THREE readers MUST agree or
-                        the caret says one thing while the content says another —
-                        and the plan row states a verdict the row beneath it is
-                        stating too. `sliceRowsShown` is the one expression all
-                        three read. */}
-                    {planSliceRowsShown && (
-                    <ul
-                      role="presentation"
-                      // THE SAME SLICE-LIST WRAPPER NOT STARTED ALREADY CARRIES.
-                      // `BlockedByMark`'s jump is `[data-slice-list="…"]
-                      // [data-slice-row="…"]` — a slice row is only reachable when
-                      // it sits UNDER its plan's slice-list. NOT STARTED tagged
-                      // its `<ul>` with this; the other sections did not, so a
-                      // blocker completing into DONE rendered a `data-slice-row`
-                      // with no `data-slice-list` above it and the query — correct,
-                      // document-wide, unchanged — found nothing to scroll to.
-                      // Tagging every section's wrapper is the DOM half of the
-                      // fix the folded-section unfold is the other half of.
-                      data-slice-list={group.plan}
-                      className={headed || planHeads
-                        ? 'ml-6 border-l border-slate-200 dark:border-slate-800'
-                        : undefined}
-                    >
-                      {/* SLICES OVER THEIR REVIEWABLE BRANCHES, in this section
-                          only — and only where a slice holds MORE THAN ONE.
-
-                          *"Technically the PR with branch and the wave is a
-                          WAVE"*, and the qualifier is the section: WAITING ON YOU
-                          asks *what needs a decision*, and where three PRs are
-                          three slices of one slice the thing being decided is the
-                          slice. `opus5-longhorizon-hardening :: Implementation`
-                          holds five landed branches and reads `blocked` — five
-                          reviews the board was filing as *nothing to do*.
-
-                          The earlier objection to calling a PR a slice was that a
-                          five-branch slice would render five rows all named
-                          `Implementation`. Grouping is what answers it: one slice
-                          row, its PRs beneath. A LONE reviewable branch stays a
-                          PR row, because there is no set to name — the same rule
-                          `showsSliceFold` applies, and the same one that makes a
-                          single-branch slice one row in NOT STARTED.
-
-                          The slice can appear in BOTH sections, deliberately: the
-                          branches with PRs group here, the ones nobody started
-                          group under the plan in NOT STARTED. Each section shows
-                          only the branches its own question is about. */}
-                      {(() => {
-                        /* SLICE ROWS NAME THEIR SLICES, however many slices
-                           the plan has. A one-slice plan's branches belong to
-                           that slice, and its name is part of their identity.
-                           A row of ONE branch states that branch's status word;
-                           a row of several, or one whose branch has no word to
-                           say, states the verdict. The plan row above never
-                           states it. */
-                        const sliceGroups = sliceGroupsFor(group.rows, key, slices);
-                        return sliceGroups.map((wg) => {
-                        // A SLICE OF ONE NEEDS NO FOLD — its single branch is
-                        // already named in slot 4, so a control revealing a row
-                        // the reader can see is the noise this estate removed
-                        // twice. Measured: all 12 slices here hold one branch.
-                        const many = wg.rows.length > 1;
-                        const sliceOpen = many
-                          ? openSlices.has(sliceKey(group.plan, wg.wave))
-                          : null;
-                        return (
-                          <li key={`wave:${wg.wave}`} className="block">
-                            <SliceRow
-                              group={wg}
-                              plan={group.plan}
-                              waitingDays={planWaitingDays(group)}
-                              expanded={sliceOpen}
-                              onToggle={many ? () => toggleSlice(group.plan, wg.wave) : undefined}
-                              active={wg.rows.some((r) => active.has(rowKey(r)))}
-                              marked={wg.rows.some((r) => marked.has(rowKey(r)))}
-                              // NO `Start work` HERE: these branches are already
-                              // started. The card and dispatch binding are what
-                              // that control needs, and withholding them is how
-                              // this row says the act it wants is a merge.
-                              //
-                              // RESLICE IS STILL PASSED, and it is not `dispatch`
-                              // in disguise: `Slice this plan` takes only the
-                              // plan slug, so it needs no card and no merge —
-                              // it is the act an `unsliced-wave` here (five
-                              // landed branches, `blocked`) actually wants.
-                              reslice={reslice}
-                              pulse={pulse}
-                              onStarting={onStarting}
-                              // THE COUNT ONLY WHERE THERE IS MORE THAN ONE.
-                              // `1 to review` beside a single branch link states
-                              // what that link already shows, and it would hide
-                              // what a reader wants on a slice of one: that
-                              // branch's own condition, which no verdict carries
-                              // and no fold exists to reach.
-                              groupedCount={wg.rows.length > 1 ? wg.rows.length : undefined}
-                              // THE WORD IS THE SLICE'S VERDICT. A slice row states
-                              // what the scan says about it — `complete`, `eligible`,
-                              // `blocked` — not a section-chosen word that differs
-                              // from its siblings' verdicts. `delivered` stays a
-                              // branch row's word; a slice speaks for itself.
-                              groupedWord={wg.verdict ?? undefined}
-                              soleRow={wg.rows.length > 1 ? undefined : wg.rows[0]}
-                              implement={implement}
-                              continueWith={continueWith}
-                              restartWith={restartWith}
-                              onOpenPlan={onOpenPlan}
-                              onRevealBranch={onRevealBranch}
-                              planHeaded={planHeads}
-                              slices={slices}
-                              onExpandSection={expandSection}
-                              planIndex={planIndex}
-                            />
-                            {many && sliceOpen && (
-                              <ul
-                                role="presentation"
-                                data-slice-branch-list={wg.wave || '(unnamed)'}
-                                className="ml-6 border-l border-slate-200 dark:border-slate-800"
-                              >
-                                {wg.rows.map((r) => (
-                                  <Row
-                                    key={rowKey(r)}
-                                    row={r}
-                                    onOpenPlan={onOpenPlan}
-                                    inPlanGroup
-                                    inSliceGroup
-                                    card={cardForPlanFile?.(r.planFile) ?? null}
-                                    dispatch={dispatch}
-                                    implement={implement}
-                                    continueWith={continueWith}
-                                    restartWith={restartWith}
-                                    pulse={pulse}
-                                    onStarting={onStarting}
-                                    marked={marked.has(rowKey(r))}
-                                    active={active.has(rowKey(r))}
-                                    section={key}
-                                    agent={agentByBranch.get(r.branch) ?? null}
-                                    onRevealBranch={onRevealBranch}
-                                    highlighted={r.branch === highlightBranch}
-                                    showSprintSlug={showSprintSlug}
-                                    planIndex={planIndex}
-                                  />
-                                ))}
-                              </ul>
-                            )}
-                          </li>
-                        );
-                      });
-                      })()}
-                      {planShape.loose.map((r) =>
-                        // THE SECTION DECIDED GROUPING; THE ROW DECIDES ITS KIND.
-                        //
-                        // `sliceGroupsFor` returns nothing for WORKING and WAITING
-                        // ON A MACHINE on purpose — those sections order by agent
-                        // and by build, and must not bury unrelated slices under
-                        // plan heads. That grouping decision is right and stays.
-                        //
-                        // But a row whose `kind` is `wave` is a slice WHEREVER it
-                        // renders. Routing every ungrouped row through `<Row>` — a
-                        // BRANCH row — was the defect: in WORKING the branch took
-                        // slot 3 and the slice's name was demoted to a badge, so the
-                        // same slice read as a slice in NOT STARTED and as a branch
-                        // here. `groupBySlice([r])` builds the one-row `SliceGroup`
-                        // `SliceRow` already renders in NOT STARTED, and `soleRow`
-                        // is what carries the branch, its PR, and the worker facts
-                        // (`worker running (pid …)`, the live-worker status) onto
-                        // the slice row. `planHeaded={planHeads}` is `false` here,
-                        // so slot 4 keeps the plan link a WORKING slice would lose.
-                        r.kind === 'wave' ? (
-                          <SliceRow
-                            key={rowKey(r)}
-                            group={groupBySlice([r])[0]}
-                            plan={r.plan}
-                            waitingDays={r.waitingDays}
-                            // No fold — a slice of one has nothing hidden to reveal.
-                            expanded={null}
-                            active={active.has(rowKey(r))}
-                            marked={marked.has(rowKey(r))}
-                            card={cardForPlanFile?.(r.planFile) ?? null}
-                            dispatch={dispatch}
-                            implement={implement}
-                            pulse={pulse}
-                            onStarting={onStarting}
-                            // The one branch this slice holds — its status, age, PR,
-                            // and note (the worker's condition) render on the slice
-                            // row, exactly as a NOT STARTED slice of one does.
-                            soleRow={r}
-                            continueWith={continueWith}
-                            restartWith={restartWith}
-                            onOpenPlan={onOpenPlan}
-                            onRevealBranch={onRevealBranch}
-                            // WORKING draws no plan head, so the plan link belongs
-                            // on the slice row's slot 4.
-                            planHeaded={planHeads}
-                            slices={slices}
-                            onExpandSection={expandSection}
-                            planIndex={planIndex}
-                          />
-                        ) : (
-                        <Row
-                          // The same helper the change memory keys by — two
-                          // spellings of one identity is how a mark ends up on
-                          // the wrong row.
-                          key={rowKey(r)}
-                          row={r}
-                          onOpenPlan={onOpenPlan}
-                          // THE ROW THE SPRINT FILTER LET THROUGH WITHOUT ASKING
-                          // wears a mark, so it reads as exempt rather than as a
-                          // sprint member. Only here: a row in a plan group names
-                          // a plan, and `rowIsSprintExempt` never holds for it.
-                          sprintExempt={sprintFilterOn && rowIsSprintExempt(r)}
-                          // Looked up per row rather than per group: a row's
-                          // plan is what dispatch takes, and only the rows that
-                          // are startable ever use it.
-                          card={cardForPlanFile?.(r.planFile) ?? null}
-                          dispatch={dispatch}
-                          implement={implement}
-                          continueWith={continueWith}
-                          restartWith={restartWith}
-                          pulse={pulse}
-                          onStarting={onStarting}
-                          // By the row's own identity, so a row that changed
-                          // section carries its mark to where it now sits.
-                          marked={marked.has(rowKey(r))}
-                          // Same identity, same reason — and answered for the
-                          // whole fleet at once, so no two places can disagree
-                          // about which rows are being written to.
-                          active={active.has(rowKey(r))}
-                          // See the `section` prop: the machine section lists
-                          // this row as a PROCESS and says so, and no other
-                          // section's rendering changes.
-                          section={key}
-                          // THE REGISTRY ENTRY for whatever agent holds this
-                          // branch — which is what makes an agent row name the
-                          // agent rather than the branch. WORKING is where those
-                          // rows are, so this is the site that matters most.
-                          agent={agentByBranch.get(r.branch) ?? null}
-                          // The same slice label as inside a plan group, and
-                          // the same rule: a fact about the branch, beside the
-                          // branch. This row used to differ from one in a plan
-                          // group — it printed the plan's PHASE where the other
-                          // printed nothing — which is the inconsistency the
-                          // relocation removes.
-                          // ONLY WHERE THE ROW DOES NOT ALREADY LINK ITS SLICE.
-                          //
-                          // An `agent` and a `pr` row both carry the slice as an
-                          // artifact link now, so the badge is a second copy —
-                          // measured on the mock as `Inverted` twice on the agent
-                          // row and `Modelled` twice on PR 304.
-                          //
-                          // The badge STAYS on a BRANCH row, and the distinction
-                          // is not a compromise. Its docstring argues that *"the
-                          // wave qualifies THIS BRANCH, and the association is
-                          // positional… A MARK, not a link"* — sound while a slice
-                          // had no row to point at. A branch row's artifact slot
-                          // holds its plan and its PR, not its slice, so there the
-                          // badge is still the slice's only statement.
-                          //
-                          // Keyed on the KIND rather than on *does slot 4 contain
-                          // a slice*, because the projection is what decides that
-                          // and this adapter must not form a second opinion about
-                          // it — the rule `tupleFromRow` states about `row.kind`.
-                          sliceName={SLICE_LINKING_KINDS.has(r.kind) ? null : sliceLabel(r)}
-                          onRevealBranch={onRevealBranch}
-                          highlighted={r.branch === highlightBranch}
-                          showSprintSlug={showSprintSlug}
-                          planIndex={planIndex}
-                        />
-                        )
-                      )}
-                    </ul>
-                    )}
-                  </li>
-                  );
-                })
-              ) : (
-                // A row of one cell: the grid holds no branches, and saying so
-                // is still a row of the grid rather than something beside it.
-                //
-                // `none` IS AN OBSERVATION, so it is only printed where one was
-                // made. In WAITING ON A MACHINE before the host has answered
-                // the grid is empty because nobody asked, and the word for that
-                // is not the word for an empty answer — the whole defect, in the
-                // one cell a reader lands on after opening the section.
-                //
-                // Said HERE as well as in the header, not instead of it. The
-                // header's hint is the copy a reader sees while scanning, and
-                // the two sections that start folded prove headers can be the
-                // only thing on screen; this cell is what a reader sees once
-                // they open the section and look for the rows. A single site
-                // would leave whichever of those two readings unlabelled.
-                // `none` is only printed where there is nothing AT ALL. A
-                // section holding issue rows, broken agent rows, draft plans or
-                // plan-level rows and no branches is not empty, and the word
-                // would sit above the rows contradicting them.
-                issues.length === 0 && broken.length === 0 && drafts.length === 0 && verifications.length === 0 && (
-                <li role="row" className="px-3 py-2 text-sm text-slate-400 dark:text-slate-600">
-                  <span role="gridcell">
-                    {key === 'waiting-on-machine' && answer !== 'answered'
-                      ? HOST_ANSWER_HINT[answer]
-                      : 'none'}
-                  </span>
-                </li>
-                )
-              )}
-              {/* The unplanned issues, AFTER the branches. Work already under
-                  way outranks work nobody has committed to — the same
-                  actionable-first ordering `GROUPS` applies one level up. */}
-              {/* THE SUB-HEADER, one line replacing the per-row `Ticket`
-                  label every row used to repeat. Gated on `issues.length`
-                  the same way the `none` fallback above is — an empty block
-                  already says so there, and a `· 0` heading here would say
-                  it twice. */}
-              {key === 'waiting-on-you' && fleet.issueAnswer === 'answered' && issues.length > 0 && (
-                <li
-                  role="row"
-                  data-waiting-heading
-                  className="border-t border-slate-100 px-3 py-2 text-sm font-medium text-slate-700 dark:border-slate-800 dark:text-slate-200"
-                >
-                  <span role="gridcell">{waitingBlock.heading}</span>
-                </li>
-              )}
-              {/* WHAT THE SECTION HIDES, in the domain's sentences: the
-                  notice for an unmatched reader, the hidden count, and the
-                  control that lists every ticket. Every text comes from
-                  `waitingView`; nothing here decides. Below the sub-header,
-                  in a smaller type style — the sub-header is the heading now,
-                  this is the detail under it. */}
-              {key === 'waiting-on-you' && fleet.issueAnswer === 'answered' && waitingBlock.notice !== null && (
-                <li
-                  role="row"
-                  data-waiting-notice
-                  className="border-t border-slate-100 px-3 py-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400"
-                >
-                  <span role="gridcell">{waitingBlock.notice}</span>
-                </li>
-              )}
-              {key === 'waiting-on-you' && fleet.issueAnswer === 'answered' && waitingBlock.control !== null && (
-                <li
-                  role="row"
-                  data-waiting-hidden
-                  className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-3 py-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400"
-                >
-                  <span role="gridcell" className="flex flex-wrap items-center gap-2">
-                    {waitingBlock.hidden !== null && <span data-waiting-hidden-text>{waitingBlock.hidden}</span>}
-                    <label className="flex cursor-pointer items-center gap-1.5">
-                      <input
-                        type="checkbox"
-                        data-show-every-ticket
-                        checked={showEveryTicket}
-                        onChange={() => setShowEveryTicket((on) => !on)}
-                        className="h-3.5 w-3.5 accent-green-600"
-                      />
-                      <span className="font-medium text-slate-700 dark:text-slate-200">{waitingBlock.control}</span>
-                    </label>
-                    {waitingBlock.showing !== null && <span data-waiting-showing-text>{waitingBlock.showing}</span>}
-                  </span>
-                </li>
-              )}
-              {issues.map((issue) => (
-                <IssueRowView
-                  key={`issue-${issue.number}`}
-                  issue={issue}
-                  idea={idea ?? { available: false, reason: 'this board has not said whether it can create plans' }}
-                  story={story ?? { available: false, reason: 'this board has not said whether it can create stories' }}
-                  issueAnswer={fleet.issueAnswer}
-                  facts={ticketFacts?.get(String(issue.number))}
-                  showKindLabel={false}
-                  onOpenPlan={onOpenPlan}
-                  planIndex={planIndex}
-                />
-              ))}
-              {drafts.map((draft) => (
-                <DraftPlanRowView key={`draft-${draft.plan}`} draft={draft} onOpenPlan={onOpenPlan} planIndex={planIndex} />
-              ))}
-              {/* THE FLEET'S OWN FAILED VERIFY RUNS — a plan, a sentence, no
-                  branch, the same non-branch shape a draft plan takes. Rendered
-                  after the drafts and before the broken agents: a decision owed
-                  on a plan outranks a worker problem report. */}
-              {verifications.map((row) => (
-                <PlanLevelRowView
-                  key={`plan-level-${row.kind}-${row.plan}`}
-                  row={row}
-                  planFile={planFileOf(row.plan)}
-                  onOpenPlan={onOpenPlan}
-                  planIndex={planIndex}
-                />
-              ))}
-              {/* THE BROKEN AGENTS — `stalled` and `unknown` — as problem reports.
-                  Rendered AFTER branches and issues: actionable work outranks
-                  problem reports, and the ordering says so. Each row is keyed by
-                  `agentRowKey`, the same identity WORKING uses for its registry
-                  rows. */}
-              {broken.map(({ agent, row }) => (
-                <RegistryRow
-                  key={agentRowKey(agent)}
-                  agent={agent}
-                  row={row}
-                  slices={slices}
-                  onOpenPlan={onOpenPlan}
-                  card={row ? cardForPlanFile?.(row.planFile) ?? null : null}
-                  dispatch={dispatch}
-                  implement={implement}
-                  continueWith={continueWith}
-                  restartWith={restartWith}
-                  drop={drop}
-                  pulse={pulse}
-                  onStarting={onStarting}
-                  marked={row ? marked.has(rowKey(row)) : false}
-                  active={row ? active.has(rowKey(row)) : false}
-                  onRevealBranch={onRevealBranch}
-                  highlighted={agent.branch !== '' && agent.branch === highlightBranch}
-                  planIndex={planIndex}
-                />
-              ))}
-              {/* A RELEASED FREE DESK'S NOTE — the entry `broken` above would
-                  have carried had its desk owed a person. Its loop ended clean
-                  instead, so it lands here rather than Waiting on you. Same
-                  join, same key scheme. */}
-              {quiet.map(({ agent, row }) => (
-                <RegistryRow
-                  key={agentRowKey(agent)}
-                  agent={agent}
-                  row={row}
-                  slices={slices}
-                  onOpenPlan={onOpenPlan}
-                  card={row ? cardForPlanFile?.(row.planFile) ?? null : null}
-                  dispatch={dispatch}
-                  implement={implement}
-                  continueWith={continueWith}
-                  restartWith={restartWith}
-                  drop={drop}
-                  pulse={pulse}
-                  onStarting={onStarting}
-                  marked={row ? marked.has(rowKey(row)) : false}
-                  active={row ? active.has(rowKey(row)) : false}
-                  onRevealBranch={onRevealBranch}
-                  highlighted={agent.branch !== '' && agent.branch === highlightBranch}
-                  planIndex={planIndex}
-                />
-              ))}
-              {/* AN OUTAGE IS NOT AN ANSWER. A failed issue lookup says so, in
-                  the section the rows would have appeared in. Silence here is
-                  precisely the defect: it is indistinguishable from an inbox
-                  with nothing in it, and a reader would conclude they had
-                  nothing to decide.
-
-                  A rate limit is a THIRD state — the tracker was refused, not
-                  unreachable — so `issueNote` chooses the wording: *could not be
-                  read* for an outage, *rate limit is spent, returns in ~N* for a
-                  spent budget, which does not claim a check that never ran. */}
-              {key === 'waiting-on-you' && fleet.issueAnswer === 'failed' && issueNote(fleet) && (
-                <li
-                  role="row"
-                  data-issue-error
-                  className="border-t border-slate-100 px-3 py-2 text-sm text-amber-700 dark:border-slate-800 dark:text-amber-500"
-                >
-                  <span role="gridcell">
-                    {issueNote(fleet)}
-                  </span>
-                </li>
-              )}
-              {/* AN ABSENCE IS NOT AN OUTAGE. A list nobody can give — a `bb`
-                  with no issue command, a tracker no connector lists — says
-                  why, in the domain's sentence, and never borrows the
-                  *could not be read* wording above. */}
-              {key === 'waiting-on-you' && fleet.issueAnswer === 'unsupported' && fleet.issueAbsence && (
-                <li
-                  role="row"
-                  data-issue-absence
-                  className="border-t border-slate-100 px-3 py-2 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400"
-                >
-                  <span role="gridcell">
-                    {fleet.issueAbsence}
-                  </span>
-                </li>
-              )}
-            </ul>
+                    ));
+                    return (
+                      <div key={group.key} data-group={group.key} className="space-y-1">
+                        {g.header}
+                        {!g.folded && group.count > 0 && (
+                          <ul
+                            role="grid"
+                            aria-label={`${group.label} — agent branches`}
+                            className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40"
+                          >
+                            <HeaderRow />
+                            {group.items.flatMap(itemBody)}
+                            {group.agents.flatMap(agentBody)}
+                          </ul>
+                        )}
+                      </div>
+                    );
+                  })}
+                </section>
+              );
+            })}
+            {view.notPlaced.length > 0 && (
+              <section data-unplaced className="px-3 pt-2">
+                <p className="text-xs text-amber-600 dark:text-amber-500">
+                  {view.notPlaced.length} {view.notPlaced.length === 1 ? 'subject' : 'subjects'} not placed —
+                  shown here, in no section, because the reading the rule needs is missing.
+                </p>
+                <ul className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  {view.notPlaced.map((u) => (
+                    <li key={u.id} data-unplaced-row data-unplaced-reason={u.reason} data-branch={u.label}>
+                      {u.label} — {u.note}
+                    </li>
+                  ))}
+                </ul>
+              </section>
             )}
-          </section>
-        );
-      }); })()}
-      </div>
-
-      {/* THE UNPLACED ROWS — shown, and in no section.
-
-          A row the last successful scan never held has no remembered section,
-          and the current scan failed, so nothing may be derived for it. Every
-          section above filters `r.group === key`, so a `null` group falls out
-          of all six by construction — which is the "never sorted" half for
-          free, and would also make these rows INVISIBLE. Hiding work the board
-          cannot classify is its own lie, so they render here instead, under a
-          heading that says what the board does not know.
-
-          This is where the #995 rows would have landed: five approved,
-          unstarted plans that a stale pulse classified `merged` and sent to
-          DONE. Unplaced understates what is known about them; DONE asserted
-          something false about work somebody was waiting on. */}
-      {(() => {
-        const unplaced = fleet.rows.filter((r) => r.group === null);
-        if (unplaced.length === 0) return null;
-        return (
-          <section data-unplaced className="px-3 pt-2">
-            <p className="text-xs text-amber-600 dark:text-amber-500">
-              {unplaced.length} {unplaced.length === 1 ? 'row' : 'rows'} the last
-              successful scan had not seen — shown without a section until a scan
-              completes.
-            </p>
-            <ul className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              {unplaced.map((r) => (
-                <li key={`${r.repo}/${r.branch}/${r.plan ?? ''}`} data-unplaced-row data-branch={r.branch}>
-                  {r.branch || r.plan || r.repo}
-                </li>
-              ))}
-            </ul>
-          </section>
+            {/* OUTSIDE THE PLACEMENT RULE, LABELLED AS SUCH. The rule places work
+                items and agents; tickets and the fleet's own plan-level runs are
+                neither, and plan 3 owns tickets. They render here, after the
+                five sections, so none disappears while that plan is open. */}
+            {(issues.length > 0 || fleet.issueAnswer === 'failed' || fleet.issueAnswer === 'unsupported'
+              || workingPlanRows.length > 0 || verificationWaitingRows.length > 0 || haltedLine || specHaltedLine) && (
+              <section data-outside-rule className="space-y-1">
+                <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">Tickets and plan runs</h2>
+                <p className="px-3 text-xs text-slate-500 dark:text-slate-400">
+                  Outside the placement rule: the rule places work items and agents only.
+                </p>
+                {[haltedLine, specHaltedLine].filter((l): l is string => Boolean(l)).map((line) => (
+                  <p key={line} data-fleet-halted className="px-3 text-xs text-amber-700 dark:text-amber-500">{line}</p>
+                ))}
+                <ul role="grid" aria-label="Tickets and plan runs" className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
+                  {fleet.issueAnswer === 'answered' && issues.length > 0 && (
+                    <li role="row" data-waiting-heading className="px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-200">
+                      <span role="gridcell">{waitingBlock.heading}</span>
+                    </li>
+                  )}
+                  {fleet.issueAnswer === 'answered' && waitingBlock.notice !== null && (
+                    <li role="row" data-waiting-notice className="border-t border-slate-100 px-3 py-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                      <span role="gridcell">{waitingBlock.notice}</span>
+                    </li>
+                  )}
+                  {fleet.issueAnswer === 'answered' && waitingBlock.control !== null && (
+                    <li role="row" data-waiting-hidden className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-3 py-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                      <span role="gridcell" className="flex flex-wrap items-center gap-2">
+                        {waitingBlock.hidden !== null && <span data-waiting-hidden-text>{waitingBlock.hidden}</span>}
+                        <label className="flex cursor-pointer items-center gap-1.5">
+                          <input
+                            type="checkbox"
+                            data-show-every-ticket
+                            checked={showEveryTicket}
+                            onChange={() => setShowEveryTicket((on) => !on)}
+                            className="h-3.5 w-3.5 accent-green-600"
+                          />
+                          <span className="font-medium text-slate-700 dark:text-slate-200">{waitingBlock.control}</span>
+                        </label>
+                        {waitingBlock.showing !== null && <span data-waiting-showing-text>{waitingBlock.showing}</span>}
+                      </span>
+                    </li>
+                  )}
+                  {issues.map((issue) => (
+                    <IssueRowView
+                      key={`issue-${issue.number}`}
+                      issue={issue}
+                      idea={idea ?? { available: false, reason: 'this board has not said whether it can create plans' }}
+                      story={story ?? { available: false, reason: 'this board has not said whether it can create stories' }}
+                      issueAnswer={fleet.issueAnswer}
+                      facts={ticketFacts?.get(String(issue.number))}
+                      showKindLabel={false}
+                      onOpenPlan={onOpenPlan}
+                      planIndex={planIndex}
+                    />
+                  ))}
+                  {[...workingPlanRows, ...verificationWaitingRows].map((row) => (
+                    <PlanLevelRowView
+                      key={`plan-level-${row.kind}-${row.plan}`}
+                      row={row}
+                      planFile={planFileOf(row.plan)}
+                      onOpenPlan={onOpenPlan}
+                      planIndex={planIndex}
+                    />
+                  ))}
+                  {fleet.issueAnswer === 'failed' && issueNote(fleet) && (
+                    <li role="row" data-issue-error className="border-t border-slate-100 px-3 py-2 text-sm text-amber-700 dark:border-slate-800 dark:text-amber-500">
+                      <span role="gridcell">{issueNote(fleet)}</span>
+                    </li>
+                  )}
+                  {fleet.issueAnswer === 'unsupported' && fleet.issueAbsence && (
+                    <li role="row" data-issue-absence className="border-t border-slate-100 px-3 py-2 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                      <span role="gridcell">{fleet.issueAbsence}</span>
+                    </li>
+                  )}
+                </ul>
+              </section>
+            )}
+          </>
         );
       })()}
+      </div>
 
       {/* The ages are the honesty: a stale source says so rather than looking
           live. They are reported separately because they fail separately —

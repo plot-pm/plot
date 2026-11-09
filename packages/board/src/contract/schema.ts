@@ -4701,6 +4701,15 @@ export const FleetShape = z.object({
    */
   issueAbsence: z.string().nullable().default(null),
   /**
+   * The two `## Plot Config` keys `placeDelivery` reads, as the server read them:
+   * `Auto-review` and `Correction budget`. Defaults match the config's own
+   * (`Auto-review` off, budget 2) for an older server that sends nothing.
+   */
+  placementConfig: z.object({
+    autoReview: z.boolean().default(false),
+    correctionBudget: z.number().default(2),
+  }).default({ autoReview: false, correctionBudget: 2 }),
+  /**
    * How old the rows in `issues` are, where they came from `issues.json`
    * rather than a live read — the fleet's own `at` on the index, not the
    * moment this board read the file. Null where the rows are fresh (a live
