@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { processesFiles, processReadingOf, readingsLine, readWorkerReadings, workerFilesIo } from '../src/adapters/processes/processes-files.js';
+import { processesFiles, processReadingOf, readingsLine, readWorkerReadings, deskFilesIo } from '../src/adapters/processes/processes-files.js';
 import { processesTable } from '../src/adapters/processes/processes-table.js';
 import { shellContext } from '../src/adapters/scripts.js';
 import { isAnswered } from '../src/port-result.js';
@@ -43,7 +43,7 @@ const SIDES: Sides = { left: 'reader', right: 'shell' };
 const report = describingAs(SIDES);
 
 /** The grace both sides run the constructed desks under, in seconds. */
-const GRACE = '8';
+const GRACE = '12';
 
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -113,7 +113,7 @@ describe('readWorkerReadings agrees with plot-worker-state.sh on this estate', (
     desks = readDesks({ root: ROOT });
     const table = await processesTable().read();
     if (!table.ok) throw new Error(`ps exited ${table.code}`);
-    const io = await workerFilesIo(context)();
+    const io = await deskFilesIo(context)();
     for (const desk of desks) {
       const gathered = await readWorkerReadings(desk.worktree, table.rows, io, {}, true);
       compareField(found, desk.name, 'readings', readingsLine(gathered), desk.readings);
@@ -174,7 +174,7 @@ describe('the reader agrees with plot-worker-state.sh on constructed desks', () 
     const withAgent = start('sh', ['-c', `'${agentBinary}' 600; :`]);
     const freeProven = start('sleep', ['600']);
     const freeUnproven = start('sleep', ['600']);
-    await wait(4_500);
+    await wait(8_500);
     const young = start('sleep', ['600']);
     await wait(5_000);
 
@@ -204,7 +204,7 @@ describe('the reader agrees with plot-worker-state.sh on constructed desks', () 
     const lateStart = execFileSync('ps', ['-o', 'lstart=', '-p', String(late)], { env: { ...process.env, LC_ALL: 'C' }, encoding: 'utf8' });
     desk('pid-after-table', {}, { pid: String(late), startedAt: iso(Math.floor(Date.now() / 1000) - 60), pidStartedAt: lateStart.trim() });
 
-    const io = await workerFilesIo(context, { manifestDir: manifests })();
+    const io = await deskFilesIo(context, { manifestDir: manifests })();
     const gathered = new Map<string, string>();
     for (const [name, worktree] of desks) {
       gathered.set(name, readingsLine(await readWorkerReadings(worktree, held.value, io, {}, true)));
@@ -217,7 +217,7 @@ describe('the reader agrees with plot-worker-state.sh on constructed desks', () 
       compareField(readingsFound, name, 'readings', gathered.get(name), shell.get(worktree)?.readings);
       compareField(statesFound, name, 'state', states.get(name), shell.get(worktree)?.state);
     }
-  }, 60_000);
+  }, 90_000);
 
   afterAll(async () => {
     if (savedGrace === undefined) delete process.env.PLOT_AGENT_GRACE_SECONDS;

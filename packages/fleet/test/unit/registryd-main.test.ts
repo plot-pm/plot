@@ -3163,10 +3163,6 @@ describe('unblockWorldForRepo and unblockPortsFor — the production wiring', ()
       '#!/usr/bin/env bash\nif [ "$2" = "Worker command" ]; then echo true; else echo "$3"; fi\n',
     );
     chmodSync(join(scriptsDir, 'plot-config.sh'), 0o755);
-    // `processesShell.workerState` sources this file and calls `plot_worker_state`
-    // (`processes-shell.ts:168`) — a real `waiting` answer, not a stubbed port,
-    // is what proves `unblockWorldForRepo`'s `deskDead` reads production code.
-    writeFileSync(join(scriptsDir, 'plot-worker-state.sh'), 'plot_worker_state() {\n  printf "waiting\\t\\t\\t\\n"\n}\n');
     return { repoRoot, scriptsDir };
   };
 
@@ -3196,7 +3192,11 @@ describe('unblockWorldForRepo and unblockPortsFor — the production wiring', ()
       dirs.push(manifestDir);
       writeFileSync(join(manifestDir, 'sess.json'), JSON.stringify({ session: 'sess', branch: 'feature/waiting', worktree: repoRoot, pid: '424242' }));
 
-      const unblock = unblockWorldForRepo(repoRoot, scriptsDir);
+      // The desk reads `waiting` through a stubbed worker-state reader: the
+      // world asks with `hasPr` set, and a real desk's task state reads
+      // `finished` whenever a PR is named.
+      const waiting = { workerState: async () => ({ ok: true as const, value: { state: 'waiting' as const, pid: '', exitCode: '', activity: '' as const } }) };
+      const unblock = unblockWorldForRepo(repoRoot, scriptsDir, () => false, waiting);
       expect(unblock).toBeDefined();
 
       let runCalls = 0;

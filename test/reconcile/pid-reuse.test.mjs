@@ -331,7 +331,10 @@ test('reaper keeps: a live pid whose start cannot be read', () => withChild((chi
     startedAt: isoShifted(child.pid, -3600),
     pidStartedAt: lstartShifted(child.pid, -3600),
   }, { unreadableStart: true });
-  assert.match(line, new RegExp(`^keep.*worker alive \\(pid ${child.pid}\\)`), line);
+  // The worker-state reader asks for start times in its one process-table
+  // read, so a `ps` that refuses `lstart` fails the whole reading, and the
+  // reaper keeps the desk with the pid unknown.
+  assert.match(line, /^keep.*worker alive \(pid unknown\)/, line);
 }));
 
 test('reaper: a desk holding only the start-time sidecar reads clean, with no ignore rule for it', () => withChild((child) => {

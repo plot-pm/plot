@@ -109,7 +109,7 @@ export type ProcessProbes = Omit<Processes, 'workerState' | 'table'>;
 /**
  * Answers the questions about one pid with `ps`, `pgrep` and `kill -0`.
  *
- * Worker state is not here: `processesFiles` reads it from the desk files and
+ * The worker state is not here: `processesFiles` reads it from the desk files and
  * one process-table reading per pass.
  *
  * @param context - where the repository is.

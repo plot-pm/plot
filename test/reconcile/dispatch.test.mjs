@@ -3115,9 +3115,11 @@ test('dispatch: the launch writes an agent manifest keyed on a session id', () =
   // transcript join key and stays fixed across a branch hop, while the resume
   // handle's lifetime is the open question, and `attempts` is the supervisor's
   // counter rather than a share of `relaunches`, so a person's manual restarts
-  // cannot exhaust an automatic budget.
+  // cannot exhaust an automatic budget. `agentProcess` is known the same way:
+  // it is the dispatcher's own `PLOT_AGENT_PROCESS`, which fleetd's agent
+  // presence check reads from here.
   assert.deepEqual(Object.keys(m).sort(),
-    ['agentMonitorPid', 'attempts', 'branch', 'command', 'pid', 'pidStartedAt',
+    ['agentMonitorPid', 'agentProcess', 'attempts', 'branch', 'command', 'pid', 'pidStartedAt',
       'resumeId', 'session', 'startedAt', 'workerMonitorPid', 'worktree', 'wrapperPid', 'wrapperPidStartedAt'],
     'launch-time facts plus every process the dispatcher started: no model, no context it could only guess');
   // The wrapper records its own process start beside its pid, which the reaper

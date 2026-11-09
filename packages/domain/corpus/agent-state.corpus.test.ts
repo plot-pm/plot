@@ -1,3 +1,7 @@
+import { execFileSync, spawn } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { readingsFrom } from '../../board/src/server/entry/agent-state.js';
@@ -65,7 +69,7 @@ describe('agentState agrees with plot-worker-state.sh', () => {
     // Every row carries both halves, or the comparison below is comparing an
     // empty string against a state.
     expect(desks.every((desk) => desk.state !== '')).toBe(true);
-    expect(desks.every((desk) => desk.readings.split('\t').length === 7)).toBe(true);
+    expect(desks.every((desk) => desk.readings.split('\t').length === 8)).toBe(true);
   });
 
   it('answers what the shell answers, on every desk', () => {
@@ -126,5 +130,33 @@ describe('agentState agrees with plot-worker-state.sh', () => {
       production: '"finished"',
     });
     expect(line).toBe('free-cfa16919 :: state :: rule="stalled" shell="finished"');
+  });
+});
+
+describe('agentState agrees with plot-worker-state.sh on a free agent', () => {
+  it('reads an orphaned wrapper whose free-wait record names it, beside a recorded startedAt, as running', () => {
+    const made = mkdtempSync(join(tmpdir(), 'plot-agent-state-free-'));
+    const wrapper = spawn('sleep', ['600'], { stdio: 'ignore' });
+    try {
+      const desk = join(made, 'desk');
+      const registry = join(made, 'agents');
+      mkdirSync(desk);
+      mkdirSync(registry);
+      const pid = String(wrapper.pid);
+      for (const file of ['.plot-worker.wrapper.pid', '.plot-worker.freewait']) writeFileSync(join(desk, file), `${pid}\n`);
+      writeFileSync(join(registry, 'free.json'), `{\n  "worktree": "${desk}",\n  "pid": "${pid}",\n  "startedAt": "2026-01-01T00:00:00Z"\n}\n`);
+      const program = '. "$1"; plot_worker_state "$2" "" | cut -f1; plot_worker_readings "$2"';
+      const out = execFileSync('bash', ['-c', program, 'bash', `${ROOT}/skills/plot/scripts/plot-worker-state.sh`, desk], {
+        cwd: ROOT,
+        env: { ...process.env, PLOT_MANIFEST_DIR: registry, PLOT_AGENT_GRACE_SECONDS: '0' },
+        encoding: 'utf8',
+      });
+      const [state = '', readings = ''] = out.split('\n');
+      expect(state).toBe('running');
+      expect(agentState(readingsFrom(readings))).toBe(state);
+    } finally {
+      wrapper.kill('SIGKILL');
+      rmSync(made, { recursive: true, force: true });
+    }
   });
 });

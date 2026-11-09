@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import type { ProcessRunner } from '../src/adapters/git-dirs/git-dirs.js';
-import { processesFiles, readWorkerReadings, type WorkerFilesIo } from '../src/adapters/processes/processes-files.js';
+import { processesFiles, readWorkerReadings, type DeskFilesIo } from '../src/adapters/processes/processes-files.js';
 import { parseTable, processesTable, TABLE_ARGS } from '../src/adapters/processes/processes-table.js';
 import { answered, failed } from '../src/port-result.js';
 import type { ProcessRow } from '../src/rules/pid-current.js';
@@ -31,7 +31,7 @@ const deskWith = (files: Record<string, string>, manifest?: Record<string, strin
 
 const row = (pid: number, ppid: number, comm: string, startedAt: number | null = startMs): ProcessRow => ({ pid, ppid, startedAt, cpuCentis: 0, comm });
 
-const ioOf = (manifestDir: string, over: Partial<WorkerFilesIo> = {}): WorkerFilesIo => ({
+const ioOf = (manifestDir: string, over: Partial<DeskFilesIo> = {}): DeskFilesIo => ({
   manifestDir,
   signalZero: () => true,
   startedAt: async () => null,
@@ -39,6 +39,7 @@ const ioOf = (manifestDir: string, over: Partial<WorkerFilesIo> = {}): WorkerFil
   ahead: async () => '2',
   now: () => NOW,
   graceSeconds: 30,
+  agentProcess: 'claude',
   ...over,
 });
 
@@ -96,6 +97,7 @@ describe('readWorkerReadings', () => {
     const { worktree, manifestDir } = deskWith({ '.plot-worker.pid': ' 43 \n', '.plot-worker.pid.startedAt': `${START}\n` }, { pid: '41' });
     const gathered = await readWorkerReadings(worktree, [row(43, 1, 'sh')], ioOf(manifestDir));
     expect(gathered.agentProcess).toBe('claude');
+    expect((await readWorkerReadings(worktree, [], ioOf(manifestDir, { agentProcess: 'sleep' }))).agentProcess).toBe('sleep');
     expect(gathered.pid).toBe('43');
     expect(gathered.readings.startedAtRecorded).toBe(false);
   });

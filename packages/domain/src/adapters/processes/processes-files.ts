@@ -24,7 +24,7 @@ import { processesShell } from './processes-shell.js';
 import { processesTable, type TableRead } from './processes-table.js';
 
 /** What {@link readWorkerReadings} reads beside the files: the process questions and the desk's work. */
-export interface WorkerFilesIo {
+export interface DeskFilesIo {
   /** The `Agent registry` directory, absolute. */
   readonly manifestDir: string;
   /** `kill -0`: true alive, false gone, null unaskable. */
@@ -39,12 +39,14 @@ export interface WorkerFilesIo {
   readonly now: () => number;
   /** The grace before an empty wrapper subtree counts, in seconds. */
   readonly graceSeconds: number;
+  /** The agent process name for a desk whose manifest names none. */
+  readonly agentProcess: string;
   /** Receives one line per desk the first time its agent process name is read. */
   readonly log?: (line: string) => void;
 }
 
 /** What {@link readWorkerReadings} gathers for one desk. */
-export interface WorkerReadings {
+export interface GatheredReadings {
   /** The readings {@link agentState} takes, with `hasPr` set to `false`. */
   readonly readings: AgentStateReadings;
   /** The recorded pid, or `''` where none was recorded. */
@@ -140,7 +142,8 @@ const loggedDesks = new Set<string>();
  * Gathers the readings of one desk that `plot_worker_readings` prints, from
  * the desk's files, its manifest, one process-table reading and `kill -0`.
  *
- * The manifest names the pid, `startedAt` and `pidStartedAt`; the pid file
+ * The manifest names the pid, `startedAt`, `pidStartedAt` and the agent
+ * process name; `io.agentProcess` stands in where it names none. The pid file
  * and its `startedAt` sidecar stand in where no manifest names a pid and a
  * `startedAt`. A pid that answers `kill -0` and is missing from the table has
  * its start read once more; with no start, its staleness is not decided.
@@ -157,10 +160,10 @@ const loggedDesks = new Set<string>();
 export const readWorkerReadings = async (
   worktree: string,
   table: readonly ProcessRow[],
-  io: WorkerFilesIo,
+  io: DeskFilesIo,
   known: KnownDeskReadings = {},
   always = false,
-): Promise<WorkerReadings> => {
+): Promise<GatheredReadings> => {
   const empty = { hasPr: false, blocked: false, dirty: false, unpushed: null };
   if (worktree === '' || !isDirectory(worktree)) {
     return {
@@ -183,7 +186,7 @@ export const readWorkerReadings = async (
     pid = (regularFile(join(worktree, PID_FILE)) ?? '').replace(/[ \n]/g, '');
     pidStartedAt = (regularFile(join(worktree, PID_STARTED_FILE)) ?? '').replace(/\n/g, '');
   }
-  const agentProcess = manifest === null ? DEFAULT_AGENT_PROCESS : manifestField(manifest, 'agentProcess') || DEFAULT_AGENT_PROCESS;
+  const agentProcess = (manifest === null ? '' : manifestField(manifest, 'agentProcess')) || io.agentProcess;
   if (!loggedDesks.has(worktree)) {
     loggedDesks.add(worktree);
     io.log?.(`desk ${worktree}: agent process ${agentProcess}`);
@@ -244,9 +247,9 @@ export const readWorkerReadings = async (
  * The tab-separated line `plot_worker_readings` prints for the same readings.
  *
  * @param gathered - what {@link readWorkerReadings} answered.
- * @returns `here pid liveness exit blocked dirty unpushed`.
+ * @returns `here pid liveness exit blocked dirty unpushed free_wait`.
  */
-export const readingsLine = (gathered: WorkerReadings): string => {
+export const readingsLine = (gathered: GatheredReadings): string => {
   const r = gathered.readings;
   return [
     r.worktreeHere ? '1' : '0',
@@ -256,6 +259,7 @@ export const readingsLine = (gathered: WorkerReadings): string => {
     r.task.blocked ? '1' : '0',
     r.task.dirty ? '1' : '0',
     gathered.ahead,
+    r.waitsFree === true && r.startedAtRecorded === true ? '1' : '0',
   ].join('\t');
 };
 
@@ -266,7 +270,7 @@ export const readingsLine = (gathered: WorkerReadings): string => {
  * @param hasPr - whether the branch has a PR.
  * @returns the state, the pid and the exit code; no activity.
  */
-export const processReadingOf = (gathered: WorkerReadings, hasPr: boolean): ProcessReading => {
+export const processReadingOf = (gathered: GatheredReadings, hasPr: boolean): ProcessReading => {
   const r = gathered.readings;
   if (!r.worktreeHere) return { state: 'none', pid: '', exitCode: '', activity: '' };
   const state = agentState({ ...r, task: { ...r.task, hasPr } });
@@ -326,9 +330,11 @@ const heldTables = new WeakMap<ProcessRunner, { at: number; reading: Promise<Tab
 const DEFAULT_TABLE_HOLD_MS = 4_000;
 
 /**
- * Builds the {@link WorkerFilesIo} a {@link processesFiles} reads with.
+ * Builds the {@link DeskFilesIo} a {@link processesFiles} reads with.
  *
  * The grace comes from `PLOT_AGENT_GRACE_SECONDS`, 30 s where unset; the
+ * agent process name for a desk whose manifest names none from
+ * `PLOT_AGENT_PROCESS`, `claude` where unset; the
  * registry directory from `options.manifestDir`, then `PLOT_MANIFEST_DIR`,
  * then the `Agent registry` key, resolved once per process.
  *
@@ -336,7 +342,7 @@ const DEFAULT_TABLE_HOLD_MS = 4_000;
  * @param options - the seams and the log.
  * @returns a function that answers the io, resolving the registry directory on first use.
  */
-export const workerFilesIo = (context: ShellContext, options: ProcessesFilesOptions = {}): (() => Promise<WorkerFilesIo>) => {
+export const deskFilesIo = (context: ShellContext, options: ProcessesFilesOptions = {}): (() => Promise<DeskFilesIo>) => {
   const run = options.run ?? runProcess;
   const answers = options.answers ?? processAnswers;
   const trees = treesGit(context, answers);
@@ -362,6 +368,7 @@ export const workerFilesIo = (context: ShellContext, options: ProcessesFilesOpti
     },
     now: options.now ?? Date.now,
     graceSeconds,
+    agentProcess: process.env.PLOT_AGENT_PROCESS || DEFAULT_AGENT_PROCESS,
     ...(options.log !== undefined ? { log: options.log } : {}),
   });
 };
@@ -384,7 +391,7 @@ export const processesFiles = (context: ShellContext, options: ProcessesFilesOpt
   const now = options.now ?? Date.now;
   const holdMs = options.tableHoldMs ?? DEFAULT_TABLE_HOLD_MS;
   const ps = processesTable(options.run ?? runProcess);
-  const io = workerFilesIo(context, options);
+  const io = deskFilesIo(context, options);
 
   const run = options.run ?? runProcess;
   const tableRead = (): Promise<TableRead> => {
