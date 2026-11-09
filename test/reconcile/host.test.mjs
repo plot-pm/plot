@@ -9549,6 +9549,115 @@ echo "GraphQL: API rate limit exceeded" >&2; exit 1
   rmSync(dir, { recursive: true, force: true });
 });
 
+// --- the REST reads survive a refused GraphQL ------------------------------
+//
+// `gh pr list`, `gh issue list`, `gh issue view` and `gh repo view` are GraphQL
+// calls. This stub refuses all of them and `api graphql`, and answers `gh api
+// repos/…` from fixtures, so an op still on a GraphQL-backed subcommand fails.
+
+const restPrRow = (n, over = {}) => ({
+  number: n, title: `PR ${n}`, state: 'open', draft: false, html_url: `https://example.test/pull/${n}`,
+  updated_at: '2026-10-01T00:00:00Z', merged_at: null, merge_commit_sha: null,
+  user: { login: 'jwloka' }, head: { ref: `feature/f${n}`, sha: `sha${n}` }, base: { ref: 'main' }, ...over,
+});
+
+const makeGraphqlRefusedStub = ({ pulls = '[]', issues = '[]', issue = '{}', repo = '{"default_branch":"develop"}' } = {}) => {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-nogql-')));
+  const callsFile = path.join(dir, 'gh.calls');
+  const q = (v) => String(v).replace(/'/g, `'\\''`);
+  writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${callsFile}"
+[ "$1" = api ] || { echo "GraphQL: API rate limit exceeded (secondary)" >&2; exit 1; }
+case "$2" in
+  graphql*) echo "GraphQL: API rate limit exceeded" >&2; exit 1 ;;
+  */pulls?*) printf '%s' '${q(pulls)}' ;;
+  */issues/[0-9]*) printf '%s' '${q(issue)}' ;;
+  */issues?*) printf '%s' '${q(issues)}' ;;
+  repos/\\{owner\\}/\\{repo\\}) printf '%s' '${q(repo)}' ;;
+  *) printf '{}' ;;
+esac
+`);
+  chmodSync(path.join(dir, 'gh'), 0o755);
+  return { dir, callsFile };
+};
+
+test('host: every moved GitHub read answers while GraphQL and every GraphQL-backed gh subcommand refuse', () => {
+  const stub = makeGraphqlRefusedStub({
+    pulls: JSON.stringify([restPrRow(7, { state: 'closed', merged_at: '2026-10-02T00:00:00Z', merge_commit_sha: 'm7' })]),
+    issues: JSON.stringify([{ number: 3, title: 'T', html_url: 'u', created_at: 'c', state: 'open', assignees: [] }]),
+    issue: JSON.stringify({ number: 3, title: 'T', body: 'B', html_url: 'u', state: 'open' }),
+  });
+  const ask = (...args) => runAllowFail(args, { env: { PLOT_HOST: 'github' }, stubs: stub });
+  for (const args of [
+    ['pr-list', '--state', 'all'],
+    ['pr-merged', 'feature/f7'],
+    ['pr-merge-commit', 'feature/f7'],
+    ['pr-merge-dest', 'feature/f7'],
+    ['pr-merged-heads', 'feature/f7'],
+    ['issue-list'],
+    ['issue-view', '3'],
+    ['default-branch'],
+  ]) {
+    const res = ask(...args);
+    assert.equal(res.code, 0, `${args.join(' ')}: ${res.stderr}`);
+    assert.notEqual(res.stdout.trim(), '', `${args.join(' ')} answered`);
+  }
+  assert.equal(ask('default-branch').stdout.trim(), 'develop');
+  assert.equal(ask('pr-merged', 'feature/f7').stdout.trim(), 'merged');
+  assert.equal(ask('pr-merge-commit', 'feature/f7').stdout.trim(), 'm7');
+  for (const call of callsOf(stub.callsFile)) {
+    assert.ok(call.startsWith('api repos/'), `only REST was asked: ${call}`);
+  }
+});
+
+test('host: pr-merged reads merged_at and never merge_commit_sha, which a closed unmerged PR can carry', () => {
+  const stub = makeGraphqlRefusedStub({
+    pulls: JSON.stringify([restPrRow(8, { state: 'closed', merged_at: null, merge_commit_sha: 'testmerge' })]),
+  });
+  const res = runAllowFail(['pr-merged', 'feature/f8'], { env: { PLOT_HOST: 'github' }, stubs: stub });
+  assert.equal(res.code, 0, res.stderr);
+  assert.equal(res.stdout.trim(), 'not-merged');
+  const commit = runAllowFail(['pr-merge-commit', 'feature/f8'], { env: { PLOT_HOST: 'github' }, stubs: stub });
+  assert.equal(commit.stdout.trim(), '', 'a sha with no merged_at is no merge commit');
+});
+
+test('host: issue-list --limit 1 counts issues, so a first page of pull requests costs a second page', () => {
+  // GitHub's issues endpoint also returns pull requests. Page 1 here is 100 of
+  // them; the one issue is on page 2, and `--limit` counts what is left after the drop.
+  const prRow = (n) => ({ number: n, title: 'pr', html_url: 'u', created_at: 'c', state: 'open', pull_request: {} });
+  const page1 = JSON.stringify(Array.from({ length: 100 }, (_, i) => prRow(500 - i)));
+  const page2 = JSON.stringify([{ number: 7, title: 'The issue', html_url: 'u7', created_at: 'c', state: 'open', assignees: [] }]);
+  const stubs = makeStubsRateAware({ restPages: [page1, page2] });
+  const out = run(['issue-list', '--limit', '1'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.deepEqual(rowsOf(out).map((r) => r.number), [7]);
+  assert.equal(callsOf(stubs.callsFile).filter((c) => c.startsWith('api repos/')).length, 2);
+});
+
+test('host: a pr-list --rich row read over REST carries unknown verdicts, field by field', () => {
+  // GraphQL refused: the row keeps the base fields and never claims a verdict.
+  // A fallback row that read `passed`, `MERGEABLE` or `APPROVED` would be a claim
+  // nothing was asked about.
+  const stub = makeGraphqlRefusedStub({
+    pulls: JSON.stringify([restPrRow(7, { draft: true, head: { ref: 'feature/x', sha: 'abc123' } })]),
+  });
+  const res = runAllowFail(['pr-list', '--rich', '--state', 'open'], { env: { PLOT_HOST: 'github' }, stubs: stub });
+  assert.equal(res.code, 0, res.stderr);
+  const row = JSON.parse(res.stdout.trim());
+  assert.equal(row.number, 7);
+  assert.equal(row.title, 'PR 7');
+  assert.equal(row.state, 'OPEN');
+  assert.equal(row.head, 'feature/x');
+  assert.equal(row.headSha, 'abc123');
+  assert.equal(row.draft, true);
+  assert.equal(row.url, 'https://example.test/pull/7');
+  assert.equal(row.updatedAt, '2026-10-01T00:00:00Z');
+  assert.equal(row.author, 'jwloka');
+  assert.equal(row.checks, 'unknown');
+  assert.equal(row.mergeable, 'unknown');
+  assert.equal(row.review, '');
+  assert.deepEqual(row.failing_checks, []);
+});
+
 // --- pr-list: whose PR it is ------------------------------------------------
 //
 // The author travels in the same call on both backends. An author that reached
