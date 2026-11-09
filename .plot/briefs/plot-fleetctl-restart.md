@@ -57,7 +57,7 @@ Open the PR with `skills/plot/scripts/plot-open-pr.sh` (`--draft` while the work
 
 ### Scope guard
 
-This branch owns: `skills/plot/scripts/plot-fleetctl.sh`, `test/reconcile/fleetctl.test.mjs`, `skills/plot-fleet/SKILL.md`, the `plot-fleetctl.sh` row in `skills/plot/scripts/README.md`, one changeset. No board source change (`Board impact: none`), no `packages/domain` change: `--restart` alone has no rule to decide. The free-loop rule (`freeLoop(readings)`) belongs to `feature/plot-fleetctl-restart-agents`; write none of it here.
+This branch owns: `skills/plot/scripts/plot-fleetctl.sh`, `test/reconcile/fleetctl.test.mjs`, `skills/plot-fleet/SKILL.md`, the `plot-fleetctl.sh` row in `skills/plot/scripts/README.md`, one changeset. No board source change (`Board impact: none`). Amended 2026-11-09: the restart decision goes in one `packages/domain/src/rules` rule with a unit test and one bundle under `skills/plot/scripts/board/`, so the shell ends at or below its merge base (see the plan Notes). The free-loop rule (`freeLoop(readings)`) belongs to `feature/plot-fleetctl-restart-agents`; write none of it here.
 
 Other branches in flight: the sibling slice `feature/plot-fleetctl-restart-agents` of this plan is not started and edits the same arm; keep the arm's structure simple so it can add `--agents`. Whether another open PR touches `plot-fleetctl.sh` or `skills/plot-fleet/` was NOT verified at dispatch: the host API was rate-limited when this brief was written. Run `gh pr list --state open --json number,files` once before you start and report a collision rather than resolving it.
 
