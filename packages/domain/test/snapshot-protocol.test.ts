@@ -47,4 +47,12 @@ describe('the snapshot protocol fixtures', () => {
       `the snapshot and delta message schemas no longer matches protocol-${SNAPSHOT_PROTOCOL}.shape.json: raise SNAPSHOT_PROTOCOL by one and record protocol-${SNAPSHOT_PROTOCOL + 1}.ndjson and .shape.json, or revert the schema change`,
     ).toEqual(recordedShape(SNAPSHOT_PROTOCOL));
   });
+
+  it('hold protocol 3, and a schema copy that moves without raising the protocol does not match it', () => {
+    expect(SNAPSHOT_PROTOCOL).toBe(3);
+    const shapeOf = (schema: z.ZodType): unknown => JSON.parse(JSON.stringify(z.toJSONSchema(schema, { io: 'input', unrepresentable: 'any' })));
+    const moved = z.union([SnapshotMessageSchema.extend({ identity: z.string() }), DeltaMessageSchema]);
+    expect(shapeOf(moved)).not.toEqual(recordedShape(SNAPSHOT_PROTOCOL));
+    expect(shapeOf(z.union([SnapshotMessageSchema, DeltaMessageSchema]))).toEqual(recordedShape(SNAPSHOT_PROTOCOL));
+  });
 });

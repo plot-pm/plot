@@ -8,6 +8,7 @@ import type { ExecRecord } from './strace-execs.js';
 const here = fileURLToPath(new URL('.', import.meta.url));
 const PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-08-process-census-gate.md', import.meta.url));
 const WRAPPER_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-09-node-worker-wrapper.md', import.meta.url));
+const BOARD_API_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-09-board-api-starts-nothing.md', import.meta.url));
 
 /** The plan's two tables, `| Id | … | Target | Turned green by |`, as id → [target, turned green by]. */
 const planRows = (): Map<string, { target: string; greenBy: string }> => {
@@ -38,10 +39,17 @@ afterEach(() => {
 });
 
 describe('the census rows', () => {
-  it('holds every row of the plan, S1 to S6 and P1 to P4, and D1 of the worker wrapper plan', () => {
-    expect(Object.keys(CENSUS_ROWS).filter((id) => id !== 'D1').sort()).toEqual([...planRows().keys()].sort());
-    expect(Object.keys(CENSUS_ROWS).sort()).toEqual(['D1', 'P1', 'P2', 'P3', 'P4', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6']);
+  it('holds every row of the plan, S1 to S6 and P1 to P4, D1 of the worker wrapper plan, and S7 of the board API plan', () => {
+    expect(Object.keys(CENSUS_ROWS).filter((id) => id !== 'D1' && id !== 'S7').sort()).toEqual([...planRows().keys()].sort());
+    expect(Object.keys(CENSUS_ROWS).sort()).toEqual(['D1', 'P1', 'P2', 'P3', 'P4', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7']);
     expect(readFileSync(WRAPPER_PLAN, 'utf8')).toContain(`\`D1: ${CENSUS_ROWS.D1.claim}\``);
+  });
+
+  it('holds S7 as the board API plan words it, a zero row turned green by its Census zero slice', () => {
+    const plan = readFileSync(BOARD_API_PLAN, 'utf8').replace(/`/g, '');
+    expect(plan).toContain(`S7 reads: "${CENSUS_ROWS.S7.claim}"`);
+    expect(CENSUS_ROWS.S7).toMatchObject({ target: 'zero', unit: 'execve per minute', greenBy: { plan: 'board-api-starts-nothing', slice: 'Census zero' } });
+    expect(rowTitle(CENSUS_ROWS.S7)).toMatch(/expected to fail until plan board-api-starts-nothing, slice Census zero/);
   });
 
   it('holds D1 measured, with no growth allowed', () => {

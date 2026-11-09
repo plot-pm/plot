@@ -11,7 +11,10 @@ import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Trees } from '@plot-pm/domain/ports/trees';
 import { readBranchConflicts, readBranchReadings, type BranchStagePrs } from '@plot-pm/domain/workflows/plan-walk-branches';
 import { readDeskReadings } from '@plot-pm/domain/workflows/plan-walk-desks';
-import { readEstate } from '@plot-pm/domain/workflows/plan-walk-estate';
+import { readEstate, type Estate } from '@plot-pm/domain/workflows/plan-walk-estate';
+import { readBranchPlans, readDeliveredInputs, readSprints, readStories } from '@plot-pm/domain/workflows/board-card-reads';
+import { resolveRecordRef, type RecordSource } from '@plot-pm/domain/workflows/record-listing';
+import type { PortResult } from '@plot-pm/domain';
 import { cachedPlans, cachedRefs, freshWalkCache, readRefSnapshot, type WalkCache } from '@plot-pm/domain/workflows/plan-walk-cache';
 import { assemblePlanWalk, fleetReading } from '@plot-pm/domain/workflows/plan-walk-assembly';
 import { branchAgesOf, walkValueOf, type WalkHeader } from '@plot-pm/domain/workflows/board-view';
@@ -687,6 +690,65 @@ const shortSha = async (refs: Refs, ref: string): Promise<string> => {
   return sha.ok && sha.value !== '' ? sha.value.slice(0, 7) : 'unknown';
 };
 
+/** What {@link recordCardReadings} reads beside the walk's ports. */
+interface CardReadingsInput {
+  mainBranch: string;
+  planDir: string;
+  sprintDir: string;
+  storyDir: string;
+  prefixes: readonly string[];
+  recordSource: RecordSource;
+}
+
+/**
+ * Records `plans` with its authors and Delivered inputs, and the `branchPlans`,
+ * `sprints` and `stories` readings, through the walk's cached refs and plan
+ * store. Where the estate came from the checkout, every reading the default
+ * branch answers is recorded failed.
+ */
+const recordCardReadings = async (
+  record: RecordReading,
+  refs: Refs,
+  plansAt: PlanStore,
+  estate: PortResult<Estate>,
+  input: CardReadingsInput,
+): Promise<void> => {
+  if (!estate.ok) {
+    for (const key of ['plans', 'branchPlans', 'sprints', 'stories'] as const) record(key, failedOf('the estate stage failed'));
+    return;
+  }
+  const records = estate.value.plans.map((plan) => plan.record);
+  if (estate.value.source === 'worktree') {
+    const why = `origin/${input.mainBranch} did not resolve, so the plans were read from the checkout`;
+    record('plans', readOf({
+      ref: 'worktree',
+      resolved: '',
+      records,
+      authors: { state: 'failed', reason: why },
+      delivered: { state: 'failed', reason: why },
+    }));
+    for (const key of ['branchPlans', 'sprints', 'stories'] as const) record(key, failedOf(why));
+    return;
+  }
+  const main = `origin/${input.mainBranch}`;
+  const authors = await refs.planAuthors(main, input.planDir);
+  const recordRef = (await resolveRecordRef(refs, input.recordSource)).ref;
+  const delivered = await readDeliveredInputs(refs, estate.value.plans.map(({ blob, record: r }) => ({ record: r, sha: blob.sha })), recordRef);
+  record('plans', readOf({
+    ref: main,
+    resolved: estate.value.mainSha,
+    records,
+    authors: authors.ok ? { state: 'read', value: Object.fromEntries(authors.value) } : { state: 'failed', reason: 'the plan authors could not be read' },
+    delivered: delivered.ok ? { state: 'read', value: delivered.value } : { state: 'failed', reason: 'the Delivered plans could not be read' },
+  }));
+  const branchPlans = await readBranchPlans(refs, plansAt, { ...input, mainSha: estate.value.mainSha });
+  record('branchPlans', branchPlans.ok ? readOf(branchPlans.value) : failedOf('the branch plans could not be read'));
+  const sprints = await readSprints(refs, main, input.sprintDir);
+  record('sprints', sprints.ok ? readOf(sprints.value) : failedOf('the sprint files could not be read'));
+  const stories = await readStories(refs, main, input.storyDir);
+  record('stories', stories.ok ? readOf(stories.value) : failedOf('the story files could not be read'));
+};
+
 /**
  * Runs the plan walk's four stages in this process and builds the pulse.
  *
@@ -746,6 +808,9 @@ export const walkOnce = async (
   const prefixes = (await cfg('Branch prefixes', 'idea/, feature/, bug/, docs/, infra/'))
     .split(',').map((p) => p.trim().replace(/\/$/, '')).filter((p) => p !== '');
   const stateBranch = await cfg('State branch', '');
+  // Read only where the walk records: the sprint and story readings are the board's.
+  const sprintDir = record === undefined ? '' : await cfg('Sprint directory', 'docs/sprints/');
+  const storyDir = record === undefined ? '' : await cfg('Story directory', 'docs/stories/');
   const configured = await scripts.config('Main branch', '');
   if (configured.ok) configRead['Main branch'] = configured.value.trim();
   else configFailed.push('Main branch');
@@ -800,9 +865,16 @@ export const walkOnce = async (
   const estate = await readEstate(refs, plansAt, {
     mainBranch, stateBranch, planDir, activeDir, deliveredDir, prefixes: prefixes.length > 0 ? prefixes : ['idea', 'feature', 'bug', 'docs', 'infra'],
   }, walk.worktree);
-  record?.('plans', estate.ok
-    ? readOf({ ref: estate.value.source === 'worktree' ? 'worktree' : `origin/${mainBranch}`, records: estate.value.plans.map((plan) => plan.record) })
-    : failedOf('the estate stage failed'));
+  if (record !== undefined) {
+    await recordCardReadings(record, refs, plansAt, estate, {
+      mainBranch,
+      planDir,
+      sprintDir,
+      storyDir,
+      prefixes: prefixes.length > 0 ? prefixes : ['idea', 'feature', 'bug', 'docs', 'infra'],
+      recordSource: { stateBranch, defaultBranch: mainBranch },
+    });
+  }
   const branches = estate.ok
     ? await readBranchReadings(refs, walk.host, estate.value, { mainBranch, planDir, prs, indexMerged, ...(indexOpen === undefined ? {} : { indexOpen }) })
     : estate;

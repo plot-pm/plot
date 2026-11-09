@@ -4,13 +4,14 @@ import type { ExecRecord } from './strace-execs.js';
 /** Who turns a zero row into a required pass: a plan, and its slice where the plan names one. */
 export type GreenBy = { plan: string; slice?: string; phase?: string };
 
-/** One row of the plan's scenario table (S1..S6), per-source table (P1..P4), or a launch row (D1). */
+/** One row of the plan's scenario table (S1..S7), per-source table (P1..P4), or a launch row (D1). */
 export type CensusRow =
   | { id: string; claim: string; unit: string; target: 'zero'; greenBy: GreenBy; green?: true }
   | { id: string; claim: string; unit: string; target: 'measured'; tolerance: CensusTolerance };
 
 /**
  * The rows of `docs/plans/2026-11-08-process-census-gate.md`, in its order,
+ * with S7 from `docs/plans/2026-11-09-board-api-starts-nothing.md` after S3,
  * then D1 from `docs/plans/2026-11-09-node-worker-wrapper.md`.
  * A zero row is written as `it.fails` until the plan and slice it names turn
  * it green; that slice sets `green: true` and changes the row to `it`.
@@ -39,6 +40,13 @@ export const CENSUS_ROWS = {
     target: 'zero',
     greenBy: { plan: 'board-reads-the-channel', slice: 'Census zero' },
     green: true,
+  },
+  S7: {
+    id: 'S7',
+    claim: 'an idle board with one visible page that polls GET /api/board every 30 s, and fleetd running, starts nothing',
+    unit: 'execve per minute',
+    target: 'zero',
+    greenBy: { plan: 'board-api-starts-nothing', slice: 'Census zero' },
   },
   S4: {
     id: 'S4',
