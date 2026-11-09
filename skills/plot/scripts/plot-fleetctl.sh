@@ -3,6 +3,7 @@
 # Usage: plot-fleetctl.sh --status
 #        plot-fleetctl.sh --once
 #        plot-fleetctl.sh --start [N] [--dry-run]
+#        plot-fleetctl.sh --restart [--dry-run] [--wait SECONDS]
 #        plot-fleetctl.sh --stop [--wait SECONDS]
 #   --status    is the supervisor alive, how many agents are running, how long
 #               each has been idle — with pids. Starts nothing. Exit 0 when the
@@ -20,6 +21,12 @@
 #               IT FINISHED, in `.plot/state/fleet-start.done` — a completion
 #               marker and not a lock, so absence is the signal and no timer
 #               tells a kill from a crash.
+#   --restart   load the current fleetd bundle into the running supervisor and
+#               signal no agent: `launchctl kickstart -k` on launchd, `systemctl
+#               --user restart` on systemd. Prints the old and new supervisor
+#               pid and the bundle's commit. Refuses wherever --start refuses,
+#               and when no unit is loaded. Fills nothing, writes no marker,
+#               starts no agent.
 #   --stop      stop every dispatched agent through `plot-dispatch.sh --stop`,
 #               reporting each branch as it goes, then unload the supervisor.
 #               The supervisor goes LAST — it is what would notice a desk
@@ -29,7 +36,8 @@
 #               bound the branch is reported still running and the run carries
 #               on; nothing is waited on forever.
 #   --dry-run   with --start: report what would be filled, loaded and started;
-#               write nothing, load nothing, start nothing.
+#               with --restart: report the unit, the pid and the commit;
+#               write nothing, load nothing, start nothing, signal nothing.
 #               every other mode refuses it and exits 1, before it acts.
 # Output: prose for a person, one line per thing acted on. Exit 0 on success.
 #
@@ -762,7 +770,7 @@ while [ $# -gt 0 ]; do
     # Two DIFFERENT mode flags refuse; the same flag twice is one mode.
     # Only a bare number after --start is consumed, the same rule
     # `plot-dispatch.sh --start` applies, so `--start --dry-run` means what it reads as.
-    --status|--once|--start|--stop)
+    --status|--once|--start|--stop|--restart)
               [ -z "$mode" ] || [ "$mode" = "${1#--}" ] || { echo "plot-fleetctl: --$mode and $1 are different modes; give one; nothing was done" >&2; exit 1; }
               mode=${1#--}
               case "$1:${2:-}" in
@@ -781,8 +789,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-[ -n "$mode" ] || { echo "plot-fleetctl: one of --status, --once, --start, --stop is required" >&2; exit 1; }
-[ "$dry_run" = 0 ] || [ "$mode" = start ] || { echo "plot-fleetctl: --dry-run works with --start only, not --$mode; nothing was done" >&2; exit 1; }
+[ -n "$mode" ] || { echo "plot-fleetctl: one of --status, --once, --start, --restart, --stop is required" >&2; exit 1; }
+[ "$dry_run" = 0 ] || [ "$mode" = start ] || [ "$mode" = restart ] || { echo "plot-fleetctl: --dry-run works with --start and --restart only, not --$mode; nothing was done" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
 # --status: processes, not work
@@ -1025,7 +1033,7 @@ fi
 # ---------------------------------------------------------------------------
 # --start: probe, fill, load, then the agents
 # ---------------------------------------------------------------------------
-if [ "$mode" = "start" ]; then
+if [ "$mode" = "start" ] || [ "$mode" = "restart" ]; then
   # REFUSAL 1 — nothing to start.
   [ -f "$fleetd" ] || { broken_install "no supervisor artifact at $fleetd" '  The unit would name a file that does not exist.\n'; exit 1; }
 
@@ -1133,12 +1141,34 @@ if [ "$mode" = "start" ]; then
   # not run never blocks a start it did not actually test. An empty or `none`
   # Worker command starts nothing and is not probed (`writeProbeNeeded`); a
   # stale print block proceeds and names its fix (`writeProbeOutcome`).
+  # `--restart` reloads what is loaded and fills nothing, so it refuses an
+  # unloaded unit here, after the refusals it shares with `--start`.
+  [ "$mode" = start ] || supervisor_loaded || { echo "plot-fleetctl: no unit is loaded under '$LABEL', so there is no supervisor to restart; nothing was done. Run /plot-fleet --start" >&2; exit 1; }
+  old_pid=$(supervisor_pid); commit=$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null) || commit=unknown
+  if [ "$dry_run" = 1 ] && [ "$mode" = restart ]; then
+    printf "would reload %s (%s) — agents untouched\n  supervisor pid: %s\n  bundle commit:  %s\n" "$LABEL" "$plat" "${old_pid:-unreadable}" "$commit"
+    exit 0
+  fi
   if [ "$dry_run" = 1 ]; then
     printf "state: %s\nwould fill and load %s (%s)\n  node:      %s (major %s, pinned %s)\n  harness:   %s (on the unit's PATH after node's directory: %s)\n  fleetd:    %s\n  repo:      %s\nwould probe: node %s/board/plot-write-probe.mjs '%s'\nwould then start agents: plot-dispatch.sh --start %s\n" "$(fleet_install_state)" "$LABEL" "$plat" "$node_bin" "$have" "$want" "$harness_bin" "$harness_dir" "$fleetd" "$repo_root" "$script_dir" "$("$script_dir/plot-config.sh" get "Worker command" "" 2>/dev/null)" "${start_count:-(default)}"
     exit 0
   fi
 
   PLOT_REPO_ROOT="$repo_root" node "$script_dir/board/plot-write-probe.mjs" "$("$script_dir/plot-config.sh" get "Worker command" "" 2>/dev/null)" || exit 1
+
+  if [ "$mode" = restart ]; then
+    # THE RELOAD SIGNALS THE SUPERVISOR ALONE: `kickstart -k` and `restart`
+    # leave every agent running, where `bootout` killed them. It returns before
+    # the new process holds a pid, so the pid is polled, bounded by `--wait`.
+    pid_unchanged() { new_pid=$(supervisor_pid); [ -z "$new_pid" ] || [ "$new_pid" = "$old_pid" ]; }
+    case "$plat" in
+      launchd) launchctl kickstart -k "gui/$(id -u)/$LABEL" ;;
+      systemd) systemctl --user restart "$UNIT_NAME" ;;
+    esac || { echo "plot-fleetctl: the reload of '$LABEL' was refused; nothing else was done" >&2; exit 1; }
+    poll_while pid_unchanged || { printf "plot-fleetctl: '%s' reported no new pid within %ss (was %s, now %s)\n  Read it: %s\n" "$LABEL" "$wait_bound" "${old_pid:-unreadable}" "${new_pid:-unreadable}" "$(read_cmd)" >&2; exit 1; }
+    printf "supervisor restarted — %s\n  old pid: %s\n  new pid: %s\n  bundle commit: %s\n  agents untouched\n" "$LABEL" "${old_pid:-unreadable}" "$new_pid" "$commit"
+    exit 0
+  fi
 
   mkdir -p "$repo_root/.plot/logs" "$repo_root/.plot/state"
 
