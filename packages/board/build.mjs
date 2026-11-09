@@ -268,6 +268,26 @@ await esbuild.build({
 fs.copyFileSync(oldLabelArtifact, shippedOldLabel);
 fs.chmodSync(shippedOldLabel, 0o755);
 
+// The shared `--start`/`--restart` arm's harness and init-system probes, and
+// `--restart`'s plan, reload command and report, reachable from plot-fleetctl.sh.
+const fleetctlStartArtifact = path.join(here, 'dist/plot-fleetctl-start.mjs');
+const shippedFleetctlStart = path.join(here, '../../skills/plot/scripts/board/plot-fleetctl-start.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/fleetctl-start.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: fleetctlStartArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(fleetctlStartArtifact, shippedFleetctlStart);
+fs.chmodSync(shippedFleetctlStart, 0o755);
+
 // One PR's state through `Host.prState`, reachable from plot-impl-status.sh. A
 // cross-repo `owner/repo#N` reference resolves the host it lives on in the host
 // adapter (`rules/cross-repo-probe.ts`), so the shell keeps no copy of the probe.
