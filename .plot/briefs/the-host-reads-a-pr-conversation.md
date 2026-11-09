@@ -21,7 +21,7 @@ The slice adds one question to the `Host` port and one op to the shell behind it
 
 Each row of the reading carries what wave 2's rule needs and nothing it decides: `kind` (`issue`, `inline` or `review`), `id`, the author's login, the author's account type (`User`, `Bot`, or `''` where the host names none), the time, the body verbatim, and for a review its state (`APPROVED`, `CHANGES_REQUESTED`, `COMMENTED`, `PENDING`, `DISMISSED`). The reading does not filter. An empty review body, a marked comment and a `Bot` comment all come back, because the rule that ignores them is wave 2's and a filter here would hide the row a test needs to see.
 
-The PR's author is not part of this reading. `Pr.author` already exists on the entity `prState` returns, and `mergeAt` already makes that read.
+The reading also carries the PR author's login, as the plan's slice line says since `45ea8be30` (2026-11-09). Wave 2's rule needs it because a comment from the PR author's own account opens nothing, and the plan puts the login in this reading so the rule reads one value, not two. Read it from `repos/{owner}/{repo}/pulls/<n>` (`.user.login`, `// ""` where the account is deleted), the same endpoint `pr-review` already reads through `gh_api_harvest`. The reading is therefore `{ prAuthor, rows }`, and the author comparison itself stays in wave 2. `Pr.author` exists on the entity `prState` returns, but `mergeAt` is not told to join the two, so this slice does not rely on it.
 
 Bitbucket ships in this slice, not later. The Bitbucket arm reads the PR's comments and approvals through `bb` and `_bb_paged_walk` (`plot-host.sh:1173`), and until the measurement below passes it answers `unaskable`.
 
@@ -50,7 +50,8 @@ The slice line in the plan and its Design section are the specification; the pla
 - **A conversation of more than 100 comments returns the one on page 2.** A `gh api` without `--paginate`, or with it dropped on one of the three calls, returns the first page and passes every small fixture. The contract test stubs several pages per endpoint, as `host-pr-review.test.mjs` does with `commentPages`.
 - **A failing page exits 3 and prints no rows.** The stub's `failOn` fails page two of each endpoint in turn. An implementation that ends the pipeline in `|| true` or `// []` returns the rows it holds and passes a happy-path test.
 - **Any `pr view` or `api graphql` call fails the test.** The stub exits 9 on them, as the `pr-review` stub does, so a GraphQL read cannot pass.
-- **A row with `user: null` comes back with empty login and type.** Without it `jq` prints `null` into a string field.
+- **A row with `user: null` comes back with empty login and type.** Without it `jq` prints `null` into a string field. The same holds for `prAuthor` when the PR's author account is deleted.
+- **`prAuthor` is the PR's author, not the token's user.** A stub whose `pulls/<n>` payload names a different login from every comment author proves the field comes from the PR. A failing `pulls/<n>` read fails the whole answer, like a failing comments page.
 - **A review with an empty body and no inline comments still comes back**, with its state. A filter in the shell would hide it from the rule that should ignore it.
 - **An edited comment keeps its `created_at`.** A fixture whose `updated_at` is later than `created_at` proves the time is the first.
 - **`host-fixture.ts` answers `failed` for a PR it does not list**, and the `host-shell.test.ts` case maps a failing exit to `failed` and the Bitbucket arm to `unaskable`.
