@@ -833,7 +833,6 @@ host_cli() { # → the CLI this backend drives, or '' where none is known
   case "$1" in
     github)    echo "gh" ;;
     bitbucket) echo "bb" ;;
-    *)         echo "" ;;
   esac
 }
 
@@ -5747,10 +5746,10 @@ case "$op" in
     num="${1:?$op needs an issue number}"; source_said="$(issue_source)" || exit 1
     [ "$be" = github ] && { [ "$source_said" = git-host ] || [ "$source_said" = $'tracker\tgithub-issues' ]; } || { echo "plot-host: $op: ${source_said#*$'\t'}" >&2; exit 4; }
     case "$op" in
-      issue-label) add="${2:?issue-label needs a label}"; carried="$(gh api --paginate "repos/{owner}/{repo}/issues/$num/labels" -q '.[].name' 2>"$HOST_ERR")" || gh_fail; keep="$(comm -12 <(printf '%s\n' "${3-}" | tr , '\n' | sort) <(printf '%s\n' "$carried" | sort))"
+      issue-label) add="${2:?issue-label needs a label}"; carried="$(gh api --paginate "repos/{owner}/{repo}/issues/$num/labels" -q '.[].name' 2>"$HOST_ERR")" || gh_fail
         gh api -X POST "repos/{owner}/{repo}/labels" -f name="$add" -f color=ededed -f description="Plot plan phase: ${add#plan:}" >"$HOST_ERR" 2>&1 || grep -q already_exists "$HOST_ERR" || gh_fail
         gh api -X POST "repos/{owner}/{repo}/issues/$num/labels" -f "labels[]=$add" >/dev/null 2>"$HOST_ERR" || gh_fail
-        while IFS= read -r l; do [ -z "$l" ] || gh api -X DELETE "repos/{owner}/{repo}/issues/$num/labels/$(jq -rn --arg s "$l" '$s|@uri')" >/dev/null 2>"$HOST_ERR" || gh_fail; done <<<"$keep" ;;
+        while IFS= read -r l; do gh api -X DELETE "repos/{owner}/{repo}/issues/$num/labels/$(jq -rn --arg s "$l" '$s|@uri')" >/dev/null 2>"$HOST_ERR" || gh_fail; done < <(comm -12 <(printf '%s\n' "${3-}" | tr , '\n' | sort) <(printf '%s\n' "$carried" | sort)) ;;
       issue-close) gh issue close "$num" >/dev/null 2>"$HOST_ERR" || gh_fail ;;
       issue-comment)
         cid="${2:+$(gh_marker_comment_id "$num" "$2")}" || gh_fail
