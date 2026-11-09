@@ -2656,13 +2656,13 @@ export interface RunSeams {
   readIssueWrites?: () => Promise<void>;
   /** The escalation `Notifier`; the configured `Notify command` by default. Tests only. */
   notifier?: () => Promise<Notifier>;
-  /** The generation of the `RepoSnapshot` fleetd holds, written to the heartbeat; 0 while fleetd holds none. */
-  snapshotGeneration?: () => number;
   /**
    * The snapshot the loops fill. A fresh one by default; a test passes its own
    * to read what the run recorded.
    */
   snapshot?: SnapshotHolder;
+  /** The generation of the `RepoSnapshot` fleetd holds, written to the heartbeat; the held snapshot's generation by default. */
+  snapshotGeneration?: () => number;
   /** The App key probe at start; reads every declared key through the adapter by default. */
   probeAppKeys?: (repoRoot: string, scriptsDir: string, write: (line: string) => void) => void;
 }
@@ -3097,7 +3097,7 @@ export const run = async (
   // listens.
   // THE HEARTBEAT BELONGS TO THE LOOP: `--once` writes none. The beat comes from
   // the clock and not from a loop's work, so it runs with no git host and with
-  // nothing changing. `generation` is 0 until fleetd holds a `RepoSnapshot`.
+  // nothing changing. `generation` is the held snapshot's, 0 before the first reading.
   // Every loop a daemon runs registers at start with no pass, so a first pass that
   // hangs reads late from `startedAt`; `--once` runs no heartbeat and no loops.
   const passes: Partial<Record<FleetdLoop, number | null>> = args.once
@@ -3131,7 +3131,7 @@ export const run = async (
           supervised: supervisedFrom(process.env, fleetLabel),
           passes: () => ({ ...passes }),
           bridgeAt: bridge.bridgeAt,
-          generation: seams.snapshotGeneration ?? (() => 0),
+          generation: seams.snapshotGeneration ?? (() => snapshot.current().generation),
         },
         warn,
       );

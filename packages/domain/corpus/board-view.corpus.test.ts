@@ -279,6 +279,8 @@ const FIELD_SOURCES: Readonly<Record<string, Source>> = {
   claimOnly: { keys: ['unmerged'] },
   questions: { keys: ['questions'] },
   running: { board: 'whether the board runs a refresh now' },
+  heartbeat: { board: "fleetd's heartbeat file, read on every beat to pick the source" },
+  viewSource: { board: 'whether the last refresh served the snapshot or read for itself' },
   appliedBridgeAt: { board: 'the bridge stamp the board last applied' },
   scanNote: { board: "a note on the age of fleetd's bridge" },
   shrink: { board: "the board's comparison of this pulse with its previous one" },

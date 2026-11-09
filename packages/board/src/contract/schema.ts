@@ -4674,6 +4674,12 @@ export const FleetShape = z.object({
    */
   fleetd: z.object({ file: z.enum(['live', 'stale', 'absent']), channel: z.enum(['unknown', 'up', 'down']) }).optional(),
   /**
+   * Where the last refresh took the view from: `snapshot` where the board
+   * installed fleetd's snapshot, `own` where it read for itself. Optional so a
+   * client talking to an older server still validates.
+   */
+  viewSource: z.enum(['snapshot', 'own']).optional(),
+  /**
    * Whether the tracker could be asked. `.nullable()` because the cache entry
    * this reads now seeds `null` ("not read yet") rather than `unsupported` —
    * see `freshCacheEntry`. Defaults to `unsupported` only for an OLDER server
