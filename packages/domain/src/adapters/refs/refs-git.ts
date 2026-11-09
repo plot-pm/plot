@@ -37,7 +37,7 @@ import {
 import { parseDiff } from './diff-parse.js';
 import { listBlobsThrough, type ObjectsBatch } from './objects-batch.js';
 import { processObjects, type ObjectReaders } from './object-readers.js';
-import { refFilesFs } from './ref-files-fs.js';
+import { refFilesFs, type RefFiles } from './ref-files-fs.js';
 import { parseTree } from '../../rules/git-tree.js';
 import { processAnswers, type FixedAnswers } from '../git-dirs/git-dirs.js';
 import { agentsFs } from '../agents/agents-fs.js';
@@ -450,26 +450,55 @@ const walkPulse = async (context: ShellContext, refs: Refs) => {
 };
 
 /**
+ * The reader's answer, or git's where the reader answers `unaskable`.
+ *
+ * @param files - the file reader's answer.
+ * @param git - asks git; called only where the files cannot answer.
+ * @returns the first answer that is not `unaskable`.
+ */
+const filesFirst = <T>(files: PortResult<T>, git: () => Promise<PortResult<T>>): Promise<PortResult<T>> =>
+  !files.ok && files.why === 'unaskable' ? git() : Promise.resolve(files);
+
+/**
+ * The synchronous twin of {@link filesFirst}.
+ *
+ * @param files - the file reader's answer.
+ * @param git - asks git; called only where the files cannot answer.
+ * @returns the first answer that is not `unaskable`.
+ */
+const filesFirstSync = <T>(files: PortResult<T>, git: () => PortResult<T>): PortResult<T> =>
+  !files.ok && files.why === 'unaskable' ? git() : files;
+
+/**
  * Reads refs, commits and the working tree through git.
+ *
+ * `refState`, `refStateSync`, `defaultBranch`, `listBranches`, `branchTips`,
+ * `resolve`, `currentBranch` and `remoteHead` read the ref files first and
+ * start `git` only where the reader answers `unaskable`.
  *
  * Where `objects` holds a reader for this repository, `readBlobs`,
  * `listBlobs`, `entriesAt`, `showFile` and `containsMany`'s revision check read
- * through it and start no process, resolving a ref name from the ref files.
+ * through it and start no process, resolving a ref name through `files`.
  * Where no reader is held, where only git can resolve the name, and while the
  * reader answers `unaskable`, each runs its own `git`.
  *
  * @param context - where the scripts and the repository are.
  * @param answers - the held top-level and git-directory answers; this process's own by default.
  * @param objects - the object readers; this process's own by default.
- * @returns a `Refs` backed by git.
+ * @param files - the ref file reader; `null` asks git for every answer.
+ * @returns a `Refs` backed by the ref files, the object reader and git.
  */
 export const refsGit = (
   context: ShellContext,
   answers: FixedAnswers = processAnswers,
   objects: ObjectReaders = processObjects,
+  files: RefFiles | null = refFilesFs(context.repoRoot),
 ): Refs => {
   const inRepo = { cwd: context.repoRoot };
-  const refFiles = refFilesFs(context.repoRoot);
+
+  /** Asks the reader, or answers `unaskable` where there is none. */
+  const read = <T>(ask: (reader: RefFiles) => PortResult<T>): PortResult<T> =>
+    files === null ? unaskable<T>('no file reader') : ask(files);
 
   const installed = async (): Promise<ObjectsBatch | undefined> => {
     if (objects.empty()) return undefined;
@@ -482,7 +511,7 @@ export const refsGit = (
     const reader = await installed();
     if (reader === undefined) return undefined;
     if (FULL_OID.test(ref)) return { reader, oid: ref };
-    const found = refFiles.resolve(ref);
+    const found = read((names) => names.resolve(ref));
     return found.ok ? { reader, oid: found.value } : undefined;
   };
 
@@ -583,25 +612,45 @@ export const refsGit = (
   };
 
   const defaultBranch = (): Promise<PortResult<string>> =>
-    runScript(
-      'bash',
-      ['-c', 'git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed "s|^origin/||" || git rev-parse --abbrev-ref HEAD'],
-      asText,
+    filesFirst(read((reader) => reader.defaultBranch()), () =>
+      runScript(
+        'bash',
+        ['-c', 'git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed "s|^origin/||" || git rev-parse --abbrev-ref HEAD'],
+        asText,
+        inRepo,
+      ));
+
+  /** `remoteHead` through git. */
+  const remoteHeadGit = async (branch: string): Promise<PortResult<RemoteHeadAnswer>> => {
+    // The last-fetched `origin/<branch>`, read locally: `--verify --quiet`
+    // prints the SHA and exits 0 for a ref that exists, exits 1 silently for
+    // one that does not, and exits 128 outside a repository.
+    const run = await runProcess(
+      'git',
+      ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`],
       inRepo,
     );
+    if (run.code === 0 && run.stdout.trim() !== '') return answered<RemoteHeadAnswer>('present');
+    if (run.code !== 1) return answered<RemoteHeadAnswer>('unknown');
+    // `runProcess` also answers 1 for a git that could not start, so exit 1
+    // reads `absent` only where git proves it ran in a repository.
+    const repoCheck = await runProcess('git', ['rev-parse', '--git-dir'], inRepo);
+    return answered<RemoteHeadAnswer>(repoCheck.code === 0 ? 'absent' : 'unknown');
+  };
 
   const self: Refs = {
     defaultBranch,
 
     listBranches: (remote) =>
-      runScript(
-        'git',
-        remote
-          ? ['for-each-ref', '--format=%(refname:strip=3)', 'refs/remotes/origin']
-          : ['for-each-ref', '--format=%(refname:strip=2)', 'refs/heads'],
-        (stdout) => asLines(stdout).filter((name) => name !== 'HEAD'),
-        inRepo,
-      ),
+      filesFirst(read((reader) => reader.listBranches(remote)), () =>
+        runScript(
+          'git',
+          remote
+            ? ['for-each-ref', '--format=%(refname:strip=3)', 'refs/remotes/origin']
+            : ['for-each-ref', '--format=%(refname:strip=2)', 'refs/heads'],
+          (stdout) => asLines(stdout).filter((name) => name !== 'HEAD'),
+          inRepo,
+        )),
 
     isMergedByAncestry: async (branch): Promise<PortResult<MergeStatus>> => {
       const main = await defaultBranch();
@@ -620,7 +669,7 @@ export const refsGit = (
     },
 
     resolve: (ref) =>
-      runScript('git', ['rev-parse', ref], asText, inRepo),
+      filesFirst(read((reader) => reader.resolve(ref)), () => runScript('git', ['rev-parse', ref], asText, inRepo)),
 
     mergeBase: (a, b, ...more) =>
       runScript('git', ['merge-base', a, b, ...more], asText, inRepo),
@@ -719,7 +768,9 @@ export const refsGit = (
 
     showPrefix: () => runScript('git', ['rev-parse', '--show-prefix'], (stdout) => stdout.trim(), inRepo),
 
-    currentBranch: () => runScript('git', ['rev-parse', '--abbrev-ref', 'HEAD'], asText, inRepo),
+    currentBranch: () =>
+      filesFirst(read((reader) => reader.currentBranch()), () =>
+        runScript('git', ['rev-parse', '--abbrev-ref', 'HEAD'], asText, inRepo)),
 
     linkedWorktree: async () =>
       resultOf(await answers.gitDirs(context.repoRoot), (stdout) => {
@@ -864,17 +915,18 @@ export const refsGit = (
     branchTips: (patterns) =>
       patterns.length === 0
         ? Promise.resolve(answered<readonly BranchTip[]>([]))
-        : runScript(
-            'git',
-            ['for-each-ref', '--format=%(refname:short)\t%(objectname)', ...patterns],
-            (stdout): readonly BranchTip[] =>
-              asLines(stdout).flatMap((line) => {
-                const [ref, sha] = line.split('\t');
-                if (!ref || !sha) return [];
-                return [{ branch: ref.replace(/^origin\//, ''), sha }];
-              }),
-            inRepo,
-          ),
+        : filesFirst(read((reader) => reader.branchTips(patterns)), () =>
+            runScript(
+              'git',
+              ['for-each-ref', '--format=%(refname:short)\t%(objectname)', ...patterns],
+              (stdout): readonly BranchTip[] =>
+                asLines(stdout).flatMap((line) => {
+                  const [ref, sha] = line.split('\t');
+                  if (!ref || !sha) return [];
+                  return [{ branch: ref.replace(/^origin\//, ''), sha }];
+                }),
+              inRepo,
+            )),
 
     repoRoot: async () => resultOf(await answers.toplevel(context.repoRoot), asText),
 
@@ -914,20 +966,22 @@ export const refsGit = (
     },
 
     refState: (scope) =>
-      runScript(
-        'git',
-        ['for-each-ref', '--format=%(refname) %(objectname) %(HEAD)', ...NAMESPACES[scope]],
-        refStatesOf,
-        { ...inRepo, maxBuffer: REFS_MAX_BUFFER },
-      ),
+      filesFirst(read((reader) => reader.refState(scope)), () =>
+        runScript(
+          'git',
+          ['for-each-ref', '--format=%(refname) %(objectname) %(HEAD)', ...NAMESPACES[scope]],
+          refStatesOf,
+          { ...inRepo, maxBuffer: REFS_MAX_BUFFER },
+        )),
 
     refStateSync: (scope) =>
-      runScriptSync(
-        'git',
-        ['for-each-ref', '--format=%(refname) %(objectname) %(HEAD)', ...NAMESPACES[scope]],
-        refStatesOf,
-        { ...inRepo, maxBuffer: REFS_MAX_BUFFER },
-      ),
+      filesFirstSync(read((reader) => reader.refState(scope)), () =>
+        runScriptSync(
+          'git',
+          ['for-each-ref', '--format=%(refname) %(objectname) %(HEAD)', ...NAMESPACES[scope]],
+          refStatesOf,
+          { ...inRepo, maxBuffer: REFS_MAX_BUFFER },
+        )),
 
     countAheadSync: (branch) =>
       runScriptSync(
@@ -1129,22 +1183,7 @@ export const refsGit = (
         inRepo,
       ),
 
-    remoteHead: async (branch): Promise<PortResult<RemoteHeadAnswer>> => {
-      // The last-fetched `origin/<branch>`, read locally: `--verify --quiet`
-      // prints the SHA and exits 0 for a ref that exists, exits 1 silently for
-      // one that does not, and exits 128 outside a repository.
-      const run = await runProcess(
-        'git',
-        ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`],
-        inRepo,
-      );
-      if (run.code === 0 && run.stdout.trim() !== '') return answered<RemoteHeadAnswer>('present');
-      if (run.code !== 1) return answered<RemoteHeadAnswer>('unknown');
-      // `runProcess` also answers 1 for a git that could not start, so exit 1
-      // reads `absent` only where git proves it ran in a repository.
-      const repoCheck = await runProcess('git', ['rev-parse', '--git-dir'], inRepo);
-      return answered<RemoteHeadAnswer>(repoCheck.code === 0 ? 'absent' : 'unknown');
-    },
+    remoteHead: (branch) => filesFirst(read((reader) => reader.remoteHead(branch)), () => remoteHeadGit(branch)),
 
     tagsContaining: async (sha) => {
       const run = await runProcess('git', ['tag', '--contains', sha], inRepo);

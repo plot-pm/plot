@@ -10,6 +10,7 @@ import { bundlePathsOf, deskDirtFilter } from '../../rules/desk-dirt-filter.js';
 import { realCommits, type CommitReading as ClaimCommit } from '../../rules/empty-claim.js';
 import type { CommitReading } from '../../rules/sample.js';
 import { processAnswers, type FixedAnswers } from '../git-dirs/git-dirs.js';
+import { refFilesFs, type RefFiles } from '../refs/ref-files-fs.js';
 import { asLines, asText, runProcess, runScript, runScriptSync, type ScriptRun } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
@@ -242,12 +243,28 @@ const worktreesOf = (stdout: string): Worktree[] => {
 /**
  * Reads the worktrees on this machine through git.
  *
+ * `list` and `listSync` read the `worktrees/*` files first and start `git
+ * worktree list` only where the reader answers `unaskable`. Every write and
+ * every destructive action starts git.
+ *
  * @param context - where the repository is.
  * @param answers - the held answers for each checkout's common git dir; this process's own by default.
- * @returns a `Trees` backed by `git worktree` and the filesystem.
+ * @param files - the ref file reader; `null` asks git for every answer.
+ * @returns a `Trees` backed by the worktree files, `git worktree` and the filesystem.
  */
-export const treesGit = (context: ShellContext, answers: FixedAnswers = processAnswers): Trees => {
+export const treesGit = (
+  context: ShellContext,
+  answers: FixedAnswers = processAnswers,
+  files: RefFiles | null = refFilesFs(context.repoRoot),
+): Trees => {
   const inRepo = { cwd: context.repoRoot };
+
+  /** The reader's worktree list, or `undefined` where git must answer. */
+  const fromFiles = (): PortResult<readonly Worktree[]> | undefined => {
+    if (files === null) return undefined;
+    const read = files.worktrees();
+    return !read.ok && read.why === 'unaskable' ? undefined : read;
+  };
   const deskDirt = scriptPath(context, 'plot-desk-dirt.sh');
 
   /** The git directory every worktree of a repository shares, absolute; null where git cannot say. */
@@ -269,8 +286,8 @@ export const treesGit = (context: ShellContext, answers: FixedAnswers = processA
     return run.code === 0 ? answered(run.stdout.trim().length === 0) : failed();
   };
 
-  const list = (): Promise<PortResult<readonly Worktree[]>> =>
-    runScript('git', ['worktree', 'list', '--porcelain'], worktreesOf, inRepo);
+  const list = async (): Promise<PortResult<readonly Worktree[]>> =>
+    fromFiles() ?? runScript('git', ['worktree', 'list', '--porcelain'], worktreesOf, inRepo);
 
   return {
     list,
@@ -608,6 +625,7 @@ export const treesGit = (context: ShellContext, answers: FixedAnswers = processA
       }),
 
     listSync: () =>
+      fromFiles() ??
       runScriptSync('git', ['worktree', 'list', '--porcelain'], worktreesOf, {
         ...inRepo,
         maxBuffer: STATUS_MAX_BUFFER,

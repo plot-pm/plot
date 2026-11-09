@@ -2469,8 +2469,10 @@ exec ${JSON.stringify(realGit)} "$@"
   });
   const walks = fs.readFileSync(argvLog, 'utf8').split('\n')
     .filter((l) => l.startsWith('worktree list'));
-  assert.equal(walks.length, 1,
-    `the worktree list must be read once per run, saw ${walks.length}`);
+  // At most once: since refs-from-files the list is read from the worktree
+  // files, which starts no `git worktree list` at all.
+  assert.ok(walks.length <= 1,
+    `the worktree list must be read at most once per run, saw ${walks.length}`);
   fs.rmSync(shim, { recursive: true, force: true });
   f.cleanup();
 });

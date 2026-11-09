@@ -1,10 +1,9 @@
-import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
 import { transcriptDir, transcriptFile, readTranscriptFacts } from './transcript.js';
 import { AgentStateSchema, type AgentState as ContractAgentState, type AgentIdentity } from './agent-wire.js';
-import { hostShell, prIndexFile, processesFiles, processReadingOf, readWorkerReadings, scriptsShell, treesGit } from '@plot-pm/domain/adapters';
+import { hostShell, prIndexFile, processesFiles, processReadingOf, readWorkerReadings, scriptsShell, shellContext, treesGit } from '@plot-pm/domain/adapters';
 import { deskFilesIo } from '@plot-pm/domain/adapters/processes/processes-files';
 import type { ProcessRunner } from '@plot-pm/domain/adapters/git-dirs/git-dirs';
 import type { PrIndex } from '@plot-pm/domain/entities/pr-index';
@@ -484,33 +483,6 @@ async function readManifestDirConfigAsync(
   const answer = await scriptsShell({ repoRoot, scriptDir: scriptsDir })
     .config(AGENT_MANIFEST_DIR_KEY, AGENT_MANIFEST_DIR);
   return (answer.ok ? answer.value.trim() : '') || AGENT_MANIFEST_DIR;
-}
-
-/**
- * Runs a command off the event loop and answers its stdout, or null.
- *
- * The process helper this file's read path uses for `git worktree list`
- * ({@link gitWorktrees}), which says what an absent answer means for it —
- * `null` is never silently read as a value.
- *
- * @param command - the executable to run.
- * @param args - its arguments.
- * @param options - where to run it.
- * @returns stdout, or null for any failure.
- */
-function run(
-  command: string,
-  args: string[],
-  options: { cwd?: string } = {},
-): Promise<string | null> {
-  return new Promise((resolve) => {
-    execFile(
-      command,
-      args,
-      { cwd: options.cwd, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 },
-      (error, stdout) => resolve(error ? null : stdout),
-    );
-  });
 }
 
 /**
@@ -1159,49 +1131,21 @@ export const deskLiveness = (
 };
 
 /**
- * The default worktree lister — `git worktree list --porcelain` for Fix C.
+ * The default worktree lister for Fix C, through the `Trees` port.
  *
- * The porcelain form emits one block per worktree: a `worktree <path>` line,
- * then `HEAD <sha>`, then EITHER `branch refs/heads/<name>` OR `detached`. The
- * FIRST block is always the primary checkout — the main repo — which is the one
- * exclusion git itself hands us; a block with no `branch` line is branchless and
- * carries `branch: ''`, the other exclusion.
+ * The port reads the `worktrees/*` files and asks `git worktree list
+ * --porcelain` only where the files cannot answer. The main checkout comes
+ * first and carries `isMain`; a detached worktree carries `branch: ''`.
  *
- * Answers `[]` on any git failure (no repo, git absent), which
- * `readAgentRegistry` renders as "synthesize nothing": the worktree list is an
- * enrichment, never a dependency the listing can fail on. It used to throw and
- * be caught into the same outcome; awaited, the failure is a value rather than
- * a control-flow jump, and the outcome is unchanged.
+ * Answers `[]` on any failure (no repo, git absent), which `readAgentRegistry`
+ * renders as "synthesize nothing": the worktree list is an enrichment, never a
+ * dependency the listing can fail on.
  */
-export async function gitWorktrees(repoRoot: string): Promise<WorktreeInfo[]> {
-  const out = await run('git', ['worktree', 'list', '--porcelain'], { cwd: repoRoot });
-  if (out === null) return [];
-  const infos: WorktreeInfo[] = [];
-  let cur: { path: string; branch: string } | null = null;
-  let first = true;
-  const flush = () => {
-    if (cur) {
-      infos.push({ path: cur.path, branch: cur.branch, isMain: first });
-      first = false;
-      cur = null;
-    }
-  };
-  for (const line of out.split('\n')) {
-    if (line.startsWith('worktree ')) {
-      flush();
-      cur = { path: line.slice('worktree '.length), branch: '' };
-    } else if (line.startsWith('branch ') && cur) {
-      // `branch refs/heads/feature/x` → `feature/x`. A ref outside refs/heads is
-      // left whole rather than mangled — an agent row still names something real.
-      const ref = line.slice('branch '.length);
-      cur.branch = ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : ref;
-    }
-    // `detached` and every other porcelain key leave `branch` as '' — the
-    // branchless exclusion, decided by the absence of a `branch` line.
-  }
-  flush();
-  return infos;
-}
+export const gitWorktrees = async (repoRoot: string): Promise<WorktreeInfo[]> => {
+  const listed = await treesGit(shellContext(repoRoot)).list();
+  if (!listed.ok) return [];
+  return listed.value.map((tree) => ({ path: tree.path, branch: tree.branch, isMain: tree.isMain }));
+};
 
 /**
  * Drop entries whose session has ended AND whose worktree is clean.
