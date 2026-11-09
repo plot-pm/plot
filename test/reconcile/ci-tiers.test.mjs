@@ -74,7 +74,11 @@ const censusCalls = (lines) => {
   return calls;
 };
 
-const BASE_GATES = ['check-shell-lines.sh pr', 'check-decision-count.sh pr', 'check-no-bundle-diff.sh', 'check-sprint-members.sh'];
+const BASE_GATES = ['check-shell-lines.sh pr', 'check-decision-count.sh pr', 'check-sprint-members.sh'];
+
+// The bundle gate reads `origin/main` on every pull request: a branch carries
+// `main`'s build, and the commit hook compares with the same base.
+const BUNDLE_GATE = 'check-no-bundle-diff.sh';
 
 /** One line per merge-base gate call in `ci` that names `origin/main`, or lacks the pull request's base. */
 const gateBaseRefusals = (ci) => {
@@ -86,6 +90,9 @@ const gateBaseRefusals = (ci) => {
     if (mine.some((l) => l.includes('origin/main'))) out.push(`${gate}: a call passes origin/main instead of the pull request's base`);
     if (!mine.some((l) => l.includes('origin/$GITHUB_BASE_REF'))) out.push(`${gate}: no call passes origin/$GITHUB_BASE_REF`);
   }
+  const bundle = calls.filter((l) => l.includes(`./scripts/${BUNDLE_GATE}`));
+  if (bundle.length === 0) out.push(`${BUNDLE_GATE}: no call in ci.yml`);
+  if (bundle.some((l) => l.includes('$GITHUB_BASE_REF'))) out.push(`${BUNDLE_GATE}: a call passes the pull request's base instead of origin/main`);
   return out;
 };
 
@@ -216,7 +223,6 @@ const mutate = (name, from, to) => {
 for (const [gate, from] of [
   ['check-shell-lines.sh pr', './scripts/check-shell-lines.sh pr "origin/$GITHUB_BASE_REF"'],
   ['check-decision-count.sh pr', './scripts/check-decision-count.sh pr "origin/$GITHUB_BASE_REF"'],
-  ['check-no-bundle-diff.sh', './scripts/check-no-bundle-diff.sh . HEAD "origin/$GITHUB_BASE_REF"'],
   ['check-sprint-members.sh', './scripts/check-sprint-members.sh "origin/$GITHUB_BASE_REF"'],
 ]) {
   test(`${gate}: a copy that passes origin/main is refused`, () => {
@@ -226,6 +232,14 @@ for (const [gate, from] of [
     assert.ok(bad.some((l) => l.startsWith(`${gate}: a call passes origin/main`)), bad.join('\n'));
   });
 }
+
+test('check-no-bundle-diff.sh: a copy that passes origin/$GITHUB_BASE_REF is refused', () => {
+  const from = './scripts/check-no-bundle-diff.sh\n';
+  const copy = CI.replace(from, './scripts/check-no-bundle-diff.sh . HEAD "origin/$GITHUB_BASE_REF"\n');
+  assert.notEqual(copy, CI, `fixture text moved: ${from}`);
+  const bad = tierRefusals(copy);
+  assert.ok(bad.some((l) => l.startsWith('check-no-bundle-diff.sh: a call passes the pull request\'s base')), bad.join('\n'));
+});
 
 test('ci.yml holds the tier contract', () => {
   assert.deepEqual(tierRefusals(CI), []);

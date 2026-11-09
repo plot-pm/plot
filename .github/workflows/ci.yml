@@ -1422,15 +1422,18 @@ jobs:
         run: pnpm run validate
 
       # A PR'S DIFF CARRIES NO GENERATED BUNDLE. Refused against the merge
-      # base, never `origin/main` alone — `origin/main` has moved on by the
-      # time a PR is reviewed, and diffing against it would blame a branch for
-      # bundles `main` itself changed after the branch was cut. Runs only on
-      # `pull_request`: a push to `main` has no PR diff to read, and `main`'s
-      # own bundle freshness is `scripts/main-bundles.sh main`'s question,
-      # asked further down.
+      # base with `origin/main`, never `origin/main` alone — `origin/main` has
+      # moved on by the time a PR is reviewed, and diffing against it would
+      # blame a branch for bundles `main` itself changed after the branch was
+      # cut. The base is `origin/main` for a PR into any branch, a sprint
+      # branch included: only `main` builds bundles, so a branch carries
+      # `main`'s build, and the commit hook (`bundle-commit`) reads the same
+      # base. Runs only on `pull_request`: a push to `main` has no PR diff to
+      # read, and `main`'s own bundle freshness is
+      # `scripts/main-bundles.sh main`'s question, asked further down.
       - name: A PR carries no bundle
         if: github.event_name == 'pull_request'
-        run: ./scripts/check-no-bundle-diff.sh . HEAD "origin/$GITHUB_BASE_REF"
+        run: ./scripts/check-no-bundle-diff.sh
 
       # The bundles `check-sprint-members.sh` reads.
       - name: Build the board bundles
