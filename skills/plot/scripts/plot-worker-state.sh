@@ -346,6 +346,7 @@ _plot_pid_readings() { # $1=worktree → "pid\tstartedAt\tpidStartedAt" (pid emp
 # for an uncheckable pid is "unknown", which the caller turns into `ended`.
 plot_pid_is_current() { # $1=pid $2=startedAt (ISO-8601) $3=pidStartedAt (ps -o lstart text, optional) → 0 if current, 1 if stale
   local pid="$1" started="$2" pid_started="${3:-}" proc_start manifest_epoch proc_epoch recorded_epoch slack=3
+  local iso='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
 
   # Get the process's start time from `ps -o lstart=`. This is portable across
   # macOS and Linux, though the format differs.
@@ -365,8 +366,11 @@ plot_pid_is_current() { # $1=pid $2=startedAt (ISO-8601) $3=pidStartedAt (ps -o 
   # ONE-SIDED fallback: no per-pid start recorded. Convert the manifest's
   # startedAt (ISO-8601) to epoch seconds. `date -j -f` is macOS; `date -d` is
   # GNU. Try both.
-  manifest_epoch=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$started" +%s 2>/dev/null || date -d "$started" +%s 2>/dev/null) \
-    || return 1  # Cannot parse; treat as stale to be safe.
+  # ONLY THE DISPATCHER'S OWN STAMP IS READ, as `pidIsCurrent` reads it: GNU
+  # `date -d` also reads free text such as `yesterday`, which BSD `date` and
+  # the rule read as stale (decided 2026-11-09, jwloka).
+  [[ "$started" =~ $iso ]] && manifest_epoch=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$started" +%s 2>/dev/null || date -d "$started" +%s 2>/dev/null) \
+    || return 1  # Not an ISO stamp, or cannot parse; treat as stale to be safe.
 
   # A process that started BEFORE the manifest's startedAt is a reused pid.
   # A process that started AT or AFTER is the real worker. The slack is 3 s:
