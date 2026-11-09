@@ -209,6 +209,8 @@ export interface AgentRunResult {
 
 /** What one detached run asks for. */
 export interface DetachedRunRequest {
+  /** The board role, such as `idea`; the line a failed run appends to the log names it. */
+  readonly role: string;
   /** The directory the command runs in, absolute. */
   readonly cwd: string;
   /** The shell fragment to run, such as `claude -p`; the prompt is its own argument. */
@@ -230,8 +232,9 @@ export interface DetachedRunRequest {
  *
  * The run's parent is `init`, so stopping the starting process's tree does not
  * reach it. The run records its own pid and start in each state file when it
- * starts and its exit code when it ends; nothing in the starting process
- * observes the end.
+ * starts. When it ends, it reads its exit and output as the `command` runner
+ * reads them, appends the reason for a failed run to the log, and records the
+ * code in each state file; nothing in the starting process observes the end.
  */
 export interface DetachedRun {
   /**

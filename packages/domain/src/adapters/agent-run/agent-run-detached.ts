@@ -16,6 +16,8 @@ import { spawnContractEnv } from '../../rules/spawn-contract.js';
 export interface AgentRunDetachedDeps {
   /** The directory that holds `plot-detached-run.mjs`. */
   readonly scriptDir: string;
+  /** The harness whose limit lines classify the run's exit, such as `claude`. */
+  readonly harness: string;
 }
 
 /**
@@ -29,6 +31,8 @@ export const agentRunDetached = (deps: AgentRunDetachedDeps): DetachedRun => ({
     new Promise((resolve) => {
       const args = [
         path.join(deps.scriptDir, 'plot-detached-run.mjs'),
+        request.role,
+        deps.harness,
         request.logFile,
         String(request.boundSeconds),
         ...request.stateFiles,

@@ -95,7 +95,7 @@ export const agentRunFor = async (
       model: '',
       fragment,
       agentRun: agentRunCommand({ boundedRun, fragment, limitPatterns: HARNESS_LIMIT_LINES.claude, now: Date.now }),
-      detachedRun: agentRunDetached({ scriptDir: opts.scriptsDir }),
+      detachedRun: agentRunDetached({ scriptDir: opts.scriptsDir, harness: 'claude' }),
     };
   }
 

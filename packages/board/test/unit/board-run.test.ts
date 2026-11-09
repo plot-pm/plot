@@ -412,3 +412,56 @@ describe('a detached run on the command runner', () => {
     spawnSync('pkill', ['-f', 'sleep 30.17']);
   });
 });
+
+describe('a detached run that exits 0', () => {
+  const waitFor = async (done: () => boolean, ms = 10_000): Promise<void> => {
+    for (const end = Date.now() + ms; Date.now() < end && !done(); ) await new Promise((r) => setTimeout(r, 50));
+  };
+  /** Starts a detached `idea` run that prints `output` and exits 0; resolves with its state file and log once it records a code. */
+  const ranPrinting = async (output: string): Promise<{ state: string; log: string; read: ReturnType<typeof readRunState> }> => {
+    const logFile = path.join(dir, 'idea.log');
+    const statePath = path.join(dir, 'idea.state');
+    const printed = path.join(dir, 'printed.txt');
+    fs.writeFileSync(printed, `${output}\n`, 'utf8');
+    fs.writeFileSync(logFile, 'Background tasks still running after 600s; terminating. Set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait indefinitely.\n', 'utf8');
+    markBoardRun(statePath, logFile);
+    await startBoardRun(opts(), {
+      role: 'idea',
+      fragmentKey: 'Role command',
+      readCfg: config({ 'Role command': `cat '${printed}'; exit 0 #`, 'Agent runner': 'command' }),
+      tree: dir,
+      prompt: 'ignored',
+      env: {},
+      logFile,
+      statePath,
+      detached: { alsoState: [] },
+    });
+    await waitFor(() => /^\d+$/.test(fs.readFileSync(statePath, 'utf8').trim()));
+    return {
+      state: fs.readFileSync(statePath, 'utf8').trim(),
+      log: fs.readFileSync(logFile, 'utf8'),
+      read: readRunState(statePath, logFile),
+    };
+  };
+
+  it('records 1 with the usage-limit reason when its last line is a usage-limit line', async () => {
+    const run = await ranPrinting("You've hit your session limit · resets 5:20pm (Europe/Zurich)");
+    assert.equal(run.state, '1');
+    assert.equal(run.read.state, 'failed');
+    assert.match(run.log, /the idea run stopped at the account's usage limit/);
+  });
+
+  it('records 1 with the dropped-work reason when its turn ends waiting on background work', async () => {
+    const run = await ranPrinting("I'll pause further polling and wait for the Monitor's notification before taking the next action.");
+    assert.equal(run.state, '1');
+    assert.equal(run.read.state, 'failed');
+    assert.match(run.log, /the idea run ended with its background work dropped/);
+  });
+
+  it('records 0 and appends no reason for a finished turn, whatever an earlier run left in the log', async () => {
+    const run = await ranPrinting('Wrote docs/ideas/one.md.');
+    assert.equal(run.state, '0');
+    assert.deepEqual(run.read, { state: 'done', recorded: '0' });
+    assert.doesNotMatch(run.log, /the idea run/);
+  });
+});

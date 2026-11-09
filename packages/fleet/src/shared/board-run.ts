@@ -5,7 +5,8 @@
  * Ten routes start a board role. Each one truncates its own log, then calls
  * {@link markBoardRun} before it answers, and {@link startBoardRun} after. A
  * run a route starts `detached` on the `command` runner outlives the board: its
- * launcher records the run's pid and exit code in the state file. Any other run
+ * launcher records the run's pid, and the code its classified exit reads as, in
+ * the state file. Any other run
  * stays in the board's process group, so a board stop or restart ends it, and
  * three readings keep its state file from reading `running` after that:
  *
@@ -56,10 +57,12 @@ export interface BoardRunSpec {
   readonly onStarted?: (pid: number) => void;
   /**
    * Starts the run so that it outlives this process, where the role runs on
-   * the `command` runner. The run records its pid and its exit code in
-   * `statePath` and in each of `alsoState`; this process observes neither its
-   * end nor its classification, and calls no `onEnd`. A role on the `sdk`
-   * runner runs in this process as before.
+   * the `command` runner. The run records its pid in `statePath` and in each
+   * of `alsoState`. When it ends, its launcher classifies the exit as
+   * {@link boardRunEnd} does for a `command` run (a usage-limit or dropped
+   * background exit records `1` with its reason in the log, whatever the
+   * status) and records that code. This process does not observe the end and
+   * calls no `onEnd`. A role on the `sdk` runner runs in this process as before.
    */
   readonly detached?: { readonly alsoState: readonly string[] };
   /** Called with the detached run's own pid once it is started and marked; not called for a run that is not detached. */
@@ -243,6 +246,7 @@ export const startBoardRun = async (
   if (spec.detached && runner === 'command' && choice.detachedRun !== undefined && spec.statePath !== null) {
     const stateFiles = [spec.statePath, ...spec.detached.alsoState];
     const started = await choice.detachedRun.start({
+      role: spec.role,
       cwd: spec.tree,
       fragment: choice.fragment,
       prompt: spec.prompt,
