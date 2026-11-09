@@ -73,12 +73,17 @@ test('probe: emits the documented top-level fields', () => {
   const r = repoWith({ 'a.txt': 'x' }, { config: '- **Plan directory:** docs/plans/\n' });
   const p = probe(r);
   for (const key of [
-    'node', 'node_floor', 'bash', 'git_root', 'cwd_is_root',
+    'node', 'node_floor', 'git', 'bash', 'git_root', 'cwd_is_root',
     'artifact', 'artifact_source', 'has_plot_config', 'plan_dir',
     'plan_files', 'git_host', 'gh', 'bb', 'jen', 'ci_signals',
   ]) {
     assert.ok(key in p, `missing field: ${key}`);
   }
+});
+
+test('probe: reports the git version beside the Node version', () => {
+  const r = repoWith({ 'a.txt': 'x' });
+  assert.match(probe(r).git, /^git version \d+\.\d+/);
 });
 
 test('probe: reads the Node floor from .nvmrc and decides nothing about it', () => {

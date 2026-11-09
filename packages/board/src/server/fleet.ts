@@ -96,7 +96,7 @@ import {
 // names. `slotsFile` is seamed by `PLOT_BUDGET_HOME`, which is how a test moves
 // it, exactly as `budgetFile` is.
 import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
-import { fleetdHeartbeatFile, agentsFs, planStoreRef, planStoreShell, processesFiles, issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
+import { fleetdHeartbeatFile, agentsFs, refsGit, shellContext, treesGit, planStoreRef, planStoreShell, processesFiles, issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { CarriedListing } from '@plot-pm/domain/rules/scan-listing';
 import { fleetOwnsScan, ownedBridgeNote } from '@plot-pm/domain/rules/scan-owner';
@@ -152,7 +152,7 @@ import {
   NO_SUPERVISION_REPORT,
   type SupervisionReportReadings,
 } from './supervision-report-reading.js';
-import { readAgentRegistryWithInfo, bashCleanliness, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type ReadRegistryOptions } from '@plot-pm/fleet/shared/registry';
+import { readAgentRegistryWithInfo, deskCleanliness, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type ReadRegistryOptions } from '@plot-pm/fleet/shared/registry';
 import { readVerifyStatus, type VerifyStatus } from '@plot-pm/fleet/shared/auto-verify';
 import { readDesignStatus, type DesignStatus } from '@plot-pm/fleet/shared/auto-design';
 import type { RegistryInfo } from '@plot-pm/fleet/shared/registry';
@@ -1035,14 +1035,11 @@ export function estateReport(m: EstateMeasurement): string {
  */
 async function measureEstate(opts: BuildBoardOptions): Promise<EstateMeasurement | null> {
   try {
-    const wtOut = await run('git', ['worktree', 'list', '--porcelain'], opts.repoRoot);
-    const worktrees = wtOut.split('\n').filter((l) => l.startsWith('worktree ')).length;
-
-    const brOut = await run('git',
-      ['for-each-ref', '--format=%(refname)', 'refs/remotes/origin'], opts.repoRoot);
-    const branches = brOut.split('\n').filter((l) => l.trim() !== '').length;
-
-    return { worktrees, branches };
+    const context = shellContext(opts.repoRoot);
+    const trees = await treesGit(context).list();
+    const remote = await refsGit(context).refState('remote');
+    if (!trees.ok || !remote.ok) return null;
+    return { worktrees: trees.value.length, branches: remote.value.length };
   } catch {
     return null;
   }
@@ -1384,7 +1381,7 @@ async function claimOnlyBranches(
  * the honest fallback rather than an invented tag: the same rule the board
  * applies to a missing URL.
  */
-async function releaseVersions(opts: BuildBoardOptions): Promise<Map<string, string>> {
+export const releaseVersions = async (opts: BuildBoardOptions): Promise<Map<string, string>> => {
   const found = new Map<string, string>();
   // THE REFS, not the plans — and the first version of this read the plans,
   // which is why it found nothing on the live board while the mock looked right.
@@ -1403,12 +1400,13 @@ async function releaseVersions(opts: BuildBoardOptions): Promise<Map<string, str
   const branches = refs.split('\n')
     .map((l) => l.trim().replace(/^origin\//, ''))
     .filter(Boolean);
+  const reader = refsFor(opts);
   for (const branch of branches) {
-    // `?? ''` because `run` rejects on a missing ref, and a release branch that
-    // vanished between the ref listing and this read is a race rather than a
-    // defect — it reads as *no version*, which is what the row then says.
-    const raw = await run('git', ['show', `origin/${branch}:package.json`], opts.repoRoot)
-      .catch(() => '');
+    // A release branch that vanished between the ref listing and this read is
+    // a race rather than a defect — it reads as *no version*, which is what
+    // the row then says. `showFile` reads through the board's object reader.
+    const shown = await reader.showFile(`origin/${branch}`, 'package.json');
+    const raw = shown.ok ? shown.value : '';
     if (!raw) continue;
     try {
       const version = (JSON.parse(raw) as { version?: unknown }).version;
@@ -1419,7 +1417,7 @@ async function releaseVersions(opts: BuildBoardOptions): Promise<Map<string, str
     }
   }
   return found;
-}
+};
 
 
 
@@ -3199,7 +3197,7 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // the snapshot finds the answer already held and runs no `plot-config.sh`.
     const registryResult = await readAgentRegistryWithInfo(opts.repoRoot, undefined, {
       scriptsDir: opts.scriptsDir,
-      cleanliness: bashCleanliness,
+      cleanliness: deskCleanliness,
       manifestDir: await manifestDirFor(opts),
     });
     entry.agents = registryResult.entries;

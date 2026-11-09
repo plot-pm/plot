@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { removeStageDirsOnSignal } from '@plot-pm/domain/adapters/stage-dirs';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { agentsFs } from '@plot-pm/domain/adapters/agents/agents-fs';
+import { listingCompleteness } from '@plot-pm/domain/adapters/host/listing-notices';
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { planStoreRef } from '@plot-pm/domain/adapters/plan-store/plan-store-ref';
 import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
@@ -86,10 +87,12 @@ const PR_LIST_LIMIT = 3000;
  */
 const askPrList = async (scripts: Scripts, args: readonly string[]): Promise<PulseListingCall> => {
   const said = await scripts.hostSaid(['pr-list', ...args]);
-  if (said.answer === 'answered') return { answer: 'answered', stdout: said.stdout, said: said.stderr };
-  if (said.answer === 'partial') return { answer: 'partial', stdout: said.stdout, said: said.said };
-  if (said.answer === 'failed' && said.kind !== undefined) return { answer: 'failed', stdout: '', said: said.said, kind: said.kind };
-  return { answer: said.answer, stdout: '', said: said.said };
+  const state = args[args.indexOf('--state') + 1] ?? '';
+  const completeOf = (notices: string) => listingCompleteness(notices, state)[state] ?? 'possibly-truncated';
+  if (said.answer === 'answered') return { answer: 'answered', stdout: said.stdout, said: said.stderr, complete: completeOf(said.stderr) };
+  if (said.answer === 'partial') return { answer: 'partial', stdout: said.stdout, said: said.said, complete: completeOf(said.said) };
+  if (said.answer === 'failed' && said.kind !== undefined) return { answer: 'failed', stdout: '', said: said.said, kind: said.kind, complete: 'possibly-truncated' };
+  return { answer: said.answer, stdout: '', said: said.said, complete: 'possibly-truncated' };
 };
 
 /** The branch rule's reach for a listing verdict that yielded no rows. */

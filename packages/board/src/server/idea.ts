@@ -8,7 +8,7 @@ import {
   type BuildBoardOptions,
 } from './board.js';
 import { jiraProjectsOf, planAnswersTicket, repoIssuePrefixOf, STORY_SLUG_PATTERN, storyIsLive, type StoryIssueContext } from '@plot-pm/domain';
-import { TRACKER_PROJECT_KEY_SCHEMES } from '@plot-pm/domain/adapters';
+import { refFilesFs, TRACKER_PROJECT_KEY_SCHEMES } from '@plot-pm/domain/adapters';
 import type { Known, Ref } from '@plot-pm/domain/entities/card-facts';
 import { ticketStoriesOf } from './story-facts.js';
 import { markBoardRun, readRunState, startBoardRun } from './board-run.js';
@@ -451,9 +451,11 @@ export const prepareIdeaTree = (opts: BuildBoardOptions, name: string): string =
   // THE DEFAULT BRANCH by the chain `board.ts` already settled on — configured
   // `Main branch` first, then origin's symbolic ref, then `main`. Not
   // `origin/HEAD` directly: that ref is unset in a fresh clone, and not
-  // `plot-host.sh default-branch`, which shells out to `gh repo view`.
+  // `plot-host.sh default-branch`, which shells out to `gh repo view`. The ref
+  // files answer first; git answers where they cannot.
   const configured = readConfig(opts, 'Main branch', '');
-  const base = configured || (() => {
+  const fromFiles = configured ? undefined : refFilesFs(opts.repoRoot).defaultBranch();
+  const base = configured || (fromFiles?.ok ? fromFiles.value : '') || (() => {
     try {
       return execFileSync('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'],
         { cwd: opts.repoRoot, encoding: 'utf8' }).trim().replace(/^origin\//, '') || 'main';

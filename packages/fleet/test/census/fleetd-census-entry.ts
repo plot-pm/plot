@@ -16,7 +16,7 @@
 // stdin takes only `stop`.
 //
 // `CENSUS_SPAWN_LOG=<file>` appends one JSON line per process this node
-// process starts directly (`spawn`, `execFile`), so a run without `strace`
+// process starts directly (`spawn`, `execFile`, `spawnSync`, `execFileSync`), so a run without `strace`
 // still shows which direct children a pass starts. It also appends one line,
 // `{"signal0": <pid>}`, per `process.kill(pid, 0)`, the liveness question that
 // starts no process.
@@ -54,7 +54,9 @@ const track = (child: ChildProcess | undefined, file: string, args: readonly unk
   if (spawnLog !== '') {
     appendFileSync(spawnLog, `${JSON.stringify({ at: Math.round(performance.now()), file, args: args.filter((a) => typeof a === 'string') })}\n`);
   }
-  if (child === undefined) return;
+  // THE OBJECT READER LIVES AS LONG AS FLEETD: it is logged and never counts
+  // as in flight, or no pass would settle.
+  if (child === undefined || (file === 'git' && args.includes('--batch-command'))) return;
   inFlight += 1;
   let done = false;
   const startedAt = performance.now();
@@ -135,8 +137,21 @@ if (originalExecFilePromise !== undefined) {
     },
   });
 }
+// A SYNCHRONOUS START IS LOGGED AND NEVER IN FLIGHT: it has ended when the call returns.
+const syncTracked = <F>(original: F): F =>
+  ((file: string, ...given: unknown[]) => {
+    const rest = withCaller(file, given);
+    if (spawnLog !== '' && file !== MARK_IMAGE) {
+      appendFileSync(spawnLog, `${JSON.stringify({ at: Math.round(performance.now()), file, args: argsOf(rest).filter((a) => typeof a === 'string'), sync: true })}\n`);
+    }
+    return (original as (...a: unknown[]) => unknown)(file, ...rest);
+  }) as F;
+const spawnSyncTracked = syncTracked(cp.spawnSync);
+const execFileSyncTracked = syncTracked(cp.execFileSync);
 cp.spawn = spawnTracked;
 cp.execFile = execFileTracked;
+cp.spawnSync = spawnSyncTracked;
+cp.execFileSync = execFileSyncTracked;
 syncBuiltinESMExports();
 
 const originalKill = process.kill.bind(process);

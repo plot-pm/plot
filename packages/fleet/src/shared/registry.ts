@@ -1,14 +1,16 @@
-import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
 import { transcriptDir, transcriptFile, readTranscriptFacts } from './transcript.js';
 import { AgentStateSchema, type AgentState as ContractAgentState, type AgentIdentity } from './agent-wire.js';
-import { hostShell, prIndexFile, scriptsShell } from '@plot-pm/domain/adapters';
+import { hostShell, prIndexFile, processesFiles, processReadingOf, readWorkerReadings, scriptsShell, shellContext, treesGit } from '@plot-pm/domain/adapters';
+import { deskFilesIo } from '@plot-pm/domain/adapters/processes/processes-files';
+import type { ProcessRunner } from '@plot-pm/domain/adapters/git-dirs/git-dirs';
 import type { PrIndex } from '@plot-pm/domain/entities/pr-index';
 import { deskBranchMerged, mergedDeskState } from '@plot-pm/domain/rules/merged-desk';
 import { deskManifest, manifestDirectory, type ManifestReading } from '@plot-pm/domain/rules/desk-manifest';
 import { deskProcessState, deskWorker, type ManifestWorkerReading } from '@plot-pm/domain/rules/desk-worker';
+import { deskClean } from '@plot-pm/domain/rules/desk-clean';
 
 /**
  * What the registry can say about an agent's liveness — one fact, computed once
@@ -17,9 +19,8 @@ import { deskProcessState, deskWorker, type ManifestWorkerReading } from '@plot-
  *
  * - `running` — the worktree's own `.plot-worker.pid` answers `kill -0`; the
  *   agent is on the machine now. Liveness is read from the WORKTREE by
- *   `plot-worker-state.sh`, never from the manifest pid — `bashLiveness` hands the
- *   resolver a worktree path and the shell reads `$wt/.plot-worker.pid` for
- *   itself. The manifest pid is a display fact a reader can go check, not an
+ *   {@link deskLiveness}, never from the manifest pid — the resolver is handed
+ *   a worktree path and reads `$wt/.plot-worker.pid` for itself. The manifest pid is a display fact a reader can go check, not an
  *   input to this answer.
  * - `finished` — the pid is gone and the tree shows the work reached review or
  *   nothing was left behind. The stale-manifest cure: an entry corrects itself
@@ -45,7 +46,7 @@ import { deskProcessState, deskWorker, type ManifestWorkerReading } from '@plot-
  * carried onto the entry unchanged; `unknown` is the registry's own ninth for
  * the cases the shell is never asked about. It read five until 2026-09-04, when
  * `failed`, `ended`, `none` and `elsewhere` stopped being folded into `unknown`
- * — answers `bashLiveness` had received all along.
+ * — answers the shell had given all along.
  */
 export type AgentState = ContractAgentState;
 
@@ -111,7 +112,7 @@ export type PrIndexReader = () => PrIndex | null | Promise<PrIndex | null>;
  * states the reaper depends on, and an arm mapping every live pid to `running`
  * would destroy both.
  *
- * ## The guard is `bashLiveness`'s EMPTY PR ARGUMENT, not the arm order
+ * ## The guard is `deskLiveness`'s EMPTY PR ARGUMENT, not the arm order
  *
  * `taskState`'s FIRST arm is `if (readings.hasPr) return 'finished'`, which
  * outranks `blocked` and `dirty` both. Measured against the real shell on five
@@ -125,8 +126,9 @@ export type PrIndexReader = () => PrIndex | null | Promise<PrIndex | null>;
  * | **blocked** | **`pr`** | **`finished`** |
  * | blocked | `''` | `waiting` |
  *
- * Rows three and four are unreachable ONLY because {@link bashLiveness}
- * hardcodes an empty PR argument — `plot_worker_state "$wt" ''`. A later caller
+ * Rows three and four are unreachable ONLY because {@link deskLiveness}
+ * hardcodes an empty PR argument — `processReadingOf(…, false)`, the
+ * `plot_worker_state "$wt" ''` of the shell. A later caller
  * that passed a real PR fact would silently widen this refinement to cover a
  * dirty or a blocked desk, and nothing here would say so. The plan's own first
  * draft asserted the arm order instead, which is false; a safety argument that
@@ -186,13 +188,12 @@ export const readDeskPid: DeskPidReader = (worktree) => {
 /**
  * Resolve liveness for a batch of worktrees, in the same order.
  *
- * A BATCH, not one call per entry: the default resolver forks bash ONCE per
- * pulse and lets the shell loop, because the registry is re-read on the scan's
- * 5 s timer and a fork per agent would put the scan's cost back — the exact
- * thing the "count in one pass" criterion guards against. Injected in tests so
+ * A BATCH, not one call per entry: the default resolver reads the process
+ * table ONCE per batch and every desk's files after it, so one failure is one
+ * answer for the whole batch. Injected in tests so
  * they need not spawn a live process to assert on `running`.
  *
- * Awaited, so the fork runs OFF the event loop. A resolver that answers
+ * Awaited, so the reads run OFF the event loop. A resolver that answers
  * synchronously satisfies this type unchanged — a plain array is an accepted
  * `Promise<string[]>` — so an injected test double needs no `async`.
  */
@@ -460,9 +461,6 @@ export async function resolveManifestDirAsync(
  * Returns {@link AGENT_MANIFEST_DIR} when no `scriptsDir` is known (a bare call
  * never shells out) or when the shell-out fails for any reason.
  */
-/** The ONE answer to *is a worker running in this worktree?*, sourced not run. */
-const WORKER_STATE_SCRIPT = 'plot-worker-state.sh';
-
 function readManifestDirConfig(repoRoot: string, scriptsDir?: string): string {
   if (!scriptsDir) return AGENT_MANIFEST_DIR;
   const answer = scriptsShell({ repoRoot, scriptDir: scriptsDir })
@@ -485,35 +483,6 @@ async function readManifestDirConfigAsync(
   const answer = await scriptsShell({ repoRoot, scriptDir: scriptsDir })
     .config(AGENT_MANIFEST_DIR_KEY, AGENT_MANIFEST_DIR);
   return (answer.ok ? answer.value.trim() : '') || AGENT_MANIFEST_DIR;
-}
-
-/**
- * Runs a command off the event loop and answers its stdout, or null.
- *
- * The process helper this file's read path uses, for the three spawns that
- * are not questions any existing port answers in the shape the registry needs:
- * `plot-config.sh`, `plot-worker-state.sh` in BATCH, and the batched
- * cleanliness program. Each caller says below what an absent answer means for
- * it — `null` is never silently read as a value.
- *
- * @param command - the executable to run.
- * @param args - its arguments.
- * @param options - where to run it.
- * @returns stdout, or null for any failure.
- */
-function run(
-  command: string,
-  args: string[],
-  options: { cwd?: string } = {},
-): Promise<string | null> {
-  return new Promise((resolve) => {
-    execFile(
-      command,
-      args,
-      { cwd: options.cwd, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 },
-      (error, stdout) => resolve(error ? null : stdout),
-    );
-  });
 }
 
 /**
@@ -663,17 +632,21 @@ export interface ReadRegistryOptions {
    */
   home?: string;
   /**
-   * Where Plot's helper scripts live — needed by the default liveness resolver
-   * to find `plot-worker-state.sh`. When absent, liveness is never checked and
-   * every entry stays `unknown`: the registry lists agents even where it cannot
-   * find the script to classify them.
+   * Where Plot's helper scripts live. When absent, the default liveness
+   * resolver checks nothing and every entry stays `unknown`: the registry
+   * lists agents even where it cannot classify them.
    */
   scriptsDir?: string;
   /**
    * Resolve liveness for a batch of worktrees. Injected in tests; in production
-   * the default {@link bashLiveness} reuses `plot-worker-state.sh`.
+   * the default is {@link deskLiveness}.
    */
   liveness?: LivenessResolver;
+  /**
+   * Receives one line when the default liveness resolver answers `unknown` for
+   * the batch, naming the reason. Defaults to standard error.
+   */
+  log?: (line: string) => void;
   /**
    * Whether a desk's own `.plot-worker.pid` is alive — the SECOND fact a row
    * reads, beside the shell's verdict. Injected in tests; in production the
@@ -712,7 +685,7 @@ export interface ReadRegistryOptions {
    * Either condition outstanding (live session OR dirty/unpushed) and the
    * entry stays visible.
    *
-   * This is OPT-IN: the board passes {@link bashCleanliness} to enable it;
+   * This is OPT-IN: the board passes {@link deskCleanliness} to enable it;
    * callers that want all entries simply omit this option.
    */
   cleanliness?: CleanlinessResolver;
@@ -756,12 +729,11 @@ export type WorktreeLister = () => WorktreeInfo[] | Promise<WorktreeInfo[]>;
  * 1. No uncommitted changes (`git status --porcelain` is empty)
  * 2. No unpushed commits (`git rev-list --count @{upstream}..HEAD` is 0 or no upstream)
  *
- * Injected in tests; in production {@link bashCleanliness} does the work in
- * ONE bash process, like {@link bashLiveness}.
+ * Injected in tests; in production {@link deskCleanliness} does the work.
  *
- * Returns `true` for clean, `false` for dirty/unpushed. A worktree that cannot
- * be checked (no git, no upstream) returns `false` — the entry stays visible
- * rather than being silently dropped.
+ * Returns `true` for clean, `false` for dirty/unpushed. A path that is not
+ * a directory returns `false` — the entry stays visible rather than being
+ * silently dropped. No upstream reads as nothing to push.
  *
  * Awaited like {@link LivenessResolver}, and a synchronous resolver still
  * satisfies it.
@@ -898,7 +870,8 @@ export async function readAgentRegistryWithInfo(
       synthesizedCount++;
     }
   }
-  await refreshStates(out, opts.liveness ?? defaultLiveness(opts.scriptsDir), opts.pidAlive ?? deskPidAlive, {
+  const log = opts.log ?? ((line: string) => process.stderr.write(`${line}\n`));
+  await refreshStates(out, opts.liveness ?? defaultLiveness(repoRoot, dir, log, opts.scriptsDir), opts.pidAlive ?? deskPidAlive, {
     read: opts.prIndex ?? defaultPrIndex(repoRoot, opts.scriptsDir),
     branchOf: (entry) =>
       deskBranches.get(entry.worktree)
@@ -979,15 +952,15 @@ function synthesizeEntry(wt: WorktreeInfo): AgentEntry {
  * Refresh each entry's {@link AgentEntry.state} from liveness, in place.
  *
  * An entry is checkable when it names a WORKTREE — that is the only input the
- * resolver takes. `plot-worker-state.sh` is handed the worktree path and reads
+ * resolver takes. The resolver is handed the worktree path and reads
  * `$wt/.plot-worker.pid` for itself; the manifest pid is never consulted, so
  * gating on it asked for a ticket the questioner does not read and skipped nine
  * entries here whose worktree existed and would have answered correctly. An entry
  * with no worktree stays `unknown` and is never handed to the resolver — there is
  * nothing to look in, and asking would let a guess become a state.
  *
- * ONE batch call for all checkable entries, so the default resolver forks bash
- * once per pulse rather than once per agent. A resolver that throws, or returns
+ * ONE batch call for all checkable entries, so the default resolver reads the
+ * process table once per pulse rather than once per agent. A resolver that throws, or returns
  * the wrong number of answers, leaves every entry `unknown`: the registry must
  * list its agents even when it cannot classify them.
  *
@@ -1097,118 +1070,82 @@ export const defaultPrIndex = (repoRoot: string, scriptsDir?: string): PrIndexRe
 /**
  * The default liveness resolver, or a no-op when no scripts directory is known.
  *
- * Kept separate from {@link bashLiveness} so the "no scriptsDir → every entry
- * `unknown`" path is a plain empty-answer resolver rather than a special case
- * threaded through the batch call.
+ * @param repoRoot - the repository the registry belongs to.
+ * @param manifestDir - the resolved `Agent registry` directory.
+ * @param log - receives the reason when the batch reads `unknown`.
+ * @param scriptsDir - where Plot's helper scripts live; absent, every entry stays `unknown`.
+ * @returns the resolver {@link readAgentRegistryWithInfo} asks.
  */
-function defaultLiveness(scriptsDir?: string): LivenessResolver {
-  if (!scriptsDir) return () => [];
-  return (worktrees: string[]) => bashLiveness(scriptsDir, worktrees);
-}
+const defaultLiveness = (
+  repoRoot: string,
+  manifestDir: string,
+  log: (line: string) => void,
+  scriptsDir?: string,
+): LivenessResolver => (scriptsDir ? deskLiveness(repoRoot, scriptsDir, manifestDir, log) : () => []);
 
 /**
- * Reuse `plot-worker-state.sh` to classify a batch of worktrees, in order.
+ * Classifies a batch of worktrees, in order, with one `readWorkerReadings`
+ * per worktree over one shared process-table reading.
  *
- * ONE bash process for the whole batch. It sources the shared helper — the same
- * function `plot-fleet-scan.sh` and `plot-dispatch.sh` source, so liveness has a
- * single definition — and prints one state per worktree, NUL-separated in the
- * same order they arrived. The registry reimplements none of it.
+ * Each state is the one `plot_worker_state "$wt" ''` prints: the PR fact is
+ * empty, so a desk with work on the floor reads `stalled` rather than
+ * `finished`. A MERGED row in the PR index is read afterwards, by
+ * {@link refreshStates}.
  *
- * The PR fact is deliberately empty. `plot_worker_state` accepts an empty
- * second argument and its own contract says so: *a caller that cannot know says
- * nothing, and a branch with work on the floor then reads `stalled`*. The
- * registry cannot afford the host call that would fill it — the registry must
- * not be behind anything that can fail — so it reads liveness from local signals
- * only and lets `finished`-vs-`stalled` be the honest local answer. A MERGED row
- * in the PR index is read after the shell answers, by {@link refreshStates}, and
- * moves only a `waiting` desk whose pid is not alive.
+ * A process table that cannot be read, or a reading that throws, answers an
+ * empty array and logs one line naming the reason; `refreshStates` reads the
+ * length mismatch as `unknown` for the whole batch.
  *
- * A failure — bash absent, the script unreadable, a worktree path that upsets
- * it — answers an empty array, and `refreshStates` reads the length mismatch
- * into `unknown` for the batch. The listing is never at risk.
- *
- * ## Why this stays a batch rather than becoming one `Processes.workerState`
- * ## call per entry
- *
- * The plan's second Open Question asks whether per-item port calls trade one
- * blocking spawn for many awaited ones. **Measured here on 2026-09-01, 20
- * worktrees:** the batch answers in 210 ms and 20 separate `bash -c` calls in
- * 290 ms — 1.4×, not 20×, because the cost is the work INSIDE each call rather
- * than the fork around it. So per-item would be affordable.
- *
- * It stays a batch anyway, for a reason that is not performance: the batch is
- * what makes ONE fork's failure ONE answer. `refreshStates` treats a wrong
- * answer count as *every entry unknown*, and that contract only reads cleanly
- * while there is a single call to succeed or fail. Twenty independent calls
- * would each have their own outcome, and the honest reading of a partial
- * result — nine states and eleven failures — is a question this registry has
- * never had to answer.
+ * @param repoRoot - the repository the desks belong to.
+ * @param scriptsDir - where Plot's helper scripts live.
+ * @param manifestDir - the resolved `Agent registry` directory.
+ * @param log - receives the reason when the batch reads `unknown`.
+ * @param run - starts the `ps` and `git` processes; the domain's runner by default.
+ * @returns a resolver that answers one state per worktree, or `[]`.
  */
-function bashLiveness(scriptsDir: string, worktrees: string[]): string[] {
-  // Source the helper, then loop the worktrees passed as positional arguments,
-  // emitting only the state field (the first tab-separated column) NUL-delimited.
-  const program =
-    `. "$1"; shift; for wt in "$@"; do ` +
-    `printf '%s\\0' "$(plot_worker_state "$wt" '' | cut -f1)"; done`;
-  // THIS PROCESS'S DIRECTORY, as before: the worktree paths are absolute, so
-  // the helper never resolves anything against the working directory and no
-  // caller of this function has a repository root to give it.
-  const answer = scriptsShell({ repoRoot: process.cwd(), scriptDir: scriptsDir })
-    .sourced(WORKER_STATE_SCRIPT, program, worktrees);
-  // A refusal THROWS, which `refreshStates` catches into `unknown` for the
-  // batch. Its length-mismatch arm reaches the same place, so the two refusal
-  // shapes this function has carried are one answer to its caller.
-  if (!answer.ok) throw new Error('plot-worker-state could not be asked');
-  // Trailing NUL leaves an empty final element; drop it. One answer per worktree.
-  const parts = answer.value.split('\0');
-  if (parts.length > 0 && parts[parts.length - 1] === '') parts.pop();
-  return parts;
-}
-
-/**
- * The default worktree lister — `git worktree list --porcelain` for Fix C.
- *
- * The porcelain form emits one block per worktree: a `worktree <path>` line,
- * then `HEAD <sha>`, then EITHER `branch refs/heads/<name>` OR `detached`. The
- * FIRST block is always the primary checkout — the main repo — which is the one
- * exclusion git itself hands us; a block with no `branch` line is branchless and
- * carries `branch: ''`, the other exclusion.
- *
- * Answers `[]` on any git failure (no repo, git absent), which
- * `readAgentRegistry` renders as "synthesize nothing": the worktree list is an
- * enrichment, never a dependency the listing can fail on. It used to throw and
- * be caught into the same outcome; awaited, the failure is a value rather than
- * a control-flow jump, and the outcome is unchanged.
- */
-export async function gitWorktrees(repoRoot: string): Promise<WorktreeInfo[]> {
-  const out = await run('git', ['worktree', 'list', '--porcelain'], { cwd: repoRoot });
-  if (out === null) return [];
-  const infos: WorktreeInfo[] = [];
-  let cur: { path: string; branch: string } | null = null;
-  let first = true;
-  const flush = () => {
-    if (cur) {
-      infos.push({ path: cur.path, branch: cur.branch, isMain: first });
-      first = false;
-      cur = null;
-    }
-  };
-  for (const line of out.split('\n')) {
-    if (line.startsWith('worktree ')) {
-      flush();
-      cur = { path: line.slice('worktree '.length), branch: '' };
-    } else if (line.startsWith('branch ') && cur) {
-      // `branch refs/heads/feature/x` → `feature/x`. A ref outside refs/heads is
-      // left whole rather than mangled — an agent row still names something real.
-      const ref = line.slice('branch '.length);
-      cur.branch = ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : ref;
-    }
-    // `detached` and every other porcelain key leave `branch` as '' — the
-    // branchless exclusion, decided by the absence of a `branch` line.
+export const deskLiveness = (
+  repoRoot: string,
+  scriptsDir: string,
+  manifestDir: string,
+  log: (line: string) => void,
+  run?: ProcessRunner,
+): LivenessResolver => async (worktrees) => {
+  const context = { repoRoot, scriptDir: scriptsDir };
+  const seams = { manifestDir, log, ...(run !== undefined ? { run } : {}) };
+  const table = await processesFiles(context, seams).table();
+  if (!table.ok) {
+    log(`agent registry: ${worktrees.length} desks read unknown: the process table could not be read`);
+    return [];
   }
-  flush();
-  return infos;
-}
+  try {
+    const io = await deskFilesIo(context, seams)();
+    const states: string[] = [];
+    for (const worktree of worktrees) {
+      states.push(processReadingOf(await readWorkerReadings(worktree, table.value, io), false).state);
+    }
+    return states;
+  } catch (error) {
+    log(`agent registry: ${worktrees.length} desks read unknown: ${error instanceof Error ? error.message : String(error)}`);
+    return [];
+  }
+};
+
+/**
+ * The default worktree lister for Fix C, through the `Trees` port.
+ *
+ * The port reads the `worktrees/*` files and asks `git worktree list
+ * --porcelain` only where the files cannot answer. The main checkout comes
+ * first and carries `isMain`; a detached worktree carries `branch: ''`.
+ *
+ * Answers `[]` on any failure (no repo, git absent), which `readAgentRegistry`
+ * renders as "synthesize nothing": the worktree list is an enrichment, never a
+ * dependency the listing can fail on.
+ */
+export const gitWorktrees = async (repoRoot: string): Promise<WorktreeInfo[]> => {
+  const listed = await treesGit(shellContext(repoRoot)).list();
+  if (!listed.ok) return [];
+  return listed.value.map((tree) => ({ path: tree.path, branch: tree.branch, isMain: tree.isMain }));
+};
 
 /**
  * Drop entries whose session has ended AND whose worktree is clean.
@@ -1270,116 +1207,48 @@ async function dropSettledWorkers(
  * optimization for the board's display, not a core listing requirement.
  *
  * To enable dropping, pass an explicit `cleanliness` resolver in the options.
- * The board does this in fleet.ts with {@link bashCleanliness}.
+ * The board does this in fleet.ts with {@link deskCleanliness}.
  */
 function defaultCleanliness(): CleanlinessResolver {
   return () => [];
 }
 
 /**
- * Check whether each worktree is "clean" — no uncommitted AND no unpushed.
+ * Whether each worktree in a batch is clean, in order, as {@link deskClean}
+ * decides it.
  *
- * ONE bash process for the whole batch. Each worktree is checked for:
- * 1. Uncommitted changes: `git -C <wt> status --porcelain` is empty
- * 2. Unpushed commits: `git -C <wt> rev-list --count @{upstream}..HEAD` is 0
- *    OR no upstream exists (which means no commits to push).
+ * Per worktree: one `git status --porcelain` filtered by `deskDirtFilter`
+ * with the bundle paths from that worktree's own `packages/board/build.mjs`
+ * (`Trees.dirtyPaths`), and one `git rev-list --count @{upstream}..HEAD`
+ * (`Trees.aheadOfUpstream`), read only for a worktree with no counted path.
+ * A path that is not a directory reads not clean. No upstream reads as
+ * nothing to push.
  *
- * Returns `true` for clean, `false` for dirty/unpushed. A worktree that cannot
- * be checked (not a git repo, permission denied) returns `false` — the entry
- * stays visible rather than being silently dropped.
- *
- * The exclusions from `plot-worker-state.sh` are applied here:
- * - Editor leftovers (`.tmp1`, `.swp`, etc.) are ignored.
- * - Plot's own records (`.plot-worker.*`) are ignored.
- * - Tool scratch directories (`.playwright-mcp/`, `.plot/agents/`, `.omc/state/`) are ignored.
- * - An untracked root `PLOT-CORRECTION.md` (the exact porcelain line
- *   `?? PLOT-CORRECTION.md`) is ignored; a staged, modified or nested copy counts.
- *
- * **Exported for use by fleet.ts**, where the board enables dropping of settled
- * workers. The registry itself defaults to keeping all entries.
- *
- * ## Why not `Trees.isClean`
- *
- * The port exists and this looks like its question, but the two answer
- * DIFFERENTLY and the difference drops work off the board. `trees-git.ts`
- * reads `git status --porcelain` alone: no exclusions and no unpushed-commit
- * check. Against this definition that is wrong twice —
- *
- * - **A tree holding only `.plot-worker.pid` reads dirty**, so a settled worker
- *   never drops and the panel keeps clutter forever. Measured 2026-09-01: 1 of
- *   20 worktrees on this estate differs on exactly this.
- * - **A tree with unpushed commits reads clean**, so an agent whose work exists
- *   only in its local reflog drops OUT of the listing — the one failure the
- *   whole drop rule is written around.
- *
- * So this batch stays, awaited rather than blocking. Widening `Trees.isClean`
- * to carry the exclusions and the upstream check is a change to a port two
- * other slices read, which is a write this read-path plan does not own.
+ * @param worktrees - the absolute worktree paths.
+ * @returns one answer per worktree: `true` clean, `false` dirty, ahead or unreadable.
  */
-export async function bashCleanliness(worktrees: string[]): Promise<boolean[]> {
-  if (worktrees.length === 0) return [];
-  // The script checks each worktree and prints "clean" or "dirty" NUL-separated.
-  // It applies the same exclusion patterns as plot-worker-state.sh to be consistent.
-  //
-  // THE GENERATED BUNDLES ARE EXCUSED THE SAME WAY, path by path, read from
-  // EACH WORKTREE'S OWN `packages/board/build.mjs` — the same
-  // `shipped[A-Za-z]* = path.join(...)` derivation `check-bundle-attributes.sh`,
-  // `scripts/main-bundles.sh`, `scripts/check-no-bundle-diff.sh` and
-  // `plot-desk-dirt.sh`'s `bundle_paths` already share, so this cannot name a
-  // different set. `main` rebuilds and pushes every bundle
-  // (`bug/main-builds-its-bundles`, #1249), so a worktree that rebuilt one
-  // locally to test holds nothing an agent put there; the board's drop rule
-  // must not keep that worktree visible on a rebuilt bundle alone.
-  const program = `
-    PLOT_WORKER_RECORD='\\.plot-worker\\.'
-    PLOT_EDITOR_LEFTOVER='\\.(tmp[0-9]*|swp|orig|rej|bak)$'
-    PLOT_TOOL_SCRATCH='(^|/)\\.(playwright-mcp|plot/agents|plot/state|omc/state)(/|$)'
-    for wt in "$@"; do
-      if [ ! -d "$wt" ]; then
-        printf 'dirty\\0'
-        continue
-      fi
-      # Check uncommitted changes (with exclusions)
-      status=$(git -C "$wt" status --porcelain 2>/dev/null || echo "")
-      build="$wt/packages/board/build.mjs"
-      if [ -f "$build" ]; then
-        bundles=$(grep -aoE "shipped[A-Za-z]* = path\\.join\\([^)]*'[^']*'\\)" "$build" 2>/dev/null \\
-          | sed -E "s|.*'\\.\\./\\.\\./([^']*)'.*|\\1|" | sort -u)
-      else
-        bundles=""
-      fi
-      if [ -n "$bundles" ]; then
-        status=$(printf '%s\\n' "$status" | while IFS= read -r line; do
-          [ -n "\$line" ] || continue
-          if printf '%s\\n' "\$bundles" | grep -qxF "\${line:3}"; then continue; fi
-          printf '%s\\n' "\$line"
-        done)
-      fi
-      filtered=$(printf '%s' "$status" \\
-        | grep -vxF '?? PLOT-CORRECTION.md' \\
-        | cut -c4- \\
-        | grep -vE "(^|/)$PLOT_WORKER_RECORD" \\
-        | grep -vE "$PLOT_EDITOR_LEFTOVER" \\
-        | grep -vE "$PLOT_TOOL_SCRATCH" || true)
-      if [ -n "$filtered" ]; then
-        printf 'dirty\\0'
-        continue
-      fi
-      # Check unpushed commits
-      ahead=$(git -C "$wt" rev-list --count '@{upstream}..HEAD' 2>/dev/null || echo "0")
-      case "$ahead" in
-        ''|0|*[!0-9]*) printf 'clean\\0' ;;
-        *) printf 'dirty\\0' ;;
-      esac
-    done
-  `;
-  const out = await run('bash', ['-c', program, 'bash', ...worktrees]);
-  // An unreadable batch drops NOBODY. `dropSettledWorkers` takes a length
-  // mismatch as "keep every entry", which is the fail-open this resolver has
-  // always had — an entry we cannot verify is an entry that stays visible.
-  if (out === null) return [];
-  // Trailing NUL leaves an empty final element; drop it.
-  const parts = out.split('\0');
-  if (parts.length > 0 && parts[parts.length - 1] === '') parts.pop();
-  return parts.map((p) => p === 'clean');
-}
+export const deskCleanliness = async (worktrees: string[]): Promise<boolean[]> => {
+  const trees = treesGit({ repoRoot: process.cwd(), scriptDir: '' });
+  const answers: boolean[] = [];
+  for (const worktree of worktrees) {
+    let isDirectory = false;
+    try {
+      isDirectory = fs.statSync(worktree).isDirectory();
+    } catch {
+      isDirectory = false;
+    }
+    if (!isDirectory) {
+      answers.push(deskClean(null, null));
+      continue;
+    }
+    const dirty = await trees.dirtyPaths(worktree);
+    const paths = dirty.ok ? dirty.value : null;
+    if (paths === null || paths.length > 0) {
+      answers.push(deskClean(paths, null));
+      continue;
+    }
+    const ahead = await trees.aheadOfUpstream(worktree);
+    answers.push(deskClean(paths, ahead.ok ? ahead.value : null));
+  }
+  return answers;
+};

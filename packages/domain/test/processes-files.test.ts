@@ -128,6 +128,16 @@ describe('readWorkerReadings', () => {
     expect((await readWorkerReadings(worktree, [row(41, 1, 'sh', null)], ioOf(made))).readings.liveness).toBe('stale');
   });
 
+  it('reads no desk work for a desk with no pid recorded, unless asked to always read it', async () => {
+    const { worktree } = deskWith({});
+    let asked = 0;
+    const io = ioOf(made, { dirty: async () => (asked++, true), ahead: async () => (asked++, '2') });
+    expect((await readWorkerReadings(worktree, [], io)).readings.task).toEqual({ hasPr: false, blocked: false, dirty: false, unpushed: null });
+    expect(asked).toBe(0);
+    expect((await readWorkerReadings(worktree, [], io, {}, true)).readings.task.dirty).toBe(true);
+    expect(asked).toBe(2);
+  });
+
   it('reads an orphaned wrapper and reads its desk work; reads no desk work for a live pid', async () => {
     const { worktree } = deskWith({ '.plot-worker.pid': '41', '.plot-worker.wrapper.pid': '41', 'PLOT-BLOCKED.md': 'q', '.plot-worker.freewait': '41\n' });
     const orphaned = await readWorkerReadings(worktree, [row(41, 1, 'sh')], ioOf(made));
