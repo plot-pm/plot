@@ -3,7 +3,7 @@ import type { PrIndexRow } from '../entities/pr-index.js';
 import { readingValue, type PlanEntry, type RepoSnapshot } from '../entities/snapshot.js';
 import type { BranchDatesValue, QuestionsValue, WalkValue } from '../entities/view-readings.js';
 import { answered } from '../port-result.js';
-import { branchUrlBase } from '../rules/branch-url.js';
+import { branchUrlBase, type BranchUrlScheme } from '../rules/branch-url.js';
 import { mapsOfRows, type PrRecord } from '../rules/pr-maps.js';
 import { assemblePlanWalk, fleetReading } from './plan-walk-assembly.js';
 import type { BranchStageReadings } from './plan-walk-branches.js';
@@ -227,10 +227,11 @@ const mapOf = <T>(reading: { value: Record<string, T> } | 'unknown'): Map<string
  *
  * @param snapshot - the snapshot fleetd sent.
  * @param now - the clock branch ages are measured from, epoch ms.
+ * @param hostSchemes - the git hosts whose branch pages the view links.
  * @returns the view.
  * @throws where the walk's readings assemble into a document that is not a pulse.
  */
-export const fleetViewFrom = (snapshot: RepoSnapshot, now: number): BoardView => {
+export const fleetViewFrom = (snapshot: RepoSnapshot, now: number, hostSchemes: readonly BranchUrlScheme[]): BoardView => {
   const { readings } = snapshot;
   const walk = readings.walk;
   const walked = walk.state === 'read' ? pulseOf(walk.value, readings.plans, readings.deskFiles, readings.workers) : 'unknown';
@@ -246,7 +247,7 @@ export const fleetViewFrom = (snapshot: RepoSnapshot, now: number): BoardView =>
     fetchedAt: walk.state === 'read' && !walk.value.header.fetchFailed ? walk.readAt : null,
     ages: aged === 'unknown' ? 'unknown' : aged.ages,
     tipAt: aged === 'unknown' ? 'unknown' : aged.tipAt,
-    branchUrlBase: walk.state === 'read' ? branchUrlBase(walk.value.branches.origin) : 'unknown',
+    branchUrlBase: walk.state === 'read' ? branchUrlBase(walk.value.branches.origin, hostSchemes) : 'unknown',
     approvedAt: walked === 'unknown' ? 'unknown' : approvalsOf(walked.pulse, walked.records),
     ideaPlans: mapOf(readingValue(readings.ideaPlans)),
     versions: mapOf(readingValue(readings.releaseVersions)),

@@ -102,6 +102,7 @@ import { fleetOwnsScan, ownedBridgeNote } from '@plot-pm/domain/rules/scan-owner
 import { boardSourceOf } from '@plot-pm/domain/rules/board-watch';
 import type { HeldSnapshot } from '@plot-pm/domain/rules/snapshot-sync';
 import { PR_INDEX_VERSION, type PrIndex } from '@plot-pm/domain/entities/pr-index';
+import { HOST_BRANCH_URL_SCHEMES } from '@plot-pm/domain/adapters/host/host-branch-urls';
 import { fleetViewFrom, registryViewFrom, snapshotViewNote } from '@plot-pm/domain/workflows/board-view';
 import { fleetdLiveness, fleetdReadsPrs, lateLoopNote, lateLoops } from '@plot-pm/domain/rules/fleetd-live';
 import { isChainedHeading } from '@plot-pm/domain/rules/slice-chain';
@@ -3004,7 +3005,7 @@ export const snapshotToServe = (
  * @param now - the clock branch ages are measured from, epoch milliseconds.
  */
 export const installSnapshotView = (entry: CacheEntry, held: HeldSnapshot, now: number): void => {
-  const view = fleetViewFrom(held.snapshot, now);
+  const view = fleetViewFrom(held.snapshot, now, HOST_BRANCH_URL_SCHEMES);
   if (view.pulse !== 'unknown') {
     const before = entry.pulseComplete ? entry.pulse : null;
     entry.shrink = pulseShrink(before, view.pulse, entry.at);
