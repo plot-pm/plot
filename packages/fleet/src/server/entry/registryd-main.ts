@@ -7,6 +7,7 @@ import {
   hostShell,
   performerShell,
   processesShell,
+  processesFiles,
   refsGit,
   refsRemoteGit,
   buildShell,
@@ -68,6 +69,7 @@ import type { FleetdLoop, HeldSlice, PortResult } from '@plot-pm/domain';
 import { answered, failed } from '@plot-pm/domain';
 import { startFleetdHeartbeat, supervisedFrom, trackBridgeWrites } from '../../shared/fleetd-heartbeat.js';
 import { deskDead, type DeskDeadAnswer } from '@plot-pm/domain/rules/desk-dead';
+import type { Processes } from '@plot-pm/domain/ports/processes';
 import { landed, type LandedAnswer } from '@plot-pm/domain/rules/landed';
 import { indexMergedHeads, mergedSetWindowFor, viewLanded } from '@plot-pm/domain/rules/known-pr';
 import { checkNamesOf, checksWaitMsOf, defaultBranchRed, mainRepairBoundMsOf } from '@plot-pm/domain/rules/default-branch';
@@ -1243,14 +1245,15 @@ export const CORRECTION_BUDGET_KEY = 'Correction budget';
  * @param repoRoot - the repository root.
  * @param scriptsDir - where the helper scripts are.
  * @param liveRun - whether an unblocker batch is live; `false` by default.
+ * @param processes - the worker-state reader; {@link processesFiles} by default.
  * @returns the world the tick's unblock pass reads through.
  */
 export const unblockWorldForRepo = (
   repoRoot: string,
   scriptsDir: string,
   liveRun: () => boolean = () => false,
+  processes: Pick<Processes, 'workerState'> = processesFiles({ repoRoot, scriptDir: scriptsDir }),
 ): UnblockWorld => {
-  const processes = processesShell({ repoRoot, scriptDir: scriptsDir });
   const record = answerRecordFile({ cwd: repoRoot });
   return {
     marker: (worktree) => markerReading(worktree),
@@ -3177,7 +3180,7 @@ export const run = async (
               worktree: planStoreShell({ repoRoot, scriptDir: scriptsDir }),
               trees: treesGit({ repoRoot, scriptDir: scriptsDir }),
               agents: agentsFs({ repoRoot, scriptDir: scriptsDir }),
-              processes: processesShell({ repoRoot, scriptDir: scriptsDir }),
+              processes: processesFiles({ repoRoot, scriptDir: scriptsDir }, { log: (line) => warn(`plot-fleetd: ${line}\n`) }),
               parser: planParserPath({ repoRoot, scriptDir: scriptsDir }),
               // THE STORE IS KEYED BY THE BACKEND WORD; a file read, no host request.
               prIndexRows: async () => {

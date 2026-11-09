@@ -487,7 +487,7 @@ write_agent_manifest() { # $1=path $2=session $3=branch $4=worktree $5=command
     printf '  "worktree": "%s",\n' "$(json_escape "$4")"
     printf '  "command": "%s",\n' "$(json_escape "$5")"
     printf '  "pid": "",\n'
-    printf '  "attempts": 0,\n'
+    printf '  "attempts": 0,\n  "agentProcess": "%s",\n' "$(json_escape "${PLOT_AGENT_PROCESS:-claude}")"
     printf '  "startedAt": "%s"\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     printf '}\n'
   } > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
@@ -1507,7 +1507,7 @@ start_worker() {
       PLOT_PID_STARTED_FILE="$wt/.plot-worker.pid.startedAt" \
       PLOT_WRAPPER_PID_FILE="$wt/.plot-worker.wrapper.pid" \
       PLOT_SCRIPT_DIR="$script_dir" \
-      exec nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wrapperstarted=$(ps -o lstart= -p "$$" 2>/dev/null); wmon=""; amon=""; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; PATH="$PLOT_SCRIPT_DIR:$PATH"; export PATH; ( '"$cmd"' ) & agent=$!; trap "" TERM; printf "%s" "$agent" > "$PLOT_PID_FILE"; agentstarted=$(ps -o lstart= -p "$agent" 2>/dev/null); printf "%s" "$agentstarted" > "$PLOT_PID_STARTED_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v pidstarted="$agentstarted" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wrapperstarted="$wrapperstarted" -v wmon="$wmon" -v amon="$amon" '"'"'
+      exec nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wrapperstarted=$(LC_ALL=C ps -o lstart= -p "$$" 2>/dev/null); wmon=""; amon=""; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; PATH="$PLOT_SCRIPT_DIR:$PATH"; export PATH; ( '"$cmd"' ) & agent=$!; trap "" TERM; printf "%s" "$agent" > "$PLOT_PID_FILE"; agentstarted=$(LC_ALL=C ps -o lstart= -p "$agent" 2>/dev/null); printf "%s" "$agentstarted" > "$PLOT_PID_STARTED_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v pidstarted="$agentstarted" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wrapperstarted="$wrapperstarted" -v wmon="$wmon" -v amon="$amon" '"'"'
         BEGIN { relaunch = 0; count = 1; stamped = 0 }
         FNR == NR {
           if ($0 ~ /^  "pid": "[^"]*",$/) {

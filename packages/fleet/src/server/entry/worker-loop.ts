@@ -224,7 +224,7 @@ export const workerLoopPorts = async (
   context: ShellContext,
   manifestDir?: string,
 ): Promise<WorkerLoopPorts> => {
-  const processes: Processes = processesShell(context);
+  const processes: Omit<Processes, 'workerState' | 'table'> = processesShell(context);
   const trees: Trees = treesGit(context);
   const refs: Refs = { ...refsGit(context), ...refsRemoteGit(context) };
   const agents: Agents = agentsFs(context, { manifestDir });

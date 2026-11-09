@@ -299,7 +299,7 @@ plot_read_manifest_pid() { # $1=manifest path → "pid\tstartedAt\tpidStartedAt"
 # `plot_pid_is_current` compares — the live process's start and a pid's own
 # recorded start use the same `ps -o lstart` shape.
 _plot_lstart_epoch() { # $1=ps -o lstart= text → epoch seconds, or "" (non-zero)
-  date -j -f "%a %b %d %H:%M:%S %Y" "$1" +%s 2>/dev/null \
+  LC_ALL=C date -j -f "%a %b %d %H:%M:%S %Y" "$1" +%s 2>/dev/null \
     || date -j -f "%c" "$1" +%s 2>/dev/null \
     || date -d "$1" +%s 2>/dev/null
 }
@@ -349,7 +349,7 @@ plot_pid_is_current() { # $1=pid $2=startedAt (ISO-8601) $3=pidStartedAt (ps -o 
 
   # Get the process's start time from `ps -o lstart=`. This is portable across
   # macOS and Linux, though the format differs.
-  proc_start=$(ps -o lstart= -p "$pid" 2>/dev/null | tr -d '\n')
+  proc_start=$(LC_ALL=C ps -o lstart= -p "$pid" 2>/dev/null | tr -d '\n')
   [ -n "$proc_start" ] || return 1  # Process does not exist.
   proc_epoch=$(_plot_lstart_epoch "$proc_start") || return 1  # Cannot parse; treat as stale.
 
@@ -1391,9 +1391,9 @@ plot_worker_state() { # $1=worktree $2=pr-fact → "state\tpid\tcode"
 # and the same dirty filter. A second gathering that drifted would make the
 # corpus test compare this file against itself and pass while production broke.
 #
-# Prints one TAB-separated line, six fields:
+# Prints one TAB-separated line, eight fields:
 #
-#   worktree_here  pid_recorded  liveness  exit  blocked  dirty  unpushed
+#   worktree_here  pid_recorded  liveness  exit  blocked  dirty  unpushed  free_wait
 #
 # `liveness` is `live`, `stale`, `orphaned` or `dead` — `orphaned` being a pid
 # that answers with no agent process under it, which is a live wrapper whose
@@ -1402,7 +1402,7 @@ plot_worker_state() { # $1=worktree $2=pr-fact → "state\tpid\tcode"
 # field cannot say which of the two it is and the rule answers them alike only
 # because it was told they differ. The PR fact is NOT here: it comes from the
 # caller, exactly as it does for `plot_worker_state`.
-plot_worker_readings() { # $1=worktree → "here\tpid\tliveness\texit\tblocked\tdirty\tunpushed"
+plot_worker_readings() { # $1=worktree → "here\tpid\tliveness\texit\tblocked\tdirty\tunpushed\tfree_wait"
   local wt="$1" pid="" started_at="" pid_started_at="" manifest_data=""
   local here=1 pid_recorded=0 liveness=dead exit_field='-' blocked=0 dirty=0 ahead=""
 
@@ -1411,7 +1411,7 @@ plot_worker_readings() { # $1=worktree → "here\tpid\tliveness\texit\tblocked\t
   # `plot-fleet-scan.sh`, where `elsewhere` is decided before this file is
   # reached. A caller iterating worktrees it found never sees this arm.
   if [ -z "$wt" ] || [ ! -d "$wt" ]; then
-    printf '0\t0\tdead\t-\t0\t0\t'
+    printf '0\t0\tdead\t-\t0\t0\t\t0'
     return
   fi
 
@@ -1475,6 +1475,6 @@ plot_worker_readings() { # $1=worktree → "here\tpid\tliveness\texit\tblocked\t
   # cannot be asked at all.
   ahead=$(git -C "$wt" rev-list --count '@{upstream}..HEAD' 2>/dev/null) || ahead=""
 
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' \
-    "$here" "$pid_recorded" "$liveness" "$exit_field" "$blocked" "$dirty" "$ahead"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' \
+    "$here" "$pid_recorded" "$liveness" "$exit_field" "$blocked" "$dirty" "$ahead" "$([ -n "$started_at" ] && plot_worker_waits_free "$wt" "$pid" && echo 1 || echo 0)"
 }

@@ -96,7 +96,7 @@ import {
 // names. `slotsFile` is seamed by `PLOT_BUDGET_HOME`, which is how a test moves
 // it, exactly as `budgetFile` is.
 import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
-import { fleetdHeartbeatFile, agentsFs, planStoreRef, planStoreShell, processesShell, issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
+import { fleetdHeartbeatFile, agentsFs, planStoreRef, planStoreShell, processesFiles, issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { CarriedListing } from '@plot-pm/domain/rules/scan-listing';
 import { fleetOwnsScan, ownedBridgeNote } from '@plot-pm/domain/rules/scan-owner';
@@ -3320,7 +3320,7 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
             worktree: planStoreShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
             trees: treesFor(opts),
             agents: agentsFs({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
-            processes: processesShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+            processes: processesFiles({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
           } },
         entry,
         {

@@ -85,6 +85,16 @@ export interface AgentStateReadings {
   exit: ExitReading;
   /** What the desk holds, for the three states the desk decides. */
   task: TaskReadings;
+  /**
+   * Whether `.plot-worker.freewait` names the recorded pid: a free agent's
+   * loop waiting for a hand-over. Absent reads as `false`.
+   */
+  waitsFree?: boolean;
+  /**
+   * Whether the manifest recorded a `startedAt` for the pid. Absent reads as
+   * `false`. A free-wait record counts only beside one.
+   */
+  startedAtRecorded?: boolean;
 }
 
 /**
@@ -113,7 +123,9 @@ const exitIsNumeric = (exit: ExitReading): exit is string =>
  *    left to read. It routes to {@link taskState} rather than to `ended` for
  *    the reason the measurement gives — three of four such desks held finished
  *    work, and `ended` would have said the run was over when the WORK was one
- *    push from done.
+ *    push from done. An orphaned wrapper whose free-wait record names the
+ *    pid, beside a recorded `startedAt`, is a free agent waiting for a
+ *    hand-over, and is `running`.
  * 4. **Exit 0 is refined by the desk**, and it is the ONLY arm refined. Every
  *    worker exits 0 — the one that opened its PR, the one that would not claim
  *    a test run it had not seen, and the one that stopped to ask a question —
@@ -141,7 +153,9 @@ export const agentState = (readings: AgentStateReadings): AgentState => {
   // BEFORE THE EXIT ARMS, because an orphaned wrapper has written no exit file
   // and the `-` it reports would otherwise fall through to `ended`, discarding
   // the desk that is the only thing left to read.
-  if (readings.liveness === 'orphaned') return taskState(readings.task);
+  if (readings.liveness === 'orphaned') {
+    return readings.waitsFree === true && readings.startedAtRecorded === true ? 'running' : taskState(readings.task);
+  }
   if (!exitIsNumeric(readings.exit)) return 'ended';
   if (readings.exit === '0') return taskState(readings.task);
   return readings.task.hasPr ? taskState(readings.task) : 'failed';
