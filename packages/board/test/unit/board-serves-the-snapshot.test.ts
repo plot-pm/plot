@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import cp, { type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
+import { removeTree } from '../rm-tree.mjs';
 import { syncBuiltinESMExports } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -68,7 +69,7 @@ const temps: string[] = [];
 afterEach(() => {
   vi.unstubAllEnvs();
   fleet.stopFleetRefresh();
-  for (const dir of temps.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  for (const dir of temps.splice(0)) removeTree(dir);
 });
 
 const MAIN = 'a'.repeat(40);

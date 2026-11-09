@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
+import { removeTree } from '../rm-tree.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { FleetReadingSchema } from '@plot-pm/domain/entities/fleet';
@@ -17,7 +18,7 @@ beforeEach(() => {
   repo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-cli-vouch-'));
 });
 afterEach(() => {
-  fs.rmSync(repo, { recursive: true, force: true });
+  removeTree(repo);
 });
 
 const reading = FleetReadingSchema.parse({
