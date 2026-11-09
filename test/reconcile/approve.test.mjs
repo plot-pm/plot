@@ -150,6 +150,9 @@ if (argv[0] === 'pr' && argv[1] === 'view') {
   state.draft = false;
   fs.writeFileSync(${JSON.stringify(statePath)}, JSON.stringify(state));
   process.stdout.write('ready');
+} else if (argv[0] === 'api' && argv.some((a) => a.includes('/pulls?'))) {
+  // A REST listing (plot-host.sh pr-list, pr-merged): this host holds no PR for a branch search.
+  process.stdout.write('[]');
 } else if (argv[0] === 'api' && argv.some((a) => /pulls\/\d+\/merge$/.test(a))) {
   if (state.mergeFails) { process.stderr.write('merge refused'); process.exit(1); }
   if (state.draft) { process.stderr.write('cannot merge a draft'); process.exit(1); }

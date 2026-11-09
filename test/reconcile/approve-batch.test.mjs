@@ -81,16 +81,21 @@ if (argv[0] === 'pr' && argv[1] === 'view') {
     number: pr.number, state: pr.state, isDraft: pr.draft, url: 'https://example.invalid/pr/' + pr.number,
     mergeCommit: pr.mergeCommit ? { oid: pr.mergeCommit } : null, headRefOid: pr.headRefOid,
   }));
-} else if (argv[0] === 'pr' && argv[1] === 'list') {
-  const want = flag('--state').toUpperCase();
-  process.stdout.write(JSON.stringify(state.prs.filter((p) => want === 'ALL' || p.state === want).map((p) => ({
-    number: p.number, title: 'Plan', state: p.state, headRefName: p.head, isDraft: p.draft,
-    url: 'https://example.invalid/pr/' + p.number, updatedAt: '', author: { login: 'test' },
-    headRefOid: p.headRefOid, mergedAt: p.state === 'MERGED' ? '2026-10-12T00:00:00Z' : null,
-  }))));
 } else if (argv[0] === 'pr' && argv[1] === 'ready') {
   find(argv[2]).draft = false;
   save();
+} else if (argv[0] === 'api' && argv.some((a) => a.includes('/pulls?'))) {
+  // REST listing (plot-host.sh pr-list): state=open|all filters, a head= read matches one branch.
+  const url = argv.find((a) => a.includes('/pulls?'));
+  const want = (url.match(/state=(\\w+)/) ?? [])[1];
+  const head = (url.match(/head=[^:&]*:([^&]*)/) ?? [])[1];
+  process.stdout.write(JSON.stringify(state.prs
+    .filter((p) => (want === 'all' || (want === 'closed') === (p.state !== 'OPEN')) && (!head || p.head === head))
+    .map((p) => ({
+      number: p.number, title: 'Plan', state: p.state === 'OPEN' ? 'open' : 'closed', head: { ref: p.head, sha: p.headRefOid }, draft: p.draft,
+      html_url: 'https://example.invalid/pr/' + p.number, updated_at: '', user: { login: 'test' },
+      merged_at: p.state === 'MERGED' ? '2026-10-12T00:00:00Z' : null,
+    }))));
 } else if (argv[0] === 'api' && argv.some((a) => /pulls\/\d+\/merge$/.test(a))) {
   const num = argv.find((a) => /pulls\\/\\d+\\/merge$/.test(a)).match(/pulls\\/(\\d+)\\/merge$/)[1];
   const pr = find(num);
@@ -322,7 +327,7 @@ test('approve batch: an open PR whose head commit git cannot resolve is skipped,
 test('approve batch: the open PRs are listed once, with an explicit limit', () => {
   const { repo } = makeBatch();
   assert.equal(approve(repo, 'first-plan').status, 0);
-  const lists = hostCalls().split('\n').filter((l) => /^gh pr list\b/.test(l));
+  const lists = hostCalls().split('\n').filter((l) => /^gh api repos\/\{owner\}\/\{repo\}\/pulls\?state=open&/.test(l));
   assert.equal(lists.length, 1, hostCalls());
-  assert.match(lists[0], /--limit 100\b/, lists[0]);
+  assert.match(lists[0], /per_page=100&page=1\b/, lists[0]);
 });

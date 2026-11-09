@@ -103,8 +103,13 @@ const makeGhStub = ({
         statusCheckRollup: [],
       })}'`;
   const listBody = `printf '%s' '${JSON.stringify(mergedAt === null ? [] : [{ mergedAt }])}'`;
+  const restBody = `printf 'HTTP/2 200\\r\\n\\r\\n%s' '${JSON.stringify(
+    mergedAt === null ? [] : [{ number: 7, state: 'closed', merged_at: mergedAt, merge_commit_sha: null, head: { ref: 'x', sha: 'deadbeef' }, base: { ref: 'main' } }],
+  )}'`;
   fs.writeFileSync(path.join(stubDir, 'gh'), `#!/usr/bin/env bash
-if [ "$1" = pr ] && [ "$2" = view ]; then
+if [ "$1" = api ]; then
+  ${restBody}
+elif [ "$1" = pr ] && [ "$2" = view ]; then
   ${viewBody}
 elif [ "$1" = pr ] && [ "$2" = list ]; then
   ${listBody}

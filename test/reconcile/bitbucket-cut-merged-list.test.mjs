@@ -250,15 +250,21 @@ test('bitbucket: an "unknown" per-branch answer (full page, no match) stays an o
 test('github: a cut-list fixture makes no per-branch call — the scan asks Bitbucket only', () => {
   const dir = tmp('bbcut-gh');
   const callsFile = path.join(dir, 'calls.log');
-  const page = JSON.stringify(
-    Array.from({ length: 500 }, (_, i) => ({ number: i, title: `pr-${i}`, state: 'MERGED', headRefName: `feature/pr-${i}` })),
-  );
+  // GitHub is read over REST: five full pages of 100 merged pull requests, newest first.
+  for (let n = 1; n <= 5; n += 1) {
+    fs.writeFileSync(path.join(dir, `page${n}.json`), JSON.stringify(
+      Array.from({ length: 100 }, (_, i) => ({
+        number: (n - 1) * 100 + i, title: `pr-${(n - 1) * 100 + i}`, state: 'closed', merged_at: '2026-10-01T00:00:00Z',
+        head: { ref: `feature/pr-${(n - 1) * 100 + i}`, sha: 'abc' }, updated_at: '2026-10-01T00:00:00Z', user: { login: 'a' },
+      })),
+    ));
+  }
   fs.writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> ${JSON.stringify(callsFile)}
 case "$*" in
-  *"--state merged"*) printf '%s' '${page}' ;;
-  *"--state open"*)   printf '%s' '[]' ;;
-  *"--state all"*"--head"*) printf '%s' '[]' ;;
+  *"pulls?state=closed"*) p="\${*##*page=}"; p="\${p%% *}"; cat ${JSON.stringify(dir)}/page"$p".json 2>/dev/null || printf '[]' ;;
+  *"pulls?state=open"*) printf '%s' '[]' ;;
+  *"pulls?state=all"*"head="*) printf '%s' '[]' ;;
   *"issue list"*)     printf '%s' '[]' ;;
 esac
 exit 0
@@ -268,7 +274,7 @@ exit 0
   try {
     const out = runScan({ dir });
     const calls = fs.readFileSync(callsFile, 'utf8').split('\n').filter((l) => l !== '');
-    assert.ok(!calls.some((l) => l.includes('--head feature/old-merge')), 'no per-branch pr-merged call on GitHub');
+    assert.ok(!calls.some((l) => l.includes('head=') && l.includes('feature/old-merge')), 'no per-branch pr-merged call on GitHub');
     // GitHub honours --limit, and this page came back AT the limit (500 of
     // 500) — still truncated, by the existing rule, and the branch is outside
     // it, so it stays an orphan.
