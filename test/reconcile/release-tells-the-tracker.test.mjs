@@ -81,12 +81,38 @@ if (argv[0] === 'pr' && argv[1] === 'view') {
   }));
 } else if (argv[0] === 'repo' && argv[1] === 'view') {
   process.stdout.write('main');
-} else if (argv[0] === 'label' && argv[1] === 'create') {
-  const name = argv[2];
-  if (repoLabels().includes(name)) { process.stderr.write('label already exists\\n'); process.exit(1); }
-  if (process.env.GH_STUB_LABEL_CREATE_RC) { process.stderr.write('stub: label create refused\\n'); process.exit(1); }
-  if (process.env.REPO_LABELS) fs.appendFileSync(process.env.REPO_LABELS, (repoLabels().length ? ',' : '') + name);
-} else if (argv[0] === 'issue' && ['edit', 'comment', 'close', 'view'].includes(argv[1])) {
+} else if (argv[0] === 'api' && /^repos[/][{]owner[}][/][{]repo[}][/](issues|labels)/.test(argv.find((a) => a.startsWith('repos/')) || '')) {
+  // The REST routes issue-label and issue-comment use. Any gh issue / gh label
+  // subcommand below is refused, so a leftover GraphQL call fails the write.
+  const url = argv.find((a) => a.startsWith('repos/'));
+  const method = argv.includes('-X') ? argv[argv.indexOf('-X') + 1] : 'GET';
+  const m = url.match(/issues[/]([0-9]+)[/](labels|comments)(?:[/](.+))?$/);
+  const num = m && m[1];
+  const failing = num && (process.env.GH_STUB_ISSUE_FAIL || '').split(',').includes(num);
+  const log = (what) => { if (process.env.ISSUE_CALLS) fs.appendFileSync(process.env.ISSUE_CALLS, what + ' ' + num + '\\n'); };
+  if (/[/]labels$/.test(url) && !m && method === 'POST') {
+    const name = argv[argv.indexOf('-f') + 1].replace(/^name=/, '');
+    if (repoLabels().includes(name)) { process.stdout.write('{"errors":[{"code":"already_exists"}]}'); process.stderr.write('gh: Validation Failed (HTTP 422)\\n'); process.exit(1); }
+    if (process.env.GH_STUB_LABEL_CREATE_RC) { process.stderr.write('stub: label create refused\\n'); process.exit(1); }
+    if (process.env.REPO_LABELS) fs.appendFileSync(process.env.REPO_LABELS, (repoLabels().length ? ',' : '') + name);
+  } else if (m && m[2] === 'labels' && method === 'GET') {
+    process.stdout.write(issueLabels().map((name) => name + '\\n').join(''));
+  } else if (m && m[2] === 'labels' && method === 'POST') {
+    if (failing) { process.stderr.write('stub: issue op refused\\n'); process.exit(1); }
+    const add = argv[argv.indexOf('-f') + 1].replace(/^labels[[]]=/, '');
+    log('edit');
+    if (process.env.ISSUE_LABELS) fs.writeFileSync(process.env.ISSUE_LABELS, issueLabels().filter((l) => l !== add).concat(add).join(','));
+  } else if (m && m[2] === 'labels' && method === 'DELETE') {
+    const drop = decodeURIComponent(m[3]);
+    if (!repoLabels().includes(drop)) { process.stderr.write('gh: Not Found (HTTP 404)\\n'); process.exit(1); }
+    if (process.env.ISSUE_LABELS) fs.writeFileSync(process.env.ISSUE_LABELS, issueLabels().filter((l) => l !== drop).join(','));
+  } else if (m && m[2] === 'comments' && method === 'POST') {
+    if (failing) { process.stderr.write('stub: issue op refused\\n'); process.exit(1); }
+    log('comment');
+  } else {
+    process.stdout.write('{}');
+  }
+} else if (argv[0] === 'issue' && ['close', 'view'].includes(argv[1])) {
   const num = argv[2];
   if (argv[1] === 'view') {
     if (argv.includes('--json') && argv[argv.indexOf('--json') + 1] === 'labels') {
