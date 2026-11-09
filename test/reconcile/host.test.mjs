@@ -2359,7 +2359,7 @@ test('host: issue-list bitbucket emits no releases key', () => {
 
 test('host: issue-view returns one issue object, body included', () => {
   const gh = makeStubs({
-    ghJson: '{"number":228,"title":"The scan asks once per branch","body":"Measured: 18.3s.","url":"https://example.test/issues/228"}',
+    ghJson: '{"number":228,"title":"The scan asks once per branch","body":"Measured: 18.3s.","html_url":"https://example.test/issues/228","state":"open"}',
   });
   const out = JSON.parse(execFileSync('bash', [adapter, 'issue-view', '228'], {
     encoding: 'utf8',
@@ -2372,7 +2372,7 @@ test('host: issue-view returns one issue object, body included', () => {
   assert.equal(out.url, 'https://example.test/issues/228');
 
   const argv = readFileSync(gh.ghArgv, 'utf8').trim().split('\n');
-  assert.deepEqual(argv.slice(0, 3), ['issue', 'view', '228']);
+  assert.deepEqual(argv.slice(0, 2), ['api', 'repos/{owner}/{repo}/issues/228']);
   // READ-ONLY, asserted rather than assumed: no subcommand here may write to
   // the tracker. Plot reads the tracker and never writes to it, and a plan
   // referencing an issue is Plot's record rather than the tracker's.
@@ -2383,7 +2383,7 @@ test('host: issue-view returns one issue object, body included', () => {
 
 for (const [ghState, want] of [['CLOSED', 'closed'], ['OPEN', 'open']]) {
   test(`host: issue-view github maps state ${ghState} to ${want}`, () => {
-    const gh = makeStubs({ ghJson: JSON.stringify({ number: 4, title: 't', body: 'b', url: 'u', state: ghState }) });
+    const gh = makeStubs({ ghJson: JSON.stringify({ number: 4, title: 't', body: 'b', html_url: 'u', state: ghState.toLowerCase() }) });
     const out = JSON.parse(execFileSync('bash', [adapter, 'issue-view', '4'], {
       encoding: 'utf8',
       env: { ...process.env, PATH: `${gh.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
@@ -2395,7 +2395,7 @@ for (const [ghState, want] of [['CLOSED', 'closed'], ['OPEN', 'open']]) {
 test('host: issue-view fills absent fields rather than emitting null', () => {
   // An issue with no body is a real case — a title-only issue — and it must
   // arrive as "" so a consumer renders nothing rather than the word "null".
-  const gh = makeStubs({ ghJson: '{"number":9,"title":"Terse","body":null,"url":null}' });
+  const gh = makeStubs({ ghJson: '{"number":9,"title":"Terse","body":null,"html_url":null,"state":"open"}' });
   const out = JSON.parse(execFileSync('bash', [adapter, 'issue-view', '9'], {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${gh.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
@@ -9472,13 +9472,36 @@ test('host: default-branch asks the host on github too, over a stale cache', () 
   execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:acme/thing.git'], { cwd: repo });
   execFileSync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main'], { cwd: repo });
   const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-ghstub-')));
-  writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash\nprintf '%s' develop\n`);
+  writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash\nprintf '%s' '{"default_branch":"develop"}'\n`);
   chmodSync(path.join(dir, 'gh'), 0o755);
   const res = spawnSync('bash', [adapter, 'default-branch'], {
     cwd: repo, encoding: 'utf8',
     env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
   });
   assert.equal(res.stdout.trim(), 'develop');
+  rmSync(repo, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('host: default-branch on github asks the REST repo endpoint, not a GraphQL subcommand, and falls back to origin/HEAD when it fails', () => {
+  const repo = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-ghdefbr-')));
+  execFileSync('git', ['init', '-q', '-b', 'main', '.'], { cwd: repo });
+  execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:acme/thing.git'], { cwd: repo });
+  execFileSync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main'], { cwd: repo });
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-ghstub-')));
+  // Fails every GraphQL-backed subcommand; answers only `api repos/{owner}/{repo}`.
+  writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash
+if [ "$1" = api ] && [ "$2" = 'repos/{owner}/{repo}' ]; then [ -f "${dir}/rest-fails" ] && { echo 'HTTP 503' >&2; exit 1; }; printf '%s' '{"default_branch":"develop"}'; exit 0; fi
+echo "GraphQL: API rate limit exceeded" >&2; exit 1
+`);
+  chmodSync(path.join(dir, 'gh'), 0o755);
+  const ask = () => spawnSync('bash', [adapter, 'default-branch'], {
+    cwd: repo, encoding: 'utf8',
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(ask().stdout.trim(), 'develop', 'the REST answer wins over a differing origin/HEAD');
+  writeFileSync(path.join(dir, 'rest-fails'), '');
+  assert.equal(ask().stdout.trim(), 'main', 'a failed host call falls back to origin/HEAD');
   rmSync(repo, { recursive: true, force: true });
   rmSync(dir, { recursive: true, force: true });
 });
