@@ -43,10 +43,10 @@ Layering: the free-loop decision is a rule about agent state, so it belongs in t
 
 ### Open Questions
 
-- [ ] Does `--restart --agents` reuse `plot-dispatch.sh --stop <branch>` for desks that have a branch, and use the pid path only for detached desks?
-- [ ] Is the free-loop rule a new domain rule, or does an existing agent-state reading already answer it?
-- [ ] Which refusals of `--start` apply to `--restart` unchanged (write probe, other-checkout label), and does `--dry-run` apply to `--restart`?
-- [ ] Is `--restart` allowed unattended? `--stop` is not; a reload kills nothing, but `--agents` does.
+- [x] Does `--restart --agents` reuse `plot-dispatch.sh --stop <branch>` for desks that have a branch, and use the pid path only for detached desks? → Yes. A desk with a branch is stopped through `plot-dispatch.sh --stop <branch>`, so one stop rule stays; only a detached desk (no branch) takes the pid path, with the pid and its start time checked first.
+- [x] Is the free-loop rule a new domain rule, or does an existing agent-state reading already answer it? → A domain rule, because deciding which agent may be stopped is domain behaviour (*The Layering Rule*). The builder first checks the existing agent-state readings (the worker states and the desk readings `plot-worker-state.sh` decides from) and reuses one that already answers "free"; otherwise it adds `freeLoop(readings)` in `packages/domain` with unit tests.
+- [x] Which refusals of `--start` apply to `--restart` unchanged (write probe, other-checkout label), and does `--dry-run` apply to `--restart`? → Every probe and refusal of `--start` applies to `--restart` unchanged (Node pin, platform, write probe, other-checkout label), plus its own refusal with no loaded unit. `--dry-run` applies: it reports which unit would reload and, with `--agents`, which agents would stop and which would stay, and changes nothing.
+- [x] Is `--restart` allowed unattended? `--stop` is not; a reload kills nothing, but `--agents` does. → `--restart` alone is allowed unattended, because it stops no agent. `--restart --agents` refuses under `PLOT_UNATTENDED=1`, as `--stop` does, because it ends processes.
 
 ## Slices
 
