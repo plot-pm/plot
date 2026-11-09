@@ -288,6 +288,21 @@ const BUDGET_ACCOUNT = 'test-account';
 // bucket, `actual`, timestamped now — and points `PLOT_BUDGET_HOME` at it. The
 // stub still answers `rate_limit`, because the `rate-limit` OP still reports
 // it; nothing routes on it any more.
+// The REST pull-request shape of a `gh pr list --json` fixture: the plain arm
+// reads `pulls` over REST, so a fixture written in the CLI's vocabulary is
+// translated here rather than written twice.
+const restPlain = (json) => JSON.stringify(JSON.parse(json).map((r) => ({
+  number: r.number,
+  title: r.title,
+  state: r.state === 'OPEN' ? 'open' : 'closed',
+  merged_at: r.state === 'MERGED' ? (r.mergedAt || r.updatedAt || '2026-01-01T00:00:00Z') : (r.mergedAt || null),
+  draft: r.isDraft,
+  html_url: r.url,
+  updated_at: r.updatedAt,
+  user: r.author ? { login: r.author.login } : null,
+  head: { ref: r.headRefName, sha: r.headRefOid ?? '' },
+})));
+
 function makeStubsRateAware({
   graphqlRemaining = 5000,
   coreRemaining = 5000,
@@ -297,6 +312,7 @@ function makeStubsRateAware({
   statusJson = '{"total_count":0,"statuses":[]}',
   rateFail = null,
   restFail = null,
+  restPages = null,
 } = {}) {
   const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-rate-')));
   const callsFile = path.join(dir, 'gh.calls');
@@ -327,9 +343,12 @@ function makeStubsRateAware({
           core: { remaining: coreRemaining, limit: 5000, reset: 1787858165 },
         },
       }))}'`;
+  // `restPages` answers one JSON page per `page=` value, and `[]` past the last.
   const restBody = restFail != null
     ? `printf '%s\\n' '${q(restFail)}' >&2; exit 1`
-    : `printf '%s' '${q(restJson)}'`;
+    : restPages != null
+      ? `page="\${2##*page=}"; case "$page" in ${restPages.map((pg, i) => `${i + 1}) printf '%s' '${q(pg)}' ;;`).join(' ')} *) printf '[]' ;; esac`
+      : `printf '%s' '${q(restJson)}'`;
   const body = `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "${callsFile}"
 case "$1 $2" in
@@ -7822,19 +7841,25 @@ const spentSum = (stubs, bucket) =>
     .filter((r) => r.bucket === bucket && r.basis === 'unknown')
     .reduce((sum, r) => sum + Number(r.spent), 0);
 
-for (const [rows, expected] of [[0, 1], [99, 1], [100, 1], [101, 2], [250, 3], [500, 5]]) {
+// A page of exactly 100 rows may be followed by another, so 100 rows cost two reads.
+const restRowPages = (n) => {
+  const all = JSON.parse(restPlain(ghRows(n)));
+  return Array.from({ length: Math.max(1, Math.ceil(n / 100)) }, (_, i) => JSON.stringify(all.slice(i * 100, (i + 1) * 100)));
+};
+
+for (const [rows, expected] of [[0, 1], [99, 1], [100, 2], [101, 2], [250, 3], [500, 5]]) {
   test(`host: pr-list --limit 500 with ${rows} rows sums spent to ${expected} (plain arm)`, () => {
-    const stubs = makeStubsRateAware({ graphqlJson: ghRows(rows) });
+    const stubs = makeStubsRateAware({ restPages: restRowPages(rows) });
     run(['pr-list', '--limit', '500'], { env: { PLOT_HOST: 'github' }, stubs });
-    assert.equal(spentSum(stubs, 'graphql'), expected,
+    assert.equal(spentSum(stubs, 'core'), expected,
       `record was:\n${JSON.stringify(recordOf(stubs), null, 2)}`);
   });
 }
 
 test('host: pr-list --limit 150, 150 rows sums spent to 2', () => {
-  const stubs = makeStubsRateAware({ graphqlJson: ghRows(150) });
+  const stubs = makeStubsRateAware({ restPages: restRowPages(150) });
   run(['pr-list', '--limit', '150'], { env: { PLOT_HOST: 'github' }, stubs });
-  assert.equal(spentSum(stubs, 'graphql'), 2);
+  assert.equal(spentSum(stubs, 'core'), 2);
 });
 
 for (const [rows, expected] of [[100, 1], [101, 2], [250, 3]]) {
