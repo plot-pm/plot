@@ -35,6 +35,8 @@ import {
   allSlicesMerged,
   deliveryPulse as chooseDeliveryPulse,
   derivedStanding,
+  laneStanding,
+  storyPlanTableSlugs,
   storyIssueValue,
   repoIssuePrefixOf,
   jiraProjectsOf,
@@ -2208,7 +2210,7 @@ export function deriveStoryStatus(
   const declared = (STORY_LIFECYCLE as readonly string[]).includes(declaredStatus)
     ? (declaredStatus as StoryStatus)
     : 'draft';
-  return derivedStanding(declared, plans);
+  return laneStanding(declared, derivedStanding(declared, plans));
 }
 
 /**
@@ -2286,7 +2288,7 @@ export const collectStoryCards = async (
   //
   // `ref` and `refs` are both optional and both must be present, exactly as in
   // `collectSprints`: a caller supplying neither reads the working tree alone.
-  const found: { slug: string; input: StoryCardInput }[] = [];
+  const found: { slug: string; input: StoryCardInput; tablePlans: string[] }[] = [];
   const refFiles = ref && refs ? await readRefFiles(refs, ref, storyDir) : null;
   const fromRef = refFiles ?? new Map<string, string>();
   for (const [relPath, content] of fromRef) {
@@ -2303,7 +2305,7 @@ export const collectStoryCards = async (
     const input = parseStoryContent(content, slug, relPath, '');
     if (!input) continue;
     takenSlugs.add(slug);
-    found.push({ slug, input: { ...input, committed: true } });
+    found.push({ slug, input: { ...input, committed: true }, tablePlans: storyPlanTableSlugs(content) });
   }
 
   for (const entry of fs.existsSync(root) ? fs.readdirSync(root, { withFileTypes: true }) : []) {
@@ -2326,10 +2328,16 @@ export const collectStoryCards = async (
     const input = parseStoryFile(abs, slug, path.relative(repoRoot, abs), dir);
     if (!input) continue;
     takenSlugs.add(slug);
-    found.push({ slug, input });
+    let text = '';
+    try {
+      text = fs.readFileSync(abs, 'utf8');
+    } catch {
+      // parseStoryFile read it a moment ago; a vanished file reads no table.
+    }
+    found.push({ slug, input, tablePlans: storyPlanTableSlugs(text) });
   }
 
-  for (const { slug, input } of found) {
+  for (const { slug, input, tablePlans } of found) {
 
     const storyPlans = plansByStory.get(slug) || [];
 
@@ -2361,7 +2369,7 @@ export const collectStoryCards = async (
       archived,
       plans,
       sprints,
-      ...(context ? { facts: storyFactsOf(input, storyPlans, archived, context) } : {}),
+      ...(context ? { facts: storyFactsOf(input, storyPlans, archived, context, tablePlans) } : {}),
     };
 
     // Parse through Zod to apply defaults and validate

@@ -60,10 +60,12 @@ const planReading = (meta: PlanMeta, context: StoryFactsContext): StoryPlanCardR
  * @param plans - the plans whose `Story:` names it.
  * @param archived - whether it lives in the archived directory.
  * @param context - what the build read beside the story.
+ * @param tablePlans - the plan slugs the story's plan table names.
  * @returns the story's card facts.
  */
 export const storyFactsOf = (
   input: StoryCardInput, plans: readonly PlanMeta[], archived: boolean, context: StoryFactsContext,
+  tablePlans: readonly string[] = [],
 ): CardFacts => storyCardFacts({
   slug: input.slug,
   title: input.title,
@@ -77,6 +79,7 @@ export const storyFactsOf = (
   objective: input.objective ?? '',
   issue: storyIssueLink(input.issue ?? '', context.issueContext),
   plans: { value: plans.map((meta) => planReading(meta, context)) },
+  tablePlans,
   sprints: context.sprints === null ? { unknown: 'failed' } : { value: context.sprints.map(sprintReading) },
 }, context.directory);
 

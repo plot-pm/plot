@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseStoryContent } from '../../src/server/board.js';
+import { deriveStoryStatus, parseStoryContent } from '../../src/server/board.js';
 import { PlanMetaSchema, StoryCardSchema, type PlanMeta, type StoryCard } from '../../src/contract/schema.js';
 import { storiesWithAvailability, storyFactsOf, ticketStoriesOf, type StoryFactsContext } from '../../src/server/story-facts.js';
 
@@ -124,5 +124,28 @@ describe('Add plan follows what the board runs', () => {
 
   it('leaves a story without facts as it is', () => {
     expect(storiesWithAvailability([{ facts: undefined }], { available: true, reason: '' })).toEqual([{ facts: undefined }]);
+  });
+});
+
+describe('a story whose plans are all finished stays in Active', () => {
+  const delivered = [{ phase: 'delivered' }, { phase: 'Delivered' }];
+
+  it('caps the standing of a ready or active story at active', () => {
+    expect(deriveStoryStatus('ready', delivered)).toBe('active');
+    expect(deriveStoryStatus('active', delivered)).toBe('active');
+  });
+
+  it('caps all-Released at active, not archived', () => {
+    expect(deriveStoryStatus('ready', [{ phase: 'released' }])).toBe('active');
+  });
+
+  it('keeps a story declared done in Done whatever its plans', () => {
+    expect(deriveStoryStatus('done', [{ phase: 'draft' }])).toBe('done');
+  });
+
+  it('reads the declared status at the lane site, not the derived one already on the card', () => {
+    // The card's `status` is already derived; feeding it back as `declared` would read `done`.
+    expect(deriveStoryStatus('done', delivered)).toBe('done');
+    expect(deriveStoryStatus('ready', delivered)).toBe('active');
   });
 });
