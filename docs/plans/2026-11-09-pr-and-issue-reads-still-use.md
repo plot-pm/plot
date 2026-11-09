@@ -7,7 +7,7 @@
 - **State:** Approved
 - **Type:** bug
 - **Approved:** 2026-11-09, Jan Wloka, plan-PR #3318 merged
-- **Sprint:** <!-- optional, filled when plan is added to a sprint -->
+- **Sprint:** ship-2-32-0
 - **Issue:** #3317
 - **Review:** pr
 - **Impl:** own branches
@@ -41,7 +41,7 @@ Measured on this repository, 2026-11-08 and 2026-11-09 (issue #3317):
 
 ### Approach
 
-- **REST on GitHub, as #3271 did, with one exception.** `pr-list`'s plain arm, `pr-merged`, `issue-view`, `issue-list` and `default-branch` call REST every time, so each has one path to test. `pr-list --rich` keeps its GraphQL call for the four rich fields and falls back to REST when GraphQL refuses (below). The Bitbucket arms do not change.
+- **REST on GitHub, as #3271 did, with one exception.** `pr-list`'s plain arm, `pr-merged`, `issue-view`, `issue-list` and `default-branch` call REST every time, so each has one path to test, except `default-branch`, whose `origin/HEAD` fallback is a second path the Done-when table covers. `pr-list --rich` keeps its GraphQL call for the four rich fields and falls back to REST when GraphQL refuses (below). The Bitbucket arms do not change.
 - **`pr-list`:** the plain arm reads `GET repos/{owner}/{repo}/pulls?state=…&head=…&per_page=…`, paged. `--since` asks `sort=updated&direction=desc` and stops paging at the first row older than the watermark. `--rich` keeps its GraphQL call; when GraphQL refuses, it answers the REST base fields with `checks: "unknown"`, `mergeable: "unknown"`, `review: ""` and `failing_checks: []`, never as passed. The whole-page notice keeps the shape the fleet scan reads today.
 - **`pr-merged`:** `GET repos/{owner}/{repo}/pulls?state=all&head={owner}:{branch}`, reading `merged_at` and `merge_commit_sha`. The answer stays `mergedAt`, never `state` (see *One Answer To "Did This Land"* in `CLAUDE.md`).
 - **`issue-view`:** `GET repos/{owner}/{repo}/issues/<n>`.
@@ -49,6 +49,9 @@ Measured on this repository, 2026-11-08 and 2026-11-09 (issue #3317):
   - `--title-has`: a case-insensitive substring match on `title` (`findOpenReviewIssue` reads it).
   - `--state closed` with a since date: the request passes `since=<date>` (which filters `updated_at`, a superset), and the arm keeps rows whose `closed_at` is on or after the date.
   - `--limit N`: the arm pages until it holds N issues after dropping pull requests, or the pages run out, so a page full of pull requests never shortens the answer.
+  - `--label <name>`: the REST `labels=<name>` parameter (`tracker-shell.ts:351` reads it).
+  - `--state changed` with a since date: `state=all&since=<timestamp>`, each row's status taken from its own `state` (`tracker-shell.ts:369` reads it).
+  - A date-only `--since` (`YYYY-MM-DD`) becomes `YYYY-MM-DDT00:00:00Z` before it reaches REST, which accepts only a full ISO 8601 timestamp.
 - **`default-branch`:** `GET repos/{owner}/{repo}` and `default_branch` first, as the op asks the host first today (`plot-host.sh:3962-3967`); the `origin/HEAD` symbolic ref stays the fallback when the host call fails. The order matters: `origin/HEAD` is a clone-time cache, and on 2026-09-24 a clone whose GitHub default had moved to `develop` kept `origin/HEAD → main`, so the board read two of three plans from the wrong branch.
 - **Repository name:** `gh_origin_slug` (read from the git remote, no API call), as #3271 does.
 - **Same output as before.** Each op prints the JSON it prints today, so no caller changes.
@@ -67,6 +70,7 @@ Measured on this repository, 2026-11-08 and 2026-11-09 (issue #3317):
 | Claim | Check | Slice |
 |---|---|---|
 | No op fails while GraphQL refuses | a stub `gh` that fails `gh api graphql` and every GraphQL-backed subcommand (`pr list`, `issue view`, `issue list`, `repo view`); all five ops still answer, and `pr-list --rich` answers its base fields with the four rich fields unread | REST reads |
+| `default-branch` falls back to `origin/HEAD` when the host call fails, and asks the host first when it answers | a stub `gh` whose `GET repos/{owner}/{repo}` fails, then one that answers a branch other than `origin/HEAD` | REST reads |
 | The approve controller approves a plan whose PR is open | the stubbed run above through `plot-approve` | REST reads |
 | The idea controller reads an issue | the stubbed run through the idea controller | REST reads |
 | `pr-merged` answers `merged` for a merged branch | the stubbed run, reading `merged_at` | REST reads |
