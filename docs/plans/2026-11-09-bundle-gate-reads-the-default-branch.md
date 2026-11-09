@@ -71,8 +71,8 @@ The commit hook, `bundleCommitRefusal`, its tests (`packages/domain/test/bundle-
 
 ### Open Questions
 
-- [ ] **The base CI passes.** `ci.yml:1383` can call the script with no argument, which reads `origin/main` (`check-no-bundle-diff.sh:61`), or pass `origin/${{ github.event.repository.default_branch }}`. Recommendation: no argument. It is what `main`'s `ci.yml:1383` and the `Local checks` key run, and the commit hook also names `origin/main` (`gate.ts:171`), so one literal holds every caller. A person decides.
-- [ ] **The changeset of `sprint-prs-run-ci`.** `.changeset/gate-base-reads-the-pr-base.md` is not released yet and says the bundle-diff gate compares with the target branch. Recommendation: the slice edits that sentence to name three gates and adds no second changeset for the same release, so the release note states what ships. The Approved plan `sprint-prs-run-ci` keeps its text as a record, and this plan's *Notes* name the change. A person decides.
+- [x] **The base CI passes.** `ci.yml:1383` can call the script with no argument, which reads `origin/main` (`check-no-bundle-diff.sh:61`), or pass `origin/${{ github.event.repository.default_branch }}`. Recommendation: no argument. It is what `main`'s `ci.yml:1383` and the `Local checks` key run, and the commit hook also names `origin/main` (`gate.ts:171`), so one literal holds every caller. A person decides. **Decided 2026-11-09, jwloka: `ci.yml:1383` calls `check-no-bundle-diff.sh` with no base argument, so it reads `origin/main`.**
+- [x] **The changeset of `sprint-prs-run-ci`.** `.changeset/gate-base-reads-the-pr-base.md` is not released yet and says the bundle-diff gate compares with the target branch. Recommendation: the slice edits that sentence to name three gates and adds no second changeset for the same release, so the release note states what ships. The Approved plan `sprint-prs-run-ci` keeps its text as a record, and this plan's *Notes* name the change. A person decides. **Decided 2026-11-09, jwloka: the slice edits the sentence in `.changeset/gate-base-reads-the-pr-base.md` to name the three gates that keep the PR base, and adds no second changeset.**
 
 ## Done when
 
