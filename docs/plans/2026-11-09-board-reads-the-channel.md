@@ -88,6 +88,10 @@ This plan depends on `the-channel-carries-readings` (the board receives `RepoSna
 
 - `feature/board-reads-the-channel-census` — the residual sources S3's log names removed; S3 set `green: true` with `greenBy` this plan and slice in `census-rows.ts`, and `it.fails` changed to `it` in `board.census.test.ts`; a changeset for `@plot-pm/board` <!-- builds: census S3 at zero, a required pass -->
 
+### Vendor gate
+
+- `bug/board-reads-the-channel-vendor-gate` — `branchUrlBase` names `github` and `bitbucket` in `packages/domain/src/rules/branch-url.ts` since #3289, and CI's "The domain names no vendor" gate refuses it on the sprint PR (#3277, run 42578481530); move the host knowledge behind an adapter, as #3232 did for tracker keys <!-- builds: branchUrlBase outside the domain's rules -->
+
 ## Notes
 
 - Phase 4 of the story [`nothing-changed-nothing-runs`](../stories/nothing-changed-nothing-runs/STORY-nothing-changed-nothing-runs.md); depends on `the-channel-carries-readings` and `fleetd-heartbeat-not-data-age`.
