@@ -2698,7 +2698,7 @@ exec ${JSON.stringify(realGit)} "$@"
   assert.equal(b.local_locked, true, 'the lock must still be reported');
 
   const statusCalls = fs.readFileSync(argvLog, 'utf8').split('\n')
-    .filter((l) => l.startsWith('-C ') && l.includes(' status ') && l.includes(wt));
+    .filter((l) => /(^|\s)-C /.test(l) && l.includes(' status ') && l.includes(wt));
   assert.ok(statusCalls.length > 0, 'the locked worktree must still be read');
   assert.equal(new Set(statusCalls).size, statusCalls.length,
     `a locked worktree must be asked each question ONCE and reported, saw: ${statusCalls.join(' | ')}`);
