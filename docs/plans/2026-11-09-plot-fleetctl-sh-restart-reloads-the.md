@@ -4,8 +4,9 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** feature
+- **Approved:** 2026-11-09, Jan Wloka, plan-PR #3330 merged
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Issue:** #3329
 - **Story:** <!-- optional -->
