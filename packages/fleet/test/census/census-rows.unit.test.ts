@@ -7,6 +7,7 @@ import type { ExecRecord } from './strace-execs.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-08-process-census-gate.md', import.meta.url));
+const WRAPPER_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-09-node-worker-wrapper.md', import.meta.url));
 
 /** The plan's two tables, `| Id | … | Target | Turned green by |`, as id → [target, turned green by]. */
 const planRows = (): Map<string, { target: string; greenBy: string }> => {
@@ -37,9 +38,15 @@ afterEach(() => {
 });
 
 describe('the census rows', () => {
-  it('holds every row of the plan, S1 to S6 and P1 to P4', () => {
-    expect(Object.keys(CENSUS_ROWS).sort()).toEqual([...planRows().keys()].sort());
-    expect(Object.keys(CENSUS_ROWS).sort()).toEqual(['P1', 'P2', 'P3', 'P4', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6']);
+  it('holds every row of the plan, S1 to S6 and P1 to P4, and D1 of the worker wrapper plan', () => {
+    expect(Object.keys(CENSUS_ROWS).filter((id) => id !== 'D1').sort()).toEqual([...planRows().keys()].sort());
+    expect(Object.keys(CENSUS_ROWS).sort()).toEqual(['D1', 'P1', 'P2', 'P3', 'P4', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6']);
+    expect(readFileSync(WRAPPER_PLAN, 'utf8')).toContain(`\`D1: ${CENSUS_ROWS.D1.claim}\``);
+  });
+
+  it('holds D1 measured, with no growth allowed', () => {
+    expect(CENSUS_ROWS.D1).toMatchObject({ target: 'measured', tolerance: 'strict' });
+    expect(rowTitle(CENSUS_ROWS.D1)).toBe('D1: one dispatch (measured, held within no growth)');
   });
 
   it('writes a zero target of the plan as a zero row, and every other as measured', () => {

@@ -122,4 +122,5 @@ skills/plot/scripts/board/plot-verify.mjs -merge
 skills/plot/scripts/board/plot-review.mjs -merge
 skills/plot/scripts/board/plot-design.mjs -merge
 skills/plot/scripts/board/plot-worker-loop.mjs -merge
+skills/plot/scripts/board/plot-worker-wrapper.mjs -merge
 skills/plot/scripts/board/plot-write-probe.mjs -merge

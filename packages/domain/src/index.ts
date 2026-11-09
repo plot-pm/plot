@@ -613,6 +613,7 @@ export type * from './ports/notifier.js';
 export type * from './ports/build.js';
 export type * from './ports/budget.js';
 export type * from './ports/slice-spend.js';
+export type * from './ports/worker-records.js';
 export type * from './ports/fresh-agent-record.js';
 export * from './ports/run-log.js';
 export type * from './ports/ending-ask-record.js';
