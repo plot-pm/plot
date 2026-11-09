@@ -181,9 +181,16 @@ test('github: the truncation note is unchanged — still names MERGED_PR_LIMIT (
   const page = JSON.stringify(
     Array.from({ length: 500 }, (_, i) => ({ number: i, title: `pr-${i}`, state: 'MERGED', headRefName: `feature/pr-${i}` })),
   );
+  const restRows = Array.from({ length: 500 }, (_, i) => ({
+    number: i, title: `pr-${i}`, state: 'closed', merged_at: '2026-01-01T00:00:00Z', html_url: '',
+    updated_at: '2026-01-01T00:00:00Z', user: { login: '' }, head: { ref: `feature/pr-${i}`, sha: null }, base: { ref: 'main' },
+  }));
+  for (let n = 1; n <= 5; n++) fs.writeFileSync(path.join(dir, `page${n}.json`), JSON.stringify(restRows.slice((n - 1) * 100, n * 100)));
   fs.writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> ${JSON.stringify(callsFile)}
 case "$*" in
+  *"api repos/"*"/pulls?state=closed"*"page="*) a="$*"; n="\${a##*page=}"; n="\${n%% *}"; printf 'HTTP/2 200\\r\\n\\n'; cat "${dir}/page$n.json" ;;
+  *"api repos/"*"/pulls?"*) printf 'HTTP/2 200\\r\\n\\n[]' ;;
   *"--state merged"*) printf '%s' '${page}' ;;
   *"--state open"*)   printf '%s' '[]' ;;
   *"--state all"*"--head"*) printf '%s' '[]' ;;

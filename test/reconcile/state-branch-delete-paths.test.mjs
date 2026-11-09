@@ -4,6 +4,7 @@
 // squash-merged or contained ref, which is the exact shape each sweep deletes.
 // Each test declares the key, makes the state branch look finished to the path
 // under test, and asserts the ref is still there afterwards.
+import { restPullsStubSource } from './rest-pulls-shim.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -62,6 +63,7 @@ const stubGh = (tmp) => {
   const gh = path.join(bin, 'gh');
   fs.writeFileSync(gh, `#!/usr/bin/env node
 const argv = process.argv.slice(2);
+${restPullsStubSource("(h) => [{ number: 7, state: 'closed', mergedAt: '2026-11-08T08:00:00Z', headRefName: h || '" + "${STATE}" + "' }]")}
 if (argv[0] !== 'pr' || argv[1] !== 'list') process.exit(1);
 const si = argv.indexOf('--state');
 const state = si === -1 ? 'open' : argv[si + 1];
