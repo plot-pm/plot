@@ -121,17 +121,18 @@ export const syncPrAt = async (
   const ahead = source.target.isBranch ? await commitsBetween(ports.refs, source.target.defaultRef, source.target.trackRef) : 0;
   const decision: SyncPrDecision = syncPrDecision({ caller, target: source.target, deliveredPending: pending, ahead, open, fleetLive });
   const branch = source.target.pushRef.replace(/^refs\/heads\//, '');
+  const body = syncPrBody(ahead ?? 0, branch, source.defaultBranch);
   if (decision.kind === 'none') return { done: 'none', reason: decision.reason };
   if (decision.kind === 'unknown') return { done: 'unknown', reason: decision.reason };
   if (decision.kind === 'refresh') {
-    const said = await ports.host.prComment(decision.pr, syncPrBody(ahead ?? 0, branch, source.defaultBranch), SYNC_PR_MARKER);
+    const said = await ports.host.prComment(decision.pr, body, SYNC_PR_MARKER);
     return said.ok ? { done: 'refreshed', pr: decision.pr } : { done: 'failed', why: `the host did not take the refresh comment on PR #${decision.pr}` };
   }
   const created = await ports.host.prCreate({
     head: branch,
     base: source.defaultBranch,
     title: syncPrTitle(branch, source.defaultBranch),
-    body: syncPrBody(ahead ?? 0, branch, source.defaultBranch),
+    body,
     draft: false,
   });
   return created.ok ? { done: 'opened', url: created.value } : { done: 'failed', why: 'the host did not open the sync pull request' };

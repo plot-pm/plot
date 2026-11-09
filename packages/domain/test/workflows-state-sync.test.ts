@@ -29,6 +29,7 @@ interface World {
   behind?: number | 'fail';
   created?: string[];
   comments?: { pr: number; marker?: string }[];
+  fail?: readonly ('comment' | 'create' | 'exists' | 'resolve' | 'base')[];
 }
 
 const portsOf = (world: World): StateSyncPorts => {
@@ -39,10 +40,12 @@ const portsOf = (world: World): StateSyncPorts => {
       prList: async () => (world.prs === 'fail' ? failed() : answered((world.prs ?? []) as never)),
       prCreate: async (req) => {
         world.created?.push(req.head);
+        if (world.fail?.includes('create')) return failed();
         return answered('https://host/pr/9');
       },
       prComment: async (pr, _body, marker) => {
         world.comments?.push({ pr, marker });
+        if (world.fail?.includes('comment')) return failed();
         return answered(undefined as never);
       },
     },
@@ -54,10 +57,11 @@ const portsOf = (world: World): StateSyncPorts => {
       changedFiles: async () => (world.changed === 'fail' ? failed() : answered([...(world.changed ?? [])])),
       showFile: async (ref: string, path: string) => {
         const text = files[`${ref}:${path}`];
+        if (world.fail?.includes('base') && ref === target.defaultRef) return failed();
         return text === undefined ? failed() : answered(text);
       },
-      fileExistsSync: (ref: string, path: string) => answered(files[`${ref}:${path}`] !== undefined),
-      resolve: async (ref: string) => answered(ref === target.defaultRef ? 'd1' : 's1'),
+      fileExistsSync: (ref: string, path: string) => (world.fail?.includes('exists') ? failed() : answered(files[`${ref}:${path}`] !== undefined)),
+      resolve: async (ref: string) => (world.fail?.includes('resolve') ? failed() : answered(ref === target.defaultRef ? 'd1' : 's1')),
     },
   };
 };
@@ -113,7 +117,22 @@ describe('syncPrAt', () => {
   });
 });
 
+describe('a host that refuses', () => {
+  it('reports a refused refresh comment and a refused create as failed', async () => {
+    const open = { ...delivered(), fail: ['comment' as const], ahead: 'fail' as const, prs: [{ number: 7, head: 'plot/state', base: 'main', state: 'OPEN' }] };
+    expect(await syncPrAt(portsOf(open), source(), 'fleetd', 'unknown')).toEqual({ done: 'failed', why: 'the host did not take the refresh comment on PR #7' });
+    const none = { ...delivered(), fail: ['create' as const] };
+    expect(await syncPrAt(portsOf(none), source(), 'fleetd', 'unknown')).toEqual({ done: 'failed', why: 'the host did not open the sync pull request' });
+  });
+});
+
 describe('the readings', () => {
+  it('reads a failed existence check or base file as unknown', async () => {
+    expect(await deliveredPending(portsOf({ ...delivered(), fail: ['exists'] }).refs, source())).toBe('unknown');
+    const files = { [`refs/remotes/origin/plot/state:${P}`]: plan('Delivered'), [`refs/remotes/origin/main:${P}`]: plan('Approved') };
+    expect(await deliveredPending(portsOf({ changed: [P], files, fail: ['base'] }).refs, source())).toBe('unknown');
+  });
+
   it('treats a plan Delivered on both refs as settled and a Released base as booked', async () => {
     const files = { [`refs/remotes/origin/plot/state:${P}`]: plan('Delivered'), [`refs/remotes/origin/main:${P}`]: plan('Released') };
     expect(await deliveredPending(portsOf({ changed: [P], files }).refs, source())).toBe(false);
@@ -165,6 +184,11 @@ describe('forwardSyncAt', () => {
   it('stands on a known conflict while both tips are unchanged', async () => {
     const refused = { defaultTip: 'd1', stateTip: 's1', files: ['docs/plans/x.md'] };
     expect((await forwardSyncAt(portsOf({ behind: 2 }).refs, t, { lockHeld: false, refused })).decision).toEqual({ kind: 'refused', files: ['docs/plans/x.md'] });
+  });
+
+  it('is idle where a tip could not be resolved', async () => {
+    const r = await forwardSyncAt(portsOf({ behind: 2, fail: ['resolve'] }).refs, t, { lockHeld: false, refused: null });
+    expect(r).toEqual({ decision: { kind: 'idle', reason: 'unread' }, defaultTip: 'unknown', stateTip: 'unknown' });
   });
 
   it('is idle where nothing is behind or the count is unread', async () => {

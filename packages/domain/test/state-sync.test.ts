@@ -31,6 +31,10 @@ describe('syncPathVerdict', () => {
     expect(set).toEqual(['docs/plans/', 'docs/plans/active/', 'docs/plans/delivered/', 'docs/sprints/', 'docs/releases/']);
   });
 
+  it('drops a directory key that is empty', () => {
+    expect(syncPathSet({ planDir: 'docs/plans', activeIndex: '', deliveredIndex: ' ', sprintDir: './', releaseDir: 'r/' })).toEqual(['docs/plans/', 'r/']);
+  });
+
   it('passes a diff inside the set', () => {
     expect(syncPathVerdict(['docs/plans/2026-11-07-x.md', 'docs/plans/active/x.md', 'docs/releases/vnext-checklist.md'], set)).toEqual({ ok: true });
   });
