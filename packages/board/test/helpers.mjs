@@ -825,26 +825,30 @@ export async function countSliceRows(page) {
  * Writes a live fleetd heartbeat, `.plot/state/fleetd.json`, under `repo` and
  * rewrites it every 5 s for as long as this process runs, so it never reads
  * `stale` (30 s) in a server test that outlasts one write. The timer is
- * unref'd and a failed rewrite (the repository is gone) is ignored.
+ * unref'd. Only the first write creates `.plot/state`: a rewrite never
+ * creates a directory, so a beat after the test removed its repository
+ * fails, stops the timer, and leaves nothing behind in TMPDIR.
  *
  * @param {string} repo - the repository root the board serves.
  */
 export function liveFleetdHeartbeat(repo) {
   const file = path.join(repo, '.plot/state/fleetd.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  let timer;
   const write = () => {
     try {
       const beatAt = Date.now();
-      fs.mkdirSync(path.dirname(file), { recursive: true });
       const temp = `${file}.${process.pid}.tmp`;
       fs.writeFileSync(temp, `${JSON.stringify({
         version: 1, pid: process.ppid, startedAt: beatAt - 600_000, beatAt, generation: 1, bridgeAt: null,
         supervised: 'none', watchesWanted: 0, watchesArmed: 0, lastEventAt: null, lastSafetyNetAt: null, loops: {},
       })}\n`, 'utf8');
       fs.renameSync(temp, file);
-    } catch { /* the repository was removed */ }
+    } catch { clearInterval(timer); /* the repository was removed */ }
   };
   write();
-  setInterval(write, 5_000).unref();
+  timer = setInterval(write, 5_000);
+  timer.unref();
 }
 
 /**
