@@ -227,6 +227,56 @@ jobs:
           grep -v '^widened_by=' "$RUNNER_TEMP/outputs.txt" >> "$GITHUB_OUTPUT"
           { echo '```'; cat "$RUNNER_TEMP/outputs.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
+      # THE RECORD OF WHAT THIS RUN TESTED. The Actions API gives a pull
+      # request run's head and no merge SHA, so a later run of the same pull
+      # request learns this run's base only from this record. The artifact
+      # name carries the base (`HEAD^1`) and the head (`HEAD^2`); the file
+      # holds both, the changed paths of the merge and the selection outputs.
+      # A run that records nothing is never a source, and no job reads either
+      # step's outcome. Part of docs/plans/2026-11-09-ci-reuses-green-runs.md.
+      - name: Record the inputs this run tested
+        id: record
+        if: ${{ github.event_name == 'pull_request' }}
+        continue-on-error: true
+        env:
+          CORPUS: ${{ steps.map.outputs.corpus }}
+          CORPUS_TESTS: ${{ steps.map.outputs.corpus_tests }}
+          CONTRACTS: ${{ steps.map.outputs.contracts }}
+          CONTRACTS_TESTS: ${{ steps.map.outputs.contracts_tests }}
+          BOARD: ${{ steps.map.outputs.board }}
+          DOMAIN: ${{ steps.map.outputs.domain }}
+          FLEET: ${{ steps.map.outputs.fleet }}
+          E2E: ${{ steps.map.outputs.e2e }}
+          MACOS: ${{ steps.map.outputs.macos }}
+          CENSUS: ${{ steps.map.outputs.census }}
+        run: |
+          set -euo pipefail
+          base=$(git rev-parse --verify HEAD^1)
+          head=$(git rev-parse --verify HEAD^2)
+          mkdir -p "$RUNNER_TEMP/ci-inputs"
+          git diff --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/ci-inputs/changed.txt"
+          jq -n --arg base "$base" --arg head "$head" \
+            --rawfile changed "$RUNNER_TEMP/ci-inputs/changed.txt" \
+            '{version: 1, base: $base, head: $head,
+              changed: ($changed | split("\n") | map(select(. != ""))),
+              selection: {corpus: env.CORPUS, corpus_tests: env.CORPUS_TESTS,
+                contracts: env.CONTRACTS, contracts_tests: env.CONTRACTS_TESTS,
+                board: env.BOARD, domain: env.DOMAIN, fleet: env.FLEET,
+                e2e: env.E2E, macos: env.MACOS, census: env.CENSUS}}' \
+            > "$RUNNER_TEMP/ci-inputs/ci-inputs.json"
+          echo "name=ci-inputs-$base-$head" >> "$GITHUB_OUTPUT"
+          echo "Recorded ci-inputs-$base-$head" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the record
+        if: ${{ github.event_name == 'pull_request' && steps.record.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.record.outputs.name }}
+          path: ${{ runner.temp }}/ci-inputs/ci-inputs.json
+          if-no-files-found: error
+          retention-days: 7
+
   # ── The corpus tier: do the adapters feed the domain the same readings
   #    production reads, against this repository's real estate — and does a
   #    rule answer what its shell duplicate answers? ────────────────────────
