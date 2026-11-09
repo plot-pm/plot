@@ -135,4 +135,8 @@ describe('restartReport', () => {
     expect(restartReport({ ...result, oldPid: '4242', newPid: '' }).message).toContain('now unreadable');
     expect(restartReport({ ...result, oldPid: '', newPid: '5555' }).message).toContain('old pid: unreadable');
   });
+
+  it('reports an unreadable commit as unknown', () => {
+    expect(restartReport({ ...result, oldPid: '4242', newPid: '5555', commit: '' }).message).toContain('bundle commit: unknown');
+  });
 });
