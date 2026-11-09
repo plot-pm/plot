@@ -63,6 +63,19 @@ export const fleetdReadsPrs = (heartbeat: FleetdHeartbeat | null, now: number): 
   heartbeat !== null && fleetdLiveness(heartbeat, now) === 'live' && !lateLoops(heartbeat, now).includes('pr-reader');
 
 /**
+ * Reads whether fleetd is alive and its issue loop is not late.
+ *
+ * A loop absent from the heartbeat is not run and not judged, as in {@link fleetdReadsPrs}.
+ * A late `tick` or `scan` loop does not count: the issue index is written by `issue-reader` alone.
+ *
+ * @param heartbeat - the heartbeat read, or null where there is none.
+ * @param now - the current time, epoch milliseconds.
+ * @returns true when the heartbeat reads `live` and `issue-reader` is not in {@link lateLoops}.
+ */
+export const fleetdReadsIssues = (heartbeat: FleetdHeartbeat | null, now: number): boolean =>
+  heartbeat !== null && fleetdLiveness(heartbeat, now) === 'live' && !lateLoops(heartbeat, now).includes('issue-reader');
+
+/**
  * Names the loops that are late.
  *
  * @param heartbeat - the heartbeat read.

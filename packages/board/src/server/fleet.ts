@@ -104,7 +104,7 @@ import type { HeldSnapshot } from '@plot-pm/domain/rules/snapshot-sync';
 import { PR_INDEX_VERSION, type PrIndex } from '@plot-pm/domain/entities/pr-index';
 import { HOST_BRANCH_URL_SCHEMES } from '@plot-pm/domain/adapters/host/host-branch-urls';
 import { fleetViewFrom, registryViewFrom, snapshotViewNote } from '@plot-pm/domain/workflows/board-view';
-import { fleetdLiveness, fleetdReadsPrs, lateLoopNote, lateLoops } from '@plot-pm/domain/rules/fleetd-live';
+import { fleetdLiveness, fleetdReadsIssues, fleetdReadsPrs, lateLoopNote, lateLoops } from '@plot-pm/domain/rules/fleetd-live';
 import { isChainedHeading } from '@plot-pm/domain/rules/slice-chain';
 import {
   applyPrMaps,
@@ -2577,9 +2577,9 @@ const readIssuesFromStore = async (
 
 /**
  * Whether the fleet owns the issue index: fleetd's heartbeat is live with its
- * scan loop fresh. The same signal as the scan's, so one fleet answers both. The
- * bridge is not consulted: issues are read from `issues.json`, which the
- * heartbeat's `issue-reader` loop keeps.
+ * `issue-reader` loop on time ({@link fleetdReadsIssues}). A late `scan` or
+ * `tick` loop does not move issues to the board. The bridge is not consulted:
+ * issues are read from `issues.json`, which the `issue-reader` loop keeps.
  *
  * Issues only, since `the-boards-share-one-pr-reader`: the PR read's own
  * ownership question is {@link electReader}'s, over the reader lock rather
@@ -2588,7 +2588,7 @@ const readIssuesFromStore = async (
  * here moves PRs back onto it.
  */
 const fleetOwnsPrs = async (opts: BuildBoardOptions): Promise<boolean> => {
-  return fleetOwnsScan({ heartbeat: await fleetdHeartbeatFor(opts), now: Date.now() });
+  return fleetdReadsIssues(await fleetdHeartbeatFor(opts), Date.now());
 };
 
 /**
