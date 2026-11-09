@@ -47,7 +47,7 @@ The two ops are GraphQL-dependent only in part:
 
 ### Open Questions
 
-- [ ] `gh_route` (`plot-host.sh:2483`) still answers `graphql` for every op but `pr-state`. Does #3271 leave it in use, and should these two ops name `rest` there for the budget record, or is the route table now dead code? Read it when implementing; do not extend a table nothing consults.
+- [x] `gh_route` (`plot-host.sh:2483`) still answers `graphql` for every op but `pr-state`. Does #3271 leave it in use, and should these two ops name `rest` there for the budget record, or is the route table now dead code? Answered: `pr-state` is the only reader of `$route` (`plot-host.sh:4047`), so `issue-label` and `issue-comment` do not consult it, and `gh_route` is left unchanged.
 
 ## Done when
 
