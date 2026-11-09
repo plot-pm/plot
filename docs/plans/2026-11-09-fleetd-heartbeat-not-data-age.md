@@ -97,6 +97,10 @@ This plan depends on `the-snapshot-entity`: the heartbeat names the snapshot's `
 
 - `feature/fleetd-heartbeat-not-data-age-followups` — `fleetOwnsScan` follows the scan loop only; the bridge resolves to the main checkout through the shared `mainRootOf`; decided 2026-11-09 (see Notes); a changeset for `@plot-pm/board` <!-- builds: scan ownership by the scan loop, and the bridge at the main checkout -->
 
+### Issue index
+
+- `feature/fleetd-heartbeat-not-data-age-issue-index` — the board reads the issue index while fleetd's heartbeat is `live` and its `issue-reader` loop is on time, instead of following the scan loop; decided 2026-11-09 by jwloka <!-- builds: an issue-index gate that follows the issue-reader loop -->
+
 ## Notes
 
 - **Decided 2026-11-09, jwloka — three follow-ups from the Readers reviews (#3286).**
