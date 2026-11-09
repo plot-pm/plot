@@ -10,8 +10,8 @@ const recording = (pid: number): { detached: Detached; starts: unknown[][] } => 
   return {
     starts,
     detached: {
-      node: (script, args, cwd, logFile) => {
-        starts.push([script, args, cwd, logFile]);
+      node: (script, args, cwd, logFile, append) => {
+        starts.push([script, args, cwd, logFile, append]);
         return { pid, exitCode: () => null };
       },
     },
@@ -21,6 +21,7 @@ const recording = (pid: number): { detached: Detached; starts: unknown[][] } => 
 const input = (over: Partial<StartInput> = {}): StartInput => ({
   command: 'sleep 300',
   log: '/desk/.plot-worker.log',
+  append: false,
   cwd: '/desk',
   running: '26.13.0',
   pin: '26\n',
@@ -31,7 +32,12 @@ const input = (over: Partial<StartInput> = {}): StartInput => ({
 
 describe('startArgs', () => {
   it('reads the command from the one argument and the log from PLOT_WORKER_LOG', () => {
-    expect(startArgs(['sleep 300'], { PLOT_WORKER_LOG: '/desk/log' })).toEqual({ ok: true, command: 'sleep 300', log: '/desk/log' });
+    expect(startArgs(['sleep 300'], { PLOT_WORKER_LOG: '/desk/log' })).toEqual({ ok: true, command: 'sleep 300', log: '/desk/log', append: false });
+  });
+
+  it('reads PLOT_WORKER_LOG_APPEND=1 as an append, and any other value as a truncation', () => {
+    expect(startArgs(['true'], { PLOT_WORKER_LOG: '/desk/log', PLOT_WORKER_LOG_APPEND: '1' })).toMatchObject({ append: true });
+    expect(startArgs(['true'], { PLOT_WORKER_LOG: '/desk/log', PLOT_WORKER_LOG_APPEND: 'yes' })).toMatchObject({ append: false });
   });
 
   it('refuses no command, an empty command and a second argument', () => {
@@ -50,8 +56,14 @@ describe('startWorker', () => {
     const { detached, starts } = recording(4242);
     expect(startWorker(input(), detached)).toEqual({ code: 0, pid: 4242, message: '' });
     expect(starts).toEqual([
-      ['/plot/skills/plot/scripts/board/plot-worker-wrapper.mjs', ['sleep 300'], '/desk', '/desk/.plot-worker.log'],
+      ['/plot/skills/plot/scripts/board/plot-worker-wrapper.mjs', ['sleep 300'], '/desk', '/desk/.plot-worker.log', false],
     ]);
+  });
+
+  it('passes an append through to the Detached port', () => {
+    const { detached, starts } = recording(4242);
+    startWorker(input({ append: true }), detached);
+    expect(starts[0]?.[4]).toBe(true);
   });
 
   it('starts nothing under another major, and names both majors and the pin file', () => {
