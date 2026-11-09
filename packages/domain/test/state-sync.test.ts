@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { writeTarget, type StateWriteTarget } from '../src/rules/write-target.js';
 import {
+  aheadSinceTreeEqual,
   forwardSync,
   isSyncHead,
   isSyncPr,
@@ -211,5 +212,27 @@ describe('syncPrBody', () => {
   });
   it('carries the marker the host finds the comment by', () => {
     expect(syncPrBody(3, 'plot/state', 'main').split('\n')[0]).toBe(`<!-- ${SYNC_PR_MARKER} -->`);
+  });
+});
+
+describe('aheadSinceTreeEqual', () => {
+  const record = (tree: string) => ({ tree, forward: false });
+  const forward = (tree: string) => ({ tree, forward: true });
+  it('reads 0 where the tip tree equals the default tree', () => {
+    expect(aheadSinceTreeEqual([record('D'), record('b'), record('a')], 'D')).toBe(0);
+  });
+  it('counts the commits added after a squash-merge', () => {
+    expect(aheadSinceTreeEqual([record('n2'), record('n1'), record('D'), record('a')], 'D')).toBe(2);
+  });
+  it('counts every commit where none is tree-equal', () => {
+    expect(aheadSinceTreeEqual([record('c'), record('b'), record('a')], 'D')).toBe(3);
+    expect(aheadSinceTreeEqual([], 'D')).toBe(0);
+  });
+  it('does not count a forward merge, at the tip or in the middle', () => {
+    expect(aheadSinceTreeEqual([forward('D'), record('a')], 'D')).toBe(0);
+    expect(aheadSinceTreeEqual([record('r3'), forward('F'), record('r2'), record('r1')], 'D')).toBe(3);
+  });
+  it('finds no tree-equal commit for an empty default tree id', () => {
+    expect(aheadSinceTreeEqual([record(''), record('a')], '')).toBe(2);
   });
 });

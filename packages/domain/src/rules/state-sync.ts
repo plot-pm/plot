@@ -254,6 +254,30 @@ export const syncPrDecision = (reading: SyncPrReading): SyncPrDecision => {
 export const syncedByTrees = (stateTree: string, defaultTree: string): boolean =>
   stateTree !== '' && stateTree === defaultTree;
 
+/**
+ * Counts the commits a state branch holds that the default branch does not yet hold in content.
+ *
+ * Walks the first-parent line newest first and stops at the first commit whose
+ * tree equals the default branch's tree: a squash-merge rewrites the commits
+ * and keeps the tree, so nothing at or below that commit is pending. A forward
+ * merge carries default-branch content and no record, so it does not count.
+ *
+ * @param line - the state branch's first-parent commits beyond the merge base, newest first.
+ * @param defaultTree - the default tip's tree id; empty reads as no tree-equal commit.
+ * @returns the number of non-forward commits above the first tree-equal commit; every non-forward commit of `line` where none is tree-equal.
+ */
+export const aheadSinceTreeEqual = (
+  line: readonly { readonly tree: string; readonly forward: boolean }[],
+  defaultTree: string,
+): number => {
+  let count = 0;
+  for (const commit of line) {
+    if (syncedByTrees(commit.tree, defaultTree)) return count;
+    if (!commit.forward) count += 1;
+  }
+  return count;
+};
+
 /** The title of a sync pull request. */
 export const syncPrTitle = (stateBranch: string, defaultBranch: string): string =>
   `plot: sync records from ${stateBranch} to ${defaultBranch}`;

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { writeTarget, type StateWriteTarget } from '../src/rules/write-target.js';
 import { answered, failed, type PortResult } from '../src/port-result.js';
 import {
+  commitsAhead,
   commitsBetween,
   deliveredPending,
   fleetLiveAt,
@@ -26,6 +27,7 @@ interface World {
   changed?: readonly string[] | 'fail';
   files?: Readonly<Record<string, string>>;
   ahead?: number | 'fail';
+  line?: readonly { tree: string; forward: boolean }[] | 'fail';
   behind?: number | 'fail';
   created?: string[];
   comments?: { pr: number; marker?: string; body?: string }[];
@@ -58,9 +60,14 @@ const portsOf = (world: World): StateSyncPorts => {
       },
     },
     refs: {
-      commitSubjects: async (range: string) => {
-        const n = range === `${target.defaultRef}..${target.trackRef}` ? world.ahead : world.behind;
+      commitSubjects: async () => {
+        const n = world.behind;
         return n === 'fail' ? failed() : answered(lines(n ?? 0) as never);
+      },
+      firstParentCommits: async () => {
+        if (world.line !== undefined) return world.line === 'fail' ? failed() : answered([...world.line]);
+        const n = world.ahead;
+        return n === 'fail' ? failed() : answered(Array.from({ length: n ?? 0 }, (_, i) => ({ tree: `t${i}`, forward: false })));
       },
       changedFiles: async () => (world.changed === 'fail' ? failed() : answered([...(world.changed ?? [])])),
       showFile: async (ref: string, path: string) => {
@@ -69,7 +76,7 @@ const portsOf = (world: World): StateSyncPorts => {
         return text === undefined ? failed() : answered(text);
       },
       fileExistsSync: (ref: string, path: string) => (world.fail?.includes('exists') ? failed() : answered(files[`${ref}:${path}`] !== undefined)),
-      resolve: async (ref: string) => (world.fail?.includes('resolve') ? failed() : answered(ref === target.defaultRef ? 'd1' : 's1')),
+      resolve: async (ref: string) => (world.fail?.includes('resolve') ? failed() : answered(ref.endsWith('^{tree}') ? 'D' : ref === target.defaultRef ? 'd1' : 's1')),
     },
   };
 };
@@ -175,6 +182,33 @@ describe('the readings', () => {
   it('counts commits and reads a failure as null', async () => {
     expect(await commitsBetween(portsOf({ behind: 4 }).refs, 'a', 'b')).toBe(4);
     expect(await commitsBetween(portsOf({ behind: 'fail' }).refs, 'a', 'b')).toBeNull();
+  });
+
+  it('counts commits ahead since the last tree-equal commit and reads a failure as null', async () => {
+    const refs = (world: World) => portsOf(world).refs;
+    const squashed = [{ tree: 'n2', forward: false }, { tree: 'n1', forward: false }, { tree: 'D', forward: false }, { tree: 'o', forward: false }];
+    expect(await commitsAhead(refs({ line: squashed }), 'd', 's')).toBe(2);
+    expect(await commitsAhead(refs({ line: [{ tree: 'D', forward: false }, { tree: 'o', forward: false }] }), 'd', 's')).toBe(0);
+    expect(await commitsAhead(refs({ ahead: 3 }), 'd', 's')).toBe(3);
+    expect(await commitsAhead(refs({ ahead: 0 }), 'd', 's')).toBe(0);
+    expect(await commitsAhead(refs({ line: 'fail' }), 'd', 's')).toBeNull();
+    expect(await commitsAhead(refs({ ahead: 2, fail: ['resolve'] }), 'd', 's')).toBeNull();
+  });
+
+  it('does not count a forward merge', async () => {
+    const forward = { tree: 'F', forward: true };
+    const record = (tree: string) => ({ tree, forward: false });
+    expect(await commitsAhead(portsOf({ line: [record('r3'), forward, record('r2'), record('r1')] }).refs, 'd', 's')).toBe(3);
+    expect(await commitsAhead(portsOf({ line: [{ tree: 'D', forward: true }, record('r1')] }).refs, 'd', 's')).toBe(0);
+  });
+
+  it('feeds the sync pull request the count since the last tree-equal commit', async () => {
+    const comments: { pr: number; marker?: string; body?: string }[] = [];
+    const line = [{ tree: 'n2', forward: false }, { tree: 'n1', forward: false }, { tree: 'D', forward: false }, { tree: 'o', forward: false }];
+    const world: World = { ...delivered(), line, prs: [{ number: 5, head: 'plot/state', base: 'main', state: 'OPEN' }], refreshed: { pr: 5, ahead: 4 }, comments };
+    const result = await syncPrAt(portsOf(world), source(), 'fleetd', false);
+    expect(result).toEqual({ done: 'refreshed', pr: 5 });
+    expect(world.refreshed).toEqual({ pr: 5, ahead: 2 });
   });
 
   it('names an open sync PR by its ends and not its title', async () => {
