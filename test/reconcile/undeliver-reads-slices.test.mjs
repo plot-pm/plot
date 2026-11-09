@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { restPullsStubSource } from './rest-pulls-shim.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.resolve(here, '../../skills/plot/scripts');
@@ -67,6 +68,7 @@ const sandbox = ({ slices, pushed = [], prs = {} }) => {
 const fs = require('node:fs');
 const argv = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(log)}, argv.join(' ') + '\\n');
+${restPullsStubSource(`(head) => (${JSON.stringify(prs)}[head] || []).map((p, i) => ({ number: i + 1, title: 't', state: p.state, headRefName: head, mergedAt: p.mergedAt || null }))`)}
 if (argv[0] !== 'pr' || argv[1] !== 'list') process.exit(1);
 const arg = (n) => argv[argv.indexOf(n) + 1];
 const head = arg('--head');
