@@ -21,7 +21,7 @@ import { CARD_BELOW_PX, COLLAPSED_BY_DEFAULT, isCollapsible, readCollapsed, writ
 import { MINE_ONLY_BY_DEFAULT, readMineOnly, rowsForReader, writeMineOnly } from '../../src/app/lib/agent-rows/mine-filter.js';
 import { ACTIVITY_MARK_PLACE, ActivityEcho, CHANGE_MARK_MS, ChangeMarks, LOCK_ECHO_MS, activeRowKeys, activityPace, changedRows, groupPace, isUnreadable, sameWatched, type WatchedState, watchedState } from '../../src/app/lib/agent-rows/activity.js';
 import { isActive, isLive, soleRowStatus } from '../../src/app/lib/agent-rows/stuck.js';
-import { GROUPS, elsewhereNote, groupByPlan, planGroupShape, rowsBySection, sectionTally, showPlanHeading, tallyLabel, unfilteredNote, type PlanGroup, type SectionTally, sliceKeyOf, sliceSection, slicesElsewhere } from '../../src/app/lib/agent-rows/sections.js';
+import { elsewhereNote, groupByPlan, planGroupShape, rowsBySection, sectionTally, showPlanHeading, tallyLabel, unfilteredNote, type PlanGroup, type SectionTally, sliceKeyOf, sliceSection, slicesElsewhere } from '../../src/app/lib/agent-rows/sections.js';
 import { countdown } from '../../src/app/lib/agent-rows/actions.js';
 import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, hostErrorState, issueNote, noteWithoutPr, prStateWord, prStatusEntry, scanHostNote } from '../../src/app/lib/agent-rows/host-notes.js';
 import { isFinished, isStartable, rowKey, waitingLabel, waitingTone } from '../../src/app/lib/agent-rows/row-identity.js';
@@ -32,11 +32,13 @@ import { sanitizeSelection, showsSprintSlug } from '@plot-pm/domain/rules/sprint
 // `AgentList.tsx` beside a second grid; `one-component-renders-every-row`
 // collapsed both into this.
 import { TUPLE_TRACKS } from '../../src/app/components/TupleRow.js';
-import { GROUP_ORDER } from '../../src/server/fleet.js';
 import type { DispatchInfo } from '../../src/contract/schema.js';
 import {
-  AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, type AgentRow, type Fleet, type Slice,
+  AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, WaitingGroupSchema, type AgentRow, type Fleet, type Slice,
 } from '../../src/contract/schema.js';
+
+/** The served `group` vocabulary: still carried on every row, no longer a tab section. */
+const WAITING_GROUPS = WaitingGroupSchema.options;
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'plot', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-16-a-plan.md',
@@ -340,23 +342,6 @@ describe('elsewhereNote — the fragment the head appends, or nothing', () => {
   });
 });
 
-describe('group order — actionable before diagnostic', () => {
-  it('puts NOT STARTED above QUIET', () => {
-    // Work a person can pick up right now outranks work they must go
-    // investigate: not-started offers an opportunity, quiet assigns an errand.
-    const keys = GROUPS.map((g) => g.key);
-    expect(keys.indexOf('not-started')).toBeLessThan(keys.indexOf('quiet'));
-  });
-
-  it('renders groups in exactly the order the server sorts rows into', () => {
-    // Two arrays that must agree is precisely the duplication that drifts in a
-    // later refactor — and a disagreement would sort rows into one sequence and
-    // render the sections in another, which reads as rows landing in the wrong
-    // group rather than as two lists disagreeing.
-    expect(GROUPS.map((g) => g.key)).toEqual(GROUP_ORDER);
-  });
-});
-
 describe('waitingLabel', () => {
   it('scales the unit so a wait never reads "180d"', () => {
     // The same defect humanAge fixed for commit ages: past a couple of months,
@@ -501,7 +486,7 @@ describe('isLive — which rows carry the pulsing indicator', () => {
     // Asserted as a negative across the whole vocabulary rather than on one
     // group: `working` is the only claim the board can make honestly, and a
     // blanket indicator passes any test that only checks a working row.
-    for (const group of GROUPS.map((g) => g.key).filter((k) => k !== 'working')) {
+    for (const group of WAITING_GROUPS.filter((k) => k !== 'working')) {
       expect(isLive(row({ group }))).toBe(false);
     }
   });
@@ -1132,7 +1117,7 @@ describe('activityPace — fast means measured, slow means unobserved', () => {
       expect(activityPace(row({ localDirty: true, ageMinutes }))).toBe('fast');
       expect(activityPace(row({ localDirty: false, ageMinutes }))).toBe('slow');
     }
-    for (const group of GROUPS.map((g) => g.key)) {
+    for (const group of WAITING_GROUPS) {
       expect(activityPace(row({ group, localDirty: true }))).toBe('fast');
       expect(activityPace(row({ group, localDirty: false }))).toBe('slow');
     }
@@ -1704,23 +1689,21 @@ describe('isStartable — which NOT STARTED rows offer work', () => {
 });
 
 describe('which groups start collapsed', () => {
-  it('folds quiet and done, and leaves every other group open', () => {
-    // BOTH halves. A blanket default — everything folded, or nothing — passes
-    // an assertion that checks only one group, and the whole point of the
-    // default is that it is the existing actionable-before-diagnostic order
-    // made effective rather than a blanket preference.
-    expect([...COLLAPSED_BY_DEFAULT].sort()).toEqual(['done', 'quiet']);
-    const open = GROUPS.map((g) => g.key).filter((k) => !COLLAPSED_BY_DEFAULT.includes(k));
-    expect(open).toEqual(['waiting-on-you', 'working', 'waiting-on-machine', 'not-started']);
+  it('folds Free agents and leaves every other section and group open', () => {
+    expect([...COLLAPSED_BY_DEFAULT]).toEqual(['free']);
   });
 
-  it('folds the DIAGNOSTIC end of the order and nothing above it', () => {
-    // Stated against the order itself rather than against two names, so a group
-    // inserted between `not-started` and `quiet` cannot silently become
-    // collapsed-by-default.
-    const keys = GROUPS.map((g) => g.key);
-    const folded = keys.filter((k) => COLLAPSED_BY_DEFAULT.includes(k));
-    expect(folded).toEqual(keys.slice(keys.length - folded.length));
+  it('gives a set stored under the earlier vocabulary the new default, not an empty set', () => {
+    const stored = { getItem: () => JSON.stringify(['quiet', 'done']) };
+    expect([...readCollapsed(stored)]).toEqual(['free']);
+  });
+
+  it('keeps an empty stored set empty: a reader who opened everything', () => {
+    expect([...readCollapsed({ getItem: () => '[]' })]).toEqual([]);
+  });
+
+  it('keeps the current keys of a mixed stored set and drops the stale ones', () => {
+    expect([...readCollapsed({ getItem: () => JSON.stringify(['quiet', 'you']) })]).toEqual(['you']);
   });
 });
 
@@ -1754,7 +1737,7 @@ describe('readCollapsed / writeCollapsed — persistence, and its default', () =
     // The load-bearing half: a first visit has no stored value, and treating
     // that as "nothing collapsed" ships the crowded view to everyone who has
     // not yet clicked a header.
-    expect([...readCollapsed(store())].sort()).toEqual(['done', 'quiet']);
+    expect([...readCollapsed(store())]).toEqual(['free']);
   });
 
   it('survives a reload — what was written comes back', () => {
@@ -1777,15 +1760,15 @@ describe('readCollapsed / writeCollapsed — persistence, and its default', () =
     // were folded is a worse answer than one that simply forgets.
     for (const raw of ['not json', '{"quiet":true}', '"quiet"', '17']) {
       expect([...readCollapsed(store({ 'plot-board:agents:collapsed': raw })).values()].sort())
-        .toEqual(['done', 'quiet']);
+        .toEqual(['free']);
     }
   });
 
   it('drops a stored key no group answers to', () => {
     // Stale state from a renamed group would fold nothing while looking like it
     // had — a set that disagrees with the rendered sections.
-    const s = store({ 'plot-board:agents:collapsed': '["quiet","gone-group"]' });
-    expect([...readCollapsed(s)]).toEqual(['quiet']);
+    const s = store({ 'plot-board:agents:collapsed': '["you","gone-group"]' });
+    expect([...readCollapsed(s)]).toEqual(['you']);
   });
 
   it('never touches the query string', () => {
