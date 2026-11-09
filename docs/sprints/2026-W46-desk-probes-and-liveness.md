@@ -29,7 +29,7 @@ All work for this sprint goes to the integration branch `sprint/desk-probes-and-
 ### Should Have
 - [ ] [ci-reuses-green-runs] CI reuses green runs <!-- pr: #3308, branch: infra/ci-reuses-green-runs -->
 - [ ] [board-api-starts-nothing] The board API starts nothing (#3170) <!-- pr: #3308, branch: feature/board-api-starts-nothing-census -->
-- [ ] [bundle-gate-reads-the-default-branch] The bundle gate reads the default branch (#3344) <!-- pr: #3345, branch: bug/bundle-gate-reads-the-default-branch -->
+- [x] [bundle-gate-reads-the-default-branch] The bundle gate reads the default branch (#3344) <!-- pr: #3345, branch: bug/bundle-gate-reads-the-default-branch -->
 
 ### Could Have
 
