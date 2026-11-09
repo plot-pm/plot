@@ -36,7 +36,7 @@ Census on CI run 42595561157 (PR #3277): S4 on GitHub with 3 desks reads 2585.5 
 
 ## Design
 
-This plan depends on `node-worker-wrapper` (all three slices), because the token is opened by the node wrapper, and on the *Worker readings* slice of `desk-probes-in-domain`, because the *Worker token* slice replaces the start-time column that slice reads into `readWorkerReadings`. `triggers-replace-the-tick` depends on this plan: its trigger "a worker ends without a record" is the token's end-of-file. This plan shares `continuation.ts` with `node-worker-wrapper` and `registryd-main.ts` with `desk-probes-in-domain`; it shares no file with `refs-from-files`, `one-cat-file-batch`, `github-reads-in-process` or `sprint-prs-run-ci`.
+This plan depends on `node-worker-wrapper` (all three slices), because the token is opened by the node wrapper, and on the *Worker readings* slice of `desk-probes-in-domain`, because the *Worker token* slice replaces the start-time column that slice reads into `readWorkerReadings`. `triggers-replace-the-tick` depends on this plan: its trigger "a worker ends without a record" is the token's end-of-file. This plan shares `continuation.ts` with `node-worker-wrapper` and `registryd-main.ts` with `desk-probes-in-domain`; it shares `registryd-main.ts` with `github-reads-in-process` too (that plan moves `mergedBranches`, this plan changes the worker reading), and the second to merge rebases; it shares no file with `refs-from-files`, `one-cat-file-batch` or `sprint-prs-run-ci`.
 
 ### Approach
 

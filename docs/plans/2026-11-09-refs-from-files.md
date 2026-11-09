@@ -36,7 +36,7 @@ Git keeps every one of these answers in a plain file under the common git direct
 
 ## Design
 
-This plan depends on `the-snapshot-entity` (delivered): the snapshot's `refs` and `desks` readings are what the file reader fills. `triggers-replace-the-tick` (Phase 8) depends on this plan, because a ref watch event re-reads the refs, and that re-read must start no process. `desk-probes-in-domain` (this sprint) owns the per-desk `git -C <desk>` probes and the `plot-worker-state.sh` path; this plan reads no desk status and moves no worker probe. The other plans of this sprint (`github-reads-in-process`, `node-worker-wrapper`, `liveness-token`, `sprint-prs-run-ci`) share no file with this one.
+This plan depends on `the-snapshot-entity` (delivered): the snapshot's `refs` and `desks` readings are what the file reader fills. `triggers-replace-the-tick` (Phase 8) depends on this plan, because a ref watch event re-reads the refs, and that re-read must start no process. `desk-probes-in-domain` (this sprint) owns the per-desk `git -C <desk>` probes and the `plot-worker-state.sh` path; this plan reads no desk status and moves no worker probe. `one-cat-file-batch` also edits `packages/domain/src/adapters/refs/refs-git.ts`: this plan changes the ref and default-branch methods, that plan changes the object-read methods, and the second to merge rebases. The other plans of this sprint (`github-reads-in-process`, `node-worker-wrapper`, `liveness-token`, `sprint-prs-run-ci`) share no file with this one.
 
 This plan moves census row **S4** down on every fixture and leaves it `it.fails`: its zero belongs to `triggers-replace-the-tick`. S5 and S6 run the same scan and move with it.
 

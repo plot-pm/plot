@@ -38,7 +38,9 @@ This plan has no `Story:`; it serves every sprint. It touches the `on:` block of
 
 **Merge order: `ci-cancels-superseded-runs` first.** Its group keys a `pull_request` run on the pull request number, so a slice PR's runs then share one group per PR and a new push cancels the older run. This plan then changes no `concurrency:` expression; it adds one contract row that a `pull_request` run into a sprint branch gets the same per-PR group. If this plan merges first, every slice push keeps its own group (`github.run_id`) and is never cancelled, and agents that push several times per slice hold runners for runs nobody reads until the second plan lands. Neither order breaks a test; the second to merge rebases its `ci.yml` and `release-pr-ci.test.mjs` hunks.
 
-It shares no file with `refs-from-files`, `one-cat-file-batch`, `desk-probes-in-domain`, `node-worker-wrapper`, `liveness-token` or `github-reads-in-process`. Every slice of those plans that targets a sprint branch gets CI from this plan.
+`ci-reuses-green-runs` (this batch) also edits `ci.yml` (its `select` job, the `if:` of the reusable jobs and `validate`) and `test/reconcile/ci-tiers.test.mjs`. The edited lines differ, so the second to merge rebases and neither order breaks a test; this plan changes the `on:` block and the gate steps, and `ci-reuses-green-runs` reads the sprint base this plan introduces (its *With `sprint-prs-run-ci`* paragraph). Merge order: `ci-cancels-superseded-runs`, then this plan, then `ci-reuses-green-runs`.
+
+It shares no other file with `refs-from-files`, `one-cat-file-batch`, `desk-probes-in-domain`, `node-worker-wrapper`, `liveness-token` or `github-reads-in-process`. Every slice of those plans that targets a sprint branch gets CI from this plan.
 
 ### Approach
 
@@ -59,7 +61,7 @@ It shares no file with `refs-from-files`, `one-cat-file-batch`, `desk-probes-in-
 | `check-no-bundle-diff.sh` | `BASE_REF="${3:-origin/main}"`, `scripts/check-no-bundle-diff.sh:61` | CI passes `origin/$GITHUB_BASE_REF` as the third argument |
 | `check-sprint-members.sh` | `merge-base origin/main HEAD`, `scripts/check-sprint-members.sh:8` | an optional first argument, the base ref |
 
-In `ci.yml`, the step "Fetch the default branch the shell count reads" (`:1587-1588`) fetches `origin/$GITHUB_BASE_REF` on a pull request and `main` otherwise, and the steps at `:1383`, `:1394`, `:1595` and `:1603` pass `origin/$GITHUB_BASE_REF`. The local default does not change, so `plot-local-checks.mjs` and the `Local checks` key keep running the gates with no argument. The gate fixture tests (`test/reconcile/shell-lines.test.mjs`, `decision-count.test.mjs`, `no-bundle-diff-gate.test.mjs`) gain a row each: a branch cut from a feature branch, compared with that branch, counts only its own lines.
+In `ci.yml`, the step "Fetch the default branch the shell count reads" (`:1587-1588`) fetches `origin/$GITHUB_BASE_REF` on a pull request and `main` otherwise, and the steps at `:1383`, `:1394`, `:1595` and `:1603` pass `origin/$GITHUB_BASE_REF` on `pull_request` only. The steps at `:1595` and `:1603` also run on `workflow_dispatch`, where `GITHUB_BASE_REF` is empty; there each step passes no argument and keeps today's default (`default_ref`, which resolves to `origin/main`). The local default does not change, so `plot-local-checks.mjs` and the `Local checks` key keep running the gates with no argument. The gate fixture tests (`test/reconcile/shell-lines.test.mjs`, `decision-count.test.mjs`, `no-bundle-diff-gate.test.mjs`) gain a row each: a branch cut from a feature branch, compared with that branch, counts only its own lines.
 
 **The trigger.** `on.pull_request.branches` becomes `[main, 'sprint/**']`. `on.push` stays `[main]`: a direct push to a sprint branch (a booking commit, a sprint close) starts no run, and the sprint PR into `main` keeps the full run. A contract row in `test/reconcile/release-pr-ci.test.mjs` holds both lists, beside the existing row that holds `push` at `[main]` (`:97-105`). No row asserts the `pull_request` list today: `ci-selection-jobs.test.mjs` and `ci-tiers.test.mjs` read jobs, not triggers.
 
@@ -79,6 +81,7 @@ In `ci.yml`, the step "Fetch the default branch the shell count reads" (`:1587-1
 |---|---|---|
 | A gate compares a slice with its sprint branch | a fixture row in each of `shell-lines.test.mjs`, `decision-count.test.mjs` and `no-bundle-diff-gate.test.mjs`: a branch cut from a feature branch and compared with it counts only its own change | Gate base |
 | The gates keep their local default | the same tests: with no base argument, each gate compares with `origin/<default>` as before | Gate base |
+| `check-sprint-members.sh` takes a base | a new fixture test `test/reconcile/sprint-members-gate.test.mjs`: a branch cut from a feature branch and compared with it counts only its own member lines; with no argument the script compares with `merge-base origin/main HEAD` as before | Gate base |
 | CI passes the PR's base to the gates | the gate steps in `ci.yml` pass `origin/$GITHUB_BASE_REF` on `pull_request`; `ci-tiers.test.mjs` refuses a copy that passes `origin/main` | Gate base |
 | A slice PR into a sprint branch starts a run | `release-pr-ci.test.mjs`: `on.pull_request.branches` lists `main` and `sprint/**`; `on.push.branches` stays `[main]` | Trigger |
 | A slice PR's run shares its PR's group | `release-pr-ci.test.mjs`: a `pull_request` run into `sprint/**` gets the per-PR group of `ci-cancels-superseded-runs` | Trigger |
