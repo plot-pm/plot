@@ -1425,7 +1425,7 @@ test('host: pr-list without --rich carries no verdict, and never invents one', (
   // THE ASSERTION IS THEREFORE ABOUT WHAT IS ABSENT, not about a key count. An
   // added field cannot break a caller that reads fields by name; a verdict
   // appearing here would mean the cheap call had quietly become the dear one.
-  const stubs = makeStubs({ ghJson: richGh('[{"conclusion":"SUCCESS"}]') });
+  const stubs = makeStubs({ ghJson: restPlain(richGh('[{"conclusion":"SUCCESS"}]')) });
   const out = JSON.parse(run(['pr-list'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(Object.keys(out).sort(),
     ['author', 'draft', 'head', 'headSha', 'mergedAt', 'number', 'state', 'title', 'updatedAt', 'url']);
@@ -3477,10 +3477,10 @@ test('host: pr-list every arm on both backends carries head, headSha and draft',
   // GitHub plain
   {
     const stubs = makeStubs({
-      ghJson: JSON.stringify([{
+      ghJson: restPlain(JSON.stringify([{
         number: 7, title: 't', state: 'OPEN', headRefName: 'feature/gh-plain', isDraft: true,
         url: 'https://example.test/pr/7', updatedAt: '', headRefOid: 'ghplainsha', mergedAt: '',
-      }]),
+      }])),
     });
     const out = JSON.parse(run(['pr-list'], { env: { PLOT_HOST: 'github' }, stubs }));
     assert.equal(out.head, 'feature/gh-plain');
@@ -7886,10 +7886,12 @@ test('host: pr-list --rich-open sums pages(open) + pages(all)', () => {
   // this: 101 open rows (2 pages) + 250 all rows (3 pages) must sum to 5, and
   // the parent process itself (`--rich-open`) must record nothing of its own
   // — counting happens at the leaf, the two children `pr-list` spawns.
-  const stub = makeSplitGhStub({ open: ghRows(101), all: ghRows(250) });
+  const stub = makeSplitGhStub({ open: ghRows(101), allPages: restRowPages(250) });
   run(['pr-list', '--rich-open', '--state', 'all', '--limit', '1000'],
     { env: { PLOT_HOST: 'github' }, stubs: stub });
-  assert.equal(spentSum(stub, 'graphql'), 2 + 3,
+  assert.equal(spentSum(stub, 'graphql'), 2,
+    `record was:\n${JSON.stringify(recordOf(stub), null, 2)}`);
+  assert.equal(spentSum(stub, 'core'), 3,
     `record was:\n${JSON.stringify(recordOf(stub), null, 2)}`);
 });
 
@@ -7900,7 +7902,7 @@ test('host: a failed pr-list records 1, a floor rather than the true spend', () 
   const stubs = makeStubs({ ghFail: 'HTTP 500: Internal Server Error' });
   const res = runAllowFail(['pr-list', '--limit', '500'], { env: { PLOT_HOST: 'github' }, stubs });
   assert.notEqual(res.code, 0, 'the call failed');
-  assert.equal(spentSum(stubs, 'graphql'), 1, 'a floor: one process recorded, no pages derivable from no rows');
+  assert.equal(spentSum(stubs, 'core'), 1, 'a floor: one call recorded, no pages derivable from no rows');
 });
 
 test('host: GitHub issue-list, 250 rows sums spent to 3 (the sum, not three lines)', () => {
@@ -9089,7 +9091,23 @@ test('host: --since is carried on the plain (non-rich) gh call too', () => {
   });
   assert.equal(res.status, 0, res.stderr);
   const argv = argvOf(stubs.ghArgv);
-  assert.equal(argv[argv.indexOf('--search') + 1], 'updated:>2026-09-20T18:42:10Z');
+  // REST has no `updated:>` search: the call is newest-updated first, and the
+  // adapter keeps rows past the watermark and stops paging at the first row at or before it.
+  assert.equal(argv[1], 'repos/{owner}/{repo}/pulls?state=open&sort=updated&direction=desc&per_page=100&page=1');
+});
+
+test('host: --since on the plain gh call stops paging at the first row at or before the watermark', () => {
+  // Page 1 is full (100 rows) and its last row predates the watermark, so page 2
+  // is never asked: a full page alone would otherwise pull the next one.
+  const mark = '2026-09-20T18:42:10Z';
+  const page1 = Array.from({ length: 100 }, (_, i) => ({
+    number: 500 - i, title: 't', state: 'open', draft: false, html_url: 'u', merged_at: null,
+    updated_at: i < 40 ? '2026-10-01T00:00:00Z' : '2026-09-01T00:00:00Z', user: { login: 'a' }, head: { ref: `f/${i}`, sha: 's' },
+  }));
+  const stubs = makeStubsRateAware({ restPages: [JSON.stringify(page1), JSON.stringify(page1)] });
+  const out = run(['pr-list', '--state', 'open', '--limit', '500', '--since', mark], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(rowsOf(out).length, 40, 'only rows updated after the watermark are kept');
+  assert.equal(callsOf(stubs.callsFile).filter((c) => c.startsWith('api repos/')).length, 1, 'one REST page was requested');
 });
 
 test('host: --since composes with the sweep q=, rather than replacing it', () => {
@@ -10109,19 +10127,24 @@ test('host: issue-list with Tracker: github-issues on github still calls gh', ()
  * assertions need — a failing open call and a failing all call are two
  * different implementations' bugs and must each exit non-zero with no rows.
  */
-const makeSplitGhStub = ({ open = '[]', all = '[]', failOpen = null, failAll = null } = {}) => {
+const makeSplitGhStub = ({ open = '[]', all = '[]', allPages = null, failOpen = null, failAll = null } = {}) => {
   const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-split-')));
   const argvFile = path.join(dir, 'gh.argv');
   const q = (s) => s.replace(/'/g, `'\\''`);
   const arm = (payload, fail) => (fail != null
     ? `  printf '%s\\n' '${q(fail)}' >&2\n  exit 1\n`
     : `  printf '%s' '${q(payload)}'\n  exit 0\n`);
+  // The `all` half is the plain arm, which reads `pulls` over REST: its fixture
+  // is the CLI-shaped list translated, and `allPages` serves one page per `page=`.
+  const allArm = (fail) => (allPages != null && fail == null
+    ? `  page="\${2##*page=}"; case "$page" in ${allPages.map((pg, i) => `${i + 1}) printf '%s' '${q(pg)}' ;;`).join(' ')} *) printf '[]' ;; esac\n  exit 0\n`
+    : arm(restPlain(all), fail));
   writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "${argvFile}"
 if [[ "$*" == *"--state open"* ]]; then
 ${arm(open, failOpen)}fi
-if [[ "$*" == *"--state all"* ]]; then
-${arm(all, failAll)}fi
+if [[ "$*" == *"state=all"* ]]; then
+${allArm(failAll)}fi
 printf '%s' '[]'
 `);
   chmodSync(path.join(dir, 'gh'), 0o755);
@@ -10130,7 +10153,7 @@ printf '%s' '[]'
 
 /** The `gh pr list` invocations one stub saw, in order. */
 const prListCallsOf = (stub) =>
-  (argvOf(stub.ghArgv) ?? []).filter((l) => l.startsWith('pr list'));
+  (argvOf(stub.ghArgv) ?? []).filter((l) => l.startsWith('pr list') || l.startsWith('api repos/{owner}/{repo}/pulls?'));
 
 const OPEN_RICH_ROW = '[{"number":7,"title":"Open","state":"OPEN",'
   + '"headRefName":"feature/open","isDraft":false,'
@@ -10164,7 +10187,7 @@ test('host: pr-list --rich-open asks the rich fields of --state open only', () =
   assert.equal(calls.length, 2, `two calls, got: ${JSON.stringify(calls)}`);
 
   const openCall = calls.find((c) => c.includes('--state open'));
-  const allCall = calls.find((c) => c.includes('--state all'));
+  const allCall = calls.find((c) => c.includes('state=all'));
   assert.ok(openCall, 'one call asks --state open');
   assert.ok(allCall, 'one call asks --state all');
 
@@ -10263,11 +10286,12 @@ test('host: pr-list --rich-open carries the caller\'s window to both calls', () 
     '--since', '2026-09-20T18:42:10Z'], { env: { PLOT_HOST: 'github' }, stubs: stub });
   const calls = prListCallsOf(stub);
   assert.equal(calls.length, 2);
-  for (const call of calls) {
-    assert.ok(call.includes('updated:>2026-09-20T18:42:10Z'),
-      `the window reaches every call: ${call}`);
-    assert.ok(call.includes('--limit 1000'), `so does the limit: ${call}`);
-  }
+  const openCall = calls.find((c) => c.includes('--state open'));
+  const allCall = calls.find((c) => c.includes('state=all'));
+  assert.ok(openCall.includes('updated:>2026-09-20T18:42:10Z') && openCall.includes('--limit 1000'),
+    `the window and limit reach the rich call: ${openCall}`);
+  assert.ok(allCall.includes('sort=updated&direction=desc'),
+    `the window reaches the REST call as an update-ordered read: ${allCall}`);
 });
 
 test('host: pr-list --rich-open over --state open makes ONE call', () => {
