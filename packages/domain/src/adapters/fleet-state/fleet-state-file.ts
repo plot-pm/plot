@@ -7,6 +7,7 @@ import { FleetReadingSchema } from '../../entities/fleet.js';
 import type { FleetdHeartbeat } from '../../entities/fleetd-heartbeat.js';
 import { bridgeVouched } from '../../rules/fleetd-live.js';
 import { readFleetdHeartbeatSync } from '../fleetd-heartbeat/fleetd-heartbeat-file.js';
+import { mainRootOf } from '../main-checkout.js';
 import type { BridgedPulse, FleetState, ScanAttempt } from '../../ports/fleet-state.js';
 
 /**
@@ -26,8 +27,12 @@ export const BRIDGE_MAX_AGE_MS = 15 * 60_000;
  */
 const BRIDGE_VERSION = 1;
 
-/** Where the file lives, per repo: beside the rest of `.plot`, under `state/`. */
-export const bridgePath = (repoRoot: string): string => path.join(repoRoot, '.plot', 'state', 'last-pulse.json');
+/**
+ * Where the file lives: beside the rest of `.plot`, under `state/`, in the
+ * main checkout of the repository `repoRoot` belongs to, so a linked worktree
+ * reads and writes the bridge fleetd writes.
+ */
+export const bridgePath = (repoRoot: string): string => path.join(mainRootOf(repoRoot), '.plot', 'state', 'last-pulse.json');
 
 /** Maps do not survive `JSON.stringify`; entry arrays do. */
 const toEntries = <K extends string, V>(map: Map<K, V>): [K, V][] => [...map.entries()];

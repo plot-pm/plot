@@ -1,5 +1,5 @@
 import type { FleetdHeartbeat } from '../entities/fleetd-heartbeat.js';
-import { fleetdLiveness, observerFresh } from './fleetd-live.js';
+import { fleetdLiveness, lateLoops } from './fleetd-live.js';
 
 /**
  * How old a bridged pulse may be while the fleet still counts as the scan's owner.
@@ -21,9 +21,12 @@ export interface ScanOwnerReadings {
 /**
  * Whether the fleet owns the scan, so the board reads the bridge and spawns none.
  *
- * True while fleetd's heartbeat reads `live` and every loop it runs completed
- * a pass within its own bound ({@link observerFresh}). A stale or absent
- * heartbeat, or a late loop, hands the scan to the board. The bridge's age is
+ * True while fleetd's heartbeat reads `live` and its `scan` loop is not late
+ * ({@link lateLoops}). A scan loop absent from the heartbeat is not run and
+ * not judged. A late `tick`, `pr-reader` or `issue-reader` loop does not hand
+ * the scan to the board: a second scan beside a live fleet's costs more than
+ * those loops' lateness. A stale or absent heartbeat, or a late scan loop,
+ * hands the scan to the board. The bridge's age is
  * not asked: an idle repository writes no bridge while fleetd is healthy. The
  * board's own scan writes nothing, so taking over from a hung fleet cannot
  * corrupt the bridge.
@@ -34,7 +37,7 @@ export interface ScanOwnerReadings {
 export const fleetOwnsScan = (readings: ScanOwnerReadings): boolean =>
   readings.heartbeat !== null &&
   fleetdLiveness(readings.heartbeat, readings.now) === 'live' &&
-  observerFresh(readings.heartbeat, readings.now);
+  !lateLoops(readings.heartbeat, readings.now).includes('scan');
 
 /**
  * Whether a bridge was written within {@link OWNED_BRIDGE_MAX_AGE_MS}.
