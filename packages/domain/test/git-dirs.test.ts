@@ -7,7 +7,6 @@ import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 
 import { fixedAnswers, givenGitDirs, withFixedEnv, type ProcessRunner } from '../src/adapters/git-dirs/git-dirs.js';
 import { hostShell } from '../src/adapters/host/host-shell.js';
-import { processesShell } from '../src/adapters/processes/processes-shell.js';
 import { scriptsShell } from '../src/adapters/scripts/scripts-shell.js';
 import { readerLockIndexDir } from '../src/adapters/reader-lock/reader-lock-file.js';
 import { refsGit } from '../src/adapters/refs/refs-git.js';
@@ -345,15 +344,6 @@ describe('a script started by an adapter receives the fixed variables', () => {
     const ctx = repoWithStubs();
 
     expect(await hostShell(ctx, fixedAnswers()).account()).toEqual({ ok: true, value: `${ctx.top}|${ctx.common}` });
-  });
-
-  it('processesShell: the sourced plot-worker-state.sh reads both variables', async () => {
-    unset();
-    const ctx = repoWithStubs();
-
-    const reading = await processesShell(ctx, fixedAnswers()).workerState(ctx.repoRoot, false);
-
-    expect(reading).toEqual({ ok: true, value: { state: 'none', pid: ctx.top, exitCode: ctx.common, activity: '' } });
   });
 
   it('starts git for the variables once across adapters that share the answers', async () => {

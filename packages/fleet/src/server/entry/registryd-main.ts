@@ -7,6 +7,7 @@ import {
   hostShell,
   performerShell,
   processesShell,
+  processesFiles,
   refsGit,
   refsRemoteGit,
   buildShell,
@@ -1250,7 +1251,7 @@ export const unblockWorldForRepo = (
   scriptsDir: string,
   liveRun: () => boolean = () => false,
 ): UnblockWorld => {
-  const processes = processesShell({ repoRoot, scriptDir: scriptsDir });
+  const processes = processesFiles({ repoRoot, scriptDir: scriptsDir });
   const record = answerRecordFile({ cwd: repoRoot });
   return {
     marker: (worktree) => markerReading(worktree),
@@ -3177,7 +3178,7 @@ export const run = async (
               worktree: planStoreShell({ repoRoot, scriptDir: scriptsDir }),
               trees: treesGit({ repoRoot, scriptDir: scriptsDir }),
               agents: agentsFs({ repoRoot, scriptDir: scriptsDir }),
-              processes: processesShell({ repoRoot, scriptDir: scriptsDir }),
+              processes: processesFiles({ repoRoot, scriptDir: scriptsDir }, { log: (line) => warn(`plot-fleetd: ${line}\n`) }),
               parser: planParserPath({ repoRoot, scriptDir: scriptsDir }),
               // THE STORE IS KEYED BY THE BACKEND WORD; a file read, no host request.
               prIndexRows: async () => {

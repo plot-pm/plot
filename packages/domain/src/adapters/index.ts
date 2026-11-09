@@ -280,7 +280,9 @@ export {
   type MachineSystemOptions,
 } from './machine/machine-system.js';
 
-export { processesShell, parseEtime } from './processes/processes-shell.js';
+export { processesShell, parseEtime, type ProcessProbes } from './processes/processes-shell.js';
+export { processesFiles, readWorkerReadings, readingsLine, processReadingOf } from './processes/processes-files.js';
+export { processesTable, parseTable } from './processes/processes-table.js';
 
 // THE PRODUCTION PERFORMER, beside the sandbox one and never replacing it.
 // `perform-fs.ts` skips `worker-start`; this reaches the process table, and the

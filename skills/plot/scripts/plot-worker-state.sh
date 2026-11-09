@@ -299,7 +299,7 @@ plot_read_manifest_pid() { # $1=manifest path → "pid\tstartedAt\tpidStartedAt"
 # `plot_pid_is_current` compares — the live process's start and a pid's own
 # recorded start use the same `ps -o lstart` shape.
 _plot_lstart_epoch() { # $1=ps -o lstart= text → epoch seconds, or "" (non-zero)
-  date -j -f "%a %b %d %H:%M:%S %Y" "$1" +%s 2>/dev/null \
+  LC_ALL=C date -j -f "%a %b %d %H:%M:%S %Y" "$1" +%s 2>/dev/null \
     || date -j -f "%c" "$1" +%s 2>/dev/null \
     || date -d "$1" +%s 2>/dev/null
 }
@@ -349,7 +349,7 @@ plot_pid_is_current() { # $1=pid $2=startedAt (ISO-8601) $3=pidStartedAt (ps -o 
 
   # Get the process's start time from `ps -o lstart=`. This is portable across
   # macOS and Linux, though the format differs.
-  proc_start=$(ps -o lstart= -p "$pid" 2>/dev/null | tr -d '\n')
+  proc_start=$(LC_ALL=C ps -o lstart= -p "$pid" 2>/dev/null | tr -d '\n')
   [ -n "$proc_start" ] || return 1  # Process does not exist.
   proc_epoch=$(_plot_lstart_epoch "$proc_start") || return 1  # Cannot parse; treat as stale.
 

@@ -8,7 +8,7 @@ import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { isStateRef } from '@plot-pm/domain/rules/write-target';
-import { processesShell } from '@plot-pm/domain/adapters/processes/processes-shell';
+import { processesFiles } from '@plot-pm/domain/adapters/processes/processes-files';
 import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
 import { pinnedTipsFile } from '@plot-pm/domain/adapters/pinned-tips/pinned-tips-file';
 import { reapRecordFile } from '@plot-pm/domain/adapters/reap-record/reap-record-file';
@@ -654,7 +654,7 @@ const runSweepTemp = async (
   warn: Printer,
 ): Promise<number> => {
   const scripts = scriptsShell({ repoRoot: cwd, scriptDir });
-  const processes = processesShell({ repoRoot: cwd, scriptDir });
+  const processes = processesFiles({ repoRoot: cwd, scriptDir });
   const hoursResult = await scripts.config('Temp sweep after', '24');
   const rawHours = hoursResult.ok ? hoursResult.value.trim() : '24';
   if (!/^\d+$/.test(rawHours)) {
@@ -1721,7 +1721,7 @@ export const run = async (
     host: hostShell(context),
     scripts: scriptsShell(context),
     trees: treesGit(context),
-    processes: processesShell(context),
+    processes: processesFiles(context),
     plans: planStoreShell(context),
     pinnedTips: pinnedTipsFile({ cwd: repoRoot }),
     reapRecord: reapRecordFile({ cwd: repoRoot }),

@@ -48,7 +48,8 @@ export interface LoopWritePorts {
   agents: Agents;
   desk: Desk;
   refs: Refs;
-  processes: Processes;
+  /** The questions about one pid; the loop reads no desk's worker state. */
+  processes: Omit<Processes, 'workerState' | 'table'>;
   boundedRun: BoundedRun;
   /** Where a refused take-up records its branch, for the queue's `refused` hold. */
   refusedSlices: RefusedSliceRecord;

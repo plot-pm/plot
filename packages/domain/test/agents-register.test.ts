@@ -34,6 +34,7 @@ describe('agentsFs register and deregister', () => {
       command: 'loop.sh',
       pid: '',
       attempts: 0,
+      agentProcess: process.env.PLOT_AGENT_PROCESS || 'claude',
       startedAt: '2026-10-05T12:00:00Z',
     });
     expect(existsSync(join(dir, 'abc-123.json.plot-tmp'))).toBe(false);

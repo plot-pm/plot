@@ -103,6 +103,14 @@ describe('agentState', () => {
     ).toBe('stalled');
   });
 
+  it('answers running for a free agent: an orphaned wrapper whose free-wait record names it beside a recorded startedAt', () => {
+    const orphaned = { pidRecorded: true, liveness: 'orphaned' as const, exit: null, task: task({ dirty: true }) };
+    expect(agentState(desk({ ...orphaned, waitsFree: true, startedAtRecorded: true }))).toBe('running');
+    expect(agentState(desk({ ...orphaned, waitsFree: true, startedAtRecorded: false }))).toBe('stalled');
+    expect(agentState(desk({ ...orphaned, waitsFree: false, startedAtRecorded: true }))).toBe('stalled');
+    expect(agentState(desk({ pidRecorded: true, liveness: 'dead', exit: '0', waitsFree: true, startedAtRecorded: true }))).toBe('finished');
+  });
+
   it('answers ended when no exit was recorded', () => {
     // A worker killed outright leaves no file. Guessing `finished` is the same
     // mistake in the other direction, and `finished` tells a reader to stop

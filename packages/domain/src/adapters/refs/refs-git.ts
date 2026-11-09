@@ -36,7 +36,7 @@ import { processAnswers, type FixedAnswers } from '../git-dirs/git-dirs.js';
 import { agentsFs } from '../agents/agents-fs.js';
 import { hostShell } from '../host/host-shell.js';
 import { planStoreRef } from '../plan-store/plan-store-ref.js';
-import { processesShell } from '../processes/processes-shell.js';
+import { processesFiles } from '../processes/processes-files.js';
 import { scriptsShell } from '../scripts/scripts-shell.js';
 import { treesGit } from '../trees/trees-git.js';
 import { type ShellContext } from '../scripts.js';
@@ -407,7 +407,7 @@ const walkPulse = async (context: ShellContext, refs: Refs) => {
   const host = hostShell(context);
   const branches = estate.ok ? await readBranchReadings(refs, host, estate.value, { mainBranch, planDir }) : estate;
   const desks = branches.ok
-    ? await readDeskReadings(trees, agentsFs(context), processesShell(context), branches.value)
+    ? await readDeskReadings(trees, agentsFs(context), processesFiles(context), branches.value)
     : branches;
   const assembled = assemblePlanWalk({ estate, branches: branches as never, desks: desks as never }, { slug: '', offer: false });
   if (!assembled.ok) {

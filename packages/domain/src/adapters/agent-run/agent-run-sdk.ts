@@ -170,7 +170,7 @@ export interface AgentRunSdkDeps {
   /** Spawns the child without `detached`, so a group stop still reaches it. */
   readonly spawnClaudeCodeProcess: (options: SpawnOptions) => SpawnedProcess;
   /** Reads the child's descendants before a stop signals them. */
-  readonly processes: Processes;
+  readonly processes: Pick<Processes, 'childrenOf'>;
   /** Epoch seconds. */
   readonly now: () => number;
   /** Whether this run starts after a usage-limit wait. */

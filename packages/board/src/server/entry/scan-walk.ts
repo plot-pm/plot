@@ -7,7 +7,7 @@ import { agentsFs } from '@plot-pm/domain/adapters/agents/agents-fs';
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { planStoreRef } from '@plot-pm/domain/adapters/plan-store/plan-store-ref';
 import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
-import { processesShell } from '@plot-pm/domain/adapters/processes/processes-shell';
+import { processesFiles } from '@plot-pm/domain/adapters/processes/processes-files';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { shellContext } from '@plot-pm/domain/adapters/scripts';
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
@@ -314,7 +314,7 @@ const main = async (): Promise<number> => {
     }
     const trees = treesGit(context);
     const agents = agentsFs(context);
-    const processes = processesShell(context);
+    const processes = processesFiles(context);
     const mainSha = estate.value.mainSha;
     return runStream(
       estate.value,
@@ -336,7 +336,7 @@ const main = async (): Promise<number> => {
   const desks =
     offer || !branches.ok
       ? { ok: true as const, value: { mainSha: estate.ok ? estate.value.mainSha : '', desks: [] } }
-      : await readDeskReadings(treesGit(context), agentsFs(context), processesShell(context), branches.value);
+      : await readDeskReadings(treesGit(context), agentsFs(context), processesFiles(context), branches.value);
 
   const assembled = assemblePlanWalk(
     { estate, branches: branches as never, desks: desks as never },
