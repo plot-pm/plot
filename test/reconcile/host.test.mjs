@@ -10001,7 +10001,7 @@ test('host: issue-list asks the github git host for Tracker: plot, same as no tr
   assert.equal(res.code, 0, res.stderr);
   const argv = argvOf(stubs.ghArgv);
   assert.ok(argv, 'gh is called for a repository declaring Tracker: plot');
-  assert.deepEqual(argv.slice(0, 2), ['issue', 'list']);
+  assert.deepEqual(argv.slice(0, 2), ['api', 'repos/{owner}/{repo}/issues?state=open&per_page=100&page=1']);
 });
 
 // #1131's actual field case, and the counterpart the GitHub test above needs
@@ -10100,7 +10100,7 @@ test('host: issue-list with Tracker: github-issues on github still calls gh', ()
     stubs,
   });
   assert.equal(res.code, 0, res.stderr);
-  assert.deepEqual(argvOf(stubs.ghArgv).slice(0, 2), ['issue', 'list']);
+  assert.deepEqual(argvOf(stubs.ghArgv).slice(0, 2), ['api', 'repos/{owner}/{repo}/issues?state=open&per_page=100&page=1']);
 });
 
 // --- pr-list --rich-open: the verdicts of the open PRs only -----------------
@@ -11013,7 +11013,7 @@ test('host: issue-list --label passes the label to gh on github', () => {
   const res = runGh(['issue-list', '--label', 'ai-generated', '--limit', '5'], stubs);
   assert.equal(res.status, 0, res.stderr);
   const argv = argvOf(stubs.ghArgv);
-  assert.equal(argv[argv.indexOf('--label') + 1], 'ai-generated');
+  assert.equal(argv[1], 'repos/{owner}/{repo}/issues?state=open&labels=ai-generated&per_page=100&page=1');
 });
 
 test('host: issue-list --label exits 4 on bitbucket and runs no bb', () => {
@@ -11039,13 +11039,18 @@ test('host: issue-list --label exits 4 on jira and runs no curl', () => {
 // — both are qualifiers `gh` combines in one `--search` string, so a backlog's
 // label stays the safety net while the title cuts the read to the one PR
 // asked about (plot-host.sh:5269-5271).
-test('host: issue-list --title-has asks gh for in:title and keeps --label riding along', () => {
-  const stubs = makeStubs({ ghJson: '[]' });
+test('host: issue-list --title-has filters titles client-side and keeps --label riding along', () => {
+  // REST has no title search: the label narrows the read and the adapter keeps
+  // the open issues whose title holds the text, whatever its case.
+  const stubs = makeStubs({ ghJson: JSON.stringify([
+    { number: 1, title: 'Follow-up to pr #42', html_url: 'u1', created_at: 'c', state: 'open' },
+    { number: 2, title: 'Unrelated', html_url: 'u2', created_at: 'c', state: 'open' },
+  ]) });
   const res = runGh(['issue-list', '--title-has', 'PR #42', '--label', 'ai-generated'], stubs);
   assert.equal(res.status, 0, res.stderr);
   const argv = argvOf(stubs.ghArgv);
-  assert.equal(argv[argv.indexOf('--search') + 1], 'in:title "PR #42"');
-  assert.equal(argv[argv.indexOf('--label') + 1], 'ai-generated');
+  assert.equal(argv[1], 'repos/{owner}/{repo}/issues?state=open&labels=ai-generated&per_page=100&page=1');
+  assert.deepEqual(res.stdout.trim().split('\n').map((l) => JSON.parse(l).number), [1]);
 });
 
 // `gh` keeps only its LAST `--search` flag rather than ANDing several, so a
