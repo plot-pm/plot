@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** infra
 - **Sprint:** desk-probes-and-liveness
 - **Review:** pr
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-11-09, jwloka, plan-PR #3308 merged
+- **Delivered:** 2026-11-09
 
 ## Changelog
 
