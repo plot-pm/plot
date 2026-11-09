@@ -128,13 +128,15 @@ export const syncPrAt = async (
   const refreshed = said !== null && said.ok ? said.value : null;
   const decision: SyncPrDecision = syncPrDecision({ caller, target: source.target, deliveredPending: pending, ahead, open, fleetLive, refreshed });
   const branch = source.target.pushRef.replace(/^refs\/heads\//, '');
-  const body = syncPrBody(ahead ?? 0, branch, source.defaultBranch);
   if (decision.kind === 'none') return { done: 'none', reason: decision.reason };
   if (decision.kind === 'unknown') return { done: 'unknown', reason: decision.reason };
+  // `syncPrDecision` answers `unknown` (`ahead-unread`) for every unread count before it opens or refreshes.
+  const count = ahead as number;
+  const body = syncPrBody(count, branch, source.defaultBranch);
   if (decision.kind === 'refresh') {
     const posted = await ports.host.prComment(decision.pr, body, SYNC_PR_MARKER);
     if (!posted.ok) return { done: 'failed', why: `the host did not take the refresh comment on PR #${decision.pr}` };
-    await ports.record.noteRefresh({ pr: decision.pr, ahead: ahead ?? 0 });
+    await ports.record.noteRefresh({ pr: decision.pr, ahead: count });
     return { done: 'refreshed', pr: decision.pr };
   }
   const created = await ports.host.prCreate({
