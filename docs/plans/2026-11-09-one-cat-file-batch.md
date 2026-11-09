@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** feature
 - **Issue:** #3170
 - **Story:** nothing-changed-nothing-runs
 - **Review:** pr
 - **Impl:** own branches
 - **Rounds:** 1
+- **Approved:** 2026-11-09, jwloka, plan-PR #3308 merged
 
 ## Changelog
 
