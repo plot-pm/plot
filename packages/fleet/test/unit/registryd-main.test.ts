@@ -53,6 +53,7 @@ import { TICK_INTERVAL_MS, applyUnblockDecisions, tick, type TickReport } from '
 import { readTick, worldFrom, type SupervisorWorld } from '../../src/shared/supervisor.js';
 import type { AgentEntry } from '../../src/shared/registry.js';
 import type { UnblockWrite } from '@plot-pm/domain/workflows/decision';
+import { SOCKET_TEMP_ROOT } from '../socket-root.js';
 
 const manifest = (over: Record<string, unknown> = {}) =>
   JSON.stringify({
@@ -1303,7 +1304,7 @@ describe('run — a failed tick must not end the daemon', () => {
 
   it('binds under the repo root it is given, never under PLOT_REPO_ROOT', async () => {
     const dir = sandbox();
-    const operator = mkdtempSync(join(tmpdir(), 'plot-registryd-op-'));
+    const operator = mkdtempSync(join(SOCKET_TEMP_ROOT, 'plot-registryd-op-'));
     mkdirSync(join(operator, '.plot'));
     const address = join(operator, CHANNEL_SOCKET);
     const listener = createServer((socket) => socket.end());

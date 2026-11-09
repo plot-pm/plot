@@ -49,6 +49,9 @@ describe('fleetd reads refs and worktrees from files', () => {
     log = join(box.root, 'git-calls.log');
     writeFileSync(join(bin, 'git'), `#!/bin/sh\nprintf '%s\\037%s\\037%s\\n' "$PPID" "$(ps -o command= -p "$PPID")" "$*" >> '${log}'\nexec '${real}' "$@"\n`);
     chmodSync(join(bin, 'git'), 0o755);
+    // Deleting the keys the sandbox's environment drops keeps `PLOT_PR_INDEX_HOME`
+    // from pointing this file's PR index at a directory every test file shares.
+    for (const key of Object.keys(process.env)) if (!(key in box.env)) delete process.env[key];
     Object.assign(process.env, box.env);
   }, 120_000);
 
