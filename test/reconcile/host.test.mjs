@@ -10141,7 +10141,7 @@ const makeSplitGhStub = ({ open = '[]', all = '[]', allPages = null, failOpen = 
     : arm(restPlain(all), fail));
   writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "${argvFile}"
-if [[ "$*" == *"--state open"* ]]; then
+if [[ "$*" == *"--state open"* || "$*" == *"pulls?state=open"* ]]; then
 ${arm(open, failOpen)}fi
 if [[ "$*" == *"state=all"* ]]; then
 ${allArm(failAll)}fi
