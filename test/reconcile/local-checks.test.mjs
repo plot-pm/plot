@@ -52,7 +52,7 @@ const CONFIG_VITEST = [
  * branch changes the script and the generated file and leaves one file
  * uncommitted.
  */
-const sandbox = () => {
+const sandbox = (config = CONFIG) => {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-local-checks-'));
   const git = (...args) => execFileSync('git', ['-C', repo, ...args], { stdio: 'ignore' });
   const write = (file, content) => {
@@ -62,7 +62,7 @@ const sandbox = () => {
   git('init', '-q', '-b', 'main');
   git('config', 'user.email', 'test@example.com');
   git('config', 'user.name', 'Test');
-  write('CLAUDE.md', CONFIG);
+  write('CLAUDE.md', config);
   write('.gitattributes', 'gen/*.mjs -merge\n');
   write('src/tool.sh', 'echo tool\n');
   write('src/wide.sh', 'echo wide\n');
@@ -88,10 +88,10 @@ const sandbox = () => {
   return repo;
 };
 
-const runIn = (cwd) => {
+const runIn = (cwd, ...args) => {
   const env = { ...process.env };
   delete env.PLOT_REPO_ROOT;
-  return spawnSync('node', [bundle], { cwd, encoding: 'utf8', timeout: 60_000, env });
+  return spawnSync('node', [bundle, ...args], { cwd, encoding: 'utf8', timeout: 60_000, env });
 };
 
 test('the bundle prints the selected tests, the glob check, and the report for a branch and its working tree', () => {
@@ -364,4 +364,122 @@ test('--corpus without --ci exits 2', () => {
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }
+});
+
+/**
+ * `feature/x` branches off `sprint/s1`, which holds a change to `src/wide.sh`
+ * of its own; the plan naming `feature/x` carries `Sprint: s1`.
+ */
+const sprintSandbox = () => {
+  const repo = sandbox();
+  const git = (...args) => execFileSync('git', ['-C', repo, ...args], { stdio: 'ignore' });
+  const write = (file, content) => {
+    fs.mkdirSync(path.dirname(path.join(repo, file)), { recursive: true });
+    fs.writeFileSync(path.join(repo, file), content);
+  };
+  git('checkout', '-q', '-f', 'main');
+  git('clean', '-fdq');
+  git('checkout', '-q', '-b', 'sprint/s1');
+  write('src/wide.sh', 'echo sprint\n');
+  write('test/own.test.mjs', '// wide.sh\n');
+  write(
+    'docs/plans/2026-11-01-x.md',
+    [
+      '# X',
+      '',
+      '## Status',
+      '',
+      '- **State:** Approved',
+      '- **Type:** feature',
+      '- **Sprint:** s1',
+      '',
+      '## Slices',
+      '',
+      '### Slice',
+      '',
+      '- `feature/x` — the slice',
+      '',
+    ].join('\n'),
+  );
+  git('add', '-A');
+  git('commit', '-q', '-m', 'sprint');
+  git('fetch', '-q', 'origin');
+  git('checkout', '-q', '-B', 'feature/x');
+  write('src/tool.sh', 'echo slice\n');
+  git('add', '-A');
+  git('commit', '-q', '-m', 'slice');
+  return repo;
+};
+
+test('a slice branch off its sprint branch prints only the slice\'s tests; --base main prints the sprint\'s too', () => {
+  const repo = sprintSandbox();
+  try {
+    const real = fs.realpathSync(repo);
+    const own = runIn(repo);
+    assert.equal(own.status, 0, own.stderr);
+    assert.match(own.stdout, new RegExp(`node --test ${real}/test/tool\\.test\\.mjs\\n`), own.stdout);
+    assert.doesNotMatch(own.stdout, /own\.test\.mjs/, own.stdout);
+    const wide = runIn(repo, '--base', 'main');
+    assert.equal(wide.status, 0, wide.stderr);
+    assert.match(wide.stdout, /own\.test\.mjs/, wide.stdout);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('a branch whose plan names no sprint is read against the default branch', () => {
+  const repo = sandbox();
+  try {
+    const res = runIn(repo);
+    assert.match(res.stdout, /tool\.test\.mjs/, res.stdout);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('--run stops at the first failing command and exits 1 with the command and its output', () => {
+  const config = ['## Plot Config', '', '- **Local checks:** src/** = echo boom && exit 3; src/** = touch ran-second', ''].join('\n');
+  const repo = sandbox(config);
+  try {
+    const res = runIn(repo, '--run');
+    assert.equal(res.status, 1, res.stdout + res.stderr);
+    assert.match(res.stdout, /FAILED: echo boom && exit 3\nboom\n/, res.stdout);
+    assert.equal(fs.existsSync(path.join(repo, 'ran-second')), false);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('--run exits 0 when every command passes', () => {
+  const config = ['## Plot Config', '', '- **Local checks:** src/** = touch ran-first; src/** = touch ran-second', ''].join('\n');
+  const repo = sandbox(config);
+  try {
+    const res = runIn(repo, '--run');
+    assert.equal(res.status, 0, res.stdout + res.stderr);
+    assert.equal(fs.existsSync(path.join(repo, 'ran-second')), true);
+    assert.match(res.stdout, /passed: 2 commands/);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('--run with --ci, and --base without a value, exit 2', () => {
+  const repo = sandbox();
+  try {
+    assert.equal(runIn(repo, '--run', '--ci').status, 2);
+    assert.equal(runIn(repo, '--base').status, 2);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('this repository declares its Local checks cheapest first', () => {
+  const text = fs.readFileSync(path.join(repoRoot, 'CLAUDE.md'), 'utf8');
+  const key = /^- \*\*Local checks:\*\* (.+)$/m.exec(text)[1];
+  const commands = key.split(';').map((pair) => pair.slice(pair.indexOf('=') + 1).trim());
+  const at = (needle) => commands.findIndex((command) => command.includes(needle));
+  const tiers = [at('check-script-names.sh'), at('tsc --noEmit'), at('*gate*.test.mjs'), at('node --test {tests}'), at('vitest related')];
+  assert.ok(tiers.every((index) => index >= 0), `a tier is missing: ${tiers}`);
+  assert.deepEqual(tiers, [...tiers].sort((a, b) => a - b), `the key is not cheapest first: ${tiers}`);
+  assert.ok(commands.findLastIndex((c) => c.includes('tsc --noEmit')) < at('*gate*.test.mjs'));
 });
