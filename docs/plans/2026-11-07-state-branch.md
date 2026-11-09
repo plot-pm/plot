@@ -150,7 +150,7 @@ Decisions, numbered. Max Albrecht decided D1 to D16 on 2026-11-07. Jan Wloka dec
 
 ### Sync
 
-- `feature/state-branch-sync` — fleetd merges the default branch into the state branch when it moves, and opens, refreshes and (where it may) merges the sync PR from the state branch to the default branch at the moment the Spec names; the path gate (D6), the squash (D12), the Delivered trigger (D13), and the command-side sync where no fleet runs (D19) <!-- builds: the state-sync arm of fleetd -->
+- `feature/state-branch-sync` — fleetd merges the default branch into the state branch when it moves, and opens, refreshes and (where it may) merges the sync PR from the state branch to the default branch at the moment the Spec names; the path gate (D6), the squash (D12), the Delivered trigger (D13), and the command-side sync where no fleet runs (D19) <!-- builds: the state-sync arm of fleetd --> → #3292
 
 ### Setup
 
