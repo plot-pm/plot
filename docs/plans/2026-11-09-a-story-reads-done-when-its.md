@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** ship-2-32-0
 - **Issue:** #3306
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-09, Jan Wloka, plan-PR #3307 merged
 - **Started:** 2026-11-09, Jan Wloka, `bug/a-story-reads-done-when-its`
+- **Delivered:** 2026-11-09
 
 ## Changelog
 
