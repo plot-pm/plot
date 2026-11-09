@@ -186,7 +186,9 @@ for (const [job, skip] of [
   ['select', 0],
   ['corpus', 0],
   ['macos-shell-contract', 0],
-  ['process-census', 0],
+  ['census-head', 0],
+  ['census-base', 0],
+  ['census-compare', 0],
   ['helper-contracts', 0],
   ['board-integration', 0],
   ['checks', 0],
@@ -227,9 +229,9 @@ for (const [job, skip] of [
 // last step must fail unless each needed job ended `success`, or ended
 // `skipped` while the selection named it `false`.
 // `ci-selection-jobs.test.mjs` runs that step under each result.
-test("ci.yml's validate needs the selection, checks and both split jobs, and runs unless cancelled", () => {
+test("ci.yml's validate needs the selection, gates, checks and both split jobs, and runs unless cancelled", () => {
   const head = jobBlock(CI, 'validate').split('\n    steps:')[0];
-  assert.match(head, /^ {4}needs: \[select, checks, helper-contracts, board-integration\]$/m);
+  assert.match(head, /^ {4}needs: \[select, gates, checks, helper-contracts, board-integration\]$/m);
   assert.match(head, /^ {4}if: \$\{\{ !cancelled\(\) \}\}$/m);
 });
 
@@ -238,7 +240,7 @@ test("ci.yml's validate needs the selection, checks and both split jobs, and run
 test("ci.yml's validate ends with a step that reads every needed job's result", () => {
   const steps = jobSteps(CI, 'validate');
   const last = steps[steps.length - 1];
-  for (const job of ['checks', 'helper-contracts', 'board-integration']) {
+  for (const job of ['gates', 'checks', 'helper-contracts', 'board-integration']) {
     const key = job.replace('-', '_').toUpperCase();
     assert.match(
       last,
@@ -354,8 +356,16 @@ test('every uses: in both workflows is still pinned to a full SHA', () => {
 });
 
 test('the set of actions used did not grow', () => {
-  // Three actions, and the dispatch adds none: `gh` is preinstalled.
-  const expected = ['actions/checkout', 'actions/setup-node', 'pnpm/action-setup'];
+  // The dispatch adds none (`gh` is preinstalled). The two artifact actions
+  // carry the census halves' reports to `census-compare` (`ci-tiers.test.mjs`
+  // holds their SHA pins).
+  const expected = [
+    'actions/checkout',
+    'actions/download-artifact',
+    'actions/setup-node',
+    'actions/upload-artifact',
+    'pnpm/action-setup',
+  ];
   const used = new Set(
     [...`${CI}\n${RELEASE}`.matchAll(/^\s*- uses: ([^@\s]+)@/gm)].map((m) => m[1]),
   );
