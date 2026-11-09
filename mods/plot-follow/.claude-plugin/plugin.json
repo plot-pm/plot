@@ -8,7 +8,7 @@
   },
   "homepage": "https://github.com/plot-pm/plot",
   "repository": "https://github.com/plot-pm/plot",
-  "license": "MIT",
+  "license": "CC0-1.0",
   "keywords": ["plot", "fleet", "mod"],
   "types": "./types/index.d.ts",
   "userConfig": {

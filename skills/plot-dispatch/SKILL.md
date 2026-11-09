@@ -5,7 +5,7 @@ description: >-
   detached worker per branch, each claimed atomically. The writing half of
   the fleet. Use on /plot-dispatch.
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
