@@ -40,8 +40,8 @@ Source: review of PR #3292 (`feature/state-branch-sync`), MEDIUM 1, on head 3a01
 
 ### Open Questions
 
-- [ ] Which `Refs` method reads a commit's tree id? A new `treeOf` or a widening of `commitSubjects`; the implementer checks the port first.
-- [ ] A state branch with merge commits: the rule walks first-parent history. Confirm that matches how fleetd writes the branch (fast-forward pushes only, so no merges expected).
+- [x] Which `Refs` method reads a commit's tree id? A new `treeOf` or a widening of `commitSubjects`; the implementer checks the port first. → Left to the builder: check the `Refs` port first and add the smaller of the two.
+- [x] A state branch with merge commits: the rule walks first-parent history. Confirm that matches how fleetd writes the branch (fast-forward pushes only, so no merges expected). → The premise does not hold: fleetd's forward sync merges the default branch into the state ref (`ForwardSyncDecision` `merge` in `packages/domain/src/rules/state-sync.ts`), so the state branch carries merge commits. The rule walks first-parent history and stops at the first commit whose tree equals the default branch's tree; every commit on that walk counts, except a forward-sync merge (a merge whose second parent is on the default branch), which carries default-branch content and no record. A forward merge right after a squash leaves the trees equal, so the count reads 0. A test covers a state branch with a forward-sync merge.
 
 ## Slices
 
