@@ -63,7 +63,7 @@ The two ops are GraphQL-dependent only in part:
 
 ### REST route
 
-- `bug/issue-writes-have-a-rest-route` — REST bodies for `issue-comment` and `issue-label` in `skills/plot/scripts/plot-host.sh`, contract rows in `test/reconcile/host.test.mjs`; a changeset for `plot` <!-- builds: REST routes for plot-host.sh issue-comment and issue-label -->
+- `bug/issue-writes-have-a-rest-route` — REST bodies for `issue-comment` and `issue-label` in `skills/plot/scripts/plot-host.sh`, contract rows in `test/reconcile/host.test.mjs`; a changeset for `plot` <!-- builds: REST routes for plot-host.sh issue-comment and issue-label --> → #3309
 
 ## Notes
 
