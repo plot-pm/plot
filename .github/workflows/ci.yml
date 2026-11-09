@@ -95,7 +95,7 @@ jobs:
   #   fleet tests         a `packages/fleet` or a `packages/domain` check
   #   e2e                 any of the four suites above
   #   macos-shell-contract  a changed `.sh` file or a selected gate test
-  #   process-census      a `packages/board`, `packages/domain` or
+  #   census-*            a `packages/board`, `packages/domain` or
   #                       `packages/fleet` check (the census rows live in
   #                       `packages/fleet/test/census/`), or a changed path
   #                       under `skills/plot/scripts/`
@@ -539,6 +539,10 @@ jobs:
   #
   # Runs the census rows under `packages/fleet/test/census/` with `strace -f`
   # against two products: HEAD's, and the merge base's in a second worktree.
+  # Three jobs: `census-head` and `census-base` run the halves in parallel and
+  # upload their reports, and `census-compare` downloads both and compares.
+  # The runner-minutes trade (a red HEAD no longer saves the merge-base half)
+  # is Open Question 2 of `docs/plans/2026-11-09-quality-gates-fail-fast.md`.
   # The rows always come from HEAD; only the shipped scripts and built bundles
   # differ. `census-gate.mjs` compares the two reports and fails a count that
   # grew past the tolerance its row states, or any growth on a strict row.
@@ -550,19 +554,20 @@ jobs:
   # `check-shell-lines.sh push` does: a merge base with `main` on `main` is
   # HEAD itself and compares nothing. A dispatched run compares with `main`.
   #
-  # NOT A REQUIRED CHECK YET, and not in `validate`'s `needs:`. It reports on
+  # NOT A REQUIRED CHECK YET, and not in `validate`'s `needs:`. The census reports on
   # its own, as `corpus` and `macos-shell-contract` do, until its first runs
   # have shown how far its counts jitter on a hosted runner.
-  process-census:
+  census-head:
     runs-on: ubuntu-latest
     needs: [select, gates, checks]
     if: ${{ !cancelled() && needs.gates.result == 'success' && needs.checks.result == 'success' && needs.select.outputs.census != 'false' }}
     # THE JOB CAP EXCEEDS THE STEP CAP by the setup steps, so a wedged census
-    # ends the step `failure` rather than the job `cancelled`. Measured on the
-    # first Linux run (PR #3237, 2026-11-08): every step before the census,
-    # checkout through the board build, took 32 s. Whole job, 2026-11-09 on runs
-    # 42543760580 and 42542438425: 1510 s and 1599 s (25 to 27 min).
-    timeout-minutes: 50
+    # ends the step `failure` rather than the job `cancelled`. 25 minutes: the
+    # census step's 20-minute cap, plus the setup (checkout through the board
+    # build took 32 s on the first Linux run, PR #3237, 2026-11-08; the strace
+    # and ptrace steps are a few seconds) and the report upload. The census
+    # against HEAD took 830 s on that run (fleetd 358 s, board 408 s, desk 62 s).
+    timeout-minutes: 25
     steps:
       - name: Guard the dispatched run
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -638,27 +643,183 @@ jobs:
       - name: Build the board bundles
         run: pnpm run build:board
 
-      # 40 minutes. Measured on the first Linux run (PR #3237, 2026-11-08):
-      # the census against HEAD took 830 s (fleetd 358 s, board 408 s, desk
-      # 62 s), the "before" install and build 10 s, and the "before" census was
-      # cut off by the old 20-minute cap after 374 s. Two runs of about 830 s
-      # are 28 minutes; the board host now ends the detached PR reader on stop,
-      # which removes up to 60 s of waiting per board scenario.
-      - name: Count the processes against the "before"
-        timeout-minutes: 40
+      # 20 minutes: the census against HEAD alone, 830 s measured (PR #3237,
+      # 2026-11-08), 1.45 times that. The board host now ends the detached PR
+      # reader on stop, which removes up to 60 s of waiting per board scenario.
+      - name: Count the processes at HEAD
+        timeout-minutes: 20
+        run: node packages/fleet/test/census/census-gate.mjs --only head --report "$RUNNER_TEMP/census-head.jsonl"
+
+      # A failed census still uploads what it recorded; a missing file is no error.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: census-report-head
+          path: ${{ runner.temp }}/census-head.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+
+  census-base:
+    runs-on: ubuntu-latest
+    needs: [select, gates, checks]
+    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.checks.result == 'success' && needs.select.outputs.census != 'false' }}
+    # THE JOB CAP EXCEEDS THE STEP CAP, as `census-head`'s does. 25 minutes:
+    # the step's 20-minute cap, plus the same setup and the report upload. The
+    # "before" half runs the same rows as the HEAD half (830 s at HEAD, PR
+    # #3237, 2026-11-08) and its own install and build, which took 10 s on that
+    # run. Not gated: a failed half reads every row as "no before".
+    timeout-minutes: 25
+    steps:
+      - name: Guard the dispatched run
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/changeset-release/main" ]; then
+            echo "::error::a dispatched run is only valid on refs/heads/changeset-release/main, got $GITHUB_REF"
+            exit 1
+          fi
+          if [ -z "${EXPECTED_SHA:-}" ]; then
+            echo "::error::expected_sha is empty, so this run is unpinned"
+            exit 1
+          fi
+          if [ "$GITHUB_SHA" != "$EXPECTED_SHA" ]; then
+            echo "::error::head moved: expected $EXPECTED_SHA, testing $GITHUB_SHA"
+            exit 1
+          fi
+          echo "Dispatched run pinned to $GITHUB_SHA on $GITHUB_REF"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # The census fails by name without strace (`census-setup.ts`). The image
+      # may not ship it, so this step installs it and says so.
+      - name: Make strace present
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          if command -v strace >/dev/null 2>&1; then
+            echo "strace is present: $(command -v strace)"
+          else
+            echo "strace is absent from the runner image; installing it with apt-get"
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq strace
+          fi
+          strace -V | head -1
+
+      # Yama's ptrace_scope 0 or 1 lets strace trace the tree it starts; 2
+      # admits only a privileged tracer and 3 none. The step lowers 2 to 1,
+      # says so, and fails by name on 3.
+      - name: Let strace trace its descendants
+        run: |
+          set -euo pipefail
+          f=/proc/sys/kernel/yama/ptrace_scope
+          if [ ! -r "$f" ]; then
+            echo "no Yama ptrace_scope on this kernel; tracing is not restricted"
+          else
+            scope="$(cat "$f")"
+            echo "kernel.yama.ptrace_scope=$scope"
+            if [ "$scope" = "2" ]; then
+              echo "lowering kernel.yama.ptrace_scope to 1"
+              sudo sysctl -w kernel.yama.ptrace_scope=1
+            elif [ "$scope" = "3" ]; then
+              echo "::error::kernel.yama.ptrace_scope=3 forbids ptrace; the census cannot trace"
+              exit 1
+            fi
+          fi
+          strace -f -qq -e trace=execve -o /dev/null /bin/sh -c '/bin/true'
+          echo "strace -f traced a two-level tree"
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build the board bundles
+        run: pnpm run build:board
+
+      # 20 minutes: the HEAD half's 830 s measurement plus the 10 s install and
+      # build of the "before" tree, 1.4 times the sum.
+      - name: Count the processes at the "before"
+        timeout-minutes: 20
         env:
           EVENT: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
           BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
+          report="$RUNNER_TEMP/census-before.jsonl"
           if [ "$EVENT" = "push" ]; then
-            node packages/fleet/test/census/census-gate.mjs --before "$BEFORE"
+            node packages/fleet/test/census/census-gate.mjs --only before --before "$BEFORE" --report "$report"
           else
             base="${BASE_REF:-main}"
             git fetch --no-tags origin "$base:refs/remotes/origin/$base"
-            node packages/fleet/test/census/census-gate.mjs --base "origin/$base"
+            node packages/fleet/test/census/census-gate.mjs --only before --base "origin/$base" --report "$report"
           fi
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: census-report-before
+          path: ${{ runner.temp }}/census-before.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+
+  census-compare:
+    runs-on: ubuntu-latest
+    needs: [select, gates, checks, census-head, census-base]
+    # Runs when the HEAD half succeeded, whatever the "before" half did: a
+    # failed or cancelled `census-base` leaves no report, and every row reads
+    # "no before", as a failed build of the "before" tree does.
+    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.checks.result == 'success' && needs.census-head.result == 'success' && needs.select.outputs.census != 'false' }}
+    # 5 minutes. Checkout, Node and two artifact downloads; the comparison reads
+    # two files of a few lines. Setup of the other census jobs took 32 s with a
+    # full install and build, and this job runs neither.
+    timeout-minutes: 5
+    steps:
+      - name: Guard the dispatched run
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/changeset-release/main" ]; then
+            echo "::error::a dispatched run is only valid on refs/heads/changeset-release/main, got $GITHUB_REF"
+            exit 1
+          fi
+          if [ -z "${EXPECTED_SHA:-}" ]; then
+            echo "::error::expected_sha is empty, so this run is unpinned"
+            exit 1
+          fi
+          if [ "$GITHUB_SHA" != "$EXPECTED_SHA" ]; then
+            echo "::error::head moved: expected $EXPECTED_SHA, testing $GITHUB_SHA"
+            exit 1
+          fi
+          echo "Dispatched run pinned to $GITHUB_SHA on $GITHUB_REF"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: census-report-*
+          path: census-reports
+
+      - name: Compare the census reports
+        run: |
+          set -euo pipefail
+          node packages/fleet/test/census/census-gate.mjs --compare \
+            census-reports/census-report-head/census-head.jsonl \
+            census-reports/census-report-before/census-before.jsonl
 
   # ── Helper contract tests: its own job, reported through `validate`. ─────
   #

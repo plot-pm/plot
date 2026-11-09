@@ -194,15 +194,17 @@ test('a census or fleet change selects the process census, and a board change do
 for (const [job, output] of [
   ['corpus', 'corpus'],
   ['macos-shell-contract', 'macos'],
-  ['process-census', 'census'],
+  ['census-head', 'census'],
+  ['census-base', 'census'],
   ['helper-contracts', 'contracts'],
   ['board-integration', 'board'],
 ]) {
   test(`${job} needs select and gates and runs unless select named it false`, () => {
     const head = jobBlock(job).split('\n    steps:')[0];
-    const needs = job === 'process-census' ? '[select, gates, checks]' : '[select, gates]';
+    const census = job.startsWith('census-');
+    const needs = census ? '[select, gates, checks]' : '[select, gates]';
     assert.ok(head.includes(`\n    needs: ${needs}\n`), `${job} must say needs: ${needs}`);
-    const after = job === 'process-census' ? " && needs.checks.result == 'success'" : '';
+    const after = census ? " && needs.checks.result == 'success'" : '';
     assert.ok(
       head.includes(
         `    if: \${{ !cancelled() && needs.gates.result == 'success'${after} && needs.select.outputs.${output} != 'false' }}`,
