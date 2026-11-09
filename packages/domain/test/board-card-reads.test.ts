@@ -84,6 +84,20 @@ describe('readBranchPlans', () => {
     expect(read.ok && read.value.map((p) => p.path)).toEqual(['docs/plans/x.md']);
   });
 
+  it('lists a branch whose containment the answer leaves out, as not contained', async () => {
+    const refs = refsOf({
+      tips: answered([{ branch: 'feature/x', sha: 'b'.repeat(40) }, { branch: 'feature/y', sha: 'c'.repeat(40) }]),
+      contains: answered(['no']),
+      trees: {
+        [`${MAIN} docs/plans/`]: answered([]),
+        'origin/feature/x docs/plans/': answered([md('docs/plans/x.md', '2'.repeat(40))]),
+        'origin/feature/y docs/plans/': answered([md('docs/plans/y.md', '3'.repeat(40))]),
+      },
+    });
+    const read = await readBranchPlans(refs, storeOf(), input);
+    expect(read.ok && read.value.map((p) => p.path)).toEqual(['docs/plans/x.md', 'docs/plans/y.md']);
+  });
+
   it('answers none with no prefix and none with no branch, and fails where a listing or the parse fails', async () => {
     expect(await readBranchPlans(refsOf({}), storeOf(), { ...input, prefixes: [] })).toEqual(answered([]));
     expect(await readBranchPlans(refsOf({ tips: answered([{ branch: 'main', sha: MAIN }]) }), storeOf(), input)).toEqual(answered([]));
