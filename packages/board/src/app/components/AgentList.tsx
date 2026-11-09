@@ -1015,7 +1015,7 @@ export function AgentList({
         const mapping = deliveryMapping({
           rows: filteredRows,
           slices: fleet.slices ?? [],
-          agents: fleet.agents ?? [],
+          agents: ownAgents,
           drafts: draftPlanRows(fleet.draftPlans ?? [], fleet.rows ?? []),
           reader,
           mode,
