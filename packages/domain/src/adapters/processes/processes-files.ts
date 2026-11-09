@@ -148,7 +148,8 @@ const loggedDesks = new Set<string>();
  * `startedAt`. A pid that answers `kill -0` and is missing from the table has
  * its start read once more; with no start, its staleness is not decided.
  * `dirty` and the upstream count are read only where `known` does not carry
- * them and the liveness is neither `live` nor `stale`, or where `always` is set.
+ * them, a pid is recorded and the liveness is neither `live` nor `stale`, or
+ * where `always` is set.
  *
  * @param worktree - the desk's absolute path.
  * @param table - one reading of the process table.
@@ -221,7 +222,7 @@ export const readWorkerReadings = async (
     blocked = false;
   }
 
-  const wantsTask = always || (liveness !== 'live' && liveness !== 'stale');
+  const wantsTask = always || (pidRecorded && liveness !== 'live' && liveness !== 'stale');
   const dirty = known.dirty ?? (wantsTask ? await io.dirty(worktree) : false);
   const ahead = known.allPushed === true ? '0' : wantsTask ? await io.ahead(worktree) : '';
   const count = Number(ahead);
