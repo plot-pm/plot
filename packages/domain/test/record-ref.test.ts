@@ -62,6 +62,14 @@ describe('lagLine', () => {
   });
 });
 
+describe('lagLine with a recorded conflict', () => {
+  it('names the conflicting files after the sync PR field', () => {
+    expect(lagLine(2, null, 'main', ['docs/plans/a.md', 'docs/plans/b.md']).text).toBe(
+      'Records: 2 ahead of main · sync PR: none · forward merge conflicts in docs/plans/a.md, docs/plans/b.md',
+    );
+  });
+});
+
 describe('removedKeyFinding', () => {
   it('is null while a key is declared, the branch is level, or the count is unknown', () => {
     expect(removedKeyFinding('plot/state', 'main', 4)).toBeNull();
@@ -189,5 +197,28 @@ describe('derefRecord', () => {
     const lone = { r: [blob('docs/plans/active/x.md', 'l3', '120000')] };
     const abs = { 'r:docs/plans/active/x.md': '/etc/passwd' };
     expect(await derefRecord(refsFixture({ trees: lone, files: abs }), 'r', 'docs/plans/active/x.md')).toBeNull();
+  });
+});
+
+describe('recordsAhead after a squash-merge', () => {
+  const shas = { [`${STATE}^{commit}`]: 's' };
+  const commitSubjects = { [`${MAIN}..${STATE}`]: [commit('a'), commit('b')] };
+  it('reads 0 where the trees are equal although the commits are not ancestors', async () => {
+    const refs = refsFixture({ shas: { ...shas, [`${STATE}^{tree}`]: 'T', [`${MAIN}^{tree}`]: 'T' }, commitSubjects });
+    expect(await recordsAhead(refs, source)).toBe(0);
+    expect((await readRecordFindings(refs, source)).recordLag?.text).toBe('Records: 0 ahead of main · sync PR: none');
+  });
+  it('keeps the commit count where the trees differ or a tree cannot be read', async () => {
+    const differ = refsFixture({ shas: { ...shas, [`${STATE}^{tree}`]: 'T1', [`${MAIN}^{tree}`]: 'T2' }, commitSubjects });
+    expect(await recordsAhead(differ, source)).toBe(2);
+    expect(await recordsAhead(refsFixture({ shas, commitSubjects }), source)).toBe(2);
+  });
+});
+
+describe('the lag line names the open sync PR', () => {
+  it('prints the number where one is open and none where none is', async () => {
+    const refs = refsFixture({ shas: { [`${STATE}^{commit}`]: 's' }, commitSubjects: { [`${MAIN}..${STATE}`]: [commit('a')] } });
+    expect((await readRecordFindings(refs, source, 12)).recordLag?.text).toContain('sync PR: #12');
+    expect((await readRecordFindings(refs, source)).recordLag?.text).toContain('sync PR: none');
   });
 });

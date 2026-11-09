@@ -388,6 +388,24 @@ describe('mergeAt — the workflow wired to its ports', () => {
     return { p, calls };
   };
 
+  it('reads the diff only for a PR from the state branch to the default branch', async () => {
+    const target = { kind: 'state', pushRef: 'refs/heads/plot/state', trackRef: 'origin/plot/state', defaultRef: 'origin/main', isBranch: true } as unknown as import('../src/rules/write-target.js').StateWriteTarget;
+    const diffs: string[] = [];
+    const gate = (files: readonly string[] | 'unknown') => ({
+      target, pathSet: ['docs/plans/'], defaultBranch: 'main',
+      diff: async (sha: string) => { diffs.push(sha); return files; },
+    });
+    const sync = ports(prFixture({ head: 'plot/state' }));
+    sync.p.stateSync = gate(['packages/x.ts']);
+    expect(await mergeAt(sync.p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'sync-path-outside-set' });
+    expect(sync.calls).toEqual([]);
+    expect(diffs).toEqual([HEAD2]);
+    const other = ports(prFixture());
+    other.p.stateSync = gate(['packages/x.ts']);
+    expect(await mergeAt(other.p, 7, HEAD2)).toMatchObject({ merged: true });
+    expect(diffs).toEqual([HEAD2]);
+  });
+
   it('asks the host nothing when the tip differs from the settled SHA', async () => {
     const fresh = new Date(NOW - 60_000).toISOString();
     const { p, calls } = ports(prFixture(), 'answered', { ok: true, value: settled('green', fresh) });
@@ -738,5 +756,31 @@ describe('mergeAt — the repair PR on a red default branch', () => {
     expect(await mergeAt(reask.p, 7, reask.head)).toMatchObject({ merged: false, reason: 'unaskable' });
     const noBuild = ports({ build: false });
     expect(await mergeAt(noBuild.p, 7, noBuild.head)).toMatchObject({ merged: false, reason: 'unaskable' });
+  });
+});
+
+describe('merge — the sync PR path gate', () => {
+  const SET = ['docs/plans/', 'docs/sprints/'];
+  const merged = (sync?: MergeReadings['sync']) => refusalOf(readings(sync ? { sync } : {}));
+
+  it('merges a sync PR whose diff lies inside the set', () => {
+    expect(merged({ files: ['docs/plans/2026-11-07-x.md'], set: SET })).toBe('decided');
+  });
+
+  it('refuses a sync PR that touches packages/, naming the path, whatever its title says', () => {
+    const out = merge(
+      readings({ pr: pr({ head: 'plot/state', title: 'plot: sync records' } as Partial<Pr>), sync: { files: ['docs/plans/a.md', 'packages/domain/src/x.ts'], set: SET } }),
+      { pr: 42, sha: HEAD, ...CLOCK },
+    );
+    expect(out).toMatchObject({ outcome: 'refused', reason: 'sync-path-outside-set' });
+    if (out.outcome === 'refused') expect(out.detail).toContain('packages/domain/src/x.ts');
+  });
+
+  it('refuses a sync PR whose diff could not be read', () => {
+    expect(merged({ files: 'unknown', set: SET })).toBe('sync-diff-unread');
+  });
+
+  it('changes nothing for a PR with no sync reading', () => {
+    expect(merged()).toBe('decided');
   });
 });
