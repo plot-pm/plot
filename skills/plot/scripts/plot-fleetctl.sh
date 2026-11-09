@@ -1099,7 +1099,7 @@ if [ "$mode" = "start" ] || [ "$mode" = "restart" ]; then
   # same fleet under its old name. One whose checkout cannot be read is refused,
   # as refusal 4 refuses it, because installing beside it may run two
   # supervisors over one estate.
-  retire_old_label || exit 1
+  [ "$mode" = restart ] || retire_old_label || exit 1
 
   # REFUSAL 4 — the label is taken. launchd keys a job by LABEL, so loading a
   # second repository's unit over the first supervises the wrong estate without
@@ -1127,7 +1127,11 @@ if [ "$mode" = "start" ] || [ "$mode" = "restart" ]; then
   # A BUNDLE THAT CANNOT BE ASKED REFUSES TOO — `old_label_refuses` is true on
   # a broken install as well as on a `refuse` word, so neither arm can load a
   # second supervisor over this estate on an empty answer.
-  ! old_label_refuses start || exit 1
+  # `--restart` asks with the `stop` verb: `start` refuses a unit that is loaded
+  # whatever it serves, and a restart's unit is loaded by definition. `stop`
+  # proceeds for `this` and refuses `another` and `unknown`.
+  ask_verb=start; [ "$mode" = start ] || ask_verb=stop
+  ! old_label_refuses "$ask_verb" || exit 1
   [ "$LABEL" = com.plot-pm.fleetd ] || { ! LABEL=com.plot-pm.fleetd UNIT_NAME=plot-fleetd old_label_refuses start-default || exit 1; }
 
   # REFUSAL 5 — the worker command cannot write. One `-p` run of the project's
