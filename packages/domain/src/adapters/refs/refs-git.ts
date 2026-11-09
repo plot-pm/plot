@@ -7,9 +7,9 @@ import type {
   BranchTip,
   CommitLine,
   CommitSubject,
-  FirstParentCommit,
   Containment,
   FileChange,
+  FirstParentCommit,
   MergeCommit,
   MergeStatus,
   RefScope,
@@ -310,7 +310,7 @@ export const firstParentCommitsOf = (stdout: string): readonly FirstParentCommit
   const line: FirstParentCommit[] = [];
   for (let at = tip; at !== null && rows.has(at); ) {
     const row = rows.get(at)!;
-    line.push({ tree: row.tree, forward: row.parents.slice(1).some((p) => !rows.has(p)) });
+    line.push({ sha: at, tree: row.tree, forward: row.parents.slice(1).some((p) => !rows.has(p)) });
     at = row.parents[0] ?? null;
   }
   return line;

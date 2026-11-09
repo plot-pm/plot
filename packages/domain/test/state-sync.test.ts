@@ -219,20 +219,27 @@ describe('aheadSinceTreeEqual', () => {
   const record = (tree: string) => ({ tree, forward: false });
   const forward = (tree: string) => ({ tree, forward: true });
   it('reads 0 where the tip tree equals the default tree', () => {
-    expect(aheadSinceTreeEqual([record('D'), record('b'), record('a')], 'D')).toBe(0);
+    expect(aheadSinceTreeEqual([record('D'), record('b'), record('a')], ['D'])).toBe(0);
   });
   it('counts the commits added after a squash-merge', () => {
-    expect(aheadSinceTreeEqual([record('n2'), record('n1'), record('D'), record('a')], 'D')).toBe(2);
+    expect(aheadSinceTreeEqual([record('n2'), record('n1'), record('D'), record('a')], ['D'])).toBe(2);
   });
   it('counts every commit where none is tree-equal', () => {
-    expect(aheadSinceTreeEqual([record('c'), record('b'), record('a')], 'D')).toBe(3);
-    expect(aheadSinceTreeEqual([], 'D')).toBe(0);
+    expect(aheadSinceTreeEqual([record('c'), record('b'), record('a')], ['D'])).toBe(3);
+    expect(aheadSinceTreeEqual([], ['D'])).toBe(0);
   });
   it('does not count a forward merge, at the tip or in the middle', () => {
-    expect(aheadSinceTreeEqual([forward('D'), record('a')], 'D')).toBe(0);
-    expect(aheadSinceTreeEqual([record('r3'), forward('F'), record('r2'), record('r1')], 'D')).toBe(3);
+    expect(aheadSinceTreeEqual([forward('D'), record('a')], ['D'])).toBe(0);
+    expect(aheadSinceTreeEqual([record('r3'), forward('F'), record('r2'), record('r1')], ['D'])).toBe(3);
+  });
+  it('stops at the squash tree after the default branch moves past the squash', () => {
+    // S squashes r1 and r2, F1 forwards S, r3 and r4 follow, X lands on the default branch, F2 forwards X.
+    const line = [forward('T_X+r'), record('r4'), record('r3'), forward('T_S'), record('r2'), record('r1')];
+    expect(aheadSinceTreeEqual(line, ['T_X', 'T_X', 'T_S'])).toBe(2);
+    expect(aheadSinceTreeEqual(line.slice(1), ['T_X', 'T_X', 'T_S'])).toBe(2);
+    expect(aheadSinceTreeEqual(line, ['T_X'])).toBe(4);
   });
   it('finds no tree-equal commit for an empty default tree id', () => {
-    expect(aheadSinceTreeEqual([record(''), record('a')], '')).toBe(2);
+    expect(aheadSinceTreeEqual([record(''), record('a')], [''])).toBe(2);
   });
 });

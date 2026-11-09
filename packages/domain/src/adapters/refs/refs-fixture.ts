@@ -7,9 +7,9 @@ import type {
   BranchTip,
   CommitLine,
   CommitSubject,
-  FirstParentCommit,
   Containment,
   FileChange,
+  FirstParentCommit,
   MergeCommit,
   MergeStatus,
   RefScope,
@@ -190,7 +190,7 @@ export interface RefsFixture {
   remoteTips?: Readonly<Record<string, string>>;
   /**
    * The default branch's first-parent line, newest first, for
-   * {@link Refs.firstParentCommits}. A walk from a commit not on it fails, as git
+   * {@link Refs.firstParentLine}. A walk from a commit not on it fails, as git
    * fails on a commit this checkout does not hold.
    */
   firstParentLine?: readonly string[];

@@ -28,6 +28,8 @@ interface World {
   files?: Readonly<Record<string, string>>;
   ahead?: number | 'fail';
   line?: readonly { tree: string; forward: boolean }[] | 'fail';
+  /** The default branch's first-parent trees since the state line forked. */
+  landed?: readonly string[] | 'fail';
   behind?: number | 'fail';
   created?: string[];
   comments?: { pr: number; marker?: string; body?: string }[];
@@ -64,10 +66,14 @@ const portsOf = (world: World): StateSyncPorts => {
         const n = world.behind;
         return n === 'fail' ? failed() : answered(lines(n ?? 0) as never);
       },
-      firstParentCommits: async () => {
-        if (world.line !== undefined) return world.line === 'fail' ? failed() : answered([...world.line]);
+      firstParentCommits: async (range: string) => {
+        if (range.includes('^..')) {
+          const landed = world.landed ?? [];
+          return landed === 'fail' ? failed() : answered(landed.map((tree, i) => ({ sha: `m${i}`, tree, forward: false })));
+        }
+        if (world.line !== undefined) return world.line === 'fail' ? failed() : answered(world.line.map((c, i) => ({ sha: `l${i}`, ...c })));
         const n = world.ahead;
-        return n === 'fail' ? failed() : answered(Array.from({ length: n ?? 0 }, (_, i) => ({ tree: `t${i}`, forward: false })));
+        return n === 'fail' ? failed() : answered(Array.from({ length: n ?? 0 }, (_, i) => ({ sha: `l${i}`, tree: `t${i}`, forward: false })));
       },
       changedFiles: async () => (world.changed === 'fail' ? failed() : answered([...(world.changed ?? [])])),
       showFile: async (ref: string, path: string) => {
@@ -193,6 +199,13 @@ describe('the readings', () => {
     expect(await commitsAhead(refs({ ahead: 0 }), 'd', 's')).toBe(0);
     expect(await commitsAhead(refs({ line: 'fail' }), 'd', 's')).toBeNull();
     expect(await commitsAhead(refs({ ahead: 2, fail: ['resolve'] }), 'd', 's')).toBeNull();
+  });
+
+  it('stops at the squash tree after the default branch moves past the squash', async () => {
+    const record = (tree: string) => ({ tree, forward: false });
+    const line = [{ tree: 'X+r', forward: true }, record('n2'), record('n1'), { tree: 'S', forward: true }, record('o')];
+    expect(await commitsAhead(portsOf({ line, landed: ['X', 'S'] }).refs, 'd', 's')).toBe(2);
+    expect(await commitsAhead(portsOf({ line, landed: 'fail' }).refs, 'd', 's')).toBeNull();
   });
 
   it('does not count a forward merge', async () => {

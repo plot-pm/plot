@@ -22,7 +22,7 @@ const STATE = 'refs/remotes/origin/plot/state';
 const MAIN = 'refs/remotes/origin/main';
 const source = { stateBranch: 'plot/state', defaultBranch: 'main' };
 const blob = (path: string, sha: string, mode = '100644') => ({ mode, sha, path });
-const commit = (tree: string, forward = false) => ({ tree, forward });
+const commit = (tree: string, forward = false) => ({ sha: `c-${tree}`, tree, forward });
 
 describe('recordRef', () => {
   it('answers default with no key', () => {
@@ -216,6 +216,13 @@ describe('recordsAhead after a squash-merge', () => {
     const refs = refsFixture({ shas, firstParentCommitLists: { [range]: [commit('a'), commit('b')] } });
     expect(await recordsAhead(refs, source)).toBe(2);
   });
+  it('counts only the commits added after the squash once the default branch moves on', async () => {
+    const line = [commit('X+r', true), commit('n2'), commit('n1'), commit('S', true), commit('o')];
+    const landed = { [`c-o^..${MAIN}`]: [commit('X'), commit('S')] };
+    const moved = { [`${STATE}^{commit}`]: 's', [`${MAIN}^{tree}`]: 'X' };
+    expect(await recordsAhead(refsFixture({ shas: moved, firstParentCommitLists: { [range]: line, ...landed } }), source)).toBe(2);
+    expect(await recordsAhead(refsFixture({ shas: moved, firstParentCommitLists: { [range]: line } }), source)).toBe(3);
+  });
   it('does not count a forward merge and answers null where the default tree is unread', async () => {
     const line = [commit('r3'), commit('F', true), commit('r2'), commit('r1')];
     expect(await recordsAhead(refsFixture({ shas, firstParentCommitLists: { [range]: line } }), source)).toBe(3);
@@ -225,7 +232,7 @@ describe('recordsAhead after a squash-merge', () => {
 
 describe('the lag line names the open sync PR', () => {
   it('prints the number where one is open and none where none is', async () => {
-    const refs = refsFixture({ shas: { [`${STATE}^{commit}`]: "s", [`${MAIN}^{tree}`]: "D" }, firstParentCommitLists: { [`${MAIN}..${STATE}`]: [commit('a')] } });
+    const refs = refsFixture({ shas: { [`${STATE}^{commit}`]: 's', [`${MAIN}^{tree}`]: 'D' }, firstParentCommitLists: { [`${MAIN}..${STATE}`]: [commit('a')] } });
     expect((await readRecordFindings(refs, source, 12)).recordLag?.text).toContain('sync PR: #12');
     expect((await readRecordFindings(refs, source)).recordLag?.text).toContain('sync PR: none');
   });

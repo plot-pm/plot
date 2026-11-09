@@ -258,21 +258,25 @@ export const syncedByTrees = (stateTree: string, defaultTree: string): boolean =
  * Counts the commits a state branch holds that the default branch does not yet hold in content.
  *
  * Walks the first-parent line newest first and stops at the first commit whose
- * tree equals the default branch's tree: a squash-merge rewrites the commits
- * and keeps the tree, so nothing at or below that commit is pending. A forward
- * merge carries default-branch content and no record, so it does not count.
+ * tree equals the tree of a default-branch commit: a squash-merge rewrites the
+ * commits and keeps the tree, so nothing at or below that commit is pending.
+ * The default branch moves on after a squash, so the walk compares against
+ * every default-branch tree since the state branch forked, not only the tip's.
+ * A forward merge carries default-branch content and no record, so it does not
+ * count.
  *
  * @param line - the state branch's first-parent commits beyond the merge base, newest first.
- * @param defaultTree - the default tip's tree id; empty reads as no tree-equal commit.
+ * @param defaultTrees - the tree ids of the default branch's first-parent commits since the state branch forked, the tip's included; an empty id matches no commit.
  * @returns the number of non-forward commits above the first tree-equal commit; every non-forward commit of `line` where none is tree-equal.
  */
 export const aheadSinceTreeEqual = (
   line: readonly { readonly tree: string; readonly forward: boolean }[],
-  defaultTree: string,
+  defaultTrees: readonly string[],
 ): number => {
+  const landed = new Set(defaultTrees.filter((tree) => tree !== ''));
   let count = 0;
   for (const commit of line) {
-    if (syncedByTrees(commit.tree, defaultTree)) return count;
+    if (landed.has(commit.tree)) return count;
     if (!commit.forward) count += 1;
   }
   return count;

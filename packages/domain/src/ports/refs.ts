@@ -176,6 +176,8 @@ export interface CommitSubject {
  * reports it.
  */
 export interface FirstParentCommit {
+  /** The full object name. */
+  sha: string;
   /** The commit's tree id. */
   tree: string;
   /**

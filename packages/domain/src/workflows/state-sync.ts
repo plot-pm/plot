@@ -57,10 +57,12 @@ export const commitsBetween = async (refs: Pick<Refs, 'commitSubjects'>, to: str
 /**
  * Counts the commits `trackRef` holds that `defaultRef` does not yet hold in content.
  *
- * Reads the first-parent line and the default tip's tree, then asks
- * {@link aheadSinceTreeEqual}. Every reader of the ahead count calls this.
+ * Reads the state branch's first-parent line, the default tip's tree and the
+ * trees of the default branch's first-parent commits since the state line's
+ * oldest commit forked, then asks {@link aheadSinceTreeEqual}. Every reader of
+ * the ahead count calls this.
  *
- * @returns the count; null where the line or the default tree could not be read. An empty line reads 0.
+ * @returns the count; null where a read fails. An empty line reads 0.
  */
 export const commitsAhead = async (
   refs: Pick<Refs, 'firstParentCommits' | 'resolve'>,
@@ -69,9 +71,14 @@ export const commitsAhead = async (
 ): Promise<number | null> => {
   const line = await refs.firstParentCommits(`${defaultRef}..${trackRef}`);
   if (!line.ok) return null;
-  if (line.value.length === 0) return 0;
-  const tree = await refs.resolve(`${defaultRef}^{tree}`);
-  return tree.ok ? aheadSinceTreeEqual(line.value, tree.value) : null;
+  const oldest = line.value[line.value.length - 1];
+  if (oldest === undefined) return 0;
+  const [tree, landed] = await Promise.all([
+    refs.resolve(`${defaultRef}^{tree}`),
+    refs.firstParentCommits(`${oldest.sha}^..${defaultRef}`),
+  ]);
+  if (!tree.ok || !landed.ok) return null;
+  return aheadSinceTreeEqual(line.value, [tree.value, ...landed.value.map((commit) => commit.tree)]);
 };
 
 /**
