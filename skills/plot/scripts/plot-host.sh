@@ -133,6 +133,17 @@
 #                                 time — `commit-status` writes that status
 #                                 through `plot-bitbucket-commit-status.mjs`.
 #                                 EXIT 3 is the question failing.
+#   pr-conversation <number>       one JSON line `{"prAuthor","rows"}`: the PR author's
+#                                 login (`""` for a deleted account) and every issue
+#                                 comment, inline review comment and review of the PR,
+#                                 each `{"kind","id","login","type","time","body"}`
+#                                 (`kind` is issue|inline|review; `login` and `type`
+#                                 are `""` where the account is deleted; `time` is
+#                                 `created_at`, and `submitted_at` for a review, `""`
+#                                 while PENDING; a review adds `state`). Nothing is
+#                                 filtered. GitHub, REST only, every page. EXIT 3 is
+#                                 any read failing, never an empty list; EXIT 4 on
+#                                 Bitbucket, whose read is unmeasured.
 #   pr-create --title T [--body B] [--base BR] [--head BR] [--draft]
 #                                 create a PR, print its URL
 #   pr-merge <number> [--squash] [--delete-branch] --match-head <sha>
@@ -4383,6 +4394,16 @@ case "$op" in
       && jq -nc --arg sha "$sha" --slurpfile cm <(printf '%s' "$cm") --slurpfile st <(printf '%s' "$st") '[$st[][] | select(.context == "plot/review")] as $s | $s[0] as $m | {sha: $sha, state: ($m.state // "absent"), description: ($m.description // ""), time: ($m.updated_at // ""), bypass: any($cm[][]; .body | startswith("review-bypass:")), statuses: [$s[] | {state, description: (.description // ""), time: (.updated_at // ""), writer: (.creator.login // "")}]}' \
       || die3 "pr-review: the read failed" ;;
 
+  pr-conversation)
+    # BITBUCKET IS UNMEASURED: exit 4 until its comment, approval-time and `user.type` reads are measured.
+    [ "$be" = "github" ] || { echo "plot-host: pr-conversation — the bitbucket read is unmeasured" >&2; exit 4; }
+    # REST ONLY, every page, and a failed page is a failed read (exit 3), never `[]`. The pages reach `jq` through `--slurpfile`, not `--argjson` (the 128 KB argv cap). Fields are projected and nothing is filtered: who counts as a person is the domain's.
+    n="${1:?pr-conversation needs a PR number}"; ep="repos/{owner}/{repo}"
+    out="$(gh_api_harvest "$ep/pulls/$n")" && au="$(jq -r '.user.login // ""' <<<"$out")" && ic="$(gh api --paginate "$ep/issues/$n/comments?per_page=100")" \
+      && pc="$(gh api --paginate "$ep/pulls/$n/comments?per_page=100")" && rv="$(gh api --paginate "$ep/pulls/$n/reviews?per_page=100")" \
+      && jq -nc --arg au "$au" --slurpfile i <(printf '%s' "$ic") --slurpfile c <(printf '%s' "$pc") --slurpfile r <(printf '%s' "$rv") 'def row($k): {kind: $k, id: .id, login: (.user.login // ""), type: (.user.type // ""), time: (.created_at // ""), body: (.body // "")}; {prAuthor: $au, rows: ([$i[][] | row("issue")] + [$c[][] | row("inline")] + [$r[][] | row("review") + {time: (.submitted_at // ""), state}])}' \
+      || die3 "pr-conversation: the read failed" ;;
+
   pr-create)
     title=""; body=""; base=""; head=""; draft=0
     while [ $# -gt 0 ]; do
@@ -6059,6 +6080,6 @@ case "$op" in
     gh_edit_or_post_comment "$cid" pr "$num" "${2:?pr-comment needs a body}" || gh_fail; rm -f "$HOST_ERR" ;;
 
   *)
-    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-comment-read|issue-close|version-list|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status|pr-comment)"
+    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-comment-read|issue-close|version-list|pr-body|pr-review|pr-conversation|rate-limit|limit|ci-limit|spend-rate|commit-status|pr-comment)"
     ;;
 esac

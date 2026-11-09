@@ -10,6 +10,7 @@ import type {
   MergeDest,
   PrCreateRequest,
   PrLookup,
+  PrConversationReading,
   PrReviewReading,
 } from '../../ports/host.js';
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
@@ -70,6 +71,11 @@ export interface HostFixture {
    * failed read, so a test can prove an unreadable PR is named.
    */
   reviews?: Readonly<Record<number, PrReviewReading>>;
+  /**
+   * What `prConversation` reports, keyed by PR number. A number not listed is
+   * a failed read, so a test can prove an unreadable conversation is named.
+   */
+  conversations?: Readonly<Record<number, PrConversationReading>>;
   /** What `reviewWriter` answers: the trusted bot login, `''` (the default) for unchecked. */
   reviewWriter?: string;
   /** Makes `reviewWriter` answer `unaskable`. */
@@ -208,6 +214,11 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
 
     prReview: async (number: number): Promise<PortResult<PrReviewReading>> => {
       const reading = fixture.reviews?.[number];
+      return reading === undefined ? failed() : answered(reading);
+    },
+
+    prConversation: async (number: number): Promise<PortResult<PrConversationReading>> => {
+      const reading = fixture.conversations?.[number];
       return reading === undefined ? failed() : answered(reading);
     },
 

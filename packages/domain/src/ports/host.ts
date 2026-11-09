@@ -168,6 +168,32 @@ export interface PrReviewReading {
   statuses?: ReadonlyArray<ReviewStatus>;
 }
 
+/** One comment or review on a PR, as the host recorded it. Nothing is filtered or judged. */
+export interface PrConversationRow {
+  /** `issue` (a PR-level comment), `inline` (a comment on the diff) or `review`. */
+  kind: 'issue' | 'inline' | 'review';
+  /** The host's id for the row. */
+  id: number;
+  /** The author's login, or `''` where the account is deleted. */
+  login: string;
+  /** The author's account type (`User`, `Bot`), or `''` where the host names none. */
+  type: string;
+  /** `created_at`; `submitted_at` for a review, `''` while it is `PENDING`. An edit never moves it. */
+  time: string;
+  /** The body verbatim; `''` where there is none. */
+  body: string;
+  /** A review's state (`APPROVED`, `CHANGES_REQUESTED`, `COMMENTED`, `PENDING`, `DISMISSED`). Absent on other kinds. */
+  state?: string;
+}
+
+/** A PR's whole conversation, with the login of the PR's author. */
+export interface PrConversationReading {
+  /** The PR author's login, or `''` where the account is deleted. */
+  prAuthor: string;
+  /** Every issue comment, inline comment and review. */
+  rows: ReadonlyArray<PrConversationRow>;
+}
+
 /** One `plot/review` status as the host recorded it. */
 export interface ReviewStatus {
   state: string;
@@ -445,6 +471,17 @@ export interface Host {
    *   `failed` otherwise, with the reason in {@link lastRefusal}.
    */
   prReview(number: number): Promise<PortResult<PrReviewReading>>;
+
+  /**
+   * Every comment and review on a PR, read from every page, with the PR
+   * author's login. The reading does not filter.
+   *
+   * @param number - the PR to read.
+   * @returns the reading; `unaskable` where this host has no verified read
+   *   (Bitbucket); `failed` where any page could not be read, with the reason
+   *   in {@link lastRefusal}. A failed read is never an empty list.
+   */
+  prConversation(number: number): Promise<PortResult<PrConversationReading>>;
 
   /**
    * The login the Review app's `plot/review` statuses carry: `<slug>[bot]`.

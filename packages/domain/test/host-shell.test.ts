@@ -426,6 +426,20 @@ describe('reviewWriter', () => {
   });
 });
 
+describe('prConversation', () => {
+  it('asks pr-conversation and parses the reading', async () => {
+    const reading = { prAuthor: 'jwloka', rows: [{ kind: 'issue', id: 1, login: 'eins78', type: 'User', time: '2026-11-09T14:32:00Z', body: 'why?' }] };
+    expect(
+      await hostShell(hostThat(`[ "$1 $2" = "pr-conversation 7" ] || exit 1; echo '${JSON.stringify(reading)}'`)).prConversation(7),
+    ).toEqual({ ok: true, value: reading });
+  });
+
+  it('maps a failing exit to failed and exit 4 to unaskable', async () => {
+    expect(await hostShell(hostThat('exit 3')).prConversation(7)).toEqual({ ok: false, why: 'failed' });
+    expect(await hostShell(hostThat('exit 4')).prConversation(7)).toEqual({ ok: false, why: 'unaskable' });
+  });
+});
+
 describe('prReview statuses', () => {
   it('passes the statuses the script reports through to the reading', async () => {
     const reading = {

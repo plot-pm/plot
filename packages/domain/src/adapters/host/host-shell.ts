@@ -15,6 +15,7 @@ import type {
   MergedAnswer,
   MergeDest,
   PrLookup,
+  PrConversationReading,
   PrReviewReading,
 } from '../../ports/host.js';
 import {
@@ -525,6 +526,9 @@ export const hostShell = (context: ShellContext, answers: FixedAnswers = process
 
     prReview: (number) =>
       ask(['pr-review', String(number)], (stdout) => asJson<PrReviewReading>(stdout)),
+
+    prConversation: (number) =>
+      ask(['pr-conversation', String(number)], (stdout) => asJson<PrConversationReading>(stdout)),
 
     // BITBUCKET KEEPS NO WRITER, so it answers `''` without reading config:
     // `checkedReview` reads that as unchecked. `plot-review-writer.mjs` reads
