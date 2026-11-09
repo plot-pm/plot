@@ -139,6 +139,8 @@ describe('the reader agrees with plot-worker-state.sh on constructed desks', () 
   const readingsFound: Disagreement[] = [];
   const statesFound: Disagreement[] = [];
   const states = new Map<string, string>();
+  /** The `ps` rows naming the `agent-present` wrapper, for the failure message. */
+  let agentTree = '';
   const savedGrace = process.env.PLOT_AGENT_GRACE_SECONDS;
 
   /** Starts a process that outlives the read; `sh -c` keeps a wrapper above an agent named `claude`. */
@@ -165,15 +167,18 @@ describe('the reader agrees with plot-worker-state.sh on constructed desks', () 
     mkdirSync(manifests, { recursive: true });
     const agentBinary = join(root, 'claude');
     // A symlink, not a copy: macOS kills a copied platform binary at exec.
-    // To node, not to `sleep`: a multicall coreutils (uutils on ubuntu-26.04)
-    // picks its utility from argv[0] and exits at once for `claude`.
-    symlinkSync(realpathSync(process.execPath), agentBinary);
+    // To bash, which keeps the name it was started under: a multicall
+    // coreutils (uutils on ubuntu-26.04) picks its utility from argv[0] and
+    // exits at once for `claude`, and node renames its own main thread.
+    symlinkSync(realpathSync('/bin/bash'), agentBinary);
 
     const dead = spawnSync('true').pid ?? 999_999;
     const reused = start('sleep', ['600']);
     const plain = start('sleep', ['600']);
     const orphan = start('sleep', ['600']);
-    const withAgent = start('sh', ['-c', `'${agentBinary}' -e 'setTimeout(() => {}, 600000)'; :`]);
+    // A loop, so bash stays the process rather than exec'ing its last command;
+    // bounded, so a teardown that misses it still ends within 600 s.
+    const withAgent = start('sh', ['-c', `'${agentBinary}' -c 'for ((i = 0; i < 600; i++)); do sleep 1; done'; :`]);
     const freeProven = start('sleep', ['600']);
     const freeUnproven = start('sleep', ['600']);
     await wait(8_500);
@@ -184,6 +189,10 @@ describe('the reader agrees with plot-worker-state.sh on constructed desks', () 
     desk('reused-pid', {}, { pid: String(reused), startedAt: '2026-01-05T09:00:00Z', pidStartedAt: 'Mon Jan  5 10:00:00 2026' });
     desk('orphan-past-grace', { '.plot-worker.pid': `${orphan}\n`, '.plot-worker.wrapper.pid': `${orphan}\n` });
     desk('agent-present', { '.plot-worker.pid': `${withAgent}\n`, '.plot-worker.wrapper.pid': `${withAgent}\n` });
+    agentTree = execFileSync('ps', ['-o', 'pid=,ppid=,comm=', '-ax'], { encoding: 'utf8' })
+      .split('\n')
+      .filter((line) => line.includes(String(withAgent)))
+      .join(' | ');
     desk('wrapper-5s-no-agent', { '.plot-worker.pid': `${young}\n`, '.plot-worker.wrapper.pid': `${young}\n` });
     desk('exit-abc', { '.plot-worker.pid': `${dead}\n`, '.plot-worker.exit': 'abc\n' });
     desk(
@@ -224,8 +233,8 @@ describe('the reader agrees with plot-worker-state.sh on constructed desks', () 
   afterAll(async () => {
     if (savedGrace === undefined) delete process.env.PLOT_AGENT_GRACE_SECONDS;
     else process.env.PLOT_AGENT_GRACE_SECONDS = savedGrace;
-    for (const child of children) child.kill('SIGKILL');
     for (const child of children) spawnSync('pkill', ['-KILL', '-P', String(child.pid)]);
+    for (const child of children) child.kill('SIGKILL');
     rmSync(made, { recursive: true, force: true });
   });
 
@@ -245,7 +254,7 @@ describe('the reader agrees with plot-worker-state.sh on constructed desks', () 
     expect(states.get('free-wait-proven')?.split('\t')[0]).toBe('running');
     expect(states.get('wrapper-5s-no-agent')?.split('\t')[0]).toBe('running');
     expect(states.get('pid-after-table')?.split('\t')[0]).toBe('running');
-    expect(states.get('agent-present')?.split('\t')[0]).toBe('running');
+    expect(states.get('agent-present')?.split('\t')[0], `agent-present: ps rows ${agentTree}`).toBe('running');
     expect(states.get('orphan-past-grace')?.split('\t')[0]).toBe('finished');
     expect(states.get('reused-pid')?.split('\t')[0]).toBe('ended');
     expect(states.get('exit-abc')).toBe(`ended\t${states.get('exit-abc')?.split('\t')[1]}\t`);
