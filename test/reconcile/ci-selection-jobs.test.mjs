@@ -189,6 +189,21 @@ test('a census or fleet change selects the process census, and a board change do
   }
 });
 
+test('a pull request into a sprint branch that changes packages/fleet selects both census halves', () => {
+  // The map step reads the event and the changed files, never the base branch.
+  const out = map({ event: 'pull_request', changed: 'packages/fleet/src/x.ts\n' });
+  assert.equal(out.census, 'true');
+  for (const job of ['census-head', 'census-base']) {
+    const block = jobBlock(job);
+    assert.doesNotMatch(
+      block,
+      /github\.base_ref\s*(==|!=)\s*'main'/,
+      `${job}: no step may test the PR base against main`,
+    );
+    assert.match(block, /needs\.select\.outputs\.census != 'false'/, `${job}: the selection alone gates it`);
+  }
+});
+
 // ── the gated jobs ──────────────────────────────────────────────────────────
 
 for (const [job, output] of [
