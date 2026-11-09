@@ -7,9 +7,7 @@ import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
 import { marked } from 'marked';
 import {
   PlanMetaSchema,
-  SprintStateSchema,
   StoryCardSchema,
-  StoryStatusSchema,
   STORY_LIFECYCLE,
   type Board,
   type Card,
@@ -18,7 +16,6 @@ import {
   type PlanStatus,
   type DraftPlan,
   type SprintCard,
-  type SprintMember,
   type StoryCard,
   type StoryCardInput,
   type FleetReading,
@@ -30,12 +27,15 @@ import { cachedPlanMetas, cachedRefs, freshWalkCache, readRefSnapshot, snapshotO
 import type { RefState } from '@plot-pm/domain/ports/refs';
 import { listRecordBlobs, readRecordFindings, resolveRecordRef, type RecordSource } from '@plot-pm/domain/workflows/record-listing';
 import { licensedSpike, spikeOf } from '@plot-pm/domain/rules/spike';
+import { branchPlanSet, type BranchPlanTree } from '@plot-pm/domain/rules/branch-plans';
+import { STORY_LEGACY_ISSUE_KEY } from '@plot-pm/domain/adapters/story-front-matter';
+import { sprintRecordOf, UNADMITTED_STATE as DOMAIN_UNADMITTED_STATE } from '@plot-pm/domain/rules/sprint-record';
+import { storyRecordOf, unquoteScalar as domainUnquoteScalar } from '@plot-pm/domain/rules/story-record';
 import { refutedBadge, refutedClaims, verificationOf } from '@plot-pm/domain/rules/verification-record';
 import {
   allSlicesMerged,
   deliveryPulse as chooseDeliveryPulse,
   derivedStanding,
-  storyIssueValue,
   repoIssuePrefixOf,
   jiraProjectsOf,
   type StoryIssueContext,
@@ -64,7 +64,6 @@ import {
   phaseOfPlan,
   type PhaseMap,
   approverOf,
-  sprintGoal,
   type Detached,
   planRouteOfDocLink,
 } from '@plot-pm/domain';
@@ -1256,11 +1255,10 @@ const readBranchPlans = async (
     planDir,
     stateBranch === '' ? undefined : { stateBranch, defaultBranch },
   );
-  const plans: BranchPlan[] = [];
-  // De-duplicate by canonical path, matching collectPlanFiles's contract: two
-  // branches cut from the same point carry the same plan file, and a card per
-  // branch would report one plan as several.
-  const seen = new Set<string>();
+  // THE SET IS THE DOMAIN'S `branchPlanSet`, the rule fleetd's `branchPlans`
+  // reading calls too: merged branches skipped, default-branch paths skipped,
+  // de-duplicated by path with the first branch winning.
+  const trees: BranchPlanTree[] = [];
   for (const { branch } of branches) {
     // plot-ancestry: prefilter — a wrong "no" or "unknown" only costs reading a
     // tree this branch did not need read; `onDefault` below still drops any path
@@ -1268,19 +1266,25 @@ const readBranchPlans = async (
     // whose tip is genuinely still ahead, which `contains` does not produce: it
     // answers from real ancestry, never from a squash-merge's rewritten history.
     const merged = await refs.contains(`origin/${branch}`, `origin/${defaultBranch}`);
-    if (merged.ok && merged.value === 'yes') continue;
-    for (const relPath of await planPathsInTree(refs, `origin/${branch}`, planDir)) {
-      if (onDefault.has(relPath) || seen.has(relPath)) continue;
-      const blob = await refs.showFile(`origin/${branch}`, relPath);
-      // An unreadable or empty blob is skipped rather than parsed, so a branch
-      // the board cannot read costs a card and never produces a blank one. The
-      // emptiness test is kept alongside the failure test rather than replaced
-      // by it: a plan file with no bytes parses to no phase, and a card with no
-      // phase belongs in no column.
-      if (!blob.ok || !blob.value) continue;
-      seen.add(relPath);
-      plans.push({ path: relPath, content: blob.value });
+    const containment = merged.ok ? merged.value : 'unknown';
+    if (containment === 'yes') {
+      trees.push({ branch, merged: containment, blobs: null });
+      continue;
     }
+    // An unreadable tree contributes no Draft plans, exactly as a branch that carries none.
+    const listing = await refs.listBlobs(`origin/${branch}`, planDir);
+    trees.push({ branch, merged: containment, blobs: listing.ok ? listing.value : [] });
+  }
+  const plans: BranchPlan[] = [];
+  for (const { branch, path: relPath } of branchPlanSet(trees, onDefault)) {
+    const blob = await refs.showFile(`origin/${branch}`, relPath);
+    // An unreadable or empty blob is skipped rather than parsed, so a branch
+    // the board cannot read costs a card and never produces a blank one. The
+    // emptiness test is kept alongside the failure test rather than replaced
+    // by it: a plan file with no bytes parses to no phase, and a card with no
+    // phase belongs in no column.
+    if (!blob.ok || !blob.value) continue;
+    plans.push({ path: relPath, content: blob.value });
   }
   return plans;
 };
@@ -1711,78 +1715,6 @@ export const parsePlanMetaFiles = async (
 };
 
 /**
- * The MoSCoW heading a member line sits under → the tier it carries. A heading
- * outside this map (Sprint Goal, Notes, prose) puts the cursor in no tier, so
- * checkbox lines there are not members.
- */
-const SPRINT_TIER_HEADINGS: ReadonlyArray<readonly [RegExp, SprintMember['tier']]> = [
-  [/^### Must Have\b/, 'must'],
-  [/^### Should Have\b/, 'should'],
-  [/^### Could Have\b/, 'could'],
-  [/^### Deferred\b/, 'deferred'],
-];
-
-/**
- * A sprint member line: `- [ ] …` or `- [x] …`, with or without a `[slug]`.
- *
- * **THE CHECKBOX MAKES THE MEMBER AND THE LINK IS OPTIONAL METADATA** — the
- * third of three readers of one file format, and the second bracket was
- * mandatory here too until 2026-09-25. A bare `- [ ] rename the deploy step`
- * was an item to `plot-sprint-release.sh` and not a member here, so the board
- * dropped the lightweight form `skills/plot-sprint/SKILL.md:240` documents.
- * The rest of the line is captured because a member with no slug has no other
- * name to render.
- */
-/**
- * A member line, and the twin of `itemsFrom`'s `MEMBER_LINE`.
- *
- * **A REFERENCE IS A PLAN SLUG, AND IT MAY BE STRUCK THROUGH.** The rule is
- * `plot-sprint-release.sh:249`'s, ported so the three readers give one answer;
- * `entry/sprint-transition.ts` states it at length and the two must change
- * together. A non-slug bracket — `[#966](…)` — is text, so such an item names
- * no plan, which is what the shell has always reported.
- */
-const SPRINT_MEMBER_LINE = /^- \[( |x)\] (?:(?:~~)?\[([a-z0-9][a-z0-9-]*)\]\s*)?(.*)$/;
-
-/**
- * Read a sprint file's members: the `- [ ] [slug]` / `- [x] [slug]` lines, the
- * MoSCoW tier each sits under, and whether it is ticked. A plan sliced across
- * slices lists its slug once per slice; the sprint contains it once, so members
- * are deduped by slug with the FIRST occurrence winning — the file is read
- * top-down and the sections run Must → Should → Could → Deferred, so a plan
- * keeps its strongest tier.
- *
- * Every member is emitted `known: true`; only `collectSprints`, which sees the
- * plan estate, can say otherwise.
- */
-function parseSprintMembers(content: string): SprintMember[] {
-  const members: SprintMember[] = [];
-  const seen = new Set<string>();
-  let tier: SprintMember['tier'] | null = null;
-  let index = 0;
-  for (const line of content.split('\n')) {
-    index += 1;
-    if (line.startsWith('### ') || line.startsWith('## ')) {
-      // A new heading resets the cursor: an unrecognised heading is no tier, so
-      // its checkboxes are not counted.
-      tier = SPRINT_TIER_HEADINGS.find(([re]) => re.test(line))?.[1] ?? null;
-      continue;
-    }
-    if (!tier) continue;
-    const m = line.match(SPRINT_MEMBER_LINE);
-    if (!m) continue;
-    const slug = (m[2] ?? '').trim();
-    // A BARE MEMBER IS NEVER DEDUPED AGAINST ANOTHER — `itemsFrom` says why at
-    // length, and the two readers must agree or this defect returns on one side.
-    const key = slug === '' ? `line:${index}` : slug;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    members.push({ slug, text: (m[3] ?? '').trim(), tier, checked: m[1] === 'x', known: true });
-  }
-  return members;
-}
-
-/**
  * What the parsers report for a state their schema does not admit.
  *
  * A READING, NOT AN ERROR — `plot-plan-meta.sh:338` is the contract: the plan
@@ -1796,28 +1728,7 @@ function parseSprintMembers(content: string): SprintMember[] {
  * unrepresentable in TypeScript — and one sprint wrote `Phase: Planned`, and a
  * person reading files found all four because nothing else asked.
  */
-export const UNADMITTED_STATE = 'UNKNOWN';
-
-/**
- * A sprint's stated phase, or `UNKNOWN` where the domain does not admit it.
- *
- * @param stated - the `- **State:**` value, trimmed, as the file spells it.
- * @returns the phase, or {@link UNADMITTED_STATE}.
- */
-const readSprintPhase = (stated: string): string =>
-  SprintStateSchema.safeParse(stated).success ? stated : UNADMITTED_STATE;
-
-/**
- * A story's stated status, or `UNKNOWN` where the domain does not admit it.
- *
- * @param stated - the frontmatter `status:` value, trimmed. `''` where the file
- *   names none, which is an ABSENCE rather than a wrong value and stays `''`.
- * @returns the status, or {@link UNADMITTED_STATE}.
- */
-const readStoryStatus = (stated: string): string => {
-  if (!stated) return '';
-  return StoryStatusSchema.safeParse(stated).success ? stated : UNADMITTED_STATE;
-};
+export const UNADMITTED_STATE = DOMAIN_UNADMITTED_STATE;
 
 /**
  * Sprint files are not plan files, so they are read here rather than via
@@ -1843,47 +1754,15 @@ export function parseSprintFile(absPath: string): SprintCard | null {
  * surely as a file does, and the only thing the parse needed a path for.
  */
 export function parseSprintContent(content: string, name: string): SprintCard | null {
-  const base = path.basename(name);
-  const titleMatch = content.match(/^# Sprint: (.+)$/m);
-  const title = titleMatch ? titleMatch[1].trim() : path.basename(base, '.md');
-  const slugMatch = base.match(/^\d{4}-W\d{2}-(.+)\.md$/);
-  const slug = slugMatch ? slugMatch[1] : path.basename(base, '.md');
-  const statusSection = content.match(/## Status\s*\n([\s\S]*?)(?=\n## |$)/);
-  const statusBody = statusSection ? statusSection[1] : '';
-  // `State:` is the field a sprint file carries; `Phase:` is what it was called
-  // before 2026-09-07, and both are read for good. A file may have been written
-  // a year ago or copied from another project.
-  const phaseMatch = statusBody.match(/^- \*\*(?:State|Phase):\*\* (.+)$/m);
-  const stated = phaseMatch ? phaseMatch[1].trim() : '';
-  // NO PHASE AT ALL IS NOT A SPRINT FILE, and that answer is unchanged: the
-  // walk reads every markdown file under `active/`, so `null` is how a README
-  // is skipped. A phase the domain does not admit is a different answer — the
-  // file IS a sprint and says something no schema spells.
-  if (!stated) return null;
-  const phase = readSprintPhase(stated);
-  // The sprint's target release, read from the same `## Status` block as the
-  // phase and the same `- **Field:** value` shape. "" where the file names none:
-  // the control renders nothing rather than a placeholder, so absence must reach
-  // it as an empty string rather than a guess.
-  const releaseMatch = statusBody.match(/^- \*\*Release:\*\* (.+)$/m);
-  const release = releaseMatch ? releaseMatch[1].trim() : '';
-  // Start and end dates from `## Status`.
-  const startMatch = statusBody.match(/^- \*\*Start:\*\* (.+)$/m);
-  const start = startMatch ? startMatch[1].trim() : '';
-  const endMatch = statusBody.match(/^- \*\*End:\*\* (.+)$/m);
-  const end = endMatch ? endMatch[1].trim() : '';
-  // Sprint goal — the domain reads a bold label opening a paragraph under
-  // `## Sprint Goal` first, then the `> ` line under the title, then that
-  // section's first prose paragraph, and never a `<…>` slot.
-  const goal = sprintGoal(content);
-  // The timebox is NOT decided here: this parse has no clock, and reading one
-  // would make the answer untestable. `collectSprints` stamps it against one
-  // day for every sprint it returns; a caller parsing a file directly gets the
-  // dates and the honest `none`.
+  // THE DOMAIN'S PARSE, `sprintRecordOf`, which fleetd's `sprints` reading
+  // calls too. The timebox is NOT decided here: this parse has no clock.
+  // `collectSprints` stamps it against one day for every sprint it returns.
+  const sprint = sprintRecordOf(content, name);
+  if (!sprint) return null;
   return {
-    slug, title, phase, release, goal, start, end,
+    ...sprint,
     timebox: 'none', timeboxLabel: '',
-    members: parseSprintMembers(content),
+    members: sprint.members.map((member) => ({ ...member, known: true })),
   };
 }
 
@@ -2023,32 +1902,6 @@ export const workingTreeSprints = (repoRoot: string, sprintDir: string): SprintC
 };
 
 /**
- * Extract a markdown section by heading. Returns the content between the heading
- * and the next heading of equal or higher level (## or #), or end of document.
- */
-function extractSection(content: string, heading: string): string {
-  // Match ## Heading (level 2) - escape special regex chars in heading
-  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  // Use multiline flag for ^ matching line start. The lookahead finds the next
-  // ## heading or end of string (using (?![\s\S]) which never matches anything).
-  const pattern = new RegExp(`^## ${escapedHeading}\\s*\\n([\\s\\S]*?)(?=\\n## |\\n# |$(?![\\s\\S]))`, 'm');
-  const match = content.match(pattern);
-  if (!match) return '';
-  return match[1].trim();
-}
-
-/**
- * Truncate text to approximately maxLen characters, breaking at word boundary
- * and adding ellipsis if truncated.
- */
-function truncateText(text: string, maxLen: number): string {
-  if (text.length <= maxLen) return text;
-  const truncated = text.slice(0, maxLen);
-  const lastSpace = truncated.lastIndexOf(' ');
-  return (lastSpace > 0 ? truncated.slice(0, lastSpace) : truncated) + '…';
-}
-
-/**
  * List DESIGN-*.md files in a story directory.
  */
 function listDesignDocs(storyDir: string): string[] {
@@ -2075,17 +1928,8 @@ function parseStoryFile(absPath: string, slug: string, relPath: string, storyDir
   return parseStoryContent(content, slug, relPath, storyDir);
 }
 
-/**
- * Strips one matching pair of surrounding quotes from a string. A quote inside
- * the value, and an unmatched edge quote, stay.
- */
-export const unquoteScalar = (value: string): string => {
-  if (value.length >= 2) {
-    const q = value[0];
-    if ((q === '"' || q === "'") && value[value.length - 1] === q) return value.slice(1, -1);
-  }
-  return value;
-};
+/** Strips one matching pair of surrounding quotes from a string: the domain's `unquoteScalar`. */
+export const unquoteScalar = domainUnquoteScalar;
 
 /**
  * The same parse, from content a caller already holds.
@@ -2114,73 +1958,10 @@ export function parseStoryContent(
   relPath: string,
   storyDir: string,
 ): StoryCardInput | null {
-
-  // Parse YAML frontmatter
-  let title = '';
-  let status = '';
-  let author = '';
-  let created = '';
-  let updated = '';
-  let issue = '';
-
-  const fm = content.match(/^---\n([\s\S]*?)\n---/);
-  if (fm) {
-    const frontmatter = fm[1];
-    const titleMatch = frontmatter.match(/^title:\s*(.+)$/m);
-    if (titleMatch) title = unquoteScalar(titleMatch[1].trim());
-    const statusMatch = frontmatter.match(/^status:\s*(.+)$/m);
-    // The DECLARED status, refused where the domain does not admit it. A story
-    // with no `status:` line keeps `''` — an absence the drift check already
-    // reads as "nothing declared", which is not the same as a wrong word.
-    if (statusMatch) status = readStoryStatus(statusMatch[1].trim());
-    const authorMatch = frontmatter.match(/^author:\s*(.+)$/m);
-    if (authorMatch) author = authorMatch[1].trim();
-    const createdMatch = frontmatter.match(/^created:\s*(.+)$/m);
-    if (createdMatch) created = unquoteScalar(createdMatch[1].trim());
-    const updatedMatch = frontmatter.match(/^updated:\s*(.+)$/m);
-    if (updatedMatch) updated = unquoteScalar(updatedMatch[1].trim());
-    // `issue:` names the story's ticket; `jira:` is its legacy spelling. The
-    // value stays on its own line, and a ` # comment` after it is dropped; a
-    // value that starts with `#` (`#3170`) is the value, not a comment.
-    const fieldValue = (key: string): string => {
-      const match = frontmatter.match(new RegExp(`^${key}:[ \\t]*(.*)$`, 'm'));
-      return match ? unquoteScalar(match[1].replace(/\s+#.*$/, '').trim()) : '';
-    };
-    issue = storyIssueValue(fieldValue('issue'), fieldValue('jira'));
-  }
-
-  // Fall back to H1 heading for title
-  if (!title) {
-    const h1 = content.match(/^# (.+)$/m);
-    title = h1 ? h1[1].trim() : slug;
-  }
-
-  // Extract content sections
-  const objectiveFull = extractSection(content, 'Objective');
-  const objective = truncateText(unquoteScalar(objectiveFull), 200);
-  const design = extractSection(content, 'Design');
-  const hasOpenPoints = /^## Open Points\s*$/m.test(content);
-  const hasSessionLog = /^## Session Log\s*$/m.test(content);
-
-  // List DESIGN-*.md files in the story directory
-  const designDocs = listDesignDocs(storyDir);
-
-  return {
-    slug,
-    title,
-    status,
-    declaredStatus: status,
-    issue,
-    author,
-    created,
-    updated,
-    objective,
-    design,
-    path: relPath,
-    designDocs,
-    hasOpenPoints,
-    hasSessionLog,
-  };
+  // THE DOMAIN'S PARSE, `storyRecordOf`, which fleetd's `stories` reading
+  // calls too. Design docs are listed from disk here.
+  const story = storyRecordOf(content, slug, relPath, listDesignDocs(storyDir), STORY_LEGACY_ISSUE_KEY);
+  return { ...story, designDocs: [...story.designDocs] };
 }
 
 /**

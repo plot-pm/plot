@@ -10,7 +10,7 @@ import { FindingNameSchema, type Finding, type FindingName } from './finding.js'
  * against the fixtures recorded under `test/fixtures/snapshot-protocol/` and
  * fails when the shape moved and this number did not.
  */
-export const SNAPSHOT_PROTOCOL = 2;
+export const SNAPSHOT_PROTOCOL = 3;
 
 /**
  * Why a subscriber connected.
