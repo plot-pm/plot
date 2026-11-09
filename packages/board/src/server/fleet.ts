@@ -152,7 +152,7 @@ import {
   NO_SUPERVISION_REPORT,
   type SupervisionReportReadings,
 } from './supervision-report-reading.js';
-import { readAgentRegistryWithInfo, bashCleanliness, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type ReadRegistryOptions } from '@plot-pm/fleet/shared/registry';
+import { readAgentRegistryWithInfo, deskCleanliness, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type ReadRegistryOptions } from '@plot-pm/fleet/shared/registry';
 import { readVerifyStatus, type VerifyStatus } from '@plot-pm/fleet/shared/auto-verify';
 import { readDesignStatus, type DesignStatus } from '@plot-pm/fleet/shared/auto-design';
 import type { RegistryInfo } from '@plot-pm/fleet/shared/registry';
@@ -3199,7 +3199,7 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // the snapshot finds the answer already held and runs no `plot-config.sh`.
     const registryResult = await readAgentRegistryWithInfo(opts.repoRoot, undefined, {
       scriptsDir: opts.scriptsDir,
-      cleanliness: bashCleanliness,
+      cleanliness: deskCleanliness,
       manifestDir: await manifestDirFor(opts),
     });
     entry.agents = registryResult.entries;

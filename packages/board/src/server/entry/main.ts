@@ -18,6 +18,7 @@ import { finishContextFor, mergePortsFor } from './merge-ports.js';
 import { finishRelease } from './release-finish.js';
 import { recordActionReceipt } from '../action-receipt.js';
 import { planGateAnswer, planGateAskFrom } from './plangate.js';
+import { deskLiveness, resolveManifestDirAsync } from '@plot-pm/fleet/shared/registry';
 
 /**
  * The `node` entry point a skill runs.
@@ -31,6 +32,7 @@ import { planGateAnswer, planGateAskFrom } from './plangate.js';
  * node skills/plot/scripts/board/plot-ask.mjs release-approve <pr> <sha>
  * node skills/plot/scripts/board/plot-ask.mjs repair-pr <pr>
  * node skills/plot/scripts/board/plot-ask.mjs spawner [pid] [--lines]
+ * node skills/plot/scripts/board/plot-ask.mjs desk-states <desk>...
  * <GET /api/board body> | node skills/plot/scripts/board/plot-ask.mjs spawner --from-board [--lines]
  * <plan-meta JSON> | node skills/plot/scripts/board/plot-ask.mjs plangate --slug <slug> --default-branch <main> [--source <text>] [--ref-resolved] [--allow-local]
  * ```
@@ -309,6 +311,21 @@ export const run = async (
     return 0;
   }
 
+  if (argv[0] === 'desk-states') {
+    // The board's state of each desk, for `plot-fleetctl.sh --status` to print
+    // beside the shell's own: one line `<desk>\t<state>` per argument, in
+    // order, `unknown` for every desk where the batch could not be read.
+    const desks = argv.slice(1);
+    const { opts } = contextFrom(here);
+    const manifestDir = await resolveManifestDirAsync(opts.repoRoot, { scriptsDir: opts.scriptsDir });
+    const log = (line: string): void => {
+      process.stderr.write(`${line}\n`);
+    };
+    const states = await deskLiveness(opts.repoRoot, opts.scriptsDir, manifestDir, log)(desks);
+    for (const [i, desk] of desks.entries()) write(`${desk}\t${states.length === desks.length ? states[i] : 'unknown'}\n`);
+    return 0;
+  }
+
   if (argv[0] === 'plangate') {
     // The dispatch phase and `Impl:` gate, read from the plan-meta record on
     // stdin. Exit 0 lets the fan-out go on; 1 prints the rule's detail and the
@@ -328,7 +345,7 @@ export const run = async (
   const question = questionFrom(argv);
   if (!question) {
     process.stderr.write(
-      'usage: plot-ask.mjs <board|fleet> | deliverable <slug> <plan-file> | release-claim <branch> | merge <pr> <sha> | spawner [pid] [--lines] | spawner --from-board [--lines] | plangate --slug <slug> --default-branch <main>\n',
+      'usage: plot-ask.mjs <board|fleet> | deliverable <slug> <plan-file> | release-claim <branch> | merge <pr> <sha> | spawner [pid] [--lines] | spawner --from-board [--lines] | desk-states <desk>... | plangate --slug <slug> --default-branch <main>\n',
     );
     return 2;
   }
