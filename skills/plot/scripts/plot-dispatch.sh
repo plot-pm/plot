@@ -1233,7 +1233,7 @@ start_worker() {
   fi
   # THE WRAPPER IS `board/plot-worker-wrapper.mjs`, one process per launch. It
   # writes its own pid to `.plot-worker.wrapper.pid`, starts the AgentMonitor as
-  # its child, starts the agent as `sh -c "$cmd"`, ignores `SIGTERM` itself,
+  # its child, starts the agent as `bash -c "$cmd"`, ignores `SIGTERM` itself,
   # writes the agent's pid and `ps -o lstart=` text, and stamps the manifest
   # through `writeManifestStamp`. Once the agent ends it appends one
   # WorkerMonitor line (`gone` for a non-zero exit, `clear` for 0) to the
