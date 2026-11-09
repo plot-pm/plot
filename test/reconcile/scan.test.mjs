@@ -446,9 +446,21 @@ function makeGhStub(dir, mergedLines, { openLines = '' } = {}) {
       return { number: Number(number), title: head.join(' '), state, headRefName: head.join(' ') };
     }));
   const emit = (lines, state) => `printf '%s' ${JSON.stringify(asJson(lines, state))}`;
+  const asRest = (lines, state) => JSON.stringify(
+    lines.split('\n').filter(Boolean).map((l) => {
+      const [number, ...head] = l.split(' ');
+      return {
+        number: Number(number), title: head.join(' '), state: state === 'OPEN' ? 'open' : 'closed', draft: false, html_url: '',
+        updated_at: '2026-01-01T00:00:00Z', merged_at: state === 'MERGED' ? '2026-01-01T00:00:00Z' : null,
+        user: { login: '' }, head: { ref: head.join(' '), sha: null }, base: { ref: 'main' },
+      };
+    }));
+  const emitRest = (lines, state) => `printf 'HTTP/2 200\\r\\n\\n%s' ${JSON.stringify(asRest(lines, state))}`;
   fs.writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}
 case "$*" in
+  *"api repos/"*"/pulls?state=closed"*) ${emitRest(mergedLines, 'MERGED')} ;;
+  *"api repos/"*"/pulls?state=open"*) ${emitRest(openLines, 'OPEN')} ;;
   *"--state merged"*) ${emit(mergedLines, 'MERGED')} ;;
   *"--state open"*)   ${emit(openLines, 'OPEN')} ;;
 esac
@@ -632,11 +644,11 @@ test('scan: merged-PR fetch is one bundled call, repo-pinned, with a raised limi
   // plan count. The limit must exceed gh's default page of 30, or old plans —
   // this check's own failure mode — go silently unseen.
   const { argv } = runSinglePrScan('40 idea/solo');
-  const mergedCalls = argv.split('\n').filter((l) => l.includes('--state merged'));
+  const mergedCalls = argv.split('\n').filter((l) => l.includes('pulls?state=closed'));
   assert.equal(mergedCalls.length, 1, `expected 1 merged-PR call, got ${mergedCalls.length}`);
-  assert.match(mergedCalls[0], /-R plot-pm\/fixture/);
-  const limit = Number(mergedCalls[0].match(/--limit (\d+)/)?.[1]);
-  assert.ok(limit > 30, `limit ${limit} must exceed gh's default page size of 30`);
+  assert.match(mergedCalls[0], /repos\/plot-pm\/fixture\//);
+  const perPage = Number(mergedCalls[0].match(/per_page=(\d+)/)?.[1]);
+  assert.ok(perPage > 30, `page size ${perPage} must exceed gh's default page size of 30`);
 });
 
 test('scan: --offline makes no host call and says the check was skipped', () => {
@@ -895,16 +907,16 @@ test('scan: open-PR heads are fetched with their numbers, in one bundled call', 
     env: { ...process.env, PATH: `${cipBin}:${process.env.PATH}` },
   });
   const openCalls = fs.readFileSync(argvLog, 'utf8').split('\n')
-    .filter((l) => l.includes('--state open'));
+    .filter((l) => l.includes('pulls?state=open'));
   assert.equal(openCalls.length, 1, `expected 1 open-PR call, got ${openCalls.length}`);
   // BOTH FIELDS ON THE ONE CALL — the property, not the field string. The
   // assertion named `--json number,headRefName` exactly until 2026-09-05, which
   // pinned the scan's private query rather than what it needs: `plot-host.sh`
   // asks for `number,title,state,headRefName` in the same single call, and the
   // old regex failed on a routing change that cost no extra round trip.
-  assert.match(openCalls[0], /--json [^ ]*\bnumber\b/);
-  assert.match(openCalls[0], /--json [^ ]*\bheadRefName\b/);
-  assert.match(openCalls[0], /-R plot-pm\/fixture/);
+  // A REST `pulls` row carries `number` and `head.ref` whole, so the single call
+  // is the property; the repo rides in the endpoint.
+  assert.match(openCalls[0], /repos\/plot-pm\/fixture\/pulls\?state=open/);
 });
 
 test('scan: containment is skipped, not guessed, when PR state is unavailable', () => {
@@ -1382,7 +1394,8 @@ function makeEmptyGhStub(dir) {
   const argvLog = path.join(dir, 'gh.argv');
   fs.writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}
-# Return empty output — zero open PRs, but exit 0 (success).
+# Zero open PRs, exit 0: REST answers an empty page, anything else answers nothing.
+case "$1" in api) printf 'HTTP/2 200\\r\\n\\n[]' ;; esac
 exit 0
 `);
   fs.chmodSync(path.join(dir, 'gh'), 0o755);
@@ -4610,13 +4623,13 @@ if (argv.includes('pr view')) {
     number: Number(n), state: 'MERGED', isDraft: false, url: 'u',
     mergeCommit: { oid: ${JSON.stringify(planSha)} }, baseRefName: ${JSON.stringify(planBase)},
   }));
-} else if (argv.includes('pr list') && argv.includes('--head')) {
+} else if (/^api repos\\/[^ ]*\\/pulls\\?[^ ]*head=/.test(argv)) {
   if (${JSON.stringify(failList)}) { process.stderr.write('HTTP 500: server error'); process.exit(1); }
-  const branch = argv.match(/--head (\\S+)/)[1];
+  const branch = decodeURIComponent(argv.match(/head=[^:&]*:([^& ]*)/)[1]);
   const rows = [].concat(hops[branch] ?? []);
-  process.stdout.write(JSON.stringify(rows.map((hop) => ({
-    number: hop.number, mergedAt: hop.at ?? '2026-03-01T00:00:00Z',
-    mergeCommit: { oid: hop.sha }, baseRefName: hop.base,
+  process.stdout.write('HTTP/2 200\\r\\n\\n' + JSON.stringify(rows.map((hop) => ({
+    number: hop.number, state: 'closed', merged_at: hop.at ?? '2026-03-01T00:00:00Z',
+    merge_commit_sha: hop.sha, base: { ref: hop.base }, head: { ref: branch, sha: null },
   }))));
 } else {
   process.stdout.write('[]');
@@ -4682,7 +4695,7 @@ test('scan: a PR merged into a living develop resolves directly, never through a
       `a merge commit in the clone resolves directly:\n${sections['6']}`);
     assert.doesNotMatch(sections['6'], /v1\.0\.0|via develop/,
       `the direct path must not read an older develop PR:\n${sections['6']}`);
-    assert.doesNotMatch(argv, /pr list .*--head develop/,
+    assert.doesNotMatch(argv, /pulls\?[^ ]*head=[^:&]*:develop/,
       `the direct path must not walk:\n${argv}`);
   } finally {
     git(s6Repo, 'tag', '-d', 'v1.0.0');
@@ -4723,7 +4736,7 @@ test('scan: a chain deeper than the bound ends too-deep, never a loop', () => {
   assert.match(sections['6'],
     /2026-03-01-one\.md — delivered, PR #101 merged into 'chain-0' → cannot resolve \(too-deep at 'chain-5'\)/,
     `an over-depth chain must end in a named finding, not a hang:\n${sections['6']}`);
-  const plan101Hops = argv.split('\n').filter((l) => /--head chain-/.test(l));
+  const plan101Hops = argv.split('\n').filter((l) => /pulls\?[^ ]*head=[^:&]*:chain-/.test(l));
   assert.equal(plan101Hops.length, 15, `five host calls per plan, three plans:\n${argv}`);
 });
 
