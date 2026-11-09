@@ -23,6 +23,7 @@ import {
 import type { PrIndexRow } from '../src/entities/pr-index.js';
 import { READING_KEYS, RepoSnapshotSchema, type ReadingKey } from '../src/entities/snapshot.js';
 import { claimOnly } from '../src/rules/empty-claim.js';
+import { HOST_BRANCH_URL_SCHEMES } from '../src/adapters/host/host-branch-urls.js';
 import { fleetViewFrom, type BoardView } from '../src/workflows/board-view.js';
 import { compareField, describingAs, type Disagreement } from './compare.js';
 
@@ -238,7 +239,7 @@ describe.each(FIXTURES)('fleetViewFrom against the board on the census fixture h
       questions: await workerQuestions(result.reading, box.repo),
     };
     const carried = RepoSnapshotSchema.parse(JSON.parse(JSON.stringify(holder.current())));
-    const view = fleetViewFrom(carried, Date.now());
+    const view = fleetViewFrom(carried, Date.now(), HOST_BRANCH_URL_SCHEMES);
 
     // The fixture reaches every field: a field empty on both sides proves nothing.
     expect(board.versions.size, 'the release branch').toBe(1);

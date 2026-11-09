@@ -85,14 +85,14 @@ export const DeskFilesValueSchema = z.record(
 );
 export type DeskFiles = z.infer<typeof DeskFilesValueSchema>;
 
-/** One desk's worker record and liveness, as the `Processes` port's `workerState` answers. */
-export const WorkerReadingSchema = z.object({
+/** One desk's process record and liveness, as the `Processes` port's `workerState` answers. */
+export const DeskProcessReadingSchema = z.object({
   state: WorkerStateSchema,
   pid: z.string(),
   exitCode: z.string(),
   activity: WorkerActivitySchema,
 });
-export type WorkerReading = z.infer<typeof WorkerReadingSchema>;
+export type DeskProcessReading = z.infer<typeof DeskProcessReadingSchema>;
 
 const PlanBranchSchema = z.object({
   branch: z.string(),
@@ -189,7 +189,7 @@ export const RepoSnapshotSchema = z.object({
     refs: readingSchema(RefsValueSchema),
     desks: readingSchema(z.array(DeskEntrySchema).readonly()),
     deskFiles: readingSchema(DeskFilesValueSchema),
-    workers: readingSchema(z.record(z.string(), WorkerReadingSchema)),
+    workers: readingSchema(z.record(z.string(), DeskProcessReadingSchema)),
     plans: readingSchema(PlansValueSchema),
     registry: readingSchema(z.array(RegistryEntrySchema).readonly()),
     prs: readingSchema(z.array(PrIndexRowSchema).readonly()),

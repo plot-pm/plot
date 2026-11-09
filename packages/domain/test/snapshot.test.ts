@@ -15,7 +15,7 @@ import {
   type PlanEntry,
   type RefEntry,
   type RegistryEntry,
-  type WorkerReading,
+  type DeskProcessReading,
 } from '../src/entities/snapshot.js';
 import { snapshotOf } from '../src/workflows/plan-walk-cache.js';
 import { fullSnapshot } from './fixtures/snapshot.js';
@@ -132,7 +132,7 @@ describe('reading values match the port answers they record', () => {
       both((r: RefState): RefEntry => r, (e: RefEntry): RefState => e),
       both((w: Worktree): DeskEntry => w, (d: DeskEntry): Worktree => d),
       both((d: AgentDesk): DeskFiles[string] => d, (d: DeskFiles[string]): AgentDesk => d),
-      both((p: ProcessReading): WorkerReading => p, (w: WorkerReading): ProcessReading => w),
+      both((p: ProcessReading): DeskProcessReading => p, (w: DeskProcessReading): ProcessReading => w),
       both((p: PlanRecord): PlanEntry => p, (f: PlanEntry): PlanRecord => f),
       both((m: AgentManifest): RegistryEntry => m, (e: RegistryEntry): AgentManifest => e),
     ];
