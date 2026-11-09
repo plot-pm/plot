@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-09, Jan Wloka, plan-PR #3294 merged
+- **Started:** 2026-11-09, Jan Wloka, `bug/restart-a-slice-whose-dead-agent-left-a-draft-pr`
 
 ## Changelog
 
