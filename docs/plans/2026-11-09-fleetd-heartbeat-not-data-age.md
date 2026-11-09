@@ -95,6 +95,10 @@ This plan depends on `the-snapshot-entity`: the heartbeat names the snapshot's `
 
 ## Notes
 
+- **Decided 2026-11-09, jwloka — three follow-ups from the Readers reviews (#3286).**
+  - **Phase 8:** fleetd writes a bridge after every successful scan today, so a scan passes only when its bridge write lands (`trackBridgeWrites`). Once Phase 8 (`triggers-replace-the-tick`) stops writing an unchanged bridge, a scan pass must mean "the scan ran and succeeded", not "a bridge was written"; otherwise an idle repository reads its scan loop as late after 180 s and loses scan ownership and the bridge vouch.
+  - **Scan ownership:** a late `tick` or `issue-reader` loop must not hand the scan to the board. `fleetOwnsScan` follows the scan loop only; the PR reader follows the `pr-reader` loop. Branch `feature/fleetd-heartbeat-not-data-age-followups`.
+  - **The bridge:** `.plot/state/last-pulse.json` resolves to the main checkout, as the heartbeat does since #3286, so a board in a linked worktree reads the bridge fleetd writes. Same branch.
 - Phase 3 of the story [`nothing-changed-nothing-runs`](../stories/nothing-changed-nothing-runs/STORY-nothing-changed-nothing-runs.md); depends on `the-snapshot-entity`.
 - Line numbers checked against `origin/sprint/nothing-runs` at `8437242ef` on 2026-11-08. The story cites `fleet.ts:2873` for the per-tick `plot-fleetctl.sh --status`; `refresh` starts at `:2863` and `readSupervisor` is called at `:2931`. It cites `channel-socket.ts:33` for the channel heartbeat; `HEARTBEAT_MS = 10_000` is at `:34`. The 180 s, 2 min and 15 min bounds are at the lines the story names.
 - Since `no-tab-no-pulse` (#3251, #3260) the board runs `refresh` only while an event stream is attached, or once per plain request through `coldReadDue`. The story's "on every tick" therefore holds only while a tab is visible.
