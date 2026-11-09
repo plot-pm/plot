@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** ship-2-32-0
 - **Issue:** #3314
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-09, Jan Wloka, plan-PR #3315 merged
 - **Started:** 2026-11-09, Jan Wloka, `bug/the-state-branch-ahead-count-grows`
+- **Delivered:** 2026-11-09
 
 ## Changelog
 
