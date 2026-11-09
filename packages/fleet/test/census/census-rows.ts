@@ -4,13 +4,14 @@ import type { ExecRecord } from './strace-execs.js';
 /** Who turns a zero row into a required pass: a plan, and its slice where the plan names one. */
 export type GreenBy = { plan: string; slice?: string; phase?: string };
 
-/** One row of the plan's scenario table (S1..S6) or per-source table (P1..P4). */
+/** One row of the plan's scenario table (S1..S6), per-source table (P1..P4), or a launch row (D1). */
 export type CensusRow =
   | { id: string; claim: string; unit: string; target: 'zero'; greenBy: GreenBy; green?: true }
   | { id: string; claim: string; unit: string; target: 'measured'; tolerance: CensusTolerance };
 
 /**
- * The rows of `docs/plans/2026-11-08-process-census-gate.md`, in its order.
+ * The rows of `docs/plans/2026-11-08-process-census-gate.md`, in its order,
+ * then D1 from `docs/plans/2026-11-09-node-worker-wrapper.md`.
  * A zero row is written as `it.fails` until the plan and slice it names turn
  * it green; that slice sets `green: true` and changes the row to `it`.
  */
@@ -92,6 +93,13 @@ export const CENSUS_ROWS = {
     target: 'zero',
     greenBy: { plan: 'fixed-answers-once', slice: 'Answers in scripts' },
     green: true,
+  },
+  D1: {
+    id: 'D1',
+    claim: 'one dispatch',
+    unit: 'execve per launch',
+    target: 'measured',
+    tolerance: 'strict',
   },
 } as const satisfies Record<string, CensusRow>;
 

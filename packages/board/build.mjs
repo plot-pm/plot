@@ -23,6 +23,7 @@ import {
   restartStoppedCommandArtifact,
   deskLoopArtifact,
   prReaderArtifact,
+  workerWrapperArtifact,
 } from '../fleet/build.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -395,6 +396,14 @@ const shippedPrReader = path.join(here, '../../skills/plot/scripts/board/plot-pr
 
 fs.copyFileSync(prReaderArtifact, shippedPrReader);
 fs.chmodSync(shippedPrReader, 0o755);
+
+// The wrapper one agent launch runs under. It writes the desk's pid, exit and
+// WorkerMonitor records, and is started detached, so it is vendored beside the
+// scripts that launch agents rather than reached through plot-ask.mjs.
+const shippedWorkerWrapper = path.join(here, '../../skills/plot/scripts/board/plot-worker-wrapper.mjs');
+
+fs.copyFileSync(workerWrapperArtifact, shippedWorkerWrapper);
+fs.chmodSync(shippedWorkerWrapper, 0o755);
 
 // The task state, reachable from the classifier that answers it.
 //

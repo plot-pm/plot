@@ -98,6 +98,11 @@ describe('the desk-probe inventory: fleetd on github, 3 desks, 5 open PRs', () =
     expect(fromAdapter.map(keyOf)).toEqual([]);
   });
 
+  it('starts no sourcing of plot-worker-state.sh from the trees adapter', () => {
+    const fromAdapter = idle.filter((call) => isWorkerStateSource(call) && call.caller.includes('adapters/trees/'));
+    expect(fromAdapter.map(keyOf)).toEqual([]);
+  });
+
   it('reads the process table at most once per pass from the processes adapter', () => {
     const tables = idle.filter((call) => isPs(call) && call.caller.includes('adapters/processes/'));
     expect(tables.length / IDLE_PASSES).toBeLessThanOrEqual(1);

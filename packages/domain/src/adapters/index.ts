@@ -183,6 +183,10 @@ export { passkeyFile, passkeyPath } from './passkey/passkey-file.js';
 // written by `plot-fleetctl.sh --stop` and cleared by `--start`.
 export { fleetStoppedFile, fleetStoppedPath } from './fleet-stopped/fleet-stopped-file.js';
 
+// THE WORKER WRAPPER'S RECORDS. The desk files `plot-worker-wrapper.mjs`
+// writes about the agent it starts, and the agent start itself.
+export { agentStartShell, workerRecordsFile } from './worker-records/worker-records-file.js';
+
 // THE FLEET BRIDGE'S FILE ADAPTER. One file per repository under
 // `.plot/state/last-pulse.json`, written by `plot-fleetd` on the scan's
 // success path and read by the board — the same shape `pulse-bridge.ts`

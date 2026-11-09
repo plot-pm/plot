@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 
 import type { Mergeability } from '../../entities/pr.js';
@@ -6,6 +6,7 @@ import type { Worktree } from '../../entities/worktree.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { Trees } from '../../ports/trees.js';
 import type { TreePresence } from '../../rules/reapable.js';
+import { bundlePathsOf, deskDirtFilter } from '../../rules/desk-dirt-filter.js';
 import { realCommits, type CommitReading as ClaimCommit } from '../../rules/empty-claim.js';
 import type { CommitReading } from '../../rules/sample.js';
 import { processAnswers, type FixedAnswers } from '../git-dirs/git-dirs.js';
@@ -27,6 +28,30 @@ const ENDING_FILE_NAME = '.plot-worker.ending.json';
 
 /** The build gate's own account, removed with the declaration — matches `reset_desk` step 0. */
 const CORRECTION_FILE_NAME = 'PLOT-CORRECTION.md';
+
+/** Whether a path names a directory; false where it cannot be read. */
+const isDirectory = (path: string): boolean => {
+  try {
+    return path !== '' && statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * The generated bundle paths a desk's own `packages/board/build.mjs` declares,
+ * as `plot-desk-dirt.sh`'s `bundle_paths` reads them.
+ *
+ * @param desk - the desk's absolute path.
+ * @returns the declared paths; none where the build file cannot be read.
+ */
+const deskBundlePaths = (desk: string): string[] => {
+  try {
+    return bundlePathsOf(readFileSync(join(desk, 'packages', 'board', 'build.mjs'), 'utf8'));
+  } catch {
+    return [];
+  }
+};
 
 /** Runs one git command in a checkout. */
 type GitIn = (args: readonly string[]) => Promise<ScriptRun>;
@@ -240,7 +265,6 @@ export const treesGit = (
     const read = files.worktrees();
     return !read.ok && read.why === 'unaskable' ? undefined : read;
   };
-  const workerState = scriptPath(context, 'plot-worker-state.sh');
   const deskDirt = scriptPath(context, 'plot-desk-dirt.sh');
 
   /** The git directory every worktree of a repository shares, absolute; null where git cannot say. */
@@ -318,13 +342,15 @@ export const treesGit = (
     userEmail: (path) =>
       runScript('git', ['-C', path, 'config', '--get', 'user.email'], asText, inRepo),
 
-    markers: (path, prefix) =>
-      runScript(
-        'bash',
-        ['-c', 'ls -1 "$1" 2>/dev/null | grep "^$2" || true', 'bash', path, prefix],
-        asLines,
-        inRepo,
-      ),
+    // `ls -1` hides dot entries, and an unreadable directory lists nothing.
+    markers: async (path, prefix) => {
+      try {
+        const names = readdirSync(path).filter((name) => !name.startsWith('.') && name.startsWith(prefix));
+        return answered<readonly string[]>(names.sort());
+      } catch {
+        return answered<readonly string[]>([]);
+      }
+    },
 
     changedUnder: (path, pathspecs) =>
       runScript(
@@ -334,23 +360,22 @@ export const treesGit = (
         (stdout) => stdout.split('\n').filter((line) => line.length > 3).map((line) => line.slice(3).split(' -> ').at(-1) ?? ''),
         inRepo,
       ),
-    // `plot_worker_dirty` is SOURCED and called, never reimplemented here. The
-    // three exclusion patterns it applies are stated once in
-    // `plot-worker-state.sh`, where `plot-fleet-scan.sh` and the loop's own
-    // watcher already read them; a second copy in TypeScript is a second thing
-    // to keep in step, and the drift would show up as a watcher that reads its
-    // own findings file as the agent working.
-    dirtyPaths: (path) =>
-      runScript(
-        'bash',
-        ['-c', '. "$1" && plot_worker_dirty "$2"', 'bash', workerState, path],
-        asLines,
-        inRepo,
-      ),
-    // `desk_dirt` is SOURCED and called, never reimplemented here, for the
-    // reason `dirtyPaths` above gives: its bundle and named-file exclusions
-    // are stated once in `plot-desk-dirt.sh`. Not `asLines`, which trims the
-    // status column this reading exists to keep.
+    // `plot_worker_dirty` in TypeScript: one `git status` and `deskDirtFilter`,
+    // with the bundle paths from the desk's own `packages/board/build.mjs`.
+    // A path that is not a directory, or a status git cannot read, lists nothing.
+    dirtyPaths: async (path) => {
+      if (!isDirectory(path)) return answered<readonly string[]>([]);
+      const status = await runProcess('git', ['--no-optional-locks', '-C', path, 'status', '--porcelain'], {
+        ...inRepo,
+        maxBuffer: STATUS_MAX_BUFFER,
+      });
+      return answered<readonly string[]>(
+        deskDirtFilter(status.code === 0 ? status.stdout : '', deskBundlePaths(path)),
+      );
+    },
+    // `desk_dirt` is SOURCED and called, never reimplemented here: its bundle
+    // and named-file exclusions are stated once in `plot-desk-dirt.sh`. Not
+    // `asLines`, which trims the status column this reading exists to keep.
     dirtyPathsWithStatus: (path) =>
       runScript(
         'bash',
@@ -358,9 +383,9 @@ export const treesGit = (
         (stdout) => stdout.split('\n').filter((line) => line.length > 0),
         inRepo,
       ),
-    // THE SHELL'S `plot_worker_tree_quiet_seconds`, with the dirty filter
-    // SOURCED rather than copied, as `dirtyPaths` does. `-uall` is for this
-    // reading only: a directory's mtime does not move when a file inside it is
+    // THE SHELL'S `plot_worker_tree_quiet_seconds`, with `deskDirtFilter` and
+    // no bundle exclusion, as the shell calls the filter with no worktree.
+    // `-uall` is for this reading only: a directory's mtime does not move when a file inside it is
     // written, so a collapsed `?? dir/` would read an agent mid-edit as quiet.
     // The desk root's own mtime is never read — the loop rewrites its records
     // there — so a parent counts only below the root.
@@ -389,19 +414,12 @@ export const treesGit = (
       if (path === '' || !directory) return answered<number | null>(null);
       const head = await runProcess('git', ['-C', path, 'log', '-1', '--format=%ct'], inRepo);
       const headTime = /^\d+$/.test(head.stdout.trim()) ? Number(head.stdout.trim()) : null;
-      const filtered = await runProcess(
-        'bash',
-        [
-          '-c',
-          '. "$1" && plot_worker_dirty_filter "$(git -C "$2" status --porcelain -uall 2>/dev/null)"',
-          'bash',
-          workerState,
-          path,
-        ],
-        inRepo,
-      );
+      const status = await runProcess('git', ['--no-optional-locks', '-C', path, 'status', '--porcelain', '-uall'], {
+        ...inRepo,
+        maxBuffer: STATUS_MAX_BUFFER,
+      });
       let newest = headTime;
-      for (const raw of filtered.code === 0 ? filtered.stdout.split('\n') : []) {
+      for (const raw of deskDirtFilter(status.code === 0 ? status.stdout : '', [])) {
         let line = raw;
         const arrow = line.indexOf(' -> ');
         if (arrow >= 0) line = line.slice(arrow + 4);
