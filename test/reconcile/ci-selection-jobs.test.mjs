@@ -194,31 +194,43 @@ test('a census or fleet change selects the process census, and a board change do
 for (const [job, output] of [
   ['corpus', 'corpus'],
   ['macos-shell-contract', 'macos'],
-  ['process-census', 'census'],
+  ['census-head', 'census'],
+  ['census-base', 'census'],
   ['helper-contracts', 'contracts'],
   ['board-integration', 'board'],
 ]) {
-  test(`${job} needs select and runs unless select named it false`, () => {
+  test(`${job} needs select and gates and runs unless select named it false`, () => {
     const head = jobBlock(job).split('\n    steps:')[0];
-    assert.match(head, /^ {4}needs: select$/m);
+    const census = job.startsWith('census-');
+    const needs = census ? '[select, gates, checks]' : '[select, gates]';
+    assert.ok(head.includes(`\n    needs: ${needs}\n`), `${job} must say needs: ${needs}`);
+    const after = census ? " && needs.checks.result == 'success'" : '';
     assert.ok(
-      head.includes(`    if: \${{ !cancelled() && needs.select.outputs.${output} != 'false' }}`),
-      `${job} must run unless needs.select.outputs.${output} is 'false'`,
+      head.includes(
+        `    if: \${{ !cancelled() && needs.gates.result == 'success'${after} && needs.select.outputs.${output} != 'false' }}`,
+      ),
+      `${job} must run when gates ended success, unless needs.select.outputs.${output} is 'false'`,
     );
   });
 }
 
-test('checks starts beside the split jobs and runs unless cancelled', () => {
+test('checks starts beside the split jobs, after gates, and runs unless cancelled', () => {
   const head = jobBlock('checks').split('\n    steps:')[0];
+  assert.match(head, /^ {4}needs: \[select, gates\]$/m);
+  assert.match(head, /^ {4}if: \$\{\{ !cancelled\(\) && needs\.gates\.result == 'success' \}\}$/m);
+});
+
+test('gates needs select and runs unless cancelled', () => {
+  const head = jobBlock('gates').split('\n    steps:')[0];
   assert.match(head, /^ {4}needs: select$/m);
   assert.match(head, /^ {4}if: \$\{\{ !cancelled\(\) \}\}$/m);
 });
 
 // ── validate: the one required check ────────────────────────────────────────
 
-test('validate needs select, checks and both split jobs, and runs unless cancelled', () => {
+test('validate needs select, gates, checks and both split jobs, and runs unless cancelled', () => {
   const head = jobBlock('validate').split('\n    steps:')[0];
-  assert.match(head, /^ {4}needs: \[select, checks, helper-contracts, board-integration\]$/m);
+  assert.match(head, /^ {4}needs: \[select, gates, checks, helper-contracts, board-integration\]$/m);
   assert.match(head, /^ {4}if: \$\{\{ !cancelled\(\) \}\}$/m);
 });
 
@@ -230,6 +242,7 @@ const aggregate = (env) =>
   }).status;
 
 const green = {
+  GATES: 'success',
   CHECKS: 'success',
   HELPER_CONTRACTS: 'success',
   HELPER_CONTRACTS_SELECTED: 'true',
@@ -254,6 +267,18 @@ test('validate passes a skipped job only when the selection named it false', () 
   assert.equal(aggregate({ ...skipped, BOARD_INTEGRATION_SELECTED: '' }), 1, 'a skip with no selection');
 });
 
+test('validate fails on a failed, cancelled or skipped gates job, selected or not', () => {
+  for (const result of ['failure', 'cancelled', 'skipped']) {
+    assert.equal(aggregate({ ...green, GATES: result }), 1, `gates ${result}`);
+  }
+});
+
+test('validate fails on a tier-2 job that gates skipped while select named it', () => {
+  const skipped = { ...green, GATES: 'failure', CHECKS: 'skipped', HELPER_CONTRACTS: 'skipped', BOARD_INTEGRATION: 'skipped' };
+  assert.equal(aggregate(skipped), 1);
+  assert.equal(aggregate({ ...green, HELPER_CONTRACTS: 'skipped', HELPER_CONTRACTS_SELECTED: 'true' }), 1);
+});
+
 test('validate fails on a failed, cancelled or skipped checks job and on a failed split job', () => {
   for (const result of ['failure', 'cancelled', 'skipped']) {
     assert.equal(aggregate({ ...green, CHECKS: result }), 1, `checks ${result}`);
@@ -265,7 +290,7 @@ test('validate fails on a failed, cancelled or skipped checks job and on a faile
 test("validate's last step reads each job's result and carries its own if: !cancelled()", () => {
   const block = jobBlock('validate');
   const last = block.slice(block.lastIndexOf('\n      - '));
-  for (const job of ['checks', 'helper-contracts', 'board-integration']) {
+  for (const job of ['gates', 'checks', 'helper-contracts', 'board-integration']) {
     assert.ok(last.includes(`\${{ needs.${job}.result }}`), `the last step must read needs.${job}.result`);
   }
   assert.ok(last.includes('${{ needs.select.outputs.contracts }}'));

@@ -95,13 +95,15 @@ jobs:
   #   fleet tests         a `packages/fleet` or a `packages/domain` check
   #   e2e                 any of the four suites above
   #   macos-shell-contract  a changed `.sh` file or a selected gate test
-  #   process-census      a `packages/board`, `packages/domain` or
+  #   census-*            a `packages/board`, `packages/domain` or
   #                       `packages/fleet` check (the census rows live in
   #                       `packages/fleet/test/census/`), or a changed path
   #                       under `skills/plot/scripts/`
   # The board and the fleet import the domain, so a domain change selects both.
   select:
     runs-on: ubuntu-latest
+    # 10 minutes. Measured 2026-11-09 on runs 42543760580 and 42542438425: 30 s
+    # and 24 s, install and board build included. The cap is a bound on a hang.
     timeout-minutes: 10
     outputs:
       corpus: ${{ steps.map.outputs.corpus }}
@@ -263,11 +265,12 @@ jobs:
   # passing test.
   corpus:
     runs-on: ubuntu-latest
-    needs: select
-    if: ${{ !cancelled() && needs.select.outputs.corpus != 'false' }}
+    needs: [select, gates]
+    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.select.outputs.corpus != 'false' }}
     # Generous against the measured 42 s, and still a bound: a wedged fleet scan
     # becomes a re-runnable failure rather than a job that sits in `in_progress`
     # looking like work — the lesson `validate`'s own ceiling records.
+    # Re-measured 2026-11-09 on runs 42543760580 and 42542438425: 83 s and 202 s.
     timeout-minutes: 15
     steps:
       # THE DISPATCH GUARD, AND IT IS THE FIRST STEP ON PURPOSE: a checkout
@@ -418,10 +421,13 @@ jobs:
   # resolves through that symlink, and nothing else on `PATH` moves.
   macos-shell-contract:
     runs-on: macos-latest
-    needs: select
-    if: ${{ !cancelled() && needs.select.outputs.macos != 'false' }}
+    needs: [select, gates]
+    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.select.outputs.macos != 'false' }}
     # Guard first, same reason as every job above: a checkout ahead of it
     # would clone an unpinned ref before anything refused.
+    #
+    # 15 minutes. Measured 2026-11-09 on runs 42543760580 and 42542438425:
+    # 136 s and 144 s; the 28 s test step in the comment above is the bulk.
     timeout-minutes: 15
     steps:
       - name: Guard the dispatched run
@@ -533,6 +539,10 @@ jobs:
   #
   # Runs the census rows under `packages/fleet/test/census/` with `strace -f`
   # against two products: HEAD's, and the merge base's in a second worktree.
+  # Three jobs: `census-head` and `census-base` run the halves in parallel and
+  # upload their reports, and `census-compare` downloads both and compares.
+  # The runner-minutes trade (a red HEAD no longer saves the merge-base half)
+  # is Open Question 2 of `docs/plans/2026-11-09-quality-gates-fail-fast.md`.
   # The rows always come from HEAD; only the shipped scripts and built bundles
   # differ. `census-gate.mjs` compares the two reports and fails a count that
   # grew past the tolerance its row states, or any growth on a strict row.
@@ -544,18 +554,20 @@ jobs:
   # `check-shell-lines.sh push` does: a merge base with `main` on `main` is
   # HEAD itself and compares nothing. A dispatched run compares with `main`.
   #
-  # NOT A REQUIRED CHECK YET, and not in `validate`'s `needs:`. It reports on
+  # NOT A REQUIRED CHECK YET, and not in `validate`'s `needs:`. The census reports on
   # its own, as `corpus` and `macos-shell-contract` do, until its first runs
   # have shown how far its counts jitter on a hosted runner.
-  process-census:
+  census-head:
     runs-on: ubuntu-latest
-    needs: select
-    if: ${{ !cancelled() && needs.select.outputs.census != 'false' }}
+    needs: [select, gates, checks]
+    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.checks.result == 'success' && needs.select.outputs.census != 'false' }}
     # THE JOB CAP EXCEEDS THE STEP CAP by the setup steps, so a wedged census
-    # ends the step `failure` rather than the job `cancelled`. Measured on the
-    # first Linux run (PR #3237, 2026-11-08): every step before the census,
-    # checkout through the board build, took 32 s.
-    timeout-minutes: 50
+    # ends the step `failure` rather than the job `cancelled`. 25 minutes: the
+    # census step's 20-minute cap, plus the setup (checkout through the board
+    # build took 32 s on the first Linux run, PR #3237, 2026-11-08; the strace
+    # and ptrace steps are a few seconds) and the report upload. The census
+    # against HEAD took 830 s on that run (fleetd 358 s, board 408 s, desk 62 s).
+    timeout-minutes: 25
     steps:
       - name: Guard the dispatched run
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -631,27 +643,183 @@ jobs:
       - name: Build the board bundles
         run: pnpm run build:board
 
-      # 40 minutes. Measured on the first Linux run (PR #3237, 2026-11-08):
-      # the census against HEAD took 830 s (fleetd 358 s, board 408 s, desk
-      # 62 s), the "before" install and build 10 s, and the "before" census was
-      # cut off by the old 20-minute cap after 374 s. Two runs of about 830 s
-      # are 28 minutes; the board host now ends the detached PR reader on stop,
-      # which removes up to 60 s of waiting per board scenario.
-      - name: Count the processes against the "before"
-        timeout-minutes: 40
+      # 20 minutes: the census against HEAD alone, 830 s measured (PR #3237,
+      # 2026-11-08), 1.45 times that. The board host now ends the detached PR
+      # reader on stop, which removes up to 60 s of waiting per board scenario.
+      - name: Count the processes at HEAD
+        timeout-minutes: 20
+        run: node packages/fleet/test/census/census-gate.mjs --only head --report "$RUNNER_TEMP/census-head.jsonl"
+
+      # A failed census still uploads what it recorded; a missing file is no error.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: census-report-head
+          path: ${{ runner.temp }}/census-head.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+
+  census-base:
+    runs-on: ubuntu-latest
+    needs: [select, gates, checks]
+    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.checks.result == 'success' && needs.select.outputs.census != 'false' }}
+    # THE JOB CAP EXCEEDS THE STEP CAP, as `census-head`'s does. 25 minutes:
+    # the step's 20-minute cap, plus the same setup and the report upload. The
+    # "before" half runs the same rows as the HEAD half (830 s at HEAD, PR
+    # #3237, 2026-11-08) and its own install and build, which took 10 s on that
+    # run. Not gated: a failed half reads every row as "no before".
+    timeout-minutes: 25
+    steps:
+      - name: Guard the dispatched run
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/changeset-release/main" ]; then
+            echo "::error::a dispatched run is only valid on refs/heads/changeset-release/main, got $GITHUB_REF"
+            exit 1
+          fi
+          if [ -z "${EXPECTED_SHA:-}" ]; then
+            echo "::error::expected_sha is empty, so this run is unpinned"
+            exit 1
+          fi
+          if [ "$GITHUB_SHA" != "$EXPECTED_SHA" ]; then
+            echo "::error::head moved: expected $EXPECTED_SHA, testing $GITHUB_SHA"
+            exit 1
+          fi
+          echo "Dispatched run pinned to $GITHUB_SHA on $GITHUB_REF"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # The census fails by name without strace (`census-setup.ts`). The image
+      # may not ship it, so this step installs it and says so.
+      - name: Make strace present
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          if command -v strace >/dev/null 2>&1; then
+            echo "strace is present: $(command -v strace)"
+          else
+            echo "strace is absent from the runner image; installing it with apt-get"
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq strace
+          fi
+          strace -V | head -1
+
+      # Yama's ptrace_scope 0 or 1 lets strace trace the tree it starts; 2
+      # admits only a privileged tracer and 3 none. The step lowers 2 to 1,
+      # says so, and fails by name on 3.
+      - name: Let strace trace its descendants
+        run: |
+          set -euo pipefail
+          f=/proc/sys/kernel/yama/ptrace_scope
+          if [ ! -r "$f" ]; then
+            echo "no Yama ptrace_scope on this kernel; tracing is not restricted"
+          else
+            scope="$(cat "$f")"
+            echo "kernel.yama.ptrace_scope=$scope"
+            if [ "$scope" = "2" ]; then
+              echo "lowering kernel.yama.ptrace_scope to 1"
+              sudo sysctl -w kernel.yama.ptrace_scope=1
+            elif [ "$scope" = "3" ]; then
+              echo "::error::kernel.yama.ptrace_scope=3 forbids ptrace; the census cannot trace"
+              exit 1
+            fi
+          fi
+          strace -f -qq -e trace=execve -o /dev/null /bin/sh -c '/bin/true'
+          echo "strace -f traced a two-level tree"
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build the board bundles
+        run: pnpm run build:board
+
+      # 20 minutes: the HEAD half's 830 s measurement plus the 10 s install and
+      # build of the "before" tree, 1.4 times the sum.
+      - name: Count the processes at the "before"
+        timeout-minutes: 20
         env:
           EVENT: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
           BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
+          report="$RUNNER_TEMP/census-before.jsonl"
           if [ "$EVENT" = "push" ]; then
-            node packages/fleet/test/census/census-gate.mjs --before "$BEFORE"
+            node packages/fleet/test/census/census-gate.mjs --only before --before "$BEFORE" --report "$report"
           else
             base="${BASE_REF:-main}"
             git fetch --no-tags origin "$base:refs/remotes/origin/$base"
-            node packages/fleet/test/census/census-gate.mjs --base "origin/$base"
+            node packages/fleet/test/census/census-gate.mjs --only before --base "origin/$base" --report "$report"
           fi
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: census-report-before
+          path: ${{ runner.temp }}/census-before.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+
+  census-compare:
+    runs-on: ubuntu-latest
+    needs: [select, gates, checks, census-head, census-base]
+    # Runs when the HEAD half succeeded, whatever the "before" half did: a
+    # failed or cancelled `census-base` leaves no report, and every row reads
+    # "no before", as a failed build of the "before" tree does.
+    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.checks.result == 'success' && needs.census-head.result == 'success' && needs.select.outputs.census != 'false' }}
+    # 5 minutes. Checkout, Node and two artifact downloads; the comparison reads
+    # two files of a few lines. Setup of the other census jobs took 32 s with a
+    # full install and build, and this job runs neither.
+    timeout-minutes: 5
+    steps:
+      - name: Guard the dispatched run
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/changeset-release/main" ]; then
+            echo "::error::a dispatched run is only valid on refs/heads/changeset-release/main, got $GITHUB_REF"
+            exit 1
+          fi
+          if [ -z "${EXPECTED_SHA:-}" ]; then
+            echo "::error::expected_sha is empty, so this run is unpinned"
+            exit 1
+          fi
+          if [ "$GITHUB_SHA" != "$EXPECTED_SHA" ]; then
+            echo "::error::head moved: expected $EXPECTED_SHA, testing $GITHUB_SHA"
+            exit 1
+          fi
+          echo "Dispatched run pinned to $GITHUB_SHA on $GITHUB_REF"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: census-report-*
+          path: census-reports
+
+      - name: Compare the census reports
+        run: |
+          set -euo pipefail
+          node packages/fleet/test/census/census-gate.mjs --compare \
+            census-reports/census-report-head/census-head.jsonl \
+            census-reports/census-report-before/census-before.jsonl
 
   # ── Helper contract tests: its own job, reported through `validate`. ─────
   #
@@ -672,8 +840,8 @@ jobs:
   # would clone an unpinned ref before anything refused.
   helper-contracts:
     runs-on: ubuntu-latest
-    needs: select
-    if: ${{ !cancelled() && needs.select.outputs.contracts != 'false' }}
+    needs: [select, gates]
+    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.select.outputs.contracts != 'false' }}
     # THE JOB CAP EXCEEDS THE STEP CAP, so a wedged test step ends `failure`
     # and reaches the diagnostic step below rather than ending `cancelled` at
     # the same instant the job cap fires. Equal caps hid that step entirely:
@@ -836,8 +1004,8 @@ jobs:
   # median 542.5 s, p95 600 s, max 606 s over the last 30 `validate` runs.
   board-integration:
     runs-on: ubuntu-latest
-    needs: select
-    if: ${{ !cancelled() && needs.select.outputs.board != 'false' }}
+    needs: [select, gates]
+    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.select.outputs.board != 'false' }}
     # The longest legitimate run was measured at 606 s (10.1 min). Raised from
     # 15 to 20 on 2026-10-23 (#2392) for the install steps' step bounds below:
     # setup (checkout, pnpm install, board build, cache restore) ~45s, system
@@ -1069,49 +1237,30 @@ jobs:
         timeout-minutes: 15
         run: ./scripts/owned-run.sh pnpm --filter @plot-pm/board exec vitest run
 
-  # ── validate's own suites: the skill and gate checks, the typechecks, and
-  #    the domain, board, fleet and e2e suites the selection names. ─────────
+  # ── Tier 1: the static gates, cheapest first. ───────────────────────────
   #
-  # ITS OWN JOB SINCE 2026-10-30, so these suites start beside
-  # `helper-contracts` and `board-integration` rather than after them. Measured
-  # 2026-10-30: a green run took 17 to 20 minutes, because `validate` waited
-  # 13 to 14 minutes on the two split jobs and then ran these steps for about
-  # 6 minutes. `validate` below is now only the aggregate.
+  # Plan: `docs/plans/2026-11-09-quality-gates-fail-fast.md`. Every tier-2 job
+  # (`checks`, `corpus`, `helper-contracts`, `board-integration`,
+  # `macos-shell-contract`) and the process census `needs:` this job and runs
+  # only when it ended `success`, so a red static gate ends the run here and
+  # skips every job still waiting. A job already running in the same tier runs
+  # to its end; nothing cancels the run, because a cancelled job reads as a
+  # `timeout-minutes` cap to `runWasTimedOut` (`checks-verdict.ts`).
   #
-  # THE CHECKS THAT RUN ON EVERY CHANGE stay ungated: the skill parse, the
-  # grep gates, the `scripts/check-*.sh` gates, the gate tests and the three
-  # typechecks. The suite steps (e2e, the domain tests, the board tests and
-  # the fleet tests) run when `select` names them.
-  checks:
+  # Holds the steps that `checks` held and that start no test process: the
+  # skills parse, the frontmatter check, every `scripts/check-*.sh` step, the
+  # domain gates and the three typechecks. Moved, not added.
+  gates:
     runs-on: ubuntu-latest
     needs: select
     if: ${{ !cancelled() }}
-    # A CEILING, not a target. GitHub's default is 360 minutes, which is not a
-    # limit anyone waits for — a wedged step simply never returns, and the run
-    # sits in `in_progress` looking like work. Measured 2026-08-19: eleven runs
-    # hung on the Playwright download alone, 10 to 57 minutes each, every one
-    # ended by hand.
-    #
-    # RE-MEASURED 2026-10-20 (#2121): the comment here said a green run takes
-    # about 7 minutes (measured 2026-08-19); over the last 30 `validate` runs
-    # it took a median of 1345 s (22.4 min) and three runs read `cancelled` at
-    # the 1500 s cap with every step `success`. `helper-contracts` and
-    # `board-integration` above now carry the two steps that held 74.7 % of
-    # that time (median 1005 s combined), so `validate`'s own remaining steps
-    # measure a median of 346.5 s and a p95 of 376.65 s — 25.1 % of this cap,
-    # comfortably under the 60 % (900 s) target the plan set. The cap stays at
-    # 25 so a hang still turns into a FAILURE rather than a 360-minute silence,
-    # and a failure can be re-run while a hang has to be noticed first.
-    #
-    # THE RUN'S WALL TIME is `select` plus the slowest of the three parallel
-    # jobs, not the slower split job plus these steps: these steps no longer
-    # wait on `needs: [helper-contracts, board-integration]`. Each job's
-    # `timeout-minutes` counts only its own steps, never the wait on
-    # `needs:`, so each job stays under its own cap: `helper-contracts` 18 min
-    # (16 min test step cap, measured 10-12 min on 2026-10-26, plus the margin above),
-    # `board-integration` 22 min (p95 10.0 min test step, plus its own
-    # margin), `checks` 25 min (p95 6.3 min).
-    timeout-minutes: 25
+    # A CEILING of 4 minutes, the plan's bound on the green cost this job adds
+    # before every tier-2 job. Not yet measured on this job: the steps are the
+    # ones `checks` ran, whose gate steps took seconds each; setup (checkout,
+    # install, board build) measured 32 s to 52 s on the jobs above. The first
+    # sprint PR into `main` states this job's wall time; if it ends after 4
+    # minutes, the longest step moves back to `checks`.
+    timeout-minutes: 4
     steps:
       # The dispatch guard, ahead of any checkout for the reason the `corpus`
       # copy states: a checkout ahead of it would clone an unpinned ref before
@@ -1138,14 +1287,8 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # THE DOMAIN SUITE READS COMMITS BY SHA. `ports-real-state.test.ts`
-          # asserts what four pinned merge commits changed, and it SKIPS a sha
-          # the checkout does not hold — deliberately, so a fork or a shallow
-          # clone does not fail for the wrong reason. Measured 2026-09-14 in a
-          # `--depth 1` clone: all of those shas are absent, every row takes the
-          # early exit, and the file reports the same pass count it reports with
-          # full history. So at the default depth those rows assert NOTHING and
-          # CI cannot tell a working reading from a broken one.
+          # The merge-base gates (`check-no-bundle-diff.sh`, `check-shell-lines.sh`)
+          # read history.
           fetch-depth: 0
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -1156,7 +1299,6 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-
       - name: Validate skills parse
         run: pnpm test
 
@@ -1174,14 +1316,7 @@ jobs:
         if: github.event_name == 'pull_request'
         run: ./scripts/check-no-bundle-diff.sh
 
-      # THE CHECKOUT HOLDS main'S BUILD, NOT A PR'S OWN. A PR's diff no longer
-      # carries the generated board bundles (`check-no-bundle-diff.sh` above),
-      # so this job needs its own copy before any step below can rely on one.
-      # `helper-contracts` and `board-integration` now run this same step for
-      # their own test:contracts and board-integration suites; what this copy
-      # serves is the systemd steps further down, which fill a unit template
-      # with the path to the generated `plot-fleetd.mjs`. Runs on every event
-      # this workflow handles, not only on `pull_request`.
+      # The bundles `check-sprint-members.sh` reads.
       - name: Build the board bundles
         run: pnpm run build:board
 
@@ -1192,257 +1327,6 @@ jobs:
       - name: A sprint member names its sprint
         if: github.event_name == 'pull_request'
         run: ./scripts/check-sprint-members.sh
-
-      # THE GATE TESTS RUN ON EVERY CHANGE. They are an `always` entry of
-      # `Local checks` (`** = node --test test/reconcile/*gate*.test.mjs`),
-      # and `helper-contracts` now runs only the contract tests a change
-      # names, so this step keeps them on every pull request. They read the
-      # generated bundles, so they run after the build above.
-      - name: Gate tests
-        timeout-minutes: 10
-        run: ./scripts/owned-run.sh node --test --test-reporter=tap --test-timeout=300000 test/reconcile/*gate*.test.mjs
-
-      # BOUNDED like the helper contract suite now split into its own
-      # `helper-contracts` job: that step carries `timeout-minutes: 16`
-      # because it once wedged until the job ceiling at 25 and reported
-      # nothing; this step had no bound at all. E2E dispatches real workers,
-      # so it is the likeliest of all of them to hang — and now that it is
-      # CI's gate rather than a local one, a hang here is the only place the
-      # failure can surface.
-      - name: E2E choreography tests
-        if: ${{ needs.select.outputs.e2e != 'false' }}
-        timeout-minutes: 15
-        run: pnpm run test:e2e
-
-      # THE SUPERVISOR'S UNIT, LOADED FOR REAL — the one arm of `/plot-fleet
-      # --start` that CI can actually exercise.
-      #
-      # This runner is `ubuntu-latest`, so the launchd path can NEVER run here,
-      # and that is the path a macOS operator uses. `fleetctl.test.mjs` asserts
-      # both units fill and parse, which is a real failing check on Linux; what
-      # it cannot assert is that systemd ACCEPTS the filled unit. `systemd-analyze
-      # verify` does, and it needs no session bus and starts nothing.
-      #
-      # A DIRECTIVE SYSTEMD REJECTS IS A DAEMON THAT NEVER STARTS, and the
-      # failure arrives as a unit sitting in `failed` on somebody's machine —
-      # exactly the silent shape the four refusals exist to prevent. Loading the
-      # plist for real stays a manual step, named as such in the release test
-      # list, because there is no macOS runner in this workflow.
-      - name: The systemd unit is one systemd accepts
-        run: |
-          mkdir -p ~/.config/systemd/user
-          # THE PLACEHOLDER SET IS THE TEMPLATE'S, and this step is a third
-          # copy of it after `plot-fleetctl.sh` and `fleetctl.test.mjs`. The
-          # gate below is what keeps the three honest: a placeholder added to
-          # the template and not here fails this step by name, which is how
-          # `__HARNESS_DIR__` was caught. `dirname` of this runner's node is a
-          # real directory and the value only has to make the unit verify.
-          sed -e "s|__REPO_ROOT__|$PWD|g" \
-              -e "s|__NODE__|$(command -v node)|g" \
-              -e "s|__NODE_DIR__|$(dirname "$(command -v node)")|g" \
-              -e "s|__HARNESS_DIR__|$(dirname "$(command -v node)")|g" \
-              -e "s|__FLEETD__|$PWD/skills/plot/scripts/board/plot-fleetd.mjs|g" \
-              skills/plot/units/plot-fleetd.service \
-              > ~/.config/systemd/user/plot-fleetd.service
-          left=$(grep -c '__[A-Z_]*__' ~/.config/systemd/user/plot-fleetd.service || true)
-          if [ "$left" != "0" ]; then
-            echo "::error::$left placeholder(s) survived the fill"
-            grep -n '__[A-Z_]*__' ~/.config/systemd/user/plot-fleetd.service
-            exit 1
-          fi
-          systemd-analyze --user verify ~/.config/systemd/user/plot-fleetd.service
-          echo "The systemd unit verifies."
-
-      # ── The unit stops only its daemon: a measurement, not a parse. ──────────
-      #
-      # THE STEP ABOVE STARTS NOTHING, which is why `KillMode`'s absence was
-      # valid syntax with a wrong default for as long as the unit existed.
-      # systemd's `KillMode=control-group` signals every process in the cgroup
-      # on stop, restart or crash, and `--start-agents` puts every agent there.
-      # Nothing on #1148 was measured on a Linux host; this step is that
-      # measurement, and `ubuntu-latest` is the only place in this workflow
-      # where it can be taken.
-      #
-      # THE CONTROL IS WHAT MAKES IT DISCRIMINATING, PERMANENTLY. A second copy
-      # of the same filled unit with the `KillMode=` line deleted must LOSE its
-      # agent across the restart. Without it the step passes whatever the
-      # directive says — for example because no user manager ever started
-      # anything and every `systemctl` call failed quietly — and a green run
-      # would report a fix nobody made.
-      #
-      # EVERY DIRECTIVE EXCEPT `ExecStart` COMES FROM THE SHIPPED FILE, filled
-      # by the same `sed` as the step above. A step that writes its own unit
-      # proves nothing about the one operators install.
-      - name: The systemd unit keeps its agents across a restart
-        run: |
-          set -euo pipefail
-
-          # A USER MANAGER IS THE OPEN POINT, so it is probed and never
-          # assumed. `enable-linger` starts a manager for `runner` that
-          # outlives this shell; without `XDG_RUNTIME_DIR` the client cannot
-          # find its bus. If no manager answers, the unit is installed as a
-          # system unit with `User=runner` and driven with `sudo` — `KillMode`
-          # behaves the same under both managers, and the step says which it
-          # used.
-          sudo loginctl enable-linger "$USER" || true
-          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
-          if systemctl --user is-system-running >/dev/null 2>&1 \
-             || systemctl --user show-environment >/dev/null 2>&1; then
-            MANAGER=user
-            SCTL="systemctl --user"
-            UNIT_DIR="$HOME/.config/systemd/user"
-          else
-            MANAGER=system
-            SCTL="sudo systemctl"
-            UNIT_DIR=/etc/systemd/system
-          fi
-          echo "Manager: $MANAGER"
-          sudo mkdir -p "$UNIT_DIR"
-
-          # THE STAND-IN IS A SCRIPT FILE, NOT AN INLINE `sh -c`. systemd
-          # expands `$VAR` and `%` specifiers in `ExecStart` before the shell
-          # sees the line, so `$!` inline resolves to nothing. The path is
-          # absolute because systemd versions differ on how they resolve a
-          # relative one.
-          #
-          # IT WRITES THE PID ONLY WHEN THE FILE IS ABSENT, because `restart`
-          # runs a second copy whose own `sleep` would otherwise overwrite the
-          # pid the assertion is about.
-          #
-          # IT IS WRITTEN WITH `printf`, NOT A HEREDOC. A quoted heredoc inside
-          # this indented `run:` block would need its terminator at the block's
-          # indentation, which `sh` does not match, and an unquoted one would
-          # let this shell expand the `$!` the stand-in must write itself.
-          STANDIN=/tmp/plot-standin-daemon.sh
-          PIDFILE=/tmp/plot-standin-agent.pid
-          rm -f "$PIDFILE"
-          printf '%s\n' \
-            '#!/bin/sh' \
-            '# The stand-in agent: a process the daemon starts and does not' \
-            '# wait for, which is what an agent is to this daemon.' \
-            'sleep 600 &' \
-            "[ -f $PIDFILE ] || echo \$! > $PIDFILE" \
-            'while :; do sleep 3600; done' \
-            > "$STANDIN"
-          chmod +x "$STANDIN"
-          echo "The stand-in daemon:"; cat "$STANDIN"
-
-          fill() {   # $1 = destination, $2 = "control" to delete the KillMode line
-            sed -e "s|__REPO_ROOT__|$PWD|g" \
-                -e "s|__NODE__|$(command -v node)|g" \
-                -e "s|__NODE_DIR__|$(dirname "$(command -v node)")|g" \
-                -e "s|__HARNESS_DIR__|$(dirname "$(command -v node)")|g" \
-                -e "s|__FLEETD__|$PWD/skills/plot/scripts/board/plot-fleetd.mjs|g" \
-                -e "s|^ExecStart=.*|ExecStart=/bin/sh $STANDIN|" \
-                skills/plot/units/plot-fleetd.service > /tmp/filled.service
-            if [ "${2:-}" = control ]; then
-              sed -i '/^KillMode=/d' /tmp/filled.service
-            fi
-            if [ "$MANAGER" = system ]; then
-              sed -i "/^\[Service\]/a User=$USER" /tmp/filled.service
-            fi
-            sudo cp /tmp/filled.service "$1"
-          }
-
-          # The pids are read into variables, so cleanup never depends on a
-          # file a second daemon may have rewritten. Never `pkill sleep`.
-          AGENT_PID=""; CONTROL_PID=""
-          cleanup() {
-            $SCTL stop plot-ci-killmode.service plot-ci-control.service 2>/dev/null || true
-            for p in $AGENT_PID $CONTROL_PID; do kill "$p" 2>/dev/null || true; done
-            sudo rm -f "$UNIT_DIR/plot-ci-killmode.service" "$UNIT_DIR/plot-ci-control.service"
-            $SCTL daemon-reload || true
-          }
-          trap cleanup EXIT
-
-          # ── The subject: the shipped unit, KillMode and all. ────────────────
-          fill "$UNIT_DIR/plot-ci-killmode.service"
-          $SCTL daemon-reload
-          $SCTL start plot-ci-killmode.service
-          # THE LOOP ENDS WITH `|| true`, so a pid file that never appears
-          # reaches the named error below instead of dying on `set -e` with no
-          # reason printed.
-          for _ in 1 2 3 4 5 6 7 8 9 10; do
-            if [ -s "$PIDFILE" ]; then break; fi
-            sleep 1
-          done
-          AGENT_PID="$(cat "$PIDFILE" 2>/dev/null || true)"
-          if [ -z "$AGENT_PID" ]; then
-            echo "::error::the stand-in wrote no pid — did the unit start?"
-            $SCTL status plot-ci-killmode.service || true
-            exit 1
-          fi
-          echo "Stand-in agent pid: $AGENT_PID"
-
-          # THE AGENT WAS IN THE UNIT'S CGROUP, asserted BEFORE the restart.
-          # This is the assertion a naive step leaves out: a stand-in whose
-          # agent started outside the cgroup was never at risk, so its survival
-          # measures nothing at all.
-          if ! grep -q 'plot-ci-killmode' "/proc/$AGENT_PID/cgroup"; then
-            echo "::error::the stand-in agent is not in the unit's cgroup — the step would measure nothing"
-            cat "/proc/$AGENT_PID/cgroup"
-            exit 1
-          fi
-          echo "The agent is in the unit's cgroup:"
-          cat "/proc/$AGENT_PID/cgroup"
-
-          $SCTL restart plot-ci-killmode.service
-          sleep 2
-          if ! kill -0 "$AGENT_PID" 2>/dev/null; then
-            echo "::error::restart ended the agent — KillMode=process did not keep it alive"
-            exit 1
-          fi
-          echo "The agent survived the restart."
-
-          $SCTL stop plot-ci-killmode.service
-          sleep 2
-          if ! kill -0 "$AGENT_PID" 2>/dev/null; then
-            echo "::error::stop ended the agent — KillMode=process did not keep it alive"
-            exit 1
-          fi
-          echo "The agent survived the stop."
-
-          # ── The control: the same unit with `KillMode=` deleted, which is
-          #    origin/main's unit. Its agent MUST be gone after the restart. ───
-          rm -f "$PIDFILE"
-          fill "$UNIT_DIR/plot-ci-control.service" control
-          # AN `if`, NOT `grep && exit`. Under `set -e` a `grep -q` that finds
-          # nothing — the correct case here — makes the `&&` list exit 1 and
-          # kills the step before the control has run at all.
-          if grep -q '^KillMode=' /tmp/filled.service; then
-            echo "::error::the control still carries KillMode"; exit 1
-          fi
-          $SCTL daemon-reload
-          $SCTL start plot-ci-control.service
-          for _ in 1 2 3 4 5 6 7 8 9 10; do
-            if [ -s "$PIDFILE" ]; then break; fi
-            sleep 1
-          done
-          CONTROL_PID="$(cat "$PIDFILE" 2>/dev/null || true)"
-          if [ -z "$CONTROL_PID" ]; then
-            echo "::error::the control wrote no pid — did the control unit start?"
-            $SCTL status plot-ci-control.service || true
-            exit 1
-          fi
-          if ! grep -q 'plot-ci-control' "/proc/$CONTROL_PID/cgroup"; then
-            echo "::error::the control agent is not in its unit's cgroup"
-            exit 1
-          fi
-          $SCTL restart plot-ci-control.service
-          sleep 2
-          if kill -0 "$CONTROL_PID" 2>/dev/null; then
-            echo "::error::the control agent survived — this step cannot tell KillMode from its absence"
-            exit 1
-          fi
-          echo "The control lost its agent, as origin/main's unit does."
-          echo "Measured under the $MANAGER manager."
-
-          # THE GROUP STOP (#1084), on Linux, beside the unit that keeps agents
-          # alive: a `boundedRun` prompt stays in its caller's process group, so
-          # `kill -TERM -<pgid>` ends the wrapper, the prompt and the prompt's
-          # child. The stand-ins are script files under test/fixtures, for the
-          # reason the stand-in above is one.
-          pnpm --filter @plot-pm/domain exec vitest run test/bounded-run-group-stop.test.ts
 
       # ── Domain: the package the board now imports its entities from. Gated
       #    BEFORE the board, because the board resolves these shapes from here
@@ -2176,74 +2060,11 @@ jobs:
       - name: Domain typecheck
         run: pnpm --filter @plot-pm/domain typecheck
 
-      # A GATE, NOT A REPORT: `thresholds` makes this exit non-zero below 100%.
-      # Defensible in this package and nowhere else here — the purity boundary
-      # guarantees every line is reachable from a plain function call, so an
-      # uncovered line is a line nobody specified.
-      - name: Domain tests + coverage gate
-        if: ${{ needs.select.outputs.domain != 'false' }}
-        timeout-minutes: 10
-        run: pnpm --filter @plot-pm/domain exec vitest run --coverage
-
-      # ── Board (first-class): the Definition of Done requires the board to keep
-      #    working. Typecheck, tests, and a fresh build are gated here. ──────────
       - name: Board typecheck
         run: pnpm run typecheck
 
-      # A PULL REQUEST'S REBUILD DIFFERING FROM ITS CHECKOUT IS A WARNING, NOT
-      # AN ERROR: `check-no-bundle-diff.sh` already refused a PR that commits
-      # one, so this checkout holds `main`'s build, and a PR that changes
-      # board source always rebuilds to something else. On a push to `main`
-      # it is also a warning, except on the App's own build commit, where it
-      # is an error: until the bundle workflow pushes the build, `main` holds
-      # the previous one for one workflow run, and failing there would make
-      # `main` red by design. The decision lives in `scripts/main-bundles.sh`.
-      - name: Board build + artifact freshness
-        timeout-minutes: 10
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            ./scripts/main-bundles.sh pr
-          else
-            ./scripts/main-bundles.sh main
-          fi
-
-      # BOUNDED BECAUSE IT SPAWNS. This runs the board's `node --test` suites,
-      # which start real `board-server.mjs` processes — the population that hung
-      # locally on 2026-08-31 (two runs asleep at 0% CPU for 33 and 47 minutes,
-      # holding an orphaned server). A step that spawns can hang; a grep cannot,
-      # which is why the gates below carry no bound and this does.
-      - name: Board tests
-        if: ${{ needs.select.outputs.board != 'false' }}
-        timeout-minutes: 10
-        # Through `owned-run.sh`, like a local `test:board`: a private TMPDIR and
-        # HOME, and a leftover entry fails the step.
-        run: ./scripts/owned-run.sh pnpm --filter @plot-pm/board test
-
-      # ── Fleet: `@plot-pm/fleet` holds the supervisor tick, the agent loop and
-      #    their shared modules. The board build above builds its bundles. ──
       - name: Fleet typecheck
         run: pnpm --filter @plot-pm/fleet typecheck
-
-      # Runs after the board build: `worker-loop-bundle.test.mjs` reads the
-      # shipped bundles and `packages/fleet/dist/`, which that build writes.
-      - name: Fleet bundle tests
-        if: ${{ needs.select.outputs.fleet != 'false' }}
-        timeout-minutes: 10
-        run: ./scripts/owned-run.sh pnpm --filter @plot-pm/fleet exec node --test test/*.test.mjs
-
-      # A GATE, like the domain's coverage gate above and for the same reason:
-      # `loop-writes.ts` and `worker-loop.ts` are reachable from a plain call
-      # with no process, no port and no browser of their own, so an uncovered
-      # line there is a line nobody specified. `packages/fleet/vitest.config.ts`
-      # scopes the threshold to those two files.
-      - name: Fleet unit tests + loop coverage gate
-        if: ${{ needs.select.outputs.fleet != 'false' }}
-        timeout-minutes: 10
-        run: ./scripts/owned-run.sh pnpm --filter @plot-pm/fleet exec vitest run --coverage
-
-      # Board integration tests (vitest + Playwright) split out into their own
-      # `board-integration` job 2026-10-20 (#2121) — see the comment on that
-      # job above for the measurement that drove the split.
 
       # NOT gated on pull_request: an unknown package name aborts `changeset
       # version` for the WHOLE repo, so it must fail on main too — the four-day
@@ -2285,6 +2106,424 @@ jobs:
 
           echo "All changeset bumps references are valid."
 
+  # ── validate's own suites: the skill and gate checks, the typechecks, and
+  #    the domain, board, fleet and e2e suites the selection names. ─────────
+  #
+  # ITS OWN JOB SINCE 2026-10-30, so these suites start beside
+  # `helper-contracts` and `board-integration` rather than after them. Measured
+  # 2026-10-30: a green run took 17 to 20 minutes, because `validate` waited
+  # 13 to 14 minutes on the two split jobs and then ran these steps for about
+  # 6 minutes. `validate` below is now only the aggregate.
+  #
+  # TIER 2. The skill parse, the grep gates, the `scripts/check-*.sh` gates
+  # and the three typechecks moved to `gates` above; this job keeps the gate
+  # tests, which run on every change, and the suite steps (e2e, the domain
+  # tests, the board tests and the fleet tests), which run when `select` names
+  # them.
+  checks:
+    runs-on: ubuntu-latest
+    needs: [select, gates]
+    if: ${{ !cancelled() && needs.gates.result == 'success' }}
+    # A CEILING, not a target. GitHub's default is 360 minutes, which is not a
+    # limit anyone waits for — a wedged step simply never returns, and the run
+    # sits in `in_progress` looking like work. Measured 2026-08-19: eleven runs
+    # hung on the Playwright download alone, 10 to 57 minutes each, every one
+    # ended by hand.
+    #
+    # RE-MEASURED 2026-10-20 (#2121): the comment here said a green run takes
+    # about 7 minutes (measured 2026-08-19); over the last 30 `validate` runs
+    # it took a median of 1345 s (22.4 min) and three runs read `cancelled` at
+    # the 1500 s cap with every step `success`. `helper-contracts` and
+    # `board-integration` above now carry the two steps that held 74.7 % of
+    # that time (median 1005 s combined), so `validate`'s own remaining steps
+    # measure a median of 346.5 s and a p95 of 376.65 s — 25.1 % of this cap,
+    # comfortably under the 60 % (900 s) target the plan set. The cap stays at
+    # 25 so a hang still turns into a FAILURE rather than a 360-minute silence,
+    # and a failure can be re-run while a hang has to be noticed first.
+    #
+    # THE RUN'S WALL TIME is `select` plus the slowest of the three parallel
+    # jobs, not the slower split job plus these steps: these steps no longer
+    # wait on `needs: [helper-contracts, board-integration]`. Each job's
+    # `timeout-minutes` counts only its own steps, never the wait on
+    # `needs:`, so each job stays under its own cap: `helper-contracts` 18 min
+    # (16 min test step cap, measured 10-12 min on 2026-10-26, plus the margin above),
+    # `board-integration` 22 min (p95 10.0 min test step, plus its own
+    # margin), `checks` 25 min (p95 6.3 min).
+    #
+    # AFTER THE `gates` SPLIT: this job keeps the gate tests, e2e, the systemd
+    # steps and the domain, board and fleet suites. Measured 2026-11-09 on runs
+    # 42543760580 and 42542438425, before the split: 431 s and 445 s.
+    timeout-minutes: 25
+    steps:
+      # The dispatch guard, ahead of any checkout for the reason the `corpus`
+      # copy states: a checkout ahead of it would clone an unpinned ref before
+      # anything refused. The two refusals are the ref and the head SHA.
+      - name: Guard the dispatched run
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/changeset-release/main" ]; then
+            echo "::error::a dispatched run is only valid on refs/heads/changeset-release/main, got $GITHUB_REF"
+            exit 1
+          fi
+          if [ -z "${EXPECTED_SHA:-}" ]; then
+            echo "::error::expected_sha is empty, so this run is unpinned"
+            exit 1
+          fi
+          if [ "$GITHUB_SHA" != "$EXPECTED_SHA" ]; then
+            echo "::error::head moved: expected $EXPECTED_SHA, testing $GITHUB_SHA"
+            exit 1
+          fi
+          echo "Dispatched run pinned to $GITHUB_SHA on $GITHUB_REF"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # THE DOMAIN SUITE READS COMMITS BY SHA. `ports-real-state.test.ts`
+          # asserts what four pinned merge commits changed, and it SKIPS a sha
+          # the checkout does not hold — deliberately, so a fork or a shallow
+          # clone does not fail for the wrong reason. Measured 2026-09-14 in a
+          # `--depth 1` clone: all of those shas are absent, every row takes the
+          # early exit, and the file reports the same pass count it reports with
+          # full history. So at the default depth those rows assert NOTHING and
+          # CI cannot tell a working reading from a broken one.
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # THE CHECKOUT HOLDS main'S BUILD, NOT A PR'S OWN. A PR's diff no longer
+      # carries the generated board bundles (`check-no-bundle-diff.sh` above),
+      # so this job needs its own copy before any step below can rely on one.
+      # `helper-contracts` and `board-integration` now run this same step for
+      # their own test:contracts and board-integration suites; what this copy
+      # serves is the systemd steps further down, which fill a unit template
+      # with the path to the generated `plot-fleetd.mjs`. Runs on every event
+      # this workflow handles, not only on `pull_request`.
+      - name: Build the board bundles
+        run: pnpm run build:board
+
+      # THE GATE TESTS RUN ON EVERY CHANGE. They are an `always` entry of
+      # `Local checks` (`** = node --test test/reconcile/*gate*.test.mjs`),
+      # and `helper-contracts` now runs only the contract tests a change
+      # names, so this step keeps them on every pull request. They read the
+      # generated bundles, so they run after the build above.
+      - name: Gate tests
+        timeout-minutes: 10
+        run: ./scripts/owned-run.sh node --test --test-reporter=tap --test-timeout=300000 test/reconcile/*gate*.test.mjs
+
+      # BOUNDED like the helper contract suite now split into its own
+      # `helper-contracts` job: that step carries `timeout-minutes: 16`
+      # because it once wedged until the job ceiling at 25 and reported
+      # nothing; this step had no bound at all. E2E dispatches real workers,
+      # so it is the likeliest of all of them to hang — and now that it is
+      # CI's gate rather than a local one, a hang here is the only place the
+      # failure can surface.
+      - name: E2E choreography tests
+        if: ${{ needs.select.outputs.e2e != 'false' }}
+        timeout-minutes: 15
+        run: pnpm run test:e2e
+
+      # THE SUPERVISOR'S UNIT, LOADED FOR REAL — the one arm of `/plot-fleet
+      # --start` that CI can actually exercise.
+      #
+      # This runner is `ubuntu-latest`, so the launchd path can NEVER run here,
+      # and that is the path a macOS operator uses. `fleetctl.test.mjs` asserts
+      # both units fill and parse, which is a real failing check on Linux; what
+      # it cannot assert is that systemd ACCEPTS the filled unit. `systemd-analyze
+      # verify` does, and it needs no session bus and starts nothing.
+      #
+      # A DIRECTIVE SYSTEMD REJECTS IS A DAEMON THAT NEVER STARTS, and the
+      # failure arrives as a unit sitting in `failed` on somebody's machine —
+      # exactly the silent shape the four refusals exist to prevent. Loading the
+      # plist for real stays a manual step, named as such in the release test
+      # list, because there is no macOS runner in this workflow.
+      - name: The systemd unit is one systemd accepts
+        run: |
+          mkdir -p ~/.config/systemd/user
+          # THE PLACEHOLDER SET IS THE TEMPLATE'S, and this step is a third
+          # copy of it after `plot-fleetctl.sh` and `fleetctl.test.mjs`. The
+          # gate below is what keeps the three honest: a placeholder added to
+          # the template and not here fails this step by name, which is how
+          # `__HARNESS_DIR__` was caught. `dirname` of this runner's node is a
+          # real directory and the value only has to make the unit verify.
+          sed -e "s|__REPO_ROOT__|$PWD|g" \
+              -e "s|__NODE__|$(command -v node)|g" \
+              -e "s|__NODE_DIR__|$(dirname "$(command -v node)")|g" \
+              -e "s|__HARNESS_DIR__|$(dirname "$(command -v node)")|g" \
+              -e "s|__FLEETD__|$PWD/skills/plot/scripts/board/plot-fleetd.mjs|g" \
+              skills/plot/units/plot-fleetd.service \
+              > ~/.config/systemd/user/plot-fleetd.service
+          left=$(grep -c '__[A-Z_]*__' ~/.config/systemd/user/plot-fleetd.service || true)
+          if [ "$left" != "0" ]; then
+            echo "::error::$left placeholder(s) survived the fill"
+            grep -n '__[A-Z_]*__' ~/.config/systemd/user/plot-fleetd.service
+            exit 1
+          fi
+          systemd-analyze --user verify ~/.config/systemd/user/plot-fleetd.service
+          echo "The systemd unit verifies."
+
+      # ── The unit stops only its daemon: a measurement, not a parse. ──────────
+      #
+      # THE STEP ABOVE STARTS NOTHING, which is why `KillMode`'s absence was
+      # valid syntax with a wrong default for as long as the unit existed.
+      # systemd's `KillMode=control-group` signals every process in the cgroup
+      # on stop, restart or crash, and `--start-agents` puts every agent there.
+      # Nothing on #1148 was measured on a Linux host; this step is that
+      # measurement, and `ubuntu-latest` is the only place in this workflow
+      # where it can be taken.
+      #
+      # THE CONTROL IS WHAT MAKES IT DISCRIMINATING, PERMANENTLY. A second copy
+      # of the same filled unit with the `KillMode=` line deleted must LOSE its
+      # agent across the restart. Without it the step passes whatever the
+      # directive says — for example because no user manager ever started
+      # anything and every `systemctl` call failed quietly — and a green run
+      # would report a fix nobody made.
+      #
+      # EVERY DIRECTIVE EXCEPT `ExecStart` COMES FROM THE SHIPPED FILE, filled
+      # by the same `sed` as the step above. A step that writes its own unit
+      # proves nothing about the one operators install.
+      - name: The systemd unit keeps its agents across a restart
+        run: |
+          set -euo pipefail
+
+          # A USER MANAGER IS THE OPEN POINT, so it is probed and never
+          # assumed. `enable-linger` starts a manager for `runner` that
+          # outlives this shell; without `XDG_RUNTIME_DIR` the client cannot
+          # find its bus. If no manager answers, the unit is installed as a
+          # system unit with `User=runner` and driven with `sudo` — `KillMode`
+          # behaves the same under both managers, and the step says which it
+          # used.
+          sudo loginctl enable-linger "$USER" || true
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          if systemctl --user is-system-running >/dev/null 2>&1 \
+             || systemctl --user show-environment >/dev/null 2>&1; then
+            MANAGER=user
+            SCTL="systemctl --user"
+            UNIT_DIR="$HOME/.config/systemd/user"
+          else
+            MANAGER=system
+            SCTL="sudo systemctl"
+            UNIT_DIR=/etc/systemd/system
+          fi
+          echo "Manager: $MANAGER"
+          sudo mkdir -p "$UNIT_DIR"
+
+          # THE STAND-IN IS A SCRIPT FILE, NOT AN INLINE `sh -c`. systemd
+          # expands `$VAR` and `%` specifiers in `ExecStart` before the shell
+          # sees the line, so `$!` inline resolves to nothing. The path is
+          # absolute because systemd versions differ on how they resolve a
+          # relative one.
+          #
+          # IT WRITES THE PID ONLY WHEN THE FILE IS ABSENT, because `restart`
+          # runs a second copy whose own `sleep` would otherwise overwrite the
+          # pid the assertion is about.
+          #
+          # IT IS WRITTEN WITH `printf`, NOT A HEREDOC. A quoted heredoc inside
+          # this indented `run:` block would need its terminator at the block's
+          # indentation, which `sh` does not match, and an unquoted one would
+          # let this shell expand the `$!` the stand-in must write itself.
+          STANDIN=/tmp/plot-standin-daemon.sh
+          PIDFILE=/tmp/plot-standin-agent.pid
+          rm -f "$PIDFILE"
+          printf '%s\n' \
+            '#!/bin/sh' \
+            '# The stand-in agent: a process the daemon starts and does not' \
+            '# wait for, which is what an agent is to this daemon.' \
+            'sleep 600 &' \
+            "[ -f $PIDFILE ] || echo \$! > $PIDFILE" \
+            'while :; do sleep 3600; done' \
+            > "$STANDIN"
+          chmod +x "$STANDIN"
+          echo "The stand-in daemon:"; cat "$STANDIN"
+
+          fill() {   # $1 = destination, $2 = "control" to delete the KillMode line
+            sed -e "s|__REPO_ROOT__|$PWD|g" \
+                -e "s|__NODE__|$(command -v node)|g" \
+                -e "s|__NODE_DIR__|$(dirname "$(command -v node)")|g" \
+                -e "s|__HARNESS_DIR__|$(dirname "$(command -v node)")|g" \
+                -e "s|__FLEETD__|$PWD/skills/plot/scripts/board/plot-fleetd.mjs|g" \
+                -e "s|^ExecStart=.*|ExecStart=/bin/sh $STANDIN|" \
+                skills/plot/units/plot-fleetd.service > /tmp/filled.service
+            if [ "${2:-}" = control ]; then
+              sed -i '/^KillMode=/d' /tmp/filled.service
+            fi
+            if [ "$MANAGER" = system ]; then
+              sed -i "/^\[Service\]/a User=$USER" /tmp/filled.service
+            fi
+            sudo cp /tmp/filled.service "$1"
+          }
+
+          # The pids are read into variables, so cleanup never depends on a
+          # file a second daemon may have rewritten. Never `pkill sleep`.
+          AGENT_PID=""; CONTROL_PID=""
+          cleanup() {
+            $SCTL stop plot-ci-killmode.service plot-ci-control.service 2>/dev/null || true
+            for p in $AGENT_PID $CONTROL_PID; do kill "$p" 2>/dev/null || true; done
+            sudo rm -f "$UNIT_DIR/plot-ci-killmode.service" "$UNIT_DIR/plot-ci-control.service"
+            $SCTL daemon-reload || true
+          }
+          trap cleanup EXIT
+
+          # ── The subject: the shipped unit, KillMode and all. ────────────────
+          fill "$UNIT_DIR/plot-ci-killmode.service"
+          $SCTL daemon-reload
+          $SCTL start plot-ci-killmode.service
+          # THE LOOP ENDS WITH `|| true`, so a pid file that never appears
+          # reaches the named error below instead of dying on `set -e` with no
+          # reason printed.
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            if [ -s "$PIDFILE" ]; then break; fi
+            sleep 1
+          done
+          AGENT_PID="$(cat "$PIDFILE" 2>/dev/null || true)"
+          if [ -z "$AGENT_PID" ]; then
+            echo "::error::the stand-in wrote no pid — did the unit start?"
+            $SCTL status plot-ci-killmode.service || true
+            exit 1
+          fi
+          echo "Stand-in agent pid: $AGENT_PID"
+
+          # THE AGENT WAS IN THE UNIT'S CGROUP, asserted BEFORE the restart.
+          # This is the assertion a naive step leaves out: a stand-in whose
+          # agent started outside the cgroup was never at risk, so its survival
+          # measures nothing at all.
+          if ! grep -q 'plot-ci-killmode' "/proc/$AGENT_PID/cgroup"; then
+            echo "::error::the stand-in agent is not in the unit's cgroup — the step would measure nothing"
+            cat "/proc/$AGENT_PID/cgroup"
+            exit 1
+          fi
+          echo "The agent is in the unit's cgroup:"
+          cat "/proc/$AGENT_PID/cgroup"
+
+          $SCTL restart plot-ci-killmode.service
+          sleep 2
+          if ! kill -0 "$AGENT_PID" 2>/dev/null; then
+            echo "::error::restart ended the agent — KillMode=process did not keep it alive"
+            exit 1
+          fi
+          echo "The agent survived the restart."
+
+          $SCTL stop plot-ci-killmode.service
+          sleep 2
+          if ! kill -0 "$AGENT_PID" 2>/dev/null; then
+            echo "::error::stop ended the agent — KillMode=process did not keep it alive"
+            exit 1
+          fi
+          echo "The agent survived the stop."
+
+          # ── The control: the same unit with `KillMode=` deleted, which is
+          #    origin/main's unit. Its agent MUST be gone after the restart. ───
+          rm -f "$PIDFILE"
+          fill "$UNIT_DIR/plot-ci-control.service" control
+          # AN `if`, NOT `grep && exit`. Under `set -e` a `grep -q` that finds
+          # nothing — the correct case here — makes the `&&` list exit 1 and
+          # kills the step before the control has run at all.
+          if grep -q '^KillMode=' /tmp/filled.service; then
+            echo "::error::the control still carries KillMode"; exit 1
+          fi
+          $SCTL daemon-reload
+          $SCTL start plot-ci-control.service
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            if [ -s "$PIDFILE" ]; then break; fi
+            sleep 1
+          done
+          CONTROL_PID="$(cat "$PIDFILE" 2>/dev/null || true)"
+          if [ -z "$CONTROL_PID" ]; then
+            echo "::error::the control wrote no pid — did the control unit start?"
+            $SCTL status plot-ci-control.service || true
+            exit 1
+          fi
+          if ! grep -q 'plot-ci-control' "/proc/$CONTROL_PID/cgroup"; then
+            echo "::error::the control agent is not in its unit's cgroup"
+            exit 1
+          fi
+          $SCTL restart plot-ci-control.service
+          sleep 2
+          if kill -0 "$CONTROL_PID" 2>/dev/null; then
+            echo "::error::the control agent survived — this step cannot tell KillMode from its absence"
+            exit 1
+          fi
+          echo "The control lost its agent, as origin/main's unit does."
+          echo "Measured under the $MANAGER manager."
+
+          # THE GROUP STOP (#1084), on Linux, beside the unit that keeps agents
+          # alive: a `boundedRun` prompt stays in its caller's process group, so
+          # `kill -TERM -<pgid>` ends the wrapper, the prompt and the prompt's
+          # child. The stand-ins are script files under test/fixtures, for the
+          # reason the stand-in above is one.
+          pnpm --filter @plot-pm/domain exec vitest run test/bounded-run-group-stop.test.ts
+
+      # A GATE, NOT A REPORT: `thresholds` makes this exit non-zero below 100%.
+      # Defensible in this package and nowhere else here — the purity boundary
+      # guarantees every line is reachable from a plain function call, so an
+      # uncovered line is a line nobody specified.
+      - name: Domain tests + coverage gate
+        if: ${{ needs.select.outputs.domain != 'false' }}
+        timeout-minutes: 10
+        run: pnpm --filter @plot-pm/domain exec vitest run --coverage
+
+      # ── Board (first-class): the Definition of Done requires the board to keep
+      #    working. Typecheck, tests, and a fresh build are gated here. ──────────
+      # A PULL REQUEST'S REBUILD DIFFERING FROM ITS CHECKOUT IS A WARNING, NOT
+      # AN ERROR: `check-no-bundle-diff.sh` already refused a PR that commits
+      # one, so this checkout holds `main`'s build, and a PR that changes
+      # board source always rebuilds to something else. On a push to `main`
+      # it is also a warning, except on the App's own build commit, where it
+      # is an error: until the bundle workflow pushes the build, `main` holds
+      # the previous one for one workflow run, and failing there would make
+      # `main` red by design. The decision lives in `scripts/main-bundles.sh`.
+      - name: Board build + artifact freshness
+        timeout-minutes: 10
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            ./scripts/main-bundles.sh pr
+          else
+            ./scripts/main-bundles.sh main
+          fi
+
+      # BOUNDED BECAUSE IT SPAWNS. This runs the board's `node --test` suites,
+      # which start real `board-server.mjs` processes — the population that hung
+      # locally on 2026-08-31 (two runs asleep at 0% CPU for 33 and 47 minutes,
+      # holding an orphaned server). A step that spawns can hang; a grep cannot,
+      # which is why the gates below carry no bound and this does.
+      - name: Board tests
+        if: ${{ needs.select.outputs.board != 'false' }}
+        timeout-minutes: 10
+        # Through `owned-run.sh`, like a local `test:board`: a private TMPDIR and
+        # HOME, and a leftover entry fails the step.
+        run: ./scripts/owned-run.sh pnpm --filter @plot-pm/board test
+
+      # ── Fleet: `@plot-pm/fleet` holds the supervisor tick, the agent loop and
+      #    their shared modules. The board build above builds its bundles. ──
+      # Runs after the board build: `worker-loop-bundle.test.mjs` reads the
+      # shipped bundles and `packages/fleet/dist/`, which that build writes.
+      - name: Fleet bundle tests
+        if: ${{ needs.select.outputs.fleet != 'false' }}
+        timeout-minutes: 10
+        run: ./scripts/owned-run.sh pnpm --filter @plot-pm/fleet exec node --test test/*.test.mjs
+
+      # A GATE, like the domain's coverage gate above and for the same reason:
+      # `loop-writes.ts` and `worker-loop.ts` are reachable from a plain call
+      # with no process, no port and no browser of their own, so an uncovered
+      # line there is a line nobody specified. `packages/fleet/vitest.config.ts`
+      # scopes the threshold to those two files.
+      - name: Fleet unit tests + loop coverage gate
+        if: ${{ needs.select.outputs.fleet != 'false' }}
+        timeout-minutes: 10
+        run: ./scripts/owned-run.sh pnpm --filter @plot-pm/fleet exec vitest run --coverage
+
+      # Board integration tests (vitest + Playwright) split out into their own
+      # `board-integration` job 2026-10-20 (#2121) — see the comment on that
+      # job above for the measurement that drove the split.
+
   # ── The required check: every job the selection named ended `success`. ──
   #
   # THE BRANCH RULESET REQUIRES `validate` AND `plot/review` (measured
@@ -2305,8 +2544,10 @@ jobs:
   # the run before any job's `if:` is evaluated.
   validate:
     runs-on: ubuntu-latest
-    needs: [select, checks, helper-contracts, board-integration]
+    needs: [select, gates, checks, helper-contracts, board-integration]
     if: ${{ !cancelled() }}
+    # 5 minutes. Measured 2026-11-09 on runs 42543760580 and 42542438425: 4 s
+    # and 3 s. The job checks nothing out; the cap bounds a hung runner.
     timeout-minutes: 5
     steps:
       # The dispatch guard, so a dispatched run on another ref or head fails
@@ -2338,6 +2579,7 @@ jobs:
       - name: Require the selected jobs
         if: ${{ !cancelled() }}
         env:
+          GATES: ${{ needs.gates.result }}
           CHECKS: ${{ needs.checks.result }}
           HELPER_CONTRACTS: ${{ needs.helper-contracts.result }}
           HELPER_CONTRACTS_SELECTED: ${{ needs.select.outputs.contracts }}
@@ -2358,6 +2600,7 @@ jobs:
               failed=1
             fi
           }
+          require gates "$GATES" true
           require checks "$CHECKS" true
           require helper-contracts "$HELPER_CONTRACTS" "$HELPER_CONTRACTS_SELECTED"
           require board-integration "$BOARD_INTEGRATION" "$BOARD_INTEGRATION_SELECTED"

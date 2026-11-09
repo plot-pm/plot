@@ -1,6 +1,6 @@
 # Process census
 
-The process census counts the program images (`execve` and `execveat`) that the board, fleetd and the desk monitors start in fixed scenarios. CI's `process-census` job runs it on every change that touches the product and fails a pull request whose count grows past the merge base. Plan: [`2026-11-08-process-census-gate`](plans/2026-11-08-process-census-gate.md). Story: [`nothing-changed-nothing-runs`](stories/nothing-changed-nothing-runs/STORY-nothing-changed-nothing-runs.md).
+The process census counts the program images (`execve` and `execveat`) that the board, fleetd and the desk monitors start in fixed scenarios. CI's `census-head`, `census-base` and `census-compare` jobs run it on every change that touches the product and fails a pull request whose count grows past the merge base. Plan: [`2026-11-08-process-census-gate`](plans/2026-11-08-process-census-gate.md). Story: [`nothing-changed-nothing-runs`](stories/nothing-changed-nothing-runs/STORY-nothing-changed-nothing-runs.md).
 
 ## Files
 
@@ -75,14 +75,14 @@ node packages/fleet/test/census/census-gate.mjs --base origin/main
 
 ## CI
 
-The `process-census` job in `.github/workflows/ci.yml` runs on `ubuntu-latest`:
+The census jobs in `.github/workflows/ci.yml` run on `ubuntu-latest`. `census-head` and `census-base` run in parallel after `gates` and `checks` and each upload a report as an artifact; `census-compare` downloads both and runs `census-gate.mjs --compare`:
 
 - The `select` job sets `census` to `true` for a `packages/board`, `packages/domain` or `packages/fleet` check (the rows live under `packages/fleet/test/census/`), for a changed path under `skills/plot/scripts/`, and for every change that selects every job. A push to `main` and a dispatched run select it always.
 - One step installs `strace` with `apt-get` when the image lacks it and logs that. A second step reads `kernel.yama.ptrace_scope`, lowers 2 to 1 with a log line, fails by name on 3, and traces a two-level tree once.
 - A third step starts the runner user's systemd manager (`loginctl enable-linger`), exports `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS` to later steps, and fails by name unless `systemd-run --user` starts a transient service that systemd gives an `INVOCATION_ID`.
 - A pull request compares with `git merge-base HEAD origin/<base branch>`. A push to `main` compares with the event's `before` SHA. A dispatched run compares with `main`.
-- The job is not in `validate`'s `needs:` and is not a required check.
-- The census step has a 40-minute cap and the job a 50-minute cap. On the first Linux run (PR #3237, 2026-11-08) the census against HEAD took 830 s, and the steps before it 32 s.
+- The jobs are not in `validate`'s `needs:` and are not required checks.
+- Each half has a 20-minute step cap and a 25-minute job cap; `census-compare` has a 5-minute job cap. On the first Linux run (PR #3237, 2026-11-08) the census against HEAD took 830 s, and the steps before it 32 s.
 
 ## The fixtures
 
