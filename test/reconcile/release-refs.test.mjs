@@ -30,6 +30,7 @@
 // forever. A test that avoided `gh` could not reach the gate at all. The stub
 // is a real executable on PATH, not a shell function, because `pr_merged` gates
 // on `command -v gh` before calling it.
+import { restPullsStubSource } from './rest-pulls-shim.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -105,8 +106,9 @@ function stubGh(tmp, prs) {
   const gh = path.join(bin, 'gh');
   fs.writeFileSync(gh, `#!/usr/bin/env node
 const argv = process.argv.slice(2);
-if (argv[0] !== 'pr' || argv[1] !== 'list') { process.exit(1); }
 const table = ${JSON.stringify(prs)};
+${restPullsStubSource("(h) => h ? (table[h] || []).map((p) => ({ ...p, headRefName: h })) : Object.entries(table).flatMap(([b, rows]) => rows.map((p) => ({ ...p, headRefName: b })))")}
+if (argv[0] !== 'pr' || argv[1] !== 'list') { process.exit(1); }
 const hi = argv.indexOf('--head');
 const head = hi === -1 ? null : argv[hi + 1];
 const si = argv.indexOf('--state');
