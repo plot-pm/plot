@@ -67,6 +67,8 @@ import {
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 import type { GateContractReader } from '@plot-pm/domain/ports/gate-contract';
 import { SPAWN_CONTRACT } from '@plot-pm/domain/rules/spawn-contract';
+import { writeTarget } from '@plot-pm/domain/rules/write-target';
+import { isSyncHead } from '@plot-pm/domain/rules/state-sync';
 import type { ReaderLock } from '@plot-pm/domain/ports/reader-lock';
 import type { ProcessProbe } from '@plot-pm/domain/ports/process-probe';
 import { people } from './server-info.js';
@@ -3005,9 +3007,10 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
     cards: withFacts.filter((c) => c.phase === name),
   }));
 
-  // The open sync PR runs from the state branch, so its head names the key.
-  const syncPr = stateBranch.trim() === '' ? null
-    : [...(prLinks?.values() ?? [])].find((r) => r.state === 'OPEN' && r.head === stateBranch.trim())?.number ?? null;
+  // The open sync PR runs from the state branch. The PR records carry no base branch, so the head alone identifies it here.
+  const syncTarget = writeTarget(stateBranch, defaultBranch);
+  const syncPr = syncTarget.kind !== 'state' ? null
+    : [...(prLinks?.values() ?? [])].find((r) => r.state === 'OPEN' && isSyncHead(r.head, syncTarget))?.number ?? null;
   // A recorded forward-merge conflict names its files in the lag line; an unread record shows none.
   const refusal = stateBranch.trim() === '' ? null : await stateSyncFile({ cwd: repoRoot }).refusal();
   const conflictFiles = refusal !== null && refusal.ok && refusal.value !== null ? refusal.value.files : [];

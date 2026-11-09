@@ -14,7 +14,8 @@ const scriptsOf = (answers: Run[]) => {
     },
   };
 };
-const ok = (kind: string, extra = {}): Run => ({ stdout: `${JSON.stringify({ kind, ...extra })}\n`, stderr: '', code: 0 });
+// The shape `plot-state-sync.mjs` prints: `{"done":…}`, one line.
+const ok = (done: string, extra = {}): Run => ({ stdout: `${JSON.stringify({ done, ...extra })}\n`, stderr: '', code: 0 });
 
 describe('stateSyncTick', () => {
   it('ends silently after one call where no key is declared', async () => {
@@ -47,6 +48,12 @@ describe('stateSyncTick', () => {
     const warned: string[] = [];
     await stateSyncTick(scripts, (l) => warned.push(l))();
     expect(warned[0]).toContain('forward failed (exit 1): boom');
+  });
+  it('names the reason a failed report gives in its why field', async () => {
+    const scripts = scriptsOf([{ stdout: '{"done":"failed","why":"the origin could not be asked"}\n', stderr: 'plot-state-sync: x\n', code: 1 }, ok('none')]);
+    const warned: string[] = [];
+    await stateSyncTick(scripts, (l) => warned.push(l))();
+    expect(warned[0]).toContain('forward failed (exit 1): the origin could not be asked');
   });
 });
 

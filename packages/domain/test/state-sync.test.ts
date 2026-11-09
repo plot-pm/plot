@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { writeTarget, type StateWriteTarget } from '../src/rules/write-target.js';
 import {
   forwardSync,
+  isSyncHead,
   isSyncPr,
   syncPathSet,
   syncPathVerdict,
@@ -152,6 +153,15 @@ describe('syncPrDecision', () => {
     expect(syncPrDecision(pr({ caller: 'command' }))).toEqual({ kind: 'open' });
     expect(syncPrDecision(pr({ caller: 'command', fleetLive: true }))).toEqual({ kind: 'none', reason: 'fleet-owns-it' });
     expect(syncPrDecision(pr({ caller: 'command', fleetLive: 'unknown' }))).toEqual({ kind: 'unknown', reason: 'fleet-unread' });
+  });
+});
+
+describe('isSyncHead', () => {
+  it('matches the state branch whether the key is short or full', () => {
+    expect(isSyncHead('plot/state', target('plot/state'))).toBe(true);
+    expect(isSyncHead('plot/state', target('refs/heads/plot/state'))).toBe(true);
+    expect(isSyncHead('refs/heads/plot/state', target('plot/state'))).toBe(false);
+    expect(isSyncHead('plot/state', target('refs/plot/state'))).toBe(false);
   });
 });
 

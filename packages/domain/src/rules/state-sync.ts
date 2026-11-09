@@ -91,7 +91,17 @@ export interface SyncPrShape {
  *   A non-branch state ref never has one.
  */
 export const isSyncPr = (pr: SyncPrShape, target: StateWriteTarget, defaultBranch: string): boolean =>
-  target.isBranch && `refs/heads/${pr.head}` === target.pushRef && pr.base === defaultBranch;
+  isSyncHead(pr.head, target) && pr.base === defaultBranch;
+
+/**
+ * Whether a pull request's head branch is the state branch.
+ *
+ * @param head - the head branch's short name, as the host names it.
+ * @param target - the resolved state target; a key written as `x` and as `refs/heads/x` resolve to one target.
+ * @returns true where the head is the state branch. A non-branch state ref matches no head.
+ */
+export const isSyncHead = (head: string, target: StateWriteTarget): boolean =>
+  target.isBranch && `refs/heads/${head}` === target.pushRef;
 
 /** A forward-merge conflict a tick met, keyed by the two tips it merged. */
 export interface ForwardRefusal {

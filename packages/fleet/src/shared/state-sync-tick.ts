@@ -33,15 +33,16 @@ export const stateSyncTick = (scripts: Pick<Scripts, 'awaited'>, warn: (line: st
   const lastLine = (text: string): string => text.trim().split('\n').filter((l) => l !== '').pop() ?? '';
   const causeOf = (step: string, run: { stdout: string; stderr: string; code: number }): string | null => {
     const line = lastLine(run.stdout);
-    let parsed: { kind?: string; files?: string[]; reason?: string } | null = null;
+    let parsed: { done?: string; files?: string[]; reason?: string; why?: string } | null = null;
     try {
       parsed = line === '' ? null : JSON.parse(line);
     } catch {
       parsed = null;
     }
-    if (run.code === 0 && parsed?.kind === 'refused') return `conflict in ${(parsed.files ?? []).join(', ') || 'unnamed files'}`;
+    if (run.code === 0 && parsed?.done === 'refused') return `conflict in ${(parsed.files ?? []).join(', ') || 'unnamed files'}`;
     if (run.code === 0) return null;
-    return `${step} failed (exit ${run.code})${parsed?.reason ? `: ${parsed.reason}` : lastLine(run.stderr) ? `: ${lastLine(run.stderr)}` : ''}`;
+    const said = parsed?.why ?? parsed?.reason ?? lastLine(run.stderr);
+    return `${step} failed (exit ${run.code})${said ? `: ${said}` : ''}`;
   };
   return async () => {
     const forward = await scripts.awaited('plot-state-sync.mjs', ['--forward'], { timeoutMs: RUN_BOUND_MS });

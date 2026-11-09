@@ -161,6 +161,19 @@ describe('the forward sync', () => {
     expect((await forwardOnce(f.deps))?.report).toMatchObject({ done: 'refused', files: [PLAN] });
   });
 
+  it('reports a conflict it could not record as failed', async () => {
+    const f = fixture('plot/state', { record: { ...stateSyncFile({ home: 'x' }), lockHeld: async () => false, refusal: async () => ({ ok: true, value: null }), refuse: async () => ({ ok: false, why: 'failed' as const }) } as StateSyncRecord });
+    git(f.repo, 'checkout', '-q', '-b', 'edit', 'origin/plot/state');
+    writeFileSync(path.join(f.repo, PLAN), planText('Delivered', 'state side'));
+    git(f.repo, 'commit', '-q', '-am', 'state edit');
+    git(f.repo, 'push', '-q', 'origin', 'edit:refs/heads/plot/state');
+    git(f.repo, 'checkout', '-q', 'main');
+    moveMain(f, PLAN, planText('Approved', 'main side'));
+    const done = await forwardOnce(f.deps);
+    expect(done?.code).toBe(1);
+    expect(done?.report).toMatchObject({ done: 'failed', why: `the conflict in ${PLAN} could not be recorded`, files: [PLAN] });
+  });
+
   it('forward-merges a refs/plot/state key and opens no pull request', async () => {
     const f = fixture('refs/plot/state');
     moveMain(f, 'docs/note.md', 'n\n');
@@ -199,6 +212,8 @@ describe('the sync pull request through the entry', () => {
     deliver(g);
     expect((await prOnce(g.deps, 'fleetd'))?.report).toEqual({ done: 'refreshed', pr: 5 });
     expect(g.created).toEqual([]);
+    expect(g.commented).toEqual([5]);
+    expect((await prOnce(g.deps, 'fleetd'))?.report).toEqual({ done: 'none', reason: 'unchanged' });
     expect(g.commented).toEqual([5]);
   });
 

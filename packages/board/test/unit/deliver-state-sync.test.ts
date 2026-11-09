@@ -61,10 +61,10 @@ describe('a delivery asks for the sync PR as the command caller', () => {
   };
 
   it('calls the entry once with --pr --caller command and prints what it said', async () => {
-    const r = await deliver(`process.stdout.write('{"kind":"opened","pr":9}\\n');`);
+    const r = await deliver(`process.stdout.write('{"done":"opened","url":"https://host/pr/9"}\\n');`);
     expect(r.code, r.err).toBe(0);
     expect(r.calls).toEqual(['--pr --caller command']);
-    expect(r.out).toContain('  state-sync: {"kind":"opened","pr":9}\n');
+    expect(r.out).toContain('  state-sync: {"done":"opened","url":"https://host/pr/9"}\n');
   }, 60_000);
 
   it('prints nothing where no key is declared (exit 4)', async () => {

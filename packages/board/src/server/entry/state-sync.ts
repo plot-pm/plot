@@ -26,7 +26,7 @@ import { pushUnderLock, Refused, stateTargetOf, type LadderContext, type Printer
  * plot-state-sync.mjs --forward
  * # one JSON line: {"done":"merged"|"idle"|"wait"|"refused"|"failed", ...}
  * # exit 0 — the tick was decided and acted on, including a wait and a recorded conflict
- * # exit 1 — a port failed or the push was refused; the reason is on stderr
+ * # exit 1 — a port failed, the push was refused, or a conflict could not be recorded; the reason is on stderr
  * # exit 4 — no `State branch` key is declared; nothing was done
  *
  * plot-state-sync.mjs --pr [--caller fleetd|command]
@@ -121,7 +121,11 @@ export const forwardOnce = async (deps: StateSyncDeps): Promise<{ report: Json; 
     const merged = await deps.trees.mergeIn(tree, target.defaultRef, 'plot');
     if (!merged.ok) return { report: { done: 'failed', why: `git refused merging ${target.defaultRef}` }, code: 1 };
     if (merged.value.length > 0) {
-      await deps.record.refuse({ defaultTip, stateTip, files: merged.value });
+      const recorded = await deps.record.refuse({ defaultTip, stateTip, files: merged.value });
+      // An unrecorded conflict would be merged again on the next tick, so the tick reports it as failed.
+      if (!recorded.ok) {
+        return { report: { done: 'failed', why: `the conflict in ${merged.value.join(', ')} could not be recorded`, files: merged.value, defaultTip, stateTip }, code: 1 };
+      }
       return { report: { done: 'refused', files: merged.value, defaultTip, stateTip }, code: 0 };
     }
     const pushed = await deps.pushFrom(tree, target.pushRef);
