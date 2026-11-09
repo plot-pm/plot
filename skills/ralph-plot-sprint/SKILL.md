@@ -5,7 +5,7 @@ description: >
   Use when ralph-sprint.sh drives a sprint iteration, or when manually
   debugging a specific sprint iteration by slug.
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot

@@ -15,6 +15,7 @@ import { heartbeatIsFresh } from '../rules/reader-election.js';
 import { statusStateOf } from '../rules/state-transition.js';
 import {
   SYNC_PR_MARKER,
+  aheadSinceTreeEqual,
   forwardSync,
   isSyncPr,
   syncPrBody,
@@ -38,7 +39,7 @@ export interface StateSyncSource {
 /** The ports one sync read or act needs. */
 export interface StateSyncPorts {
   readonly host: Pick<Host, 'prList' | 'prCreate' | 'prComment'>;
-  readonly refs: Pick<Refs, 'commitSubjects' | 'changedFiles' | 'showFile' | 'fileExistsSync' | 'resolve'>;
+  readonly refs: Pick<Refs, 'commitSubjects' | 'firstParentCommits' | 'changedFiles' | 'showFile' | 'fileExistsSync' | 'resolve'>;
   /** The last refresh this machine posted; a refresh the host took is recorded here. */
   readonly record: Pick<StateSyncRecord, 'refreshed' | 'noteRefresh'>;
 }
@@ -51,6 +52,33 @@ export interface StateSyncPorts {
 export const commitsBetween = async (refs: Pick<Refs, 'commitSubjects'>, to: string, from: string): Promise<number | null> => {
   const range = await refs.commitSubjects(`${to}..${from}`);
   return range.ok ? range.value.length : null;
+};
+
+/**
+ * Counts the commits `trackRef` holds that `defaultRef` does not yet hold in content.
+ *
+ * Reads the state branch's first-parent line, the default tip's tree and the
+ * trees of the default branch's first-parent commits since the state line's
+ * oldest commit forked, then asks {@link aheadSinceTreeEqual}. Every reader of
+ * the ahead count calls this.
+ *
+ * @returns the count; null where a read fails. An empty line reads 0.
+ */
+export const commitsAhead = async (
+  refs: Pick<Refs, 'firstParentCommits' | 'resolve'>,
+  defaultRef: string,
+  trackRef: string,
+): Promise<number | null> => {
+  const line = await refs.firstParentCommits(`${defaultRef}..${trackRef}`);
+  if (!line.ok) return null;
+  const oldest = line.value[line.value.length - 1];
+  if (oldest === undefined) return 0;
+  const [tree, landed] = await Promise.all([
+    refs.resolve(`${defaultRef}^{tree}`),
+    refs.firstParentCommits(`${oldest.sha}^..${defaultRef}`),
+  ]);
+  if (!tree.ok || !landed.ok) return null;
+  return aheadSinceTreeEqual(line.value, [tree.value, ...landed.value.map((commit) => commit.tree)]);
 };
 
 /**
@@ -123,7 +151,7 @@ export const syncPrAt = async (
 ): Promise<SyncPrResult> => {
   const open = source.target.isBranch ? await openSyncPr(ports.host, source) : null;
   const pending = source.target.isBranch ? await deliveredPending(ports.refs, source) : false;
-  const ahead = source.target.isBranch ? await commitsBetween(ports.refs, source.target.defaultRef, source.target.trackRef) : 0;
+  const ahead = source.target.isBranch ? await commitsAhead(ports.refs, source.target.defaultRef, source.target.trackRef) : 0;
   const said = open !== null && open !== 'unknown' ? await ports.record.refreshed() : null;
   const refreshed = said !== null && said.ok ? said.value : null;
   const decision: SyncPrDecision = syncPrDecision({ caller, target: source.target, deliveredPending: pending, ahead, open, fleetLive, refreshed });

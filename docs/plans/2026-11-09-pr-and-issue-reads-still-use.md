@@ -7,7 +7,7 @@
 - **State:** Approved
 - **Type:** bug
 - **Approved:** 2026-11-09, Jan Wloka, plan-PR #3318 merged
-- **Sprint:** ship-2-32-0
+- **Sprint:** 
 - **Issue:** #3317
 - **Review:** pr
 - **Impl:** own branches
@@ -87,6 +87,7 @@ Measured on this repository, 2026-11-08 and 2026-11-09 (issue #3317):
 
 ## Notes
 
+- 2026-11-09, Jan Wloka: superseded by plan `github-reads-in-process` (story `nothing-changed-nothing-runs`, Phase 7; Seam slice PR #3338). The slice's REST bodies grew `plot-host.sh` by 71 commands, which `scripts/check-shell-lines.sh pr` refuses, and the in-process GitHub adapter removes these reads from the shell instead. The plan left sprint `ship-2-32-0`; branch `bug/pr-and-issue-reads-still-use` stays as a reference and is not merged.
 - Related: #3265 (#3271, `bug/github-arms-use-rest`), `issue-writes-have-a-rest-route`.
 - Deliverable search found no existing REST route for these five ops.
 - Definition of Done: docs/definition-of-done.md.

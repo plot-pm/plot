@@ -4,7 +4,7 @@ description: >-
   Compute a safe merge order for a plan's finished branches and predict which
   will collide, without merging anything. Use on /plot-merge-queue.
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot

@@ -7,7 +7,7 @@ description: >-
   with a draft PR, on the work branch, or directly on the default branch.
   Part of the Plot workflow. Use on /plot-idea.
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot

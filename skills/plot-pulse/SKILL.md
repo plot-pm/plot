@@ -7,7 +7,7 @@ description: >-
   produced. Use on
   /plot-pulse.
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot

@@ -4,7 +4,7 @@ description: >-
   Reverse a premature delivery — move plan from Delivered back to Approved.
   Part of the Plot workflow. Use on /plot-reject.
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot

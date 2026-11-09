@@ -54,7 +54,7 @@ Layering: the free-loop decision is a rule about agent state, so it belongs in t
 
 ### Restart
 
-- `feature/plot-fleetctl-restart` — `--restart` reloads the supervisor, keeps every agent, reports old and new pid and commit; refuses with no loaded unit. Contract test: a running free loop and a running busy agent both survive and a new supervisor pid is reported.
+- `feature/plot-fleetctl-restart` — `--restart` reloads the supervisor, keeps every agent, reports old and new pid and commit; refuses with no loaded unit. Contract test: a running free loop and a running busy agent both survive and a new supervisor pid is reported. → #3340
 
 ### Free loops
 
@@ -63,3 +63,4 @@ Layering: the free-loop decision is a rule about agent state, so it belongs in t
 ## Notes
 
 - Source: issue #3329. The plan links one way; nothing is written to the tracker.
+- 2026-11-09, Restart slice: `check-shell-lines.sh pr` refused #3340 at 36 commands over the merge base, and in-scope trimming yields about 15. The slice writes the restart decision (which unit is loaded, whether the `--start` probes refuse, the report of old pid, new pid and bundle commit) as a rule in `packages/domain/src/rules` with a unit test, and asks it through a bundle under `skills/plot/scripts/board/`. `plot-fleetctl.sh --restart` only calls the bundle and runs the reload it names. The shell diff ends at or below the merge base. The gate has no exemption, and removing unrelated shell is out of scope.

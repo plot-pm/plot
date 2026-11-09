@@ -171,6 +171,23 @@ export interface CommitSubject {
   parentTree: string | null;
 }
 
+/**
+ * One commit on a range's first-parent line, as {@link Refs.firstParentCommits}
+ * reports it.
+ */
+export interface FirstParentCommit {
+  /** The full object name. */
+  sha: string;
+  /** The commit's tree id. */
+  tree: string;
+  /**
+   * Whether the commit is a merge whose second parent lies outside the range,
+   * on the range's excluded side. Such a merge carries the excluded side's
+   * content and no commit of the range's own.
+   */
+  forward: boolean;
+}
+
 /** One merge commit, as a merges walk reports it. */
 export interface MergeCommit {
   /** The full object name. */
@@ -696,6 +713,16 @@ export interface Refs {
    *   does not exist.
    */
   commitSubjects(range: string): Promise<PortResult<readonly CommitSubject[]>>;
+
+  /**
+   * Reads the first-parent line of a range, each commit with its tree.
+   *
+   * @param range - `<excluded>..<tip>`.
+   * @returns the tip's first-parent commits inside the range, newest first;
+   *   empty for a range with none. A failed result where git could not read
+   *   the range.
+   */
+  firstParentCommits(range: string): Promise<PortResult<readonly FirstParentCommit[]>>;
 
   /**
    * The commit that first added each file under a directory, on one ref.
