@@ -16,8 +16,8 @@ import { sliceKeyOf } from './sections.js';
 
 /** The two `## Plot Config` keys the rule reads, as the server carried them. */
 export interface DeliveryConfig {
-  autoReview: boolean;
-  correctionBudget: number;
+  autoReview?: boolean | undefined;
+  correctionBudget?: number | undefined;
 }
 
 /** A registry entry, with the role the registry declares where it declares one. */
@@ -207,9 +207,10 @@ export const deliveryMapping = (input: DeliveryMapInput): DeliveryMapping => {
     readings: { items, agents },
     input: {
       mine: MINE[input.mode],
-      autoReview: input.config.autoReview,
-      correctionBudget: input.config.correctionBudget,
-    },
+      // A key the payload did not carry stays absent. The rule types both as
+      // required, so the cast is the one place the mapper cannot say so.
+      ...input.config,
+    } as DeliveryInput,
     rowsByItem,
     draftsByItem,
     agentsById,

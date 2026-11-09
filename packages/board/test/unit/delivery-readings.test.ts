@@ -103,3 +103,11 @@ describe('deliveryMapping', () => {
     expect(lost.stage).toBeUndefined();
   });
 });
+
+describe('absent config keys', () => {
+  it('carries no autoReview or correctionBudget the payload did not state', () => {
+    const m = deliveryMapping(input({ config: {} }));
+    expect('autoReview' in m.input && m.input.autoReview !== undefined).toBe(false);
+    expect('correctionBudget' in m.input && m.input.correctionBudget !== undefined).toBe(false);
+  });
+});

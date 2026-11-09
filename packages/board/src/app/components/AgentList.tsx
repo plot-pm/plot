@@ -1019,7 +1019,7 @@ export function AgentList({
           drafts: draftPlanRows(fleet.draftPlans ?? [], fleet.rows ?? []),
           reader,
           mode,
-          config: fleet.placementConfig ?? { autoReview: false, correctionBudget: 2 },
+          config: { autoReview: fleet.autoReview, correctionBudget: fleet.correctionBudget },
         });
         const view = placeMapping(mapping);
         const slices = fleet.slices;

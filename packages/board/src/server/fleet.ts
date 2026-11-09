@@ -8113,7 +8113,8 @@ export async function buildFleet(
     ]);
   const { map: phaseMap } = declaredPhaseMap(phasesValue);
   const autoReviewValue = await readConfigAsync(opts, 'Auto-review', '');
-  const correctionBudgetValue = Number(await readConfigAsync(opts, 'Correction budget', '2'));
+  const correctionBudgetValue = await readConfigAsync(opts, 'Correction budget', '');
+  const correctionBudgetNumber = Number(correctionBudgetValue);
   // Each open PR's branch tip, read from the local remote-tracking refs the scan
   // already fetched: zero host calls. A failed read attaches no tip, and the
   // rows then answer exactly as they did before.
@@ -8332,10 +8333,10 @@ export async function buildFleet(
       : undefined,
     issueError: entry.issueError,
     issueAbsence: entry.issueAbsence,
-    placementConfig: {
-      autoReview: autoReviewValue.trim().toLowerCase() === 'true',
-      correctionBudget: Number.isFinite(correctionBudgetValue) ? correctionBudgetValue : 2,
-    },
+    ...(autoReviewValue === '' ? {} : { autoReview: autoReviewValue.toLowerCase() === 'true' }),
+    ...(correctionBudgetValue === '' || !Number.isFinite(correctionBudgetNumber)
+      ? {}
+      : { correctionBudget: correctionBudgetNumber }),
     // Set only where `entry.issues` came from `issues.json` rather than a live
     // read — null means the rows are either fresh or not aged at all (an
     // `unsupported` source, or no read has happened yet).
