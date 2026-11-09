@@ -79,6 +79,7 @@ The census jobs in `.github/workflows/ci.yml` run on `ubuntu-latest`. `census-he
 
 - The `select` job sets `census` to `true` for a `packages/board`, `packages/domain` or `packages/fleet` check (the rows live under `packages/fleet/test/census/`), for a changed path under `skills/plot/scripts/`, and for every change that selects every job. A push to `main` and a dispatched run select it always.
 - One step installs `strace` with `apt-get` when the image lacks it and logs that. A second step reads `kernel.yama.ptrace_scope`, lowers 2 to 1 with a log line, fails by name on 3, and traces a two-level tree once.
+- A third step starts the runner user's systemd manager (`loginctl enable-linger`), exports `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS` to later steps, and fails by name unless `systemd-run --user` starts a transient service that systemd gives an `INVOCATION_ID`.
 - A pull request compares with `git merge-base HEAD origin/<base branch>`. A push to `main` compares with the event's `before` SHA. A dispatched run compares with `main`.
 - The jobs are not in `validate`'s `needs:` and are not required checks.
 - Each half has a 20-minute step cap and a 25-minute job cap; `census-compare` has a 5-minute job cap. On the first Linux run (PR #3237, 2026-11-08) the census against HEAD took 830 s, and the steps before it 32 s.
@@ -86,6 +87,8 @@ The census jobs in `.github/workflows/ci.yml` run on `ubuntu-latest`. `census-he
 ## The fixtures
 
 - The sandbox sets no `PLOT_PR_INDEX_HOME` and no `PLOT_ISSUE_INDEX_HOME`. The PR index, the reader lock and the issue index resolve from the sandbox repository's common git dir, as on an operator's machine, so the census counts the `git rev-parse --git-common-dir` that P3 and P4 name.
+- The sandbox drops the systemd unit variables (`INVOCATION_ID`, `JOURNAL_STREAM`, `SYSTEMD_EXEC_PID`, `MANAGERPID`, `NOTIFY_SOCKET`). The CI runner's own unit sets them for every step, and a fleetd started by hand would inherit them and read as supervised.
+- S3 starts fleetd as a transient service of the user's systemd manager (`systemd-run --user --pipe`), as an operator runs it (jwloka, 2026-11-09). Its heartbeat reads `supervised: systemd`, and a row of S3's suite asserts it. fleetd stays untraced: it is not a descendant of the traced board host.
 - The board counts P3 over S3's window, where an attached page runs its pulse. With no page attached the board runs no pass after its first read, so S1's window cannot show P3.
 - `board-host.mjs` stops the board's process group and every descendant it lists by pid, and waits until each has exited. The PR reader that the board starts runs in its own process group.
 

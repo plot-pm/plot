@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { startBoard, type BoardRun } from './board-driver.js';
@@ -142,8 +145,11 @@ describe.skipIf(gate.kind !== 'run')('an idle board with one visible page and fl
     box = await buildSandbox(fixture);
     entry = await buildFleetdEntry();
     // fleetd UNTRACED, on the system clock: S3 counts the board's tree, and
-    // S4 counts fleetd's.
-    fleetd = startFleetd(entry, box, { trace: false, clock: 'system' });
+    // S4 counts fleetd's. UNDER systemd, as an operator runs it (decided
+    // 2026-11-09, `fleetd-heartbeat-not-data-age`, Open Question 1): its
+    // heartbeat then reads `supervised: systemd`, and the board takes the
+    // supervisor from the heartbeat rather than from `plot-fleetctl.sh --status`.
+    fleetd = startFleetd(entry, box, { trace: false, clock: 'system', supervisor: 'systemd' });
     await fleetd.session.waitFor(/^plot-fleetd: supervising /, 60_000);
     window = await measureBoard(box, async (board) => {
       const page = await board.attach();
@@ -157,7 +163,12 @@ describe.skipIf(gate.kind !== 'run')('an idle board with one visible page and fl
     await box?.remove();
   });
 
-  it.fails(rowTitle(CENSUS_ROWS.S3, fixture), () => {
+  it('runs fleetd under a systemd unit of its own', () => {
+    const heartbeat = JSON.parse(readFileSync(join(box.repo, '.plot/state/fleetd.json'), 'utf8')) as { supervised?: string };
+    expect(heartbeat.supervised).toBe('systemd');
+  });
+
+  it(rowTitle(CENSUS_ROWS.S3, fixture), () => {
     recordCount(CENSUS_ROWS.S3, fixture, perMinute(window.execs.length), window.execs);
     expect(window.execs).toHaveLength(0);
   });

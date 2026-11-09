@@ -36,7 +36,8 @@ export const CENSUS_ROWS = {
     claim: 'an idle board with one visible SSE client and fleetd running starts nothing',
     unit: 'execve per minute',
     target: 'zero',
-    greenBy: { plan: 'board-reads-the-channel', phase: 'Phase 4' },
+    greenBy: { plan: 'board-reads-the-channel', slice: 'Census zero' },
+    green: true,
   },
   S4: {
     id: 'S4',

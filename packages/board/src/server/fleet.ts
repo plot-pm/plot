@@ -38,7 +38,7 @@ import {
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
 import { blobIdOfBytes, parsePlanMetaFiles, planSlug, heldRefsFor, workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
-import type { Refs } from '@plot-pm/domain/ports/refs';
+import type { RefState, Refs } from '@plot-pm/domain/ports/refs';
 import type { BuildPort } from '@plot-pm/domain';
 import type { DetachedProcess } from '@plot-pm/domain/ports/detached';
 import { electReader, HEARTBEAT_STALE_MS, type ReaderClaim, type ReaderVerdict } from '@plot-pm/domain/rules/reader-election';
@@ -159,7 +159,7 @@ import { workerQuestions } from '@plot-pm/fleet/shared/worker-question';
 import { briefPath as briefPathOf } from '@plot-pm/fleet/shared/brief-path';
 import { briefReading } from './brief-ask-log.js';
 import { findingsFor } from './findings.js';
-import { identity, people } from './server-info.js';
+import { heldIdentity, people } from './server-info.js';
 
 /**
  * How long a branch may sit without a commit before it reads as quiet rather
@@ -1672,14 +1672,17 @@ export async function refreshRuns(
  *
  * @param opts - the board's repo root and scripts directory.
  * @param entry - the cache entry holding `ideaPlans` and `prs`, or undefined.
+ * @param refEntries - the refs fleetd's snapshot read, where the board serves
+ *   from it: the reads are keyed by those oids, and no `for-each-ref` runs.
  * @returns one record per plan, or null when the plans cannot be read or a
  *   line fails the schema — which is not a claim that nothing is planned.
  */
 export async function planMetasAtDefault(
   opts: BuildBoardOptions,
   entry?: Pick<CacheEntry, 'ideaPlans' | 'prs'>,
+  refEntries?: readonly RefState[],
 ): Promise<PlanMeta[] | null> {
-  const refs = (await heldRefsFor(opts)).refs;
+  const refs = (await heldRefsFor(opts, refEntries)).refs;
   const planDir = await planDirectory(scriptsFor(opts));
   const defaultBranch = await defaultBranchOf(opts, refs);
   const resolved = await refs.resolve(`origin/${defaultBranch}`);
@@ -1791,13 +1794,15 @@ async function planMetasFromWorkingTree(
  *
  * @param opts - the board's repo root and scripts directory.
  * @param entry - the cache entry holding the pulses, `ideaPlans` and `prs`.
+ * @param refEntries - the refs fleetd's snapshot read, where the board serves from it.
  * @returns the plans per issue key, or null when the plans cannot be read.
  */
 async function ticketPlansOf(
   opts: BuildBoardOptions,
   entry: Pick<CacheEntry, 'ideaPlans' | 'prs' | 'pulse' | 'lastComplete'>,
+  refEntries?: readonly RefState[],
 ): Promise<Map<string, TicketPlan[]> | null> {
-  const metas = await planMetasAtDefault(opts, entry);
+  const metas = await planMetasAtDefault(opts, entry, refEntries);
   if (metas === null) return null;
   const byIssue = new Map<string, TicketPlan[]>();
   for (const meta of metas) {
@@ -2188,7 +2193,7 @@ const waitingOf = async (
   inbox: readonly IssueIndexRow[] | undefined = undefined,
   inboxAnswer: InboxAnswer | undefined = undefined,
 ): Promise<FleetWaiting> => {
-  const [who, directory] = await Promise.all([identity(opts), people(opts)]);
+  const [who, directory] = await Promise.all([heldIdentity(opts), people(opts)]);
   const reader: Reader = { hostUser: who.hostUser, gitEmail: who.gitEmail, directory };
   const result = waitingTickets(rows, inbox, reader, source, complete, plans, inboxAnswer);
   return {
@@ -2493,8 +2498,15 @@ const offlineIssueRowsInto = async (
  * - A `failed` index shows its kept rows under the failure line.
  * - An answered index shows its rows minus the issues a plan names, at most
  *   {@link ISSUE_LIMIT}.
+ *
+ * `refEntries` are the refs fleetd's snapshot read, where the board serves
+ * from it; the plans an issue names are then read at those oids.
  */
-const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): Promise<void> => {
+const readIssuesFromStore = async (
+  opts: BuildBoardOptions,
+  entry: CacheEntry,
+  refEntries?: readonly RefState[],
+): Promise<void> => {
   const declared = await scriptsFor(opts).config('Tracker', '');
   const source = issueSource({
     declared: declared.ok ? declared.value : '',
@@ -2538,7 +2550,7 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
     entry.waiting = null;
     return;
   }
-  const plans = await ticketPlansOf(opts, entry);
+  const plans = await ticketPlansOf(opts, entry, refEntries);
   if (plans === null) {
     entry.issueAnswer = 'failed';
     entry.issueError = 'plans could not be read, so no issue can be called unplanned';
@@ -2873,10 +2885,14 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
   // index, which is a file read.
   // The heartbeat is read here rather than taken from the last refresh: the
   // pulse starts this read beside the first scan, before that scan has read it.
-  if (opts.channelSnapshot !== undefined && snapshotToServe(opts, entry, await fleetdHeartbeatFor(opts), Date.now()) !== null) {
+  const held = opts.channelSnapshot === undefined ? null : snapshotToServe(opts, entry, await fleetdHeartbeatFor(opts), Date.now());
+  if (held !== null) {
     entry.prRunning = true;
+    // THE PLANS AT fleetd'S REFS: the snapshot's `refs` reading is the
+    // `for-each-ref` the board would otherwise run on every PR beat.
+    const refs = held.snapshot.readings.refs;
     try {
-      await readIssuesFromStore(opts, entry);
+      await readIssuesFromStore(opts, entry, refs.state === 'read' ? refs.value.entries : undefined);
     } finally {
       entry.prRunning = false;
     }
@@ -3022,6 +3038,19 @@ export const installSnapshotView = (entry: CacheEntry, held: HeldSnapshot, now: 
 };
 
 /**
+ * The `Agent registry` directory as configured, read through the board's
+ * stamp-cached config reader: one `plot-config.sh` per `CLAUDE.md` change,
+ * shared by the board's own registry read and the read over a snapshot.
+ *
+ * @param opts - the board's options.
+ * @returns the configured directory, or {@link AGENT_MANIFEST_DIR}.
+ */
+const manifestDirFor = async (opts: BuildBoardOptions): Promise<string> => {
+  const configured = await scriptsFor(opts).config(AGENT_MANIFEST_DIR_KEY, AGENT_MANIFEST_DIR);
+  return (configured.ok ? configured.value.trim() : '') || AGENT_MANIFEST_DIR;
+};
+
+/**
  * The agent registry's seams over a held snapshot: the worktree list, the
  * worker states, the cleanliness and the PR rows come from the snapshot's
  * readings, so the read starts no process. Manifests, transcripts and pid
@@ -3054,11 +3083,11 @@ const snapshotRegistryOptions = async (opts: BuildBoardOptions, held: HeldSnapsh
       return undefined;
     }
   };
-  const configured = await scriptsFor(opts).config(AGENT_MANIFEST_DIR_KEY, AGENT_MANIFEST_DIR);
+  const manifestDir = await manifestDirFor(opts);
   const states = view.states === 'unknown' ? null : byPath(view.states);
   const clean = view.clean === 'unknown' ? null : byPath(view.clean);
   return {
-    manifestDir: (configured.ok ? configured.value.trim() : '') || AGENT_MANIFEST_DIR,
+    manifestDir,
     worktrees: () => {
       if (view.trees === 'unknown') throw new Error('the snapshot holds no desks reading');
       return view.trees;
@@ -3162,9 +3191,12 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // `plot-worker-state.sh`, the cleanliness batch) ran ON the request thread
     // of whichever poll first warmed the cache. `void refresh(...)` reads like
     // fire-and-forget and was not one.
+    // The directory through the cached config reader, so a beat that turns to
+    // the snapshot finds the answer already held and runs no `plot-config.sh`.
     const registryResult = await readAgentRegistryWithInfo(opts.repoRoot, undefined, {
       scriptsDir: opts.scriptsDir,
       cleanliness: bashCleanliness,
+      manifestDir: await manifestDirFor(opts),
     });
     entry.agents = registryResult.entries;
     entry.registry = registryResult.info;

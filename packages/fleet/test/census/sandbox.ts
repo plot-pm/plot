@@ -8,6 +8,13 @@ import { productRoot, type CensusFixture, type CensusHost } from './census-repor
 import { hostCliStub, jiraCurlStub } from './stub-host.js';
 import { startStubWorker, type StubWorker } from './stub-worker.js';
 
+/**
+ * The variables systemd sets for the unit a process runs in. The census
+ * environment drops them, so a fleetd the test starts by hand cannot inherit
+ * the CI runner's own unit and read as supervised.
+ */
+export const SYSTEMD_UNIT_VARS = ['INVOCATION_ID', 'JOURNAL_STREAM', 'SYSTEMD_EXEC_PID', 'MANAGERPID', 'NOTIFY_SOCKET'] as const;
+
 /** What a scenario states beside its number: desks, open PRs, host. */
 export type FixtureSize = CensusFixture;
 
@@ -203,7 +210,14 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
     // resolve from the sandbox repository's common git dir, as on an
     // operator's machine. An override skips the `git rev-parse --git-common-dir`
     // that P3 and P4 count.
-    for (const key of ['PLOT_HOST', 'PLOT_TRACKER', 'PLOT_UNATTENDED', 'PLOT_BOARD_PORT', 'PORT', 'PLOT_PR_INDEX_HOME', 'PLOT_ISSUE_INDEX_HOME']) {
+    // NO INHERITED UNIT: a CI runner that systemd started passes its own
+    // `INVOCATION_ID` to every step, and a fleetd started by hand would read it
+    // as `supervised: systemd`. Only `startFleetd`'s `supervisor: 'systemd'`
+    // gives fleetd a unit of its own.
+    for (const key of [
+      'PLOT_HOST', 'PLOT_TRACKER', 'PLOT_UNATTENDED', 'PLOT_BOARD_PORT', 'PORT', 'PLOT_PR_INDEX_HOME', 'PLOT_ISSUE_INDEX_HOME',
+      ...SYSTEMD_UNIT_VARS,
+    ]) {
       delete env[key];
     }
     writeFileSync(join(home, '.gitconfig'), '[init]\n\tdefaultBranch = main\n');

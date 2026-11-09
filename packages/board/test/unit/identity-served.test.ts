@@ -63,3 +63,30 @@ describe('the server carries the declared People directory', () => {
     expect(info.people).toEqual({});
   });
 });
+
+describe('the PR beat reads the identity held, and never asks again', () => {
+  it('asks once where none is held, then answers the held reading past the TTL', async () => {
+    vi.resetModules();
+    const mod = await import('../../src/server/server-info.js');
+    const host = hostFixture({ account: 'jwloka' });
+    const account = vi.spyOn(host, 'account');
+    const opts = {
+      repoRoot: ROOT,
+      scriptsDir: ROOT,
+      hostAdapter: host,
+      trees: treesFixture({ branches: { [ROOT]: 'main' }, emails: { [ROOT]: 'jan.wloka@quatico.com' } }),
+    } as unknown as BuildBoardOptions;
+    const start = Date.now();
+    const now = vi.spyOn(Date, 'now').mockReturnValue(start);
+    try {
+      expect((await mod.heldIdentity(opts)).hostUser).toBe('jwloka');
+      now.mockReturnValue(start + 10 * 60_000);
+      expect((await mod.heldIdentity(opts)).gitEmail).toBe('jan.wloka@quatico.com');
+      expect(account).toHaveBeenCalledTimes(1);
+      await mod.identity(opts);
+      expect(account).toHaveBeenCalledTimes(2);
+    } finally {
+      now.mockRestore();
+    }
+  });
+});

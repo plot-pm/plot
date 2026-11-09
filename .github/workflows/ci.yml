@@ -631,6 +631,39 @@ jobs:
           strace -f -qq -e trace=execve -o /dev/null /bin/sh -c '/bin/true'
           echo "strace -f traced a two-level tree"
 
+      # S3 runs fleetd as a transient service of the user's systemd manager, as
+      # an operator runs it (jwloka, 2026-11-09). The runner user has no login
+      # session, so this step lingers it, which starts `user@<uid>.service`,
+      # and exports the manager's runtime directory and bus to later steps.
+      # It fails by name unless systemd itself gives a transient service an
+      # INVOCATION_ID; the step's own INVOCATION_ID is unset first, because the
+      # runner's unit passes one to every step.
+      - name: Start a user systemd manager
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          uid="$(id -u)"
+          sudo loginctl enable-linger "$(id -un)"
+          runtime="/run/user/$uid"
+          for _ in $(seq 1 100); do
+            [ -S "$runtime/bus" ] && break
+            sleep 0.2
+          done
+          if [ ! -S "$runtime/bus" ]; then
+            echo "::error::no user systemd bus at $runtime/bus after enable-linger; S3 cannot run fleetd under systemd"
+            exit 1
+          fi
+          echo "XDG_RUNTIME_DIR=$runtime" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime/bus" >> "$GITHUB_ENV"
+          export XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime/bus"
+          systemctl --user is-system-running || true
+          id_seen="$(env -u INVOCATION_ID systemd-run --user --pipe --quiet --collect -- sh -c 'printf %s "${INVOCATION_ID:-}"')"
+          if [ -z "$id_seen" ]; then
+            echo "::error::systemd-run --user started a service with no INVOCATION_ID"
+            exit 1
+          fi
+          echo "systemd-run --user started a transient service with INVOCATION_ID=$id_seen"
+
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -731,6 +764,39 @@ jobs:
           fi
           strace -f -qq -e trace=execve -o /dev/null /bin/sh -c '/bin/true'
           echo "strace -f traced a two-level tree"
+
+      # S3 runs fleetd as a transient service of the user's systemd manager, as
+      # an operator runs it (jwloka, 2026-11-09). The runner user has no login
+      # session, so this step lingers it, which starts `user@<uid>.service`,
+      # and exports the manager's runtime directory and bus to later steps.
+      # It fails by name unless systemd itself gives a transient service an
+      # INVOCATION_ID; the step's own INVOCATION_ID is unset first, because the
+      # runner's unit passes one to every step.
+      - name: Start a user systemd manager
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          uid="$(id -u)"
+          sudo loginctl enable-linger "$(id -un)"
+          runtime="/run/user/$uid"
+          for _ in $(seq 1 100); do
+            [ -S "$runtime/bus" ] && break
+            sleep 0.2
+          done
+          if [ ! -S "$runtime/bus" ]; then
+            echo "::error::no user systemd bus at $runtime/bus after enable-linger; S3 cannot run fleetd under systemd"
+            exit 1
+          fi
+          echo "XDG_RUNTIME_DIR=$runtime" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime/bus" >> "$GITHUB_ENV"
+          export XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime/bus"
+          systemctl --user is-system-running || true
+          id_seen="$(env -u INVOCATION_ID systemd-run --user --pipe --quiet --collect -- sh -c 'printf %s "${INVOCATION_ID:-}"')"
+          if [ -z "$id_seen" ]; then
+            echo "::error::systemd-run --user started a service with no INVOCATION_ID"
+            exit 1
+          fi
+          echo "systemd-run --user started a transient service with INVOCATION_ID=$id_seen"
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 

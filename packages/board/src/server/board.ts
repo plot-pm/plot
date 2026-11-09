@@ -26,7 +26,8 @@ import {
   type SliceSummary,
   type StoryStatus,
   type StoryStanding } from '../contract/schema.js';
-import { cachedPlanMetas, cachedRefs, freshWalkCache, readRefSnapshot, type PlanMetaFile, type WalkCache } from '@plot-pm/domain/workflows/plan-walk-cache';
+import { cachedPlanMetas, cachedRefs, freshWalkCache, readRefSnapshot, snapshotOf, type PlanMetaFile, type WalkCache } from '@plot-pm/domain/workflows/plan-walk-cache';
+import type { RefState } from '@plot-pm/domain/ports/refs';
 import { licensedSpike, spikeOf } from '@plot-pm/domain/rules/spike';
 import { refutedBadge, refutedClaims, verificationOf } from '@plot-pm/domain/rules/verification-record';
 import {
@@ -319,14 +320,19 @@ const walkCaches = new Map<string, WalkCache>();
  * on the returned cache.
  *
  * @param opts - where to read, and optionally what to read through.
+ * @param entries - the refs fleetd's snapshot read, where the board serves from
+ *   it; the reader then keys its reads by those oids and lists no refs itself.
  * @returns the reader, and the cache it answers from or `null` where it is unwrapped.
  */
-export const heldRefsFor = async (opts: BuildBoardOptions): Promise<{ refs: Refs; cache: WalkCache | null }> => {
+export const heldRefsFor = async (
+  opts: BuildBoardOptions,
+  entries?: readonly RefState[],
+): Promise<{ refs: Refs; cache: WalkCache | null }> => {
   const inner = refsFor(opts);
   // A reader handed in by the caller answers by ref name and not by object id,
   // so a key built from the snapshot's oids would miss what it holds.
   if (opts.refs !== undefined) return { refs: inner, cache: null };
-  const snapshot = await readRefSnapshot(inner);
+  const snapshot = entries !== undefined ? { ok: true as const, value: snapshotOf(entries) } : await readRefSnapshot(inner);
   if (!snapshot.ok) return { refs: inner, cache: null };
   const cache = walkCacheFor(opts);
   return { refs: cachedRefs(inner, snapshot.value, cache), cache };
