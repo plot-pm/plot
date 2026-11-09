@@ -238,7 +238,8 @@ test('the gate passes on this repository and says its count', () => {
   if (r.status !== 0) return; // no origin/main in this clone: nothing to compare
   const out = run(repo, ['pr']);
   assert.equal(out.status, 0, out.out);
-  assert.match(out.out, /\d{5} lines now/);
+  // A branch that exactly reverses one commit passes on the gate's revert path, which prints no count.
+  assert.match(out.out, /\d{5} lines now|reverses [0-9a-f]+ exactly, which passes/);
 });
 
 /** Writes `text` as the whole content of `file`, so a case controls the exact shape of each line. */
