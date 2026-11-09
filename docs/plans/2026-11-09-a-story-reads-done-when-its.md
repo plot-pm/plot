@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Type:** bug
+- **Sprint:** ship-2-32-0
 - **Issue:** #3306
 - **Review:** pr
 - **Impl:** own branches
