@@ -192,6 +192,25 @@ describe('refsGit: a non-ASCII path reads the same on both paths', () => {
   });
 });
 
+describe('refsGit: a checkout root below the repository top level', () => {
+  it('lists blobs relative to that directory, as ls-tree run there does', async () => {
+    const sub = path.join(repo, 'docs');
+    const subContext = { repoRoot: sub, scriptDir: path.join(sub, 'scripts') };
+    const held = objectReaders();
+    const done = await installObjectsReader(repo, { readers: held });
+    if (!done.installed) throw new Error(done.refusal);
+    readers.push(done.reader);
+
+    const perCall = await refsGit(subContext, undefined, objectReaders()).listBlobs(box.head, 'plans/');
+    const through = await refsGit(subContext, undefined, held).listBlobs(box.head, 'plans/');
+
+    expect(perCall.ok && perCall.value.map((blob) => blob.path).sort()).toEqual(
+      ['plans/a.md', 'plans/active/b.md', 'plans/ümlaut — plan.md'],
+    );
+    expect(through).toEqual(perCall);
+  });
+});
+
 describe('refsGit: the reader falls back, never stops', () => {
   it('runs the per-call git while the reader answers unaskable after 3 drops', async () => {
     fs.writeFileSync(path.join(stubDir, 'git'), '#!/bin/sh\nexec head -c 1 >/dev/null\n', { mode: 0o755 });

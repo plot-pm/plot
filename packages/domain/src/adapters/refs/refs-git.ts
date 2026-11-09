@@ -1,3 +1,6 @@
+import { realpathSync } from 'node:fs';
+import { isAbsolute, relative, sep } from 'node:path';
+
 import { FleetReadingSchema, type FleetReading } from '../../entities/fleet.js';
 import { compareVersions } from '../../entities/version.js';
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
@@ -483,6 +486,24 @@ export const refsGit = (
     return found.ok ? { reader, oid: found.value } : undefined;
   };
 
+  /**
+   * Where the checkout root sits below the repository's top level, as a
+   * `/`-joined path; `''` at the top level, undefined where git names no top
+   * level or the root lies outside it. `ls-tree` lists relative to it.
+   */
+  let prefix: Promise<string | undefined> | undefined;
+  const prefixOf = (): Promise<string | undefined> =>
+    (prefix ??= (async () => {
+      const top = await answers.toplevel(context.repoRoot);
+      if (top.code !== 0 || top.stdout.trim() === '') return undefined;
+      try {
+        const rel = relative(realpathSync(top.stdout.trim()), realpathSync(context.repoRoot));
+        return rel.startsWith('..') || isAbsolute(rel) ? undefined : rel.split(sep).join('/');
+      } catch {
+        return undefined;
+      }
+    })());
+
   /** Whether a reader answer settles the call: an answer or a failure does, `unaskable` hands it to the per-call path. */
   const settled = <T>(read: PortResult<T>): boolean => read.ok || read.why === 'failed';
 
@@ -799,9 +820,17 @@ export const refsGit = (
     },
 
     listBlobs: async (ref, dir) => {
-      const via = /[\n\0]/.test(dir) ? undefined : await throughReader(ref);
-      if (via !== undefined) {
-        const read = await listBlobsThrough(via.reader, via.oid, dir);
+      // `ls-tree` reads `dir` and prints each path relative to the checkout
+      // root, which can sit below the top level; the reader reads from the top.
+      const plain = !/[\n\0]/.test(dir) && !/(?:^|\/)\.\.(?:\/|$)/.test(dir);
+      const via = plain ? await throughReader(ref) : undefined;
+      const under = via === undefined ? undefined : await prefixOf();
+      if (via !== undefined && under !== undefined) {
+        const inner = dir.replace(/^(?:\.\/)+/, '').replace(/^\.$/, '');
+        const read = await listBlobsThrough(via.reader, via.oid, under === '' ? inner : `${under}/${inner}`);
+        if (read.ok && under !== '') {
+          return answered(read.value.map((blob) => ({ ...blob, path: blob.path.slice(under.length + 1) })));
+        }
         if (settled(read)) return read;
       }
       return perCallListBlobs(ref, dir);
