@@ -14,6 +14,9 @@ import type {
   LimitObservation,
   MergedAnswer,
   MergeDest,
+  PrListing,
+  PrListingQuery,
+  PrListingRow,
   PrLookup,
   PrReviewReading,
 } from '../../ports/host.js';
@@ -36,6 +39,7 @@ import {
   type ScriptRun,
 } from '../run-script.js';
 import { processAnswers, scriptRunner, type FixedAnswers } from '../git-dirs/git-dirs.js';
+import { listingCompleteness } from './listing-notices.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
 /** One PR as `plot-host.sh` reports it, before it is read as the entity. */
@@ -190,6 +194,100 @@ export const refusalKindOfExit = (code: number): HostRefusal['kind'] => {
   return 'failed';
 };
 
+/** `gh`'s words for a credential GitHub refused with a `401`. */
+const AUTH_REFUSED = /\bHTTP 401\b|\bBad credentials\b/i;
+
+/**
+ * Which refusal one `plot-host.sh` run names, from its exit code and its words.
+ *
+ * Exits 5 and 6 name a spent quota and a burst; every other non-zero exit is
+ * `auth` where the words name a `401` and `failed` otherwise.
+ *
+ * @param code - the script's exit code.
+ * @param said - what the script said on the failed run.
+ * @returns the refusal kind.
+ */
+export const refusalKindOfRun = (code: number, said: string): HostRefusal['kind'] => {
+  const kind = refusalKindOfExit(code);
+  if (kind !== 'failed' || code === EXIT_PARTIAL) return kind;
+  return AUTH_REFUSED.test(said) ? 'auth' : 'failed';
+};
+
+/**
+ * The `plot-host.sh` arguments one listing query asks with.
+ *
+ * @param query - the listing query.
+ * @returns the arguments, starting with `pr-list`.
+ */
+export const prListingArgs = (query: PrListingQuery): string[] => [
+  'pr-list',
+  ...(query.richOpen === true ? ['--rich-open'] : query.rich === true ? ['--rich'] : []),
+  '--state',
+  query.state,
+  ...(query.limit === undefined ? [] : ['--limit', String(query.limit)]),
+  ...(query.since === undefined ? [] : ['--since', query.since]),
+  ...(query.boundShas === undefined || Object.keys(query.boundShas).length === 0
+    ? []
+    : ['--bound-shas', JSON.stringify(query.boundShas)]),
+];
+
+/**
+ * Parses `pr-list` stdout, one JSON object per line.
+ *
+ * @returns the rows, or null where a line is not a JSON object.
+ */
+const listingRowsOf = (stdout: string): PrListingRow[] | null => {
+  const rows: PrListingRow[] = [];
+  for (const line of stdout.split('\n')) {
+    if (line.trim() === '') continue;
+    let row: unknown;
+    try {
+      row = JSON.parse(line);
+    } catch {
+      return null;
+    }
+    if (row === null || typeof row !== 'object' || Array.isArray(row)) return null;
+    rows.push(row as PrListingRow);
+  }
+  return rows;
+};
+
+/**
+ * Reads one `plot-host.sh pr-list` run as a {@link PrListing}.
+ *
+ * Exit 0 is `answered`, exit 7 `partial` with its rows kept, exit 4
+ * `unaskable`, and every other exit `failed` with no rows. The completeness
+ * words come from the run's stderr notices ({@link listingCompleteness}). A
+ * line of stdout that is not a JSON object fails the call.
+ *
+ * @param query - the query the run answered.
+ * @param run - the run's exit code and streams.
+ * @returns the listing; `refusal` is null only on exit 0.
+ */
+export const prListingOfRun = (query: PrListingQuery, run: ScriptRun): PrListing => {
+  const unclaimed = { [query.state]: 'possibly-truncated' as const };
+  const said = run.stderr.trim() || run.stdout.trim() || `plot-host.sh exited ${run.code}`;
+  if (run.code === EXIT_UNASKABLE) {
+    return { answer: 'unaskable', rows: [], complete: unclaimed, refusal: { kind: 'failed', said } };
+  }
+  if (run.code !== EXIT_OK && run.code !== EXIT_PARTIAL) {
+    return { answer: 'failed', rows: [], complete: unclaimed, refusal: { kind: refusalKindOfRun(run.code, said), said } };
+  }
+  const rows = listingRowsOf(run.stdout);
+  if (rows === null) {
+    return {
+      answer: 'failed',
+      rows: [],
+      complete: unclaimed,
+      refusal: { kind: 'failed', said: 'pr-list printed a line that is not a PR row' },
+    };
+  }
+  if (run.code === EXIT_PARTIAL) {
+    return { answer: 'partial', rows, complete: listingCompleteness(said, query.state), refusal: { kind: 'failed', said } };
+  }
+  return { answer: 'answered', rows, complete: listingCompleteness(run.stderr, query.state), refusal: null };
+};
+
 /**
  * Reads the git host through `plot-host.sh`, the one place that speaks to a
  * host CLI.
@@ -248,7 +346,7 @@ export const hostShell = (context: ShellContext, answers: FixedAnswers = process
       refusal = null;
     } else {
       const said = run.stderr.trim() || run.stdout.trim() || `plot-host.sh exited ${run.code}`;
-      refusal = { kind: refusalKindOfExit(run.code), said };
+      refusal = { kind: refusalKindOfRun(run.code, said), said };
     }
     if (run.code === EXIT_PARTIAL) {
       try {
@@ -463,6 +561,12 @@ export const hostShell = (context: ShellContext, answers: FixedAnswers = process
         ],
         (stdout) => asJsonLines<RawPr>(stdout).map(prOf),
       ),
+
+    prListing: async (query): Promise<PrListing> => {
+      const listing = prListingOfRun(query, await runScripted('bash', [host, ...prListingArgs(query)], inRepo));
+      refusal = listing.refusal;
+      return listing;
+    },
 
     limit: async (): Promise<PortResult<readonly LimitReading[]>> => {
       // THE GIT HOST'S BUCKETS, AND ONLY THOSE. CI used to be asked here in the
