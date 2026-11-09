@@ -54,7 +54,7 @@ Layering: the free-loop decision is a rule about agent state, so it belongs in t
 
 ### Restart
 
-- `feature/plot-fleetctl-restart` — `--restart` reloads the supervisor, keeps every agent, reports old and new pid and commit; refuses with no loaded unit. Contract test: a running free loop and a running busy agent both survive and a new supervisor pid is reported.
+- `feature/plot-fleetctl-restart` — `--restart` reloads the supervisor, keeps every agent, reports old and new pid and commit; refuses with no loaded unit. Contract test: a running free loop and a running busy agent both survive and a new supervisor pid is reported. → #3340
 
 ### Free loops
 
