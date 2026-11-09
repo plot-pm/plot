@@ -24,7 +24,7 @@ after(() => { for (const d of ctx) fs.rmSync(d, { recursive: true, force: true }
 const git = (cwd, ...args) => execFileSync('git', args, { encoding: 'utf8', cwd });
 
 /**
- * A `gh` stub answering the merged-PR list, each PR's `pr view` read and the
+ * A `gh` stub answering the merged-PR list, each PR's pull read and the
  * commit-status read `plot-host.sh pr-review` makes.
  *
  * `prs` maps a PR number to `{ head, state, comments: [bodies], unreadable }`.
@@ -40,10 +40,11 @@ const stubGh = ({ prs = {} } = {}) => {
     isDraft: false, url: '', updatedAt: '', author: { login: 'jwloka' },
     headRefOid: `sha${number}`, mergedAt: '2026-10-01T00:00:00Z',
   })));
-  const cases = Object.entries(prs).map(([num, p]) => `  "pr view ${num} --json headRefOid,comments")
-    ${p.unreadable ? 'echo "HTTP 502" >&2; exit 1' : `printf '%s' ${JSON.stringify(JSON.stringify({
-      headRefOid: `sha${num}`, comments: (p.comments ?? []).map((body) => ({ body })),
-    }))}`}
+  const cases = Object.entries(prs).map(([num, p]) => `  "api repos/{owner}/{repo}/pulls/${num} --include")
+    ${p.unreadable ? 'echo "HTTP 502" >&2; exit 1' : `printf '%s' ${JSON.stringify(JSON.stringify({ head: { sha: `sha${num}` } }))}`}
+    ;;
+  "api --paginate repos/{owner}/{repo}/issues/${num}/comments?per_page=100")
+    printf '%s' ${JSON.stringify(JSON.stringify((p.comments ?? []).map((body) => ({ body }))))}
     ;;
   "api --paginate repos/{owner}/{repo}/commits/sha${num}/statuses?per_page=100")
     printf '%s' ${JSON.stringify(JSON.stringify(p.state === undefined ? [
@@ -152,7 +153,7 @@ test('with no Review required since key the section says so and asks the host no
   const stub = stubGh({ prs: { 100: { head: 'feature/unreviewed' } } });
   const out = runScan(stub, '');
   assert.match(section(out), /\(not evaluated — no `Review required since` key is set/);
-  assert.equal(stub.calls().filter((l) => l.startsWith('pr view')).length, 0);
+  assert.equal(stub.calls().filter((l) => l.includes('/pulls/')).length, 0);
   assert.match(out.trim().split('\n').at(-1), / review_bypass=0 /);
 });
 

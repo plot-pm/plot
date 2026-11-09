@@ -3,6 +3,7 @@
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { runProcess } from '@plot-pm/domain/adapters/run-script';
+import { processAnswers } from '@plot-pm/domain/adapters/git-dirs/git-dirs';
 import { processesShell } from '@plot-pm/domain/adapters/processes/processes-shell';
 import { boundedRunProcess } from '@plot-pm/domain/adapters/bounded-run/bounded-run-process';
 import { agentRunCommand } from '@plot-pm/domain/adapters/agent-run/agent-run-command';
@@ -595,7 +596,7 @@ export const readChange = async (tree: string, base: string, sha: string): Promi
  * @returns the dependencies, or null outside a repository.
  */
 const machineDeps = async (cwd: string, scriptDir: string): Promise<ReviewDeps | null> => {
-  const common = await git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const common = await processAnswers.absoluteCommonDir(cwd, cwd);
   const commonDir = common.stdout.trim();
   if (common.code !== 0 || commonDir === '') return null;
   const repoRoot = path.basename(commonDir) === '.git' ? path.dirname(commonDir) : cwd;

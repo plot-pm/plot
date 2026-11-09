@@ -26,7 +26,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { commitAndPush, localDate, Refused, type LadderContext, type Printer } from './ladder.js';
+import { commitAndPush, cutBooking, localDate, Refused, type LadderContext, type Printer } from './ladder.js';
 import { findPlanForBranch } from './plan-lookup.js';
 
 const USAGE = 'usage: plot-brief-book.mjs <slug> <branch> <brief-file>';
@@ -158,7 +158,7 @@ export const bookBrief = async (ctx: BriefBookContext, args: BriefBookArgs, writ
   const bookbr = `plot/brief-book-${args.slug}`;
   const tmpwt = path.join(deskRoot(deskReading), `.plot-brief-book-${args.slug}.${ctx.pid}`);
 
-  const added = await ctx.trees.addBranch(tmpwt, bookbr, `origin/${main}`);
+  const added = await cutBooking(ctx, tmpwt, bookbr, main, 'add');
   if (!added.ok) throw new Refused(`could not prepare a booking worktree at ${tmpwt}`);
   try {
     const store = ctx.planStoreAt(tmpwt);

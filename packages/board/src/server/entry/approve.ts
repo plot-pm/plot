@@ -27,7 +27,7 @@ import { sprintOfPlan, type SprintFile } from '@plot-pm/domain/rules/sprint-memb
 import { deskRoot, deskRootPlacement } from '@plot-pm/domain/rules/desk-root';
 import { trackerReportOf } from '@plot-pm/domain/rules/issue-status';
 import {
-  commitAndPush,
+  commitAndPush, cutBooking,
   localDate,
   realPlanPath,
   recordStateReceipt,
@@ -46,7 +46,7 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * The `node` entry point `plot-approve.sh` launches, once per plan approved.
  *
  * ```
- * plot-approve.mjs [--dry-run] [--spike] [--who <name>] <slug>
+ * plot-approve.mjs [--dry-run] [--spike] [--who <name>] [--branch <name>] <slug>
  * ```
  *
  * Performs the mechanical half of approving a plan: reads the ceremony
@@ -62,6 +62,12 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * Exit 0 when the plan is Approved on the default branch, whether this run did
  * the work or found it done. Exit 1 on a refusal or a failure, with the reason
  * on stderr.
+ *
+ * **`--branch <name>`** reads the plan from `origin/<name>` where the default
+ * branch would be read, merges the plan PR only where its base is `<name>`,
+ * and books and pushes the approval to `<name>`. Without it, a plan PR whose
+ * base the host names as another branch than the default refuses before the
+ * merge. `Impl: same branch` does not take it.
  */
 
 /** The commit-status context `plot-review` writes; this entry writes the same context for the one PR kind it has no writer for. */
@@ -95,11 +101,13 @@ export const writeApprovalStatus = async (host: Host, headSha: string | undefine
 /** The usage block `-h` prints; lines 2 to 12 of the launcher this entry replaced. */
 const USAGE = [
   '# Plot helper: perform the MECHANICAL half of approving a plan.',
-  '# Usage: plot-approve.sh [--dry-run] [--spike] [--who <name>] <slug>',
+  '# Usage: plot-approve.sh [--dry-run] [--spike] [--who <name>] [--branch <name>] <slug>',
   '#   --dry-run   say what would happen; merge nothing, write nothing, push nothing',
   '#   --spike     approve the plan\'s spike branch alone: record `Spike approved:`, clear its hold, leave the phase',
   '#   --who       the declared handle recorded in the `Approved:` or `Spike approved:` line; required for a',
   '#               spike and for a plan a person approves, otherwise defaults to git user.name',
+  '#   --branch    read the plan from origin/<name>, merge only a plan PR based on <name>, and book the',
+  '#               approval on <name> instead of the default branch',
   '#   <slug>      the plan to approve',
   '# Output: one `step:` line per step, then a machine-countable summary:',
   '#             summary: merged=yes phase=flipped record=written holds=1 sprint=none push=clean plan-state=none tracker=none',
@@ -114,6 +122,8 @@ export interface Args {
   dryRun: boolean;
   spike: boolean;
   who: string;
+  /** The branch the approval is recorded on; absent or `''` for the default branch. */
+  branch?: string;
   slug: string;
 }
 
@@ -122,6 +132,7 @@ const parseArgs = (argv: readonly string[]): Args | string => {
   let dryRun = false;
   let spike = false;
   let who = '';
+  let branch = '';
   let slug = '';
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -131,12 +142,17 @@ const parseArgs = (argv: readonly string[]): Args | string => {
       who = argv[++i] ?? '';
       if (who.startsWith('-')) return `--who takes a name, not the flag '${who}'`;
     }
+    else if (arg === '--branch') {
+      branch = argv[++i] ?? '';
+      if (branch === '') return '--branch needs a branch name';
+      if (branch.startsWith('-')) return `--branch takes a branch name, not the flag '${branch}'`;
+    }
     else if (arg === '-h' || arg === '--help') return '__help__';
     else if (arg.startsWith('-')) return `unknown flag '${arg}'`;
     else slug = arg;
   }
-  if (slug === '') return 'need a plan slug (usage: plot-approve.sh [--dry-run] [--spike] [--who <name>] <slug>)';
-  return { dryRun, spike, who, slug };
+  if (slug === '') return 'need a plan slug (usage: plot-approve.sh [--dry-run] [--spike] [--who <name>] [--branch <name>] <slug>)';
+  return { dryRun, spike, who, branch, slug };
 };
 
 /** The ports and paths this entry needs. */
@@ -227,6 +243,54 @@ const resolveMain = async (repoRoot: string, trees: Trees, scripts: Scripts): Pr
   const hosted = await scripts.host(['default-branch']);
   const named = hosted.ok ? hosted.value.trim() : '';
   return named !== '' ? named : 'main';
+};
+
+/**
+ * Fetches `origin/<target>` for `--branch` and confirms git holds it.
+ *
+ * @param target - the branch `--branch` names.
+ * @returns `target`.
+ * @throws Refused where the fetch fails or origin does not hold the branch;
+ *   nothing is merged or written then.
+ */
+const targetBranchOf = async (ctx: Context, target: string): Promise<string> => {
+  const fetched = await ctx.trees.fetch(ctx.repoRoot, target);
+  const held = fetched.ok ? await ctx.trees.hasRef(ctx.repoRoot, `refs/remotes/origin/${target}`) : undefined;
+  if (held === undefined || !held.ok || !held.value) {
+    throw new Refused(`could not fetch branch '${target}' from origin — nothing was merged and nothing was written.\n  Check the name: git ls-remote --heads origin ${target}`);
+  }
+  return target;
+};
+
+/**
+ * Refuses, before the merge, a plan PR whose base is not the branch the
+ * approval books on.
+ *
+ * Asks the host for the PR's base. With `--branch`, the base must be `target`,
+ * and a base the host does not name refuses. Without it, a base the host names
+ * must be the default branch `main`; a base it does not name passes.
+ *
+ * @param prNumber - the plan PR about to merge.
+ * @param main - the branch the approval books on.
+ * @param target - the `--branch` value; `''` where none was given.
+ * @throws Refused where the base differs, or the host cannot be asked.
+ */
+const refuseForeignBase = async (ctx: Context, prNumber: number, main: string, target: string): Promise<void> => {
+  const asked = await ctx.host.prState(prNumber);
+  if (!asked.ok) {
+    throw new Refused(`the host could not be asked for the base of PR #${prNumber} (plot-host.sh pr-state refused the call).\n  ${hostSaid(ctx)}\n  Nothing was merged and nothing was written. Re-run the approval once the host answers.`);
+  }
+  const base = asked.value?.base ?? '';
+  if (target !== '') {
+    if (base !== target) {
+      const named = base === '' ? 'the host named no base' : `its base is '${base}'`;
+      throw new Refused(`PR #${prNumber} does not merge into '${target}': ${named}.\n  --branch ${target} books the approval on '${target}', so the plan PR must be based on it. Nothing was merged and nothing was written.\n  Re-run with --branch <the PR's base>, or retarget the PR.`);
+    }
+    return;
+  }
+  if (base !== '' && base !== main) {
+    throw new Refused(`PR #${prNumber} merges into '${base}', not the default branch '${main}'.\n  The approval would be booked on '${main}', where the plan does not land. Nothing was merged and nothing was written.\n  Book it on the PR's base: plot-approve.mjs --branch ${base} <slug>`);
+  }
 };
 
 /**
@@ -745,7 +809,13 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
     sprintDir: await configured(ctx.scripts, 'Sprint directory', 'docs/sprints/'),
   };
 
-  const main = await resolveMain(ctx.repoRoot, ctx.trees, ctx.scripts);
+  // `main` names the branch the approval is read from and booked on: the
+  // default branch, or the `--branch` target.
+  const target = args.branch ?? '';
+  const main = target !== '' ? await targetBranchOf(ctx, target) : await resolveMain(ctx.repoRoot, ctx.trees, ctx.scripts);
+  // A PR head's changed paths are read against the target; without `--branch`,
+  // the refs adapter's own default branch, as before.
+  const against = target !== '' ? target : undefined;
 
   // The default branch's plan files, read once and only where a question needs
   // them: a plan this checkout does not hold, or a plan PR not on `idea/<slug>`.
@@ -866,6 +936,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
           additionFile,
           (unread) => { unreadOpen = unread; },
           (detail) => refuseOpenList(ctx, detail),
+          against,
         );
         if (found !== undefined && found.outcome === 'refused') {
           prRefused = found.reason;
@@ -1003,6 +1074,17 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
   if (plan === undefined) throw new Refused(`cannot parse '${planFile}' — refusing rather than guessing.`);
   const landedDraft = verdict.detail.carried.map(planSlugOf);
 
+  // `Impl: same branch` records in this checkout and pushes nothing, so a
+  // target branch has nothing to name.
+  if (target !== '' && sameBranch) {
+    throw new Refused(`plan '${slug}' declares 'Impl: same branch' — the approval is recorded on the plan's own branch and pushed with the implementation, so --branch does not apply.\n  Nothing was merged and nothing was written. Re-run without --branch.`);
+  }
+  // The merge is irreversible, so a PR that would land on another branch than
+  // the one the approval books on refuses before it.
+  if (!inSession && !sameBranch && pr.state === 'OPEN') {
+    await refuseForeignBase(ctx, pr.number, main, target);
+  }
+
   if (inSession) {
     write(`step: plan ${planFile} — phase=${phase} review=${review} impl=${impl} (in-session, no plan PR)\n`);
   }
@@ -1024,6 +1106,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
     }
     write(`step: would fill Spike approved: ${today}, ${who}, ${spikeChannel}, ${verdict.detail.spike ?? ''} and leave the phase\n`);
     write(`step: would clear the .plot/hold entry for: ${verdict.detail.spike ?? ''}\n`);
+    if (target !== '') write(`step: would record the approval on ${target}\n`);
     write('summary: merged=' + (inSession ? 'skipped-in-session' : 'would') + ' phase=unchanged record=would holds=would sprint=none push=would\n');
     return 0;
   }
@@ -1040,6 +1123,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
     write(`step: would clear .plot/hold entries for: ${branches.join(' ')}\n`);
     write(`step: would update the sprint annotation${sprint !== '' ? ` in ${dirs.sprintDir} (sprint ${sprint})` : ''}\n`);
     if (inSession) write('step: would append a row to .plot/state/in-session-approvals.tsv\n');
+    if (target !== '') write(`step: would record the approval on ${target}\n`);
     write(`summary: merged=${inSession ? 'skipped-in-session' : 'would'} phase=would record=would holds=would sprint=would push=would\n`);
     return 0;
   }
@@ -1253,7 +1337,7 @@ const bookApproval = async (
   const wtRoot = deskRoot(deskReading);
   const bookbr = `plot/approve-${slug}`;
   const tmpwt = path.join(wtRoot, `.plot-approve-${slug}.${process.pid}`);
-  const added = await ctx.trees.addBranch(tmpwt, bookbr, `origin/${main}`);
+  const added = await cutBooking(ctx, tmpwt, bookbr, main, 'add');
   if (!added.ok) {
     throw new Refused(`could not prepare a booking worktree at ${tmpwt}.\n  Most often origin/${main} is not fetched, or '${bookbr}' is checked out in\n  another worktree. Check both: git fetch origin ${main} && git worktree list\n  Nothing has been written locally; the plan is untouched.`);
   }

@@ -329,6 +329,10 @@ says the same thing for a human:
 this whole command spent an evening in: worktrees claimed, nobody working on
 them, and nothing in the last line saying so.
 
+## State branch
+
+Where `State branch` is declared, discovery lists plan paths at both refs and reads each plan and brief from the state ref when it holds the path, from `origin/<default>` otherwise (`plot-record-ref.mjs`). A state ref absent from the clone reads as the default branch. With no key, the reads are unchanged.
+
 ## Configuration
 
 Starting workers requires the adopting project to say how (Principle 5 — Plot

@@ -7,6 +7,7 @@ import { refsRemoteGit } from '@plot-pm/domain/adapters/refs/refs-remote-git';
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
+import { isStateRef } from '@plot-pm/domain/rules/write-target';
 import { processesShell } from '@plot-pm/domain/adapters/processes/processes-shell';
 import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
 import { pinnedTipsFile } from '@plot-pm/domain/adapters/pinned-tips/pinned-tips-file';
@@ -41,7 +42,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSy
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
-import { runProcess } from '@plot-pm/domain/adapters/run-script';
+import { processAnswers } from '@plot-pm/domain/adapters/git-dirs/git-dirs';
 import { unpushedAfterMerge } from '@plot-pm/domain/workflows/unpushed-after-merge';
 
 /**
@@ -339,7 +340,7 @@ const indexRows = (rows: readonly ReapRecordRow[]): RecordIndex => {
 
 /** The realpath of `git rev-parse --git-common-dir`, for comparing against a record's `repoIdentity`. */
 const repoIdentityOf = async (cwd: string): Promise<string | null> => {
-  const run = await runProcess('git', ['rev-parse', '--git-common-dir'], { cwd });
+  const run = await processAnswers.commonDir(cwd);
   const out = run.stdout.trim();
   if (run.code !== 0 || out === '') return null;
   return realpathSync(path.resolve(cwd, out));
@@ -1207,6 +1208,8 @@ export const runBranchKind = async (
 
   const branchesResult = await ctx.refs.listBranches(false);
   const branches = branchesResult.ok ? branchesResult.value : [];
+  const stateKeyRead = await ctx.scripts.config('State branch', '');
+  const stateKey = stateKeyRead.ok ? stateKeyRead.value : '';
 
   for (const br of branches) {
     const range = `origin/${defaultBranch}..${br}`;
@@ -1258,6 +1261,7 @@ export const runBranchKind = async (
       hasOwnCommits,
       tipPastMergedHead,
       checkedOut: held,
+      stateBranch: isStateRef(stateKey, defaultBranch, br),
     });
 
     if (refusal !== null) {
@@ -1265,6 +1269,9 @@ export const runBranchKind = async (
       switch (refusal) {
         case 'default-branch':
           reason = 'the default branch — never deleted';
+          break;
+        case 'state-branch':
+          reason = 'the declared State branch — never deleted';
           break;
         case 'no-merged-pr':
           reason = 'unlanded work — no merged PR';

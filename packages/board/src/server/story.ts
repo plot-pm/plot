@@ -522,6 +522,7 @@ export async function handleStory(
     },
     logFile: log,
     statePath,
+    detached: { alsoState: [] },
   });
 
   json(202, { ok: true, number, prompt: promptPath, log });

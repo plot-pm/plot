@@ -37,6 +37,7 @@ import {
   type SprintCounts,
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
+import { listRecordBlobs } from '@plot-pm/domain/workflows/record-listing';
 import { blobIdOfBytes, parsePlanMetaFiles, planSlug, heldRefsFor, workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { BuildPort } from '@plot-pm/domain';
@@ -45,6 +46,7 @@ import { electReader, heartbeatIsFresh, HEARTBEAT_STALE_MS, type ReaderClaim, ty
 import { PR_READ_BEAT_MS } from '@plot-pm/domain/rules/pr-status';
 import type { ReaderLock } from '@plot-pm/domain/ports/reader-lock';
 import type { ProcessProbe } from '@plot-pm/domain/ports/process-probe';
+import { claimOnly, CLAIM_SUBJECT_PREFIX } from '@plot-pm/domain/rules/empty-claim';
 import { logDir } from '@plot-pm/fleet/shared/process-log';
 // The cadence division is a DOMAIN rule, not a board decision: `CLAUDE.md`
 // settles that every rendered or wired state is a domain property, and this one
@@ -508,6 +510,12 @@ export interface CacheEntry {
    */
   unmerged: Set<string>;
   /**
+   * The subset of {@link unmerged} whose only commits are empty claim markers —
+   * see {@link claimOnlyBranches}. Scan clock, not bridged, for the reason
+   * `unmerged` is not.
+   */
+  claimOnly: Set<string>;
+  /**
    * What each `waiting` worker asked, by branch — see `workerQuestions`.
    *
    * ON THE SCAN'S CLOCK, like the ages and the approval dates beside it, and for
@@ -832,13 +840,26 @@ export interface CacheEntry {
    */
   lastComplete: FleetReading | null;
   /**
-   * This machine's clock, or null before `ensureCache` started it.
+   * This machine's clock while an event stream is attached, and null otherwise.
+   * `watchFleet` starts it on the first attach and stops it at zero streams.
    *
    * Replaces the `timer`/`prTimer` pair. Both cadences are subscribers on it
    * now — divisors 1 and 12 — so the two numbers that were `5_000` and `60_000`
    * in two constants are one base and one ratio.
    */
   pulseClock: RunningPulse | null;
+  /**
+   * Event streams attached on `GET /api/events`, as `watchEntry` last heard.
+   * The board writes its reader-lock heartbeat and starts a PR reader only
+   * while this is above 0.
+   */
+  clients: number;
+  /**
+   * Epoch ms the last scan a plain request started began, or null before the
+   * first. Bounds cold reads where `at` stays old: a failed scan, or a scan
+   * stamped with the fleet bridge's time.
+   */
+  coldReadAt: number | null;
   /**
    * True once `stopFleetRefresh` ran. A refresh already past its scan then
    * performs none of the automatic writes, so a stopped cache cannot write
@@ -1276,6 +1297,53 @@ async function unmergedBranches(opts: BuildBoardOptions, main: string): Promise<
 }
 
 /**
+ * Which of the unmerged branches carry nothing but empty `plot: claim` markers.
+ *
+ * The planless-branch loop in `rowsFromPulse` builds a row from the refs alone
+ * and used to state `wip` for every one of them, so a claim-only branch no plan
+ * names read `abandoned`. This is the reading that loop was missing: the same
+ * definition the plan walk uses (`claimOnly` over `Refs.commitSubjects`), not a
+ * second one.
+ *
+ * ONE `for-each-ref` FOR THE WHOLE SET, then a `commitSubjects` walk only for
+ * a branch whose TIP subject is a claim marker. A claim-only branch's tip is
+ * its claim marker, so no other branch can qualify, and the walk is bounded by
+ * claims rather than by every unmerged branch.
+ *
+ * A BRANCH WHOSE WALK FAILED IS LEFT OUT, and out means *not read as a claim*,
+ * which is the reading the loop gave every branch before this existed. The set
+ * only ever adds the word `claimed`; it never says a branch has real work.
+ */
+async function claimOnlyBranches(
+  opts: BuildBoardOptions,
+  main: string,
+  unmerged: ReadonlySet<string>,
+): Promise<Set<string>> {
+  const found = new Set<string>();
+  if (unmerged.size === 0) return found;
+  let listing = '';
+  try {
+    listing = await run('git',
+      ['for-each-ref', '--format=%(refname:short)%09%(subject)', 'refs/remotes/origin'],
+      opts.repoRoot);
+  } catch {
+    return found;
+  }
+  const refs = refsFor(opts);
+  for (const line of listing.split('\n')) {
+    const at = line.indexOf('\t');
+    if (at < 0) continue;
+    const ref = line.slice(0, at);
+    if (!ref.startsWith('origin/') || !line.slice(at + 1).startsWith(CLAIM_SUBJECT_PREFIX)) continue;
+    const branch = ref.slice('origin/'.length);
+    if (!unmerged.has(branch)) continue;
+    const range = await refs.commitSubjects(`origin/${main}..origin/${branch}`);
+    if (range.ok && claimOnly(range.value)) found.add(branch);
+  }
+  return found;
+}
+
+/**
  * The version a release branch would ship, read from its own `package.json`.
  *
  * **Read, never derived** — see `AgentRow.version` for why that distinction is
@@ -1600,7 +1668,9 @@ export async function planMetasAtDefault(
   if (!resolved.ok || resolved.value === '') {
     return planMetasFromWorkingTree(opts, planDir, entry);
   }
-  const listing = await refs.listBlobs(resolved.value, planDir);
+  // The union of the state ref and the default branch, the state ref winning per path.
+  const stateBranch = await readConfigAsync(opts, 'State branch', '');
+  const listing = await listRecordBlobs(refs, { stateBranch, defaultBranch }, resolved.value, planDir);
   if (!listing.ok) return null;
   const plans = listing.value.filter(
     (blob) => (blob.mode === '100644' || blob.mode === '100755') && blob.path.endsWith('.md'),
@@ -2547,8 +2617,11 @@ const ensureBelowRoot = (root: string, dir: string): boolean => {
   return fs.existsSync(dir);
 };
 
-/** The reader this board process last started per repository, index directory and connector, and when. */
-const startedReaders = new Map<string, { child: DetachedProcess; at: number }>();
+/**
+ * The reader this board process last started per repository, index directory
+ * and connector, when, and whether the board has since released it.
+ */
+const startedReaders = new Map<string, { child: DetachedProcess; at: number; released: boolean }>();
 
 /**
  * Starts this machine's PR reader for `key`, unless the reader this board
@@ -2570,12 +2643,32 @@ const startedReaders = new Map<string, { child: DetachedProcess; at: number }>()
 const startReader = (opts: BuildBoardOptions, key: string, indexDir: string, now: number): void => {
   const guardKey = `${opts.repoRoot}\0${indexDir}\0${key}`;
   const last = startedReaders.get(guardKey);
-  if (last !== undefined && (last.child.exitCode() === null || now - last.at < HEARTBEAT_STALE_MS)) return;
+  if (last !== undefined && (last.child.exitCode() === null || (!last.released && now - last.at < HEARTBEAT_STALE_MS))) return;
   const log = path.join(logDir(opts.repoRoot), 'pr-reader.log');
   const script = path.join(opts.scriptsDir, PR_READER_BUNDLE);
   if (!ensureBelowRoot(opts.repoRoot, path.dirname(log))) return;
   const child = detachedFor(opts).node(script, ['--lock-dir', indexDir, '--connector', key], opts.repoRoot, log);
-  startedReaders.set(guardKey, { child, at: now });
+  startedReaders.set(guardKey, { child, at: now, released: false });
+};
+
+/**
+ * Stops following this machine's PR reader: removes this board's
+ * `board.<pid>` heartbeat under the connector the board resolved, so the
+ * reader reads no follower on its next beat and exits. Marks the readers this
+ * board started for the repository as released, so the start bound of
+ * {@link startReader} does not hold back a reader for the next attach.
+ *
+ * Writes nothing where the board never resolved a connector.
+ *
+ * @param opts - the board's options.
+ * @param entry - the board's cache entry.
+ */
+export const releaseReader = async (opts: BuildBoardOptions, entry: CacheEntry): Promise<void> => {
+  for (const [guardKey, record] of startedReaders) {
+    if (guardKey.startsWith(`${opts.repoRoot}\0`)) record.released = true;
+  }
+  if (entry.backend === null || entry.backend === '') return;
+  await readerLockFor(opts).removeHeartbeat(entry.backend, `board.${process.pid}`);
 };
 
 /**
@@ -2722,7 +2815,8 @@ export const refreshPrs = async (
  *
  *   * `elect` — no live holder, or this reads as the one that would win. The
  *     board serves this tick from its own overlay, same as a fleet-less run
- *     always has, and starts this machine's reader unless a live `fleetd`
+ *     always has, and starts this machine's reader where `readerWanted`
+ *     says so: an event stream is attached, and no live `fleetd`
  *     heartbeat already reads for this lock (checked separately, since
  *     `electReader`'s own staleness math uses a ten-minute claim bound while
  *     the spawn guard needs the tighter, heartbeat-age-only bound the reader's
@@ -2738,10 +2832,13 @@ export const refreshPrs = async (
  * by: it reads and writes no lock, starts no reader, and serves its own
  * overlay.
  *
- * Every tick writes this board's own heartbeat, also while the PR gate is
- * closed, and an open tick writes it before any read, whether it follows,
- * starts a reader, or serves its own overlay, so the reader this tick may
- * have started counts this board as a live follower on its first exit check.
+ * Every tick with an event stream attached writes this board's own
+ * heartbeat, also while the PR gate is closed, and an open tick writes it
+ * before any read, whether it follows, starts a reader, or serves its own
+ * overlay, so the reader this tick may have started counts this board as a
+ * live follower on its first exit check. A tick with no stream attached
+ * writes none, and a tick during which the last stream left removes the one
+ * it wrote.
  *
  * Issues do not follow the verdict: they come from the issue index while a
  * fleet runs and from the host otherwise.
@@ -2752,10 +2849,13 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
     // A CLOSED GATE STILL HEARTBEATS. During a reader backoff longer than
     // HEARTBEAT_STALE_MS, a board that wrote no heartbeat would read as gone,
     // and the reader would exit while this board still follows it.
-    if (entry.backend !== null && entry.backend !== '') await readerLockFor(opts).heartbeat(entry.backend, `board.${process.pid}`, Date.now());
+    if (pulseWanted({ clients: entry.clients }) && entry.backend !== null && entry.backend !== '') {
+      await readerLockFor(opts).heartbeat(entry.backend, `board.${process.pid}`, Date.now());
+    }
     return;
   }
   entry.prRunning = true;
+  let followed = false;
   try {
     const lock = readerLockFor(opts);
     const key = await readerLockKey(opts, entry);
@@ -2773,11 +2873,16 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
       entry.prReader = whoReadsPrs(held, verdict, fleetdLive);
       // BEFORE ANY READ, so a reader started on this tick already counts this
       // board on its first exit check, and a tick that throws still leaves it.
-      await lock.heartbeat(key, `board.${process.pid}`, now);
+      // ONLY WHILE A STREAM IS ATTACHED: a board nobody watches follows no
+      // reader, so the reader exits on its next beat.
+      if (pulseWanted({ clients: entry.clients })) {
+        await lock.heartbeat(key, `board.${process.pid}`, now);
+        followed = true;
+      }
       if (verdict === 'follow') {
         await readPrsFromStore(opts, entry, key);
       } else {
-        if (verdict === 'elect' && !fleetdLive) {
+        if (readerWanted({ clients: entry.clients, verdict, fleetdLive })) {
           const indexDir = await indexDirFor(opts);
           if (indexDir !== null) startReader(opts, key, indexDir, now);
         }
@@ -2806,6 +2911,9 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
     else if (prGateOpen(entry.issueNextAt, entry.issueNextIsBackoff)) await refreshIssues(opts, entry);
   } finally {
     entry.prRunning = false;
+    // The last stream left while this tick ran: a heartbeat it wrote after
+    // `watchEntry` released the reader would keep the reader for 2 minutes.
+    if (followed && !pulseWanted({ clients: entry.clients })) await releaseReader(opts, entry);
   }
 }
 
@@ -3054,7 +3162,10 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // `complete.main` rather than a literal — the default branch is the pulse's
     // to name, and a repo whose trunk is not `main` must not have every one of
     // its branches read as unmerged.
-    if (!skipDisplay) entry.unmerged = await unmergedBranches(opts, complete.main);
+    if (!skipDisplay) {
+      entry.unmerged = await unmergedBranches(opts, complete.main);
+      entry.claimOnly = await claimOnlyBranches(opts, complete.main, entry.unmerged);
+    }
     // WHAT THE WAITING WORKERS ASKED, read here and nowhere else.
     //
     // After `entry.pulse` is assigned, because the pulse is what says WHICH
@@ -3138,6 +3249,7 @@ export function freshCacheEntry(): CacheEntry {
     // empty set, so a board that has not scanned yet looks exactly as it did
     // before this field existed.
     unmerged: new Set(),
+    claimOnly: new Set(),
     questions: new Map(),
     // `null` before the first lookup — not `unsupported` and not `answered`:
     // a board that has not asked must not render an empty inbox as a clear
@@ -3169,13 +3281,12 @@ export function freshCacheEntry(): CacheEntry {
     // the pair and answers null, so a delivery waits for the first scan rather
     // than being judged against nothing.
     lastComplete: null,
-    // Null, not a stopped clock: `ensureCache` starts the pulse, and a fresh
-    // entry has not been through it yet.
-    pulseClock: null, stopped: false, running: false, prRunning: false,
+    // Null: no event stream is attached yet, so no pulse runs.
+    pulseClock: null, clients: 0, coldReadAt: null, stopped: false, running: false, prRunning: false,
   };
 }
 
-export function ensureCache(opts: BuildBoardOptions): CacheEntry {
+const cacheEntry = (opts: BuildBoardOptions): CacheEntry => {
   const key = cacheKey(opts);
   let entry = caches.get(key);
   if (entry) return entry;
@@ -3215,8 +3326,54 @@ export function ensureCache(opts: BuildBoardOptions): CacheEntry {
     if (warm.pulse.fetch_failed !== true) entry.fetchedAt = warm.at;
     entry.lastComplete = warm.pulse;
   }
+  // THE FIRST READ, whoever asked: one scan and no PR read. No pulse starts
+  // here; `watchFleet` starts it when an event stream attaches, and its first
+  // PR read starts the PR reader. A PR read here would start a
+  // `plot-pr-reader.mjs` that no attached page asked for.
+  entry.coldReadAt = Date.now();
   void refresh(opts, entry);
-  void maybeRefreshPrs(opts, entry);
+  return entry;
+};
+
+/** What the pulse and a cold read start: a clock, the scan, the PR read, and the reader's release. */
+export interface FleetWatchDeps {
+  clock: Clock;
+  scan: () => Promise<void>;
+  readPrs: () => Promise<void>;
+  /** Stops following the PR reader, so it exits on its next beat. */
+  releaseReader: () => Promise<void>;
+}
+
+const watchDepsFor = (opts: BuildBoardOptions, entry: CacheEntry): FleetWatchDeps => ({
+  clock: clockSystem(),
+  scan: () => refresh(opts, entry),
+  readPrs: () => maybeRefreshPrs(opts, entry),
+  releaseReader: () => releaseReader(opts, entry),
+});
+
+/**
+ * Starts or stops one cache entry's pulse for `count` attached event streams.
+ *
+ * With `pulseWanted` true and no pulse running, it starts the pulse and runs one
+ * scan and one PR read at once, so a page that attaches after a stop catches up
+ * within one scan. With `pulseWanted` false it stops the pulse, keeps the
+ * cache, and releases the PR reader: the board removes its reader-lock
+ * heartbeat, and the reader exits on its next beat.
+ *
+ * @param entry - the cache entry.
+ * @param count - the event streams now attached.
+ * @param deps - the clock, the scan, the PR read and the reader's release.
+ */
+export const watchEntry = (entry: CacheEntry, count: number, deps: FleetWatchDeps): void => {
+  entry.clients = count;
+  if (!pulseWanted({ clients: count })) {
+    const wasRunning = entry.pulseClock !== null;
+    entry.pulseClock?.stop();
+    entry.pulseClock = null;
+    if (wasRunning) void deps.releaseReader();
+    return;
+  }
+  if (entry.pulseClock !== null) return;
   // ONE CLOCK, TWO DIVISORS, where there were two timers.
   //
   // This cache key IS the machine's identity — `repoRoot + scriptsDir`, which
@@ -3229,20 +3386,66 @@ export function ensureCache(opts: BuildBoardOptions): CacheEntry {
   // free at 5 s, the host is metered and pointless below a minute, they failed
   // independently already, and they still fire independently. A rate-limited
   // host cannot stall the git scan that has nothing to do with it.
-  const pulse = startPulse(clockSystem(), REFRESH_MS);
+  const pulse = startPulse(deps.clock, REFRESH_MS);
   entry.pulseClock = pulse;
   // The tick per subscriber, looked up by name rather than chosen by a
   // condition: a `name === 'fleet-scan' ? … : …` would wire the PR reader twice
   // on a typo, silently, and both cadences would then be 60 s.
   const ticks: Record<string, () => Promise<void>> = {
-    'fleet-scan': () => refresh(opts, entry!),
-    'pr-reader': () => maybeRefreshPrs(opts, entry!),
+    'fleet-scan': deps.scan,
+    'pr-reader': deps.readPrs,
   };
   for (const { name, everyNthBeat } of boardDivisors()) {
     pulse.add({ name, everyNthBeat, tick: ticks[name] });
   }
+  void deps.scan();
+  void deps.readPrs();
+};
+
+/**
+ * Starts one scan for a plain request where `coldReadDue` says so, and never
+ * starts the pulse.
+ *
+ * @param entry - the cache entry.
+ * @param now - the request's epoch milliseconds.
+ * @param scan - starts one scan.
+ */
+export const coldRead = (entry: CacheEntry, now: number, scan: () => Promise<void>): void => {
+  const due = coldReadDue({
+    pulseRunning: entry.pulseClock !== null,
+    scanning: entry.running,
+    lastScanAt: entry.at,
+    lastColdReadAt: entry.coldReadAt,
+    now,
+    refreshMs: REFRESH_MS,
+  });
+  if (!due) return;
+  entry.coldReadAt = now;
+  void scan();
+};
+
+/**
+ * The cache entry for `opts`. A plain request reads it as it stands, and starts
+ * one scan where no pulse runs and the last read is older than `REFRESH_MS`.
+ */
+export function ensureCache(opts: BuildBoardOptions): CacheEntry {
+  const fresh = !caches.has(cacheKey(opts));
+  const entry = cacheEntry(opts);
+  if (!fresh) coldRead(entry, Date.now(), () => refresh(opts, entry));
   return entry;
 }
+
+/**
+ * Runs the board's pulse exactly while an event stream is attached.
+ * `index.ts` passes this to `startEventHub` as `onClients`.
+ *
+ * @param opts - the board's repo root and scripts directory.
+ * @param count - the event streams now attached.
+ */
+export const watchFleet = (opts: BuildBoardOptions, count: number): void => {
+  const entry = cacheEntry(opts);
+  watchEntry(entry, count, watchDepsFor(opts, entry));
+};
 
 /**
  * Seconds since the cache's plan ref was last read successfully, for
@@ -3384,10 +3587,13 @@ export function lastCompletePulseFor(opts: BuildBoardOptions): FleetReading | nu
  * the caches, so it cannot serve that count.
  */
 export const pauseFleetRefresh = (): void => {
-  for (const entry of caches.values()) entry.pulseClock?.stop();
+  for (const entry of caches.values()) {
+    entry.pulseClock?.stop();
+    entry.pulseClock = null;
+  }
 };
 
-/** Stop the refresh clocks. Tests need this; the server never calls it. */
+/** Stop the refresh clocks and clear the caches. Tests need this; the server never calls it. */
 export function stopFleetRefresh(): void {
   // One `stop` per entry where there were two `clearInterval`s: both cadences
   // are subscribers on the one clock, so stopping it stops both.
@@ -3636,6 +3842,9 @@ import {
   sliceReadings,
   startabilityVerdict,
   startPulse,
+  pulseWanted,
+  coldReadDue,
+  readerWanted,
   waveVerdict as sliceVerdict,
   type QuietBranchReadings,
   type QuietKind,
@@ -3645,6 +3854,7 @@ import {
   type PhaseMap,
 } from '@plot-pm/domain';
 import { clockSystem } from '@plot-pm/domain/adapters';
+import type { Clock } from '@plot-pm/domain/ports/clock';
 
 export { startabilityVerdict, sliceVerdict };
 export type { StartabilityVerdict, BriefState } from '@plot-pm/domain';
@@ -6281,6 +6491,16 @@ export function rowsFromPulse(
    * predates the fields.
    */
   fieldsBySlug?: Map<string, PlanOwnerFields> | null,
+  /**
+   * The unmerged branches carrying only empty claim markers — see
+   * {@link claimOnlyBranches}. The planless-branch loop reads each as
+   * `claimed` rather than `wip`.
+   *
+   * Last in the parameter list because it is the newest, so every existing
+   * caller is unchanged: a caller passing nothing has not looked, and every
+   * planless branch reads `wip` as it did before.
+   */
+  claimOnly?: ReadonlySet<string> | null,
 ): AgentRow[] {
   const rows: AgentRow[] = [];
   // WHETHER THE HOST WAS ASKED AT ALL, read once for the whole pulse because
@@ -7332,8 +7552,12 @@ export function rowsFromPulse(
     // labelled `closed`. The label was right and the placement was not — the
     // board knew, and the rule was never asked.
     const prClosed: 'closed' | null = known?.state === 'CLOSED' ? 'closed' : null;
+    // `claimed` WHERE THE BRANCH'S ONLY COMMITS ARE EMPTY CLAIM MARKERS, the
+    // state the plan walk gives the same branch. A closed or merged PR outranks
+    // it inside `quietKind`, so the word still follows the evidence order.
+    const state: BranchState = claimOnly?.has(branch) ? 'claimed' : 'wip';
     const { group, note, startability } = classify(
-      'wip', 'eligible', ageMinutes, NO_QUIET_WINDOW, null,
+      state, 'eligible', ageMinutes, NO_QUIET_WINDOW, null,
       // localDirty, localAhead, planPhase, worker, workerExit, workerPid,
       // localLocked, workerDirtyPaths, workerQuestion, held, localWorktree,
       // deferredReason — every default, spelled out because `hostUnasked` is
@@ -7371,7 +7595,7 @@ export function rowsFromPulse(
     // exposed to it — they reach the board through the refs, so a failed fetch
     // is the only thing standing between the row and a PR it cannot see.
     const kind = rowQuietKind(
-      prClosed, 'wip', placed, 'elsewhere', null, prMerged, hostUnasked,
+      prClosed, state, placed, 'elsewhere', null, prMerged, hostUnasked,
       // THIS BRANCH'S TIP, and the PULSE'S FETCH TIME — #1240, so the kind
       // agrees with the sentence `classify` just built from the same pair.
       tipAt?.get(branch) ?? null, prAt ?? null);
@@ -7400,7 +7624,7 @@ export function rowsFromPulse(
       version: versions?.get(branch) ?? '',
       releaseStage: '',
       wave: '',
-      state: 'wip',
+      state,
       deferredReason: '',
       // NO PLAN TO READ A PHASE FROM, so null — the same rule the loop above
       // follows for every non-idea branch. `Discovery` on a branch nobody
@@ -7931,7 +8155,7 @@ export async function buildFleet(
       approvedSpikes,
       // EACH PLAN'S ASSIGNEE, AUTHOR AND APPROVER, from the same parse — so
       // `ownedFromRow` can answer whose a no-PR row is. See `PlanOwnerFields`.
-      fieldsBySlug), entry.agents)
+      fieldsBySlug, entry.claimOnly), entry.agents)
     : [];
 
   // THE SECTIONS, REMEMBERED OR CARRIED FORWARD — the whole of this fix, in the

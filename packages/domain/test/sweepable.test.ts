@@ -40,6 +40,11 @@ describe('branchSweepProblems — the gate is the host and the checkout', () => 
     expect(firstBranchRefusal(landed())).toBeNull();
   });
 
+  it('keeps the declared state branch even where the host says merged', () => {
+    expect(branchSweepProblems(landed({ stateBranch: true }))).toEqual(['state-branch']);
+    expect(branchSweepProblems(landed({ stateBranch: false }))).toEqual([]);
+  });
+
   it('keeps the default branch, whatever else is true of it', () => {
     // Acting on it is unrecoverable, so no other reading overturns it.
     expect(branchSweepProblems(landed({ branch: 'main' }))).toEqual(['default-branch']);

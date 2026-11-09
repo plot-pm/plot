@@ -197,7 +197,7 @@ The keys cover plan and sprint directories, branch prefixes, git host and CI, th
 
 Usable standalone — they are not lifecycle phases.
 
-- **[challenge-the-plan](skills/challenge-the-plan/)** — Deep plan interrogation via adaptive interviews. The design-phase companion: idea → **challenge** → optional tracer → approve. Works on any PLAN/SPEC/STORY file.
+- **[challenge-the-plan](skills/challenge-the-plan/)** — Deep plan interrogation via adaptive interviews. The design-phase companion: idea → **challenge** → optional tracer → approve. Works on any PLAN/SPEC/STORY file. An opt-in `consistency` mode checks the plan's claims against their sources at a commit.
 - **[story-tracking](skills/story-tracking/)** — Multi-session work tracking in markdown folders. Stories are the long-running umbrella (research, decisions, session narrative); plans are the approved, actionable units.
 - **[tracer-bullets](skills/tracer-bullets/)** — Thin vertical slice strategy, referenced by `/plot-approve` for work carrying technical uncertainty.
 

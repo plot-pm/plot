@@ -48,6 +48,10 @@ branches from reading `wip` (see *The local walk is not the only source*). `--lo
 `## Notes`. `--loose` relaxes wave eligibility (see below) — strict is the
 default and should stay that way.
 
+## State branch
+
+The estate read lists plan blobs as the union of the state ref and the default branch, the state ref's blob winning per path. With no `State branch` key it is the single default-branch listing it was.
+
 ## Why it is stateless
 
 There is no fleet database. Every fact this command prints is re-derived from

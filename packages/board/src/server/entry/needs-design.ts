@@ -17,7 +17,7 @@ import { isPlanFile, namesPlan, type PlanPrRefusal } from '@plot-pm/domain/rules
 import { choosePlanPr, unreadPrsLine, type UnreadPr } from './open-prs.js';
 import { deskRoot, deskRootPlacement } from '@plot-pm/domain/rules/desk-root';
 import {
-  commitAndPush,
+  commitAndPush, cutBooking,
   localDate,
   realPlanPath,
   recordStateReceipt,
@@ -466,7 +466,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, _warn: P
   }
 
   await ctx.trees.fetch(ctx.repoRoot, main);
-  const added = await ctx.trees.addBranch(tmpwt, detail.branch, `origin/${main}`);
+  const added = await cutBooking(ctx, tmpwt, detail.branch, main, 'add');
   if (!added.ok) {
     throw new Refused(`could not prepare a booking worktree at ${tmpwt}.\n  Most often origin/${main} is not fetched, or '${detail.branch}' is checked out in\n  another worktree. Check both: git fetch origin ${main} && git worktree list\n  Nothing has been written locally; the plan is untouched.`);
   }

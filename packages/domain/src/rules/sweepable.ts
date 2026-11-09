@@ -87,6 +87,11 @@ export interface LocalBranchReadings {
   tipPastMergedHead: boolean;
   /** Whether any worktree on this machine holds the branch. */
   checkedOut: boolean;
+  /**
+   * Whether the branch is the declared `State branch`. Absent reads as `false`,
+   * the repository declaring no state branch.
+   */
+  stateBranch?: boolean;
 }
 
 /**
@@ -115,6 +120,7 @@ export interface LocalBranchReadings {
  */
 export type BranchSweepRefusal =
   | 'default-branch'
+  | 'state-branch'
   | 'no-merged-pr'
   | 'host-unknown'
   | 'host-throttled'
@@ -140,6 +146,9 @@ export const branchSweepProblems = (readings: LocalBranchReadings): BranchSweepR
   const problems: BranchSweepRefusal[] = [];
   if (readings.branch === readings.defaultBranch) {
     problems.push('default-branch');
+  }
+  if (readings.stateBranch === true) {
+    problems.push('state-branch');
   }
   if (readings.refusalKind === 'throttled' || readings.refusalKind === 'secondary') {
     problems.push('host-throttled');

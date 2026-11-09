@@ -38,7 +38,7 @@ const ctxFor = (host: Host): Context =>
       commitSubjects: async () => answered([]),
     },
     host,
-    scripts: {},
+    scripts: { config: async () => answered('') },
     trees: { list: async () => answered([]), deleteBranch: async () => answered(undefined) } as unknown as Trees,
     processes: {},
     fetch: async () => undefined,

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Design
+- **State:** Approved
 - **Type:** feature
 - **Sprint:** ship-2-32-0
 - **Review:** pr
@@ -13,6 +13,9 @@
 - **Design:** 2026-11-07, eins78, cli
 - **Spike approved:** 2026-11-08, jwloka, plan-PR #3231 merged, feature/state-branch-write
 - **Started:** 2026-11-08, Jan Wloka, `feature/state-branch-write`
+- **Approved:** 2026-11-08, jwloka, in-session
+- **Started:** 2026-11-08, Jan Wloka, `feature/state-branch-read`
+- **Started:** 2026-11-08, Jan Wloka, `feature/state-branch-sync`
 
 ## Changelog
 
@@ -139,15 +142,15 @@ Decisions, numbered. Max Albrecht decided D1 to D16 on 2026-11-07. Jan Wloka dec
 
 ### Write
 
-- `feature/state-branch-write` <!-- spike --> — the `State branch` key; `plot-push-main.sh` cuts the booking from the state branch after merging the default branch in, and pushes a fast-forward to it; the off-ladder pushes in `plot-reject`, `plot-sprint`, `plot-release` and `plot-idea` call the helper; a test asserts that every delete path excludes the declared state branch; proved on a sandbox repository with a protected default branch; the state gate's squash receipt (D14) and the non-branch ref (D16) <!-- builds: the State branch key and the state-branch target of plot-push-main.sh --> → #3234
+- `feature/state-branch-write` — the `State branch` key; `plot-push-main.sh` cuts the booking from the state branch after merging the default branch in, and pushes a fast-forward to it; the off-ladder pushes in `plot-reject`, `plot-sprint`, `plot-release` and `plot-idea` call the helper; a test asserts that every delete path excludes the declared state branch; proved on a sandbox repository with a protected default branch; the state gate's squash receipt (D14) and the non-branch ref (D16) <!-- builds: the State branch key and the state-branch target of plot-push-main.sh --> → #3234
 
 ### Read
 
-- `feature/state-branch-read` — one rule names the ref that holds a plan's records and lists the union of plan paths; the board's plan list, the reconcile scan, dispatch's gate and brief read, and the pulse read through it; the board's lag line (D5) and the reconcile section for a removed key (D9) <!-- builds: the rule naming which ref holds a plan's records -->
+- `feature/state-branch-read` — one rule names the ref that holds a plan's records and lists the union of plan paths; the board's plan list, the reconcile scan, dispatch's gate and brief read, and the pulse read through it; the board's lag line (D5) and the reconcile section for a removed key (D9) <!-- builds: the rule naming which ref holds a plan's records --> → #3276
 
 ### Sync
 
-- `feature/state-branch-sync` — fleetd merges the default branch into the state branch when it moves, and opens, refreshes and (where it may) merges the sync PR from the state branch to the default branch at the moment the Spec names; the path gate (D6), the squash (D12), the Delivered trigger (D13), and the command-side sync where no fleet runs (D19) <!-- builds: the state-sync arm of fleetd -->
+- `feature/state-branch-sync` — fleetd merges the default branch into the state branch when it moves, and opens, refreshes and (where it may) merges the sync PR from the state branch to the default branch at the moment the Spec names; the path gate (D6), the squash (D12), the Delivered trigger (D13), and the command-side sync where no fleet runs (D19) <!-- builds: the state-sync arm of fleetd --> → #3292
 
 ### Setup
 
@@ -160,6 +163,7 @@ Decisions, numbered. Max Albrecht decided D1 to D16 on 2026-11-07. Jan Wloka dec
 - Related: `docs/plans/2026-08-16-push-main-bypass.md` (the `push=` vocabulary), `docs/plans/2026-10-15-a-lifecycle-micro-pr-merged-past.md` (retry replaced the micro-PR), `docs/plans/2026-10-16-bitbucket-parity-and-app-identities.md` and #1825 (the App identities are opt-in), #1835 (open).
 - No prior art: no plan, doc or issue covers a state branch, an orphan branch, git notes or `refs/plot/*` as a record store. `refs/plot/claims/*` was considered once and zero exist (`docs/plans/2026-08-20-the-agent-panel-shows-the-agent.md:57`).
 - 2026-11-08: Jan Wloka settled Open Questions 7, 11 and 12 (D17 to D19) and approved the spike `feature/state-branch-write`.
+- 2026-11-08: `feature/state-branch-write` surprises. (1) The cut: each ladder entry cuts its own worktree, so one shared cut point did not exist; `state-cut` holds the single resolution and every entry calls it. (2) `--land` forward-merges the state ref and the default branch into the local default-branch checkout. (3) The Writer App path takes the state ref as its destination and needed no change; `pushmain.test.mjs` decides it. (4) `plot-reap` deleted a local `plot/state` branch the host reported merged; `branchSweepProblems` now refuses it as `state-branch`. (5) `plot-release-refs.sh` cannot reach the state branch: it deletes only refs under a declared slice prefix, and `plot/` is none. The delete-path test proves it with a control branch. (6) The dispatch "start" proof lives in `dispatch.test.mjs`. (7) The squash receipt (D14) clears on tree equality with the state tip only: the commit message is not readable when the gate runs at `git commit`, so the SHA-in-message half of the round-7 answer is not checked.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {

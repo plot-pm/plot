@@ -3,7 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { EndingAskRecord, EndingAskRecordStore } from '../../ports/ending-ask-record.js';
-import { runProcess } from '../run-script.js';
+import { processAnswers, type FixedAnswers } from '../git-dirs/git-dirs.js';
 
 /** The environment variable naming the record's directory, for tests. */
 export const ENDING_ASK_RECORD_HOME_ENV = 'PLOT_ENDING_ASK_RECORD_HOME';
@@ -26,6 +26,8 @@ const MAX_ROWS = 500;
 export interface EndingAskRecordFileOptions {
   /** The repository to resolve the record for; the process's cwd when omitted. */
   cwd?: string;
+  /** The held answers that place the file; this process's own when omitted. */
+  answers?: FixedAnswers;
   /** An explicit record directory, bypassing the git lookup. */
   home?: string;
   /** Reads the environment; defaults to `process.env`. */
@@ -71,7 +73,7 @@ export const endingAskRecordFile = (options: EndingAskRecordFileOptions = {}): E
     const override = env[ENDING_ASK_RECORD_HOME_ENV];
     if (override !== undefined && override !== '') return override;
     if (cached !== undefined) return cached;
-    const run = await runProcess('git', ['rev-parse', '--git-common-dir'], { cwd: options.cwd });
+    const run = await (options.answers ?? processAnswers).commonDir(options.cwd);
     const out = run.stdout.trim();
     cached = run.code !== 0 || out === '' ? null : join(resolve(options.cwd ?? process.cwd(), out), '.plot', 'state');
     return cached;

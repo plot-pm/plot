@@ -211,7 +211,9 @@ const main = async (): Promise<number> => {
   const store = planStoreRef(refs, context, `origin/${mainBranch}`);
   // A scan whose `origin/<main>` does not resolve reads the checkout: a repository with
   // no remote, or one never fetched, reports `plan_source: worktree` rather than nothing.
-  const estate = await readEstate(refs, store, { mainBranch, planDir, activeDir, deliveredDir, prefixes }, planStoreShell(context));
+  const configured = await planStoreShell(context).config('State branch', '');
+  const stateBranch = configured.ok ? configured.value.trim() : '';
+  const estate = await readEstate(refs, store, { mainBranch, stateBranch, planDir, activeDir, deliveredDir, prefixes }, planStoreShell(context));
 
   if (mode === 'slice-names') {
     if (!estate.ok) return 2;

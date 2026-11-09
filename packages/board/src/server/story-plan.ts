@@ -294,6 +294,7 @@ const startStoryPlan = async (
     },
     logFile: log,
     statePath,
+    detached: { alsoState: [] },
   });
   json(202, { ok: true, slug, prompt: promptPath, log });
 };

@@ -8,6 +8,7 @@ import type { Trees } from '../../ports/trees.js';
 import type { TreePresence } from '../../rules/reapable.js';
 import { realCommits, type CommitReading as ClaimCommit } from '../../rules/empty-claim.js';
 import type { CommitReading } from '../../rules/sample.js';
+import { processAnswers, type FixedAnswers } from '../git-dirs/git-dirs.js';
 import { asLines, asText, runProcess, runScript, runScriptSync, type ScriptRun } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
@@ -217,20 +218,17 @@ const worktreesOf = (stdout: string): Worktree[] => {
  * Reads the worktrees on this machine through git.
  *
  * @param context - where the repository is.
+ * @param answers - the held answers for each checkout's common git dir; this process's own by default.
  * @returns a `Trees` backed by `git worktree` and the filesystem.
  */
-export const treesGit = (context: ShellContext): Trees => {
+export const treesGit = (context: ShellContext, answers: FixedAnswers = processAnswers): Trees => {
   const inRepo = { cwd: context.repoRoot };
   const workerState = scriptPath(context, 'plot-worker-state.sh');
   const deskDirt = scriptPath(context, 'plot-desk-dirt.sh');
 
   /** The git directory every worktree of a repository shares, absolute; null where git cannot say. */
   const commonDir = async (path: string): Promise<string | null> => {
-    const run = await runProcess(
-      'git',
-      ['-C', path, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
-      inRepo,
-    );
+    const run = await answers.absoluteCommonDir(path, context.repoRoot);
     const dir = run.stdout.trim();
     return run.code === 0 && dir !== '' ? dir : null;
   };
@@ -665,6 +663,27 @@ export const treesGit = (context: ShellContext): Trees => {
         inRepo,
       );
       return run.code === 0 ? answered(undefined) : failed<void>();
+    },
+
+    fetchRef: async (path, ref, into): Promise<PortResult<boolean>> => {
+      const asked = await runProcess('git', ['-C', path, 'ls-remote', '--exit-code', 'origin', ref], inRepo);
+      if (asked.code === 2) return answered(false);
+      if (asked.code !== 0) return failed<boolean>();
+      const run = await runProcess('git', ['-C', path, 'fetch', '-q', 'origin', `+${ref}:${into}`], inRepo);
+      return run.code === 0 ? answered(true) : failed<boolean>();
+    },
+
+    mergeIn: async (path, ref, who): Promise<PortResult<readonly string[]>> => {
+      const run = await runProcess(
+        'git',
+        ['-C', path, '-c', `user.name=${who}`, '-c', 'user.email=plot@localhost', 'merge', '-q', '--no-edit', ref],
+        inRepo,
+      );
+      if (run.code === 0) return answered<readonly string[]>([]);
+      const unmerged = await runProcess('git', ['-C', path, 'diff', '--name-only', '--diff-filter=U'], inRepo);
+      const files = unmerged.code === 0 ? asText(unmerged.stdout).split('\n').filter((line) => line !== '') : [];
+      await runProcess('git', ['-C', path, 'merge', '--abort'], inRepo);
+      return files.length > 0 ? answered<readonly string[]>(files) : failed<readonly string[]>();
     },
 
     commitStaged: async (path, message): Promise<PortResult<void>> => {

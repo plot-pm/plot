@@ -406,8 +406,12 @@ export type DeskContinuation =
   | { kind: 'refused'; status: number; reason: ContinueRefusal; detail: string }
   | { kind: 'failed'; error: string };
 
-/** What a restart precondition answers: the start may go ahead, or why it may not. */
-export type RestartVerdict = { ok: true } | { ok: false; status: number; reason: ContinueRefusal; detail: string };
+/**
+ * What a restart precondition answers: the start may go ahead, or why it may not.
+ *
+ * An `ok` verdict may carry `answer`, which replaces the input's answer for the new run.
+ */
+export type RestartVerdict = { ok: true; answer?: string } | { ok: false; status: number; reason: ContinueRefusal; detail: string };
 
 /** What {@link continueOnDesk} needs to start a continuation on a desk. */
 export interface DeskContinuationInput {
@@ -910,7 +914,8 @@ export const reporterShell = (cmd: string): string => {
  *   failure to write the prompt, open the log, or replace the resume id.
  */
 export const continueOnDesk = async (input: DeskContinuationInput): Promise<DeskContinuation> => {
-  const { opts, branch, worktree, main, answer } = input;
+  const { opts, branch, worktree, main } = input;
+  let { answer } = input;
   const readCfg = input.readCfg ?? readConfig;
   const refused = (
     status: number,
@@ -990,6 +995,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     if (input.restart !== undefined) {
       const verdict = await input.restart();
       if (!verdict.ok) return refused(verdict.status, verdict.reason, verdict.detail);
+      if (verdict.answer !== undefined) answer = verdict.answer;
     }
 
     // ASKED BEFORE ANY WRITE, and that is the decision: a refused continuation
@@ -1389,6 +1395,10 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
             // inherit that run's writer marker through the `...process.env`
             // spread above.
             [MAIN_CHECKOUT_WRITER_ENV]: '',
+            // AN AGENT ASKS FOR ITS OWN COMMON GIT DIR: a value this process
+            // inherited from a script that sourced `plot-worker-state.sh` is
+            // blanked, as `plot-dispatch.sh` blanks it on every agent launch.
+            PLOT_GIT_COMMON_DIR: '',
             PLOT_BRANCH: branch,
             PLOT_WORKTREE: worktree,
             PLOT_EXIT_FILE: exitFile,

@@ -3,7 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { SliceRefusal, RefusedSliceRecord } from '../../ports/refused-slices.js';
-import { runProcess } from '../run-script.js';
+import { processAnswers, type FixedAnswers } from '../git-dirs/git-dirs.js';
 
 /**
  * The environment variable naming the record's directory, for tests.
@@ -20,6 +20,8 @@ const FILE = 'refused-slices.tsv';
 export interface RefusedSlicesFileOptions {
   /** The checkout to resolve the record for; the process's cwd when omitted. */
   cwd?: string;
+  /** The held answers that place the file; this process's own when omitted. */
+  answers?: FixedAnswers;
   /** An explicit record directory, bypassing the git lookup. */
   home?: string;
   /** Reads the environment; defaults to `process.env`. */
@@ -67,7 +69,7 @@ export const refusedSlicesFile = (options: RefusedSlicesFileOptions = {}): Refus
     const override = env[REFUSED_SLICES_HOME_ENV];
     if (override !== undefined && override !== '') return override;
     if (cached !== undefined) return cached;
-    const run = await runProcess('git', ['rev-parse', '--git-common-dir'], { cwd: options.cwd });
+    const run = await (options.answers ?? processAnswers).commonDir(options.cwd);
     const out = run.stdout.trim();
     if (run.code !== 0 || out === '') {
       cached = null;

@@ -403,7 +403,11 @@ git commit -m "plot: <title>"
 Push per the flow: `git push -u origin idea/<slug>` (PR flow),
 `git push -u origin <work-branch>` (same-branch flow), or push the
 current branch directly (direct flow — on knowledge repos this is the
-default branch, which is the point).
+default branch, which is the point). Where `State branch` is declared in
+`## Plot Config`, the direct flow lands with
+`node ../plot/scripts/board/plot-state-cut.mjs --land` instead: it merges the
+state ref and the default branch into HEAD and pushes the record at the state
+ref. Exit 4 means no key is declared, and the plain push applies.
 
 ### 8. Create PR (`Review: pr` only)
 

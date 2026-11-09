@@ -548,7 +548,10 @@ write_agent_manifest() { # $1=path $2=session $3=branch $4=worktree $5=command
 # because a person will look either way): here the cost of guessing wrong is an
 # agent burning minutes on nothing.
 brief_path() { printf '.plot/briefs/%s.md' "${1##*/}"; }
-brief_ref() { printf 'origin/%s:%s' "$MAIN" "$(brief_path "$1")"; }
+# The ref a path's records are read at: `origin/<main>`, or where `State branch`
+# is declared the ref the domain's `recordRef` names (`board/plot-record-ref.mjs`).
+rec_ref() { [ -n "${STATE_KEY:-}" ] && node "$script_dir/board/plot-record-ref.mjs" "$STATE_KEY" "$MAIN" "$1" 2>/dev/null || printf 'origin/%s' "$MAIN"; }
+brief_ref() { printf '%s:%s' "$(rec_ref "$(brief_path "$1")")" "$(brief_path "$1")"; }
 brief_present() { # $1 = branch → 0 if a usable brief exists on origin/<main>
   local sz
   sz=$(git cat-file -s "$(brief_ref "$1")" 2>/dev/null) || return 1
@@ -836,7 +839,7 @@ request_brief() { # $1 = branch, $2 = slug → 0 if a command was started
   export PLOT_SPAWN_CONTRACT="$(node "$script_dir/board/plot-prompt.mjs" --background-gate 2>/dev/null | sed -n "s/^export PLOT_SPAWN_CONTRACT='\\(.*\\)'$/\\1/p")"
   ( set -m; cd "$repo_root" \
     && PLOT_UNATTENDED=1 PLOT_MAIN_CHECKOUT_WRITER=1 PLOT_PLAN_SLUG="$bslug" PLOT_BRIEF_BRANCH="$branch" \
-       PLOT_AGENT_SETTINGS="$_brief_settings" \
+       PLOT_AGENT_SETTINGS="$_brief_settings" PLOT_GIT_COMMON_DIR= \
        exec nohup sh -c "$cmd \"\$@\"" plot-brief \
        "$(brief_prompt "$branch" "$bslug")" \
        >"$log" 2>&1 </dev/null & ) >/dev/null 2>&1 </dev/null
@@ -873,7 +876,7 @@ brief_staleness_note() { # $1 = branch → prints a hint, or nothing
   local branch="$1" bc pc bs ps
   [ -n "$gate_sha" ] || return 0        # nothing shared to compare against
   [ -n "${plan_path:-}" ] || return 0
-  bc=$(git log -1 --format='%H %ct' "$gate_ref" -- "$(brief_path "$branch")" 2>/dev/null) || return 0
+  bc=$(git log -1 --format='%H %ct' "$(rec_ref "$(brief_path "$branch")")" -- "$(brief_path "$branch")" 2>/dev/null) || return 0
   pc=$(git log -1 --format='%H %ct' "$gate_ref" -- "$plan_path" 2>/dev/null) || return 0
   [ -n "$bc" ] && [ -n "$pc" ] || return 0
   bs=${bc##* }; ps=${pc##* }
@@ -1491,7 +1494,7 @@ start_worker() {
       # the export reaches the wrapper and nothing else.
       { [ -n "$capabilities" ] && export PLOT_CAPABILITIES="$capabilities"; true; } && \
       PLOT_BRANCH="$branch" PLOT_WORKTREE="$wt" \
-      PLOT_SLUG="$slug" PLOT_MAIN_CHECKOUT_WRITER= \
+      PLOT_SLUG="$slug" PLOT_MAIN_CHECKOUT_WRITER= PLOT_GIT_COMMON_DIR= \
       PLOT_SESSION_ID="$session" \
       PLOT_AGENT="${PLOT_AGENT:-}" \
       PLOT_HARNESS="$launch_harness" \
@@ -1837,7 +1840,7 @@ if [ "$mode" = "restart" ]; then
     exit 1
   fi
   PLOT_RESTART_WORKTREE=$(worktree_holding_branch "$restart_branch") \
-    PLOT_RESTART_OFFLINE=$([ -n "$offline" ] && echo 1 || echo 0) \
+    PLOT_RESTART_OFFLINE=$([ -n "$offline" ] && echo 1 || echo 0) PLOT_GIT_COMMON_DIR= \
     node "$script_dir/board/plot-restart-command.mjs" "$restart_branch" || exit 1
   spend_action_receipt "restart"
   exit 0
@@ -2687,6 +2690,7 @@ ACTIVE_DIR_CFG=$("$script_dir/plot-config.sh" get "Active index" "docs/plans/act
 
 gate_ref="origin/$MAIN"
 gate_sha=$(git rev-parse --verify --quiet "$gate_ref^{commit}" 2>/dev/null) || gate_sha=""
+STATE_KEY=$("$script_dir/plot-config.sh" get "State branch" "")
 
 # The plan as it exists on the shared ref. Path resolution runs against the ref
 # too (`git ls-tree`), not the filesystem: a plan that exists only locally must
@@ -2698,41 +2702,21 @@ gate_sha=$(git rev-parse --verify --quiet "$gate_ref^{commit}" 2>/dev/null) || g
 # follows the link and this never comes up; against a ref it must be
 # dereferenced by hand, or the gate parses a one-line path as a plan and reports
 # an unreadable phase instead of the real one.
-deref_on_ref() { # $1=path on $gate_ref → prints the path the blob really lives at
-  local p="$1" target dir hops=0
-  while [ "$(git ls-tree "$gate_ref" -- "$p" 2>/dev/null | awk '{print $1}')" = "120000" ]; do
-    hops=$((hops + 1))
-    [ "$hops" -le 8 ] || return 1        # a symlink cycle must not hang the gate
-    target=$(git show "$gate_ref:$p" 2>/dev/null) || return 1
-    case "$target" in
-      /*) return 1 ;;                    # absolute: not a path within the ref
-      *)  dir=$(dirname "$p")
-          # Normalise ../ and ./ without touching the filesystem.
-          p=$(printf '%s\n' "$dir/$target" | awk -F/ '{
-                n=0
-                for (i=1; i<=NF; i++) {
-                  if ($i == "" || $i == ".") continue
-                  if ($i == "..") { if (n>0) n--; continue }
-                  s[++n]=$i
-                }
-                out=""
-                for (i=1; i<=n; i++) out = (i==1 ? s[i] : out "/" s[i])
-                print out
-              }') ;;
-    esac
-  done
-  printf '%s\n' "$p"
-}
+deref_on_ref() { node "$script_dir/board/plot-record-ref.mjs" --deref "$gate_ref" "$1" 2>/dev/null; } # $1=path on $gate_ref → the path the blob really lives at
 
+# WHERE `State branch` IS DECLARED the records sit on the state ref: candidates
+# come from both refs and each path is read at the ref `recordRef` names for it.
 plan_path=""
 if [ -n "$gate_sha" ]; then
   for cand in "$ACTIVE_DIR_CFG$slug.md" \
-              $(git ls-tree -r --name-only "$gate_ref" -- "$PLAN_DIR_CFG" 2>/dev/null \
-                | grep -E "/[0-9]{4}-[0-9]{2}-[0-9]{2}-${slug}\.md$|/${slug}\.md$"); do
+              $( { git ls-tree -r --name-only "origin/$MAIN" -- "$PLAN_DIR_CFG"; [ -z "$STATE_KEY" ] || git ls-tree -r --name-only "$(rec_ref)" -- "$PLAN_DIR_CFG"; } 2>/dev/null \
+                | sort -u | grep -E "/[0-9]{4}-[0-9]{2}-[0-9]{2}-${slug}\.md$|/${slug}\.md$"); do
+    gate_ref=$(rec_ref "$cand")
     git cat-file -e "$gate_ref:$cand" 2>/dev/null || continue
     plan_path=$(deref_on_ref "$cand") || { plan_path=""; continue; }
     [ -n "$plan_path" ] && break
   done
+  gate_sha=$(git rev-parse --verify --quiet "$gate_ref^{commit}" 2>/dev/null) || gate_sha=""
 fi
 
 # --allow-local: read the working tree instead, and say so. The escape for a
@@ -3258,7 +3242,7 @@ book_started() { # $@ = branches dispatched this run
 # The write itself. Every failure path returns non-zero after saying WHY on
 # stderr; the caller owns the one user-facing consequence line.
 write_started_record() { # $@ = branches
-  local who date rel tmpwt bookbr rc=0
+  local who date rel tmpwt bookbr pushref rc=0
   who="${PLOT_CLAIM_WHO:-$(git config user.name 2>/dev/null || echo plot)}"
   date=$(date +%Y-%m-%d)
 
@@ -3275,20 +3259,13 @@ write_started_record() { # $@ = branches
   bookbr="plot/start-$slug"
   tmpwt="$wt_root/.plot-start-$slug.$$"
 
-  # Fetch even under --offline: booking is a push, so the network is already
-  # required. Without a fresh origin/<default> the branch would fork from a
-  # stale tip and the push would be a guaranteed non-fast-forward.
-  git fetch -q origin "$MAIN" 2>/dev/null
-
-  # `git worktree add` creates the desk root when it is missing; exclude it
-  # first so the booking leaves no untracked `.worktrees/` behind.
+  # The cut is the bundle's: from the declared `State branch` (else from
+  # origin/<default>), fetched first even under --offline — booking is a push,
+  # so the network is already required. It prints the ref the push goes at.
+  # `-B` semantics hold: a leftover branch from an earlier failed booking is
+  # disposable by construction.
   plot_exclude_desk_root "$(plot_repo_root)"
-  # -B: a leftover branch from an earlier failed booking must not block this
-  # one. It is disposable by construction — created here, pushed, deleted.
-  if ! git worktree add -q -B "$bookbr" "$tmpwt" "origin/$MAIN" 2>/dev/null; then
-    echo "plot-dispatch: could not prepare a booking worktree at $tmpwt" >&2
-    echo "  Most often origin/$MAIN is not fetched, or '$bookbr' is checked out in" >&2
-    echo "  another worktree. Check both: git fetch origin $MAIN && git worktree list" >&2
+  if ! pushref=$(node "$script_dir/board/plot-state-cut.mjs" "$tmpwt" "$bookbr" "$MAIN"); then
     echo "  The branches were dispatched; only the plan's Started record is missing." >&2
     return 1
   fi
@@ -3344,7 +3321,7 @@ write_started_record() { # $@ = branches
   # in so a `rejected` report is visible rather than swallowed by 2>/dev/null
   # somewhere upstream.
   if [ "$rc" = 0 ]; then
-    "$script_dir/plot-push-main.sh" "$bookbr" "$MAIN" 2>&1 | sed 's/^/  /'
+    "$script_dir/plot-push-main.sh" "$bookbr" "$pushref" 2>&1 | sed 's/^/  /'
     # The pipeline's status is sed's, so ask the helper's directly.
     rc=${PIPESTATUS[0]}
   fi

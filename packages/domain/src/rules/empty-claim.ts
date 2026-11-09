@@ -44,3 +44,14 @@ export const isEmptyClaim = ({ subject, tree, parentTree }: CommitReading): bool
  */
 export const realCommits = (commits: readonly CommitReading[]): number =>
   commits.filter((commit) => !isEmptyClaim(commit)).length;
+
+/**
+ * Answers whether a branch carries nothing but empty claim markers.
+ *
+ * @param commits - the commits a branch carries beyond the default branch.
+ * @returns `true` when the list is non-empty and every commit is an empty
+ *   claim marker. An empty list answers `false`: a branch with no commit ahead
+ *   is not a claim, it points at the default branch.
+ */
+export const claimOnly = (commits: readonly CommitReading[]): boolean =>
+  commits.length > 0 && realCommits(commits) === 0;

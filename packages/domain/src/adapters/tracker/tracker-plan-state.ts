@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import { filled, planIssueComment, priorPlanLinesOf, PLAN_STATE_MARKER } from '../../rules/plan-issue-comment.js';
 import type { IssueCloseOutcome, IssueLabelOutcome, PlanStatePhase, PlanStateOutcome, PlanStateWrite } from '../../ports/tracker.js';
+import { processAnswers } from '../git-dirs/git-dirs.js';
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { unaskableReasonOf } from './tracker-shell.js';
@@ -69,7 +70,7 @@ const hashOf = (body: string): string => createHash('sha256').update(body).diges
 const stateDirOf = async (cwd: string, env: Record<string, string | undefined>): Promise<string | null> => {
   const override = env[PLAN_STATE_WRITTEN_HOME_ENV];
   if (override !== undefined && override !== '') return override;
-  const run = await runProcess('git', ['rev-parse', '--git-common-dir'], { cwd });
+  const run = await processAnswers.commonDir(cwd);
   const out = run.stdout.trim();
   if (run.code !== 0 || out === '') return null;
   return join(resolve(cwd, out), '.plot', 'state');

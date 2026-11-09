@@ -261,7 +261,7 @@ export async function handleImplement(
     return;
   }
   const branch = briefBranchOf(reading);
-  const started = startImplement(opts, slug, usable, undefined, readCfg, branch);
+  const started = startImplement(opts, slug, usable, undefined, readCfg, branch, {}, true);
   if ('failure' in started) {
     json(
       started.failure.running ? 409 : 500,

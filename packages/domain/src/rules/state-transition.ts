@@ -654,6 +654,22 @@ export const pickedClears = (
 ): boolean => transition.before === pickedBefore && transition.after === pickedAfter;
 
 /**
+ * Whether a commit is a squash of the declared state ref's tip, so the
+ * lifecycle writes it carries were already receipted when the state ref took
+ * them.
+ *
+ * @param indexTree - the tree the staged index holds, empty when unreadable.
+ * @param tipTree - the tree of the state ref's tip, empty when unreadable.
+ * @param mergeParents - the other parents the commit being made has; a squash has none.
+ * @returns true when both trees are known, equal, and the commit is not a merge.
+ */
+export const squashOfStateTip = (
+  indexTree: string,
+  tipTree: string,
+  mergeParents: readonly string[],
+): boolean => indexTree !== '' && tipTree !== '' && indexTree === tipTree && mergeParents.length === 0;
+
+/**
  * The refusal for transitions no receipt cleared, or `null` when there are
  * none. The gate judges the writer, not the word: any changed value is
  * refused, including one no lifecycle admits.

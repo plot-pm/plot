@@ -315,9 +315,11 @@ const stateGate: Gate = {
       pickedClears,
       pickedTransitionOf,
       receiptOf,
+      squashOfStateTip,
       stateTransitionRefusal,
       stateTransitionsOf,
     } = await import('@plot-pm/domain/rules/state-transition');
+    const { writeTarget } = await import('@plot-pm/domain/rules/write-target');
     const { gitBlobOid } = await import('./ladder.js');
 
     const cwd = process.cwd();
@@ -433,8 +435,28 @@ const stateGate: Gate = {
         return { parentText: parent.ok ? parent.value : null, pickedText: picked.ok ? picked.value : null };
       };
 
+      // A squash of the state ref's tip (D14) carries lifecycle writes the state
+      // ref already took under their receipts, so its tree equals the tip's.
+      let squash = false;
+      const stateKey = await scripts.config('State branch', '');
+      if (stateKey.ok && stateKey.value.trim() !== '') {
+        const head = await refs.defaultBranch();
+        const target = writeTarget(stateKey.value, head.ok ? head.value : 'main');
+        if (target.kind === 'state') {
+          const tip = await refs.resolve(target.trackRef);
+          const tipTree = tip.ok ? await refs.resolve(`${tip.value}^{tree}`) : null;
+          const indexTree = await refs.indexTree();
+          squash = squashOfStateTip(
+            indexTree.ok ? indexTree.value.trim() : '',
+            tipTree !== null && tipTree.ok ? tipTree.value.trim() : '',
+            otherParentShas,
+          );
+        }
+      }
+
       const receipts = stateReceiptsFile(root, gitBlobOid);
       for (const transition of stateTransitionsOf(readings, planDir.value.trim(), sprintDir.value.trim())) {
+        if (squash) continue;
         const { key, value } = receiptOf(transition);
         const spent = await receipts.spend(key, value);
         if (spent.ok && spent.value) continue;

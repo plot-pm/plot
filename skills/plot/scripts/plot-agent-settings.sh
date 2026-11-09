@@ -65,17 +65,17 @@ declared="$(bash "$here/plot-config.sh" get "Agent settings" "" 2>/dev/null || e
 # desk its own answer, or no answer at all. An absolute value is taken as given,
 # the way `Worktree root` and `Agent registry` treat theirs.
 #
+# An exported common dir is taken when it is this checkout's
+# (`plot_given_common_dir`), and git is asked otherwise. Outside a repository
+# the working directory is the root.
+#
 # The KEY itself is still read from the asking tree's CLAUDE.md, so an old desk
 # whose CLAUDE.md carries no key starts as today.
 case "$declared" in
   /*) path="$declared" ;;
   *)
-    common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || echo "")"
-    if [ -n "$common" ]; then
-      main_root="$(cd "$common/.." 2>/dev/null && pwd -P)"
-    else
-      main_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)"
-    fi
+    . "$here/plot-desk-root.sh"
+    common="$(plot_given_common_dir "$PWD" || git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" && main_root="$(cd "$common/.." 2>/dev/null && pwd -P)" || main_root="$(pwd -P)"
     path="$main_root/$declared"
     ;;
 esac

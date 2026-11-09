@@ -746,8 +746,9 @@ export const walkOnce = async (
   const indexRows = walk.prIndexRows === undefined ? null : await walk.prIndexRows();
   const indexMerged = indexMergedHeads(indexRows ?? []);
   const indexOpen = indexRows === null ? undefined : indexOpenHeads(indexRows);
+  const stateBranch = await cfg('State branch', '');
   const estate = await readEstate(refs, plansAt, {
-    mainBranch, planDir, activeDir, deliveredDir, prefixes: prefixes.length > 0 ? prefixes : ['idea', 'feature', 'bug', 'docs', 'infra'],
+    mainBranch, stateBranch, planDir, activeDir, deliveredDir, prefixes: prefixes.length > 0 ? prefixes : ['idea', 'feature', 'bug', 'docs', 'infra'],
   }, walk.worktree);
   const branches = estate.ok
     ? await readBranchReadings(refs, walk.host, estate.value, { mainBranch, planDir, prs, indexMerged, ...(indexOpen === undefined ? {} : { indexOpen }) })
