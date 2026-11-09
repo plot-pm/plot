@@ -2301,6 +2301,22 @@ test('host: issue-list github reads REST only, never a GraphQL subcommand', () =
   assert.ok(!argv.includes('issue') && !argv.includes('graphql'));
 });
 
+test('host: issue-list github rows keep the pre-REST key set', () => {
+  // The board reads these rows by name. The GraphQL arm emitted exactly this set.
+  const stubs = makeStubs({
+    ghJson: JSON.stringify([
+      { number: 1, title: 't', html_url: 'u', created_at: 'c', state: 'open', assignees: [] },
+    ]),
+  });
+  const res = spawnSync('bash', [adapter, 'issue-list'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.deepEqual(Object.keys(JSON.parse(res.stdout.trim())).sort(),
+    ['assignees', 'createdAt', 'number', 'releases', 'status', 'statusCategory', 'title', 'url'].sort());
+});
+
 test('host: issue-list github prints assignees with zero, one and two logins', () => {
   const stubs = makeStubs({
     ghJson: JSON.stringify([
