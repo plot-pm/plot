@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Type:** feature
+- **Sprint:** desk-probes-and-liveness
 - **Issue:** #3170
 - **Story:** nothing-changed-nothing-runs
 - **Review:** pr

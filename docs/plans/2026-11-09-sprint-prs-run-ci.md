@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Type:** infra
+- **Sprint:** desk-probes-and-liveness
 - **Review:** pr
 - **Impl:** own branches
 - **Rounds:** 1
