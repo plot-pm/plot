@@ -1,4 +1,7 @@
+import type { FleetdHeartbeat } from '../entities/fleetd-heartbeat.js';
+import { fleetdLiveness, observerFresh } from './fleetd-live.js';
 import type { ReaderVerdict } from './reader-election.js';
+import type { SnapshotLink } from './snapshot-link.js';
 
 /** What the board server knows about who watches it. */
 export interface BoardWatchReading {
@@ -73,3 +76,69 @@ export interface ReaderWatchReading {
  */
 export const readerWanted = ({ clients, verdict, fleetdLive }: ReaderWatchReading): boolean =>
   pulseWanted({ clients }) && verdict === 'elect' && !fleetdLive;
+
+/** What the board knows about fleetd's channel when it picks where its view comes from. */
+export interface BoardSourceReading {
+  /** Event streams held open on `GET /api/events`. */
+  clients: number;
+  /** The `fleetdLiveness` answer for the heartbeat under the reader lock. */
+  fleetd: 'live' | 'stale' | 'absent';
+  /** Whether the heartbeat's observer stamp is fresh (`observerFresh`). */
+  observerFresh: boolean;
+  /**
+   * The board's channel to fleetd: `current` holds a snapshot of this
+   * protocol and generation, `mismatch` speaks another protocol, `resyncing`
+   * waits for a full snapshot, and `none` holds no snapshot.
+   */
+  channel: 'current' | 'mismatch' | 'resyncing' | 'none';
+}
+
+/** Where the board's view comes from: fleetd's snapshot, the board's own reads, or nowhere. */
+export type BoardSource = 'snapshot' | 'own' | 'idle';
+
+/**
+ * Picks the source of the board's view.
+ *
+ * @param reading the attached streams, fleetd's liveness and the channel state
+ * @returns `idle` with no stream attached; `snapshot` while fleetd is `live`,
+ *   its observer is fresh and the channel is `current`; `own` otherwise
+ */
+export const boardSource = (reading: BoardSourceReading): BoardSource => {
+  if (!pulseWanted(reading)) return 'idle';
+  return reading.fleetd === 'live' && reading.observerFresh && reading.channel === 'current' ? 'snapshot' : 'own';
+};
+
+/** What the board reads when it picks its source on one beat. */
+export interface BoardSourceFacts {
+  /** Event streams held open on `GET /api/events`. */
+  clients: number;
+  /** fleetd's heartbeat, or null where there is none to read. */
+  heartbeat: FleetdHeartbeat | null;
+  /** The hub's snapshot link, or undefined where the board has no hub. */
+  link: SnapshotLink | undefined;
+  /** The current time, epoch milliseconds. */
+  now: number;
+}
+
+/**
+ * The channel state `boardSource` reads, from the hub's snapshot link.
+ *
+ * @param link - the hub's snapshot link, or undefined where the board has no hub.
+ * @returns `none` for no hub and for an `absent` link; the link's state otherwise.
+ */
+export const boardChannelOf = (link: SnapshotLink | undefined): BoardSourceReading['channel'] =>
+  link === undefined || link.state === 'absent' ? 'none' : link.state;
+
+/**
+ * Picks the source of the board's view from the heartbeat and the snapshot link.
+ *
+ * @param facts - the attached streams, the heartbeat, the link and the clock.
+ * @returns `boardSource` over `fleetdLiveness`, `observerFresh` and `boardChannelOf`.
+ */
+export const boardSourceOf = ({ clients, heartbeat, link, now }: BoardSourceFacts): BoardSource =>
+  boardSource({
+    clients,
+    fleetd: fleetdLiveness(heartbeat, now),
+    observerFresh: heartbeat !== null && observerFresh(heartbeat, now),
+    channel: boardChannelOf(link),
+  });

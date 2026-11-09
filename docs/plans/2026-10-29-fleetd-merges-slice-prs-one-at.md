@@ -28,7 +28,7 @@
 
 ## Motivation
 
-fleetd merges nothing today. A master agent runs `plot-ask.mjs merge` for every slice PR, so delivery stops when that session ends. `mergeAt` has one caller, the `merge` arm of `plot-ask.mjs` (`packages/board/src/server/entry/main.ts:151-176`). [DESIGN-delivery-loop.md](../stories/the-fleet-delivers-a-scope-alone/DESIGN-delivery-loop.md) (approved by jwloka on 2026-10-29) moves the merge into fleetd as a domain rule. Its anti-goal is a default branch that goes red and stays red, and one merge in flight is its main guard.
+fleetd merges nothing today. A master agent runs `plot-ask.mjs merge` for every slice PR, so delivery stops when that session ends. `mergeAt` has one caller, the `merge` arm of `plot-ask.mjs` (`packages/board/src/server/entry/main.ts:151-176`). [DESIGN-delivery-loop.md](../stories/archived/the-fleet-delivers-a-scope-alone/DESIGN-delivery-loop.md) (approved by jwloka on 2026-10-29) moves the merge into fleetd as a domain rule. Its anti-goal is a default branch that goes red and stays red, and one merge in flight is its main guard.
 
 Panel round 1 executed probes against `merge()` and `defaultBranchRed()` and measured four gaps in the controller this plan builds on:
 

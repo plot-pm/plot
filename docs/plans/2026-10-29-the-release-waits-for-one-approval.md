@@ -30,7 +30,7 @@ Board impact: the existing `release` row kind (`packages/board/src/contract/sche
 
 ## Motivation
 
-The delivery loop in [DESIGN-delivery-loop.md](../stories/the-fleet-delivers-a-scope-alone/DESIGN-delivery-loop.md) (approved by jwloka, 2026-10-29) removes every stop except the release. Today a person or a master agent finds the release PR, approves its CI run, runs the review, merges, waits for publish, books the plans as Released and closes the sprint by hand. The 2.29.1 release shows each step: the sweep and sprint-close commits `860a0586a` and `c2349bd7c` went to `main` with no PR.
+The delivery loop in [DESIGN-delivery-loop.md](../stories/archived/the-fleet-delivers-a-scope-alone/DESIGN-delivery-loop.md) (approved by jwloka, 2026-10-29) removes every stop except the release. Today a person or a master agent finds the release PR, approves its CI run, runs the review, merges, waits for publish, books the plans as Released and closes the sprint by hand. The 2.29.1 release shows each step: the sweep and sprint-close commits `860a0586a` and `c2349bd7c` went to `main` with no PR.
 
 The panel (round 1) measured five facts that the first draft got wrong:
 

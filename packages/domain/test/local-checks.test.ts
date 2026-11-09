@@ -199,3 +199,15 @@ describe('shellWord', () => {
     expect(answer.commands[0]).toBe("pnpm --filter @plot-pm/domain exec vitest related --run 'packages/domain/src/a b.ts'");
   });
 });
+
+describe('declaration order', () => {
+  it('prints commands in the order the key declares them, whatever order the paths arrive in', () => {
+    const checks = parseLocalChecks('src/** = echo first; test/*.test.mjs = node --test {tests}; ** = echo last');
+    const references = new Map([['src/a.ts', ['test/a.test.mjs']]]);
+    const forward = localChecks(readings({ checks, changed: ['src/a.ts', 'test/a.test.mjs'], references }));
+    const reverse = localChecks(readings({ checks, changed: ['test/a.test.mjs', 'src/a.ts'], references }));
+    expect(forward.commands).toEqual(reverse.commands);
+    expect(forward.commands[0]).toBe('echo first');
+    expect(forward.commands.at(-1)).toBe('echo last');
+  });
+});

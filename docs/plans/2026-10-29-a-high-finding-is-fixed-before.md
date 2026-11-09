@@ -32,7 +32,7 @@
 
 ## Motivation
 
-A HIGH finding waits for a master agent to start a fix agent. In the session of 2026-10-16 to 2026-10-29 the master agent started a fix agent for every HIGH finding and for every red PR whose desk was dead or out of corrections ([DESIGN-delivery-loop.md](../stories/the-fleet-delivers-a-scope-alone/DESIGN-delivery-loop.md), *Intent*). When that session ends, the PR stays on `plot/review=failure`.
+A HIGH finding waits for a master agent to start a fix agent. In the session of 2026-10-16 to 2026-10-29 the master agent started a fix agent for every HIGH finding and for every red PR whose desk was dead or out of corrections ([DESIGN-delivery-loop.md](../stories/archived/the-fleet-delivers-a-scope-alone/DESIGN-delivery-loop.md), *Intent*). When that session ends, the PR stays on `plot/review=failure`.
 
 Today `packages/board/src/server/entry/review.ts:494` writes `failure` for any HIGH count above zero, and `openFollowUp` (`review.ts:269`) opens a follow-up issue for any finding of any severity (`review.ts:483-488`). Nothing reads a HIGH and starts a fix.
 

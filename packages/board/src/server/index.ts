@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { machineSystem, shellContext } from '@plot-pm/domain/adapters';
 import { isAnswered } from '@plot-pm/domain';
 import { planStoreFor, scriptsFor, primeAgentSettings, renderPlanPage, renderStoryPage, renderDesignDocPage, startBundleFor, type BuildBoardOptions } from './board.js';
-import { issuesClosedReading, watchFleet } from './fleet.js';
+import { fleetSnapshotArrived, issuesClosedReading, watchFleet } from './fleet.js';
 import { fleetState } from './controllers/fleet-state.js';
 import { probeAppKeysAtBoardStart } from './app-key-probe.js';
 import { boardAnswer } from './controllers/board-answer.js';
@@ -125,7 +125,12 @@ const events = startEventHub({
   // stream; with none, the board starts no process on its own, and a plain
   // request gets one cold read through `ensureCache`.
   onClients: (count) => watchFleet(opts, count),
+  // A NEW SNAPSHOT GENERATION re-derives the view where the board serves from
+  // it, and the hub then sends one event.
+  onSnapshot: () => fleetSnapshotArrived(opts),
 });
+opts.channelLink = () => events.link();
+opts.channelSnapshot = () => ({ link: events.snapshotLink(), held: events.snapshot() });
 const render = (parts: readonly unknown[]): string =>
   parts.map((part) => (typeof part === 'string' ? part : inspect(part))).join(' ');
 /**
@@ -515,7 +520,7 @@ async function handleRequest(
       // REPLACES the payload rather than adding to it — a mock beside real rows
       // is indistinguishable from a real estate behaving oddly, and the first
       // confused reading would cost more than the aid saves.
-      res.end(JSON.stringify(await fleetState({ opts, estate: estate.source })));
+      res.end(JSON.stringify({ ...(await fleetState({ opts, estate: estate.source })), snapshotChannel: events.snapshotLink() }));
     } catch (err) {
       console.error('Error building fleet:', err);
       res.writeHead(500, { 'Content-Type': 'application/json' });

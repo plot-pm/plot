@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -93,6 +93,89 @@ describe('census-gate.mjs', () => {
     const dir = repo(3, 3);
 
     expect(gate(dir, `${ROW('"strict"')}; [ "$PLOT_CENSUS_PRODUCT" != "$(pwd)" ] || exit 1`, '--base', 'base').status).toBe(1);
+  });
+
+  it('adds no worktree when the census against HEAD fails in the one-process mode', () => {
+    const dir = repo(3, 3);
+    const marker = join(dir, '..', `${dir.split('/').pop()}-runs`);
+    const run = `echo run >> '${marker}'; [ "$PLOT_CENSUS_PRODUCT" != "$(pwd)" ] || exit 1`;
+
+    const actual = gate(dir, run, '--base', 'base');
+
+    expect(actual.status, actual.stdout + actual.stderr).toBe(1);
+    expect(actual.stdout).toContain('the merge base is not run');
+    expect(readFileSync(marker, 'utf8').trim().split('\n')).toHaveLength(1);
+    expect(git(dir, 'worktree', 'list').split('\n')).toHaveLength(1);
+    sandboxes.push(marker);
+  });
+
+  it('--only head writes HEAD report and adds no worktree', () => {
+    const dir = repo(0, 4);
+    const report = join(dir, '..', `${dir.split('/').pop()}-head.jsonl`);
+    sandboxes.push(report);
+
+    const actual = gate(dir, ROW('"strict"'), '--only', 'head', '--report', report);
+
+    expect(actual.status, actual.stdout + actual.stderr).toBe(0);
+    expect(readFileSync(report, 'utf8')).toContain('"count":4');
+    expect(git(dir, 'worktree', 'list').split('\n')).toHaveLength(1);
+  });
+
+  it('--only head exits 1 when the census fails', () => {
+    const dir = repo(1, 1);
+    const report = join(dir, '..', `${dir.split('/').pop()}-head.jsonl`);
+    sandboxes.push(report);
+
+    expect(gate(dir, 'exit 3', '--only', 'head', '--report', report).status).toBe(1);
+  });
+
+  it('--only before writes the report from the "before" product and is not gated', () => {
+    const dir = repo(7, 9);
+    const report = join(dir, '..', `${dir.split('/').pop()}-before.jsonl`);
+    sandboxes.push(report);
+
+    const actual = gate(dir, `${ROW('"strict"')}; exit 1`, '--only', 'before', '--base', 'base', '--report', report);
+
+    expect(actual.status, actual.stdout + actual.stderr).toBe(0);
+    expect(readFileSync(report, 'utf8')).toContain('"count":7');
+    expect(git(dir, 'worktree', 'list').split('\n')).toHaveLength(1);
+  });
+
+  it('--only before writes no report when the build fails', () => {
+    const dir = repo(7, 9);
+    const report = join(dir, '..', `${dir.split('/').pop()}-before.jsonl`);
+    sandboxes.push(report);
+
+    const actual = spawnSync(process.execPath, [GATE, '--only', 'before', '--base', 'base', '--report', report, '--build', 'false', '--run', ROW('"strict"')], { cwd: dir, encoding: 'utf8' });
+
+    expect(actual.status, actual.stdout + actual.stderr).toBe(0);
+    expect(existsSync(report)).toBe(false);
+  });
+
+  it('--compare refuses growth between two reports and reads a missing "before" as "no before"', () => {
+    const dir = repo(1, 1);
+    const stem = join(dir, '..', dir.split('/').pop() as string);
+    const [headFile, beforeFile, missing] = [`${stem}-h.jsonl`, `${stem}-b.jsonl`, `${stem}-none.jsonl`];
+    sandboxes.push(headFile, beforeFile);
+    const row = (n: number) =>
+      `${JSON.stringify({ id: 'S4', fixture: { desks: 3, openPrs: 5, host: 'github' }, count: n, unit: 'execve per pass', tolerance: 'strict', commands: { 'git rev-parse': n } })}\n`;
+    writeFileSync(headFile, row(1));
+    writeFileSync(beforeFile, row(0));
+
+    const grown = spawnSync(process.execPath, [GATE, '--compare', headFile, beforeFile], { cwd: dir, encoding: 'utf8' });
+    const none = spawnSync(process.execPath, [GATE, '--compare', headFile, missing], { cwd: dir, encoding: 'utf8' });
+
+    expect(grown.status, grown.stdout + grown.stderr).toBe(1);
+    expect(grown.stdout).toContain('FAIL S4 github desks=3 prs=5: HEAD 1, merge base 0');
+    expect(none.status, none.stdout + none.stderr).toBe(0);
+    expect(none.stdout).toContain('S4 github desks=3 prs=5: no before');
+  });
+
+  it('refuses --only without --report, and --compare with another half', () => {
+    const dir = repo(1, 1);
+    expect(gate(dir, 'true', '--only', 'head').status).toBe(2);
+    expect(gate(dir, 'true', '--only', 'both', '--report', 'x').status).toBe(2);
+    expect(spawnSync(process.execPath, [GATE, '--compare', 'a', 'b', '--only', 'head'], { cwd: dir, encoding: 'utf8' }).status).toBe(2);
   });
 
   it('refuses a call that names neither or both of --base and --before', () => {

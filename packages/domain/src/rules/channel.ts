@@ -8,6 +8,7 @@ import {
 } from '../entities/finding.js';
 import {
   PurposeSchema,
+  SNAPSHOT_PROTOCOL,
   isServed,
   serves,
   type Admission,
@@ -61,6 +62,8 @@ export const admit = (id: string, raw: unknown): Admission => {
   // schema cannot tell them apart, because an unknown finding fails its enum
   // exactly as a typo does. Asking first is what lets `CI is green` be refused
   // with the reason the design gives it rather than a parser's generic no.
+  const versionRefusal = refuseProtocol(raw);
+  if (versionRefusal !== undefined) return versionRefusal;
   const asked = describeAsked(raw);
   const canonical = ALIASES[asked.toLowerCase()] ?? asked;
   if (asked !== '') {
@@ -89,6 +92,27 @@ export const admit = (id: string, raw: unknown): Admission => {
 
   const { subscriber, purpose } = parsed.data;
   return { ok: true, subscription: { id, subscriber, purpose } };
+};
+
+/**
+ * The refusal for a `snapshot` purpose whose protocol differs from
+ * {@link SNAPSHOT_PROTOCOL}, or `undefined` when the request is not one.
+ *
+ * @param raw the request as received
+ * @returns a refusal whose reason names both versions
+ */
+const refuseProtocol = (raw: unknown): Admission | undefined => {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const purpose = (raw as { purpose?: unknown }).purpose;
+  if (typeof purpose !== 'object' || purpose === null) return undefined;
+  const { kind, protocol } = purpose as { kind?: unknown; protocol?: unknown };
+  if (kind !== 'snapshot' || typeof protocol !== 'number' || protocol === SNAPSHOT_PROTOCOL) return undefined;
+  return {
+    ok: false,
+    reason: `this channel speaks snapshot protocol ${SNAPSHOT_PROTOCOL}; the subscriber asked for protocol ${protocol}`,
+    asked: `snapshot protocol ${protocol}`,
+    measurable: MEASURABLE,
+  };
 };
 
 /**

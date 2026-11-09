@@ -1,3 +1,5 @@
+import type { SnapshotLink } from '@plot-pm/domain/rules/snapshot-link';
+import type { HeldSnapshot } from '@plot-pm/domain/rules/snapshot-sync';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,7 +26,8 @@ import {
   type SliceSummary,
   type StoryStatus,
   type StoryStanding } from '../contract/schema.js';
-import { cachedPlanMetas, cachedRefs, freshWalkCache, readRefSnapshot, type PlanMetaFile, type WalkCache } from '@plot-pm/domain/workflows/plan-walk-cache';
+import { cachedPlanMetas, cachedRefs, freshWalkCache, readRefSnapshot, snapshotOf, type PlanMetaFile, type WalkCache } from '@plot-pm/domain/workflows/plan-walk-cache';
+import type { RefState } from '@plot-pm/domain/ports/refs';
 import { listRecordBlobs, readRecordFindings, resolveRecordRef, type RecordSource } from '@plot-pm/domain/workflows/record-listing';
 import { licensedSpike, spikeOf } from '@plot-pm/domain/rules/spike';
 import { refutedBadge, refutedClaims, verificationOf } from '@plot-pm/domain/rules/verification-record';
@@ -41,6 +44,7 @@ import {
   timeboxStanding,
   planStatus as decidePlanStatus,
   type BuildPort,
+  type ChannelLink,
   ChecksSchema,
   MergeabilitySchema,
   type Checks,
@@ -76,7 +80,7 @@ import {
   planStoreShell,
   planParserPath,
   refsGit,
-  fleetStateFile,
+  fleetStateVouched,
   scriptsShell,
   scriptsConfigCached,
   sliceSpendFile,
@@ -229,6 +233,16 @@ export interface BuildBoardOptions {
    */
   readerLock?: ReaderLock;
   /**
+   * The board's channel link, for `/api/fleet`'s liveness facts. Absent means
+   * no hub: the link reads `unknown`.
+   */
+  channelLink?: () => ChannelLink;
+  /**
+   * The hub's copy of fleetd's snapshot and its link. Absent means no hub: the
+   * board never serves from a snapshot.
+   */
+  channelSnapshot?: () => { link: SnapshotLink; held: HeldSnapshot | undefined };
+  /**
    * Starts the machine's PR reader. Absent means a real detached `node`
    * process, the same seam `handleNeedsDesign` uses for its own bundle.
    *
@@ -307,14 +321,19 @@ const walkCaches = new Map<string, WalkCache>();
  * on the returned cache.
  *
  * @param opts - where to read, and optionally what to read through.
+ * @param entries - the refs fleetd's snapshot read, where the board serves from
+ *   it; the reader then keys its reads by those oids and lists no refs itself.
  * @returns the reader, and the cache it answers from or `null` where it is unwrapped.
  */
-export const heldRefsFor = async (opts: BuildBoardOptions): Promise<{ refs: Refs; cache: WalkCache | null }> => {
+export const heldRefsFor = async (
+  opts: BuildBoardOptions,
+  entries?: readonly RefState[],
+): Promise<{ refs: Refs; cache: WalkCache | null }> => {
   const inner = refsFor(opts);
   // A reader handed in by the caller answers by ref name and not by object id,
   // so a key built from the snapshot's oids would miss what it holds.
   if (opts.refs !== undefined) return { refs: inner, cache: null };
-  const snapshot = await readRefSnapshot(inner);
+  const snapshot = entries !== undefined ? { ok: true as const, value: snapshotOf(entries) } : await readRefSnapshot(inner);
   if (!snapshot.ok) return { refs: inner, cache: null };
   const cache = walkCacheFor(opts);
   return { refs: cachedRefs(inner, snapshot.value, cache), cache };
@@ -506,7 +525,7 @@ export const processProbeFor = (opts: BuildBoardOptions): ProcessProbe => opts.p
  * @returns a {@link FleetState} over `opts.repoRoot`.
  */
 export const fleetStateFor = (opts: BuildBoardOptions): FleetState =>
-  fleetStateFile({ repoRoot: opts.repoRoot });
+  fleetStateVouched(opts.repoRoot);
 
 /**
  * One cached `Scripts` per `(repoRoot, scriptsDir)`, built the first time a
