@@ -3,7 +3,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { constants } from 'node:os';
 import { join } from 'node:path';
 
-import type { AgentStart, StartedAgent, WorkerRecordFiles, WorkerRecords } from '../../ports/worker-records.js';
+import type { AgentStart, StartedAgent, LaunchRecordFiles, LaunchRecords } from '../../ports/worker-records.js';
 import type { AgentEndReading } from '../../rules/worker-ending.js';
 
 /** The file name, inside a desk, of the WorkerMonitor's findings. */
@@ -25,7 +25,7 @@ const write = (file: string, text: string): boolean => {
  * @param files - the record files of one desk.
  * @returns the records port.
  */
-export const workerRecordsFile = (files: WorkerRecordFiles): WorkerRecords => ({
+export const workerRecordsFile = (files: LaunchRecordFiles): LaunchRecords => ({
   writeWrapperPid: (pid) => write(files.wrapperPidFile, String(pid)),
   writeAgentPid: (pid) => write(files.pidFile, String(pid)),
   writeAgentStarted: (text) => write(files.pidStartedFile, text),

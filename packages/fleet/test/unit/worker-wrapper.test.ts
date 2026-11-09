@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { AgentStart, WorkerRecords } from '@plot-pm/domain/ports/worker-records';
+import type { AgentStart, LaunchRecords } from '@plot-pm/domain/ports/worker-records';
 import type { AgentEndReading } from '@plot-pm/domain/rules/worker-ending';
 
 import { runWorkerWrapper, wrapperInput, type WrapperDeps, type WrapperInput } from '../../src/server/entry/worker-wrapper.js';
@@ -25,7 +25,7 @@ const fakes = (ending: AgentEndReading, manifestWorktree = '', agentPid: number 
   const calls: string[] = [];
   const stamps: Stamp[] = [];
   const envs: Readonly<Record<string, string | undefined>>[] = [];
-  const records: WorkerRecords = {
+  const records: LaunchRecords = {
     writeWrapperPid: (pid) => (calls.push(`wrapper-pid ${pid}`), true),
     writeAgentPid: (pid) => (calls.push(`agent-pid ${pid}`), true),
     writeAgentStarted: (text) => (calls.push(`agent-started ${text}`), true),

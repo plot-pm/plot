@@ -5,10 +5,10 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { agentStartShell, workerRecordsFile } from '../src/adapters/worker-records/worker-records-file.js';
-import type { WorkerRecordFiles } from '../src/ports/worker-records.js';
+import type { LaunchRecordFiles } from '../src/ports/worker-records.js';
 
 let desk: string;
-let files: WorkerRecordFiles;
+let files: LaunchRecordFiles;
 
 beforeEach(() => {
   desk = mkdtempSync(join(tmpdir(), 'worker-records-'));

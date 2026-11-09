@@ -1,7 +1,7 @@
 import type { AgentEndReading } from '../rules/worker-ending.js';
 
 /** The record files one desk's worker wrapper writes, absolute. */
-export interface WorkerRecordFiles {
+export interface LaunchRecordFiles {
   /** `.plot-worker.exit`: the agent's exit code. */
   readonly exitFile: string;
   /** `.plot-worker.pid`: the agent's pid. */
@@ -18,12 +18,12 @@ export interface WorkerRecordFiles {
  * Every write holds the value alone, with no trailing newline, and reports
  * whether it landed. A failed write is not raised: the agent runs either way.
  */
-export interface WorkerRecords {
+export interface LaunchRecords {
   /** Writes the wrapper's pid. */
   writeWrapperPid(pid: number): boolean;
   /** Writes the agent's pid. */
   writeAgentPid(pid: number): boolean;
-  /** Writes the agent's start time, as {@link WorkerRecords.startedText} read it. */
+  /** Writes the agent's start time, as {@link LaunchRecords.startedText} read it. */
   writeAgentStarted(text: string): boolean;
   /** Writes the agent's exit code. */
   writeExit(code: number): boolean;

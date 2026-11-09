@@ -7,7 +7,7 @@ export interface AgentEndReading {
 }
 
 /** What the WorkerMonitor reports when an agent ends. */
-export interface WorkerEnding {
+export interface AgentEnding {
   /** `clear` for exit 0, `gone` for every other code. */
   readonly finding: 'clear' | 'gone';
   /** The sentence the finding carries. */
@@ -15,13 +15,13 @@ export interface WorkerEnding {
 }
 
 /** One WorkerMonitor line to append to a desk. */
-export interface WorkerEndingLineInput {
+export interface EndingLineInput {
   /** The branch the agent held. */
   readonly branch: string;
   /** The desk the line names, after a hop. */
   readonly desk: string;
   /** The ending to report. */
-  readonly ending: WorkerEnding;
+  readonly ending: AgentEnding;
   /** The time of the reading, as {@link monitorTime} prints it. */
   readonly at: string;
 }
@@ -45,7 +45,7 @@ export const agentExitCode = (reading: AgentEndReading): number => {
  * @param agentPid - the agent's pid.
  * @returns `clear` for 0 and `gone` for any other code, with the evidence text.
  */
-export const workerEnding = (code: number, agentPid: number): WorkerEnding =>
+export const workerEnding = (code: number, agentPid: number): AgentEnding =>
   code === 0
     ? { finding: 'clear', evidence: `the agent pid ${agentPid} exited 0; the worker is finished` }
     : { finding: 'gone', evidence: `the agent pid ${agentPid} exited ${code}; the wrapper that started it is unattended` };
@@ -66,7 +66,7 @@ export const monitorTime = (epochMs: number): string => new Date(epochMs).toISOS
  * @param input - the branch, the desk, the ending and the time.
  * @returns one JSON line, newline-terminated.
  */
-export const workerEndingLine = (input: WorkerEndingLineInput): string =>
+export const workerEndingLine = (input: EndingLineInput): string =>
   `${JSON.stringify({
     monitor: 'WorkerMonitor',
     branch: input.branch,

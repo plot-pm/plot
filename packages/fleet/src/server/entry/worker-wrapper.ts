@@ -12,7 +12,7 @@ import { pathToFileURL } from 'node:url';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { agentStartShell, workerRecordsFile } from '@plot-pm/domain/adapters/worker-records/worker-records-file';
 import { deskMonitorsShell } from '@plot-pm/domain/adapters/desk-monitors/desk-monitors-shell';
-import type { AgentStart, WorkerRecords } from '@plot-pm/domain/ports/worker-records';
+import type { AgentStart, LaunchRecords } from '@plot-pm/domain/ports/worker-records';
 import { watchedDesk } from '@plot-pm/domain/rules/desk-manifest';
 import { agentExitCode, monitorTime, workerEnding, workerEndingLine } from '@plot-pm/domain/rules/worker-ending';
 
@@ -42,7 +42,7 @@ export interface WrapperInput {
 
 /** What the wrapper reaches. Each is a port or a function over one. */
 export interface WrapperDeps {
-  records: WorkerRecords;
+  records: LaunchRecords;
   agents: AgentStart;
   /** Starts the AgentMonitor and returns its pid, `''` for none. */
   startMonitor: (input: WrapperInput) => string;
