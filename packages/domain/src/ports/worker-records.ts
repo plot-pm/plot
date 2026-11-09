@@ -54,7 +54,7 @@ export interface StartedAgent {
 /** Starts the agent command a worker wrapper runs. */
 export interface AgentStart {
   /**
-   * Starts `command` through `sh -c`, attached, in the caller's process group,
+   * Starts `command` through `bash -c`, attached, in the caller's process group,
    * with the caller's stdio.
    *
    * @param command - the `Worker command` text.

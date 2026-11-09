@@ -3278,7 +3278,7 @@ test('dispatch: the manifest names the wrapper and the remaining monitor, at spa
   assert.match(m.agentMonitorPid, /^\d+$/,
     `the manifest must name the AgentMonitor, got: ${m.agentMonitorPid}`);
   // NO BUILDMONITOR PID ANY MORE, AND THAT IS THE POINT (`the-shell-loop-goes`).
-  // Unlike `workerMonitorPid` above, the dispatcher's awk writes no
+  // Unlike `workerMonitorPid` above, the manifest stamp writes no
   // `buildMonitorPid` line at all now — so the raw manifest this test reads
   // via JSON.parse has no such key, and the field is `undefined` here. A
   // board read still sees `''`, filled by the schema's default for an older
@@ -4989,6 +4989,9 @@ function pluginInstall(label) {
   const scripts = path.join(root, 'skills', 'plot', 'scripts');
   fs.mkdirSync(path.dirname(scripts), { recursive: true });
   fs.cpSync(scriptsDir, scripts, { recursive: true });
+  // A plugin install ships Plot's `.nvmrc` at its root, and `plot-worker-start.mjs`
+  // refuses a launch without the pin it names.
+  fs.copyFileSync(path.join(scriptsDir, '..', '..', '..', '.nvmrc'), path.join(root, '.nvmrc'));
   return { root, scripts };
 }
 

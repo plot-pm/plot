@@ -136,6 +136,7 @@ export * from './rules/fixer-start.js';
 export * from './rules/task.js';
 export * from './rules/landed.js';
 export * from './rules/stack.js';
+export * from './rules/node-pin.js';
 export * from './rules/adoption.js';
 export * from './rules/slice-pr.js';
 export * from './rules/ownership.js';

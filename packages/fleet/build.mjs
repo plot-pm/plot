@@ -23,6 +23,7 @@ export const restartStoppedCommandArtifact = path.join(here, 'dist/plot-restart-
 export const deskLoopArtifact = path.join(here, 'dist/plot-desk-loop.mjs');
 export const prReaderArtifact = path.join(here, 'dist/plot-pr-reader.mjs');
 export const workerWrapperArtifact = path.join(here, 'dist/plot-worker-wrapper.mjs');
+export const workerStartArtifact = path.join(here, 'dist/plot-worker-start.mjs');
 
 const SHARED_OPTIONS = {
   bundle: true,
@@ -135,10 +136,18 @@ export const buildFleetBundles = async () => {
     entryPoints: [path.join(here, 'src/server/entry/worker-wrapper.ts')],
     outfile: workerWrapperArtifact,
   });
+
+  // The detached start of that wrapper: it checks the Node major against
+  // `.nvmrc`, starts the wrapper through the `Detached` port, and exits.
+  await esbuild.build({
+    ...SHARED_OPTIONS,
+    entryPoints: [path.join(here, 'src/server/entry/worker-start.ts')],
+    outfile: workerStartArtifact,
+  });
 };
 
 // Runs when invoked as `node build.mjs`, and not when imported.
 if (import.meta.url === `file://${process.argv[1]}`) {
   await buildFleetBundles();
-  console.log('Built plot-fleetd.mjs, plot-worker-loop.mjs, plot-fleet-size.mjs, plot-prompt.mjs, plot-dispatch-command.mjs, plot-continue-command.mjs, plot-restart-command.mjs, plot-restart-stopped-command.mjs, plot-desk-loop.mjs, plot-pr-reader.mjs, plot-worker-wrapper.mjs → dist/');
+  console.log('Built plot-fleetd.mjs, plot-worker-loop.mjs, plot-fleet-size.mjs, plot-prompt.mjs, plot-dispatch-command.mjs, plot-continue-command.mjs, plot-restart-command.mjs, plot-restart-stopped-command.mjs, plot-desk-loop.mjs, plot-pr-reader.mjs, plot-worker-wrapper.mjs, plot-worker-start.mjs → dist/');
 }

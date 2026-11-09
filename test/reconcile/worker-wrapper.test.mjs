@@ -1,14 +1,12 @@
-// THE NODE WORKER WRAPPER LEAVES THE RECORDS THE SH WRAPPER LEAVES.
+// THE NODE WORKER WRAPPER LEAVES THE DESK RECORDS `start_worker` PROMISES.
 //
-// `plot-worker-wrapper.mjs` replaces the inline `sh -c` wrapper in
-// `plot-dispatch.sh`'s `start_worker`. This file runs both against the same
-// stub agents and compares what each leaves in the desk: `.plot-worker.exit`,
-// `.plot-worker.pid`, `.plot-worker.wrapper.pid`, the WorkerMonitor line and
-// the manifest stamp, with pids, times, `lstart` text and desk paths masked.
-//
-// The `sh` wrapper is read out of `plot-dispatch.sh` itself, so this test runs
-// the bytes `start_worker` runs. Each wrapper is started detached, which makes
-// it the leader of its own process group, as `set -m` does in `start_worker`.
+// `plot-worker-wrapper.mjs` is the wrapper `start_worker` starts. This file runs
+// it against stub agents and compares what it leaves in the desk with the
+// records the inline `sh` wrapper it replaced left (measured equal on #3325):
+// `.plot-worker.exit`, `.plot-worker.pid`, `.plot-worker.wrapper.pid`, the
+// WorkerMonitor line and the manifest stamp, with pids, times, `lstart` text
+// and desk paths masked. Each wrapper is started detached, which makes it the
+// leader of its own process group, as `plot-worker-start.mjs` does.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
@@ -19,7 +17,6 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.resolve(here, '..', '..', 'skills', 'plot', 'scripts');
-const dispatch = path.join(scripts, 'plot-dispatch.sh');
 const workerState = path.join(scripts, 'plot-worker-state.sh');
 const bundle = path.join(scripts, 'board', 'plot-worker-wrapper.mjs');
 
@@ -42,33 +39,6 @@ test.after(() => {
   }
   for (const dir of temps) fs.rmSync(dir, { recursive: true, force: true });
 });
-
-/**
- * The `sh -c` word `start_worker` runs, as a bash script taking the agent
- * command as `$1`. The word holds `'"$cmd"'`, so bash interpolates the command
- * exactly as it does inside `start_worker`.
- */
-const shWrapperScript = (() => {
-  let file;
-  return () => {
-    if (file !== undefined) return file;
-    const src = fs.readFileSync(dispatch, 'utf8');
-    // The brief run's `exec nohup sh -c` comes first in the file; the worker
-    // wrapper's word is the one that opens by writing the wrapper pid.
-    const open = 'exec nohup sh -c ';
-    const at = src.indexOf(`${open}'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"`);
-    assert.notEqual(at, -1, 'the worker wrapper moved in plot-dispatch.sh');
-    const close = `> "$PLOT_EXIT_FILE"'`;
-    const end = src.indexOf(close, at);
-    assert.notEqual(end, -1, 'the end of the sh wrapper moved in plot-dispatch.sh');
-    const word = src.slice(at + open.length, end + close.length);
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-sh-wrapper-'));
-    temps.push(dir);
-    file = path.join(dir, 'sh-wrapper.bash');
-    fs.writeFileSync(file, `cmd="$1"\nexec sh -c ${word}\n`);
-    return file;
-  };
-})();
 
 /** A desk with a first-dispatch manifest beside it. */
 const makeDesk = () => {
@@ -107,12 +77,11 @@ const wrapperEnv = ({ desk, manifest }, extra = {}) => ({
   ...extra,
 });
 
-/** Starts one wrapper, `sh` or `node`, detached, on a fresh desk. */
-const launch = (kind, command, extra = {}) => {
+/** Starts the wrapper detached on a fresh desk. */
+const launch = (command, extra = {}) => {
   const d = makeDesk();
   const log = fs.openSync(path.join(d.root, 'wrapper.log'), 'a');
-  const [file, args] = kind === 'sh' ? ['bash', [shWrapperScript(), command]] : [process.execPath, [bundle, command]];
-  const child = spawn(file, args, { cwd: d.desk, env: wrapperEnv(d, extra), detached: true, stdio: ['ignore', log, log] });
+  const child = spawn(process.execPath, [bundle, command], { cwd: d.desk, env: wrapperEnv(d, extra), detached: true, stdio: ['ignore', log, log] });
   fs.closeSync(log);
   child.unref();
   groups.push(child.pid);
@@ -171,73 +140,82 @@ const records = async (run) => {
   };
 };
 
-/** Runs one scenario under both wrappers and returns both record sets. */
-const both = async (command, act = async () => undefined) => {
-  const out = {};
-  for (const kind of ['sh', 'node']) {
-    const run = launch(kind, command);
-    await act(run);
-    out[kind] = await records(run);
-  }
-  return out;
+/** Runs one scenario and returns its record set. */
+const one = async (command, act = async () => undefined) => {
+  const run = launch(command);
+  await act(run);
+  return records(run);
+};
+
+/** The masked records the `sh` wrapper left for an agent that ended with `code`. */
+const expected = (code) => {
+  const [finding, evidence] = code === 0
+    ? ['clear', 'the agent pid <agent> exited 0; the worker is finished']
+    : ['gone', `the agent pid <agent> exited ${code}; the wrapper that started it is unattended`];
+  return {
+    exit: String(code),
+    pid: '<agent>',
+    wrapperPid: '<wrapper>',
+    finding: `{"monitor":"WorkerMonitor","branch":"${BRANCH}","worktree":"<desk>","finding":"${finding}",`
+      + `"since":"<time>","evidence":"${evidence}","measuredAt":"<time>"}\n`,
+    manifest: [
+      '{',
+      '  "session": "wrapper-parity",',
+      `  "branch": "${BRANCH}",`,
+      '  "worktree": "<desk>",',
+      '  "command": "stub",',
+      '  "pid": "<agent>",',
+      '  "pidStartedAt": "<lstart>",',
+      '  "wrapperPid": "<wrapper>",',
+      '  "wrapperPidStartedAt": "<lstart>",',
+      '  "workerMonitorPid": "",',
+      '  "agentMonitorPid": "",',
+      '  "startedAt": "<time>"',
+      '}',
+      '',
+    ].join('\n'),
+  };
 };
 
 test('the bundle is built', () => {
   assert.ok(fs.existsSync(bundle), `${bundle} is missing; run pnpm build:board`);
 });
 
-test('exit 0: both wrappers leave the same records, and a clear line', async () => {
-  const { sh, node } = await both('true');
-
-  assert.deepEqual(node, sh);
-  assert.equal(node.exit, '0');
-  assert.equal(node.pid, '<agent>');
-  assert.equal(node.wrapperPid, '<wrapper>');
-  assert.match(node.finding, /"finding":"clear"/);
-  assert.match(node.manifest, /"pid": "<agent>",\n  "pidStartedAt": "<lstart>",\n  "wrapperPid": "<wrapper>",/);
+test('exit 0: the wrapper leaves the sh wrapper\'s records, and a clear line', async () => {
+  assert.deepEqual(await one('true'), expected(0));
 });
 
-test('exit 3: both wrappers leave the same records, and a gone line', async () => {
-  const { sh, node } = await both('exit 3');
-
-  assert.deepEqual(node, sh);
-  assert.equal(node.exit, '3');
-  assert.match(node.finding, /"finding":"gone".*exited 3/);
+test('exit 3: the wrapper leaves the sh wrapper\'s records, and a gone line', async () => {
+  assert.deepEqual(await one('exit 3'), expected(3));
 });
 
-test('SIGKILL to the agent: both wrappers write 137', async () => {
-  const { sh, node } = await both('sleep 300', async (run) => {
+test('SIGKILL to the agent: the wrapper writes 137', async () => {
+  const node = await one('sleep 300', async (run) => {
     process.kill(await agentPid(run), 'SIGKILL');
   });
 
-  assert.deepEqual(node, sh);
-  assert.equal(node.exit, '137');
-  assert.match(node.finding, /"finding":"gone".*exited 137/);
+  assert.deepEqual(node, expected(137));
 });
 
-test('SIGTERM to the agent: both wrappers write 143', async () => {
-  const { sh, node } = await both('sleep 300', async (run) => {
+test('SIGTERM to the agent: the wrapper writes 143', async () => {
+  const node = await one('sleep 300', async (run) => {
     process.kill(await agentPid(run), 'SIGTERM');
   });
 
-  assert.deepEqual(node, sh);
-  assert.equal(node.exit, '143');
-  assert.match(node.finding, /"finding":"gone".*exited 143/);
+  assert.deepEqual(node, expected(143));
 });
 
 test("SIGTERM to the wrapper's group: the agent ends, and the wrapper writes 143 and the gone line", async () => {
-  const { sh, node } = await both('sleep 300', async (run) => {
+  const node = await one('sleep 300', async (run) => {
     await agentPid(run);
     process.kill(-run.wrapper, 'SIGTERM');
   });
 
-  assert.deepEqual(node, sh);
-  assert.equal(node.exit, '143');
-  assert.match(node.finding, /"finding":"gone".*exited 143/);
+  assert.deepEqual(node, expected(143));
 });
 
 test("a launch under a German locale writes both start times in the C locale's lstart form", async () => {
-  const run = launch('node', 'sleep 1', { LANG: 'de_CH.UTF-8', LC_ALL: 'de_CH.UTF-8', LC_TIME: 'de_CH.UTF-8' });
+  const run = launch('sleep 1', { LANG: 'de_CH.UTF-8', LC_ALL: 'de_CH.UTF-8', LC_TIME: 'de_CH.UTF-8' });
   await records(run);
 
   const manifest = JSON.parse(fs.readFileSync(run.manifest, 'utf8'));
@@ -255,14 +233,12 @@ const agentAlive = (pid) =>
   { encoding: 'utf8', timeout: 30_000 }).trim());
 
 for (const command of ['sleep 300 & wait', "sh -c 'sleep 300; true'"]) {
-  test(`the agent tree reads alike under both wrappers: ${command}`, async () => {
-    for (const kind of ['sh', 'node']) {
-      const run = launch(kind, command);
-      const pid = await agentPid(run);
-      const answer = await until(`a present agent under the ${kind} wrapper`, () => (agentAlive(pid) === 0 ? 0 : undefined), 10_000);
-      assert.equal(answer, 0, `${kind} wrapper on ${process.platform}`);
-      process.kill(-run.wrapper, 'SIGTERM');
-      await records(run);
-    }
+  test(`the agent tree under the node wrapper reads present: ${command}`, async () => {
+    const run = launch(command);
+    const pid = await agentPid(run);
+    const answer = await until('a present agent under the node wrapper', () => (agentAlive(pid) === 0 ? 0 : undefined), 10_000);
+    assert.equal(answer, 0, `node wrapper on ${process.platform}`);
+    process.kill(-run.wrapper, 'SIGTERM');
+    await records(run);
   });
 }
