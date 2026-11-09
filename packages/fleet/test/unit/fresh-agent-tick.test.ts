@@ -2,6 +2,7 @@ import { mkdtempSync, writeFileSync, utimesSync, readFileSync, existsSync, mkdir
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect, afterEach } from 'vitest';
 import { removeTree as rmTree } from '../rm-tree.mjs';
 
@@ -1559,7 +1560,9 @@ describe('a killed worker and a stopped worker through startFreshSession and con
     const releases: string[] = [];
     const starts: string[] = [];
     const reads = freshAgentDeskReads({ repoRoot: repo, scriptDir: '/nonexistent' }, asks, async () => ({ ok: true, value: 'not-merged' }));
-    const opts = { repoRoot: repo, scriptsDir: '/nonexistent', manifestDir: manifests };
+    // The shipped start `pnpm build:board` builds: the same wrapper a dispatch runs.
+    const workerStart = fileURLToPath(new URL('../../../../skills/plot/scripts/board/plot-worker-start.mjs', import.meta.url));
+    const opts = { repoRoot: repo, scriptsDir: '/nonexistent', manifestDir: manifests, workerStart };
     const runLog = runLogFixture();
     const ports: FreshAgentPorts = {
       record,

@@ -182,7 +182,7 @@ describe('the continue entry on a desk holding PLOT-BLOCKED', () => {
     git(desk, 'checkout', '-qb', branch);
     fs.writeFileSync(path.join(desk, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which adapter?');
     fs.writeFileSync(path.join(desk, '.plot-worker.pid'), '424242');
-    fs.writeFileSync(path.join(manifests, 'sess.json'), JSON.stringify({ session: 'sess', branch, worktree: desk, pid: '424242' }));
+    fs.writeFileSync(path.join(manifests, 'sess.json'), `${JSON.stringify({ session: 'sess', branch, worktree: desk, pid: '424242', startedAt: '' }, null, 2)}\n`);
     fs.mkdirSync(path.join(repo, '.plot'), { recursive: true });
     fs.writeFileSync(path.join(repo, 'CLAUDE.md'), `## Plot Config\n\n- **Worker command:** true\n- **Agent registry:** ${manifests}\n`);
     const reading = FleetReadingSchema.parse({
@@ -238,7 +238,7 @@ describe('the continue entry on a desk holding PLOT-BLOCKED', () => {
     git(desk, 'checkout', '-qb', branch);
     fs.writeFileSync(path.join(desk, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which adapter?');
     fs.writeFileSync(path.join(desk, '.plot-worker.pid'), '424242');
-    fs.writeFileSync(path.join(manifests, 'sess.json'), JSON.stringify({ session: 'sess', branch, worktree: desk, pid: '424242' }));
+    fs.writeFileSync(path.join(manifests, 'sess.json'), `${JSON.stringify({ session: 'sess', branch, worktree: desk, pid: '424242', startedAt: '' }, null, 2)}\n`);
     fs.mkdirSync(path.join(repo, '.plot'), { recursive: true });
     fs.writeFileSync(path.join(repo, 'CLAUDE.md'), `## Plot Config\n\n- **Worker command:** true\n- **Agent registry:** ${manifests}\n`);
     const reading = FleetReadingSchema.parse({

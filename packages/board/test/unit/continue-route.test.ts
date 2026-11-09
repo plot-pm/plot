@@ -44,7 +44,7 @@ import {
   ANSWER_RECORD_HOME_ENV,
   answerRecordFile,
 } from '@plot-pm/domain/adapters';
-import type { DeskMonitors, MonitoredDesk } from '@plot-pm/domain';
+import type { DeskMonitors } from '@plot-pm/domain';
 import { startFreshSession } from '@plot-pm/fleet/server/entry/registryd-main';
 import {
   applyFreshAgentDecisions,
@@ -81,7 +81,8 @@ function manifestDirFor(wt: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-manifests-'));
   fs.writeFileSync(
     path.join(dir, 'sess.json'),
-    JSON.stringify({ session: 'sess', branch: BRANCH, worktree: wt, pid: '424242' }),
+    // THE DISPATCHER'S SHAPE: one field per line, so the wrapper's stamp can rewrite `pid`.
+    `${JSON.stringify({ session: 'sess', branch: BRANCH, worktree: wt, pid: '424242', startedAt: '' }, null, 2)}\n`,
   );
   return dir;
 }
@@ -184,12 +185,13 @@ const dirs: string[] = [];
  * the brief's *a test must not race what it asserts* applies to teardown as
  * much as to the assertion.
  *
- * The signal is the worker's own pid: `continueOnDesk` records the backgrounded
- * subshell that runs the command in `.plot-worker.pid`, and that subshell is the
- * last process holding the desk. `.plot-worker.exit` is not the signal — the
- * subshell writes it and then still has to exit, so a cleanup that starts on
- * the file races a live process (#1468: a `plot-continue-*` desk left in CI's
- * TMPDIR after every test passed).
+ * The signal is two pids: the agent's in `.plot-worker.pid`, and then the
+ * wrapper's in `.plot-worker.wrapper.pid`, because the wrapper outlives the
+ * agent to write `.plot-worker.exit` and its WorkerMonitor line and is the last
+ * process holding the desk. `.plot-worker.exit` is not the signal — the wrapper
+ * writes it and then still has to exit, so a cleanup that starts on the file
+ * races a live process (#1468: a `plot-continue-*` desk left in CI's TMPDIR
+ * after every test passed).
  *
  * Only a test that started a worker waits for one, hence the `spawned` set. A
  * worker still alive at the bound fails the hook by name rather than racing it.
@@ -224,6 +226,16 @@ const settle = async (dir: string): Promise<void> => {
     await new Promise((r) => setTimeout(r, 25));
   }
   assert.ok(!alive(pid), `the worker pid ${pid} started in ${dir} did not exit within 15s`);
+  let wrapper = 0;
+  try {
+    wrapper = Number(fs.readFileSync(path.join(dir, '.plot-worker.wrapper.pid'), 'utf8').trim());
+  } catch {
+    /* a test that stubbed the start has no wrapper */
+  }
+  while (wrapper > 1 && alive(wrapper) && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  assert.ok(!(wrapper > 1 && alive(wrapper)), `the wrapper pid ${wrapper} started in ${dir} did not exit within 15s`);
 };
 
 /**
@@ -318,9 +330,13 @@ function deps(wt: string | null, workerCommand = 'true'): ContinueDeps {
   };
 }
 
+/** The shipped start `pnpm build:board` builds: a continue runs the dispatcher's wrapper. */
+const workerStart = path.resolve(import.meta.dirname, '../../../../skills/plot/scripts/board/plot-worker-start.mjs');
+
 const opts = {
   repoRoot: '/tmp',
   scriptsDir: '/tmp',
+  workerStart,
   host: 'localhost',
   port: 7777,
 };
@@ -495,6 +511,26 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     return out;
   }
 
+  /** POSTs with the given options rather than `opts`. */
+  async function postWith(o: typeof opts & { repoRoot: string; scriptsDir: string }, body: unknown, d: ContinueDeps) {
+    const { res, out } = response();
+    await handleContinue(request(body), res, o, d);
+    return out;
+  }
+
+  /** A scripts directory whose `plot-agent-monitor.sh` records the environment it starts with. */
+  function monitorScripts(): string {
+    const scriptsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-scripts-'));
+    roots.push(scriptsDir);
+    const file = path.join(scriptsDir, 'plot-agent-monitor.sh');
+    fs.writeFileSync(
+      file,
+      `#!/bin/sh\nprintf '%s\\n' "$PLOT_BRANCH" "$PLOT_WORKTREE" "$PLOT_PID_FILE" "$PLOT_MANIFEST_FILE" > "$PLOT_WORKTREE/plot-agent-monitor.sh.env.tmp" && mv "$PLOT_WORKTREE/plot-agent-monitor.sh.env.tmp" "$PLOT_WORKTREE/plot-agent-monitor.sh.env"\n`,
+    );
+    fs.chmodSync(file, 0o755);
+    return scriptsDir;
+  }
+
   it('overwrites the pid, records previousPid, and increments relaunches', async () => {
     const wt = worktree({ pid: '424242' });
     dirs.push(wt);
@@ -551,74 +587,38 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     assert.equal(m.previousPid, firstPid, 'the second relaunch displaced the first');
   });
 
-  it('starts the AgentMonitor for the desk and records its pid (#1255)', async () => {
+  it('a second continue stops the monitor the wrapper started for the first one', async () => {
     const wt = worktree({ pid: '424242' });
     dirs.push(wt);
     const { root, manifest } = repoWithManifest(wt, '424242');
     roots.push(root);
-    const calls: MonitoredDesk[] = [];
-    let pidAtStart = '';
-    const monitors: DeskMonitors = {
-      start: (desk) => {
-        calls.push(desk);
-        pidAtStart = fs.readFileSync(desk.pidFile, 'utf8');
-        return { ok: true, value: { agentMonitorPid: '7001' } };
-      },
-      stop: () => ({ ok: true, value: [] }),
-    };
-
-    const out = await postTo(root, { branch: BRANCH, answer: 'go' }, { ...deps(wt), monitors });
-    assert.equal(out.status, 202);
-    const body = out.body as { pid: string };
-
-    assert.deepEqual(calls, [
-      {
-        branch: BRANCH,
-        worktree: wt,
-        manifestFile: manifest,
-        pidFile: path.join(wt, '.plot-worker.pid'),
-        log: path.join(wt, '.plot-worker.log'),
-      },
-    ]);
-    assert.equal(pidAtStart, body.pid, 'the pid file names the new run before a monitor reads it');
-    const m = JSON.parse(fs.readFileSync(manifest, 'utf8'));
-    assert.equal(m.agentMonitorPid, '7001');
-  });
-
-  it('a second continue stops the monitor the first one started', async () => {
-    const wt = worktree({ pid: '424242' });
-    dirs.push(wt);
-    const { root } = repoWithManifest(wt, '424242');
-    roots.push(root);
+    const scriptsDir = monitorScripts();
     const stopped: (readonly string[])[] = [];
-    let next = 7000;
     const monitors: DeskMonitors = {
-      start: () => ({ ok: true, value: { agentMonitorPid: String(++next) } }),
+      start: () => ({ ok: false, why: 'the wrapper starts the AgentMonitor' }),
       stop: (pids) => {
         stopped.push(pids);
         return { ok: true, value: pids };
       },
     };
-
-    const first = await postTo(root, { branch: BRANCH, answer: 'go' }, { ...deps(wt), monitors });
-    // The first run must have EXITED before the second continues: the new
-    // `loop-alive` refusal reads the pid the first one started, and `true`
-    // runs so briefly that the race goes the wrong way more often than not.
-    // `settle` only waits when `wt` is tracked in `spawned`; add it explicitly
-    // here rather than through `postTo`'s parse of the response body, so the
-    // wait holds regardless of what that body carries.
-    spawned.add(wt);
-    await settle(wt);
-    fs.writeFileSync(path.join(wt, 'PLOT-BLOCKED-again.md'), 'PLOT-BLOCKED: and again?');
-    const second = await postTo(root, { branch: BRANCH, answer: 'go' }, {
-      pulse: () => pulseWith2(wt, (first.body as { pid: string }).pid),
+    const d = (pid: string): ContinueDeps => ({
+      pulse: () => pulseWith2(wt, pid),
       config: (_o, key, fb) => (key === 'Worker command' ? 'true' : fb),
       monitors,
     });
+    const at = (body: unknown, deps: ContinueDeps) => postWith({ ...opts, repoRoot: root, scriptsDir }, body, deps);
 
+    const first = await at({ branch: BRANCH, answer: 'go' }, d('424242'));
     assert.equal(first.status, 202);
+    const firstMonitor = JSON.parse(fs.readFileSync(manifest, 'utf8')).agentMonitorPid;
+    assert.match(firstMonitor, /^\d+$/, 'the wrapper recorded the AgentMonitor it started');
+    spawned.add(wt);
+    await settle(wt);
+    fs.writeFileSync(path.join(wt, 'PLOT-BLOCKED-again.md'), 'PLOT-BLOCKED: and again?');
+    const second = await at({ branch: BRANCH, answer: 'go' }, d((first.body as { pid: string }).pid));
+
     assert.equal(second.status, 202);
-    assert.deepEqual(stopped, [['7001']], 'the first continue had none to stop; the second stops the first');
+    assert.deepEqual(stopped, [[firstMonitor]], 'the first continue had none to stop; the second stops the first');
   });
 
   it('stops a desk\'s recorded BuildMonitor pid too, from before #1337 (#1338)', async () => {
@@ -647,14 +647,15 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     );
   });
 
-  it('logs a monitor start that failed', async () => {
+  it('logs a stop of the previous monitors that failed', async () => {
     const wt = worktree({ pid: '424242' });
     dirs.push(wt);
-    const { root } = repoWithManifest(wt, '424242');
+    const { root, manifest } = repoWithManifest(wt, '424242');
     roots.push(root);
+    fs.writeFileSync(manifest, fs.readFileSync(manifest, 'utf8').replace('"startedAt"', '"agentMonitorPid": "5001",\n  "startedAt"'));
     const monitors: DeskMonitors = {
-      start: () => ({ ok: false, why: 'failed' }),
-      stop: () => ({ ok: true, value: [] }),
+      start: () => ({ ok: false, why: 'unused' }),
+      stop: () => ({ ok: false, why: 'failed' }),
     };
 
     const out = await postTo(root, { branch: BRANCH, answer: 'go' }, { ...deps(wt), monitors });
@@ -662,29 +663,20 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     assert.equal(out.status, 202);
     assert.match(
       fs.readFileSync(path.join(wt, '.plot-worker.log'), 'utf8'),
-      /AgentMonitor not started: the start answered failed/,
+      /could not stop the previous monitors \(pids 5001\); they may still run/,
     );
   });
 
-  it('starts the monitor script under the configured scripts directory by default', async () => {
+  it('the wrapper starts the monitor script under the configured scripts directory, naming the desk\'s pid file and manifest (#1255)', async () => {
     const wt = worktree({ pid: '424242' });
     dirs.push(wt);
     const { root, manifest } = repoWithManifest(wt, '424242');
     roots.push(root);
-    const scriptsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-scripts-'));
-    roots.push(scriptsDir);
-    for (const name of ['plot-agent-monitor.sh']) {
-      const file = path.join(scriptsDir, name);
-      fs.writeFileSync(
-        file,
-        `#!/bin/sh\nprintf '%s\\n' "$PLOT_BRANCH" "$PLOT_WORKTREE" > "$PLOT_WORKTREE/${name}.env.tmp" && mv "$PLOT_WORKTREE/${name}.env.tmp" "$PLOT_WORKTREE/${name}.env"\n`,
-      );
-      fs.chmodSync(file, 0o755);
-    }
+    const scriptsDir = monitorScripts();
 
     const started = await continueOnDesk({
       opts: { ...opts, repoRoot: root, scriptsDir, manifestDir: path.dirname(manifest) },
-      readCfg: (_o, key, fb) => (key === 'Worker command' ? 'true' : fb),
+      readCfg: (_o, key, fb) => (key === 'Worker command' ? 'sleep 2' : fb),
       branch: BRANCH,
       worktree: wt,
       main: 'main',
@@ -697,7 +689,12 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     const agentEnv = path.join(wt, 'plot-agent-monitor.sh.env');
     const deadline = Date.now() + 10_000;
     while (!fs.existsSync(agentEnv) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
-    assert.deepEqual(fs.readFileSync(agentEnv, 'utf8').split('\n').slice(0, 2), [BRANCH, wt]);
+    assert.deepEqual(fs.readFileSync(agentEnv, 'utf8').split('\n').slice(0, 4), [
+      BRANCH,
+      wt,
+      path.join(wt, '.plot-worker.pid'),
+      manifest,
+    ]);
     const m = JSON.parse(fs.readFileSync(manifest, 'utf8'));
     assert.match(m.agentMonitorPid, /^\d+$/);
   });
@@ -1039,7 +1036,7 @@ describe('the environment the worker is started with', () => {
     const manifestPath = path.join(manifestDir, 'sess.json');
     fs.writeFileSync(
       manifestPath,
-      JSON.stringify({ session: 'sess', branch: BRANCH, worktree: wt, pid: '424242' }),
+      `${JSON.stringify({ session: 'sess', branch: BRANCH, worktree: wt, pid: '424242', startedAt: '' }, null, 2)}\n`,
     );
 
     const witness = path.join(wt, 'manifest-witness.txt');
@@ -1077,23 +1074,19 @@ describe('the environment the worker is started with', () => {
   });
 });
 
-describe('a stale wrapper pid is cleared before the spawn', () => {
-  it('removes .plot-worker.wrapper.pid, which this route never starts one of', async () => {
-    // #1101's second measured defect: the route leaves the previous dispatch's
-    // wrapper pid file in place and starts no wrapper to replace it.
-    // `plot_worker_state` reads that file as proof a wrapper is watching, so a
-    // waiting loop with no agent beneath it reads `finished`.
+describe('a continue runs the dispatcher\'s wrapper', () => {
+  it('replaces a stale .plot-worker.wrapper.pid with the pid of plot-worker-wrapper.mjs', async () => {
     const wt = worktree({ wrapperPid: '99999' });
     dirs.push(wt);
     assert.ok(fs.existsSync(path.join(wt, '.plot-worker.wrapper.pid')), 'the fixture set it up');
 
-    await post({ branch: BRANCH, answer: 'go' }, deps(wt), wt);
+    const out = await post({ branch: BRANCH, answer: 'go' }, deps(wt, 'sleep 2'), wt);
+    assert.equal(out.status, 202);
 
-    assert.equal(
-      fs.existsSync(path.join(wt, '.plot-worker.wrapper.pid')),
-      false,
-      'the stale wrapper pid must be gone after a continuation — this route starts no wrapper',
-    );
+    const wrapper = fs.readFileSync(path.join(wt, '.plot-worker.wrapper.pid'), 'utf8').trim();
+    assert.notEqual(wrapper, '99999');
+    const command = execFileSync('ps', ['-o', 'command=', '-p', wrapper], { encoding: 'utf8' });
+    assert.match(command, /plot-worker-wrapper\.mjs sleep 2/);
   });
 });
 
@@ -1212,7 +1205,7 @@ describe('continueOnDesk obeys Slice max runs and Slice max spend — #1381', ()
     manifestDirs.push(dir);
     fs.writeFileSync(
       path.join(dir, 'sess.json'),
-      JSON.stringify({ session: 'sess', branch: BRANCH, worktree: wt, pid: '424242', sliceRuns: { branch: BRANCH, runs } }),
+      `${JSON.stringify({ session: 'sess', branch: BRANCH, worktree: wt, pid: '424242', sliceRuns: { branch: BRANCH, runs } }, null, 2)}\n`,
     );
     return { dir };
   }
@@ -2805,7 +2798,7 @@ describe('the continued loop escapes the board\'s process tree — #1307', () =>
     answer: 'the composed answer',
   });
 
-  it('starts a loop whose ppid is 1, not this process', async () => {
+  it('starts a loop under a wrapper whose ppid is 1, not this process', async () => {
     const wt = worktree();
     dirs.push(wt);
     const { dir, file } = resumableManifestDir(wt);
@@ -2818,10 +2811,14 @@ describe('the continued loop escapes the board\'s process tree — #1307', () =>
     spawned.add(wt);
     const pid = result.kind === 'started' ? result.pid : '';
 
-    assert.equal(ppidOf(pid), '1', 'the loop is adopted by init, not left under this process');
+    // THE WRAPPER IS ADOPTED BY INIT once `plot-worker-start.mjs` exits, and
+    // the loop is the wrapper's child.
+    const wrapper = fs.readFileSync(path.join(wt, '.plot-worker.wrapper.pid'), 'utf8').trim();
+    assert.equal(ppidOf(wrapper), '1', 'the wrapper is adopted by init, not left under this process');
+    assert.equal(ppidOf(pid), wrapper, 'the loop runs under the wrapper');
 
     // THE SAME NUMBER EVERYWHERE: the reply, the pid file and the manifest all
-    // name the grandchild — never the intermediate shell, which has exited.
+    // name the agent — never the start, which has exited.
     assert.equal(fs.readFileSync(path.join(wt, '.plot-worker.pid'), 'utf8').trim(), pid);
     const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
     assert.equal(manifest.pid, pid);

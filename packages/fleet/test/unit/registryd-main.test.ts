@@ -3224,7 +3224,8 @@ describe('unblockWorldForRepo and unblockPortsFor — the production wiring', ()
       const ports = unblockPortsFor({
         repoRoot,
         scriptsDir,
-        boardOpts: { repoRoot, scriptsDir, manifestDir } as unknown as { repoRoot: string; scriptsDir: string },
+        // `workerStart`: the shipped start `pnpm build:board` builds, since the fixture's scripts directory holds no bundle.
+        boardOpts: { repoRoot, scriptsDir, manifestDir, workerStart: join(import.meta.dirname, '../../../../skills/plot/scripts/board/plot-worker-start.mjs') } as unknown as { repoRoot: string; scriptsDir: string },
         // THE ROLE RUN ITSELF IS STUBBED: proving `unblockWorldForRepo`'s and
         // `unblockPortsFor`'s own wiring does not require a real `.claude/agents`
         // definition or a real `claude` binary on PATH — `unblockOutcome`'s

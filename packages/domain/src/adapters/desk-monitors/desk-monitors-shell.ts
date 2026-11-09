@@ -44,6 +44,17 @@ const isExecutable = (file: string): boolean => {
 };
 
 /**
+ * The AgentMonitor script a wrapper starts, for `PLOT_AGENT_MONITOR`.
+ *
+ * @param context - the repository and where its helper scripts live.
+ * @returns the script's path, or `''` when it is absent or not executable.
+ */
+export const agentMonitorScript = (context: ShellContext): string => {
+  const file = scriptPath(context, AGENT_MONITOR);
+  return isExecutable(file) ? file : '';
+};
+
+/**
  * Starts the AgentMonitor as a detached process, with the environment
  * `plot-dispatch.sh`'s wrapper gives it: `PLOT_BRANCH`, `PLOT_WORKTREE`,
  * `PLOT_MANIFEST_FILE` and `PLOT_PID_FILE`.

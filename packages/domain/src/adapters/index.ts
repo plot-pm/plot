@@ -305,7 +305,7 @@ export { processesTable, parseTable } from './processes/processes-table.js';
 // is the whole substitution the ports exist for.
 export { performerShell } from './performer/performer-shell.js';
 
-export { deskMonitorsShell } from './desk-monitors/desk-monitors-shell.js';
+export { agentMonitorScript, deskMonitorsShell } from './desk-monitors/desk-monitors-shell.js';
 
 export { mergerAppShell } from './merger-app/merger-app-shell.js';
 export { appKeyShell } from './merger-app/app-key-shell.js';

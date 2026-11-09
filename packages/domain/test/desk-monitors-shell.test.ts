@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 
-import { deskMonitorsShell } from '../src/adapters/desk-monitors/desk-monitors-shell.js';
+import { agentMonitorScript, deskMonitorsShell } from '../src/adapters/desk-monitors/desk-monitors-shell.js';
 import type { ShellContext } from '../src/adapters/scripts.js';
 import type { MonitoredDesk } from '../src/ports/desk-monitors.js';
 
@@ -188,5 +188,21 @@ describe('deskMonitorsShell.start', () => {
       ok: false,
       why: 'failed',
     });
+  });
+});
+
+describe('agentMonitorScript', () => {
+  it('names the executable AgentMonitor under the scripts directory', () => {
+    const { context } = fixture(['plot-agent-monitor.sh']);
+    expect(agentMonitorScript(context)).toBe(join(context.scriptDir, 'plot-agent-monitor.sh'));
+  });
+
+  it('answers empty where the script is absent or not executable', () => {
+    const { context } = fixture([]);
+    expect(agentMonitorScript(context)).toBe('');
+    const file = join(context.scriptDir, 'plot-agent-monitor.sh');
+    writeFileSync(file, '#!/bin/sh\n');
+    chmodSync(file, 0o644);
+    expect(agentMonitorScript(context)).toBe('');
   });
 });
