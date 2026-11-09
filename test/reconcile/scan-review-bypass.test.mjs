@@ -40,6 +40,10 @@ const stubGh = ({ prs = {} } = {}) => {
     isDraft: false, url: '', updatedAt: '', author: { login: 'jwloka' },
     headRefOid: `sha${number}`, mergedAt: '2026-10-01T00:00:00Z',
   })));
+  const restMerged = JSON.stringify(Object.entries(prs).map(([number, p]) => ({
+    number: Number(number), title: p.head, state: 'closed', draft: false, html_url: '', updated_at: '2026-10-01T00:00:00Z',
+    user: { login: 'jwloka' }, head: { ref: p.head, sha: `sha${number}` }, base: { ref: 'main' }, merged_at: '2026-10-01T00:00:00Z',
+  })));
   const cases = Object.entries(prs).map(([num, p]) => `  "api repos/{owner}/{repo}/pulls/${num} --include")
     ${p.unreadable ? 'echo "HTTP 502" >&2; exit 1' : `printf '%s' ${JSON.stringify(JSON.stringify({ head: { sha: `sha${num}` } }))}`}
     ;;
@@ -56,6 +60,8 @@ const stubGh = ({ prs = {} } = {}) => {
   const script = `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> ${JSON.stringify(log)}
 case "$*" in
+  *"api repos/"*"/pulls?state=closed"*"page=1"*) printf 'HTTP/2 200\\r\\n\\n%s' ${JSON.stringify(restMerged)} ;;
+  *"api repos/"*"/pulls?"*) printf 'HTTP/2 200\\r\\n\\n[]' ;;
   *"--state merged"*"--json number,title,state,headRefName"*) printf '%s' ${JSON.stringify(mergedPage)} ;;
   *"--state open"*) printf '%s' '[]' ;;
 ${cases}
