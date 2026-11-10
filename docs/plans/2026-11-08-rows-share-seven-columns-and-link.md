@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-08, Jan Wloka, plan-PR #3249 merged
+- **Started:** 2026-11-10, Jan Wloka, `feature/rows-share-seven-columns-and-link`
 
 ## Changelog
 
