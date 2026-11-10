@@ -351,7 +351,7 @@ while [ $# -gt 0 ]; do
     # `--release` pushed it from 78 to 91. Two records
     # of one fact, and nothing compares them — a stale number here silently
     # truncates the help rather than failing, so it is checked by a test.
-    -h|--help)  sed -n '2,93p' "$0"; exit 0 ;;
+    -h|--help)  sed -n '2,89p' "$0"; exit 0 ;;
     *)          slug="$1" ;;
   esac
   shift
