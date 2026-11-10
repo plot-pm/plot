@@ -73,8 +73,8 @@ export interface GatheredReadings {
   readonly ahead: string;
   /** The agent process name the desk's manifest names, or the default. */
   readonly agentProcess: string;
-  /** What the liveness rests on: the token, or the start time for a desk with none. */
-  readonly basis: 'token' | 'start-time';
+  /** What the liveness rests on: the token, or the start time for a desk with none; absent where no pid was recorded. */
+  readonly basis?: 'token' | 'start-time';
 }
 
 /** The desk's own record of the pid it launched. */
@@ -240,7 +240,6 @@ export const readWorkerReadings = async (
       pid: '',
       ahead: '',
       agentProcess: DEFAULT_AGENT_PROCESS,
-      basis: 'start-time',
     };
   }
 
@@ -335,7 +334,7 @@ export const readWorkerReadings = async (
     pid: pidRecorded ? pid : '',
     ahead,
     agentProcess,
-    basis: answer.basis,
+    ...(pidRecorded ? { basis: answer.basis } : {}),
   };
 };
 
@@ -368,7 +367,7 @@ export const readingsLine = (gathered: GatheredReadings): string => {
  */
 export const processReadingOf = (gathered: GatheredReadings, hasPr: boolean): ProcessReading => {
   const r = gathered.readings;
-  if (!r.worktreeHere) return { state: 'none', pid: '', exitCode: '', activity: '', basis: gathered.basis };
+  if (!r.worktreeHere) return { state: 'none', pid: '', exitCode: '', activity: '' };
   const state = agentState({ ...r, task: { ...r.task, hasPr } });
   const numericExit = r.liveness === 'dead' && r.exit !== null && /^\d+$/.test(r.exit);
   return {
@@ -376,7 +375,7 @@ export const processReadingOf = (gathered: GatheredReadings, hasPr: boolean): Pr
     pid: state === 'none' ? '' : gathered.pid,
     exitCode: numericExit ? (r.exit as string) : '',
     activity: '',
-    basis: gathered.basis,
+    ...(gathered.basis === undefined ? {} : { basis: gathered.basis }),
   };
 };
 

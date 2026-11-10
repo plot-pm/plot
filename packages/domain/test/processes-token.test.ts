@@ -193,6 +193,20 @@ describe('readWorkerReadings with a liveness token', () => {
   });
 });
 
+describe('readWorkerReadings names a basis only for a recorded pid', () => {
+  it('gives a desk with no recorded pid, and a missing desk, no basis', async () => {
+    const worktree = join(made, 'no-pid');
+    mkdirSync(worktree, { recursive: true });
+    const io = ioOf(join(made, 'no-agents'), held);
+    const none = await readWorkerReadings(worktree, [], io);
+    expect(none.basis).toBeUndefined();
+    expect(processReadingOf(none, false)).toEqual({ state: 'none', pid: '', exitCode: '', activity: '' });
+    const gone = await readWorkerReadings(join(made, 'gone'), [], io);
+    expect(gone.basis).toBeUndefined();
+    expect(processReadingOf(gone, false)).toEqual({ state: 'none', pid: '', exitCode: '', activity: '' });
+  });
+});
+
 describe('recordTokenRelease', () => {
   it('writes one desk log line and one finding per token, naming the cause', () => {
     const { worktree } = deskWith({});

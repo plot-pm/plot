@@ -84,6 +84,7 @@ const PORCELAIN: Array<[name: string, text: string]> = [
   ],
   ['short-lines', ' M a\n?? b'],
   ['token', '?? .plot-worker.token.fifo\n?? .plot-worker.token.fifo.4242.tmp\n?? sub/.plot-worker.token.fifo'],
+  ['pass', '?? .plot-worker.pass\n?? sub/.plot-worker.pass\n M src/.plot-worker.pass.ts'],
 ];
 
 /** One subject: a porcelain file, and the worktree the shell is handed, or none. */
@@ -195,6 +196,7 @@ describe('deskDirtFilter agrees with plot-worker-state.sh plot_worker_dirty_filt
     const both = (list: string[]): [string[], string[]] => [list, list];
     expect(answer('correction-root/no-worktree')).toEqual(both([]));
     expect(answer('token/no-worktree')).toEqual(both([]));
+    expect(answer('pass/no-worktree')).toEqual(both([]));
     expect(answer('renames/no-worktree')).toEqual(both(['old.ts -> new.ts', 'x.ts -> y.ts']));
     expect(answer('bundles/build-desk')).toEqual(
       both([
@@ -246,6 +248,7 @@ describe('treesGit.dirtyPaths agrees with plot-worker-state.sh plot_worker_dirty
     '.plot-worker.log': 'log\n',
     'PLOT-CORRECTION.md': 'fix\n',
     'notes.md.orig': 'x\n',
+    '.plot-worker.pass': '2026-11-09T08:00:00.000Z\n',
   };
   const desks = [
     gitDesk('desk-own-bundle', "const shippedOwn = path.join(here, '../../out/own.mjs');\n", changed),

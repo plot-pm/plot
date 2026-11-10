@@ -225,7 +225,7 @@ describe('processesFiles', () => {
     const { worktree, manifestDir } = deskWith({ '.plot-worker.pid': '41', '.plot-worker.exit': '3' });
     const run: ProcessRunner = async () => ({ code: 0, stdout: '', stderr: '' });
     const files = processesFiles({ repoRoot: made, scriptDir: made }, { run, manifestDir, signalZero: () => false });
-    expect(await files.workerState(join(made, 'gone'), false)).toEqual(answered({ state: 'none', pid: '', exitCode: '', activity: '', basis: 'start-time' }));
+    expect(await files.workerState(join(made, 'gone'), false)).toEqual(answered({ state: 'none', pid: '', exitCode: '', activity: '' }));
     expect(await files.workerState(worktree, false)).toEqual(answered({ state: 'failed', pid: '41', exitCode: '3', activity: '', basis: 'start-time' }));
   });
 });

@@ -510,7 +510,7 @@ const branchRow = (
     worker_pid: desk?.process.pid ?? '',
     worker_exit: desk?.process.exitCode ?? '',
     worker_activity: desk !== null && desk.process.state === 'running' ? desk.process.activity : '',
-    worker_basis: desk?.process.basis ?? '',
+    worker_basis: desk !== null && desk.process.state === 'running' ? (desk.process.basis ?? '') : '',
     worker_dirty_paths: desk !== null && desk.process.state === 'stalled' ? dirty : [],
     conflicts_known: conflicting !== undefined,
     conflicts: conflicting ?? [],
