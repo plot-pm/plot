@@ -58,6 +58,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
+import { writeTicketRecords } from './sprint-ticket-write.js';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
@@ -590,6 +591,7 @@ const writeIssueState = (file: string, state: IssueState): void => {
  * @param verdicts - what the fold answered.
  * @param recorded - the refuted lines of the plan on the default branch.
  * @param issueWrites - where each issue the tracker opened is handed to the issue index; absent hands nothing.
+ * @param onOpened - called with the identifier of each issue the tracker opened, after its state entry is written.
  * @returns the issue note per refuted claim text.
  * @throws {Refused} when the state file exists and does not parse; nothing opens.
  */
@@ -601,6 +603,7 @@ export const openRefutedIssues = async (
   verdicts: readonly ClaimVerdict[],
   recorded: readonly RefutedClaim[] = [],
   issueWrites?: IssueWriteSpool,
+  onOpened?: (id: string) => void,
 ): Promise<Map<string, IssueNote>> => {
   const entries: Record<string, IssueEntry> = { ...readIssueState(stateFile) };
   const notes = new Map<string, IssueNote>();
@@ -628,6 +631,7 @@ export const openRefutedIssues = async (
     if (settled.entry === null) delete entries[step.claim];
     else entries[step.claim] = settled.entry;
     writeIssueState(stateFile, entries);
+    if (opened.ok) onOpened?.(opened.value.id);
     notes.set(step.claim, settled.note);
   }
   return notes;
@@ -736,6 +740,7 @@ export const record = async (ctx: Context, args: Args, write: Printer, warn: Pri
     const declared = await ctx.scripts.config('Tracker', '');
     const backend = await ctx.host.backend();
     const tracker = ctx.issueTracker(declared.ok ? declared.value.trim() : '', backend.ok ? backend.value : '');
+    const openedIds: string[] = [];
     const notes = await openRefutedIssues(
       tracker,
       issueStatePath(ctx.repoRoot, args.slug),
@@ -744,6 +749,7 @@ export const record = async (ctx: Context, args: Args, write: Printer, warn: Pri
       verdicts,
       refutedClaims(present.value),
       ctx.issueWrites,
+      (id) => openedIds.push(id),
     );
     for (const [claim, note] of notes) {
       if ('noIssue' in note && note.noIssue.startsWith(ISSUE_MAY_EXIST)) {
@@ -780,7 +786,16 @@ export const record = async (ctx: Context, args: Args, write: Printer, warn: Pri
       const checklistPath = listed
         ? await writeChecklist(ctx, wt, checklistEntryOf(args.slug, fresh.value, verdicts, notes))
         : null;
-      await ctx.trees.stage(wt, checklistPath === null ? [facts.plan] : [facts.plan, checklistPath]);
+      const staged = checklistPath === null ? [facts.plan] : [facts.plan, checklistPath];
+      // The tickets exist once `issueOpen` answered, so a failed record is a
+      // warning and a retry of this booking never opens another.
+      const sprintDir = await ctx.scripts.config('Sprint directory', 'docs/sprints/');
+      const ticketRecords = await writeTicketRecords(
+        ctx.planStore, wt, sprintDir.ok ? sprintDir.value.trim() : 'docs/sprints/', args.slug, bookbr, openedIds, localDate(),
+      );
+      for (const note of ticketRecords.notes) warn(`plot-verify: ticket not recorded in a sprint: ${note}\n`);
+      if (ticketRecords.file !== '') staged.push(ticketRecords.file);
+      await ctx.trees.stage(wt, staged);
     };
     await book(tmpwt);
 
