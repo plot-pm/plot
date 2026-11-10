@@ -320,9 +320,26 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
     links: p.actsOn !== null && p.linked ? [{ label: labelOfItem(p.actsOn), anchor: itemAnchor(p.actsOn) }] : [],
   }));
 
+  // A plan's own row (its idea-branch PR) heads the plan beside its slices, so a
+  // plan row the rule put in Work items follows the plan's first slice there.
+  const sliceHome = new Map<string, string>();
+  for (const v of itemViews) {
+    const at = v.placement;
+    if (at !== null && at.section === 'work-items' && isSliceItem(v) && !sliceHome.has(planOfItem(v))) {
+      sliceHome.set(planOfItem(v), at.group);
+    }
+  }
+  const homeGroup = (v: PlacedItemView): string | null => {
+    const at = v.placement;
+    if (at === null || at.section !== 'work-items') return null;
+    return isPlanRow(v) ? sliceHome.get(planOfItem(v)) ?? at.group : at.group;
+  };
+
   const sections = DELIVERY_LAYOUT.map(({ section, groups }): SectionView => {
     const groupViews = groups.map((group): GroupView => {
-      const items = itemViews.filter((v) => v.placement?.section === section && v.placement.group === group);
+      const items = itemViews.filter((v) => (section === 'work-items'
+        ? homeGroup(v) === group
+        : v.placement?.section === section && v.placement.group === group));
       const agents = agentViews.filter((v) => section === 'fleet' && v.placement.group === group);
       const meta = GROUP_LABELS[group] ?? { label: group, hint: '' };
       const rows = [...items.flatMap((v) => v.rows), ...agents.flatMap((v) => (v.row === null ? [] : [v.row]))];

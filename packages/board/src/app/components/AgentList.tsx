@@ -405,7 +405,18 @@ export function AgentList({
       return next;
     });
   };
-
+  // A blocker mark opens the fold its blocker sits behind: a delivered slice
+  // shows under Release delivery, folded by default.
+  const expandSection = (section: string) => {
+    if (section !== 'done') return;
+    setCollapsed((prev) => {
+      if (!prev.has('release-delivery')) return prev;
+      const next = new Set(prev);
+      next.delete('release-delivery');
+      writeCollapsed(next);
+      return next;
+    });
+  };
 
   // Whether the reader asked to see only their own work.
   //
@@ -1105,6 +1116,7 @@ export function AgentList({
           highlighted: r.branch === highlightBranch,
           showSprintSlug,
           planIndex,
+          onExpandSection: expandSection,
         });
         const anchorOf = (item: PlacedItemView) => (
           <li key={`anchor-${item.anchor}`} role="presentation" id={item.anchor} className="h-0" />
@@ -1159,6 +1171,7 @@ export function AgentList({
                   onRevealBranch={start ? undefined : onRevealBranch}
                   planHeaded
                   slices={slices}
+                  onExpandSection={expandSection}
                   planIndex={planIndex}
                 />
                 {many && sliceOpen && (
@@ -1294,6 +1307,7 @@ export function AgentList({
                 <h2 data-delivery-section={section.key} className="flex items-baseline gap-1 text-base font-semibold text-slate-800 dark:text-slate-100">
                   <span aria-hidden="true">{section.icon}</span> {section.label}
                   {section.groups.length > 0 && <span className="ml-1 font-normal text-slate-500">({section.count})</span>}
+                  {release && <span className="ml-1 font-normal text-slate-500">({view.deliveredBlocks.length})</span>}
                   {sectionPace && <ActivityMark pace={sectionPace} place="heading" />}
                 </h2>
               ));
