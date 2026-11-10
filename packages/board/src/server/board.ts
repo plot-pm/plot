@@ -2633,16 +2633,20 @@ export const planMetaOf = (entry: SnapshotPlanEntry, file: string = entry.file):
  * A ref reader whose `resolve` answers every `refs/…` and `origin/…` name from
  * the refs fleetd listed, a trailing `^{commit}` included, and starts nothing
  * for them. A name the listing lacks fails, as git fails for a ref it lacks.
+ * A name with any other `^{…}` suffix, such as `^{tree}`, names an object the
+ * listing does not hold and goes to `refs`.
  *
  * @param refs - the reader every other read goes through.
  * @param entries - the refs fleetd's snapshot listed.
  * @returns the reader.
  */
-const servedRefs = (refs: Refs, entries: readonly RefState[]): Refs => {
+export const servedRefs = (refs: Refs, entries: readonly RefState[]): Refs => {
   const listed = snapshotOf(entries);
   return {
     ...refs,
     resolve: async (name) => {
+      const peel = /\^\{[^}]*\}$/.exec(name)?.[0];
+      if (peel !== undefined && peel !== '^{commit}') return refs.resolve(name);
       const bare = name.replace(/\^\{commit\}$/, '');
       if (!bare.startsWith('refs/') && !bare.startsWith('origin/')) return refs.resolve(name);
       const oid = listed.oidOf(bare);
