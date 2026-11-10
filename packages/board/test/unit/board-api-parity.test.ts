@@ -286,10 +286,6 @@ describe('/api/board renders the same board from the snapshot as from its own re
     const { served } = await bothPaths(opts, snapshot, lanes);
     await quiet();
     const servedOpts = { ...opts, channelSnapshot: () => ({ link: { state: 'current' as const, epoch: 'e1', generation: 1 }, held: { epoch: 'e1', snapshot } }) };
-    // One request after the wait reads the checkout's branch, whose 5 s TTL
-    // the wait outlasts (`refs-from-files` moves that read to a file); the
-    // next request is the one measured.
-    await boardAnswer(servedOpts, realEstate(servedOpts), 'localhost', 7777, false);
     starts.lines.length = 0;
     await boardAnswer(servedOpts, realEstate(servedOpts), 'localhost', 7777, false);
     pauseFleetRefresh();

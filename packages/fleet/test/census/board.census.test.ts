@@ -243,7 +243,7 @@ describe.skipIf(gate.kind !== 'run')('an idle board with one visible page that p
     expect(statuses.every((status) => status === 200)).toBe(true);
   });
 
-  it.fails(rowTitle(CENSUS_ROWS.S7, fixture), () => {
+  it(rowTitle(CENSUS_ROWS.S7, fixture), () => {
     recordCount(CENSUS_ROWS.S7, fixture, perMinute(window.execs.length), window.execs);
     expect(window.execs).toHaveLength(0);
   });
