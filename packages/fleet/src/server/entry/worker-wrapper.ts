@@ -104,10 +104,11 @@ export const wrapperInput = (
  * AgentMonitor, the liveness token, the earlier exit record removed, the agent
  * with the token on fd 3, `SIGTERM` ignored, the agent pid and its start, the
  * manifest stamp; then, once the agent ends, one WorkerMonitor line into the
- * watched desk and the exit code.
+ * watched desk, the exit code, and the wrapper's own token copy closed.
  *
- * The wrapper closes its own copy of the token once the agent runs, so only
- * the agent and what it starts hold it. A token that cannot be made leaves no
+ * The wrapper closes its own copy of the token after it writes the exit
+ * record, so the token never reads released while the record is missing and
+ * the wrapper lives. A token that cannot be made leaves no
  * file at the token path; the desk log names the reason, the manifest records
  * `token: none (<reason>)`, and the agent starts with no token.
  *
@@ -129,10 +130,16 @@ export const runWorkerWrapper = async (input: WrapperInput, deps: WrapperDeps): 
   const { [TOKEN_FD_ENV]: _inherited, ...env } = input.env;
   const agentEnv = { ...env, PATH: `${pathPrefix}${input.env.PATH ?? ''}`, ...(made.ok ? { [TOKEN_FD_ENV]: String(TOKEN_FD) } : {}) };
   const agent = deps.agents.start(input.command, agentEnv, made.ok ? made.token.fd : null);
-  if (made.ok) deps.token.close(made.token);
+  // THE WRAPPER HOLDS ITS COPY UNTIL THE EXIT RECORD IS WRITTEN: a token that
+  // released before `.plot-worker.exit` existed would read as a worker that
+  // ended with no record.
+  const release = (): void => {
+    if (made.ok) deps.token.close(made.token);
+  };
   deps.ignoreTerm();
   if (agent === null) {
     records.writeExit(127);
+    release();
     return 1;
   }
 
@@ -159,6 +166,7 @@ export const runWorkerWrapper = async (input: WrapperInput, deps: WrapperDeps): 
     );
   }
   records.writeExit(code);
+  release();
   return 0;
 };
 

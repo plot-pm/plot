@@ -58,12 +58,12 @@ export interface LivenessReadings {
  * What the token says about the worker.
  *
  * - `exited` — an exit record not older than the token exists; the process ended.
- * - `live` — no current exit record, the token is held, the recorded pid
- *   answers, and `startedAt` lies less than `Worker bound` ago.
+ * - `live` — no current exit record, the token is held, and the recorded pid
+ *   answers, however long ago the launch was.
  * - `stray-holder` — no current exit record, the token is held, the recorded
- *   pid does not answer, and `Worker bound` has not passed.
- * - `dead` — no current exit record, and the token is released or held past
- *   `Worker bound`.
+ *   pid does not answer, and `Worker bound` from `startedAt` has not passed.
+ * - `dead` — no current exit record, and the token is released, or held by a
+ *   stray holder past `Worker bound` from `startedAt`.
  */
 export type TokenLiveness = 'exited' | 'live' | 'stray-holder' | 'dead';
 
@@ -76,8 +76,9 @@ export type LivenessAnswer =
  * Decides a worker's liveness from its exit record and its token, in this
  * order: no token answers the start-time path; an exit record not older than
  * the token answers `exited`; a released token answers `dead`; a held token
- * past `Worker bound` answers `dead`; a held token answers `live` when the
- * recorded pid answers and `stray-holder` when it does not.
+ * answers `live` when the recorded pid answers; a held token whose pid does
+ * not answer answers `stray-holder` until `Worker bound` from `startedAt` has
+ * passed, and `dead` after it.
  *
  * An exit record older than the token is an earlier run's and is ignored:
  * `exitCurrent` is `false` for it.
@@ -91,11 +92,14 @@ export const workerLiveness = (readings: LivenessReadings): LivenessAnswer => {
   const exitCurrent = readings.exitAtMs !== null && readings.exitAtMs >= token.madeAtMs;
   if (exitCurrent) return { basis: 'token', liveness: 'exited', exitCurrent };
   if (token.state === 'released') return { basis: 'token', liveness: 'dead', exitCurrent };
+  if (readings.pidAnswers) return { basis: 'token', liveness: 'live', exitCurrent };
   const pastBound =
     readings.workerBoundMs > 0 && readings.startedAtMs !== null && readings.nowMs - readings.startedAtMs >= readings.workerBoundMs;
-  if (pastBound) return { basis: 'token', liveness: 'dead', exitCurrent };
-  return { basis: 'token', liveness: readings.pidAnswers ? 'live' : 'stray-holder', exitCurrent };
+  return { basis: 'token', liveness: pastBound ? 'dead' : 'stray-holder', exitCurrent };
 };
+
+/** The record the worker loop rewrites at the start of every pass and when its harness starts or ends. */
+export const PASS_FILE = '.plot-worker.pass';
 
 /** The words a board row adds for a desk whose liveness rests on the start time. */
 export const START_TIME_LABEL = 'liveness by start time';

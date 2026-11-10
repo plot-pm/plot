@@ -119,7 +119,6 @@ describe('runWorkerWrapper', () => {
       'token /w',
       'remove-exit',
       'agent run-agent fd 9',
-      'token-close 9',
       'ignore-term',
       'agent-pid 200',
       'started-text 200',
@@ -128,6 +127,7 @@ describe('runWorkerWrapper', () => {
       'manifest-worktree /m/s.json',
       'finding /w {"monitor":"WorkerMonitor","branch":"feature/x","worktree":"/w","finding":"clear","since":"2026-11-09T08:07:06Z","evidence":"the agent pid 200 exited 0; the worker is finished","measuredAt":"2026-11-09T08:07:06Z"}\n',
       'exit 0',
+      'token-close 9',
     ]);
   });
 
@@ -198,16 +198,16 @@ describe('runWorkerWrapper', () => {
     const { calls, deps } = fakes({ code: null, signal: 15 });
     await runWorkerWrapper(input(), deps);
 
-    expect(calls.at(-1)).toBe('exit 143');
-    expect(calls.at(-2)).toContain('"finding":"gone"');
-    expect(calls.at(-2)).toContain('exited 143');
+    expect(calls.at(-2)).toBe('exit 143');
+    expect(calls.at(-3)).toContain('"finding":"gone"');
+    expect(calls.at(-3)).toContain('exited 143');
   });
 
   it('writes the line into the desk the manifest names after a hop', async () => {
     const { calls, deps } = fakes({ code: 3, signal: null }, '/w2');
     await runWorkerWrapper(input(), deps);
 
-    expect(calls.at(-2)).toMatch(/^finding \/w2 .*"worktree":"\/w2"/);
+    expect(calls.at(-3)).toMatch(/^finding \/w2 .*"worktree":"\/w2"/);
   });
 
   it('writes no line with no desk to name, and still the exit', async () => {
@@ -218,10 +218,18 @@ describe('runWorkerWrapper', () => {
     expect(calls.at(-1)).toBe('exit 3');
   });
 
-  it('writes exit 127 and answers 1 when no agent starts', async () => {
+  it('writes exit 127, closes its token copy after it, and answers 1 when no agent starts', async () => {
     const { calls, deps } = fakes({ code: 0, signal: null }, '', null);
 
     expect(await runWorkerWrapper(input(), deps)).toBe(1);
-    expect(calls.at(-1)).toBe('exit 127');
+    expect(calls.slice(-2)).toEqual(['exit 127', 'token-close 9']);
+  });
+
+  it('holds its token copy until the exit record is written, so the token never releases ahead of the record', async () => {
+    const { calls, deps } = fakes({ code: 3, signal: null });
+    await runWorkerWrapper(input(), deps);
+
+    expect(calls.indexOf('token-close 9')).toBeGreaterThan(calls.indexOf('exit 3'));
+    expect(calls.at(-1)).toBe('token-close 9');
   });
 });

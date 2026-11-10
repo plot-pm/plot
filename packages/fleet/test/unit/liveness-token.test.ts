@@ -88,15 +88,25 @@ const makeDesk = () => {
     manifest,
     ['{', '  "session": "liveness",', `  "branch": "${BRANCH}",`, `  "worktree": "${desk}",`, '  "command": "stub",', '  "pid": "",', `  "startedAt": "${new Date().toISOString()}"`, '}', ''].join('\n'),
   );
-  // The node loop's own shape: it hands fd 3 to the harness it starts, and to no other child.
+  // The node loop's own shape (`acquireToken` in worker-loop.ts): it opens the
+  // token path again close-on-exec, closes fd 3, and names the new descriptor
+  // in the harness's stdio and in no other child's. The harness starts a
+  // long-lived child of its own, as a Bash tool shell or an MCP server would.
   const loop = path.join(root, 'loop.mjs');
   fs.writeFileSync(
     loop,
     [
       "import { spawn } from 'node:child_process';",
-      "import { writeFileSync } from 'node:fs';",
-      "const hold = process.env.PLOT_WORKER_TOKEN_FD === '3' ? [3] : [];",
-      "const harness = spawn('bash', ['-c', 'while :; do sleep 1; done'], { stdio: ['ignore', 'ignore', 'ignore', ...hold] });",
+      "import { closeSync, constants, openSync, writeFileSync } from 'node:fs';",
+      "import { join } from 'node:path';",
+      'let hold = [];',
+      "if (process.env.PLOT_WORKER_TOKEN_FD === '3') {",
+      `  const fresh = openSync(join(process.cwd(), ${JSON.stringify(TOKEN_FILENAME)}), constants.O_RDWR);`,
+      '  closeSync(3);',
+      '  hold = [fresh];',
+      '}',
+      "const grand = join(process.cwd(), 'grandchild');",
+      "const harness = spawn('bash', ['-c', `sleep 300 & echo $! > '${grand}'; while :; do sleep 1; done`], { stdio: ['ignore', 'ignore', 'ignore', ...hold] });",
       "const other = spawn('bash', ['-c', 'while :; do sleep 1; done'], { stdio: ['ignore', 'ignore', 'ignore'] });",
       "writeFileSync(process.argv[2], `${harness.pid} ${other.pid}`);",
       'setInterval(() => undefined, 1000);',
@@ -150,8 +160,9 @@ const launchLoop = async (d: Desk) => {
     const text = readOr(d.children);
     return text === undefined ? undefined : text.split(' ').map(Number);
   });
-  pids.push(harness!, other!);
-  return { ...run, harness: harness!, other: other! };
+  const grandchild = Number(await until('the harness child', () => readOr(path.join(d.desk, 'grandchild'))?.trim() || undefined));
+  pids.push(harness!, other!, grandchild);
+  return { ...run, harness: harness!, other: other!, grandchild };
 };
 
 /** fleetd's reading of the desk. */
@@ -164,15 +175,16 @@ const readDesk = async (d: Desk, over: { now?: () => number; signalZero?: (pid: 
   return { gathered, reading: processReadingOf(gathered, false) };
 };
 
-/** Which of the pids hold the token on fd 3: `lsof` where present, `/proc/<pid>/fd/3` on Linux otherwise. */
-const holdsFd3 = (pid: number, token: string): boolean => {
+/** Whether a pid holds the token on any descriptor: `lsof` where present, `/proc/<pid>/fd` on Linux otherwise. */
+const holdsToken = (pid: number, token: string): boolean => {
   try {
-    const out = execFileSync('lsof', ['-a', '-p', String(pid), '-d', '3', '-Fn'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const out = execFileSync('lsof', ['-a', '-p', String(pid), '-Fn'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
     return out.split('\n').some((line) => line === `n${token}`);
   } catch (error) {
     if ((error as { code?: string }).code !== 'ENOENT') return false;
     try {
-      return fs.readlinkSync(`/proc/${pid}/fd/3`).startsWith(token.replace(/\.fifo$/, ''));
+      const ino = fs.statSync(token).ino;
+      return fs.readdirSync(`/proc/${pid}/fd`).some((fd) => fs.readlinkSync(`/proc/${pid}/fd/${fd}`) === `pipe:[${ino}]`);
     } catch {
       return false;
     }
@@ -244,10 +256,11 @@ describe('the liveness token on real processes', { timeout: 30_000 }, () => {
     const d = makeDesk();
     const run = await launchLoop(d);
     const tokenPath = path.join(d.desk, TOKEN_FILENAME);
-    expect(holdsFd3(run.harness, tokenPath)).toBe(true);
-    expect(holdsFd3(run.agent, tokenPath)).toBe(true);
-    expect(holdsFd3(run.other, tokenPath)).toBe(false);
-    expect(holdsFd3(run.wrapper, tokenPath)).toBe(false);
+    expect(holdsToken(run.harness, tokenPath)).toBe(true);
+    expect(holdsToken(run.agent, tokenPath)).toBe(true);
+    // A child of the harness inherits the token: the stray-holder bound is what ends it.
+    expect(holdsToken(run.grandchild, tokenPath)).toBe(true);
+    expect(holdsToken(run.other, tokenPath)).toBe(false);
     // A LIVE WRAPPER WRITES 137 FOR A LOOP KILLED UNDER IT, and rule 1 then
     // reads that exit record. The case the token answers is the one with no
     // record: the wrapper gone first, then the loop alone.
@@ -264,7 +277,7 @@ describe('the liveness token on real processes', { timeout: 30_000 }, () => {
     expect(RESTARTABLE).not.toContain(reading.state);
   });
 
-  it('a stray holder has a bound: it reads stray-holder, then dead once Worker bound from startedAt has passed', async () => {
+  it('a stray holder has a bound: it reads stray-holder, then dead once Worker bound from startedAt has passed, while an answering pid stays live', async () => {
     const d = makeDesk();
     const run = await launchLoop(d);
     process.kill(run.wrapper, 'SIGKILL');
@@ -279,7 +292,8 @@ describe('the liveness token on real processes', { timeout: 30_000 }, () => {
     expect(later.gathered.readings.liveness).toBe('dead');
     expect(later.reading.state).toBe('ended');
     const liveLater = await readDesk(d, { now: () => Date.now() + BOUND_SECONDS * 1000, signalZero: () => true });
-    expect(liveLater.gathered.readings.liveness).not.toBe('live');
+    // `Worker bound` limits one prompt run, not the loop's life: an answering pid stays live past it.
+    expect(liveLater.gathered.readings.liveness).toBe('live');
   });
 
   it('a restart never inherits the old token: the new run renames a new FIFO, and reads dead once its own holders are gone', async () => {

@@ -25,6 +25,7 @@ import { processesTable, type TableRead } from './processes-table.js';
 import { livenessTokenFifo } from '../liveness-token/liveness-token-fifo.js';
 import { monitorTime } from '../../rules/worker-ending.js';
 import {
+  PASS_FILE,
   RELEASED_WITH_NO_EXIT,
   workerLiveness,
   type TokenReading,
@@ -86,8 +87,6 @@ const WRAPPER_FILE = '.plot-worker.wrapper.pid';
 const EXIT_FILE = '.plot-worker.exit';
 /** The prefix of a marker file at the desk's root. */
 const MARKER_PREFIX = 'PLOT-BLOCKED';
-/** The record the worker loop rewrites at the start of every pass. */
-export const PASS_FILE = '.plot-worker.pass';
 
 /** A path's modification time, epoch milliseconds, or `null` where it cannot be read. */
 const mtimeOf = (path: string): number | null => {
@@ -99,11 +98,11 @@ const mtimeOf = (path: string): number | null => {
 };
 
 /**
- * The last `orphaned` walk per desk, with the token and loop-pass readings it
- * was taken under. A pass whose two readings match reuses the answer and
- * reads no process table.
+ * The last walk per desk that found an agent, with the token and loop-pass
+ * readings it was taken under. A read whose two readings match answers `live`
+ * and reads no process table.
  */
-const walks = new Map<string, { token: string; pass: number | null; orphaned: boolean }>();
+const walks = new Map<string, { token: string; pass: number | null }>();
 
 /** A file's text, or `null` where it is not a regular file or cannot be read. */
 const regularFile = (path: string): string | null => {
@@ -174,10 +173,11 @@ const manifestOf = (manifestDir: string, worktree: string): string | null => {
 
 /**
  * The `orphaned` reading of a desk whose token reads `live`. A desk with no
- * wrapper record is `live`. Otherwise the process-table walk runs when the
- * token reading or the loop's pass record changed since the last walk for the
- * desk, or when no walk was taken yet; any other pass reuses the last answer
- * and reads no table.
+ * wrapper record is `live`. Otherwise a `live` walk is carried while the token
+ * reading and the loop's pass record stay unchanged; the loop rewrites that
+ * record at the start of every pass and when its harness starts or ends. Any
+ * other answer is not carried: a desk read `orphaned`, or `unaskable`, walks
+ * the process table again on its next read.
  */
 const tokenWalk = async (
   worktree: string,
@@ -191,11 +191,10 @@ const tokenWalk = async (
   const key = `${token.state} ${token.madeAtMs ?? ''} ${pid}`;
   const pass = mtimeOf(join(worktree, PASS_FILE));
   const last = walks.get(worktree);
-  if (last !== undefined && last.token === key && last.pass === pass) return last.orphaned ? 'orphaned' : 'live';
+  if (last !== undefined && last.token === key && last.pass === pass) return 'live';
   const presence = agentAlive(await rows(), Number(pid), io.now(), { agentProcess, graceSeconds: io.graceSeconds });
-  // An `unaskable` walk (a pid the table lacks, or a loop inside its grace) is
-  // not an answer to carry: the next pass walks again.
-  if (presence !== 'unaskable') walks.set(worktree, { token: key, pass, orphaned: presence === 'absent' });
+  if (presence === 'present') walks.set(worktree, { token: key, pass });
+  else walks.delete(worktree);
   return presence === 'absent' ? 'orphaned' : 'live';
 };
 
@@ -275,11 +274,12 @@ export const readWorkerReadings = async (
   if (pidRecorded && token.state !== 'none') {
     const startedMs = Date.parse(startedAt);
     const exitAtMs = exitText === null ? null : mtimeOf(exitPath);
-    const needsBound = token.state === 'held' && (exitAtMs === null || exitAtMs < (token.madeAtMs ?? 0));
+    const pidAnswers = io.signalZero(Number(pid)) === true;
+    const needsBound = token.state === 'held' && !pidAnswers && (exitAtMs === null || exitAtMs < (token.madeAtMs ?? 0));
     answer = workerLiveness({
       exitAtMs,
       token,
-      pidAnswers: io.signalZero(Number(pid)) === true,
+      pidAnswers,
       startedAtMs: Number.isNaN(startedMs) ? null : startedMs,
       nowMs: io.now(),
       workerBoundMs: needsBound && io.workerBoundMs !== undefined ? await io.workerBoundMs() : 0,
@@ -510,7 +510,7 @@ export const deskFilesIo = (context: ShellContext, options: ProcessesFilesOption
     workerBounds.set(context.repoRoot, reading);
     return reading;
   };
-  const tokens = livenessTokenFifo();
+  const tokens = livenessTokenFifo(options.log === undefined ? {} : { log: options.log });
   const now = options.now ?? Date.now;
   return async () => ({
     token: options.token ?? tokens.read,

@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -75,15 +75,29 @@ describe('livenessTokenFifo', () => {
     const first = token.make(d);
     if (!first.ok) throw new Error(first.reason);
     token.close(first.token);
-    const made = livenessTokenFifo('false').make(d);
+    const made = livenessTokenFifo({ mkfifo: 'false' }).make(d);
     expect(made).toMatchObject({ ok: false });
     expect(!made.ok && made.reason).toContain(`${join(d, TOKEN_FILENAME)}.`);
     expect(existsSync(join(d, TOKEN_FILENAME))).toBe(false);
     expect(readdirSync(d)).toEqual([]);
   });
 
+  it('reads none and logs the code once per path when the token cannot be opened', () => {
+    const d = desk();
+    const made = token.make(d);
+    if (!made.ok) throw new Error(made.reason);
+    token.close(made.token);
+    chmodSync(made.token.path, 0o000);
+    const lines: string[] = [];
+    const logging = livenessTokenFifo({ log: (line) => lines.push(line) });
+    expect(logging.read(d)).toEqual({ state: 'none', madeAtMs: null });
+    expect(logging.read(d)).toEqual({ state: 'none', madeAtMs: null });
+    chmodSync(made.token.path, 0o600);
+    expect(lines).toEqual([`liveness token ${made.token.path}: read failed (EACCES); the desk reads its start time`]);
+  });
+
   it('names the missing program when mkfifo cannot start', () => {
-    const made = livenessTokenFifo('/nonexistent/mkfifo').make(desk());
+    const made = livenessTokenFifo({ mkfifo: '/nonexistent/mkfifo' }).make(desk());
     expect(!made.ok && made.reason).toContain('ENOENT');
   });
 });

@@ -50,15 +50,16 @@ describe('workerLiveness', () => {
     expect(workerLiveness(desk({ token: released, exitAtMs: MADE - 1 }))).toMatchObject({ liveness: 'dead' });
   });
 
-  it('never reads live past Worker bound, and a stray holder past it reads dead', () => {
+  it('reads a held token with an answering pid as live past Worker bound, and a stray holder past it as dead', () => {
     const past = { nowMs: MADE + BOUND };
-    expect(workerLiveness(desk(past))).toMatchObject({ liveness: 'dead' });
+    expect(workerLiveness(desk(past))).toMatchObject({ liveness: 'live' });
     expect(workerLiveness(desk({ ...past, pidAnswers: false }))).toMatchObject({ liveness: 'dead' });
+    expect(workerLiveness(desk({ nowMs: MADE + BOUND - 1, pidAnswers: false }))).toMatchObject({ liveness: 'stray-holder' });
   });
 
   it('sets no ceiling with a bound of 0 or no recorded start', () => {
-    expect(workerLiveness(desk({ nowMs: MADE + 10 * BOUND, workerBoundMs: 0 }))).toMatchObject({ liveness: 'live' });
-    expect(workerLiveness(desk({ nowMs: MADE + 10 * BOUND, startedAtMs: null }))).toMatchObject({ liveness: 'live' });
+    expect(workerLiveness(desk({ nowMs: MADE + 10 * BOUND, workerBoundMs: 0, pidAnswers: false }))).toMatchObject({ liveness: 'stray-holder' });
+    expect(workerLiveness(desk({ nowMs: MADE + 10 * BOUND, startedAtMs: null, pidAnswers: false }))).toMatchObject({ liveness: 'stray-holder' });
   });
 });
 

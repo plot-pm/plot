@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { PASS_FILE, processReadingOf, readWorkerReadings, recordTokenRelease, type DeskFilesIo } from '../src/adapters/processes/processes-files.js';
+import { processReadingOf, readWorkerReadings, recordTokenRelease, type DeskFilesIo } from '../src/adapters/processes/processes-files.js';
 import type { ProcessRow } from '../src/rules/pid-current.js';
-import { RELEASED_WITH_NO_EXIT, type TokenReading } from '../src/rules/worker-liveness.js';
+import { PASS_FILE, RELEASED_WITH_NO_EXIT, type TokenReading } from '../src/rules/worker-liveness.js';
 
 const made = mkdtempSync(join(tmpdir(), 'plot-processes-token-'));
 afterAll(() => rmSync(made, { recursive: true, force: true }));
@@ -98,7 +98,7 @@ describe('readWorkerReadings with a liveness token', () => {
     expect(processReadingOf(gathered, false)).toMatchObject({ state: 'finished', exitCode: '0' });
   });
 
-  it('ignores an exit record older than the token, so a late write does not end a new run', async () => {
+  it('ignores an earlier run\'s exit record, older than the token, so it does not end the new run', async () => {
     const { worktree, manifestDir } = deskWith({ '.plot-worker.exit': '1' });
     touch(join(worktree, '.plot-worker.exit'), TOKEN_MS - 5_000);
     const live = await readWorkerReadings(worktree, [], ioOf(manifestDir, held));
@@ -107,10 +107,8 @@ describe('readWorkerReadings with a liveness token', () => {
     expect(processReadingOf(dead, false)).toMatchObject({ state: 'ended', exitCode: '' });
   });
 
-  it('reads a held token past Worker bound as ended, never running', async () => {
+  it('reads a stray holder past Worker bound as ended', async () => {
     const { worktree, manifestDir } = deskWith({});
-    const io = ioOf(manifestDir, held, { now: () => startedMs + BOUND_MS });
-    expect(processReadingOf(await readWorkerReadings(worktree, [], io), false).state).toBe('ended');
     const stray = ioOf(manifestDir, held, { now: () => startedMs + BOUND_MS, signalZero: () => false });
     expect(processReadingOf(await readWorkerReadings(worktree, [], stray), false).state).toBe('ended');
   });
@@ -122,9 +120,11 @@ describe('readWorkerReadings with a liveness token', () => {
     await readWorkerReadings(worktree, [], io);
     expect(asked).toEqual([]);
     await readWorkerReadings(worktree, [], { ...io, token: () => held });
+    expect(asked).toEqual([]);
+    await readWorkerReadings(worktree, [], { ...io, token: () => held, signalZero: () => false });
     expect(asked).toEqual([1]);
-    const noBound = { ...io, token: () => held, workerBoundMs: undefined };
-    expect((await readWorkerReadings(worktree, [], noBound)).readings.liveness).toBe('live');
+    const noBound = { ...io, token: () => held, workerBoundMs: undefined, signalZero: () => false };
+    expect((await readWorkerReadings(worktree, [], noBound)).readings.liveness).toBe('stray-holder');
   });
 
   it('takes the start-time path for a desk with no token', async () => {
@@ -137,15 +137,14 @@ describe('readWorkerReadings with a liveness token', () => {
     expect((await readWorkerReadings(worktree, [row(41, 1, 'sh')], unset)).basis).toBe('start-time');
   });
 
-  it('walks the process table for orphaned on a token change and on a loop pass, and on no other pass', async () => {
+  it('carries a walk that found the agent while the token and the pass record stay, and walks again on a change of either', async () => {
     const { worktree, manifestDir } = deskWith({ '.plot-worker.wrapper.pid': '40', [PASS_FILE]: '1' });
     touch(join(worktree, PASS_FILE), NOW - 60_000);
-    const { reads, table } = countedTable([row(41, 1, 'node')]);
+    const { reads, table } = countedTable([row(41, 1, 'node'), row(42, 41, 'claude')]);
     const io = ioOf(manifestDir, held);
 
-    expect((await readWorkerReadings(worktree, table, io)).readings.liveness).toBe('orphaned');
-    expect(reads.n).toBe(1);
-    expect((await readWorkerReadings(worktree, table, io)).readings.liveness).toBe('orphaned');
+    expect((await readWorkerReadings(worktree, table, io)).readings.liveness).toBe('live');
+    expect((await readWorkerReadings(worktree, table, io)).readings.liveness).toBe('live');
     expect(reads.n).toBe(1);
 
     touch(join(worktree, PASS_FILE), NOW - 30_000);
@@ -159,20 +158,38 @@ describe('readWorkerReadings with a liveness token', () => {
     expect(reads.n).toBe(3);
   });
 
-  it('carries a live walk, and walks again after an unaskable one', async () => {
-    const { worktree, manifestDir } = deskWith({ '.plot-worker.wrapper.pid': '40' });
-    const { reads, table } = countedTable([row(41, 1, 'node'), row(42, 41, 'claude')]);
+  it('walks again on every read while the desk reads orphaned, and after a harness that ended mid-pass', async () => {
+    const { worktree, manifestDir } = deskWith({ '.plot-worker.wrapper.pid': '40', [PASS_FILE]: '1' });
+    touch(join(worktree, PASS_FILE), NOW - 60_000);
+    const rows = { value: [row(41, 1, 'node'), row(42, 41, 'claude')] };
+    const reads = { n: 0 };
+    const table = async () => (reads.n += 1, rows.value);
     const io = ioOf(manifestDir, held);
     expect((await readWorkerReadings(worktree, table, io)).readings.liveness).toBe('live');
-    await readWorkerReadings(worktree, table, io);
-    expect(reads.n).toBe(1);
 
-    const other = deskWith({ '.plot-worker.wrapper.pid': '40' });
+    // The harness ends; the loop rewrites its pass record when the prompt returns.
+    rows.value = [row(41, 1, 'node')];
+    touch(join(worktree, PASS_FILE), NOW - 10_000);
+    expect((await readWorkerReadings(worktree, table, io)).readings.liveness).toBe('orphaned');
+    expect((await readWorkerReadings(worktree, table, io)).readings.liveness).toBe('orphaned');
+    expect(reads.n).toBe(3);
+  });
+
+  it('walks again after an unaskable walk', async () => {
+    const { worktree, manifestDir } = deskWith({ '.plot-worker.wrapper.pid': '40' });
     const empty = countedTable([]);
-    const unaskable = ioOf(other.manifestDir, held);
-    expect((await readWorkerReadings(other.worktree, empty.table, unaskable)).readings.liveness).toBe('live');
-    await readWorkerReadings(other.worktree, empty.table, unaskable);
+    const io = ioOf(manifestDir, held);
+    expect((await readWorkerReadings(worktree, empty.table, io)).readings.liveness).toBe('live');
+    await readWorkerReadings(worktree, empty.table, io);
     expect(empty.reads.n).toBe(2);
+  });
+
+  it('reads a held token whose pid answers as running long past Worker bound', async () => {
+    const { worktree, manifestDir } = deskWith({});
+    const io = ioOf(manifestDir, held, { now: () => startedMs + 3 * BOUND_MS, workerBoundMs: async () => { throw new Error('a live pid reads no bound'); } });
+    const gathered = await readWorkerReadings(worktree, [], io);
+    expect(gathered.readings.liveness).toBe('live');
+    expect(processReadingOf(gathered, false).state).toBe('running');
   });
 });
 
