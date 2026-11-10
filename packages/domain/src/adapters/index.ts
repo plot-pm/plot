@@ -292,6 +292,7 @@ export {
 export { clockSystem, clockFixed, clockManual } from './clock/clock-system.js';
 
 export { watchFs } from './watch/watch-fs.js';
+export { deskFingerprint, readWatchLayout, type WatchLayoutPaths } from './watch/watch-layout-fs.js';
 
 export {
   machineSystem,

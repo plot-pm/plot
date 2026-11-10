@@ -49,6 +49,11 @@ export interface FleetdHeartbeatSource {
   passes: () => Partial<Record<FleetdLoop, number | null>>;
   /** How this process reads the git host; absent where it publishes none. */
   hostTransport?: FleetdHostTransport;
+  /**
+   * The watch set's counts, read on every beat. Absent where this process arms no
+   * watches; the heartbeat then reports `0`, `0` and `null`.
+   */
+  observer?: () => { watchesWanted: number; watchesArmed: number; lastEventAt: number | null };
 }
 
 /**
@@ -81,6 +86,7 @@ export const startFleetdHeartbeat = (
     const passes = source.passes();
     const loops: FleetdHeartbeat['loops'] = {};
     for (const loop of Object.keys(passes) as FleetdLoop[]) loops[loop] = { lastPassAt: passes[loop] ?? null };
+    const observed = source.observer?.() ?? { watchesWanted: 0, watchesArmed: 0, lastEventAt: null };
     return {
       version: FLEETD_HEARTBEAT_VERSION,
       pid: source.pid,
@@ -89,9 +95,9 @@ export const startFleetdHeartbeat = (
       generation: source.generation(),
       bridgeAt: source.bridgeAt(),
       supervised: source.supervised,
-      watchesWanted: 0,
-      watchesArmed: 0,
-      lastEventAt: null,
+      watchesWanted: observed.watchesWanted,
+      watchesArmed: observed.watchesArmed,
+      lastEventAt: observed.lastEventAt,
       lastSafetyNetAt: null,
       ...(source.hostTransport === undefined ? {} : { hostTransport: source.hostTransport }),
       loops,

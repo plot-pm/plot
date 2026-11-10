@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -304,6 +305,40 @@ describe('run — the heartbeat', () => {
     expect(beats[0]).toBe(1_700_000_000_000);
     beats.slice(1).forEach((beatAt, i) => expect(beatAt - beats[i]!).toBe(10_000));
     expect(beats[12]! - beats[0]!).toBe(120_000);
+  });
+
+  it('writes the armed watch set into the observer fields', async () => {
+    execFileSync('git', ['init', '-q', '-b', 'main', dir], { stdio: 'ignore' });
+    const armed: string[] = [];
+    const watch = {
+      arm: (armedDir: string) => {
+        armed.push(armedDir);
+        return { degraded: armedDir === join(realpathSync(dir), '.git'), close: () => undefined };
+      },
+    };
+    const clock = clockManual(1_000);
+    const store = fleetdHeartbeatFile({ repoRoot: dir });
+    let read: Awaited<ReturnType<typeof store.read>> | null = null;
+    let sleeps = 0;
+    await run(
+      [],
+      dir,
+      () => undefined,
+      async () => {
+        sleeps += 1;
+        await nextBeat(store, null);
+        read = await store.read();
+      },
+      () => sleeps > 0,
+      () => undefined,
+      dir,
+      quiet(clock, { watch }),
+    );
+    const beat = read !== null && (read as { ok: boolean }).ok ? (read as unknown as { value: FleetdHeartbeat }).value : null;
+    expect(armed.length).toBeGreaterThan(0);
+    expect(beat?.watchesWanted).toBe(armed.length);
+    expect(beat?.watchesArmed).toBe(armed.length - 1);
+    expect(beat?.lastEventAt).toBeNull();
   });
 
   it('writes the generation the seam reports', async () => {
