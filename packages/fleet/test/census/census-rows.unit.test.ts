@@ -10,6 +10,7 @@ const PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-08-process-ce
 const WRAPPER_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-09-node-worker-wrapper.md', import.meta.url));
 const BOARD_API_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-09-board-api-starts-nothing.md', import.meta.url));
 const LIVENESS_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-09-liveness-token.md', import.meta.url));
+const GITHUB_READS_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-09-github-reads-in-process.md', import.meta.url));
 
 /** The rows of the census plan that a later plan retired. */
 const RETIRED = new Set(['P1']);
@@ -43,9 +44,9 @@ afterEach(() => {
 });
 
 describe('the census rows', () => {
-  it('holds every row of the plan but the retired P1, D1 of the worker wrapper plan, S7 of the board API plan and P6 of the liveness token plan', () => {
-    expect(Object.keys(CENSUS_ROWS).filter((id) => id !== 'D1' && id !== 'S7' && id !== 'P6').sort()).toEqual([...planRows().keys()].sort());
-    expect(Object.keys(CENSUS_ROWS).sort()).toEqual(['D1', 'P2', 'P3', 'P4', 'P6', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7']);
+  it('holds every row of the plan but the retired P1, D1 of the worker wrapper plan, S7 of the board API plan, P5 of the GitHub reads plan and P6 of the liveness token plan', () => {
+    expect(Object.keys(CENSUS_ROWS).filter((id) => id !== 'D1' && id !== 'S7' && id !== 'P5' && id !== 'P6').sort()).toEqual([...planRows().keys()].sort());
+    expect(Object.keys(CENSUS_ROWS).sort()).toEqual(['D1', 'P2', 'P3', 'P4', 'P5', 'P6', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7']);
     expect(readFileSync(WRAPPER_PLAN, 'utf8')).toContain(`\`D1: ${CENSUS_ROWS.D1.claim}\``);
   });
 
@@ -54,6 +55,12 @@ describe('the census rows', () => {
     expect(readFileSync(LIVENESS_PLAN, 'utf8')).toContain('P1 is retired in the same slice that deletes the script');
     expect(CENSUS_ROWS.P6).toMatchObject({ target: 'zero', greenBy: { plan: 'liveness-token', slice: 'Monitor in fleetd' }, green: true });
     expect(rowTitle(CENSUS_ROWS.P6)).toMatch(/turned green by plan liveness-token, slice Monitor in fleetd/);
+  });
+
+  it('holds P5 as the GitHub reads plan words it, a zero row turned green by its Cutover slice', () => {
+    expect(readFileSync(GITHUB_READS_PLAN, 'utf8')).toContain(`\`P5: ${CENSUS_ROWS.P5.claim}\``);
+    expect(CENSUS_ROWS.P5).toMatchObject({ target: 'zero', greenBy: { plan: 'github-reads-in-process', slice: 'Cutover' }, green: true });
+    expect(rowTitle(CENSUS_ROWS.P5)).toMatch(/turned green by plan github-reads-in-process, slice Cutover/);
   });
 
   it('holds S7 as the board API plan words it, a zero row turned green by its Census zero slice', () => {

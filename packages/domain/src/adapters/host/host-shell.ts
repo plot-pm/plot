@@ -102,7 +102,13 @@ const oneOf = <T extends string>(value: string | undefined, allowed: readonly st
  * @param raw - the host adapter's JSON object.
  * @returns the PR, with every unstated field at its cannot-verify value.
  */
-const prOf = (raw: RawPr): Pr => ({
+/**
+ * One `plot-host.sh pr-list` row, or a listing row of the same shape, as a {@link Pr}.
+ *
+ * @param raw - the row.
+ * @returns the pull request.
+ */
+export const prOf = (raw: RawPr): Pr => ({
   number: raw.number ?? 0,
   repo: raw.repo ?? '',
   head: raw.head ?? '',

@@ -41,7 +41,7 @@ import { refFilesFs, type RefFiles } from './ref-files-fs.js';
 import { parseTree } from '../../rules/git-tree.js';
 import { processAnswers, type FixedAnswers } from '../git-dirs/git-dirs.js';
 import { agentsFs } from '../agents/agents-fs.js';
-import { hostShell } from '../host/host-shell.js';
+import { hostForReads } from '../host/process-host-reads.js';
 import { planStoreRef } from '../plan-store/plan-store-ref.js';
 import { processesFiles } from '../processes/processes-files.js';
 import { scriptsShell } from '../scripts/scripts-shell.js';
@@ -417,7 +417,7 @@ const walkPulse = async (context: ShellContext, refs: Refs) => {
   const estate = await readEstate(refs, planStoreRef(refs, context, `origin/${mainBranch}`), {
     mainBranch, stateBranch, planDir, activeDir, deliveredDir, prefixes: prefixes.length > 0 ? prefixes : ['idea', 'feature', 'bug', 'docs', 'infra'],
   });
-  const host = hostShell(context);
+  const host = hostForReads(context);
   const branches = estate.ok ? await readBranchReadings(refs, host, estate.value, { mainBranch, planDir }) : estate;
   const desks = branches.ok
     ? await readDeskReadings(trees, agentsFs(context), processesFiles(context), branches.value)

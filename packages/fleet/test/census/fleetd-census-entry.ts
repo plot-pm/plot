@@ -154,6 +154,24 @@ cp.spawnSync = spawnSyncTracked;
 cp.execFileSync = execFileSyncTracked;
 syncBuiltinESMExports();
 
+// AN IN-PROCESS REQUEST IS IN FLIGHT TOO: the GitHub client reads over
+// `http.request` (the stub API is plain HTTP), and a pass that settled while
+// one was open would count its follow-up children in the next pass.
+const httpModule = createRequire(import.meta.url)('node:http') as typeof import('node:http');
+const originalHttpRequest = httpModule.request;
+httpModule.request = ((...given: unknown[]) => {
+  const req = (originalHttpRequest as (...a: unknown[]) => import('node:http').ClientRequest)(...given);
+  inFlight += 1;
+  let done = false;
+  req.once('close', () => {
+    if (done) return;
+    done = true;
+    inFlight -= 1;
+    lastSettled = Date.now();
+  });
+  return req;
+}) as typeof httpModule.request;
+
 const originalKill = process.kill.bind(process);
 process.kill = ((pid: number, signal?: string | number) => {
   if (spawnLog !== '' && signal === 0) {

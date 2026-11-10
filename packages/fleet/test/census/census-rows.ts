@@ -12,6 +12,7 @@ export type CensusRow =
 /**
  * The rows of `docs/plans/2026-11-08-process-census-gate.md`, in its order,
  * with S7 from `docs/plans/2026-11-09-board-api-starts-nothing.md` after S3,
+ * then P5 from `docs/plans/2026-11-09-github-reads-in-process.md`,
  * then P6 from `docs/plans/2026-11-09-liveness-token.md`, which retires P1,
  * then D1 from `docs/plans/2026-11-09-node-worker-wrapper.md`.
  * A zero row is written as `it.fails` until the plan and slice it names turn
@@ -94,6 +95,14 @@ export const CENSUS_ROWS = {
     unit: 'execve per pass',
     target: 'zero',
     greenBy: { plan: 'fixed-answers-once', slice: 'Answers in scripts' },
+    green: true,
+  },
+  P5: {
+    id: 'P5',
+    claim: 'an idle fleetd pass on GitHub starts no plot-host.sh pr-list or issue-list',
+    unit: 'execve per pass',
+    target: 'zero',
+    greenBy: { plan: 'github-reads-in-process', slice: 'Cutover' },
     green: true,
   },
   P6: {
