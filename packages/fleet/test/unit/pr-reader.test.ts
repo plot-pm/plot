@@ -12,18 +12,17 @@ import { clockManual, fleetdHeartbeatFile, readerLockFile, readerLockFixture } f
 import { run, scriptDirFor, stillFollowed } from '../../src/server/entry/pr-reader.js';
 import { removeTree } from '../rm-tree.mjs';
 
-/** A liveness reader that always answers "alive" for the pids given. */
+/** A fleetd heartbeat file that beat at `beatAt`. */
 const fleetdBeat = (beatAt: number): FleetdHeartbeat => ({
   version: FLEETD_HEARTBEAT_VERSION, pid: 1, startedAt: beatAt - 1_000_000, beatAt, generation: 1, bridgeAt: null,
   supervised: 'none', watchesWanted: 0, watchesArmed: 0, lastEventAt: null, lastSafetyNetAt: null, loops: {},
 });
 
-const allAlive = async (pids: readonly number[]) =>
-  new Map(pids.map((pid) => [pid, { alive: true, startedAt: null }]));
+/** A liveness reader that always answers "alive" for the pid given. */
+const allAlive = (): boolean => true;
 
-/** A liveness reader that always answers "dead" for the pids given. */
-const allDead = async (pids: readonly number[]) =>
-  new Map(pids.map((pid) => [pid, { alive: false, startedAt: null }]));
+/** A liveness reader that always answers "dead" for the pid given. */
+const allDead = (): boolean => false;
 
 describe('stillFollowed — the reader checks heartbeat counts, never a starting pid', () => {
   it('reads followers from a live board heartbeat whose own pid never named this reader at start', async () => {

@@ -1686,11 +1686,13 @@ jobs:
       # board routes onto the `agentRun` port. What is left of the 11 is `git`
       # (`idea.ts`, `entry/deliver.ts`), a caller-supplied command (`fleet.ts`),
       # and the process starts in `registry.ts` and `continuation.ts`, which are
-      # in `packages/fleet/src`. The gate records the migration; it does not
+      # in `packages/fleet/src`. 2026-11-10: 11 -> 9, the 10th of which was the
+      # `ps` in `pr-reader.ts`, now `process.kill(pid, 0)`; one site had already
+      # gone with no change here. The gate records the migration; it does not
       # perform it.
       - name: One place reaches a process
         run: |
-          allowed=11
+          allowed=9
           hits=$(grep -rEn '^[^*/]*\b(spawn|spawnSync|execFile|execFileSync)\s*\(' \
                    --include='*.ts' packages/board/src packages/domain/src packages/fleet/src \
                  | grep -v '/adapters/' || true)
