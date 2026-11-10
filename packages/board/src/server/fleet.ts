@@ -38,7 +38,7 @@ import {
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
 import { listRecordBlobs } from '@plot-pm/domain/workflows/record-listing';
-import { blobIdOfBytes, parsePlanMetaFiles, planSlug, heldRefsFor, workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
+import { blobIdOfBytes, parsePlanMetaFiles, planMetaOf, planSlug, heldRefsFor, workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
 import type { RefState, Refs } from '@plot-pm/domain/ports/refs';
 import type { BuildPort } from '@plot-pm/domain';
 import type { DetachedProcess } from '@plot-pm/domain/ports/detached';
@@ -105,6 +105,7 @@ import type { HeldSnapshot } from '@plot-pm/domain/rules/snapshot-sync';
 import { PR_INDEX_VERSION, type PrIndex } from '@plot-pm/domain/entities/pr-index';
 import { HOST_BRANCH_URL_SCHEMES } from '@plot-pm/domain/adapters/host/host-branch-urls';
 import { fleetViewFrom, registryViewFrom, snapshotViewNote } from '@plot-pm/domain/workflows/board-view';
+import { boardInputsFrom, type BoardInputs } from '@plot-pm/domain/workflows/board-inputs';
 import { fleetdLiveness, fleetdReadsIssues, fleetdReadsPrs, lateLoopNote, lateLoops } from '@plot-pm/domain/rules/fleetd-live';
 import { isChainedHeading } from '@plot-pm/domain/rules/slice-chain';
 import {
@@ -1805,7 +1806,20 @@ async function ticketPlansOf(
   refEntries?: readonly RefState[],
 ): Promise<Map<string, TicketPlan[]> | null> {
   const metas = await planMetasAtDefault(opts, entry, refEntries);
-  if (metas === null) return null;
+  return metas === null ? null : ticketPlansOver(entry, metas);
+}
+
+/**
+ * The plans that name each ticket, from plan records the caller read.
+ *
+ * @param entry - the cache entry holding the pulses.
+ * @param metas - the plans at the default branch and the open draft plans.
+ * @returns the plans per issue key.
+ */
+const ticketPlansOver = (
+  entry: Pick<CacheEntry, 'pulse' | 'lastComplete'>,
+  metas: readonly PlanMeta[],
+): Map<string, TicketPlan[]> => {
   const byIssue = new Map<string, TicketPlan[]>();
   for (const meta of metas) {
     const issues = meta.issues;
@@ -1830,7 +1844,7 @@ async function ticketPlansOf(
     }
   }
   return byIssue;
-}
+};
 
 /**
  * The `/api/fleet` plan index — every plan at the default branch, keyed by
@@ -1896,7 +1910,10 @@ async function draftPlanFiles(
     const raw = await draftPlanText(refs, branch, planDir, file);
     if (!raw) continue;
     dir ??= makeStageDir('plot-draft-plans-');
-    const target = path.join(dir, `${files.length}-${path.basename(file)}`);
+    // One subdirectory per plan keeps the real basename, which `ticketPlansOf`
+    // cuts the slug from.
+    const target = path.join(dir, String(files.length), path.basename(file));
+    fs.mkdirSync(path.dirname(target));
     fs.writeFileSync(target, raw);
     files.push(target);
   }
@@ -1954,7 +1971,11 @@ export interface TicketLaneData {
 export async function ticketLaneData(opts: BuildBoardOptions): Promise<TicketLaneData | null> {
   const entry = ensureCache(opts);
   if (entry.issueSets === null) return null;
-  const plans = await ticketPlansOf(opts, entry);
+  // ON `snapshot`, THE PLANS COME FROM fleetd'S READINGS: the default-branch
+  // plans and the branch plans whose branch has an open PR. No ref listing,
+  // no blob read and no parse.
+  const served = await boardInputsToServe(opts);
+  const plans = served === null ? await ticketPlansOf(opts, entry) : ticketPlansOver(entry, ticketMetasFrom(served.inputs, entry));
   const declared = await scriptsFor(opts).config('Tracker', '');
   const source = issueSource({
     declared: declared.ok ? declared.value : '',
@@ -2995,6 +3016,39 @@ export const snapshotToServe = (
   const source = boardSourceOf({ clients: entry.clients, heartbeat, link: channel?.link, now });
   return source === 'snapshot' && channel?.held !== undefined ? channel.held : null;
 };
+
+/**
+ * The board's plan-card inputs from fleetd's snapshot, where the board serves
+ * from it and the snapshot holds every reading the cards read.
+ *
+ * @param opts - the board's options; `channelSnapshot` is the hub's copy.
+ * @returns the inputs and the key of the snapshot they came from, or null
+ *   where the board reads for itself.
+ */
+export const boardInputsToServe = async (
+  opts: BuildBoardOptions,
+): Promise<{ key: string; inputs: BoardInputs } | null> => {
+  if (opts.channelSnapshot === undefined) return null;
+  const held = snapshotToServe(opts, ensureCache(opts), await fleetdHeartbeatFor(opts), Date.now());
+  if (held === null) return null;
+  const answer = boardInputsFrom(held.snapshot);
+  return 'inputs' in answer ? { key: `snapshot ${held.epoch} ${held.snapshot.generation}`, inputs: answer.inputs } : null;
+};
+
+/**
+ * The plans a ticket lane links, from the snapshot's inputs: every plan at the
+ * default branch, and each branch plan whose branch has an open PR.
+ *
+ * @param inputs - the inputs `boardInputsFrom` answered.
+ * @param entry - the cache entry holding the open PRs by branch.
+ * @returns the plan records, each `file` its repository-relative path.
+ */
+const ticketMetasFrom = (inputs: BoardInputs, entry: Pick<CacheEntry, 'prs'>): PlanMeta[] => [
+  ...inputs.plans.map((plan) => planMetaOf(plan)),
+  ...inputs.branchPlans
+    .filter(({ branch }) => entry.prs?.has(branch) === true)
+    .map(({ path: planPath, record }) => planMetaOf(record, planPath)),
+];
 
 /**
  * Installs the view `fleetViewFrom` derives from a held snapshot into the cache
