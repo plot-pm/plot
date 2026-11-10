@@ -414,6 +414,84 @@ test('--status names the fleet root when there are no worktrees', () => {
   assert.match(r.out, /no fleet worktrees under/);
 });
 
+// ── --status prints the board's state of each desk beside the shell's ────────
+
+/** A stand-in `plot-ask.mjs` answering `desk-states` from a basename → state map, and recording its calls. */
+const stubDeskStates = (root, states) => {
+  const log = path.join(root, 'ask-calls.log');
+  fs.writeFileSync(path.join(root, 'skills', 'plot', 'scripts', 'board', 'plot-ask.mjs'), [
+    "import fs from 'node:fs';",
+    "import path from 'node:path';",
+    `fs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(' ') + '\\n');`,
+    `const states = ${JSON.stringify(states)};`,
+    "if (process.argv[2] === 'desk-states') for (const d of process.argv.slice(3)) process.stdout.write(`${d}\\t${states[path.basename(d)] ?? 'unknown'}\\n`);",
+  ].join('\n'));
+  return log;
+};
+
+test('--status prints the board state beside the shell state of each desk, and differs where they disagree', () => {
+  const { root, ctl, guardBin } = sandbox('status-board');
+  const agree = path.join(root, '.worktrees', 'desk-agree');
+  const differ = path.join(root, '.worktrees', 'desk-differ');
+  git(root, 'worktree', 'add', '-q', '-b', 'desk-agree', agree);
+  git(root, 'worktree', 'add', '-q', '-b', 'desk-differ', differ);
+  const log = stubDeskStates(root, { 'desk-agree': 'none', 'desk-differ': 'running' });
+  try {
+    const r = run(ctl, ['--status'], root, guardBin);
+    assert.match(r.out, /^  desk-agree  none  board: none$/m, r.out);
+    assert.match(r.out, /^  desk-differ  none  board: running \(differs\)$/m, r.out);
+    const calls = fs.readFileSync(log, 'utf8').trim().split('\n');
+    assert.equal(calls.length, 1, 'the bundle is asked once per command, not once per desk');
+    assert.match(calls[0], /^desk-states .*desk-agree .*desk-differ$/);
+  } finally {
+    fs.rmSync(agree, { recursive: true, force: true });
+    fs.rmSync(differ, { recursive: true, force: true });
+  }
+});
+
+test('--status prints no board state where the bundle is missing', () => {
+  const { root, ctl, guardBin } = sandbox('status-noboard');
+  const desk = path.join(root, '.worktrees', 'desk-a');
+  git(root, 'worktree', 'add', '-q', '-b', 'desk-a', desk);
+  try {
+    const r = run(ctl, ['--status'], root, guardBin);
+    assert.match(r.out, /^  desk-a  none$/m, r.out);
+  } finally {
+    fs.rmSync(desk, { recursive: true, force: true });
+  }
+});
+
+test('--status names a usage-limit wait only for a numeric reset that lies ahead', () => {
+  const { root, ctl, guardBin } = sandbox('status-limited');
+  const shapes = [
+    ['desk-ahead', `${Math.floor(Date.now() / 1000) + 3600}\t2099-01-01T00:00:00Z\n`, true],
+    ['desk-past', `${Math.floor(Date.now() / 1000) - 3600}\t2000-01-01T00:00:00Z\n`, false],
+    ['desk-junk', 'soon\t2099-01-01T00:00:00Z\n', false],
+    ['desk-empty', '\t2099-01-01T00:00:00Z\n', false],
+  ];
+  const sleepers = [];
+  const desks = [];
+  try {
+    for (const [name, limited] of shapes) {
+      const desk = path.join(root, '.worktrees', name);
+      git(root, 'worktree', 'add', '-q', '-b', name, desk);
+      desks.push(desk);
+      const sleeper = record(execFileSync('bash', ['-c', 'sleep 30 >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' }).trim());
+      sleepers.push(sleeper);
+      fs.writeFileSync(path.join(desk, '.plot-worker.pid'), `${sleeper}\n`);
+      fs.writeFileSync(path.join(desk, '.plot-worker.limited'), limited);
+    }
+    const r = run(ctl, ['--status'], root, guardBin);
+    for (const [name, , waits] of shapes) {
+      const line = r.out.split('\n').find((l) => l.startsWith(`  ${name}  running`)) ?? '';
+      assert.equal(/waiting on a usage limit until 2099-01-01T00:00:00Z/.test(line), waits, `${name}: ${r.out}`);
+    }
+  } finally {
+    for (const sleeper of sleepers) signalOwn(sleeper, 'SIGTERM', { command: 'lsof -a -p' });
+    for (const desk of desks) fs.rmSync(desk, { recursive: true, force: true });
+  }
+});
+
 // ── --stop orchestrates the one stop rule, and takes the supervisor last ──────
 
 test('--stop with nothing running still reports, and does not invent an agent', () => {

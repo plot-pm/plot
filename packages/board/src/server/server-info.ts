@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import { hostFor, planStoreFor, treesFor } from './board.js';
 import type { BuildBoardOptions } from './board.js';
 import { parsePersonDirectory, type PersonDirectory } from '@plot-pm/domain';
@@ -181,25 +185,72 @@ interface Identity {
 }
 
 let cachedIdentity: Identity | null = null;
-let identityAt = 0;
+let identityStamp = '';
 
 /**
- * How long an identity reading stands. `plot-host.sh` is a bash process, and
- * `/api/board` is polled every few seconds. A `gh auth switch` shows up within
- * a minute.
+ * The files whose change can change who is reading: `gh`'s `hosts.yml`, the
+ * repository's `.git/config`, and the user's git config. Bitbucket's answer
+ * reads no file (`plot-host.sh account` exits 4 there), and
+ * `PLOT_BUDGET_ACCOUNT` is the process's own environment.
+ *
+ * @param repoRoot - the repository the board serves.
+ * @param env - the process environment.
+ * @param home - the user's home directory.
+ * @returns the absolute paths, in a fixed order.
  */
-const IDENTITY_TTL_MS = 60_000;
+export const identityFiles = (
+  repoRoot: string,
+  env: Record<string, string | undefined> = process.env,
+  home: string = os.homedir(),
+): string[] => {
+  const ghDir = env.GH_CONFIG_DIR ?? path.join(env.XDG_CONFIG_HOME ?? path.join(home, '.config'), 'gh');
+  const gitDir = (() => {
+    const dotGit = path.join(repoRoot, '.git');
+    try {
+      if (fs.statSync(dotGit).isDirectory()) return dotGit;
+      const pointer = /^gitdir: (.+)$/m.exec(fs.readFileSync(dotGit, 'utf8'))?.[1]?.trim();
+      if (pointer === undefined) return dotGit;
+      const linked = path.resolve(repoRoot, pointer);
+      // A linked worktree keeps its config in the common git directory.
+      const common = fs.readFileSync(path.join(linked, 'commondir'), 'utf8').trim();
+      return path.resolve(linked, common);
+    } catch {
+      return dotGit;
+    }
+  })();
+  return [
+    path.join(ghDir, 'hosts.yml'),
+    path.join(gitDir, 'config'),
+    path.join(home, '.gitconfig'),
+    path.join(env.XDG_CONFIG_HOME ?? path.join(home, '.config'), 'git', 'config'),
+  ];
+};
+
+/** The size and mtime of each identity file, `-` for one that cannot be stat'ed, joined into one string. */
+const stampOf = (files: readonly string[]): string =>
+  files
+    .map((file) => {
+      try {
+        const stat = fs.statSync(file);
+        return `${file}:${stat.size}:${stat.mtimeMs}`;
+      } catch {
+        return `${file}:-`;
+      }
+    })
+    .join('\n');
 
 /**
- * Who is reading, asked through the host and trees adapters.
+ * Who is reading, asked through the host and trees adapters once per process
+ * and again only when the `fs.stat` stamp of {@link identityFiles} changed.
+ * An unchanged stamp answers from memory and starts no process.
  *
  * Each reading that does not answer is `''`, never a placeholder word. The
  * rule that consumes it shows a row whose owner cannot be determined, and it
  * needs an honest empty value to test on.
  */
 export const identity = async (opts: BuildBoardOptions): Promise<Identity> => {
-  const now = Date.now();
-  if (cachedIdentity === null || now - identityAt > IDENTITY_TTL_MS) {
+  const stamp = stampOf(identityFiles(opts.repoRoot));
+  if (cachedIdentity === null || stamp !== identityStamp) {
     const [user, email] = await Promise.all([
       hostFor(opts).account(),
       treesFor(opts).userEmail(opts.repoRoot),
@@ -208,7 +259,7 @@ export const identity = async (opts: BuildBoardOptions): Promise<Identity> => {
       hostUser: user.ok ? user.value : '',
       gitEmail: email.ok ? email.value : '',
     };
-    identityAt = now;
+    identityStamp = stamp;
   }
   return cachedIdentity;
 };
@@ -217,7 +268,7 @@ export const identity = async (opts: BuildBoardOptions): Promise<Identity> => {
  * Who is reading, as {@link identity} last asked it; asks only where nothing
  * is held yet. The PR beat reads this, so a board whose page attaches its
  * event stream starts no `plot-host.sh account` and no `git config` per beat:
- * `/api/board`'s {@link serverInfo} keeps the reading within its TTL.
+ * `/api/board`'s {@link serverInfo} keeps the reading current with its stamp.
  */
 export const heldIdentity = async (opts: BuildBoardOptions): Promise<Identity> =>
   cachedIdentity ?? identity(opts);
@@ -251,7 +302,7 @@ export async function serverInfo(
     // which the header renders as no element rather than a fabricated name.
     branch,
     // Both identities travel: they spell one person two ways, and each matches
-    // a different kind of row. Memoised on a 60 s TTL.
+    // a different kind of row. Asked again when an identity file changes.
     hostUser: who.hostUser,
     gitEmail: who.gitEmail,
     // The spellings the ownership rule resolves an assignee and an author

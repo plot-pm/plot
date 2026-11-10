@@ -270,11 +270,14 @@ test('worker-state: the classification exists once, not once per consumer', () =
   // The states above could all agree while the logic sat in two places waiting
   // to drift again — that is precisely the position this wave started from. So
   // assert the SHAPE: exactly one `kill -0` liveness check in the fleet, and
-  // both consumers sourcing the file that holds it. The scan is a launcher over
-  // the domain walk, and the walk reads worker state through the processes
-  // adapter, so the adapter is the scan's consumer of the classifier.
-  const processesAdapter = fs.readFileSync(path.join(scripts, '..', '..', '..',
-    'packages', 'domain', 'src', 'adapters', 'processes', 'processes-shell.ts'), 'utf8');
+  // both shell consumers sourcing the file that holds it. The scan is a
+  // launcher over the domain walk, and the walk reads worker state through the
+  // processes adapter, which decides with the domain rule `agentState`: a
+  // declared duplicate that the corpus test `worker-readings` holds against
+  // this file.
+  const domain = path.join(scripts, '..', '..', '..', 'packages', 'domain');
+  const processesAdapter = fs.readFileSync(path.join(domain, 'src', 'adapters', 'processes', 'processes-files.ts'), 'utf8');
+  const corpus = fs.readFileSync(path.join(domain, 'corpus', 'worker-readings.corpus.test.ts'), 'utf8');
   const bodies = {
     'plot-worker-state.sh': fs.readFileSync(shared, 'utf8'),
     'plot-dispatch.sh': fs.readFileSync(dispatch, 'utf8'),
@@ -294,10 +297,10 @@ test('worker-state: the classification exists once, not once per consumer', () =
   }
   assert.match(code(bodies['plot-dispatch.sh']), /\.\s+"\$script_dir\/plot-worker-state\.sh"/,
     'plot-dispatch.sh must source the shared classifier');
-  assert.match(processesAdapter, /scriptPath\(context, 'plot-worker-state\.sh'\)/,
-    'the walk behind plot-fleet-scan.sh must read the shared classifier');
-  assert.match(processesAdapter, /\. "\$1" && plot_worker_state "\$2" "\$3"/,
-    'and must source it and call its classification, not re-derive one');
+  assert.match(processesAdapter, /agentState\(/,
+    'the walk behind plot-fleet-scan.sh must decide with the domain rule');
+  assert.match(corpus, /plot_worker_state/,
+    'and the corpus must hold the rule against the shared classifier');
 
   // The pid file is READ by nobody but the shared classifier. plot-dispatch is
   // exempt because it WRITES it — `start_worker` records the pid it just

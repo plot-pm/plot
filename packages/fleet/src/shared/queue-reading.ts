@@ -228,7 +228,7 @@ export interface MergedListing {
    * only `mergedBranches` knows which read path bought a whole answer, and the
    * tick line is the only other reader.
    */
-  kind: 'throttled' | 'secondary' | 'failed' | 'delta' | null;
+  kind: 'throttled' | 'secondary' | 'auth' | 'failed' | 'delta' | null;
   /**
    * Whether the listing request itself failed, as against answering with a
    * refusal left behind.

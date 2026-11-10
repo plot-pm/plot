@@ -47,6 +47,9 @@ export const staleReadings = (change: SnapshotChange): readonly StaleReading[] =
         { key: 'ideaPlans' },
         { key: 'releaseVersions' },
         { key: 'unmerged' },
+        { key: 'branchPlans' },
+        { key: 'sprints' },
+        { key: 'stories' },
       ];
     case 'desk-git':
       return [{ key: 'desks', desk: change.desk }, { key: 'walk' }];

@@ -1,7 +1,13 @@
 import { z } from 'zod';
 
+import {
+  answerSchema,
+  DeliveredInputSchema,
+  SprintsValueSchema,
+  StoriesValueSchema,
+} from './board-readings.js';
 import { DefaultBranchReadingSchema } from './default-branch.js';
-import { WorkerActivitySchema, WorkerStateSchema } from './fleet.js';
+import { LivenessBasisSchema, WorkerActivitySchema, WorkerStateSchema } from './fleet.js';
 import { IssueIndexRowSchema } from './issue-index.js';
 import { PrIndexRowSchema } from './pr-index.js';
 import {
@@ -32,6 +38,9 @@ export const READING_KEYS = [
   'releaseVersions',
   'unmerged',
   'questions',
+  'branchPlans',
+  'sprints',
+  'stories',
 ] as const;
 
 // plot-state: classification — names a source, not a state; no key moves into
@@ -91,6 +100,8 @@ export const DeskProcessReadingSchema = z.object({
   pid: z.string(),
   exitCode: z.string(),
   activity: WorkerActivitySchema,
+  /** What the liveness rests on: the desk's token, or its start time; absent where the reader did not say. */
+  basis: LivenessBasisSchema.exclude(['']).optional(),
 });
 export type DeskProcessReading = z.infer<typeof DeskProcessReadingSchema>;
 
@@ -129,16 +140,41 @@ export const PlanEntrySchema = z.object({
   startedRaw: z.array(z.string()).readonly(),
   rejectedRaw: z.string(),
   unreadBranchItems: z.array(z.object({ wave: z.string(), branch: z.string(), line: z.string() })).readonly(),
+  issues: z.array(z.string()).readonly(),
+  designRaw: z.string(),
+  verifiedRaw: z.string(),
+  rounds: z.number().optional(),
+  /** Why the parser could not read the file; such a record holds its `file` and no plan. */
+  error: z.string().optional(),
 });
 export type PlanEntry = z.infer<typeof PlanEntrySchema>;
 
-/** The plan files read at one ref. */
+/** The plan files read at one ref, with the plan authors and the Delivered plans' verification inputs at that ref. */
 export const PlansValueSchema = z.object({
-  /** The ref the files were read at, such as `origin/main`. */
+  /** The ref the files were read at, such as `origin/main`, or `worktree`. */
   ref: z.string(),
+  /** The commit `ref` resolved to when the files were read, or `''` where the checkout was read. */
+  resolved: z.string(),
   records: z.array(PlanEntrySchema).readonly(),
+  /** Plan path → the git author of the commit that first added it, as `Refs.planAuthors` answers. */
+  authors: answerSchema(z.record(z.string(), z.string())),
+  /**
+   * Plan path → the verification inputs of each plan in phase `delivered`. A
+   * plan whose text or delivery commit could not be read is absent.
+   */
+  delivered: answerSchema(z.record(z.string(), DeliveredInputSchema)),
 });
 export type PlansValue = z.infer<typeof PlansValueSchema>;
+
+/**
+ * The plans on prefixed branches that the default branch does not hold, as
+ * `branchPlanSet` selects them, each with the branch it was read from and its
+ * parsed record.
+ */
+export const BranchPlansValueSchema = z
+  .array(z.object({ branch: z.string(), path: z.string(), record: PlanEntrySchema }))
+  .readonly();
+export type BranchPlansValue = z.infer<typeof BranchPlansValueSchema>;
 
 /** One agent manifest from the registry directory, as the `Agents` port's `AgentManifest` reports it. */
 export const RegistryEntrySchema = z.object({
@@ -202,6 +238,9 @@ export const RepoSnapshotSchema = z.object({
     releaseVersions: readingSchema(BranchTextValueSchema),
     unmerged: readingSchema(UnmergedValueSchema),
     questions: readingSchema(QuestionsValueSchema),
+    branchPlans: readingSchema(BranchPlansValueSchema),
+    sprints: readingSchema(SprintsValueSchema),
+    stories: readingSchema(StoriesValueSchema),
   }),
 });
 export type RepoSnapshot = z.infer<typeof RepoSnapshotSchema>;

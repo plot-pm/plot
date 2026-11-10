@@ -167,6 +167,7 @@ const WORKER_FILES = [
   '.plot-worker.monitor.worker.jsonl',
   '.plot-worker.monitor.agent.jsonl',
   '.plot-worker.monitor.build.jsonl',
+  '.plot-worker.pass',
 ];
 
 for (const name of WORKER_FILES) {
@@ -183,11 +184,20 @@ for (const name of WORKER_FILES) {
   });
 }
 
+test('desk_dirt: a liveness token FIFO is no git status line, so it needs no exclusion', () => {
+  const dir = repo();
+  execFileSync('mkfifo', [path.join(dir, '.plot-worker.token.fifo'), path.join(dir, '.plot-worker.token.fifo.4242.tmp')]);
+  assert.equal(execFileSync('git', ['-C', dir, 'status', '--porcelain'], { encoding: 'utf8' }), '');
+  const r = call('desk_dirt', dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), '');
+});
+
 test('desk_dirt: the full file set of a dead worker reads clean', () => {
   const dir = repo();
   for (const name of ['.plot-worker.ending.json', '.plot-worker.envelope.json', '.plot-worker.exit',
     '.plot-worker.monitor.worker.jsonl', '.plot-worker.monitor.agent.jsonl', '.plot-worker.continue.md',
-    '.plot-worker.pid']) {
+    '.plot-worker.pid', '.plot-worker.pass']) {
     writeFileSync(path.join(dir, name), 'x\n');
   }
   const r = call('desk_dirt', dir);

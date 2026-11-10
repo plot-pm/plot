@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 import {
-  encodeListingKey, foldPulseListing, foldScanListing, pulseListingVerdict, parseScanListingRows, readCarriedPrStates, renderListingReport, renderScanListing, scanListingWindowFor,
+  encodeListingKey, foldPulseListing, foldScanListing, pulseListingVerdict, parseScanListingRows, scanListingRowsOf, readCarriedPrStates, renderListingReport, renderScanListing, scanListingWindowFor,
   type CarriedListing, type ScanListingAnswer, type ScanListingRow,
 } from '../src/rules/scan-listing.js';
 
@@ -21,16 +21,11 @@ const carried = (over: Partial<CarriedListing> = {}): CarriedListing => ({
   ...over,
 });
 
-const whole = (text: string): string => `plot-host: ${text}`;
-const OPEN_WHOLE = whole('github pr-list state=open page complete (1 rows below requested limit 500) — this page holds every pull request the host has in this state');
-const ALL_WHOLE = whole('github pr-list state=all page complete (1 rows below requested limit 500) — this page holds every pull request the host has in this state');
-const WINDOW_WHOLE = (state: string, matches: number) =>
-  whole(`bitbucket pr-list state=${state} window complete (${matches} matches, every page read) — this window holds every pull request the host has in this state since the stamp`);
 
 const answer = (over: Partial<ScanListingAnswer> = {}): ScanListingAnswer => ({
   verdict: 'ok',
   rows: [],
-  stderr: ALL_WHOLE,
+  complete: 'whole',
   ...over,
 });
 
@@ -94,7 +89,7 @@ describe('scanListingWindowFor', () => {
 describe('foldScanListing', () => {
   it('keeps OPEN where a reused branch name carries an OPEN row and an older MERGED row', () => {
     const held = carried({ rows: [row({ state: 'MERGED' })] });
-    const open = answer({ rows: [row({ state: 'OPEN' })], stderr: OPEN_WHOLE });
+    const open = answer({ rows: [row({ state: 'OPEN' })], complete: 'whole' });
     const rest = answer({ rows: [] });
     const folded = foldScanListing(held, open, rest);
     expect(folded).toEqual({ ok: true, rows: [row({ state: 'OPEN' })], complete: true });
@@ -102,7 +97,7 @@ describe('foldScanListing', () => {
 
   it('reads a carried OPEN row as MERGED once the delta reports it merged', () => {
     const held = carried({ rows: [row({ state: 'OPEN' })] });
-    const open = answer({ rows: [], stderr: OPEN_WHOLE });
+    const open = answer({ rows: [], complete: 'whole' });
     const rest = answer({ rows: [row({ state: 'MERGED', updatedAt: '2026-10-26T10:30:00Z' })] });
     const folded = foldScanListing(held, open, rest);
     expect(folded).toEqual({
@@ -114,45 +109,45 @@ describe('foldScanListing', () => {
 
   it('refuses where a carried OPEN row appears in neither new answer', () => {
     const held = carried({ rows: [row({ state: 'OPEN' })] });
-    const open = answer({ rows: [], stderr: OPEN_WHOLE });
+    const open = answer({ rows: [], complete: 'whole' });
     const rest = answer({ rows: [] });
     expect(foldScanListing(held, open, rest)).toEqual({ ok: false, refusal: 'open-row-vanished' });
   });
 
   it('refuses where the open call failed', () => {
-    const open = answer({ verdict: 'failed', stderr: null });
+    const open = answer({ verdict: 'failed', complete: 'possibly-truncated' });
     const rest = answer({});
     expect(foldScanListing(null, open, rest)).toEqual({ ok: false, refusal: 'open-failed' });
   });
 
   it('refuses where the delta call failed', () => {
-    const open = answer({ stderr: OPEN_WHOLE });
-    const rest = answer({ verdict: 'failed', stderr: null });
+    const open = answer({ complete: 'whole' });
+    const rest = answer({ verdict: 'failed', complete: 'possibly-truncated' });
     expect(foldScanListing(null, open, rest)).toEqual({ ok: false, refusal: 'delta-failed' });
   });
 
   it('refuses where the delta call is partial', () => {
-    const open = answer({ stderr: OPEN_WHOLE });
-    const rest = answer({ verdict: 'partial', stderr: 'plot-host: github secondary rate limit' });
+    const open = answer({ complete: 'whole' });
+    const rest = answer({ verdict: 'partial', complete: 'possibly-truncated' });
     expect(foldScanListing(null, open, rest)).toEqual({ ok: false, refusal: 'no-whole-page-claim' });
   });
 
   it('refuses where a call with rows makes no whole-page claim', () => {
-    const open = answer({ rows: [row({ state: 'OPEN' })], stderr: 'plot-host: github pr-list answered' });
-    const rest = answer({ stderr: ALL_WHOLE });
+    const open = answer({ rows: [row({ state: 'OPEN' })], complete: 'possibly-truncated' });
+    const rest = answer({ complete: 'whole' });
     expect(foldScanListing(null, open, rest)).toEqual({ ok: false, refusal: 'no-whole-page-claim' });
   });
 
   it('reports complete: false where the carried listing was never whole, even on a clean fold', () => {
     const held = carried({ complete: false, rows: [] });
-    const open = answer({ rows: [row({ state: 'OPEN' })], stderr: OPEN_WHOLE });
+    const open = answer({ rows: [row({ state: 'OPEN' })], complete: 'whole' });
     const rest = answer({ rows: [] });
     const folded = foldScanListing(held, open, rest);
     expect(folded).toEqual({ ok: true, rows: [row({ state: 'OPEN' })], complete: false });
   });
 
   it('reports complete: true for a full read whose pages are both whole', () => {
-    const open = answer({ rows: [row({ state: 'OPEN' })], stderr: OPEN_WHOLE });
+    const open = answer({ rows: [row({ state: 'OPEN' })], complete: 'whole' });
     const rest = answer({ rows: [row({ state: 'OPEN' })] });
     const folded = foldScanListing(null, open, rest);
     expect(folded).toEqual({ ok: true, rows: [row({ state: 'OPEN' })], complete: true });
@@ -160,20 +155,20 @@ describe('foldScanListing', () => {
 
   it('reads an ok page with no rows as whole, since the host owes it no claim', () => {
     const held = carried({ rows: [row({ state: 'MERGED' })] });
-    const open = answer({ rows: [], stderr: '' });
-    const rest = answer({ rows: [], stderr: '' });
+    const open = answer({ rows: [], complete: 'possibly-truncated' });
+    const rest = answer({ rows: [], complete: 'possibly-truncated' });
     expect(foldScanListing(held, open, rest)).toEqual({ ok: true, rows: [row({ state: 'MERGED' })], complete: true });
   });
 
   it('refuses a full read whose two pages both hold no rows', () => {
-    const open = answer({ rows: [], stderr: '' });
-    const rest = answer({ rows: [], stderr: '' });
+    const open = answer({ rows: [], complete: 'possibly-truncated' });
+    const rest = answer({ rows: [], complete: 'possibly-truncated' });
     expect(foldScanListing(null, open, rest)).toEqual({ ok: false, refusal: 'no-whole-page-claim' });
   });
 
   it('ranks a branch with rows in both OPEN and non-OPEN state as OPEN', () => {
     const held = carried({ rows: [row({ state: 'CLOSED' })] });
-    const open = answer({ rows: [row({ state: 'OPEN' })], stderr: OPEN_WHOLE });
+    const open = answer({ rows: [row({ state: 'OPEN' })], complete: 'whole' });
     const rest = answer({ rows: [row({ state: 'CLOSED' })] });
     const folded = foldScanListing(held, open, rest);
     expect(folded).toEqual({ ok: true, rows: [row({ state: 'OPEN' })], complete: true });
@@ -184,14 +179,14 @@ describe('foldScanListing', () => {
     // page on the shell side, but prints no success notice on its happy path —
     // so a delta with real rows and ordinary stderr reads as an unproven page,
     // exactly like a GitHub answer with no "page complete" line would.
-    const open = answer({ rows: [row({ state: 'OPEN' })], stderr: null });
-    const rest = answer({ rows: [row({ state: 'MERGED' })], stderr: null });
+    const open = answer({ rows: [row({ state: 'OPEN' })], complete: 'possibly-truncated' });
+    const rest = answer({ rows: [row({ state: 'MERGED' })], complete: 'possibly-truncated' });
     expect(foldScanListing(null, open, rest)).toEqual({ ok: false, refusal: 'no-whole-page-claim' });
   });
 
   it('accepts a Bitbucket window answer once it carries the window-complete notice', () => {
-    const open = answer({ rows: [row({ state: 'OPEN' })], stderr: WINDOW_WHOLE('open', 1) });
-    const rest = answer({ rows: [row({ state: 'MERGED' })], stderr: WINDOW_WHOLE('all', 1) });
+    const open = answer({ rows: [row({ state: 'OPEN' })], complete: 'whole' });
+    const rest = answer({ rows: [row({ state: 'MERGED' })], complete: 'whole' });
     const folded = foldScanListing(null, open, rest);
     expect(folded.ok).toBe(true);
   });
@@ -370,19 +365,18 @@ describe('renderListingReport', () => {
 describe('the scan\'s own listing read', () => {
   const rich = (head: string, state: string, checks = 'green') => JSON.stringify({ number: 1, state, head, draft: false, checks });
   const plain = (head: string, state: string) => JSON.stringify({ number: 2, state, head });
-  const ok = (stdout: string, said = '') => ({ answer: 'answered' as const, stdout, said });
-  const whole = (state: string) => `plot-host: github pr-list state=${state} page complete (1 rows below requested limit 9) — this page holds every pull request the host has in this state`;
+  const ok = (stdout: string, complete: 'whole' | 'possibly-truncated' = 'possibly-truncated') => ({ answer: 'answered' as const, stdout, said: '', complete });
 
   it('names each refusal by what the host said', () => {
     expect(pulseListingVerdict(ok(''))).toBe('ok');
-    expect(pulseListingVerdict({ answer: 'partial', stdout: '', said: 'x' })).toBe('partial');
-    expect(pulseListingVerdict({ answer: 'unaskable', stdout: '', said: 'x' })).toBe('unasked');
-    expect(pulseListingVerdict({ answer: 'failed', stdout: '', said: 'API rate limit exceeded' })).toBe('throttled');
-    expect(pulseListingVerdict({ answer: 'failed', stdout: '', said: 'secondary rate limit' })).toBe('secondary');
-    expect(pulseListingVerdict({ answer: 'failed', stdout: '', said: 'gh auth login required' })).toBe('unasked');
-    expect(pulseListingVerdict({ answer: 'failed', stdout: '', said: 'HTTP 503' })).toBe('failed');
-    expect(pulseListingVerdict({ answer: 'failed', stdout: '', said: '', kind: 'throttled' })).toBe('throttled');
-    expect(pulseListingVerdict({ answer: 'failed', stdout: '', said: 'a burst', kind: 'secondary' })).toBe('secondary');
+    expect(pulseListingVerdict({ answer: 'partial', stdout: '', said: 'x', complete: 'possibly-truncated' as const })).toBe('partial');
+    expect(pulseListingVerdict({ answer: 'unaskable', stdout: '', said: 'x', complete: 'possibly-truncated' as const })).toBe('unasked');
+    expect(pulseListingVerdict({ answer: 'failed', stdout: '', said: 'API rate limit exceeded', complete: 'possibly-truncated' as const })).toBe('throttled');
+    expect(pulseListingVerdict({ answer: 'failed', stdout: '', said: 'secondary rate limit', complete: 'possibly-truncated' as const })).toBe('secondary');
+    expect(pulseListingVerdict({ answer: 'failed', stdout: '', said: 'gh auth login required', complete: 'possibly-truncated' as const })).toBe('unasked');
+    expect(pulseListingVerdict({ answer: 'failed', stdout: '', said: 'HTTP 503', complete: 'possibly-truncated' as const })).toBe('failed');
+    expect(pulseListingVerdict({ answer: 'failed', stdout: '', said: '', kind: 'throttled', complete: 'possibly-truncated' as const })).toBe('throttled');
+    expect(pulseListingVerdict({ answer: 'failed', stdout: '', said: 'a burst', kind: 'secondary', complete: 'possibly-truncated' as const })).toBe('secondary');
   });
 
   it('keeps the open row with its rollup, drops the settled OPEN rows, and ranks merged over closed', () => {
@@ -398,26 +392,35 @@ describe('the scan\'s own listing read', () => {
   });
 
   it('licenses completeness by both claims or by the row count, never by a page at its limit', () => {
-    const one = (said = '') => ok(plain('feature/b', 'MERGED'), said);
+    const one = (complete: 'whole' | 'possibly-truncated' = 'possibly-truncated') => ok(plain('feature/b', 'MERGED'), complete);
     expect(foldPulseListing(ok(rich('feature/a', 'OPEN')), one(), 1).listing!.complete).toBe(false);
-    expect(foldPulseListing(ok(rich('feature/a', 'OPEN'), whole('open')), one(whole('all')), 1).listing!.complete).toBe(true);
-    expect(foldPulseListing(ok(rich('feature/a', 'OPEN')), one(whole('all')), 1).listing!.complete).toBe(false);
+    expect(foldPulseListing(ok(rich('feature/a', 'OPEN'), 'whole'), one('whole'), 1).listing!.complete).toBe(true);
+    expect(foldPulseListing(ok(rich('feature/a', 'OPEN')), one('whole'), 1).listing!.complete).toBe(false);
     expect(foldPulseListing(ok(''), ok(''), 9).listing!.complete).toBe(false);
-    expect(foldPulseListing(ok('', 'plot-host: pr-list sweep complete'), ok('', 'plot-host: pr-list sweep complete'), 9).listing!.complete).toBe(true);
+    expect(foldPulseListing(ok('', 'whole'), ok('', 'whole'), 9).listing!.complete).toBe(true);
   });
 
   it('keeps the rows of a partial answer but never calls it complete', () => {
-    const read = foldPulseListing({ answer: 'partial', stdout: rich('feature/a', 'OPEN'), said: 'one state failed' }, ok(plain('feature/b', 'MERGED')), 9);
+    const read = foldPulseListing({ answer: 'partial', stdout: rich('feature/a', 'OPEN'), said: 'one state failed', complete: 'possibly-truncated' as const }, ok(plain('feature/b', 'MERGED')), 9);
     expect(read.verdict).toBe('partial');
     expect(read.listing!.states.get('feature_a')).toBe('OPEN');
     expect(read.listing!.complete).toBe(false);
   });
 
   it('yields no listing and the worse verdict where a call is refused, with what that call said', () => {
-    const refused = foldPulseListing({ answer: 'failed', stdout: '', said: 'API rate limit exceeded' }, null, 9);
+    const refused = foldPulseListing({ answer: 'failed', stdout: '', said: 'API rate limit exceeded', complete: 'possibly-truncated' as const }, null, 9);
     expect(refused).toEqual({ verdict: 'throttled', listing: null, said: 'API rate limit exceeded' });
-    const second = foldPulseListing(ok(rich('feature/a', 'OPEN')), { answer: 'failed', stdout: '', said: 'HTTP 503' }, 9);
+    const second = foldPulseListing(ok(rich('feature/a', 'OPEN')), { answer: 'failed', stdout: '', said: 'HTTP 503', complete: 'possibly-truncated' as const }, 9);
     expect(second).toEqual({ verdict: 'failed', listing: null, said: 'HTTP 503' });
     expect(foldPulseListing(ok(''), null, 9)).toEqual({ verdict: 'ok', listing: null, said: '' });
+  });
+});
+
+describe('scanListingRowsOf', () => {
+  it('reads listed rows as the stdout parser does, and refuses a row with no head', () => {
+    expect(scanListingRowsOf([{ head: 'feature/a', state: 'OPEN', checks: 'green', draft: true }]))
+      .toEqual([{ head: 'feature/a', state: 'OPEN', updatedAt: '', checks: 'green', draft: true }]);
+    expect(scanListingRowsOf([{ state: 'OPEN' }])).toBeNull();
+    expect(parseScanListingRows('null')).toBeNull();
   });
 });

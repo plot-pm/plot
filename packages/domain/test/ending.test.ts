@@ -385,3 +385,21 @@ describe('what a worker knew at the time', () => {
     expect(reading.read === 'ended' && reading.ending).toMatchObject({ branch: 'infra/prior', refusedAssignment: 'infra/x' });
   });
 });
+
+describe('a quiet ending carries the idle verdict inputs', () => {
+  const inputs = { logBytes: 120, logMtimeMs: 1_700_000_000_000, log: 'idle', cpuRead: true, cpuDeltaCentis: 0 };
+
+  it('reads the inputs back from the record', () => {
+    const reading = readEnding(ended({ reason: 'quiet', actor: 'monitor', idle: inputs }));
+    expect(reading).toEqual({ read: 'ended', ending: expect.objectContaining({ reason: 'quiet', idle: inputs }) });
+  });
+
+  it('reads a record without them as having none', () => {
+    const reading = readEnding(ended());
+    expect(reading.read === 'ended' && 'idle' in reading.ending).toBe(false);
+  });
+
+  it('refuses inputs of the wrong shape', () => {
+    expect(readEnding(ended({ idle: { ...inputs, log: 'busy' } })).read).toBe('unreadable');
+  });
+});

@@ -1,6 +1,6 @@
 import { isAnswered } from '@plot-pm/domain';
-import { buildBoard, refsFor, type BuildBoardOptions } from '../board.js';
-import { buildFleet } from '../fleet.js';
+import { buildBoard, buildBoardFrom, refsFor, type BuildBoardOptions } from '../board.js';
+import { boardInputsToServe, buildFleet } from '../fleet.js';
 import type { Board, Column, Fleet } from '../../contract/schema.js';
 
 /**
@@ -217,7 +217,11 @@ export const boardState = async ({
   let built: Board;
   if (estate === realEstateSource) {
     const key = keyFor(opts);
-    const now = await refsToken(opts);
+    // ON `snapshot`, THE BUILD IS KEYED BY THE SNAPSHOT AND READS FROM IT: no
+    // ref listing for the key, and none inside the build. Any reading the
+    // cards need that is not read sends the request down the board's own path.
+    const served = await boardInputsToServe(opts);
+    const now = served === null ? await refsToken(opts) : served.key;
     const current = inFlight.get(key);
     // A joiner arriving after something changed does not await the stale
     // build — refs moved since it started, so its answer is already wrong for
@@ -229,7 +233,7 @@ export const boardState = async ({
     if (existing) {
       built = await existing.promise;
     } else {
-      const promise = buildBoard(opts).finally(() => {
+      const promise = (served === null ? buildBoard(opts) : buildBoardFrom(opts, served.inputs)).finally(() => {
         if (inFlight.get(key)?.promise === promise) inFlight.delete(key);
       });
       inFlight.set(key, { promise, startedAt: now });
