@@ -41,16 +41,22 @@ const isBackendAsk = (e: ExecRecord): boolean =>
 const isKillZero = (e: ExecRecord): boolean =>
   basename(e.path) === 'bash' && e.argv[1] === '-c' && /^kill -0 \d+/.test(e.argv[2] ?? '');
 
-/** A host read P5 counts: the stub `gh` listing PRs, issues or runs, or `plot-host.sh` asked for one. */
+/**
+ * A host read P5 counts: the stub `gh` listing PRs, issues or runs, or
+ * `plot-host.sh` asked for one. A `gh pr list --head` is a per-branch merge
+ * question (`pr-merged`, `pr-merged-heads`), which this plan leaves on the shell.
+ */
 const isGithubRead = (e: ExecRecord): boolean =>
-  (basename(e.path) === 'gh' && /^(pr|issue|run)$/.test(e.argv[1] ?? '') && e.argv[2] === 'list') ||
+  (basename(e.path) === 'gh' && /^(pr|issue|run)$/.test(e.argv[1] ?? '') && e.argv[2] === 'list' && !e.argv.includes('--head')) ||
   (basename(e.path) === 'bash' &&
     e.argv.some((a) => a.endsWith('/plot-host.sh')) &&
     e.argv.some((a) => a === 'pr-list' || a === 'issue-list' || a === 'runs-for-sha'));
 
-/** The stub `gh` listing calls in the stub log so far: `gh pr list`, `gh issue list`, `gh run list`. */
+/** The stub `gh` listing calls in the stub log so far: `gh pr list`, `gh issue list`, `gh run list`, with no `--head`. */
 const ghReadsLogged = (box: Sandbox): number =>
-  existsSync(box.stubLog) ? readFileSync(box.stubLog, 'utf8').split('\n').filter((l) => /^gh (pr|issue|run) list\b/.test(l)).length : 0;
+  existsSync(box.stubLog)
+    ? readFileSync(box.stubLog, 'utf8').split('\n').filter((l) => /^gh (pr|issue|run) list\b/.test(l) && !/ --head /.test(l)).length
+    : 0;
 
 /**
  * The in-process requests the stub API answered so far. Two once-per-process
