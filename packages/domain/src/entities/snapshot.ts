@@ -100,6 +100,8 @@ export const DeskProcessReadingSchema = z.object({
   pid: z.string(),
   exitCode: z.string(),
   activity: WorkerActivitySchema,
+  /** What the liveness rests on: the desk's token, or its start time; absent where the reader did not say. */
+  basis: z.enum(['token', 'start-time']).optional(),
 });
 export type DeskProcessReading = z.infer<typeof DeskProcessReadingSchema>;
 
