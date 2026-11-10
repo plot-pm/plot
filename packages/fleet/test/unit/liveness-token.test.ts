@@ -155,6 +155,7 @@ const launch = async (d: Desk, command: string, env: NodeJS.ProcessEnv = {}) => 
 /** Starts the stub loop chain and waits for its harness and its other child. */
 const launchLoop = async (d: Desk) => {
   fs.rmSync(d.children, { force: true });
+  fs.rmSync(path.join(d.desk, 'grandchild'), { force: true });
   const run = await launch(d, `exec ${JSON.stringify(process.execPath)} ${JSON.stringify(d.loop)} ${JSON.stringify(d.children)}`);
   const [harness, other] = await until('the loop children', () => {
     const text = readOr(d.children);
@@ -218,7 +219,7 @@ describe('the liveness token on real processes', { timeout: 30_000 }, () => {
     const d = makeDesk();
     const run = await launchLoop(d);
     process.kill(-run.wrapper, 'SIGKILL');
-    await until('the group to end', () => ([run.agent, run.harness].some(alive) ? undefined : true));
+    await until('the group to end', () => ([run.agent, run.harness, run.grandchild].some(alive) ? undefined : true));
     expect(token.read(d.desk).state).toBe('released');
     const { gathered, reading } = await readDesk(d);
     expect(gathered.readings.liveness).toBe('dead');
@@ -234,7 +235,7 @@ describe('the liveness token on real processes', { timeout: 30_000 }, () => {
     const d = makeDesk();
     const run = await launchLoop(d);
     process.kill(-run.wrapper, 'SIGKILL');
-    await until('the group to end', () => ([run.agent, run.harness].some(alive) ? undefined : true));
+    await until('the group to end', () => ([run.agent, run.harness, run.grandchild].some(alive) ? undefined : true));
     const { gathered, reading } = await readDesk(d, { signalZero: () => true });
     expect(gathered.readings.liveness).toBe('dead');
     expect(reading.state).toBe('ended');
@@ -310,7 +311,7 @@ describe('the liveness token on real processes', { timeout: 30_000 }, () => {
     expect(now.state).toBe('held');
     expect(now.madeAtMs).not.toBe(oldMade);
     process.kill(-second.wrapper, 'SIGKILL');
-    await until('the second group to end', () => ([second.agent, second.harness].some(alive) ? undefined : true));
+    await until('the second group to end', () => ([second.agent, second.harness, second.grandchild].some(alive) ? undefined : true));
     expect(alive(first.harness)).toBe(true);
     const { gathered } = await readDesk(d);
     expect(gathered.readings.liveness).toBe('dead');
