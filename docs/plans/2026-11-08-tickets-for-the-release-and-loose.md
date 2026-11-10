@@ -15,6 +15,7 @@
 - **Started:** 2026-11-08, Jan Wloka, `feature/people-carry-a-tracker-identity`
 - **Started:** 2026-11-08, Jan Wloka, `feature/the-issue-index-reads-assignee-and-release`
 - **Started:** 2026-11-10, Jan Wloka, `feature/tickets-reach-input-to-the-fleet`
+- **Started:** 2026-11-10, Jan Wloka, `feature/sprint-work-records-the-ticket-it-opened`
 
 ## Changelog
 
