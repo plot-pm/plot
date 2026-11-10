@@ -1023,6 +1023,7 @@ export function AgentList({
           return [
             <DeliveryRow
               key={agent.anchor}
+              agent
               anchor={agent.anchor}
               cells={cells}
               details={detailLines(agent.row === null ? [] : [agent.row], agent.entry)}

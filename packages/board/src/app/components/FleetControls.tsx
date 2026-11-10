@@ -347,13 +347,21 @@ export function WorkingCounts({
         </span>
       )}
       {showRegistry && registry && (
-        <span
-          data-fleet-registry
-          className={`tabular-nums ${registry.manifestCount === 0 ? 'text-amber-600 dark:text-amber-500' : 'text-slate-400 dark:text-slate-500'}`}
-          title={`Registry: ${registry.directory}\n${registry.manifestCount} manifest(s) read, ${registry.synthesizedCount} synthesized from worktrees`}
-        >
-          · {registry.manifestCount} manifest{registry.manifestCount !== 1 ? 's' : ''}{registry.synthesizedCount > 0 && `, ${registry.synthesizedCount} synthesized`}
-        </span>
+        <details data-row-details data-fleet-details className="relative">
+          <summary
+            aria-label="Registry details"
+            className={`cursor-pointer select-none ${registry.manifestCount === 0 ? 'text-amber-600 dark:text-amber-500' : 'text-slate-400 dark:text-slate-500'}`}
+          >
+            · details
+          </summary>
+          <span
+            data-fleet-registry
+            className="absolute right-0 z-10 mt-1 block whitespace-nowrap rounded border border-slate-200 bg-white p-2 font-mono tabular-nums shadow-sm dark:border-slate-700 dark:bg-slate-900"
+          >
+            {registry.manifestCount} manifest{registry.manifestCount !== 1 ? 's' : ''}{registry.synthesizedCount > 0 && `, ${registry.synthesizedCount} synthesized`}
+            {registry.directory !== '' && ` · ${registry.directory}`}
+          </span>
+        </details>
       )}
     </span>
   );
