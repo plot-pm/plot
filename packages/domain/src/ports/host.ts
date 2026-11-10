@@ -114,6 +114,11 @@ export interface PrListingQuery {
    * own rendering, passed through byte for byte; every PR when omitted.
    */
   since?: string;
+  /**
+   * The branches a sweep asks, one request per branch and state; every PR when
+   * omitted or empty. A host that cannot narrow by branch ignores it.
+   */
+  branches?: readonly string[];
   /** Asks every row for its checks, mergeability, review and draft. */
   rich?: boolean;
   /**

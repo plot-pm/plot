@@ -26,9 +26,8 @@ import { indexMergedHeads, indexOpenHeads } from '@plot-pm/domain/rules/known-pr
 import { githubListingPages } from '@plot-pm/domain/rules/listing-page';
 import { branchUrlBase as branchUrlBaseOf } from '@plot-pm/domain/rules/branch-url';
 import { HOST_BRANCH_URL_SCHEMES } from '@plot-pm/domain/adapters/host/host-branch-urls';
-import { listingCompleteness } from '@plot-pm/domain/adapters/host/listing-notices';
 import {
-  foldScanListing, parseScanListingRows, readCarriedPrStates, renderScanListing, scanListingRowsOf, scanListingWindowFor,
+  foldScanListing, readCarriedPrStates, renderScanListing, scanListingRowsOf, scanListingWindowFor,
   type CarriedListing, type ScanListingAnswer, type ScanListingFold, type ScanListingWindow,
 } from '@plot-pm/domain/rules/scan-listing';
 import { PR_FULL_READ_MS } from './pr-refresh.js';
@@ -119,7 +118,7 @@ export interface ScanState {
   backoffMs: number | null;
   /**
    * Host requests this scan has spent since the tick last read and zeroed it —
-   * the in-process `askPrList` calls plus the shell's own reported `spend:`
+   * the in-process `askPrListing` calls plus the shell's own reported `spend:`
    * count. Never reset at the top of a pass; only the reader zeroes it.
    */
   calls: number;
@@ -483,42 +482,8 @@ export const scanPrListLimit = (env: NodeJS.ProcessEnv = process.env): number =>
 };
 
 /**
- * Asks the host one `pr-list` call through `Scripts.hostSaid` and reads it
- * into rows. The Bitbucket listing asks this way.
- *
- * @param scripts - the one place `plot-*.sh` is invoked.
- * @param args - the `pr-list` arguments; `--state` names the asked state.
- * @param onCall - called once the host has answered, win or lose — the
- *   scan's own tally of real requests spent.
- * @returns the rows and the asked state's completeness word, or
- *   `verdict: 'failed'` with no rows where the call failed, could not be
- *   asked, or printed a line that is not a PR row.
- */
-const askPrList = async (
-  scripts: Scripts,
-  args: readonly string[],
-  onCall: (refusal?: string) => void,
-): Promise<ScanListingAnswer> => {
-  const said = await scripts.hostSaid(['pr-list', ...args]);
-  if (said.answer === 'failed' || said.answer === 'unaskable') {
-    onCall(said.said);
-    return { verdict: 'failed', rows: [], complete: 'possibly-truncated' };
-  }
-  onCall();
-  const rows = parseScanListingRows(said.stdout);
-  if (rows === null) return { verdict: 'failed', rows: [], complete: 'possibly-truncated' };
-  const state = args[args.indexOf('--state') + 1] ?? '';
-  const notices = said.answer === 'partial' ? said.said : said.stderr;
-  return {
-    verdict: said.answer === 'partial' ? 'partial' : 'ok',
-    rows,
-    complete: listingCompleteness(notices, state)[state] ?? 'possibly-truncated',
-  };
-};
-
-/**
- * Asks the host one typed listing and reads it into rows. The GitHub listing
- * asks this way.
+ * Asks the host one typed listing and reads it into rows. Both listings
+ * ask this way.
  *
  * @param host - the git host connector.
  * @param query - the listing query.
@@ -619,7 +584,7 @@ const BB_LIST_PAGELEN = 50;
  * refused delta is asked again as a full sweep, the same retry
  * {@link readGithubListing} makes.
  *
- * @param scripts - the one place `plot-*.sh` is invoked.
+ * @param host - the git host connector.
  * @param branches - the tracked branches a full read sweeps.
  * @param held - the listing the last host read held, or null.
  * @param now - this machine's clock, in epoch milliseconds — stamps the full
@@ -633,7 +598,7 @@ const BB_LIST_PAGELEN = 50;
  *   a row has no branch name.
  */
 const readBitbucketListing = async (
-  scripts: Scripts,
+  host: Host,
   branches: readonly string[],
   held: CarriedListing | null,
   now: number,
@@ -641,14 +606,13 @@ const readBitbucketListing = async (
   onCall: (refusal?: string) => void,
 ): Promise<{ rendered: string; next: CarriedListing; window: ScanListingWindow } | null> => {
   const full = async (): Promise<ScanListingFold> => {
-    const args = branches.flatMap((branch) => ['--branch', branch]);
-    const open = await askPrList(scripts, ['--state', 'open', '--rich', ...args], onCall);
-    const rest = await askPrList(scripts, ['--state', 'all', ...args], onCall);
+    const open = await askPrListing(host, { state: 'open', rich: true, branches }, onCall);
+    const rest = await askPrListing(host, { state: 'all', branches }, onCall);
     return foldScanListing(null, open, rest);
   };
   const delta = async (since: string): Promise<ScanListingFold> => {
-    const open = await askPrList(scripts, ['--state', 'open', '--rich', '--limit', String(BB_LIST_PAGELEN - 1)], onCall);
-    const rest = await askPrList(scripts, ['--state', 'all', '--since', since], onCall);
+    const open = await askPrListing(host, { state: 'open', rich: true, limit: BB_LIST_PAGELEN - 1 }, onCall);
+    const rest = await askPrListing(host, { state: 'all', since }, onCall);
     return foldScanListing(held, open, rest);
   };
 
@@ -1046,7 +1010,7 @@ export const scanOnce = async (
   } else if (spend && backend === 'bitbucket') {
     const tracked = await world.refs.listBranches(true);
     const branches = tracked.ok ? tracked.value : [];
-    const read = await readBitbucketListing(world.scripts, branches, state.listingHeld, now, bitbucketWindow, counted);
+    const read = await readBitbucketListing(world.walk.host, branches, state.listingHeld, now, bitbucketWindow, counted);
     state.listingHeld = read?.next ?? null;
     if (read !== null) {
       hostRead = read;
