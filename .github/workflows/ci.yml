@@ -1091,8 +1091,10 @@ jobs:
     # 2026-10-24 over the last 30 `board-integration` runs, checkout through
     # "Build the board bundles" was p95 43 s, max 52 s — consistent with the
     # ~45 s estimate, so a 1.25-minute margin above 20.75 covers the gap
-    # without reopening the "sum plus margin" mistake.
-    timeout-minutes: 22
+    # without reopening the "sum plus margin" mistake. Raised to 37 on
+    # 2026-11-10 when the test step's cap below went from 15 to 30 minutes:
+    # the same worst case plus the 15 added minutes.
+    timeout-minutes: 37
     steps:
       - name: Guard the dispatched run
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -1297,10 +1299,13 @@ jobs:
           exit 1
 
       # The longest legitimate step — a real browser against the built artifact.
-      # Measured green at 4 to 8 minutes; 15 covers a saturated runner without
-      # letting a wedged browser hold the job to the ceiling above.
+      # Measured green at 4 to 8 minutes. A red run takes longer, because each
+      # failing browser test waits out its own timeout: on 2026-11-10, PR #3267
+      # hit the old 15-minute cap in six rounds with about 25 of 87 files never
+      # run, and vitest prints failure messages only at the end of the run, so
+      # none printed. 30 lets a red run finish and report every failure.
       - name: Board integration tests (vitest + Playwright)
-        timeout-minutes: 15
+        timeout-minutes: 30
         run: ./scripts/owned-run.sh pnpm --filter @plot-pm/board exec vitest run
 
   # ── Tier 1: the static gates, cheapest first. ───────────────────────────
