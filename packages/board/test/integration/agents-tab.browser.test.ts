@@ -585,7 +585,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents(fleet({ rows }));
     try {
       await expandPlans(page);
-      const planRow = group(page, 'queued').locator('[data-plan-row="beans"]');
+      // The plan's own row carries its idea-branch PR, so the plan's slice waits at a gate.
+      const planRow = group(page, 'at-a-gate').locator('[data-plan-row="beans"]');
 
       // THE PR LINK, reachable from the head — not only from a branch beneath it.
       expect(await planRow.getByRole('link', { name: '77' }).getAttribute('href'))
@@ -1951,7 +1952,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
           })),
         ...Array.from({ length: 13 }, (_, i) =>
           row({
-            branch: `feature/finished-${i}`, plan: 'beans', group: 'done',
+            branch: `feature/finished-${i}`, plan: 'beans', wave: 'Finished', group: 'done',
             state: 'merged', ageMinutes: 40_000 + i, note: 'merged', branchUrl: '',
           })),
       ],

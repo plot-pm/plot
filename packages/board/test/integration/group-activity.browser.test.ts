@@ -464,7 +464,7 @@ describe('a heading travels at the strongest pace its rows state', () => {
         .evaluate((el) => getComputedStyle(el).animationDuration);
     const heading = await durationOf(headingMark(page, 'working'));
     const inRow = await page.locator('li[data-tuple-kind]')
-      .filter({ has: page.locator('[data-branch="feature/writing"]') })
+      .filter({ has: page.locator('[data-branch="feature/writing"]') }).last()
       .locator('[data-activity-mark]')
       .locator('[data-activity-dot]')
       .evaluate((el) => getComputedStyle(el).animationDuration);

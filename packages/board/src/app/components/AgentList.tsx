@@ -78,6 +78,8 @@ import {
   readMineStrict,
   agentsForReader,
   readerFrom,
+  rowsForReader,
+  draftsForReader,
   ticketsForReader,
   writeMineOnly,
   writeMineStrict,
@@ -1066,10 +1068,10 @@ export function AgentList({
         // `DELIVERY_LAYOUT`. Nothing below computes a section, a group, a link
         // target or a reason.
         const mapping = deliveryMapping({
-          rows: filteredRows,
+          rows: rowsForReader(filteredRows, reader, mode),
           slices: fleet.slices ?? [],
           agents: ownAgents,
-          drafts: draftPlanRows(fleet.draftPlans ?? [], fleet.rows ?? []),
+          drafts: draftsForReader(draftPlanRows(fleet.draftPlans ?? [], fleet.rows ?? []), reader, mode),
           reader,
           mode,
           config: { autoReview: fleet.autoReview, correctionBudget: fleet.correctionBudget },
@@ -1282,7 +1284,7 @@ export function AgentList({
                   aria-expanded={!folded}
                   aria-label={`${folded ? 'Expand' : 'Collapse'} ${key}`}
                   onClick={() => toggle(key)}
-                  className="-my-1 flex items-center py-1 text-slate-500"
+                  className="-my-1 flex min-w-[24px] items-center justify-center py-1 text-slate-500"
                 >
                   <span
                     aria-hidden

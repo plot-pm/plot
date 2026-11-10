@@ -1538,6 +1538,7 @@ export function SliceRow({
             </button>
           ) : null}
           {active ? <ActivityMark pace="fast" inTrack /> : null}
+          {soleRow && isUnpushed(soleRow) ? <UnpushedMark ahead={soleRow.localAhead} inTrack /> : null}
         </>
       }
     />

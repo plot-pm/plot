@@ -295,6 +295,7 @@ describe('NOT STARTED renders one row per plan', () => {
         ['At a gate', 'at-a-gate', 'feature/needs-review'],
         ['Queued', 'queued', 'feature/gone-still'],
       ] as const) {
+        await expandAgentFolds(page);
         const grid = page.locator(`ul[role="grid"][aria-label^="${label}"]`);
         // A group can start folded (Free agents does) — open it before looking.
         const toggle = page.locator(`[data-group-toggle="${key}"]`);

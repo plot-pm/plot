@@ -363,10 +363,15 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
       const blocks = nestItems(group, items, slices);
       const heads = blocks.flatMap((b) => (b.kind === 'plan' ? [b] : []));
       const sliceCount = heads.reduce((n, b) => n + b.slices.length, 0);
+      const loose = blocks.length - heads.length;
       const count = items.length + agents.length;
+      const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+      const tally = heads.length > 0 && (heads.length !== sliceCount || loose > 0)
+        ? [plural(heads.length, 'plan'), plural(sliceCount, 'slice'), ...(loose > 0 ? [`${loose} ${loose === 1 ? 'branch' : 'branches'}`] : [])].join(' · ')
+        : String(count);
       return {
         key: group, ...meta, items, agents, blocks, rows, count,
-        tally: heads.length > 0 && heads.length !== sliceCount ? `${heads.length} plans · ${sliceCount} slices` : String(count),
+        tally,
       };
     });
     return {

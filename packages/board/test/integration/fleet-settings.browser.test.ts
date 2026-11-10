@@ -156,7 +156,7 @@ describe('the two fleet controls (real browser renders the shipped artifact)', (
         const read = (sel: string) => {
           const el = document.querySelector(sel);
           const column = el?.closest('[data-fleet-control-column]');
-          const h2 = column?.closest('h2');
+          const h2 = column?.parentElement;
           if (!column || !h2) return null;
           const c = column.getBoundingClientRect();
           const h = h2.getBoundingClientRect();

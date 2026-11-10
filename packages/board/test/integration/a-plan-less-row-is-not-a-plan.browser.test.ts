@@ -80,9 +80,9 @@ describe('NOT STARTED draws no plan head for rows no plan names', () => {
   it('renders no nameless plan head or plan group', async () => {
     const page = await open();
     try {
-      await expect.poll(() => section(page).locator('li[data-plan-row="real-plan"]').count()).toBe(1);
-      expect(await section(page).locator('li[data-plan-row=""]').count()).toBe(0);
-      expect(await section(page).locator('li[data-plan-group=""]').count()).toBe(0);
+      await expect.poll(() => queued(page).locator('li[data-plan-row="real-plan"]').count()).toBe(1);
+      expect(await queued(page).locator('li[data-plan-row=""]').count()).toBe(0);
+      expect(await queued(page).locator('li[data-plan-group=""]').count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -108,7 +108,7 @@ describe('NOT STARTED draws no plan head for rows no plan names', () => {
     // plan's own figures.
     const page = await open();
     try {
-      const heading = page.getByRole('heading', { name: /Not started/i }).first();
+      const heading = page.getByRole('heading', { name: /Queued/i }).first();
       await heading.waitFor({ timeout: 5_000 });
       await expect.poll(() => heading.textContent()).toContain('(1 plan · 2 slices · 2 branches)');
     } finally {
