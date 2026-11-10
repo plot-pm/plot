@@ -897,7 +897,9 @@ const EXPECTED_FILES = 87;
 // 671 → 673 on 2026-11-07: two `it(` in the new `settings-view.browser.test.ts`.
 // `EXPECTED_FILES` moves by 1.
 // 675 → 678 on 2026-11-08: the three tests of `record-lag.browser.test.ts`.
-const EXPECTED_TESTS = 679;
+// 679 → 676 on 2026-11-10: `delivery-tab-sections` removed three tests that asserted tallies the Delivery tab no longer
+// shows (`sprint-exempt` x2, `unplanned-issues` x1).
+const EXPECTED_TESTS = 676;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

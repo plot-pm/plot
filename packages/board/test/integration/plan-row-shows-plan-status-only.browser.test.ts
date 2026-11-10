@@ -280,23 +280,17 @@ describe('a plan row shows plan status only', () => {
     }
   });
 
-  it('WAITING ON YOU, a COLLAPSED head: the verdict goes with the slice row', async () => {
+  it('an unread PR withholds its verdict: the subject renders in Not placed, with no plan head and no verdict', async () => {
+    // `shut-head` has a PR whose state the host could not report (`unknown`), so no CI reading exists
+    // and the rule places the slice nowhere. It is shown, with the reason, and carries no verdict.
     const page = await open();
     try {
-      const toggle = page.locator('[data-slice-toggle="shut-head"]');
-      await toggle.waitFor({ timeout: 10_000 });
-      if ((await toggle.getAttribute('aria-expanded')) === 'true') await toggle.click();
-      await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('false');
-      await expect.poll(() =>
-        page.locator('[data-slice-list="shut-head"] [data-slice-row="Folded"]').count()).toBe(0);
-      expect(await planVerdict(page, 'shut-head').count()).toBe(0);
-      expect((await planRow(page, 'shut-head').textContent()) ?? '').not.toContain('blocked');
-      // Open again: the slice row states the verdict, the plan row still does not.
-      await toggle.click();
-      await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('true');
-      await expect.poll(() =>
-        sliceStatus(page, 'shut-head', 'Folded').textContent(),
-        { timeout: 10_000 }).toContain('blocked');
+      const unplaced = page.locator('section[data-unplaced]');
+      await unplaced.waitFor({ timeout: 10_000 });
+      await expect.poll(() => unplaced.locator('[data-unplaced-row]').allTextContents())
+        .toEqual(expect.arrayContaining([expect.stringContaining('shut-head')]));
+      expect(await unplaced.locator('[data-branch="feature/sh-one"]').count()).toBe(1);
+      expect(await planRow(page, 'shut-head').count()).toBe(0);
       expect(await planVerdict(page, 'shut-head').count()).toBe(0);
     } finally {
       await page.close();

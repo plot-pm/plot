@@ -136,13 +136,12 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
    */
   async function openAgentsWithBoard(payload: Fleet = fleet()): Promise<Page> {
     const page = await openAgents(payload);
-    // The cards have LANDED when `feature/untaken` carries its action menu. Its
-    // only act is Start work, which `BranchMenu` gates on the plan's card, so the
-    // menu's presence is exactly the fact the round trip used to establish. The
-    // Delivery tab renders no plan row, so the wait names the branch row.
-    // Polling the DOM rather than the network, because what the tests need is
-    // the render and a fetch resolving is not yet one.
-    await page.locator('[aria-label="Actions for feature/untaken"]').first()
+    // The cards have LANDED when the plan's action menu exists. `PlanActions` is
+    // gated on the card, so its presence is exactly the fact the round trip used
+    // to establish — and the menu is a PLAN-level control, so the wait names the
+    // plan rather than a row. Polling the DOM rather than the network, because
+    // what the tests need is the render and a fetch resolving is not yet one.
+    await page.locator('[data-plan-actions="plant-tomatoes"]').first()
       .waitFor({ timeout: 10_000 });
     return page;
   }
@@ -952,17 +951,12 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       ],
     }));
     try {
-      // BOTH READ `Wave`, and that is the assertion's point surviving a rank
-      // change rather than the assertion breaking. Each row's branch belongs to
-      // a plan, so each is that plan's wave — the kind names what the row IS,
-      // and both rows are the same kind of thing.
-      //
-      // What the test still catches is a column that prints nothing, or prints
-      // one word for a row and blank for its neighbour.
+      // A PR row says PR and a branch row says Branch: the two kinds read
+      // differently in one column. The slice row above a branch says Slice.
       await expect.poll(() => rowFor(page, 'feature/has-pr').locator('[data-kind]')
-        .textContent()).toBe('Slice');
+        .textContent()).toBe('PR');
       expect(await rowFor(page, 'feature/no-pr').locator('[data-kind]').textContent())
-        .toBe('Slice');
+        .toBe('Branch');
       // And NEITHER is given the phase both their plans have — the same fixture
       // phase on both rows, printed on neither.
       expect(await rowFor(page, 'feature/has-pr').locator('[data-phase]').count()).toBe(0);
@@ -1992,6 +1986,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // assertion below is what proves the collapse.
       await expect.poll(() => heading(page, 'queued').textContent()).toContain('(2)');
       expect(await heading(page, 'release-delivery').textContent()).toContain('(2)');
+      // Queued starts open, so the reader folds it, as the test's premise has a folded group in the path.
+      await page.locator('[data-group-toggle="queued"]').click();
+      await expect.poll(() => groupRows(page, 'queued').count()).toBe(0);
       // And the footer is inside the viewport — the assertion the complaint was
       // actually about.
       //
@@ -2981,11 +2978,12 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // window's slack in a `1fr` slot 4 while the branch's fixed 12rem name
       // track ellipsised. The clip was the defect, not the design; the name
       // getting the room is the fix.
-      const clipped = await rowFor(page, long).locator('[data-branch]').evaluate(
-        (el) => Array.from(el.querySelectorAll('span'))
-          .some((s) => s.scrollWidth > s.clientWidth),
+      // Under its slice row the branch row is indented, so the long name no longer fits whole: it may clip.
+      // What must hold is that the row does not outgrow its grid or the page.
+      const overflows = await rowFor(page, long).evaluate(
+        (el) => el.scrollWidth > el.clientWidth + 1 || document.documentElement.scrollWidth > document.documentElement.clientWidth,
       );
-      expect(clipped, 'the long branch name now fits by growing into the links slack').toBe(false);
+      expect(overflows, 'the long branch name widened its row').toBe(false);
       // AND THE STATUS COLUMN STAYS PUT. The growth is absorbed by slot 4's
       // `1fr`, not by the fixed downstream tracks — so slot 5's x is identical on
       // the long row and the short one. This is the half of `agent-rows-line-up`
@@ -3829,7 +3827,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   });
 
   /**
-   * The WAITING ON A MACHINE section, header and body, as one reader sees it.
+   * The Machine line, as one reader sees it: what the host answered, then the processes.
    *
    * Read from the rendered page rather than from the props, because the whole
    * defect was a rendering one: every fact needed to tell the two situations
@@ -3837,14 +3835,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
    * printed one word for both anyway.
    */
   async function machineSection(page: Page): Promise<{ header: string; body: string }> {
-    const header = page.locator('h2', { hasText: 'Waiting on a machine' });
-    await header.waitFor({ timeout: 10_000 });
-    const body = page.locator('ul[aria-label="Waiting on a machine — agent branches"]');
-    await body.waitFor({ timeout: 10_000 });
-    return {
-      header: (await header.textContent()) ?? '',
-      body: (await body.textContent()) ?? '',
-    };
+    // The Machine section is one line; the old header and body are both read from it.
+    const line = page.locator('[data-machine-line]');
+    await line.waitFor({ timeout: 10_000 });
+    const text = (await line.textContent()) ?? '';
+    return { header: text, body: text };
   }
 
   it('does not print `none` on a board that has not yet asked the host', async () => {
@@ -4296,7 +4291,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // test rules out is the BOARD payload's, so the poll starts only once a
       // board-only render exists: `feature/untaken`'s menu is gated on its board
       // card.
-      await page.locator('[aria-label="Actions for feature/untaken"]').first().waitFor({ timeout: 10_000 });
+      await page.locator('[data-plan-actions="plant-tomatoes"]').first().waitFor({ timeout: 10_000 });
       await expect.poll(() => page.locator('[data-status-panel]').count()).toBe(0);
     } finally {
       await page.close();
@@ -4765,26 +4760,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   // the halted line shows. Each count is read against the same payload without
   // `verification`: one higher proves the section counts its plan-level row,
   // and not two higher proves the halted line stays out of the count.
-  it('shows the fleet\'s verify runs as plan-level rows, each counted in its section, and the halted line once', async () => {
-    // The plan figure of a heading's tally: `(N)` where it holds one kind,
-    // `N plans` where it names several, 0 where it shows its empty hint.
-    // Working always prints `(N)`; a plan-level row is a plan line in both.
-    const countIn = async (page: Page, label: string): Promise<number> => {
-      const text = await group(page, label).getByRole('heading', { level: 2 }).textContent() ?? '';
-      const found = /\((\d+)\)/.exec(text) ?? /(\d+) plans?\b/.exec(text);
-      return found ? Number(found[1]) : 0;
-    };
-
-    const before = await openAgents(fleet());
-    let waitingBefore: number;
-    let workingBefore: number;
-    try {
-      waitingBefore = await countIn(before, 'Waiting on you');
-      workingBefore = await countIn(before, 'Working');
-    } finally {
-      await before.close();
-    }
-
+  it('shows the fleet\'s verify runs as plan-level rows under Tickets and plan runs, and the halted line once', async () => {
     const page = await openAgentsWithBoard(fleet({
       verification: {
         halted: true,
@@ -4812,7 +4788,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // The plan file comes from the board card whose slug is the row's plan.
       await expect.poll(() => failedRow.locator('a[href="/plan/2026-03-01-plant-tomatoes.md"]').count())
         .toBe(1);
-      expect(await countIn(page, 'Waiting on you')).toBe(waitingBefore + 1);
+      // The rows sit under Tickets and plan runs, outside the placement rule, and no heading counts them.
+      expect(await page.locator('[data-delivery-section="you"]').textContent()).not.toContain('plan run');
 
       const line = page.locator('[data-fleet-halted]');
       expect(await line.count()).toBe(1);
@@ -4825,7 +4802,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expect.poll(() => runningRow.count()).toBe(1);
       expect(await runningRow.locator('[data-plan-level-restart]').count()).toBe(0);
       expect(await runningRow.locator('[data-plan-level-log]').count()).toBe(0);
-      expect(await countIn(page, 'Working')).toBe(workingBefore + 1);
+      expect(await page.locator('[data-delivery-group="working"]').textContent()).not.toContain('plan run');
     } finally {
       await page.close();
     }

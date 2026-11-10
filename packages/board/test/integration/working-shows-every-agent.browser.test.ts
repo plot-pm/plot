@@ -168,7 +168,9 @@ describe('WORKING renders one row per LIVE registry entry', () => {
     const page = await openAgents();
     try {
       const working = group(page, 'working');
-      const own = group(page, 'being-built');
+      // The merged branch's slice is delivered, so its own row is under Release delivery, folded by default.
+      const own = group(page, 'release-delivery');
+      await expand(page, 'release-delivery');
       await expect.poll(() => working.locator('[data-branch="feature/landed"]').count()).toBe(1);
       await expect.poll(() => own.locator('[data-branch="feature/landed"]').count())
         .toBeGreaterThan(0);

@@ -102,9 +102,8 @@ import {
   type SliceBlockView,
 } from '../lib/agent-rows/delivery-view.js';
 import { shrinkNote } from '../lib/agent-rows/actions.js';
-import { issueNote, prStatusEntry, scanHostNote } from '../lib/agent-rows/host-notes.js';
+import { hostAnswer, issueNote, prStatusEntry, scanHostNote } from '../lib/agent-rows/host-notes.js';
 import { rowKey } from '../lib/agent-rows/row-identity.js';
-import { SLICE_LINKING_KINDS, sliceLabel } from '../lib/agent-rows/slices.js';
 // THE ROW ESTATE, in three modules beside this one. `AgentList` is the shell:
 // it reads the fleet, decides the sections, and mounts the rows — the rows,
 // their marks and their menus are declared next door.
@@ -1113,7 +1112,8 @@ export function AgentList({
           marked: marked.has(rowKey(r)),
           active: active.has(rowKey(r)),
           agent: agentByBranch.get(r.branch) ?? null,
-          sliceName: SLICE_LINKING_KINDS.has(r.kind) ? null : sliceLabel(r),
+          // A branch row names no wave: the slice row above it does.
+          sliceName: null,
           onRevealBranch,
           highlighted: r.branch === highlightBranch,
           showSprintSlug,
@@ -1165,29 +1165,28 @@ export function AgentList({
                   onStarting={onStarting}
                   groupedCount={!start && many ? wg.rows.length : undefined}
                   groupedWord={!start ? wg.verdict ?? undefined : undefined}
-                  soleRow={!start && !many ? wg.rows[0] : undefined}
                   implement={start ? undefined : implement}
                   continueWith={start ? undefined : continueWith}
                   restartWith={start ? undefined : restartWith}
                   onOpenPlan={start ? undefined : onOpenPlan}
                   onRevealBranch={start ? undefined : onRevealBranch}
-                  planHeaded
+                  planHeaded={block.headed}
                   slices={slices}
                   onExpandSection={expandSection}
                   planIndex={planIndex}
                 />
-                {many && sliceOpen && (
+                {(many ? sliceOpen : !start) && (
                   <ul
                     role="presentation"
                     data-slice-branch-list={wg.wave || '(unnamed)'}
                     className="ml-6 border-l border-slate-200 dark:border-slate-800"
                   >
-                    {wg.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup inSliceGroup />)}
+                    {wg.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={block.headed} inSliceGroup />)}
                   </ul>
                 )}
               </li>
             ),
-            ...s.loose.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup />),
+            ...s.loose.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={block.headed} />),
             ...itemTail(s.item),
           ];
         };
@@ -1244,8 +1243,14 @@ export function AgentList({
             </li>
           );
         };
-        const blockBody = (block: BlockView) =>
-          block.kind === 'plan' ? [planBody(block)] : itemBody(block.item);
+        const blockBody = (block: BlockView) => {
+          if (block.kind !== 'plan') return itemBody(block.item);
+          if (block.headed) return [planBody(block)];
+          return [
+            ...block.slices.flatMap((s) => sliceBody(block, s)),
+            ...block.loose.flatMap((item) => itemBody(item)),
+          ];
+        };
         const agentBody = (agent: PlacedAgentView) => [
           <li key={`anchor-${agent.anchor}`} role="presentation" id={agent.anchor} className="h-0" />,
           agent.entry !== null ? (
@@ -1345,7 +1350,7 @@ export function AgentList({
                     </div>
                   )}
                   {section.key === 'machine' && (
-                    <p data-machine-line className="px-3 text-sm text-slate-600 dark:text-slate-300">{machineLine(fleet.rows)}</p>
+                    <p data-machine-line className="px-3 text-sm text-slate-600 dark:text-slate-300">{machineLine(fleet.rows, hostAnswer(fleet))}</p>
                   )}
                   {!folded && section.groups.map((group) => {
                     const groupMark = groupPace(group.rows, active);

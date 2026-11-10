@@ -14,6 +14,7 @@ import { groupBySlice, type SliceGroup } from './slices.js';
 import { rowInSlice } from './delivery-readings.js';
 import { headSliceNames, showsSliceFold, slicesElsewhere } from './sections.js';
 import { hasExceptions } from './stuck.js';
+import { HOST_ANSWER_HINT, type HostAnswer } from './host-notes.js';
 
 /** Every key a collapse toggle can hold: a section or one of its groups. */
 export type DeliveryKey = string;
@@ -122,6 +123,8 @@ export interface PlanBlockView {
   elsewhere: number;
   /** The freshest age of the head's rows; `undefined` where none has one. */
   ageMinutes: number | undefined;
+  /** Whether a plan row heads the slices. Being built lists its slice rows with no plan head: an agent's rows name their plan. */
+  headed: boolean;
 }
 
 /** One item that renders on its own: a plan-less row, a Draft plan, or a plan with no slice here. */
@@ -237,12 +240,13 @@ export const nestItems = (scope: string, items: readonly PlacedItemView[], slice
       head = {
         kind: 'plan', key: `${scope}\u0000${plan}`, plan, planFile: first.planFile,
         rows: [], head: null, slices: [], loose: [], mode: 'progress', elsewhere: 0, ageMinutes: undefined,
+        headed: scope !== 'being-built',
       };
       heads.set(plan, head);
       blocks.push(head);
     }
     head.rows.push(...item.rows);
-    if (isPlanRow(item) && head.head === null) head.head = item;
+    if (scope !== 'being-built' && isPlanRow(item) && head.head === null) head.head = item;
     else if (isSliceItem(item)) head.slices.push({ item, slice: null, loose: [] });
     else head.loose.push(item);
   }
@@ -420,8 +424,17 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
 export const placeMapping = (mapping: DeliveryMapping, slices?: Slice[]): DeliveryView =>
   deliveryView(mapping, placeDelivery(mapping.readings, mapping.input), slices);
 
-/** The Machine section's one line: the processes the payload's rows carry. */
-export const machineLine = (rows: readonly AgentRow[]): string => {
+/**
+ * The Machine section's one line: what the host answered, then the processes the payload's rows carry.
+ *
+ * A host that has not answered is stated as such and never reads as an empty answer: `not checked yet` before the first
+ * fetch, `could not reach the host` after a first fetch failed. Once the host has answered, no process reads `none`.
+ *
+ * @param rows - the payload's rows.
+ * @param answer - `hostAnswer` of the fleet's PR age and PR error.
+ */
+export const machineLine = (rows: readonly AgentRow[], answer: HostAnswer = 'answered'): string => {
+  if (answer !== 'answered') return HOST_ANSWER_HINT[answer];
   const processes = rows.reduce((n, r) => n + (r.processes?.length ?? 0), 0);
-  return processes === 0 ? 'no process to wait on' : `${processes} ${processes === 1 ? 'process' : 'processes'} running`;
+  return processes === 0 ? 'none — nothing — a machine is working' : `${processes} ${processes === 1 ? 'process' : 'processes'} running`;
 };

@@ -53,8 +53,13 @@ describe('delivery view order', () => {
 });
 
 describe('machineLine', () => {
-  it('says no process to wait on for rows with none', () => {
-    expect(machineLine([row({})])).toBe('no process to wait on');
+  it('says none for rows with none once the host answered', () => {
+    expect(machineLine([row({})])).toBe('none — nothing — a machine is working');
+  });
+
+  it('says the host was not asked, or not reached, instead of none', () => {
+    expect(machineLine([row({})], 'unasked')).toBe('not checked yet');
+    expect(machineLine([row({})], 'unreachable')).toBe('could not reach the host');
   });
 
   it('counts the processes the rows carry', () => {

@@ -199,37 +199,4 @@ describe('a sprint view says what it hid', () => {
   // the member row` and `hides no row the exemption showed before` above
   // still cover the underlying exempt/hidden behaviour through DOM marks.
 
-  it('does not count an ownership-hidden row under Sprint only', async () => {
-    const page = await open();
-    try {
-      const mineChip = page.locator('[data-chip^="Mine"]');
-      await mineChip.click();
-      await expect.poll(async () => (await branches(page)).includes(MEMBER_THEIRS)).toBe(false);
-      await sprintOnly(page);
-      const text = (await header(page).textContent()) ?? '';
-      // Sprint hid ELSEWHERE and LOOSE; ownership hid MEMBER_THEIRS. Only the
-      // first two belong to this suffix.
-      expect(text).toContain('2 hidden by Sprint only');
-      // THE CHIP'S OWN HIDDEN COUNT, not `data-mine-hidden` — that attribute
-      // lived on the checkbox this rewrite removed and has no dedicated
-      // attribute equivalent; `chip.hiddenCount` is rendered only as text
-      // inside the button (`DeliveryFilters.tsx`'s `ChipView`).
-      expect(await mineChip.textContent()).toContain('1 hidden');
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('says which of the section tally the sprint filter never saw', async () => {
-    const page = await open();
-    try {
-      expect(await page.locator('[data-sprint-unfiltered]').count()).toBe(0);
-      await sprintOnly(page);
-      const note = page.locator('[data-sprint-unfiltered]');
-      await expect.poll(() => note.getAttribute('data-sprint-unfiltered')).toBe('1');
-      expect(await note.textContent()).toContain('not sprint-filtered');
-    } finally {
-      await page.close();
-    }
-  });
 });

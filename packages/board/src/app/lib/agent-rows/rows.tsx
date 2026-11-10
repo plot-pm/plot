@@ -2610,7 +2610,9 @@ export function RegistryRow({
     ? noteWithoutPr(row.note, row.pr)
     : !identityWasDeclared(agent)
       ? unnamedDeskLabel({ checkout: agent.checkout ?? '', live: isLiveState(agent.state) })
-      : '';
+      : !isLiveState(agent.state)
+        ? 'stopped — no ending was read, so why it stopped is unknown'
+        : '';
 
   return (
     <>
@@ -2649,8 +2651,6 @@ export function RegistryRow({
           // tagged with the first plan left every other plan's blocker
           // unreachable. Reported from a screenshot 2026-10-28: four of six
           // blocked-by marks in NOT STARTED jumped nowhere.
-          ...(row?.wave ? { 'data-slice-row': row.wave } : {}),
-          ...(row?.wave && row?.plan ? { 'data-slice-plan': row.plan } : {}),
           // FREE IS RENDERED AS AN ATTRIBUTE, NOT AS THE STATUS WORD. The two
           // are different questions — *what is it doing?* and *can it take
           // work?* — and a `running` agent between slices answers `running` and

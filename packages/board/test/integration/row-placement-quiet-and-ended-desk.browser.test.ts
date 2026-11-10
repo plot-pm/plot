@@ -76,12 +76,6 @@ describe('row placement (real browser renders the shipped artifact)', () => {
   const inSection = (page: Page, key: string) => page.locator(`section[data-section="${key}"]`);
   /** A group inside a section by its `DELIVERY_LAYOUT` key. */
   const inGroup = (page: Page, key: string) => page.locator(`[data-group="${key}"]`);
-  /** A section by its heading text, from the earlier vocabulary. */
-  const group = (page: Page, label: string) =>
-    page.locator('section').filter({
-      has: page.getByRole('heading', { level: 2, name: new RegExp(label) }),
-    });
-
   const open = async (over: Partial<Fleet>): Promise<Page> => {
     const page = await cat.open('ten-rows-one-kind-each', {
       tab: 'agents',
@@ -130,10 +124,13 @@ describe('row placement (real browser renders the shipped artifact)', () => {
     relaunches: 0, state: 'stalled', ...over,
   });
 
-  it('keeps a stopped agent in Waiting on you when no ending was read', async () => {
+  it('shows a stopped agent in Fleet as stopped and names what is unknown when no ending was read', async () => {
     const page = await open({ rows: [], agents: [stopped()] });
     try {
-      await expect.poll(() => group(page, 'Waiting on you').locator('[data-agent-row]').count()).toBe(1);
+      // The rule places an agent in Fleet only, never under You; with no ending read the row says so.
+      await expect.poll(() => inSection(page, 'fleet').locator('[data-agent-row]').count()).toBe(1);
+      expect(await inSection(page, 'you').locator('[data-agent-row]').count()).toBe(0);
+      expect(await inSection(page, 'fleet').locator('[data-agent-row]').textContent()).toContain('no ending was read');
     } finally {
       await page.close();
     }
