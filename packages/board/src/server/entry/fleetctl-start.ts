@@ -17,7 +17,7 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * ```
  * node plot-fleetctl-start.mjs probe <harness-name> <harness-bin> <PLOT_HARNESS> <node-bin> <platform> <fleetd>
  * node plot-fleetctl-start.mjs restart <label> <platform> <loaded> <pid> <commit> <dry-run> [<agents> <unattended>]
- * node plot-fleetctl-start.mjs agents <dry-run> <desk> <pid> <state> <branch> <blocked> <dirty> <pr> <pid-current>
+ * node plot-fleetctl-start.mjs agents <dry-run> <desk> <pid> <state> <branch> <blocked> <dirty> <pr> <started-at> <pid-started-at> <current>
  * node plot-fleetctl-start.mjs reload <label> <platform> <unit>
  * launchctl kickstart -k gui/501/com.plot-pm.fleetd
  * node plot-fleetctl-start.mjs restarted <label> <old-pid> <new-pid> <commit> <wait> <read-cmd>
@@ -37,10 +37,13 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  *
  * `agents` decides one live agent and prints `<action><TAB><line>` on stdout,
  * where `<action>` is `stop`, `keep` or `refuse`; it exits 0. `<blocked>` is
- * `1` when the desk holds a `PLOT-BLOCKED*` file. `<dirty>` is the count of
- * uncommitted files, or anything that is not a number when it could not be
- * read. `<pr>` is the JSON `plot-host.sh pr-state` printed, or empty when it
- * printed none. `<pid-current>` is `yes`, `no` or `unknown`.
+ * the listing of the desk's `PLOT-BLOCKED*` files, empty when there is none.
+ * `<dirty>` is the count of uncommitted files, or anything that is not a
+ * number when it could not be read. `<pr>` is the JSON `plot-host.sh pr-state`
+ * printed, or empty when it printed none; a desk with no branch has no PR to
+ * read. `<started-at>` and `<pid-started-at>` are the starts the manifest
+ * recorded, both empty when none was; `<current>` is `yes` when the pid's own
+ * start matches them and `no` when it does not.
  *
  * `reload` prints the reload command's words on one line, separated by spaces.
  *
@@ -92,7 +95,7 @@ const prStateOf = (json: string): string | undefined => {
 };
 
 /** The number of arguments each verb takes after the verb itself. */
-const ARITY: Readonly<Record<string, number>> = { probe: 6, restart: 6, agents: 9, reload: 3, restarted: 6 };
+const ARITY: Readonly<Record<string, number>> = { probe: 6, restart: 6, agents: 11, reload: 3, restarted: 6 };
 
 /**
  * Answers one verb.
@@ -151,19 +154,19 @@ export const run = (
       return 0;
     }
     case 'agents': {
-      const pr = prStateOf(a(7));
-      const dirty = /^\d+$/.test(a(6)) ? Number(a(6)) : undefined;
+      const branch = a(4);
+      const pr = branch === '' ? 'NONE' : prStateOf(a(7));
       const decision = agentDecision(
         {
           name: a(1),
           pid: a(2),
           state: a(3),
-          branch: a(4),
+          branch,
           sliceHasMerged: pr === 'MERGED',
           openPr: pr === undefined ? undefined : pr === 'OPEN',
-          blocked: a(5) === '1',
-          dirtyFiles: dirty,
-          pidCurrent: a(8) === 'yes' ? 'yes' : a(8) === 'no' ? 'no' : 'unknown',
+          blocked: a(5) !== '',
+          dirtyFiles: /^\d+$/.test(a(6)) ? Number(a(6)) : undefined,
+          pidCurrent: a(8) === '' && a(9) === '' ? 'unknown' : a(10) === 'yes' ? 'yes' : 'no',
         },
         a(0) === '1',
       );

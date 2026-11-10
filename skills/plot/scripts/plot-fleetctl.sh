@@ -3,7 +3,7 @@
 # Usage: plot-fleetctl.sh --status
 #        plot-fleetctl.sh --once
 #        plot-fleetctl.sh --start [N] [--dry-run]
-#        plot-fleetctl.sh --restart [--dry-run] [--wait SECONDS]
+#        plot-fleetctl.sh --restart [--agents] [--dry-run] [--wait SECONDS]
 #        plot-fleetctl.sh --stop [--wait SECONDS]
 #   --status    is the supervisor alive, how many agents are running, how long
 #               each has been idle — with pids. Starts nothing. Exit 0 when the
@@ -27,6 +27,14 @@
 #               pid and the bundle's commit. Refuses wherever --start refuses,
 #               and when no unit is loaded. Fills nothing, writes no marker,
 #               starts no agent.
+#   --agents    with --restart: after the reload, stop each FREE loop and name
+#               every agent kept, with the reason. A free loop is alive and holds
+#               no slice, no open PR, no PLOT-BLOCKED marker and no uncommitted
+#               work. A desk with a branch stops through `plot-dispatch.sh --stop`;
+#               a detached desk stops by its pid, once that pid's start matches
+#               the recorded one — a recycled pid is refused, never signalled. A
+#               fact that cannot be read keeps the agent. Refuses an unattended
+#               caller (PLOT_UNATTENDED=1) before it reloads anything.
 #   --stop      stop every dispatched agent through `plot-dispatch.sh --stop`,
 #               reporting each branch as it goes, then unload the supervisor.
 #               The supervisor goes LAST — it is what would notice a desk
@@ -36,7 +44,8 @@
 #               bound the branch is reported still running and the run carries
 #               on; nothing is waited on forever.
 #   --dry-run   with --start: report what would be filled, loaded and started;
-#               with --restart: report the unit, the pid and the commit;
+#               with --restart: report the unit, the pid and the commit, and
+#               with --agents the agents it would stop and keep;
 #               write nothing, load nothing, start nothing, signal nothing.
 #               every other mode refuses it and exits 1, before it acts.
 # Output: prose for a person, one line per thing acted on. Exit 0 on success.
@@ -581,6 +590,27 @@ poll_while() {
 # Whether the agent at the desk $1 is running.
 desk_running() { [ "$(plot_worker_state "$1" | cut -f1)" = running ]; }
 
+# `--restart --agents`: one line per live agent, and a stop for each free loop.
+# THIS READS FACTS AND ACTS; `agentDecision` decides. A fact that cannot be read
+# is sent as unreadable and keeps the agent.
+agents_pass() {
+  local wt rd pid br out
+  resolve_wt_root
+  echo "agents:"
+  for wt in "$wt_root"/"$wt_prefix"*; do
+    rd=$(_plot_pid_readings "$wt"); pid=$(cut -f1 <<<"$rd"); br=$(git -C "$wt" branch --show-current 2>/dev/null)
+    [ -d "$wt" ] && [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || continue
+    out=$(node "$script_dir/board/plot-fleetctl-start.mjs" agents "$dry_run" "$(basename "$wt")" "$pid" "$(plot_worker_state "$wt" | cut -f1)" "$br" \
+      "$(ls -d "$wt"/PLOT-BLOCKED* 2>/dev/null)" "$(git -C "$wt" status --porcelain >/dev/null 2>&1 && desk_dirt "$wt" | grep -c .)" \
+      "$([ -z "$br" ] || "$script_dir/plot-host.sh" pr-state "$br" 2>/dev/null)" "$(cut -f2 <<<"$rd")" "$(cut -f3 <<<"$rd")" \
+      "$(plot_pid_is_current "$pid" "$(cut -f2 <<<"$rd")" "$(cut -f3 <<<"$rd")" && echo yes || echo no)") || out="keep	  $(basename "$wt") (pid $pid)  kept — the decision could not be asked"
+    printf '%s\n' "${out#*$'\t'}"
+    [ "${out%%$'\t'*}" = stop ] && [ "$dry_run" = 0 ] || continue
+    if [ -n "$br" ]; then "$script_dir/plot-dispatch.sh" --stop "$br" >/dev/null 2>&1 || { echo "    refused by plot-dispatch --stop — see: plot-dispatch.sh --stop $br"; continue; }; else kill "$pid"; fi
+    poll_while desk_running "$wt" && echo "    stopped" || echo "    still running after ${wait_bound}s"
+  done
+}
+
 # Unloads the job under `$LABEL`, then polls until the init system no longer
 # holds the label, bounded by `--wait`. Returns 0 once the label is gone and 1
 # while it is still loaded at the bound. Sets `unload_rc` to the unload
@@ -759,6 +789,7 @@ fi
 mode=""
 start_count=""
 dry_run=0
+agents=0
 # THIRTY SECONDS, and it is a bound rather than a deadline. A worker signalled
 # mid-prompt finishes the syscall it is in and exits; the two measured here took
 # 2.1 s and 0.4 s. The bound exists for the one that does not, so a fleet stop
@@ -783,6 +814,7 @@ while [ $# -gt 0 ]; do
               esac
               shift ;;
     --dry-run) dry_run=1 ;;
+    --agents) agents=1 ;;
     -h|--help) sed -n '2,/^# Output:/p' "$0"; exit 0 ;;
     *) echo "plot-fleetctl: unknown argument '$1'" >&2; exit 1 ;;
   esac
@@ -791,6 +823,7 @@ done
 
 [ -n "$mode" ] || { echo "plot-fleetctl: one of --status, --once, --start, --restart, --stop is required" >&2; exit 1; }
 [ "$dry_run" = 0 ] || [ "$mode" = start ] || [ "$mode" = restart ] || { echo "plot-fleetctl: --dry-run works with --start and --restart only, not --$mode; nothing was done" >&2; exit 1; }
+[ "$agents" = 0 ] || [ "$mode" = restart ] || { echo "plot-fleetctl: --agents works with --restart only, not --$mode; nothing was done" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
 # --status: processes, not work
@@ -1136,8 +1169,8 @@ if [ "$mode" = "start" ] || [ "$mode" = "restart" ]; then
   # `--restart` refuses an unloaded unit here, after the refusals it shares
   # with `--start` and before the probe, and a dry run stops here with the
   # unit, the pid and the commit (`restartPlan`).
-  [ "$mode" = start ] || node "$script_dir/board/plot-fleetctl-start.mjs" restart "$LABEL" "$plat" "$(supervisor_loaded && echo loaded)" "$(supervisor_pid)" "$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null)" "$dry_run" || exit 1
-  [ "$mode" = start ] || [ "$dry_run" = 0 ] || exit 0
+  [ "$mode" = start ] || node "$script_dir/board/plot-fleetctl-start.mjs" restart "$LABEL" "$plat" "$(supervisor_loaded && echo loaded)" "$(supervisor_pid)" "$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null)" "$dry_run" "$agents" "${PLOT_UNATTENDED:-0}" || exit 1
+  [ "$mode" = start ] || [ "$dry_run" = 0 ] || { [ "$agents" = 0 ] || agents_pass; exit 0; }
   if [ "$dry_run" = 1 ]; then
     printf "state: %s\nwould fill and load %s (%s)\n  node:      %s (major %s, pinned %s)\n  harness:   %s (on the unit's PATH after node's directory: %s)\n  fleetd:    %s\n  repo:      %s\nwould probe: node %s/board/plot-write-probe.mjs '%s'\nwould then start agents: plot-dispatch.sh --start %s\n" "$(fleet_install_state)" "$LABEL" "$plat" "$node_bin" "$have" "$want" "$harness_bin" "$harness_dir" "$fleetd" "$repo_root" "$script_dir" "$("$script_dir/plot-config.sh" get "Worker command" "" 2>/dev/null)" "${start_count:-(default)}"
     exit 0
@@ -1156,7 +1189,10 @@ if [ "$mode" = "start" ] || [ "$mode" = "restart" ]; then
     $reload
     pid_unchanged() { new_pid=$(supervisor_pid); [ "${new_pid:-$old_pid}" = "$old_pid" ]; }
     poll_while pid_unchanged
-    exec node "$script_dir/board/plot-fleetctl-start.mjs" restarted "$LABEL" "$old_pid" "$new_pid" "$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null)" "$wait_bound" "$(read_cmd)"
+    [ "$agents" = 0 ] && exec node "$script_dir/board/plot-fleetctl-start.mjs" restarted "$LABEL" "$old_pid" "$new_pid" "$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null)" "$wait_bound" "$(read_cmd)"
+    node "$script_dir/board/plot-fleetctl-start.mjs" restarted "$LABEL" "$old_pid" "$new_pid" "$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null)" "$wait_bound" "$(read_cmd)" || exit 1
+    agents_pass
+    exit 0
   fi
 
   mkdir -p "$repo_root/.plot/logs" "$repo_root/.plot/state"
