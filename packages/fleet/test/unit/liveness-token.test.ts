@@ -261,9 +261,7 @@ describe('the liveness token on real processes', { timeout: 30_000 }, () => {
     // A child of the harness inherits the token: the stray-holder bound is what ends it.
     expect(holdsToken(run.grandchild, tokenPath)).toBe(true);
     expect(holdsToken(run.other, tokenPath)).toBe(false);
-    // A LIVE WRAPPER WRITES 137 FOR A LOOP KILLED UNDER IT, and rule 1 then
-    // reads that exit record. The case the token answers is the one with no
-    // record: the wrapper gone first, then the loop alone.
+    // The wrapper gone first, then the loop alone: no exit record is written.
     process.kill(run.wrapper, 'SIGKILL');
     await until('the wrapper to end', () => (alive(run.wrapper) ? undefined : true));
     process.kill(run.agent, 'SIGKILL');
@@ -273,6 +271,22 @@ describe('the liveness token on real processes', { timeout: 30_000 }, () => {
     expect(token.read(d.desk).state).toBe('held');
     const { gathered, reading } = await readDesk(d);
     expect(gathered.readings.liveness).toBe('stray-holder');
+    expect(reading.state).toBe('running');
+    expect(RESTARTABLE).not.toContain(reading.state);
+  });
+
+  it('a loop killed alone under a live wrapper does not read dead: the wrapper records 137, the harness holds fd 3, and the desk reads running', async () => {
+    const d = makeDesk();
+    const run = await launchLoop(d);
+    process.kill(run.agent, 'SIGKILL');
+    await until('the exit record', () => readOr(path.join(d.desk, '.plot-worker.exit'))?.trim() || undefined);
+    expect(readOr(path.join(d.desk, '.plot-worker.exit'))?.trim()).toBe('137');
+    expect(alive(run.harness)).toBe(true);
+    expect(holdsToken(run.harness, path.join(d.desk, TOKEN_FILENAME))).toBe(true);
+    expect(token.read(d.desk).state).toBe('held');
+    const { gathered, reading } = await readDesk(d);
+    expect(gathered.basis).toBe('token');
+    expect(gathered.readings).toMatchObject({ liveness: 'stray-holder', exit: '137' });
     expect(reading.state).toBe('running');
     expect(RESTARTABLE).not.toContain(reading.state);
   });

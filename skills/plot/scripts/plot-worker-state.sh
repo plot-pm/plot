@@ -177,9 +177,7 @@ plot_main_checkout_of() { # $1=directory → the main checkout, or "" (non-zero)
 # so leaving the variable unset would reintroduce #1086 one layer down.
 plot_manifest_dir_for() { # $1=main checkout → prints the directory
   local root="$1" dir=''
-  if [ -x "$_plot_wstate_config" ] || [ -r "$_plot_wstate_config" ]; then
-    dir=$(PLOT_REPO_ROOT="$root" bash "$_plot_wstate_config" get "Agent registry" "" 2>/dev/null) || dir=''
-  fi
+  dir=$(PLOT_REPO_ROOT="$root" bash "$_plot_wstate_config" get "Agent registry" "" 2>/dev/null) || dir=''
   # Whitespace alone is a key nobody filled in.
   dir=$(printf '%s' "$dir" | tr -d '[:space:]')
   [ -n "$dir" ] || dir=".plot/agents"
@@ -446,14 +444,9 @@ PLOT_TOOL_SCRATCH='(^|/)\.(playwright-mcp|plot/agents|plot/state|omc/state)(/|$)
 # so this does not bite in production; it is recorded here rather than papered
 # over, because the honest state is "correct under the callers' shell, noisy
 # under a shell no caller uses" — not "identical under both".
-plot_worker_blocked() { # $1=worktree → 0 when a person owes this branch an answer
-  local wt="$1" f
-  [ -n "$wt" ] && [ -d "$wt" ] || return 1
-  for f in "$wt"/PLOT-BLOCKED*; do
-    [ -e "$f" ] && return 0
-  done
-  return 1
-}
+#
+# ONE GLOB: the answer is whether `plot_worker_blocked_file` below names a file.
+plot_worker_blocked() { plot_worker_blocked_file "$1" >/dev/null; } # $1=worktree → 0 when a person owes this branch an answer
 
 # WHICH file carries the question — the basename, for a caller that must name it.
 #
@@ -646,12 +639,7 @@ plot_worker_tree_quiet_seconds() { # $1=worktree → seconds | unreadable
   # THE SAME FILTER THE FINGERPRINT USED, for the same reason: this script's own
   # records and the monitor's findings file are not work an agent left, and a
   # raw status would make the monitor watch itself.
-  paths=''
-  if command -v plot_worker_dirty_filter >/dev/null 2>&1; then
-    paths=$(plot_worker_dirty_filter "$status")
-  else
-    paths=$(printf '%s' "$status" | cut -c4-)
-  fi
+  paths=$(plot_worker_dirty_filter "$status")
 
   # Every path to stat, one per line, absolute. Built in awk rather than a bash
   # loop so a desk holding hundreds of dirty paths costs one fork.
@@ -772,26 +760,16 @@ plot_worker_tree_quiet_seconds() { # $1=worktree → seconds | unreadable
 # question each withhold the finding, because a failure to observe is not
 # evidence of something to see.
 plot_worker_idle_now() { # $1..$7 as above → idle | silent
-  local pid="$1" spoken="$2" silence="$3" activity="$4" tree="$5" commits="$6" window="$7"
-
-  [ "$pid" = 'alive' ]  || { printf 'silent'; return 0; }
-  [ "$spoken" = '1' ]   || { printf 'silent'; return 0; }
-
+  local pid="$1" spoken="$2" silence="$3" activity="$4" tree="$5" commits="$6" window="$7" num='^[0-9]+$'
   # A non-numeric duration is a reading that was not taken. `unavailable`,
-  # `unreadable` and an empty string all land here, and so would a filesystem
+  # `unreadable` and an empty string answer `silent`, and so would a filesystem
   # report that slipped past the validation above.
-  case "$window"  in ''|*[!0-9]*) printf 'silent'; return 0 ;; esac
-  case "$silence" in ''|*[!0-9]*) printf 'silent'; return 0 ;; esac
-  [ "$silence" -ge "$window" ] || { printf 'silent'; return 0; }
-
-  [ "$activity" = 'working' ] && { printf 'silent'; return 0; }
-
-  case "$tree" in ''|*[!0-9]*) printf 'silent'; return 0 ;; esac
-  [ "$tree" -ge "$window" ] || { printf 'silent'; return 0; }
-
-  [ "$commits" = 'yes' ] || { printf 'silent'; return 0; }
-  printf 'idle'
-  return 0
+  if [ "$pid" = 'alive' ] && [ "$spoken" = '1' ] && [[ "$window" =~ $num && "$silence" =~ $num && "$tree" =~ $num ]] \
+    && [ "$silence" -ge "$window" ] && [ "$activity" != 'working' ] && [ "$tree" -ge "$window" ] && [ "$commits" = 'yes' ]; then
+    printf 'idle'
+  else
+    printf 'silent'
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -839,8 +817,7 @@ plot_worker_has_commits() { # $1=worktree → 0 yes | 1 no | 2 unanswerable
   # empty marker of its own is correctly not counted as work either.
   n=$(git -C "$wt" rev-list --count "$base..HEAD" -- . 2>/dev/null) || return 2
   case "$n" in ''|*[!0-9]*) return 2 ;; esac
-  [ "$n" -gt 0 ] && return 0
-  return 1
+  [ "$n" -gt 0 ]
 }
 
 # The total CPU time, in centiseconds, of a pid and every process descended from
@@ -1172,6 +1149,24 @@ plot_worker_waits_free() { # $1=worktree $2=pid → 0 when the record names $2
 # line per desk (`board/plot-desk-loop.mjs`). Asked once per operator command.
 plot_desk_loops() { PLOT_MANIFEST_DIR="${PLOT_MANIFEST_DIR:-}" node "${_plot_wstate_config%/*}/board/plot-desk-loop.mjs" "$@"; }
 
+# A held liveness token outranks an exit record of 128 or more → 0 when it does.
+#
+# `workerLiveness`'s order, held to it by `worker-readings.corpus.test.ts`: a
+# wrapper whose loop was killed records 128 plus the signal while the harness
+# the loop started still holds the token. The desk reads `stray-holder` until
+# `Worker bound` from `startedAt`; a code below 128 keeps its exit arm. Perl
+# reads the token as `livenessTokenFifo` does: an `lstat` FIFO opened
+# `O_RDONLY | O_NONBLOCK` is held on `EAGAIN` and released on end-of-file.
+_plot_stray_holder() { # $1=worktree $2=exit code $3=startedAt (ISO-8601, optional)
+  local bound="${PLOT_WORKER_BOUND:-}" started
+  [[ "$2" =~ ^[0-9]+$ ]] && [ "$2" -ge 128 ] || return 1
+  perl -MFcntl -e 'lstat($ARGV[0]) && -p _ && sysopen(F, $ARGV[0], O_RDONLY | O_NONBLOCK) or exit 2; exit(defined(sysread(F, $b, 1)) ? 1 : $!{EAGAIN} ? 0 : 2)' "$1/.plot-worker.token.fifo" 2>/dev/null || return 1
+  [ -n "$3" ] && started=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$3" +%s 2>/dev/null || date -d "$3" +%s 2>/dev/null) || return 0
+  [[ "$bound" =~ ^[0-9]+$ ]] || bound=$(PLOT_REPO_ROOT="$(plot_main_checkout_of "$1")" bash "$_plot_wstate_config" get "Worker bound" "" 2>/dev/null)
+  [[ "$bound" =~ ^[0-9]+$ ]] || bound=28800
+  [ "$bound" -eq 0 ] || [ $(($(date +%s) - started)) -lt "$bound" ]
+}
+
 # Classify the worker in a worktree.
 #
 # $1 = worktree path
@@ -1361,7 +1356,8 @@ plot_worker_state() { # $1=worktree $2=pr-fact → "state\tpid\tcode"
       # `failed` — the guess in the other direction, calling a genuine crash
       # finished, is the one this must never make. A PR is the fact that
       # licenses it, because a PR means the work reached a reviewer.
-      *)           if [ "$has_pr" = pr ]; then
+      *)           _plot_stray_holder "$wt" "$code" "$started_at" && { printf 'running\t%s\t' "$pid"; return; }
+                   if [ "$has_pr" = pr ]; then
                      printf '%s\t%s\t%s' "$(plot_worker_task_state "$wt" "$has_pr")" "$pid" "$code"
                    else
                      printf 'failed\t%s\t%s' "$pid" "$code"
@@ -1399,7 +1395,8 @@ plot_worker_state() { # $1=worktree $2=pr-fact → "state\tpid\tcode"
 #
 #   worktree_here  pid_recorded  liveness  exit  blocked  dirty  unpushed  free_wait
 #
-# `liveness` is `live`, `stale`, `orphaned` or `dead` — `orphaned` being a pid
+# `liveness` is `live`, `stale`, `orphaned`, `stray-holder` or `dead` — `stray-holder`
+# being a dead pid whose exit record yields to a held token, `orphaned` being a pid
 # that answers with no agent process under it, which is a live wrapper whose
 # agent has gone; `exit` is the code as read, empty for
 # an unreadable record and the literal `-` for an absent one, because an empty
@@ -1471,6 +1468,7 @@ plot_worker_readings() { # $1=worktree → "here\tpid\tliveness\texit\tblocked\t
   if [ -f "$wt/.plot-worker.exit" ]; then
     exit_field=$(cat "$wt/.plot-worker.exit" 2>/dev/null | tr -d ' \n')
   fi
+  [ "$liveness$pid_recorded" = dead1 ] && _plot_stray_holder "$wt" "$exit_field" "$started_at" && liveness=stray-holder
 
   plot_worker_blocked "$wt" && blocked=1 || blocked=0
   [ -n "$(plot_worker_dirty "$wt")" ] && dirty=1 || dirty=0

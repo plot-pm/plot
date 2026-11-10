@@ -14,6 +14,7 @@ const released: TokenReading = { state: 'released', madeAtMs: MADE };
 
 const desk = (over: Partial<LivenessReadings> = {}): LivenessReadings => ({
   exitAtMs: null,
+  exitCode: null,
   token: held,
   pidAnswers: true,
   startedAtMs: MADE,
@@ -31,6 +32,21 @@ describe('workerLiveness', () => {
   it('lets an exit record not older than the token win over a held token', () => {
     expect(workerLiveness(desk({ exitAtMs: MADE }))).toEqual({ basis: 'token', liveness: 'exited', exitCurrent: true });
     expect(workerLiveness(desk({ exitAtMs: MADE + 5 }))).toMatchObject({ liveness: 'exited' });
+  });
+
+  it('lets a held token outrank a current exit record of a signal death', () => {
+    const killed = { exitAtMs: MADE + 5, exitCode: 137 };
+    expect(workerLiveness(desk(killed))).toEqual({ basis: 'token', liveness: 'live', exitCurrent: true });
+    expect(workerLiveness(desk({ ...killed, pidAnswers: false }))).toEqual({ basis: 'token', liveness: 'stray-holder', exitCurrent: true });
+    expect(workerLiveness(desk({ ...killed, exitCode: 143, pidAnswers: false }))).toMatchObject({ liveness: 'stray-holder' });
+    expect(workerLiveness(desk({ ...killed, exitCode: 128, pidAnswers: false }))).toMatchObject({ liveness: 'stray-holder' });
+    expect(workerLiveness(desk({ ...killed, pidAnswers: false, nowMs: MADE + BOUND }))).toEqual({ basis: 'token', liveness: 'dead', exitCurrent: true });
+  });
+
+  it('keeps exited for a held token beside a current exit record below 128, and for a released token beside a signal death', () => {
+    expect(workerLiveness(desk({ exitAtMs: MADE + 5, exitCode: 0 }))).toMatchObject({ liveness: 'exited' });
+    expect(workerLiveness(desk({ exitAtMs: MADE + 5, exitCode: 127, pidAnswers: false }))).toMatchObject({ liveness: 'exited' });
+    expect(workerLiveness(desk({ exitAtMs: MADE + 5, exitCode: 137, token: released }))).toEqual({ basis: 'token', liveness: 'exited', exitCurrent: true });
   });
 
   it('ignores an exit record older than the token', () => {
