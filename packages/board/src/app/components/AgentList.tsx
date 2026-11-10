@@ -1165,6 +1165,7 @@ export function AgentList({
                   onStarting={onStarting}
                   groupedCount={!start && many ? wg.rows.length : undefined}
                   groupedWord={!start ? wg.verdict ?? undefined : undefined}
+                  soleRow={!start && !many ? wg.rows[0] : undefined}
                   implement={start ? undefined : implement}
                   continueWith={start ? undefined : continueWith}
                   restartWith={start ? undefined : restartWith}
@@ -1175,7 +1176,7 @@ export function AgentList({
                   onExpandSection={expandSection}
                   planIndex={planIndex}
                 />
-                {(many ? sliceOpen : !start) && (
+                {many && sliceOpen && (
                   <ul
                     role="presentation"
                     data-slice-branch-list={wg.wave || '(unnamed)'}

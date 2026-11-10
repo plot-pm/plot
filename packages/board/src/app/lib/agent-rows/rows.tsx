@@ -1264,6 +1264,8 @@ export function SliceRow({
       }, planIndex)}
       rowAttr={{
         'data-slice-row': group.wave || UNNAMED_SLICE,
+        // A slice of one branch is the only row that branch gets, so it is an agent row too.
+        ...(soleRow ? { 'data-agent-row': '' } : {}),
         // A SPIKE says so as an attribute too, so a test asserts the KIND of slice
         // rather than the colour of a glyph.
         ...(isSpikeSlice(group.wave) ? { 'data-slice-spike': '' } : {}),
