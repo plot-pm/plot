@@ -43,7 +43,7 @@ vi.mock('node:child_process', async (importOriginal) => {
 
 import { boardAnswer } from '../../src/server/controllers/board-answer.js';
 import { realEstate } from '../../src/server/estate.js';
-import { boardInputsToServe, ensureCache, pauseFleetRefresh, stopFleetRefresh } from '../../src/server/fleet.js';
+import { boardInputsToServe, ensureCache, pauseFleetRefresh, planMetasAtDefault, stopFleetRefresh } from '../../src/server/fleet.js';
 import type { BuildBoardOptions } from '../../src/server/board.js';
 import { removeTree } from '../rm-tree.mjs';
 import { buildSandbox, type Sandbox } from '../../../fleet/test/census/sandbox.js';
@@ -338,6 +338,22 @@ describe.each([
     const { own, served } = await bothPaths(opts, snapshot);
     expect(cardsOf(own).length).toBeGreaterThan(0);
     expect(differences(own, served)).toEqual([]);
+  }, 120_000);
+
+  it('a request on snapshot leaves the PR beat\'s plan reads cached', async () => {
+    const box = await buildSandbox(fixture);
+    boxes.push(box);
+    for (const [key, value] of Object.entries(box.env)) if (process.env[key] !== value) setEnv(key, value);
+    const opts = optsFor(box.repo, box.scriptsDir);
+    const snapshot = await servedSnapshotOf(box.repo, box.scriptsDir);
+    const entries = snapshot.readings.refs.state === 'read' ? snapshot.readings.refs.value.entries : [];
+    // THE PR BEAT on `snapshot` reads the plans at the snapshot's refs (`readIssuesFromStore`).
+    expect(await planMetasAtDefault(opts, ensureCache(opts), entries)).not.toBeNull();
+    await bothPaths(opts, snapshot);
+    await quiet();
+    starts.lines.length = 0;
+    await planMetasAtDefault(opts, ensureCache(opts), entries);
+    expect(starts.lines).toEqual([]);
   }, 120_000);
 });
 

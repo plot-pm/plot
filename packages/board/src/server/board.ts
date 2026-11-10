@@ -2762,11 +2762,11 @@ const readServedEstate = async (
  * @returns the board, in the shape `buildBoard` returns.
  */
 export const buildBoardFrom = async (opts: BuildBoardOptions, served: BoardInputs): Promise<Board> => {
+  // NO `begin`/`sweep`: this build reads few cached entries, and a sweep after
+  // it would drop the parses and listings the PR beat's `planMetasAtDefault`
+  // holds in the same cache, so the next beat would read and parse them again.
   const held = await heldRefsFor(opts, served.refs);
-  held.cache?.begin();
-  const board = await buildBoardOver(opts, servedRefs(held.refs, served.refs), served);
-  held.cache?.sweep();
-  return board;
+  return buildBoardOver(opts, servedRefs(held.refs, served.refs), served);
 };
 
 async function buildBoardOver(opts: BuildBoardOptions, refs: Refs, served?: BoardInputs): Promise<Board> {
