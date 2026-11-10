@@ -54,7 +54,7 @@ Depends on plan 1 (Placement), which decides the section of every work item and 
 
 ### Row forms
 
-- `feature/rows-share-seven-columns-and-link` <!-- waits: feature/delivery-tab-sections --> — domain row forms and link targets for work-item and agent rows, the seven-column rendering with the details popover, the auto switches in the Fleet header, and removal of the replaced row code from `rows.tsx`
+- `feature/rows-share-seven-columns-and-link` <!-- waits: feature/delivery-tab-sections --> — domain row forms and link targets for work-item and agent rows, the seven-column rendering with the details popover, the auto switches in the Fleet header, and removal of the replaced row code from `rows.tsx` → #3393
 
 ## Notes
 
