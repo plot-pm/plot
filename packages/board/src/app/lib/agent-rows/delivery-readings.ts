@@ -7,10 +7,13 @@ import {
   type DeliveryReadings,
   type MineMode,
   type Ownership,
+  releaseTargets,
+  type ReleaseTarget,
+  type ReleaseTicketReading,
   type Reader,
   type WorkItemReading,
 } from '@plot-pm/domain';
-import type { AgentEntry, AgentRow, DraftPlan, Slice } from '../../../contract/schema.js';
+import type { AgentEntry, AgentRow, DraftPlan, ReleaseTickets, Slice } from '../../../contract/schema.js';
 import { ownedFromCard, ownedFromRow } from './mine-filter.js';
 import { sliceKeyOf } from './sections.js';
 import { SLICE_LINKING_KINDS } from './slices.js';
@@ -32,6 +35,10 @@ export interface DeliveryMapInput {
   reader: Reader;
   mode: MineMode;
   config: DeliveryConfig;
+  /** The Active sprints' `Release:` and `Start:` values; absent reads as no target release. */
+  sprints?: readonly ReleaseTarget[];
+  /** The issue index's `releases`, from `Fleet.releaseTickets`; absent or null reads as no ticket count. */
+  releaseTickets?: ReleaseTickets | null | undefined;
 }
 
 /** What `placeDelivery` reads, and the payload rows each subject id stands for. */
@@ -44,6 +51,8 @@ export interface DeliveryMapping {
   draftsByItem: Record<string, DraftPlan>;
   /** Agent id → the registry entry. */
   agentsById: Record<string, RegistryAgent>;
+  /** One entry per distinct target release, and the tickets the release line counts for them. */
+  releases: { targets: ReleaseTarget[]; tickets: ReleaseTicketReading | null };
 }
 
 /** The domain index exports a different `PrReading` from `branch-state`; this names the placement rule's. */
@@ -227,5 +236,9 @@ export const deliveryMapping = (input: DeliveryMapInput): DeliveryMapping => {
     rowsByItem,
     draftsByItem,
     agentsById,
+    releases: {
+      targets: releaseTargets(input.sprints ?? []),
+      tickets: input.releaseTickets == null ? null : input.releaseTickets,
+    },
   };
 };

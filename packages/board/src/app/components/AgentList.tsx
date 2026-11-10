@@ -1074,6 +1074,8 @@ export function AgentList({
           reader,
           mode,
           config: { autoReview: fleet.autoReview, correctionBudget: fleet.correctionBudget },
+          sprints: (fleet.sprints ?? []).map((s) => ({ release: s.release, started: s.start ?? '' })),
+          releaseTickets: fleet.releaseTickets,
         });
         const view = placeMapping(mapping, fleet.slices);
         const slices = fleet.slices;
@@ -1326,9 +1328,9 @@ export function AgentList({
               return (
                 <section key={section.key} data-section={section.key} className="space-y-2">
                   {header}
-                  {section.key === 'release-delivery' && (
-                    <p data-release-line className="px-3 text-sm text-slate-600 dark:text-slate-300">{view.releaseLine}</p>
-                  )}
+                  {section.key === 'release-delivery' && view.releaseLines.map((line) => (
+                    <p key={line} data-release-line className="px-3 text-sm text-slate-600 dark:text-slate-300">{line}</p>
+                  ))}
                   {release && !folded && view.deliveredBlocks.length > 0 && (
                     <ul
                       role="grid"

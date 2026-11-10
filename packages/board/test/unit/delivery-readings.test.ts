@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { placeDelivery } from '@plot-pm/domain';
+import { placeMapping } from '../../src/app/lib/agent-rows/delivery-view.js';
 import type { AgentRow, Slice } from '../../src/contract/schema.js';
 import {
   deliveryMapping,
@@ -162,5 +163,39 @@ describe('deliveryMapping PR checks', () => {
 
   it('reads a host that cannot report as unread', () => {
     expect(ciOf('unknown')).toBe('unread');
+  });
+});
+
+describe('release lines', () => {
+  const tickets = {
+    open: [{ releases: ['2.32.0'] }, { releases: [] }, {}],
+    closed: [{ releases: ['2.32.0'] }],
+    closedComplete: true,
+    closedSince: '2026-10-27T00:00:00Z',
+  };
+  const lines = (over: Partial<DeliveryMapInput>) => placeMapping(deliveryMapping(input(over))).releaseLines;
+
+  it('gives one line per distinct target release, with the ticket counts', () => {
+    const out = lines({
+      releaseTickets: tickets,
+      sprints: [
+        { release: '2.32.0', started: '2026-11-03' },
+        { release: '2.33.0', started: '2026-11-10' },
+        { release: '2.32.0', started: '2026-11-04' },
+      ],
+    });
+    expect(out).toHaveLength(2);
+    expect(out[0]).toBe('0 of 0 slices delivered · 0 held at gates · 0 blocked · 2.32.0 tickets: closed 1 · planned 1 · untriaged 1');
+    expect(out[1]).toContain('2.33.0 tickets: closed 0 · planned 0 · untriaged 1');
+  });
+
+  it('keeps the slice counts alone where no sprint names a release', () => {
+    expect(lines({ releaseTickets: tickets, sprints: [{ release: '', started: '' }] }))
+      .toEqual(['0 of 0 slices delivered · 0 held at gates · 0 blocked']);
+  });
+
+  it('keeps the slice counts alone where the index is missing', () => {
+    expect(lines({ releaseTickets: null, sprints: [{ release: '2.32.0', started: '' }] }))
+      .toEqual(['0 of 0 slices delivered · 0 held at gates · 0 blocked']);
   });
 });
