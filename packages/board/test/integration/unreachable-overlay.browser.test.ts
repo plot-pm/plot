@@ -306,7 +306,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
     });
     await page.goto(tab === 'agents' ? `${baseURL}?tab=agents` : baseURL);
     // Wait for real content, so there is a payload to degrade FROM.
-    if (tab === 'agents') await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    if (tab === 'agents') await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     else await page.getByText(CARD).waitFor({ timeout: 10_000 });
     // AFTER the branch, not inside it: a line inserted between `if` and `else`
     // is a parse error, and this file carried one — the whole suite failed to
@@ -318,7 +318,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       await page.getByRole('button', { name: 'Planning' }).click();
       await page.getByText(CARD).waitFor({ timeout: 10_000 });
       await page.getByRole('button', { name: 'Delivery' }).click();
-      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     }
     return { page, set: (m: Mode) => { mode = m; } };

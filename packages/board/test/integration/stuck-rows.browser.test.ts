@@ -200,7 +200,7 @@ describe('a stuck branch says so in its row', () => {
       await real.route('**/api/fleet', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
       await real.goto(`${opts.url}?tab=agents`);
-      await real.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await real.locator('[data-delivery-section]').first().waitFor({ timeout: 10_000 });
       await expandAgentFolds(real);
       return real;
     }
@@ -209,7 +209,7 @@ describe('a stuck branch says so in its row', () => {
       over: { fleet: payload },
       ...(opts.reducedMotion ? { reducedMotion: 'reduce' as const } : {}),
     });
-    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section]').first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;
   }

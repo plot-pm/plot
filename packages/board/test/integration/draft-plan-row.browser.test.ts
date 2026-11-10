@@ -4,7 +4,7 @@ import { openCatalogue, scenario, fleet as buildFleet, type Catalogue } from '..
 import { DRAFT_PLAN_NOTE, type Fleet } from '../../src/contract/schema.js';
 
 /**
- * A Draft plan with no branch is SEEN in WAITING ON YOU — the browser half of
+ * A Draft plan with no branch is SEEN in You › Input to the fleet — the browser half of
  * `a-draft-plan-asks-for-a-decision`. The row rule is asserted in
  * `test/unit/draft-plan-row.test.ts`; this proves the shipped artifact renders it.
  */
@@ -35,9 +35,9 @@ describe('a Draft plan asks for a decision (real browser renders the shipped art
   it('renders one row per branchless Draft plan, naming its rounds and the note', async () => {
     const page = await cat.open('ten-rows-one-kind-each', { tab: 'agents', over: { fleet: withDrafts() } });
     try {
-      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
       await expandAgentFolds(page);
-      const section = page.locator('section', { has: page.getByRole('heading', { level: 2, name: /Waiting on you/ }) });
+      const section = page.locator('[data-group="input-to-the-fleet"]');
 
       const zucchini = section.locator('[data-draft-plan-row="zucchini-glut"]');
       const beans = section.locator('[data-draft-plan-row="bean-trellis"]');

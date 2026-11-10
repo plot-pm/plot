@@ -68,7 +68,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
   } as Fleet;
 }
 
-describe('an unplanned issue appears in WAITING ON YOU', () => {
+describe('an unplanned issue appears in the ticket list', () => {
   // THE STATE IS SERVED, NOT SPAWNED AND STUBBED.
   //
   // This file started `board-server.mjs` over the tiny-garden fixture only to
@@ -91,24 +91,25 @@ describe('an unplanned issue appears in WAITING ON YOU', () => {
       over: { fleet: payload },
       viewport: { width: 1400, height: 1200 },
     });
-    await page.getByText('Waiting on you').first().waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;
   }
 
-  const section = (page: Page) => page.locator('ul[role="grid"][aria-label^="Waiting on you"]');
+  // Tickets render in the Delivery tab's trailing list outside the placement rule.
+  const section = (page: Page) => page.locator('ul[role="grid"][aria-label="Tickets and plan runs"]');
   const issueRow = (page: Page, n: string | number) =>
     section(page).locator(`li[data-issue-row="${n}"]`);
 
-  it('shows an issue no plan references, beside the branch rows', async () => {
+  it('shows an issue no plan references, and leaves the branch rows in place', async () => {
     const page = await open();
     try {
       await expect.poll(() => issueRow(page, 228).count()).toBe(1);
       await expect.poll(() => issueRow(page, 227).count()).toBe(1);
-      // The branch row is untouched — issues are added to the section, not
-      // substituted for it.
+      // The branch row is untouched — issues are added to the tab, not
+      // substituted for it. Its open green PR places it under Work items › At a gate.
       await expect.poll(() =>
-        section(page).locator('[data-branch="feature/needs-review"]').count()).toBe(1);
+        page.locator('[data-group="at-a-gate"] [data-branch="feature/needs-review"]').count()).toBe(1);
     } finally {
       await page.close();
     }

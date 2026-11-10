@@ -148,7 +148,7 @@ describe('the plan head carries the plan decisions, and no row does', () => {
       tab: 'agents',
       viewport: { width: 1400, height: 1200 },
     });
-    await page.getByText('Waiting on you').first().waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;
   }
@@ -233,13 +233,14 @@ describe('the plan head carries the plan decisions, and no row does', () => {
     }
   });
 
-  it('keeps Open/Review on a WAITING ON YOU branch row — the menu is not emptied', async () => {
+  it('keeps Open/Review on a Draft plan\'s branch row — the menu is not emptied', async () => {
     // The other branch-level act the deletion must leave alone. `feature/beans-w1`
-    // sits in WAITING ON YOU with an address, so its menu offers Open (navigation
-    // to the branch on the host) — and still no plan act.
+    // belongs to the Draft plan and carries an address, so its menu offers Open
+    // (navigation to the branch on the host) — and still no plan act. The
+    // Delivery tab renders it through `Row`, as a branch row, not as a slice row.
     const page = await open();
     try {
-      const w1 = page.locator('li[data-slice-row]')
+      const w1 = page.locator('li[data-agent-row]')
         .filter({ has: page.locator('[data-branch="feature/beans-w1"]') });
       const menuBtn = w1.locator('[data-row-actions]');
       await menuBtn.waitFor({ timeout: 10_000 });

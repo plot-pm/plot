@@ -15,8 +15,9 @@ import { type AgentRow, type Fleet, type FleetSprint, type IssueRow } from '../.
  * chip-row` replaced the per-sprint checkbox (`data-sprint-toggle="<slug>"`)
  * this file drove with `[data-chip="This sprint"]`. The exempt/member marking
  * this file exists to test is unchanged by that rewrite — `rows.tsx`'s
- * `data-sprint-exempt` and `AgentList.tsx`'s per-section `hiddenSuffix` /
- * `data-sprint-unfiltered` are untouched — so only the toggle locator moved.
+ * `data-sprint-exempt` is untouched — so only the toggle locator moved. The
+ * Delivery tab sections removed the per-section `hiddenSuffix` and
+ * `data-sprint-unfiltered` that the last two tests assert.
  * One test did not survive: the old control rendered a tab-wide
  * `data-sprint-hidden` / `data-sprint-exempt-count` total on a single
  * unkeyed `[data-sprint-report]`, and the new `DeliveryFilters` renders that
@@ -109,18 +110,21 @@ describe('a sprint view says what it hid', () => {
         }),
       },
     });
-    await page.getByText('Waiting on you').first().waitFor({ timeout: 15_000 });
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 15_000 });
     await reveal(page);
     return page;
   }
 
-  async function reveal(page: Page): Promise<void> {
-    const toggle = page.locator('[data-group-toggle="waiting-on-you"]');
-    if (await toggle.count() > 0 && (await toggle.getAttribute('aria-expanded')) === 'false') {
-      await toggle.click();
+  // The PR rows land under Work items › At a gate, and `loose/ref` under Work items › Queued.
+  const reveal = async (page: Page): Promise<void> => {
+    for (const key of ['work-items', 'at-a-gate', 'queued']) {
+      const toggle = page.locator(`[data-group-toggle="${key}"]`);
+      if (await toggle.count() > 0 && (await toggle.getAttribute('aria-expanded')) === 'false') {
+        await toggle.click();
+      }
     }
     await expandAgentFolds(page);
-  }
+  };
 
   const branches = async (page: Page): Promise<string[]> =>
     page.locator('[data-agent-row][data-branch], [data-agent-row] [data-branch]').evaluateAll((els) =>

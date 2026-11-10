@@ -68,11 +68,14 @@ describe('NOT STARTED draws no plan head for rows no plan names', () => {
       over: { fleet: fleet() },
       viewport: { width: 1400, height: 1200 },
     });
-    await page.getByText('Not started').first().waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="work-items"]').waitFor({ timeout: 10_000 });
     return page;
   };
 
   const section = (page: Page) => page.locator('ul[role="grid"][aria-label^="Not started"]');
+  // A plan-less `wip` branch that no running agent holds is a work item the
+  // placement rule puts in Work items › Queued.
+  const queued = (page: Page) => page.locator('ul[role="grid"][aria-label^="Queued"]');
 
   it('renders no nameless plan head or plan group', async () => {
     const page = await open();
@@ -91,7 +94,7 @@ describe('NOT STARTED draws no plan head for rows no plan names', () => {
     try {
       for (const branch of ['bug/nobody-planned-this', 'bug/nor-this']) {
         await expect.poll(() =>
-          section(page).locator(`[data-branch="${branch}"]`).count(), { timeout: 5_000 }).toBe(1);
+          queued(page).locator(`[data-branch="${branch}"]`).count(), { timeout: 5_000 }).toBe(1);
       }
     } finally {
       await page.close();

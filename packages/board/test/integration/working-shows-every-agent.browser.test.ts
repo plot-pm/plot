@@ -46,21 +46,24 @@ const agent = (over: Partial<AgentEntry> = {}): AgentEntry => ({
 });
 
 /**
- * A pulse whose REGISTRY names workers in every state — the branch rows in
- * WORKING are fewer, and three of the seven entries have ended.
+ * A pulse whose REGISTRY names workers in every state — the branch rows are
+ * fewer, and three of the seven entries have ended.
  *
- * LIVE — must render in WORKING:
- * - `feature/running` — a plain WORKING branch, a worker on it.
- * - `feature/landed` — MERGED: its branch row sits in DONE, and its live worker
- *   must still show in WORKING. The join survives the filter.
+ * LIVE AND ACTING ON AN ITEM — must render in Fleet › Working:
+ * - `feature/running` — a plain branch, a worker on it.
+ * - `feature/landed` — MERGED: its branch row still renders, because its slice
+ *   holds the unmerged `feature/running`, and its live worker must still show
+ *   in Working. The join survives the filter.
  * - `main` — no branch row anywhere; the board is served from it.
+ *
+ * LIVE AND WAITING ON A PERSON — renders in Fleet › Blocked:
  * - `idea/recut-a` — a scratch branch no plan lists, no row; state `waiting`,
  *   which is live: a worker mid-task that stopped to ask.
  *
- * ENDED — must NOT render in WORKING:
- * - `idea/recut-b` — `stalled`, work on the floor: belongs in WAITING ON YOU.
- * - `idea/recut-c` — `finished`: the PR carries it, no row of its own.
- * - `idea/recut-d` — `unknown`: the board cannot say; belongs in WAITING ON YOU.
+ * ENDED — must NOT render in Working:
+ * - `idea/recut-b` — `stalled`, work on the floor: Fleet › Blocked.
+ * - `idea/recut-c` — `finished`: Fleet › Blocked, a stopped agent that names a branch.
+ * - `idea/recut-d` — `unknown`: no process reading, so it is not placed.
  */
 function fleet(over: Partial<Fleet> = {}): Fleet {
   const rows: AgentRow[] = [
@@ -115,20 +118,26 @@ describe('WORKING renders one row per LIVE registry entry', () => {
     return page;
   }
 
-  /** The section for one waiting-group, by its heading text. */
-  const group = (page: Page, label: string) =>
-    page.locator('section').filter({
-      has: page.getByRole('heading', { level: 2, name: new RegExp(label) }),
-    });
+  /** One group of the Delivery tab, by its key. */
+  const group = (page: Page, key: string) => page.locator(`[data-group="${key}"]`);
+
+  /** Unfold a group that starts collapsed, so its rows can be read. */
+  const expand = async (page: Page, key: string) => {
+    const toggle = page.locator(`[data-group-toggle="${key}"]`);
+    await toggle.waitFor({ timeout: 10_000 });
+    if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+  };
 
   it('renders a row for every LIVE registry entry and none of the ended ones', async () => {
     // Done when #1: seven entries, four live (`running`×3 + `waiting`), three
-    // ended (`stalled`, `finished`, `unknown`). WORKING renders the four and no
-    // more. Every agent row carries `data-agent-row`.
+    // ended (`stalled`, `finished`, `unknown`). Working renders the three
+    // `running` entries and no more: the `waiting` one waits on a person, so
+    // the placement rule puts it under Fleet › Blocked. Every agent row
+    // carries `data-agent-row`.
     const page = await openAgents();
     try {
-      await expect.poll(() => group(page, 'Working').locator('[data-agent-row]').count())
-        .toBe(4);
+      await expect.poll(() => group(page, 'working').locator('[data-agent-row]').count())
+        .toBe(3);
     } finally {
       await page.close();
     }
@@ -137,31 +146,31 @@ describe('WORKING renders one row per LIVE registry entry', () => {
   it('renders a live worker whose branch has no row anywhere', async () => {
     // The `main` worker and the `idea/recut-a` scratch branch (state `waiting`,
     // live) have no pulse row at all. A branch-join fix silently misses exactly
-    // these.
+    // these. `idea/recut-a` waits on a person, so it renders under Blocked.
     const page = await openAgents();
     try {
-      const working = group(page, 'Working');
+      const working = group(page, 'working');
       await expect.poll(() => working.locator('[data-branch="main"]').count()).toBe(1);
-      await expect.poll(() => working.locator('[data-branch="idea/recut-a"]').count()).toBe(1);
+      await expect.poll(() =>
+        group(page, 'blocked').locator('[data-branch="idea/recut-a"]').count()).toBe(1);
     } finally {
       await page.close();
     }
   });
 
-  it('renders a merged live worker in WORKING while its branch keeps its DONE row', async () => {
-    // Both are true and asserted together. `feature/landed` merged, so its
-    // branch row is in DONE — a fact about the work — and its running worker is
-    // in WORKING — a fact about the fleet. The filter passes it because the
-    // worker is `running`, and the join is not rewritten.
+  it('renders a merged live worker in WORKING while its branch keeps its own row', async () => {
+    // Both are true and asserted together. `feature/landed` merged, and its
+    // branch row still renders with its slice — a fact about the work — and its
+    // running worker is in Working — a fact about the fleet. The filter passes
+    // it because the worker is `running`, and the join is not rewritten.
+    //
+    // The slice's rows land in Work items › Being built: a live agent acts on it.
     const page = await openAgents();
     try {
-      const working = group(page, 'Working');
-      const done = group(page, 'Done');
+      const working = group(page, 'working');
+      const own = group(page, 'being-built');
       await expect.poll(() => working.locator('[data-branch="feature/landed"]').count()).toBe(1);
-      // DONE starts folded; open it and the branch's own row is still there.
-      const toggle = page.locator('[data-group-toggle="done"]');
-      if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
-      await expect.poll(() => done.locator('[data-branch="feature/landed"]').count())
+      await expect.poll(() => own.locator('[data-branch="feature/landed"]').count())
         .toBeGreaterThan(0);
     } finally {
       await page.close();
@@ -188,13 +197,15 @@ describe('WORKING renders one row per LIVE registry entry', () => {
     ];
     const page = await openAgents(payload);
     try {
-      const working = group(page, 'Working');
-      // The four live entries above, plus this one. A between-slices agent is
-      // counted by the same filter as any other live worker.
-      await expect.poll(() => working.locator('[data-agent-row]').count()).toBe(5);
+      // An agent holding no item renders under Fleet › Free agents, which
+      // starts collapsed. Working keeps the three `running` entries above.
+      await expect.poll(() => group(page, 'working').locator('[data-agent-row]').count()).toBe(3);
+      await expand(page, 'free');
+      const free = group(page, 'free');
+      await expect.poll(() => free.locator('[data-agent-row]').count()).toBe(1);
       // And it is discoverable by its own identity rather than by a branch it
       // does not have — the session is what names an agent holding no branch.
-      await expect.poll(() => working.getByText(/btwn0008/).count()).toBeGreaterThan(0);
+      await expect.poll(() => free.getByText(/btwn0008/).count()).toBeGreaterThan(0);
     } finally {
       await page.close();
     }
@@ -207,7 +218,7 @@ describe('WORKING renders one row per LIVE registry entry', () => {
     // other waves; here we only assert they have left WORKING.
     const page = await openAgents();
     try {
-      const working = group(page, 'Working');
+      const working = group(page, 'working');
       await expect.poll(() => working.locator('[data-branch="idea/recut-b"]').count()).toBe(0);
       await expect.poll(() => working.locator('[data-branch="idea/recut-c"]').count()).toBe(0);
       await expect.poll(() => working.locator('[data-branch="idea/recut-d"]').count()).toBe(0);
@@ -223,7 +234,7 @@ describe('WORKING renders one row per LIVE registry entry', () => {
     // described nothing — so the running worker now reads the state word itself.
     const page = await openAgents();
     try {
-      const working = group(page, 'Working');
+      const working = group(page, 'working');
       const rowText = (branch: string) =>
         working.locator('li').filter({ has: page.locator(`[data-branch="${branch}"]`) })
           .last().textContent();

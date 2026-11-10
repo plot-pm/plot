@@ -95,7 +95,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await cat.open('ten-rows-one-kind-each', {
       tab: 'agents', over: { fleet: payload },
     });
-    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     await expandPlans(page);
     return page;
@@ -112,7 +112,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await cat.open('ten-rows-one-kind-each', {
       tab: 'agents', over: { fleet: payload }, reducedMotion: 'reduce',
     });
-    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     await expandPlans(page);
     return page;
@@ -136,12 +136,13 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
    */
   async function openAgentsWithBoard(payload: Fleet = fleet()): Promise<Page> {
     const page = await openAgents(payload);
-    // The cards have LANDED when the plan's action menu exists. `PlanActions` is
-    // gated on the card, so its presence is exactly the fact the round trip used
-    // to establish — and the menu is a PLAN-level control, so the wait names the
-    // plan rather than a row. Polling the DOM rather than the network, because
-    // what the tests need is the render and a fetch resolving is not yet one.
-    await page.locator('[data-plan-actions="plant-tomatoes"]').first()
+    // The cards have LANDED when `feature/untaken` carries its action menu. Its
+    // only act is Start work, which `BranchMenu` gates on the plan's card, so the
+    // menu's presence is exactly the fact the round trip used to establish. The
+    // Delivery tab renders no plan row, so the wait names the branch row.
+    // Polling the DOM rather than the network, because what the tests need is
+    // the render and a fetch resolving is not yet one.
+    await page.locator('[aria-label="Actions for feature/untaken"]').first()
       .waitFor({ timeout: 10_000 });
     return page;
   }
@@ -176,7 +177,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
           : route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) })),
       },
     });
-    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     await expandPlans(page);
     return { page, fail: () => { failing = true; }, recover: () => { failing = false; } };
@@ -209,7 +210,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         },
       },
     });
-    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     await expandPlans(page);
     return {
@@ -264,17 +265,18 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     page.locator('li').filter({ has: page.locator(`[data-branch="${branch}"]`) })
       .filter({ has: page.locator('[role="gridcell"]') }).last();
 
-  /** The section for one waiting-group, by its heading text. */
-  const group = (page: Page, label: string) =>
-    page.locator('section').filter({
-      has: page.getByRole('heading', { level: 2, name: new RegExp(label) }),
-    });
+  /**
+   * One Delivery group by its `DELIVERY_LAYOUT` key (`at-a-gate`, `queued`,
+   * `working`, ...), or one section by its key (`you`, `work-items`, `fleet`).
+   */
+  const group = (page: Page, key: string) =>
+    page.locator(`[data-group="${key}"], [data-section="${key}"]`);
 
   /**
-   * Unfold a group, for the assertions that need to see inside one.
+   * Unfold a group or section, for the assertions that need to see inside one.
    *
-   * `quiet` and `done` start COLLAPSED by default, so a test about what a quiet
-   * row renders has to open the section first — the same click a reader makes.
+   * `free` starts COLLAPSED by default, so a test about what a free agent row
+   * renders has to open the group first — the same click a reader makes.
    * Idempotent: it opens only what is folded, so a test can call it without
    * knowing the default.
    */
@@ -332,9 +334,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   }
 
-  /** Open every group, for the tests that read the whole list. */
+  /** Open every folded group, for the tests that read the whole list. A group with no rows has no toggle. */
   async function expandAll(page: Page) {
-    for (const key of ['quiet', 'done']) await expand(page, key);
+    for (const key of ['free']) {
+      if (await page.locator(`[data-group-toggle="${key}"]`).count() > 0) await expand(page, key);
+    }
     await expandPlans(page);
   }
 
@@ -674,7 +678,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // Asked of whichever row wears `[data-branch]`, which is the row this
       // test is about — the claim is the ORDER of the cells within it, and that
       // is the same claim on a wave row as on a branch row.
-      const cells = group(page, 'Waiting on you')
+      const cells = group(page, 'at-a-gate')
         .locator('li[data-tuple-kind]')
         .filter({ has: page.locator('[data-branch]') }).first()
         .locator('[role="gridcell"]');
@@ -712,20 +716,18 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // implementation this must not accept.
       expect(branch).toBeGreaterThanOrEqual(0);
       expect(plan).toBe(-1);
-      // AND THE PLAN IS STILL REACHABLE — one row up, in the head of the group
-      // this row sits in, rather than one cell later on the row itself.
+      // AND THE PLAN IS STILL REACHABLE, as a link in a cell AFTER the branch's.
+      // The Delivery tab renders no plan row above a branch row, so the row
+      // carries its own plan link in slot 4.
       //
       // The pairing is unchanged and so is the reason for it: `plan === -1`
       // alone would also pass if the plan had been dropped from the view
-      // entirely, which is the weaker implementation this must not accept. What
-      // moved is WHERE the plan is asserted to be. A row inside a wave group
-      // drops its plan link deliberately — the head carries it once instead of
-      // once per branch — so demanding it in a LATER CELL of this row now
-      // demands the repetition the grouping exists to remove.
-      const head = group(page, 'Waiting on you').locator('li[data-plan-row="beans"]');
-      expect(await head.count()).toBe(1);
-      expect(await head.locator('a[data-tuple-link="plan"], a[href*="plan"]').count())
-        .toBeGreaterThanOrEqual(1);
+      // entirely, which is the weaker implementation this must not accept.
+      let planLink = -1;
+      for (let i = 0; i < count; i++) {
+        if (await cells.nth(i).locator('a[data-tuple-link="plan"]').count()) { planLink = i; break; }
+      }
+      expect(planLink).toBeGreaterThan(branch);
     } finally {
       await page.close();
     }
@@ -791,7 +793,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   it('keeps rows in age order inside a plan', async () => {
     const page = await openAgents();
     try {
-      const branches = await group(page, 'Working')
+      const branches = await group(page, 'being-built')
         .locator('li [data-branch]').evaluateAll((els) => els.map((e) => e.getAttribute('data-branch')));
       // beans: 200 then 10; then plant-tomatoes: 50.
       expect(branches).toEqual(['feature/beans-a', 'feature/beans-b', 'feature/toms-a']);
@@ -895,7 +897,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // wave now outranks the PR. What this test is about is unaffected: the kind
       // is named by its COLUMN and stated in no tooltip, whichever word it holds.
       await expect.poll(() => li.locator('[data-kind]').textContent()).toBe('Slice');
-      const headers = group(page, 'Waiting on you').getByRole('columnheader');
+      const headers = group(page, 'at-a-gate').getByRole('columnheader');
       // THE TUPLE'S SEVEN, and two of the old six could not be true of every
       // row beneath them: a plan has no branch and a ticket has no pull
       // request, and the header said both anyway because the grid it described
@@ -981,7 +983,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // reports in `innerText` (it is not `display: none`).
     const page = await openAgents();
     try {
-      const header = group(page, 'Waiting on you').getByRole('row').first();
+      const header = group(page, 'at-a-gate').getByRole('row').first();
       await expect.poll(() => header.count()).toBe(1);
       const box = await header.boundingBox();
       expect(box?.width ?? 99).toBeLessThanOrEqual(1);
@@ -1063,12 +1065,12 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // The one place intent outranks git. WORKING claims *an agent is on this
     // right now*, which is false for work someone handed back — however recent
     // the last commit. `feature/shelved` is two minutes old and belongs in
-    // NOT STARTED.
+    // Queued, never in Being built.
     const page = await openAgents();
     try {
-      await expect.poll(() => group(page, 'Not started').getByText('feature/shelved').count())
+      await expect.poll(() => group(page, 'queued').getByText('feature/shelved').count())
         .toBe(1);
-      expect(await group(page, 'Working').getByText('feature/shelved').count()).toBe(0);
+      expect(await group(page, 'being-built').getByText('feature/shelved').count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -1147,7 +1149,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // `BlockedByMark` renders an icon carrying `data-slice-blocked-by` plus the
       // accessible name *Blocked by wave Truth — show it*, which scrolls to that
       // wave. Asserted on the field's rendering, not on prose.
-      const blockedMark = group(page, 'Not started').locator('[data-slice-blocked-by="Truth"]');
+      const blockedMark = group(page, 'queued').locator('[data-slice-blocked-by="Truth"]');
       await expect.poll(() => blockedMark.count()).toBeGreaterThan(0);
       // AND IT SAYS SO TO A SCREEN READER — the half a mark loses in silence.
       expect(await blockedMark.first().getAttribute('aria-label'))
@@ -1282,16 +1284,16 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // WORKING is open on arrival, and the blocker's wave row is already in
       // the document — this is NOT about unfolding, it is about finding a row
       // in a section that does not group by plan.
-      await expect.poll(() => group(page, 'Working').locator('[data-slice-row="Named"]').count())
+      await expect.poll(() => group(page, 'working').locator('[data-slice-row="Named"]').count())
         .toBeGreaterThan(0);
 
-      // Click the ⓘ on the blocked `Spoken` wave, in NOT STARTED.
-      const mark = group(page, 'Not started').locator('[data-slice-blocked-by="Named"]');
+      // Click the ⓘ on the blocked `Spoken` slice, in Queued.
+      const mark = group(page, 'queued').locator('[data-slice-blocked-by="Named"]');
       await expect.poll(() => mark.count()).toBeGreaterThan(0);
       await mark.first().click();
 
-      // The blocker's row flashes — the jump found its target in WORKING.
-      const target = group(page, 'Working').locator('[data-slice-row="Named"]');
+      // The blocker's row flashes — the jump found its target in Fleet › Working.
+      const target = group(page, 'working').locator('[data-slice-row="Named"]');
       await expect.poll(() => target.first().getAttribute('class'))
         .toContain('ring-amber-400');
     } finally {
@@ -1341,19 +1343,19 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
 
     const page = await openAgents(payload);
     try {
-      const secondBlocker = group(page, 'Working')
+      const secondBlocker = group(page, 'working')
         .locator('[data-slice-row="Named"][data-slice-plan="second-plan"]');
       await expect.poll(() => secondBlocker.count()).toBe(1);
 
       // The SECOND plan's mark, found through its own blocked row.
-      const mark = group(page, 'Not started')
+      const mark = group(page, 'queued')
         .locator('[data-slice-list="second-plan"] [data-slice-blocked-by="Named"]');
       await expect.poll(() => mark.count()).toBeGreaterThan(0);
       await mark.first().click();
 
       await expect.poll(() => secondBlocker.first().getAttribute('class'))
         .toContain('ring-amber-400');
-      const firstBlocker = group(page, 'Working')
+      const firstBlocker = group(page, 'working')
         .locator('[data-slice-row="Named"][data-slice-plan="first-plan"]');
       expect(await firstBlocker.first().getAttribute('class')).not.toContain('ring-amber-400');
     } finally {
@@ -1397,12 +1399,12 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // from prose — the contract reserves the sentence for humans and the field
       // for consumers, and this test is a consumer.
       await expect.poll(() =>
-        group(page, 'Not started').locator('[data-slice-blocked-by="Truth"]').count())
+        group(page, 'queued').locator('[data-slice-blocked-by="Truth"]').count())
         .toBeGreaterThan(0);
       expect(await menu(page, 'feature/blocked').count()).toBe(0);
       // A different row, a different reason — so the words are read from the
       // row rather than being one string for every row with nothing to do.
-      await expand(page, 'quiet');
+      await expand(page, 'queued');
       const quiet = rowFor(page, 'feature/ghost');
       await expect.poll(() => quiet.textContent()).toContain('no commit for 16 hours');
       expect(await menu(page, 'feature/ghost').count()).toBe(0);
@@ -1459,7 +1461,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // fact summarised for the group. The branch's own note is what the wave
       // replaced, so polling this row for `ELIGIBLE_NOTE` waited on a string
       // that had moved rather than on the state the test needs.
-      await expect.poll(() => group(page, 'Not started').innerText())
+      await expect.poll(() => group(page, 'queued').innerText())
         .toMatch(/eligible/i);
       // THE CLAIMS, unchanged and both still true: no menu, no Start button.
       expect(await menu(page, 'feature/ghost-ready').count()).toBe(0);
@@ -1547,9 +1549,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expect.poll(() => li.getByRole('link', { name: 'feature/untaken' }).count()).toBe(1);
       expect(await li.getByRole('link', { name: 'feature/untaken' }).getAttribute('href'))
         .toContain('/tree/feature/untaken');
-      // The plan is reachable too — from the group's sub-heading here, since
-      // this group earned one and the rows stopped repeating the name.
-      expect(await group(page, 'Not started').getByRole('link', { name: 'plant-tomatoes' })
+      // The plan is reachable too, as a link in the row's own group.
+      expect(await group(page, 'queued').getByRole('link', { name: 'plant-tomatoes' })
         .count()).toBeGreaterThan(0);
       // Opening the menu adds no links anywhere: what it holds is an action.
       const before = await li.getByRole('link').count();
@@ -1576,7 +1577,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await page.route('**/api/fleet', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
       await page.goto(`${cat.mock.baseURL}?tab=agents`);
-      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       // This test builds its own page rather than going through `openAgents`, so
       // it opens NOT STARTED's fold itself — the row it is about is a
@@ -1593,7 +1594,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   it('?tab=agents opens Delivery, rewrites the URL, and the tab bar carries the new labels', async () => {
     const page = await cat.open('a-full-estate', { tab: 'agents' });
     try {
-      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
       expect(new URL(page.url()).searchParams.get('tab')).toBe('delivery');
       const labels = await page.getByRole('navigation', { name: 'Views' }).getByRole('button').allTextContents();
       expect(labels).toEqual(['Discovery', 'Planning', 'Delivery']);
@@ -1639,8 +1640,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     try {
       // The row must be VISIBLE for "it holds still" to mean anything — a
       // folded group hides it, which would pass this assertion for the wrong
-      // reason entirely.
-      await expand(page, 'quiet');
+      // reason entirely. With no agent on it the row lands in Queued.
+      await expand(page, 'queued');
       await expect.poll(() => rowFor(page, 'feature/claimed-but-quiet').count()).toBe(1);
       // STILL MEANS NO PROCESS, which is what the mark says since 2026-08-22.
       // It read `[data-live-dot]` — a mark meaning *this row is in WORKING*,
@@ -1676,7 +1677,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // form: it keeps passing until an element is added, then reports the
       // wrong thing rather than failing.
       expect(await li.locator('[data-tuple-age]').textContent()).toBe('3h');
-      expect(await group(still, 'Working').getByText('feature/beans-a').count()).toBe(1);
+      expect(await group(still, 'working').getByText('feature/beans-a').count()).toBe(1);
     } finally {
       await still.close();
     }
@@ -1690,8 +1691,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       fleet({ rows: fleet().rows.filter((r) => r.group !== 'working') }),
     );
     try {
-      const working = group(page, 'Working');
-      await expect.poll(() => working.getByText('none').count()).toBe(1);
+      // Fleet › Working, empty, reads its hint in place of a count.
+      const working = group(page, 'working');
+      await expect.poll(() => working.getByText('an agent acts on an item').count()).toBe(1);
       expect(await working.locator('[data-live-dot]').count()).toBe(0);
       // Nowhere else on the page either.
       expect(await page.locator('[data-live-dot]').count()).toBe(0);
@@ -1738,9 +1740,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   const branchRows = (page: Page, label: string) =>
     group(page, label).locator('li[data-agent-row]');
 
-  /** The header of one group, whose count must survive folding. */
-  const heading = (page: Page, label: string) =>
-    group(page, label).getByRole('heading', { level: 2 });
+  /** The header of one group or section, whose count must survive folding. */
+  const heading = (page: Page, key: string) =>
+    page.locator(`[data-delivery-group="${key}"], [data-delivery-section="${key}"]`);
 
   it('starts QUIET and DONE collapsed, and every other group open', async () => {
     // BOTH halves. A blanket default — everything folded, or nothing — passes an
@@ -1780,13 +1782,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // the emptiness: exactly what a reader wants when there is nothing to list.
     const page = await openAgents();
     try {
-      const machine = group(page, 'Waiting on a machine');
-      await expect.poll(() => machine.count()).toBe(1);
-      expect(await machine.locator('[data-group-toggle]').count()).toBe(0);
-      expect(await machine.getByRole('heading', { level: 2 }).textContent())
-        .toContain('nothing — a machine is working');
+      // Fleet › Blocked holds no agent in this fixture.
+      const blocked = group(page, 'blocked');
+      await expect.poll(() => blocked.count()).toBe(1);
+      expect(await blocked.locator('[data-group-toggle]').count()).toBe(0);
+      expect(await heading(page, 'blocked').textContent())
+        .toContain('an agent waits on a gate');
       // And no "(0)" anywhere in that header.
-      expect(await machine.getByRole('heading', { level: 2 }).textContent()).not.toContain('(0)');
+      expect(await heading(page, 'blocked').textContent()).not.toContain('(0)');
     } finally {
       await page.close();
     }
@@ -1807,7 +1810,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await page.route('**/api/fleet', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
       await page.goto(`${cat.mock.baseURL}?tab=agents`);
-      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       // The default, on a context that has stored nothing.
       await expect.poll(() => groupRows(page, 'Quiet').count()).toBe(0);
@@ -1815,7 +1818,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expect.poll(() => groupRows(page, 'Quiet').count()).toBe(1);
 
       await page.reload();
-      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
       // The reader's choice came back — not the default.
       await expect.poll(() => groupRows(page, 'Quiet').count()).toBe(1);
       // And the group they never touched is still folded, so the reload
@@ -1834,12 +1837,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents();
     try {
       const before = page.url();
-      await expand(page, 'quiet');
-      await expect.poll(() => groupRows(page, 'Quiet').count()).toBe(1);
+      // Queued starts open with its six branch rows.
+      await expect.poll(() => groupRows(page, 'queued').count()).toBe(6);
+      await page.locator('[data-group-toggle="queued"]').click();
+      await expect.poll(() => groupRows(page, 'queued').count()).toBe(0);
       expect(page.url()).toBe(before);
-      // Folding it again is equally silent.
-      await page.locator('[data-group-toggle="quiet"]').click();
-      await expect.poll(() => groupRows(page, 'Quiet').count()).toBe(0);
+      // Unfolding it again is equally silent.
+      await page.locator('[data-group-toggle="queued"]').click();
+      await expect.poll(() => groupRows(page, 'queued').count()).toBe(6);
       expect(page.url()).toBe(before);
       expect(page.url()).not.toContain('collapsed');
     } finally {
@@ -1872,7 +1877,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
           body: JSON.stringify(extra ? two : one),
         }));
       await page.goto(`${cat.mock.baseURL}?tab=agents`);
-      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       await expect.poll(() => heading(page, 'Quiet').textContent()).toContain('(1)');
       extra = true;
@@ -1908,7 +1913,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
           body: JSON.stringify(quietened ? after : before),
         }));
       await page.goto(`${cat.mock.baseURL}?tab=agents`);
-      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       // The reader opens QUIET deliberately.
       await expand(page, 'quiet');
@@ -1982,7 +1987,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await page.route('**/api/fleet', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(many) }));
       await page.goto(`${cat.mock.baseURL}?tab=agents`);
-      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       // The header counts the PLAN HEADS the reader sees, not the rows folded
       // beneath them: QUIET holds `beans` (7 dormant branches, one wave) beside
@@ -2334,9 +2339,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // So the claim moves to WAITING ON YOU, where heads are drawn, and gains
       // the half it was reaching for: the rows are still THERE, grouped as they
       // were, rather than a section that survived by being empty.
-      expect(await group(page, 'Working').locator('li[data-tuple-kind]').count())
+      expect(await group(page, 'being-built').locator('li[data-tuple-kind]').count())
         .toBeGreaterThan(0);
-      const waiting = group(page, 'Waiting on you');
+      const waiting = group(page, 'at-a-gate');
       expect(await waiting.locator('[data-plan-row]').count()).toBeGreaterThan(0);
       expect(await waiting.locator('[data-branch]').count()).toBeGreaterThan(0);
     } finally {
@@ -2784,7 +2789,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       //
       // The claim that survives is the one the badge existed for: a branch's
       // wave is REACHABLE beside it, whichever of the two shapes states it.
-      const foldSlice = group(page, 'Not started').locator('li[data-slice-row="Fold"]');
+      const foldSlice = group(page, 'queued').locator('li[data-slice-row="Fold"]');
       await expect.poll(() => foldSlice.count()).toBe(1);
       for (const b of ['feature/fold-a', 'feature/fold-b']) {
         const li = rowFor(page, b);
@@ -3035,9 +3040,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         })),
       }));
       await page.goto(`${cat.mock.baseURL}?tab=agents`);
-      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
-      await expect.poll(() => group(page, 'Waiting on you')
+      await expect.poll(() => group(page, 'queued')
         .locator('li[data-agent-row]').count()).toBe(4);
 
       // What a sighted reader sees, per row — `innerText` rather than
@@ -3068,7 +3073,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents();
     try {
       await expandAll(page);
-      for (const label of ['Waiting on you', 'Working', 'Not started', 'Quiet', 'Done']) {
+      // The four groups this fixture fills: three of Work items and Fleet › Working.
+      for (const label of ['at-a-gate', 'being-built', 'queued', 'working']) {
         // EVERY ROW THE SECTION SHOWS, not its branch rows. A section whose
         // plans each hold one branch renders a plan head and a wave row and no
         // branch row at all, so `li[data-agent-row]` counted 0 and the poll
@@ -3254,7 +3260,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('renders a PR with running checks and unknown mergeability in WAITING ON A MACHINE', async () => {
+  it('renders a PR with running checks and unknown mergeability At a gate, not under You', async () => {
     // #1164. The row's group, note and PR word come from the server's own
     // `classify` and `agentPr` over the raw facts, so the page shows what the
     // rule decides. On origin/main the same facts give `waiting-on-you`,
@@ -3271,9 +3277,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       })],
     }));
     try {
-      await expect.poll(() => group(page, 'Waiting on a machine').locator('[data-branch="feature/ci-running"]').count())
+      await expect.poll(() => group(page, 'at-a-gate').locator('[data-branch="feature/ci-running"]').count())
         .toBe(1);
-      await expect.poll(() => group(page, '^Waiting on you$').locator('[data-branch="feature/ci-running"]').count())
+      await expect.poll(() => group(page, 'you').locator('[data-branch="feature/ci-running"]').count())
         .toBe(0);
       const li = rowFor(page, 'feature/ci-running');
       expect(await li.locator('[data-pr-state="pending"]').textContent()).toBe('CI running');
@@ -3364,7 +3370,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     await page.route('**/api/fleet', (route) =>
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(current) }));
     await page.goto(`${cat.mock.baseURL}?tab=agents`);
-    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return { page, swap: (next: Fleet) => { current = next; } };
   }
@@ -3435,10 +3441,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       swap(oneRow('conflicts', { group: 'waiting-on-you' }));
       await expect.poll(() => mark(page, 'feature/watched').count(),
         { timeout: 10_000 }).toBe(1);
-      // On the row where it NOW sits, which is the other section.
-      const marked = group(page, 'Waiting on you').locator('[data-change-mark]');
+      // On the row where it NOW sits: a conflicting PR with no agent on it moves
+      // from Work items › At a gate to You › Unblock.
+      const marked = group(page, 'unblock').locator('[data-change-mark]');
       expect(await marked.count()).toBe(1);
-      expect(await group(page, 'Waiting on a machine')
+      expect(await group(page, 'at-a-gate')
         .locator('[data-change-mark]').count()).toBe(0);
     } finally {
       await page.close();
@@ -3475,7 +3482,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     });
     const { page, swap } = await openAgentsSwappable(many('green'));
     try {
-      await expect.poll(() => group(page, 'Waiting on you')
+      await expect.poll(() => group(page, 'at-a-gate')
         .locator('li[data-agent-row]').count()).toBe(10);
       swap(many('conflicts'));
       // TEN CHANGED ROWS, TEN MARKS — counted per ROW, which is what "no
@@ -3566,7 +3573,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     await page.route('**/api/fleet', (route) =>
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
     await page.goto(`${cat.mock.baseURL}?tab=agents`);
-    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;
   }
@@ -3602,7 +3609,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // while the PR and the branch sit beneath it, and every fact is present —
       // which is the claim. Asserting them all of one row asserted the old
       // single-row shape, not the absence of shedding.
-      const card = (await group(page, 'Waiting on you').innerText()) ?? '';
+      const card = (await group(page, 'at-a-gate').innerText()) ?? '';
       expect(card).toContain('lonely-plan');   // plan — on the head
       expect(card).toContain('158');           // PR
       expect(card).toContain('green');         // PR state
@@ -3771,7 +3778,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // a stack of everything and one more word looks free.
       expect(heard).not.toContain('development');
       // And the header is not also announcing it — there are no columns.
-      expect(await group(page, 'Waiting on you').getByRole('columnheader').count()).toBe(0);
+      expect(await group(page, 'queued').getByRole('columnheader').count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -4232,7 +4239,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // healthy board is not, so the panel renders nothing at all.
     const page = await openAgents(fleet({ error: null, shrink: null, prError: null }));
     try {
-      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
       await expect.poll(() => page.locator('[data-status-panel]').count()).toBe(0);
     } finally {
       await page.close();
@@ -4266,7 +4273,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       },
     });
     try {
-      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
       await expect.poll(() => page.locator('[data-status-panel]').count(), { timeout: 10_000 }).toBe(1);
       const text = page.locator('[data-status-text]');
       await text.waitFor({ timeout: 10_000 });
@@ -4290,11 +4297,12 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       },
     });
     try {
-      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
-      // `Waiting on you` is the FLEET payload. The panel entry this test rules
-      // out is the BOARD payload's, so the poll starts only once a board-only
-      // render exists: a plan's action menu is gated on its board card.
-      await page.locator('[data-plan-actions="plant-tomatoes"]').first().waitFor({ timeout: 10_000 });
+      await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
+      // The Release delivery section is the FLEET payload. The panel entry this
+      // test rules out is the BOARD payload's, so the poll starts only once a
+      // board-only render exists: `feature/untaken`'s menu is gated on its board
+      // card.
+      await page.locator('[aria-label="Actions for feature/untaken"]').first().waitFor({ timeout: 10_000 });
       await expect.poll(() => page.locator('[data-status-panel]').count()).toBe(0);
     } finally {
       await page.close();
@@ -4363,7 +4371,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // a count of 0 is a strong assertion: any always-on status makes it 1.
     const page = await openAgents(fleet({ error: null, shrink: null, prError: null }));
     try {
-      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
       await expect.poll(() => page.locator('[data-status-panel]').count()).toBe(0);
     } finally {
       await page.close();
@@ -4379,7 +4387,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         error: null, shrink: null, prError: null, summary: withHost(host),
       }));
       try {
-        await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+        await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
         await expect.poll(() => page.locator('[data-status-panel]').count()).toBe(0);
       } finally {
         await page.close();
@@ -4460,7 +4468,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await footer.waitFor({ timeout: 10_000 });
       // Below the rows: the footer's top edge sits under the first section's.
       const footerTop = await footer.evaluate((el) => el.getBoundingClientRect().top);
-      const headingTop = await page.getByRole('heading', { level: 2, name: /Waiting on you/ })
+      const headingTop = await page.getByRole('heading', { level: 2, name: /Release delivery/ })
         .evaluate((el) => el.getBoundingClientRect().top);
       expect(footerTop).toBeGreaterThan(headingTop);
       // And it still carries every currency reading it did before.
@@ -4723,7 +4731,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         // FORMAT — a reload with no further click re-derives the same
         // selection purely from the URL `writeList` already set.
         await page.reload();
-        await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+        await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
         await expandAgentFolds(page);
         await expandPlans(page);
 
@@ -4742,7 +4750,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         await page.route('**/api/fleet', (route) =>
           route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
         await page.goto(`${cat.mock.baseURL}?tab=agents&deliverySprint=closed-sprint`);
-        await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+        await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
         await expandAgentFolds(page);
         await expandPlans(page);
 
@@ -4799,7 +4807,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       },
     }));
     try {
-      const waiting = group(page, 'Waiting on you');
+      // Plan-level runs render outside the placement rule, in Tickets and plan runs.
+      const waiting = page.locator('[data-outside-rule]');
       const failedRow = waiting.locator('[data-plan-level-row="plant-tomatoes"]');
       await expect.poll(() => failedRow.count()).toBe(1);
       expect(await failedRow.locator('[data-plan-level-restart]').textContent())
@@ -4811,13 +4820,13 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         .toBe(1);
       expect(await countIn(page, 'Waiting on you')).toBe(waitingBefore + 1);
 
-      const line = page.locator('[data-verification-halted-line]');
+      const line = page.locator('[data-fleet-halted]');
       expect(await line.count()).toBe(1);
-      expect(await waiting.locator('[data-verification-halted-line]').count()).toBe(1);
+      expect(await waiting.locator('[data-fleet-halted]').count()).toBe(1);
       expect(await line.textContent())
         .toBe('The fleet starts no verify run until a person restarts one.');
 
-      const working = group(page, 'Working');
+      const working = page.locator('[data-outside-rule]');
       const runningRow = working.locator('[data-plan-level-row="beans"]');
       await expect.poll(() => runningRow.count()).toBe(1);
       expect(await runningRow.locator('[data-plan-level-restart]').count()).toBe(0);

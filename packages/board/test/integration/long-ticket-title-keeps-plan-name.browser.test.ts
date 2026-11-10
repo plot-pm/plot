@@ -51,7 +51,7 @@ const productionFleet = (): Fleet => {
   } as Fleet;
 };
 
-describe('a long ticket title keeps its plan name in WAITING ON YOU', () => {
+describe('a long ticket title keeps its plan name in the ticket list', () => {
   let cat: Catalogue;
 
   beforeAll(async () => {
@@ -68,12 +68,13 @@ describe('a long ticket title keeps its plan name in WAITING ON YOU', () => {
       over: { fleet: productionFleet() },
       viewport: { width: 640, height: 1200 },
     });
-    await page.getByText('Waiting on you').first().waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;
   };
 
-  const section = (page: Page) => page.locator('ul[role="grid"][aria-label^="Waiting on you"]');
+  // Tickets render in the Delivery tab's trailing list outside the placement rule.
+  const section = (page: Page) => page.locator('ul[role="grid"][aria-label="Tickets and plan runs"]');
   const issueRow = (page: Page, n: number) => section(page).locator(`li[data-issue-row="${n}"]`);
 
   it('shows the sub-header the domain wrote for 9 assigned tickets', async () => {

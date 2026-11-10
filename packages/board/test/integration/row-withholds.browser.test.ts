@@ -163,7 +163,7 @@ describe('the row says what it knows', () => {
       },
       viewport: { width, height: 1400 },
     });
-    await page.getByText('Not started').first().waitFor({ timeout: 15_000 });
+    await page.locator('[data-delivery-section]').first().waitFor({ timeout: 15_000 });
     await expandAgentFolds(page);
     return page;
   }
@@ -540,7 +540,8 @@ describe('the row says what it knows', () => {
       // dropped the text after the colon. So `deferred` and `no commits` sat
       // side by side as two unrelated facts, when the first is the reason for
       // the second.
-      const branchRow = grid(page, 'Waiting on you').locator('li[data-agent-row]')
+      // A deferred slice with no PR waits in Work items › Queued.
+      const branchRow = grid(page, 'Queued').locator('li[data-agent-row]')
         .filter({ has: page.locator('[data-branch="feature/give-them-away"]') });
       await expect.poll(() => branchRow.count()).toBe(1);
       await expect.poll(() => branchRow.locator('[data-deferred]').count()).toBe(1);
@@ -606,7 +607,8 @@ describe('the row says what it knows', () => {
       // The bare `<!-- deferred -->`. The badge is the state and must survive on
       // its own; a sentence invented to fill the space would be the same defect
       // from the other side.
-      const branchRow = grid(page, 'Waiting on you').locator('li[data-agent-row]')
+      // In Work items › Queued, as the row above.
+      const branchRow = grid(page, 'Queued').locator('li[data-agent-row]')
         .filter({ has: page.locator('[data-branch="feature/pickle-the-rest"]') });
       await expect.poll(() => branchRow.count()).toBe(1);
       await expect.poll(() => branchRow.locator('[data-deferred]').textContent())

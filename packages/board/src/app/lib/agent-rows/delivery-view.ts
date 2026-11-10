@@ -146,6 +146,14 @@ const unreadNote = (subject: Unplaced['subject']): string =>
  */
 export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacement): DeliveryView => {
   const rowOf = (item: string): AgentRow | null => mapping.rowsByItem[item]?.[0] ?? null;
+  const ownRow = (entry: RegistryAgent | null): AgentRow | null => {
+    if (entry === null || entry.branch === '') return null;
+    for (const rows of Object.values(mapping.rowsByItem)) {
+      const own = rows.find((r) => r.branch === entry.branch);
+      if (own !== undefined) return own;
+    }
+    return null;
+  };
   const labelOfItem = (id: string): string =>
     itemLabel(id, mapping.rowsByItem[id] ?? [], mapping.draftsByItem[id] ?? null);
   const labelOfAgent = (id: string): string => agentLabel(id, mapping.agentsById[id] ?? null);
@@ -161,7 +169,7 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
   const agentViews = placement.agents.map((p): PlacedAgentView => ({
     placement: p,
     entry: mapping.agentsById[p.id] ?? null,
-    row: p.actsOn === null ? null : rowOf(p.actsOn),
+    row: p.actsOn === null ? null : ownRow(mapping.agentsById[p.id] ?? null) ?? rowOf(p.actsOn),
     label: labelOfAgent(p.id),
     anchor: agentAnchor(p.id),
     links: p.actsOn !== null && p.linked ? [{ label: labelOfItem(p.actsOn), anchor: itemAnchor(p.actsOn) }] : [],

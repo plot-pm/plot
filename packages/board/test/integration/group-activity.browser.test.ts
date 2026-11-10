@@ -40,7 +40,11 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   planFile: '2026-03-01-plant-tomatoes.md', wave: 'w', state: 'wip',
   phase: 'Development', group: 'working', ageMinutes: 3, note: 'last commit 3 min ago',
   pr: null, branchUrl: `${GH}feature/x`, waitingDays: null,
-  localDirty: false, localLocked: false, stuck: null, ...over,
+  localDirty: false, localLocked: false, stuck: null,
+  // No PLOT-BLOCKED marker. The schema defaults this to null, and the Delivery
+  // tab reads an absent value as a marker.
+  question: null,
+  ...over,
 });
 
 const fleet = (rows: AgentRow[]): Fleet => ({
@@ -329,14 +333,14 @@ describe('a group heading carries the activity of the rows behind it', () => {
     // `(1, 1 active)`: the reader opening a group needs to know whether opening
     // it is worth it, not whether it is one row or three.
     //
-    // `(1)`, not `(2)`: QUIET holds one plan head (`plant-tomatoes`, two quiet
-    // branches folded into its one wave), and the header counts the head the
-    // reader sees — `a-section-counts-what-it-shows`. The two figures agree
-    // (one plan, one wave), so the header stays a single number and grows no
-    // `· waves` clause.
+    // `(1)`, not `(3)`: the three rows share plan `plant-tomatoes` and wave
+    // `w`, so they are one work item, and no agent acts on it, so it sits under
+    // Work items › Queued. The heading counts the item, not its branches —
+    // `a-section-counts-what-it-shows`. The toggle button holds only the caret,
+    // so the tally is read from the group's own heading.
     const page = await open();
-    await expect.poll(() => toggleFor(page, 'quiet').count()).toBe(1);
-    const text = await toggleFor(page, 'quiet').innerText();
+    await expect.poll(() => toggleFor(page, 'queued').count()).toBe(1);
+    const text = await page.locator('h3[data-delivery-group="queued"]').innerText();
     expect(text).toContain('(1)');
     expect(text).not.toMatch(/active|\(\d+\s*,/);
   });

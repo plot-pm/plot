@@ -34,7 +34,7 @@ describe('tiny-garden: the board shows the spec run (real browser renders the sh
     const page = await cat.open('ten-rows-one-kind-each', {
       tab: 'agents', over: { fleet: payload },
     });
-    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;
   }

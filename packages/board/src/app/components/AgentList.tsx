@@ -1115,9 +1115,14 @@ export function AgentList({
                   aria-expanded={!folded}
                   aria-label={`${folded ? 'Expand' : 'Collapse'} ${key}`}
                   onClick={() => toggle(key)}
-                  className="text-slate-500"
+                  className="-my-1 flex items-center py-1 text-slate-500"
                 >
-                  {folded ? '▸' : '▾'}
+                  <span
+                    aria-hidden
+                    className={`inline-block w-4 text-center text-base leading-none transition-transform ${folded ? '' : 'rotate-90'}`}
+                  >
+                    ▸
+                  </span>
                 </button>
               )}
               {heading}

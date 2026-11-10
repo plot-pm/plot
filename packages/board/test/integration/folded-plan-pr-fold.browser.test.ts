@@ -141,7 +141,7 @@ describe('a folded plan folds its branches PR states onto its head', () => {
       over: { fleet: fleet() },
       viewport: { width: 1400, height: 1400 },
     });
-    await page.getByText('Waiting on you').first().waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section]').first().waitFor({ timeout: 10_000 });
     return page;
   }
 

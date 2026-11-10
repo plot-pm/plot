@@ -232,21 +232,19 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       const links = pr.locator('[role="gridcell"]').nth(3);
       expect(await links.locator('a[data-tuple-link="branch"]').count()).toBe(1);
       expect(await links.locator('[data-branch="feature/reviewed"]').count()).toBe(1);
-      // TWO DESTINATIONS INSIDE A WAVE, both different — the branch and the PR.
+      // THREE DESTINATIONS, all different — the PR, the branch and the plan.
       //
-      // Three when the row stands alone, and the missing one is the PLAN, on
-      // purpose: this PR sits in a wave group whose header names the plan two
-      // rows up, so a third copy on the child says what the reader has already
-      // read. The branch is what a wave group must NOT drop — slot 3 wears the
-      // PR number here rather than the branch, so without it the row never
-      // names what it is a PR of.
+      // The Delivery tab draws no wave group or plan head, so the row stands
+      // alone and names its plan itself. The branch is what the row must NOT
+      // drop — slot 3 wears the PR number here rather than the branch, so
+      // without it the row never names what it is a PR of.
       //
       // Both halves asserted, because the count alone passes on a row that kept
       // the plan and lost the branch — which is the failure this pairs against.
       const anchors = await pr.locator('a[data-tuple-link]').evaluateAll(
         (els) => els.map((e) => ({ what: e.getAttribute('data-tuple-link'), href: e.getAttribute('href') })));
-      expect(new Set(anchors.map((l) => l.href)).size).toBe(2);
-      expect(new Set(anchors.map((l) => l.what))).toEqual(new Set(['pr', 'branch']));
+      expect(new Set(anchors.map((l) => l.href)).size).toBe(3);
+      expect(new Set(anchors.map((l) => l.what))).toEqual(new Set(['pr', 'branch', 'plan']));
     } finally {
       await page.close();
     }

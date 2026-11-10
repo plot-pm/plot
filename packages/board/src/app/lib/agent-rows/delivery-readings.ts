@@ -111,7 +111,7 @@ const rowItem = (id: string, rows: readonly AgentRow[], slice: Slice | undefined
   };
   const phase = phaseOf(first.phase);
   if (phase !== undefined) item.phase = phase;
-  if (rows.some((r) => r.question !== null)) item.blockedMarker = true;
+  if (rows.some((r) => r.question !== null && r.question !== undefined)) item.blockedMarker = true;
   const merged = slice !== undefined ? slice.complete : rows.every((r) => r.state === 'merged');
   if (merged || phase === 'delivered' || phase === 'released') item.delivered = true;
   // A row the last scan never held says nothing about its stage: absent, so the rule lists it as unread.
