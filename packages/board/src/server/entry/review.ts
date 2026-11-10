@@ -13,6 +13,9 @@ import type { Host, Pr, Refs, Trees } from '@plot-pm/domain';
 import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 import { roleFilesAt } from '@plot-pm/fleet/shared/role-files';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
+import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
+import { isSyncPr, syncPathVerdict } from '@plot-pm/domain/rules/state-sync';
+import { stateSyncGateFor, type StateSyncGate } from './state-sync-gate.js';
 import {
   reviewerCommand,
   reviewerRoleFloor,
@@ -117,6 +120,11 @@ export interface ReviewDeps {
    * with `sha`, the changed files, and the full diff.
    */
   readChange: (tree: string, base: string, sha: string) => Promise<ReviewChange>;
+  /**
+   * The sync PR path gate; null or absent where no `State branch` key is
+   * declared, so a review runs as it did before the key existed.
+   */
+  stateSync?: StateSyncGate | null;
   readText: (file: string) => string | null;
   writeText: (file: string, text: string) => void;
   removeFile: (file: string) => void;
@@ -315,6 +323,17 @@ const readTrusted = async (deps: ReviewDeps, number: number): Promise<JudgedRevi
   return checkedReview(read.value, writer.value);
 };
 
+/** Refuses a sync PR whose diff leaves the paths Plot writes; null where it is no sync PR or the diff is inside the set. */
+const syncPathRefusal = async (deps: ReviewDeps, pr: Pr, sha: string): Promise<ReviewOutcome | null> => {
+  const gate = deps.stateSync;
+  if (!gate || !isSyncPr(pr, gate.target, gate.defaultBranch)) return null;
+  const verdict = syncPathVerdict(await gate.diff(sha), gate.pathSet);
+  if (verdict.ok) return null;
+  return refuse(verdict.refusal === 'sync-diff-unread'
+    ? `the diff of sync PR #${pr.number} could not be read: ${verdict.refusal}. Nothing was reviewed.`
+    : `sync PR #${pr.number} changes ${verdict.paths.join(', ')}, outside the paths Plot writes: ${verdict.refusal}. Nothing was reviewed.`);
+};
+
 /**
  * Reads the head's `plot/review` status, then writes this run's `pending`
  * status with `run <run id>` in its description.
@@ -362,6 +381,8 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   if (sha === '') return refuse(`the host named no head commit for PR #${pr.number}`);
   if (pr.url === '') return refuse(`the host named no URL for PR #${pr.number}`);
   if (pr.base === '') return refuse(`the host named no base branch for PR #${pr.number}`);
+  const outside = await syncPathRefusal(deps, pr, sha);
+  if (outside !== null) return outside;
 
   const key = `${pr.number}-${sha}`;
   const reviews = path.join(deps.commonDir, 'plot', 'state', 'reviews');
@@ -466,6 +487,8 @@ export const reviewStatusOnly = async (deps: ReviewDeps, ref: string): Promise<R
   const sha = pr.headSha ?? '';
   if (sha === '') return refuse(`the host named no head commit for PR #${pr.number}`);
   if (pr.url === '') return refuse(`the host named no URL for PR #${pr.number}`);
+  const outside = await syncPathRefusal(deps, pr, sha);
+  if (outside !== null) return outside;
 
   const key = `${pr.number}-${sha}`;
   const reviews = path.join(deps.commonDir, 'plot', 'state', 'reviews');
@@ -605,10 +628,21 @@ const machineDeps = async (cwd: string, scriptDir: string): Promise<ReviewDeps |
   const branch = await git(cwd, ['branch', '--show-current']);
   const head = await git(repoRoot, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
   const boundedRun = boundedRunProcess(processesShell(context));
+  const trees = treesGit(context);
+  const refs = refsGit(context);
+  const scripts = scriptsShell(context);
+  const stateSync = await stateSyncGateFor(
+    async (key, fallback) => {
+      const answer = await scripts.config(key, fallback);
+      return answer.ok ? answer.value.trim() || fallback : fallback;
+    },
+    { refs, trees, repoRoot },
+  );
   return {
     host,
-    trees: treesGit(context),
-    refs: refsGit(context),
+    trees,
+    refs,
+    stateSync,
     agentRun: (command) =>
       agentRunCommand({ boundedRun, fragment: command, limitPatterns: HARNESS_LIMIT_LINES.claude, now: Date.now }),
     repoRoot,

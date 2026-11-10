@@ -3,7 +3,7 @@
   "version": "0.25.0",
   "description": "Local Kanban board for Plot — a glanceable view of plan phases from docs/plans, with sprint and story filters",
   "type": "module",
-  "license": "MIT",
+  "license": "CC0-1.0",
   "author": "Max Albrecht",
   "homepage": "https://github.com/plot-pm/plot/tree/main/packages/board#readme",
   "repository": {

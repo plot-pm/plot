@@ -7,6 +7,7 @@ import { refsRemoteGit } from '@plot-pm/domain/adapters/refs/refs-remote-git';
 import { callerOf, type Caller } from '@plot-pm/domain/workflows/decision';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import type { MergePorts } from './merge.js';
+import { stateSyncGateFor } from './state-sync-gate.js';
 import type { FinishContext } from './release-finish.js';
 
 /**
@@ -31,11 +32,15 @@ export const mergePortsFor = async (
 ): Promise<MergePorts> => {
   const estate = realEstate(opts);
   const remote = refsRemoteGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+  const trees = treesGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+  const refs = { ...estate.refs, remoteSha: remote.remoteSha };
+  const stateSync = await stateSyncGateFor((key, fallback) => readConfigAsync(opts, key, fallback), { refs, trees, repoRoot: opts.repoRoot });
   return {
+    ...(stateSync ? { stateSync } : {}),
     host: estate.host,
     scripts: scriptsFor(opts),
     defaultBranch: estate.defaultBranch,
-    refs: { ...estate.refs, remoteSha: remote.remoteSha },
+    refs,
     checksWaitMs: checksWaitMsOf(await readConfigAsync(opts, 'Checks wait', '3600')),
     now: Date.now,
     // The repair exception on a red default branch: the record, and the

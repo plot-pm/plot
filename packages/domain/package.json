@@ -4,7 +4,7 @@
   "description": "Plot's entity graph — the plans, waves and branches the fleet is about, and the rules that read them",
   "type": "module",
   "private": true,
-  "license": "MIT",
+  "license": "CC0-1.0",
   "exports": {
     ".": "./src/index.ts",
     "./adapters": "./src/adapters/index.ts",

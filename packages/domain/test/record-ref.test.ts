@@ -22,7 +22,7 @@ const STATE = 'refs/remotes/origin/plot/state';
 const MAIN = 'refs/remotes/origin/main';
 const source = { stateBranch: 'plot/state', defaultBranch: 'main' };
 const blob = (path: string, sha: string, mode = '100644') => ({ mode, sha, path });
-const commit = (subject: string) => ({ at: 0, subject, tree: 't', parentTree: 'p' });
+const commit = (tree: string, forward = false) => ({ sha: `c-${tree}`, tree, forward });
 
 describe('recordRef', () => {
   it('answers default with no key', () => {
@@ -59,6 +59,14 @@ describe('lagLine', () => {
   });
   it('names the open sync PR', () => {
     expect(lagLine(3, 42, 'main').text).toBe('Records: 3 ahead of main · sync PR: #42');
+  });
+});
+
+describe('lagLine with a recorded conflict', () => {
+  it('names the conflicting files after the sync PR field', () => {
+    expect(lagLine(2, null, 'main', ['docs/plans/a.md', 'docs/plans/b.md']).text).toBe(
+      'Records: 2 ahead of main · sync PR: none · forward merge conflicts in docs/plans/a.md, docs/plans/b.md',
+    );
   });
 });
 
@@ -136,20 +144,20 @@ describe('recordsAhead and readRecordFindings', () => {
   const range = `${MAIN}..${STATE}`;
   const shas = { [`${STATE}^{commit}`]: 's' };
   it('counts the commits the state ref holds beyond the default branch', async () => {
-    const refs = refsFixture({ shas, commitSubjects: { [range]: [commit('a'), commit('b')] } });
+    const refs = refsFixture({ shas: { ...shas, [`${MAIN}^{tree}`]: 'D' }, firstParentCommitLists: { [range]: [commit('a'), commit('b')] } });
     expect(await recordsAhead(refs, source)).toBe(2);
     expect((await readRecordFindings(refs, source)).recordLag?.text).toBe('Records: 2 ahead of main · sync PR: none');
   });
   it('reads 0 ahead for equal refs and null where the count fails', async () => {
     expect(await recordsAhead(refsFixture({ shas }), source)).toBe(0);
-    expect(await recordsAhead(refsFixture({ shas, failing: ['commitSubjects'] }), source)).toBeNull();
-    expect((await readRecordFindings(refsFixture({ shas, failing: ['commitSubjects'] }), source)).recordLag).toBeNull();
+    expect(await recordsAhead(refsFixture({ shas, failing: ['firstParentCommits'] }), source)).toBeNull();
+    expect((await readRecordFindings(refsFixture({ shas, failing: ['firstParentCommits'] }), source)).recordLag).toBeNull();
   });
   it('reports no lag line and no finding with no key and no state branch', async () => {
     expect(await readRecordFindings(refsFixture({}), { stateBranch: '', defaultBranch: 'main' })).toEqual({ recordLag: null, recordKeyRemoved: null });
   });
   it('reports a stranded plot/state when the key is gone', async () => {
-    const refs = refsFixture({ shas, commitSubjects: { [range]: [commit('a')] } });
+    const refs = refsFixture({ shas: { ...shas, [`${MAIN}^{tree}`]: 'D' }, firstParentCommitLists: { [range]: [commit('a')] } });
     const found = await readRecordFindings(refs, { stateBranch: '', defaultBranch: 'main' });
     expect(found.recordLag).toBeNull();
     expect(found.recordKeyRemoved?.ahead).toBe(1);
@@ -189,5 +197,43 @@ describe('derefRecord', () => {
     const lone = { r: [blob('docs/plans/active/x.md', 'l3', '120000')] };
     const abs = { 'r:docs/plans/active/x.md': '/etc/passwd' };
     expect(await derefRecord(refsFixture({ trees: lone, files: abs }), 'r', 'docs/plans/active/x.md')).toBeNull();
+  });
+});
+
+describe('recordsAhead after a squash-merge', () => {
+  const shas = { [`${STATE}^{commit}`]: 's', [`${MAIN}^{tree}`]: 'T' };
+  const range = `${MAIN}..${STATE}`;
+  it('reads 0 where the tip tree equals the default tree although the commits are not ancestors', async () => {
+    const refs = refsFixture({ shas, firstParentCommitLists: { [range]: [commit('T'), commit('x')] } });
+    expect(await recordsAhead(refs, source)).toBe(0);
+    expect((await readRecordFindings(refs, source)).recordLag?.text).toBe('Records: 0 ahead of main · sync PR: none');
+  });
+  it('counts only the commits added after the squash', async () => {
+    const refs = refsFixture({ shas, firstParentCommitLists: { [range]: [commit('n2'), commit('n1'), commit('T'), commit('x')] } });
+    expect(await recordsAhead(refs, source)).toBe(2);
+  });
+  it('keeps the commit count where no commit is tree-equal', async () => {
+    const refs = refsFixture({ shas, firstParentCommitLists: { [range]: [commit('a'), commit('b')] } });
+    expect(await recordsAhead(refs, source)).toBe(2);
+  });
+  it('counts only the commits added after the squash once the default branch moves on', async () => {
+    const line = [commit('X+r', true), commit('n2'), commit('n1'), commit('S', true), commit('o')];
+    const landed = { [`c-o^..${MAIN}`]: [commit('X'), commit('S')] };
+    const moved = { [`${STATE}^{commit}`]: 's', [`${MAIN}^{tree}`]: 'X' };
+    expect(await recordsAhead(refsFixture({ shas: moved, firstParentCommitLists: { [range]: line, ...landed } }), source)).toBe(2);
+    expect(await recordsAhead(refsFixture({ shas: moved, firstParentCommitLists: { [range]: line } }), source)).toBe(3);
+  });
+  it('does not count a forward merge and answers null where the default tree is unread', async () => {
+    const line = [commit('r3'), commit('F', true), commit('r2'), commit('r1')];
+    expect(await recordsAhead(refsFixture({ shas, firstParentCommitLists: { [range]: line } }), source)).toBe(3);
+    expect(await recordsAhead(refsFixture({ shas: { [`${STATE}^{commit}`]: 's' }, firstParentCommitLists: { [range]: line } }), source)).toBeNull();
+  });
+});
+
+describe('the lag line names the open sync PR', () => {
+  it('prints the number where one is open and none where none is', async () => {
+    const refs = refsFixture({ shas: { [`${STATE}^{commit}`]: 's', [`${MAIN}^{tree}`]: 'D' }, firstParentCommitLists: { [`${MAIN}..${STATE}`]: [commit('a')] } });
+    expect((await readRecordFindings(refs, source, 12)).recordLag?.text).toContain('sync PR: #12');
+    expect((await readRecordFindings(refs, source)).recordLag?.text).toContain('sync PR: none');
   });
 });

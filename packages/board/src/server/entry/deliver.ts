@@ -216,6 +216,9 @@ const resolveMain = async (repoRoot: string, scripts: Scripts): Promise<string> 
   return hostedTrimmed !== '' ? hostedTrimmed : 'main';
 };
 
+/** The exit code `plot-state-sync.mjs` answers where no `State branch` key is declared. */
+const NO_STATE_BRANCH = 4;
+
 /**
  * Where a delivery's booking worktree goes, and the booking branch it holds.
  *
@@ -613,6 +616,17 @@ const runDeliver = async (
       await ctx.scripts.awaited('plot-plan-state.sh', [bookedPlanFile, '--phase', 'delivered', '--plan-link', rel]),
     );
     for (const line of planState.lines) write(`  plan-state: ${line}\n`);
+
+    // THE SYNC PR (D13): a Delivered record on the state ref opens or refreshes
+    // the PR to the default branch. The entry yields to a live fleet heartbeat,
+    // and exit 4 means no key is declared, which prints nothing. A failed or
+    // unread pass is reported and the delivery stands.
+    const sync = await ctx.scripts.awaited('board/plot-state-sync.mjs', ['--pr', '--caller', 'command']);
+    if (sync.code !== NO_STATE_BRANCH) {
+      const said = sync.stdout.trim().split('\n').filter((l) => l !== '').pop() ?? '';
+      if (sync.code === 0) write(`  state-sync: ${said}\n`);
+      else warn(`plot-deliver: state-sync did not complete (exit ${sync.code}): ${said || sync.stderr.trim().split('\n').pop() || 'no output'}\n`);
+    }
 
     unlinkSyncSafe(bookedPlanFile);
 

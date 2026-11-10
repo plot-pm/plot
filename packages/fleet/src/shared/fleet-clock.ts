@@ -33,6 +33,7 @@ export const fleetDivisors = (): { name: string; everyNthBeat: number }[] => {
     { name: 'pr-reader', everyNthBeat: divisorFor(base, PR_REFRESH_MS) },
     { name: 'issue-reader', everyNthBeat: divisorFor(base, ISSUE_REFRESH_MS) },
     { name: 'issue-writes', everyNthBeat: divisorFor(base, REFRESH_MS) },
+    { name: 'state-sync', everyNthBeat: divisorFor(base, PR_REFRESH_MS) },
   ];
 };
 
@@ -46,6 +47,8 @@ export interface FleetClockWork {
   issues?: () => Promise<void>;
   /** One drain of the tracker writes Plot made into the issue index. Never called while one is in flight. */
   issueWrites?: () => Promise<void>;
+  /** One forward sync of the state ref and one sync PR pass. Never called while one is in flight. */
+  stateSync?: () => Promise<void>;
 }
 
 /** The fleet's running clock: the pulse, plus a wait for the runs it started. */
@@ -105,6 +108,7 @@ export const startFleetClock = (
     'pr-reader': guarded('pr-reader', work.prs ?? (async () => undefined)),
     'issue-reader': guarded('issue-reader', work.issues ?? (async () => undefined)),
     'issue-writes': guarded('issue-writes', work.issueWrites ?? (async () => undefined)),
+    'state-sync': guarded('state-sync', work.stateSync ?? (async () => undefined)),
   };
   for (const { name, everyNthBeat } of fleetDivisors()) {
     pulse.add({ name, everyNthBeat, tick: ticks[name] });

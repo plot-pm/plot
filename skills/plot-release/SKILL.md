@@ -4,7 +4,7 @@ description: >-
   Verify release readiness and guide the release process.
   Part of the Plot workflow. Use on /plot-release.
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot

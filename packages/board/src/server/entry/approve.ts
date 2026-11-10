@@ -13,7 +13,7 @@ import { spikeOf } from '@plot-pm/domain/rules/spike';
 import { slicesPushedOf } from '@plot-pm/domain/rules/spike-confirm';
 import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord, replaceStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
 import { SPIKE_APPROVED_FIELD, spikeReceiptKey } from '@plot-pm/domain/rules/state-transition';
-import { clearHolds } from '@plot-pm/domain/rules/hold-clear';
+import { clearHolds, HOLD_FILE } from '@plot-pm/domain/rules/hold-clear';
 import {
   isPlanFile,
   namesPlan,
@@ -733,8 +733,8 @@ const annotateSprint = async (
  */
 const stageApproval = async (ctx: Context, root: string, rel: string, report: WriteReport): Promise<void> => {
   await ctx.trees.stage(root, [rel]);
-  const holdPresent = await ctx.planStore.readText(path.join(root, '.plot', 'hold'));
-  if (holdPresent.ok && holdPresent.value !== null) await ctx.trees.stage(root, ['.plot/hold']);
+  const holdPresent = await ctx.planStore.readText(path.join(root, HOLD_FILE));
+  if (holdPresent.ok && holdPresent.value !== null) await ctx.trees.stage(root, [HOLD_FILE]);
   if (report.sprintFile !== '') await ctx.trees.stage(root, [report.sprintFile]);
 };
 

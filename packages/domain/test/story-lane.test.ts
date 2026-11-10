@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PHASE_MAP, parsePhaseMap, phaseOfStory, type PhaseMap } from '../src/rules/workflow-phases.js';
-import { storyLane, storyLanes, type StoryLaneMap } from '../src/rules/story-lane.js';
+import { laneStanding, storyLane, storyLanes, type StoryLaneMap } from '../src/rules/story-lane.js';
 import type { StoryStanding } from '../src/transitions/story.js';
 
 const mapOf = (phaseMap: PhaseMap): StoryLaneMap => ({
@@ -77,5 +77,30 @@ describe('storyLanes', () => {
     expect(archived!.stories).toHaveLength(1);
     const done = groups.find((g) => g.lane === 'Done');
     expect(done!.stories).toHaveLength(0);
+  });
+});
+
+describe('laneStanding', () => {
+  it('caps a derived done at active for a story declared ready or active', () => {
+    expect(laneStanding('ready', 'done')).toBe('active');
+    expect(laneStanding('active', 'done')).toBe('active');
+  });
+
+  it('caps a derived archived at active, not only done', () => {
+    expect(laneStanding('ready', 'archived')).toBe('active');
+  });
+
+  it('keeps the derived standing of a story declared done or archived', () => {
+    expect(laneStanding('done', 'done')).toBe('done');
+    expect(laneStanding('archived', 'archived')).toBe('archived');
+  });
+
+  it('leaves a derived standing below done alone', () => {
+    expect(laneStanding('draft', 'draft')).toBe('draft');
+    expect(laneStanding('ready', 'active')).toBe('active');
+  });
+
+  it('places a ready story with every plan delivered in Active', () => {
+    expect(storyLane(laneStanding('ready', 'done'), 'live')).toBe('Active');
   });
 });

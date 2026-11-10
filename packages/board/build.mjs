@@ -270,6 +270,26 @@ await esbuild.build({
 fs.copyFileSync(oldLabelArtifact, shippedOldLabel);
 fs.chmodSync(shippedOldLabel, 0o755);
 
+// The shared `--start`/`--restart` arm's harness and init-system probes, and
+// `--restart`'s plan, reload command and report, reachable from plot-fleetctl.sh.
+const fleetctlStartArtifact = path.join(here, 'dist/plot-fleetctl-start.mjs');
+const shippedFleetctlStart = path.join(here, '../../skills/plot/scripts/board/plot-fleetctl-start.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/fleetctl-start.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: fleetctlStartArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(fleetctlStartArtifact, shippedFleetctlStart);
+fs.chmodSync(shippedFleetctlStart, 0o755);
+
 // One PR's state through `Host.prState`, reachable from plot-impl-status.sh. A
 // cross-repo `owner/repo#N` reference resolves the host it lives on in the host
 // adapter (`rules/cross-repo-probe.ts`), so the shell keeps no copy of the probe.
@@ -1670,6 +1690,26 @@ await esbuild.build({
 
 fs.copyFileSync(stateCutArtifact, shippedStateCut);
 fs.chmodSync(shippedStateCut, 0o755);
+// The state ref's sync with the default branch: `--forward` merges the default
+// branch into the state ref under the push lock, `--pr` opens or refreshes the
+// sync PR. fleetd's tick and `plot-deliver` call it.
+const stateSyncArtifact = path.join(here, 'dist/plot-state-sync.mjs');
+const shippedStateSync = path.join(here, '../../skills/plot/scripts/board/plot-state-sync.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/state-sync.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: stateSyncArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(stateSyncArtifact, shippedStateSync);
+fs.chmodSync(shippedStateSync, 0o755);
 // The ref a plan path's records are read at, for `plot-dispatch.sh` and
 // `plot-reconcile-scan.sh`: the declared `State branch` where it holds the
 // path, else `origin/<default>`. Asked only where a key is declared.
@@ -2035,6 +2075,7 @@ const planForBranchKb = (fs.statSync(shippedPlanForBranch).size / 1024).toFixed(
 const recordPrKb = (fs.statSync(shippedRecordPr).size / 1024).toFixed(1);
 const briefBookKb = (fs.statSync(shippedBriefBook).size / 1024).toFixed(1);
 const stateCutKb = (fs.statSync(shippedStateCut).size / 1024).toFixed(1);
+const stateSyncKb = (fs.statSync(shippedStateSync).size / 1024).toFixed(1);
 const recordRefKb = (fs.statSync(shippedRecordRef).size / 1024).toFixed(1);
 const writeProbeKb = (fs.statSync(shippedWriteProbe).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
@@ -2088,6 +2129,7 @@ console.log(`Built plot-plan-for-branch.mjs (${planForBranchKb} KB) → skills/p
 console.log(`Built plot-record-pr.mjs (${recordPrKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-brief-book.mjs (${briefBookKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-state-cut.mjs (${stateCutKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-state-sync.mjs (${stateSyncKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-record-ref.mjs (${recordRefKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-write-probe.mjs (${writeProbeKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

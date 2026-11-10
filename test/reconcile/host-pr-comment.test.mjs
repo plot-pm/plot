@@ -64,11 +64,11 @@ const prComment = (box, backend, args) =>
 
 const callLog = (box) => (fs.existsSync(box.calls) ? fs.readFileSync(box.calls, 'utf8') : '');
 
-test('pr-comment: GitHub posts the body through gh pr comment and exits 0', async () => {
+test('pr-comment: GitHub posts the body through the REST comments route and exits 0', async () => {
   const box = sandbox();
   const got = await prComment(box, 'github', ['7', 'HIGH 1, MEDIUM 0, LOW 0']);
   assert.equal(got.code, 0, got.err);
-  assert.match(callLog(box), /^gh pr comment 7 --body HIGH 1, MEDIUM 0, LOW 0$/m);
+  assert.match(callLog(box), /^gh api -X POST repos\/\{owner\}\/\{repo\}\/issues\/7\/comments -f body=HIGH 1, MEDIUM 0, LOW 0$/m);
 });
 
 test('pr-comment: a gh call that fails exits 3 with gh’s own words', async () => {
@@ -83,7 +83,7 @@ test('pr-comment: Bitbucket exits 4, names the backend, and calls neither CLI', 
   const got = await prComment(box, 'bitbucket', ['7', 'b']);
   assert.equal(got.code, 4);
   assert.match(got.err, /pr-comment: bitbucket has no verified pr-comment write/);
-  assert.doesNotMatch(callLog(box), /^(gh|bb) pr comment/m);
+  assert.doesNotMatch(callLog(box), /^(gh api -X POST|bb pr comment)/m);
 });
 
 /**
@@ -108,7 +108,7 @@ test('pr-comment: a marker held by an earlier comment edits that comment and pos
   const got = await prComment(box, 'github', ['7', 'new <!-- m -->', '<!-- m -->']);
   assert.equal(got.code, 0, got.err);
   assert.match(callLog(box), /^gh api -X PATCH repos\/\{owner\}\/\{repo\}\/issues\/comments\/12 -f body=new <!-- m -->$/m);
-  assert.doesNotMatch(callLog(box), /^gh pr comment/m);
+  assert.doesNotMatch(callLog(box), /^gh api -X POST/m);
 });
 
 test('pr-comment: a marker held only by another author’s comment matches — edits instead of posting', async () => {
@@ -116,7 +116,7 @@ test('pr-comment: a marker held only by another author’s comment matches — e
   const got = await prComment(box, 'github', ['7', 'new <!-- m -->', '<!-- m -->']);
   assert.equal(got.code, 0, got.err);
   assert.match(callLog(box), /^gh api -X PATCH repos\/\{owner\}\/\{repo\}\/issues\/comments\/12 -f body=new <!-- m -->$/m);
-  assert.doesNotMatch(callLog(box), /^gh pr comment/m);
+  assert.doesNotMatch(callLog(box), /^gh api -X POST/m);
 });
 
 test('pr-comment: a marker comment with no user field edits that comment while the login is known', async () => {
@@ -124,7 +124,7 @@ test('pr-comment: a marker comment with no user field edits that comment while t
   const got = await prComment(box, 'github', ['7', 'new <!-- m -->', '<!-- m -->']);
   assert.equal(got.code, 0, got.err);
   assert.match(callLog(box), /^gh api -X PATCH repos\/\{owner\}\/\{repo\}\/issues\/comments\/12 -f body=new <!-- m -->$/m);
-  assert.doesNotMatch(callLog(box), /^gh pr comment/m);
+  assert.doesNotMatch(callLog(box), /^gh api -X POST/m);
 });
 
 test('pr-comment: with no login from gh api user, the marker alone matches and another author’s comment is edited', async () => {
@@ -132,7 +132,7 @@ test('pr-comment: with no login from gh api user, the marker alone matches and a
   const got = await prComment(box, 'github', ['7', 'new <!-- m -->', '<!-- m -->']);
   assert.equal(got.code, 0, got.err);
   assert.match(callLog(box), /^gh api -X PATCH repos\/\{owner\}\/\{repo\}\/issues\/comments\/12 -f body=new <!-- m -->$/m);
-  assert.doesNotMatch(callLog(box), /^gh pr comment/m);
+  assert.doesNotMatch(callLog(box), /^gh api -X POST/m);
 });
 
 test('pr-comment: a marker no comment holds posts, and so does a PR with no comments', async () => {
@@ -140,7 +140,7 @@ test('pr-comment: a marker no comment holds posts, and so does a PR with no comm
     const box = sandbox(listing(comments));
     const got = await prComment(box, 'github', ['7', 'first <!-- m -->', '<!-- m -->']);
     assert.equal(got.code, 0, got.err);
-    assert.match(callLog(box), /^gh pr comment 7 --body first <!-- m -->$/m);
+    assert.match(callLog(box), /^gh api -X POST repos\/\{owner\}\/\{repo\}\/issues\/7\/comments -f body=first <!-- m -->$/m);
     assert.doesNotMatch(callLog(box), /PATCH/);
   }
 });
@@ -151,7 +151,7 @@ test('pr-comment: a failed edit exits 3 and posts nothing beside it', async () =
   });
   const got = await prComment(box, 'github', ['7', 'b <!-- m -->', '<!-- m -->']);
   assert.equal(got.code, 3);
-  assert.doesNotMatch(callLog(box), /^gh pr comment/m);
+  assert.doesNotMatch(callLog(box), /^gh api -X POST/m);
 });
 
 test('pr-comment: a failed listing exits 3 and posts nothing — never "no marker found"', async () => {
@@ -161,7 +161,7 @@ test('pr-comment: a failed listing exits 3 and posts nothing — never "no marke
   const got = await prComment(box, 'github', ['7', 'b <!-- m -->', '<!-- m -->']);
   assert.equal(got.code, 3);
   assert.match(got.err, /HTTP 502: Bad Gateway/);
-  assert.doesNotMatch(callLog(box), /^gh pr comment/m);
+  assert.doesNotMatch(callLog(box), /^gh api -X POST/m);
 });
 
 test('pr-comment: Bitbucket with a marker still exits 4 and reads nothing', async () => {

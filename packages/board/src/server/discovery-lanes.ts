@@ -96,7 +96,7 @@ const withTicketFacts = (
  */
 export const discoveryLanes = async (
   opts: BuildBoardOptions,
-  board: { stories: Array<{ status: string; plans: Array<{ phase: string }> }>; archivedStories: Array<{ status: string; plans: Array<{ phase: string }> }> },
+  board: { stories: Array<{ status: string; declaredStatus: string; plans: Array<{ phase: string }> }>; archivedStories: Array<{ status: string; declaredStatus: string; plans: Array<{ phase: string }> }> },
   archived: boolean,
   data: TicketLaneData | null,
   facts: TicketFactsReading,
@@ -134,13 +134,13 @@ export const discoveryLanes = async (
   const { issueAnswer, issueAbsence } = ensureCache(opts);
   const liveStories = board.stories.map((s) => ({
     story: s,
-    standing: deriveStoryStatus(s.status, s.plans),
+    standing: deriveStoryStatus(s.declaredStatus, s.plans),
     location: 'live' as const,
   }));
   const archivedStories = archived
     ? board.archivedStories.map((s) => ({
       story: s,
-      standing: deriveStoryStatus(s.status, s.plans),
+      standing: deriveStoryStatus(s.declaredStatus, s.plans),
       location: 'archived' as const,
     }))
     : [];

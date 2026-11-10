@@ -1,5 +1,22 @@
 import type { StoryStanding } from '../transitions/story.js';
 
+/**
+ * The standing a story's lane is read from.
+ *
+ * Plans that are all finished prove the plans are done, not that the story is:
+ * the story may have plans nobody has written yet. So the derived standing is
+ * capped at `active`. A story a person declared `done` or `archived` keeps the
+ * derived standing unchanged.
+ *
+ * @param declared - the status the story's frontmatter writes.
+ * @param derived - the standing its plans prove (`derivedStanding`).
+ * @returns `derived`, with `done` and `archived` read as `active` unless `declared` is `done` or `archived`.
+ */
+export const laneStanding = (declared: StoryStanding, derived: StoryStanding): StoryStanding => {
+  if (declared === 'done' || declared === 'archived') return derived;
+  return derived === 'done' || derived === 'archived' ? 'active' : derived;
+};
+
 /** D7's four Discovery lanes for a story. */
 export type StoryLaneName = 'Draft' | 'Active' | 'Done' | 'Archived';
 

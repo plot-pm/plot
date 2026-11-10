@@ -72,6 +72,7 @@ skills/plot/scripts/board/plot-desk-root.mjs -merge
 skills/plot/scripts/board/plot-empty-claim.mjs -merge
 skills/plot/scripts/board/plot-fleet-size.mjs -merge
 skills/plot/scripts/board/plot-fleetd.mjs -merge
+skills/plot/scripts/board/plot-fleetctl-start.mjs -merge
 skills/plot/scripts/board/plot-issue-source.mjs -merge
 skills/plot/scripts/board/plot-issue-status.mjs -merge
 skills/plot/scripts/board/plot-plan-for-branch.mjs -merge
@@ -104,6 +105,7 @@ skills/plot/scripts/board/plot-record-pr.mjs -merge
 skills/plot/scripts/board/plot-record-ref.mjs -merge
 skills/plot/scripts/board/plot-brief-book.mjs -merge
 skills/plot/scripts/board/plot-state-cut.mjs -merge
+skills/plot/scripts/board/plot-state-sync.mjs -merge
 skills/plot/scripts/board/plot-release-gate.mjs -merge
 skills/plot/scripts/board/plot-slice-chain.mjs -merge
 skills/plot/scripts/board/plot-slice-claims.mjs -merge

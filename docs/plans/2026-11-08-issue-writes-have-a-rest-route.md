@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** ship-2-32-0
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-09, Jan Wloka, plan-PR #3272 merged
 - **Started:** 2026-11-09, Jan Wloka, `bug/issue-writes-have-a-rest-route`
+- **Delivered:** 2026-11-09
 
 ## Changelog
 
@@ -47,7 +48,7 @@ The two ops are GraphQL-dependent only in part:
 
 ### Open Questions
 
-- [ ] `gh_route` (`plot-host.sh:2483`) still answers `graphql` for every op but `pr-state`. Does #3271 leave it in use, and should these two ops name `rest` there for the budget record, or is the route table now dead code? Read it when implementing; do not extend a table nothing consults.
+- [x] `gh_route` (`plot-host.sh:2483`) still answers `graphql` for every op but `pr-state`. Does #3271 leave it in use, and should these two ops name `rest` there for the budget record, or is the route table now dead code? Answered: `pr-state` is the only reader of `$route` (`plot-host.sh:4047`), so `issue-label` and `issue-comment` do not consult it, and `gh_route` is left unchanged.
 
 ## Done when
 
@@ -63,7 +64,7 @@ The two ops are GraphQL-dependent only in part:
 
 ### REST route
 
-- `bug/issue-writes-have-a-rest-route` — REST bodies for `issue-comment` and `issue-label` in `skills/plot/scripts/plot-host.sh`, contract rows in `test/reconcile/host.test.mjs`; a changeset for `plot` <!-- builds: REST routes for plot-host.sh issue-comment and issue-label -->
+- `bug/issue-writes-have-a-rest-route` — REST bodies for `issue-comment` and `issue-label` in `skills/plot/scripts/plot-host.sh`, contract rows in `test/reconcile/host.test.mjs`; a changeset for `plot` <!-- builds: REST routes for plot-host.sh issue-comment and issue-label --> → #3309
 
 ## Notes
 
