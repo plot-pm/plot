@@ -3198,7 +3198,7 @@ test('dispatch: the manifest pid is the AGENT pid, matching .plot-worker.pid', (
   fs.rmSync(wt, { recursive: true, force: true });
 });
 
-test('dispatch: the manifest names the wrapper and the remaining monitor, at spawn', () => {
+test('dispatch: the manifest names the wrapper and no monitor, at spawn', () => {
   // THE DEFECT. The manifest recorded the process the registry started LEAST
   // ambiguously — the agent — and none of the others the registry also started.
   // Measured on the estate 2026-08-30: 1 manifest, 76 monitor processes, 0 of
@@ -3209,7 +3209,9 @@ test('dispatch: the manifest names the wrapper and the remaining monitor, at spa
   //           ├── AgentMonitor     (7365)  ← in no manifest
   //           └── plot-worker-loop (7366)  ← "pid": "7366"
   //
-  // ONLY ONE MONITOR STARTS NOW. `bug/the-loop-reports-idle` removed the
+  // NO MONITOR STARTS NOW. `liveness-token` moved the AgentMonitor's findings
+  // into fleetd and the wrapper's final pass, so `agentMonitorPid` is `''`.
+  // `bug/the-loop-reports-idle` removed the
   // WorkerMonitor process: the loop's own watcher judges `idle` without a
   // resident process to hold it, and the wrapper itself reports `gone`/`clear`
   // after `wait "$agent"` returns. The BuildMonitor process is gone too
@@ -3276,8 +3278,8 @@ test('dispatch: the manifest names the wrapper and the remaining monitor, at spa
   // dispatched by an older checkout still parses.
   assert.equal(m.workerMonitorPid, '',
     `the manifest named a WorkerMonitor pid though the wrapper no longer starts one: ${m.workerMonitorPid}`);
-  assert.match(m.agentMonitorPid, /^\d+$/,
-    `the manifest must name the AgentMonitor, got: ${m.agentMonitorPid}`);
+  assert.equal(m.agentMonitorPid, '',
+    `the manifest named an AgentMonitor pid though the wrapper no longer starts one: ${m.agentMonitorPid}`);
   // NO BUILDMONITOR PID ANY MORE, AND THAT IS THE POINT (`the-shell-loop-goes`).
   // Unlike `workerMonitorPid` above, the manifest stamp writes no
   // `buildMonitorPid` line at all now — so the raw manifest this test reads
@@ -3288,10 +3290,9 @@ test('dispatch: the manifest names the wrapper and the remaining monitor, at spa
   assert.equal(m.buildMonitorPid, undefined,
     `the manifest named a BuildMonitor pid though the wrapper no longer starts one: ${m.buildMonitorPid}`);
 
-  // THREE DISTINCT PROCESSES. A group whose members collapsed onto one pid
+  // TWO DISTINCT PROCESSES. A group whose members collapsed onto one pid
   // would pass every numeric check above and name nothing useful.
-  const group = [m.pid, m.wrapperPid, m.agentMonitorPid];
-  assert.equal(new Set(group).size, 3, `three distinct processes, got: ${group.join(' ')}`);
+  assert.notEqual(m.pid, m.wrapperPid, `two distinct processes, got: ${m.pid} ${m.wrapperPid}`);
 
   endDesk(wt);
   fs.rmSync(t, { recursive: true, force: true });

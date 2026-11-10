@@ -242,7 +242,7 @@ test('a hand-made worktree gets no monitor', () => {
   }
 });
 
-test('--dry-run names no monitor, and --monitors is gone', () => {
+test('--dry-run names no monitor it would attach', () => {
   const sb = makeSandbox({ name: 'monitors-dry-run', config: '' });
   try {
     fs.writeFileSync(
@@ -255,9 +255,6 @@ test('--dry-run names no monitor, and --monitors is gone', () => {
       [path.join(SCRIPTS, 'plot-dispatch.sh'), '--dry-run', '--offline', 'monitor-flow'],
       { cwd: sb.work, encoding: 'utf8' });
     assert.doesNotMatch(dry, /would attach|monitor\.sh/);
-    assert.throws(() => execFileSync('bash',
-      [path.join(SCRIPTS, 'plot-dispatch.sh'), '--dry-run', '--monitors', '--offline', 'monitor-flow'],
-      { cwd: sb.work, encoding: 'utf8', stdio: 'pipe' }));
   } finally {
     sb.cleanup();
   }

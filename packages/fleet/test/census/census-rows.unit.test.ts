@@ -9,6 +9,10 @@ const here = fileURLToPath(new URL('.', import.meta.url));
 const PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-08-process-census-gate.md', import.meta.url));
 const WRAPPER_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-09-node-worker-wrapper.md', import.meta.url));
 const BOARD_API_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-09-board-api-starts-nothing.md', import.meta.url));
+const LIVENESS_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-09-liveness-token.md', import.meta.url));
+
+/** The rows of the census plan that a later plan retired. */
+const RETIRED = new Set(['P1']);
 
 /** The plan's two tables, `| Id | … | Target | Turned green by |`, as id → [target, turned green by]. */
 const planRows = (): Map<string, { target: string; greenBy: string }> => {
@@ -16,7 +20,7 @@ const planRows = (): Map<string, { target: string; greenBy: string }> => {
   for (const line of readFileSync(PLAN, 'utf8').split('\n')) {
     const cells = line.split('|').map((c) => c.trim());
     const id = cells[1] ?? '';
-    if (!/^[SP]\d$/.test(id)) continue;
+    if (!/^[SP]\d$/.test(id) || RETIRED.has(id)) continue;
     rows.set(id, { target: cells[cells.length - 3] ?? '', greenBy: cells[cells.length - 2] ?? '' });
   }
   return rows;
@@ -40,9 +44,16 @@ afterEach(() => {
 
 describe('the census rows', () => {
   it('holds every row of the plan but the retired P1, D1 of the worker wrapper plan, S7 of the board API plan and P6 of the liveness token plan', () => {
-    expect(Object.keys(CENSUS_ROWS).filter((id) => id !== 'D1' && id !== 'S7').sort()).toEqual([...planRows().keys()].sort());
+    expect(Object.keys(CENSUS_ROWS).filter((id) => id !== 'D1' && id !== 'S7' && id !== 'P6').sort()).toEqual([...planRows().keys()].sort());
     expect(Object.keys(CENSUS_ROWS).sort()).toEqual(['D1', 'P2', 'P3', 'P4', 'P6', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7']);
     expect(readFileSync(WRAPPER_PLAN, 'utf8')).toContain(`\`D1: ${CENSUS_ROWS.D1.claim}\``);
+  });
+
+  it('holds P6 as the liveness token plan words it, a zero row turned green by its Monitor in fleetd slice', () => {
+    expect(readFileSync(LIVENESS_PLAN, 'utf8')).toContain(`\`P6: ${CENSUS_ROWS.P6.claim}\``);
+    expect(readFileSync(LIVENESS_PLAN, 'utf8')).toContain('P1 is retired in the same slice that deletes the script');
+    expect(CENSUS_ROWS.P6).toMatchObject({ target: 'zero', greenBy: { plan: 'liveness-token', slice: 'Monitor in fleetd' }, green: true });
+    expect(rowTitle(CENSUS_ROWS.P6)).toMatch(/turned green by plan liveness-token, slice Monitor in fleetd/);
   });
 
   it('holds S7 as the board API plan words it, a zero row turned green by its Census zero slice', () => {
