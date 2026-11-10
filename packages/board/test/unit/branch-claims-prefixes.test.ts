@@ -87,6 +87,7 @@ describe('plot-deliver --release', () => {
     const repo = path.join(root, 'repo');
     git(root, 'init', '-q', '--bare', '-b', 'main', origin);
     git(root, 'init', '-q', '-b', 'main', repo);
+    git(repo, 'config', 'user.email', 't@t');
     mkdirSync(path.join(repo, 'docs/plans'), { recursive: true });
     writeFileSync(path.join(repo, 'CLAUDE.md'), `# R\n\n## Plot Config\n\n${config}`);
     writeFileSync(path.join(repo, 'docs/plans/2026-10-01-solo.md'), slices(claim));
