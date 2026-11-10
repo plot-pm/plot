@@ -411,10 +411,11 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       await overlay(page).waitFor({ timeout: 10_000 });
 
       const branch = page.getByText('feature/beans-a', { exact: true });
-      expect(await branch.count()).toBe(1);
+      // The agent row under Fleet and the branch under its slice row both name the branch.
+      expect(await branch.count()).toBeGreaterThan(0);
       // Present is not the same as legible: a payload dimmed to invisibility
       // would pass a count. The element must still have a rendered box.
-      const box = await branch.boundingBox();
+      const box = await branch.first().boundingBox();
       expect(box?.width ?? 0).toBeGreaterThan(0);
       expect(box?.height ?? 0).toBeGreaterThan(0);
       // And the text itself is not blanked or replaced. `beans-a` is a WORKING

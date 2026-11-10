@@ -1005,6 +1005,8 @@ export function SliceRow({
   onOpenPlan,
   onRevealBranch,
   planHeaded = false,
+  menuCard,
+  menuDispatch,
   slices,
   onExpandSection,
   planIndex,
@@ -1094,6 +1096,9 @@ export function SliceRow({
    * that name and wrapped to double height.
    */
   planHeaded?: boolean;
+  /** The plan's card and the dispatch binding for the sole branch's menu, which a started slice keeps although its slice row offers no Start work. */
+  menuCard?: Card | null;
+  menuDispatch?: DispatchInfo;
   /** The board's plan index — see `AgentListProps.planIndex`. */
   planIndex?: PlanIndex;
 }) {
@@ -1497,8 +1502,8 @@ export function SliceRow({
           {soleRow ? (
             <BranchMenu
               row={soleRow}
-              card={card ?? null}
-              dispatch={dispatch}
+              card={menuCard ?? card ?? null}
+              dispatch={menuDispatch ?? dispatch}
               implement={implement}
               pulse={pulse}
               onStarting={onStarting}

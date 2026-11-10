@@ -1172,6 +1172,8 @@ export function AgentList({
                   onOpenPlan={start ? undefined : onOpenPlan}
                   onRevealBranch={start ? undefined : onRevealBranch}
                   planHeaded={block.headed}
+                  menuCard={start ? undefined : (cardForPlanFile?.(block.planFile) ?? null)}
+                  menuDispatch={start ? undefined : dispatch}
                   slices={slices}
                   onExpandSection={expandSection}
                   planIndex={planIndex}
