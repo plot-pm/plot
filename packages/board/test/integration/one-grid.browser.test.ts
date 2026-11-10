@@ -387,11 +387,15 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // decision, and a rendering change that quietly moved a row between
       // groups would be the most expensive kind of regression here — the
       // sections are what a reader scans first.
-      const waiting = page.locator('ul[role="grid"][aria-label^="Waiting on you"]');
-      // Two branches and one ticket, exactly as the fleet places them.
+      // The two branches share one slice whose PR conflicts and no agent works
+      // on it, so the rule puts them under You › Unblock; the ticket renders in
+      // `Tickets and plan runs`, outside the rule.
+      const waiting = page.locator('ul[role="grid"][aria-label^="Unblock"]');
       expect(await waiting.locator('li[data-tuple-kind="branch"]').count()).toBe(1);
       expect(await waiting.locator('li[data-tuple-kind="pr"]').count()).toBe(1);
-      expect(await waiting.locator('li[data-tuple-kind="ticket"]').count()).toBe(1);
+      const tickets = page.locator('ul[role="grid"][aria-label="Tickets and plan runs"]');
+      expect(await tickets.locator('li[data-tuple-kind="ticket"]').count()).toBe(1);
+      expect(await waiting.locator('li[data-tuple-kind="ticket"]').count()).toBe(0);
       // A PLAN ROW HEADS ITS OWN GROUP, in whichever section that group falls.
       //
       // This asserted the opposite — no plan row in WAITING ON YOU, the one
@@ -405,7 +409,7 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // it in, and a head appears beside the rows it heads rather than in a
       // section of its own.
       expect(await waiting.locator('li[data-tuple-kind="plan"]').count()).toBe(1);
-      const notStarted = page.locator('ul[role="grid"][aria-label^="Not started"]');
+      const notStarted = page.locator('ul[role="grid"][aria-label^="Input to the fleet"]');
       expect(await notStarted.locator('li[data-tuple-kind="plan"]').count()).toBe(1);
       // And no row CROSSED: the branches stayed where their groups put them.
       expect(await notStarted.locator('li[data-tuple-kind="branch"]').count()).toBe(0);

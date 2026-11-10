@@ -11,6 +11,7 @@ import type { AgentRow, DraftPlan, Slice } from '../../../contract/schema.js';
 import type { DeliveryMapping, RegistryAgent } from './delivery-readings.js';
 import { isUnbegun } from './row-identity.js';
 import { groupBySlice, type SliceGroup } from './slices.js';
+import { rowInSlice } from './delivery-readings.js';
 import { headSliceNames, showsSliceFold, slicesElsewhere } from './sections.js';
 import { hasExceptions } from './stuck.js';
 
@@ -143,6 +144,8 @@ export interface GroupView {
   /** Every payload row the group renders, for the heading's activity mark. */
   rows: AgentRow[];
   count: number;
+  /** What the heading counts: the items, or `N plans · M slices` where plan heads and slices differ. */
+  tally: string;
 }
 
 export interface SectionView {
@@ -203,7 +206,7 @@ const isPlanRow = (item: PlacedItemView): boolean =>
 
 const planOfItem = (item: PlacedItemView): string => item.rows[0]?.plan ?? '';
 
-const isSliceItem = (item: PlacedItemView): boolean => item.rows.length > 0 && item.rows[0]!.wave !== '';
+const isSliceItem = (item: PlacedItemView): boolean => item.rows.length > 0 && rowInSlice(item.rows[0]!);
 
 /**
  * Nests a list of placed items: one plan head per plan that has a slice item in
@@ -253,8 +256,20 @@ export const nestItems = (scope: string, items: readonly PlacedItemView[], slice
     const ages = head.rows.map((r) => r.ageMinutes).filter((a): a is number => a !== null && a !== undefined);
     head.ageMinutes = ages.length > 0 ? Math.min(...ages) : undefined;
   }
-  return blocks;
+  return oldestFirst(blocks);
 };
+
+/** How long a block has waited: its oldest row's age, or its plan clock in minutes where no branch has an age. */
+const blockWait = (block: BlockView): number => {
+  const rows = block.kind === 'plan' ? block.rows : block.item.rows;
+  return rows.reduce((n, r) => Math.max(n, r.ageMinutes ?? 0, (r.waitingDays ?? 0) * 1440), 0);
+};
+
+/** Orders blocks by what has waited longest first; blocks that tie keep their placement order. */
+const oldestFirst = (blocks: BlockView[]): BlockView[] =>
+  blocks.map((b, i) => ({ b, i, wait: blockWait(b) }))
+    .sort((a, b) => b.wait - a.wait || a.i - b.i)
+    .map((x) => x.b);
 
 /**
  * Whether a plan head's slices are on the page, or `null` where the head has no fold.
@@ -343,9 +358,13 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
       const agents = agentViews.filter((v) => section === 'fleet' && v.placement.group === group);
       const meta = GROUP_LABELS[group] ?? { label: group, hint: '' };
       const rows = [...items.flatMap((v) => v.rows), ...agents.flatMap((v) => (v.row === null ? [] : [v.row]))];
+      const blocks = nestItems(group, items, slices);
+      const heads = blocks.flatMap((b) => (b.kind === 'plan' ? [b] : []));
+      const sliceCount = heads.reduce((n, b) => n + b.slices.length, 0);
+      const count = items.length + agents.length;
       return {
-        key: group, ...meta, items, agents, blocks: nestItems(group, items, slices), rows,
-        count: items.length + agents.length,
+        key: group, ...meta, items, agents, blocks, rows, count,
+        tally: heads.length > 0 && heads.length !== sliceCount ? `${heads.length} plans · ${sliceCount} slices` : String(count),
       };
     });
     return {

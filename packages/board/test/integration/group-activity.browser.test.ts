@@ -128,15 +128,26 @@ describe('a group heading carries the activity of the rows behind it', () => {
     return page;
   }
 
-  /** The section for a group key — its heading and, when open, its rows. */
+  /** The group or section for a key — its heading and, when open, its rows. */
   const sectionFor = (page: Page, key: string) =>
-    page.locator('section').filter({ has: page.locator(`[data-group-toggle="${key}"]`) });
+    page.locator(`[data-group="${key}"], [data-section="${key}"]`);
 
   const toggleFor = (page: Page, key: string) =>
     page.locator(`[data-group-toggle="${key}"]`);
 
+  /** The heading of a group or section: an h3 for a group, an h2 for a section. */
+  const headingFor = (page: Page, key: string) =>
+    page.locator(`[data-delivery-group="${key}"], [data-delivery-section="${key}"]`);
+
+  /** Fold a group the reader finds open, so the heading stands for rows it hides. */
+  const fold = async (page: Page, key: string) => {
+    await toggleFor(page, key).waitFor({ timeout: 10_000 });
+    if ((await toggleFor(page, key).getAttribute('aria-expanded')) === 'true') await toggleFor(page, key).click();
+    await expect.poll(() => toggleFor(page, key).getAttribute('aria-expanded')).toBe('false');
+  };
+
   const markInHeading = (page: Page, key: string) =>
-    sectionFor(page, key).locator('h2 [data-activity-mark]');
+    headingFor(page, key).locator('[data-activity-mark]');
 
   // ── A folded PLAN speaks for its branches ─────────────────────────────────
 
@@ -198,8 +209,8 @@ describe('a group heading carries the activity of the rows behind it', () => {
     // not merely hidden — it is REMOVED from the tree, so the heading is the
     // only thing on the page that can say anything about it.
     const page = await open();
-    await expect.poll(() => toggleFor(page, 'quiet').count()).toBe(1);
-    expect(await toggleFor(page, 'quiet').getAttribute('aria-expanded')).toBe('false');
+    await fold(page, 'queued');
+    expect(await toggleFor(page, 'queued').getAttribute('aria-expanded')).toBe('false');
     // The row really is absent, which is what makes the heading's mark the
     // only signal. If the row were merely visually hidden this suite would be
     // asserting something much weaker than it claims.
@@ -207,8 +218,8 @@ describe('a group heading carries the activity of the rows behind it', () => {
     // EVERY KIND, because absence has to be. `li[data-agent-row]` is stamped by
     // the branch-row renderer alone, so a collapsed group holding a plan head
     // and a wave row would satisfy it while showing two rows.
-    expect(await sectionFor(page, 'quiet').locator('li[data-tuple-kind]').count()).toBe(0);
-    await expect.poll(() => markInHeading(page, 'quiet').count()).toBe(1);
+    expect(await sectionFor(page, 'queued').locator('li[data-tuple-kind]').count()).toBe(0);
+    await expect.poll(() => markInHeading(page, 'queued').count()).toBe(1);
   });
 
   it('leaves a collapsed group with NO active row unmarked', async () => {
@@ -216,9 +227,9 @@ describe('a group heading carries the activity of the rows behind it', () => {
     // that always shows the mark says nothing at all. DONE is collapsed by
     // default too, so this is the same shape with the opposite answer.
     const page = await open();
-    await expect.poll(() => toggleFor(page, 'done').count()).toBe(1);
-    expect(await toggleFor(page, 'done').getAttribute('aria-expanded')).toBe('false');
-    expect(await markInHeading(page, 'done').count()).toBe(0);
+    await expect.poll(() => toggleFor(page, 'release-delivery').count()).toBe(1);
+    expect(await toggleFor(page, 'release-delivery').getAttribute('aria-expanded')).toBe('false');
+    expect(await markInHeading(page, 'release-delivery').count()).toBe(0);
   });
 
   it('keeps the mark when the group is EXPANDED', async () => {
@@ -227,19 +238,20 @@ describe('a group heading carries the activity of the rows behind it', () => {
     // the moment of opening, which reads as *it stopped*. A marker that
     // disappears when you look closer is worse than one that repeats itself.
     const page = await open();
-    await expect.poll(() => markInHeading(page, 'quiet').count()).toBe(1);
-    await toggleFor(page, 'quiet').click();
+    await expect.poll(() => markInHeading(page, 'queued').count()).toBe(1);
+    await fold(page, 'queued');
+    await toggleFor(page, 'queued').click();
     await expect.poll(() =>
-      toggleFor(page, 'quiet').getAttribute('aria-expanded')).toBe('true');
+      toggleFor(page, 'queued').getAttribute('aria-expanded')).toBe('true');
     // The rows are now on the page AND the heading still carries the mark.
     // EVERY ROW THE SECTION SHOWS, not its branch rows. QUIET's rows group
     // under plan heads and wave rows, and a plan of one branch renders no
     // branch row at all — so `li[data-agent-row]` counted 0 and this read as
     // *expanding revealed nothing* when it had revealed a whole group. What
     // the assertion is for is that the rows ARE on the page once opened.
-    expect(await sectionFor(page, 'quiet').locator('li[data-tuple-kind]').count())
+    expect(await sectionFor(page, 'queued').locator('li[data-tuple-kind]').count())
       .toBeGreaterThan(0);
-    expect(await markInHeading(page, 'quiet').count()).toBe(1);
+    expect(await markInHeading(page, 'queued').count()).toBe(1);
   });
 
   it('agrees with the row beneath it once both are visible', async () => {
@@ -248,9 +260,10 @@ describe('a group heading carries the activity of the rows behind it', () => {
     // where a drift would actually be seen: the heading's pace and its active
     // row's pace are the same word.
     const page = await open();
-    await toggleFor(page, 'quiet').click();
+    await fold(page, 'queued');
+    await toggleFor(page, 'queued').click();
     await expect.poll(() =>
-      sectionFor(page, 'quiet').locator('li[data-tuple-kind]').count()).toBeGreaterThan(0);
+      sectionFor(page, 'queued').locator('li[data-tuple-kind]').count()).toBeGreaterThan(0);
     // THE MARKED ROW BENEATH THE HEADING, found by the mark rather than by the
     // branch. Measured after expanding: QUIET holds a plan head and a wave row,
     // and NEITHER carries `[data-branch]` — the wave names its wave and links
@@ -259,10 +272,10 @@ describe('a group heading carries the activity of the rows behind it', () => {
     //
     // The claim is about AGREEMENT — the heading's pace equals its rows' — so
     // the row to compare against is the marked one, whatever kind it is.
-    const rowMark = sectionFor(page, 'quiet')
+    const rowMark = sectionFor(page, 'queued')
       .locator('li[data-tuple-kind] [data-activity-mark]');
     await expect.poll(() => rowMark.count()).toBeGreaterThan(0);
-    expect(await markInHeading(page, 'quiet').getAttribute('data-activity-pace'))
+    expect(await markInHeading(page, 'queued').getAttribute('data-activity-pace'))
       .toBe(await rowMark.first().getAttribute('data-activity-pace'));
   });
 
@@ -276,8 +289,8 @@ describe('a group heading carries the activity of the rows behind it', () => {
     // positioned and land it somewhere else entirely — a defect no class-name
     // assertion can see.
     const page = await open();
-    await expect.poll(() => markInHeading(page, 'quiet').count()).toBe(1);
-    const position = await markInHeading(page, 'quiet')
+    await expect.poll(() => markInHeading(page, 'queued').count()).toBe(1);
+    const position = await markInHeading(page, 'queued')
       .evaluate((el) => getComputedStyle(el).position);
     expect(position).toBe('relative');
   });
@@ -288,9 +301,9 @@ describe('a group heading carries the activity of the rows behind it', () => {
     // page. Its box must be within its heading's box, and to the right of the
     // tally it follows.
     const page = await open();
-    await expect.poll(() => markInHeading(page, 'quiet').count()).toBe(1);
-    const mark = (await markInHeading(page, 'quiet').boundingBox())!;
-    const heading = (await sectionFor(page, 'quiet').locator('h2').boundingBox())!;
+    await expect.poll(() => markInHeading(page, 'queued').count()).toBe(1);
+    const mark = (await markInHeading(page, 'queued').boundingBox())!;
+    const heading = (await headingFor(page, 'queued').boundingBox())!;
     expect(mark.x).toBeGreaterThanOrEqual(heading.x - 0.5);
     expect(mark.x + mark.width).toBeLessThanOrEqual(heading.x + heading.width + 0.5);
     expect(mark.y).toBeGreaterThanOrEqual(heading.y - 0.5);
@@ -306,9 +319,9 @@ describe('a group heading carries the activity of the rows behind it', () => {
     // label and a tally. A section whose heading wrapped would cost a row of
     // vertical space on a view whose entire complaint was crowding.
     const page = await open();
-    await expect.poll(() => markInHeading(page, 'quiet').count()).toBe(1);
-    const marked = (await sectionFor(page, 'quiet').locator('h2').boundingBox())!;
-    const plain = (await sectionFor(page, 'done').locator('h2').boundingBox())!;
+    await expect.poll(() => markInHeading(page, 'queued').count()).toBe(1);
+    const marked = (await headingFor(page, 'queued').boundingBox())!;
+    const plain = (await headingFor(page, 'being-built').boundingBox())!;
     expect(Math.abs(marked.height - plain.height)).toBeLessThan(2);
   });
 
@@ -320,9 +333,9 @@ describe('a group heading carries the activity of the rows behind it', () => {
     // is in progress in this checkout". `aria-hidden` is what prevents it, and
     // this is the assertion that would catch its removal.
     const page = await open();
-    await expect.poll(() => markInHeading(page, 'quiet').count()).toBe(1);
-    expect(await markInHeading(page, 'quiet').getAttribute('aria-hidden')).toBe('true');
-    const name = await toggleFor(page, 'quiet')
+    await expect.poll(() => markInHeading(page, 'queued').count()).toBe(1);
+    expect(await markInHeading(page, 'queued').getAttribute('aria-hidden')).toBe('true');
+    const name = await toggleFor(page, 'queued')
       .evaluate((el) => (el as HTMLElement).innerText);
     expect(name.toLowerCase()).not.toMatch(/write is in progress|claimed, and no write/);
   });
@@ -350,8 +363,8 @@ describe('a group heading carries the activity of the rows behind it', () => {
     // mark. The glow is what the mark is read by at a distance, and a heading
     // that rendered a duller one would be a second design wearing one name.
     const page = await open();
-    await expect.poll(() => markInHeading(page, 'quiet').count()).toBe(1);
-    const shadow = await markInHeading(page, 'quiet')
+    await expect.poll(() => markInHeading(page, 'queued').count()).toBe(1);
+    const shadow = await markInHeading(page, 'queued')
       .locator('[data-activity-dot]')
       .evaluate((el) => getComputedStyle(el).boxShadow);
     expect(shadow).not.toBe('none');
@@ -400,9 +413,8 @@ describe('a heading travels at the strongest pace its rows state', () => {
   }
 
   const headingMark = (page: Page, key: string) =>
-    page.locator('section')
-      .filter({ has: page.locator(`[data-group-toggle="${key}"]`) })
-      .locator('h2 [data-activity-mark]');
+    page.locator(`[data-delivery-group="${key}"], [data-delivery-section="${key}"]`)
+      .locator('[data-activity-mark]');
 
   it('travels FAST for a group holding one measured row among claimed ones', async () => {
     // THE ordering assertion. An implementation reporting the WEAKEST pace — or
@@ -418,8 +430,8 @@ describe('a heading travels at the strongest pace its rows state', () => {
         branchUrl: `${GH}feature/writing`,
       }),
     ]);
-    await expect.poll(() => headingMark(page, 'quiet').count()).toBe(1);
-    expect(await headingMark(page, 'quiet').getAttribute('data-activity-pace')).toBe('fast');
+    await expect.poll(() => headingMark(page, 'queued').count()).toBe(1);
+    expect(await headingMark(page, 'queued').getAttribute('data-activity-pace')).toBe('fast');
   });
 
   it('travels SLOW for a group holding only CLAIMED rows', async () => {

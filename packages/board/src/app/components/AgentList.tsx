@@ -1351,7 +1351,7 @@ export function AgentList({
                       <h3 data-delivery-group={group.key} className="flex items-baseline gap-1 text-sm font-medium text-slate-700 dark:text-slate-200">
                         {group.label}
                         <span className="ml-1 font-normal text-slate-500">
-                          ({group.count > 0 ? group.count : group.hint})
+                          ({group.count > 0 ? group.tally : group.hint})
                         </span>
                         {groupMark && <ActivityMark pace={groupMark} place="heading" />}
                       </h3>

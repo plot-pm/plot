@@ -123,7 +123,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     row({
       plan: APPROVED_SLUG, planFile: APPROVED_FILE,
       branch: 'feature/approved-w1', wave: 'Sown', waitingDays: 3,
-      group: 'not-started', state: 'open', waitingOn: 'click',
+      group: 'not-started', state: 'open', phase: 'Development', waitingOn: 'click',
       note: ELIGIBLE_NOTE, verdict: 'eligible', startability: 'start-work',
     }),
     // The Draft plan's shelved branch — under You, never Queued.

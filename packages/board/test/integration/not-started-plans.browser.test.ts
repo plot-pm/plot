@@ -137,8 +137,8 @@ describe('NOT STARTED renders one row per plan', () => {
     return page;
   }
 
-  /** The NOT STARTED grid — located by its own accessible name. */
-  const section = (page: Page) => page.locator('ul[role="grid"][aria-label^="Not started"]');
+  /** The Input to the fleet grid, where Design plans' slices land — located by its own accessible name. */
+  const section = (page: Page) => page.locator('ul[role="grid"][aria-label^="Input to the fleet"]');
 
   const planRow = (page: Page, plan: string) =>
     section(page).locator(`li[data-plan-row="${plan}"]`);
@@ -255,8 +255,8 @@ describe('NOT STARTED renders one row per plan', () => {
       // It WAS started and then shelved. `fleet.ts` warns what flattening it
       // costs: "a branch started and then shelved read as never begun, with its
       // age and its PR erased."
-      // Its open PR has a green CI reading, so its slice waits in Work items › At a gate.
-      const branchRow = page.locator('ul[role="grid"][aria-label^="At a gate"] li[data-agent-row]')
+      // Its plan is in Design, so the slice waits under You › Input to the fleet.
+      const branchRow = page.locator('ul[role="grid"][aria-label^="Input to the fleet"] li[data-agent-row]')
         .filter({ has: page.locator('[data-branch="feature/set-down"]') });
       await expect.poll(() => branchRow.count()).toBe(1);
       // `data-tuple-link="pr"`, and it read `data-pr-link` until 2026-08-20.
@@ -291,6 +291,7 @@ describe('NOT STARTED renders one row per plan', () => {
       // `feature/needs-review` has an open PR with a green CI reading (At a
       // gate); `feature/gone-still` is `wip` with no live agent (Queued).
       for (const [label, key, branch] of [
+        ['Input to the fleet', 'input-to-the-fleet', 'feature/activity-marker-glows'],
         ['At a gate', 'at-a-gate', 'feature/needs-review'],
         ['Queued', 'queued', 'feature/gone-still'],
       ] as const) {
@@ -545,7 +546,7 @@ describe('NOT STARTED renders one row per plan', () => {
     // count states the scope the reader reaches by expanding every head.
     const page = await open();
     try {
-      const heading = page.getByRole('heading', { name: /Not started/i }).first();
+      const heading = page.getByRole('heading', { name: /Input to the fleet/i }).first();
       await heading.waitFor({ timeout: 5_000 });
       const planRows = section(page).locator('li[data-plan-row]');
       await expect.poll(() => planRows.count()).toBe(3);

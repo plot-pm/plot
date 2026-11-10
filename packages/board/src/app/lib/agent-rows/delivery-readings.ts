@@ -13,6 +13,7 @@ import {
 import type { AgentEntry, AgentRow, DraftPlan, Slice } from '../../../contract/schema.js';
 import { ownedFromCard, ownedFromRow } from './mine-filter.js';
 import { sliceKeyOf } from './sections.js';
+import { SLICE_LINKING_KINDS } from './slices.js';
 
 /** The two `## Plot Config` keys the rule reads, as the server carried them. */
 export interface DeliveryConfig {
@@ -68,9 +69,12 @@ export const draftItemId = (plan: string): string => `plan:${plan}`;
 export const agentId = (agent: AgentEntry): string =>
   `agent:${agent.session || agent.branch || agent.worktree || agent.pid}`;
 
+/** Whether a payload row is a branch of a slice: it names a wave and is not a kind that only links to one. */
+export const rowInSlice = (row: AgentRow): boolean => row.wave !== '' && !SLICE_LINKING_KINDS.has(row.kind);
+
 /** The item id a payload row belongs to. */
 export const itemIdOfRow = (row: AgentRow): string =>
-  row.wave !== '' ? sliceItemId(row.plan, row.wave) : branchItemId(row.branch);
+  rowInSlice(row) ? sliceItemId(row.plan, row.wave) : branchItemId(row.branch);
 
 const ciOf = (pr: NonNullable<AgentRow['pr']>): PrFacts['ci'] => {
   switch (pr.ciChecks) {
@@ -112,7 +116,7 @@ const rowItem = (id: string, rows: readonly AgentRow[], slice: Slice | undefined
   const open = rows.find(hasOpenPr);
   const item: WorkItemReading = {
     id,
-    kind: first.kind === 'release' ? 'release' : first.wave === '' ? (first.pr ? 'pr' : 'branch') : 'slice',
+    kind: first.kind === 'release' ? 'release' : !rowInSlice(first) ? (first.pr ? 'pr' : 'branch') : 'slice',
     ownership: ownershipOfRows(rows, reader),
   };
   const phase = phaseOf(first.phase);
@@ -173,7 +177,7 @@ export const deliveryMapping = (input: DeliveryMapInput): DeliveryMapping => {
   const sliceByKey = new Map(input.slices.map((s) => [sliceKeyOf(s.plan, s.name), s]));
   const items: WorkItemReading[] = Object.entries(rowsByItem).map(([id, rows]) => {
     const first = rows[0]!;
-    const slice = first.wave !== '' ? sliceByKey.get(sliceKeyOf(first.plan, first.wave)) : undefined;
+    const slice = rowInSlice(first) ? sliceByKey.get(sliceKeyOf(first.plan, first.wave)) : undefined;
     return rowItem(id, rows, slice, input.reader);
   });
 
