@@ -102,7 +102,7 @@ export const processCandidate = (row: string, scanScript: string): string | unde
   if (/\/systemd --user$/.test(s)) return `S\t${pid}`;
   const m = /\/(node|bash|sh) /.exec(s);
   if (!m) return undefined;
-  const interp = m[1] ?? '';
+  const interp = String(m[1]);
   const argv0 = s.slice(1, m.index + m[0].length - 1);
   const rest = s.slice(m.index + m[0].length);
   const start = pathStart(interp, rest, scanScript);

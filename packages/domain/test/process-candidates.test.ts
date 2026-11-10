@@ -35,6 +35,21 @@ describe('processCandidate', () => {
     expect(rowS('/bin/sh /x/notplot-fleet-scan.sh')).toBeUndefined();
   });
 
+  it('reads no scan when the scan script name is empty', () => {
+    expect(processCandidate(row('bash /x/plot-fleet-scan.sh'), '')).toBeUndefined();
+  });
+
+  it('takes the board when its path comes before a supervisor path', () => {
+    expect(rowS('node /x/board/board-server.mjs /y/board/plot-fleetd.mjs')).toBe('C\t101\t1\t501\tboard\t-\t/x/board/board-server.mjs');
+    expect(rowS('node /y/board/plot-fleetd.mjs /x/board/board-server.mjs')).toBe('C\t101\t1\t501\tsupervisor\t-\t/y/board/plot-fleetd.mjs');
+  });
+
+  it('finds no path in arguments that are only spaces or hold no slash', () => {
+    expect(rowS('node  ')).toBeUndefined();
+    expect(rowS('node foo')).toBeUndefined();
+    expect(rowS('node foo ')).toBeUndefined();
+  });
+
   it('skips a row with no pid, ppid and uid, or no node, bash or sh', () => {
     expect(processCandidate('garbage line', SCAN)).toBeUndefined();
     expect(rowS('nodejs /x/board/board-server.mjs')).toBeUndefined();
