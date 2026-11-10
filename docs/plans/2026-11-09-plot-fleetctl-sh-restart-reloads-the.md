@@ -10,6 +10,7 @@
 - **Sprint:** ship-2-32-0
 - **Issue:** #3329
 - **Started:** 2026-11-09, Jan Wloka, `feature/plot-fleetctl-restart`
+- **Started:** 2026-11-10, Jan Wloka, `feature/plot-fleetctl-restart-agents`
 - **Story:** <!-- optional -->
 - **Review:** pr
 - **Impl:** own branches
