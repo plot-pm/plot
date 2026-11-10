@@ -46,7 +46,7 @@ export interface DropOptions extends BuildBoardOptions {
   port: number;
   /**
    * Resolve liveness for a batch of worktrees. Injected in tests; in production
-   * the default resolver reuses `plot-worker-state.sh` through `bashLiveness`.
+   * the default resolver is `deskLiveness`.
    * When absent, the state stays `unknown` and the drop is REFUSED — an entry
    * whose state cannot be verified is an entry that might be running.
    */

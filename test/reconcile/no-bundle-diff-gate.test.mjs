@@ -195,3 +195,41 @@ test('no-bundle-diff gate: this repo passes it', () => {
   const got = sh(repoRoot, ['HEAD', 'origin/main']);
   assert.equal(got.status, 0, `plot's own tree must carry no bundle diff:\n${got.stdout}`);
 });
+
+const BUNDLE = path.join('skills', 'plot', 'scripts', 'board', 'board-server.mjs');
+
+/** `baseTree()` plus a `sprint` branch that rebuilt the bundle, and `feature` cut from it. */
+function cutFromSprint() {
+  const dir = baseTree();
+  git(dir, ['checkout', '-q', '-b', 'sprint', 'master']);
+  writeFileSync(path.join(dir, BUNDLE), 'rebuilt on the sprint\n');
+  git(dir, ['commit', '-q', '-am', 'sprint rebuilds']);
+  git(dir, ['checkout', '-q', '-b', 'slice', 'sprint']);
+  return dir;
+}
+
+test('no-bundle-diff gate: a branch cut from a feature branch counts only its own change', () => {
+  const dir = cutFromSprint();
+  writeFileSync(path.join(dir, 'skills', 'plot', 'scripts', 'board', 'README.md'), 'slice docs\n');
+  git(dir, ['commit', '-q', '-am', 'slice docs']);
+
+  assert.equal(sh(dir, ['slice', 'master']).status, 1, 'against master the sprint\'s bundle is the slice\'s');
+  const got = sh(dir, ['slice', 'sprint']);
+  assert.equal(got.status, 0, `against its own base the slice is clean:\n${got.stdout}`);
+
+  writeFileSync(path.join(dir, BUNDLE), 'rebuilt on the slice\n');
+  git(dir, ['commit', '-q', '-am', 'slice rebuilds']);
+  const own = sh(dir, ['slice', 'sprint']);
+  assert.equal(own.status, 1, `the slice's own bundle change is refused:\n${own.stdout}`);
+  assert.match(own.stdout, /board-server\.mjs/);
+  rmTree(dir);
+});
+
+test('no-bundle-diff gate: with no base argument it compares with origin/main as before', () => {
+  const dir = cutFromSprint();
+  git(dir, ['update-ref', 'refs/remotes/origin/main', 'master']);
+  const got = sh(dir, ['slice']);
+  assert.equal(got.status, 1, `origin/main is the default base:\n${got.stdout}`);
+  assert.match(got.stdout, /board-server\.mjs/);
+  rmTree(dir);
+});

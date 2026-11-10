@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { deskRoot, deskRootPlacement } from '../src/rules/desk-root.js';
+import { deskRoot, deskRootPlacement, deskRootRefusal, linuxFilesystemName, mountTypeOf, NETWORK_FILESYSTEMS } from '../src/rules/desk-root.js';
 
 const REPO = '/home/dev/plot';
 
@@ -106,5 +106,44 @@ describe('deskRootPlacement', () => {
       inside: true,
       excludeLine: '/.worktrees/',
     });
+  });
+});
+
+describe('deskRootRefusal', () => {
+  it('refuses each network filesystem by name, and passes a local or unread type', () => {
+    for (const type of NETWORK_FILESYSTEMS) {
+      expect(deskRootRefusal('/d', type)).toBe(`the desk root /d lies on a ${type} filesystem; desks must be on a local filesystem`);
+    }
+    expect(deskRootRefusal('/d', 'apfs')).toBeNull();
+    expect(deskRootRefusal('/d', 'ext4')).toBeNull();
+    expect(deskRootRefusal('/d', null)).toBeNull();
+  });
+});
+
+describe('linuxFilesystemName', () => {
+  it('names the statfs magic numbers, a negative f_type included, and prints an unknown one in hex', () => {
+    expect(linuxFilesystemName(0x6969)).toBe('nfs');
+    expect(linuxFilesystemName(0xef53)).toBe('ext4');
+    expect(linuxFilesystemName(0xff534d42 | 0)).toBe('cifs');
+    expect(linuxFilesystemName(0x1234)).toBe('0x1234');
+  });
+});
+
+describe('mountTypeOf', () => {
+  const MOUNT = [
+    '/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)',
+    '/dev/disk3s5 on /System/Volumes/Data (apfs, local, journaled, nobrowse)',
+    '//me@host/share on /Volumes/share (smbfs, nodev, nosuid, mounted by me)',
+    'host:/export on /Volumes/share/nested (nfs)',
+    'not a mount line',
+  ].join('\n');
+
+  it('answers the longest mount point that holds the path', () => {
+    expect(mountTypeOf(MOUNT, '/Users/me/repo')).toBe('apfs');
+    expect(mountTypeOf(MOUNT, '/Volumes/share')).toBe('smbfs');
+    expect(mountTypeOf(MOUNT, '/Volumes/share/desks')).toBe('smbfs');
+    expect(mountTypeOf(MOUNT, '/Volumes/share/nested/x')).toBe('nfs');
+    expect(mountTypeOf(MOUNT, '/Volumes/sharex')).toBe('apfs');
+    expect(mountTypeOf('', '/x')).toBeNull();
   });
 });

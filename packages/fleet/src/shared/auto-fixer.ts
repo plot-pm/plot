@@ -33,6 +33,7 @@ import {
   freshAgentRecordFile,
   hostShell,
   prIndexFile,
+  processesFiles,
   processesShell,
   treesGit,
 } from '@plot-pm/domain/adapters';
@@ -735,7 +736,7 @@ const killZero = (pid: string): PidCheck => {
 const defaultFixerTickWorld: FixerTickWorld = {
   trees: (opts) => treesGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
   host: (opts) => hostShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
-  worker: (opts) => processesShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+  worker: (opts) => processesFiles({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
   attempts: (opts) => fixerAttemptsFile(opts.repoRoot),
   freshAgents: (opts) => freshAgentRecordFile({ cwd: opts.repoRoot }),
   readEndingFile: readOrNull,

@@ -28,6 +28,8 @@ export {
 } from './plan-store/plan-store-fixture.js';
 
 export { hostShell } from './host/host-shell.js';
+export { hostReadsFor, hostWithListing, IN_PROCESS_BACKENDS, SHELL_CI, type HostReads, type HostReadsBasis, type HostReadsOptions } from './host/host-reads.js';
+export type { GithubApi } from './host/github-api.js';
 export { BITBUCKET_PAGE_LENGTHS, BITBUCKET_REQUEST_PAGELEN, listingPagingFor, walkToLimit } from './host/listing-paging.js';
 export { hostFixture, type HostFixture } from './host/host-fixture.js';
 
@@ -185,6 +187,10 @@ export { passkeyFile, passkeyPath } from './passkey/passkey-file.js';
 // written by `plot-fleetctl.sh --stop` and cleared by `--start`.
 export { fleetStoppedFile, fleetStoppedPath } from './fleet-stopped/fleet-stopped-file.js';
 
+// THE WORKER WRAPPER'S RECORDS. The desk files `plot-worker-wrapper.mjs`
+// writes about the agent it starts, and the agent start itself.
+export { agentStartShell, workerRecordsFile } from './worker-records/worker-records-file.js';
+
 // THE FLEET BRIDGE'S FILE ADAPTER. One file per repository under
 // `.plot/state/last-pulse.json`, written by `plot-fleetd` on the scan's
 // success path and read by the board — the same shape `pulse-bridge.ts`
@@ -232,6 +238,17 @@ export { gateContractFile, type GateContractFileOptions } from './gate-contract/
 export { tempSweepShell, TEMP_SWEEP_MARKER } from './temp-sweep/temp-sweep-shell.js';
 
 export { refsGit } from './refs/refs-git.js';
+export { refFilesFs, type RefFiles } from './refs/ref-files-fs.js';
+// THE OBJECT READER. fleetd and the board server install one per repository at
+// start; `refsGit` reads blobs and trees through it where one is held.
+export {
+  installObjectsReader,
+  objectReaders,
+  processObjects,
+  type InstallObjectsOptions,
+  type ObjectReaders,
+  type ObjectsInstall,
+} from './refs/object-readers.js';
 export { refsRemoteGit, type RunCommand } from './refs/refs-remote-git.js';
 export { refsFixture, type RefsFixture } from './refs/refs-fixture.js';
 
@@ -282,7 +299,9 @@ export {
   type MachineSystemOptions,
 } from './machine/machine-system.js';
 
-export { processesShell, parseEtime } from './processes/processes-shell.js';
+export { processesShell, parseEtime, type ProcessProbes } from './processes/processes-shell.js';
+export { processesFiles, readWorkerReadings, readingsLine, processReadingOf } from './processes/processes-files.js';
+export { processesTable, parseTable } from './processes/processes-table.js';
 
 // THE PRODUCTION PERFORMER, beside the sandbox one and never replacing it.
 // `perform-fs.ts` skips `worker-start`; this reaches the process table, and the

@@ -1,9 +1,9 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { deskFixture } from '../src/adapters/desk/desk-fixture.js';
+import { deskFixture, deskFixtureCalls } from '../src/adapters/desk/desk-fixture.js';
 import { deskFs } from '../src/adapters/desk/desk-fs.js';
 import type { Finding } from '../src/entities/finding.js';
 import { findingsInText, MAX_LOG_BYTES } from '../src/rules/monitor-log.js';
@@ -89,5 +89,52 @@ describe('deskFixture readFindings', () => {
     expect(await f.readFindings('/w/one')).toEqual({ ok: true, value: [finding()] });
     expect(await f.readFindings('/w/none')).toEqual({ ok: true, value: [] });
     expect(await f.readFindings('/w/bad')).toEqual({ ok: false, why: 'failed' });
+  });
+});
+
+describe('deskFs publishAgentFinding and appendLog', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+  const desk = (): string => {
+    const d = mkdtempSync(join(tmpdir(), 'plot-desk-agent-'));
+    dirs.push(d);
+    return d;
+  };
+  const port = () => deskFs({} as never);
+
+  it('appends the line in the shell field order, and readFindings reads it back', async () => {
+    const d = desk();
+    const line = finding({ worktree: d });
+    expect(await port().publishAgentFinding(d, line)).toEqual({ ok: true, value: undefined });
+    expect(readFileSync(join(d, '.plot-worker.monitor.agent.jsonl'), 'utf8')).toBe(
+      `{"monitor":"AgentMonitor","branch":"feature/one","worktree":"${d}","finding":"owes a review","since":"2026-10-10T09:00:00Z","evidence":"e","measuredAt":"2026-10-10T09:00:00Z"}\n`,
+    );
+    expect(await port().readFindings(d)).toEqual({ ok: true, value: [line] });
+  });
+
+  it('appends a desk log line', async () => {
+    const d = desk();
+    expect(await port().appendLog(d, 'one')).toEqual({ ok: true, value: undefined });
+    await port().appendLog(d, 'two');
+    expect(readFileSync(join(d, '.plot-worker.log'), 'utf8')).toBe('one\ntwo\n');
+  });
+
+  it('fails where the desk is gone', async () => {
+    const gone = join(desk(), 'gone');
+    expect(await port().publishAgentFinding(gone, finding())).toEqual({ ok: false, why: 'failed' });
+    expect(await port().appendLog(gone, 'x')).toEqual({ ok: false, why: 'failed' });
+  });
+});
+
+describe('deskFixture publishAgentFinding and appendLog', () => {
+  it('records each call', async () => {
+    const calls = deskFixtureCalls();
+    const f = deskFixture({ calls });
+    await f.publishAgentFinding('/w/one', finding());
+    await f.appendLog('/w/one', 'line');
+    expect(calls.agentFindings).toEqual([{ worktree: '/w/one', finding: finding() }]);
+    expect(calls.logLines).toEqual([{ worktree: '/w/one', line: 'line' }]);
   });
 });

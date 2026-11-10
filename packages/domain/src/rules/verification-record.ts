@@ -154,3 +154,23 @@ export const verificationOf = (
  */
 export const refutedBadge = (state: Verification, refuted: number): string =>
   state === 'refuted' && refuted > 0 ? `${refuted} refuted` : '';
+
+/**
+ * Reads the claim lines of a plan's `## Verification` section: what
+ * {@link verificationOf} and {@link refutedClaims} read from the plan's text.
+ *
+ * @param text - the plan file's contents.
+ * @returns the claim lines in file order, without a trailing carriage return.
+ */
+export const verificationClaimLines = (text: string): readonly string[] =>
+  sectionLines(text).filter((line) => CLAIM_LINE.test(line));
+
+/**
+ * Builds a text holding only a `## Verification` section with `lines`, which
+ * {@link verificationOf} and {@link refutedClaims} answer as they answer the
+ * plan the lines came from.
+ *
+ * @param lines - claim lines, as {@link verificationClaimLines} returns them.
+ * @returns the section's text.
+ */
+export const verificationText = (lines: readonly string[]): string => ['## Verification', ...lines].join('\n');

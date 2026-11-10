@@ -9,16 +9,11 @@ import {
 } from '@plot-pm/domain/rules/desk-manifest';
 
 /**
- * The launch stamp — ONE contract, and this is one of its two implementations.
+ * The launch stamp, the one implementation.
  *
- * A worker's pid is written into its manifest by whichever path started it, and
- * there are two. `/api/continue` spawns directly and calls {@link
- * writeManifestStamp}; the dispatcher's detached `sh -c` cannot reach a function
- * in this bundle, so it keeps inline `awk` against the SAME field set
- * (`plot-dispatch.sh`, `start_worker`). The two must produce a byte-identical
- * manifest for the same inputs — the `plot-worker-state.sh` discipline this repo
- * adopted after five of six states drifted while the same computation lived in
- * two copies. A parity test asserts the two agree.
+ * A worker's pid is written into its manifest by whichever path started it.
+ * `/api/continue` calls {@link writeManifestStamp} directly, and the
+ * dispatcher's `start_worker` reaches it through `plot-worker-wrapper.mjs`.
  *
  * ## The defect this exists to fix
  *
@@ -37,12 +32,10 @@ import {
  * ## Why a line rewriter and not JSON round-tripping
  *
  * The manifest is pretty-printed, one field per line, and the dispatcher writes
- * it with `printf` — not a JSON serializer. `awk` can only rewrite it line by
- * line. For the two implementations to stay byte-identical, this one rewrites
- * lines too: it never `JSON.parse`s the manifest and re-serializes it, because
- * that would re-order keys and reflow whitespace in ways `awk` cannot match. It
- * touches exactly the lines it must and inserts the two new lines in a fixed
- * place, which is a rule `awk` can follow to the byte.
+ * it with `printf`, not a JSON serializer. This stamp rewrites lines: it never
+ * `JSON.parse`s the manifest and re-serializes it, so key order and whitespace
+ * stay as the dispatcher wrote them. It touches exactly the lines it must and
+ * inserts the two new lines in a fixed place.
  */
 export interface Stamp {
   /** The AGENT's pid for the run being stamped, as a decimal string. */
@@ -51,10 +44,9 @@ export interface Stamp {
   startedAt: string;
   /**
    * When the process now holding {@link Stamp.pid} started: `ps -o lstart`'s raw
-   * text, unconverted. `''` when the caller could not read it. Raw rather than
-   * epoch milliseconds so the awk writer needs no `date` conversion of its own —
-   * a reader converts once, the way `plot_pid_is_current` and `Date.parse` both
-   * already do for this exact format. Named beside `pid` rather than reusing
+   * text, unconverted. `''` when the caller could not read it. A reader
+   * converts once, the way `plot_pid_is_current` and `Date.parse` both already
+   * do for this exact format. Named beside `pid` rather than reusing
    * `startedAt`: that field is stamped at manifest-write time, before the
    * process exists, and a relaunch rewrites it while the pid it names may
    * still be the one from an earlier start.
@@ -71,6 +63,11 @@ export interface Stamp {
   workerMonitorPid?: string;
   /** The AgentMonitor's pid, or `''` when none was attached. */
   agentMonitorPid?: string;
+  /**
+   * The liveness token's path, or `none (<reason>)` where the wrapper could not
+   * make one. Absent writes no line.
+   */
+  token?: string;
 }
 
 /** The `"pid": "…",` line, capturing whatever pid it already held. */
@@ -89,7 +86,7 @@ const RELAUNCHES_LINE = /^ {2}"relaunches": (\d+),$/;
  * `/api/continue` stamps a manifest a first dispatch had already grouped.
  */
 const GROUP_LINE =
-  /^ {2}"(pidStartedAt|wrapperPid|wrapperPidStartedAt|workerMonitorPid|agentMonitorPid)": "[^"]*",$/;
+  /^ {2}"(pidStartedAt|wrapperPid|wrapperPidStartedAt|workerMonitorPid|agentMonitorPid|token)": "[^"]*",$/;
 
 /**
  * Rewrite a manifest's launch stamp, returning the new text.
@@ -101,8 +98,7 @@ const GROUP_LINE =
  * RELAUNCH (the pid line is already filled): overwrite `pid` and `startedAt`
  * with the current run, record the displaced pid as `previousPid`, and increment
  * `relaunches` (starting from 0 when the manifest carries none). The two new
- * lines are inserted immediately after `pid`, in a fixed order, so the awk
- * implementation can place them identically.
+ * lines are inserted immediately after `pid`, in a fixed order.
  *
  * THE PROCESS GROUP is written on BOTH paths, immediately after `pid`, because
  * the registry must be able to name every process the dispatcher started — not
@@ -137,6 +133,8 @@ export function stampManifest(text: string, stamp: Stamp): string {
     `  "wrapperPidStartedAt": "${stamp.wrapperPidStartedAt ?? ''}",`,
     `  "workerMonitorPid": "${stamp.workerMonitorPid ?? ''}",`,
     `  "agentMonitorPid": "${stamp.agentMonitorPid ?? ''}",`,
+    // A quote or a backslash in a reason becomes `'`, so the line stays one `GROUP_LINE` can drop.
+    ...(stamp.token === undefined ? [] : [`  "token": "${stamp.token.replace(/["\\]/g, "'")}",`]),
   ];
 
   // A FIRST dispatch: the placeholder was empty. Fill the pid and write the

@@ -24,6 +24,9 @@ import { taskState, type TaskReadings } from './task.js';
  *   under it. The recorded pid is the loop shell, which outlives its agent for
  *   the whole `Worker bound`, so this is a live wrapper around nothing.
  * - `dead` — the pid does not answer.
+ * - `stray-holder` — the desk's liveness token is held and the recorded pid
+ *   does not answer: the worker ended without an exit record while a process
+ *   that inherited the token still runs (`workerLiveness`).
  *
  * `orphaned` IS NOT `dead`, AND THE DIFFERENCE IS WHAT THE DESK IS WORTH.
  * A dead pid left an exit file, so the process can still say how it ended. An
@@ -32,7 +35,7 @@ import { taskState, type TaskReadings } from './task.js';
  * Measured 2026-09-11: four agents ended this way in one session, and three of
  * the four desks held work one step from done.
  */
-export type PidLiveness = 'live' | 'stale' | 'orphaned' | 'dead';
+export type PidLiveness = 'live' | 'stale' | 'orphaned' | 'dead' | 'stray-holder';
 
 /**
  * What a recorded exit says, as read rather than as parsed.
@@ -85,6 +88,16 @@ export interface AgentStateReadings {
   exit: ExitReading;
   /** What the desk holds, for the three states the desk decides. */
   task: TaskReadings;
+  /**
+   * Whether `.plot-worker.freewait` names the recorded pid: a free agent's
+   * loop waiting for a hand-over. Absent reads as `false`.
+   */
+  waitsFree?: boolean;
+  /**
+   * Whether the manifest recorded a `startedAt` for the pid. Absent reads as
+   * `false`. A free-wait record counts only beside one.
+   */
+  startedAtRecorded?: boolean;
 }
 
 /**
@@ -106,14 +119,17 @@ const exitIsNumeric = (exit: ExitReading): exit is string =>
  *    nothing below it can be read without a desk to read.
  * 2. **No pid is `none`.** An absent record is its own answer; guessing
  *    `finished` would be the same mistake in the other direction.
- * 3. **A live pid is `running`**, and a `stale` one is `ended` — a reused
+ * 3. **A live pid is `running`, and so is a stray holder of the token**: it
+ *    starts no restart and releases no claim. A `stale` one is `ended` — a reused
  *    number means the worker is dead and no exit file can be trusted either.
  *    **An `orphaned` one is the DESK's answer**, because the wrapper is still
  *    alive and has therefore written no exit code: there is no process fact
  *    left to read. It routes to {@link taskState} rather than to `ended` for
  *    the reason the measurement gives — three of four such desks held finished
  *    work, and `ended` would have said the run was over when the WORK was one
- *    push from done.
+ *    push from done. An orphaned wrapper whose free-wait record names the
+ *    pid, beside a recorded `startedAt`, is a free agent waiting for a
+ *    hand-over, and is `running`.
  * 4. **Exit 0 is refined by the desk**, and it is the ONLY arm refined. Every
  *    worker exits 0 — the one that opened its PR, the one that would not claim
  *    a test run it had not seen, and the one that stopped to ask a question —
@@ -136,12 +152,14 @@ const exitIsNumeric = (exit: ExitReading): exit is string =>
 export const agentState = (readings: AgentStateReadings): AgentState => {
   if (!readings.worktreeHere) return 'elsewhere';
   if (!readings.pidRecorded) return 'none';
-  if (readings.liveness === 'live') return 'running';
+  if (readings.liveness === 'live' || readings.liveness === 'stray-holder') return 'running';
   if (readings.liveness === 'stale') return 'ended';
   // BEFORE THE EXIT ARMS, because an orphaned wrapper has written no exit file
   // and the `-` it reports would otherwise fall through to `ended`, discarding
   // the desk that is the only thing left to read.
-  if (readings.liveness === 'orphaned') return taskState(readings.task);
+  if (readings.liveness === 'orphaned') {
+    return readings.waitsFree === true && readings.startedAtRecorded === true ? 'running' : taskState(readings.task);
+  }
   if (!exitIsNumeric(readings.exit)) return 'ended';
   if (readings.exit === '0') return taskState(readings.task);
   return readings.task.hasPr ? taskState(readings.task) : 'failed';

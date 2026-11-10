@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { WorkerActivitySchema } from './fleet.js';
+
 /**
  * The file a worker leaves in its worktree naming why it ended.
  *
@@ -223,6 +225,26 @@ export type EndingActor = z.infer<typeof EndingActorSchema>;
  * {@link DeclarationSchema} makes: a newer worker writing a field this parse
  * does not know has not written a broken record.
  */
+/**
+ * What the idle watch read at the check that ended a worker `quiet`.
+ *
+ * A `quiet` ending carries it, so it can be told from a `bound` ending, which
+ * also exits 124.
+ */
+export const IdleInputsSchema = z.object({
+  /** `.plot-worker.log`'s size in bytes at the check; `null` where the log was not there. */
+  logBytes: z.number().nullable(),
+  /** `.plot-worker.log`'s mtime, epoch milliseconds; `null` where the log was not there. */
+  logMtimeMs: z.number().nullable(),
+  /** What the log answered against the check before: `working`, `idle`, or `''` with nothing to compare. */
+  log: WorkerActivitySchema,
+  /** Whether the check read the process table; it reads it only on a log that did not move. */
+  cpuRead: z.boolean(),
+  /** CPU centiseconds the agent's subtree gained since the last table read; `null` where none was measured. */
+  cpuDeltaCentis: z.number().nullable(),
+});
+export type IdleInputs = z.infer<typeof IdleInputsSchema>;
+
 export const EndingSchema = z.object({
   reason: EndingReasonSchema,
   actor: EndingActorSchema,
@@ -230,6 +252,7 @@ export const EndingSchema = z.object({
   detail: z.string().default(''),
   refusedAssignment: z.string().default(''),
   resumeId: z.string().default(''),
+  idle: IdleInputsSchema.optional(),
 });
 
 /**
@@ -265,6 +288,8 @@ export interface Ending {
    * reason that never set it, reads `''`: absence, not an empty handle.
    */
   resumeId: string;
+  /** What the idle watch read at the check that ended a `quiet` worker; absent for every other ending. */
+  idle?: IdleInputs;
 }
 
 /**

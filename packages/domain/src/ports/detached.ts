@@ -10,13 +10,14 @@ export interface DetachedProcess {
 export interface Detached {
   /**
    * Runs `node <script> <args>` in its own session, with stdout and stderr
-   * written to `logFile` (truncated).
+   * written to `logFile`: truncated, or appended to where `append` is true.
    *
    * @param script - absolute path of the script.
    * @param args - the script's arguments.
    * @param cwd - the directory the process runs in.
    * @param logFile - where the process's output goes.
+   * @param append - keep the log's existing text; `false` where absent.
    * @returns the started process.
    */
-  node(script: string, args: readonly string[], cwd: string, logFile: string): DetachedProcess;
+  node(script: string, args: readonly string[], cwd: string, logFile: string, append?: boolean): DetachedProcess;
 }

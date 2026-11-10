@@ -7,6 +7,13 @@ import type { ExecRecord } from './strace-execs.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-08-process-census-gate.md', import.meta.url));
+const WRAPPER_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-09-node-worker-wrapper.md', import.meta.url));
+const BOARD_API_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-09-board-api-starts-nothing.md', import.meta.url));
+const LIVENESS_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-09-liveness-token.md', import.meta.url));
+const GITHUB_READS_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-09-github-reads-in-process.md', import.meta.url));
+
+/** The rows of the census plan that a later plan retired. */
+const RETIRED = new Set(['P1']);
 
 /** The plan's two tables, `| Id | … | Target | Turned green by |`, as id → [target, turned green by]. */
 const planRows = (): Map<string, { target: string; greenBy: string }> => {
@@ -14,7 +21,7 @@ const planRows = (): Map<string, { target: string; greenBy: string }> => {
   for (const line of readFileSync(PLAN, 'utf8').split('\n')) {
     const cells = line.split('|').map((c) => c.trim());
     const id = cells[1] ?? '';
-    if (!/^[SP]\d$/.test(id)) continue;
+    if (!/^[SP]\d$/.test(id) || RETIRED.has(id)) continue;
     rows.set(id, { target: cells[cells.length - 3] ?? '', greenBy: cells[cells.length - 2] ?? '' });
   }
   return rows;
@@ -37,9 +44,50 @@ afterEach(() => {
 });
 
 describe('the census rows', () => {
-  it('holds every row of the plan, S1 to S6 and P1 to P4', () => {
-    expect(Object.keys(CENSUS_ROWS).sort()).toEqual([...planRows().keys()].sort());
-    expect(Object.keys(CENSUS_ROWS).sort()).toEqual(['P1', 'P2', 'P3', 'P4', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6']);
+  it('holds every row of the plan but the retired P1, D1 of the worker wrapper plan, S7 of the board API plan, P5 of the GitHub reads plan and P6 of the liveness token plan', () => {
+    expect(Object.keys(CENSUS_ROWS).filter((id) => id !== 'D1' && id !== 'S7' && id !== 'P5' && id !== 'P6').sort()).toEqual([...planRows().keys()].sort());
+    expect(Object.keys(CENSUS_ROWS).sort()).toEqual(['D1', 'P2', 'P3', 'P4', 'P5', 'P6', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7']);
+    expect(readFileSync(WRAPPER_PLAN, 'utf8')).toContain(`\`D1: ${CENSUS_ROWS.D1.claim}\``);
+  });
+
+  it('holds P6 as the liveness token plan words it, a zero row turned green by its Monitor in fleetd slice', () => {
+    expect(readFileSync(LIVENESS_PLAN, 'utf8')).toContain(`\`P6: ${CENSUS_ROWS.P6.claim}\``);
+    expect(readFileSync(LIVENESS_PLAN, 'utf8')).toContain('P1 is retired in the same slice that deletes the script');
+    expect(CENSUS_ROWS.P6).toMatchObject({ target: 'zero', greenBy: { plan: 'liveness-token', slice: 'Monitor in fleetd' }, green: true });
+    expect(rowTitle(CENSUS_ROWS.P6)).toMatch(/turned green by plan liveness-token, slice Monitor in fleetd/);
+  });
+
+  it('holds P5 as the GitHub reads plan words it, a zero row turned green by its Cutover slice', () => {
+    expect(readFileSync(GITHUB_READS_PLAN, 'utf8')).toContain(`\`P5: ${CENSUS_ROWS.P5.claim}\``);
+    expect(CENSUS_ROWS.P5).toMatchObject({ target: 'zero', greenBy: { plan: 'github-reads-in-process', slice: 'Cutover' }, green: true });
+    expect(rowTitle(CENSUS_ROWS.P5)).toMatch(/turned green by plan github-reads-in-process, slice Cutover/);
+  });
+
+  it('holds S7 as the board API plan words it, a zero row turned green by its Census zero slice', () => {
+    const plan = readFileSync(BOARD_API_PLAN, 'utf8').replace(/`/g, '');
+    expect(plan).toContain(`S7 reads: "${CENSUS_ROWS.S7.claim}"`);
+    expect(CENSUS_ROWS.S7).toMatchObject({ target: 'zero', unit: 'execve per minute', greenBy: { plan: 'board-api-starts-nothing', slice: 'Census zero' }, green: true });
+    expect(rowTitle(CENSUS_ROWS.S7)).toMatch(/turned green by plan board-api-starts-nothing, slice Census zero/);
+  });
+
+  it('keeps S3 as board-reads-the-channel turned it green, and its window sends no GET /api/board', () => {
+    expect(CENSUS_ROWS.S3).toEqual({
+      id: 'S3',
+      claim: 'an idle board with one visible SSE client and fleetd running starts nothing',
+      unit: 'execve per minute',
+      target: 'zero',
+      greenBy: { plan: 'board-reads-the-channel', slice: 'Census zero' },
+      green: true,
+    });
+    const board = readFileSync(`${here}board.census.test.ts`, 'utf8');
+    const s3 = board.slice(board.indexOf("fleetd running (S3)'"), board.indexOf('const POLL_MS'));
+    expect(s3).toContain('it(rowTitle(CENSUS_ROWS.S3, fixture)');
+    expect(s3).not.toMatch(/during|pollBoard/);
+  });
+
+  it('holds D1 measured, with no growth allowed', () => {
+    expect(CENSUS_ROWS.D1).toMatchObject({ target: 'measured', tolerance: 'strict' });
+    expect(rowTitle(CENSUS_ROWS.D1)).toBe('D1: one dispatch (measured, held within no growth)');
   });
 
   it('writes a zero target of the plan as a zero row, and every other as measured', () => {

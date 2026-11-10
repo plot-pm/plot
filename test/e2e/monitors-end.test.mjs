@@ -1,21 +1,8 @@
-// Flow test: the AgentMonitor ends with its agent, and the wrapper reports its
-// agent's exit before the wrapper itself ends.
+// Flow test: a dispatched desk runs no AgentMonitor process, and the wrapper
+// reports its agent's exit before the wrapper itself ends.
 //
-// REWRITTEN FOR `bug/the-loop-reports-idle`. The WorkerMonitor process this
-// file used to watch is deleted. Its two properties move to two different
-// places: "a monitor ends with its subject" still applies to the AgentMonitor,
-// which this file keeps testing exactly as before; "the finding is reported
-// BEFORE the watcher that reports it stops running" moves to the WRAPPER,
-// which now reports `gone`/`clear` itself right after `wait "$agent"` returns
-// and before it writes `.plot-worker.exit` and exits. The "measurement, not a
-// timer" property that used to need `plot-worker-monitor.sh` run directly no
-// longer has a process to drive that way — the loop's own watcher now judges
-// `idle` without a resident process at all, which is the plan's whole point,
-// and that property is covered by `test/reconcile/workeridle.test.mjs` and
-// `test/reconcile/workerstate-idle.test.mjs` against the shell function
-// directly, where a measurement-vs-timer distinction is actually
-// observable (those tests drive repeated passes and show the watcher never
-// fires until the real conditions hold, however many passes run).
+// The AgentMonitor's findings come from fleetd's scan, and from the wrapper's
+// final pass where no fleetd runs, so no monitor process lives beside an agent.
 //
 // ═══════════════════════════════════════════════════════════════════════════
 // EVERY ASSERTION HERE IS BY PID
@@ -68,14 +55,8 @@ function dispatchablePlan(work, { slug = 'monitor-end', date = '2026-08-30' } = 
   return rel;
 }
 
-/**
- * Dispatch one worker with a monitor interval short enough to test against.
- *
- * `PLOT_MONITOR_INTERVAL` travels through the dispatcher's environment into the
- * wrapper and out to the AgentMonitor. Without it the default is 300 s and no
- * test could wait for a second pass.
- */
-function dispatchOne(name, { workerCommand = "sh -c 'sleep 4'", interval = '1' } = {}) {
+/** Dispatch one worker onto a desk the fixture lays. */
+function dispatchOne(name, { workerCommand = "sh -c 'sleep 4'" } = {}) {
   const sb = makeSandbox({ name, config: '' });
   fs.writeFileSync(
     path.join(sb.work, 'CLAUDE.md'),
@@ -86,8 +67,7 @@ function dispatchOne(name, { workerCommand = "sh -c 'sleep 4'", interval = '1' }
   // to the registry and cuts nothing; what these tests are about is the worker
   // and its monitor once a desk exists, so the fixture provides one and every
   // assertion below stands unchanged.
-  const { worktree: wt } = staffDesk(sb.work, 'feature/watched',
-    { env: { PLOT_MONITOR_INTERVAL: interval } });
+  const { worktree: wt } = staffDesk(sb.work, 'feature/watched');
   return {
     sb,
     worktree: wt,
@@ -127,28 +107,6 @@ function waitForPid(file, ms = 15000) {
 }
 
 /**
- * A long-lived process this test controls, and deliberately NOT its child.
- *
- * ZOMBIES ARE WHY. A `spawn`ed child that is killed stays in the process table
- * as `<defunct>` until node reaps it — and node cannot reap it while this test
- * sits inside a synchronous `execFileSync('sleep', …)`, because the SIGCHLD
- * handler needs an event-loop turn that never comes. `kill -0` succeeds on a
- * zombie, so a monitor watching one is CORRECT to stay alive, and the test
- * would be asserting against a subject that is not actually gone.
- *
- * Measured 2026-08-30: `ps -o state=` on the killed child printed `Z`, and the
- * monitor dutifully kept running.
- *
- * So the subject is double-forked into an orphan: `init` becomes its parent and
- * reaps it the instant it dies, which is exactly what happens to a real agent
- * under a wrapper that has already exited.
- */
-function detachedSubject(seconds) {
-  const pid = execFileSync('sh', ['-c', `sleep ${seconds} >/dev/null 2>&1 & echo $!`], { encoding: 'utf8' }).trim();
-  return record(Number(pid));
-}
-
-/**
  * Is this specific pid still a live process? The assertion's whole basis.
  *
  * ZOMBIES ARE NOT ALIVE, and saying so is not pedantry here. A process this
@@ -173,10 +131,6 @@ function alive(pid) {
 /**
  * The AgentMonitor pids belonging to THIS worktree, read from the process
  * table.
- *
- * ONE SCRIPT NOW, NOT TWO. `plot-worker-monitor.sh` is deleted; this matches
- * only `plot-agent-monitor.sh`, which is the one monitor process a dispatched
- * worker still carries beside the BuildMonitor this branch does not touch.
  *
  * Scoped by the worktree path, which the monitor carries in its environment —
  * so a sibling suite's workers, or the developer's own fleet, are never in the
@@ -248,49 +202,6 @@ function findings(file) {
   return fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
 }
 
-/**
- * Dispatch a worker, then hand its monitor a subject this test controls.
- *
- * ─────────────────────────────────────────────────────────────────────────
- * WHY THE SUBJECT IS SUBSTITUTED, AND WHY THAT IS STILL THE REAL MECHANISM
- * ─────────────────────────────────────────────────────────────────────────
- *
- * A dispatched agent in this sandbox does not stay alive. Measured 2026-08-30,
- * and measured again against a pristine `origin/main` checkout with identical
- * results: a `Worker command` of `touch /tmp/x && sleep 120` leaves the `touch`
- * done, the `sleep` never started, and `.plot-worker.exit` holding `0` within a
- * second. It reproduces without any of this branch's code.
- *
- * With the fix in place the monitor then does its job immediately — measured
- * gone within 300 ms of dispatch — so there is no window in which to capture
- * its pid, and an assertion that cannot name its subject is the counting
- * assertion the plan rules out.
- *
- * So the pid file is rewritten to name a process that WILL live long enough to
- * be observed. That is not a simulation of the mechanism: `PLOT_PID_FILE` is
- * the contract the monitor reads, `start_worker` started it, and every other
- * part of the path — the wrapper, the quoting, the env vars — is the real one.
- * What changes is only which process the file names.
- *
- * THE WRAPPER WRITES FIRST. `plot-dispatch.sh --restart` returns while the
- * wrapper starts, and the wrapper writes the agent's pid to the same file. A
- * substitution written before that write is overwritten, the monitor watches
- * the `sleep 30` agent, and the test kills a process nobody is watching: CI
- * failed this way on 2026-10-02 (run 37055971434, attempt 1). So the agent's
- * own pid must be in the file before it is replaced.
- */
-function dispatchWithLiveSubject(name) {
-  const run = dispatchOne(name, { workerCommand: 'sleep 30' });
-  const agentPid = waitFor(() => {
-    const written = fs.existsSync(run.pidFile) ? fs.readFileSync(run.pidFile, 'utf8').trim() : '';
-    return /^\d+$/.test(written) ? written : null;
-  });
-  assert.ok(agentPid, 'the wrapper never wrote the agent pid, so there is nothing to substitute');
-  const subject = detachedSubject(120);
-  fs.writeFileSync(run.pidFile, String(subject));
-  return { ...run, subject };
-}
-
 test('signalOwn and signalRecorded refuse a pid that was reused — raw process.kill would not', async () => {
   // Stands in for "the subject's pid was reused by another process": a real,
   // alive, unrelated process this file never recorded, or recorded with a
@@ -320,57 +231,18 @@ test('signalOwn and signalRecorded refuse a pid that was reused — raw process.
   }
 });
 
-test('after its subject finishes, no AgentMonitor of THAT worker remains', () => {
-  // The ordinary path: the agent exits, the wrapper's `wait` returns, the
-  // wrapper writes `.plot-worker.exit` and exits. Before `two-monitors-watch
-  // -the-agent` the monitor was re-parented to init here and looped forever —
-  // measured on this machine at 34 orphans out of 40 live monitors, when there
-  // were still two kinds.
-  const run = dispatchWithLiveSubject('monitors-end-normal');
+test('a dispatched desk runs no AgentMonitor while its agent lives', () => {
+  const run = dispatchOne('monitors-end-none', { workerCommand: 'sleep 30' });
   try {
-    // Captured while it is provably alive. An empty list here would make the
-    // assertion below vacuous — `every()` over nothing is true, so a lookup
-    // that found no monitor would "prove" it had ended.
-    const pids = waitFor(() => {
-      const found = agentMonitorPids(run.worktree);
-      return found.length > 0 ? found : null;
-    });
-    assert.ok(pids, 'no AgentMonitor process was found for this worktree, so "it is gone" cannot mean anything');
-
-    // The subject ends the way an agent ordinarily does.
-    signalOwn(run.subject, 'SIGTERM', { command: 'sleep' });
-
-    assert.ok(waitUntil(() => pids.every((p) => !alive(p))),
-      `monitor ${pids.filter(alive).join(', ')} outlived the subject it was watching — `
-      + 'it is an orphan now, re-parented to init and looping forever');
+    const agentPid = waitForPid(run.pidFile);
+    assert.ok(agentPid > 0, 'the wrapper never recorded the agent pid');
+    assert.ok(alive(agentPid), 'the agent was not alive, so this proves nothing');
+    for (let i = 0; i < 6; i += 1) {
+      assert.deepEqual(agentMonitorPids(run.worktree), [], 'a plot-agent-monitor.sh process runs for this desk');
+      execFileSync('sleep', ['0.5']);
+    }
   } finally {
-    signalOwn(run.subject, 'SIGKILL', { command: 'sleep' });
-    run.sb.cleanup();
-  }
-});
-
-test('after its subject is killed at the bound, no AgentMonitor of THAT worker remains', () => {
-  // The `Worker bound` path. `plot-worker-loop.sh` sends `kill -KILL` to the
-  // AGENT, not the wrapper — the wrapper survives and writes the exit code
-  // afterwards, which is why an exit file exists at all.
-  //
-  // SIGKILL is the point of this test rather than a detail: a process cannot
-  // trap it, so nothing on the agent's side can announce its own death. Only an
-  // observer notices, which is exactly why the mechanism must be a measurement.
-  const run = dispatchWithLiveSubject('monitors-end-bound');
-  try {
-    const pids = waitFor(() => {
-      const found = agentMonitorPids(run.worktree);
-      return found.length > 0 ? found : null;
-    });
-    assert.ok(pids, 'no AgentMonitor process was found for this worktree');
-
-    signalOwn(run.subject, 'SIGKILL', { command: 'sleep' });
-
-    assert.ok(waitUntil(() => pids.every((p) => !alive(p))),
-      `monitor ${pids.filter(alive).join(', ')} outlived a subject killed at its bound`);
-  } finally {
-    signalOwn(run.subject, 'SIGKILL', { command: 'sleep' });
+    signalRecorded(run.pidFile, 'SIGKILL', { command: 'sleep' });
     run.sb.cleanup();
   }
 });

@@ -9,6 +9,7 @@ import type {
   MergedAnswer,
   MergeDest,
   PrCreateRequest,
+  PrListing,
   PrLookup,
   PrReviewReading,
 } from '../../ports/host.js';
@@ -191,6 +192,21 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
 
     prList: async (_state, limit): Promise<PortResult<readonly Pr[]>> =>
       answered(limit === undefined ? prs : prs.slice(0, limit)),
+
+    // THE FIXTURE'S PRS IN THE ASKED STATE, whole below the limit: a fixture
+    // holds every PR it was told about, so only a limit can cut its page.
+    prListing: async (query): Promise<PrListing> => {
+      const inState = prs.filter((pr) =>
+        query.state === 'all' || pr.state === (query.state === 'open' ? 'OPEN' : 'MERGED'));
+      const rows = query.limit === undefined ? inState : inState.slice(0, query.limit);
+      const whole = query.limit === undefined || rows.length < query.limit;
+      return {
+        answer: 'answered',
+        rows: rows.map((pr) => ({ ...pr })),
+        complete: { [query.state]: whole ? 'whole' : 'possibly-truncated' },
+        refusal: null,
+      };
+    },
 
     limit: async (): Promise<PortResult<readonly LimitReading[]>> => answered(limits),
 

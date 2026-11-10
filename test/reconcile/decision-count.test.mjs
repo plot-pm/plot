@@ -492,3 +492,35 @@ test('an unknown mode fails with usage', withFixture(({ work }) => {
   assert.equal(r.status, 1);
   assert.match(r.out, /usage/);
 }));
+
+/** `feature` cut from `sprint`, which added decision row e.sh over main; origin/sprint holds that tip. */
+const cutFromSprint = (work) => {
+  git(work, 'checkout', '-q', '-b', 'sprint');
+  change(work, ...BASE, row('e.sh', 'decision'));
+  git(work, 'push', '-q', 'origin', 'HEAD:refs/heads/sprint');
+  git(work, 'fetch', '-q', '--no-tags', 'origin', 'sprint:refs/remotes/origin/sprint');
+  git(work, 'checkout', '-q', '-b', 'feature');
+};
+
+test('pr <base>: a branch cut from a feature branch counts only its own rows', withFixture(({ work }) => {
+  cutFromSprint(work);
+  change(work, ...BASE, row('e.sh', 'decision'), row('f.sh', 'launcher', 'execs', 'board/d.mjs'));
+  const r = run(work, ['pr', 'origin/sprint']);
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /: 4 scripts are not launchers now, 4 at merge base/);
+}));
+
+test('pr <base>: the slice\'s own new decision row is counted and refused', withFixture(({ work }) => {
+  cutFromSprint(work);
+  change(work, ...BASE, row('e.sh', 'decision'), row('f.sh', 'decision'));
+  const r = run(work, ['pr', 'origin/sprint']);
+  assert.notEqual(r.status, 0);
+  assert.match(r.out, /5 scripts are not launchers now, 4 at merge base/);
+}));
+
+test('pr: with no base argument the same branch is compared with the default branch', withFixture(({ work }) => {
+  cutFromSprint(work);
+  const r = run(work, ['pr']);
+  assert.notEqual(r.status, 0);
+  assert.match(r.out, /4 scripts are not launchers now, 3 at merge base/);
+}));

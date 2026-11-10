@@ -38,7 +38,7 @@ import {
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
 import { listRecordBlobs } from '@plot-pm/domain/workflows/record-listing';
-import { blobIdOfBytes, parsePlanMetaFiles, planSlug, heldRefsFor, workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
+import { blobIdOfBytes, parsePlanMetaFiles, planMetaOf, planSlug, heldRefsFor, workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
 import type { RefState, Refs } from '@plot-pm/domain/ports/refs';
 import type { BuildPort } from '@plot-pm/domain';
 import type { DetachedProcess } from '@plot-pm/domain/ports/detached';
@@ -96,7 +96,7 @@ import {
 // names. `slotsFile` is seamed by `PLOT_BUDGET_HOME`, which is how a test moves
 // it, exactly as `budgetFile` is.
 import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
-import { fleetdHeartbeatFile, agentsFs, planStoreRef, planStoreShell, processesShell, issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
+import { fleetdHeartbeatFile, agentsFs, refsGit, shellContext, treesGit, planStoreRef, planStoreShell, processesFiles, issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { CarriedListing } from '@plot-pm/domain/rules/scan-listing';
 import { fleetOwnsScan, ownedBridgeNote } from '@plot-pm/domain/rules/scan-owner';
@@ -105,6 +105,7 @@ import type { HeldSnapshot } from '@plot-pm/domain/rules/snapshot-sync';
 import { PR_INDEX_VERSION, type PrIndex } from '@plot-pm/domain/entities/pr-index';
 import { HOST_BRANCH_URL_SCHEMES } from '@plot-pm/domain/adapters/host/host-branch-urls';
 import { fleetViewFrom, registryViewFrom, snapshotViewNote } from '@plot-pm/domain/workflows/board-view';
+import { boardInputsFrom, type BoardInputs } from '@plot-pm/domain/workflows/board-inputs';
 import { fleetdLiveness, fleetdReadsIssues, fleetdReadsPrs, lateLoopNote, lateLoops } from '@plot-pm/domain/rules/fleetd-live';
 import { isChainedHeading } from '@plot-pm/domain/rules/slice-chain';
 import {
@@ -152,7 +153,7 @@ import {
   NO_SUPERVISION_REPORT,
   type SupervisionReportReadings,
 } from './supervision-report-reading.js';
-import { readAgentRegistryWithInfo, bashCleanliness, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type ReadRegistryOptions } from '@plot-pm/fleet/shared/registry';
+import { readAgentRegistryWithInfo, deskCleanliness, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type ReadRegistryOptions } from '@plot-pm/fleet/shared/registry';
 import { readVerifyStatus, type VerifyStatus } from '@plot-pm/fleet/shared/auto-verify';
 import { readDesignStatus, type DesignStatus } from '@plot-pm/fleet/shared/auto-design';
 import type { RegistryInfo } from '@plot-pm/fleet/shared/registry';
@@ -1035,14 +1036,11 @@ export function estateReport(m: EstateMeasurement): string {
  */
 async function measureEstate(opts: BuildBoardOptions): Promise<EstateMeasurement | null> {
   try {
-    const wtOut = await run('git', ['worktree', 'list', '--porcelain'], opts.repoRoot);
-    const worktrees = wtOut.split('\n').filter((l) => l.startsWith('worktree ')).length;
-
-    const brOut = await run('git',
-      ['for-each-ref', '--format=%(refname)', 'refs/remotes/origin'], opts.repoRoot);
-    const branches = brOut.split('\n').filter((l) => l.trim() !== '').length;
-
-    return { worktrees, branches };
+    const context = shellContext(opts.repoRoot);
+    const trees = await treesGit(context).list();
+    const remote = await refsGit(context).refState('remote');
+    if (!trees.ok || !remote.ok) return null;
+    return { worktrees: trees.value.length, branches: remote.value.length };
   } catch {
     return null;
   }
@@ -1384,7 +1382,7 @@ async function claimOnlyBranches(
  * the honest fallback rather than an invented tag: the same rule the board
  * applies to a missing URL.
  */
-async function releaseVersions(opts: BuildBoardOptions): Promise<Map<string, string>> {
+export const releaseVersions = async (opts: BuildBoardOptions): Promise<Map<string, string>> => {
   const found = new Map<string, string>();
   // THE REFS, not the plans — and the first version of this read the plans,
   // which is why it found nothing on the live board while the mock looked right.
@@ -1403,12 +1401,13 @@ async function releaseVersions(opts: BuildBoardOptions): Promise<Map<string, str
   const branches = refs.split('\n')
     .map((l) => l.trim().replace(/^origin\//, ''))
     .filter(Boolean);
+  const reader = refsFor(opts);
   for (const branch of branches) {
-    // `?? ''` because `run` rejects on a missing ref, and a release branch that
-    // vanished between the ref listing and this read is a race rather than a
-    // defect — it reads as *no version*, which is what the row then says.
-    const raw = await run('git', ['show', `origin/${branch}:package.json`], opts.repoRoot)
-      .catch(() => '');
+    // A release branch that vanished between the ref listing and this read is
+    // a race rather than a defect — it reads as *no version*, which is what
+    // the row then says. `showFile` reads through the board's object reader.
+    const shown = await reader.showFile(`origin/${branch}`, 'package.json');
+    const raw = shown.ok ? shown.value : '';
     if (!raw) continue;
     try {
       const version = (JSON.parse(raw) as { version?: unknown }).version;
@@ -1419,7 +1418,7 @@ async function releaseVersions(opts: BuildBoardOptions): Promise<Map<string, str
     }
   }
   return found;
-}
+};
 
 
 
@@ -1807,7 +1806,20 @@ async function ticketPlansOf(
   refEntries?: readonly RefState[],
 ): Promise<Map<string, TicketPlan[]> | null> {
   const metas = await planMetasAtDefault(opts, entry, refEntries);
-  if (metas === null) return null;
+  return metas === null ? null : ticketPlansOver(entry, metas);
+}
+
+/**
+ * The plans that name each ticket, from plan records the caller read.
+ *
+ * @param entry - the cache entry holding the pulses.
+ * @param metas - the plans at the default branch and the open draft plans.
+ * @returns the plans per issue key.
+ */
+const ticketPlansOver = (
+  entry: Pick<CacheEntry, 'pulse' | 'lastComplete'>,
+  metas: readonly PlanMeta[],
+): Map<string, TicketPlan[]> => {
   const byIssue = new Map<string, TicketPlan[]>();
   for (const meta of metas) {
     const issues = meta.issues;
@@ -1832,7 +1844,7 @@ async function ticketPlansOf(
     }
   }
   return byIssue;
-}
+};
 
 /**
  * The `/api/fleet` plan index — every plan at the default branch, keyed by
@@ -1898,7 +1910,10 @@ async function draftPlanFiles(
     const raw = await draftPlanText(refs, branch, planDir, file);
     if (!raw) continue;
     dir ??= makeStageDir('plot-draft-plans-');
-    const target = path.join(dir, `${files.length}-${path.basename(file)}`);
+    // One subdirectory per plan keeps the real basename, which `ticketPlansOf`
+    // cuts the slug from.
+    const target = path.join(dir, String(files.length), path.basename(file));
+    fs.mkdirSync(path.dirname(target));
     fs.writeFileSync(target, raw);
     files.push(target);
   }
@@ -1956,7 +1971,11 @@ export interface TicketLaneData {
 export async function ticketLaneData(opts: BuildBoardOptions): Promise<TicketLaneData | null> {
   const entry = ensureCache(opts);
   if (entry.issueSets === null) return null;
-  const plans = await ticketPlansOf(opts, entry);
+  // ON `snapshot`, THE PLANS COME FROM fleetd'S READINGS: the default-branch
+  // plans and the branch plans whose branch has an open PR. No ref listing,
+  // no blob read and no parse.
+  const served = await boardInputsToServe(opts);
+  const plans = served === null ? await ticketPlansOf(opts, entry) : ticketPlansOver(entry, ticketMetasFrom(served.inputs, entry));
   const declared = await scriptsFor(opts).config('Tracker', '');
   const source = issueSource({
     declared: declared.ok ? declared.value : '',
@@ -2999,6 +3018,39 @@ export const snapshotToServe = (
 };
 
 /**
+ * The board's plan-card inputs from fleetd's snapshot, where the board serves
+ * from it and the snapshot holds every reading the cards read.
+ *
+ * @param opts - the board's options; `channelSnapshot` is the hub's copy.
+ * @returns the inputs and the key of the snapshot they came from, or null
+ *   where the board reads for itself.
+ */
+export const boardInputsToServe = async (
+  opts: BuildBoardOptions,
+): Promise<{ key: string; inputs: BoardInputs } | null> => {
+  if (opts.channelSnapshot === undefined) return null;
+  const held = snapshotToServe(opts, ensureCache(opts), await fleetdHeartbeatFor(opts), Date.now());
+  if (held === null) return null;
+  const answer = boardInputsFrom(held.snapshot);
+  return 'inputs' in answer ? { key: `snapshot ${held.epoch} ${held.snapshot.generation}`, inputs: answer.inputs } : null;
+};
+
+/**
+ * The plans a ticket lane links, from the snapshot's inputs: every plan at the
+ * default branch, and each branch plan whose branch has an open PR.
+ *
+ * @param inputs - the inputs `boardInputsFrom` answered.
+ * @param entry - the cache entry holding the open PRs by branch.
+ * @returns the plan records, each `file` its repository-relative path.
+ */
+const ticketMetasFrom = (inputs: BoardInputs, entry: Pick<CacheEntry, 'prs'>): PlanMeta[] => [
+  ...inputs.plans.map((plan) => planMetaOf(plan)),
+  ...inputs.branchPlans
+    .filter(({ branch }) => entry.prs?.has(branch) === true)
+    .map(({ path: planPath, record }) => planMetaOf(record, planPath)),
+];
+
+/**
  * Installs the view `fleetViewFrom` derives from a held snapshot into the cache
  * entry. A field the snapshot holds no reading for keeps its last value, and
  * `scanNote` names it.
@@ -3199,7 +3251,7 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // the snapshot finds the answer already held and runs no `plot-config.sh`.
     const registryResult = await readAgentRegistryWithInfo(opts.repoRoot, undefined, {
       scriptsDir: opts.scriptsDir,
-      cleanliness: bashCleanliness,
+      cleanliness: deskCleanliness,
       manifestDir: await manifestDirFor(opts),
     });
     entry.agents = registryResult.entries;
@@ -3320,7 +3372,7 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
             worktree: planStoreShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
             trees: treesFor(opts),
             agents: agentsFs({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
-            processes: processesShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+            processes: processesFiles({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
           } },
         entry,
         {
@@ -7401,6 +7453,8 @@ export function rowsFromPulse(
           // CPU once, and this carries that verdict outward rather than measuring
           // liveness a second time on this side. Empty except beside `running`.
           worker_activity: b.worker_activity,
+          // THE LIVENESS BASIS, forwarded as `worker` is: the scan read the token once.
+          worker_basis: b.worker_basis ?? '',
           // THE PROCESSES, BESIDE THE AGENT — never instead of it. `worker`
           // above says which agent holds this branch; this says which processes
           // are running for it, and the WAITING ON A MACHINE section lists
@@ -7659,6 +7713,7 @@ export function rowsFromPulse(
       // No worktree was visited, so no CPU was sampled and the activity cue
       // answers nothing — "" for the same reason `worker` is `elsewhere` above.
       worker_activity: '',
+      worker_basis: '',
       // A PLANLESS branch is not in the pulse, so no conflict set was ever
       // computed for it and `conflictsKnown` is false — which is *not looked
       // at*, never *clean*. The one state reachable from PR data alone is
@@ -7956,6 +8011,7 @@ export function rowsFromPulse(
       // facts move it to WORKING through the same path every other row uses.
       worker: 'elsewhere',
       worker_activity: '',
+      worker_basis: '',
       // NOTHING THE HOST SAID AND NOTHING THE SCAN COMPUTED. No conflict set
       // exists for a branch outside the pulse, and no open PR supplies checks —
       // so `stuckState` is given a `wip` branch with nothing wrong that anyone

@@ -7,9 +7,7 @@ import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
 import { marked } from 'marked';
 import {
   PlanMetaSchema,
-  SprintStateSchema,
   StoryCardSchema,
-  StoryStatusSchema,
   STORY_LIFECYCLE,
   type Board,
   type Card,
@@ -18,7 +16,6 @@ import {
   type PlanStatus,
   type DraftPlan,
   type SprintCard,
-  type SprintMember,
   type StoryCard,
   type StoryCardInput,
   type FleetReading,
@@ -30,14 +27,20 @@ import { cachedPlanMetas, cachedRefs, freshWalkCache, readRefSnapshot, snapshotO
 import type { RefState } from '@plot-pm/domain/ports/refs';
 import { listRecordBlobs, readRecordFindings, resolveRecordRef, type RecordSource } from '@plot-pm/domain/workflows/record-listing';
 import { licensedSpike, spikeOf } from '@plot-pm/domain/rules/spike';
-import { refutedBadge, refutedClaims, verificationOf } from '@plot-pm/domain/rules/verification-record';
+import { branchPlanSet, type BranchPlanTree } from '@plot-pm/domain/rules/branch-plans';
+import { STORY_LEGACY_ISSUE_KEY } from '@plot-pm/domain/adapters/story-front-matter';
+import { sprintRecordOf, UNADMITTED_STATE as DOMAIN_UNADMITTED_STATE } from '@plot-pm/domain/rules/sprint-record';
+import { storyRecordOf, unquoteScalar as domainUnquoteScalar } from '@plot-pm/domain/rules/story-record';
+import { refutedBadge, refutedClaims, verificationOf, verificationText } from '@plot-pm/domain/rules/verification-record';
+import type { BoardInputs } from '@plot-pm/domain/workflows/board-inputs';
+import type { PlanEntry as SnapshotPlanEntry } from '@plot-pm/domain/entities/snapshot';
+import type { StoryRecord } from '@plot-pm/domain/entities/board-readings';
 import {
   allSlicesMerged,
   deliveryPulse as chooseDeliveryPulse,
   derivedStanding,
   laneStanding,
   storyPlanTableSlugs,
-  storyIssueValue,
   repoIssuePrefixOf,
   jiraProjectsOf,
   type StoryIssueContext,
@@ -66,9 +69,9 @@ import {
   phaseOfPlan,
   type PhaseMap,
   approverOf,
-  sprintGoal,
   type Detached,
   planRouteOfDocLink,
+  answered,
 } from '@plot-pm/domain';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 import type { GateContractReader } from '@plot-pm/domain/ports/gate-contract';
@@ -455,7 +458,10 @@ export const defaultBranchStoreFor = (opts: BuildBoardOptions): DefaultBranchSto
  * which it caches by the gate file's own size and mtime.
  */
 export const gateContractFor = (opts: BuildBoardOptions): GateContractReader =>
-  opts.gateContract ?? gateContractFile();
+  opts.gateContract ?? (processGateContract ??= gateContractFile());
+
+/** The process's one gate reader, so its stat-keyed `spawnContract` answer outlives a board build. */
+let processGateContract: GateContractReader | undefined;
 
 /**
  * This board's own spawn contract against the gate's — {@link SPAWN_CONTRACT}
@@ -1261,11 +1267,10 @@ const readBranchPlans = async (
     planDir,
     stateBranch === '' ? undefined : { stateBranch, defaultBranch },
   );
-  const plans: BranchPlan[] = [];
-  // De-duplicate by canonical path, matching collectPlanFiles's contract: two
-  // branches cut from the same point carry the same plan file, and a card per
-  // branch would report one plan as several.
-  const seen = new Set<string>();
+  // THE SET IS THE DOMAIN'S `branchPlanSet`, the rule fleetd's `branchPlans`
+  // reading calls too: merged branches skipped, default-branch paths skipped,
+  // de-duplicated by path with the first branch winning.
+  const trees: BranchPlanTree[] = [];
   for (const { branch } of branches) {
     // plot-ancestry: prefilter — a wrong "no" or "unknown" only costs reading a
     // tree this branch did not need read; `onDefault` below still drops any path
@@ -1273,19 +1278,25 @@ const readBranchPlans = async (
     // whose tip is genuinely still ahead, which `contains` does not produce: it
     // answers from real ancestry, never from a squash-merge's rewritten history.
     const merged = await refs.contains(`origin/${branch}`, `origin/${defaultBranch}`);
-    if (merged.ok && merged.value === 'yes') continue;
-    for (const relPath of await planPathsInTree(refs, `origin/${branch}`, planDir)) {
-      if (onDefault.has(relPath) || seen.has(relPath)) continue;
-      const blob = await refs.showFile(`origin/${branch}`, relPath);
-      // An unreadable or empty blob is skipped rather than parsed, so a branch
-      // the board cannot read costs a card and never produces a blank one. The
-      // emptiness test is kept alongside the failure test rather than replaced
-      // by it: a plan file with no bytes parses to no phase, and a card with no
-      // phase belongs in no column.
-      if (!blob.ok || !blob.value) continue;
-      seen.add(relPath);
-      plans.push({ path: relPath, content: blob.value });
+    const containment = merged.ok ? merged.value : 'unknown';
+    if (containment === 'yes') {
+      trees.push({ branch, merged: containment, blobs: null });
+      continue;
     }
+    // An unreadable tree contributes no Draft plans, exactly as a branch that carries none.
+    const listing = await refs.listBlobs(`origin/${branch}`, planDir);
+    trees.push({ branch, merged: containment, blobs: listing.ok ? listing.value : [] });
+  }
+  const plans: BranchPlan[] = [];
+  for (const { branch, path: relPath } of branchPlanSet(trees, onDefault)) {
+    const blob = await refs.showFile(`origin/${branch}`, relPath);
+    // An unreadable or empty blob is skipped rather than parsed, so a branch
+    // the board cannot read costs a card and never produces a blank one. The
+    // emptiness test is kept alongside the failure test rather than replaced
+    // by it: a plan file with no bytes parses to no phase, and a card with no
+    // phase belongs in no column.
+    if (!blob.ok || !blob.value) continue;
+    plans.push({ path: relPath, content: blob.value });
   }
   return plans;
 };
@@ -1716,78 +1727,6 @@ export const parsePlanMetaFiles = async (
 };
 
 /**
- * The MoSCoW heading a member line sits under → the tier it carries. A heading
- * outside this map (Sprint Goal, Notes, prose) puts the cursor in no tier, so
- * checkbox lines there are not members.
- */
-const SPRINT_TIER_HEADINGS: ReadonlyArray<readonly [RegExp, SprintMember['tier']]> = [
-  [/^### Must Have\b/, 'must'],
-  [/^### Should Have\b/, 'should'],
-  [/^### Could Have\b/, 'could'],
-  [/^### Deferred\b/, 'deferred'],
-];
-
-/**
- * A sprint member line: `- [ ] …` or `- [x] …`, with or without a `[slug]`.
- *
- * **THE CHECKBOX MAKES THE MEMBER AND THE LINK IS OPTIONAL METADATA** — the
- * third of three readers of one file format, and the second bracket was
- * mandatory here too until 2026-09-25. A bare `- [ ] rename the deploy step`
- * was an item to `plot-sprint-release.sh` and not a member here, so the board
- * dropped the lightweight form `skills/plot-sprint/SKILL.md:240` documents.
- * The rest of the line is captured because a member with no slug has no other
- * name to render.
- */
-/**
- * A member line, and the twin of `itemsFrom`'s `MEMBER_LINE`.
- *
- * **A REFERENCE IS A PLAN SLUG, AND IT MAY BE STRUCK THROUGH.** The rule is
- * `plot-sprint-release.sh:249`'s, ported so the three readers give one answer;
- * `entry/sprint-transition.ts` states it at length and the two must change
- * together. A non-slug bracket — `[#966](…)` — is text, so such an item names
- * no plan, which is what the shell has always reported.
- */
-const SPRINT_MEMBER_LINE = /^- \[( |x)\] (?:(?:~~)?\[([a-z0-9][a-z0-9-]*)\]\s*)?(.*)$/;
-
-/**
- * Read a sprint file's members: the `- [ ] [slug]` / `- [x] [slug]` lines, the
- * MoSCoW tier each sits under, and whether it is ticked. A plan sliced across
- * slices lists its slug once per slice; the sprint contains it once, so members
- * are deduped by slug with the FIRST occurrence winning — the file is read
- * top-down and the sections run Must → Should → Could → Deferred, so a plan
- * keeps its strongest tier.
- *
- * Every member is emitted `known: true`; only `collectSprints`, which sees the
- * plan estate, can say otherwise.
- */
-function parseSprintMembers(content: string): SprintMember[] {
-  const members: SprintMember[] = [];
-  const seen = new Set<string>();
-  let tier: SprintMember['tier'] | null = null;
-  let index = 0;
-  for (const line of content.split('\n')) {
-    index += 1;
-    if (line.startsWith('### ') || line.startsWith('## ')) {
-      // A new heading resets the cursor: an unrecognised heading is no tier, so
-      // its checkboxes are not counted.
-      tier = SPRINT_TIER_HEADINGS.find(([re]) => re.test(line))?.[1] ?? null;
-      continue;
-    }
-    if (!tier) continue;
-    const m = line.match(SPRINT_MEMBER_LINE);
-    if (!m) continue;
-    const slug = (m[2] ?? '').trim();
-    // A BARE MEMBER IS NEVER DEDUPED AGAINST ANOTHER — `itemsFrom` says why at
-    // length, and the two readers must agree or this defect returns on one side.
-    const key = slug === '' ? `line:${index}` : slug;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    members.push({ slug, text: (m[3] ?? '').trim(), tier, checked: m[1] === 'x', known: true });
-  }
-  return members;
-}
-
-/**
  * What the parsers report for a state their schema does not admit.
  *
  * A READING, NOT AN ERROR — `plot-plan-meta.sh:338` is the contract: the plan
@@ -1801,28 +1740,7 @@ function parseSprintMembers(content: string): SprintMember[] {
  * unrepresentable in TypeScript — and one sprint wrote `Phase: Planned`, and a
  * person reading files found all four because nothing else asked.
  */
-export const UNADMITTED_STATE = 'UNKNOWN';
-
-/**
- * A sprint's stated phase, or `UNKNOWN` where the domain does not admit it.
- *
- * @param stated - the `- **State:**` value, trimmed, as the file spells it.
- * @returns the phase, or {@link UNADMITTED_STATE}.
- */
-const readSprintPhase = (stated: string): string =>
-  SprintStateSchema.safeParse(stated).success ? stated : UNADMITTED_STATE;
-
-/**
- * A story's stated status, or `UNKNOWN` where the domain does not admit it.
- *
- * @param stated - the frontmatter `status:` value, trimmed. `''` where the file
- *   names none, which is an ABSENCE rather than a wrong value and stays `''`.
- * @returns the status, or {@link UNADMITTED_STATE}.
- */
-const readStoryStatus = (stated: string): string => {
-  if (!stated) return '';
-  return StoryStatusSchema.safeParse(stated).success ? stated : UNADMITTED_STATE;
-};
+export const UNADMITTED_STATE = DOMAIN_UNADMITTED_STATE;
 
 /**
  * Sprint files are not plan files, so they are read here rather than via
@@ -1848,47 +1766,15 @@ export function parseSprintFile(absPath: string): SprintCard | null {
  * surely as a file does, and the only thing the parse needed a path for.
  */
 export function parseSprintContent(content: string, name: string): SprintCard | null {
-  const base = path.basename(name);
-  const titleMatch = content.match(/^# Sprint: (.+)$/m);
-  const title = titleMatch ? titleMatch[1].trim() : path.basename(base, '.md');
-  const slugMatch = base.match(/^\d{4}-W\d{2}-(.+)\.md$/);
-  const slug = slugMatch ? slugMatch[1] : path.basename(base, '.md');
-  const statusSection = content.match(/## Status\s*\n([\s\S]*?)(?=\n## |$)/);
-  const statusBody = statusSection ? statusSection[1] : '';
-  // `State:` is the field a sprint file carries; `Phase:` is what it was called
-  // before 2026-09-07, and both are read for good. A file may have been written
-  // a year ago or copied from another project.
-  const phaseMatch = statusBody.match(/^- \*\*(?:State|Phase):\*\* (.+)$/m);
-  const stated = phaseMatch ? phaseMatch[1].trim() : '';
-  // NO PHASE AT ALL IS NOT A SPRINT FILE, and that answer is unchanged: the
-  // walk reads every markdown file under `active/`, so `null` is how a README
-  // is skipped. A phase the domain does not admit is a different answer — the
-  // file IS a sprint and says something no schema spells.
-  if (!stated) return null;
-  const phase = readSprintPhase(stated);
-  // The sprint's target release, read from the same `## Status` block as the
-  // phase and the same `- **Field:** value` shape. "" where the file names none:
-  // the control renders nothing rather than a placeholder, so absence must reach
-  // it as an empty string rather than a guess.
-  const releaseMatch = statusBody.match(/^- \*\*Release:\*\* (.+)$/m);
-  const release = releaseMatch ? releaseMatch[1].trim() : '';
-  // Start and end dates from `## Status`.
-  const startMatch = statusBody.match(/^- \*\*Start:\*\* (.+)$/m);
-  const start = startMatch ? startMatch[1].trim() : '';
-  const endMatch = statusBody.match(/^- \*\*End:\*\* (.+)$/m);
-  const end = endMatch ? endMatch[1].trim() : '';
-  // Sprint goal — the domain reads a bold label opening a paragraph under
-  // `## Sprint Goal` first, then the `> ` line under the title, then that
-  // section's first prose paragraph, and never a `<…>` slot.
-  const goal = sprintGoal(content);
-  // The timebox is NOT decided here: this parse has no clock, and reading one
-  // would make the answer untestable. `collectSprints` stamps it against one
-  // day for every sprint it returns; a caller parsing a file directly gets the
-  // dates and the honest `none`.
+  // THE DOMAIN'S PARSE, `sprintRecordOf`, which fleetd's `sprints` reading
+  // calls too. The timebox is NOT decided here: this parse has no clock.
+  // `collectSprints` stamps it against one day for every sprint it returns.
+  const sprint = sprintRecordOf(content, name);
+  if (!sprint) return null;
   return {
-    slug, title, phase, release, goal, start, end,
+    ...sprint,
     timebox: 'none', timeboxLabel: '',
-    members: parseSprintMembers(content),
+    members: sprint.members.map((member) => ({ ...member, known: true })),
   };
 }
 
@@ -1924,10 +1810,34 @@ export async function collectSprints(
   const fromRef = ref && refs
     ? await readPlansFromRef(refs, ref, path.join(sprintDir, 'active'))
     : new Map<string, string>();
+  return mergeSprints(
+    [...fromRef].map(([relPath, content]) => parseSprintContent(content, path.basename(relPath))),
+    repoRoot, sprintDir, knownSlugs, today,
+  );
+}
+
+/**
+ * The sprints the ref carries, plus the working-tree sprints it lacks, with
+ * each timebox stamped against `today`.
+ *
+ * @param fromRef - the sprints read from the ref, in listing order; null where a file did not parse.
+ * @param repoRoot - the repository holding the working-tree sprints.
+ * @param sprintDir - the configured sprint directory.
+ * @param knownSlugs - the plan slugs the board found; a member outside it is marked `known: false`.
+ * @param today - the day the timebox is measured against, `YYYY-MM-DD`.
+ * @returns the sprints, the ref's first, first-wins by slug.
+ */
+const mergeSprints = (
+  fromRef: readonly (SprintCard | null)[],
+  repoRoot: string,
+  sprintDir: string,
+  knownSlugs?: ReadonlySet<string>,
+  today: string = new Date().toISOString().slice(0, 10),
+): SprintCard[] => {
   const sprints: SprintCard[] = [];
   const takenSlugs = new Set<string>();
-  for (const [relPath, content] of fromRef) {
-    addSprint(sprints, takenSlugs, parseSprintContent(content, path.basename(relPath)), knownSlugs);
+  for (const sprint of fromRef) {
+    addSprint(sprints, takenSlugs, sprint === null ? null : { ...sprint, members: [...sprint.members] }, knownSlugs);
   }
   // The ref wins where both carry the sprint — `addSprint` drops a slug already
   // taken, so a working-tree sprint can only ADD.
@@ -1948,7 +1858,7 @@ export async function collectSprints(
       timeboxLabel: timeboxLabel(readings),
     };
   });
-}
+};
 
 /**
  * Takes one sprint into the collection, first-wins by slug.
@@ -2028,32 +1938,6 @@ export const workingTreeSprints = (repoRoot: string, sprintDir: string): SprintC
 };
 
 /**
- * Extract a markdown section by heading. Returns the content between the heading
- * and the next heading of equal or higher level (## or #), or end of document.
- */
-function extractSection(content: string, heading: string): string {
-  // Match ## Heading (level 2) - escape special regex chars in heading
-  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  // Use multiline flag for ^ matching line start. The lookahead finds the next
-  // ## heading or end of string (using (?![\s\S]) which never matches anything).
-  const pattern = new RegExp(`^## ${escapedHeading}\\s*\\n([\\s\\S]*?)(?=\\n## |\\n# |$(?![\\s\\S]))`, 'm');
-  const match = content.match(pattern);
-  if (!match) return '';
-  return match[1].trim();
-}
-
-/**
- * Truncate text to approximately maxLen characters, breaking at word boundary
- * and adding ellipsis if truncated.
- */
-function truncateText(text: string, maxLen: number): string {
-  if (text.length <= maxLen) return text;
-  const truncated = text.slice(0, maxLen);
-  const lastSpace = truncated.lastIndexOf(' ');
-  return (lastSpace > 0 ? truncated.slice(0, lastSpace) : truncated) + '…';
-}
-
-/**
  * List DESIGN-*.md files in a story directory.
  */
 function listDesignDocs(storyDir: string): string[] {
@@ -2080,17 +1964,8 @@ function parseStoryFile(absPath: string, slug: string, relPath: string, storyDir
   return parseStoryContent(content, slug, relPath, storyDir);
 }
 
-/**
- * Strips one matching pair of surrounding quotes from a string. A quote inside
- * the value, and an unmatched edge quote, stay.
- */
-export const unquoteScalar = (value: string): string => {
-  if (value.length >= 2) {
-    const q = value[0];
-    if ((q === '"' || q === "'") && value[value.length - 1] === q) return value.slice(1, -1);
-  }
-  return value;
-};
+/** Strips one matching pair of surrounding quotes from a string: the domain's `unquoteScalar`. */
+export const unquoteScalar = domainUnquoteScalar;
 
 /**
  * The same parse, from content a caller already holds.
@@ -2119,73 +1994,10 @@ export function parseStoryContent(
   relPath: string,
   storyDir: string,
 ): StoryCardInput | null {
-
-  // Parse YAML frontmatter
-  let title = '';
-  let status = '';
-  let author = '';
-  let created = '';
-  let updated = '';
-  let issue = '';
-
-  const fm = content.match(/^---\n([\s\S]*?)\n---/);
-  if (fm) {
-    const frontmatter = fm[1];
-    const titleMatch = frontmatter.match(/^title:\s*(.+)$/m);
-    if (titleMatch) title = unquoteScalar(titleMatch[1].trim());
-    const statusMatch = frontmatter.match(/^status:\s*(.+)$/m);
-    // The DECLARED status, refused where the domain does not admit it. A story
-    // with no `status:` line keeps `''` — an absence the drift check already
-    // reads as "nothing declared", which is not the same as a wrong word.
-    if (statusMatch) status = readStoryStatus(statusMatch[1].trim());
-    const authorMatch = frontmatter.match(/^author:\s*(.+)$/m);
-    if (authorMatch) author = authorMatch[1].trim();
-    const createdMatch = frontmatter.match(/^created:\s*(.+)$/m);
-    if (createdMatch) created = unquoteScalar(createdMatch[1].trim());
-    const updatedMatch = frontmatter.match(/^updated:\s*(.+)$/m);
-    if (updatedMatch) updated = unquoteScalar(updatedMatch[1].trim());
-    // `issue:` names the story's ticket; `jira:` is its legacy spelling. The
-    // value stays on its own line, and a ` # comment` after it is dropped; a
-    // value that starts with `#` (`#3170`) is the value, not a comment.
-    const fieldValue = (key: string): string => {
-      const match = frontmatter.match(new RegExp(`^${key}:[ \\t]*(.*)$`, 'm'));
-      return match ? unquoteScalar(match[1].replace(/\s+#.*$/, '').trim()) : '';
-    };
-    issue = storyIssueValue(fieldValue('issue'), fieldValue('jira'));
-  }
-
-  // Fall back to H1 heading for title
-  if (!title) {
-    const h1 = content.match(/^# (.+)$/m);
-    title = h1 ? h1[1].trim() : slug;
-  }
-
-  // Extract content sections
-  const objectiveFull = extractSection(content, 'Objective');
-  const objective = truncateText(unquoteScalar(objectiveFull), 200);
-  const design = extractSection(content, 'Design');
-  const hasOpenPoints = /^## Open Points\s*$/m.test(content);
-  const hasSessionLog = /^## Session Log\s*$/m.test(content);
-
-  // List DESIGN-*.md files in the story directory
-  const designDocs = listDesignDocs(storyDir);
-
-  return {
-    slug,
-    title,
-    status,
-    declaredStatus: status,
-    issue,
-    author,
-    created,
-    updated,
-    objective,
-    design,
-    path: relPath,
-    designDocs,
-    hasOpenPoints,
-    hasSessionLog,
-  };
+  // THE DOMAIN'S PARSE, `storyRecordOf`, which fleetd's `stories` reading
+  // calls too. Design docs are listed from disk here.
+  const story = storyRecordOf(content, slug, relPath, listDesignDocs(storyDir), STORY_LEGACY_ISSUE_KEY);
+  return { ...story, designDocs: [...story.designDocs] };
 }
 
 /**
@@ -2262,6 +2074,58 @@ export const collectStoryCards = async (
   refs?: Refs,
   context?: StoryFactsContext,
 ): Promise<{ stories: StoryCard[]; refRead: boolean }> => {
+  const refFiles = ref && refs ? await readRefFiles(refs, ref, storyDir) : null;
+  return storyCardsOver(repoRoot, storyDir, allPlans, archived, refFiles === null ? null : refStoriesIn(refFiles, archived), context);
+};
+
+/** One story file a ref carries, parsed, with no design documents listed. */
+export interface RefStory {
+  slug: string;
+  input: StoryCardInput;
+  /** The plan slugs the story's plan table names. */
+  tablePlans: readonly string[];
+}
+
+/**
+ * The stories among a ref's files under the story directory, first-wins by slug.
+ *
+ * @param files - repository path → file text, in listing order.
+ * @param archived - whether to take the files under an `archived` directory, or the others.
+ * @returns each `STORY-<slug>.md`, committed, with no design documents: the
+ *   board renders none for a story it read from a ref.
+ */
+const refStoriesIn = (files: ReadonlyMap<string, string>, archived: boolean): RefStory[] => {
+  const found: RefStory[] = [];
+  for (const [relPath, content] of files) {
+    const m = path.basename(relPath).match(/^STORY-(.+)\.md$/);
+    if (!m) continue;
+    // `archived` is skipped on both paths — an archived story never populates
+    // the filter list, which is what the walk below has always done.
+    if (relPath.split('/').includes('archived') !== archived) continue;
+    const slug = m[1];
+    if (found.some((story) => story.slug === slug)) continue;
+    // No design docs from a ref: `listDesignDocs('')` answers [].
+    const input = parseStoryContent(content, slug, relPath, '');
+    if (input !== null) found.push({ slug, input: { ...input, committed: true }, tablePlans: storyPlanTableSlugs(content) });
+  }
+  return found;
+};
+
+/**
+ * The story cards under one root, live or archived: the ref's stories, then
+ * the working tree's stories the ref lacks. With `context`, each story carries
+ * its card facts.
+ *
+ * @returns the cards, and whether the ref's stories were read.
+ */
+const storyCardsOver = (
+  repoRoot: string,
+  storyDir: string,
+  allPlans: PlanMeta[],
+  archived: boolean,
+  fromRef: readonly RefStory[] | null,
+  context?: StoryFactsContext,
+): { stories: StoryCard[]; refRead: boolean } => {
   const root = archived
     ? path.join(repoRoot, storyDir, 'archived')
     : path.join(repoRoot, storyDir);
@@ -2286,26 +2150,15 @@ export const collectStoryCards = async (
   // beside them showed. Reported 2026-09-04 against the published board, where
   // `repoRoot` defaults to `process.cwd()`.
   //
-  // `ref` and `refs` are both optional and both must be present, exactly as in
-  // `collectSprints`: a caller supplying neither reads the working tree alone.
-  const found: { slug: string; input: StoryCardInput; tablePlans: string[] }[] = [];
-  const refFiles = ref && refs ? await readRefFiles(refs, ref, storyDir) : null;
-  const fromRef = refFiles ?? new Map<string, string>();
-  for (const [relPath, content] of fromRef) {
-    const base = path.basename(relPath);
-    const m = base.match(/^STORY-(.+)\.md$/);
-    if (!m) continue;
-    // `archived` is skipped on both paths — an archived story never populates
-    // the filter list, which is what the walk below has always done.
-    if (relPath.split('/').includes('archived') !== archived) continue;
-    const slug = m[1];
-    if (takenSlugs.has(slug)) continue;
-    // No design docs from a ref: the tree carries the story file the caller
-    // asked for, not its siblings. `listDesignDocs('')` answers [].
-    const input = parseStoryContent(content, slug, relPath, '');
-    if (!input) continue;
-    takenSlugs.add(slug);
-    found.push({ slug, input: { ...input, committed: true }, tablePlans: storyPlanTableSlugs(content) });
+  // `fromRef` is null where no ref was read: the working tree alone answers.
+  const found: RefStory[] = [];
+  for (const story of fromRef ?? []) {
+    takenSlugs.add(story.slug);
+    found.push({
+      slug: story.slug,
+      input: { ...story.input, designDocs: [...(story.input.designDocs ?? [])] },
+      tablePlans: [...story.tablePlans],
+    });
   }
 
   for (const entry of fs.existsSync(root) ? fs.readdirSync(root, { withFileTypes: true }) : []) {
@@ -2376,7 +2229,7 @@ export const collectStoryCards = async (
     const parsed = StoryCardSchema.safeParse(fullInput);
     if (parsed.success) stories.push(parsed.data);
   }
-  return { stories, refRead: refFiles !== null };
+  return { stories, refRead: fromRef !== null };
 };
 
 /** A story as the default branch holds it: its committed file and what it states. */
@@ -2498,33 +2351,44 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
 export const checksUrlOf = (prUrl: string, branchBase: string): string =>
   prUrl !== '' && branchBase.endsWith('/tree/') && /\/pull\/\d+$/.test(prUrl) ? `${prUrl}/checks` : '';
 
-async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Board> {
-  // SIX INDEPENDENT CONFIG READS, ASKED TOGETHER. Each is its own
-  // `plot-config.sh` spawn and none needs another's answer, so awaiting them
-  // in sequence would serialise five ~58 ms waits for nothing. They are off
-  // the event loop now, which is what makes the concurrency free — the point
-  // of this migration in one line.
-  // `Tracker` keeps its whole answer: an unread key gives no issue page, where an
-  // empty one means the git host answers the issues.
-  const [planDir, sprintDir, storyDir, phasesValue, tracker, ticketPrefixes] = await Promise.all([
-    readConfigAsync(opts, 'Plan directory', 'docs/plans/'),
-    readConfigAsync(opts, 'Sprint directory', 'docs/sprints/'),
-    readConfigAsync(opts, 'Story directory', 'docs/stories/'),
-    readConfigAsync(opts, 'Workflow phases', ''),
-    configFor(opts).config('Tracker', ''),
-    readConfigAsync(opts, 'Ticket prefixes', ''),
-  ]);
-  const { map: phaseMap, refusal: phaseMapRefusal } = declaredPhaseMap(phasesValue);
+/** What the board's plan cards read from the plan estate, whichever path read it. */
+interface EstateReads {
+  defaultBranch: string;
+  planSource: PlanSourceReport;
+  /** The plans the ref did not carry, by repository-relative path. */
+  localOnlyPaths: Set<string>;
+  /** Every parsed plan, its `file` the repository-relative path. */
+  metas: PlanMeta[];
+  /** Each Delivered plan's text and delivery commit, by repository-relative path. */
+  delivered: Map<string, { text: string; deliveryCommit: string | null }>;
+  planAuthors: ReadonlyMap<string, string>;
+  /** The sprint files the default branch carries, before the working tree adds to them. */
+  refSprints: SprintCard[];
+  /** The stories the default branch carries, live and archived; null where the ref could not be read. */
+  refStories: { live: RefStory[]; archived: RefStory[] } | null;
+  checkoutClean: boolean | null;
+}
 
-  const repoRoot = resolvedRepoRoot(opts);
+/** What both estate readers read from config. */
+interface EstateConfig {
+  repoRoot: string;
+  planDir: string;
+  stateBranch: string;
+}
+
+/**
+ * The plan estate as the board reads it for itself: from `origin/<default>`,
+ * the working tree, the prefixed branches and one `plot-plan-meta.sh` run.
+ */
+const readOwnEstate = async (
+  opts: BuildBoardOptions,
+  refs: Refs,
+  { repoRoot, planDir, sprintDir, storyDir, stateBranch }: EstateConfig & { sprintDir: string; storyDir: string },
+): Promise<EstateReads> => {
   const defaultBranch = await defaultBranchOf(opts, refs);
-  // The declared `People` spellings, read once per process; plan and story
-  // cards resolve their owner through it.
-  const directory = await people(opts);
   // THE PLAN ESTATE COMES FROM THE REF, and the working tree may only add to
   // it. See `collectPlanSources` for the one-directional rule and why the
   // direction is the whole fix.
-  const stateBranch = await stateBranchOf(opts);
   const recordSource: RecordSource | undefined = stateBranch === '' ? undefined : { stateBranch, defaultBranch };
   const { sources: planSources, report: planSource } = await collectPlanSources(
     refs, repoRoot, planDir, `origin/${defaultBranch}`, recordSource,
@@ -2628,6 +2492,347 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
     // branch plans. Additive and silent when empty — the common case for an
     // adopting project, and it must behave exactly as before.
   }
+  const deliveredReadings = new Map<string, { text: string; deliveryCommit: string | null }>();
+  let metas: PlanMeta[];
+  try {
+    metas = await readPlanMeta(opts, [...files, ...staged]);
+    // The staged copies are deleted below, so the text a Delivered plan's
+    // verification record is read from is taken while they exist. A plan whose
+    // delivery commit cannot be read gets no verification: an error is not a
+    // reading that agrees with the record.
+    for (const meta of metas) {
+      if (meta.phase !== 'delivered') continue;
+      const text = (() => { try { return fs.readFileSync(meta.file, 'utf8'); } catch { return null; } })();
+      if (text === null) continue;
+      const canonical = canonicalPath.get(meta.file);
+      const rel = canonical ?? path.relative(repoRoot, meta.file);
+      // The Delivered record sits at the state ref where one holds the records.
+      const found = await refs.recordCommit(rel, 'Delivered', recordSource === undefined ? `origin/${defaultBranch}` : (await resolveRecordRef(refs, recordSource)).ref);
+      if (!found.ok) continue;
+      deliveredReadings.set(rel, { text, deliveryCommit: found.value });
+    }
+  } finally {
+    // The staged copies exist only for the duration of that one parse. Removed
+    // in a `finally` so a parser failure cannot leave temp directories behind
+    // on a path the server walks every few seconds. A signal skips this
+    // `finally`; `stage-dirs.ts` removes the directory at exit instead.
+    //
+    // READ 2026-09-01, by `a-teardown-does-not-fail-a-suite`, which fixed the
+    // same shape of call in the test tree and deliberately left this one. It is
+    // recorded rather than changed, so a later plan starts from a reading:
+    //
+    //   - The only writer into `stageDir` is THIS function, synchronously,
+    //     before the parse. No child is given the path to write to.
+    //   - `readPlanMeta` awaits `run`, which resolves in `execFile`'s exit
+    //     callback. So `plot-plan-meta.sh` has EXITED before this line runs, and
+    //     it only ever read these files.
+    //   - That makes it unlike the test failure: there the doomed child was a
+    //     `git` process still writing into the tree being removed.
+    //
+    // So the race the tests hit is not reachable here on the evidence above.
+    // What is NOT established is behaviour under an external writer — a backup
+    // agent or an editor indexing `os.tmpdir()` — and a throw here escapes into
+    // a request the board serves every few seconds. If that is judged worth
+    // closing, `rmTree`'s bounded retry is the shape; it lives in the test tree
+    // today and would have to move to be used from `src/`.
+    if (stageDir) removeStageDir(stageDir);
+  }
+
+  // Whether THIS checkout — the one every read above just walked — is itself
+  // clean. A local `git status --porcelain`, no network, the same cost class
+  // as `measureBehind` above it. `null` where it could not be read, never a
+  // guessed clean: see `checkoutHealthStatus`, which treats null as "say
+  // nothing" rather than "fine".
+  // Asked on every build, and held under the checkout's stamp, so the first
+  // build on `snapshot` after this one reads the same answer without asking.
+  const checkoutClean = await askCheckoutClean(opts, repoRoot);
+
+  // EACH PLAN'S AUTHOR — ONE BATCHED GIT-LOG WALK, READ ONCE ABOVE THE LOOP.
+  // Same hoist as `spendLines` above: a per-plan call here would be one `git
+  // log` spawn per plan per refresh, on the same ~290-plan estate.
+  //
+  // The author is the git author of the commit that FIRST added the plan
+  // file, read off `origin/${defaultBranch}` — the same ref `collectPlanSources`
+  // already walks. A plan not yet on that ref (freshly created, still local)
+  // is simply absent from the map, and gets no `card.author` below, the same
+  // way `card.assignee` is left off a field the parser could not read.
+  const planAuthors = await (async () => {
+    const read = await refs.planAuthors(`origin/${defaultBranch}`, planDir);
+    return read.ok ? read.value : new Map<string, string>();
+  })();
+  const ref = `origin/${defaultBranch}`;
+  const sprintFiles = await readPlansFromRef(refs, ref, path.join(sprintDir, 'active'));
+  const refSprints = [...sprintFiles].flatMap(([relPath, content]) => {
+    const sprint = parseSprintContent(content, path.basename(relPath));
+    return sprint === null ? [] : [sprint];
+  });
+  const storyFiles = await readRefFiles(refs, ref, storyDir);
+  return {
+    defaultBranch,
+    planSource,
+    localOnlyPaths,
+    // A plan's identity is its canonical path, never wherever it was staged
+    // for parsing, so the slug and `card.path` are the strings a working-tree
+    // plan would produce. Copied: a parse the walk cache holds stays as held.
+    metas: metas.map((meta) => ({ ...meta, file: canonicalPath.get(meta.file) ?? path.relative(repoRoot, meta.file) })),
+    delivered: deliveredReadings,
+    planAuthors,
+    refSprints,
+    refStories: storyFiles === null ? null : { live: refStoriesIn(storyFiles, false), archived: refStoriesIn(storyFiles, true) },
+    checkoutClean,
+  };
+};
+
+
+/**
+ * One plan record as fleetd's snapshot holds it, in the parser's shape the
+ * board's assembly reads.
+ *
+ * @param entry - the snapshot's record.
+ * @param file - the plan's repository-relative path.
+ * @returns the record, validated by `PlanMetaSchema`.
+ */
+export const planMetaOf = (entry: SnapshotPlanEntry, file: string = entry.file): PlanMeta =>
+  PlanMetaSchema.parse({
+    file,
+    format: entry.format,
+    phase: entry.phase,
+    type: entry.type,
+    title: entry.title,
+    sprint: entry.sprint,
+    story: entry.story,
+    assignee: entry.assignee,
+    branches: entry.branches,
+    slices: entry.slices.map((slice) => ({
+      name: slice.name,
+      branches: slice.branches.map((b) => ({
+        branch: b.branch,
+        deferred: b.deferred,
+        deferred_reason: b.deferredReason,
+        claimed: b.claimed,
+        spike: b.spike === true,
+        commits: b.commits ?? [],
+      })),
+    })),
+    prs: entry.prs,
+    issues: entry.issues,
+    review: entry.review,
+    design_raw: entry.designRaw,
+    spike_approved_raw: entry.spikeApprovedRaw,
+    tracer: entry.tracer === true,
+    approved_raw: entry.approvedRaw,
+    released_raw: entry.releasedRaw,
+    delivered_raw: entry.deliveredRaw,
+    verified_raw: entry.verifiedRaw,
+    started_raw: entry.startedRaw,
+    ...(entry.rounds === undefined ? {} : { rounds: entry.rounds }),
+    unread_branch_items: entry.unreadBranchItems,
+  });
+
+/**
+ * A ref reader whose `resolve` answers every `refs/…` and `origin/…` name from
+ * the refs fleetd listed, a trailing `^{commit}` included, and starts nothing
+ * for them. A name the listing lacks fails, as git fails for a ref it lacks.
+ * A name with any other `^{…}` suffix, such as `^{tree}`, names an object the
+ * listing does not hold and goes to `refs`.
+ *
+ * @param refs - the reader every other read goes through.
+ * @param entries - the refs fleetd's snapshot listed.
+ * @returns the reader.
+ */
+export const servedRefs = (refs: Refs, entries: readonly RefState[]): Refs => {
+  const listed = snapshotOf(entries);
+  return {
+    ...refs,
+    resolve: async (name) => {
+      const peel = /\^\{[^}]*\}$/.exec(name)?.[0];
+      if (peel !== undefined && peel !== '^{commit}') return refs.resolve(name);
+      const bare = name.replace(/\^\{commit\}$/, '');
+      if (!bare.startsWith('refs/') && !bare.startsWith('origin/')) return refs.resolve(name);
+      const oid = listed.oidOf(bare);
+      return oid === undefined ? { ok: false, why: 'failed' } : answered(oid);
+    },
+  };
+};
+
+/** The checkout's last cleanliness reading per repository, with the stamp it was read at. */
+const cleanReadings = new Map<string, { stamp: string; clean: boolean | null }>();
+
+/**
+ * The stamp a checkout's cleanliness reading is held under: the size and
+ * mtime of its index file and the text of its `HEAD`. `git checkout`, `git
+ * add`, `git commit`, `git stash` and `git reset` each rewrite one of them.
+ *
+ * @returns the stamp, or null where neither file can be read.
+ */
+const checkoutStamp = (repoRoot: string): string | null => {
+  const gitDir = (() => {
+    const dotGit = path.join(repoRoot, '.git');
+    try {
+      if (fs.statSync(dotGit).isDirectory()) return dotGit;
+      const pointer = /^gitdir: (.+)$/m.exec(fs.readFileSync(dotGit, 'utf8'))?.[1]?.trim();
+      return pointer === undefined ? null : path.resolve(repoRoot, pointer);
+    } catch {
+      return null;
+    }
+  })();
+  if (gitDir === null) return null;
+  const part = (file: string, read: (f: string) => string): string => {
+    try {
+      return read(path.join(gitDir, file));
+    } catch {
+      return '-';
+    }
+  };
+  const index = part('index', (f) => {
+    const stat = fs.statSync(f);
+    return `${stat.size}:${stat.mtimeMs}`;
+  });
+  const head = part('HEAD', (f) => fs.readFileSync(f, 'utf8').trim());
+  return index === '-' && head === '-' ? null : `${index}\0${head}`;
+};
+
+/**
+ * Whether the checkout is clean, asked again only when its index or `HEAD`
+ * changed. An edit to a tracked file that no git command recorded leaves the
+ * stamp as it was, so the reading lags it until the next one that does.
+ *
+ * @returns the reading, or null where it could not be read.
+ */
+const heldCheckoutClean = async (opts: BuildBoardOptions, repoRoot: string): Promise<boolean | null> => {
+  const stamp = checkoutStamp(repoRoot);
+  const held = cleanReadings.get(repoRoot);
+  if (stamp !== null && held !== undefined && held.stamp === stamp) return held.clean;
+  return askCheckoutClean(opts, repoRoot, stamp);
+};
+
+/**
+ * Asks whether the checkout is clean and holds the answer under the stamp read
+ * before the question, so a change during the question makes the next stamp differ.
+ *
+ * @returns the reading, or null where it could not be read.
+ */
+const askCheckoutClean = async (
+  opts: BuildBoardOptions,
+  repoRoot: string,
+  stamp: string | null = checkoutStamp(repoRoot),
+): Promise<boolean | null> => {
+  const status = await treesFor(opts).isClean(repoRoot);
+  const clean = status.ok ? status.value : null;
+  if (stamp !== null && clean !== null) cleanReadings.set(repoRoot, { stamp, clean });
+  return clean;
+};
+
+/**
+ * The plan estate from fleetd's snapshot, with the checkout's own files the
+ * board reads beside it: the working-tree plans the ref lacks, how far the
+ * checkout is behind, and whether it is clean.
+ *
+ * Reads no ref listing, no plan blob and runs no `plot-plan-meta.sh` for a plan
+ * the snapshot holds. A working-tree-only plan is parsed through the
+ * blob-keyed cache, so an unchanged one starts no process.
+ */
+const readServedEstate = async (
+  opts: BuildBoardOptions,
+  refs: Refs,
+  served: BoardInputs,
+  { repoRoot, planDir, stateBranch }: EstateConfig,
+): Promise<EstateReads> => {
+  const { defaultBranch, planRef } = served;
+  const recordSource: RecordSource | undefined = stateBranch === '' ? undefined : { stateBranch, defaultBranch };
+  const refPaths = new Set(served.plans.map((plan) => plan.file));
+  const local = [...workingTreePlans(repoRoot, planDir)].filter(([relPath]) => !refPaths.has(relPath));
+  const localMetas = (await readPlanMeta(opts, local.map(([, entry]) => entry.absPath)))
+    .map((meta) => ({ ...meta, file: path.relative(repoRoot, meta.file) }));
+  const planSourcePaths = new Set([...refPaths, ...local.map(([relPath]) => relPath)]);
+  const branchMetas = served.branchPlans
+    .filter(({ path: planPath }) => !planSourcePaths.has(planPath))
+    .map(({ path: planPath, record }) => planMetaOf(record, planPath));
+  const metas = [...served.plans.map((plan) => planMetaOf(plan)), ...localMetas, ...branchMetas];
+  const delivered = new Map<string, { text: string; deliveryCommit: string | null }>();
+  for (const meta of metas) {
+    if (meta.phase !== 'delivered') continue;
+    const input = served.delivered[meta.file];
+    if (input !== undefined) {
+      delivered.set(meta.file, { text: verificationText(input.claimLines), deliveryCommit: input.deliveryCommit });
+      continue;
+    }
+    if (refPaths.has(meta.file)) continue;
+    // A Delivered plan only the working tree holds: its text and record, read as the board's own path reads them.
+    const text = (() => { try { return fs.readFileSync(path.join(repoRoot, meta.file), 'utf8'); } catch { return null; } })();
+    if (text === null) continue;
+    const found = await refs.recordCommit(meta.file, 'Delivered', recordSource === undefined ? planRef : (await resolveRecordRef(refs, recordSource)).ref);
+    if (found.ok) delivered.set(meta.file, { text, deliveryCommit: found.value });
+  }
+  const storyOf = (record: StoryRecord): RefStory => ({
+    slug: record.slug,
+    // The board renders no design documents for a story it read from a ref.
+    input: { ...record, designDocs: [], committed: true },
+    tablePlans: [],
+  });
+  return {
+    defaultBranch,
+    planSource: { ref: planRef, resolved: true, localOnly: local.length, behind: await measureBehind(refs, planRef, true) },
+    localOnlyPaths: new Set(local.map(([relPath]) => relPath)),
+    metas,
+    delivered,
+    planAuthors: new Map(Object.entries(served.authors)),
+    refSprints: served.sprints.map(({ sprint }) => ({
+      ...sprint,
+      timebox: 'none',
+      timeboxLabel: '',
+      members: sprint.members.map((member) => ({ ...member, known: true })),
+    })),
+    refStories: { live: served.stories.live.map(storyOf), archived: served.stories.archived.map(storyOf) },
+    checkoutClean: await heldCheckoutClean(opts, repoRoot),
+  };
+};
+
+/**
+ * The board built from fleetd's snapshot: the plan estate comes from `served`,
+ * and only the checkout's own files are read here.
+ *
+ * @param opts - where the repository and the scripts are.
+ * @param served - the inputs `boardInputsFrom` answered for the snapshot.
+ * @returns the board, in the shape `buildBoard` returns.
+ */
+export const buildBoardFrom = async (opts: BuildBoardOptions, served: BoardInputs): Promise<Board> => {
+  // NO `begin`/`sweep`: this build reads few cached entries, and a sweep after
+  // it would drop the parses and listings the PR beat's `planMetasAtDefault`
+  // holds in the same cache, so the next beat would read and parse them again.
+  const held = await heldRefsFor(opts, served.refs);
+  return buildBoardOver(opts, servedRefs(held.refs, served.refs), served);
+};
+
+async function buildBoardOver(opts: BuildBoardOptions, refs: Refs, served?: BoardInputs): Promise<Board> {
+  // SIX INDEPENDENT CONFIG READS, ASKED TOGETHER. Each is its own
+  // `plot-config.sh` spawn and none needs another's answer, so awaiting them
+  // in sequence would serialise five ~58 ms waits for nothing. They are off
+  // the event loop now, which is what makes the concurrency free — the point
+  // of this migration in one line.
+  // `Tracker` keeps its whole answer: an unread key gives no issue page, where an
+  // empty one means the git host answers the issues.
+  const [planDir, sprintDir, storyDir, phasesValue, tracker, ticketPrefixes] = await Promise.all([
+    readConfigAsync(opts, 'Plan directory', 'docs/plans/'),
+    readConfigAsync(opts, 'Sprint directory', 'docs/sprints/'),
+    readConfigAsync(opts, 'Story directory', 'docs/stories/'),
+    readConfigAsync(opts, 'Workflow phases', ''),
+    configFor(opts).config('Tracker', ''),
+    readConfigAsync(opts, 'Ticket prefixes', ''),
+  ]);
+  const { map: phaseMap, refusal: phaseMapRefusal } = declaredPhaseMap(phasesValue);
+
+  const repoRoot = resolvedRepoRoot(opts);
+  const stateBranch = await stateBranchOf(opts);
+  // THE PLAN ESTATE: read from fleetd's snapshot where the board serves it,
+  // else read here. Either path hands the assembly below the same reads.
+  const reads = served === undefined
+    ? await readOwnEstate(opts, refs, { repoRoot, planDir, sprintDir, storyDir, stateBranch })
+    : await readServedEstate(opts, refs, served, { repoRoot, planDir, stateBranch });
+  const { defaultBranch, planSource, localOnlyPaths, metas, planAuthors, checkoutClean } = reads;
+  // The declared `People` spellings, read once per process; plan and story
+  // cards resolve their owner through it.
+  const directory = await people(opts);
   // Links come from the host adapter's own `url`, read out of the fleet's PR
   // cache — the board holds no rule for turning a number into an address. null
   // until the first fetch lands, which costs a card its link and never a wrong
@@ -2660,51 +2865,6 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
   // Each PR's head branch, for the facts' per-PR branch and the slice refs.
   const prHeads = new Map<number, string>([...(prLinks?.values() ?? [])].map((r) => [r.number, r.head]));
   const prByHead = new Map<string, number>([...prHeads].map(([n, h]) => [h, n]));
-  const deliveredReadings = new Map<string, { text: string; deliveryCommit: string | null }>();
-  let metas: PlanMeta[];
-  try {
-    metas = await readPlanMeta(opts, [...files, ...staged]);
-    // The staged copies are deleted below, so the text a Delivered plan's
-    // verification record is read from is taken while they exist. A plan whose
-    // delivery commit cannot be read gets no verification: an error is not a
-    // reading that agrees with the record.
-    for (const meta of metas) {
-      if (meta.phase !== 'delivered') continue;
-      const text = (() => { try { return fs.readFileSync(meta.file, 'utf8'); } catch { return null; } })();
-      if (text === null) continue;
-      const canonical = canonicalPath.get(meta.file);
-      const rel = canonical ?? path.relative(repoRoot, meta.file);
-      // The Delivered record sits at the state ref where one holds the records.
-      const found = await refs.recordCommit(rel, 'Delivered', recordSource === undefined ? `origin/${defaultBranch}` : (await resolveRecordRef(refs, recordSource)).ref);
-      if (!found.ok) continue;
-      deliveredReadings.set(meta.file, { text, deliveryCommit: found.value });
-    }
-  } finally {
-    // The staged copies exist only for the duration of that one parse. Removed
-    // in a `finally` so a parser failure cannot leave temp directories behind
-    // on a path the server walks every few seconds. A signal skips this
-    // `finally`; `stage-dirs.ts` removes the directory at exit instead.
-    //
-    // READ 2026-09-01, by `a-teardown-does-not-fail-a-suite`, which fixed the
-    // same shape of call in the test tree and deliberately left this one. It is
-    // recorded rather than changed, so a later plan starts from a reading:
-    //
-    //   - The only writer into `stageDir` is THIS function, synchronously,
-    //     before the parse. No child is given the path to write to.
-    //   - `readPlanMeta` awaits `run`, which resolves in `execFile`'s exit
-    //     callback. So `plot-plan-meta.sh` has EXITED before this line runs, and
-    //     it only ever read these files.
-    //   - That makes it unlike the test failure: there the doomed child was a
-    //     `git` process still writing into the tree being removed.
-    //
-    // So the race the tests hit is not reachable here on the evidence above.
-    // What is NOT established is behaviour under an external writer — a backup
-    // agent or an editor indexing `os.tmpdir()` — and a throw here escapes into
-    // a request the board serves every few seconds. If that is judged worth
-    // closing, `rmTree`'s bounded retry is the shape; it lives in the test tree
-    // today and would have to move to be used from `src/`.
-    if (stageDir) removeStageDir(stageDir);
-  }
   // WHAT EACH PLAN'S SLICES COST — READ ONCE, ABOVE THE LOOP.
   //
   // THE HOIST IS THE WHOLE POINT AND THE LOOP BELOW IS WHY. `planStatus` is
@@ -2737,35 +2897,12 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
     return read.ok ? read.value ?? undefined : undefined;
   })();
 
-  // Whether THIS checkout — the one every read above just walked — is itself
-  // clean. A local `git status --porcelain`, no network, the same cost class
-  // as `measureBehind` above it. `null` where it could not be read, never a
-  // guessed clean: see `checkoutHealthStatus`, which treats null as "say
-  // nothing" rather than "fine".
-  const checkoutClean = await (async () => {
-    const status = await treesFor(opts).isClean(repoRoot);
-    return status.ok ? status.value : null;
-  })();
-
   // The board's own spawn contract against the gate's. `bundleHash` rides in
   // on `opts.startBundle`, captured once at process start; everything
   // else here — including the comparison "now" hash — is read fresh per
   // build, the same split `worker-loop.ts` draws for its own bundle drift.
   const spawnContract = await spawnContractReadingFor(opts);
 
-  // EACH PLAN'S AUTHOR — ONE BATCHED GIT-LOG WALK, READ ONCE ABOVE THE LOOP.
-  // Same hoist as `spendLines` above: a per-plan call here would be one `git
-  // log` spawn per plan per refresh, on the same ~290-plan estate.
-  //
-  // The author is the git author of the commit that FIRST added the plan
-  // file, read off `origin/${defaultBranch}` — the same ref `collectPlanSources`
-  // already walks. A plan not yet on that ref (freshly created, still local)
-  // is simply absent from the map, and gets no `card.author` below, the same
-  // way `card.assignee` is left off a field the parser could not read.
-  const planAuthors = await (async () => {
-    const read = await refs.planAuthors(`origin/${defaultBranch}`, planDir);
-    return read.ok ? read.value : new Map<string, string>();
-  })();
 
   for (const meta of metas) {
     // A plan's identity is its canonical path, never wherever it was staged for
@@ -2773,8 +2910,7 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
     // and `card.path` are the same strings a working-tree plan would produce —
     // otherwise a Discovery card would render `/var/folders/…/probe.md`, which
     // fails silently and merely looks untidy.
-    const canonical = canonicalPath.get(meta.file);
-    const relPath = canonical ?? path.relative(repoRoot, meta.file);
+    const relPath = meta.file;
     const started = meta.started_raw.length > 0;
     const mapped = phaseOfPlan(phaseMap, { state: meta.phase, tracer: meta.tracer });
     if (!mapped) continue;
@@ -2862,7 +2998,7 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
       // card built by a server too old to have looked.
       phaseDate: phaseDateOf(deliverable ? 'delivered' : meta.phase, meta),
     };
-    const delivered = deliveredReadings.get(meta.file);
+    const delivered = reads.delivered.get(relPath);
     if (delivered !== undefined) {
       const plan = {
         text: delivered.text,
@@ -2998,12 +3134,8 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
   // from each other, so they are asked together, hoisted out of the object
   // literal because an `await` inside one would serialise them against every
   // sibling field around it.
-  const [sprints, releaseDir] = await Promise.all([
-    collectSprints(
-      repoRoot, sprintDir, new Set(cards.map((c) => c.slug)), `origin/${defaultBranch}`, refs,
-    ),
-    readConfigAsync(opts, 'Release directory', 'docs/releases/'),
-  ]);
+  const sprints = mergeSprints(reads.refSprints, repoRoot, sprintDir, new Set(cards.map((c) => c.slug)));
+  const releaseDir = await readConfigAsync(opts, 'Release directory', 'docs/releases/');
   const issueContext: StoryIssueContext = {
     issuePrefix: repoIssuePrefixOf(urlBase),
     jiraProjects: tracker.ok ? jiraProjectsOf(tracker.value, TRACKER_PROJECT_KEY_SCHEMES, ticketPrefixes) : [],
@@ -3014,10 +3146,8 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
     sprints,
     directory,
   };
-  const [live, archivedRead] = await Promise.all([
-    collectStoryCards(repoRoot, storyDir, metas, false, `origin/${defaultBranch}`, refs, storyContext),
-    collectStoryCards(repoRoot, storyDir, metas, true, `origin/${defaultBranch}`, refs, storyContext),
-  ]);
+  const live = storyCardsOver(repoRoot, storyDir, metas, false, reads.refStories?.live ?? null, storyContext);
+  const archivedRead = storyCardsOver(repoRoot, storyDir, metas, true, reads.refStories?.archived ?? null, storyContext);
   const stories = live.stories;
   const archivedStories = archivedRead.stories;
 

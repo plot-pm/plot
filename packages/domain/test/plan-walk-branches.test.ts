@@ -202,7 +202,7 @@ describe('readBranchReadings — how a host list is read', () => {
   const pr = (head: string, state: string, mergedAt: string | null, number = 1) =>
     ({ number, repo: '', head, base: 'main', state, mergedAt, mergeCommit: '', draft: false, mergeable: 'unknown', review: 'none', checks: 'none', failingChecks: [], url: '', author: '' }) as never;
   const base = hostFixture({ backend: 'github' });
-  const refusing = (kind: 'throttled' | 'secondary' | 'failed' | null, said: string): Host => ({
+  const refusing = (kind: 'throttled' | 'secondary' | 'auth' | 'failed' | null, said: string): Host => ({
     ...base,
     prList: async () => failed(),
     lastRefusal: () => (kind === null && said === '' ? null : ({ kind, said } as never)),
@@ -214,6 +214,7 @@ describe('readBranchReadings — how a host list is read', () => {
     expect(await reach(refusing('secondary', 'abuse'))).toBe('secondary');
     expect(await reach(refusing('failed', 'gh: not logged in'))).toBe('unasked');
     expect(await reach(refusing('failed', 'boom'))).toBe('failed');
+    expect(await reach(refusing('auth', 'HTTP 401: Bad credentials'))).toBe('unasked');
     expect(await reach(refusing(null, ''))).toBe('failed');
   });
 
