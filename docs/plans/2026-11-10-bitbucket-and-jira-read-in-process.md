@@ -56,7 +56,7 @@ The risk is high and silent, as for GitHub. Three Bitbucket completeness claims 
 
 ## Design
 
-**This plan depends on `github-reads-in-process`** (delivered on `sprint/desk-probes-and-liveness`, PR #3380 open). `origin/sprint/triggers-and-connectors` at `f6f26feab` is cut from `main` and holds no `packages/domain/src/adapters/host/github-api.ts`, `host-reads.ts` or `rules/host-transport.ts`. No slice starts before #3380 merges into `main` and `main` merges into the sprint branch. `triggers-replace-the-tick` (Phase 8) is written beside this plan; this plan arms no watch and changes no cadence. Both plans change census counts and may touch `packages/fleet/test/census/` (`census-rows.ts`, `stub-host.ts`, `sandbox.ts`, `fleetd.census.test.ts`), so the second to merge rebases its fixture change and states its own measured delta. The new row ids P7 and P8 are provisional, and the second plan to merge renumbers on a collision.
+**This plan depends on `github-reads-in-process`** (delivered on `sprint/desk-probes-and-liveness`, PR #3380 open). `origin/sprint/triggers-and-connectors` at `f6f26feab` is cut from `main` and holds no `packages/domain/src/adapters/host/github-api.ts`, `host-reads.ts` or `rules/host-transport.ts`. No slice starts before #3380 merges into `main` and `main` merges into the sprint branch. `triggers-replace-the-tick` (Phase 8) is written beside this plan; this plan arms no watch and changes no cadence. Both plans change census counts and may touch `packages/fleet/test/census/` (`census-rows.ts`, `stub-host.ts`, `sandbox.ts`, `fleetd.census.test.ts`), so the second to merge rebases its fixture change and states its own measured delta.
 
 ### Approach
 
@@ -110,14 +110,14 @@ The risk is high and silent, as for GitHub. Three Bitbucket completeness claims 
 - `IN_PROCESS_BACKENDS` (`adapters/host/host-reads.ts:12`) gains `bitbucket`, and `hostReadsFor` (`:116`) builds the Bitbucket client and listing where the backend answers `bitbucket` and the client resolves credentials; the shell reads otherwise. `PLOT_HOST_TRANSPORT=shell` (`rules/host-transport.ts:2`) forces the shell for both hosts.
 - **Jenkins colours.** Where `CI` is `jenkins`, the rich open read stays on the shell, because the Bitbucket `pr-list` arm overlays Jenkins colours on it (`_bb_jen_bind`, `plot-host.sh:4931`), and the plain reads (`--state all`, the merged set, the sweep's `all` half) go in-process (Open Question 4).
 - fleetd logs the transport, its reason and the credential source once at start, publishes it with its heartbeat, and `/plot-fleet --status` prints it, as for GitHub. The board's own reads (`plot-pr-reader.mjs` with no fleetd) take the same composition.
-- A green per-source census row `P7: an idle fleetd pass on Bitbucket starts no plot-host.sh pr-list and no bb` (`census-rows.ts`, `green: true` from this slice) reads the strace tree by argv, and a stub-server count holds that the in-process requests per idle pass do not exceed the shell's `bb api` calls on the same fixture, measured with `PLOT_HOST_TRANSPORT=shell` as the P5 baseline is (`fleetd.census.test.ts:133-156`).
+- A green per-source census row `P10: an idle fleetd pass on Bitbucket starts no plot-host.sh pr-list and no bb` (`census-rows.ts`, `green: true` from this slice) reads the strace tree by argv, and a stub-server count holds that the in-process requests per idle pass do not exceed the shell's `bb api` calls on the same fixture, measured with `PLOT_HOST_TRANSPORT=shell` as the P5 baseline is (`fleetd.census.test.ts:133-156`).
 - S4 on the Bitbucket fixture runs against the merge base, and the slice records the number in the story's *Measures*. The expected delta is several hundred `execve` per idle pass, inside the 1040 upper bound above; the PR states the measured figure and how many images each read removed.
 
 **Slice 8: the Jira cutover.**
 
 - The tracker composition (`trackerFor`, `adapters/tracker/tracker-resolve.ts:44`; `trackerOfSource`, `:169`) builds `trackerJira` over `jira-api.ts` where the declared tracker is `jira` and the client resolves credentials, and over the shell otherwise. `PLOT_HOST_TRANSPORT=shell` forces the shell for the tracker too (Open Question 7).
 - fleetd's start log and `/plot-fleet --status` name the tracker transport and the credential source.
-- A green per-source census row `P8: an idle fleetd pass with a Jira tracker starts no curl and no plot-host.sh issue-list, ticket-projects or spend-rate --connector jira` (`census-rows.ts`, `green: true` from this slice), and a stub-server count that holds the Jira requests per issue pass to the shell's `curl` calls.
+- A green per-source census row `P11: an idle fleetd pass with a Jira tracker starts no curl and no plot-host.sh issue-list, ticket-projects or spend-rate --connector jira` (`census-rows.ts`, `green: true` from this slice), and a stub-server count that holds the Jira requests per issue pass to the shell's `curl` calls.
 - S4 on the Bitbucket fixture runs against the merge base, and the slice records the number in the story's *Measures*.
 
 **What stays.** `spend-rate` through `plot-host.sh` at three sites (`registryd-main.ts:494`, `pr-refresh.ts:715`, `fleet-scan.ts:327`) stays named residue, as in `github-reads-in-process`. The AgentMonitor's per-desk `pr-state` call belongs to `liveness-token`. `bb` and `curl` stay for every op that is not a fleetd read. S4 reaches 0 only with Phase 8.
@@ -156,10 +156,10 @@ The risk is high and silent, as for GitHub. Three Bitbucket completeness claims 
 | Both Jira transports send the same JQL and read the same rows | `jira-issue-reads.corpus.test.ts`: the JQL, every issue field, the page token and the completeness agree for open, closed, changed and inbox | Jira issues |
 | The issue gate asks no process for its own questions | a tracker row: `spender()` and the project scope answer with no `runProcess` call | Jira issues |
 | The three Jira outcomes stay apart | tracker rows: an empty list, a failed request and `unaskable` stay three answers | Jira issues |
-| An idle Bitbucket pass starts no process for a PR read | census P7, `green: true`: no `bb`, and no `bash` whose argv names `plot-host.sh` and `pr-list`; the stub server counts no more requests than the shell's `bb api` calls | Bitbucket cutover |
+| An idle Bitbucket pass starts no process for a PR read | census P10, `green: true`: no `bb`, and no `bash` whose argv names `plot-host.sh` and `pr-list`; the stub server counts no more requests than the shell's `bb api` calls | Bitbucket cutover |
 | Jenkins colours stay right | a composition row: `bitbucket` with `CI: jenkins` sends the rich open read to the shell and the plain reads in-process | Bitbucket cutover |
 | The Bitbucket transport is visible | a fleetd row: the start log names the transport, its reason and the credential source; `/plot-fleet --status` prints it | Bitbucket cutover |
-| An idle Jira pass starts no process for an issue read | census P8, `green: true`: no `curl`, and no `bash` whose argv names `plot-host.sh` with `issue-list`, `ticket-projects` or `spend-rate --connector jira` | Jira cutover |
+| An idle Jira pass starts no process for an issue read | census P11, `green: true`: no `curl`, and no `bash` whose argv names `plot-host.sh` with `issue-list`, `ticket-projects` or `spend-rate --connector jira` | Jira cutover |
 | The removed processes are counted | each cutover's PR states S4 on the Bitbucket fixture against the merge base, and the story's *Measures* holds both numbers | Bitbucket cutover, Jira cutover |
 | GitHub is unchanged | census S4 on both GitHub fixtures stays within 10 % + 2 of the merge base, and P5 stays green | Bitbucket cutover, Jira cutover |
 
@@ -182,8 +182,8 @@ The risk is high and silent, as for GitHub. Three Bitbucket completeness claims 
 
 ### Wave 4
 
-- `feature/bitbucket-and-jira-read-in-process-bitbucket-cutover` — `bitbucket` in `IN_PROCESS_BACKENDS`, the `CI: jenkins` split, the start log and status line, census row P7, the S4 measurement and the story's *Measures*; a changeset for `plot` <!-- builds: the Bitbucket transport switch in fleetd's composition root -->
-- `feature/bitbucket-and-jira-read-in-process-jira-cutover` — the in-process Jira tracker in `trackerFor`, the start log and status line, census row P8, the S4 measurement and the story's *Measures*; a changeset for `plot` <!-- builds: the Jira tracker transport switch in fleetd's composition root -->
+- `feature/bitbucket-and-jira-read-in-process-bitbucket-cutover` — `bitbucket` in `IN_PROCESS_BACKENDS`, the `CI: jenkins` split, the start log and status line, census row P10, the S4 measurement and the story's *Measures*; a changeset for `plot` <!-- builds: the Bitbucket transport switch in fleetd's composition root -->
+- `feature/bitbucket-and-jira-read-in-process-jira-cutover` — the in-process Jira tracker in `trackerFor`, the start log and status line, census row P11, the S4 measurement and the story's *Measures*; a changeset for `plot` <!-- builds: the Jira tracker transport switch in fleetd's composition root -->
 
 ## Notes
 
@@ -192,4 +192,5 @@ The risk is high and silent, as for GitHub. Three Bitbucket completeness claims 
 - Census figures: `main` `be7537152`, CI run 42868842876, jobs `census-head` and `census-compare`; PR #3380 head `38411b761`, CI run 42874101153, jobs `census-head` (artifact `census-report-head`) and `census-compare`.
 - The two Wave 4 slices both edit `census-rows.ts`, `fleetd.census.test.ts` and the story's *Measures*; the second to merge rebases.
 - Deliverable search (`plot-deliverable-search.sh`) for "bitbucketApi", "Bitbucket HTTPS client", "jiraApi", "Jira HTTPS client", "bitbucketPrListing", "bitbucket-pr-row", "jiraBudgetAccount", "env file credentials" and "connector transport" found no existing deliverable. "readEnvVar" found `skills/plot/scripts/plot-bitbucket-commit-status.mjs:108`, a third copy of `read_env_var` for the review identity; `rules/env-file.ts` can replace it in a later change. The estate already holds `walkToLimit` and `envelopeNextFor` (`listing-paging.ts`), `foldBitbucketMergeable` (`rules/bitbucket-mergeable.ts`) and `remoteSlug` (`rules/remote-slug.ts`), which this plan reuses.
+- Census rows P10 and P11: decided 2026-11-10, jwloka; P7–P9 belong to `triggers-replace-the-tick`.
 - Definition of Done: docs/definition-of-done.md.
