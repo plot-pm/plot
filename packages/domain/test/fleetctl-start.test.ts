@@ -149,7 +149,7 @@ describe('restartPlan with --agents', () => {
   it('refuses an unattended caller before anything else, even with no unit loaded', () => {
     const plan = restartPlan({ ...base, loaded: false, agents: true, unattended: true });
     expect(plan.kind).toBe('refuse');
-    expect(plan.message).toContain('unattended');
+    expect(plan.kind === 'refuse' && plan.message).toContain('unattended');
   });
 
   it('proceeds for an attended caller, and plain --restart proceeds when unattended', () => {
