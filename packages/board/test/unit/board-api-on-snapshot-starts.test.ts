@@ -4,9 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { fleetdHeartbeatFile, gateContractFile, refsGit } from '@plot-pm/domain/adapters';
+import { fleetdHeartbeatFile, gateContractFile } from '@plot-pm/domain/adapters';
 import { FLEETD_HEARTBEAT_VERSION } from '@plot-pm/domain';
-import { emptySnapshot, type RepoSnapshot } from '@plot-pm/domain/entities/snapshot';
 import type { GateContractReader } from '@plot-pm/domain/ports/gate-contract';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -50,12 +49,13 @@ import { boardAnswer } from '../../src/server/controllers/board-answer.js';
 import { realEstate } from '../../src/server/estate.js';
 import { ensureCache, pauseFleetRefresh, stopFleetRefresh } from '../../src/server/fleet.js';
 import { removeTree } from '../rm-tree.mjs';
+import { servedSnapshotOf } from './served-snapshot.js';
 
-// THE ROUTE'S SPAWN INVENTORY, plan `board-api-starts-nothing`, slice Readings.
-// fleetd's heartbeat is live and the channel holds a current snapshot, so the
-// board's source is `snapshot`; one warm `GET /api/board` is measured and every
-// start it makes is printed with its argv. The route still builds from the ref
-// on every source, so the row is `it.fails` until slice Serve turns it to `it`.
+// THE ROUTE'S SPAWN INVENTORY, plan `board-api-starts-nothing`, slices Readings
+// and Serve. fleetd's heartbeat is live and the channel holds the snapshot
+// fleetd's walk records, so the board's source is `snapshot`; ten warm
+// `GET /api/board` requests are measured and every start they make is printed
+// with its argv.
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REAL_SCRIPTS = path.resolve(HERE, '../../../../skills/plot/scripts');
@@ -101,13 +101,8 @@ const fixtureGate = (): { dir: string; reader: GateContractReader } => {
   const gatePath = path.join(dir, 'plot-gate.mjs');
   fs.writeFileSync(gatePath, 'console.log(1);\n');
   const options = { pluginRoot: tmp('plot-api-snapshot-plugins-'), repoGatePath: gatePath };
-  return {
-    dir,
-    reader: {
-      resolve: (repoRoot) => gateContractFile(options).resolve(repoRoot),
-      spawnContract: (gate) => gateContractFile(options).spawnContract(gate),
-    },
-  };
+  // ONE READER FOR THE PROCESS, as the board holds one: its answer is cached by the gate file's stat.
+  return { dir, reader: gateContractFile(options) };
 };
 
 /** A git estate: one Delivered and one Approved plan on main, a sprint, a story, and a draft plan on its own branch. */
@@ -166,17 +161,13 @@ const quiet = async (): Promise<void> => {
 };
 
 describe('GET /api/board while fleetd serves its snapshot', () => {
-  it.fails('starts no process on a warm request (the inventory prints each start)', async () => {
+  it('starts no process on 10 warm requests (the inventory prints each start)', async () => {
     const repoRoot = estateRepo();
     const gate = fixtureGate();
     const scriptsDir = scriptsWithSilentHost();
-    const refState = await refsGit({ repoRoot, scriptDir: scriptsDir }).refState('both');
-    if (!refState.ok) throw new Error('the fixture refs could not be listed');
-    const snapshot: RepoSnapshot = {
-      ...emptySnapshot(),
-      generation: 1,
-      readings: { ...emptySnapshot().readings, refs: { state: 'read', readAt: Date.now(), value: { entries: refState.value, digest: 'd1' } } },
-    };
+    const snapshot = await servedSnapshotOf(repoRoot, scriptsDir);
+    const unread = Object.entries(snapshot.readings).filter(([key, r]) => ['refs', 'plans', 'branchPlans', 'sprints', 'stories'].includes(key) && r.state !== 'read');
+    expect(unread).toEqual([]);
     const now = Date.now();
     await fleetdHeartbeatFile({ repoRoot }).write({
       version: FLEETD_HEARTBEAT_VERSION,
@@ -196,6 +187,8 @@ describe('GET /api/board while fleetd serves its snapshot', () => {
       repoRoot,
       scriptsDir,
       gateContract: gate.reader,
+      // The bundle a running board hashes; the fixture repository has none of its own.
+      startBundle: { path: path.join(gate.dir, 'plot-gate.mjs'), hash: null },
       channelSnapshot: () => ({ link: { state: 'current' as const, epoch: 'e1', generation: 1 }, held: { epoch: 'e1', snapshot } }),
     };
     ensureCache(opts).clients = 1;
@@ -204,14 +197,18 @@ describe('GET /api/board while fleetd serves its snapshot', () => {
     await boardAnswer(opts, estate, 'localhost', 7777, false);
     pauseFleetRefresh();
     await quiet();
+    // One request after the wait reads the checkout's branch, whose 5 s TTL
+    // the wait outlasts (`refs-from-files` moves that read to a file); the
+    // ten after it are the ones measured.
+    await boardAnswer(opts, estate, 'localhost', 7777, false);
     starts.lines.length = 0;
 
-    await boardAnswer(opts, estate, 'localhost', 7777, false);
+    for (let i = 0; i < 10; i += 1) await boardAnswer(opts, estate, 'localhost', 7777, false);
     const warm = starts.lines
       .splice(0)
       .map((l) => normalise(l, { scripts: scriptsDir, repo: repoRoot, gate: gate.dir }))
       .sort();
-    console.log(`GET /api/board on snapshot starts ${warm.length}:\n${warm.join('\n')}`);
+    console.log(`10 GET /api/board on snapshot start ${warm.length}:\n${warm.join('\n')}`);
     expect(warm).toEqual([]);
   }, 120_000);
 });
