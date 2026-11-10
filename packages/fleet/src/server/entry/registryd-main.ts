@@ -42,7 +42,10 @@ import {
   appKeyShell,
   installObjectsReader,
   type RunningChannel,
+  hostReadsFor,
+  type HostReads,
 } from '@plot-pm/domain/adapters';
+import { hostTransportLine } from '@plot-pm/domain/rules/host-transport';
 import { probeAppKeysAtStart } from '@plot-pm/domain/workflows/app-key-start-probe';
 import { removeStageDirsOnExit } from '@plot-pm/domain/adapters/stage-dirs';
 import { unpushedAfterMerge } from '@plot-pm/domain/workflows/unpushed-after-merge';
@@ -832,6 +835,8 @@ const queuedHasLandedOf = async (
  *   `readConfigAsync` call per tick, shared with {@link run}'s own
  *   `defaultBranchWorld`, when the caller passes a cached thunk; a fresh read
  *   every call when absent.
+ * @param host - the `Host` the merged listing and the merge answers go through;
+ *   `hostShell` when absent, the composed host reads in fleetd.
  * @returns the world the queue is read through.
  */
 export const queueWorldForRepo = (
@@ -843,11 +848,11 @@ export const queueWorldForRepo = (
   refusedSlices: RefusedSliceRecord = refusedSlicesFile({ cwd: repoRoot }),
   checksWaitMs: () => Promise<number> = async () =>
     checksWaitMsOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Checks wait', '3600')),
+  host: Host = hostShell({ repoRoot, scriptDir: scriptsDir }),
 ): QueueWorld => {
   const context = { repoRoot, scriptDir: scriptsDir };
   const refs = refsGit(context);
   const plans = fleetPlanStore(context, refs);
-  const host = hostShell(context);
   // NO MEMO GIVEN, NO MEMO BUILT. This world has no `beginTick`, so a memo it
   // built for itself would never be cleared and would freeze every merge answer
   // for the life of the daemon. Without one, each question goes to the host.
@@ -2659,6 +2664,8 @@ export interface RunSeams {
   readDefaultBranch?: () => Promise<void>;
   /** The issue read on the issue beat. */
   readIssues?: () => Promise<void>;
+  /** The composed GitHub reads; tests only, so no test resolves a real token. */
+  hostReads?: HostReads;
   /** Replaces the drain of the tracker writes Plot made; tests only. */
   readIssueWrites?: () => Promise<void>;
   /** The escalation `Notifier`; the configured `Notify command` by default. Tests only. */
@@ -2873,12 +2880,31 @@ export const run = async (
       checksWaitMsOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Checks wait', '3600')))();
     return checksWaitCache;
   };
+  const probedHost = await (async (): Promise<string | null> => {
+    const answer = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
+    if (answer.ok) return answer.value;
+    const reason = answer.why === 'unaskable' && answer.reason !== undefined ? answer.reason : answer.why;
+    warn(`plot-fleetd: the git host probe did not answer (${reason}) — assuming github\n`);
+    return null;
+  })();
+  // THE TRANSPORT IS CHOSEN ONCE, AT START: the PR listings, the issue reads
+  // and the default-branch runs read in-process on GitHub with a token, and
+  // through `plot-host.sh` otherwise. The line names the transport, its reason
+  // and the token source, never the token.
+  const hostReads =
+    seams.hostReads ??
+    (await hostReadsFor(
+      { repoRoot, scriptDir: scriptsDir },
+      { backend: probedHost, ci: await readConfigAsync({ repoRoot, scriptsDir }, 'CI', '') },
+    ));
+  warn(`plot-fleetd: ${hostTransportLine(hostReads.choice)}\n`);
+  const readsApi = hostReads.api ?? undefined;
   // ONE MEMO FOR BOTH WORLDS. `tick` reads the supervisor world first, and its
   // `beginTick` clears the memo, so the queue read that follows shares the
   // tick's answers and the next tick asks again.
   const merges = mergeMemoOver(hostShell({ repoRoot, scriptDir: scriptsDir }));
   const world = worldForRepo(repoRoot, scriptsDir, tally, merges);
-  const queue = queueWorldForRepo(repoRoot, scriptsDir, tally, merges, undefined, undefined, checksWaitMs);
+  const queue = queueWorldForRepo(repoRoot, scriptsDir, tally, merges, undefined, undefined, checksWaitMs, hostReads.host);
   // SHARES `tally` WITH `queue` ABOVE so a hand-over's fresh `queuedHasLanded`
   // call still counts toward the tick's host tally — but NOT `merges`: a
   // hand-over asks the host again on purpose, and the tick's memo would hand
@@ -3018,13 +3044,8 @@ export const run = async (
   const issueWorld = {
     context: { repoRoot, scriptDir: scriptsDir },
     declaredTracker: await readConfigAsync({ repoRoot, scriptsDir }, 'Tracker', ''),
-    gitHost: await (async () => {
-      const answer = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
-      if (answer.ok) return answer.value;
-      const reason = answer.why === 'unaskable' && answer.reason !== undefined ? answer.reason : answer.why;
-      warn(`plot-fleetd: the git host probe did not answer (${reason}) — assuming github\n`);
-      return 'github';
-    })(),
+    gitHost: probedHost ?? 'github',
+    api: readsApi,
     issueStore,
     record: recordSnapshot,
     issueWrites: issueWriteSpoolOver(issueStore),
@@ -3043,7 +3064,8 @@ export const run = async (
   const readPrs = fleetPrs(
     {
       scripts,
-      host: hostShell({ repoRoot, scriptDir: scriptsDir }),
+      host: hostReads.host,
+      hostClaimsSlot: hostReads.api !== null,
       store: prIndexFile({ cwd: repoRoot }),
       issueGate: issueGateOf(issueStore),
       record: recordSnapshot,
@@ -3056,7 +3078,7 @@ export const run = async (
   // does: `refsGit` answers `remoteSha` as `unaskable`, `refsRemoteGit` reads
   // `git ls-remote`. It rides the PR reader's beat, so the head is read once per
   // beat and the runs only when the SHA moved or the re-ask rule is due.
-  const ci = await buildShell({ repoRoot, scriptDir: scriptsDir });
+  const ci = await buildShell({ repoRoot, scriptDir: scriptsDir }, readsApi);
   const defaultBranchWorld = args.once
     ? null
     : {
@@ -3077,8 +3099,9 @@ export const run = async (
         store: defaultBranchFile(repoRoot),
         repair: repairRecordFile(repoRoot),
         // The host-slot bound is GitHub's account budget; other systems call direct.
+        // The in-process client claims its own slot per request.
         slot: <T,>(call: () => Promise<T>): Promise<T> =>
-          ci.system() === 'github-actions'
+          ci.system() === 'github-actions' && hostReads.api === null
             ? withHostSlot(prState, call)
             : call(),
         now: () => Date.now(),
@@ -3147,6 +3170,7 @@ export const run = async (
           passes: () => ({ ...passes }),
           bridgeAt: bridge.bridgeAt,
           generation: seams.snapshotGeneration ?? (() => snapshot.current().generation),
+          hostTransport: hostReads.choice,
         },
         warn,
       );
@@ -3190,7 +3214,7 @@ export const run = async (
             // host `pr-state` per agent end.
             findings: agentFindingsOver({ repoRoot, scriptDir: scriptsDir }, warn),
             walk: {
-              host: hostShell({ repoRoot, scriptDir: scriptsDir }),
+              host: hostReads.host,
               plans: (ref, planDir) => planStoreRef(refsGit({ repoRoot, scriptDir: scriptsDir }), { repoRoot, scriptDir: scriptsDir }, ref, planDir),
               worktree: planStoreShell({ repoRoot, scriptDir: scriptsDir }),
               trees: treesGit({ repoRoot, scriptDir: scriptsDir }),

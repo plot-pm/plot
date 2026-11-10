@@ -8,7 +8,8 @@ import { leaveBoardRunsToTheBoard } from '../board-run.js';
 import { gatherReadingsAndRelease } from '../release-claim.js';
 import { repairRecordFile } from '@plot-pm/domain/adapters/repair-record/repair-record-file';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
-import { fleetdStartFile } from '@plot-pm/domain/adapters';
+import { fleetdStartFile, readFleetdHeartbeatSync } from '@plot-pm/domain/adapters';
+import { hostTransportStatusLine } from '@plot-pm/domain/rules/host-transport';
 import { spawnerStatus, spawnerStatusText, spawnerStatusLines, bundleDriftDetected, bundleDriftText } from '@plot-pm/domain/rules/spawn-contract';
 import { callerOf } from '@plot-pm/domain/workflows/decision';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
@@ -296,7 +297,8 @@ export const run = async (
     const drifted = record.ok && record.value ? bundleDriftDetected(record.value.bundleHash, runningHash) : false;
     const driftText = drifted && record.ok && record.value ? bundleDriftText(record.value.bundlePath) : null;
     if (argv.includes('--lines')) {
-      write(spawnerStatusLines(verdict, driftText));
+      // The transport fleetd published with its heartbeat: in-process or shell, and why.
+      write(spawnerStatusLines(verdict, driftText) + hostTransportStatusLine(readFleetdHeartbeatSync(opts.repoRoot)?.hostTransport));
       return 0;
     }
     write(`${JSON.stringify({

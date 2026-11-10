@@ -667,3 +667,4 @@ export * from './rules/merge-identity.js';
 export * from './rules/slice-pr-next.js';
 export * from './rules/pulse-branch.js';
 export * from './rules/delivery-placement.js';
+export * from './rules/host-transport.js';

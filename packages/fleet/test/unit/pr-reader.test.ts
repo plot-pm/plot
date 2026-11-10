@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 
 import { HEARTBEAT_STALE_MS } from '@plot-pm/domain/rules/reader-election';
 import { FLEETD_HEARTBEAT_VERSION, type FleetdHeartbeat } from '@plot-pm/domain/entities/fleetd-heartbeat';
-import { clockManual, fleetdHeartbeatFile, readerLockFile, readerLockFixture } from '@plot-pm/domain/adapters';
+import { clockManual, fleetdHeartbeatFile, hostFixture, readerLockFile, readerLockFixture } from '@plot-pm/domain/adapters';
 
 import { run, scriptDirFor, stillFollowed } from '../../src/server/entry/pr-reader.js';
 import { removeTree } from '../rm-tree.mjs';
@@ -167,6 +167,42 @@ describe('scriptDirFor — the reader finds its scripts beside its own bundle', 
   it('takes PLOT_SCRIPTS_DIR over the bundle location', () => {
     const bundle = pathToFileURL('/opt/plot/skills/plot/scripts/board/plot-pr-reader.mjs').href;
     expect(scriptDirFor({ PLOT_SCRIPTS_DIR: '/elsewhere/scripts' }, bundle)).toBe('/elsewhere/scripts');
+  });
+});
+
+describe('run — the host transport', () => {
+  it('logs the transport its composed reads chose, and passes the connector', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-pr-reader-transport-'));
+    try {
+      const lockDir = path.join(root, 'index');
+      fs.mkdirSync(lockDir);
+      const lines: string[] = [];
+      const asked: string[] = [];
+      const composeReads = async (_context: unknown, backend: string) => {
+        asked.push(backend);
+        return {
+          choice: { transport: 'in-process' as const, reason: 'the git host is github', tokenSource: 'GH_TOKEN' },
+          api: null,
+          host: hostFixture({}),
+        };
+      };
+      const code = await run(
+        { lockDir, connector: 'github' },
+        path.join(root, 'repo'),
+        root,
+        (l) => lines.push(l),
+        allAlive,
+        () => false,
+        () => false,
+        clockManual(0),
+        composeReads,
+      );
+      expect(code).toBe(0);
+      expect(asked).toEqual(['github']);
+      expect(lines).toContain('plot-pr-reader: host reads: in-process (the git host is github; token from GH_TOKEN)\n');
+    } finally {
+      removeTree(root);
+    }
   });
 });
 

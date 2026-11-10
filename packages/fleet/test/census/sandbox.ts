@@ -211,6 +211,11 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
       GIT_COMMITTER_NAME: 'census',
       GIT_COMMITTER_EMAIL: 'census@census.invalid',
       GH_TOKEN: CENSUS_TOKEN,
+      // ONE BUDGET KEY FOR BOTH TRANSPORTS: the in-process client charges the
+      // login `GET /user` names (the stub answers `census`), and the shell's
+      // `budget_account` reads this variable, as it reads `hosts.yml` for a
+      // person signed in to `gh`.
+      PLOT_BUDGET_ACCOUNT: CENSUS_TOKEN,
       JIRA_EMAIL: 'census@census.invalid',
       JIRA_API_TOKEN: 'census',
     };
@@ -223,7 +228,7 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
     // as `supervised: systemd`. Only `startFleetd`'s `supervisor: 'systemd'`
     // gives fleetd a unit of its own.
     for (const key of [
-      'PLOT_HOST', 'PLOT_TRACKER', 'PLOT_UNATTENDED', 'PLOT_BOARD_PORT', 'PORT', 'PLOT_PR_INDEX_HOME', 'PLOT_ISSUE_INDEX_HOME',
+      'PLOT_HOST', 'PLOT_HOST_TRANSPORT', 'PLOT_TRACKER', 'PLOT_UNATTENDED', 'PLOT_BOARD_PORT', 'PORT', 'PLOT_PR_INDEX_HOME', 'PLOT_ISSUE_INDEX_HOME',
       ...SYSTEMD_UNIT_VARS,
     ]) {
       delete env[key];

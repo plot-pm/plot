@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -11,7 +11,7 @@ import { buildSandbox, githubPr, type Sandbox } from './sandbox.js';
 import { censusGate, findStrace } from './strace-run.js';
 import type { ExecRecord, StraceCensus } from './strace-execs.js';
 
-// fleetd per completed pass (S4, S5, S6, P2, P3, P4), counted under `strace -f`
+// fleetd per completed pass (S4, S5, S6, P2, P3, P4, P5), counted under `strace -f`
 // over the census entry, which runs fleetd's `run` in its loop mode on a clock
 // it drives. Pass 1 warms every loop and is never counted; passes 2 and 3 are
 // idle; on the GitHub fixture with desks, pass 4 follows one desk commit (S5)
@@ -41,6 +41,29 @@ const isBackendAsk = (e: ExecRecord): boolean =>
 const isKillZero = (e: ExecRecord): boolean =>
   basename(e.path) === 'bash' && e.argv[1] === '-c' && /^kill -0 \d+/.test(e.argv[2] ?? '');
 
+/** A host read P5 counts: the stub `gh` listing PRs, issues or runs, or `plot-host.sh` asked for one. */
+const isGithubRead = (e: ExecRecord): boolean =>
+  (basename(e.path) === 'gh' && /^(pr|issue|run)$/.test(e.argv[1] ?? '') && e.argv[2] === 'list') ||
+  (basename(e.path) === 'bash' &&
+    e.argv.some((a) => a.endsWith('/plot-host.sh')) &&
+    e.argv.some((a) => a === 'pr-list' || a === 'issue-list' || a === 'runs-for-sha'));
+
+/** The stub `gh` listing calls in the stub log so far: `gh pr list`, `gh issue list`, `gh run list`. */
+const ghReadsLogged = (box: Sandbox): number =>
+  existsSync(box.stubLog) ? readFileSync(box.stubLog, 'utf8').split('\n').filter((l) => /^gh (pr|issue|run) list\b/.test(l)).length : 0;
+
+/**
+ * The in-process requests the stub API answered so far. Two once-per-process
+ * requests are left out: `GET /user`, which names the token's login, and the
+ * search-type introspection, which `gh` keeps in its on-disk cache and so
+ * sends at most once a day.
+ */
+const apiReads = (box: Sandbox): number =>
+  (box.api?.requests() ?? []).filter((r) => r.path !== '/user' && !r.body.includes('SearchType_enumValues')).length;
+
+/** Per-pass deltas of a running count, sampled after passes 1..n. */
+const deltas = (samples: readonly number[]): number[] => samples.slice(1).map((n, i) => n - (samples[i] ?? 0));
+
 let entry: FleetdEntry | undefined;
 
 beforeAll(async () => {
@@ -58,12 +81,20 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
   const withChanges = fixture.host === 'github' && fixture.desks > 0;
   /** The images each idle pass started, by its closing mark. */
   const idle = new Map<string, ExecRecord[]>();
+  /** In-process requests per idle pass (passes 2 and 3), and the shell's `gh` listing calls per idle pass on the same fixture. */
+  let requests: number[] = [];
+  let baseline: number[] = [];
 
   beforeAll(async () => {
     box = await buildSandbox(fixture);
     const fleetd = startFleetd(entry as FleetdEntry, box, { trace: true });
+    const sampled: number[] = [];
     try {
-      for (let n = 0; n < 3; n += 1) await fleetd.pass();
+      for (let n = 0; n < 3; n += 1) {
+        await fleetd.pass();
+        sampled.push(apiReads(box));
+      }
+      requests = deltas(sampled);
       if (withChanges) {
         const desk = box.desks[0];
         if (desk === undefined) throw new Error('process census: the fixture holds no desk');
@@ -92,6 +123,27 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
     for (const label of IDLE_PASSES) {
       const from = label === 'pass-2' ? 'pass-1' : 'pass-2';
       idle.set(label, treeOf(census, between(census.execs, from, label), root));
+    }
+    // THE BASELINE: the same fixture read through the shell, untraced, so P5
+    // can hold the in-process requests to the `gh` calls they replace.
+    if (fixture.host === 'github') {
+      const shellBox = await buildSandbox(fixture);
+      try {
+        shellBox.env['PLOT_HOST_TRANSPORT'] = 'shell';
+        const shellFleetd = startFleetd(entry as FleetdEntry, shellBox, { trace: false });
+        const logged: number[] = [];
+        try {
+          for (let n = 0; n < 3; n += 1) {
+            await shellFleetd.pass();
+            logged.push(ghReadsLogged(shellBox));
+          }
+        } finally {
+          await shellFleetd.stop();
+        }
+        baseline = deltas(logged);
+      } finally {
+        await shellBox.remove();
+      }
     }
   }, 900_000);
 
@@ -135,6 +187,18 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
     recordCount(CENSUS_ROWS.P4, fixture, mean, execs);
     expect(each).toEqual([0, 0]);
   });
+
+  if (fixture.host === 'github') {
+    it(rowTitle(CENSUS_ROWS.P5, fixture), () => {
+      const { mean, each, execs } = perPass(isGithubRead);
+      recordCount(CENSUS_ROWS.P5, fixture, mean, execs);
+      console.log(`process census P5 ${fixture.desks} desks: in-process requests per idle pass ${requests.join(', ')}; shell gh listing calls ${baseline.join(', ')}`);
+      expect(each).toEqual([0, 0]);
+      expect(requests).toHaveLength(2);
+      expect(baseline).toHaveLength(2);
+      requests.forEach((n, i) => expect(n).toBeLessThanOrEqual(baseline[i] ?? 0));
+    });
+  }
 
   if (withChanges) {
     it(rowTitle(CENSUS_ROWS.S5, fixture), () => {

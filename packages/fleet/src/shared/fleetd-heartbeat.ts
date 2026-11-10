@@ -2,6 +2,7 @@ import {
   FLEETD_HEARTBEAT_VERSION,
   FLEETD_HEARTBEAT_MS,
   type FleetdHeartbeat,
+  type FleetdHostTransport,
   type FleetdLoop,
   type FleetdSupervised,
 } from '@plot-pm/domain';
@@ -46,6 +47,8 @@ export interface FleetdHeartbeatSource {
    * and that has not yet passed reports null; a loop it does not run is absent.
    */
   passes: () => Partial<Record<FleetdLoop, number | null>>;
+  /** How this process reads the git host; absent where it publishes none. */
+  hostTransport?: FleetdHostTransport;
 }
 
 /**
@@ -90,6 +93,7 @@ export const startFleetdHeartbeat = (
       watchesArmed: 0,
       lastEventAt: null,
       lastSafetyNetAt: null,
+      ...(source.hostTransport === undefined ? {} : { hostTransport: source.hostTransport }),
       loops,
     };
   };

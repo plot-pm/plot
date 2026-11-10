@@ -6,7 +6,8 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { heartbeatIsFresh } from '@plot-pm/domain/rules/reader-election';
 import { fleetdReadsPrs } from '@plot-pm/domain/rules/fleetd-live';
 import type { FleetdHeartbeat } from '@plot-pm/domain/entities/fleetd-heartbeat';
-import { clockSystem, hostShell, prIndexFile, readerLockFile, readFleetdHeartbeatSync, scriptsShell } from '@plot-pm/domain/adapters';
+import { clockSystem, hostReadsFor, IN_PROCESS_BACKENDS, SHELL_CI, prIndexFile, readerLockFile, readFleetdHeartbeatSync, scriptsShell, type HostReads, type ShellContext } from '@plot-pm/domain/adapters';
+import { HOST_TRANSPORT_ENV, hostTransportLine, shellReasonOf } from '@plot-pm/domain/rules/host-transport';
 import { fleetPrs, type PrLock } from '../../shared/fleet-clock.js';
 import { freshPrState, type PrState, type PrWorld } from '../../shared/pr-refresh.js';
 import { PR_REFRESH_MS } from '../../shared/fleet-scan.js';
@@ -120,6 +121,23 @@ export const stillFollowed = async (
 };
 
 /**
+ * Composes the reader's GitHub reads from its connector and the `CI` key.
+ *
+ * @param context - where the scripts and the repository are.
+ * @param backend - the connector the reader was started for.
+ * @returns the composed reads.
+ */
+const readsFor = async (context: ShellContext, backend: string): Promise<HostReads> => {
+  // NO CONFIG READ WHERE THE SHELL IS ALREADY DECIDED: a Bitbucket reader and
+  // the switch start no `plot-config.sh`.
+  if (shellReasonOf({ backend, ci: '', override: process.env[HOST_TRANSPORT_ENV], inProcessBackends: IN_PROCESS_BACKENDS, shellCi: SHELL_CI }) !== null) {
+    return hostReadsFor(context, { backend, ci: '' });
+  }
+  const ci = await scriptsShell(context).config('CI', '');
+  return hostReadsFor(context, { backend, ci: ci.ok ? ci.value : '' });
+};
+
+/**
  * Runs the reader: one `fleetPrs` pass per `PR_REFRESH_MS` tick, heartbeating
  * as `reader.<pid>`, exiting once {@link stillFollowed} reads `none` or
  * `fleetd`, `stopRequested` reads true, or `repoExists` reads false, and
@@ -137,6 +155,8 @@ export const stillFollowed = async (
  *   repository is removed would only fail, and its log line would recreate
  *   the removed root's `.plot/logs/`.
  * @param clock - the clock the tick runs on; a test drives it by hand.
+ * @param composeReads - composes the GitHub reads, as fleetd's do: in-process
+ *   on GitHub with a token, through `plot-host.sh` otherwise.
  * @returns the process exit code: always 0 — the reader leaves because no one
  *   follows it or fleetd runs, never because it failed.
  */
@@ -149,8 +169,11 @@ export const run = async (
   stopRequested: () => boolean = () => false,
   repoExists: () => boolean = () => existsSync(repoRoot),
   clock: Clock = clockSystem(),
+  composeReads: (context: ShellContext, backend: string) => Promise<HostReads> = readsFor,
 ): Promise<number> => {
   const context = { repoRoot, scriptDir };
+  const reads = await composeReads(context, args.connector);
+  warn(`plot-pr-reader: ${hostTransportLine(reads.choice)}\n`);
   const lock = readerLockFile({ home: args.lockDir });
   const heartbeatName = `reader.${process.pid}`;
   const prLock: PrLock = { lock, name: heartbeatName };
@@ -158,7 +181,8 @@ export const run = async (
   state.backend = args.connector;
   const world: PrWorld = {
     scripts: scriptsShell(context),
-    host: hostShell(context),
+    host: reads.host,
+    hostClaimsSlot: reads.api !== null,
     store: prIndexFile({ cwd: repoRoot }),
   };
   const readPrs = fleetPrs(world, state, prLock, warn);

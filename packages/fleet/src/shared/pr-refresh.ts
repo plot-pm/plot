@@ -144,6 +144,11 @@ export interface PrWorld {
   scripts: Scripts;
   /** Names the git host backend. */
   host: Host;
+  /**
+   * True where `host.prListing` claims its own host slot per request, as the
+   * in-process client does; the pass then counts the call and claims none.
+   */
+  hostClaimsSlot?: boolean;
   /** The repository's PR index. The pass folds the host's answer into it. */
   store: PrIndexStore;
   /** Runs after a pass the host answered, with the open PRs that pass listed. */
@@ -810,6 +815,22 @@ const pidLooksAlive = (pid: number): boolean | null => {
   }
 };
 
+/**
+ * Runs one host call that claims its own slot, and counts it as
+ * {@link withHostSlot} does.
+ *
+ * @param entry - the PR state whose `calls` counts the call.
+ * @param call - the host call.
+ * @returns what the call answered.
+ */
+export const countedCall = async <T>(entry: PrState, call: () => Promise<T>): Promise<T> => {
+  try {
+    return await call();
+  } finally {
+    entry.calls += 1;
+  }
+};
+
 export const withHostSlot = async <T>(entry: PrState, call: () => Promise<T>): Promise<T> => {
   const bound = prConcurrencyBound(entry);
   const account = entry.prAccount;
@@ -1315,6 +1336,9 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
   // to only one of them would be obeyed by half the pass, which is the failure
   // a substitutable port exists to prevent.
   const { host, scripts, store: prStore } = world;
+  // ONE QUESTION HOLDS ONE SLOT: a host that claims its own is not wrapped.
+  const askListing = <T,>(call: () => Promise<T>): Promise<T> =>
+    world.hostClaimsSlot === true ? countedCall(entry, call) : withHostSlot(entry, call);
   // RESOLVED ONCE PER PASS, from the entry's own repository. A store built per
   // call would fork `git rev-parse --git-common-dir` for every read and write
   // below; `prStoreFor` caches it per `repoRoot` for the life of the process.
@@ -1450,7 +1474,7 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
     // rotation reads it again rather than ranking it with the rows read.
     const boundShas = boundShasFor(stored);
     if (Object.keys(boundShas).length > 0) query.boundShas = boundShas;
-    const said = await withHostSlot(entry, () => host.prListing(query));
+    const said = await askListing(() => host.prListing(query));
     // A refusal is thrown so the catch below keeps owning the backoff. It is one
     // policy — keep the last good map, wait where the host named a wait — and
     // the two paths that reach it (a refused call, and a map that came back all
@@ -1576,7 +1600,7 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
           const reaskQuery: PrListingQuery = { state: 'open', rich: true };
           const reaskBound = boundShasFor(stored, new Set(askable));
           if (Object.keys(reaskBound).length > 0) reaskQuery.boundShas = reaskBound;
-          const reasked = await withHostSlot(entry, () => host.prListing(reaskQuery));
+          const reasked = await askListing(() => host.prListing(reaskQuery));
           // A REFUSAL OR A PARTIAL ANSWER IS TREATED AS NO ANSWER HERE, not as
           // the outer catch's failure. The primary call already answered this
           // pass; a re-ask that cannot be trusted simply leaves the stored

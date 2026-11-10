@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { clockManual, fleetdHeartbeatFile, fleetStateFile, fleetStateVouched } from '@plot-pm/domain/adapters';
-import { answered, failed, fleetdLiveness, lateLoops, FleetReadingSchema, type FleetdHeartbeat } from '@plot-pm/domain';
+import { answered, decodeFleetdHeartbeat, encodeFleetdHeartbeat, failed, fleetdLiveness, lateLoops, FleetReadingSchema, type FleetdHeartbeat } from '@plot-pm/domain';
 import { bridgeVouched } from '@plot-pm/domain/rules/fleetd-live';
 import { fleetOwnsScan } from '@plot-pm/domain/rules/scan-owner';
 import type { FleetdHeartbeatStore } from '@plot-pm/domain/ports/fleetd-heartbeat';
@@ -78,6 +78,21 @@ describe('startFleetdHeartbeat', () => {
     await settle();
     expect(seen).toMatchObject({ pid: 99, startedAt: 5, generation: 3, supervised: 'none', bridgeAt: null });
     expect(seen).not.toHaveProperty('protocol');
+  });
+
+  it('publishes the host transport fleetd chose at start', async () => {
+    const clock = clockManual(1_000);
+    let seen: unknown = null;
+    const hostTransport = { transport: 'in-process', reason: 'the git host is github', tokenSource: 'GH_TOKEN' } as const;
+    startFleetdHeartbeat(
+      clock,
+      { read: async () => answered(null), write: async (h) => ((seen = h), answered(undefined)) },
+      { ...source, hostTransport },
+      () => undefined,
+    );
+    await settle();
+    expect(seen).toMatchObject({ hostTransport });
+    expect(decodeFleetdHeartbeat(encodeFleetdHeartbeat(seen as FleetdHeartbeat))?.hostTransport).toEqual(hostTransport);
   });
 
   it('stops beating on cancel', async () => {

@@ -18,7 +18,7 @@ import type {
 import type { HostRefusal } from '../../ports/host.js';
 import { githubIssueRow } from '../../rules/github-issue-row.js';
 import type { GithubApi } from '../host/github-api.js';
-import { githubIssueList, type GithubIssueQuery } from '../host/github-issue-list.js';
+import { githubIssueList, type GithubIssueList, type GithubIssueQuery } from '../host/github-issue-list.js';
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { githubIssueClose, githubIssueLabel, githubPlanStateWrite } from './tracker-plan-state.js';
@@ -113,8 +113,20 @@ export const githubIssueComment =
     return answered<IssueCommentOutcome>({ outcome: 'commented' });
   };
 
-/** The reads {@link trackerGithub} sends in-process where it is given a client. */
-interface InProcessReads {
+/** One issue listing per client, so a tracker built per pass asks the search-type introspection once per client. */
+const listings = new WeakMap<GithubApi, GithubIssueList>();
+
+/** The client's issue listing, built on first use. */
+const issueListOf = (api: GithubApi): GithubIssueList => {
+  const held = listings.get(api);
+  if (held !== undefined) return held;
+  const built = githubIssueList(api);
+  listings.set(api, built);
+  return built;
+};
+
+/** The reads {@link trackerGithub} and `trackerGitHost` send in-process where they are given a client. */
+export interface InProcessReads {
   issueListOpen(limit: number): Promise<PortResult<IssueRead>>;
   issueListClosed(since: string, limit: number): Promise<PortResult<ClosedIssues>>;
   issueListChanged(since: string, limit: number): Promise<PortResult<IssueRead>>;
@@ -136,8 +148,8 @@ interface InProcessReads {
  * @param refuse - records the refusal both last-refusal reads report.
  * @returns the three reads.
  */
-const inProcessReads = (api: GithubApi, refuse: (refusal: HostRefusal | null) => void): InProcessReads => {
-  const listing = githubIssueList(api);
+export const githubInProcessReads = (api: GithubApi, refuse: (refusal: HostRefusal | null) => void): InProcessReads => {
+  const listing = issueListOf(api);
   const read = async (query: GithubIssueQuery, limit: number): Promise<PortResult<IssueRead>> => {
     if (api.origin.slug === null) {
       refuse(null);
@@ -204,7 +216,7 @@ export const trackerGithub = (context: ShellContext, api?: GithubApi): GithubTra
   const inProcess =
     api === undefined
       ? null
-      : inProcessReads(api, (refusal) => {
+      : githubInProcessReads(api, (refusal) => {
           hostRefusal = refusal;
           reads.refuse(refusal?.said ?? null);
         });
