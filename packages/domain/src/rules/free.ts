@@ -87,3 +87,63 @@ export const whyNotFree = (reading: AgentReading): string => {
   if (reading.state !== 'running') return `not running — ${reading.state}`;
   return `holds ${reading.branch}`;
 };
+
+/**
+ * What a reader measured of one agent's desk when it asked whether the loop is
+ * idle. Extends {@link AgentReading} with the three facts `isAgentFree` does not
+ * know.
+ *
+ * An unread fact is `undefined`, never `false` and never `0`: a PR that could not
+ * be read is not "no PR".
+ */
+export interface FreeLoopReading extends AgentReading {
+  /** Whether the desk's branch has an open pull request; `undefined` when it could not be read. */
+  openPr: boolean | undefined;
+  /** Whether the desk holds a `PLOT-BLOCKED*` file. */
+  blocked: boolean;
+  /** The count of uncommitted files in the desk, generated bundles excluded; `undefined` when it could not be read. */
+  dirtyFiles: number | undefined;
+}
+
+/**
+ * Every reason the loop is not a free loop, in a fixed order — or `[]` when it is.
+ *
+ * The first reason comes from {@link whyNotFree}, which asks {@link isAgentFree}.
+ * The three added conditions follow: an open PR, a `PLOT-BLOCKED` marker and
+ * uncommitted files. An unread PR or unread dirt keeps the agent and says
+ * `unreadable`.
+ *
+ * @param reading - what was measured of the agent and its desk.
+ * @returns the reasons, in order.
+ */
+const loopReasons = (reading: FreeLoopReading): string[] => {
+  const reasons: string[] = [];
+  const base = whyNotFree(reading);
+  if (base !== '') reasons.push(base);
+  if (reading.openPr === undefined) reasons.push('PR unreadable');
+  else if (reading.openPr) reasons.push('open PR');
+  if (reading.blocked) reasons.push('PLOT-BLOCKED marker');
+  if (reading.dirtyFiles === undefined) reasons.push('uncommitted files unreadable');
+  else if (reading.dirtyFiles > 0) reasons.push(`uncommitted files (${reading.dirtyFiles})`);
+  return reasons;
+};
+
+/**
+ * Whether a live agent is a free loop: alive and holding no slice, with no open
+ * PR, no `PLOT-BLOCKED` marker and no uncommitted work in its desk.
+ *
+ * The first condition is {@link isAgentFree}. An unread fact answers false.
+ *
+ * @param reading - what was measured of the agent and its desk.
+ * @returns true when the loop may be stopped to free its slot.
+ */
+export const freeLoop = (reading: FreeLoopReading): boolean => loopReasons(reading).length === 0;
+
+/**
+ * Why a loop is not a free loop, in a sentence a log can print — or `''` when it is.
+ * Several reasons join with `; `.
+ *
+ * @param reading - what was measured of the agent and its desk.
+ * @returns the reasons, or `''` when {@link freeLoop} is true.
+ */
+export const whyNotFreeLoop = (reading: FreeLoopReading): string => loopReasons(reading).join('; ');

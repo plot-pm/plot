@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  agentDecision,
   reloadCommand,
   restartPlan,
   restartReport,
   startProbeRefusal,
+  type AgentsPassDesk,
   type RestartReading,
   type StartProbeReading,
 } from '../src/rules/fleetctl-start.js';
@@ -138,5 +140,56 @@ describe('restartReport', () => {
 
   it('reports an unreadable commit as unknown', () => {
     expect(restartReport({ ...result, oldPid: '4242', newPid: '5555', commit: '' }).message).toContain('bundle commit: unknown');
+  });
+});
+
+describe('restartPlan with --agents', () => {
+  const base = { label: 'l', platform: 'launchd', loaded: true, pid: '1', commit: 'abc', dryRun: false };
+
+  it('refuses an unattended caller before anything else, even with no unit loaded', () => {
+    const plan = restartPlan({ ...base, loaded: false, agents: true, unattended: true });
+    expect(plan.kind).toBe('refuse');
+    expect(plan.kind === 'refuse' && plan.message).toContain('unattended');
+  });
+
+  it('proceeds for an attended caller, and plain --restart proceeds when unattended', () => {
+    expect(restartPlan({ ...base, agents: true }).kind).toBe('reload');
+    expect(restartPlan({ ...base, unattended: true }).kind).toBe('reload');
+  });
+
+  it('previews that free loops stop after the reload on a dry run', () => {
+    const plan = restartPlan({ ...base, agents: true, dryRun: true });
+    expect(plan.kind === 'preview' && plan.message).toContain('— free loops stopped after');
+    expect(plan.kind === 'preview' && plan.message).not.toContain('agents untouched');
+  });
+});
+
+describe('agentDecision', () => {
+  const desk = (over: Partial<AgentsPassDesk> = {}): AgentsPassDesk => ({
+    name: 'd', pid: '9', state: 'running', branch: '', sliceHasMerged: false,
+    openPr: false, blocked: false, dirtyFiles: 0, pidCurrent: 'yes', ...over,
+  });
+
+  it('stops a free loop, wording a dry run as would stop', () => {
+    expect(agentDecision(desk(), false)).toEqual({ action: 'stop', line: '  d (pid 9)  stopping — free loop' });
+    expect(agentDecision(desk(), true).line).toContain('would stop');
+  });
+
+  it('refuses a recycled pid without regard to anything else', () => {
+    const r = agentDecision(desk({ pidCurrent: 'no' }), false);
+    expect(r.action).toBe('refuse');
+    expect(r.line).toContain('belongs to another process');
+  });
+
+  it('keeps an agent whose process start was never recorded', () => {
+    const r = agentDecision(desk({ pidCurrent: 'unknown' }), false);
+    expect(r.action).toBe('keep');
+    expect(r.line).toContain('kept — process start unreadable');
+    expect(agentDecision(desk({ pidCurrent: 'unknown' }), true).line).toContain('would keep — process start unreadable');
+  });
+
+  it('keeps a loop for each reason and names it', () => {
+    expect(agentDecision(desk({ openPr: true, branch: 'f/x' }), false).line).toContain('open PR');
+    expect(agentDecision(desk({ openPr: undefined }), true).line).toContain('would keep — PR unreadable');
   });
 });

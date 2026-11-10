@@ -11,6 +11,8 @@
  * @concept fleetctl-start
  */
 
+import { freeLoop, whyNotFreeLoop, type FreeLoopReading } from './free.js';
+
 /** The readings the harness and init-system probes take, shared by `--start` and `--restart`. */
 export interface StartProbeReading {
   /** The harness name looked for: `PLOT_HARNESS`, or `claude` when that is unset or empty. */
@@ -72,6 +74,10 @@ export interface RestartReading {
   readonly commit: string;
   /** True for `--restart --dry-run`. */
   readonly dryRun: boolean;
+  /** True for `--restart --agents`. */
+  readonly agents?: boolean;
+  /** True when `PLOT_UNATTENDED=1`. */
+  readonly unattended?: boolean;
 }
 
 /** What `--restart` does next: refuse, print a dry run and stop, or reload. */
@@ -90,7 +96,13 @@ export type RestartPlan =
  * @returns the plan; `refuse` and `preview` carry their text with no trailing newline.
  */
 export const restartPlan = (reading: RestartReading): RestartPlan => {
-  const { label, platform, loaded, pid, commit, dryRun } = reading;
+  const { label, platform, loaded, pid, commit, dryRun, agents = false, unattended = false } = reading;
+  if (agents && unattended) {
+    return {
+      kind: 'refuse',
+      message: 'plot-fleetctl: --restart --agents stops agents, and an unattended caller does not; nothing was done. Run --restart alone, or run this from a person\'s session',
+    };
+  }
   if (!loaded) {
     return {
       kind: 'refuse',
@@ -100,7 +112,7 @@ export const restartPlan = (reading: RestartReading): RestartPlan => {
   if (dryRun) {
     return {
       kind: 'preview',
-      message: `would reload ${label} (${platform}) — agents untouched\n  supervisor pid: ${pid || 'unreadable'}\n  bundle commit:  ${commit || 'unknown'}`,
+      message: `would reload ${label} (${platform}) — ${agents ? 'free loops stopped after' : 'agents untouched'}\n  supervisor pid: ${pid || 'unreadable'}\n  bundle commit:  ${commit || 'unknown'}`,
     };
   }
   return { kind: 'reload' };
@@ -171,4 +183,45 @@ export const restartReport = (result: RestartResult): { readonly ok: boolean; re
     ok: true,
     message: `supervisor restarted — ${label}\n  old pid: ${was}\n  new pid: ${newPid}\n  bundle commit: ${commit || 'unknown'}\n  agents untouched`,
   };
+};
+
+/** One live agent's desk, as `--restart --agents` reads it just before deciding. */
+export interface AgentsPassDesk extends FreeLoopReading {
+  /** The desk's directory name. */
+  readonly name: string;
+  /** The agent's pid. */
+  readonly pid: string;
+  /** Whether the pid's own start matches the start the manifest recorded; `unknown` when none was recorded. */
+  readonly pidCurrent: 'yes' | 'no' | 'unknown';
+}
+
+/** What `--restart --agents` does to one agent. */
+export interface AgentDecision {
+  /** `stop` signals the agent; `keep` and `refuse` signal nothing. */
+  readonly action: 'stop' | 'keep' | 'refuse';
+  /** The line printed for the agent, with no trailing newline. */
+  readonly line: string;
+}
+
+/**
+ * Decides what `--restart --agents` does to one live agent.
+ *
+ * A pid whose start differs from the recorded one belongs to another process and
+ * is refused. A pid with no recorded start is kept, because the pid cannot be
+ * checked. Otherwise {@link freeLoop} decides.
+ *
+ * @param desk - the agent and its desk.
+ * @param dryRun - true to word the line as `would stop`.
+ * @returns the action and its line.
+ */
+export const agentDecision = (desk: AgentsPassDesk, dryRun: boolean): AgentDecision => {
+  const who = `${desk.branch || desk.name} (pid ${desk.pid})`;
+  if (desk.pidCurrent === 'no') {
+    return { action: 'refuse', line: `  ${who}  refused — pid ${desk.pid} belongs to another process (its start differs from the recorded one); not signalled` };
+  }
+  if (desk.pidCurrent === 'unknown') {
+    return { action: 'keep', line: `  ${who}  ${dryRun ? 'would keep' : 'kept'} — process start unreadable (none recorded)` };
+  }
+  if (freeLoop(desk)) return { action: 'stop', line: `  ${who}  ${dryRun ? 'would stop' : 'stopping'} — free loop` };
+  return { action: 'keep', line: `  ${who}  ${dryRun ? 'would keep' : 'kept'} — ${whyNotFreeLoop(desk)}` };
 };

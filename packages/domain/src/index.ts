@@ -71,6 +71,7 @@ export * from './rules/fresh-agent.js';
 export * from './rules/movable.js';
 export * from './rules/old-label-migration.js';
 export * from './rules/fleetctl-start.js';
+export * from './rules/process-candidates.js';
 export * from './rules/phase.js';
 export * from './rules/board-tab.js';
 export * from './rules/workflow-phases.js';
