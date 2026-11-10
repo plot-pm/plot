@@ -1,7 +1,7 @@
 // The worker loop's half of the liveness token: it takes the descriptor the
 // wrapper handed it close-on-exec, and rewrites the desk's pass record.
 import { spawn } from 'node:child_process';
-import { closeSync, constants, fstatSync, mkdtempSync, openSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, constants, fstatSync, mkdtempSync, openSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -78,6 +78,25 @@ describe('acquireToken', () => {
     expect(acquireToken(ENV, d, inherited)).toBe(inherited);
     expect(acquireToken(ENV, path.join(d, 'none'), inherited)).toBe(inherited);
     for (const fd of [inherited, theirs.token.fd, ours.token.fd]) closeSync(fd);
+  });
+});
+
+describe('acquireToken where the token path cannot be opened', () => {
+  it('keeps the inherited descriptor, or answers null with none', () => {
+    const d = desk();
+    const made_ = token.make(d);
+    if (!made_.ok) throw new Error(made_.reason);
+    const inherited = openSync(path.join(d, TOKEN_FILENAME), constants.O_RDWR);
+    chmodSync(path.join(d, TOKEN_FILENAME), 0o000);
+    try {
+      expect(acquireToken(ENV, d, inherited)).toBe(inherited);
+      expect(() => fstatSync(inherited)).not.toThrow();
+      expect(acquireToken(ENV, d, 999)).toBeNull();
+    } finally {
+      chmodSync(path.join(d, TOKEN_FILENAME), 0o600);
+      closeSync(inherited);
+      token.close(made_.token);
+    }
   });
 });
 
