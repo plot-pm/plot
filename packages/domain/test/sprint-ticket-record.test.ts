@@ -39,6 +39,14 @@ describe('recordOpenedTicket', () => {
     expect(ticketRecordOf(second.content, 'QKP-123').kind).toBe('opened-by-sprint');
   });
 
+  it('writes below an Opened tickets heading that holds no line yet', () => {
+    const empty = '## Notes\n\n### Opened tickets\n\n';
+    const { content, outcome } = recordOpenedTicket(empty, '2026-11-10', '7', 'b');
+    expect(outcome).toBe('updated');
+    expect(ticketRecordOf(content, '7').kind).toBe('opened-by-sprint');
+    expect(content.match(/### Opened tickets/g)).toHaveLength(1);
+  });
+
   it('answers no-notes where the file has no ## Notes', () => {
     const bare = '# Sprint\n\n- **State:** Active\n';
     expect(recordOpenedTicket(bare, '2026-11-10', '1', 'b')).toEqual({ content: bare, outcome: 'no-notes' });

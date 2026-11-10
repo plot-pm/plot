@@ -167,7 +167,7 @@ export const activeSprintOf = (slug: string, sprints: readonly SprintFile[]): Ac
   const files = sprintsListing(slug, sprints)
     .filter((entry) => entry.state === 'Active')
     .map((entry) => entry.file)
-    .filter((file) => memberLineIndex(byFile.get(file) ?? '', slug) !== -1);
+    .filter((file) => memberLineIndex(byFile.get(file)!, slug) !== -1);
   if (files.length === 0) return { outcome: 'none' };
   if (files.length === 1) return { outcome: 'sprint', file: files[0]! };
   return { outcome: 'ambiguous', files };
