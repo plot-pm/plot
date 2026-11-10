@@ -1,3 +1,4 @@
+import { expandAgentFolds } from '../helpers.mjs';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -168,9 +169,10 @@ describe('WORKING renders one row per LIVE registry entry', () => {
     const page = await openAgents();
     try {
       const working = group(page, 'working');
-      // The merged branch's slice is delivered, so its own row is under Release delivery, folded by default.
-      const own = group(page, 'release-delivery');
-      await expand(page, 'release-delivery');
+      // The slice holds the unmerged `feature/running`, so it is not delivered: the merged branch's own row
+      // is in the slice's branch list under Being built, which the reader opens.
+      const own = group(page, 'being-built');
+      await expandAgentFolds(page);
       await expect.poll(() => working.locator('[data-branch="feature/landed"]').count()).toBe(1);
       await expect.poll(() => own.locator('[data-branch="feature/landed"]').count())
         .toBeGreaterThan(0);

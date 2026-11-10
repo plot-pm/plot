@@ -1248,7 +1248,9 @@ export function AgentList({
           if (block.kind !== 'plan') return itemBody(block.item);
           if (block.headed) return [planBody(block)];
           return [
-            ...block.slices.flatMap((s) => sliceBody(block, s)),
+            <li role="presentation" key={block.key} data-slice-list={block.plan} className="block">
+              <ul role="presentation">{block.slices.flatMap((s) => sliceBody(block, s))}</ul>
+            </li>,
             ...block.loose.flatMap((item) => itemBody(item)),
           ];
         };

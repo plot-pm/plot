@@ -721,11 +721,12 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // The pairing is unchanged and so is the reason for it: `plan === -1`
       // alone would also pass if the plan had been dropped from the view
       // entirely, which is the weaker implementation this must not accept.
-      let planLink = -1;
-      for (let i = 0; i < count; i++) {
-        if (await cells.nth(i).locator('a[data-tuple-link="plan"]').count()) { planLink = i; break; }
-      }
-      expect(planLink).toBeGreaterThan(branch);
+      // The row carries no plan link of its own: the plan row above heads the group it sits in, so the plan
+      // is read before the branch, one row up.
+      const head = group(page, 'at-a-gate').locator('li[data-plan-row="beans"]').first();
+      const rowEl = group(page, 'at-a-gate').locator('li[data-tuple-kind]')
+        .filter({ has: page.locator('[data-branch]') }).first();
+      expect((await head.boundingBox())!.y).toBeLessThan((await rowEl.boundingBox())!.y);
     } finally {
       await page.close();
     }
@@ -951,12 +952,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       ],
     }));
     try {
-      // A PR row says PR and a branch row says Branch: the two kinds read
-      // differently in one column. The slice row above a branch says Slice.
+      // A PR row says PR; a branch that is the only branch of its slice is that slice's row, and says Slice.
       await expect.poll(() => rowFor(page, 'feature/has-pr').locator('[data-kind]')
         .textContent()).toBe('PR');
       expect(await rowFor(page, 'feature/no-pr').locator('[data-kind]').textContent())
-        .toBe('Branch');
+        .toBe('Slice');
       // And NEITHER is given the phase both their plans have — the same fixture
       // phase on both rows, printed on neither.
       expect(await rowFor(page, 'feature/has-pr').locator('[data-phase]').count()).toBe(0);
@@ -1277,7 +1277,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // WORKING is open on arrival, and the blocker's wave row is already in
       // the document — this is NOT about unfolding, it is about finding a row
       // in a section that does not group by plan.
-      await expect.poll(() => group(page, 'working').locator('[data-slice-row="Named"]').count())
+      await expect.poll(() => group(page, 'being-built').locator('[data-slice-row="Named"]').count())
         .toBeGreaterThan(0);
 
       // Click the ⓘ on the blocked `Spoken` slice, in Queued.

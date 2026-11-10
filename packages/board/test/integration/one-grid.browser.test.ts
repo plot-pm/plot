@@ -147,7 +147,8 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // real spread rather than about one row agreeing with itself. `wave` joined
       // the list when a plan grew a head and its branches became waves under it.
       const kinds = new Set(templates.map((t) => t.kind));
-      expect([...kinds].sort()).toEqual(['branch', 'plan', 'pr', 'ticket', 'wave']);
+      // A branch that is the only branch of its slice is the slice's row, so no separate branch row exists.
+      expect([...kinds].sort()).toEqual(['plan', 'pr', 'ticket', 'wave']);
       // SEVEN TRACKS on every row — the claim, and the form of it that nesting
       // cannot falsify.
       //
@@ -256,7 +257,7 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // THE NORMAL CASE, NOT AN EDGE: 67 of 80 live rows carry both a branch
       // and a PR. A conflicting one is kind `branch`, because no PR resolves a
       // conflict and the reader has to go rebase.
-      const branch = page.locator('li[data-tuple-kind="branch"]')
+      const branch = page.locator('li[data-tuple-kind="wave"]')
         .filter({ has: page.locator('[data-branch="feature/conflicted"]') });
       await branch.waitFor({ timeout: 10_000 });
       // THE CONFLICT IS ON THE ROW, in the status slot, in a word.
@@ -272,7 +273,7 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // channel alone, which is why the halves are `aria-hidden` and the whole
       // name rides on the attribute. A text assertion here would be a claim
       // about the viewport rather than about which fact leads.
-      const name = branch.locator('[role="gridcell"]').nth(2);
+      const name = branch.locator('[role="gridcell"]').nth(3);
       expect(await name.locator('[data-branch]').getAttribute('data-branch'))
         .toBe('feature/conflicted');
       // The PR's NUMBER is still on the row, beside the condition — context
@@ -364,7 +365,7 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // with it, which is the defect on the other side and the one the collapse
       // shipped for one commit. Both are asserted here, because a fix for
       // either alone passes half of this.
-      const link = page.locator('li[data-tuple-kind="branch"] a[data-tuple-link="branch"]').first();
+      const link = page.locator('li[data-tuple-kind="wave"] a[data-tuple-link="branch"]').first();
       await link.waitFor({ timeout: 10_000 });
       const heard = await link.getAttribute('aria-label');
       expect(heard).toBe('feature/conflicted');
@@ -391,7 +392,7 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // You › Unblock; the PR row is its own item at a gate; the ticket renders
       // in `Tickets and plan runs`, outside the rule.
       const waiting = page.locator('ul[role="grid"][aria-label^="Unblock"]');
-      expect(await waiting.locator('li[data-tuple-kind="branch"]').count()).toBe(1);
+      expect(await waiting.locator('li[data-tuple-kind="wave"]').count()).toBe(1);
       expect(await waiting.locator('li[data-tuple-kind="pr"]').count()).toBe(0);
       const gate = page.locator('ul[role="grid"][aria-label^="At a gate"]');
       expect(await gate.locator('li[data-tuple-kind="pr"]').count()).toBe(1);
