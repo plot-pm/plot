@@ -72,7 +72,7 @@ Every rendered state is a domain property (CLAUDE.md, "Every rendered state is a
 
 ### Tickets on the board
 
-- `feature/tickets-reach-input-to-the-fleet` <!-- waits: feature/delivery-tab-sections --> — the rule lists my unplanned tickets, and the Sprint filter narrows them to the target release
+- `feature/tickets-reach-input-to-the-fleet` <!-- waits: feature/delivery-tab-sections --> — the rule lists my unplanned tickets, and the Sprint filter narrows them to the target release → #3392
 - `feature/sprint-work-records-the-ticket-it-opened` <!-- waits: feature/delivery-tab-sections --> — the board records "opened by sprint" where sprint work opens a ticket, and the row shows the mark → #3390
 - `feature/the-release-line-counts-tickets` <!-- waits: feature/delivery-tab-sections --> — closed, planned and untriaged ticket counts on the release line → #3391
 
