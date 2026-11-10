@@ -179,7 +179,7 @@ const ticketItem = (ticket: IssueRow, source: TicketSourceShape | null, reader: 
   const item: WorkItemReading = {
     id: ticketItemId(ticket.number),
     kind: 'ticket',
-    ownership: ownership(ownedFromTicket(ticket, source), reader),
+    ownership: ownership(ownedFromTicket({ assignees: ticket.assignees ?? [] }, source), reader),
   };
   if (ticket.planned === true) item.planned = true;
   if (ticket.releases !== undefined) item.releases = ticket.releases;

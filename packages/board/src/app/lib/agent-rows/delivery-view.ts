@@ -187,6 +187,8 @@ export interface DeliveryView {
   deliveredBlocks: BlockView[];
   /** Every payload row the delivered items hold. */
   deliveredRows: AgentRow[];
+  /** The numbers of the tickets a section holds; the ticket list outside the rule leaves these out. */
+  placedTickets: ReadonlySet<string>;
 }
 
 export const itemAnchor = (id: string): string => `delivery-item-${id}`;
@@ -425,6 +427,7 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
   return {
     sections, notPlaced, releaseLine, delivered, deliveredBlocks,
     deliveredRows: deliveredItems.flatMap((v) => v.rows),
+    placedTickets: new Set(placement.items.flatMap((p) => mapping.ticketsByItem[p.id]?.number ?? [])),
   };
 };
 

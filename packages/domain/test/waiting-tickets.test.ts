@@ -406,6 +406,20 @@ describe('waitingTickets, planned tickets', () => {
     expect(result.tickets.map((t) => [t.number, t.status])).toEqual([['1', 'open'], ['2', 'in progress 3/6']]);
   });
 
+  it('carries `planned` and `releases` through, and omits both when the index states neither', () => {
+    const rows = [
+      row('8', { assignees: ['jwloka'], releases: ['2.32'] }),
+      row('9', { assignees: ['jwloka'], releases: [] }),
+      row('10', { assignees: ['jwloka'] }),
+    ];
+    const result = waitingTickets(rows, undefined, reader, GITHUB, true, plans({ '8': [{ slug: 'p', title: 'P', story: '', state: 'approved', total: 2, merged: 0 }] }));
+    const by = (n: string) => result.tickets.find((t) => t.number === n)!;
+    expect(by('8')).toMatchObject({ releases: ['2.32'], planned: true });
+    expect(by('9').releases).toEqual([]);
+    expect(by('9')).not.toHaveProperty('planned');
+    expect(by('10')).not.toHaveProperty('releases');
+  });
+
   it('keeps a planned ticket in the list rather than dropping it', () => {
     const rows = [row('7', { assignees: ['jwloka'], status: 'open' })];
     const result = waitingTickets(rows, undefined, reader, GITHUB, true, plans({ '7': [{ slug: 'p', title: 'P', story: '', state: 'delivered', total: 1, merged: 1 }] }));

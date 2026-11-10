@@ -1080,7 +1080,9 @@ export function AgentList({
         });
         const view = placeMapping(mapping, fleet.slices);
         const slices = fleet.slices;
-        const issues = fleet.issueAnswer === 'answered' ? filteredIssues : [];
+        const issues = fleet.issueAnswer === 'answered'
+          ? filteredIssues.filter((i) => !view.placedTickets.has(String(i.number)))
+          : [];
         const scrollTo = (anchor: string) => (e: { preventDefault: () => void }) => {
           e.preventDefault();
           document.getElementById(anchor)?.scrollIntoView({ block: 'center' });

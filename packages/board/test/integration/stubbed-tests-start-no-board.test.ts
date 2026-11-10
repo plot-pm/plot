@@ -543,7 +543,10 @@ describe('a browser test that stubs its own state starts no board', () => {
 // 86 → 87 on 2026-11-10: `delivery-tab-sections.browser.test.ts`, for the five
 // Delivery sections in layout order. It serves its state through the catalogue
 // and starts no board.
-const EXPECTED_FILES = 87;
+// 87 → 88 on 2026-11-10: `ticket-input-to-the-fleet.browser.test.ts`, for an assigned
+// unplanned ticket in You › Input to the fleet. It serves its state through the
+// catalogue and starts no board.
+const EXPECTED_FILES = 88;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -899,7 +902,7 @@ const EXPECTED_FILES = 87;
 // 675 → 678 on 2026-11-08: the three tests of `record-lag.browser.test.ts`.
 // 679 → 676 on 2026-11-10: `delivery-tab-sections` removed three tests that asserted tallies the Delivery tab no longer
 // shows (`sprint-exempt` x2, `unplanned-issues` x1).
-const EXPECTED_TESTS = 676;
+const EXPECTED_TESTS = 677;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an
