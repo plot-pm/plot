@@ -97,6 +97,8 @@ export * from './rules/card-controls.js';
 export * from './rules/plan-link-click.js';
 export * from './rules/plan-reference.js';
 export * from './rules/pulse.js';
+export * from './rules/clock-drift.js';
+export * from './rules/next-deadline.js';
 export * from './rules/verdict.js';
 export * from './rules/restart-offer.js';
 export * from './rules/attention.js';

@@ -263,6 +263,10 @@ const pass = async (): Promise<void> => {
     release?.();
   }
   const target = passes;
+  // BOTH READINGS MOVE TOGETHER: `advance` moves the manual clock's wall and
+  // monotonic readings by the same beats, so `clockDrift` reads no jump across a
+  // pass. `offsetMs` shifts only the patched `Date`, which fleetd's wake check
+  // never reads: it reads the injected clock through the port.
   offsetMs += beatsPerPass * BEAT_MS;
   clock?.advance(beatsPerPass);
   await sleepsReach(target);

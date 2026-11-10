@@ -347,6 +347,8 @@ describe('a running pulse holds one schedule', () => {
     const mute = {
       now: () => ({ ok: false, why: 'failed' }) as const,
       timezoneOffsetMinutes: () => ({ ok: false, why: 'failed' }) as const,
+      monotonic: () => ({ ok: false, why: 'failed' }) as const,
+      timeout: () => () => undefined,
       schedule: (_ms: number, fn: () => void) => {
         onTick = fn;
         return () => undefined;
