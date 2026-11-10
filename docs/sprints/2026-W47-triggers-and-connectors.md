@@ -4,9 +4,9 @@
 
 ## Status
 
-- **State:** Committed
-- **Start:** 2026-11-16
-- **End:** 2026-11-20
+- **State:** Active
+- **Start:** 2026-11-11
+- **End:** 2026-11-17
 - **Release:** 2.36.0
 
 ## Sprint Goal
@@ -59,5 +59,6 @@ It also closes the follow-up issues that sprint `desk-probes-and-liveness` filed
 <!-- Format: - YYYY-MM-DD: Added/Moved/Removed [slug] reason -->
 
 - 2026-11-10: Scope, timebox and release decided by jwloka: Phases 7 and 8 as Must, the six follow-up issues as Should, 2026-11-16 to 2026-11-20, release 2.36.0.
+- 2026-11-10: Timebox moved to 2026-11-11 to 2026-11-17 by jwloka, so the sprint starts the day after `desk-probes-and-liveness` closed.
 
 <!-- Session log, decisions, links -->
