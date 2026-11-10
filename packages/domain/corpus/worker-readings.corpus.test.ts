@@ -140,6 +140,8 @@ describe('the reader agrees with plot-worker-state.sh on constructed desks', () 
   const readingsFound: Disagreement[] = [];
   const statesFound: Disagreement[] = [];
   const states = new Map<string, string>();
+  /** Each constructed desk's readings line, as `readWorkerReadings` gathered it. */
+  const gathered = new Map<string, string>();
   /** The `ps` rows naming the `agent-present` wrapper, for the failure message. */
   let agentTree = '';
   const savedGrace = process.env.PLOT_AGENT_GRACE_SECONDS;
@@ -207,11 +209,13 @@ describe('the reader agrees with plot-worker-state.sh on constructed desks', () 
       '.plot-worker.freewait': `${freeUnproven}\n`,
     });
     // THE TOKEN ROWS: a FIFO held by a bash loop that inherited it on fd 3. The
-    // shell reads no token, so each row is one where the token's order and the
-    // start-time order meet: an exit record written after the token wins over
-    // the held token, and a held token beside an answering pid is running.
-    const tokenHeld = (name: string, files: Record<string, string>): void => {
-      const worktree = desk(name, {});
+    // shell reads the token only beside an exit record of 128 or more, so each
+    // row is one where the token's order and the start-time order meet: an exit
+    // record below 128 written after the token wins over the held token, one of
+    // 137 yields to it until `Worker bound` from `startedAt`, and a held token
+    // beside an answering pid is running.
+    const tokenHeld = (name: string, files: Record<string, string>, manifest?: Record<string, string>): void => {
+      const worktree = desk(name, {}, manifest);
       const made = livenessTokenFifo().make(worktree);
       if (!made.ok) throw new Error(`${name}: ${made.reason}`);
       const holder = spawn('bash', ['-c', 'for ((i = 0; i < 600; i++)); do sleep 1; done'], { stdio: ['ignore', 'ignore', 'ignore', made.token.fd] });
@@ -222,6 +226,8 @@ describe('the reader agrees with plot-worker-state.sh on constructed desks', () 
     tokenHeld('token-held-exit-0', { '.plot-worker.pid': `${dead}\n`, '.plot-worker.exit': '0\n' });
     tokenHeld('token-held-exit-3', { '.plot-worker.pid': `${dead}\n`, '.plot-worker.exit': '3\n' });
     tokenHeld('token-held-live', { '.plot-worker.pid': `${plain}\n` });
+    tokenHeld('token-held-exit-137', { '.plot-worker.pid': `${dead}\n`, '.plot-worker.exit': '137\n' });
+    tokenHeld('token-held-exit-137-past-bound', { '.plot-worker.exit': '137\n' }, { pid: String(dead), startedAt: '2026-01-01T00:00:00Z' });
 
     process.env.PLOT_AGENT_GRACE_SECONDS = GRACE;
     const files = processesFiles(context, { manifestDir: manifests, tableHoldMs: 600_000 });
@@ -233,7 +239,6 @@ describe('the reader agrees with plot-worker-state.sh on constructed desks', () 
     desk('pid-after-table', {}, { pid: String(late), startedAt: iso(Math.floor(Date.now() / 1000) - 60), pidStartedAt: lateStart.trim() });
 
     const io = await deskFilesIo(context, { manifestDir: manifests })();
-    const gathered = new Map<string, string>();
     for (const [name, worktree] of desks) {
       gathered.set(name, readingsLine(await readWorkerReadings(worktree, held.value, io, {}, true)));
       const reading = await files.workerState(worktree, false);
@@ -256,7 +261,7 @@ describe('the reader agrees with plot-worker-state.sh on constructed desks', () 
   });
 
   it('builds the constructed desks', () => {
-    expect(desks.size).toBe(12);
+    expect(desks.size).toBe(14);
   });
 
   it('gathers every field the shell prints, on every constructed desk', () => {
@@ -277,11 +282,14 @@ describe('the reader agrees with plot-worker-state.sh on constructed desks', () 
     expect(states.get('exit-abc')).toBe(`ended\t${states.get('exit-abc')?.split('\t')[1]}\t`);
   });
 
-  it('decides the token rows through workerLiveness: an exit record present beside a held token reads finished or failed', () => {
+  it('decides the token rows through workerLiveness: a held token beside exit 0 or 3 reads finished or failed, beside 137 running until Worker bound', () => {
     expect(states.get('token-held-exit-0')?.split('\t')).toEqual(['finished', expect.any(String), '0']);
     expect(states.get('token-held-exit-3')?.split('\t')).toEqual(['failed', expect.any(String), '3']);
     expect(states.get('token-held-live')?.split('\t')[0]).toBe('running');
-    for (const name of ['token-held-exit-0', 'token-held-exit-3', 'token-held-live']) {
+    expect(states.get('token-held-exit-137')?.split('\t')).toEqual(['running', expect.any(String), '']);
+    expect(gathered.get('token-held-exit-137')?.split('\t')[2]).toBe('stray-holder');
+    expect(states.get('token-held-exit-137-past-bound')?.split('\t')).toEqual(['failed', expect.any(String), '137']);
+    for (const name of ['token-held-exit-0', 'token-held-exit-3', 'token-held-live', 'token-held-exit-137', 'token-held-exit-137-past-bound']) {
       expect(livenessTokenFifo().read(desks.get(name)!).state, name).toBe('held');
     }
   });

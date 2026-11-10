@@ -98,6 +98,30 @@ describe('readWorkerReadings with a liveness token', () => {
     expect(processReadingOf(gathered, false)).toMatchObject({ state: 'finished', exitCode: '0' });
   });
 
+  it('lets a held token outrank a current exit record of 137: live with an answering pid, a stray holder inside the bound, dead past it', async () => {
+    const { worktree, manifestDir } = deskWith({ '.plot-worker.exit': '137\n' });
+    touch(join(worktree, '.plot-worker.exit'), TOKEN_MS + 5_000);
+    const live = await readWorkerReadings(worktree, [], ioOf(manifestDir, held));
+    expect(live.readings).toMatchObject({ liveness: 'live', exit: '137' });
+    expect(processReadingOf(live, false).state).toBe('running');
+    const stray = await readWorkerReadings(worktree, [], ioOf(manifestDir, held, { signalZero: () => false }));
+    expect(stray.readings).toMatchObject({ liveness: 'stray-holder', exit: '137' });
+    expect(processReadingOf(stray, true)).toMatchObject({ state: 'running', exitCode: '' });
+    const past = await readWorkerReadings(worktree, [], ioOf(manifestDir, held, { signalZero: () => false, now: () => startedMs + BOUND_MS }));
+    expect(past.readings).toMatchObject({ liveness: 'dead', exit: '137' });
+    expect(processReadingOf(past, false)).toMatchObject({ state: 'failed', exitCode: '137' });
+  });
+
+  it('keeps a held token beside a current exit record of 0 exited, and a released token beside 137 exited', async () => {
+    const { worktree, manifestDir } = deskWith({ '.plot-worker.exit': '0' });
+    touch(join(worktree, '.plot-worker.exit'), TOKEN_MS + 5_000);
+    expect(processReadingOf(await readWorkerReadings(worktree, [], ioOf(manifestDir, held, { signalZero: () => false })), false).state).toBe('finished');
+    writeFileSync(join(worktree, '.plot-worker.exit'), '137');
+    touch(join(worktree, '.plot-worker.exit'), TOKEN_MS + 5_000);
+    const gone = await readWorkerReadings(worktree, [], ioOf(manifestDir, released, { signalZero: () => false }));
+    expect(processReadingOf(gone, false)).toMatchObject({ state: 'failed', exitCode: '137' });
+  });
+
   it('ignores an earlier run\'s exit record, older than the token, so it does not end the new run', async () => {
     const { worktree, manifestDir } = deskWith({ '.plot-worker.exit': '1' });
     touch(join(worktree, '.plot-worker.exit'), TOKEN_MS - 5_000);

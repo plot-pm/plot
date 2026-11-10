@@ -38,10 +38,15 @@ export interface TokenReading {
   readonly madeAtMs: number | null;
 }
 
+/** The lowest exit code that names a death by signal: 128 plus the signal number, so 137 for `SIGKILL` and 143 for `SIGTERM`. */
+export const SIGNAL_EXIT_MIN = 128;
+
 /** What {@link workerLiveness} decides from. */
 export interface LivenessReadings {
   /** The exit record's modification time, epoch milliseconds; `null` where no record exists. */
   readonly exitAtMs: number | null;
+  /** The exit record's code; `null` where no record exists or it names no number. */
+  readonly exitCode: number | null;
   /** The token read. */
   readonly token: TokenReading;
   /** Whether the recorded pid answers `kill(pid, 0)`. */
@@ -57,12 +62,16 @@ export interface LivenessReadings {
 /**
  * What the token says about the worker.
  *
- * - `exited` — an exit record not older than the token exists; the process ended.
- * - `live` — no current exit record, the token is held, and the recorded pid
+ * A current exit record is one not older than the token. It decides the
+ * answer unless the token is held and the record's code is
+ * {@link SIGNAL_EXIT_MIN} or more; such a record yields to the token.
+ *
+ * - `exited` — a current exit record decides; the process ended.
+ * - `live` — no deciding exit record, the token is held, and the recorded pid
  *   answers, however long ago the launch was.
- * - `stray-holder` — no current exit record, the token is held, the recorded
+ * - `stray-holder` — no deciding exit record, the token is held, the recorded
  *   pid does not answer, and `Worker bound` from `startedAt` has not passed.
- * - `dead` — no current exit record, and the token is released, or held by a
+ * - `dead` — no deciding exit record, and the token is released, or held by a
  *   stray holder past `Worker bound` from `startedAt`.
  */
 export type TokenLiveness = 'exited' | 'live' | 'stray-holder' | 'dead';
@@ -75,13 +84,20 @@ export type LivenessAnswer =
 /**
  * Decides a worker's liveness from its exit record and its token, in this
  * order: no token answers the start-time path; an exit record not older than
- * the token answers `exited`; a released token answers `dead`; a held token
- * answers `live` when the recorded pid answers; a held token whose pid does
- * not answer answers `stray-holder` until `Worker bound` from `startedAt` has
- * passed, and `dead` after it.
+ * the token answers `exited`, unless the token is held and the record's code
+ * is {@link SIGNAL_EXIT_MIN} or more; a released token answers `dead`; a held
+ * token answers `live` when the recorded pid answers; a held token whose pid
+ * does not answer answers `stray-holder` until `Worker bound` from `startedAt`
+ * has passed, and `dead` after it.
+ *
+ * A held token outranks a signal death because a wrapper whose loop was
+ * killed records 128 plus the signal while the harness the loop started still
+ * holds the token and works in the desk. A code below 128 keeps `exited`, so a
+ * finish whose harness child holds fd 3 for a moment reads as ended.
  *
  * An exit record older than the token is an earlier run's and is ignored:
- * `exitCurrent` is `false` for it.
+ * `exitCurrent` is `false` for it. A current record that yields to a held
+ * token keeps `exitCurrent` `true`.
  *
  * @param readings - the exit record's time, the token read, the pid's answer and the bound.
  * @returns the liveness and its basis.
@@ -90,7 +106,8 @@ export const workerLiveness = (readings: LivenessReadings): LivenessAnswer => {
   const { token } = readings;
   if (token.state === 'none' || token.madeAtMs === null) return { basis: 'start-time' };
   const exitCurrent = readings.exitAtMs !== null && readings.exitAtMs >= token.madeAtMs;
-  if (exitCurrent) return { basis: 'token', liveness: 'exited', exitCurrent };
+  const yieldsToToken = token.state === 'held' && readings.exitCode !== null && readings.exitCode >= SIGNAL_EXIT_MIN;
+  if (exitCurrent && !yieldsToToken) return { basis: 'token', liveness: 'exited', exitCurrent };
   if (token.state === 'released') return { basis: 'token', liveness: 'dead', exitCurrent };
   if (readings.pidAnswers) return { basis: 'token', liveness: 'live', exitCurrent };
   const pastBound =

@@ -216,7 +216,8 @@ const loggedDesks = new Set<string>();
  *
  * A desk whose liveness token is `held` or `released` is decided by
  * {@link workerLiveness} and reads no start time; an exit record older than
- * the token is read as none. A desk with no token takes the start-time path.
+ * the token is read as none, and a current one naming a signal death is kept
+ * beside a held token that outranks it. A desk with no token takes the start-time path.
  * The process table is read only when a desk needs it.
  *
  * @param worktree - the desk's absolute path.
@@ -274,9 +275,10 @@ export const readWorkerReadings = async (
     const startedMs = Date.parse(startedAt);
     const exitAtMs = exitText === null ? null : mtimeOf(exitPath);
     const pidAnswers = io.signalZero(Number(pid)) === true;
-    const needsBound = token.state === 'held' && !pidAnswers && (exitAtMs === null || exitAtMs < (token.madeAtMs ?? 0));
+    const needsBound = token.state === 'held' && !pidAnswers;
     answer = workerLiveness({
       exitAtMs,
+      exitCode: exit !== null && /^\d+$/.test(exit) ? Number(exit) : null,
       token,
       pidAnswers,
       startedAtMs: Number.isNaN(startedMs) ? null : startedMs,
