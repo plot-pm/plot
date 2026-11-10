@@ -621,7 +621,7 @@ const runDeliver = async (
     // the PR to the default branch. The entry yields to a live fleet heartbeat,
     // and exit 4 means no key is declared, which prints nothing. A failed or
     // unread pass is reported and the delivery stands.
-    const sync = await ctx.scripts.awaited('plot-state-sync.mjs', ['--pr', '--caller', 'command']);
+    const sync = await ctx.scripts.awaited('board/plot-state-sync.mjs', ['--pr', '--caller', 'command']);
     if (sync.code !== NO_STATE_BRANCH) {
       const said = sync.stdout.trim().split('\n').filter((l) => l !== '').pop() ?? '';
       if (sync.code === 0) write(`  state-sync: ${said}\n`);
