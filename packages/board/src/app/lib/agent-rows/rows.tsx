@@ -1005,6 +1005,8 @@ export function SliceRow({
   onOpenPlan,
   onRevealBranch,
   planHeaded = false,
+  menuCard,
+  menuDispatch,
   slices,
   onExpandSection,
   planIndex,
@@ -1094,6 +1096,9 @@ export function SliceRow({
    * that name and wrapped to double height.
    */
   planHeaded?: boolean;
+  /** The plan's card and the dispatch binding for the sole branch's menu, which a started slice keeps although its slice row offers no Start work. */
+  menuCard?: Card | null;
+  menuDispatch?: DispatchInfo;
   /** The board's plan index — see `AgentListProps.planIndex`. */
   planIndex?: PlanIndex;
 }) {
@@ -1264,6 +1269,8 @@ export function SliceRow({
       }, planIndex)}
       rowAttr={{
         'data-slice-row': group.wave || UNNAMED_SLICE,
+        // A slice of one branch is the only row that branch gets, so it is an agent row too.
+        ...(soleRow ? { 'data-agent-row': '' } : {}),
         // A SPIKE says so as an attribute too, so a test asserts the KIND of slice
         // rather than the colour of a glyph.
         ...(isSpikeSlice(group.wave) ? { 'data-slice-spike': '' } : {}),
@@ -1495,8 +1502,8 @@ export function SliceRow({
           {soleRow ? (
             <BranchMenu
               row={soleRow}
-              card={card ?? null}
-              dispatch={dispatch}
+              card={menuCard ?? card ?? null}
+              dispatch={menuDispatch ?? dispatch}
               implement={implement}
               pulse={pulse}
               onStarting={onStarting}
@@ -1538,6 +1545,7 @@ export function SliceRow({
             </button>
           ) : null}
           {active ? <ActivityMark pace="fast" inTrack /> : null}
+          {soleRow && isUnpushed(soleRow) ? <UnpushedMark ahead={soleRow.localAhead} inTrack /> : null}
         </>
       }
     />
@@ -2609,7 +2617,9 @@ export function RegistryRow({
     ? noteWithoutPr(row.note, row.pr)
     : !identityWasDeclared(agent)
       ? unnamedDeskLabel({ checkout: agent.checkout ?? '', live: isLiveState(agent.state) })
-      : '';
+      : !isLiveState(agent.state)
+        ? 'stopped — no ending was read, so why it stopped is unknown'
+        : '';
 
   return (
     <>
@@ -2648,8 +2658,6 @@ export function RegistryRow({
           // tagged with the first plan left every other plan's blocker
           // unreachable. Reported from a screenshot 2026-10-28: four of six
           // blocked-by marks in NOT STARTED jumped nowhere.
-          ...(row?.wave ? { 'data-slice-row': row.wave } : {}),
-          ...(row?.wave && row?.plan ? { 'data-slice-plan': row.plan } : {}),
           // FREE IS RENDERED AS AN ATTRIBUTE, NOT AS THE STATUS WORD. The two
           // are different questions — *what is it doing?* and *can it take
           // work?* — and a `running` agent between slices answers `running` and

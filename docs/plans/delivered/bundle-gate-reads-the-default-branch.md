@@ -1,0 +1,1 @@
+../2026-11-09-bundle-gate-reads-the-default-branch.md

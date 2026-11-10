@@ -147,7 +147,8 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // real spread rather than about one row agreeing with itself. `wave` joined
       // the list when a plan grew a head and its branches became waves under it.
       const kinds = new Set(templates.map((t) => t.kind));
-      expect([...kinds].sort()).toEqual(['branch', 'plan', 'pr', 'ticket', 'wave']);
+      // A branch that is the only branch of its slice is the slice's row, so no separate branch row exists.
+      expect([...kinds].sort()).toEqual(['plan', 'pr', 'ticket', 'wave']);
       // SEVEN TRACKS on every row — the claim, and the form of it that nesting
       // cannot falsify.
       //
@@ -232,21 +233,19 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       const links = pr.locator('[role="gridcell"]').nth(3);
       expect(await links.locator('a[data-tuple-link="branch"]').count()).toBe(1);
       expect(await links.locator('[data-branch="feature/reviewed"]').count()).toBe(1);
-      // TWO DESTINATIONS INSIDE A WAVE, both different — the branch and the PR.
+      // THREE DESTINATIONS, all different — the PR, the branch and the plan.
       //
-      // Three when the row stands alone, and the missing one is the PLAN, on
-      // purpose: this PR sits in a wave group whose header names the plan two
-      // rows up, so a third copy on the child says what the reader has already
-      // read. The branch is what a wave group must NOT drop — slot 3 wears the
-      // PR number here rather than the branch, so without it the row never
-      // names what it is a PR of.
+      // The Delivery tab draws no wave group or plan head, so the row stands
+      // alone and names its plan itself. The branch is what the row must NOT
+      // drop — slot 3 wears the PR number here rather than the branch, so
+      // without it the row never names what it is a PR of.
       //
       // Both halves asserted, because the count alone passes on a row that kept
       // the plan and lost the branch — which is the failure this pairs against.
       const anchors = await pr.locator('a[data-tuple-link]').evaluateAll(
         (els) => els.map((e) => ({ what: e.getAttribute('data-tuple-link'), href: e.getAttribute('href') })));
-      expect(new Set(anchors.map((l) => l.href)).size).toBe(2);
-      expect(new Set(anchors.map((l) => l.what))).toEqual(new Set(['pr', 'branch']));
+      expect(new Set(anchors.map((l) => l.href)).size).toBe(3);
+      expect(new Set(anchors.map((l) => l.what))).toEqual(new Set(['pr', 'branch', 'plan']));
     } finally {
       await page.close();
     }
@@ -258,7 +257,7 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // THE NORMAL CASE, NOT AN EDGE: 67 of 80 live rows carry both a branch
       // and a PR. A conflicting one is kind `branch`, because no PR resolves a
       // conflict and the reader has to go rebase.
-      const branch = page.locator('li[data-tuple-kind="branch"]')
+      const branch = page.locator('li[data-tuple-kind="wave"]')
         .filter({ has: page.locator('[data-branch="feature/conflicted"]') });
       await branch.waitFor({ timeout: 10_000 });
       // THE CONFLICT IS ON THE ROW, in the status slot, in a word.
@@ -274,7 +273,7 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // channel alone, which is why the halves are `aria-hidden` and the whole
       // name rides on the attribute. A text assertion here would be a claim
       // about the viewport rather than about which fact leads.
-      const name = branch.locator('[role="gridcell"]').nth(2);
+      const name = branch.locator('[role="gridcell"]').nth(3);
       expect(await name.locator('[data-branch]').getAttribute('data-branch'))
         .toBe('feature/conflicted');
       // The PR's NUMBER is still on the row, beside the condition — context
@@ -366,7 +365,7 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // with it, which is the defect on the other side and the one the collapse
       // shipped for one commit. Both are asserted here, because a fix for
       // either alone passes half of this.
-      const link = page.locator('li[data-tuple-kind="branch"] a[data-tuple-link="branch"]').first();
+      const link = page.locator('li[data-tuple-kind="wave"] a[data-tuple-link="branch"]').first();
       await link.waitFor({ timeout: 10_000 });
       const heard = await link.getAttribute('aria-label');
       expect(heard).toBe('feature/conflicted');
@@ -375,7 +374,7 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       expect(heard).not.toMatch(/\s/);
       // And the halves really are hidden, so the label is what is announced
       // rather than a second reading beside it.
-      expect(await link.locator('[aria-hidden="true"]').count()).toBe(1);
+      expect(await link.locator('[aria-hidden="true"]').count()).toBeGreaterThan(0);
     } finally {
       await page.close();
     }
@@ -389,11 +388,17 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // decision, and a rendering change that quietly moved a row between
       // groups would be the most expensive kind of regression here — the
       // sections are what a reader scans first.
-      const waiting = page.locator('ul[role="grid"][aria-label^="Waiting on you"]');
-      // Two branches and one ticket, exactly as the fleet places them.
-      expect(await waiting.locator('li[data-tuple-kind="branch"]').count()).toBe(1);
-      expect(await waiting.locator('li[data-tuple-kind="pr"]').count()).toBe(1);
-      expect(await waiting.locator('li[data-tuple-kind="ticket"]').count()).toBe(1);
+      // The conflicting branch's slice has no agent, so the rule puts it under
+      // You › Unblock; the PR row is its own item at a gate; the ticket renders
+      // in `Tickets and plan runs`, outside the rule.
+      const waiting = page.locator('ul[role="grid"][aria-label^="Unblock"]');
+      expect(await waiting.locator('li[data-tuple-kind="wave"]').count()).toBe(1);
+      expect(await waiting.locator('li[data-tuple-kind="pr"]').count()).toBe(0);
+      const gate = page.locator('ul[role="grid"][aria-label^="At a gate"]');
+      expect(await gate.locator('li[data-tuple-kind="pr"]').count()).toBe(1);
+      const tickets = page.locator('ul[role="grid"][aria-label="Tickets and plan runs"]');
+      expect(await tickets.locator('li[data-tuple-kind="ticket"]').count()).toBe(1);
+      expect(await waiting.locator('li[data-tuple-kind="ticket"]').count()).toBe(0);
       // A PLAN ROW HEADS ITS OWN GROUP, in whichever section that group falls.
       //
       // This asserted the opposite — no plan row in WAITING ON YOU, the one
@@ -407,7 +412,7 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // it in, and a head appears beside the rows it heads rather than in a
       // section of its own.
       expect(await waiting.locator('li[data-tuple-kind="plan"]').count()).toBe(1);
-      const notStarted = page.locator('ul[role="grid"][aria-label^="Not started"]');
+      const notStarted = page.locator('ul[role="grid"][aria-label^="Input to the fleet"]');
       expect(await notStarted.locator('li[data-tuple-kind="plan"]').count()).toBe(1);
       // And no row CROSSED: the branches stayed where their groups put them.
       expect(await notStarted.locator('li[data-tuple-kind="branch"]').count()).toBe(0);

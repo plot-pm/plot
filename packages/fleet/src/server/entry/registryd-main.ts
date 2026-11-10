@@ -7,6 +7,7 @@ import {
   hostShell,
   performerShell,
   processesShell,
+  processesFiles,
   refsGit,
   refsRemoteGit,
   buildShell,
@@ -39,8 +40,12 @@ import {
   fleetdHeartbeatFile,
   writeProbeShell,
   appKeyShell,
+  installObjectsReader,
   type RunningChannel,
+  hostReadsFor,
+  type HostReads,
 } from '@plot-pm/domain/adapters';
+import { hostTransportLine } from '@plot-pm/domain/rules/host-transport';
 import { probeAppKeysAtStart } from '@plot-pm/domain/workflows/app-key-start-probe';
 import { removeStageDirsOnExit } from '@plot-pm/domain/adapters/stage-dirs';
 import { unpushedAfterMerge } from '@plot-pm/domain/workflows/unpushed-after-merge';
@@ -63,11 +68,13 @@ import { tempSweepDue } from '@plot-pm/domain/rules/temp-sweep';
 import { headroomFor } from '@plot-pm/domain/entities/machine';
 import type { FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Performer } from '@plot-pm/domain/ports/performer';
-import type { Host, MergedAnswer } from '@plot-pm/domain/ports/host';
+import type { Host, MergedAnswer, PrListingRow } from '@plot-pm/domain/ports/host';
 import type { FleetdLoop, HeldSlice, PortResult } from '@plot-pm/domain';
 import { answered, failed } from '@plot-pm/domain';
+import { agentFindingsOver } from '../../shared/agent-findings.js';
 import { startFleetdHeartbeat, supervisedFrom, trackBridgeWrites } from '../../shared/fleetd-heartbeat.js';
 import { deskDead, type DeskDeadAnswer } from '@plot-pm/domain/rules/desk-dead';
+import type { Processes } from '@plot-pm/domain/ports/processes';
 import { landed, type LandedAnswer } from '@plot-pm/domain/rules/landed';
 import { indexMergedHeads, mergedSetWindowFor, viewLanded } from '@plot-pm/domain/rules/known-pr';
 import { checkNamesOf, checksWaitMsOf, defaultBranchRed, mainRepairBoundMsOf } from '@plot-pm/domain/rules/default-branch';
@@ -829,6 +836,8 @@ const queuedHasLandedOf = async (
  *   `readConfigAsync` call per tick, shared with {@link run}'s own
  *   `defaultBranchWorld`, when the caller passes a cached thunk; a fresh read
  *   every call when absent.
+ * @param host - the `Host` the merged listing and the merge answers go through;
+ *   `hostShell` when absent, the composed host reads in fleetd.
  * @returns the world the queue is read through.
  */
 export const queueWorldForRepo = (
@@ -840,11 +849,11 @@ export const queueWorldForRepo = (
   refusedSlices: RefusedSliceRecord = refusedSlicesFile({ cwd: repoRoot }),
   checksWaitMs: () => Promise<number> = async () =>
     checksWaitMsOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Checks wait', '3600')),
+  host: Host = hostShell({ repoRoot, scriptDir: scriptsDir }),
 ): QueueWorld => {
   const context = { repoRoot, scriptDir: scriptsDir };
   const refs = refsGit(context);
   const plans = fleetPlanStore(context, refs);
-  const host = hostShell(context);
   // NO MEMO GIVEN, NO MEMO BUILT. This world has no `beginTick`, so a memo it
   // built for itself would never be cleared and would freeze every merge answer
   // for the life of the daemon. Without one, each question goes to the host.
@@ -899,24 +908,27 @@ export const queueWorldForRepo = (
       // 3-request budget `PR_REQUESTS_PER_REFRESH.bitbucket` already assumes.
       const backend = await host.backend();
       const limit = backend.ok && backend.value === 'bitbucket' ? 50 : 500;
+      /** The heads of the listed rows the host reports as `MERGED`. */
+      const mergedHeads = (rows: readonly PrListingRow[]): string[] =>
+        rows.flatMap((row) => (row.state === 'MERGED' && typeof row.head === 'string' ? [row.head] : []));
       const full = async (): Promise<MergedListing> => {
         tally.calls += 1;
-        const answer = await host.prList('merged', limit);
+        const answer = await host.prListing({ state: 'merged', limit });
         // A FAILED LISTING NAMES ITS OWN REFUSAL. `whole: false` says the set is
         // incomplete and cannot say why; the tick line prints the kind, so an
         // operator reads `unaskable(throttled)` rather than inferring a rate
         // limit from a count of held slices (#1094).
-        if (!answer.ok)
+        if (answer.answer === 'failed' || answer.answer === 'unaskable')
           return {
             merged: new Set<string>(),
             whole: false,
-            kind: host.lastRefusal()?.kind ?? 'failed',
+            kind: answer.refusal?.kind ?? 'failed',
             failed: true,
           };
-        // A PARTIAL ANSWER KEEPS ITS ROWS AND IS NOT WHOLE. `prList` answers
-        // the rows that arrived and leaves a refusal behind, so a branch
-        // missing from them may still have merged.
-        const refusal = host.lastRefusal();
+        // A PARTIAL ANSWER KEEPS ITS ROWS AND IS NOT WHOLE. `prListing` answers
+        // the rows that arrived beside its refusal, so a branch missing from
+        // them may still have merged.
+        const refusal = answer.refusal;
         const whole = refusal === null;
         // `state`, NOT `mergedAt`, AND ONLY BECAUSE THE HOST ALREADY FILTERED.
         // The repo's rule is that `mergedAt` decides *did this land* — a merged
@@ -926,7 +938,7 @@ export const queueWorldForRepo = (
         // so filtering on it would reject every row. Ask `prMerged` for a single
         // branch; this is the bundle.
         return {
-          merged: new Set(answer.value.filter((pr) => pr.state === 'MERGED').map((pr) => pr.head)),
+          merged: new Set(mergedHeads(answer.rows)),
           whole,
           kind: refusal?.kind ?? null,
           failed: false,
@@ -943,14 +955,13 @@ export const queueWorldForRepo = (
       const window = mergedSetWindowFor(store);
       if (window.kind === 'full') return full();
       tally.calls += 1;
-      const answer = await host.prList('merged', limit, window.since);
-      const refusal = host.lastRefusal();
+      const answer = await host.prListing({ state: 'merged', limit, since: window.since });
       // ANY DELTA TROUBLE FALLS THROUGH TO THE FULL CALL IN THE SAME TICK.
       // A failed call, a left-behind refusal, or exactly `limit` rows (the
       // page may have been truncated) are each a reason not to trust this
       // answer — none of them are unioned with the stored rows.
-      if (!answer.ok || refusal !== null || answer.value.length === limit) return full();
-      const deltaHeads = answer.value.filter((pr) => pr.state === 'MERGED').map((pr) => pr.head);
+      if (answer.answer !== 'answered' || answer.rows.length === limit) return full();
+      const deltaHeads = mergedHeads(answer.rows);
       const merged = new Set([...deltaHeads, ...indexMergedHeads(store?.rows ?? [])]);
       return { merged, whole: true, kind: 'delta', failed: false };
     },
@@ -1244,14 +1255,15 @@ export const CORRECTION_BUDGET_KEY = 'Correction budget';
  * @param repoRoot - the repository root.
  * @param scriptsDir - where the helper scripts are.
  * @param liveRun - whether an unblocker batch is live; `false` by default.
+ * @param processes - the worker-state reader; {@link processesFiles} by default.
  * @returns the world the tick's unblock pass reads through.
  */
 export const unblockWorldForRepo = (
   repoRoot: string,
   scriptsDir: string,
   liveRun: () => boolean = () => false,
+  processes: Pick<Processes, 'workerState'> = processesFiles({ repoRoot, scriptDir: scriptsDir }),
 ): UnblockWorld => {
-  const processes = processesShell({ repoRoot, scriptDir: scriptsDir });
   const record = answerRecordFile({ cwd: repoRoot });
   return {
     marker: (worktree) => markerReading(worktree),
@@ -2653,6 +2665,8 @@ export interface RunSeams {
   readDefaultBranch?: () => Promise<void>;
   /** The issue read on the issue beat. */
   readIssues?: () => Promise<void>;
+  /** The composed GitHub reads; tests only, so no test resolves a real token. */
+  hostReads?: HostReads;
   /** Replaces the drain of the tracker writes Plot made; tests only. */
   readIssueWrites?: () => Promise<void>;
   /** Replaces the state-sync pass; tests only. */
@@ -2787,7 +2801,7 @@ export const sweepTempIfDue = async (
  * @param warn - where failures go.
  * @param repoRoot - the checkout supervised; `PLOT_REPO_ROOT`, else the working directory.
  * @param seams - replacements for what `run` builds itself; see {@link RunSeams}.
- * @returns the exit code: 0 for a stopped loop, 2 for a bad argument.
+ * @returns the exit code: 0 for a stopped loop, 1 for a git older than 2.42, 2 for a bad argument.
  */
 export const run = async (
   argv: readonly string[],
@@ -2806,6 +2820,14 @@ export const run = async (
       'usage: plot-fleetd.mjs [--once] [--dry-run] [--start-agents] [--sweep-temp] [--max N] [--interval SECONDS]\n',
     );
     return 2;
+  }
+
+  // ONE OBJECT READER FOR THE DAEMON'S WHOLE LIFE: every `refsGit` built below
+  // reads blobs and trees through it. A git older than 2.42 refuses the start.
+  const objects = await installObjectsReader(repoRoot);
+  if (!objects.installed && objects.why === 'git-version') {
+    warn(`plot-fleetd: ${objects.refusal}\n`);
+    return 1;
   }
 
   const scriptsDir = scriptsDirFor(here);
@@ -2861,12 +2883,31 @@ export const run = async (
       checksWaitMsOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Checks wait', '3600')))();
     return checksWaitCache;
   };
+  const probedHost = await (async (): Promise<string | null> => {
+    const answer = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
+    if (answer.ok) return answer.value;
+    const reason = answer.why === 'unaskable' && answer.reason !== undefined ? answer.reason : answer.why;
+    warn(`plot-fleetd: the git host probe did not answer (${reason}) — assuming github\n`);
+    return null;
+  })();
+  // THE TRANSPORT IS CHOSEN ONCE, AT START: the PR listings, the issue reads
+  // and the default-branch runs read in-process on GitHub with a token, and
+  // through `plot-host.sh` otherwise. The line names the transport, its reason
+  // and the token source, never the token.
+  const hostReads =
+    seams.hostReads ??
+    (await hostReadsFor(
+      { repoRoot, scriptDir: scriptsDir },
+      { backend: probedHost, ci: await readConfigAsync({ repoRoot, scriptsDir }, 'CI', '') },
+    ));
+  warn(`plot-fleetd: ${hostTransportLine(hostReads.choice)}\n`);
+  const readsApi = hostReads.api ?? undefined;
   // ONE MEMO FOR BOTH WORLDS. `tick` reads the supervisor world first, and its
   // `beginTick` clears the memo, so the queue read that follows shares the
   // tick's answers and the next tick asks again.
   const merges = mergeMemoOver(hostShell({ repoRoot, scriptDir: scriptsDir }));
   const world = worldForRepo(repoRoot, scriptsDir, tally, merges);
-  const queue = queueWorldForRepo(repoRoot, scriptsDir, tally, merges, undefined, undefined, checksWaitMs);
+  const queue = queueWorldForRepo(repoRoot, scriptsDir, tally, merges, undefined, undefined, checksWaitMs, hostReads.host);
   // SHARES `tally` WITH `queue` ABOVE so a hand-over's fresh `queuedHasLanded`
   // call still counts toward the tick's host tally — but NOT `merges`: a
   // hand-over asks the host again on purpose, and the tick's memo would hand
@@ -3006,13 +3047,8 @@ export const run = async (
   const issueWorld = {
     context: { repoRoot, scriptDir: scriptsDir },
     declaredTracker: await readConfigAsync({ repoRoot, scriptsDir }, 'Tracker', ''),
-    gitHost: await (async () => {
-      const answer = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
-      if (answer.ok) return answer.value;
-      const reason = answer.why === 'unaskable' && answer.reason !== undefined ? answer.reason : answer.why;
-      warn(`plot-fleetd: the git host probe did not answer (${reason}) — assuming github\n`);
-      return 'github';
-    })(),
+    gitHost: probedHost ?? 'github',
+    api: readsApi,
     issueStore,
     record: recordSnapshot,
     issueWrites: issueWriteSpoolOver(issueStore),
@@ -3031,7 +3067,8 @@ export const run = async (
   const readPrs = fleetPrs(
     {
       scripts,
-      host: hostShell({ repoRoot, scriptDir: scriptsDir }),
+      host: hostReads.host,
+      hostClaimsSlot: hostReads.api !== null,
       store: prIndexFile({ cwd: repoRoot }),
       issueGate: issueGateOf(issueStore),
       record: recordSnapshot,
@@ -3044,7 +3081,7 @@ export const run = async (
   // does: `refsGit` answers `remoteSha` as `unaskable`, `refsRemoteGit` reads
   // `git ls-remote`. It rides the PR reader's beat, so the head is read once per
   // beat and the runs only when the SHA moved or the re-ask rule is due.
-  const ci = await buildShell({ repoRoot, scriptDir: scriptsDir });
+  const ci = await buildShell({ repoRoot, scriptDir: scriptsDir }, readsApi);
   const defaultBranchWorld = args.once
     ? null
     : {
@@ -3065,8 +3102,9 @@ export const run = async (
         store: defaultBranchFile(repoRoot),
         repair: repairRecordFile(repoRoot),
         // The host-slot bound is GitHub's account budget; other systems call direct.
+        // The in-process client claims its own slot per request.
         slot: <T,>(call: () => Promise<T>): Promise<T> =>
-          ci.system() === 'github-actions'
+          ci.system() === 'github-actions' && hostReads.api === null
             ? withHostSlot(prState, call)
             : call(),
         now: () => Date.now(),
@@ -3135,6 +3173,7 @@ export const run = async (
           passes: () => ({ ...passes }),
           bridgeAt: bridge.bridgeAt,
           generation: seams.snapshotGeneration ?? (() => snapshot.current().generation),
+          hostTransport: hostReads.choice,
         },
         warn,
       );
@@ -3174,13 +3213,20 @@ export const run = async (
               const answer = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
               return answer.ok ? answer.value : 'github';
             },
+            // THE AGENTMONITOR'S FINDINGS, from the walk's own readings; one
+            // host `pr-state` per agent end.
+            findings: agentFindingsOver({ repoRoot, scriptDir: scriptsDir }, warn),
             walk: {
-              host: hostShell({ repoRoot, scriptDir: scriptsDir }),
+              host: hostReads.host,
               plans: (ref, planDir) => planStoreRef(refsGit({ repoRoot, scriptDir: scriptsDir }), { repoRoot, scriptDir: scriptsDir }, ref, planDir),
               worktree: planStoreShell({ repoRoot, scriptDir: scriptsDir }),
               trees: treesGit({ repoRoot, scriptDir: scriptsDir }),
               agents: agentsFs({ repoRoot, scriptDir: scriptsDir }),
-              processes: processesShell({ repoRoot, scriptDir: scriptsDir }),
+              processes: processesFiles(
+                { repoRoot, scriptDir: scriptsDir },
+                // fleetd's pass writes the line for a token released with no exit record.
+                { log: (line) => warn(`plot-fleetd: ${line}\n`), recordRelease: true },
+              ),
               parser: planParserPath({ repoRoot, scriptDir: scriptsDir }),
               // THE STORE IS KEYED BY THE BACKEND WORD; a file read, no host request.
               prIndexRows: async () => {

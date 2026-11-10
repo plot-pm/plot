@@ -12,6 +12,7 @@ import { CHANNEL_SOCKET, run, startFleetChannel } from '../../src/server/entry/r
 import { fleetDivisors } from '../../src/shared/fleet-clock.js';
 import { createSnapshotHolder } from '../../src/shared/snapshot-fill.js';
 import { buildSandbox, type Sandbox } from '../census/sandbox.js';
+import { SOCKET_TEMP_ROOT } from '../socket-root.js';
 
 // The census fixture for GitHub (three desks, five open PRs) with fleetd's
 // real channel: a snapshot subscriber follows the daemon through three passes.
@@ -24,7 +25,11 @@ describe('fleetd publishes its snapshot on the channel', () => {
   const savedEnv = { ...process.env };
 
   beforeAll(async () => {
-    box = await buildSandbox({ host: 'github', desks: 3, openPrs: 5 });
+    box = await buildSandbox({ host: 'github', desks: 3, openPrs: 5, tempRoot: SOCKET_TEMP_ROOT });
+    // The sandbox's environment drops `PLOT_PR_INDEX_HOME` and the other keys
+    // it names; deleting them here keeps the daemon's index in the sandbox
+    // repository rather than in a directory every test file of the run shares.
+    for (const key of Object.keys(process.env)) if (!(key in box.env)) delete process.env[key];
     Object.assign(process.env, box.env);
   }, 120_000);
 

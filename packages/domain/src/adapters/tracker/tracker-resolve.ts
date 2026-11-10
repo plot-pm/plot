@@ -6,7 +6,8 @@ import type { ClosedIssues, IssueOpenOutcome, IssueRead, StatusOutcome, Tracker,
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { trackerReads } from './tracker-shell.js';
-import { githubIssueComment, trackerGithub } from './tracker-github.js';
+import type { GithubApi } from '../host/github-api.js';
+import { githubInProcessReads, githubIssueComment, trackerGithub } from './tracker-github.js';
 import { githubIssueClose, githubIssueLabel, githubPlanStateWrite } from './tracker-plan-state.js';
 import { trackerJira } from './tracker-jira.js';
 import { trackerNone } from './tracker-none.js';
@@ -37,15 +38,16 @@ const TRACKER_KEY = 'Tracker';
  *
  * @param declared - the `Tracker` key's value, scheme first.
  * @param context - where the scripts and the repository are.
+ * @param api - the in-process GitHub client; given, `github-issues` reads in-process.
  * @returns the connector that scheme names.
  */
-export const trackerFor = (declared: string, context: ShellContext): Tracker => {
+export const trackerFor = (declared: string, context: ShellContext, api?: GithubApi): Tracker => {
   const [scheme = '', baseUrl = ''] = declared.trim().split(/\s+/);
   switch (scheme.toLowerCase()) {
     case 'jira':
       return trackerJira(context, baseUrl.replace(/\/+$/, ''));
     case 'github-issues':
-      return trackerGithub(context);
+      return trackerGithub(context, api);
     default:
       return trackerNone();
   }
@@ -88,13 +90,30 @@ export const trackerShell = async (context: ShellContext): Promise<Tracker> => {
  * honest answer the port-doc correction states: no tracker was declared, so no
  * status write was asked for either.
  *
+ * Given a client on a `github` git host, the open, closed and changed reads
+ * go to GitHub's API in this process, as {@link trackerGithub}'s do.
+ *
  * @param gitHost - the repository's git host backend word, as `plot-host.sh
  *   backend` reports it.
  * @param context - where the scripts and the repository are.
+ * @param api - the in-process GitHub client; used only on a `github` git host.
  * @returns a `Tracker` backed by the git host's own connector.
  */
-export const trackerGitHost = (gitHost: string, context: ShellContext): Tracker => {
-  const reads = trackerReads({ context, scheme: '', baseUrl: '', connector: gitHost }, {});
+export const trackerGitHost = (gitHost: string, context: ShellContext, api?: GithubApi): Tracker => {
+  const shellReads = trackerReads({ context, scheme: '', baseUrl: '', connector: gitHost }, {});
+  const inProcess =
+    api === undefined || gitHost !== 'github'
+      ? null
+      : githubInProcessReads(api, (refusal) => shellReads.refuse(refusal?.said ?? null));
+  const reads =
+    inProcess === null
+      ? shellReads
+      : {
+          ...shellReads,
+          issueListOpen: inProcess.issueListOpen,
+          issueListClosed: inProcess.issueListClosed,
+          issueListChanged: inProcess.issueListChanged,
+        };
   return {
     config: (): TrackerConfig => ({ scheme: '', baseUrl: '' }),
     issueList: (limit): Promise<PortResult<readonly Issue[]>> => reads.issueList(limit),
@@ -144,6 +163,7 @@ export const trackerGitHost = (gitHost: string, context: ShellContext): Tracker 
  * @param declared - the `Tracker` config key's value, verbatim.
  * @param gitHost - the repository's git host backend word.
  * @param context - where the scripts and the repository are.
+ * @param api - the in-process GitHub client; absent, every read runs the script.
  * @returns the connector that answers this repository's issues.
  */
 export const trackerOfSource = (
@@ -151,12 +171,13 @@ export const trackerOfSource = (
   declared: string,
   gitHost: string,
   context: ShellContext,
+  api?: GithubApi,
 ): Tracker => {
   switch (source.ask) {
     case 'tracker':
-      return trackerFor(declared, context);
+      return trackerFor(declared, context, api);
     case 'git-host':
-      return trackerGitHost(gitHost, context);
+      return trackerGitHost(gitHost, context, api);
     case 'nobody':
       return trackerNone(source.reason);
   }

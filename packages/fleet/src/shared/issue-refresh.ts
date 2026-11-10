@@ -18,7 +18,7 @@ import {
   type IssueSource,
   type PortResult,
 } from '@plot-pm/domain';
-import { TRACKER_LISTERS, trackerOfSource, type ShellContext } from '@plot-pm/domain/adapters';
+import { TRACKER_LISTERS, trackerOfSource, type GithubApi, type ShellContext } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { IssueWriteSpool } from '@plot-pm/domain/ports/issue-write-spool';
 import type { ClosedIssues, IssueRead, TrackerSpender } from '@plot-pm/domain/ports/tracker';
@@ -78,6 +78,8 @@ export interface IssueWorld {
   declaredTracker: string;
   /** The repository's git host backend word. */
   gitHost: string;
+  /** The in-process GitHub client; absent, the reads run `plot-host.sh`. */
+  api?: GithubApi;
   /** The issue index; the pass is its one writer. */
   issueStore: IssueIndexStore;
   /** The writes Plot made to the tracker, waiting for the next drain; absent where none are taken. */
@@ -416,7 +418,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
     state.issueNextIsBackoff = false;
     return;
   }
-  const tracker = trackerOfSource(source, world.declaredTracker, world.gitHost, world.context);
+  const tracker = trackerOfSource(source, world.declaredTracker, world.gitHost, world.context, world.api);
   const spent = await tracker.spender();
   const spender: TrackerSpender = spent.ok ? spent.value : { connector: world.gitHost, account: null };
 

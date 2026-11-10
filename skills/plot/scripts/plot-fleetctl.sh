@@ -906,6 +906,10 @@ if [ "$mode" = "status" ]; then
 
   resolve_wt_root
   n_run=0 n_other=0
+  # THE BOARD'S STATE OF EACH DESK, asked once for all of them through the
+  # bundle, so a desk the two readers see differently prints both and
+  # `differs`. A missing bundle prints no board state.
+  board_states=$(PLOT_REPO_ROOT="$repo_root" node "$script_dir/board/plot-ask.mjs" desk-states "$wt_root"/"$wt_prefix"* 2>/dev/null)
   for wt in "$wt_root"/"$wt_prefix"*; do
     [ -d "$wt" ] || continue
     # A DETACHED DESK IS NAMED RATHER THAN BLANK. `--start` cuts a free agent's
@@ -916,6 +920,7 @@ if [ "$mode" = "status" ]; then
     row=$(plot_worker_state "$wt")
     st=$(printf '%s' "$row" | cut -f1)
     pid=$(printf '%s' "$row" | cut -f2)
+    board=$(printf '%s\n' "$board_states" | awk -F '\t' -v w="$wt" -v s="$st" '$1 == w { printf "  board: %s%s", $2, ($2 == s ? "" : " (differs)") }')
     if [ "$st" = "running" ]; then
       n_run=$((n_run + 1))
       # HOW LONG IDLE reads the log's mtime, not the process's start time. A
@@ -945,15 +950,13 @@ if [ "$mode" = "status" ]; then
       if [ -r "$wt/.plot-worker.limited" ]; then
         lim_reset=$(cut -f1 < "$wt/.plot-worker.limited" 2>/dev/null | head -n1)
         lim_iso=$(cut -f2 < "$wt/.plot-worker.limited" 2>/dev/null | head -n1)
-        case "$lim_reset" in
-          ''|*[!0-9]*) ;;
-          *) [ "$lim_reset" -gt "$(date +%s)" ] && quiet=" — waiting on a usage limit until $lim_iso" ;;
-        esac
+        # `${lim_reset##*[!0-9]*}` is empty for an empty or non-numeric reset.
+        [ -n "${lim_reset##*[!0-9]*}" ] && [ "$lim_reset" -gt "$(date +%s)" ] && quiet=" — waiting on a usage limit until $lim_iso"
       fi
-      echo "  $br  running (pid $pid)$quiet"
+      echo "  $br  running (pid $pid)$quiet$board"
     else
       n_other=$((n_other + 1))
-      echo "  $br  $st${pid:+ (pid $pid)}"
+      echo "  $br  $st${pid:+ (pid $pid)}$board"
     fi
   done
   [ $((n_run + n_other)) -gt 0 ] || echo "  (no fleet worktrees under $wt_root)"

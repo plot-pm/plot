@@ -45,10 +45,10 @@ export const stateSyncTick = (scripts: Pick<Scripts, 'awaited'>, warn: (line: st
     return `${step} failed (exit ${run.code})${said ? `: ${said}` : ''}`;
   };
   return async () => {
-    const forward = await scripts.awaited('plot-state-sync.mjs', ['--forward'], { timeoutMs: RUN_BOUND_MS });
+    const forward = await scripts.awaited('board/plot-state-sync.mjs', ['--forward'], { timeoutMs: RUN_BOUND_MS });
     if (forward.code === NO_STATE_BRANCH) return;
     report('forward', causeOf('forward', forward));
-    const pr = await scripts.awaited('plot-state-sync.mjs', ['--pr', '--caller', 'fleetd'], { timeoutMs: RUN_BOUND_MS });
+    const pr = await scripts.awaited('board/plot-state-sync.mjs', ['--pr', '--caller', 'fleetd'], { timeoutMs: RUN_BOUND_MS });
     if (pr.code === NO_STATE_BRANCH) return;
     report('pr', causeOf('pr', pr));
   };

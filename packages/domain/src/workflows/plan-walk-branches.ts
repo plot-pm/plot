@@ -1,7 +1,7 @@
 import { mergeSubjectForms } from '../adapters/host/merge-subjects.js';
 import type { Pr } from '../entities/pr.js';
 import { answered, failed, type PortResult } from '../port-result.js';
-import type { Host } from '../ports/host.js';
+import type { Host, HostRefusal } from '../ports/host.js';
 import type { Containment, Refs } from '../ports/refs.js';
 import {
   branchState,
@@ -45,7 +45,7 @@ export const mergeWalkLimit = (): number => {
 const PR_LIST_LIMIT = 1000;
 
 /** How many changed paths one branch reports. */
-const CHANGED_PATHS_CAP = 40;
+export const CHANGED_PATHS_CAP = 40;
 
 /** The wordings a host CLI uses when it has no identity: the question was never put. */
 const UNASKED_PATTERNS: readonly RegExp[] = [
@@ -198,8 +198,9 @@ export interface BranchStageReadings {
  * @param said - what the connector said.
  * @returns the reach.
  */
-const reachOfRefusal = (kind: 'throttled' | 'secondary' | 'failed' | null, said: string): HostReach => {
+const reachOfRefusal = (kind: HostRefusal['kind'] | null, said: string): HostReach => {
   if (kind === 'throttled' || kind === 'secondary') return kind;
+  if (kind === 'auth') return 'unasked';
   return UNASKED_PATTERNS.some((pattern) => pattern.test(said)) ? 'unasked' : 'failed';
 };
 

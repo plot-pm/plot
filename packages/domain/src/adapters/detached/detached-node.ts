@@ -8,8 +8,8 @@ import type { Detached } from '../../ports/detached.js';
  * @returns the {@link Detached} port.
  */
 export const detachedNode = (): Detached => ({
-  node: (script, args, cwd, logFile) => {
-    const out = openSync(logFile, 'w');
+  node: (script, args, cwd, logFile, append) => {
+    const out = openSync(logFile, append === true ? 'a' : 'w');
     let code: number | null = null;
     const child = spawn(process.execPath, [script, ...args], { cwd, detached: true, stdio: ['ignore', out, out] });
     closeSync(out);

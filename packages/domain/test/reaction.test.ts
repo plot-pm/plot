@@ -251,3 +251,11 @@ describe('loweredConcurrency — a bound falls and never rises', () => {
     )).toBe(Number.POSITIVE_INFINITY);
   });
 });
+
+describe('a refused credential', () => {
+  it('sets no retry time: no wait, no lowered concurrency', () => {
+    expect(reactionTo('auth', Date.now() + 60_000, Date.now(), 30_000)).toEqual({
+      waitMs: 0, stated: false, concurrencyFactor: 1, touchesCadence: false,
+    });
+  });
+});

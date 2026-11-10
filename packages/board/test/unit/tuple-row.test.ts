@@ -977,6 +977,14 @@ describe('every kind fills all six slots', () => {
     expect(unmeasured.status).toBe('working');
   });
 
+  it('names liveness by start time on a desk with no token, and nothing on a desk with one', () => {
+    const startTime = tupleFromRow(row({ kind: 'agent', worker: 'running', worker_activity: 'working', worker_basis: 'start-time' }));
+    const token = tupleFromRow(row({ kind: 'agent', worker: 'running', worker_activity: 'working', worker_basis: 'token' }));
+    expect(startTime.status).toBe('working · liveness by start time');
+    expect(token.status).toBe('working');
+    expect(token.status).not.toContain('liveness by start time');
+  });
+
   it('falls back to the branch state where the worker state says nothing', () => {
     // `none` and `elsewhere` are not activity — the first means no worker, the
     // second that this machine has nowhere to look. Printing a word about a

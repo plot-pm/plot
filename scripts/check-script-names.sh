@@ -163,9 +163,12 @@ cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 # behind — it is a pure domain rule read by `board/plot-gate.mjs`'s
 # `role-deny` gate.
 #
-# `ROOTS` names every package with TypeScript source. `registry.ts`, which
-# holds `WORKER_STATE_SCRIPT`, is in packages/fleet/src.
-ALLOWED=22
+# LOWERED TO 21 ON 2026-11-09: `fleet/src/shared/registry.ts` reads desk
+# liveness through `readWorkerReadings` and no longer names
+# `plot-worker-state.sh` (`desk-probes-in-domain`, slice Registry).
+#
+# `ROOTS` names every package with TypeScript source.
+ALLOWED=21
 
 ROOTS='packages/board/src packages/domain/src packages/fleet/src'
 

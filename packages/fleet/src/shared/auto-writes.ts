@@ -12,7 +12,7 @@ import { maybeAutoDispatch } from './auto-dispatch.js';
 import type { ActOptions } from './action-log.js';
 import { readMachine } from './machine-reading.js';
 import { readFleetSettings } from './fleet-settings-store.js';
-import { bashCleanliness, readAgentRegistryWithInfo } from './registry.js';
+import { deskCleanliness, readAgentRegistryWithInfo } from './registry.js';
 
 /**
  * Builds the pass that makes the fleet's automatic writes: auto-dispatch, then
@@ -68,7 +68,7 @@ export const fleetAutoWrites = (
       const controls = await readFleetSettings(opts);
       const { entries } = await readAgentRegistryWithInfo(opts.repoRoot, undefined, {
         scriptsDir: opts.scriptsDir,
-        cleanliness: bashCleanliness,
+        cleanliness: deskCleanliness,
       });
       const machine = await readMachine(opts);
       // A STOP THAT ARRIVED DURING THE SCAN STARTS NO NEW AGENT: only dispatch

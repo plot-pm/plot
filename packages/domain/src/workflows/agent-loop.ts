@@ -10,7 +10,7 @@ import { backgroundDropCorrection } from '../rules/background-drop.js';
 import { mergeConflictCorrection } from '../rules/merge-conflict.js';
 import { runLimitRefusal } from '../rules/run-limit.js';
 import { sliceSpendRefusal } from '../rules/slice-spend-refusal.js';
-import type { EndingActor, EndingReason } from '../entities/ending.js';
+import type { EndingActor, EndingReason, IdleInputs } from '../entities/ending.js';
 import { type Decision, type Write, decide } from './decision.js';
 
 /**
@@ -90,6 +90,8 @@ export interface AgentLoopReadings {
     readonly verdict: MonitorVerdict;
     /** Whether a transcript could be read at all, for the `unreadable`/`bound` split. */
     readonly transcriptReadable: boolean;
+    /** What the idle check that answered `idle` read of the log and the CPU; absent otherwise. */
+    readonly idle?: IdleInputs;
   } | null;
 
   /**
@@ -338,10 +340,24 @@ const end = (
   exitCode: number,
   writes: readonly Write[] = [],
   resumeId?: string,
+  idle?: IdleInputs,
 ): Decision<AgentLoopDetail> =>
   decide(
     'agent-loop',
-    [...writes, { kind: 'loop-end', worktree, branch, reason, actor, detail, exitCode, ...(resumeId !== undefined ? { resumeId } : {}) }],
+    [
+      ...writes,
+      {
+        kind: 'loop-end',
+        worktree,
+        branch,
+        reason,
+        actor,
+        detail,
+        exitCode,
+        ...(resumeId !== undefined ? { resumeId } : {}),
+        ...(idle !== undefined ? { idle } : {}),
+      },
+    ],
     { branch, exitCode, note: detail },
   );
 
@@ -744,6 +760,8 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
         'the watcher reported idle: alive, committed, transcript silent past the window, no child on a core, tree unmoved',
         124,
         [finding(readings, branch, 'idle', 'the watcher reported idle')],
+        undefined,
+        readings.running.idle,
       );
     }
 

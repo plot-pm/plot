@@ -11,8 +11,8 @@ import type { AgentEntry, AgentRow, Fleet, Supervisor } from '../../src/contract
  * Every decision behind it — which of the four states a reading is, whether it
  * is worth saying, and whether it is a warning — is a domain property asserted
  * in `packages/domain/test/supervisor-reading.test.ts` with no browser and no
- * server. This file owns the other half: that the badge lands on the WORKING
- * header beside the stepper, that `up` renders nothing, and that a warning is
+ * server. This file owns the other half: that the badge lands in the Fleet
+ * section beside the stepper, that `up` renders nothing, and that a warning is
  * visibly different from a note.
  *
  * `/api/fleet` is stubbed at the network boundary, so no claim here is about a
@@ -46,9 +46,9 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
 });
 
 /**
- * One registry entry. WORKING RENDERS THE REGISTRY, not the rows — so a fixture
- * whose `rows` place a branch in `working` and whose `agents` do not name it
- * renders an EMPTY section and every assertion against it times out.
+ * One registry entry. THE FLEET SECTION RENDERS THE REGISTRY, not the rows — so
+ * a fixture whose `rows` name a branch and whose `agents` do not name it
+ * renders no agent row and every assertion against one times out.
  *
  * `identity` defaults to `manifest`: a declared agent is the ordinary row, and
  * the undeclared one is the case a test states explicitly.
@@ -59,7 +59,7 @@ const agent = (over: Partial<AgentEntry> = {}): AgentEntry => ({
   relaunches: 0, state: 'running', ...over,
 });
 
-/** A pulse with a row in WORKING and one in NOT STARTED, so both headers render. */
+/** A pulse with a worked branch and an untaken one, and one agent on the first. */
 function fleet(supervisor: Supervisor | undefined, agents?: AgentEntry[]): Fleet {
   const rows: AgentRow[] = [
     row({ branch: 'feature/working-a', plan: 'beans', group: 'working', ageMinutes: 10 }),
@@ -85,6 +85,9 @@ function fleet(supervisor: Supervisor | undefined, agents?: AgentEntry[]): Fleet
     supervisor,
   } as Fleet;
 }
+
+/** The agent rows: the registry entries the Fleet section renders. */
+const agentRows = (page: Page) => page.locator('[data-section="fleet"] [data-agent-row]');
 
 /** The section a control sits under — its nearest `<section>`'s heading text. */
 async function sectionOf(page: Page, selector: string): Promise<string> {
@@ -120,8 +123,8 @@ describe('the supervisor badge (real browser renders the shipped artifact)', () 
    * with the badge never appearing rather than appearing late.
    *
    * The stepper is then the anchor rather than the badge, because two of the
-   * five cases assert the badge is ABSENT. The stepper renders with the WORKING
-   * header this payload produces, and every claim below is about a span inside
+   * five cases assert the badge is ABSENT. The stepper renders in the Fleet
+   * section this payload produces, and every claim below is about a span inside
    * it — so its presence is what says the payload landed.
    */
   async function open(payload: Fleet): Promise<Page> {
@@ -132,7 +135,7 @@ describe('the supervisor badge (real browser renders the shipped artifact)', () 
           route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }),
       },
     });
-    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="fleet"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     await page.locator('[data-fleet-parallel-agents]').waitFor({ timeout: 10_000 });
     return page;
@@ -163,7 +166,7 @@ describe('the supervisor badge (real browser renders the shipped artifact)', () 
     }
   });
 
-  it('shows the warning on the WORKING header beside the stepper', async () => {
+  it('shows the warning in the Fleet section beside the stepper', async () => {
     // The measured failure: six agents running, nothing loaded to reap them.
     const page = await open(fleet({
       state: 'down', prominence: 'warn', shown: true,
@@ -175,9 +178,9 @@ describe('the supervisor badge (real browser renders the shipped artifact)', () 
       await expect.poll(() => badge.count()).toBe(1);
       expect(await badge.textContent()).toContain('unsupervised');
       expect(await badge.getAttribute('title')).toContain('6 agents are running');
-      // ON THE SECTION IT IS ABOUT. The supervisor is what reaps WORKING's
-      // agents when they finish, so the statement belongs on WORKING.
-      expect(await sectionOf(page, '[data-fleet-supervisor]')).toContain('working');
+      // ON THE SECTION IT IS ABOUT. The supervisor is what reaps the fleet's
+      // agents when they finish, so the statement belongs in Fleet.
+      expect(await sectionOf(page, '[data-fleet-supervisor]')).toContain('fleet');
       // OUTSIDE THE CONTROL — the anti-contract flip. Wave 2 asserted this was
       // `true`; the alert is neither a control nor its value, and a
       // `spinbutton` announces its contents as part of what it reads.
@@ -296,12 +299,12 @@ describe('the supervisor badge (real browser renders the shipped artifact)', () 
     }
   });
 
-  it('keeps every WORKING row when the fleet is stopped', async () => {
+  it('keeps every agent row in Fleet when the fleet is stopped', async () => {
     // THE NAIVE IMPLEMENTATION OF "the section carries the warning" IS TO
     // REPLACE THE SECTION'S CONTENTS WITH IT, and that is what this refuses.
     //
     // The rows are real processes. `fleet.ts:383` — "THE WORKING SECTION IS THE
-    // REGISTRY" — reads manifests and worktrees from disk and never the
+    // REGISTRY", now the Fleet section — reads manifests and worktrees from disk and never the
     // supervisor, so a stopped fleet does not empty the section, and each row's
     // `running` stays literally true because the pids still exist. Hiding them
     // loses processes an operator may need to stop by hand; marking each row
@@ -322,7 +325,7 @@ describe('the supervisor badge (real browser renders the shipped artifact)', () 
     }, agents));
     let before: number;
     try {
-      before = await supervised.locator('[data-agent-row]').count();
+      before = await agentRows(supervised).count();
       expect(before).toBeGreaterThan(0);
     } finally {
       await supervised.close();
@@ -335,7 +338,7 @@ describe('the supervisor badge (real browser renders the shipped artifact)', () 
     try {
       // The alert is on screen — otherwise the row count below proves nothing.
       await expect.poll(() => stopped.locator('[data-fleet-supervisor]').count()).toBe(1);
-      expect(await stopped.locator('[data-agent-row]').count()).toBe(before);
+      expect(await agentRows(stopped).count()).toBe(before);
     } finally {
       await stopped.close();
     }
@@ -354,7 +357,9 @@ describe('the supervisor badge (real browser renders the shipped artifact)', () 
     ]));
     try {
       // IT RENDERS. Both entries have rows — the undeclared one was not dropped.
-      await expect.poll(() => page.locator('[data-agent-row]').count()).toBe(2);
+      // Counted in Fleet: the branch rows under Work items carry
+      // `data-agent-row` too, and they are not registry entries.
+      await expect.poll(() => agentRows(page).count()).toBe(2);
       // AND ITS KIND CHANGED. Exactly the undeclared desk is marked, so the
       // assertion is also that the declared one is NOT — a blanket error state
       // would satisfy a count of one but not this pair.

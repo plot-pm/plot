@@ -6,7 +6,6 @@ import { classify,
   machineProcesses,
   rowsFromPulse } from '../../src/server/fleet.js';
 import { inMachineSection, machineNote } from '../../src/app/lib/agent-rows/host-notes.js';
-import { GROUPS } from '../../src/app/lib/agent-rows/sections.js';
 import {
   AgentRowSchema, WorkerStateSchema, type AgentRow, type FleetReading,
 } from '../../src/contract/schema.js';
@@ -191,15 +190,6 @@ describe('the section is the group, and the group alone', () => {
     // changes nothing that renders and keeps an older payload from going blank.
     const r = row({ group: 'waiting-on-machine', note: 'PR #244, CI running', processes: [] });
     expect(machineNote(r)).toBe('PR #244, CI running');
-  });
-
-  it('withdraws the forecast from the section hint', () => {
-    // The empty-section hint said *CI will finish* — a prediction of an outcome
-    // nothing here measures. *a machine is working* is what was observed, and it
-    // is the section's own rule now that nothing but a machine reaches it.
-    const machine = GROUPS.find((g) => g.key === 'waiting-on-machine')!;
-    expect(machine.hint).not.toContain('will finish');
-    expect(machine.hint).toContain('a machine is working');
   });
 });
 

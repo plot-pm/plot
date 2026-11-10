@@ -43,8 +43,10 @@ describe('the board shows which kind of quiet a row is in', () => {
    *
    * One per kind, each carrying the sentence `quietNote` returns for it. The
    * fourth — plain `quiet` — is the shelved branch with a written reason, which
-   * is what still reaches QUIET through `classifyGroup`: somebody decided and
-   * wrote down why, so the row is a record and asks for nothing.
+   * is what `classifyGroup` still files as `quiet`: somebody decided and wrote
+   * down why, so the row is a record and asks for nothing. No agent acts on
+   * any of the four slices, so the placement rule puts all four under Work
+   * items › Queued.
    */
   const rows = [
     buildRow({
@@ -69,19 +71,18 @@ describe('the board shows which kind of quiet a row is in', () => {
   ];
 
   /**
-   * Open the Agents tab over the four rows, with QUIET unfolded.
+   * Open the Agents tab over the four rows, with Queued unfolded.
    *
-   * QUIET is collapsed by default — `COLLAPSED_BY_DEFAULT` — so a test about
-   * what a quiet row renders opens the section first, which is the same click a
-   * reader makes. WAITING ON YOU is open on arrival and needs none.
+   * Queued is open on arrival; the toggle is opened only where a stored
+   * collapse set shut it, which is the same click a reader makes.
    */
   async function open(): Promise<Page> {
     const page = await cat.open('ten-rows-one-kind-each', {
       tab: 'agents',
       over: { fleet: buildFleet({ ...envelope(), rows }) as Fleet },
     });
-    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
-    const toggle = page.locator('[data-group-toggle="quiet"]');
+    await page.locator('section[data-section="you"]').waitFor({ timeout: 10_000 });
+    const toggle = page.locator('[data-group-toggle="queued"]');
     await toggle.waitFor({ timeout: 10_000 });
     if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
     await expandAgentFolds(page);
@@ -114,11 +115,10 @@ describe('the board shows which kind of quiet a row is in', () => {
   const rowFor = (page: Page, branch: string) =>
     page.locator('[role="row"]').filter({ has: page.locator(`[data-branch="${branch}"]`) }).last();
 
-  /** The section with this heading. */
-  const group = (page: Page, label: string) =>
-    page.locator('section').filter({
-      has: page.getByRole('heading', { level: 2, name: new RegExp(label) }),
-    });
+  /** A Delivery tab section by its `DELIVERY_LAYOUT` key. */
+  const section = (page: Page, key: string) => page.locator(`section[data-section="${key}"]`);
+  /** A group by its `DELIVERY_LAYOUT` key. */
+  const group = (page: Page, key: string) => page.locator(`[data-group="${key}"]`);
 
   it('shows a declined PR as declined, not as silence', async () => {
     // The 17-row population, and the one this plan's first draft got wrong. It
@@ -147,9 +147,9 @@ describe('the board shows which kind of quiet a row is in', () => {
     const page = await open();
     try {
       await expect.poll(() => rowFor(page, 'feature/declined').count()).toBe(1);
-      // In QUIET, not DONE: DONE would read a declined branch as an equal
-      // outcome to a merged one.
-      await expect.poll(() => group(page, 'Quiet').getByText('feature/declined').count())
+      // Under Queued as a row, not counted with the merged slices in the
+      // release line: that would read a declined branch as an equal outcome.
+      await expect.poll(() => group(page, 'queued').getByText('feature/declined').count())
         .toBeGreaterThan(0);
     } finally {
       await page.close();
@@ -197,18 +197,18 @@ describe('the board shows which kind of quiet a row is in', () => {
     }
   });
 
-  it('puts the two kinds that still need a person inside QUIET', async () => {
+  it('puts the two kinds that still need a person under Queued, not under You', async () => {
     // OPERATOR DECISION B (2026-11-03) reverses #1758/#1902: an orphaned claim
-    // and abandoned work keep their kind word and their note, but file under
-    // QUIET rather than WAITING ON YOU. The errand they ask for — revive it, or
-    // drop it — is real, but it is not the kind of "waiting on you" that a
-    // live PR or a review request is.
+    // and abandoned work keep their kind word and their note, and stay out of
+    // the person-facing section. The errand they ask for — revive it, or drop
+    // it — is real, but it is not the kind of "waiting on you" that a live PR
+    // or a review request is.
     const page = await open();
     try {
-      const quiet = group(page, 'Quiet');
-      await expect.poll(() => quiet.getByText('feature/never-begun').count()).toBeGreaterThan(0);
-      await expect.poll(() => quiet.getByText('feature/left-behind').count()).toBeGreaterThan(0);
-      const waiting = group(page, 'Waiting on you');
+      const queued = group(page, 'queued');
+      await expect.poll(() => queued.getByText('feature/never-begun').count()).toBeGreaterThan(0);
+      await expect.poll(() => queued.getByText('feature/left-behind').count()).toBeGreaterThan(0);
+      const waiting = section(page, 'you');
       expect(await waiting.getByText('feature/never-begun').count()).toBe(0);
       expect(await waiting.getByText('feature/left-behind').count()).toBe(0);
     } finally {
@@ -216,14 +216,13 @@ describe('the board shows which kind of quiet a row is in', () => {
     }
   });
 
-  it('keeps QUIET for the record it still means', async () => {
+  it('keeps the shelved record on the board, with its reason', async () => {
     // A branch somebody shelved with a written reason. Nobody is coming back
-    // for it and nothing is being asked, so QUIET is the honest placement — the
-    // section keeps only what it means rather than being emptied for its own
-    // sake.
+    // for it and nothing is being asked, so it sits under Queued and not under
+    // You, and the row still says why.
     const page = await open();
     try {
-      await expect.poll(() => group(page, 'Quiet').getByText('feature/shelved-with-reason').count())
+      await expect.poll(() => group(page, 'queued').getByText('feature/shelved-with-reason').count())
         .toBeGreaterThan(0);
       await expect.poll(() => rowFor(page, 'feature/shelved-with-reason').textContent())
         .toContain('superseded by the rewrite');
@@ -261,7 +260,7 @@ describe('the board shows which kind of quiet a row is in', () => {
           body: JSON.stringify({ branch, released: true, hadClaim: true, detail: 'claim released' }),
         });
       });
-      const toggle = page.locator('[data-group-toggle="quiet"]');
+      const toggle = page.locator('[data-group-toggle="queued"]');
       await toggle.waitFor({ timeout: 10_000 });
       if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
       await expandAgentFolds(page);

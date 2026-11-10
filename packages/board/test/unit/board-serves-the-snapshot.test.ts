@@ -99,6 +99,9 @@ const record = (title: string): PlanEntry => ({
   startedRaw: [],
   rejectedRaw: '',
   unreadBranchItems: [],
+  issues: [],
+  designRaw: '',
+  verifiedRaw: '',
 });
 
 const header: WalkHeader = {
@@ -161,7 +164,13 @@ const snapshotTitled = (title: string, generation: number): RepoSnapshot => {
       desks: read([{ path: '/repo', branch: 'main', detached: false, isMain: true, clean: false, agentSession: null, prunable: false }]),
       deskFiles: read({}),
       workers: read({}),
-      plans: read({ ref: 'origin/main', records: [record(title)] }),
+      plans: read({
+        ref: 'origin/main',
+        resolved: MAIN,
+        records: [record(title)],
+        authors: { state: 'read', value: {} },
+        delivered: { state: 'read', value: {} },
+      }),
       prs: read([{ number: 7, head: 'feature/x', state: 'OPEN', draft: false, checks: 'green', review: '', url: 'u7' }]),
       walk: read(walkValueOf(estate, branchStageOf(title), { mainSha: MAIN, desks: [] }, new Map(), header)),
       branchDates: read([{ branch: 'feature/x', committedAt: Math.floor(Date.now() / 1000) - 600 }]),
@@ -254,10 +263,9 @@ describe('the board serves from fleetd snapshot', () => {
     await fleet.refresh(served, entry);
     expect(entry.viewSource).toBe('snapshot');
     await adapters.fleetdHeartbeatFile({ repoRoot: dir }).write(heartbeat(Date.now() - 600_000));
-    counted.calls.length = 0;
     await fleet.refresh(served, entry);
     expect(entry.viewSource).toBe('own');
-    expect(counted.calls.length).toBeGreaterThan(0);
+    // The own scan reads the fixture's refs from files, so it may start no process.
   });
 
   it('reads for itself with no tab attached, whatever the channel holds', async () => {

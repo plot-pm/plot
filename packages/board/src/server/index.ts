@@ -2,7 +2,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { inspect } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { machineSystem, shellContext } from '@plot-pm/domain/adapters';
+import { installObjectsReader, machineSystem, shellContext } from '@plot-pm/domain/adapters';
 import { isAnswered } from '@plot-pm/domain';
 import { planStoreFor, scriptsFor, primeAgentSettings, renderPlanPage, renderStoryPage, renderDesignDocPage, startBundleFor, type BuildBoardOptions } from './board.js';
 import { fleetSnapshotArrived, issuesClosedReading, watchFleet } from './fleet.js';
@@ -89,6 +89,15 @@ const opts: BuildBoardOptions = {
  * could not be hashed at start.
  */
 opts.startBundle = startBundleFor(opts, here);
+
+// ONE OBJECT READER FOR THE SERVER'S WHOLE LIFE: every `refsGit` the board
+// builds reads blobs and trees through it. A git older than 2.42 refuses the
+// start, on stderr and before the log takes over, so the launcher sees it.
+const objectsInstall = await installObjectsReader(opts.repoRoot);
+if (!objectsInstall.installed && objectsInstall.why === 'git-version') {
+  process.stderr.write(`Plot board: ${objectsInstall.refusal}\n`);
+  process.exit(1);
+}
 
 // ── The board's own log ──────────────────────────────────────────────────────
 //

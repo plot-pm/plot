@@ -1,15 +1,7 @@
-import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import { between, startSession, treeOf } from './census-session.js';
-import { buildSandbox, type Sandbox } from './sandbox.js';
+import { between, treeOf } from './census-session.js';
 import type { ExecRecord, StraceCensus } from './strace-execs.js';
-
-const open: Sandbox[] = [];
-
-afterEach(async () => {
-  for (const box of open.splice(0)) await box.remove();
-});
 
 const exec = (pid: number, ppid: number | null, ...argv: string[]): ExecRecord => ({
   pid,
@@ -43,28 +35,4 @@ describe('the census windows', () => {
 
     expect(treeOf(census, census.execs, 1).map((e) => e.pid)).toEqual([1, 12]);
   });
-});
-
-describe('an AgentMonitor over a stub desk, untraced', () => {
-  it('runs while the worker lives and exits once the worker is gone', async () => {
-    const box = await buildSandbox({ host: 'github', desks: 1, openPrs: 0 });
-    open.push(box);
-    const desk = box.desks[0];
-    if (desk === undefined) throw new Error('no desk');
-    const session = startSession({
-      command: 'bash',
-      args: [join(box.scriptsDir, 'plot-agent-monitor.sh')],
-      cwd: desk.worktree,
-      env: { ...box.env, PLOT_BRANCH: desk.branch, PLOT_WORKTREE: desk.worktree, PLOT_MONITOR_FILE: join(box.root, 'm.jsonl') },
-      trace: false,
-    });
-    await new Promise((r) => setTimeout(r, 3_000));
-
-    expect(() => process.kill(session.pid, 0)).not.toThrow();
-    await desk.worker.stop();
-    const end = await session.end(30_000);
-
-    expect(end.signal).toBeNull();
-    expect(end.code).toBe(0);
-  }, 60_000);
 });

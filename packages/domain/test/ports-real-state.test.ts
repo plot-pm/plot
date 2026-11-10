@@ -5,6 +5,7 @@ import { hostShell } from '../src/adapters/host/host-shell.js';
 import { machineSystem } from '../src/adapters/machine/machine-system.js';
 import { planStoreShell } from '../src/adapters/plan-store/plan-store-shell.js';
 import { processesShell, parseEtime } from '../src/adapters/processes/processes-shell.js';
+import { processesFiles } from '../src/adapters/processes/processes-files.js';
 import { refsGit } from '../src/adapters/refs/refs-git.js';
 import { shellContext } from '../src/adapters/scripts.js';
 import { treesGit } from '../src/adapters/trees/trees-git.js';
@@ -265,7 +266,7 @@ describe('Processes reads this machine’s process table', () => {
 
   it('reports an absent worker as `none` rather than failing', async () => {
     // A desk with no worker is a reading, not a broken question.
-    const processes = processesShell(context);
+    const processes = processesFiles(context);
     const reading = await processes.workerState('/tmp/plot-no-such-worktree-xyz', false);
     expect(reading.ok).toBe(true);
     if (isAnswered(reading)) expect(reading.value.state).toBe('none');

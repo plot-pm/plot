@@ -74,6 +74,9 @@ node_modules/
 .plot-worker.envelope.json
 .plot-worker.ending.json
 .plot-worker.continue.md
+.plot-worker.pass
+.plot-worker.token.fifo
+.plot-worker.token.fifo.*.tmp
 
 # The board's own console log, written by `/plot-board --start`. Machine-local
 # for the same reason as the worker traces above — and untracked-but-unignored

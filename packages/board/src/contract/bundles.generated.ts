@@ -50,6 +50,7 @@ export const BOARD_ARTIFACT_PATHS: readonly string[] = [
   'skills/plot/scripts/board/plot-branch-state.mjs',
   'skills/plot/scripts/board/plot-brief-book.mjs',
   'skills/plot/scripts/board/plot-checkout-yield.mjs',
+  'skills/plot/scripts/board/plot-ci-reuse.mjs',
   'skills/plot/scripts/board/plot-claim-answer.mjs',
   'skills/plot/scripts/board/plot-continue-command.mjs',
   'skills/plot/scripts/board/plot-deliver.mjs',
@@ -113,5 +114,7 @@ export const BOARD_ARTIFACT_PATHS: readonly string[] = [
   'skills/plot/scripts/board/plot-verdicts.mjs',
   'skills/plot/scripts/board/plot-verify.mjs',
   'skills/plot/scripts/board/plot-worker-loop.mjs',
+  'skills/plot/scripts/board/plot-worker-start.mjs',
+  'skills/plot/scripts/board/plot-worker-wrapper.mjs',
   'skills/plot/scripts/board/plot-write-probe.mjs',
 ];

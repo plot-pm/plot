@@ -145,7 +145,7 @@ Upstream tracking does not answer the question: a slice branch tracks its own re
 
 ### Unchanged inputs
 
-- `infra/ci-skips-unchanged-inputs` — the reuse read in `select`, the `reused:<sha>` output, `validate`'s acceptance of it, and the contract rows. Expected saving: a docs-only push such as 8437242ef ends after `gates` and `checks` instead of ~45 min <!-- builds: CI job reuse across a branch's green runs --> <!-- deferred: a person decides at approval whether this slice ships; see Open Questions -->
+- `infra/ci-skips-unchanged-inputs` — the reuse read in `select`, the `reused:<sha>` output, `validate`'s acceptance of it, and the contract rows. Expected saving: a docs-only push such as 8437242ef ends after `gates` and `checks` instead of ~45 min <!-- builds: CI job reuse across a branch's green runs --> <!-- moved: ci-reuses-green-runs (decided 2026-11-09) -->
 
 ## Notes
 

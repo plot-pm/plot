@@ -43,6 +43,7 @@ export const buildFleetdEntry = async (product: string = productRoot()): Promise
       platform: 'node',
       format: 'esm',
       target: 'node22',
+      sourcemap: true,
       logLevel: 'silent',
       plugins: [
         {
@@ -58,7 +59,7 @@ export const buildFleetdEntry = async (product: string = productRoot()): Promise
       ],
     });
     const launcher = join(dir, 'launch.mjs');
-    writeFileSync(launcher, "await import('./fleetd-census.mjs');\n");
+    writeFileSync(launcher, "process.setSourceMapsEnabled(true);\nawait import('./fleetd-census.mjs');\n");
     return { launcher, remove: () => removeTree(dir) };
   } catch (e) {
     removeTree(dir);

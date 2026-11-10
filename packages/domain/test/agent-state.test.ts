@@ -55,6 +55,10 @@ describe('agentState', () => {
     expect(agentState(desk({ pidRecorded: true, liveness: 'live' }))).toBe('running');
   });
 
+  it('answers running for a stray holder of the token, so no restart starts', () => {
+    expect(agentState(desk({ pidRecorded: true, liveness: 'stray-holder' }))).toBe('running');
+  });
+
   it('answers running without consulting the exit record', () => {
     // A live process has not exited. A recorded code beside it belongs to an
     // earlier run of the same desk.
@@ -101,6 +105,14 @@ describe('agentState', () => {
     expect(
       agentState(desk({ pidRecorded: true, liveness: 'orphaned', exit: '3', task: task({ dirty: true }) })),
     ).toBe('stalled');
+  });
+
+  it('answers running for a free agent: an orphaned wrapper whose free-wait record names it beside a recorded startedAt', () => {
+    const orphaned = { pidRecorded: true, liveness: 'orphaned' as const, exit: null, task: task({ dirty: true }) };
+    expect(agentState(desk({ ...orphaned, waitsFree: true, startedAtRecorded: true }))).toBe('running');
+    expect(agentState(desk({ ...orphaned, waitsFree: true, startedAtRecorded: false }))).toBe('stalled');
+    expect(agentState(desk({ ...orphaned, waitsFree: false, startedAtRecorded: true }))).toBe('stalled');
+    expect(agentState(desk({ pidRecorded: true, liveness: 'dead', exit: '0', waitsFree: true, startedAtRecorded: true }))).toBe('finished');
   });
 
   it('answers ended when no exit was recorded', () => {

@@ -552,7 +552,7 @@ const loopPorts = (trees: Trees, boundedRun: BoundedRun, reexec: Reexec): Worker
 /** A hand-started free loop: no manifest, a 60 s wait bound, a 10 s pass interval. */
 const freeLoop = (dir: string, ports: WorkerLoopPorts, over: Partial<LoopDeps> = {}): LoopDeps => ({
   ports,
-  idle: { selfPid: 1, windowSeconds: 900, intervalMs: 1_000_000, transcript: transcriptFixture() },
+  idle: { selfPid: 1, windowSeconds: 900, intervalMs: 1_000_000, transcript: transcriptFixture() , table: async () => ({ ok: true as const, rows: [] }) },
   manifestFile: '',
   repoRoot: dir,
   worktree: dir,

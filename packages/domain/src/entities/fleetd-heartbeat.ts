@@ -21,6 +21,17 @@ export const FLEETD_SUPERVISORS = ['launchd', 'systemd', 'none'] as const;
 export const FleetdSupervisedSchema = z.enum(FLEETD_SUPERVISORS);
 export type FleetdSupervised = z.infer<typeof FleetdSupervisedSchema>;
 
+/** How fleetd reads the git host, and why; the shape of `HostTransportChoice`. */
+export const FleetdHostTransportSchema = z
+  .object({
+    // plot-state: classification — a process picks one transport at start and keeps it.
+    transport: z.enum(['in-process', 'shell']),
+    reason: z.string(),
+    tokenSource: z.string().nullable(),
+  })
+  .strict();
+export type FleetdHostTransport = z.infer<typeof FleetdHostTransportSchema>;
+
 /** One loop's observer fields. */
 export const FleetdLoopPassSchema = z
   .object({
@@ -64,6 +75,8 @@ export const FleetdHeartbeatSchema = z
     lastEventAt: z.number().nonnegative().nullable(),
     /** When the safety-net read last ran, epoch milliseconds; null if it has not. */
     lastSafetyNetAt: z.number().nonnegative().nullable(),
+    /** How fleetd reads the git host; absent from a fleetd that publishes none. */
+    hostTransport: FleetdHostTransportSchema.optional(),
     /** Each running loop's last completed pass. */
     loops: z.object({
       tick: FleetdLoopPassSchema.optional(),
