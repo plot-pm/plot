@@ -118,6 +118,56 @@ export function AutoDispatchSwitch({ value }: { value: boolean }) {
   );
 }
 
+/** The three switches beside auto-dispatch, with the label each shows. */
+const AUTO_SWITCHES = {
+  autoReview: 'auto-review',
+  autoVerify: 'auto-verify',
+  autoDesign: 'auto-design',
+} as const;
+
+export type AutoSwitchName = keyof typeof AUTO_SWITCHES;
+
+/**
+ * One of the three agent switches — auto-review, auto-verify, auto-design — in
+ * the Fleet header. It echoes optimistically and writes through
+ * `/api/fleet-controls` like the auto-dispatch switch, and rolls back where the
+ * server refuses.
+ */
+export function AutoSwitch({ name, value }: { name: AutoSwitchName; value: boolean }) {
+  const [checked, setChecked] = useState(value);
+  const [busy, setBusy] = useState(false);
+  const writing = useRef(false);
+
+  useEffect(() => {
+    if (!writing.current) setChecked(value);
+  }, [value]);
+
+  const toggle = async () => {
+    const next = !checked;
+    setChecked(next);
+    setBusy(true);
+    writing.current = true;
+    const result = await postControls({ [name]: next });
+    writing.current = false;
+    setBusy(false);
+    setChecked(typeof result?.[name] === 'boolean' ? result[name] : value);
+  };
+
+  return (
+    <label className="flex items-center gap-1.5 text-xs font-normal normal-case tracking-normal text-slate-500 dark:text-slate-400">
+      <input
+        type="checkbox"
+        data-fleet-auto-switch={name}
+        checked={checked}
+        disabled={busy}
+        onChange={() => void toggle()}
+        className="h-3.5 w-3.5 accent-slate-500"
+      />
+      {AUTO_SWITCHES[name]}
+    </label>
+  );
+}
+
 /**
  * The parallel-agent cap, for the WORKING header — a real `spinbutton`.
  *

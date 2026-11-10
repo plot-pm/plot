@@ -1636,7 +1636,7 @@ export type Board = z.infer<typeof BoardSchema>;
  * | kind | has a row today | data on the row |
  * |---|---|---|
  * | `ticket` | yes (`IssueRowView`) | yes |
- * | `plan` | yes (`PlanRow`) | yes |
+ * | `plan` | yes (the plan row) | yes |
  * | `branch` | yes (`Row`) | yes |
  * | `pr` | a CELL inside a branch row, not a row | yes — 67 of 80 live rows |
  * | `release` | an unmarked branch row | yes, undistinguished |

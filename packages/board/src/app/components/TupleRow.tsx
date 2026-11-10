@@ -10,7 +10,7 @@
 // grids.
 //
 // This renders a {@link TupleRow} — six slots, projected from whatever the kind
-// is by `src/app/lib/tuple-row.ts`. `Row`, `PlanRow` and `IssueRowView` are
+// is by `src/app/lib/tuple-row.ts`. `Row`, the plan row and `IssueRowView` are
 // GONE: the slice that landed this component deleted nothing on purpose, and the
 // slice that deleted them moved rendering only, because the shape and the
 // projection were already landed and tested.

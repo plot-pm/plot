@@ -26,7 +26,7 @@ import {
 function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents: number; working?: number } {
   return fleet.fleetControls ?? FLEET_CONTROLS_DEFAULT;
 }
-import { AutoDispatchSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
+import { AutoDispatchSwitch, AutoSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
 import { checkoutHealthStatus } from '@plot-pm/domain/rules/checkout-health';
@@ -36,14 +36,11 @@ import {
   spawnerStatus,
   spawnerStatusEntry,
 } from '@plot-pm/domain/rules/spawn-contract';
-import { agentRowKey } from '@plot-pm/domain/rules/desk-manifest';
 import { DeliveryFilters } from './DeliveryFilters.js';
 import { activeSprintButton, readList, sprintMembershipLookup, writeList } from '../lib/filters.js';
 import {
   rowInSprintSelection,
-  rowIsSprintExempt,
   sanitizeSelection,
-  showsSprintSlug,
   slugPassesSprintFilter,
 } from '@plot-pm/domain/rules/sprint-selection';
 import { chipReadings } from '../lib/agent-rows/chip-readings.js';
@@ -54,7 +51,7 @@ import { chipReadings } from '../lib/agent-rows/chip-readings.js';
 // THE TUPLE — one component and one grid for all seven kinds, and the
 // projection that fills its six slots.
 //
-// `Row`, `PlanRow` and `IssueRowView` used to live in this file, on TWO grid
+// `Row`, the plan row and `IssueRowView` used to live in this file, on TWO grid
 // definitions between the three of them — and the third, a TICKET, rendered
 // through the tracks of a BRANCH: no slice, no worker, no branch, wearing the
 // columns of something it is not. Three fill sites is how the two grids drifted
@@ -84,22 +81,15 @@ import {
   writeMineOnly,
   writeMineStrict,
 } from '../lib/agent-rows/mine-filter.js';
-import { mineMode, planIndexOf } from '@plot-pm/domain';
-import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
+import { mineMode, placeDelivery, planIndexOf } from '@plot-pm/domain';
+import { ActivityEcho, activeRowKeys, groupPace } from '../lib/agent-rows/activity.js';
 import { ActivityMark } from '../lib/agent-rows/marks.js';
-import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
 import { deliveryMapping } from '../lib/agent-rows/delivery-readings.js';
 import {
+  deliveryView,
   machineLine,
-  placeMapping,
-  planBlockShown,
-  planBlockToggleKey,
-  reasonWords,
-  type BlockView,
   type PlacedAgentView,
   type PlacedItemView,
-  type PlanBlockView,
-  type SliceBlockView,
 } from '../lib/agent-rows/delivery-view.js';
 import { shrinkNote } from '../lib/agent-rows/actions.js';
 import { hostAnswer, issueNote, prStatusEntry, scanHostNote } from '../lib/agent-rows/host-notes.js';
@@ -108,9 +98,11 @@ import { rowKey } from '../lib/agent-rows/row-identity.js';
 // it reads the fleet, decides the sections, and mounts the rows — the rows,
 // their marks and their menus are declared next door.
 import { waitingView } from '../lib/agent-rows/waiting-view.js';
-import { HeaderRow, IssueRowView, PlanRow, Row, RegistryRow, SliceRow, type AgentListProps } from '../lib/agent-rows/rows.js';
+import { IssueRowView, type AgentListProps } from '../lib/agent-rows/rows.js';
+import { DeliveryHeadRow, DeliveryRow, scrollToAnchor, type LinkHandlers } from './DeliveryRows.js';
+import { actionPlace, detailLines } from '../lib/agent-rows/delivery-link-targets.js';
+import { headerOf, rowFormsOf, switchesOf } from '../lib/agent-rows/delivery-row-facts.js';
 import { workingAgentRows, draftPlanRows } from '../lib/agent-rows/working-agents.js';
-import { DraftPlanRowView } from '../lib/agent-rows/draft-plan-row.js';
 import { PlanLevelRowView, planFileFromFleet, verificationRows } from '../lib/agent-rows/plan-level-row.js';
 import { specRows } from '../lib/agent-rows/spec-row.js';
 // RE-EXPORTED, not redefined — the same allowance `splitBranch` above is given.
@@ -185,51 +177,6 @@ export { UNNAMED_SLICE };
 
 
 
-
-/**
- * Which rows are currently wearing a change marker.
- *
- * The memory is a REF, not state: it is the board's record of what it last saw,
- * and writing it must not itself cause a render. What renders is the set of lit
- * keys beside it.
- *
- * **Per client, and one value deep.** Nothing is persisted and no contract field
- * is added — so a reload starts silent (the honest answer to *has anything
- * changed since I started looking?* is *I have only just started looking*), two
- * tabs mark independently, and a backgrounded tab accumulates nothing. The
- * marker is not a log.
- *
- * **Each key's timer is its own, and a second change RESTARTS it.** The marker
- * claims *something is happening here*, and two changes in quick succession make
- * that more true, not less: letting the first timer expire un-extended would
- * hide the second change behind the first and imply nothing further happened —
- * exactly the false statement the marker exists to prevent. So a repeat change
- * clears the pending timeout before setting a new one.
- *
- * Each marker clears ITSELF on its own timer rather than waiting for the next
- * pulse, which is what keeps a board that lost its server from sitting lit.
- */
-function useChangeMarks(rows: readonly AgentRow[]): ReadonlySet<string> {
-  const prior = useRef<Map<string, WatchedState> | null>(null);
-  const [lit, setLit] = useState<ReadonlySet<string>>(() => new Set());
-  const marks = useRef<ChangeMarks | null>(null);
-  marks.current ??= new ChangeMarks(setLit);
-
-  useEffect(() => {
-    // The FIRST pulse has no prior map at all, so `changedRows` sees an empty
-    // memory, marks nothing, and simply records — the fresh-mount case, which
-    // fires on every page load.
-    const { changed, next } = changedRows(prior.current ?? new Map(), rows);
-    prior.current = next;
-    if (changed.size > 0) marks.current!.mark(changed);
-  }, [rows]);
-
-  // Unmounting with markers lit would otherwise leave timeouts holding a
-  // setState against a gone component.
-  useEffect(() => () => marks.current?.dispose(), []);
-
-  return lit;
-}
 
 /**
  * Which rows are currently being written to — this pulse's signals, widened by
@@ -335,22 +282,11 @@ export function AgentList({
   pollSeconds,
   staleSeconds = null,
   onOpenPlan,
-  cardForPlanFile,
   planFileForSlug,
   cards,
-  dispatch,
-  approve,
-  reslice,
-  deliver,
-  implement,
-  drop,
-  continueWith,
-  restartWith,
   idea,
   story,
   ticketFacts,
-  pulse = 0,
-  onStarting,
   onRevealBranch,
   highlightBranch = '',
   server,
@@ -376,7 +312,6 @@ export function AgentList({
   // fleet rather than one group's rows: a change frequently moves a row between
   // sections, and a memory scoped to a section would lose the prior value in
   // exactly that case — the case it most exists for.
-  const marked = useChangeMarks(fleet.rows);
 
   // Which rows something is being written to. Fed the WHOLE fleet for the same
   // reason the change marks are: a row's signals do not decide its group, but
@@ -402,18 +337,6 @@ export function AgentList({
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
-      writeCollapsed(next);
-      return next;
-    });
-  };
-  // A blocker mark opens the fold its blocker sits behind: a delivered slice
-  // shows under Release delivery, folded by default.
-  const expandSection = (section: string) => {
-    if (section !== 'done') return;
-    setCollapsed((prev) => {
-      if (!prev.has('release-delivery')) return prev;
-      const next = new Set(prev);
-      next.delete('release-delivery');
       writeCollapsed(next);
       return next;
     });
@@ -451,31 +374,6 @@ export function AgentList({
   };
 
 
-  // A PLAN HEAD'S FOLD OVERRIDES, keyed `open:<block>` and `shut:<block>` —
-  // see `planBlockShown`. Not persisted: opening one plan's slices is a
-  // momentary question, and a board reloaded several times an hour must not
-  // restore it.
-  const [openPlans, setOpenPlans] = useState<Set<string>>(() => new Set());
-  const togglePlan = (key: string) => {
-    setOpenPlans((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
-  // A MULTI-BRANCH SLICE'S FOLD, keyed `plan\0slice` (`sliceKeyOf`). Folded by
-  // default and not persisted, for the reason the plan fold is not.
-  const [openSlices, setOpenSlices] = useState<Set<string>>(() => new Set());
-  const toggleSlice = (plan: string, wave: string) => {
-    setOpenSlices((prev) => {
-      const key = sliceKeyOf(plan, wave);
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
 
   // THE SAME FOLD, ONE LEVEL DOWN — a slice's branches, where it holds more than
   // one. Every argument above applies unchanged: collapsed by default, not
@@ -498,7 +396,6 @@ export function AgentList({
    * A Map rather than a `find` per row: WORKING holds one row per agent today,
    * but the lookup runs on every row of every section on every pulse.
    */
-  const agentByBranch = new Map((fleet?.agents ?? []).map((a) => [a.branch, a]));
 
   // THE WORKING SECTION IS THE REGISTRY, joined BACK to branch rows —
   // `the-working-section-shows-every-worker`, slice 1. `agentByBranch` above maps
@@ -683,7 +580,6 @@ export function AgentList({
   const sprintFilterOn = selectedSprints.length > 0;
   // Should a row name its own sprint? Only while more than one is Active and
   // the selection does not already single one out — see `showsSprintSlug`.
-  const showSprintSlug = showsSprintSlug(activeSprints.length, selectedSprints);
 
   // THE «This sprint» CHIP'S OWN CLICK keeps its pre-subset meaning — off
   // means every Active sprint, on means none — while a per-sprint chip
@@ -1075,213 +971,66 @@ export function AgentList({
           mode,
           config: { autoReview: fleet.autoReview, correctionBudget: fleet.correctionBudget },
         });
-        const view = placeMapping(mapping, fleet.slices);
-        const slices = fleet.slices;
+        const placement = placeDelivery(mapping.readings, mapping.input);
+        const view = deliveryView(mapping, placement, fleet.slices);
+        const forms = rowFormsOf(mapping, placement, Date.now());
+        const switches = switchesOf(fleet);
         const issues = fleet.issueAnswer === 'answered' ? filteredIssues : [];
-        const scrollTo = (anchor: string) => (e: { preventDefault: () => void }) => {
-          e.preventDefault();
-          document.getElementById(anchor)?.scrollIntoView({ block: 'center' });
-        };
-        const linkLine = (key: string, links: { label: string; anchor: string }[], arrow: string) =>
-          links.length === 0 ? null : (
-            <li key={key} role="row" data-delivery-link className="px-3 pb-1 text-xs text-slate-500 dark:text-slate-400">
-              <span role="gridcell">
-                {arrow}{' '}
-                {links.map((l, i) => (
-                  <span key={l.anchor}>
-                    {i > 0 && ', '}
-                    <a href={`#${l.anchor}`} onClick={scrollTo(l.anchor)} className="font-mono text-blue-600 hover:underline dark:text-blue-400">
-                      {l.label}
-                    </a>
-                  </span>
-                ))}
-              </span>
-            </li>
-          );
-        const rowProps = (r: AgentRow) => ({
-          row: r,
-          onOpenPlan,
-          sprintExempt: sprintFilterOn && rowIsSprintExempt(r),
-          card: cardForPlanFile?.(r.planFile) ?? null,
-          dispatch,
-          implement,
-          continueWith,
-          restartWith,
-          pulse,
-          onStarting,
-          marked: marked.has(rowKey(r)),
-          active: active.has(rowKey(r)),
-          agent: agentByBranch.get(r.branch) ?? null,
-          // A branch row names no wave: the slice row above it does.
-          sliceName: null,
-          onRevealBranch,
-          highlighted: r.branch === highlightBranch,
-          showSprintSlug,
-          planIndex,
-          onExpandSection: expandSection,
+        const prUrls = new Map<number, string>();
+        for (const r of fleet.rows) if (r.pr !== null && r.pr.url !== '') prUrls.set(r.pr.number, r.pr.url);
+        const linkHandlers = (plan: string): LinkHandlers => ({
+          context: {
+            plan,
+            branchUrlBase: fleet.branchUrlBase ?? '',
+            prUrl: (n) => prUrls.get(n) ?? null,
+            planFileOf: (p) => planFileOf(p),
+            branchOfAgent: (id) => mapping.agentsById[id]?.branch ?? '',
+          },
+          onPlan: (file) => { onOpenPlan?.(file); },
+          onReveal: (branch) => onRevealBranch?.(branch),
+          onAct: (action, id) => {
+            const row = mapping.rowsByItem[id]?.[0];
+            const place = actionPlace(action);
+            if (place === 'pr') {
+              const url = row?.pr?.url;
+              if (url) window.open(url, '_blank', 'noopener,noreferrer');
+            } else if (place === 'branch') {
+              if (row) onRevealBranch?.(row.branch);
+            } else {
+              const file = row?.planFile || planFileOf(mapping.draftsByItem[id]?.plan ?? row?.plan ?? '');
+              if (file) onOpenPlan?.(file);
+            }
+          },
         });
-        const anchorOf = (item: PlacedItemView) => (
-          <li key={`anchor-${item.anchor}`} role="presentation" id={item.anchor} className="h-0" />
-        );
-        // The reason a You item sits there, and its links to the agents acting on it.
-        const itemTail = (item: PlacedItemView) => [
-          item.placement?.section === 'you' ? (
-            <li key={`reason-${item.anchor}`} role="row" data-placement-reason={item.placement.reason} className="px-3 pb-1 text-xs text-amber-700 dark:text-amber-500">
-              <span role="gridcell">{reasonWords(item.placement.reason)}</span>
-            </li>
-          ) : null,
-          linkLine(`links-${item.anchor}`, item.links, '← agents:'),
-        ];
-        const itemBody = (item: PlacedItemView, inPlan = false) => [
-          anchorOf(item),
-          ...item.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={inPlan} />),
-          ...(item.draft !== null
-            ? [<DraftPlanRowView key={`draft-${item.draft.plan}`} draft={item.draft} onOpenPlan={onOpenPlan} planIndex={planIndex} />]
-            : []),
-          ...itemTail(item),
-        ];
-        const sliceBody = (block: PlanBlockView, s: SliceBlockView) => {
-          const wg = s.slice;
-          const start = block.mode === 'start';
-          const oneSlice = start && soleSliceFor(block.plan, slices) !== null;
-          const many = wg !== null && wg.rows.length > 1;
-          const sliceOpen = many ? openSlices.has(sliceKeyOf(block.plan, wg.wave)) : null;
+        const itemRows = (item: PlacedItemView) => {
+          const cells = forms.items.get(item.placement?.id ?? '');
+          if (cells === undefined) return [];
+          const plan = item.rows[0]?.plan ?? item.draft?.plan ?? '';
           return [
-            anchorOf(s.item),
-            wg === null ? null : (
-              <li key={`slice-${s.item.anchor}`} className="block">
-                <SliceRow
-                  group={wg}
-                  plan={block.plan}
-                  waitingDays={planWaitingDays(block)}
-                  expanded={sliceOpen}
-                  onToggle={many ? () => toggleSlice(block.plan, wg.wave) : undefined}
-                  active={wg.rows.some((r) => active.has(rowKey(r)))}
-                  marked={wg.rows.some((r) => marked.has(rowKey(r)))}
-                  card={start && !oneSlice ? (cardForPlanFile?.(block.planFile) ?? null) : null}
-                  dispatch={start && !oneSlice ? dispatch : undefined}
-                  reslice={reslice}
-                  pulse={pulse}
-                  onStarting={onStarting}
-                  groupedCount={!start && many ? wg.rows.length : undefined}
-                  groupedWord={!start ? wg.verdict ?? undefined : undefined}
-                  soleRow={!start && !many ? wg.rows[0] : undefined}
-                  implement={start ? undefined : implement}
-                  continueWith={start ? undefined : continueWith}
-                  restartWith={start ? undefined : restartWith}
-                  onOpenPlan={start ? undefined : onOpenPlan}
-                  onRevealBranch={start ? undefined : onRevealBranch}
-                  planHeaded={block.headed}
-                  menuCard={start ? undefined : (cardForPlanFile?.(block.planFile) ?? null)}
-                  menuDispatch={start ? undefined : dispatch}
-                  slices={slices}
-                  onExpandSection={expandSection}
-                  planIndex={planIndex}
-                />
-                {many && sliceOpen && (
-                  <ul
-                    role="presentation"
-                    data-slice-branch-list={wg.wave || '(unnamed)'}
-                    className="ml-6 border-l border-slate-200 dark:border-slate-800"
-                  >
-                    {wg.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={block.headed} inSliceGroup />)}
-                  </ul>
-                )}
-              </li>
-            ),
-            ...s.loose.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={block.headed} />),
-            ...itemTail(s.item),
+            <DeliveryRow
+              key={item.anchor}
+              anchor={item.anchor}
+              cells={cells}
+              details={detailLines(item.rows, null)}
+              handlers={linkHandlers(plan)}
+              highlighted={item.rows.some((r) => r.branch === highlightBranch && highlightBranch !== undefined)}
+            />,
           ];
         };
-        // A PLAN HEAD OVER ITS SLICES — `PlanRow`, then its slice rows nested
-        // beneath. `nestItems` decided which items it holds; `planBlockShown`
-        // decides whether they are on the page.
-        const planBody = (block: PlanBlockView) => {
-          const shown = planBlockShown(block, openPlans);
-          const group = { plan: block.plan, planFile: block.planFile, rows: block.rows };
-          return (
-            <li
-              role="rowgroup"
-              key={block.key}
-              data-plan-group={block.plan}
-              className="block rounded-sm bg-slate-50/60 outline outline-slate-300 -outline-offset-1 dark:bg-slate-900/30 dark:outline-slate-700"
-            >
-              {block.head !== null && <span id={block.head.anchor} className="block h-0" />}
-              {shown === false && block.slices.map((s) => <span key={s.item.anchor} id={s.item.anchor} className="block h-0" />)}
-              {shown === false && block.loose.map((item) => <span key={item.anchor} id={item.anchor} className="block h-0" />)}
-              <PlanRow
-                group={group}
-                slices={fleet.slices}
-                onOpenPlan={onOpenPlan}
-                ageMinutes={block.mode === 'progress' ? block.ageMinutes : undefined}
-                expanded={shown}
-                onToggle={shown === null ? undefined : () => togglePlan(planBlockToggleKey(block))}
-                active={block.rows.some((r) => active.has(rowKey(r)))}
-                marked={block.rows.some((r) => marked.has(rowKey(r)))}
-                card={cardForPlanFile?.(block.planFile) ?? null}
-                approve={approve}
-                deliver={deliver}
-                implement={implement}
-                dispatch={dispatch}
-                pulse={pulse}
-                onApproving={onStarting}
-                elsewhere={block.elsewhere}
-                soleSlice={soleSliceFor(block.plan, slices)}
-                onStarting={onStarting}
-                planIndex={planIndex}
-              />
-              {block.head !== null && (
-                <ul role="presentation">{itemTail(block.head)}</ul>
-              )}
-              {shown !== false && (
-                <ul
-                  role="presentation"
-                  data-slice-list={block.plan}
-                  className="ml-6 border-l border-slate-200 dark:border-slate-800"
-                >
-                  {block.slices.flatMap((s) => sliceBody(block, s))}
-                  {block.loose.flatMap((item) => itemBody(item, true))}
-                </ul>
-              )}
-            </li>
-          );
-        };
-        const blockBody = (block: BlockView) => {
-          if (block.kind !== 'plan') return itemBody(block.item);
-          if (block.headed) return [planBody(block)];
+        const agentRows = (agent: PlacedAgentView) => {
+          const cells = forms.agents.get(agent.placement.id);
+          if (cells === undefined) return [];
           return [
-            <li role="presentation" key={block.key} data-slice-list={block.plan} className="block">
-              <ul role="presentation">{block.slices.flatMap((s) => sliceBody(block, s))}</ul>
-            </li>,
-            ...block.loose.flatMap((item) => itemBody(item)),
+            <DeliveryRow
+              key={agent.anchor}
+              anchor={agent.anchor}
+              cells={cells}
+              details={detailLines(agent.row === null ? [] : [agent.row], agent.entry)}
+              handlers={linkHandlers(agent.row?.plan ?? '')}
+              highlighted={agent.entry !== null && agent.entry.branch !== '' && agent.entry.branch === highlightBranch}
+            />,
           ];
         };
-        const agentBody = (agent: PlacedAgentView) => [
-          <li key={`anchor-${agent.anchor}`} role="presentation" id={agent.anchor} className="h-0" />,
-          agent.entry !== null ? (
-            <RegistryRow
-              key={agentRowKey(agent.entry)}
-              agent={agent.entry}
-              row={agent.row}
-              slices={slices}
-              onOpenPlan={onOpenPlan}
-              card={agent.row ? cardForPlanFile?.(agent.row.planFile) ?? null : null}
-              dispatch={dispatch}
-              implement={implement}
-              continueWith={continueWith}
-              restartWith={restartWith}
-              drop={drop}
-              pulse={pulse}
-              onStarting={onStarting}
-              marked={agent.row ? marked.has(rowKey(agent.row)) : false}
-              active={agent.row ? active.has(rowKey(agent.row)) : false}
-              onRevealBranch={onRevealBranch}
-              highlighted={agent.entry.branch !== '' && agent.entry.branch === highlightBranch}
-              planIndex={planIndex}
-            />
-          ) : null,
-          linkLine(`links-${agent.anchor}`, agent.links, '→ acts on:'),
-        ];
         const fold = (key: string, count: number, heading: React.ReactNode) => {
           const foldable = isCollapsible(count);
           const folded = foldable && collapsed.has(key);
@@ -1336,8 +1085,11 @@ export function AgentList({
                       data-delivered
                       className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40"
                     >
-                      <HeaderRow />
-                      {view.deliveredBlocks.flatMap(blockBody)}
+                      {view.delivered.map((u) => (
+                        <li key={u.id} role="row" data-delivered-row className="px-3 py-2 text-sm text-slate-600 dark:text-slate-300">
+                          <span role="gridcell">{u.label} — delivered</span>
+                        </li>
+                      ))}
                     </ul>
                   )}
                   {section.key === 'fleet' && (
@@ -1347,8 +1099,11 @@ export function AgentList({
                         hiddenByFilter={workersHiddenByFilter}
                         registry={fleet?.registry}
                       />
-                      <span data-fleet-control-column className="ml-auto flex items-center gap-3">
+                      <span id="fleet-controls" data-fleet-control-column className="ml-auto flex flex-wrap items-center gap-3">
                         <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
+                        <AutoSwitch name="autoReview" value={switches.autoReview} />
+                        <AutoSwitch name="autoVerify" value={switches.autoVerify} />
+                        <AutoSwitch name="autoDesign" value={switches.autoDesign} />
                         <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} />
                       </span>
                       <FleetAlert supervisor={fleet?.supervisor} />
@@ -1359,12 +1114,21 @@ export function AgentList({
                   )}
                   {!folded && section.groups.map((group) => {
                     const groupMark = groupPace(group.rows, active);
+                    const held = headerOf(group.label, section.key, group.key, group.items.map((i) => i.placement), switches);
                     const g = fold(group.key, group.count, (
-                      <h3 data-delivery-group={group.key} className="flex items-baseline gap-1 text-sm font-medium text-slate-700 dark:text-slate-200">
+                      <h3 data-delivery-group={group.key} className="flex flex-wrap items-baseline gap-1 text-sm font-medium text-slate-700 dark:text-slate-200">
                         {group.label}
                         <span className="ml-1 font-normal text-slate-500">
-                          ({group.count > 0 ? group.tally : group.hint})
+                          ({group.count > 0 ? (section.key === 'fleet' ? group.tally : String(held.count)) : group.hint})
                         </span>
+                        {held.held.map((h) => (
+                          <span key={h.switch} data-group-held={h.switch} className="font-normal text-slate-500">
+                            · {h.name} off ·{' '}
+                            <button type="button" onClick={() => scrollToAnchor('fleet-controls')} className="text-blue-600 hover:underline dark:text-blue-400">
+                              {h.action} ›
+                            </button>
+                          </span>
+                        ))}
                         {groupMark && <ActivityMark pace={groupMark} place="heading" />}
                       </h3>
                     ));
@@ -1377,9 +1141,9 @@ export function AgentList({
                             aria-label={`${group.label} — agent branches`}
                             className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40"
                           >
-                            <HeaderRow />
-                            {group.blocks.flatMap(blockBody)}
-                            {group.agents.flatMap(agentBody)}
+                            <DeliveryHeadRow />
+                            {group.items.flatMap(itemRows)}
+                            {group.agents.flatMap(agentRows)}
                           </ul>
                         )}
                       </div>
@@ -1401,16 +1165,6 @@ export function AgentList({
                     </li>
                   ))}
                 </ul>
-                {view.notPlaced.some((u) => u.rows.length > 0) && (
-                  <ul
-                    role="grid"
-                    aria-label="Not placed — agent branches"
-                    className="mt-1 rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40"
-                  >
-                    <HeaderRow />
-                    {view.notPlaced.flatMap((u) => u.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} />))}
-                  </ul>
-                )}
               </section>
             )}
             {/* OUTSIDE THE PLACEMENT RULE, LABELLED AS SUCH. The rule places work

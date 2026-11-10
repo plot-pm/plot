@@ -350,7 +350,7 @@ export function hasExceptions(rows: Pick<AgentRow, 'stuck'>[]): boolean {
   // CASTS the fleet payload rather than parsing it, so a Zod default never runs
   // on this side and `stuck` is `undefined` on every row whose producer omitted
   // it. `undefined !== null` is true, so a null-check falls through to
-  // `.state` and throws — which unmounts PlanRow, and with it the whole
+  // `.state` and throws — which unmounts the plan row, and with it the whole
   // section. Measured 2026-08-27: 16 browser tests timed out waiting for
   // `Waiting on you`, because the section never rendered at all.
   return rows.some((r) => r.stuck && EXCEPTION_STATES.has(r.stuck.state));

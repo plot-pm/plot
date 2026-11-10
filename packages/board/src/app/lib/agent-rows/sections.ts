@@ -278,11 +278,11 @@ export function sliceGroupsFor(
   // only through the mock's hand-made two-branch slice. A rule that fires only in
   // a fixture is a rule nothing tests.
   //
-  // A slice holding several still folds — `expanded` is what the SliceRow does with
+  // A slice holding several still folds — `expanded` is what the slice row does with
   // a set. What changed is that a slice of one is a slice, not a PR.
   // AN UNNAMED SLICE IS STILL A SLICE, and it still groups. This filtered
   // `(unnamed)` out until 2026-08-21, which left its rows ungrouped — so the plan
-  // holding them got no `PlanRow` head and the branch led the row on its own,
+  // holding them got no the plan row head and the branch led the row on its own,
   // beside 51 plan-headed siblings. Reported from a screenshot of DONE.
   //
   // Same correction as `carriesSlice` on the server: the slice's NAME is not the
