@@ -51,7 +51,7 @@ describe('the release row approves itself', () => {
           route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ registered: true, credentialId: 'cred' }) }),
       },
     });
-    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     return page;
   };
 

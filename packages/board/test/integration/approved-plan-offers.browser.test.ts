@@ -163,7 +163,7 @@ describe('an approved plan offers Implement and Dispatch', () => {
       tab: 'agents',
       viewport: { width: 1400, height: 1200 },
     });
-    await page.getByText('Not started').first().waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;
   }
@@ -232,7 +232,7 @@ describe('an approved plan offers Implement and Dispatch', () => {
       { ...approvedBoard([draftCard('beans', 'p-beans.md')]), columns: [{ phase: 'Discovery', cards: [draftCard('beans', 'p-beans.md')] }] },
     );
     try {
-      await page.getByText('Waiting on you').first().waitFor({ timeout: 10_000 });
+      await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
       await expandAgentFolds(page);
       const planRow = planHead(page, 'beans');
       await expect.poll(() => planRow.count(), { timeout: 10_000 }).toBe(1);

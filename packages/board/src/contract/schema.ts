@@ -4713,6 +4713,13 @@ export const FleetShape = z.object({
    */
   issueAbsence: z.string().nullable().default(null),
   /**
+   * The `Auto-review` key of `## Plot Config`, as the server read it. Absent
+   * where the key is missing or an older server sends nothing; never defaulted.
+   */
+  autoReview: z.boolean().optional(),
+  /** The `Correction budget` key, absent on the same terms as `autoReview`. */
+  correctionBudget: z.number().optional(),
+  /**
    * How old the rows in `issues` are, where they came from `issues.json`
    * rather than a live read — the fleet's own `at` on the index, not the
    * moment this board read the file. Null where the rows are fresh (a live

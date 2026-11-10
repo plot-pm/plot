@@ -110,12 +110,13 @@ describe('the issue row has one action, and it creates a Draft', () => {
         contentType: 'application/json',
         body: JSON.stringify({ state: 'running', message: '', log: '' }),
       }));
-    await page.getByText('Waiting on you').first().waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return { page, posts };
   }
 
-  const section = (page: Page) => page.locator('ul[role="grid"][aria-label^="Waiting on you"]');
+  // Tickets render in the Delivery tab's trailing list outside the placement rule.
+  const section = (page: Page) => page.locator('ul[role="grid"][aria-label="Tickets and plan runs"]');
   const issueRow = (page: Page, n: number) => section(page).locator(`li[data-issue-row="${n}"]`);
   const button = (page: Page, n: number) => issueRow(page, n).locator(`[data-create-plan="${n}"]`);
   // THE `⋯` MENU the action now lives behind — `every-action-is-in-the-menu`.
@@ -279,9 +280,9 @@ describe('the issue row has one action, and it creates a Draft', () => {
   it('renders no issue row at all when the host has no issue read', async () => {
     const { page, posts } = await open(fleet({ issueAnswer: 'unsupported' }));
     try {
-      // The branch row proves the section rendered; the issue row's absence is
+      // The branch row proves the tab rendered; the issue row's absence is
       // then a fact rather than a page that had not loaded.
-      await section(page).locator('[data-branch="feature/needs-review"]').first()
+      await page.locator('[data-section="work-items"] [data-branch="feature/needs-review"]').first()
         .waitFor({ timeout: 10_000 });
       await expect.poll(() => issueRow(page, 228).count()).toBe(0);
       await expect.poll(() => button(page, 228).count()).toBe(0);

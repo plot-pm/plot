@@ -10,7 +10,7 @@ import type { AgentRow, Fleet } from '../../src/contract/schema.js';
  * THE TWO FLEET CONTROLS, driven in a real browser against the shipped artifact.
  *
  * `/api/fleet` is stubbed at the network boundary: every claim here is about
- * what the section HEADERS render from a pulse and what a click POSTs, not about
+ * what the Fleet section renders from a pulse and what a click POSTs, not about
  * a git estate. The server half — the state file, the defaults, the endpoint's
  * clamp and cross-origin refusal — is pinned against the artifact in
  * `test/fleet-controls.test.mjs`, where a second real board process reads the
@@ -30,8 +30,8 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
 });
 
 /**
- * A pulse with at least one row in WORKING and one in NOT STARTED, so both
- * headers render — and `fleetControls` set to the values under test.
+ * A pulse with a worked branch and an untaken one, and `fleetControls` set to
+ * the values under test.
  */
 function fleet(controls: Fleet['fleetControls']): Fleet {
   const rows: AgentRow[] = [
@@ -110,19 +110,20 @@ describe('the two fleet controls (real browser renders the shipped artifact)', (
         ...extra,
       },
     });
-    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="fleet"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return { page, posts };
   }
 
-  it('renders the switch in NOT STARTED only, the stepper in WORKING only', async () => {
+  it('renders the switch and the stepper once each, both in Fleet', async () => {
     const { page } = await open(fleet({ autoDispatch: false, parallelAgents: 3 }));
     try {
-      // Exactly one of each, and each under the header it is about.
+      // Exactly one of each, and both in the section they are about: the two
+      // controls start and cap the fleet's agents.
       expect(await page.locator('[data-fleet-auto-dispatch]').count()).toBe(1);
       expect(await page.locator('[data-fleet-parallel-agents]').count()).toBe(1);
-      expect(await sectionOf(page, '[data-fleet-auto-dispatch]')).toContain('not started');
-      expect(await sectionOf(page, '[data-fleet-parallel-agents]')).toContain('working');
+      expect(await sectionOf(page, '[data-fleet-auto-dispatch]')).toContain('fleet');
+      expect(await sectionOf(page, '[data-fleet-parallel-agents]')).toContain('fleet');
     } finally {
       await page.close();
     }
@@ -155,7 +156,7 @@ describe('the two fleet controls (real browser renders the shipped artifact)', (
         const read = (sel: string) => {
           const el = document.querySelector(sel);
           const column = el?.closest('[data-fleet-control-column]');
-          const h2 = column?.closest('h2');
+          const h2 = column?.parentElement;
           if (!column || !h2) return null;
           const c = column.getBoundingClientRect();
           const h = h2.getBoundingClientRect();

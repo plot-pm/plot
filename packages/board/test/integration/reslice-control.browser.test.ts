@@ -129,7 +129,7 @@ describe('the unsliced wave carries Slice this wave, and no other row does', () 
       tab: 'agents',
       viewport: { width: 1400, height: 1200 },
     });
-    await page.getByText('Waiting on you').first().waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;
   }

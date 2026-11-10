@@ -6322,16 +6322,13 @@ export const minutesSince = (iso: string, now: number): number | null => {
 };
 
 /**
- * Actionable before diagnostic.
+ * The order the served rows keep: by their `group` field, then by age.
  *
- * `not-started` sits ABOVE `quiet` because the two ask different things of a
- * reader with a spare ten minutes: not-started is work they can pick up right
- * now, while quiet asks them to go investigate something that may already be
- * dead. Sorted this way the list stays workable top to bottom — the ordering
- * principle these groups have always had — rather than putting an errand before
- * an opportunity.
+ * Private to the server. The Delivery tab orders by `DELIVERY_LAYOUT` and does
+ * not read this; the sort stays so the order of `rows` in the payload does not
+ * change for any other consumer.
  */
-export const GROUP_ORDER: WaitingGroup[] = [
+const SERVED_GROUP_ORDER: WaitingGroup[] = [
   'waiting-on-you', 'working', 'waiting-on-machine', 'not-started', 'quiet', 'done',
 ];
 
@@ -8013,8 +8010,8 @@ export function rowsFromPulse(
     // carries one of the six groups. `null` exists only on the WIRE, applied by
     // `sectionUnderFailure` after this function has returned — so a row reaching
     // here without a group would be a defect, not an unplaced row.
-    const g = GROUP_ORDER.indexOf(a.group as WaitingGroup)
-      - GROUP_ORDER.indexOf(b.group as WaitingGroup);
+    const g = SERVED_GROUP_ORDER.indexOf(a.group as WaitingGroup)
+      - SERVED_GROUP_ORDER.indexOf(b.group as WaitingGroup);
     if (g !== 0) return g;
     return compareWithinGroup(a, b);
   });
@@ -8380,6 +8377,9 @@ export async function buildFleet(
       fleetPlanIndexOf(opts, entry),
     ]);
   const { map: phaseMap } = declaredPhaseMap(phasesValue);
+  const autoReviewValue = await readConfigAsync(opts, 'Auto-review', '');
+  const correctionBudgetValue = await readConfigAsync(opts, 'Correction budget', '');
+  const correctionBudgetNumber = Number(correctionBudgetValue);
   // Each open PR's branch tip, read from the local remote-tracking refs the scan
   // already fetched: zero host calls. A failed read attaches no tip, and the
   // rows then answer exactly as they did before.
@@ -8603,6 +8603,10 @@ export async function buildFleet(
     viewSource: entry.viewSource ?? undefined,
     issueError: entry.issueError,
     issueAbsence: entry.issueAbsence,
+    ...(autoReviewValue === '' ? {} : { autoReview: autoReviewValue.toLowerCase() === 'true' }),
+    ...(correctionBudgetValue === '' || !Number.isFinite(correctionBudgetNumber)
+      ? {}
+      : { correctionBudget: correctionBudgetNumber }),
     // Set only where `entry.issues` came from `issues.json` rather than a live
     // read — null means the rows are either fresh or not aged at all (an
     // `unsupported` source, or no read has happened yet).

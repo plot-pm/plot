@@ -107,18 +107,21 @@ describe('an open board follows a sprint change', () => {
         }),
       },
     });
-    await page.getByText('Waiting on you').first().waitFor({ timeout: 15_000 });
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 15_000 });
     await reveal(page);
     return page;
   }
 
-  async function reveal(page: Page): Promise<void> {
-    const toggle = page.locator('[data-group-toggle="waiting-on-you"]');
-    if (await toggle.count() > 0 && (await toggle.getAttribute('aria-expanded')) === 'false') {
-      await toggle.click();
+  // Both fixture rows carry an open green PR, so they land under Work items › At a gate.
+  const reveal = async (page: Page): Promise<void> => {
+    for (const key of ['work-items', 'at-a-gate']) {
+      const toggle = page.locator(`[data-group-toggle="${key}"]`);
+      if (await toggle.count() > 0 && (await toggle.getAttribute('aria-expanded')) === 'false') {
+        await toggle.click();
+      }
     }
     await expandAgentFolds(page);
-  }
+  };
 
   /**
    * Serve a new payload and return once the client has fetched it.
@@ -240,7 +243,7 @@ describe('an open board follows a sprint change', () => {
     const page = await cat.browser.newPage();
     try {
       await page.goto(`${cat.mock.baseURL}?tab=agents&deliverySprint=closed-sprint`);
-      await page.getByText('Waiting on you').first().waitFor({ timeout: 15_000 });
+      await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 15_000 });
       await reveal(page);
 
       // The stale slug names no Active sprint, so neither per-sprint chip

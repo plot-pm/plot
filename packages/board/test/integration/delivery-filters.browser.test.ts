@@ -81,7 +81,7 @@ describe('the delivery tab renders one chip row', () => {
         }),
       },
     });
-    await page.getByText('Waiting on you').first().waitFor({ timeout: 15_000 });
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 15_000 });
     await expandAgentFolds(page);
     return page;
   }

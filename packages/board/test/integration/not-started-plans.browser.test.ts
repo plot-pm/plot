@@ -122,7 +122,7 @@ describe('NOT STARTED renders one row per plan', () => {
       over: { fleet: fleet() },
       viewport: { width: 1400, height: 1200 },
     });
-    await page.getByText('Not started').first().waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section]').first().waitFor({ timeout: 10_000 });
     // NO `expandAgentFolds` HERE, and its absence is the point of this suite.
     //
     // The helper opens every fold on the page, which is right for a suite that
@@ -137,8 +137,8 @@ describe('NOT STARTED renders one row per plan', () => {
     return page;
   }
 
-  /** The NOT STARTED grid — located by its own accessible name. */
-  const section = (page: Page) => page.locator('ul[role="grid"][aria-label^="Not started"]');
+  /** The Input to the fleet grid, where Design plans' slices land — located by its own accessible name. */
+  const section = (page: Page) => page.locator('ul[role="grid"][aria-label^="Input to the fleet"]');
 
   const planRow = (page: Page, plan: string) =>
     section(page).locator(`li[data-plan-row="${plan}"]`);
@@ -255,7 +255,8 @@ describe('NOT STARTED renders one row per plan', () => {
       // It WAS started and then shelved. `fleet.ts` warns what flattening it
       // costs: "a branch started and then shelved read as never begun, with its
       // age and its PR erased."
-      const branchRow = section(page).locator('li[data-agent-row]')
+      // Its plan is in Design, so the slice waits under You › Input to the fleet.
+      const branchRow = page.locator('ul[role="grid"][aria-label^="Input to the fleet"] li[data-agent-row]')
         .filter({ has: page.locator('[data-branch="feature/set-down"]') });
       await expect.poll(() => branchRow.count()).toBe(1);
       // `data-tuple-link="pr"`, and it read `data-pr-link` until 2026-08-20.
@@ -283,25 +284,21 @@ describe('NOT STARTED renders one row per plan', () => {
   it('keeps every branch REACHABLE in every section, grouped or not', async () => {
     const page = await open();
     try {
-      // WHAT THIS TEST DEFENDS, and it is not what it used to assert.
+      // WHAT THIS TEST DEFENDS: a branch must still be FINDABLE wherever it
+      // lives. Placement may move a row and must never lose it, which is the
+      // loss `fleet.ts` warns of about a shelved branch.
       //
-      // It read *"leaves every OTHER section rendering branch rows"* and checked
-      // for ZERO plan rows outside NOT STARTED, on the premise stated in its own
-      // comment: *"the change is confined to the one section whose rows are not
-      // branches."* That premise is what changed. Three sections now group by
-      // plan and wave — WAITING ON YOU, QUIET and DONE — because in each the
-      // thing being decided is a wave, not a branch.
-      //
-      // The property worth keeping is the one underneath: a branch must still be
-      // FINDABLE wherever it lives. Grouping may move a row and must never lose
-      // it, which is the loss `fleet.ts` warns of about a shelved branch.
-      for (const [label, branch] of [
-        ['Waiting on you', 'feature/needs-review'],
-        ['Quiet', 'feature/gone-still'],
+      // `feature/needs-review` has an open PR with a green CI reading (At a
+      // gate); `feature/gone-still` is `wip` with no live agent (Queued).
+      for (const [label, key, branch] of [
+        ['Input to the fleet', 'input-to-the-fleet', 'feature/activity-marker-glows'],
+        ['At a gate', 'at-a-gate', 'feature/needs-review'],
+        ['Queued', 'queued', 'feature/gone-still'],
       ] as const) {
+        await expandAgentFolds(page);
         const grid = page.locator(`ul[role="grid"][aria-label^="${label}"]`);
-        // Sections can start folded (`quiet` does) — open it before looking.
-        const toggle = page.locator(`[data-group-toggle]`).filter({ hasText: label });
+        // A group can start folded (Free agents does) — open it before looking.
+        const toggle = page.locator(`[data-group-toggle="${key}"]`);
         if (await grid.count() === 0) await toggle.click();
         await expect.poll(() =>
           page.locator(`ul[role="grid"][aria-label^="${label}"] [data-branch="${branch}"]`).count(),
@@ -550,7 +547,7 @@ describe('NOT STARTED renders one row per plan', () => {
     // count states the scope the reader reaches by expanding every head.
     const page = await open();
     try {
-      const heading = page.getByRole('heading', { name: /Not started/i }).first();
+      const heading = page.getByRole('heading', { name: /Input to the fleet/i }).first();
       await heading.waitFor({ timeout: 5_000 });
       const planRows = section(page).locator('li[data-plan-row]');
       await expect.poll(() => planRows.count()).toBe(3);
