@@ -21,13 +21,14 @@ The census measures the outcome: S4 (an idle fleetd pass) reaches 0 except on th
 It also closes the follow-up issues that sprint `desk-probes-and-liveness` filed.
 
 ### Must Have
+- [ ] [bitbucket-and-jira-read-in-process] Bitbucket and Jira read in-process (#3170)
+- [ ] [triggers-replace-the-tick] Triggers replace the tick (#3170)
 
 <!-- An item is `- [ ] <description>`. A leading `[<plan-slug>]` names the plan
      it commits to, and only a plan slug is read as one: `- [ ] [#123](url) …`
      names an issue, so it is an item with no plan and is scored on its
      checkbox. Strike a reference — `~~[<plan-slug>]~~` — to mark an item that
      left the sprint; the plan's own state then says whether it was withdrawn. -->
-<!-- The Phase 7 plan (Bitbucket and Jira in-process) and the Phase 8 plan (triggers replace the tick) join here when their Drafts are written. -->
 
 ### Should Have
 

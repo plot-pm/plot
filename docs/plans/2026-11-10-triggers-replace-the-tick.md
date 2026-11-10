@@ -6,6 +6,7 @@
 
 - **State:** Draft
 - **Type:** feature
+- **Sprint:** triggers-and-connectors
 - **Issue:** #3170
 - **Story:** nothing-changed-nothing-runs
 - **Review:** pr
