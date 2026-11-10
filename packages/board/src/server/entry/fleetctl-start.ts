@@ -1,4 +1,5 @@
 import {
+  agentDecision,
   reloadCommand,
   restartPlan,
   restartReport,
@@ -15,7 +16,8 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  *
  * ```
  * node plot-fleetctl-start.mjs probe <harness-name> <harness-bin> <PLOT_HARNESS> <node-bin> <platform> <fleetd>
- * node plot-fleetctl-start.mjs restart <label> <platform> <loaded> <pid> <commit> <dry-run>
+ * node plot-fleetctl-start.mjs restart <label> <platform> <loaded> <pid> <commit> <dry-run> [<agents> <unattended>]
+ * node plot-fleetctl-start.mjs agents <dry-run> <desk> <pid> <state> <branch> <blocked> <dirty> <pr> <pid-current>
  * node plot-fleetctl-start.mjs reload <label> <platform> <unit>
  * launchctl kickstart -k gui/501/com.plot-pm.fleetd
  * node plot-fleetctl-start.mjs restarted <label> <old-pid> <new-pid> <commit> <wait> <read-cmd>
@@ -29,6 +31,16 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * `restart` exits 1 with the refusal on stderr when `<loaded>` is not
  * `loaded`. With `<dry-run>` `1` it prints the preview on stdout. It exits 0
  * otherwise.
+ *
+ * `restart` with `<agents>` `1` and `<unattended>` `1` exits 1 with the
+ * refusal on stderr, before anything else.
+ *
+ * `agents` decides one live agent and prints `<action><TAB><line>` on stdout,
+ * where `<action>` is `stop`, `keep` or `refuse`; it exits 0. `<blocked>` is
+ * `1` when the desk holds a `PLOT-BLOCKED*` file. `<dirty>` is the count of
+ * uncommitted files, or anything that is not a number when it could not be
+ * read. `<pr>` is the JSON `plot-host.sh pr-state` printed, or empty when it
+ * printed none. `<pid-current>` is `yes`, `no` or `unknown`.
  *
  * `reload` prints the reload command's words on one line, separated by spaces.
  *
@@ -64,8 +76,23 @@ export const shadowIsOther = (shadow: string, harnessBin: string): boolean => {
   }
 };
 
+/**
+ * The `state` of the JSON `plot-host.sh pr-state` printed.
+ *
+ * @param json - the printed JSON, or `''`.
+ * @returns the state word, or `undefined` when nothing printed, the text does not parse or `state` is missing.
+ */
+const prStateOf = (json: string): string | undefined => {
+  try {
+    const state: unknown = (JSON.parse(json) as { state?: unknown }).state;
+    return typeof state === 'string' && state !== '' ? state : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 /** The number of arguments each verb takes after the verb itself. */
-const ARITY: Readonly<Record<string, number>> = { probe: 6, restart: 6, reload: 3, restarted: 6 };
+const ARITY: Readonly<Record<string, number>> = { probe: 6, restart: 6, agents: 9, reload: 3, restarted: 6 };
 
 /**
  * Answers one verb.
@@ -85,7 +112,7 @@ export const run = (
   const [verb, ...args] = argv;
   const arity = verb === undefined ? undefined : ARITY[verb];
   if (arity === undefined || args.length < arity) {
-    writeErr(`plot-fleetctl-start: expected one of probe, restart, reload, restarted with its arguments, got '${argv.join(' ')}'\n`);
+    writeErr(`plot-fleetctl-start: expected one of probe, restart, agents, reload, restarted with its arguments, got '${argv.join(' ')}'\n`);
     return 2;
   }
   const a = (i: number): string => args[i] ?? '';
@@ -113,12 +140,34 @@ export const run = (
         pid: a(3),
         commit: a(4),
         dryRun: a(5) === '1',
+        agents: a(6) === '1',
+        unattended: a(7) === '1',
       });
       if (plan.kind === 'refuse') {
         writeErr(`${plan.message}\n`);
         return 1;
       }
       if (plan.kind === 'preview') write(`${plan.message}\n`);
+      return 0;
+    }
+    case 'agents': {
+      const pr = prStateOf(a(7));
+      const dirty = /^\d+$/.test(a(6)) ? Number(a(6)) : undefined;
+      const decision = agentDecision(
+        {
+          name: a(1),
+          pid: a(2),
+          state: a(3),
+          branch: a(4),
+          sliceHasMerged: pr === 'MERGED',
+          openPr: pr === undefined ? undefined : pr === 'OPEN',
+          blocked: a(5) === '1',
+          dirtyFiles: dirty,
+          pidCurrent: a(8) === 'yes' ? 'yes' : a(8) === 'no' ? 'no' : 'unknown',
+        },
+        a(0) === '1',
+      );
+      write(`${decision.action}\t${decision.line}\n`);
       return 0;
     }
     case 'reload': {
