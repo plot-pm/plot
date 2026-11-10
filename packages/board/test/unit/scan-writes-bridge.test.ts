@@ -230,14 +230,39 @@ describe('the scan writes its own bridge', () => {
     // its temp registry stays, and goes with the sandbox in `afterAll`.
     const killedTmp = path.join(tmp, 'killed-tmp');
     fs.mkdirSync(killedTmp, { recursive: true });
+    // Killed at a known point inside the walk: a `git` on PATH that writes its
+    // pid to `reached` and blocks on the walk's `worktree list`, its last git
+    // call before the bridge write.
+    const shim = path.join(tmp, 'killed-shim');
+    const reached = path.join(shim, 'reached');
+    fs.mkdirSync(shim, { recursive: true });
+    const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+    fs.writeFileSync(path.join(shim, 'git'), [
+      '#!/bin/bash',
+      `case " $* " in *" worktree list "*) echo $$ > '${reached}.part'; mv '${reached}.part' '${reached}'; exec sleep 600;; esac`,
+      `exec '${realGit}' "$@"`,
+      '',
+    ].join('\n'), { mode: 0o755 });
     const child = spawn('bash', [SCAN, '--offline', '--stream'], {
-      cwd: repo, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, TMPDIR: killedTmp },
+      cwd: repo, stdio: ['ignore', 'ignore', 'ignore'],
+      env: { ...process.env, TMPDIR: killedTmp, PATH: `${shim}${path.delimiter}${process.env.PATH ?? ''}` },
     });
-    // Killed while it is still deriving: the scan spawns git per branch, so a
-    // short wait lands inside the walk rather than before it starts.
-    await new Promise((r) => setTimeout(r, 150));
+    const exited = new Promise<number | null>((r) => child.on('exit', (code) => r(code)));
+    let gone = false;
+    void exited.then(() => { gone = true; });
+    const atGate = async (): Promise<boolean> => {
+      while (!fs.existsSync(reached)) {
+        if (gone) return false;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      return true;
+    };
+    expect(await atGate(), 'the scan exited before it reached `git worktree list`').toBe(true);
     child.kill('SIGKILL');
-    await new Promise((r) => child.on('exit', r));
+    await exited;
+    // The blocked `git` is not in the scan's process group, so it is ended by
+    // the pid it wrote.
+    process.kill(Number(fs.readFileSync(reached, 'utf8')), 'SIGKILL');
 
     expect(fs.readFileSync(bridgeFile(repo), 'utf8')).toBe(good);
     // And nothing was left half-written beside it.
