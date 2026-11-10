@@ -40,9 +40,10 @@ give the old behaviour to somebody asking for fleet control.
 | `--once` | One supervisor tick against the live estate, then exit. **The gate.** |
 | `--start [N]` | Probe, fill the unit, load it, then bring up N free agents. |
 | `--restart` | Load the current fleetd bundle into the running supervisor and signal no agent. Prints the old pid, the new pid and the bundle's commit. |
+| `--restart --agents` | Reload the supervisor as `--restart` does, then stop each free loop and name every agent kept, with the reason. Refuses `PLOT_UNATTENDED=1`. |
 | `--stop` | Stop every dispatched agent through `/plot-dispatch --stop`, then unload the supervisor. |
 | `--wait S` | With `--stop`: seconds to wait per worker (default 30). |
-| `--dry-run` | With `--start` and `--restart` only: report what would be filled, loaded and started, or which unit would reload with its pid and the bundle commit. Writes and signals nothing. Every other mode refuses it and exits 1. |
+| `--dry-run` | With `--start` and `--restart` only: report what would be filled, loaded and started, or which unit would reload with its pid and the bundle commit; with `--restart --agents`, also the agents it would stop and keep. Writes and signals nothing. Every other mode refuses it and exits 1. |
 
 ## Two processes, two commands, no edge between them
 
@@ -63,11 +64,11 @@ however large the fleet.
 | 1. Run the verb | Small | One script call; the script owns every refusal |
 | 2. Report what it said | Small | Print the output; it is already shaped for reading, the machine block included |
 | 3. Read a refusal to the user | Small | Each refusal names its own repair |
-| 4. Decide whether a stop is wanted | Mid | Stopping a fleet discards nothing but ends work in flight |
+| 4. Decide whether a stop is wanted | Mid | Stopping a fleet discards nothing but ends work in flight; `--restart --agents` stops only free loops, and its output names every agent kept |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor).
 >
-> **No user present?** If `PLOT_UNATTENDED=1` is set, do not call the question tool — never run `--stop` unattended, and say so in the output. `--restart` stops no agent and is allowed. See [Running unattended](../plot/docs/unattended.md).
+> **No user present?** If `PLOT_UNATTENDED=1` is set, do not call the question tool — never run `--stop` unattended, and say so in the output. `--restart` stops no agent and is allowed; `--restart --agents` stops agents and refuses. See [Running unattended](../plot/docs/unattended.md).
 
 ## Steps
 
@@ -307,7 +308,7 @@ Stop one by pid if you mean to, or let the eight-hour `Worker bound` end it.
 ### 7. Restart the supervisor, keep every agent
 
 ```bash
-../plot/scripts/plot-fleetctl.sh --restart [--dry-run] [--wait SECONDS]
+../plot/scripts/plot-fleetctl.sh --restart [--agents] [--dry-run] [--wait SECONDS]
 ```
 
 **`--restart` loads the current fleetd bundle into the running supervisor and signals no agent.** On launchd it runs `launchctl kickstart -k gui/<uid>/<label>`, never `bootout` then `bootstrap`: `bootout` of the supervisor killed every agent it had started, and `kickstart -k` left all four worker loops running (measured 2026-10-26). On systemd it runs `systemctl --user restart <unit>`; the unit sets `KillMode=process`, so the restart signals the daemon only. The unit file names the bundle path, so the new process reads the current bundle on start and nothing is filled again.
@@ -315,6 +316,8 @@ Stop one by pid if you mean to, or let the eight-hour `Worker bound` end it.
 It prints the old supervisor pid, the new pid and the bundle's commit (`unknown` where the checkout cannot be read). `kickstart -k` returns before the new process has a pid, so the command polls for one, bounded by `--wait`, and exits 1 naming the unit when the pid stays empty or equal to the old one. A pid that cannot be read prints as `unreadable`, never as `0`.
 
 It refuses wherever `--start` refuses — a missing artifact, a `node` that is not `.nvmrc`'s major, no harness, no launchd or systemd, a label held by another checkout, an unwritable `Worker command` — and when **no unit is loaded**: the refusal names `/plot-fleet --start`, because loading is `--start`'s job and a restart that loaded a unit would report a stopped supervisor as a success. It writes no unit, leaves `.plot/state/fleet-start.done` as found, and starts no agent.
+
+**`--restart --agents` reloads as above, then stops each free loop.** A **free loop** is a live agent with no slice handed over (or a slice already merged), no open pull request, no `PLOT-BLOCKED` marker and no uncommitted work in its desk; generated bundle files do not count as work. A desk on a branch stops through `plot-dispatch.sh --stop <branch>`. A detached desk has no branch, so it stops by the pid its manifest records, and only after that pid's own start time matches the recorded one: a recycled pid is refused and never signalled. The command prints one line per live agent: `stopping` for a free loop, `kept` with the reasons for every other (`holds <branch>`, `open PR`, `PLOT-BLOCKED marker`, `uncommitted files (N)`), and `refused` for a recycled pid. A fact the command cannot read — a PR that does not answer, a `git status` that fails, a manifest with no recorded start — keeps the agent and says `unreadable`. A failed reload stops nothing. `PLOT_UNATTENDED=1` refuses the whole command before the reload: stopping an agent is a person's call. `--dry-run` prints the same lines as `would stop` and `would keep` and signals nothing.
 
 ## Guardrails
 
@@ -325,7 +328,7 @@ It refuses wherever `--start` refuses — a missing artifact, a `node` that is n
 - **Never stop a fleet unattended.** Under `PLOT_UNATTENDED=1`, report what is
   running and stop there; ending work in flight is a person's call. `--restart`
   without `--agents` is allowed: it signals the supervisor alone.
-- **Never signal a worker directly.** `plot-dispatch --stop` is the one rule.
+- **Never signal a worker directly.** `plot-dispatch --stop` is the one rule; the one exception is `--restart --agents`, which signals a detached free loop's recorded pid after the start-time check.
   A `pkill -f` over process names is exactly the guess it refuses, and one on
   2026-09-04 killed an operator's board along with the stale jobs it was aimed
   at.

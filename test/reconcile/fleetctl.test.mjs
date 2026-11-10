@@ -154,7 +154,7 @@ function sandbox(
 
   const dst = path.join(root, 'skills', 'plot', 'scripts');
   fs.mkdirSync(path.join(dst, 'board'), { recursive: true });
-  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh', 'plot-desk-root.sh', 'board/plot-desk-root.mjs', 'board/plot-old-label.mjs', 'board/plot-fleetctl-start.mjs', 'board/plot-restart-stopped-command.mjs']) {
+  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh', 'plot-desk-root.sh', 'plot-desk-dirt.sh', 'board/plot-desk-root.mjs', 'board/plot-old-label.mjs', 'board/plot-fleetctl-start.mjs', 'board/plot-restart-stopped-command.mjs']) {
     const src = path.join(scripts, f);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dst, f));
   }
@@ -2536,7 +2536,7 @@ function consumerSandbox(label, { nvmrc = process.versions.node.split('.')[0], r
   const plugin = path.join(box, 'plugin-cache', 'plot', '9.9.9');
   const dst = path.join(plugin, 'skills', 'plot', 'scripts');
   fs.mkdirSync(path.join(dst, 'board'), { recursive: true });
-  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh', 'plot-desk-root.sh', 'board/plot-desk-root.mjs', 'board/plot-old-label.mjs', 'board/plot-fleetctl-start.mjs', 'board/plot-restart-stopped-command.mjs']) {
+  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh', 'plot-desk-root.sh', 'plot-desk-dirt.sh', 'board/plot-desk-root.mjs', 'board/plot-old-label.mjs', 'board/plot-fleetctl-start.mjs', 'board/plot-restart-stopped-command.mjs']) {
     const src = path.join(scripts, f);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dst, f));
   }
@@ -3907,4 +3907,195 @@ test('--restart succeeds under PLOT_UNATTENDED=1', () => {
   const { bin } = stubRestartLaunchctl(box, root, fleetLabel);
   const r = run(ctl, ['--restart', '--wait', '10'], root, guardBin, restartEnv(box, bin, fleetLabel, { PLOT_UNATTENDED: '1' }));
   assert.equal(r.status, 0, r.out);
+});
+
+// ── --restart --agents: stop each free loop, name every agent kept ───────────
+//
+// A desk is a worktree under `.worktrees/` holding a worker pid. `plot-host.sh`
+// and `plot-dispatch.sh` are stubs: the host answers `pr-state` from one JSON
+// file per branch (no file = the call fails), and dispatch's `--stop` kills the
+// pid the desk records, which is all the real one does that these tests see.
+
+const agentsDesk = (root, name, { branch = '', pid, start = 'current', dirty = false, blocked = false } = {}) => {
+  const desk = path.join(root, '.worktrees', name);
+  if (branch) git(root, 'worktree', 'add', '-q', '-b', branch, desk);
+  else git(root, 'worktree', 'add', '-q', '--detach', desk);
+  fs.writeFileSync(path.join(desk, '.plot-worker.pid'), `${pid}\n`);
+  const lstart = start === 'current'
+    ? execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8' }).trim()
+    : 'Mon Jan  1 00:00:00 2001';
+  fs.writeFileSync(path.join(desk, '.plot-worker.pid.startedAt'), `${lstart}\n`);
+  if (dirty) fs.writeFileSync(path.join(desk, 'unfinished.txt'), 'work\n');
+  if (blocked) fs.writeFileSync(path.join(desk, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: a question\n');
+  return desk;
+};
+
+const agentsStubs = (root, prs = {}) => {
+  const scripts = path.join(root, 'skills', 'plot', 'scripts');
+  const answers = path.join(root, 'pr-answers');
+  fs.mkdirSync(answers, { recursive: true });
+  for (const [branch, state] of Object.entries(prs)) {
+    fs.writeFileSync(path.join(answers, branch.replace(/\//g, '-')), JSON.stringify({ number: 7, state, draft: false, url: '', mergeable: '' }));
+  }
+  const host = path.join(scripts, 'plot-host.sh');
+  fs.writeFileSync(host, `#!/usr/bin/env bash\n[ "$1" = pr-state ] || exit 1\nf="${answers}/$(printf '%s' "$2" | tr '/' '-')"\n[ -f "$f" ] && cat "$f" || exit 1\n`);
+  fs.chmodSync(host, 0o755);
+  const log = path.join(root, 'calls.log');
+  const dispatch = path.join(scripts, 'plot-dispatch.sh');
+  fs.writeFileSync(dispatch, `#!/usr/bin/env bash\necho "dispatch $*" >> "${log}"\nbr="$2"\nwt="${root}/.worktrees/$(printf '%s' "$br" | tr '/' '-')"\n[ "$1" = --stop ] && kill "$(tr -d ' \\n' < "$wt/.plot-worker.pid")"\nexit 0\n`);
+  fs.chmodSync(dispatch, 0o755);
+  return { calls: () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n') : []) };
+};
+
+const settle = () => execFileSync('sleep', ['1']);
+
+test('--restart --agents stops free loops through the right door and keeps every other agent, naming why', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('agents-mixed');
+  git(root, 'commit', '-q', '--allow-empty', '-m', 'seed');
+  const { bin } = stubRestartLaunchctl(box, root, fleetLabel);
+  const pids = { detached: standIn(), merged: standIn(), open: standIn(), holds: standIn(), blocked: standIn(), dirty: standIn(), noPr: standIn() };
+  try {
+    agentsDesk(root, 'free-detached', { pid: pids.detached });
+    agentsDesk(root, 'feature-merged', { branch: 'feature/merged', pid: pids.merged });
+    agentsDesk(root, 'feature-open', { branch: 'feature/open', pid: pids.open });
+    agentsDesk(root, 'feature-holds', { branch: 'feature/holds', pid: pids.holds });
+    agentsDesk(root, 'busy-blocked', { pid: pids.blocked, blocked: true });
+    agentsDesk(root, 'busy-dirty', { pid: pids.dirty, dirty: true });
+    agentsDesk(root, 'feature-nopr', { branch: 'feature/nopr', pid: pids.noPr });
+    const { calls } = agentsStubs(root, { 'feature/merged': 'MERGED', 'feature/open': 'OPEN', 'feature/holds': 'CLOSED', 'feature/nopr': 'NONE' });
+    const r = run(ctl, ['--restart', '--agents', '--wait', '5'], root, guardBin, restartEnv(box, bin, fleetLabel));
+    assert.equal(r.status, 0, r.out);
+    settle();
+    assert.equal(alive(pids.detached), false, `the free detached loop survived:\n${r.out}`);
+    assert.equal(alive(pids.merged), false, `the free branch loop survived:\n${r.out}`);
+    for (const k of ['open', 'holds', 'blocked', 'dirty', 'noPr']) assert.equal(alive(pids[k]), true, `${k} was signalled:\n${r.out}`);
+    assert.deepEqual(calls(), ['dispatch --stop feature/merged'], 'only the branch desk goes through the dispatcher');
+    assert.match(r.out, /feature\/open .*kept — .*open PR/);
+    assert.match(r.out, /feature\/holds .*kept — holds feature\/holds/);
+    assert.match(r.out, /busy-blocked .*kept — .*PLOT-BLOCKED marker/);
+    assert.match(r.out, /busy-dirty .*kept — .*uncommitted files \(1\)/);
+    assert.match(r.out, /free-detached .*free loop/);
+  } finally {
+    for (const pid of Object.values(pids)) try { process.kill(pid); } catch { /* already gone */ }
+  }
+});
+
+test('--restart --agents never signals a recycled pid and says so', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('agents-recycled');
+  const { bin } = stubRestartLaunchctl(box, root, fleetLabel);
+  const stranger = standIn();
+  try {
+    agentsDesk(root, 'recycled', { pid: stranger, start: 'stale' });
+    agentsStubs(root);
+    const r = run(ctl, ['--restart', '--agents', '--wait', '5'], root, guardBin, restartEnv(box, bin, fleetLabel));
+    assert.equal(r.status, 0, r.out);
+    settle();
+    assert.equal(alive(stranger), true, `the recycled pid was signalled:\n${r.out}`);
+    assert.match(r.out, /recycled .*refused — .*belongs to another process/);
+  } finally {
+    try { process.kill(stranger); } catch { /* already gone */ }
+  }
+});
+
+test('--restart --agents keeps an agent whose PR cannot be read, and one with no recorded start', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('agents-unreadable');
+  const { bin } = stubRestartLaunchctl(box, root, fleetLabel);
+  const noPrAnswer = standIn();
+  const noStart = standIn();
+  try {
+    agentsDesk(root, 'feature-silent', { branch: 'feature/silent', pid: noPrAnswer });
+    const bare = agentsDesk(root, 'no-start', { pid: noStart });
+    fs.rmSync(path.join(bare, '.plot-worker.pid.startedAt'));
+    agentsStubs(root);
+    const r = run(ctl, ['--restart', '--agents', '--wait', '5'], root, guardBin, restartEnv(box, bin, fleetLabel));
+    assert.equal(r.status, 0, r.out);
+    settle();
+    assert.equal(alive(noPrAnswer), true, r.out);
+    assert.equal(alive(noStart), true, r.out);
+    assert.match(r.out, /feature\/silent .*kept — .*PR unreadable/);
+    assert.match(r.out, /no-start .*kept — process start unreadable/);
+  } finally {
+    for (const pid of [noPrAnswer, noStart]) try { process.kill(pid); } catch { /* already gone */ }
+  }
+});
+
+test('--restart without --agents stops no agent, free or not', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('agents-plain');
+  const { bin } = stubRestartLaunchctl(box, root, fleetLabel);
+  const free = standIn();
+  try {
+    agentsDesk(root, 'free-detached', { pid: free });
+    const { calls } = agentsStubs(root);
+    const r = run(ctl, ['--restart', '--wait', '5'], root, guardBin, restartEnv(box, bin, fleetLabel));
+    assert.equal(r.status, 0, r.out);
+    assert.equal(alive(free), true, r.out);
+    assert.deepEqual(calls(), []);
+    assert.match(r.out, /agents untouched/);
+  } finally {
+    try { process.kill(free); } catch { /* already gone */ }
+  }
+});
+
+test('--restart --agents stops nothing when the reload fails', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('agents-stuck');
+  const { bin } = stubRestartLaunchctl(box, root, fleetLabel, { stuck: true });
+  const free = standIn();
+  try {
+    agentsDesk(root, 'free-detached', { pid: free });
+    agentsStubs(root);
+    const r = run(ctl, ['--restart', '--agents', '--wait', '1'], root, guardBin, restartEnv(box, bin, fleetLabel));
+    assert.equal(r.status, 1, r.out);
+    settle();
+    assert.equal(alive(free), true, r.out);
+  } finally {
+    try { process.kill(free); } catch { /* already gone */ }
+  }
+});
+
+test('--restart --agents refuses an unattended caller before the reload and before any signal', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('agents-unattended');
+  const { bin, calls: launchctl } = stubRestartLaunchctl(box, root, fleetLabel);
+  const free = standIn();
+  try {
+    agentsDesk(root, 'free-detached', { pid: free });
+    agentsStubs(root);
+    const r = run(ctl, ['--restart', '--agents'], root, guardBin, restartEnv(box, bin, fleetLabel, { PLOT_UNATTENDED: '1' }));
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.out, /unattended/);
+    assert.equal(launchctl().some((l) => l.startsWith('kickstart')), false, 'the supervisor was reloaded');
+    assert.equal(alive(free), true, r.out);
+  } finally {
+    try { process.kill(free); } catch { /* already gone */ }
+  }
+});
+
+test('--restart --agents --dry-run says what it would stop and keep, and signals and reloads nothing', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('agents-dry');
+  const { bin, calls: launchctl } = stubRestartLaunchctl(box, root, fleetLabel);
+  const free = standIn();
+  const busy = standIn();
+  try {
+    agentsDesk(root, 'free-detached', { pid: free });
+    agentsDesk(root, 'busy-dirty', { pid: busy, dirty: true });
+    const { calls } = agentsStubs(root);
+    const r = run(ctl, ['--restart', '--agents', '--dry-run'], root, guardBin, restartEnv(box, bin, fleetLabel));
+    assert.equal(r.status, 0, r.out);
+    assert.match(r.out, /free-detached .*would stop/);
+    assert.match(r.out, /busy-dirty .*would keep — .*uncommitted files/);
+    assert.equal(alive(free), true, r.out);
+    assert.equal(alive(busy), true, r.out);
+    assert.deepEqual(calls(), []);
+    assert.equal(launchctl().some((l) => l.startsWith('kickstart')), false);
+  } finally {
+    for (const pid of [free, busy]) try { process.kill(pid); } catch { /* already gone */ }
+  }
+});
+
+test('--agents refuses every mode but --restart', () => {
+  for (const mode of ['--stop', '--once', '--status', '--start']) {
+    const { root, ctl, guardBin } = sandbox(`agents-refuse${mode}`);
+    const r = run(ctl, [mode, '--agents'], root, guardBin);
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.out, /--agents works with --restart only/);
+  }
 });
