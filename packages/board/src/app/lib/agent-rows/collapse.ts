@@ -8,15 +8,16 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set(
 );
 
 /**
- * The groups that start collapsed: Free agents, which fold into one line.
+ * The keys that start collapsed: Release delivery, whose line stays visible
+ * over its folded rows, and Free agents, which fold into one line.
  *
- * A free agent holds no item and owes nothing, so it needs no reading on
+ * A delivered item and a free agent owe nothing, so neither needs a reading on
  * arrival. Stored keys from the earlier vocabulary (`quiet`, `done`) are not in
  * `DELIVERY_LAYOUT` and fall away in `readCollapsed`.
  *
  * Exported for test.
  */
-export const COLLAPSED_BY_DEFAULT: CollapseKey[] = ['free'];
+export const COLLAPSED_BY_DEFAULT: CollapseKey[] = ['release-delivery', 'free'];
 
 /**
  * Where the collapse state lives.

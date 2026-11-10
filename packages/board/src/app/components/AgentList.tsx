@@ -83,9 +83,22 @@ import {
   writeMineStrict,
 } from '../lib/agent-rows/mine-filter.js';
 import { mineMode, planIndexOf } from '@plot-pm/domain';
-import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows } from '../lib/agent-rows/activity.js';
+import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
+import { ActivityMark } from '../lib/agent-rows/marks.js';
+import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
 import { deliveryMapping } from '../lib/agent-rows/delivery-readings.js';
-import { machineLine, placeMapping, reasonWords, type PlacedAgentView, type PlacedItemView } from '../lib/agent-rows/delivery-view.js';
+import {
+  machineLine,
+  placeMapping,
+  planBlockShown,
+  planBlockToggleKey,
+  reasonWords,
+  type BlockView,
+  type PlacedAgentView,
+  type PlacedItemView,
+  type PlanBlockView,
+  type SliceBlockView,
+} from '../lib/agent-rows/delivery-view.js';
 import { shrinkNote } from '../lib/agent-rows/actions.js';
 import { issueNote, prStatusEntry, scanHostNote } from '../lib/agent-rows/host-notes.js';
 import { rowKey } from '../lib/agent-rows/row-identity.js';
@@ -94,7 +107,7 @@ import { SLICE_LINKING_KINDS, sliceLabel } from '../lib/agent-rows/slices.js';
 // it reads the fleet, decides the sections, and mounts the rows — the rows,
 // their marks and their menus are declared next door.
 import { waitingView } from '../lib/agent-rows/waiting-view.js';
-import { HeaderRow, IssueRowView, Row, RegistryRow, type AgentListProps } from '../lib/agent-rows/rows.js';
+import { HeaderRow, IssueRowView, PlanRow, Row, RegistryRow, SliceRow, type AgentListProps } from '../lib/agent-rows/rows.js';
 import { workingAgentRows, draftPlanRows } from '../lib/agent-rows/working-agents.js';
 import { DraftPlanRowView } from '../lib/agent-rows/draft-plan-row.js';
 import { PlanLevelRowView, planFileFromFleet, verificationRows } from '../lib/agent-rows/plan-level-row.js';
@@ -325,6 +338,9 @@ export function AgentList({
   planFileForSlug,
   cards,
   dispatch,
+  approve,
+  reslice,
+  deliver,
   implement,
   drop,
   continueWith,
@@ -422,6 +438,32 @@ export function AgentList({
     });
   };
 
+
+  // A PLAN HEAD'S FOLD OVERRIDES, keyed `open:<block>` and `shut:<block>` —
+  // see `planBlockShown`. Not persisted: opening one plan's slices is a
+  // momentary question, and a board reloaded several times an hour must not
+  // restore it.
+  const [openPlans, setOpenPlans] = useState<Set<string>>(() => new Set());
+  const togglePlan = (key: string) => {
+    setOpenPlans((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+  // A MULTI-BRANCH SLICE'S FOLD, keyed `plan\0slice` (`sliceKeyOf`). Folded by
+  // default and not persisted, for the reason the plan fold is not.
+  const [openSlices, setOpenSlices] = useState<Set<string>>(() => new Set());
+  const toggleSlice = (plan: string, wave: string) => {
+    setOpenSlices((prev) => {
+      const key = sliceKeyOf(plan, wave);
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   // THE SAME FOLD, ONE LEVEL DOWN — a slice's branches, where it holds more than
   // one. Every argument above applies unchanged: collapsed by default, not
@@ -1021,7 +1063,7 @@ export function AgentList({
           mode,
           config: { autoReview: fleet.autoReview, correctionBudget: fleet.correctionBudget },
         });
-        const view = placeMapping(mapping);
+        const view = placeMapping(mapping, fleet.slices);
         const slices = fleet.slices;
         const issues = fleet.issueAnswer === 'answered' ? filteredIssues : [];
         const scrollTo = (anchor: string) => (e: { preventDefault: () => void }) => {
@@ -1064,19 +1106,131 @@ export function AgentList({
           showSprintSlug,
           planIndex,
         });
-        const itemBody = (item: PlacedItemView) => [
-          <li key={`anchor-${item.anchor}`} role="presentation" id={item.anchor} className="h-0" />,
-          ...item.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} />),
-          ...(item.draft !== null
-            ? [<DraftPlanRowView key={`draft-${item.draft.plan}`} draft={item.draft} onOpenPlan={onOpenPlan} planIndex={planIndex} />]
-            : []),
-          item.placement.section === 'you' ? (
+        const anchorOf = (item: PlacedItemView) => (
+          <li key={`anchor-${item.anchor}`} role="presentation" id={item.anchor} className="h-0" />
+        );
+        // The reason a You item sits there, and its links to the agents acting on it.
+        const itemTail = (item: PlacedItemView) => [
+          item.placement?.section === 'you' ? (
             <li key={`reason-${item.anchor}`} role="row" data-placement-reason={item.placement.reason} className="px-3 pb-1 text-xs text-amber-700 dark:text-amber-500">
               <span role="gridcell">{reasonWords(item.placement.reason)}</span>
             </li>
           ) : null,
           linkLine(`links-${item.anchor}`, item.links, '← agents:'),
         ];
+        const itemBody = (item: PlacedItemView, inPlan = false) => [
+          anchorOf(item),
+          ...item.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={inPlan} />),
+          ...(item.draft !== null
+            ? [<DraftPlanRowView key={`draft-${item.draft.plan}`} draft={item.draft} onOpenPlan={onOpenPlan} planIndex={planIndex} />]
+            : []),
+          ...itemTail(item),
+        ];
+        const sliceBody = (block: PlanBlockView, s: SliceBlockView) => {
+          const wg = s.slice;
+          const start = block.mode === 'start';
+          const oneSlice = start && soleSliceFor(block.plan, slices) !== null;
+          const many = wg !== null && wg.rows.length > 1;
+          const sliceOpen = many ? openSlices.has(sliceKeyOf(block.plan, wg.wave)) : null;
+          return [
+            anchorOf(s.item),
+            wg === null ? null : (
+              <li key={`slice-${s.item.anchor}`} className="block">
+                <SliceRow
+                  group={wg}
+                  plan={block.plan}
+                  waitingDays={planWaitingDays(block)}
+                  expanded={sliceOpen}
+                  onToggle={many ? () => toggleSlice(block.plan, wg.wave) : undefined}
+                  active={wg.rows.some((r) => active.has(rowKey(r)))}
+                  marked={wg.rows.some((r) => marked.has(rowKey(r)))}
+                  card={start && !oneSlice ? (cardForPlanFile?.(block.planFile) ?? null) : null}
+                  dispatch={start && !oneSlice ? dispatch : undefined}
+                  reslice={reslice}
+                  pulse={pulse}
+                  onStarting={onStarting}
+                  groupedCount={!start && many ? wg.rows.length : undefined}
+                  groupedWord={!start ? wg.verdict ?? undefined : undefined}
+                  soleRow={!start && !many ? wg.rows[0] : undefined}
+                  implement={start ? undefined : implement}
+                  continueWith={start ? undefined : continueWith}
+                  restartWith={start ? undefined : restartWith}
+                  onOpenPlan={start ? undefined : onOpenPlan}
+                  onRevealBranch={start ? undefined : onRevealBranch}
+                  planHeaded
+                  slices={slices}
+                  planIndex={planIndex}
+                />
+                {many && sliceOpen && (
+                  <ul
+                    role="presentation"
+                    data-slice-branch-list={wg.wave || '(unnamed)'}
+                    className="ml-6 border-l border-slate-200 dark:border-slate-800"
+                  >
+                    {wg.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup inSliceGroup />)}
+                  </ul>
+                )}
+              </li>
+            ),
+            ...s.loose.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup />),
+            ...itemTail(s.item),
+          ];
+        };
+        // A PLAN HEAD OVER ITS SLICES — `PlanRow`, then its slice rows nested
+        // beneath. `nestItems` decided which items it holds; `planBlockShown`
+        // decides whether they are on the page.
+        const planBody = (block: PlanBlockView) => {
+          const shown = planBlockShown(block, openPlans);
+          const group = { plan: block.plan, planFile: block.planFile, rows: block.rows };
+          return (
+            <li
+              role="rowgroup"
+              key={block.key}
+              data-plan-group={block.plan}
+              className="block rounded-sm bg-slate-50/60 outline outline-slate-300 -outline-offset-1 dark:bg-slate-900/30 dark:outline-slate-700"
+            >
+              {block.head !== null && <span id={block.head.anchor} className="block h-0" />}
+              {shown === false && block.slices.map((s) => <span key={s.item.anchor} id={s.item.anchor} className="block h-0" />)}
+              {shown === false && block.loose.map((item) => <span key={item.anchor} id={item.anchor} className="block h-0" />)}
+              <PlanRow
+                group={group}
+                slices={fleet.slices}
+                onOpenPlan={onOpenPlan}
+                ageMinutes={block.mode === 'progress' ? block.ageMinutes : undefined}
+                expanded={shown}
+                onToggle={shown === null ? undefined : () => togglePlan(planBlockToggleKey(block))}
+                active={block.rows.some((r) => active.has(rowKey(r)))}
+                marked={block.rows.some((r) => marked.has(rowKey(r)))}
+                card={cardForPlanFile?.(block.planFile) ?? null}
+                approve={approve}
+                deliver={deliver}
+                implement={implement}
+                dispatch={dispatch}
+                pulse={pulse}
+                onApproving={onStarting}
+                elsewhere={block.elsewhere}
+                soleSlice={soleSliceFor(block.plan, slices)}
+                onStarting={onStarting}
+                planIndex={planIndex}
+              />
+              {block.head !== null && (
+                <ul role="presentation">{itemTail(block.head)}</ul>
+              )}
+              {shown !== false && (
+                <ul
+                  role="presentation"
+                  data-slice-list={block.plan}
+                  className="ml-6 border-l border-slate-200 dark:border-slate-800"
+                >
+                  {block.slices.flatMap((s) => sliceBody(block, s))}
+                  {block.loose.flatMap((item) => itemBody(item, true))}
+                </ul>
+              )}
+            </li>
+          );
+        };
+        const blockBody = (block: BlockView) =>
+          block.kind === 'plan' ? [planBody(block)] : itemBody(block.item);
         const agentBody = (agent: PlacedAgentView) => [
           <li key={`anchor-${agent.anchor}`} role="presentation" id={agent.anchor} className="h-0" />,
           agent.entry !== null ? (
@@ -1132,10 +1286,15 @@ export function AgentList({
         return (
           <>
             {view.sections.map((section) => {
-              const { folded, header } = fold(section.key, section.count, (
-                <h2 data-delivery-section={section.key} className="text-base font-semibold text-slate-800 dark:text-slate-100">
+              // THE HEADING CARRIES THE PACE OF THE ROWS BEHIND IT, folded or
+              // open, read from the same `active` set the rows render from.
+              const release = section.key === 'release-delivery';
+              const sectionPace = groupPace(release ? view.deliveredRows : section.rows, active);
+              const { folded, header } = fold(section.key, release ? view.deliveredBlocks.length : section.count, (
+                <h2 data-delivery-section={section.key} className="flex items-baseline gap-1 text-base font-semibold text-slate-800 dark:text-slate-100">
                   <span aria-hidden="true">{section.icon}</span> {section.label}
                   {section.groups.length > 0 && <span className="ml-1 font-normal text-slate-500">({section.count})</span>}
+                  {sectionPace && <ActivityMark pace={sectionPace} place="heading" />}
                 </h2>
               ));
               return (
@@ -1143,6 +1302,17 @@ export function AgentList({
                   {header}
                   {section.key === 'release-delivery' && (
                     <p data-release-line className="px-3 text-sm text-slate-600 dark:text-slate-300">{view.releaseLine}</p>
+                  )}
+                  {release && !folded && view.deliveredBlocks.length > 0 && (
+                    <ul
+                      role="grid"
+                      aria-label="Release delivery — agent branches"
+                      data-delivered
+                      className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40"
+                    >
+                      <HeaderRow />
+                      {view.deliveredBlocks.flatMap(blockBody)}
+                    </ul>
                   )}
                   {section.key === 'fleet' && (
                     <div className="flex flex-wrap items-center gap-2 px-3">
@@ -1162,12 +1332,14 @@ export function AgentList({
                     <p data-machine-line className="px-3 text-sm text-slate-600 dark:text-slate-300">{machineLine(fleet.rows)}</p>
                   )}
                   {!folded && section.groups.map((group) => {
+                    const groupMark = groupPace(group.rows, active);
                     const g = fold(group.key, group.count, (
-                      <h3 data-delivery-group={group.key} className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                      <h3 data-delivery-group={group.key} className="flex items-baseline gap-1 text-sm font-medium text-slate-700 dark:text-slate-200">
                         {group.label}
                         <span className="ml-1 font-normal text-slate-500">
                           ({group.count > 0 ? group.count : group.hint})
                         </span>
+                        {groupMark && <ActivityMark pace={groupMark} place="heading" />}
                       </h3>
                     ));
                     return (
@@ -1180,7 +1352,7 @@ export function AgentList({
                             className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40"
                           >
                             <HeaderRow />
-                            {group.items.flatMap(itemBody)}
+                            {group.blocks.flatMap(blockBody)}
                             {group.agents.flatMap(agentBody)}
                           </ul>
                         )}

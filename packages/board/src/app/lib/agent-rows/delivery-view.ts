@@ -7,8 +7,12 @@ import {
   type ItemPlacement,
   type Unplaced,
 } from '@plot-pm/domain';
-import type { AgentRow, DraftPlan } from '../../../contract/schema.js';
+import type { AgentRow, DraftPlan, Slice } from '../../../contract/schema.js';
 import type { DeliveryMapping, RegistryAgent } from './delivery-readings.js';
+import { isUnbegun } from './row-identity.js';
+import { groupBySlice, type SliceGroup } from './slices.js';
+import { headSliceNames, showsSliceFold, slicesElsewhere } from './sections.js';
+import { hasExceptions } from './stuck.js';
 
 /** Every key a collapse toggle can hold: a section or one of its groups. */
 export type DeliveryKey = string;
@@ -51,7 +55,8 @@ export const reasonWords = (reason: string): string => REASON_WORDS[reason] ?? r
 
 /** One work item the rule placed, with the payload rows it stands for. */
 export interface PlacedItemView {
-  placement: ItemPlacement;
+  /** What the rule placed; `null` for a delivered item, which the rule places in no section. */
+  placement: ItemPlacement | null;
   rows: AgentRow[];
   draft: DraftPlan | null;
   /** The label a link to this item shows. */
@@ -79,12 +84,64 @@ export interface LinkView {
   anchor: string;
 }
 
+/**
+ * One slice item under a plan head: the slice row it renders and the rows that
+ * render on their own beside it.
+ */
+export interface SliceBlockView {
+  item: PlacedItemView;
+  /** The slice row's group; `null` where every row of the item renders on its own. */
+  slice: SliceGroup | null;
+  /** Rows of the item that render as branch rows, not inside the slice row. */
+  loose: AgentRow[];
+}
+
+/**
+ * A plan head over the slice items of that plan one group holds.
+ *
+ * `start` draws the slices as unbegun work with a Start control; `progress`
+ * draws each slice with its sole branch's status. A plan whose slices land in
+ * several groups gets one head per group, each over that group's slices only.
+ */
+export interface PlanBlockView {
+  kind: 'plan';
+  /** Unique per group and plan: the key a fold override is stored under. */
+  key: string;
+  plan: string;
+  planFile: string;
+  /** Every row the head stands for: its own plan row, if placed here, and its slices' rows. */
+  rows: AgentRow[];
+  /** The plan's own row item, absorbed into the head; `null` where it sits elsewhere or does not exist. */
+  head: PlacedItemView | null;
+  slices: SliceBlockView[];
+  /** Items of the plan that are neither its plan row nor a slice. */
+  loose: PlacedItemView[];
+  mode: 'start' | 'progress';
+  /** How many slices of the plan sit under another head or no head. */
+  elsewhere: number;
+  /** The freshest age of the head's rows; `undefined` where none has one. */
+  ageMinutes: number | undefined;
+}
+
+/** One item that renders on its own: a plan-less row, a Draft plan, or a plan with no slice here. */
+export interface ItemBlockView {
+  kind: 'item';
+  key: string;
+  item: PlacedItemView;
+}
+
+export type BlockView = PlanBlockView | ItemBlockView;
+
 export interface GroupView {
   key: string;
   label: string;
   hint: string;
   items: PlacedItemView[];
   agents: PlacedAgentView[];
+  /** The group's items, nested: plan heads over their slices, then the rest. */
+  blocks: BlockView[];
+  /** Every payload row the group renders, for the heading's activity mark. */
+  rows: AgentRow[];
   count: number;
 }
 
@@ -94,6 +151,8 @@ export interface SectionView {
   label: string;
   hint: string;
   groups: GroupView[];
+  /** Every payload row the section renders, for the heading's activity mark. */
+  rows: AgentRow[];
   count: number;
 }
 
@@ -113,6 +172,10 @@ export interface DeliveryView {
   /** The Release delivery line: delivered, held at gates, blocked. */
   releaseLine: string;
   delivered: UnplacedView[];
+  /** The delivered items, nested as a group's are; rendered under the release line. */
+  deliveredBlocks: BlockView[];
+  /** Every payload row the delivered items hold. */
+  deliveredRows: AgentRow[];
 }
 
 export const itemAnchor = (id: string): string => `delivery-item-${id}`;
@@ -135,6 +198,87 @@ const unreadNote = (subject: Unplaced['subject']): string =>
     ? 'not placed: a reading the scan did not take (CI, review or stage is unread)'
     : 'not placed: the process of this agent was not read';
 
+const isPlanRow = (item: PlacedItemView): boolean =>
+  item.rows.length > 0 && item.rows.every((r) => r.kind === 'plan' && r.wave === '' && r.plan !== '');
+
+const planOfItem = (item: PlacedItemView): string => item.rows[0]?.plan ?? '';
+
+const isSliceItem = (item: PlacedItemView): boolean => item.rows.length > 0 && item.rows[0]!.wave !== '';
+
+/**
+ * Nests a list of placed items: one plan head per plan that has a slice item in
+ * the list, holding that plan's slice items, its plan row and its other items;
+ * every other item on its own. Heads and lone items keep the order of their first
+ * item.
+ *
+ * @param scope - prefix for the block keys, unique per group.
+ * @param items - the items one group (or the delivered list) holds, in placement order.
+ * @param slices - the payload's slices, for the count of slices under no head here.
+ * @returns the blocks, each item in exactly one.
+ */
+export const nestItems = (scope: string, items: readonly PlacedItemView[], slices?: Slice[]): BlockView[] => {
+  const withSlice = new Set(items.filter(isSliceItem).map(planOfItem).filter((p) => p !== ''));
+  const blocks: BlockView[] = [];
+  const heads = new Map<string, PlanBlockView>();
+  for (const item of items) {
+    const plan = planOfItem(item);
+    if (plan === '' || !withSlice.has(plan) || item.draft !== null) {
+      blocks.push({ kind: 'item', key: item.anchor, item });
+      continue;
+    }
+    let head = heads.get(plan);
+    if (head === undefined) {
+      const first = item.rows[0]!;
+      head = {
+        kind: 'plan', key: `${scope}\u0000${plan}`, plan, planFile: first.planFile,
+        rows: [], head: null, slices: [], loose: [], mode: 'progress', elsewhere: 0, ageMinutes: undefined,
+      };
+      heads.set(plan, head);
+      blocks.push(head);
+    }
+    head.rows.push(...item.rows);
+    if (isPlanRow(item) && head.head === null) head.head = item;
+    else if (isSliceItem(item)) head.slices.push({ item, slice: null, loose: [] });
+    else head.loose.push(item);
+  }
+  for (const head of heads.values()) {
+    head.planFile = head.rows.find((r) => r.planFile !== '')?.planFile ?? head.planFile;
+    head.mode = head.rows.every((r) => r.group === 'not-started') ? 'start' : 'progress';
+    for (const s of head.slices) {
+      const rows = head.mode === 'start' ? s.item.rows.filter(isUnbegun) : s.item.rows;
+      s.slice = groupBySlice(rows)[0] ?? null;
+      s.loose = head.mode === 'start' ? s.item.rows.filter((r) => !isUnbegun(r)) : [];
+    }
+    head.elsewhere = slicesElsewhere(slices, head.plan, 'not-started', headSliceNames({ plan: head.plan, planFile: head.planFile, rows: head.rows }));
+    const ages = head.rows.map((r) => r.ageMinutes).filter((a): a is number => a !== null && a !== undefined);
+    head.ageMinutes = ages.length > 0 ? Math.min(...ages) : undefined;
+  }
+  return blocks;
+};
+
+/**
+ * Whether a plan head's slices are on the page, or `null` where the head has no fold.
+ *
+ * A head with an exception among its rows stays open. A `start` head over one
+ * slice row has no fold; over several it is folded until opened. A `progress`
+ * head over several slices is folded until opened, over one it is open until shut.
+ *
+ * @param block - the plan head.
+ * @param overrides - the reader's fold overrides, keyed `open:<key>` and `shut:<key>`.
+ */
+export const planBlockShown = (block: PlanBlockView, overrides: ReadonlySet<string>): boolean | null => {
+  if (block.mode === 'start') {
+    if (!showsSliceFold({ plan: block.plan, planFile: block.planFile, rows: block.rows })) return null;
+    return overrides.has(`open:${block.key}`) || hasExceptions(block.rows);
+  }
+  if (hasExceptions(block.rows)) return true;
+  return block.slices.length > 1 ? overrides.has(`open:${block.key}`) : !overrides.has(`shut:${block.key}`);
+};
+
+/** The override a click on a plan head's caret toggles. */
+export const planBlockToggleKey = (block: PlanBlockView): string =>
+  block.mode === 'start' || block.slices.length > 1 ? `open:${block.key}` : `shut:${block.key}`;
+
 /**
  * Orders the rule's placement as the tab renders it: sections and groups in
  * `DELIVERY_LAYOUT` order, each placed item and agent once, links named from
@@ -142,9 +286,10 @@ const unreadNote = (subject: Unplaced['subject']): string =>
  *
  * @param mapping - the readings and the payload rows each subject id stands for.
  * @param placement - what `placeDelivery` returned for `mapping`.
+ * @param slices - the payload's slices, for each plan head's count of slices elsewhere.
  * @returns the sections, the not-placed note rows and the Release delivery line.
  */
-export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacement): DeliveryView => {
+export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacement, slices?: Slice[]): DeliveryView => {
   const rowOf = (item: string): AgentRow | null => mapping.rowsByItem[item]?.[0] ?? null;
   const ownRow = (entry: RegistryAgent | null): AgentRow | null => {
     if (entry === null || entry.branch === '') return null;
@@ -177,12 +322,19 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
 
   const sections = DELIVERY_LAYOUT.map(({ section, groups }): SectionView => {
     const groupViews = groups.map((group): GroupView => {
-      const items = itemViews.filter((v) => v.placement.section === section && v.placement.group === group);
+      const items = itemViews.filter((v) => v.placement?.section === section && v.placement.group === group);
       const agents = agentViews.filter((v) => section === 'fleet' && v.placement.group === group);
       const meta = GROUP_LABELS[group] ?? { label: group, hint: '' };
-      return { key: group, ...meta, items, agents, count: items.length + agents.length };
+      const rows = [...items.flatMap((v) => v.rows), ...agents.flatMap((v) => (v.row === null ? [] : [v.row]))];
+      return {
+        key: group, ...meta, items, agents, blocks: nestItems(group, items, slices), rows,
+        count: items.length + agents.length,
+      };
     });
-    return { key: section, ...SECTION_LABELS[section], groups: groupViews, count: groupViews.reduce((n, g) => n + g.count, 0) };
+    return {
+      key: section, ...SECTION_LABELS[section], groups: groupViews,
+      rows: groupViews.flatMap((g) => g.rows), count: groupViews.reduce((n, g) => n + g.count, 0),
+    };
   });
 
   const view = (u: Unplaced): UnplacedView => ({
@@ -202,12 +354,27 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
   const blocked = placement.items.filter((p) => p.section === 'you' && p.group === 'unblock').length;
   const releaseLine = `${slicesDelivered} of ${slicesTotal} slices delivered · ${held} held at gates · ${blocked} blocked`;
 
-  return { sections, notPlaced, releaseLine, delivered };
+  const deliveredItems = placement.unplaced
+    .filter((u) => u.reason === 'delivered' && u.subject === 'item')
+    .map((u): PlacedItemView => ({
+      placement: null,
+      rows: mapping.rowsByItem[u.id] ?? [],
+      draft: mapping.draftsByItem[u.id] ?? null,
+      label: labelOfItem(u.id),
+      anchor: itemAnchor(u.id),
+      links: [],
+    }));
+  const deliveredBlocks = nestItems('delivered', deliveredItems, slices);
+
+  return {
+    sections, notPlaced, releaseLine, delivered, deliveredBlocks,
+    deliveredRows: deliveredItems.flatMap((v) => v.rows),
+  };
 };
 
 /** Maps the payload and places it: the one call the tab makes. */
-export const placeMapping = (mapping: DeliveryMapping): DeliveryView =>
-  deliveryView(mapping, placeDelivery(mapping.readings, mapping.input));
+export const placeMapping = (mapping: DeliveryMapping, slices?: Slice[]): DeliveryView =>
+  deliveryView(mapping, placeDelivery(mapping.readings, mapping.input), slices);
 
 /** The Machine section's one line: the processes the payload's rows carry. */
 export const machineLine = (rows: readonly AgentRow[]): string => {

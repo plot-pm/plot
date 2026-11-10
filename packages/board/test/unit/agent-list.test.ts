@@ -1689,13 +1689,13 @@ describe('isStartable — which NOT STARTED rows offer work', () => {
 });
 
 describe('which groups start collapsed', () => {
-  it('folds Free agents and leaves every other section and group open', () => {
-    expect([...COLLAPSED_BY_DEFAULT]).toEqual(['free']);
+  it('folds Release delivery and Free agents and leaves every other section and group open', () => {
+    expect([...COLLAPSED_BY_DEFAULT]).toEqual(['release-delivery', 'free']);
   });
 
   it('gives a set stored under the earlier vocabulary the new default, not an empty set', () => {
     const stored = { getItem: () => JSON.stringify(['quiet', 'done']) };
-    expect([...readCollapsed(stored)]).toEqual(['free']);
+    expect([...readCollapsed(stored)]).toEqual(['release-delivery', 'free']);
   });
 
   it('keeps an empty stored set empty: a reader who opened everything', () => {
@@ -1737,7 +1737,7 @@ describe('readCollapsed / writeCollapsed — persistence, and its default', () =
     // The load-bearing half: a first visit has no stored value, and treating
     // that as "nothing collapsed" ships the crowded view to everyone who has
     // not yet clicked a header.
-    expect([...readCollapsed(store())]).toEqual(['free']);
+    expect([...readCollapsed(store())]).toEqual(['release-delivery', 'free']);
   });
 
   it('survives a reload — what was written comes back', () => {
@@ -1760,7 +1760,7 @@ describe('readCollapsed / writeCollapsed — persistence, and its default', () =
     // were folded is a worse answer than one that simply forgets.
     for (const raw of ['not json', '{"quiet":true}', '"quiet"', '17']) {
       expect([...readCollapsed(store({ 'plot-board:agents:collapsed': raw })).values()].sort())
-        .toEqual(['free']);
+        .toEqual(['free', 'release-delivery']);
     }
   });
 
