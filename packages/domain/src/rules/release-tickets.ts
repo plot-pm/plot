@@ -38,22 +38,20 @@ const day = (value: string): number => Date.parse(value.slice(0, 10));
 /**
  * The release versions the Active sprints target, one entry per distinct name.
  *
- * A sprint naming no release adds none. Two sprints naming one release share an entry whose `started` is the earlier start; a start that does not parse is ignored unless no sprint of the release has a parsable one, and then `started` is `''`.
+ * A sprint naming no release adds none. Two sprints naming one release share an entry whose `started` is the earlier start; a start that does not parse is ignored, and `started` is `''` where none parses.
  *
  * @param sprints - each Active sprint's `Release:` and `Start:` values.
  */
 export const releaseTargets = (sprints: readonly ReleaseTarget[]): ReleaseTarget[] => {
-  const byRelease = new Map<string, string>();
+  const starts = new Map<string, string[]>();
   for (const { release, started } of sprints) {
     const name = release.trim();
     if (name === '') continue;
-    const held = byRelease.get(name);
-    const valid = Number.isNaN(day(started)) ? '' : started;
-    if (held === undefined || held === '' || (valid !== '' && day(valid) < day(held))) {
-      byRelease.set(name, valid === '' && held !== undefined ? held : valid);
-    }
+    const held = starts.get(name) ?? [];
+    if (!Number.isNaN(day(started))) held.push(started);
+    starts.set(name, held);
   }
-  return [...byRelease].map(([release, started]) => ({ release, started }));
+  return [...starts].map(([release, held]) => ({ release, started: [...held].sort()[0] ?? '' }));
 };
 
 /**
@@ -72,7 +70,7 @@ export const releaseTargets = (sprints: readonly ReleaseTarget[]): ReleaseTarget
 export const releaseTicketCounts = (
   reading: ReleaseTicketReading,
   version: string,
-  started = '',
+  started: string,
 ): ReleaseTicketCounts | null => {
   const { open, closed } = reading;
   if (open === null || !open.some((row) => row.releases !== undefined)) return null;
@@ -96,7 +94,7 @@ export const releaseTicketCounts = (
 export const releaseTicketWording = (
   reading: ReleaseTicketReading,
   version: string,
-  started = '',
+  started: string,
 ): string | null => {
   const counts = releaseTicketCounts(reading, version, started);
   if (counts === null) return null;
