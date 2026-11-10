@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** ship-2-32-0
 - **Issue:** #3244
@@ -15,6 +15,7 @@
 - **Approved:** 2026-11-08, Jan Wloka, plan-PR #3248 merged
 - **Started:** 2026-11-08, Jan Wloka, `feature/delivery-placement-rule`
 - **Started:** 2026-11-08, Jan Wloka, `feature/delivery-tab-sections`
+- **Delivered:** 2026-11-10
 
 ## Changelog
 
