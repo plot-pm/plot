@@ -131,7 +131,9 @@ test('state-branch read: the ref bundle names the state ref for a path it holds,
 
 test('state-branch read: reconcile reports a plot/state ahead of main once the key is removed', () => {
   const repo = sandbox('removed-key', { mainPhase: 'Approved', stateKey: '' });
-  publishState(repo, 'Approved');
+  // A record main does not hold: equal trees count as synced (recordsAhead), so
+  // a state commit with main's content strands nothing and reports nothing.
+  publishState(repo, 'Delivered');
   const scan = spawnSync('bash', [path.join(scripts, 'plot-reconcile-scan.sh'), '--offline'], { encoding: 'utf8', cwd: repo });
   assert.equal(scan.status, 0, scan.stderr + scan.stdout);
   assert.match(scan.stdout, /== Removed State branch key ==/);

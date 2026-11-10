@@ -5,7 +5,7 @@ description: >-
   run on this machine. Probes before it acts and refuses rather than repairs.
   Use on /plot-fleet.
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
@@ -39,9 +39,10 @@ give the old behaviour to somebody asking for fleet control.
 | `--status` | Is the supervisor alive, which agents run, how long each has been quiet, which other Plot processes run on this machine, and what automatic verification did. Each desk line also prints the board's state of that desk, marked `(differs)` where the board and the shell disagree. **Starts nothing.** |
 | `--once` | One supervisor tick against the live estate, then exit. **The gate.** |
 | `--start [N]` | Probe, fill the unit, load it, then bring up N free agents. |
+| `--restart` | Load the current fleetd bundle into the running supervisor and signal no agent. Prints the old pid, the new pid and the bundle's commit. |
 | `--stop` | Stop every dispatched agent through `/plot-dispatch --stop`, then unload the supervisor. |
 | `--wait S` | With `--stop`: seconds to wait per worker (default 30). |
-| `--dry-run` | With `--start` only: report what would be filled, loaded and started. Writes nothing. Every other mode refuses it and exits 1. |
+| `--dry-run` | With `--start` and `--restart` only: report what would be filled, loaded and started, or which unit would reload with its pid and the bundle commit. Writes and signals nothing. Every other mode refuses it and exits 1. |
 
 ## Two processes, two commands, no edge between them
 
@@ -66,7 +67,7 @@ however large the fleet.
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor).
 >
-> **No user present?** If `PLOT_UNATTENDED=1` is set, do not call the question tool — never run `--stop` unattended, and say so in the output. See [Running unattended](../plot/docs/unattended.md).
+> **No user present?** If `PLOT_UNATTENDED=1` is set, do not call the question tool — never run `--stop` unattended, and say so in the output. `--restart` stops no agent and is allowed. See [Running unattended](../plot/docs/unattended.md).
 
 ## Steps
 
@@ -172,7 +173,7 @@ user rather than working around it.
 | no `plot-fleetd.mjs` | reinstall or update the Plot plugin — the bundle is tracked, so its absence is a broken installation; `pnpm build:board` only in a development checkout of Plot |
 | `node` is not Plot's pinned major, or Plot's pin is unreadable | put that major first on `PATH` (`nvm install N && nvm use N`), then run it again; an unreadable pin is a broken installation |
 | platform is neither launchd nor systemd | run the daemon by hand; there is no unit to fill |
-| a unit with that label is already loaded | the refusal names the checkout the loaded job serves: **this** repository → `--stop`, then `--start`; **another** checkout (named by path) → give this checkout its own label and leave that one running (`PLOT_FLEET_LABEL`, or the `Fleet label` config key); **cannot determine** → read the job with `launchctl print` before stopping anything |
+| a unit with that label is already loaded | the refusal names the checkout the loaded job serves: **this** repository → `--restart` to load new code, or `--stop`, then `--start`; **another** checkout (named by path) → give this checkout its own label and leave that one running (`PLOT_FLEET_LABEL`, or the `Fleet label` config key); **cannot determine** → read the job with `launchctl print` before stopping anything |
 | the configured `Worker command` was refused every write it tried | fix the worker command's permissions, then run `--start` again — a dispatched agent under the same command would meet the same refusal |
 
 **`--stop` has its own refusal over the same reading, worded differently.**
@@ -303,6 +304,18 @@ second: it **names them and leaves them running**.
 
 Stop one by pid if you mean to, or let the eight-hour `Worker bound` end it.
 
+### 7. Restart the supervisor, keep every agent
+
+```bash
+../plot/scripts/plot-fleetctl.sh --restart [--dry-run] [--wait SECONDS]
+```
+
+**`--restart` loads the current fleetd bundle into the running supervisor and signals no agent.** On launchd it runs `launchctl kickstart -k gui/<uid>/<label>`, never `bootout` then `bootstrap`: `bootout` of the supervisor killed every agent it had started, and `kickstart -k` left all four worker loops running (measured 2026-10-26). On systemd it runs `systemctl --user restart <unit>`; the unit sets `KillMode=process`, so the restart signals the daemon only. The unit file names the bundle path, so the new process reads the current bundle on start and nothing is filled again.
+
+It prints the old supervisor pid, the new pid and the bundle's commit (`unknown` where the checkout cannot be read). `kickstart -k` returns before the new process has a pid, so the command polls for one, bounded by `--wait`, and exits 1 naming the unit when the pid stays empty or equal to the old one. A pid that cannot be read prints as `unreadable`, never as `0`.
+
+It refuses wherever `--start` refuses — a missing artifact, a `node` that is not `.nvmrc`'s major, no harness, no launchd or systemd, a label held by another checkout, an unwritable `Worker command` — and when **no unit is loaded**: the refusal names `/plot-fleet --start`, because loading is `--start`'s job and a restart that loaded a unit would report a stopped supervisor as a success. It writes no unit, leaves `.plot/state/fleet-start.done` as found, and starts no agent.
+
 ## Guardrails
 
 - **`--status` and `--once` change nothing persistent on the machine.** `--once`
@@ -310,7 +323,8 @@ Stop one by pid if you mean to, or let the eight-hour `Worker bound` end it.
   the write probe's own scratch desk, cut and removed within the same run
   whenever the tick would hand a `worker-start` write over.
 - **Never stop a fleet unattended.** Under `PLOT_UNATTENDED=1`, report what is
-  running and stop there; ending work in flight is a person's call.
+  running and stop there; ending work in flight is a person's call. `--restart`
+  without `--agents` is allowed: it signals the supervisor alone.
 - **Never signal a worker directly.** `plot-dispatch --stop` is the one rule.
   A `pkill -f` over process names is exactly the guess it refuses, and one on
   2026-09-04 killed an operator's board along with the stale jobs it was aimed

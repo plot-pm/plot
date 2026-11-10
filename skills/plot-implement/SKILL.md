@@ -7,7 +7,7 @@ description: >-
   Prepares and records — never implements. Part of the Plot workflow.
   Use on /plot-implement.
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot

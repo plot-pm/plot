@@ -3,6 +3,7 @@
 # Usage: plot-fleetctl.sh --status
 #        plot-fleetctl.sh --once
 #        plot-fleetctl.sh --start [N] [--dry-run]
+#        plot-fleetctl.sh --restart [--dry-run] [--wait SECONDS]
 #        plot-fleetctl.sh --stop [--wait SECONDS]
 #   --status    is the supervisor alive, how many agents are running, how long
 #               each has been idle — with pids. Starts nothing. Exit 0 when the
@@ -20,6 +21,12 @@
 #               IT FINISHED, in `.plot/state/fleet-start.done` — a completion
 #               marker and not a lock, so absence is the signal and no timer
 #               tells a kill from a crash.
+#   --restart   load the current fleetd bundle into the running supervisor and
+#               signal no agent: `launchctl kickstart -k` on launchd, `systemctl
+#               --user restart` on systemd. Prints the old and new supervisor
+#               pid and the bundle's commit. Refuses wherever --start refuses,
+#               and when no unit is loaded. Fills nothing, writes no marker,
+#               starts no agent.
 #   --stop      stop every dispatched agent through `plot-dispatch.sh --stop`,
 #               reporting each branch as it goes, then unload the supervisor.
 #               The supervisor goes LAST — it is what would notice a desk
@@ -29,7 +36,8 @@
 #               bound the branch is reported still running and the run carries
 #               on; nothing is waited on forever.
 #   --dry-run   with --start: report what would be filled, loaded and started;
-#               write nothing, load nothing, start nothing.
+#               with --restart: report the unit, the pid and the commit;
+#               write nothing, load nothing, start nothing, signal nothing.
 #               every other mode refuses it and exits 1, before it acts.
 # Output: prose for a person, one line per thing acted on. Exit 0 on success.
 #
@@ -762,7 +770,7 @@ while [ $# -gt 0 ]; do
     # Two DIFFERENT mode flags refuse; the same flag twice is one mode.
     # Only a bare number after --start is consumed, the same rule
     # `plot-dispatch.sh --start` applies, so `--start --dry-run` means what it reads as.
-    --status|--once|--start|--stop)
+    --status|--once|--start|--stop|--restart)
               [ -z "$mode" ] || [ "$mode" = "${1#--}" ] || { echo "plot-fleetctl: --$mode and $1 are different modes; give one; nothing was done" >&2; exit 1; }
               mode=${1#--}
               case "$1:${2:-}" in
@@ -781,8 +789,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-[ -n "$mode" ] || { echo "plot-fleetctl: one of --status, --once, --start, --stop is required" >&2; exit 1; }
-[ "$dry_run" = 0 ] || [ "$mode" = start ] || { echo "plot-fleetctl: --dry-run works with --start only, not --$mode; nothing was done" >&2; exit 1; }
+[ -n "$mode" ] || { echo "plot-fleetctl: one of --status, --once, --start, --restart, --stop is required" >&2; exit 1; }
+[ "$dry_run" = 0 ] || [ "$mode" = start ] || [ "$mode" = restart ] || { echo "plot-fleetctl: --dry-run works with --start and --restart only, not --$mode; nothing was done" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
 # --status: processes, not work
@@ -1028,7 +1036,7 @@ fi
 # ---------------------------------------------------------------------------
 # --start: probe, fill, load, then the agents
 # ---------------------------------------------------------------------------
-if [ "$mode" = "start" ]; then
+if [ "$mode" = "start" ] || [ "$mode" = "restart" ]; then
   # REFUSAL 1 — nothing to start.
   [ -f "$fleetd" ] || { broken_install "no supervisor artifact at $fleetd" '  The unit would name a file that does not exist.\n'; exit 1; }
 
@@ -1063,30 +1071,17 @@ if [ "$mode" = "start" ]; then
   # THE EXIT CODE DECIDES, NOT THE OUTPUT. `command -v` exits non-zero and
   # prints nothing for a missing name. It prints a bare word for a builtin or a
   # function, which names no directory, so a non-absolute answer refuses too.
+  # THE DECISION IS THE DOMAIN'S (`startProbeRefusal`, through
+  # `plot-fleetctl-start.mjs probe`): a harness that does not resolve to an
+  # absolute path refuses; so does another executable of the harness's name in
+  # node's directory, because the unit puts that directory first; and so does
+  # REFUSAL 3, no init system to hand the daemon to. A bundle that cannot run
+  # exits non-zero and refuses too.
   harness_name=${PLOT_HARNESS:-claude}
   harness_bin=$(command -v "$harness_name") || harness_bin=""
-  case "$harness_bin" in
-    /*) harness_dir=$(dirname "$harness_bin") ;;
-    *)
-      harness_reason="PLOT_HARNESS is unset, so the default name 'claude' was looked for."
-      [ -n "${PLOT_HARNESS:-}" ] && harness_reason="PLOT_HARNESS is set to '$PLOT_HARNESS', so that is the name looked for."
-      printf "plot-fleetctl: cannot resolve the agent harness '%s' to a file on PATH\n  %s\n  The unit bakes the harness's directory into its PATH permanently, and a\n  worker that cannot find its harness exits 127 after you have moved on.\n  Fix it: put the harness on PATH (or set PLOT_HARNESS to its name or\n  absolute path), check with 'command -v %s', then run this again.\n" "$harness_name" "$harness_reason" "$harness_name" >&2
-      exit 1
-      ;;
-  esac
-  # THE UNIT PUTS NODE'S DIRECTORY FIRST, so a harness of the same name in it
-  # shadows the one resolved above. Refuse rather than bake in the wrong copy.
-  shadow="$(dirname "$node_bin")/${harness_name##*/}"
-  [ -f "$shadow" ] && [ -x "$shadow" ] && [ ! "$shadow" -ef "$harness_bin" ] && {
-    printf "plot-fleetctl: node's directory holds another '%s' (%s)\n  The unit puts that directory first, so workers would run it instead of %s.\n  Fix it: remove or rename it, or use the node from the directory that holds the harness, then run this again.\n" "${harness_name##*/}" "$shadow" "$harness_bin" >&2; exit 1
-  }
-
-  # REFUSAL 3 — no init system to hand the daemon to.
   plat=$(platform)
-  if [ "$plat" = "none" ]; then
-    printf 'plot-fleetctl: neither launchd nor systemd here — there is no unit to fill\n  Run the supervisor by hand instead: node %s\n' "$fleetd" >&2
-    exit 1
-  fi
+  node "$script_dir/board/plot-fleetctl-start.mjs" probe "$harness_name" "$harness_bin" "${PLOT_HARNESS:-}" "$node_bin" "$plat" "$fleetd" || exit 1
+  harness_dir=$(dirname "$harness_bin")
 
   # THE OLD DEFAULT LABEL IS MIGRATED, NOT ORPHANED, and only on the new
   # default's own `--start` — a custom label never reaches this branch. A unit
@@ -1094,7 +1089,8 @@ if [ "$mode" = "start" ]; then
   # same fleet under its old name. One whose checkout cannot be read is refused,
   # as refusal 4 refuses it, because installing beside it may run two
   # supervisors over one estate.
-  retire_old_label || exit 1
+  # `--restart` retires nothing: it reloads the unit that is loaded.
+  [ "$mode" = restart ] || retire_old_label || exit 1
 
   # REFUSAL 4 — the label is taken. launchd keys a job by LABEL, so loading a
   # second repository's unit over the first supervises the wrong estate without
@@ -1122,7 +1118,10 @@ if [ "$mode" = "start" ]; then
   # A BUNDLE THAT CANNOT BE ASKED REFUSES TOO — `old_label_refuses` is true on
   # a broken install as well as on a `refuse` word, so neither arm can load a
   # second supervisor over this estate on an empty answer.
-  ! old_label_refuses start || exit 1
+  # `--restart` asks with the `stop` verb: `start` refuses a unit that is loaded
+  # whatever it serves, and a restart's unit is loaded by definition. `stop`
+  # proceeds for `this` and refuses `another` and `unknown`.
+  ! old_label_refuses "${mode/restart/stop}" || exit 1
   [ "$LABEL" = com.plot-pm.fleetd ] || { ! LABEL=com.plot-pm.fleetd UNIT_NAME=plot-fleetd old_label_refuses start-default || exit 1; }
 
   # REFUSAL 5 — the worker command cannot write. One `-p` run of the project's
@@ -1136,12 +1135,32 @@ if [ "$mode" = "start" ]; then
   # not run never blocks a start it did not actually test. An empty or `none`
   # Worker command starts nothing and is not probed (`writeProbeNeeded`); a
   # stale print block proceeds and names its fix (`writeProbeOutcome`).
+  #
+  # `--restart` refuses an unloaded unit here, after the refusals it shares
+  # with `--start` and before the probe, and a dry run stops here with the
+  # unit, the pid and the commit (`restartPlan`).
+  [ "$mode" = start ] || node "$script_dir/board/plot-fleetctl-start.mjs" restart "$LABEL" "$plat" "$(supervisor_loaded && echo loaded)" "$(supervisor_pid)" "$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null)" "$dry_run" || exit 1
+  [ "$mode" = start ] || [ "$dry_run" = 0 ] || exit 0
   if [ "$dry_run" = 1 ]; then
     printf "state: %s\nwould fill and load %s (%s)\n  node:      %s (major %s, pinned %s)\n  harness:   %s (on the unit's PATH after node's directory: %s)\n  fleetd:    %s\n  repo:      %s\nwould probe: node %s/board/plot-write-probe.mjs '%s'\nwould then start agents: plot-dispatch.sh --start %s\n" "$(fleet_install_state)" "$LABEL" "$plat" "$node_bin" "$have" "$want" "$harness_bin" "$harness_dir" "$fleetd" "$repo_root" "$script_dir" "$("$script_dir/plot-config.sh" get "Worker command" "" 2>/dev/null)" "${start_count:-(default)}"
     exit 0
   fi
 
   PLOT_REPO_ROOT="$repo_root" node "$script_dir/board/plot-write-probe.mjs" "$("$script_dir/plot-config.sh" get "Worker command" "" 2>/dev/null)" || exit 1
+
+  # THE RELOAD SIGNALS THE SUPERVISOR ALONE. `reloadCommand` names `kickstart
+  # -k` or `systemctl --user restart`, which leave every agent running, where
+  # `bootout` killed them. It returns before the new process holds a pid, so
+  # the pid is polled, bounded by `--wait`, and `restartReport` decides.
+  if [ "$mode" = restart ]; then
+    old_pid=$(supervisor_pid)
+    reload=$(node "$script_dir/board/plot-fleetctl-start.mjs" reload "$LABEL" "$plat" "$UNIT_NAME") || exit 1
+    # shellcheck disable=SC2086 # the command's words, split on purpose
+    $reload
+    pid_unchanged() { new_pid=$(supervisor_pid); [ "${new_pid:-$old_pid}" = "$old_pid" ]; }
+    poll_while pid_unchanged
+    exec node "$script_dir/board/plot-fleetctl-start.mjs" restarted "$LABEL" "$old_pid" "$new_pid" "$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null)" "$wait_bound" "$(read_cmd)"
+  fi
 
   mkdir -p "$repo_root/.plot/logs" "$repo_root/.plot/state"
 

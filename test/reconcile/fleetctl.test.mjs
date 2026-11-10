@@ -154,7 +154,7 @@ function sandbox(
 
   const dst = path.join(root, 'skills', 'plot', 'scripts');
   fs.mkdirSync(path.join(dst, 'board'), { recursive: true });
-  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh', 'plot-desk-root.sh', 'board/plot-desk-root.mjs', 'board/plot-old-label.mjs', 'board/plot-restart-stopped-command.mjs']) {
+  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh', 'plot-desk-root.sh', 'board/plot-desk-root.mjs', 'board/plot-old-label.mjs', 'board/plot-fleetctl-start.mjs', 'board/plot-restart-stopped-command.mjs']) {
     const src = path.join(scripts, f);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dst, f));
   }
@@ -310,14 +310,14 @@ test('fleetctl: no verb is a refusal, not a default', () => {
   const { root, ctl, guardBin } = sandbox('noverb');
   const r = run(ctl, [], root, guardBin);
   assert.equal(r.status, 1);
-  assert.match(r.out, /one of --status, --once, --start, --stop/);
+  assert.match(r.out, /one of --status, --once, --start, --restart, --stop/);
 });
 
 test('fleetctl: an unknown argument is named rather than ignored', () => {
   const { root, ctl, guardBin } = sandbox('unknown');
-  const r = run(ctl, ['--restart'], root, guardBin);
+  const r = run(ctl, ['--restart', '3'], root, guardBin);
   assert.equal(r.status, 1);
-  assert.match(r.out, /unknown argument '--restart'/);
+  assert.match(r.out, /unknown argument '3'/);
 });
 
 test('fleetctl: --wait takes a number', () => {
@@ -761,12 +761,12 @@ test('--once --dry-run and --status --dry-run refuse and name the mode', () => {
   const onceBox = sandbox('oncedryrun');
   const onceResult = run(onceBox.ctl, ['--once', '--dry-run'], onceBox.root, onceBox.guardBin);
   assert.equal(onceResult.status, 1, onceResult.out);
-  assert.match(onceResult.out, /--dry-run works with --start only, not --once/);
+  assert.match(onceResult.out, /--dry-run works with --start and --restart only, not --once/);
 
   const statusBox = sandbox('statusdryrun');
   const statusResult = run(statusBox.ctl, ['--status', '--dry-run'], statusBox.root, statusBox.guardBin);
   assert.equal(statusResult.status, 1, statusResult.out);
-  assert.match(statusResult.out, /--dry-run works with --start only, not --status/);
+  assert.match(statusResult.out, /--dry-run works with --start and --restart only, not --status/);
 });
 
 // ── Two different mode flags refuse; the same flag twice is one mode ──────────
@@ -863,6 +863,8 @@ test('-h exits 0 and prints --wait and --dry-run', () => {
   assert.equal(r.status, 0, r.out);
   assert.match(r.out, /--wait S/);
   assert.match(r.out, /--dry-run {3}with --start/);
+  assert.match(r.out, /with --restart: report the unit/);
+  assert.match(r.out, /--restart {3}load the current fleetd bundle/);
   assert.match(r.out, /every other mode refuses it and exits 1/);
 });
 
@@ -2612,7 +2614,7 @@ function consumerSandbox(label, { nvmrc = process.versions.node.split('.')[0], r
   const plugin = path.join(box, 'plugin-cache', 'plot', '9.9.9');
   const dst = path.join(plugin, 'skills', 'plot', 'scripts');
   fs.mkdirSync(path.join(dst, 'board'), { recursive: true });
-  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh', 'plot-desk-root.sh', 'board/plot-desk-root.mjs', 'board/plot-old-label.mjs', 'board/plot-restart-stopped-command.mjs']) {
+  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh', 'plot-desk-root.sh', 'board/plot-desk-root.mjs', 'board/plot-old-label.mjs', 'board/plot-fleetctl-start.mjs', 'board/plot-restart-stopped-command.mjs']) {
     const src = path.join(scripts, f);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dst, f));
   }
@@ -3839,4 +3841,148 @@ test('--status from a linked worktree outside a symlinked desk root is still ref
   const r = run(ctl, ['--status'], fs.realpathSync(foreign), guardBin);
   assert.equal(r.status, 3, r.out);
   assert.match(r.out, /not part of the estate at/);
+});
+
+// ── --restart: reload the supervisor, signal no agent ────────────────────────
+//
+// A `launchctl` that logs every call and answers `print` from a counter file:
+// the pid before the first `kickstart` and the pid after it, or the same pid
+// forever with `stuck`. `workdir` names this checkout so `--start`'s label
+// check passes.
+
+const stubRestartLaunchctl = (box, root, fleetLabel, { loaded = true, stuck = false } = {}) => {
+  const bin = path.join(box, 'restart-bin');
+  fs.mkdirSync(bin, { recursive: true });
+  const log = path.join(box, 'launchctl.log');
+  const kicked = path.join(box, 'kicked');
+  const write = (name, body) => {
+    const p = path.join(bin, name);
+    fs.writeFileSync(p, `#!/bin/sh\n${body}\n`);
+    fs.chmodSync(p, 0o755);
+  };
+  write('uname', '[ "$1" = "-s" ] && echo Darwin || exec /usr/bin/uname "$@"');
+  write('launchctl', [
+    `echo "$*" >> '${log}'`,
+    loaded ? `[ "$1" = print ] && [ "$2" != "gui/${process.getuid()}/${fleetLabel}" ] && exit 113` : '[ "$1" = print ] && exit 113',
+    `[ "$1" = kickstart ] && touch '${kicked}'`,
+    'if [ "$1" = print ]; then',
+    `  if [ -f '${kicked}' ] && [ ${stuck ? 0 : 1} = 1 ]; then pid=5555; else pid=4242; fi`,
+    `  printf '\\tworking directory = ${root}\\n\\tpid = %s\\n' "$pid"`,
+    'fi',
+    'exit 0',
+  ].join('\n'));
+  return { bin, calls: () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n') : []) };
+};
+
+const restartEnv = (box, bin, fleetLabel, extra = {}) => ({
+  HOME: fakeHome(box, { unit: true, label: fleetLabel }),
+  PLOT_FLEET_LABEL: fleetLabel,
+  PATH: withHarness(box, bin, process.env.PATH),
+  ...extra,
+});
+
+const standIn = () => Number(execFileSync('bash', ['-c', 'sleep 60 >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' }).trim());
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+test('--restart kickstarts the supervisor, reports both pids and the commit, and every agent survives', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('restart-ok');
+  git(root, 'commit', '-q', '--allow-empty', '-m', 'seed');
+  const commit = git(root, 'rev-parse', '--short', 'HEAD').trim();
+  const marker = armedMarker(root);
+  const before = fs.statSync(marker);
+  const content = fs.readFileSync(marker, 'utf8');
+  const calls = stubDispatch(root);
+  const { bin, calls: launchctl } = stubRestartLaunchctl(box, root, fleetLabel);
+  const freeLoop = standIn();
+  const busyAgent = standIn();
+  try {
+    const r = run(ctl, ['--restart', '--wait', '10'], root, guardBin, restartEnv(box, bin, fleetLabel));
+    assert.equal(r.status, 0, r.out);
+    assert.match(r.out, /old pid: 4242/);
+    assert.match(r.out, /new pid: 5555/);
+    assert.ok(r.out.includes(`bundle commit: ${commit}`), r.out);
+    assert.equal(alive(freeLoop), true, 'the free loop was signalled');
+    assert.equal(alive(busyAgent), true, 'the busy agent was signalled');
+    const verbs = launchctl().filter((l) => !l.startsWith('print'));
+    assert.deepEqual(verbs, [`kickstart -k gui/${process.getuid()}/${fleetLabel}`]);
+    assert.equal(fs.readFileSync(marker, 'utf8'), content, 'the start marker was rewritten');
+    assert.equal(fs.statSync(marker).mtimeMs, before.mtimeMs, 'the start marker was touched');
+    assert.equal(fs.existsSync(calls), false, 'plot-dispatch.sh ran');
+  } finally {
+    for (const pid of [freeLoop, busyAgent]) try { process.kill(pid); } catch { /* already gone */ }
+  }
+});
+
+test('--restart exits 1 naming the unit when the pid never changes', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('restart-stuck');
+  const { bin } = stubRestartLaunchctl(box, root, fleetLabel, { stuck: true });
+  const r = run(ctl, ['--restart', '--wait', '1'], root, guardBin, restartEnv(box, bin, fleetLabel));
+  assert.equal(r.status, 1, r.out);
+  assert.ok(r.out.includes(`'${fleetLabel}' reported no new pid within 1s`), r.out);
+});
+
+test('--restart with no loaded unit refuses, names /plot-fleet --start, and kickstarts nothing', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('restart-unloaded');
+  const { bin, calls } = stubRestartLaunchctl(box, root, fleetLabel, { loaded: false });
+  const r = run(ctl, ['--restart'], root, guardBin, restartEnv(box, bin, fleetLabel));
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /\/plot-fleet --start/);
+  assert.equal(calls().some((l) => l.startsWith('kickstart')), false);
+});
+
+test("--start's refusals reach --restart: the node pin, another checkout's label and an unwritable probe", () => {
+  const wrong = sandbox('restart-wrongnode', { nvmrc: '99' });
+  const w = stubRestartLaunchctl(wrong.box, wrong.root, wrong.fleetLabel);
+  const r1 = run(wrong.ctl, ['--restart'], wrong.root, wrong.guardBin, restartEnv(wrong.box, w.bin, wrong.fleetLabel));
+  assert.equal(r1.status, 1, r1.out);
+  assert.match(r1.out, /node on PATH is .*, Plot pins 99/);
+  assert.equal(w.calls().some((l) => l.startsWith('kickstart')), false);
+
+  const other = sandbox('restart-other');
+  const o = stubRestartLaunchctl(other.box, fs.realpathSync(scratch('plot-fleetctl-restart-elsewhere-')), other.fleetLabel);
+  const r2 = run(other.ctl, ['--restart'], other.root, other.guardBin, restartEnv(other.box, o.bin, other.fleetLabel));
+  assert.equal(r2.status, 1, r2.out);
+  assert.match(r2.out, /serves ANOTHER checkout/);
+  assert.equal(o.calls().some((l) => l.startsWith('kickstart')), false);
+
+  const probe = sandbox('restart-probe', { writeProbe: 'refuse' });
+  const p = stubRestartLaunchctl(probe.box, probe.root, probe.fleetLabel);
+  const r3 = run(probe.ctl, ['--restart'], probe.root, probe.guardBin, restartEnv(probe.box, p.bin, probe.fleetLabel));
+  assert.equal(r3.status, 1, r3.out);
+  assert.match(r3.out, /refused every write/);
+  assert.equal(p.calls().some((l) => l.startsWith('kickstart')), false);
+});
+
+test('--restart --dry-run prints the unit, the pid and the commit, and reloads nothing', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('restart-dry');
+  const { bin, calls } = stubRestartLaunchctl(box, root, fleetLabel);
+  const r = run(ctl, ['--restart', '--dry-run'], root, guardBin, restartEnv(box, bin, fleetLabel));
+  assert.equal(r.status, 0, r.out);
+  assert.ok(r.out.includes(`would reload ${fleetLabel}`), r.out);
+  assert.match(r.out, /supervisor pid: 4242/);
+  assert.match(r.out, /bundle commit: /);
+  assert.equal(calls().some((l) => l.startsWith('kickstart')), false);
+});
+
+test('--stop --dry-run, --once --dry-run and --status --dry-run still refuse', () => {
+  for (const mode of ['--stop', '--once', '--status']) {
+    const { root, ctl, guardBin } = sandbox(`restart-dry-refuse${mode}`);
+    const r = run(ctl, [mode, '--dry-run'], root, guardBin);
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.out, /--dry-run works with --start and --restart only/);
+  }
+});
+
+test('--restart --start refuses as two different modes', () => {
+  const { root, ctl, guardBin } = sandbox('restart-conflict');
+  const r = run(ctl, ['--restart', '--start'], root, guardBin);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /--restart and --start are different modes/);
+});
+
+test('--restart succeeds under PLOT_UNATTENDED=1', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('restart-unattended');
+  const { bin } = stubRestartLaunchctl(box, root, fleetLabel);
+  const r = run(ctl, ['--restart', '--wait', '10'], root, guardBin, restartEnv(box, bin, fleetLabel, { PLOT_UNATTENDED: '1' }));
+  assert.equal(r.status, 0, r.out);
 });

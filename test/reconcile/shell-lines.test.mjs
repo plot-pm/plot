@@ -232,13 +232,14 @@ test('the count skips comments and blanks, and --per-file lists largest first', 
   assert.match(r.out, /scripts\/\*\.sh .*: 0 lines/);
 }));
 
-test('the gate passes on this repository and says its count', () => {
+test('the gate passes on this repository and says its count or its revert path', () => {
   const repo = path.join(here, '..', '..');
   const r = spawnSync('git', ['rev-parse', '--verify', '-q', 'refs/remotes/origin/main'], { cwd: repo });
   if (r.status !== 0) return; // no origin/main in this clone: nothing to compare
   const out = run(repo, ['pr']);
   assert.equal(out.status, 0, out.out);
-  assert.match(out.out, /\d{5} lines now/);
+  // A branch that exactly reverses one commit passes on the gate's revert path, which prints no count.
+  assert.match(out.out, /\d{5} lines now|reverses [0-9a-f]+ exactly, which passes/);
 });
 
 /** Writes `text` as the whole content of `file`, so a case controls the exact shape of each line. */

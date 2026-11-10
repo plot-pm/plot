@@ -5,7 +5,7 @@ description: >-
   this machine. Finds the board by two facts that must agree, and refuses rather
   than guessing. Use on /plot-board.
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot

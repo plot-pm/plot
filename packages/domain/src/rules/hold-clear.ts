@@ -1,3 +1,6 @@
+/** The file the phase gate reads its per-branch review holds from, relative to the repository root. */
+export const HOLD_FILE = '.plot/hold';
+
 /**
  * The `.plot/hold` file kept, with every entry for a named branch removed.
  *

@@ -39,6 +39,8 @@ import {
   allSlicesMerged,
   deliveryPulse as chooseDeliveryPulse,
   derivedStanding,
+  laneStanding,
+  storyPlanTableSlugs,
   repoIssuePrefixOf,
   jiraProjectsOf,
   type StoryIssueContext,
@@ -74,6 +76,8 @@ import {
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 import type { GateContractReader } from '@plot-pm/domain/ports/gate-contract';
 import { SPAWN_CONTRACT } from '@plot-pm/domain/rules/spawn-contract';
+import { writeTarget } from '@plot-pm/domain/rules/write-target';
+import { isSyncHead } from '@plot-pm/domain/rules/state-sync';
 import type { ReaderLock } from '@plot-pm/domain/ports/reader-lock';
 import type { ProcessProbe } from '@plot-pm/domain/ports/process-probe';
 import { people } from './server-info.js';
@@ -93,6 +97,7 @@ import {
   readerLockFile,
   TRACKER_PROJECT_KEY_SCHEMES,
 } from '@plot-pm/domain/adapters';
+import { stateSyncFile } from '@plot-pm/domain/adapters/state-sync-record/state-sync-file';
 import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import { processProbeSystem } from '@plot-pm/domain/adapters/process-probe/process-probe-system';
 import { dispatchLogExists } from './dispatch.js';
@@ -2017,7 +2022,7 @@ export function deriveStoryStatus(
   const declared = (STORY_LIFECYCLE as readonly string[]).includes(declaredStatus)
     ? (declaredStatus as StoryStatus)
     : 'draft';
-  return derivedStanding(declared, plans);
+  return laneStanding(declared, derivedStanding(declared, plans));
 }
 
 /**
@@ -2077,6 +2082,8 @@ export const collectStoryCards = async (
 export interface RefStory {
   slug: string;
   input: StoryCardInput;
+  /** The plan slugs the story's plan table names. */
+  tablePlans: readonly string[];
 }
 
 /**
@@ -2099,7 +2106,7 @@ const refStoriesIn = (files: ReadonlyMap<string, string>, archived: boolean): Re
     if (found.some((story) => story.slug === slug)) continue;
     // No design docs from a ref: `listDesignDocs('')` answers [].
     const input = parseStoryContent(content, slug, relPath, '');
-    if (input !== null) found.push({ slug, input: { ...input, committed: true } });
+    if (input !== null) found.push({ slug, input: { ...input, committed: true }, tablePlans: storyPlanTableSlugs(content) });
   }
   return found;
 };
@@ -2147,7 +2154,11 @@ const storyCardsOver = (
   const found: RefStory[] = [];
   for (const story of fromRef ?? []) {
     takenSlugs.add(story.slug);
-    found.push({ slug: story.slug, input: { ...story.input, designDocs: [...(story.input.designDocs ?? [])] } });
+    found.push({
+      slug: story.slug,
+      input: { ...story.input, designDocs: [...(story.input.designDocs ?? [])] },
+      tablePlans: [...story.tablePlans],
+    });
   }
 
   for (const entry of fs.existsSync(root) ? fs.readdirSync(root, { withFileTypes: true }) : []) {
@@ -2170,10 +2181,16 @@ const storyCardsOver = (
     const input = parseStoryFile(abs, slug, path.relative(repoRoot, abs), dir);
     if (!input) continue;
     takenSlugs.add(slug);
-    found.push({ slug, input });
+    let text = '';
+    try {
+      text = fs.readFileSync(abs, 'utf8');
+    } catch {
+      // parseStoryFile read it a moment ago; a vanished file reads no table.
+    }
+    found.push({ slug, input, tablePlans: storyPlanTableSlugs(text) });
   }
 
-  for (const { slug, input } of found) {
+  for (const { slug, input, tablePlans } of found) {
 
     const storyPlans = plansByStory.get(slug) || [];
 
@@ -2205,7 +2222,7 @@ const storyCardsOver = (
       archived,
       plans,
       sprints,
-      ...(context ? { facts: storyFactsOf(input, storyPlans, archived, context) } : {}),
+      ...(context ? { facts: storyFactsOf(input, storyPlans, archived, context, tablePlans) } : {}),
     };
 
     // Parse through Zod to apply defaults and validate
@@ -2747,6 +2764,7 @@ const readServedEstate = async (
     slug: record.slug,
     // The board renders no design documents for a story it read from a ref.
     input: { ...record, designDocs: [], committed: true },
+    tablePlans: [],
   });
   return {
     defaultBranch,
@@ -3142,7 +3160,14 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs, served?: Boar
     cards: withFacts.filter((c) => c.phase === name),
   }));
 
-  const recordFindings = await readRecordFindings(refs, { stateBranch, defaultBranch });
+  // The open sync PR runs from the state branch. The PR records carry no base branch, so the head alone identifies it here.
+  const syncTarget = writeTarget(stateBranch, defaultBranch);
+  const syncPr = syncTarget.kind !== 'state' ? null
+    : [...(prLinks?.values() ?? [])].find((r) => r.state === 'OPEN' && isSyncHead(r.head, syncTarget))?.number ?? null;
+  // A recorded forward-merge conflict names its files in the lag line; an unread record shows none.
+  const refusal = stateBranch.trim() === '' ? null : await stateSyncFile({ cwd: repoRoot }).refusal();
+  const conflictFiles = refusal !== null && refusal.ok && refusal.value !== null ? refusal.value.files : [];
+  const recordFindings = await readRecordFindings(refs, { stateBranch, defaultBranch }, syncPr, conflictFiles);
   return {
     generatedAt: new Date().toISOString(),
     columns,

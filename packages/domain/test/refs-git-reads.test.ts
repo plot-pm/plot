@@ -4,8 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { additionsOf, authorsOf, commitSubjectsOf, mergesOf, refsGit, stagedEntriesOf, stagedPathsOf } from '../src/adapters/refs/refs-git.js';
+import { additionsOf, authorsOf, commitSubjectsOf, firstParentCommitsOf, mergesOf, refsGit, stagedEntriesOf, stagedPathsOf } from '../src/adapters/refs/refs-git.js';
 import { runBytes, runProcess, asText } from '../src/adapters/run-script.js';
+import { commitsAhead } from '../src/workflows/state-sync.js';
 
 /**
  * The git adapter against a REAL repository, because that is the only thing it
@@ -1135,6 +1136,69 @@ describe('refsGit: recordCommit reads at the oid it is given', () => {
       run(['commit', '--quiet', '-am', 'redeliver']);
       const pinned = await at(delivered);
       expect(pinned.ok && pinned.value).toBe(delivered);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('refsGit: firstParentCommits', () => {
+  it('follows first parents and marks a merge whose second parent lies outside the range', () => {
+    const out = ['m|tm|r2 side', 'r2|t2|r1', 'r1|t1|base'].join('\n');
+    expect(firstParentCommitsOf(out)).toEqual([
+      { sha: 'm', tree: 'tm', forward: true },
+      { sha: 'r2', tree: 't2', forward: false },
+      { sha: 'r1', tree: 't1', forward: false },
+    ]);
+  });
+
+  it('keeps a merge whose second parent is a commit of the range', () => {
+    const out = ['m|tm|a s', 's|ts|base', 'a|ta|base'].join('\n');
+    expect(firstParentCommitsOf(out)).toEqual([
+      { sha: 'm', tree: 'tm', forward: false },
+      { sha: 'a', tree: 'ta', forward: false },
+    ]);
+  });
+
+  it('reads an empty listing as an empty line', () => {
+    expect(firstParentCommitsOf('')).toEqual([]);
+  });
+
+  it('counts a real repository after a squash, new records and a moved default branch', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-first-parent-'));
+    try {
+      const write = (name: string): void => {
+        fs.writeFileSync(path.join(dir, name), name);
+        git(dir, ['add', '-A']);
+        git(dir, ['commit', '--quiet', '-m', name]);
+      };
+      const ahead = async (): Promise<number | null> => commitsAhead(refsGit({ repoRoot: dir, scriptDir: path.join(dir, 'scripts') }), 'main', 'state');
+      git(dir, ['init', '--quiet', '--initial-branch=main']);
+      git(dir, ['config', 'user.email', 'test@example.com']);
+      git(dir, ['config', 'user.name', 'Test']);
+      write('root');
+      git(dir, ['checkout', '--quiet', '-b', 'state']);
+      write('r1');
+      write('r2');
+      expect(await ahead()).toBe(2);
+      git(dir, ['checkout', '--quiet', 'main']);
+      git(dir, ['merge', '--quiet', '--squash', 'state']);
+      git(dir, ['commit', '--quiet', '-m', 'squash']);
+      expect(await ahead()).toBe(0);
+      git(dir, ['checkout', '--quiet', 'state']);
+      git(dir, ['merge', '--quiet', '--no-ff', '-m', 'forward', 'main']);
+      expect(await ahead()).toBe(0);
+      write('r3');
+      write('r4');
+      expect(await ahead()).toBe(2);
+      git(dir, ['checkout', '--quiet', 'main']);
+      write('other');
+      expect(await ahead()).toBe(2);
+      git(dir, ['checkout', '--quiet', 'state']);
+      git(dir, ['merge', '--quiet', '--no-ff', '-m', 'forward again', 'main']);
+      expect(await ahead()).toBe(2);
+      const line = await refsGit({ repoRoot: dir, scriptDir: path.join(dir, 'scripts') }).firstParentCommits('main..state');
+      expect(line.ok && line.value.map((c) => c.forward)).toEqual([true, false, false, true, false, false]);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

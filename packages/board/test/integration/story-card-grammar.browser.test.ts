@@ -99,7 +99,7 @@ describe('a story card renders the card grammar', () => {
       expect(await number.innerText()).toMatch(/^#3170/);
       expect(await number.getAttribute('href')).toBe(`${ISSUES}3170`);
       expect(await cardEl.locator('[data-state-pill]').innerText()).toContain('Draft');
-      expect(await cardEl.locator('[data-alert="status-behind"]').innerText()).toBe('status behind: plans delivered');
+      expect(await cardEl.locator('[data-alert="status-behind"]').innerText()).toBe('status behind: plans delivered; story still open');
       expect(await cardEl.locator('[data-assignees]').getAttribute('aria-label')).toBe('@jwloka');
       // No whole-card button: the title is the card's only open control.
       expect(await page.locator('button:has(#story-nothing-runs), button #story-nothing-runs').count()).toBe(0);

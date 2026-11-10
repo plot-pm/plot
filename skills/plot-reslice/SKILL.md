@@ -7,7 +7,7 @@ description: >-
   then rewrite only that plan's `## Slices` section. Proposes; a person
   confirms. Part of the Plot workflow. Use on /plot-reslice.
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot

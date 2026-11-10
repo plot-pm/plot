@@ -767,3 +767,42 @@ describe('the run on Bitbucket, whose status store keeps one plot/review per hea
     expect((await r.deps.host.prReview(7))).toMatchObject({ ok: true, value: { state: 'failure' } });
   });
 });
+
+describe('the sync PR path gate in the review', () => {
+  const target = { kind: 'state', pushRef: 'refs/heads/plot/state', trackRef: 'origin/plot/state', defaultRef: 'origin/main', isBranch: true } as never;
+  const gate = (files: readonly string[] | 'unknown') => ({
+    target,
+    pathSet: ['docs/plans/'],
+    defaultBranch: 'main',
+    diff: async () => files,
+  });
+
+  it('refuses a sync PR touching packages/, runs nothing and writes no status', async () => {
+    const r = rig(FINDINGS, { prs: [pr({ head: 'plot/state', base: 'main' })] });
+    r.deps.stateSync = gate(['docs/plans/a.md', 'packages/domain/src/x.ts']);
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.refused);
+    expect(out.lines.join('\n')).toContain('packages/domain/src/x.ts');
+    expect(r.changeBases).toEqual([]);
+    const status = await reviewStatusOnly(r.deps, '7');
+    expect(status.code).toBe(EXIT.refused);
+    expect(status.lines.join('\n')).toContain('sync-path-outside-set');
+  });
+
+  it('refuses a sync PR whose diff could not be read', async () => {
+    const r = rig(FINDINGS, { prs: [pr({ head: 'plot/state', base: 'main' })] });
+    r.deps.stateSync = gate('unknown');
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.refused);
+    expect(out.lines.join('\n')).toContain('sync-diff-unread');
+  });
+
+  it('reviews a sync PR inside the set, and any other PR whatever the diff says', async () => {
+    const inside = rig(FINDINGS, { prs: [pr({ head: 'plot/state', base: 'main' })] });
+    inside.deps.stateSync = gate(['docs/plans/a.md']);
+    expect((await reviewPr(inside.deps, '7')).code).toBe(EXIT.ok);
+    const other = rig(FINDINGS);
+    other.deps.stateSync = gate(['packages/x.ts']);
+    expect((await reviewPr(other.deps, '7')).code).toBe(EXIT.ok);
+  });
+});
