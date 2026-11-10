@@ -209,7 +209,7 @@ describe('the continue entry on a desk holding PLOT-BLOCKED', () => {
     // carry PLOT_UNATTENDED=1 (an unattended worker's own environment).
     const code = await run([branch, 'use the shell adapter'], repo, path.resolve(__dirname, '../../../../skills/plot/scripts'), {
       caller: 'person',
-      monitors: { start: () => ({ ok: true, value: { agentMonitorPid: '' } }), stop: () => ({ ok: true }) } as never,
+      monitors: { stop: () => ({ ok: true }) } as never,
     }, (s) => out.push(s), (s) => warned.push(s));
     expect(warned.join('')).toBe('');
     expect(code).toBe(0);
@@ -268,7 +268,7 @@ describe('the continue entry on a desk holding PLOT-BLOCKED', () => {
     try {
       code = await run(['--who', 'jwloka', branch, 'use the shell adapter'], repo, path.resolve(__dirname, '../../../../skills/plot/scripts'), {
         caller: 'person',
-        monitors: { start: () => ({ ok: true, value: { agentMonitorPid: '' } }), stop: () => ({ ok: true }) } as never,
+        monitors: { stop: () => ({ ok: true }) } as never,
       }, (s) => out.push(s), (s) => warned.push(s));
     } finally {
       if (previousRecordHome === undefined) delete process.env[ANSWER_RECORD_HOME_ENV];

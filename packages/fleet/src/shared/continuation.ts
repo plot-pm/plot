@@ -10,7 +10,7 @@ import { TOKEN_FILENAME } from '@plot-pm/domain/rules/worker-liveness';
 import { isAnswered } from '@plot-pm/domain';
 import { deskManifestFor, assignEmptyManifestBranch, writeDeskManifest, writeResumeId } from './manifest-stamp.js';
 import { briefPath } from './brief-path.js';
-import { agentMonitorScript, deskMonitorsShell, transcriptDirFor, TRANSCRIPT_HOME_ENV } from '@plot-pm/domain/adapters';
+import { deskMonitorsShell, transcriptDirFor, TRANSCRIPT_HOME_ENV } from '@plot-pm/domain/adapters';
 import type { Caller, DeskMonitors, ProcessProbe } from '@plot-pm/domain';
 import { deskWaitsFree, FREE_WAIT_FILENAME } from '@plot-pm/domain/rules/desk-loop-alive';
 import { deskFreeWait, readDeskLoop } from './desk-loop.js';
@@ -476,7 +476,7 @@ export interface DeskContinuationInput {
    * so a start that throws afterwards cannot be repeated unrecorded.
    */
   beforeStart?: () => Promise<boolean>;
-  /** Stops the previous run's monitors; defaults to the shell adapter under `scriptsDir`. The wrapper starts the new AgentMonitor. */
+  /** Stops the previous run's monitors; defaults to the shell adapter under `scriptsDir`. The wrapper starts none. */
   monitors?: DeskMonitors;
   /**
    * Stops a pid and waits for it to be gone; defaults to {@link stopAndAwaitExit}.
@@ -1227,10 +1227,10 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       /* a missing wrapper pid file is the normal case */
     }
 
-    // THE PREVIOUS MONITORS ARE STOPPED BEFORE THE START, so the desk keeps one
-    // (#1255). The wrapper starts the new AgentMonitor and records its pid in
-    // the manifest stamp. A stopped loop removed its manifest, so the pids were
-    // read before any stop.
+    // THE PREVIOUS MONITORS ARE STOPPED BEFORE THE START: a desk launched
+    // before fleetd wrote the AgentMonitor's findings may still run one, and
+    // the wrapper starts none. A stopped loop removed its manifest, so the pids
+    // were read before any stop.
     const monitors = input.monitors ?? deskMonitorsShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
     if (previousMonitors.length > 0 && !monitors.stop(previousMonitors).ok) {
       logLine(log, `could not stop the previous monitors (pids ${previousMonitors.join(', ')}); they may still run`);
@@ -1272,7 +1272,6 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
           // `continueTarget` found one to stamp or wrote a new one.
           PLOT_MANIFEST_FILE: manifestPath,
           PLOT_STAMP_STARTED: new Date().toISOString(),
-          PLOT_AGENT_MONITOR: agentMonitorScript({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
           PLOT_SCRIPT_DIR: opts.scriptsDir,
           PLOT_WORKER_LOG: log,
           PLOT_WORKER_LOG_APPEND: '1',

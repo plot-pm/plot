@@ -23,7 +23,7 @@ A census row records each count it measures with `recordCensus` from `census-rep
 import { productRoot, recordCensus } from './census-report.js';
 
 recordCensus({
-  id: 'S4',                                        // S1..S6 or P1..P4
+  id: 'S4',                                        // S1..S7, P2..P4, P6 or D1
   fixture: { desks: 3, openPrs: 5, host: 'github' }, // host: 'github' | 'bitbucket'
   count: perPass,                                  // the measured figure, in `unit`
   unit: 'execve per pass',
@@ -43,6 +43,13 @@ recordCensus({
 The rows always come from HEAD. Only the product differs between the two runs: the shipped scripts under `skills/plot/scripts/` and the built bundles under `skills/plot/scripts/board/`. A row finds the product through `productRoot()`, which returns `PLOT_CENSUS_PRODUCT`, or this checkout's root when the variable is unset.
 
 A row must resolve every script, bundle and product source module from `productRoot()`, never from its own `import.meta.url`. A row that imports fleetd's `run` imports it as `join(productRoot(), 'packages/fleet/src/…')`. The merge-base worktree has its own `node_modules` and built bundles, so that import resolves there. Where the merge base lacks a seam the row needs, the row throws in that run, records nothing, and the comparison prints "no before" for it.
+
+## Retired and added rows
+
+| Row | Claim | State |
+|---|---|---|
+| P1 | an AgentMonitor over one live, idle desk starts no `sleep` | Retired by `liveness-token`, slice *Monitor in fleetd*: its fixture started `plot-agent-monitor.sh`, which that slice removes. fleetd writes the AgentMonitor's findings from its own pass, and the worker wrapper runs the final pass where no fleetd heartbeat is live. |
+| P6 | an idle desk with a live agent starts no monitor process | Added by the same slice, in `dispatch.census.test.ts`: over D1's launch, with the agent live and idle for 2 s before it ends, no image is a `*-monitor.sh` script. |
 
 ## The comparison
 

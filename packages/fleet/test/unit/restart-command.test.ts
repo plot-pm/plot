@@ -17,7 +17,7 @@ import { removeTree as rmTree } from '../rm-tree.mjs';
 // and its start replaces a dead worker under the desk's continue lock.
 
 const scriptDir = path.resolve(__dirname, '../../../../skills/plot/scripts');
-const monitors = { start: () => ({ ok: true, value: { agentMonitorPid: '' } }), stop: () => ({ ok: true }) } as never;
+const monitors = { stop: () => ({ ok: true }) } as never;
 const deadWorker: RestartReaders = {
   pr: async () => ({ reachedReview: false, number: 0, state: '' }),
   worker: async () => ({ state: 'failed', pid: '', exitCode: '143', activity: 'idle' }),

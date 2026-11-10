@@ -1901,18 +1901,6 @@ fs.chmodSync(shippedGate, 0o755);
 // A list nobody is prompted to update is one that falls behind, so a gate
 // derives this from the server sources and fails on any difference.
 const vendoredScripts = [
-  'plot-agent-monitor.sh',
-  // Sourced BY plot-agent-monitor.sh as a `$script_dir` sibling — it is "the ONE
-  // answer to is this monitor's subject still there?", and it is what ends a
-  // monitor with its agent. It was on NO list, measured 2026-09-06, so the npm
-  // layout has shipped without it: `plot_monitor_wait` is then undefined and the
-  // `while` driving the monitor's loop fails on the first call, so the monitor
-  // starts, takes one pass and exits — leaving a worker that reads as monitored
-  // and is watched by nothing after its first second. A second monitor,
-  // `plot-build-monitor.sh`, sourced this too until `the-shell-loop-goes`
-  // removed the process entirely; a third, `plot-worker-monitor.sh`, sourced
-  // this too until `bug/the-loop-reports-idle` removed it the same way.
-  'plot-monitor-subject.sh',
   'plot-approve.sh',
   // Sourced BY plot-host.sh as a `$here` sibling — the same shape as
   // `plot-pr-merged.sh` below, and the same failure. Missing, the source

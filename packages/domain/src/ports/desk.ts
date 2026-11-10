@@ -272,6 +272,24 @@ export interface Desk {
    *   rather than reading an unreadable desk as a clean one.
    */
   readFindings(worktree: string): Promise<PortResult<readonly Finding[]>>;
+
+  /**
+   * Appends one line, as given, to the desk's AgentMonitor log, `.plot-worker.monitor.agent.jsonl`.
+   *
+   * @param worktree - the desk, absolute.
+   * @param finding - the whole line, as `agentFindingLine` builds it.
+   * @returns `failed` where the line could not be appended.
+   */
+  publishAgentFinding(worktree: string, finding: Finding): Promise<PortResult<void>>;
+
+  /**
+   * Appends one line to the desk log, `.plot-worker.log`.
+   *
+   * @param worktree - the desk, absolute.
+   * @param line - the line, without its newline.
+   * @returns `failed` where the line could not be appended.
+   */
+  appendLog(worktree: string, line: string): Promise<PortResult<void>>;
 }
 
 /** One finding `publishBuildFinding` appends, in the fields `FindingSchema` requires beside the ones the adapter fills. */

@@ -68,7 +68,6 @@ const wrapperEnv = ({ desk, manifest }, extra = {}) => ({
   PLOT_WORKTREE: desk,
   PLOT_MANIFEST_FILE: manifest,
   PLOT_STAMP_STARTED: STAMP_STARTED,
-  PLOT_AGENT_MONITOR: '',
   PLOT_EXIT_FILE: path.join(desk, '.plot-worker.exit'),
   PLOT_PID_FILE: path.join(desk, '.plot-worker.pid'),
   PLOT_PID_STARTED_FILE: path.join(desk, '.plot-worker.pid.startedAt'),

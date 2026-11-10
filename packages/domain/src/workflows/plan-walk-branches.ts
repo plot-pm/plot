@@ -45,7 +45,7 @@ export const mergeWalkLimit = (): number => {
 const PR_LIST_LIMIT = 1000;
 
 /** How many changed paths one branch reports. */
-const CHANGED_PATHS_CAP = 40;
+export const CHANGED_PATHS_CAP = 40;
 
 /** The wordings a host CLI uses when it has no identity: the question was never put. */
 const UNASKED_PATTERNS: readonly RegExp[] = [

@@ -68,6 +68,7 @@ import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { Host, MergedAnswer, PrListingRow } from '@plot-pm/domain/ports/host';
 import type { FleetdLoop, HeldSlice, PortResult } from '@plot-pm/domain';
 import { answered, failed } from '@plot-pm/domain';
+import { agentFindingsOver } from '../../shared/agent-findings.js';
 import { startFleetdHeartbeat, supervisedFrom, trackBridgeWrites } from '../../shared/fleetd-heartbeat.js';
 import { deskDead, type DeskDeadAnswer } from '@plot-pm/domain/rules/desk-dead';
 import type { Processes } from '@plot-pm/domain/ports/processes';
@@ -3185,6 +3186,9 @@ export const run = async (
               const answer = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
               return answer.ok ? answer.value : 'github';
             },
+            // THE AGENTMONITOR'S FINDINGS, from the walk's own readings; one
+            // host `pr-state` per agent end.
+            findings: agentFindingsOver({ repoRoot, scriptDir: scriptsDir }, warn),
             walk: {
               host: hostShell({ repoRoot, scriptDir: scriptsDir }),
               plans: (ref, planDir) => planStoreRef(refsGit({ repoRoot, scriptDir: scriptsDir }), { repoRoot, scriptDir: scriptsDir }, ref, planDir),

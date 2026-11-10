@@ -44,10 +44,6 @@
 #               config — without one there is no destination. --dry-run by
 #               default; --yes to actually move.
 #   --dry-run   print what would happen; create nothing, push nothing
-#   --monitors  with --dry-run, also name which monitors would be attached to
-#               which worktree. Opt-in so the default --dry-run output stays
-#               byte-identical, which is what lets it be diffed against a run
-#               from before a change to this script.
 #   --yes       with --migrate, actually move the worktrees (default is dry-run)
 #   --no-start  record that no worker was wanted: the run still hands its slices
 #               over, and reports `worker=suppressed` rather than a missing
@@ -275,7 +271,6 @@ worktree_holding_branch() { # $1=branch → the first desk holding it, or nothin
 }
 
 dry_run=0
-show_monitors=0
 no_start=0
 no_brief=0
 mode=dispatch
@@ -297,16 +292,6 @@ agent=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run)  dry_run=1 ;;
-    # --monitors NAMES what would be attached, and it is OPT-IN for a reason
-    # that is a protection rather than a preference. `plot-dispatch.sh` is the
-    # largest script here and a mistake in start_worker starts no workers at
-    # all, so this slice pins `--dry-run` output as BYTE-IDENTICAL before and
-    # after on the same estate — the dry run exercises every refusal against
-    # real worktrees and real pids without starting or removing anything, which
-    # is the same protection the reap and dispatch domain work used. A line
-    # added to the default output would forfeit exactly that check. So the
-    # naming lives behind its own flag: `--dry-run --monitors`.
-    --monitors) show_monitors=1 ;;
     --status)   mode=status ;;
     --migrate)  mode=migrate ;;
     --yes)      migrate_yes=1 ;;
@@ -1301,8 +1286,6 @@ start_worker() {
     fi
   fi
 
-  local agent_monitor=''
-  [ -x "$script_dir/plot-agent-monitor.sh" ] && agent_monitor="$script_dir/plot-agent-monitor.sh"
   local stamp_now
   stamp_now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   # `PLOT_HARNESS`, `PLOT_MODEL` and `PLOT_EFFORT` are the three names the
@@ -1343,7 +1326,6 @@ start_worker() {
       PLOT_EFFORT="$launch_effort" \
       PLOT_MANIFEST_FILE="$manifest_dir/$session.json" \
       PLOT_STAMP_STARTED="$stamp_now" \
-      PLOT_AGENT_MONITOR="$agent_monitor" \
       PLOT_EXIT_FILE="$wt/.plot-worker.exit" PLOT_PID_FILE="$wt/.plot-worker.pid" \
       PLOT_PID_STARTED_FILE="$wt/.plot-worker.pid.startedAt" \
       PLOT_WRAPPER_PID_FILE="$wt/.plot-worker.wrapper.pid" \
@@ -1601,7 +1583,7 @@ if [ "$mode" = "stop" ]; then
       # prompt shell, `claude` and its children survived reparented to pid 1;
       # `kill -TERM -<pgid>` ended all of them. `start_worker` starts the
       # wrapper detached, so an agent leads its own group and that group holds one
-      # wrapper with its monitors, its loop and its `claude`: the signal ends
+      # wrapper, its loop and its `claude`: the signal ends
       # this agent and nothing else. An agent started before that change still
       # shares its starter's group with every sibling the same run started and
       # with the starter itself. The guard below stays for those agents: the
@@ -3539,41 +3521,6 @@ work_in_flight() { # $1=branch to exclude (the candidate)
 IN_FLIGHT_MAX_FILES=6
 IN_FLIGHT_MAX_BRANCHES=8
 
-# What a real run would attach, named per worktree — behind `--monitors`.
-#
-# SILENT UNLESS ASKED, which is what keeps the default `--dry-run` output
-# byte-identical to a run from before the monitors existed. That diff is this
-# slice's protection against the one failure that matters here: a mistake in
-# `start_worker` starts no workers at all, and the dry run exercises every
-# refusal against real worktrees and real pids without starting anything.
-#
-# IT NAMES THE SCRIPT PATH, not just the monitor. The question a reader has at
-# a dry run is *which code would run against my worktree* — a bare "2 monitors"
-# would send them into this script to find out, and a path they can `cat` is
-# the same courtesy the manifest refusal above pays by naming its directory.
-#
-# IT REPORTS ABSENCE TOO. A monitor script that is missing or non-executable
-# means an unmonitored worker, and the empty env var that produces is invisible
-# at launch by design (a detached `sh -c` nobody reads must not spew `command
-# not found`). The dry run is the one place that silence can be made audible
-# before it matters.
-report_monitors() { # $1=worktree
-  [ "$show_monitors" = 1 ] || return 0
-  local wt="$1" m
-  # ONLY `agent` IS A SCRIPT ANY MORE. `bug/the-loop-reports-idle` removed
-  # `plot-worker-monitor.sh`: the PROCESS no longer has a monitor to report —
-  # the loop's own watcher judges `idle` and the wrapper itself reports
-  # `gone`/`clear`, neither of which this dry run can name as a script path.
-  for m in agent; do
-    local script="$script_dir/plot-$m-monitor.sh"
-    if [ -x "$script" ]; then
-      echo "  would attach: $script → $wt"
-    else
-      echo "  would attach NOTHING for the $m monitor — $script is missing or not executable"
-    fi
-  done
-}
-
 report_in_flight() { # $1=candidate branch
   local br files shown extra n=0 total
   total=$(work_in_flight "$1" | wc -l | tr -d ' ')
@@ -3628,7 +3575,6 @@ if [ "$dry_run" = 1 ]; then
     # the one that reached here because the scan could not ask the host.
     is_waits_held "$br" && continue
     echo "would dispatch $br → $(worktree_for "$br")"
-    report_monitors "$(worktree_for "$br")"
     report_in_flight "$br"
     n_dispatched=$((n_dispatched + 1))
     # The scan's eligible set, plus whatever `--allow-waiting` freed. The scan
@@ -3696,17 +3642,8 @@ for branch in ${fan_out[@]+"${fan_out[@]}"}; do
   # with a scan-offered one where the two spellings differ.
   is_exhausted "$branch" && continue
 
-  # THE PATH DISPATCH NO LONGER CREATES, still composed for the two readers that
-  # need it: the dry run, which names where a desk WOULD go, and the monitor
-  # report. The agent decides its own desk now, so this is a prediction rather
-  # than a destination — and it stays flattened whole, because `feature/api` and
-  # `bug/api` are different work and must not name one directory.
-  suffix=$(printf '%s' "$branch" | tr '/' '-')
-  wt="$wt_root/$wt_prefix$suffix"
-
   if [ "$dry_run" = 1 ]; then
     echo "would hand over $branch → the registry"
-    report_monitors "$wt"
     report_in_flight "$branch"
     n_dispatched=$((n_dispatched + 1))
     continue

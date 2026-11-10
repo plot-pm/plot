@@ -14,8 +14,11 @@ import { releaseFifo } from './stub-worker.js';
 // D1: what one agent launch starts. `start_worker` is called the way
 // `test/reconcile/dispatch.test.mjs` calls it, on one desk, with a stub agent
 // that blocks on a FIFO. The count is every image the traced launch starts
-// except the agent's own tree and the AgentMonitor's tree: the dispatcher's
-// part, the wrapper's start, and the wrapper's ending once the agent exits.
+// except the agent's own tree: the dispatcher's part, the wrapper's start, and
+// the wrapper's ending once the agent exits.
+//
+// P6: over the same launch, while the agent lives and idles and until it
+// ends, no image is a monitor script.
 
 const gate = censusGate({ stracePath: findStrace(process.env['PATH'] ?? ''), platform: process.platform });
 
@@ -31,12 +34,17 @@ const until = async (what: string, ready: () => boolean, ms = 30_000): Promise<v
 
 const base = (e: ExecRecord): string => e.path.split('/').pop() ?? e.path;
 
-describe.skipIf(gate.kind !== 'run')('one dispatch (D1)', () => {
+/** Whether an image runs a monitor script, as the command itself or as a shell's first argument. */
+const isMonitor = (e: ExecRecord): boolean =>
+  /-monitor\.sh$/.test(base(e)) || /-monitor\.sh$/.test(e.argv[1]?.split('/').pop() ?? '');
+
+describe.skipIf(gate.kind !== 'run')('one dispatch (D1, P6)', () => {
   const fixture: CensusFixture = { host: 'github', desks: 1, openPrs: 0 };
   const branch = 'feature/census-dispatch';
   let box: Sandbox;
   let launch: ExecRecord[] = [];
   let agentImages = 0;
+  let monitors: ExecRecord[] = [];
 
   beforeAll(async () => {
     box = await buildSandbox({ host: 'github', desks: 0, openPrs: 0 });
@@ -73,16 +81,17 @@ describe.skipIf(gate.kind !== 'run')('one dispatch (D1)', () => {
     });
     const pidFile = join(worktree, '.plot-worker.pid');
     await until('agent pid', () => existsSync(pidFile) && /^\d+$/.test(readFileSync(pidFile, 'utf8')));
+    // THE AGENT IDLES, live, before it is released: P6's window.
+    await wait(2_000);
     await until('reader on the agent FIFO', () => releaseFifo(fifo));
     await until('exit record', () => existsSync(join(worktree, '.plot-worker.exit')));
     const census = (await session.end(90_000)).census;
     const execs = census?.execs ?? [];
     const agentRoot = execs.find((e) => base(e) === 'census-agent');
-    const monitorRoot = execs.find((e) => base(e) === 'plot-agent-monitor.sh');
     const agentTree = agentRoot === undefined || census === null ? [] : treeOf(census, execs, agentRoot.pid);
-    const monitorTree = monitorRoot === undefined || census === null ? [] : treeOf(census, execs, monitorRoot.pid);
     agentImages = agentTree.length;
-    launch = execs.filter((e) => !agentTree.includes(e) && !monitorTree.includes(e));
+    launch = execs.filter((e) => !agentTree.includes(e));
+    monitors = execs.filter(isMonitor);
   }, 180_000);
 
   afterAll(async () => {
@@ -93,5 +102,11 @@ describe.skipIf(gate.kind !== 'run')('one dispatch (D1)', () => {
     recordCount(CENSUS_ROWS.D1, fixture, launch.length, launch);
     expect(agentImages).toBeGreaterThan(0);
     expect(launch.length).toBeGreaterThan(0);
+  });
+
+  it(rowTitle(CENSUS_ROWS.P6, fixture), () => {
+    recordCount(CENSUS_ROWS.P6, fixture, monitors.length, monitors);
+    expect(agentImages).toBeGreaterThan(0);
+    expect(monitors).toEqual([]);
   });
 });

@@ -9,8 +9,8 @@ import type { PlanStore } from '@plot-pm/domain/ports/plan-store';
 import type { Processes } from '@plot-pm/domain/ports/processes';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Trees } from '@plot-pm/domain/ports/trees';
-import { readBranchConflicts, readBranchReadings, type BranchStagePrs } from '@plot-pm/domain/workflows/plan-walk-branches';
-import { readDeskReadings } from '@plot-pm/domain/workflows/plan-walk-desks';
+import { readBranchConflicts, readBranchReadings, type BranchStagePrs, type BranchStageReadings } from '@plot-pm/domain/workflows/plan-walk-branches';
+import { readDeskReadings, type DeskStageReadings } from '@plot-pm/domain/workflows/plan-walk-desks';
 import { readEstate, type Estate } from '@plot-pm/domain/workflows/plan-walk-estate';
 import { readBranchPlans, readDeliveredInputs, readSprints, readStories } from '@plot-pm/domain/workflows/board-card-reads';
 import { resolveRecordRef, type RecordSource } from '@plot-pm/domain/workflows/record-listing';
@@ -165,6 +165,11 @@ export interface ScanWorld {
    * nothing. It adds no read.
    */
   record?: RecordReading;
+  /**
+   * Receives the branch and desk stages of every walk whose desks answered;
+   * fleetd writes the AgentMonitor's findings here. Absent, nothing receives them.
+   */
+  findings?: (branches: BranchStageReadings, desks: DeskStageReadings) => Promise<void>;
 }
 
 /** The ports the plan walk reads through, beside `refs` and `scripts`. */
@@ -882,6 +887,7 @@ export const walkOnce = async (
   const desks = branches.ok
     ? await readDeskReadings(walk.trees, walk.agents, walk.processes, branches.value)
     : branches;
+  if (world.findings !== undefined && branches.ok && desks.ok) await world.findings(branches.value, desks.value);
   if (record !== undefined) {
     if (!listed) record('desks', failedOf(`the desk stage did not run: the ${!estate.ok ? 'estate' : 'branches'} stage failed`));
     if (desks.ok) {
