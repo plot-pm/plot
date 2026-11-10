@@ -4,7 +4,7 @@ import type { ExecRecord } from './strace-execs.js';
 /** Who turns a zero row into a required pass: a plan, and its slice where the plan names one. */
 export type GreenBy = { plan: string; slice?: string; phase?: string };
 
-/** One row of the plan's scenario table (S1..S7), per-source table (P1..P4), or a launch row (D1). */
+/** One row of the plan's scenario table (S1..S7), per-source table (P2..P4, P6), or a launch row (D1). */
 export type CensusRow =
   | { id: string; claim: string; unit: string; target: 'zero'; greenBy: GreenBy; green?: true }
   | { id: string; claim: string; unit: string; target: 'measured'; tolerance: CensusTolerance };
@@ -12,6 +12,7 @@ export type CensusRow =
 /**
  * The rows of `docs/plans/2026-11-08-process-census-gate.md`, in its order,
  * with S7 from `docs/plans/2026-11-09-board-api-starts-nothing.md` after S3,
+ * then P6 from `docs/plans/2026-11-09-liveness-token.md`, which retires P1,
  * then D1 from `docs/plans/2026-11-09-node-worker-wrapper.md`.
  * A zero row is written as `it.fails` until the plan and slice it names turn
  * it green; that slice sets `green: true` and changes the row to `it`.
@@ -70,14 +71,6 @@ export const CENSUS_ROWS = {
     target: 'measured',
     tolerance: { ratio: 0.1, plus: 2 },
   },
-  P1: {
-    id: 'P1',
-    claim: 'an AgentMonitor over one live, idle desk starts no sleep',
-    unit: 'sleep execve per minute',
-    target: 'zero',
-    greenBy: { plan: 'monitors-nap-without-sleep', slice: 'Builtin nap' },
-    green: true,
-  },
   P2: {
     id: 'P2',
     claim: 'an idle fleetd pass over a desk with a live pid file starts no bash -c kill -0',
@@ -101,6 +94,14 @@ export const CENSUS_ROWS = {
     unit: 'execve per pass',
     target: 'zero',
     greenBy: { plan: 'fixed-answers-once', slice: 'Answers in scripts' },
+    green: true,
+  },
+  P6: {
+    id: 'P6',
+    claim: 'an idle desk with a live agent starts no monitor process',
+    unit: 'monitor execve per launch',
+    target: 'zero',
+    greenBy: { plan: 'liveness-token', slice: 'Monitor in fleetd' },
     green: true,
   },
   D1: {

@@ -22,9 +22,7 @@
   },
   "files": [
     "dist/board-server.mjs",
-    "plot-agent-monitor.sh",
     "plot-agent-manifest.sh",
-    "plot-monitor-subject.sh",
     "plot-approve.sh",
     "plot-budget.sh",
     "plot-config.sh",

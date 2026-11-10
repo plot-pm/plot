@@ -587,7 +587,7 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     assert.equal(m.previousPid, firstPid, 'the second relaunch displaced the first');
   });
 
-  it('a second continue stops the monitor the wrapper started for the first one', async () => {
+  it('a continued desk records no AgentMonitor, so a second continue has none to stop', async () => {
     const wt = worktree({ pid: '424242' });
     dirs.push(wt);
     const { root, manifest } = repoWithManifest(wt, '424242');
@@ -595,7 +595,6 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     const scriptsDir = monitorScripts();
     const stopped: (readonly string[])[] = [];
     const monitors: DeskMonitors = {
-      start: () => ({ ok: false, why: 'the wrapper starts the AgentMonitor' }),
       stop: (pids) => {
         stopped.push(pids);
         return { ok: true, value: pids };
@@ -611,14 +610,14 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     const first = await at({ branch: BRANCH, answer: 'go' }, d('424242'));
     assert.equal(first.status, 202);
     const firstMonitor = JSON.parse(fs.readFileSync(manifest, 'utf8')).agentMonitorPid;
-    assert.match(firstMonitor, /^\d+$/, 'the wrapper recorded the AgentMonitor it started');
+    assert.equal(firstMonitor, '', 'the wrapper starts no AgentMonitor, whatever the scripts directory holds');
     spawned.add(wt);
     await settle(wt);
     fs.writeFileSync(path.join(wt, 'PLOT-BLOCKED-again.md'), 'PLOT-BLOCKED: and again?');
     const second = await at({ branch: BRANCH, answer: 'go' }, d((first.body as { pid: string }).pid));
 
     assert.equal(second.status, 202);
-    assert.deepEqual(stopped, [[firstMonitor]], 'the first continue had none to stop; the second stops the first');
+    assert.deepEqual(stopped, [], 'neither continue had a recorded monitor to stop');
   });
 
   it('stops a desk\'s recorded BuildMonitor pid too, from before #1337 (#1338)', async () => {
@@ -630,7 +629,6 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     fs.writeFileSync(manifest, raw.replace('"startedAt"', '"agentMonitorPid": "5001",\n  "buildMonitorPid": "5002",\n  "startedAt"'));
     const stopped: (readonly string[])[] = [];
     const monitors: DeskMonitors = {
-      start: () => ({ ok: true, value: { agentMonitorPid: '7001' } }),
       stop: (pids) => {
         stopped.push(pids);
         return { ok: true, value: pids };
@@ -654,7 +652,6 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     roots.push(root);
     fs.writeFileSync(manifest, fs.readFileSync(manifest, 'utf8').replace('"startedAt"', '"agentMonitorPid": "5001",\n  "startedAt"'));
     const monitors: DeskMonitors = {
-      start: () => ({ ok: false, why: 'unused' }),
       stop: () => ({ ok: false, why: 'failed' }),
     };
 
@@ -667,7 +664,7 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     );
   });
 
-  it('the wrapper starts the monitor script under the configured scripts directory, naming the desk\'s pid file and manifest (#1255)', async () => {
+  it('the wrapper starts no monitor script, even one under the configured scripts directory', async () => {
     const wt = worktree({ pid: '424242' });
     dirs.push(wt);
     const { root, manifest } = repoWithManifest(wt, '424242');
@@ -686,17 +683,10 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     assert.equal(started.kind, 'started');
     spawned.add(wt);
 
-    const agentEnv = path.join(wt, 'plot-agent-monitor.sh.env');
-    const deadline = Date.now() + 10_000;
-    while (!fs.existsSync(agentEnv) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
-    assert.deepEqual(fs.readFileSync(agentEnv, 'utf8').split('\n').slice(0, 4), [
-      BRANCH,
-      wt,
-      path.join(wt, '.plot-worker.pid'),
-      manifest,
-    ]);
+    await settle(wt);
+    assert.equal(fs.existsSync(path.join(wt, 'plot-agent-monitor.sh.env')), false, 'the monitor script ran');
     const m = JSON.parse(fs.readFileSync(manifest, 'utf8'));
-    assert.match(m.agentMonitorPid, /^\d+$/);
+    assert.equal(m.agentMonitorPid, '');
   });
 
   it('refuses a continuation when no manifest names the worktree', async () => {
@@ -2610,7 +2600,7 @@ describe('a stopped loop that removes its own manifest — #1376 review', () => 
     const { res, out } = response();
 
     // The manifest records a made-up monitor pid, so no real monitor script may stop it.
-    const monitors: DeskMonitors = { start: () => ({ ok: true, value: { agentMonitorPid: '' } }), stop: () => ({ ok: true, value: [] }) };
+    const monitors: DeskMonitors = { stop: () => ({ ok: true, value: [] }) };
     await handleContinue(request({ branch: BRANCH, answer: 'go' }), res, { ...opts, manifestDir: dir }, { ...deps(wt, 'sleep 2'), monitors });
     if (out.status === 202) spawned.add(wt);
 
@@ -2630,7 +2620,7 @@ describe('a stopped loop that removes its own manifest — #1376 review', () => 
 
   it('the loop started on a stopped free waiter reads the continuation on the asked branch', async () => {
     const { wt, dir, file } = await freeWaitingDesk();
-    const monitors: DeskMonitors = { start: () => ({ ok: true, value: { agentMonitorPid: '' } }), stop: () => ({ ok: true, value: [] }) };
+    const monitors: DeskMonitors = { stop: () => ({ ok: true, value: [] }) };
     const result = await continueOnDesk({
       opts: { ...opts, manifestDir: dir },
       readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? 'sleep 2' : fallback),
@@ -2674,7 +2664,6 @@ describe('a stopped loop that removes its own manifest — #1376 review', () => 
     const { wt, dir, file } = await freeWaitingDesk();
     const stopped: string[][] = [];
     const monitors: DeskMonitors = {
-      start: () => ({ ok: true, value: { agentMonitorPid: '' } }),
       stop: (pids) => {
         stopped.push([...pids]);
         return { ok: true, value: [] };

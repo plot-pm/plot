@@ -132,7 +132,6 @@ const launch = async (d: Desk, command: string, env: NodeJS.ProcessEnv = {}) => 
       PLOT_WORKTREE: d.desk,
       PLOT_MANIFEST_FILE: d.manifest,
       PLOT_STAMP_STARTED: new Date().toISOString(),
-      PLOT_AGENT_MONITOR: '',
       PLOT_EXIT_FILE: path.join(d.desk, '.plot-worker.exit'),
       PLOT_PID_FILE: path.join(d.desk, '.plot-worker.pid'),
       PLOT_PID_STARTED_FILE: path.join(d.desk, '.plot-worker.pid.startedAt'),

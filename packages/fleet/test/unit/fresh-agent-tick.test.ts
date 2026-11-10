@@ -1582,7 +1582,7 @@ describe('a killed worker and a stopped worker through startFreshSession and con
               continueOnDesk({
                 ...input,
                 readCfg: (_opts, key, fallback) => (key === 'Worker command' ? 'true' : fallback),
-                monitors: { start: () => ({ ok: true, value: { agentMonitorPid: '' } }), stop: () => ({ ok: true }) } as never,
+                monitors: { stop: () => ({ ok: true }) } as never,
               }),
             opts,
           },

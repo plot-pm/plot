@@ -2,9 +2,8 @@
 //
 // THE MONITORS PUBLISH TO A FILE AND THE BOARD READS IT. Each monitor appends
 // one NDJSON line per change to `.plot-worker.monitor.<subject>.jsonl` inside
-// the worktree it watches, and `plot-agent-monitor.sh` states why that is the
-// durable half: *"the file is what a subscriber reads"*, with stdout going to
-// the worker log beside it.
+// the worktree it watches; fleetd and the worker wrapper write the
+// AgentMonitor's file. The file is what a subscriber reads.
 //
 // A FILE READ RATHER THAN A SOCKET SUBSCRIPTION, and that is this slice's
 // scope guard rather than an oversight. The channel is a protocol between

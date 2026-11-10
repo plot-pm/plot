@@ -3638,16 +3638,16 @@ test('dispatch: a nested worktree stays invisible to git status and the marker g
 /**
  * End a `--start` desk's processes and wait until they have exited.
  *
- * The wrapper leads its own process group, which holds its monitors, the loop
- * and the agent, and `--start` returns while they run. A desk removed while a
+ * The wrapper leads its own process group, which holds the loop and the
+ * agent, and `--start` returns while they run. A desk removed while a
  * member still runs fails `rmSync` with ENOTEMPTY, because the wrapper writes
- * `.plot-worker.exit` and the monitors write findings into the desk.
+ * `.plot-worker.exit` and its findings into the desk.
  *
  * While the wrapper still names the process that wrote its pid file, the whole
  * group is signalled. Once the wrapper is gone, only the members `ownMembers`
  * proves are signalled: started no earlier than the pid file, with a command
  * line that names this test's temp root (the wrapper's copies, which embed
- * the Worker command and its sentinel path) or the agent monitor script.
+ * the Worker command and its sentinel path).
  * `endDesk` returns when neither the wrapper nor a proven member is left.
  *
  * @param wt the desk.
@@ -3659,7 +3659,7 @@ const endDesk = (wt) => {
   const desk = {
     ...own,
     group: true,
-    member: [path.dirname(wt), path.join(path.dirname(dispatch), 'plot-agent-monitor.sh')],
+    member: [path.dirname(wt)],
   };
   // A `ps` that cannot answer counts as a member still running.
   const gone = () => !isOwn(rec.pid, own) && (ownMembers(rec.pid, desk)?.length ?? 1) === 0;

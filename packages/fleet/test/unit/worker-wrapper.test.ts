@@ -15,7 +15,6 @@ const ENV = {
   PLOT_WORKTREE: '/w',
   PLOT_MANIFEST_FILE: '/m/s.json',
   PLOT_STAMP_STARTED: '2026-11-09T08:00:00Z',
-  PLOT_AGENT_MONITOR: '/s/plot-agent-monitor.sh',
   PLOT_SCRIPT_DIR: '/s',
   PATH: '/usr/bin',
 };
@@ -54,7 +53,9 @@ const fakes = (ending: AgentEndReading, manifestWorktree = '', agentPid: number 
       close: (token) => calls.push(`token-close ${token.fd}`),
     },
     log: (line) => calls.push(`log ${line}`),
-    startMonitor: () => (calls.push('monitor'), '300'),
+    finalPass: async ({ branch, worktree }) => {
+      calls.push(`final-pass ${branch} ${worktree}`);
+    },
     stamp: (file, stamp) => (calls.push(`stamp ${file}`), stamps.push(stamp), true),
     ignoreTerm: () => calls.push('ignore-term'),
     pid: 100,
@@ -77,9 +78,7 @@ describe('wrapperInput', () => {
       worktree: '/w',
       manifestFile: '/m/s.json',
       stampStarted: '2026-11-09T08:00:00Z',
-      agentMonitor: '/s/plot-agent-monitor.sh',
       scriptDir: '/s',
-      pidFile: '/w/.plot-worker.pid',
     });
   });
 
@@ -91,7 +90,7 @@ describe('wrapperInput', () => {
       PLOT_WRAPPER_PID_FILE: 'w',
     });
 
-    expect(read.ok && read.input).toMatchObject({ branch: '', worktree: '', manifestFile: '', agentMonitor: '', scriptDir: '' });
+    expect(read.ok && read.input).toMatchObject({ branch: '', worktree: '', manifestFile: '', scriptDir: '' });
   });
 
   it('refuses no command, two commands, and an empty one', () => {
@@ -115,7 +114,6 @@ describe('runWorkerWrapper', () => {
     expect(calls).toEqual([
       'wrapper-pid 100',
       'started-text 100',
-      'monitor',
       'token /w',
       'remove-exit',
       'agent run-agent fd 9',
@@ -128,10 +126,23 @@ describe('runWorkerWrapper', () => {
       'finding /w {"monitor":"WorkerMonitor","branch":"feature/x","worktree":"/w","finding":"clear","since":"2026-11-09T08:07:06Z","evidence":"the agent pid 200 exited 0; the worker is finished","measuredAt":"2026-11-09T08:07:06Z"}\n',
       'exit 0',
       'token-close 9',
+      'final-pass feature/x /w',
     ]);
   });
 
-  it('stamps the agent, the wrapper, both start times and the AgentMonitor', async () => {
+  it('starts no AgentMonitor, whatever the environment names', async () => {
+    const { calls, deps } = fakes({ code: 0, signal: null });
+    await runWorkerWrapper(input({ env: { ...ENV, PLOT_AGENT_MONITOR: '/s/plot-agent-monitor.sh' } }), deps);
+    expect(calls.filter((c) => c.includes('plot-agent-monitor'))).toEqual([]);
+  });
+
+  it('runs the final pass on the watched desk after a hop', async () => {
+    const { calls, deps } = fakes({ code: 0, signal: null }, '/w2');
+    await runWorkerWrapper(input(), deps);
+    expect(calls.at(-1)).toBe('final-pass feature/x /w2');
+  });
+
+  it('stamps the agent, the wrapper and both start times, and no AgentMonitor pid', async () => {
     const { stamps, deps } = fakes({ code: 0, signal: null });
     await runWorkerWrapper(input(), deps);
 
@@ -143,7 +154,7 @@ describe('runWorkerWrapper', () => {
         wrapperPid: '100',
         wrapperPidStartedAt: 'lstart-100',
         workerMonitorPid: '',
-        agentMonitorPid: '300',
+        agentMonitorPid: '',
         token: '/w/.plot-worker.token.fifo',
       },
     ]);
@@ -185,36 +196,34 @@ describe('runWorkerWrapper', () => {
     expect(envs[0]?.PLOT_BRANCH).toBe('feature/x');
   });
 
-  it('leaves PATH alone with no script directory, and starts no monitor with none named', async () => {
-    const { calls, envs, stamps, deps } = fakes({ code: 0, signal: null });
-    await runWorkerWrapper(input({ scriptDir: '', agentMonitor: '', env: {} }), deps);
+  it('leaves PATH alone with no script directory', async () => {
+    const { envs, deps } = fakes({ code: 0, signal: null });
+    await runWorkerWrapper(input({ scriptDir: '', env: {} }), deps);
 
     expect(envs[0]?.PATH).toBe('');
-    expect(calls).not.toContain('monitor');
-    expect(stamps[0]?.agentMonitorPid).toBe('');
   });
 
   it('writes 128 plus the signal and a gone line for a signal death', async () => {
     const { calls, deps } = fakes({ code: null, signal: 15 });
     await runWorkerWrapper(input(), deps);
 
-    expect(calls.at(-2)).toBe('exit 143');
-    expect(calls.at(-3)).toContain('"finding":"gone"');
-    expect(calls.at(-3)).toContain('exited 143');
+    expect(calls.at(-3)).toBe('exit 143');
+    expect(calls.at(-4)).toContain('"finding":"gone"');
+    expect(calls.at(-4)).toContain('exited 143');
   });
 
   it('writes the line into the desk the manifest names after a hop', async () => {
     const { calls, deps } = fakes({ code: 3, signal: null }, '/w2');
     await runWorkerWrapper(input(), deps);
 
-    expect(calls.at(-3)).toMatch(/^finding \/w2 .*"worktree":"\/w2"/);
+    expect(calls.at(-4)).toMatch(/^finding \/w2 .*"worktree":"\/w2"/);
   });
 
   it('writes no line with no desk to name, and still the exit', async () => {
     const { calls, deps } = fakes({ code: 3, signal: null });
     await runWorkerWrapper(input({ worktree: '' }), deps);
 
-    expect(calls.some((c) => c.startsWith('finding'))).toBe(false);
+    expect(calls.some((c) => c.startsWith('finding') || c.startsWith('final-pass'))).toBe(false);
     expect(calls.at(-1)).toBe('exit 3');
   });
 
@@ -230,6 +239,6 @@ describe('runWorkerWrapper', () => {
     await runWorkerWrapper(input(), deps);
 
     expect(calls.indexOf('token-close 9')).toBeGreaterThan(calls.indexOf('exit 3'));
-    expect(calls.at(-1)).toBe('token-close 9');
+    expect(calls.at(-2)).toBe('token-close 9');
   });
 });
