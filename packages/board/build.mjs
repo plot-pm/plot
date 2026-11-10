@@ -1503,6 +1503,26 @@ await esbuild.build({
 fs.copyFileSync(bitbucketSlugArtifact, shippedBitbucketSlug);
 fs.chmodSync(shippedBitbucketSlug, 0o755);
 
+// plot-ci-reuse.mjs — which CI jobs a pull request run reuses, for `ci.yml`'s
+// `select` job: `ciReuse` and `reuseDiff` through the narrow import path.
+const ciReuseArtifact = path.join(here, 'dist/plot-ci-reuse.mjs');
+const shippedCiReuse = path.join(here, '../../skills/plot/scripts/board/plot-ci-reuse.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/ci-reuse.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: ciReuseArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(ciReuseArtifact, shippedCiReuse);
+fs.chmodSync(shippedCiReuse, 0o755);
+
 // Whether `plot-host.sh`'s Bitbucket row-limit walk reads another page —
 // `walkStep` asked once per page read, so the stop rule lives only in the
 // domain.
