@@ -11,7 +11,7 @@ import { buildSandbox, githubPr, type Sandbox } from './sandbox.js';
 import { censusGate, findStrace } from './strace-run.js';
 import type { ExecRecord, StraceCensus } from './strace-execs.js';
 
-// fleetd per completed pass (S4, S5, S6, P2, P3, P4, P5), counted under `strace -f`
+// fleetd per completed pass (S4, S5, S6, P2, P3, P4, P5, P7), counted under `strace -f`
 // over the census entry, which runs fleetd's `run` in its loop mode on a clock
 // it drives. Pass 1 warms every loop and is never counted; passes 2 and 3 are
 // idle; on the GitHub fixture with desks, pass 4 follows one desk commit (S5)
@@ -34,6 +34,9 @@ const isFixedAnswer = (e: ExecRecord): boolean =>
   basename(e.path) === 'git' &&
   e.argv.includes('rev-parse') &&
   (e.argv.includes('--show-toplevel') || e.argv.includes('--git-common-dir'));
+
+const isGitDirProbe = (e: ExecRecord): boolean =>
+  basename(e.path) === 'git' && e.argv.includes('rev-parse') && e.argv.includes('--git-dir');
 
 const isBackendAsk = (e: ExecRecord): boolean =>
   basename(e.path) === 'bash' && e.argv.some((a) => a.endsWith('/plot-host.sh')) && e.argv.includes('backend');
@@ -191,6 +194,12 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
   it(rowTitle(CENSUS_ROWS.P4, fixture), () => {
     const { mean, each, execs } = perPass(isFixedAnswer);
     recordCount(CENSUS_ROWS.P4, fixture, mean, execs);
+    expect(each).toEqual([0, 0]);
+  });
+
+  it(rowTitle(CENSUS_ROWS.P7, fixture), () => {
+    const { mean, each, execs } = perPass(isGitDirProbe);
+    recordCount(CENSUS_ROWS.P7, fixture, mean, execs);
     expect(each).toEqual([0, 0]);
   });
 

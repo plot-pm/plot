@@ -16,7 +16,7 @@ import {
   type PlanBranchLine,
 } from '@plot-pm/domain/rules/gates';
 import type { DeskMergeReading } from '@plot-pm/domain/rules/gates';
-import type { SupervisionReadings } from '@plot-pm/domain/rules/supervision';
+import { needsHeadroom, type SupervisionReadings } from '@plot-pm/domain/rules/supervision';
 import { deskManifest, type ManifestReading } from '@plot-pm/domain/rules/desk-manifest';
 import type { RegisteredTreeReadings } from '@plot-pm/domain/rules/unclaimed';
 import type { SuperviseReadings } from '@plot-pm/domain/workflows/supervise';
@@ -141,9 +141,12 @@ export interface TreeReading {
  * tick's readings and no decision — there is nothing to lose, because the
  * verdict is a function of what is on disk.
  *
- * The machine is asked ONCE and its answer is shared across every agent. It is
- * a property of the machine rather than of an agent, and asking per agent would
- * both cost N samples and let two agents in one tick see different headroom.
+ * The machine is asked at most ONCE and its answer is shared across every
+ * agent. It is a property of the machine rather than of an agent, and asking
+ * per agent would both cost N samples and let two agents in one tick see
+ * different headroom. It is asked only where an agent's verdict would relaunch
+ * it ({@link needsHeadroom}); a tick with no such agent measures nothing, and
+ * every other agent reads `unmeasured`, which no verdict of theirs consults.
  *
  * @param entries - the registry's manifests, as `readAgentRegistry` reports them.
  * @param world - what to read the estate through.
@@ -154,12 +157,14 @@ export const readTick = async (
   world: SupervisorWorld,
 ): Promise<SuperviseReadings> => {
   world.beginTick?.();
-  const headroom = await world.headroom();
+  // THE MACHINE IS ASKED ONLY FOR A RELAUNCH VERDICT, and at most once per tick.
+  let headroom: Promise<Headroom> | undefined;
+  const askHeadroom = (): Promise<Headroom> => (headroom ??= world.headroom());
   const workspacePackages = await world.workspacePackages();
   const agents: SupervisionReadings[] = [];
 
   for (const entry of entries) {
-    agents.push(await readAgent(entry, world, headroom, workspacePackages));
+    agents.push(await readAgent(entry, world, askHeadroom, workspacePackages));
   }
 
   // THE REGISTRY LIST IS THE ONE THE AGENTS WERE SUPERVISED FROM. Reading the
@@ -206,14 +211,14 @@ export const readTick = async (
  *
  * @param entry - the agent's manifest.
  * @param world - what to read the estate through.
- * @param headroom - the machine's answer, taken once for the whole tick.
+ * @param askHeadroom - the machine's answer, taken at most once for the whole tick.
  * @param workspacePackages - the workspace's package names.
  * @returns everything the rule reads about this agent.
  */
 const readAgent = async (
   entry: AgentEntry,
   world: SupervisorWorld,
-  headroom: Headroom,
+  askHeadroom: () => Promise<Headroom>,
   workspacePackages: readonly string[],
 ): Promise<SupervisionReadings> => {
   const { branch, worktree } = entry;
@@ -238,7 +243,7 @@ const readAgent = async (
     planLine,
   };
 
-  return {
+  const readings: Omit<SupervisionReadings, 'headroom'> = {
     branch,
     worktree,
     // The identity, straight off the manifest the registry already read. `''`
@@ -256,7 +261,13 @@ const readAgent = async (
     },
     attempts: entry.attempts,
     madeProgress,
-    headroom,
+  };
+
+  // UNMEASURED MEANS NOT ASKED, and the rule agrees: no verdict that is not a
+  // relaunch consults the headroom.
+  return {
+    ...readings,
+    headroom: needsHeadroom(readings) ? await askHeadroom() : 'unmeasured',
   };
 };
 

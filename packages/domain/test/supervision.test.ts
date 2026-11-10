@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   supervise,
   boundRefusal,
+  needsHeadroom,
   missingDeclarationFailure,
   MAX_ATTEMPTS,
   type SupervisionReadings,
@@ -433,5 +434,36 @@ describe('the tick holds nothing between calls', () => {
     const before = structuredClone(readings);
     supervise(readings);
     expect(readings).toEqual(before);
+  });
+});
+
+describe('needsHeadroom — which verdicts the machine can change', () => {
+  const without = (over: Partial<SupervisionReadings>) => {
+    const { headroom: _headroom, ...readings } = finished(over);
+    return readings;
+  };
+
+  it('is true for an agent every other bound would relaunch', () => {
+    expect(needsHeadroom(without({ declaration: { read: 'absent' } }))).toBe(true);
+  });
+
+  it('is false for a live worker, a complete desk and a blocked declaration', () => {
+    expect(needsHeadroom(without({ workerAlive: true }))).toBe(false);
+    expect(needsHeadroom(without({}))).toBe(false);
+    expect(
+      needsHeadroom(
+        without({
+          declaration: {
+            read: 'declared',
+            declaration: { branch: 'feature/one', status: 'blocked', artifacts: [], pr: 0, summary: 'x' },
+          },
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it('is false where the budget is spent or no progress was made', () => {
+    expect(needsHeadroom(without({ declaration: { read: 'absent' }, attempts: MAX_ATTEMPTS }))).toBe(false);
+    expect(needsHeadroom(without({ declaration: { read: 'absent' }, madeProgress: false }))).toBe(false);
   });
 });
