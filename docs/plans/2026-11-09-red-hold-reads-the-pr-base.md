@@ -54,7 +54,12 @@ It shares files with two plans of the sprint:
 1. A pull request into a non-default base (a `sprint/**` branch) is held by that base's own settled CI reading. fleetd keeps one reading per held base, as it does for `main` today, with the same writer (`refreshDefaultBranch`), the same schema (`DefaultBranchReadingSchema`) and the same staleness rule (`defaultBranchRed`).
 2. A base with no reading holds nothing.
 3. A pull request into the default branch keeps today's hold, unchanged.
-4. The repair exception (`repairPr`/`revertPr` in `.plot/state/repair-record.json`, read by `repairMergeVerdict` in `merge` and `mergeArm`) is unchanged. The repair record is about the default branch only; a red base opens no record.
+4. The default branch's repair exception (`repairPr`/`revertPr` in `.plot/state/repair-record.json`, read by `repairMergeVerdict` in `merge` and `mergeArm`) is unchanged.
+
+**Decided 2026-11-10, jwloka.** Two more points:
+
+5. A sprint base applies only the red hold. `default-branch-stale`, `default-branch-unsettled` and `merge-in-flight` stay on the default branch.
+6. A red sprint base has its own repair arm. A red reading opens an episode in a per-base repair record, and the base's repair PR merges through `plot-ask.mjs merge` while every other PR into that base is held `base-branch-red`. The slice *Base repair* builds it.
 
 **Which bases get a reading: every `sprint/*` branch on `origin`.** The beat reads them from `git ls-remote origin refs/heads/<default> 'refs/heads/sprint/*'`, one call that also answers the default branch's tip. Two other sources were rejected:
 
@@ -67,7 +72,7 @@ It shares files with two plans of the sprint:
 
 **The file layout: one file per base, the default branch's file unchanged.** `.plot/state/default-branch.json` keeps its path, its schema (`DEFAULT_BRANCH_VERSION` 1, `.strict()`) and its one writer, so every reader in the table above reads it as today. A base's reading goes to `.plot/state/base-branches/<base>.json`, for example `.plot/state/base-branches/sprint/desk-probes-and-liveness.json`, in the same schema. `baseBranchFile(repoRoot, base)` in `packages/domain/src/adapters/default-branch/` returns a `DefaultBranchStore` (`ports/default-branch.ts:11`) over that file, so `refreshDefaultBranch` writes it unchanged. A file whose `branch` field is not the asked base reads as no reading, and a base name with an empty or `..` segment reads as no reading and is never written. One file per base keeps each write a whole-file rename with no read-fold-write across bases, as `default-branch-file.ts:37-47` does today; a keyed file would make two bases' refreshes race on one file.
 
-**The writer.** The beat at `registryd-main.ts:3088-3095` reads the default branch and the `sprint/*` tips with the one `ls-remote` above, refreshes the default branch as today, and then refreshes each sprint base through `refreshDefaultBranch` with a world whose `branch` is the base, whose `store` is `baseBranchFile`, whose `remoteSha` answers from the same listing, and which has no `repair` store. `DefaultBranchWorld.repair` becomes optional; a world with none writes no repair record. The beat deletes the file of a base that the listing no longer names. The bases are refreshed one after another inside the existing beat, each ask through the same host slot (`withHostSlot`), so a sprint base never asks concurrently with the default branch.
+**The writer.** The beat at `registryd-main.ts:3088-3095` reads the default branch and the `sprint/*` tips with the one `ls-remote` above, refreshes the default branch as today, and then refreshes each sprint base through `refreshDefaultBranch` with a world whose `branch` is the base, whose `store` is `baseBranchFile`, whose `remoteSha` answers from the same listing, and whose `repair` store is the base's own record (slice *Base repair*; until it merges, the world has none). `DefaultBranchWorld.repair` becomes optional; a world with none writes no repair record. The beat deletes the file of a base that the listing no longer names. The bases are refreshed one after another inside the existing beat, each ask through the same host slot (`withHostSlot`), so a sprint base never asks concurrently with the default branch.
 
 **The staleness rule: `Checks wait`, as for the default branch.** `defaultBranchRed(reading, now, checksWaitMs)` (`default-branch.ts:281-288`) holds only a settled-red reading whose `askedAt` is within `Checks wait` (3600 s in this repository's config). fleetd re-asks an unchanged head at least once per half `Checks wait` (`reaskIntervalMs`, `default-branch-refresh.ts:45`), so a red sprint stays held while fleetd runs, and the hold ends `Checks wait` after fleetd stops.
 
@@ -108,10 +113,12 @@ It answers `default` where `base` is the default branch or `''` (a host that nam
 
 **The census.** S4 (an idle fleetd pass) runs on fixtures whose `origin` holds no `sprint/*` branch (`packages/fleet/test/census/sandbox.ts`), so the one combined `ls-remote` replaces the default branch's own, and S4 does not move. Two things hold that. The census gate (`census-gate.mjs`) compares S4 on the *Base readings* PR with its merge base under the row's tolerance. A unit row in `default-branch-refresh.test.ts` asserts that a beat with no `sprint/*` branch on `origin` makes one tip listing and no `runsForSha` call beyond the default branch's, and that a beat with one sprint base adds at most one `runsForSha` call when the base is due and none when it is not. The default branch's re-ask appears in no S4, S5 or S6 sample today (`github-reads-in-process`, *Status*), and a sprint base's re-ask runs at the same cadence.
 
+**The repair arm on a sprint base.** A base's repair record lives at `.plot/state/base-branches/<base>.repair.json` in the schema of `.plot/state/repair-record.json`, with `branch` set to the base. `refreshDefaultBranch` writes it through the world's `repair` store, as it writes the default branch's record today, so a red sprint reading opens an episode with that base's `lastGreenSha` and a green reading closes it. `plot-ask.mjs repair-pr <pr>` reads the PR's base: a PR into a sprint base is recorded on that base's record, and its head must be `bug/sprint-repair-<12 hex of the base's lastGreenSha>`. Its refusals are the default branch's, with the same names. `merge` and `mergeArm` admit that one PR on `base-branch-red` under the conditions `repairMergeVerdict` checks today: the episode is open, the head branch matches, and the base's runs, asked again immediately before the merge, still read red. Every other PR into the base refuses `base-branch-red`. A base with no reading opens no record. The beat deletes a base's record with its reading file when the listing no longer names the base.
+
 ### Open Questions
 
-- [ ] **The other merge holds on a sprint base.** With a sprint reading present, `baseHold` applies only the red hold, with `defaultBranchRed`'s staleness (an old reading holds nothing). The default branch's merge controller also refuses `default-branch-stale`, `default-branch-unsettled` and `merge-in-flight`. On a sprint base, `merge-in-flight` would hold every slice merge until the sprint PR's run on the previous merge settles, about 25 minutes per run (`sprint-prs-run-ci`, *Motivation*), and the sprint PR into `main` keeps every default-branch hold. Recommendation: apply only the red hold on a sprint base in this plan. A person decides.
-- [ ] **Lifting a red sprint base.** `base-branch-red` also holds the pull request that fixes the sprint branch, and the repair exception covers only the default branch. Recommendation: no repair arm for a sprint base in this plan. A person pushes the fix to the sprint branch or merges it on GitHub, and the sprint PR's next green run lifts the hold. A person decides.
+- [x] **The other merge holds on a sprint base.** Decided 2026-11-10, jwloka: only the red hold (Approach, point 5).
+- [x] **Lifting a red sprint base.** Decided 2026-11-10, jwloka: a repair arm per sprint base (Approach, point 6; slice *Base repair*).
 
 ## Done when
 
@@ -131,6 +138,9 @@ It answers `default` where `base` is the default branch or `''` (a host that nam
 | A base file is guarded | a `baseBranchFile` row: a file whose `branch` names another base, and a base with a `..` segment, read as no reading | Base readings |
 | One tip listing serves every base | a beat row: with no `sprint/*` branch, one listing and no added `runsForSha`; with one due sprint base, one added `runsForSha`; the file of a base the listing no longer names is deleted | Base readings |
 | S4 does not grow | the census gate on the *Base readings* PR: S4 on each fixture within its tolerance of the merge base | Base readings |
+| A red sprint base opens its own episode | a `default-branch-refresh.test.ts` row: a red `sprint/x` reading writes `.plot/state/base-branches/sprint/x.repair.json` with that base's `lastGreenSha`, a green reading closes it, and `.plot/state/repair-record.json` does not change | Base repair |
+| The base's repair PR merges | a `merge` row and a `slicePrNext` row: PR into `sprint/x` named as `repairPr` on the base's open record, head `bug/sprint-repair-<12 hex>`, runs still red, merges or selects `merge`; another PR into `sprint/x` refuses or holds `base-branch-red` | Base repair |
+| `repair-pr` records on the PR's base | a `plot-ask.mjs repair-pr` row: a PR into `sprint/x` is recorded on the base's record; a head that does not match, no open episode and a second repair PR refuse by today's names | Base repair |
 
 ## Slices
 
@@ -146,10 +156,15 @@ It answers `default` where `base` is the default branch or `''` (a host that nam
 
 - `bug/red-hold-base-readings` — the combined tip listing in `refs-remote-git.ts`, the optional `repair` in `DefaultBranchWorld`, the per-base refresh and the file removal in fleetd's beat, and the beat and census rows; merges after `bug/red-hold-reads-the-pr-base` <!-- builds: fleetd keeps a CI reading per sprint branch -->
 
+### Base repair
+
+- `bug/red-hold-base-repair` — the per-base repair store, the `repair` world for each sprint base in fleetd's beat, the base-aware `plot-ask.mjs repair-pr`, the `base-branch-red` repair arm in `merge` and `mergeArm`, and the `CLAUDE.md` paragraph on the repair exception; merges after `bug/red-hold-base-readings` <!-- builds: a red sprint base admits its own repair PR -->
+
 ## Notes
 
 - The *Base hold* slice alone answers the issue's three *Done when* rows: with no base file written yet, every PR into a sprint branch has no base reading and is held by nothing. *Base readings* then adds the sprint's own hold.
-- Decisions recorded 2026-11-09, jwloka: type `bug`; tier Should in sprint `desk-probes-and-liveness`; a non-default base is held by its own settled reading, kept per base by fleetd; a base with no reading holds nothing; a PR into the default branch keeps today's hold; the repair exception is unchanged.
+- Decisions recorded 2026-11-09, jwloka: type `bug`; tier Should in sprint `desk-probes-and-liveness`; a non-default base is held by its own settled reading, kept per base by fleetd; a base with no reading holds nothing; a PR into the default branch keeps today's hold; the default branch's repair exception is unchanged.
+- Decisions recorded 2026-11-10, jwloka: a sprint base applies only the red hold; a red sprint base has its own repair arm, built as the fourth slice.
 - Line numbers checked in the worktree of `idea/red-hold-reads-the-pr-base`, cut from `origin/sprint/desk-probes-and-liveness` at `3497cb1f3`, on 2026-11-09. `git ls-remote origin refs/heads/main 'refs/heads/sprint/*'` answered both refs in one call on the same day.
 - Deliverable search (`plot-deliverable-search.sh`) for "red hold reads the pr base" and "default branch red" found no existing deliverable.
 - Definition of Done: docs/definition-of-done.md.
