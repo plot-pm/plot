@@ -1291,7 +1291,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await mark.first().click();
 
       // The blocker's row flashes — the jump found its target in Fleet › Working.
-      const target = group(page, 'working').locator('[data-slice-row="Named"]');
+      // The mark scrolls to the blocker's slice row under Being built, the first
+      // match in the document; the agent row under Fleet names the same slice.
+      const target = group(page, 'being-built').locator('[data-slice-row="Named"]');
       await expect.poll(() => target.first().getAttribute('class'))
         .toContain('ring-amber-400');
     } finally {
@@ -1341,8 +1343,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
 
     const page = await openAgents(payload);
     try {
-      const secondBlocker = group(page, 'working')
-        .locator('[data-slice-row="Named"][data-slice-plan="second-plan"]');
+      const secondBlocker = group(page, 'being-built')
+        .locator('[data-slice-list="second-plan"] [data-slice-row="Named"]');
       await expect.poll(() => secondBlocker.count()).toBe(1);
 
       // The SECOND plan's mark, found through its own blocked row.
@@ -1353,8 +1355,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
 
       await expect.poll(() => secondBlocker.first().getAttribute('class'))
         .toContain('ring-amber-400');
-      const firstBlocker = group(page, 'working')
-        .locator('[data-slice-row="Named"][data-slice-plan="first-plan"]');
+      const firstBlocker = group(page, 'being-built')
+        .locator('[data-slice-list="first-plan"] [data-slice-row="Named"]');
       expect(await firstBlocker.first().getAttribute('class')).not.toContain('ring-amber-400');
     } finally {
       await page.close();

@@ -185,6 +185,8 @@ describe('a folded plan folds its branches PR states onto its head', () => {
   it('PLAN-GROUP PATH: a green plan says only its phase', async () => {
     const page = await open();
     try {
+      // A plan in Testing is delivered: its head sits under Release delivery, folded by default.
+      await page.locator('[data-group-toggle="release-delivery"]').click();
       await expect.poll(() =>
         planRow(page, 'all-green').locator('[data-phase]').getAttribute('data-phase'))
         .toBe('Testing');

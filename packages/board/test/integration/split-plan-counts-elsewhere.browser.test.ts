@@ -122,8 +122,8 @@ describe('a split plan counts what is elsewhere', () => {
     return page;
   }
 
-  const notStarted = (page: Page) => page.locator('ul[role="grid"][aria-label^="Not started"]');
-  const done = (page: Page) => page.locator('ul[role="grid"][aria-label^="Done"]');
+  const notStarted = (page: Page) => page.locator('ul[role="grid"][aria-label^="Queued"]');
+  const done = (page: Page) => page.locator('ul[role="grid"][aria-label^="Release delivery"]');
   const planHead = (grid: ReturnType<typeof notStarted>, plan: string) =>
     grid.locator(`li[data-plan-row="${plan}"]`);
 

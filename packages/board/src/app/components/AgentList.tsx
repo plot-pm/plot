@@ -1384,11 +1384,21 @@ export function AgentList({
                 </p>
                 <ul className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   {view.notPlaced.map((u) => (
-                    <li key={u.id} data-unplaced-row data-unplaced-reason={u.reason} data-branch={u.label}>
+                    <li key={u.id} data-unplaced-row data-unplaced-reason={u.reason}>
                       {u.label} — {u.note}
                     </li>
                   ))}
                 </ul>
+                {view.notPlaced.some((u) => u.rows.length > 0) && (
+                  <ul
+                    role="grid"
+                    aria-label="Not placed — agent branches"
+                    className="mt-1 rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40"
+                  >
+                    <HeaderRow />
+                    {view.notPlaced.flatMap((u) => u.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} />))}
+                  </ul>
+                )}
               </section>
             )}
             {/* OUTSIDE THE PLACEMENT RULE, LABELLED AS SUCH. The rule places work

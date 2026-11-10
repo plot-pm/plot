@@ -76,16 +76,19 @@ export const rowInSlice = (row: AgentRow): boolean => row.wave !== '' && !SLICE_
 export const itemIdOfRow = (row: AgentRow): string =>
   rowInSlice(row) ? sliceItemId(row.plan, row.wave) : branchItemId(row.branch);
 
+/** A host that answers `none` reports that no check gates the PR, which is a reading; `unknown` is the host not answering. */
 const ciOf = (pr: NonNullable<AgentRow['pr']>): PrFacts['ci'] => {
   switch (pr.ciChecks) {
-    case 'green': return 'passed';
+    case 'green':
+    case 'none': return 'passed';
     case 'pending': return 'running';
     case 'failing': return 'failed';
     default: break;
   }
   if (pr.ciChecks !== undefined) return 'unread';
   switch (pr.state) {
-    case 'green': return 'passed';
+    case 'green':
+    case 'none': return 'passed';
     case 'pending': return 'running';
     case 'failing': return 'failed';
     default: return 'unread';

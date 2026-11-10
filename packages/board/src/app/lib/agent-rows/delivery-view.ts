@@ -166,6 +166,8 @@ export interface UnplacedView {
   reason: Unplaced['reason'];
   label: string;
   note: string;
+  /** The payload rows of an item subject, rendered beside the note; empty for an agent. */
+  rows: AgentRow[];
 }
 
 export interface DeliveryView {
@@ -379,6 +381,7 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
     reason: u.reason,
     label: u.subject === 'item' ? labelOfItem(u.id) : labelOfAgent(u.id),
     note: u.reason === 'delivered' ? 'delivered' : unreadNote(u.subject),
+    rows: u.subject === 'item' ? mapping.rowsByItem[u.id] ?? [] : [],
   });
   const notPlaced = placement.unplaced.filter((u) => u.reason === 'unread').map(view);
   const delivered = placement.unplaced.filter((u) => u.reason === 'delivered').map(view);

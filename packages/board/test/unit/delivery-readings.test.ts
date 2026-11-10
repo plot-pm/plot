@@ -149,3 +149,18 @@ describe('deliveryMapping phase words', () => {
     expect(placed('approved').items[0]).toMatchObject({ section: 'work-items' });
   });
 });
+
+describe('deliveryMapping PR checks', () => {
+  const ciOf = (state: string) => deliveryMapping(input({
+    rows: [row({ branch: 'feature/x', plan: 'p', wave: 'X', pr: pr({ state }) })],
+    slices: [slice('X')],
+  })).readings.items[0]!.pr?.ci;
+
+  it('reads no checks as a reading, not as unread', () => {
+    expect(ciOf('none')).toBe('passed');
+  });
+
+  it('reads a host that cannot report as unread', () => {
+    expect(ciOf('unknown')).toBe('unread');
+  });
+});
