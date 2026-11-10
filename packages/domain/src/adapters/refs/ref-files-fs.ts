@@ -6,6 +6,7 @@ import { answered, failed, unaskable, type PortResult } from '../../port-result.
 import type { BranchTip, RefScope, RefState, RemoteHeadAnswer } from '../../ports/refs.js';
 import {
   branchTipsOf,
+  checkoutBranchOf,
   currentBranchOf,
   defaultBranchOf,
   isRefName,
@@ -91,6 +92,8 @@ export interface RefFiles {
   resolve: (name: string) => PortResult<string>;
   /** `Refs.currentBranch`, as `git rev-parse --abbrev-ref HEAD` answers. */
   currentBranch: () => PortResult<string>;
+  /** `Trees.currentBranch` for this checkout, as `git branch --show-current` answers: `''` when detached. */
+  checkoutBranch: () => PortResult<string>;
   /** `Refs.remoteHead`: whether `refs/remotes/origin/<branch>` exists. */
   remoteHead: (branch: string) => PortResult<RemoteHeadAnswer>;
   /** `Trees.list`: the main checkout first, the linked worktrees after it in no stated order. */
@@ -208,6 +211,7 @@ export const refFilesFs = (
     listBranches: (remote) => fromTable((refs) => listBranchesOf(refs, remote), 'a matching ref is a symbolic chain or dangling'),
     branchTips: (patterns) => fromTable((refs) => branchTipsOf(refs, patterns), 'a pattern or a matching ref is not covered'),
     currentBranch: () => fromTable(currentBranchOf, 'HEAD names a branch with no commit'),
+    checkoutBranch: () => fromTable(checkoutBranchOf, 'HEAD is absent or names a ref outside refs/heads/'),
     resolve: (name) => {
       const refs = table();
       if (typeof refs === 'string') return unaskable(refs);

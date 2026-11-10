@@ -47,6 +47,7 @@ export const CENSUS_ROWS = {
     unit: 'execve per minute',
     target: 'zero',
     greenBy: { plan: 'board-api-starts-nothing', slice: 'Census zero' },
+    green: true,
   },
   S4: {
     id: 'S4',

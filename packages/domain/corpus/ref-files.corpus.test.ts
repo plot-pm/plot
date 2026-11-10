@@ -80,6 +80,7 @@ const comparePass = async (dir: string, reader: RefFiles): Promise<Pass> => {
   }
   check('origin/HEAD', 'defaultBranch', reader.defaultBranch(), await refs.defaultBranch());
   check('HEAD', 'currentBranch', reader.currentBranch(), await refs.currentBranch());
+  check('HEAD', 'checkoutBranch', reader.checkoutBranch(), await trees.currentBranch(dir));
   for (const remote of [false, true]) {
     check(remote ? 'origin' : 'heads', 'listBranches', reader.listBranches(remote), await refs.listBranches(remote));
   }
@@ -233,6 +234,7 @@ describe('refFilesFs over a reftable repository', () => {
       reader.branchTips(['refs/heads/']),
       reader.resolve('main'),
       reader.currentBranch(),
+      reader.checkoutBranch(),
       reader.remoteHead('main'),
       reader.worktrees(),
     ];

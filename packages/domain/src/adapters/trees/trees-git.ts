@@ -244,8 +244,12 @@ const worktreesOf = (stdout: string): Worktree[] => {
  * Reads the worktrees on this machine through git.
  *
  * `list` and `listSync` read the `worktrees/*` files first and start `git
- * worktree list` only where the reader answers `unaskable`. Every write and
- * every destructive action starts git.
+ * worktree list` only where the reader answers `unaskable`. `currentBranch`
+ * and `currentBranchSync` read `HEAD` from the files for the repository's own
+ * checkout, and start `git branch --show-current` for any other path or where
+ * the reader answers `unaskable`. The repository's checkout is the path spelled
+ * exactly as `context.repoRoot`; a realpath or a trailing slash asks git.
+ * Every write and every destructive action starts git.
  *
  * @param context - where the repository is.
  * @param answers - the held answers for each checkout's common git dir; this process's own by default.
@@ -263,6 +267,12 @@ export const treesGit = (
   const fromFiles = (): PortResult<readonly Worktree[]> | undefined => {
     if (files === null) return undefined;
     const read = files.worktrees();
+    return !read.ok && read.why === 'unaskable' ? undefined : read;
+  };
+  /** The reader's branch for the repository's own checkout; `undefined` where git must answer. */
+  const branchFromFiles = (path: string): PortResult<string> | undefined => {
+    if (files === null || path !== context.repoRoot) return undefined;
+    const read = files.checkoutBranch();
     return !read.ok && read.why === 'unaskable' ? undefined : read;
   };
   const deskDirt = scriptPath(context, 'plot-desk-dirt.sh');
@@ -319,11 +329,11 @@ export const treesGit = (
     // `git -C <path>` rather than `cwd`, so an unreadable checkout is reported
     // by git's own exit code instead of by `execFile` failing to chdir — the
     // two arrive as different errors and only one of them says which path.
-    currentBranch: (path) =>
-      runScript('git', ['-C', path, 'branch', '--show-current'], asText, inRepo),
+    currentBranch: async (path) =>
+      branchFromFiles(path) ?? runScript('git', ['-C', path, 'branch', '--show-current'], asText, inRepo),
 
     currentBranchSync: (path) =>
-      runScriptSync('git', ['-C', path, 'branch', '--show-current'], asText, inRepo),
+      branchFromFiles(path) ?? runScriptSync('git', ['-C', path, 'branch', '--show-current'], asText, inRepo),
 
     // No upstream makes git exit non-zero, which is the `failed` answer.
     aheadOfUpstream: (path) =>

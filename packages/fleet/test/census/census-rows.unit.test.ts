@@ -48,8 +48,23 @@ describe('the census rows', () => {
   it('holds S7 as the board API plan words it, a zero row turned green by its Census zero slice', () => {
     const plan = readFileSync(BOARD_API_PLAN, 'utf8').replace(/`/g, '');
     expect(plan).toContain(`S7 reads: "${CENSUS_ROWS.S7.claim}"`);
-    expect(CENSUS_ROWS.S7).toMatchObject({ target: 'zero', unit: 'execve per minute', greenBy: { plan: 'board-api-starts-nothing', slice: 'Census zero' } });
-    expect(rowTitle(CENSUS_ROWS.S7)).toMatch(/expected to fail until plan board-api-starts-nothing, slice Census zero/);
+    expect(CENSUS_ROWS.S7).toMatchObject({ target: 'zero', unit: 'execve per minute', greenBy: { plan: 'board-api-starts-nothing', slice: 'Census zero' }, green: true });
+    expect(rowTitle(CENSUS_ROWS.S7)).toMatch(/turned green by plan board-api-starts-nothing, slice Census zero/);
+  });
+
+  it('keeps S3 as board-reads-the-channel turned it green, and its window sends no GET /api/board', () => {
+    expect(CENSUS_ROWS.S3).toEqual({
+      id: 'S3',
+      claim: 'an idle board with one visible SSE client and fleetd running starts nothing',
+      unit: 'execve per minute',
+      target: 'zero',
+      greenBy: { plan: 'board-reads-the-channel', slice: 'Census zero' },
+      green: true,
+    });
+    const board = readFileSync(`${here}board.census.test.ts`, 'utf8');
+    const s3 = board.slice(board.indexOf("fleetd running (S3)'"), board.indexOf('const POLL_MS'));
+    expect(s3).toContain('it(rowTitle(CENSUS_ROWS.S3, fixture)');
+    expect(s3).not.toMatch(/during|pollBoard/);
   });
 
   it('holds D1 measured, with no growth allowed', () => {

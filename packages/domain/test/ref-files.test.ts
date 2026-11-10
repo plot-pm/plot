@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   branchTipsOf,
+  checkoutBranchOf,
   currentBranchOf,
   defaultBranchOf,
   isRefName,
@@ -280,6 +281,21 @@ describe('currentBranchOf', () => {
     expect(currentBranchOf(table({ HEAD: { oid: A } }))).toBe('HEAD');
     expect(currentBranchOf(table({ HEAD: { symbolic: 'refs/heads/unborn' } }))).toBeUndefined();
     expect(currentBranchOf(table({}))).toBeUndefined();
+  });
+});
+
+describe('checkoutBranchOf', () => {
+  it('answers the branch unshortened, an unborn branch, and the empty name when detached', () => {
+    const main = { HEAD: { symbolic: 'refs/heads/main' }, 'refs/heads/main': { oid: A } };
+    expect(checkoutBranchOf(table(main))).toBe('main');
+    expect(checkoutBranchOf(table({ ...main, 'refs/tags/main': { oid: A }, 'refs/remotes/main/HEAD': { oid: A } }))).toBe('main');
+    expect(checkoutBranchOf(table({ HEAD: { symbolic: 'refs/heads/unborn' } }))).toBe('unborn');
+    expect(checkoutBranchOf(table({ HEAD: { oid: A } }))).toBe('');
+  });
+
+  it('answers undefined for no HEAD and for a target outside refs/heads/', () => {
+    expect(checkoutBranchOf(table({}))).toBeUndefined();
+    expect(checkoutBranchOf(table({ HEAD: { symbolic: 'refs/remotes/origin/main' }, 'refs/remotes/origin/main': { oid: A } }))).toBeUndefined();
   });
 });
 

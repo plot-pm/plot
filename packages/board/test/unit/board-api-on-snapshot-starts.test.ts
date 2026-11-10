@@ -135,6 +135,7 @@ const estateRepo = (): string => {
 };
 
 afterEach(() => {
+  vi.restoreAllMocks();
   stopFleetRefresh();
   starts.lines.length = 0;
   for (const [name, value] of Object.entries(savedEnv)) {
@@ -161,7 +162,12 @@ const quiet = async (): Promise<void> => {
 };
 
 describe('GET /api/board while fleetd serves its snapshot', () => {
-  it('starts no process on 10 warm requests (the inventory prints each start)', async () => {
+  // The census board's warm read runs before the channel holds a snapshot, so
+  // its first request on `snapshot` is the first poll inside the S7 window.
+  it.each([
+    ['every request', false],
+    ['a first request on the own path, as the census board\'s warm read', true],
+  ])('starts no process on 10 polls on snapshot after %s (the inventory prints each start)', async (_, ownFirst) => {
     const repoRoot = estateRepo();
     const gate = fixtureGate();
     const scriptsDir = scriptsWithSilentHost();
@@ -169,20 +175,23 @@ describe('GET /api/board while fleetd serves its snapshot', () => {
     const unread = Object.entries(snapshot.readings).filter(([key, r]) => ['refs', 'plans', 'branchPlans', 'sprints', 'stories'].includes(key) && r.state !== 'read');
     expect(unread).toEqual([]);
     const now = Date.now();
-    await fleetdHeartbeatFile({ repoRoot }).write({
-      version: FLEETD_HEARTBEAT_VERSION,
-      pid: process.pid,
-      startedAt: now - 600_000,
-      beatAt: now,
-      generation: 1,
-      bridgeAt: null,
-      supervised: 'launchd',
-      watchesWanted: 0,
-      watchesArmed: 0,
-      lastEventAt: null,
-      lastSafetyNetAt: null,
-      loops: {},
-    });
+    /** fleetd's heartbeat, beating at `at`. */
+    const beat = (at: number) =>
+      fleetdHeartbeatFile({ repoRoot }).write({
+        version: FLEETD_HEARTBEAT_VERSION,
+        pid: process.pid,
+        startedAt: now - 600_000,
+        beatAt: at,
+        generation: 1,
+        bridgeAt: null,
+        supervised: 'launchd',
+        watchesWanted: 0,
+        watchesArmed: 0,
+        lastEventAt: null,
+        lastSafetyNetAt: null,
+        loops: {},
+      });
+    await beat(now);
     const opts = {
       repoRoot,
       scriptsDir,
@@ -194,16 +203,31 @@ describe('GET /api/board while fleetd serves its snapshot', () => {
     ensureCache(opts).clients = 1;
     const estate = realEstate(opts);
 
-    await boardAnswer(opts, estate, 'localhost', 7777, false);
+    if (ownFirst) {
+      const own = { ...opts, channelSnapshot: undefined };
+      await boardAnswer(own, realEstate(own), 'localhost', 7777, false);
+    } else {
+      await boardAnswer(opts, estate, 'localhost', 7777, false);
+    }
     pauseFleetRefresh();
     await quiet();
-    // One request after the wait reads the checkout's branch, whose 5 s TTL
-    // the wait outlasts (`refs-from-files` moves that read to a file); the
-    // ten after it are the ones measured.
-    await boardAnswer(opts, estate, 'localhost', 7777, false);
     starts.lines.length = 0;
 
-    for (let i = 0; i < 10; i += 1) await boardAnswer(opts, estate, 'localhost', 7777, false);
+    // The page's poll: each request 31 s after the last on the board's clock,
+    // so every TTL a request reads behind (the checkout's branch among them)
+    // has run out, as it has between two polls of census row S7.
+    // fleetd keeps beating on the same clock, as it does through the census window.
+    const start = Date.now();
+    for (let i = 0; i < 10; i += 1) {
+      const at = start + (i + 1) * 31_000;
+      await beat(at);
+      vi.spyOn(Date, 'now').mockReturnValue(at);
+      try {
+        await boardAnswer(opts, estate, 'localhost', 7777, false);
+      } finally {
+        vi.restoreAllMocks();
+      }
+    }
     const warm = starts.lines
       .splice(0)
       .map((l) => normalise(l, { scripts: scriptsDir, repo: repoRoot, gate: gate.dir }))

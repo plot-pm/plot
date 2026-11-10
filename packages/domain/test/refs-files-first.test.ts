@@ -42,6 +42,7 @@ const refusing: RefFiles = {
   branchTips: () => unaskable('test'),
   resolve: () => unaskable('test'),
   currentBranch: () => unaskable('test'),
+  checkoutBranch: () => unaskable('test'),
   remoteHead: () => unaskable('test'),
   worktrees: () => unaskable('test'),
 };
@@ -107,8 +108,47 @@ describe('refsGit and treesGit read the ref files first', () => {
     expect(trees.listSync()).toEqual(listed);
     expect(await trees.forBranch('feature/a')).toEqual({ ok: true, value: listed.ok ? listed.value[1] : null });
     expect(await trees.presence('feature/b')).toEqual({ ok: true, value: 'absent' });
+    expect(await trees.currentBranch(repo)).toEqual({ ok: true, value: 'main' });
+    expect(trees.currentBranchSync(repo)).toEqual({ ok: true, value: 'main' });
 
     expect(started()).toEqual([]);
+  });
+
+  it('answer a detached HEAD in the repository checkout as the empty branch, with no git process', async () => {
+    const trees = treesGit(context);
+    git(repo, 'checkout', '-q', '--detach');
+    try {
+      writeFileSync(log, '');
+      expect(await trees.currentBranch(repo)).toEqual({ ok: true, value: '' });
+      expect(trees.currentBranchSync(repo)).toEqual({ ok: true, value: '' });
+      expect(started()).toEqual([]);
+    } finally {
+      git(repo, 'checkout', '-q', 'main');
+    }
+  });
+
+  it('answer the bare branch name with a tag and a remote named like it, as git branch --show-current does', async () => {
+    const trees = treesGit(context);
+    git(repo, 'tag', 'main');
+    git(repo, 'update-ref', 'refs/remotes/main/HEAD', 'HEAD');
+    try {
+      expect(git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('heads/main');
+      writeFileSync(log, '');
+      expect(await trees.currentBranch(repo)).toEqual({ ok: true, value: 'main' });
+      expect(trees.currentBranchSync(repo)).toEqual({ ok: true, value: 'main' });
+      expect(started()).toEqual([]);
+    } finally {
+      git(repo, 'tag', '-d', 'main');
+      git(repo, 'update-ref', '-d', 'refs/remotes/main/HEAD');
+    }
+  });
+
+  it('ask git for the branch of a checkout other than the repository', async () => {
+    const trees = treesGit(context);
+    const side = join(root, 'side');
+    expect(await trees.currentBranch(side)).toEqual({ ok: true, value: 'feature/a' });
+    expect(trees.currentBranchSync(side)).toEqual({ ok: true, value: 'feature/a' });
+    expect(started()).toEqual([`-C ${side} branch --show-current`, `-C ${side} branch --show-current`]);
   });
 
   it('fill the ref snapshot with no git process', async () => {
@@ -135,6 +175,7 @@ describe('refsGit and treesGit read the ref files first', () => {
     const listed = await trees.list();
     expect(listed.ok && listed.value.map((tree) => tree.path)).toEqual([repo, join(root, 'side')]);
     expect(trees.listSync()).toEqual(listed);
+    expect(await trees.currentBranch(repo)).toEqual({ ok: true, value: 'main' });
 
     const calls = started();
     for (const asked of [
@@ -147,6 +188,7 @@ describe('refsGit and treesGit read the ref files first', () => {
       'for-each-ref --format=%(refname) %(objectname) %(HEAD) refs/heads refs/remotes',
       'for-each-ref --format=%(refname) %(objectname) %(HEAD) refs/remotes/origin',
       'worktree list --porcelain',
+      `-C ${repo} branch --show-current`,
     ]) {
       expect(calls, asked).toContain(asked);
     }
