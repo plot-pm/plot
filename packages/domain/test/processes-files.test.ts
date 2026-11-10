@@ -201,11 +201,21 @@ describe('processesFiles', () => {
     expect(calls).toEqual(['ps', 'ps']);
   });
 
+  it('starts no ps for desks whose start-time path needs no table: a live pid with no recorded start and no wrapper', async () => {
+    const calls: string[] = [];
+    const run: ProcessRunner = async (command) => (calls.push(command), { code: 3, stdout: '', stderr: '' });
+    const files = processesFiles({ repoRoot: made, scriptDir: made }, { run, manifestDir: made, now: () => NOW });
+    const states = await Promise.all(desks.map((desk) => files.workerState(desk, false)));
+    expect(states.map((s) => s.ok && s.value.state)).toEqual(['running', 'running', 'running']);
+    expect(calls).toEqual([]);
+  });
+
   it('fails the pass on a failed ps, reads no desk as ended, and logs the exit code once', async () => {
     const lines: string[] = [];
     const run: ProcessRunner = async () => ({ code: 3, stdout: '', stderr: '' });
     const files = processesFiles({ repoRoot: made, scriptDir: made }, { run, manifestDir: made, log: (l) => lines.push(l) });
-    const states = await Promise.all(desks.map((desk) => files.workerState(desk, false)));
+    const wrapped = [0, 1, 2].map(() => deskWith({ '.plot-worker.pid': String(process.pid), '.plot-worker.wrapper.pid': '1' }).worktree);
+    const states = await Promise.all(wrapped.map((desk) => files.workerState(desk, false)));
     expect(states).toEqual([failed(), failed(), failed()]);
     expect(await files.table()).toEqual(failed());
     expect(lines.filter((l) => l.startsWith('process table'))).toEqual(['process table unreadable (ps exit 3)']);
@@ -216,6 +226,6 @@ describe('processesFiles', () => {
     const run: ProcessRunner = async () => ({ code: 0, stdout: '', stderr: '' });
     const files = processesFiles({ repoRoot: made, scriptDir: made }, { run, manifestDir, signalZero: () => false });
     expect(await files.workerState(join(made, 'gone'), false)).toEqual(answered({ state: 'none', pid: '', exitCode: '', activity: '' }));
-    expect(await files.workerState(worktree, false)).toEqual(answered({ state: 'failed', pid: '41', exitCode: '3', activity: '' }));
+    expect(await files.workerState(worktree, false)).toEqual(answered({ state: 'failed', pid: '41', exitCode: '3', activity: '', basis: 'start-time' }));
   });
 });

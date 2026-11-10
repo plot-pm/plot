@@ -189,6 +189,8 @@ Plot was already written for this world — `plot/SKILL.md` has always said
 but nothing created worktrees until now. The safety discipline predated the
 feature by a long way.
 
+Desks must lie on a local filesystem. The worker wrapper makes a liveness token, `.plot-worker.token.fifo`, in each desk, and a FIFO on a network filesystem lives in each host's kernel: a reader on another host reads `released` for a live agent. `plot_desk_root` exits 3 and names the type when the desk root lies on `nfs`, `smbfs`, `cifs`, `afpfs` or `webdav`.
+
 ## A desk is not indexed
 
 Every desk gets a `.metadata_never_index` file — written by

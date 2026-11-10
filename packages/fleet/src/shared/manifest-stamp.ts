@@ -63,6 +63,11 @@ export interface Stamp {
   workerMonitorPid?: string;
   /** The AgentMonitor's pid, or `''` when none was attached. */
   agentMonitorPid?: string;
+  /**
+   * The liveness token's path, or `none (<reason>)` where the wrapper could not
+   * make one. Absent writes no line.
+   */
+  token?: string;
 }
 
 /** The `"pid": "…",` line, capturing whatever pid it already held. */
@@ -81,7 +86,7 @@ const RELAUNCHES_LINE = /^ {2}"relaunches": (\d+),$/;
  * `/api/continue` stamps a manifest a first dispatch had already grouped.
  */
 const GROUP_LINE =
-  /^ {2}"(pidStartedAt|wrapperPid|wrapperPidStartedAt|workerMonitorPid|agentMonitorPid)": "[^"]*",$/;
+  /^ {2}"(pidStartedAt|wrapperPid|wrapperPidStartedAt|workerMonitorPid|agentMonitorPid|token)": "[^"]*",$/;
 
 /**
  * Rewrite a manifest's launch stamp, returning the new text.
@@ -128,6 +133,8 @@ export function stampManifest(text: string, stamp: Stamp): string {
     `  "wrapperPidStartedAt": "${stamp.wrapperPidStartedAt ?? ''}",`,
     `  "workerMonitorPid": "${stamp.workerMonitorPid ?? ''}",`,
     `  "agentMonitorPid": "${stamp.agentMonitorPid ?? ''}",`,
+    // A quote or a backslash in a reason becomes `'`, so the line stays one `GROUP_LINE` can drop.
+    ...(stamp.token === undefined ? [] : [`  "token": "${stamp.token.replace(/["\\]/g, "'")}",`]),
   ];
 
   // A FIRST dispatch: the placeholder was empty. Fill the pid and write the

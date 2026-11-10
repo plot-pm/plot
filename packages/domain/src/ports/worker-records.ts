@@ -27,6 +27,8 @@ export interface LaunchRecords {
   writeAgentStarted(text: string): boolean;
   /** Writes the agent's exit code. */
   writeExit(code: number): boolean;
+  /** Removes an earlier run's exit record; a missing record counts as removed. */
+  removeExit(): boolean;
   /**
    * Reads when a process started, as `ps -o lstart=` prints it under `LC_ALL=C`.
    *
@@ -59,7 +61,8 @@ export interface AgentStart {
    *
    * @param command - the `Worker command` text.
    * @param env - the agent's whole environment.
+   * @param tokenFd - a descriptor the agent receives as fd 3; `null` passes none.
    * @returns the started agent; `null` when no process started.
    */
-  start(command: string, env: Readonly<Record<string, string | undefined>>): StartedAgent | null;
+  start(command: string, env: Readonly<Record<string, string | undefined>>, tokenFd?: number | null): StartedAgent | null;
 }

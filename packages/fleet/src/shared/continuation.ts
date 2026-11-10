@@ -6,6 +6,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { readConfig } from './config-reader.js';
 import { markerReading } from './worker-question.js';
 import { answerRecordFile } from '@plot-pm/domain/adapters';
+import { TOKEN_FILENAME } from '@plot-pm/domain/rules/worker-liveness';
 import { isAnswered } from '@plot-pm/domain';
 import { deskManifestFor, assignEmptyManifestBranch, writeDeskManifest, writeResumeId } from './manifest-stamp.js';
 import { briefPath } from './brief-path.js';
@@ -1194,8 +1195,11 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     // would let the scan read a fresh worker's state from its predecessor's exit
     // code. The pid file and its start time are removed too: the wrapper writes
     // the new agent's after the start has exited, and until then a left pid
-    // file would name the previous run, live or dead, to the poll below.
-    for (const name of ['.plot-worker.exit', '.plot-worker.pid', '.plot-worker.pid.startedAt']) {
+    // file would name the previous run, live or dead, to the poll below. The
+    // previous run's liveness token goes with the exit record, so a reader in
+    // the gap reads the start-time path and never a released token beside no
+    // exit record.
+    for (const name of ['.plot-worker.exit', '.plot-worker.pid', '.plot-worker.pid.startedAt', TOKEN_FILENAME]) {
       try {
         fs.rmSync(path.join(worktree, name), { force: true });
       } catch {

@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { appendFileSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
@@ -22,6 +22,15 @@ import { signalZero } from '../signal-zero.js';
 import { treesGit } from '../trees/trees-git.js';
 import { processesShell } from './processes-shell.js';
 import { processesTable, type TableRead } from './processes-table.js';
+import { livenessTokenFifo } from '../liveness-token/liveness-token-fifo.js';
+import { monitorTime } from '../../rules/worker-ending.js';
+import {
+  PASS_FILE,
+  RELEASED_WITH_NO_EXIT,
+  workerLiveness,
+  type TokenReading,
+  type LivenessAnswer,
+} from '../../rules/worker-liveness.js';
 
 /** What {@link readWorkerReadings} reads beside the files: the process questions and the desk's work. */
 export interface DeskFilesIo {
@@ -43,7 +52,16 @@ export interface DeskFilesIo {
   readonly agentProcess: string;
   /** Receives one line per desk the first time its agent process name is read. */
   readonly log?: (line: string) => void;
+  /** Reads the desk's liveness token once; every desk reads `none` where absent. */
+  readonly token?: (worktree: string) => TokenReading;
+  /** `Worker bound` in milliseconds, read once where a held token needs it; `0` sets no bound. */
+  readonly workerBoundMs?: () => Promise<number>;
+  /** Records a token released with no exit record in the desk log and the AgentMonitor's findings. */
+  readonly recordRelease?: (worktree: string, branch: string, madeAtMs: number) => void;
 }
+
+/** One process-table reading, or a function that reads it when a desk first needs it. */
+export type TableSource = readonly ProcessRow[] | (() => Promise<readonly ProcessRow[]>);
 
 /** What {@link readWorkerReadings} gathers for one desk. */
 export interface GatheredReadings {
@@ -55,6 +73,8 @@ export interface GatheredReadings {
   readonly ahead: string;
   /** The agent process name the desk's manifest names, or the default. */
   readonly agentProcess: string;
+  /** What the liveness rests on: the token, or the start time for a desk with none; absent where no pid was recorded. */
+  readonly basis?: 'token' | 'start-time';
 }
 
 /** The desk's own record of the pid it launched. */
@@ -67,6 +87,22 @@ const WRAPPER_FILE = '.plot-worker.wrapper.pid';
 const EXIT_FILE = '.plot-worker.exit';
 /** The prefix of a marker file at the desk's root. */
 const MARKER_PREFIX = 'PLOT-BLOCKED';
+
+/** A path's modification time, epoch milliseconds, or `null` where it cannot be read. */
+const mtimeOf = (path: string): number | null => {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * The last walk per desk that found an agent, with the token and loop-pass
+ * readings it was taken under. A read whose two readings match answers `live`
+ * and reads no process table.
+ */
+const walks = new Map<string, { token: string; pass: number | null }>();
 
 /** A file's text, or `null` where it is not a regular file or cannot be read. */
 const regularFile = (path: string): string | null => {
@@ -135,6 +171,33 @@ const manifestOf = (manifestDir: string, worktree: string): string | null => {
   return named.kind === 'named' ? (texts.get(named.path) ?? null) : null;
 };
 
+/**
+ * The `orphaned` reading of a desk whose token reads `live`. A desk with no
+ * wrapper record is `live`. Otherwise a `live` walk is carried while the token
+ * reading and the loop's pass record stay unchanged; the loop rewrites that
+ * record at the start of every pass and when its harness starts or ends. Any
+ * other answer is not carried: a desk read `orphaned`, or `unaskable`, walks
+ * the process table again on its next read.
+ */
+const tokenWalk = async (
+  worktree: string,
+  token: TokenReading,
+  pid: string,
+  rows: () => Promise<readonly ProcessRow[]>,
+  io: DeskFilesIo,
+  agentProcess: string,
+): Promise<PidLiveness> => {
+  if (regularFile(join(worktree, WRAPPER_FILE)) === null) return 'live';
+  const key = `${token.state} ${token.madeAtMs ?? ''} ${pid}`;
+  const pass = mtimeOf(join(worktree, PASS_FILE));
+  const last = walks.get(worktree);
+  if (last !== undefined && last.token === key && last.pass === pass) return 'live';
+  const presence = agentAlive(await rows(), Number(pid), io.now(), { agentProcess, graceSeconds: io.graceSeconds });
+  if (presence === 'present') walks.set(worktree, { token: key, pass });
+  else walks.delete(worktree);
+  return presence === 'absent' ? 'orphaned' : 'live';
+};
+
 /** The desks whose agent process name was already logged in this process. */
 const loggedDesks = new Set<string>();
 
@@ -151,8 +214,13 @@ const loggedDesks = new Set<string>();
  * them, a pid is recorded and the liveness is neither `live` nor `stale`, or
  * where `always` is set.
  *
+ * A desk whose liveness token is `held` or `released` is decided by
+ * {@link workerLiveness} and reads no start time; an exit record older than
+ * the token is read as none. A desk with no token takes the start-time path.
+ * The process table is read only when a desk needs it.
+ *
  * @param worktree - the desk's absolute path.
- * @param table - one reading of the process table.
+ * @param table - one reading of the process table, or a function that reads it on first need.
  * @param io - the process questions and the desk's work.
  * @param known - what the caller already read of the desk in this pass.
  * @param always - read `dirty` and the upstream count for every liveness.
@@ -160,7 +228,7 @@ const loggedDesks = new Set<string>();
  */
 export const readWorkerReadings = async (
   worktree: string,
-  table: readonly ProcessRow[],
+  table: TableSource,
   io: DeskFilesIo,
   known: KnownDeskReadings = {},
   always = false,
@@ -194,12 +262,40 @@ export const readWorkerReadings = async (
   }
 
   const pidRecorded = /^\d+$/.test(pid) && pid !== '0';
+  const exitPath = join(worktree, EXIT_FILE);
+  const exitText = regularFile(exitPath);
+  let exit = exitText === null ? null : exitText.replace(/[ \n]/g, '');
+  const rows = async (): Promise<readonly ProcessRow[]> => (typeof table === 'function' ? table() : table);
+
+  const token = io.token?.(worktree) ?? { state: 'none', madeAtMs: null };
+  let answer: LivenessAnswer = { basis: 'start-time' };
   let liveness: PidLiveness = 'dead';
-  if (pidRecorded && io.signalZero(Number(pid)) === true) {
+  if (pidRecorded && token.state !== 'none') {
+    const startedMs = Date.parse(startedAt);
+    const exitAtMs = exitText === null ? null : mtimeOf(exitPath);
+    const pidAnswers = io.signalZero(Number(pid)) === true;
+    const needsBound = token.state === 'held' && !pidAnswers && (exitAtMs === null || exitAtMs < (token.madeAtMs ?? 0));
+    answer = workerLiveness({
+      exitAtMs,
+      token,
+      pidAnswers,
+      startedAtMs: Number.isNaN(startedMs) ? null : startedMs,
+      nowMs: io.now(),
+      workerBoundMs: needsBound && io.workerBoundMs !== undefined ? await io.workerBoundMs() : 0,
+    });
+  }
+  if (answer.basis === 'token') {
+    if (!answer.exitCurrent) exit = null;
+    if (answer.liveness === 'stray-holder') liveness = 'stray-holder';
+    else if (answer.liveness === 'live') liveness = await tokenWalk(worktree, token, pid, rows, io, agentProcess);
+    else if (answer.liveness === 'dead' && token.state === 'released') {
+      io.recordRelease?.(worktree, manifest === null ? '' : manifestField(manifest, 'branch'), token.madeAtMs ?? 0);
+    }
+  } else if (pidRecorded && io.signalZero(Number(pid)) === true) {
     const n = Number(pid);
-    const row = table.find((r) => r.pid === n);
     let current = true;
     if (startedAt !== '' || pidStartedAt !== '') {
+      const row = (await rows()).find((r) => r.pid === n);
       const start = row !== undefined ? row.startedAt : await io.startedAt(n);
       // A pid missing from the table and still without a start is not decided stale.
       current = row === undefined && start === null ? true : pidIsCurrent({ startedAt, pidStartedAt }, start);
@@ -207,13 +303,10 @@ export const readWorkerReadings = async (
     if (!current) liveness = 'stale';
     else if (regularFile(join(worktree, WRAPPER_FILE)) === null) liveness = 'live';
     else {
-      const presence = agentAlive(table, n, io.now(), { agentProcess, graceSeconds: io.graceSeconds });
+      const presence = agentAlive(await rows(), n, io.now(), { agentProcess, graceSeconds: io.graceSeconds });
       liveness = presence === 'absent' ? 'orphaned' : 'live';
     }
   }
-
-  const exitText = regularFile(join(worktree, EXIT_FILE));
-  const exit = exitText === null ? null : exitText.replace(/[ \n]/g, '');
 
   let blocked = false;
   try {
@@ -241,6 +334,7 @@ export const readWorkerReadings = async (
     pid: pidRecorded ? pid : '',
     ahead,
     agentProcess,
+    ...(pidRecorded ? { basis: answer.basis } : {}),
   };
 };
 
@@ -269,7 +363,7 @@ export const readingsLine = (gathered: GatheredReadings): string => {
  *
  * @param gathered - what {@link readWorkerReadings} answered.
  * @param hasPr - whether the branch has a PR.
- * @returns the state, the pid and the exit code; no activity.
+ * @returns the state, the pid, the exit code and the liveness basis; no activity.
  */
 export const processReadingOf = (gathered: GatheredReadings, hasPr: boolean): ProcessReading => {
   const r = gathered.readings;
@@ -281,8 +375,47 @@ export const processReadingOf = (gathered: GatheredReadings, hasPr: boolean): Pr
     pid: state === 'none' ? '' : gathered.pid,
     exitCode: numericExit ? (r.exit as string) : '',
     activity: '',
+    ...(gathered.basis === undefined ? {} : { basis: gathered.basis }),
   };
 };
+
+/** The AgentMonitor's findings file inside a desk. */
+const AGENT_FINDINGS_FILE = '.plot-worker.monitor.agent.jsonl';
+/** The desk log. */
+const DESK_LOG_FILE = '.plot-worker.log';
+
+/**
+ * Writes one line to the desk log and one `WorkerMonitor` `gone` line to the
+ * AgentMonitor's findings for a token released with no exit record, once per
+ * token: a findings file that already carries the token's evidence gets no
+ * second line.
+ *
+ * @param worktree - the desk.
+ * @param branch - the branch the manifest names; `''` where none does.
+ * @param madeAtMs - the token's modification time, which names the token in the evidence.
+ * @param nowMs - the time of the write.
+ * @returns whether a line was written.
+ */
+export const recordTokenRelease = (worktree: string, branch: string, madeAtMs: number, nowMs: number): boolean => {
+  const evidence = `${RELEASED_WITH_NO_EXIT} (token made ${monitorTime(madeAtMs)})`;
+  const findings = join(worktree, AGENT_FINDINGS_FILE);
+  if ((regularFile(findings) ?? '').includes(JSON.stringify(evidence))) return false;
+  const at = monitorTime(nowMs);
+  const line = { monitor: 'WorkerMonitor', branch, worktree, finding: 'gone', since: at, evidence, measuredAt: at };
+  try {
+    appendFileSync(findings, `${JSON.stringify(line)}\n`);
+    appendFileSync(join(worktree, DESK_LOG_FILE), `plot-fleetd: ${worktree}: ${evidence}\n`);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** `Worker bound` per repository root, in milliseconds, read once per process. */
+const workerBounds = new Map<string, Promise<number>>();
+
+/** The loop's own default for `Worker bound`, in seconds. */
+const DEFAULT_WORKER_BOUND_SECONDS = 28_800;
 
 /** The `Agent registry` directory per repository root, resolved once per process. */
 const manifestDirs = new Map<string, Promise<string>>();
@@ -318,6 +451,12 @@ export interface ProcessesFilesOptions {
   readonly now?: () => number;
   /** `kill -0`; {@link signalZero} by default. */
   readonly signalZero?: (pid: number) => boolean | null;
+  /** Reads a desk's liveness token; the FIFO adapter by default. */
+  readonly token?: (worktree: string) => TokenReading;
+  /** `Worker bound` in seconds; `PLOT_WORKER_BOUND`, then the config key, when absent. */
+  readonly workerBoundSeconds?: number;
+  /** Writes the desk log line and the finding for a token released with no exit record; fleetd sets it. */
+  readonly recordRelease?: boolean;
 }
 
 /**
@@ -355,7 +494,29 @@ export const deskFilesIo = (context: ShellContext, options: ProcessesFilesOption
     const given = process.env.PLOT_MANIFEST_DIR ?? '';
     return given !== '' ? given : manifestDirOf(context, answers);
   };
+  const workerBoundMs = (): Promise<number> => {
+    if (options.workerBoundSeconds !== undefined) return Promise.resolve(options.workerBoundSeconds * 1000);
+    const given = process.env.PLOT_WORKER_BOUND ?? '';
+    if (/^\d+$/.test(given)) return Promise.resolve(Number(given) * 1000);
+    const known = workerBounds.get(context.repoRoot);
+    if (known !== undefined) return known;
+    const reading = scriptsShell({ ...context, repoRoot: mainRootOf(context.repoRoot) }, answers)
+      .config('Worker bound', '')
+      .then((answer) => {
+        const text = answer.ok ? answer.value.trim() : '';
+        return (/^\d+$/.test(text) ? Number(text) : DEFAULT_WORKER_BOUND_SECONDS) * 1000;
+      });
+    workerBounds.set(context.repoRoot, reading);
+    return reading;
+  };
+  const tokens = livenessTokenFifo(options.log === undefined ? {} : { log: options.log });
+  const now = options.now ?? Date.now;
   return async () => ({
+    token: options.token ?? tokens.read,
+    workerBoundMs,
+    ...(options.recordRelease === true
+      ? { recordRelease: (worktree: string, branch: string, madeAtMs: number) => void recordTokenRelease(worktree, branch, madeAtMs, now()) }
+      : {}),
     manifestDir: await manifestDir(),
     signalZero: options.signalZero ?? signalZero,
     startedAt: processesTable(run).startedAt,
@@ -367,7 +528,7 @@ export const deskFilesIo = (context: ShellContext, options: ProcessesFilesOption
       const ran = await runScripted('git', ['-C', worktree, 'rev-list', '--count', '@{upstream}..HEAD'], { cwd: context.repoRoot });
       return ran.code === 0 ? ran.stdout.trim() : '';
     },
-    now: options.now ?? Date.now,
+    now,
     graceSeconds,
     agentProcess: process.env.PLOT_AGENT_PROCESS || DEFAULT_AGENT_PROCESS,
     ...(options.log !== undefined ? { log: options.log } : {}),
@@ -378,7 +539,9 @@ export const deskFilesIo = (context: ShellContext, options: ProcessesFilesOption
  * Reads worker state from the desk files and one process-table reading per
  * pass, and decides it with {@link agentState}.
  *
- * The first `workerState` or `table` call reads the table; every call within
+ * The first `table` call, or the first `workerState` call for a desk that
+ * needs the table, reads it; a desk whose liveness token answers reads no
+ * table unless its `orphaned` walk is due. Every call within
  * `tableHoldMs` of that reading, or while it is in flight, reuses it, across
  * every instance in this process that shares the process runner. A `ps`
  * that exits non-zero fails every call that shares the reading and logs
@@ -386,7 +549,7 @@ export const deskFilesIo = (context: ShellContext, options: ProcessesFilesOption
  *
  * @param context - where the scripts and the repository are.
  * @param options - the seams and the log.
- * @returns a `Processes` that starts one `ps` per pass for its worker states.
+ * @returns a `Processes` that starts at most one `ps` per pass for its worker states.
  */
 export const processesFiles = (context: ShellContext, options: ProcessesFilesOptions = {}): Processes => {
   const now = options.now ?? Date.now;
@@ -416,9 +579,15 @@ export const processesFiles = (context: ShellContext, options: ProcessesFilesOpt
     },
 
     workerState: async (worktree, hasPr, known): Promise<PortResult<ProcessReading>> => {
-      const read = await tableRead();
-      if (!read.ok) return failed<ProcessReading>();
-      const gathered = await readWorkerReadings(worktree, read.rows, await io(), known);
+      let unreadable = false;
+      const rows = async (): Promise<readonly ProcessRow[]> => {
+        const read = await tableRead();
+        if (read.ok) return read.rows;
+        unreadable = true;
+        return [];
+      };
+      const gathered = await readWorkerReadings(worktree, rows, await io(), known);
+      if (unreadable) return failed<ProcessReading>();
       return answered(processReadingOf(gathered, hasPr));
     },
   };

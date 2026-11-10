@@ -41,6 +41,8 @@ export interface ProcessReading {
   exitCode: string;
   /** Whether a running worker's descendants are burning CPU. */
   activity: WorkerActivity;
+  /** What the state's liveness rests on: the desk's token, or the start time; absent where the reader does not say. */
+  basis?: 'token' | 'start-time';
 }
 
 /**

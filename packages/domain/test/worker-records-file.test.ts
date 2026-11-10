@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -39,6 +39,15 @@ describe('workerRecordsFile', () => {
     expect(readFileSync(files.pidFile, 'utf8')).toBe('12');
     expect(readFileSync(files.pidStartedFile, 'utf8')).toBe('Mon Nov  9 08:07:06 2026');
     expect(readFileSync(files.exitFile, 'utf8')).toBe('143');
+  });
+
+  it('removes an earlier exit record, and counts a missing one as removed', () => {
+    const records = workerRecordsFile(files);
+    writeFileSync(files.exitFile, '0');
+
+    expect(records.removeExit()).toBe(true);
+    expect(existsSync(files.exitFile)).toBe(false);
+    expect(records.removeExit()).toBe(true);
   });
 
   it('reports a write into a missing directory as not landed', () => {
@@ -105,6 +114,18 @@ describe('agentStartShell', () => {
     process.kill(agent?.pid ?? 0, 'SIGKILL');
 
     expect(await agent?.ended).toEqual({ code: null, signal: 9 });
+  });
+
+  it('hands a token descriptor to the agent as fd 3, and none without one', async () => {
+    const out = join(desk, 'fd3');
+    const probe = `if [ -e /dev/fd/3 ]; then printf held; else printf none; fi > ${JSON.stringify(out)}`;
+    const fd = openSync(join(desk, 'token'), 'w');
+    await agentStartShell().start(probe, process.env, fd)?.ended;
+    closeSync(fd);
+    expect(readFileSync(out, 'utf8')).toBe('held');
+
+    await agentStartShell().start(probe, process.env)?.ended;
+    expect(readFileSync(out, 'utf8')).toBe('none');
   });
 
   it('hands the agent the environment it was given', async () => {

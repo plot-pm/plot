@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { processesFiles, processReadingOf, readingsLine, readWorkerReadings, deskFilesIo } from '../src/adapters/processes/processes-files.js';
 import { processesTable } from '../src/adapters/processes/processes-table.js';
+import { livenessTokenFifo } from '../src/adapters/liveness-token/liveness-token-fifo.js';
 import { shellContext } from '../src/adapters/scripts.js';
 import { isAnswered } from '../src/port-result.js';
 import { lstartMs, pidIsCurrent, type ProcessRow } from '../src/rules/pid-current.js';
@@ -205,6 +206,22 @@ describe('the reader agrees with plot-worker-state.sh on constructed desks', () 
       '.plot-worker.wrapper.pid': `${freeUnproven}\n`,
       '.plot-worker.freewait': `${freeUnproven}\n`,
     });
+    // THE TOKEN ROWS: a FIFO held by a bash loop that inherited it on fd 3. The
+    // shell reads no token, so each row is one where the token's order and the
+    // start-time order meet: an exit record written after the token wins over
+    // the held token, and a held token beside an answering pid is running.
+    const tokenHeld = (name: string, files: Record<string, string>): void => {
+      const worktree = desk(name, {});
+      const made = livenessTokenFifo().make(worktree);
+      if (!made.ok) throw new Error(`${name}: ${made.reason}`);
+      const holder = spawn('bash', ['-c', 'for ((i = 0; i < 600; i++)); do sleep 1; done'], { stdio: ['ignore', 'ignore', 'ignore', made.token.fd] });
+      children.push(holder);
+      livenessTokenFifo().close(made.token);
+      for (const [file, text] of Object.entries(files)) writeFileSync(join(worktree, file), text);
+    };
+    tokenHeld('token-held-exit-0', { '.plot-worker.pid': `${dead}\n`, '.plot-worker.exit': '0\n' });
+    tokenHeld('token-held-exit-3', { '.plot-worker.pid': `${dead}\n`, '.plot-worker.exit': '3\n' });
+    tokenHeld('token-held-live', { '.plot-worker.pid': `${plain}\n` });
 
     process.env.PLOT_AGENT_GRACE_SECONDS = GRACE;
     const files = processesFiles(context, { manifestDir: manifests, tableHoldMs: 600_000 });
@@ -239,7 +256,7 @@ describe('the reader agrees with plot-worker-state.sh on constructed desks', () 
   });
 
   it('builds the constructed desks', () => {
-    expect(desks.size).toBe(9);
+    expect(desks.size).toBe(12);
   });
 
   it('gathers every field the shell prints, on every constructed desk', () => {
@@ -258,6 +275,15 @@ describe('the reader agrees with plot-worker-state.sh on constructed desks', () 
     expect(states.get('orphan-past-grace')?.split('\t')[0]).toBe('finished');
     expect(states.get('reused-pid')?.split('\t')[0]).toBe('ended');
     expect(states.get('exit-abc')).toBe(`ended\t${states.get('exit-abc')?.split('\t')[1]}\t`);
+  });
+
+  it('decides the token rows through workerLiveness: an exit record present beside a held token reads finished or failed', () => {
+    expect(states.get('token-held-exit-0')?.split('\t')).toEqual(['finished', expect.any(String), '0']);
+    expect(states.get('token-held-exit-3')?.split('\t')).toEqual(['failed', expect.any(String), '3']);
+    expect(states.get('token-held-live')?.split('\t')[0]).toBe('running');
+    for (const name of ['token-held-exit-0', 'token-held-exit-3', 'token-held-live']) {
+      expect(livenessTokenFifo().read(desks.get(name)!).state, name).toBe('held');
+    }
   });
 });
 

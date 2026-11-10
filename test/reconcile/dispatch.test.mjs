@@ -3117,10 +3117,11 @@ test('dispatch: the launch writes an agent manifest keyed on a session id', () =
   // counter rather than a share of `relaunches`, so a person's manual restarts
   // cannot exhaust an automatic budget. `agentProcess` is known the same way:
   // it is the dispatcher's own `PLOT_AGENT_PROCESS`, which fleetd's agent
-  // presence check reads from here.
+  // presence check reads from here. `token` names the liveness token the
+  // wrapper made, or why it made none.
   assert.deepEqual(Object.keys(m).sort(),
     ['agentMonitorPid', 'agentProcess', 'attempts', 'branch', 'command', 'pid', 'pidStartedAt',
-      'resumeId', 'session', 'startedAt', 'workerMonitorPid', 'worktree', 'wrapperPid', 'wrapperPidStartedAt'],
+      'resumeId', 'session', 'startedAt', 'token', 'workerMonitorPid', 'worktree', 'wrapperPid', 'wrapperPidStartedAt'],
     'launch-time facts plus every process the dispatcher started: no model, no context it could only guess');
   // The wrapper records its own process start beside its pid, which the reaper
   // compares against the live start to tell it from a reused pid (#2697). The

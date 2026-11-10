@@ -7456,6 +7456,8 @@ export function rowsFromPulse(
           // CPU once, and this carries that verdict outward rather than measuring
           // liveness a second time on this side. Empty except beside `running`.
           worker_activity: b.worker_activity,
+          // THE LIVENESS BASIS, forwarded as `worker` is: the scan read the token once.
+          worker_basis: b.worker_basis ?? '',
           // THE PROCESSES, BESIDE THE AGENT — never instead of it. `worker`
           // above says which agent holds this branch; this says which processes
           // are running for it, and the WAITING ON A MACHINE section lists
@@ -7714,6 +7716,7 @@ export function rowsFromPulse(
       // No worktree was visited, so no CPU was sampled and the activity cue
       // answers nothing — "" for the same reason `worker` is `elsewhere` above.
       worker_activity: '',
+      worker_basis: '',
       // A PLANLESS branch is not in the pulse, so no conflict set was ever
       // computed for it and `conflictsKnown` is false — which is *not looked
       // at*, never *clean*. The one state reachable from PR data alone is
@@ -8011,6 +8014,7 @@ export function rowsFromPulse(
       // facts move it to WORKING through the same path every other row uses.
       worker: 'elsewhere',
       worker_activity: '',
+      worker_basis: '',
       // NOTHING THE HOST SAID AND NOTHING THE SCAN COMPUTED. No conflict set
       // exists for a branch outside the pulse, and no open PR supplies checks —
       // so `stuckState` is given a `wip` branch with nothing wrong that anyone

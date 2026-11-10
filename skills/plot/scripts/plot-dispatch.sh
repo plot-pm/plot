@@ -1131,7 +1131,7 @@ start_worker() {
     return 1
   fi
   local log="$wt/.plot-worker.log"
-  rm -f "$wt/.plot-worker.exit"
+  rm -f "$wt/.plot-worker.exit" "$wt/.plot-worker.token.fifo"
 
   # THE MANIFEST, AND WHY IT IS KEYED ON A SESSION ID RATHER THAN A BRANCH.
   #

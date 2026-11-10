@@ -3191,7 +3191,11 @@ export const run = async (
               worktree: planStoreShell({ repoRoot, scriptDir: scriptsDir }),
               trees: treesGit({ repoRoot, scriptDir: scriptsDir }),
               agents: agentsFs({ repoRoot, scriptDir: scriptsDir }),
-              processes: processesFiles({ repoRoot, scriptDir: scriptsDir }, { log: (line) => warn(`plot-fleetd: ${line}\n`) }),
+              processes: processesFiles(
+                { repoRoot, scriptDir: scriptsDir },
+                // fleetd's pass writes the line for a token released with no exit record.
+                { log: (line) => warn(`plot-fleetd: ${line}\n`), recordRelease: true },
+              ),
               parser: planParserPath({ repoRoot, scriptDir: scriptsDir }),
               // THE STORE IS KEYED BY THE BACKEND WORD; a file read, no host request.
               prIndexRows: async () => {

@@ -7,7 +7,7 @@ import {
   StoriesValueSchema,
 } from './board-readings.js';
 import { DefaultBranchReadingSchema } from './default-branch.js';
-import { WorkerActivitySchema, WorkerStateSchema } from './fleet.js';
+import { LivenessBasisSchema, WorkerActivitySchema, WorkerStateSchema } from './fleet.js';
 import { IssueIndexRowSchema } from './issue-index.js';
 import { PrIndexRowSchema } from './pr-index.js';
 import {
@@ -100,6 +100,8 @@ export const DeskProcessReadingSchema = z.object({
   pid: z.string(),
   exitCode: z.string(),
   activity: WorkerActivitySchema,
+  /** What the liveness rests on: the desk's token, or its start time; absent where the reader did not say. */
+  basis: LivenessBasisSchema.exclude(['']).optional(),
 });
 export type DeskProcessReading = z.infer<typeof DeskProcessReadingSchema>;
 

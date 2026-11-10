@@ -6,6 +6,7 @@ import { AgentStateSchema, type AgentState as ContractAgentState, type AgentIden
 import { hostShell, prIndexFile, processesFiles, processReadingOf, readWorkerReadings, scriptsShell, shellContext, treesGit } from '@plot-pm/domain/adapters';
 import { deskFilesIo } from '@plot-pm/domain/adapters/processes/processes-files';
 import type { ProcessRunner } from '@plot-pm/domain/adapters/git-dirs/git-dirs';
+import type { ProcessRow } from '@plot-pm/domain/rules/pid-current';
 import type { PrIndex } from '@plot-pm/domain/entities/pr-index';
 import { deskBranchMerged, mergedDeskState } from '@plot-pm/domain/rules/merged-desk';
 import { deskManifest, manifestDirectory, type ManifestReading } from '@plot-pm/domain/rules/desk-manifest';
@@ -1085,7 +1086,8 @@ const defaultLiveness = (
 
 /**
  * Classifies a batch of worktrees, in order, with one `readWorkerReadings`
- * per worktree over one shared process-table reading.
+ * per worktree over at most one shared process-table reading, read when the
+ * first desk needs it.
  *
  * Each state is the one `plot_worker_state "$wt" ''` prints: the PR fact is
  * empty, so a desk with work on the floor reads `stalled` rather than
@@ -1112,16 +1114,24 @@ export const deskLiveness = (
 ): LivenessResolver => async (worktrees) => {
   const context = { repoRoot, scriptDir: scriptsDir };
   const seams = { manifestDir, log, ...(run !== undefined ? { run } : {}) };
-  const table = await processesFiles(context, seams).table();
-  if (!table.ok) {
-    log(`agent registry: ${worktrees.length} desks read unknown: the process table could not be read`);
+  const processes = processesFiles(context, seams);
+  let unreadable = false;
+  // READ ON FIRST NEED: a batch whose every desk answers from its liveness token reads no table.
+  const table = async (): Promise<readonly ProcessRow[]> => {
+    const read = await processes.table();
+    if (read.ok) return read.value;
+    unreadable = true;
     return [];
-  }
+  };
   try {
     const io = await deskFilesIo(context, seams)();
     const states: string[] = [];
     for (const worktree of worktrees) {
-      states.push(processReadingOf(await readWorkerReadings(worktree, table.value, io), false).state);
+      states.push(processReadingOf(await readWorkerReadings(worktree, table, io), false).state);
+    }
+    if (unreadable) {
+      log(`agent registry: ${worktrees.length} desks read unknown: the process table could not be read`);
+      return [];
     }
     return states;
   } catch (error) {

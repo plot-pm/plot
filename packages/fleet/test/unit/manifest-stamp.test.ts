@@ -88,6 +88,22 @@ describe('stampManifest — a first dispatch fills the pid and records the group
   });
 });
 
+describe('stampManifest — the liveness token line', () => {
+  it('writes the token after the group, and no line where the caller names none', () => {
+    const out = stampManifest(firstDispatch(''), { pid: '4242', startedAt: '2026-08-20T10:00:00Z', ...GROUP, token: '/wt/x/.plot-worker.token.fifo' });
+    assert.equal(out, firstDispatch('4242', [...GROUP_LINES, '  "token": "/wt/x/.plot-worker.token.fifo",']));
+    assert.ok(!stampManifest(firstDispatch(''), { pid: '4242', startedAt: '2026-08-20T10:00:00Z' }).includes('"token"'));
+  });
+
+  it('records a reason as one plain string and replaces it on a relaunch', () => {
+    const first = stampManifest(firstDispatch(''), { pid: '1', startedAt: '2026-08-20T10:00:00Z', token: 'none (mkfifo: "x" \\ y)' });
+    assert.equal(JSON.parse(first).token, "none (mkfifo: 'x' ' y)");
+    const again = stampManifest(first, { pid: '2', startedAt: '2026-08-20T11:00:00Z', token: '/wt/x/.plot-worker.token.fifo' });
+    assert.equal(again.match(/"token"/g)?.length, 1);
+    assert.equal(JSON.parse(again).token, '/wt/x/.plot-worker.token.fifo');
+  });
+});
+
 describe('stampManifest — a relaunch updates the pid and records what it displaced', () => {
   it('overwrites a filled pid, records previousPid, and sets relaunches to 1', () => {
     const out = stampManifest(firstDispatch('91471'),

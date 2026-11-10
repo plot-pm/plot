@@ -21,7 +21,7 @@ const ENV = {
 };
 
 /** A run's every port call, in order. */
-const fakes = (ending: AgentEndReading, manifestWorktree = '', agentPid: number | null = 200) => {
+const fakes = (ending: AgentEndReading, manifestWorktree = '', agentPid: number | null = 200, tokenFails = '') => {
   const calls: string[] = [];
   const stamps: Stamp[] = [];
   const envs: Readonly<Record<string, string | undefined>>[] = [];
@@ -30,13 +30,14 @@ const fakes = (ending: AgentEndReading, manifestWorktree = '', agentPid: number 
     writeAgentPid: (pid) => (calls.push(`agent-pid ${pid}`), true),
     writeAgentStarted: (text) => (calls.push(`agent-started ${text}`), true),
     writeExit: (code) => (calls.push(`exit ${code}`), true),
+    removeExit: () => (calls.push('remove-exit'), true),
     startedText: (pid) => (calls.push(`started-text ${pid}`), `lstart-${pid}`),
     manifestWorktree: (file) => (calls.push(`manifest-worktree ${file}`), manifestWorktree),
     appendFinding: (desk, line) => (calls.push(`finding ${desk} ${line}`), true),
   };
   const agents: AgentStart = {
-    start: (command, env) => {
-      calls.push(`agent ${command}`);
+    start: (command, env, tokenFd = null) => {
+      calls.push(`agent ${command}${tokenFd === null ? '' : ` fd ${tokenFd}`}`);
       envs.push(env);
       return agentPid === null ? null : { pid: agentPid, ended: Promise.resolve(ending) };
     },
@@ -44,6 +45,15 @@ const fakes = (ending: AgentEndReading, manifestWorktree = '', agentPid: number 
   const deps: WrapperDeps = {
     records,
     agents,
+    token: {
+      read: () => ({ state: 'none', madeAtMs: null }),
+      make: (desk) => {
+        calls.push(`token ${desk}`);
+        return tokenFails === '' ? { ok: true, token: { path: `${desk}/.plot-worker.token.fifo`, fd: 9 } } : { ok: false, reason: tokenFails };
+      },
+      close: (token) => calls.push(`token-close ${token.fd}`),
+    },
+    log: (line) => calls.push(`log ${line}`),
     startMonitor: () => (calls.push('monitor'), '300'),
     stamp: (file, stamp) => (calls.push(`stamp ${file}`), stamps.push(stamp), true),
     ignoreTerm: () => calls.push('ignore-term'),
@@ -106,7 +116,9 @@ describe('runWorkerWrapper', () => {
       'wrapper-pid 100',
       'started-text 100',
       'monitor',
-      'agent run-agent',
+      'token /w',
+      'remove-exit',
+      'agent run-agent fd 9',
       'ignore-term',
       'agent-pid 200',
       'started-text 200',
@@ -115,6 +127,7 @@ describe('runWorkerWrapper', () => {
       'manifest-worktree /m/s.json',
       'finding /w {"monitor":"WorkerMonitor","branch":"feature/x","worktree":"/w","finding":"clear","since":"2026-11-09T08:07:06Z","evidence":"the agent pid 200 exited 0; the worker is finished","measuredAt":"2026-11-09T08:07:06Z"}\n',
       'exit 0',
+      'token-close 9',
     ]);
   });
 
@@ -131,8 +144,37 @@ describe('runWorkerWrapper', () => {
         wrapperPidStartedAt: 'lstart-100',
         workerMonitorPid: '',
         agentMonitorPid: '300',
+        token: '/w/.plot-worker.token.fifo',
       },
     ]);
+  });
+
+  it('tells the agent the token is on fd 3, and drops an inherited claim of one', async () => {
+    const { envs, deps } = fakes({ code: 0, signal: null });
+    await runWorkerWrapper(input({ env: { ...ENV, PLOT_WORKER_TOKEN_FD: '7' } }), deps);
+    expect(envs[0]?.PLOT_WORKER_TOKEN_FD).toBe('3');
+
+    const failing = fakes({ code: 0, signal: null }, '', 200, 'mkfifo: Operation not supported');
+    await runWorkerWrapper(input({ env: { ...ENV, PLOT_WORKER_TOKEN_FD: '3' } }), failing.deps);
+    expect(failing.envs[0]?.PLOT_WORKER_TOKEN_FD).toBeUndefined();
+  });
+
+  it('starts the agent with no token, logs the reason and records it when the token cannot be made', async () => {
+    const { calls, stamps, deps } = fakes({ code: 0, signal: null }, '', 200, '/w/.plot-worker.token.fifo.100.tmp: mkfifo: Operation not supported');
+    await runWorkerWrapper(input(), deps);
+
+    expect(calls).toContain('log plot-worker-wrapper: no liveness token: /w/.plot-worker.token.fifo.100.tmp: mkfifo: Operation not supported');
+    expect(calls).toContain('agent run-agent');
+    expect(calls.some((c) => c.startsWith('token-close'))).toBe(false);
+    expect(stamps[0]?.token).toBe('none (/w/.plot-worker.token.fifo.100.tmp: mkfifo: Operation not supported)');
+  });
+
+  it('makes no token with no desk named', async () => {
+    const { calls, stamps, deps } = fakes({ code: 0, signal: null });
+    await runWorkerWrapper(input({ worktree: '' }), deps);
+
+    expect(calls.some((c) => c.startsWith('token '))).toBe(false);
+    expect(stamps[0]?.token).toBe('none (no desk named)');
   });
 
   it('puts the script directory first on the agent PATH', async () => {
@@ -156,16 +198,16 @@ describe('runWorkerWrapper', () => {
     const { calls, deps } = fakes({ code: null, signal: 15 });
     await runWorkerWrapper(input(), deps);
 
-    expect(calls.at(-1)).toBe('exit 143');
-    expect(calls.at(-2)).toContain('"finding":"gone"');
-    expect(calls.at(-2)).toContain('exited 143');
+    expect(calls.at(-2)).toBe('exit 143');
+    expect(calls.at(-3)).toContain('"finding":"gone"');
+    expect(calls.at(-3)).toContain('exited 143');
   });
 
   it('writes the line into the desk the manifest names after a hop', async () => {
     const { calls, deps } = fakes({ code: 3, signal: null }, '/w2');
     await runWorkerWrapper(input(), deps);
 
-    expect(calls.at(-2)).toMatch(/^finding \/w2 .*"worktree":"\/w2"/);
+    expect(calls.at(-3)).toMatch(/^finding \/w2 .*"worktree":"\/w2"/);
   });
 
   it('writes no line with no desk to name, and still the exit', async () => {
@@ -176,10 +218,18 @@ describe('runWorkerWrapper', () => {
     expect(calls.at(-1)).toBe('exit 3');
   });
 
-  it('writes exit 127 and answers 1 when no agent starts', async () => {
+  it('writes exit 127, closes its token copy after it, and answers 1 when no agent starts', async () => {
     const { calls, deps } = fakes({ code: 0, signal: null }, '', null);
 
     expect(await runWorkerWrapper(input(), deps)).toBe(1);
-    expect(calls.at(-1)).toBe('exit 127');
+    expect(calls.slice(-2)).toEqual(['exit 127', 'token-close 9']);
+  });
+
+  it('holds its token copy until the exit record is written, so the token never releases ahead of the record', async () => {
+    const { calls, deps } = fakes({ code: 3, signal: null });
+    await runWorkerWrapper(input(), deps);
+
+    expect(calls.indexOf('token-close 9')).toBeGreaterThan(calls.indexOf('exit 3'));
+    expect(calls.at(-1)).toBe('token-close 9');
   });
 });

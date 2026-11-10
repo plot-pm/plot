@@ -1,5 +1,5 @@
-import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
-import { execFileSync, spawn } from 'node:child_process';
+import { appendFileSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn, type StdioOptions } from 'node:child_process';
 import { constants } from 'node:os';
 import { join } from 'node:path';
 
@@ -30,6 +30,14 @@ export const workerRecordsFile = (files: LaunchRecordFiles): LaunchRecords => ({
   writeAgentPid: (pid) => write(files.pidFile, String(pid)),
   writeAgentStarted: (text) => write(files.pidStartedFile, text),
   writeExit: (code) => write(files.exitFile, String(code)),
+  removeExit: () => {
+    try {
+      rmSync(files.exitFile, { force: true });
+      return true;
+    } catch {
+      return false;
+    }
+  },
 
   startedText: (pid) => {
     try {
@@ -73,13 +81,14 @@ export const workerRecordsFile = (files: LaunchRecordFiles): LaunchRecords => ({
  * `( $cmd )` subshell of the `sh` wrapper did. Ubuntu's `dash -c` forks it.
  *
  * `ended` resolves with the exit code, or with the signal's number where a
- * signal ended the agent.
+ * signal ended the agent. A token descriptor reaches the agent as fd 3.
  *
  * @returns the agent start port.
  */
 export const agentStartShell = (): AgentStart => ({
-  start: (command, env): StartedAgent | null => {
-    const child = spawn('bash', ['-c', command], { stdio: 'inherit', env });
+  start: (command, env, tokenFd = null): StartedAgent | null => {
+    const stdio: StdioOptions = tokenFd === null ? 'inherit' : ['inherit', 'inherit', 'inherit', tokenFd];
+    const child = spawn('bash', ['-c', command], { stdio, env });
     if (child.pid === undefined) return null;
     const ended = new Promise<AgentEndReading>((resolve) => {
       child.once('exit', (code, signal) => {
