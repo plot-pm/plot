@@ -247,8 +247,9 @@ const worktreesOf = (stdout: string): Worktree[] => {
  * worktree list` only where the reader answers `unaskable`. `currentBranch`
  * and `currentBranchSync` read `HEAD` from the files for the repository's own
  * checkout, and start `git branch --show-current` for any other path or where
- * the reader answers `unaskable`. Every write and every destructive action
- * starts git.
+ * the reader answers `unaskable`. The repository's checkout is the path spelled
+ * exactly as `context.repoRoot`; a realpath or a trailing slash asks git.
+ * Every write and every destructive action starts git.
  *
  * @param context - where the repository is.
  * @param answers - the held answers for each checkout's common git dir; this process's own by default.
@@ -268,15 +269,11 @@ export const treesGit = (
     const read = files.worktrees();
     return !read.ok && read.why === 'unaskable' ? undefined : read;
   };
-  /**
-   * The reader's branch for the repository's own checkout, `''` for a detached
-   * HEAD as `git branch --show-current` answers; `undefined` where git must answer.
-   */
+  /** The reader's branch for the repository's own checkout; `undefined` where git must answer. */
   const branchFromFiles = (path: string): PortResult<string> | undefined => {
     if (files === null || path !== context.repoRoot) return undefined;
-    const read = files.currentBranch();
-    if (!read.ok) return read.why === 'unaskable' ? undefined : read;
-    return answered(read.value === 'HEAD' ? '' : read.value);
+    const read = files.checkoutBranch();
+    return !read.ok && read.why === 'unaskable' ? undefined : read;
   };
   const deskDirt = scriptPath(context, 'plot-desk-dirt.sh');
 

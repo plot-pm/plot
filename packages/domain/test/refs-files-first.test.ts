@@ -42,6 +42,7 @@ const refusing: RefFiles = {
   branchTips: () => unaskable('test'),
   resolve: () => unaskable('test'),
   currentBranch: () => unaskable('test'),
+  checkoutBranch: () => unaskable('test'),
   remoteHead: () => unaskable('test'),
   worktrees: () => unaskable('test'),
 };
@@ -123,6 +124,22 @@ describe('refsGit and treesGit read the ref files first', () => {
       expect(started()).toEqual([]);
     } finally {
       git(repo, 'checkout', '-q', 'main');
+    }
+  });
+
+  it('answer the bare branch name with a tag and a remote named like it, as git branch --show-current does', async () => {
+    const trees = treesGit(context);
+    git(repo, 'tag', 'main');
+    git(repo, 'update-ref', 'refs/remotes/main/HEAD', 'HEAD');
+    try {
+      expect(git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('heads/main');
+      writeFileSync(log, '');
+      expect(await trees.currentBranch(repo)).toEqual({ ok: true, value: 'main' });
+      expect(trees.currentBranchSync(repo)).toEqual({ ok: true, value: 'main' });
+      expect(started()).toEqual([]);
+    } finally {
+      git(repo, 'tag', '-d', 'main');
+      git(repo, 'update-ref', '-d', 'refs/remotes/main/HEAD');
     }
   });
 

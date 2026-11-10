@@ -135,6 +135,7 @@ const estateRepo = (): string => {
 };
 
 afterEach(() => {
+  vi.restoreAllMocks();
   stopFleetRefresh();
   starts.lines.length = 0;
   for (const [name, value] of Object.entries(savedEnv)) {
@@ -211,8 +212,11 @@ describe('GET /api/board while fleetd serves its snapshot', () => {
       const at = start + (i + 1) * 31_000;
       await beat(at);
       vi.spyOn(Date, 'now').mockReturnValue(at);
-      await boardAnswer(opts, estate, 'localhost', 7777, false);
-      vi.restoreAllMocks();
+      try {
+        await boardAnswer(opts, estate, 'localhost', 7777, false);
+      } finally {
+        vi.restoreAllMocks();
+      }
     }
     const warm = starts.lines
       .splice(0)

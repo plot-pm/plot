@@ -322,6 +322,21 @@ export const currentBranchOf = (refs: RefTable): string | undefined => {
   return typeof oidOf('HEAD', refs) === 'string' ? shortRefName(head.symbolic, refs, true) : undefined;
 };
 
+/**
+ * Reads `Trees.currentBranch`, as `git branch --show-current` answers: `HEAD`'s
+ * symbolic target with `refs/heads/` removed, never shortened against other refs.
+ *
+ * @param refs - the table, `HEAD` included.
+ * @returns the branch name, also for a branch with no commit; `''` when
+ *   detached; undefined where `HEAD` is absent or names a ref outside `refs/heads/`.
+ */
+export const checkoutBranchOf = (refs: RefTable): string | undefined => {
+  const head = refs.get('HEAD');
+  if (head === undefined) return undefined;
+  if ('oid' in head) return '';
+  return head.symbolic.startsWith('refs/heads/') ? head.symbolic.slice('refs/heads/'.length) : undefined;
+};
+
 /** The repository settings the reader depends on, read from `<common>/config`. */
 export interface RepoConfig {
   /** `extensions.refStorage`, lower case; `files` where unset. */
