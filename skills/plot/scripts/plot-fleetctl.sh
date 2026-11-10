@@ -271,8 +271,8 @@ supervisor_checkout() { # $1=root to compare against, default $repo_root
 # `com.quatico.ewz.registryd` and still claims it looked.
 #
 # NOTHING READ FROM ANOTHER PROCESS REACHES A SHELL EVALUATOR. The snapshot
-# holds every user's command lines. awk emits candidate paths as data; bash
-# tests each as a variable. No awk `system()`, no `eval`, no `sh -c`: measured
+# holds every user's command lines. The domain rule emits candidate paths as
+# data; bash tests each as a variable. No awk `system()`, no `eval`, no `sh -c`: measured
 # 2026-09-30, `system("test -x \"" $0 "\"")` ran `$(touch …)`, backticks and
 # `$(( $( ) ))` out of a stranger's argv. The `lsof` cwd and the cgroup line are
 # handled the same way.
@@ -281,66 +281,11 @@ supervisor_checkout() { # $1=root to compare against, default $repo_root
 # `C<TAB>pid<TAB>ppid<TAB>uid<TAB>kind<TAB>argv0<TAB>path` line per candidate,
 # where argv0 is `-` unless it holds a space (then the caller must find an
 # executable regular file there), and one `S<TAB>pid` line per `systemd --user`
-# process, which is the Linux subreaper an orphan reparents to.
-plot_process_candidates() {
-  awk '
-    # End index in s of the first `name` followed by a space or the end of s,
-    # or 0. With `bare`, name must also start s or follow a `/`.
-    function art_end(s, name, bare,   off, i, j, c) {
-      off = 0
-      while ((i = index(substr(s, off + 1), name)) > 0) {
-        j = off + i + length(name) - 1
-        c = substr(s, j + 1, 1)
-        if (c == "" || c == " ") {
-          if (!bare || off + i == 1 || substr(s, off + i - 1, 1) == "/") return j
-        }
-        off += i
-      }
-      return 0
-    }
-    {
-      if (!match($0, /^ *[0-9]+ +[0-9]+ +[0-9]+ /)) next
-      split(substr($0, 1, RLENGTH), h, " ")
-      s = "/" substr($0, RLENGTH + 1)
-      if (s ~ /\/systemd --user$/) { print "S\t" h[1]; next }
-      # Step 1: argv[0] runs to the first (^|/)(node|bash|sh) and a space.
-      if (!match(s, /\/(node|bash|sh) /)) next
-      interp = substr(s, RSTART + 1, RLENGTH - 2)
-      argv0 = substr(s, 2, RSTART + RLENGTH - 3)
-      rest = substr(s, RSTART + RLENGTH)
-      # Steps 2 and 3: the leading options, then the first token holding a `/`.
-      pos = 1; n = length(rest); start = 0; bad = 0
-      while (pos <= n) {
-        while (pos <= n && substr(rest, pos, 1) == " ") pos++
-        if (pos > n) break
-        k = index(substr(rest, pos), " ")
-        tok = k ? substr(rest, pos, k - 1) : substr(rest, pos)
-        if (tok ~ /^-[^-]/) {
-          if (interp == "node") { if (substr(tok, 2) ~ /[ep]/) bad = 1 }
-          else if (substr(tok, 2) ~ /c/) bad = 1
-        } else if (interp == "node" && tok ~ /^--(eval|print)(=|$)/) bad = 1
-        if (bad) break
-        if (index(tok, "/") || tok == "plot-fleet-scan.sh") { start = pos; break }
-        if (!k) break
-        pos += k
-      }
-      if (bad || !start) next
-      p = substr(rest, start)
-      # Step 4: the path names the kind.
-      kind = ""
-      if (interp == "node") {
-        b = art_end(p, "/board/board-server.mjs", 0)
-        r = art_end(p, "/board/plot-fleetd.mjs", 0)
-        r2 = art_end(p, "/board/plot-registryd.mjs", 0)
-        if (!r || (r2 && r2 < r)) r = r2
-        if (b && (!r || b < r)) { kind = "board"; e = b }
-        else if (r) { kind = "supervisor"; e = r }
-        else if ((e = art_end(p, "/board/plot-scan-walk.mjs", 0))) kind = "scan"
-      } else if ((e = art_end(p, "plot-fleet-scan.sh", 1))) kind = "scan"
-      if (kind == "") next
-      print "C\t" h[1] "\t" h[2] "\t" h[3] "\t" kind "\t" (index(argv0, " ") ? argv0 : "-") "\t" substr(p, 1, e)
-    }'
-}
+# process, which is the Linux subreaper an orphan reparents to. The rule is
+# `processCandidates` in `rules/process-candidates.ts`, told the scan script's
+# name by this script; it returns text and runs nothing. A bundle that cannot
+# answer prints nothing, so the block is silent.
+plot_process_candidates() { node "$script_dir/board/plot-fleetctl-start.mjs" candidates plot-fleet-scan.sh 2>/dev/null; }
 
 # The working directory of a pid, or empty for *cannot determine*. `$1` is the
 # kernel (`uname -s`). An empty `lsof` answer is cannot-determine whatever its

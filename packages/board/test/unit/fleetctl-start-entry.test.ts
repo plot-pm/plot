@@ -20,6 +20,14 @@ describe('plot-fleetctl-start.mjs', () => {
     expect(ask(['reload', 'com.plot-pm.fleetd']).code).toBe(2);
   });
 
+  it('candidates classifies the stdin snapshot and writes it back byte for byte', () => {
+    let raw = '';
+    const snapshot = '  9 1 501 node /a/\xff/board/plot-fleetd.mjs\nnoise\n';
+    const code = run(['candidates', 'scan.sh'], () => undefined, () => undefined, 501, () => snapshot, (s) => (raw += s));
+    expect(code).toBe(0);
+    expect(raw).toBe('C\t9\t1\t501\tsupervisor\t-\t/a/\xff/board/plot-fleetd.mjs\n');
+  });
+
   it('probe refuses an unresolved harness on stderr with exit 1', () => {
     const r = ask(['probe', 'claude', '', '', '/usr/bin/node', 'launchd', '/x/plot-fleetd.mjs']);
     expect(r.code).toBe(1);

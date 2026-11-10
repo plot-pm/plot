@@ -5,7 +5,8 @@ import {
   restartReport,
   startProbeRefusal,
 } from '@plot-pm/domain/rules/fleetctl-start';
-import { accessSync, constants, realpathSync, statSync } from 'node:fs';
+import { processCandidates } from '@plot-pm/domain/rules/process-candidates';
+import { accessSync, constants, readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
@@ -19,6 +20,7 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * node plot-fleetctl-start.mjs restart <label> <platform> <loaded> <pid> <commit> <dry-run> [<agents> <unattended>]
  * node plot-fleetctl-start.mjs agents <dry-run> <desk> <pid> <state> <branch> <blocked> <dirty> <pr> <started-at> <pid-started-at> <current>
  * node plot-fleetctl-start.mjs reload <label> <platform> <unit>
+ * ps axww -o pid=,ppid=,uid=,args= | node plot-fleetctl-start.mjs candidates <scan-script>
  * launchctl kickstart -k gui/501/com.plot-pm.fleetd
  * node plot-fleetctl-start.mjs restarted <label> <old-pid> <new-pid> <commit> <wait> <read-cmd>
  * ```
@@ -46,6 +48,11 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * start matches them and `no` when it does not.
  *
  * `reload` prints the reload command's words on one line, separated by spaces.
+ *
+ * `candidates` reads a `ps` snapshot on stdin and prints `processCandidates`'
+ * lines on stdout, with `<scan-script>` the fleet scan script's file name; it
+ * exits 0. Both streams are read and written as latin1, so
+ * a byte that is not valid UTF-8 reaches the shell as it was in the snapshot.
  *
  * `restarted` prints the report on stdout and exits 0 when a new pid differs
  * from the old one, and prints the failure on stderr and exits 1 otherwise.
@@ -95,7 +102,7 @@ const prStateOf = (json: string): string | undefined => {
 };
 
 /** The number of arguments each verb takes after the verb itself. */
-const ARITY: Readonly<Record<string, number>> = { probe: 6, restart: 6, agents: 11, reload: 3, restarted: 6 };
+const ARITY: Readonly<Record<string, number>> = { probe: 6, restart: 6, agents: 11, reload: 3, candidates: 1, restarted: 6 };
 
 /**
  * Answers one verb.
@@ -104,6 +111,8 @@ const ARITY: Readonly<Record<string, number>> = { probe: 6, restart: 6, agents: 
  * @param write - where a stdout answer goes.
  * @param writeErr - where a refusal or failure goes.
  * @param uid - the user id `reload` names in the launchd domain.
+ * @param readStdin - the whole of stdin, as latin1; only `candidates` reads it.
+ * @param writeBytes - where `candidates` writes its latin1 answer.
  * @returns the process exit code: 0 proceed, 1 refuse, 2 unknown verb or missing argument.
  */
 export const run = (
@@ -111,11 +120,13 @@ export const run = (
   write: (s: string) => void = (s) => process.stdout.write(s),
   writeErr: (s: string) => void = (s) => process.stderr.write(s),
   uid: number = process.getuid?.() ?? 0,
+  readStdin: () => string = () => readFileSync(0, 'latin1'),
+  writeBytes: (s: string) => void = (s) => process.stdout.write(Buffer.from(s, 'latin1')),
 ): number => {
   const [verb, ...args] = argv;
   const arity = verb === undefined ? undefined : ARITY[verb];
   if (arity === undefined || args.length < arity) {
-    writeErr(`plot-fleetctl-start: expected one of probe, restart, agents, reload, restarted with its arguments, got '${argv.join(' ')}'\n`);
+    writeErr(`plot-fleetctl-start: expected one of probe, restart, agents, reload, candidates, restarted with its arguments, got '${argv.join(' ')}'\n`);
     return 2;
   }
   const a = (i: number): string => args[i] ?? '';
@@ -173,6 +184,9 @@ export const run = (
       write(`${decision.action}\t${decision.line}\n`);
       return 0;
     }
+    case 'candidates':
+      writeBytes(processCandidates(readStdin(), a(0)));
+      return 0;
     case 'reload': {
       const words = reloadCommand({ label: a(0), platform: a(1), unit: a(2), uid });
       if (words === undefined) {
