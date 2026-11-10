@@ -24,7 +24,7 @@ All work for this sprint goes to the integration branch `sprint/desk-probes-and-
 - [x] [desk-probes-in-domain] The desk probes read from files (#3170) <!-- pr: #3308, branch: feature/desk-probes-in-domain-activity -->
 - [ ] [github-reads-in-process] GitHub reads in-process (#3170) <!-- pr: #3308, branch: feature/github-reads-in-process-client -->
 - [x] [node-worker-wrapper] The worker wrapper is a node bundle (#3170) <!-- pr: #3308, branch: feature/node-worker-wrapper-bundle -->
-- [ ] [liveness-token] A worker's liveness is a token (#3170) <!-- pr: #3308, branch: feature/liveness-token-locks -->
+- [x] [liveness-token] A worker's liveness is a token (#3170) <!-- pr: #3308, branch: feature/liveness-token-locks -->
 
 ### Should Have
 - [x] [ci-reuses-green-runs] CI reuses green runs <!-- pr: #3308, branch: infra/ci-reuses-green-runs -->
