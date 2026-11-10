@@ -2212,6 +2212,8 @@ const waitingOf = async (
       assignees: [...t.assignees],
       type: t.type,
       owner: t.owner,
+      ...(t.releases === undefined ? {} : { releases: [...t.releases] }),
+      ...(t.planned === true ? { planned: true as const } : {}),
     })),
     shown: result.shown,
     hidden: result.hidden,

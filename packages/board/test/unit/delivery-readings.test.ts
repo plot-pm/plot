@@ -4,6 +4,7 @@ import type { AgentRow, Slice } from '../../src/contract/schema.js';
 import {
   deliveryMapping,
   sliceItemId,
+  sprintReleases,
   type DeliveryMapInput,
   type RegistryAgent,
 } from '../../src/app/lib/agent-rows/delivery-readings.js';
@@ -162,5 +163,66 @@ describe('deliveryMapping PR checks', () => {
 
   it('reads a host that cannot report as unread', () => {
     expect(ciOf('unknown')).toBe('unread');
+  });
+});
+
+describe('deliveryMapping tickets', () => {
+  const source = { service: 'github', match: 'host-login' as const };
+  const tk = (number: string, over: Record<string, unknown> = {}) => ({
+    kind: 'ticket', number, title: `Ticket ${number}`, url: '', ageMinutes: 1,
+    status: 'open', statusCategory: 'To Do', assignees: ['me'], ...over,
+  }) as unknown as NonNullable<DeliveryMapInput['tickets']>[number];
+  const withTickets = (tickets: DeliveryMapInput['tickets'], over: Partial<DeliveryMapInput> = {}) =>
+    place(deliveryMapping(input({ tickets, ticketSource: source, ...over })));
+
+  const youIds = (p: ReturnType<typeof place>) =>
+    p.items.filter((i) => i.kind === 'ticket').map((i) => i.id);
+
+  it('places an assigned unplanned ticket once and omits a planned one', () => {
+    const p = withTickets([tk('1'), tk('2', { planned: true })]);
+    expect(youIds(p)).toEqual(['ticket:1']);
+    expect(p.unplaced.some((u) => u.id === 'ticket:2' && u.reason === 'planned')).toBe(true);
+  });
+
+  it('keeps the ticket keyed by item id for the view', () => {
+    const m = deliveryMapping(input({ tickets: [tk('7')], ticketSource: source }));
+    expect(Object.keys(m.ticketsByItem)).toEqual(['ticket:7']);
+  });
+
+  it('does not place a closed ticket', () => {
+    const p = withTickets([tk('3', { statusCategory: 'Done' })]);
+    expect(youIds(p)).toEqual([]);
+  });
+
+  it('places nothing when the issue store gave no tickets', () => {
+    expect(youIds(withTickets(null))).toEqual([]);
+    expect(youIds(withTickets(undefined))).toEqual([]);
+  });
+
+  it('passes releases to the rule and names an unasked reading under the filter', () => {
+    const m = deliveryMapping(input({ tickets: [tk('4')], ticketSource: source, releases: ['2.32'] }));
+    expect(m.input.releases).toEqual(['2.32']);
+    const p = place(m);
+    expect(youIds(p)).toEqual([]);
+    expect(p.unplaced.some((u) => u.id === 'ticket:4' && u.reason === 'unread')).toBe(true);
+  });
+
+  it('matches a release by exact name', () => {
+    const p = withTickets([tk('5', { releases: ['2.32'] }), tk('6', { releases: ['2.32.0'] })], { releases: ['2.32'] });
+    expect(youIds(p)).toEqual(['ticket:5']);
+  });
+});
+
+describe('sprintReleases', () => {
+  const sp = [
+    { slug: 'a', release: '2.32' }, { slug: 'b', release: '2.32' },
+    { slug: 'c', release: '' }, { slug: 'd', release: '2.33' },
+  ];
+  it('dedupes the selected sprints\' releases', () => {
+    expect(sprintReleases(sp, ['a', 'b', 'd'])).toEqual(['2.32', '2.33']);
+  });
+  it('is undefined when no selected sprint names a release', () => {
+    expect(sprintReleases(sp, ['c'])).toBeUndefined();
+    expect(sprintReleases(sp, [])).toBeUndefined();
   });
 });

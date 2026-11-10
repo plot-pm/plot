@@ -3731,6 +3731,14 @@ export const IssueRowSchema = z.object({
    * otherwise, `null` where nobody is assigned.
    */
   owner: z.string().nullable().default(null),
+  /**
+   * The release versions the tracker planned the ticket for, from the issue
+   * index. OPTIONAL and never defaulted: absent means the row was never asked
+   * for them, `[]` means it was asked and named none.
+   */
+  releases: z.array(z.string()).optional(),
+  /** `true` where a plan names the ticket — the same join `waitingTickets` makes; absent otherwise. */
+  planned: z.literal(true).optional(),
 });
 export type IssueRow = z.infer<typeof IssueRowSchema>;
 
