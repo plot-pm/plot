@@ -50,11 +50,17 @@ type PrFacts = NonNullable<WorkItemReading['pr']>;
 
 const MINE: Record<MineMode, DeliveryMine> = { all: 'off', 'mine-and-unknown': 'mine', mine: 'strict' };
 
-const PHASES = ['draft', 'design', 'approved', 'delivered', 'released'] as const;
-type Phase = (typeof PHASES)[number];
+/** The payload's workflow phase words, and the lifecycle phase the placement rule reads for each. */
+const PHASE_OF: Readonly<Record<string, NonNullable<WorkItemReading['phase']>>> = {
+  Discovery: 'draft',
+  Design: 'design',
+  Development: 'approved',
+  Testing: 'delivered',
+  Released: 'released',
+};
 
-const phaseOf = (value: string | null): Phase | undefined =>
-  PHASES.find((p) => p === value);
+const phaseOf = (value: string | null): WorkItemReading['phase'] =>
+  value === null ? undefined : PHASE_OF[value];
 
 export const sliceItemId = (plan: string, wave: string): string => `slice:${sliceKeyOf(plan, wave)}`;
 export const branchItemId = (branch: string): string => `branch:${branch}`;

@@ -11,7 +11,7 @@ import {
 const reader = { hostUser: 'me' };
 
 const row = (over: Record<string, unknown>): AgentRow => ({
-  branch: '', plan: '', wave: '', kind: 'branch', phase: 'approved', state: 'wip',
+  branch: '', plan: '', wave: '', kind: 'branch', phase: 'Development', state: 'wip',
   group: 'working', pr: null, question: null, blockedBy: null,
   assignee: '', author: '', approver: '', ...over,
 }) as unknown as AgentRow;
@@ -109,5 +109,43 @@ describe('absent config keys', () => {
     const m = deliveryMapping(input({ config: {} }));
     expect('autoReview' in m.input && m.input.autoReview !== undefined).toBe(false);
     expect('correctionBudget' in m.input && m.input.correctionBudget !== undefined).toBe(false);
+  });
+});
+
+describe('deliveryMapping phase words', () => {
+  const placed = (phase: string) => {
+    const m = deliveryMapping(input({
+      rows: [row({ branch: 'feature/x', plan: 'p', wave: 'X', phase, state: 'wip', pr: pr({ ciChecks: 'green', plotReview: 'success' }) })],
+      slices: [slice('X')],
+    }));
+    return place(m);
+  };
+
+  it('reads Discovery as a plan waiting for input to the fleet', () => {
+    expect(placed('Discovery').items[0]).toMatchObject({ section: 'you', group: 'input-to-the-fleet', reason: 'draft-plan' });
+  });
+
+  it('reads Design as a plan waiting for input to the fleet', () => {
+    expect(placed('Design').items[0]).toMatchObject({ section: 'you', group: 'input-to-the-fleet', reason: 'draft-plan' });
+  });
+
+  it('reads Development as a work item', () => {
+    expect(placed('Development').items[0]).toMatchObject({ section: 'work-items' });
+  });
+
+  it('reads Testing as delivered', () => {
+    const p = placed('Testing');
+    expect(p.items).toEqual([]);
+    expect(p.unplaced).toContainEqual({ id: sliceItemId('p', 'X'), subject: 'item', reason: 'delivered' });
+  });
+
+  it('reads Released as delivered', () => {
+    const p = placed('Released');
+    expect(p.items).toEqual([]);
+    expect(p.unplaced).toContainEqual({ id: sliceItemId('p', 'X'), subject: 'item', reason: 'delivered' });
+  });
+
+  it('leaves an unknown phase word absent', () => {
+    expect(placed('approved').items[0]).toMatchObject({ section: 'work-items' });
   });
 });
