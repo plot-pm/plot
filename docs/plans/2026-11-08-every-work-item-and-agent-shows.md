@@ -67,3 +67,5 @@ Every rendered state is a domain property with a unit test (CLAUDE.md, "Every re
 - Created from issue #3244 by an unattended run. The Type came from the prompt; the design question was unanswered, so the plan starts in Draft.
 - Deliverable search for the rule found nothing in the estate by that name.
 - Plans 2 (row forms) and 3 (tickets and loose ends) of the design are separate plans.
+- Ruling, 2026-11-10, Jan Wloka: the Delivery tab renders plan and slice rows with their action menus (Approve, Dispatch, Deliver, Reslice, Implement) inside the five sections, because the design lists plan and slice as row KINDs. Browser tests that assert those rows keep their subject.
+- Ruling, 2026-11-10, Jan Wloka: `phaseOf` maps the payload's workflow phases (Discovery, Design, Development, Testing, Released) case-correctly: Discovery and Design are input to the fleet, Development is a work item, Testing and Released are delivered. A unit test uses the payload's real phase words.

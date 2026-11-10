@@ -10,6 +10,7 @@
 - **Sprint:** ship-2-32-0
 - **Issue:** #3329
 - **Started:** 2026-11-09, Jan Wloka, `feature/plot-fleetctl-restart`
+- **Started:** 2026-11-10, Jan Wloka, `feature/plot-fleetctl-restart-agents`
 - **Story:** <!-- optional -->
 - **Review:** pr
 - **Impl:** own branches
@@ -58,7 +59,7 @@ Layering: the free-loop decision is a rule about agent state, so it belongs in t
 
 ### Free loops
 
-- `feature/plot-fleetctl-restart-agents` — `--restart --agents` stops free loops, detached desks by checked pid, and names each agent kept and why. Contract tests: stops the free loop and keeps the busy agent, the agent with an open PR and the agent with a `PLOT-BLOCKED` marker; a recycled pid is refused and never signalled. `/plot-fleet` documents both flags.
+- `feature/plot-fleetctl-restart-agents` — `--restart --agents` stops free loops, detached desks by checked pid, and names each agent kept and why. Contract tests: stops the free loop and keeps the busy agent, the agent with an open PR and the agent with a `PLOT-BLOCKED` marker; a recycled pid is refused and never signalled. `/plot-fleet` documents both flags. → #3373
 
 ## Notes
 
