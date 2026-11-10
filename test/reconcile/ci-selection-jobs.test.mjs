@@ -312,3 +312,117 @@ test("validate's last step reads each job's result and carries its own if: !canc
   assert.ok(last.includes('${{ needs.select.outputs.board }}'));
   assert.match(last, /^\s*if: \$\{\{ !cancelled\(\) \}\}/m);
 });
+
+// ── select records what the run tested ──────────────────────────────────────
+// Part of docs/plans/2026-11-09-ci-reuses-green-runs.md.
+
+/** The step in `job` whose text matches `marker`, as text. */
+const stepText = (job, marker) => {
+  const block = jobBlock(job);
+  return block.slice(block.indexOf('\n    steps:')).split(/\n(?= {6}- )/).find((s) => marker.test(s));
+};
+
+const git = (cwd, ...args) => {
+  const res = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  assert.equal(res.status, 0, res.stderr);
+  return res.stdout.trim();
+};
+
+/** A repository whose HEAD is a pull request merge: `HEAD^1` the base, `HEAD^2` the head. */
+const mergeRepo = (dir) => {
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 'ci@example.invalid');
+  git(dir, 'config', 'user.name', 'ci');
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'a\n');
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-q', '-m', 'base');
+  git(dir, 'checkout', '-q', '-b', 'topic');
+  fs.mkdirSync(path.join(dir, 'docs'));
+  fs.writeFileSync(path.join(dir, 'docs', 'b.md'), 'b\n');
+  fs.writeFileSync(path.join(dir, 'c.sh'), 'c\n');
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-q', '-m', 'head');
+  git(dir, 'checkout', '-q', 'main');
+  git(dir, 'merge', '-q', '--no-ff', '-m', 'merge', 'topic');
+  return { base: git(dir, 'rev-parse', 'HEAD^1'), head: git(dir, 'rev-parse', 'HEAD^2') };
+};
+
+/** Runs the record step in `cwd` with the selection outputs `sel`. */
+const record = (cwd, runner, sel) =>
+  spawnSync('bash', ['-c', stepScript('select', /id: record/)], {
+    cwd,
+    encoding: 'utf8',
+    env: {
+      PATH: process.env.PATH,
+      RUNNER_TEMP: runner,
+      GITHUB_OUTPUT: path.join(runner, 'out'),
+      GITHUB_STEP_SUMMARY: path.join(runner, 'summary'),
+      ...sel,
+    },
+  });
+
+test('the record holds the merge base, the head, the changed paths and the selection', () => {
+  const dir = tmp();
+  try {
+    const repo = path.join(dir, 'repo');
+    fs.mkdirSync(repo);
+    const runner = path.join(dir, 'runner');
+    fs.mkdirSync(runner);
+    const { base, head } = mergeRepo(repo);
+    const sel = {
+      CORPUS: 'false', CORPUS_TESTS: '', CONTRACTS: 'true', CONTRACTS_TESTS: 'test/reconcile/x.test.mjs',
+      BOARD: 'false', DOMAIN: 'false', FLEET: 'false', E2E: 'true', MACOS: 'true', CENSUS: 'false',
+    };
+    const res = record(repo, runner, sel);
+    assert.equal(res.status, 0, res.stdout + res.stderr);
+    assert.equal(fs.readFileSync(path.join(runner, 'out'), 'utf8'), `name=ci-inputs-${base}-${head}\n`);
+    const rec = JSON.parse(fs.readFileSync(path.join(runner, 'ci-inputs', 'ci-inputs.json'), 'utf8'));
+    assert.deepEqual(rec, {
+      version: 1,
+      base,
+      head,
+      changed: ['c.sh', 'docs/b.md'],
+      selection: {
+        corpus: 'false', corpus_tests: '', contracts: 'true', contracts_tests: 'test/reconcile/x.test.mjs',
+        board: 'false', domain: 'false', fleet: 'false', e2e: 'true', macos: 'true', census: 'false',
+      },
+    });
+    const upload = stepText('select', /name: Upload the record/);
+    assert.match(upload, /^ {10}path: \$\{\{ runner\.temp \}\}\/ci-inputs\/ci-inputs\.json$/m);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a run whose HEAD is no merge records nothing and names no artifact', () => {
+  const dir = tmp();
+  try {
+    git(dir, 'init', '-q', '-b', 'main');
+    git(dir, 'config', 'user.email', 'ci@example.invalid');
+    git(dir, 'config', 'user.name', 'ci');
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'a\n');
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'one');
+    const runner = fs.mkdtempSync(path.join(dir, 'runner-'));
+    const res = record(dir, runner, {});
+    assert.notEqual(res.status, 0);
+    assert.ok(!fs.existsSync(path.join(runner, 'out')) || !fs.readFileSync(path.join(runner, 'out'), 'utf8').includes('name='));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a missing record changes no result: both steps continue on error and no job reads their outcome', () => {
+  for (const marker of [/id: record/, /name: Upload the record/]) {
+    assert.match(stepText('select', marker), /^ {8}continue-on-error: true$/m, `${marker} must continue on error`);
+  }
+  const upload = stepText('select', /name: Upload the record/);
+  assert.ok(!/^ {8}id:/m.test(upload), 'the upload step carries no id, so nothing can read its outcome');
+  const select = jobBlock('select');
+  const header = select.split('\n    steps:')[0];
+  assert.ok(!header.includes('steps.record'), "select's outputs must not carry the record");
+  const others = select.slice(select.indexOf('\n    steps:')).split(/\n(?= {6}- )/).filter((s) => !/id: record|name: Upload the record/.test(s));
+  for (const step of others) assert.ok(!step.includes('steps.record'), `a step other than the upload reads the record: ${step.split('\n')[0]}`);
+  const rest = CI.slice(CI.indexOf(select) + select.length);
+  assert.ok(!rest.includes('steps.record') && !rest.includes('ci-inputs'), 'no other job reads the record');
+});

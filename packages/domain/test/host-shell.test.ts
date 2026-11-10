@@ -980,11 +980,23 @@ describe('the exit code this adapter reads is the one the script spends', () => 
     return { repoRoot: root, path: `${bin}:${process.env.PATH ?? ''}` };
   };
 
-  /** Runs the real `plot-host.sh pr-list --state all` in that repository. */
+  /**
+   * Runs the real `plot-host.sh pr-list --state all` in that repository.
+   *
+   * The budget record and its concurrency slots live in the repository's own
+   * `budget` directory, under a fixed account. The operator's record bounds a
+   * Bitbucket account to one slot, so every `bb` call would otherwise wait
+   * behind the machine's real agents.
+   */
   const prListAll = (repo: { repoRoot: string; path: string }) =>
     spawnSync('bash', [join(realScriptDir, 'plot-host.sh'), 'pr-list', '--state', 'all'], {
       cwd: repo.repoRoot,
-      env: { ...process.env, PATH: repo.path },
+      env: {
+        ...process.env,
+        PATH: repo.path,
+        PLOT_BUDGET_HOME: join(repo.repoRoot, 'budget'),
+        PLOT_BUDGET_ACCOUNT: 'acme-reader',
+      },
       encoding: 'utf8',
     });
 

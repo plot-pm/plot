@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** desk-probes-and-liveness
 - **Issue:** #3344
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-09, jwloka, plan-PR #3345 merged
+- **Delivered:** 2026-11-10
 
 ## Changelog
 

@@ -1,3 +1,8 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { join } from 'node:path';
+
 /**
  * The `PATH` stubs the census sandbox puts in front of the host CLIs.
  *
@@ -99,3 +104,85 @@ file="$dir/\${path//\\//_}.json"
 if [ -f "$file" ]; then emit "$file"; else printf '{"issues":[],"isLast":true,"total":0}\\n'; fi
 printf '200'
 `;
+
+/** One request the stub API server answered. */
+export type StubApiRequest = { method: string; path: string; authorization: string };
+
+/** The local HTTP server that answers the in-process GitHub client in the census sandbox. */
+export type StubApi = {
+  /** The base URL the sandbox sets as `GITHUB_API_URL`. */
+  url: string;
+  /** Every request answered so far, in arrival order. */
+  requests: () => readonly StubApiRequest[];
+  /** How many requests named `path`, query stripped. */
+  count: (path: string) => number;
+  /** Closes the server and every open connection. */
+  close: () => Promise<void>;
+};
+
+/**
+ * Starts the stub GitHub API the census sandbox points `GITHUB_API_URL` at.
+ *
+ * A `PATH` stub cannot see an in-process request, so this server answers them
+ * from the same fixture directory as the stub `gh`. The key is
+ * `api/<METHOD>-<path>.json` under `$CENSUS_FIXTURES/gh/`, the path's query
+ * stripped and `/` replaced by `_` (`POST /graphql` -> `api/POST-_graphql.json`).
+ * `GET /user` answers `{"login":"census"}` without a file, a missing `POST`
+ * answers `{"data":{}}`, and a missing `GET` answers `404`. A request whose
+ * `Authorization` is not `Bearer <token>` answers `401 Bad credentials`. Every
+ * answer carries a full `X-RateLimit-*` window for the bucket it spends.
+ *
+ * @param fixtures - the `gh` fixture directory.
+ * @param token - the fixture token the sandbox sets as `GH_TOKEN`.
+ * @returns the running server.
+ */
+export const startStubApi = async (fixtures: string, token: string): Promise<StubApi> => {
+  const seen: StubApiRequest[] = [];
+  const server = createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      const method = req.method ?? 'GET';
+      const path = (req.url ?? '/').split('?')[0] ?? '/';
+      const authorization = String(req.headers.authorization ?? '');
+      seen.push({ method, path, authorization });
+      const headers = {
+        'Content-Type': 'application/json',
+        'X-RateLimit-Resource': path === '/graphql' ? 'graphql' : 'core',
+        'X-RateLimit-Limit': '5000',
+        'X-RateLimit-Remaining': '4999',
+        'X-RateLimit-Reset': '0',
+      };
+      if (authorization !== `Bearer ${token}`) {
+        res.writeHead(401, headers);
+        res.end('{"message":"Bad credentials"}');
+        return;
+      }
+      const file = join(fixtures, 'api', `${method}-${path.replaceAll('/', '_')}.json`);
+      if (existsSync(file)) {
+        res.writeHead(200, headers);
+        res.end(readFileSync(file));
+      } else if (method === 'GET' && path === '/user') {
+        res.writeHead(200, headers);
+        res.end('{"login":"census"}');
+      } else if (method === 'POST') {
+        res.writeHead(200, headers);
+        res.end('{"data":{}}');
+      } else {
+        res.writeHead(404, headers);
+        res.end('{"message":"Not Found"}');
+      }
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  return {
+    url: `http://127.0.0.1:${port}`,
+    requests: () => [...seen],
+    count: (path) => seen.filter((one) => one.path === path).length,
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+  };
+};

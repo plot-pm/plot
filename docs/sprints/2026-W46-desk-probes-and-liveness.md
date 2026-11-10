@@ -21,15 +21,15 @@ All work for this sprint goes to the integration branch `sprint/desk-probes-and-
 - [x] [sprint-prs-run-ci] Sprint PRs run CI <!-- pr: #3308, branch: infra/sprint-prs-gate-base -->
 - [x] [refs-from-files] Refs and worktrees read from files (#3170) <!-- pr: #3308, branch: feature/refs-from-files-adapters -->
 - [x] [one-cat-file-batch] One git cat-file batch per repository (#3170) <!-- pr: #3308, branch: feature/one-cat-file-batch-adapters -->
-- [ ] [desk-probes-in-domain] The desk probes read from files (#3170) <!-- pr: #3308, branch: feature/desk-probes-in-domain-activity -->
+- [x] [desk-probes-in-domain] The desk probes read from files (#3170) <!-- pr: #3308, branch: feature/desk-probes-in-domain-activity -->
 - [ ] [github-reads-in-process] GitHub reads in-process (#3170) <!-- pr: #3308, branch: feature/github-reads-in-process-client -->
-- [ ] [node-worker-wrapper] The worker wrapper is a node bundle (#3170) <!-- pr: #3308, branch: feature/node-worker-wrapper-bundle -->
+- [x] [node-worker-wrapper] The worker wrapper is a node bundle (#3170) <!-- pr: #3308, branch: feature/node-worker-wrapper-bundle -->
 - [ ] [liveness-token] A worker's liveness is a token (#3170) <!-- pr: #3308, branch: feature/liveness-token-locks -->
 
 ### Should Have
 - [ ] [ci-reuses-green-runs] CI reuses green runs <!-- pr: #3308, branch: infra/ci-reuses-green-runs -->
 - [ ] [board-api-starts-nothing] The board API starts nothing (#3170) <!-- pr: #3308, branch: feature/board-api-starts-nothing-census -->
-- [ ] [bundle-gate-reads-the-default-branch] The bundle gate reads the default branch (#3344) <!-- pr: #3345, branch: bug/bundle-gate-reads-the-default-branch -->
+- [x] [bundle-gate-reads-the-default-branch] The bundle gate reads the default branch (#3344) <!-- pr: #3345, branch: bug/bundle-gate-reads-the-default-branch -->
 
 ### Could Have
 

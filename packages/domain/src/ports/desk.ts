@@ -1,5 +1,5 @@
 import type { PortResult } from '../port-result.js';
-import type { EndingActor, EndingReason } from '../entities/ending.js';
+import type { EndingActor, EndingReason, IdleInputs } from '../entities/ending.js';
 import type { Finding } from '../entities/finding.js';
 
 /** One record `writeEnding` lands, keyed by the fields `write_ending` carries. */
@@ -16,6 +16,8 @@ export interface EndingRecord {
   refusedAssignment?: string;
   /** The handle the loop was resuming or about to resume when it ended; absent where none is recorded. */
   resumeId?: string;
+  /** What the idle watch read at the check that ended a `quiet` worker; absent for every other ending. */
+  idle?: IdleInputs;
 }
 
 /** One finding `publishFinding` appends, in the fields `FindingSchema` requires beside the ones the adapter fills. */
