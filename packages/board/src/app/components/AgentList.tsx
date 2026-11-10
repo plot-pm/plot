@@ -1080,9 +1080,9 @@ export function AgentList({
         });
         const view = placeMapping(mapping, fleet.slices);
         const slices = fleet.slices;
-        const issues = fleet.issueAnswer === 'answered'
-          ? filteredIssues.filter((i) => !view.placedTickets.has(String(i.number)))
-          : [];
+        const issues = fleet.issueAnswer === 'answered' ? filteredIssues : [];
+        // A ticket a section holds is listed there only; the block and its count lines stay while the read has any.
+        const unplacedIssues = issues.filter((i) => !view.placedTickets.has(String(i.number)));
         const scrollTo = (anchor: string) => (e: { preventDefault: () => void }) => {
           e.preventDefault();
           document.getElementById(anchor)?.scrollIntoView({ block: 'center' });
@@ -1476,7 +1476,7 @@ export function AgentList({
                       </span>
                     </li>
                   )}
-                  {issues.map((issue) => (
+                  {unplacedIssues.map((issue) => (
                     <IssueRowView
                       key={`issue-${issue.number}`}
                       issue={issue}
