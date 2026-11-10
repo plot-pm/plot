@@ -5,7 +5,7 @@ description: >-
   Activates on /plot or when managing planned work through git branches and PRs.
   Spoke commands: /plot-idea, /plot-approve, /plot-deliver, /plot-reject, /plot-reconcile, /plot-release, /plot-sprint.
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot

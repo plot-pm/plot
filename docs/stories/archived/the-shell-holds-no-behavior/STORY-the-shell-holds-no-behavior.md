@@ -1,9 +1,10 @@
 ---
 title: The shell holds no behavior
 author: jwloka
-status: active
+status: done
 created: 2026-10-09
-updated: 2026-10-12
+updated: 2026-11-09
+archived: 2026-11-09
 ---
 
 # The shell holds no behavior
@@ -30,34 +31,36 @@ The fleet runs apart from the board. The supervisor, the registry and the agent 
 
 ### Phase 1: The gate and the first two launchers ✅
 
-- ✅ [`the-shell-sheds-its-decisions`](../../plans/2026-10-09-the-shell-sheds-its-decisions.md) (#1404, Released 2026-10-10, v2.25.0). The decision gate is #1405, bundle evidence is #1414, `plot-reap.sh` became a launcher in #1432 and `plot-approve.sh` in #1446.
+- ✅ [`the-shell-sheds-its-decisions`](../../../plans/2026-10-09-the-shell-sheds-its-decisions.md) (#1404, Released 2026-10-10, v2.25.0). The decision gate is #1405, bundle evidence is #1414, `plot-reap.sh` became a launcher in #1432 and `plot-approve.sh` in #1446.
 - ✅ The gate counts every row whose kind is not *launcher*, *paired* included, with target 0 (#1416).
 
 ### Phase 2: Measure the per-pass cost ✅
 
-- ✅ [`one-agent-pass-costs-what-its`](../../plans/2026-10-08-one-agent-pass-costs-what-its.md) (#1406, Released 2026-10-10, v2.25.0), branch `feature/the-pass-is-measured`, measured, on a 16-core machine at 1, 4 and 8 concurrent agents, what the launcher variant (bash + launcher + node + bundle) adds in CPU over today's bash-only call, against `plot-worker-loop.sh`'s `readPass` call sites (`plot-config.sh`, `plot-host.sh`, `plot-worker-state.sh` and the rest of the scripts a busy pass reaches) — a trace, not a grep count. `scripts/measure-pass.mjs` holds the measurement; `docs/shell-and-domain.md` §1 holds the table.
+- ✅ [`one-agent-pass-costs-what-its`](../../../plans/2026-10-08-one-agent-pass-costs-what-its.md) (#1406, Released 2026-10-10, v2.25.0), branch `feature/the-pass-is-measured`, measured, on a 16-core machine at 1, 4 and 8 concurrent agents, what the launcher variant (bash + launcher + node + bundle) adds in CPU over today's bash-only call, against `plot-worker-loop.sh`'s `readPass` call sites (`plot-config.sh`, `plot-host.sh`, `plot-worker-state.sh` and the rest of the scripts a busy pass reaches) — a trace, not a grep count. `scripts/measure-pass.mjs` holds the measurement; `docs/shell-and-domain.md` §1 holds the table.
 - ✅ The measurement decided the route: launcher adds **1750 % CPU per pass at 8 agents**, three orders of magnitude over the fixed 5 % threshold — route 2, answering per-pass questions inside the fleet's own long-lived process. Recorded in the Decisions table below and in `docs/shell-and-domain.md` §1.
 
 ### Phase 3: The fleet runs without the board ✅
 
-- ✅ [`the-fleet-runs-without-the-board`](../../plans/2026-10-09-the-fleet-runs-without-the-board.md) (#1407, Released 2026-10-10, v2.25.0). The fleet bundles import no board code (#1413), `@plot-pm/fleet` exists (#1421), the supervisor is `plot-fleetd` (#1428), the fleet owns the scan and the PR index (#1444) and its automatic writes (#1452), and the controllers are commands (#1457).
+- ✅ [`the-fleet-runs-without-the-board`](../../../plans/2026-10-09-the-fleet-runs-without-the-board.md) (#1407, Released 2026-10-10, v2.25.0). The fleet bundles import no board code (#1413), `@plot-pm/fleet` exists (#1421), the supervisor is `plot-fleetd` (#1428), the fleet owns the scan and the PR index (#1444) and its automatic writes (#1452), and the controllers are commands (#1457).
 
-### Phase 4: The readings move ⏸️
+### Phase 4: The readings move ❌
 
-- ⏸️ One plan per group of reading scripts, each converting its group to launchers over adapters.
-- ⏸️ `plot-host.sh` (1,742 code lines) waits for the connector split in `the-build-pipeline-is-its-own-connector`, because `host-shell.ts` shells to it.
-- ⏸️ `plot-dispatch.sh` (1,639 code lines) gets a plan of its own.
+Not built in this story. jwloka closed the story on 2026-11-09 and handed the items over as listed.
+
+- ❌ One plan per group of reading scripts, each converting its group to launchers over adapters. The per-desk reading scripts (`plot_worker_state` and the `plot-agent-monitor` probes) move to [nothing-changed-nothing-runs](../../nothing-changed-nothing-runs/STORY-nothing-changed-nothing-runs.md) Phase 5 (`desk-probes-in-domain`, `refs-from-files`), which names itself the paused Phase 4 of this story. Other reading scripts have no owner.
+- ❌ `plot-host.sh` (1,742 code lines) waited for the connector split in [`the-build-pipeline-is-its-own-connector`](../../../plans/2026-09-07-the-build-pipeline-is-its-own-connector.md). That plan is Released (2.15.0, 2026-09-08), and no story or plan converts `plot-host.sh` to a launcher.
+- ❌ `plot-dispatch.sh` (1,639 code lines) never got its own plan, and no story or plan takes it over.
 
 ### Phase 5: The gates become launchers ✅
 
-- ✅ [`the-gates-are-launchers`](../../plans/2026-10-10-the-gates-are-launchers.md) (#1341, #1449, Released 2026-10-12, v2.26.0, sprint `the-gates-and-the-review-findings`). The five PreToolUse gates `plot-phase-gate.sh`, `plot-state-gate.sh`, `plot-brief-name-gate.sh`, `plot-bundle-commit-gate.sh` and `plot-controller-gate.sh` become launchers over domain rules, one slice per gate. The controller-gate slice also closes #1341 and #1449.
+- ✅ [`the-gates-are-launchers`](../../../plans/2026-10-10-the-gates-are-launchers.md) (#1341, #1449, Released 2026-10-12, v2.26.0, sprint `the-gates-and-the-review-findings`). The five PreToolUse gates `plot-phase-gate.sh`, `plot-state-gate.sh`, `plot-brief-name-gate.sh`, `plot-bundle-commit-gate.sh` and `plot-controller-gate.sh` become launchers over domain rules, one slice per gate. The controller-gate slice also closes #1341 and #1449.
 - On `main` at `c9d63311d`, 2026-10-10, `skills/plot/scripts/README.md` lists 16 *decision*, 4 *orchestration*, 1 *paired* and 4 *launcher* rows. This phase removes 5 *decision* rows.
 
 ## Open Points
 
 - ✅ What does one agent pass cost with every per-pass script as a launcher? → Phase 2. 1750 % CPU overhead at 8 agents against the launcher variant — route 2.
 - ✅ Which board dependencies does the fleet have today, and which process hosts the supervisor after the split? → Phase 3. The fleet bundles import no board code (#1413), and `plot-fleetd` hosts the supervisor (#1428).
-- ⏸️ Order of the reading groups in Phase 4. Candidate rule: most callers first.
+- ❌ Order of the reading groups in Phase 4. Candidate rule: most callers first. Not decided: Phase 4 is handed over (see Phase 4), and `nothing-changed-nothing-runs` Phase 5 sets its own order for the per-desk scripts.
 
 ## Decisions
 
@@ -66,6 +69,7 @@ The fleet runs apart from the board. The supervisor, the registry and the agent 
 | 2026-10-09 | A bundle declared in `packages/board/build.mjs` with its entry source present is evidence for a *launcher* or *readings* row | Main builds bundles after the merge and CI refuses a committed bundle, so a conversion PR could not otherwise change its row in the same change. PR #1414. |
 | 2026-10-09 | PR #1405 merges as built, and a follow-up slice widens the gate | The gate never lets the count rise, so it stays valid under the wider target. Rewriting a finished slice costs more than one more slice. |
 | 2026-10-09 | Per-pass scripts take route 2: answer the question inside the fleet's own long-lived process, not as launchers | The fixed threshold was route 1 if the launcher variant added less than 5 % CPU per pass at 8 agents, else route 2. Measured: 1750 % (40 ms today against 740 ms launcher, 16-core machine, medians over 7 runs) — three orders of magnitude over the threshold. |
+| 2026-11-09 | Story closed with Phase 4 handed over: per-desk reading scripts to `nothing-changed-nothing-runs` Phase 5, `plot-host.sh` and `plot-dispatch.sh` to no story | jwloka closed the story: Phases 1, 2, 3 and 5 are Released and Phase 4 had no plan in four weeks. The unbuilt items are not marked done. |
 
 ## Session Log
 
@@ -84,3 +88,8 @@ The fleet runs apart from the board. The supervisor, the registry and the agent 
 
 - The estate on `main` shows all four plans of this story Released: `the-shell-sheds-its-decisions`, `one-agent-pass-costs-what-its` and `the-fleet-runs-without-the-board` in v2.25.0, and `the-gates-are-launchers` in v2.26.0. Phase 4 has no plan yet.
 - The story is now listed in the `Stories` table of the repo's `README.md`.
+
+### 2026-11-09 — Closed
+
+- jwloka closed the story. Four plans are Released: `the-shell-sheds-its-decisions`, `one-agent-pass-costs-what-its` and `the-fleet-runs-without-the-board` in v2.25.0, and `the-gates-are-launchers` in v2.26.0 (Phases 1, 2, 3 and 5).
+- Phase 4 and its Open Point stay unbuilt and are marked ❌. The per-desk reading scripts go to `nothing-changed-nothing-runs` Phase 5. `plot-host.sh` and `plot-dispatch.sh` have no owner.

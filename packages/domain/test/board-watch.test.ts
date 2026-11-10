@@ -1,5 +1,6 @@
+import { FLEETD_HEARTBEAT_VERSION, type FleetdHeartbeat } from '../src/entities/fleetd-heartbeat.js';
 import { describe, expect, it } from 'vitest';
-import { coldReadDue, pulseWanted, readerWanted, type ColdReadReading, type ReaderWatchReading } from '../src/rules/board-watch.js';
+import { boardChannelOf, boardSource, boardSourceOf, coldReadDue, pulseWanted, readerWanted, type BoardSourceFacts, type BoardSourceReading, type ColdReadReading, type ReaderWatchReading } from '../src/rules/board-watch.js';
 
 describe('pulseWanted', () => {
   it('answers false with no client attached', () => {
@@ -87,5 +88,99 @@ describe('readerWanted', () => {
 
   it('answers false where the lock could not be read', () => {
     expect(readerWanted(reader({ verdict: 'unknown' }))).toBe(false);
+  });
+});
+
+describe('boardSource', () => {
+  const live: BoardSourceReading = { clients: 1, fleetd: 'live', observerFresh: true, channel: 'current' };
+
+  it('answers snapshot for a live fleetd, a fresh observer and a current channel with one client', () => {
+    expect(boardSource(live)).toBe('snapshot');
+  });
+
+  it.each([
+    ['a stale heartbeat', { fleetd: 'stale' as const }],
+    ['an absent heartbeat', { fleetd: 'absent' as const }],
+    ['a stale observer', { observerFresh: false }],
+    ['a protocol mismatch', { channel: 'mismatch' as const }],
+    ['a resyncing channel', { channel: 'resyncing' as const }],
+    ['no snapshot held', { channel: 'none' as const }],
+  ])('answers own with one client and %s', (_name, over) => {
+    expect(boardSource({ ...live, ...over })).toBe('own');
+  });
+
+  it.each([
+    ['a live fleetd', live],
+    ['a mismatched channel', { ...live, channel: 'mismatch' as const }],
+  ])('answers idle with no client and %s', (_name, reading) => {
+    expect(boardSource({ ...reading, clients: 0 })).toBe('idle');
+  });
+});
+
+describe('boardChannelOf', () => {
+  it('answers none where the board has no hub', () => {
+    expect(boardChannelOf(undefined)).toBe('none');
+  });
+
+  it('answers none for an absent link', () => {
+    expect(boardChannelOf({ state: 'absent' })).toBe('none');
+  });
+
+  it.each([
+    [{ state: 'current' as const, epoch: 'e', generation: 3 }, 'current'],
+    [{ state: 'resyncing' as const, reason: 'gap' }, 'resyncing'],
+    [{ state: 'mismatch' as const, reason: 'old', ours: 2, theirs: 1 }, 'mismatch'],
+  ])('answers the link state %o', (link, expected) => {
+    expect(boardChannelOf(link)).toBe(expected);
+  });
+});
+
+describe('boardSourceOf', () => {
+  const NOW = 1_800_000_000_000;
+  const heartbeat = (beatAt: number, loops: FleetdHeartbeat['loops'] = {}): FleetdHeartbeat => ({
+    version: FLEETD_HEARTBEAT_VERSION,
+    pid: 1,
+    startedAt: beatAt - 600_000,
+    beatAt,
+    generation: 1,
+    bridgeAt: null,
+    supervised: 'launchd',
+    watchesWanted: 0,
+    watchesArmed: 0,
+    lastEventAt: null,
+    lastSafetyNetAt: null,
+    loops,
+  });
+  const current = { state: 'current' as const, epoch: 'e', generation: 1 };
+  const facts = (over: Partial<BoardSourceFacts> = {}): BoardSourceFacts => ({
+    clients: 1,
+    heartbeat: heartbeat(NOW),
+    link: current,
+    now: NOW,
+    ...over,
+  });
+
+  it('answers snapshot for a live heartbeat with no late loop and a current link', () => {
+    expect(boardSourceOf(facts())).toBe('snapshot');
+  });
+
+  it('answers own for a stale heartbeat', () => {
+    expect(boardSourceOf(facts({ heartbeat: heartbeat(NOW - 600_000) }))).toBe('own');
+  });
+
+  it('answers own with no heartbeat', () => {
+    expect(boardSourceOf(facts({ heartbeat: null }))).toBe('own');
+  });
+
+  it('answers own for a late loop', () => {
+    expect(boardSourceOf(facts({ heartbeat: heartbeat(NOW, { scan: { lastPassAt: NOW - 86_400_000 } }) }))).toBe('own');
+  });
+
+  it('answers own with no hub', () => {
+    expect(boardSourceOf(facts({ link: undefined }))).toBe('own');
+  });
+
+  it('answers idle with no client', () => {
+    expect(boardSourceOf(facts({ clients: 0 }))).toBe('idle');
   });
 });

@@ -1,0 +1,1 @@
+../2026-11-09-the-snapshot-entity.md

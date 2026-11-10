@@ -39,10 +39,10 @@ import {
 import { stuckState, summarizeStuck } from './stuck.js';
 import { listRecordBlobs } from '@plot-pm/domain/workflows/record-listing';
 import { blobIdOfBytes, parsePlanMetaFiles, planSlug, heldRefsFor, workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
-import type { Refs } from '@plot-pm/domain/ports/refs';
+import type { RefState, Refs } from '@plot-pm/domain/ports/refs';
 import type { BuildPort } from '@plot-pm/domain';
 import type { DetachedProcess } from '@plot-pm/domain/ports/detached';
-import { electReader, heartbeatIsFresh, HEARTBEAT_STALE_MS, type ReaderClaim, type ReaderVerdict } from '@plot-pm/domain/rules/reader-election';
+import { electReader, HEARTBEAT_STALE_MS, type ReaderClaim, type ReaderVerdict } from '@plot-pm/domain/rules/reader-election';
 import { PR_READ_BEAT_MS } from '@plot-pm/domain/rules/pr-status';
 import type { ReaderLock } from '@plot-pm/domain/ports/reader-lock';
 import type { ProcessProbe } from '@plot-pm/domain/ports/process-probe';
@@ -55,6 +55,9 @@ import { logDir } from '@plot-pm/fleet/shared/process-log';
 import {
   localSpenders,
   supervisorVerdict,
+  supervisorSource,
+  fleetdFacts,
+  type FleetdHeartbeat,
   timeboxLabel,
   timeboxStanding,
   type LimitBasis,
@@ -93,10 +96,16 @@ import {
 // names. `slotsFile` is seamed by `PLOT_BUDGET_HOME`, which is how a test moves
 // it, exactly as `budgetFile` is.
 import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
-import { agentsFs, planStoreRef, planStoreShell, processesShell, issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
+import { fleetdHeartbeatFile, agentsFs, planStoreRef, planStoreShell, processesShell, issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { CarriedListing } from '@plot-pm/domain/rules/scan-listing';
 import { fleetOwnsScan, ownedBridgeNote } from '@plot-pm/domain/rules/scan-owner';
+import { boardSourceOf } from '@plot-pm/domain/rules/board-watch';
+import type { HeldSnapshot } from '@plot-pm/domain/rules/snapshot-sync';
+import { PR_INDEX_VERSION, type PrIndex } from '@plot-pm/domain/entities/pr-index';
+import { HOST_BRANCH_URL_SCHEMES } from '@plot-pm/domain/adapters/host/host-branch-urls';
+import { fleetViewFrom, registryViewFrom, snapshotViewNote } from '@plot-pm/domain/workflows/board-view';
+import { fleetdLiveness, fleetdReadsIssues, fleetdReadsPrs, lateLoopNote, lateLoops } from '@plot-pm/domain/rules/fleetd-live';
 import { isChainedHeading } from '@plot-pm/domain/rules/slice-chain';
 import {
   applyPrMaps,
@@ -143,7 +152,7 @@ import {
   NO_SUPERVISION_REPORT,
   type SupervisionReportReadings,
 } from './supervision-report-reading.js';
-import { readAgentRegistryWithInfo, bashCleanliness } from '@plot-pm/fleet/shared/registry';
+import { readAgentRegistryWithInfo, bashCleanliness, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type ReadRegistryOptions } from '@plot-pm/fleet/shared/registry';
 import { readVerifyStatus, type VerifyStatus } from '@plot-pm/fleet/shared/auto-verify';
 import { readDesignStatus, type DesignStatus } from '@plot-pm/fleet/shared/auto-design';
 import type { RegistryInfo } from '@plot-pm/fleet/shared/registry';
@@ -152,7 +161,7 @@ import { workerQuestions } from '@plot-pm/fleet/shared/worker-question';
 import { briefPath as briefPathOf } from '@plot-pm/fleet/shared/brief-path';
 import { briefReading } from './brief-ask-log.js';
 import { findingsFor } from './findings.js';
-import { identity, people } from './server-info.js';
+import { heldIdentity, people } from './server-info.js';
 
 /**
  * How long a branch may sit without a commit before it reads as quiet rather
@@ -586,6 +595,17 @@ export interface CacheEntry {
    * been asked yet, so the header renders nothing rather than *could not ask*.
    */
   supervisor: SupervisorRun | undefined;
+  /**
+   * The heartbeat file as the last refresh read it, or null where there was
+   * none. The render derives `live`, `stale` or `absent` from it with the
+   * render clock's `now`, so a reading does not age in the cache.
+   */
+  heartbeat: FleetdHeartbeat | null;
+  /**
+   * Where the last refresh took the view from: `snapshot` where it installed
+   * fleetd's snapshot, `own` where it read for itself, null before the first.
+   */
+  viewSource: 'snapshot' | 'own' | null;
   prs: Map<string, PrRecord> | null;
   /**
    * The same records keyed by PR NUMBER. The fleet tab asks "what is this
@@ -1654,14 +1674,17 @@ export async function refreshRuns(
  *
  * @param opts - the board's repo root and scripts directory.
  * @param entry - the cache entry holding `ideaPlans` and `prs`, or undefined.
+ * @param refEntries - the refs fleetd's snapshot read, where the board serves
+ *   from it: the reads are keyed by those oids, and no `for-each-ref` runs.
  * @returns one record per plan, or null when the plans cannot be read or a
  *   line fails the schema — which is not a claim that nothing is planned.
  */
 export async function planMetasAtDefault(
   opts: BuildBoardOptions,
   entry?: Pick<CacheEntry, 'ideaPlans' | 'prs'>,
+  refEntries?: readonly RefState[],
 ): Promise<PlanMeta[] | null> {
-  const refs = (await heldRefsFor(opts)).refs;
+  const refs = (await heldRefsFor(opts, refEntries)).refs;
   const planDir = await planDirectory(scriptsFor(opts));
   const defaultBranch = await defaultBranchOf(opts, refs);
   const resolved = await refs.resolve(`origin/${defaultBranch}`);
@@ -1775,13 +1798,15 @@ async function planMetasFromWorkingTree(
  *
  * @param opts - the board's repo root and scripts directory.
  * @param entry - the cache entry holding the pulses, `ideaPlans` and `prs`.
+ * @param refEntries - the refs fleetd's snapshot read, where the board serves from it.
  * @returns the plans per issue key, or null when the plans cannot be read.
  */
 async function ticketPlansOf(
   opts: BuildBoardOptions,
   entry: Pick<CacheEntry, 'ideaPlans' | 'prs' | 'pulse' | 'lastComplete'>,
+  refEntries?: readonly RefState[],
 ): Promise<Map<string, TicketPlan[]> | null> {
-  const metas = await planMetasAtDefault(opts, entry);
+  const metas = await planMetasAtDefault(opts, entry, refEntries);
   if (metas === null) return null;
   const byIssue = new Map<string, TicketPlan[]>();
   for (const meta of metas) {
@@ -2003,7 +2028,7 @@ const issueCadence = async (
   entry: CacheEntry,
   ask: 'tracker' | 'git-host',
 ): Promise<IssueGate> => {
-  if (await fleetOwnsPrs(opts, entry)) {
+  if (await fleetOwnsPrs(opts)) {
     const held = await issueStoreFor(opts.repoRoot).read();
     if (held.ok && held.value !== null && held.value.source === ask) {
       return {
@@ -2172,7 +2197,7 @@ const waitingOf = async (
   inbox: readonly IssueIndexRow[] | undefined = undefined,
   inboxAnswer: InboxAnswer | undefined = undefined,
 ): Promise<FleetWaiting> => {
-  const [who, directory] = await Promise.all([identity(opts), people(opts)]);
+  const [who, directory] = await Promise.all([heldIdentity(opts), people(opts)]);
   const reader: Reader = { hostUser: who.hostUser, gitEmail: who.gitEmail, directory };
   const result = waitingTickets(rows, inbox, reader, source, complete, plans, inboxAnswer);
   return {
@@ -2477,8 +2502,15 @@ const offlineIssueRowsInto = async (
  * - A `failed` index shows its kept rows under the failure line.
  * - An answered index shows its rows minus the issues a plan names, at most
  *   {@link ISSUE_LIMIT}.
+ *
+ * `refEntries` are the refs fleetd's snapshot read, where the board serves
+ * from it; the plans an issue names are then read at those oids.
  */
-const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): Promise<void> => {
+const readIssuesFromStore = async (
+  opts: BuildBoardOptions,
+  entry: CacheEntry,
+  refEntries?: readonly RefState[],
+): Promise<void> => {
   const declared = await scriptsFor(opts).config('Tracker', '');
   const source = issueSource({
     declared: declared.ok ? declared.value : '',
@@ -2522,7 +2554,7 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
     entry.waiting = null;
     return;
   }
-  const plans = await ticketPlansOf(opts, entry);
+  const plans = await ticketPlansOf(opts, entry, refEntries);
   if (plans === null) {
     entry.issueAnswer = 'failed';
     entry.issueError = 'plans could not be read, so no issue can be called unplanned';
@@ -2547,8 +2579,10 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
 };
 
 /**
- * Whether the fleet owns the PR index: the supervisor reads `up` and the bridge
- * is fresh. The same signal as the scan's, so one fleet answers both.
+ * Whether the fleet owns the issue index: fleetd's heartbeat is live with its
+ * `issue-reader` loop on time ({@link fleetdReadsIssues}). A late `scan` or
+ * `tick` loop does not move issues to the board. The bridge is not consulted:
+ * issues are read from `issues.json`, which the `issue-reader` loop keeps.
  *
  * Issues only, since `the-boards-share-one-pr-reader`: the PR read's own
  * ownership question is {@link electReader}'s, over the reader lock rather
@@ -2556,10 +2590,18 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
  * for {@link issueCadence} and `readIssuesFromStore`'s dispatch — nothing
  * here moves PRs back onto it.
  */
-const fleetOwnsPrs = async (opts: BuildBoardOptions, entry: CacheEntry): Promise<boolean> => {
-  const bridge = await fleetStateFor(opts).read();
-  if (!bridge.ok || bridge.value === null) return false;
-  return fleetOwnsScan({ supervisor: entry.supervisor, bridgeAt: bridge.value.at, lastAttemptStartedAt: bridge.value.attempt?.startedAt ?? null, now: Date.now() });
+const fleetOwnsPrs = async (opts: BuildBoardOptions): Promise<boolean> => {
+  return fleetdReadsIssues(await fleetdHeartbeatFor(opts), Date.now());
+};
+
+/**
+ * fleetd's heartbeat file for these options.
+ *
+ * @returns the heartbeat, or `null` where there is none to read.
+ */
+const fleetdHeartbeatFor = async (opts: BuildBoardOptions): Promise<FleetdHeartbeat | null> => {
+  const read = await fleetdHeartbeatFile({ repoRoot: opts.repoRoot }).read();
+  return read.ok ? read.value : null;
 };
 
 /** The bundle a board starts as its machine's PR reader, relative to the scripts directory. */
@@ -2585,16 +2627,13 @@ const readerLockKey = async (opts: BuildBoardOptions, entry: CacheEntry): Promis
 const indexDirFor = (opts: BuildBoardOptions): Promise<string | null> => readerLockIndexDir({ cwd: opts.repoRoot });
 
 /**
- * Whether a live `fleetd` heartbeat already reads PRs under this lock — the
+ * Whether `.plot/state/fleetd.json` reads live (at most three beats old) with its `pr-reader` loop on time, so fleetd already reads PRs under this lock — the
  * one check the board's spawn guard and the reader's own exit check must read
  * identically, per the brief, so the board never starts a second reader while
  * fleetd already holds.
  */
-const fleetdHeartbeatIsLive = async (lock: ReaderLock, key: string, now: number): Promise<boolean> => {
-  const held = await lock.heartbeats(key);
-  if (!held.ok) return false;
-  return held.value.some((h) => h.name === 'fleetd' && heartbeatIsFresh(h.at, now));
-};
+const fleetdHeartbeatIsLive = async (opts: BuildBoardOptions, now: number): Promise<boolean> =>
+  fleetdReadsPrs(await fleetdHeartbeatFor(opts), now);
 
 /**
  * Creates `dir` one level at a time below `root`, and never creates `root`.
@@ -2758,7 +2797,7 @@ const readPrsFromStore = async (opts: BuildBoardOptions, entry: CacheEntry, key:
  *
  * @param held - the lock's highest claim, or null where it names none.
  * @param verdict - the board's own verdict over that claim.
- * @param fleetdLive - whether a fresh `fleetd` heartbeat exists under the lock.
+ * @param fleetdLive - whether `.plot/state/fleetd.json` reads live with its `pr-reader` loop on time (`fleetdReadsPrs`).
  * @returns the display label.
  */
 export const whoReadsPrs = (held: ReaderClaim | null, verdict: ReaderVerdict, fleetdLive: boolean): string => {
@@ -2845,6 +2884,24 @@ export const refreshPrs = async (
  */
 export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
   if (entry.prRunning) return;
+  // ON `snapshot`, NO PR READ AND NO READER: the PR maps come with fleetd's
+  // snapshot (`installSnapshotView`), and the issue rows from fleetd's issue
+  // index, which is a file read.
+  // The heartbeat is read here rather than taken from the last refresh: the
+  // pulse starts this read beside the first scan, before that scan has read it.
+  const held = opts.channelSnapshot === undefined ? null : snapshotToServe(opts, entry, await fleetdHeartbeatFor(opts), Date.now());
+  if (held !== null) {
+    entry.prRunning = true;
+    // THE PLANS AT fleetd'S REFS: the snapshot's `refs` reading is the
+    // `for-each-ref` the board would otherwise run on every PR beat.
+    const refs = held.snapshot.readings.refs;
+    try {
+      await readIssuesFromStore(opts, entry, refs.state === 'read' ? refs.value.entries : undefined);
+    } finally {
+      entry.prRunning = false;
+    }
+    return;
+  }
   if (!prGateOpen(entry.prNextAt, entry.prNextIsBackoff)) {
     // A CLOSED GATE STILL HEARTBEATS. During a reader backoff longer than
     // HEARTBEAT_STALE_MS, a board that wrote no heartbeat would read as gone,
@@ -2869,7 +2926,7 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
       await refreshPrs(opts, entry, overlayFor(opts, entry));
     } else {
       const { verdict, held } = await electBoardVerdict(lock, processProbeFor(opts), key, now);
-      const fleetdLive = await fleetdHeartbeatIsLive(lock, key, now);
+      const fleetdLive = await fleetdHeartbeatIsLive(opts, now);
       entry.prReader = whoReadsPrs(held, verdict, fleetdLive);
       // BEFORE ANY READ, so a reader started on this tick already counts this
       // board on its first exit check, and a tick that throws still leaves it.
@@ -2896,7 +2953,7 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
     }
     // ISSUES FOLLOW THE FLEET, NOT THE PR LOCK. The reader reads PRs only, and
     // fleetd is the one writer of the issue index, so the index is served
-    // only while a fleet runs (`fleetOwnsScan` over the bridge); otherwise the
+    // only while a fleet runs (`fleetOwnsPrs`, over fleetd's heartbeat); otherwise the
     // board asks the host itself, whatever the PR verdict.
     //
     // Behind the issue read's own gate (`issueNextAt`, `issueIntervalMs`),
@@ -2907,7 +2964,7 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
     // After, and outside the PR read, because the two fail independently: a
     // tracker outage must not blank the PR map, and a PR failure must not
     // retract the inbox.
-    if (await fleetOwnsPrs(opts, entry)) await readIssuesFromStore(opts, entry);
+    if (await fleetOwnsPrs(opts)) await readIssuesFromStore(opts, entry);
     else if (prGateOpen(entry.issueNextAt, entry.issueNextIsBackoff)) await refreshIssues(opts, entry);
   } finally {
     entry.prRunning = false;
@@ -2917,6 +2974,171 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
   }
 }
 
+/**
+ * fleetd's snapshot where the board serves from it on this beat, else null.
+ *
+ * `boardSourceOf` decides: a live heartbeat with no late loop, a current
+ * channel and an attached stream answer `snapshot`. The hub holds the copy; this
+ * reads it and starts nothing.
+ *
+ * @param opts - the board's options; `channelSnapshot` is the hub's copy.
+ * @param entry - the cache entry, for its attached streams.
+ * @param heartbeat - the heartbeat as last read, or null.
+ * @param now - the current time, epoch milliseconds.
+ * @returns the held snapshot, or null where the board reads for itself.
+ */
+export const snapshotToServe = (
+  opts: BuildBoardOptions,
+  entry: CacheEntry,
+  heartbeat: FleetdHeartbeat | null,
+  now: number,
+): HeldSnapshot | null => {
+  const channel = opts.channelSnapshot?.();
+  const source = boardSourceOf({ clients: entry.clients, heartbeat, link: channel?.link, now });
+  return source === 'snapshot' && channel?.held !== undefined ? channel.held : null;
+};
+
+/**
+ * Installs the view `fleetViewFrom` derives from a held snapshot into the cache
+ * entry. A field the snapshot holds no reading for keeps its last value, and
+ * `scanNote` names it.
+ *
+ * @param entry - the cache entry.
+ * @param held - the snapshot fleetd sent.
+ * @param now - the clock branch ages are measured from, epoch milliseconds.
+ */
+export const installSnapshotView = (entry: CacheEntry, held: HeldSnapshot, now: number): void => {
+  const view = fleetViewFrom(held.snapshot, now, HOST_BRANCH_URL_SCHEMES);
+  if (view.pulse !== 'unknown') {
+    const before = entry.pulseComplete ? entry.pulse : null;
+    entry.shrink = pulseShrink(before, view.pulse, entry.at);
+    entry.pulse = view.pulse;
+    entry.pulseComplete = true;
+    entry.lastComplete = view.pulse;
+  }
+  if (view.at !== null) entry.at = view.at;
+  if (view.fetchedAt !== null) entry.fetchedAt = view.fetchedAt;
+  if (view.ages !== 'unknown') entry.ages = view.ages;
+  if (view.tipAt !== 'unknown') entry.tipAt = view.tipAt;
+  if (view.branchUrlBase !== 'unknown') entry.branchUrlBase = view.branchUrlBase;
+  if (view.approvedAt !== 'unknown') entry.approvedAt = view.approvedAt;
+  if (view.ideaPlans !== 'unknown') entry.ideaPlans = view.ideaPlans;
+  if (view.versions !== 'unknown') entry.versions = view.versions;
+  if (view.unmerged !== 'unknown') entry.unmerged = view.unmerged;
+  if (view.claimOnly !== 'unknown') entry.claimOnly = view.claimOnly;
+  if (view.questions !== 'unknown') entry.questions = view.questions;
+  if (view.prs !== null && view.prsByNumber !== null && view.prsByHead !== null) {
+    applyPrMaps(entry, { prs: view.prs, byNumber: view.prsByNumber, byHead: view.prsByHead });
+    const prs = held.snapshot.readings.prs;
+    if (prs.state === 'read') entry.prAt = prs.readAt;
+    entry.prError = null;
+  }
+  if (view.backend !== null) entry.backend = view.backend;
+  entry.prReader = 'fleet';
+  entry.scanNote = snapshotViewNote(view, held.snapshot.generation);
+  entry.appliedBridgeAt = null;
+  entry.error = null;
+  entry.viewSource = 'snapshot';
+};
+
+/**
+ * The `Agent registry` directory as configured, read through the board's
+ * stamp-cached config reader: one `plot-config.sh` per `CLAUDE.md` change,
+ * shared by the board's own registry read and the read over a snapshot.
+ *
+ * @param opts - the board's options.
+ * @returns the configured directory, or {@link AGENT_MANIFEST_DIR}.
+ */
+const manifestDirFor = async (opts: BuildBoardOptions): Promise<string> => {
+  const configured = await scriptsFor(opts).config(AGENT_MANIFEST_DIR_KEY, AGENT_MANIFEST_DIR);
+  return (configured.ok ? configured.value.trim() : '') || AGENT_MANIFEST_DIR;
+};
+
+/**
+ * The agent registry's seams over a held snapshot: the worktree list, the
+ * worker states, the cleanliness and the PR rows come from the snapshot's
+ * readings, so the read starts no process. Manifests, transcripts and pid
+ * files are still read from disk, which starts no process either.
+ *
+ * @param opts - the board's options.
+ * @param held - the snapshot fleetd sent.
+ * @returns the options `readAgentRegistryWithInfo` takes.
+ */
+const snapshotRegistryOptions = async (opts: BuildBoardOptions, held: HeldSnapshot): Promise<ReadRegistryOptions> => {
+  const view = registryViewFrom(held.snapshot);
+  // ONE KEY PER PATH AND PER REALPATH: a manifest may name either form of a
+  // desk the worktree listing names by the other.
+  const byPath = <T,>(map: Map<string, T>): Map<string, T> => {
+    const out = new Map(map);
+    for (const [key, value] of map) {
+      try {
+        out.set(fs.realpathSync(key), value);
+      } catch {
+        // A desk that is gone has no realpath; its listed path stays.
+      }
+    }
+    return out;
+  };
+  const lookup = <T,>(map: Map<string, T>, worktree: string): T | undefined => {
+    if (map.has(worktree)) return map.get(worktree);
+    try {
+      return map.get(fs.realpathSync(worktree));
+    } catch {
+      return undefined;
+    }
+  };
+  const manifestDir = await manifestDirFor(opts);
+  const states = view.states === 'unknown' ? null : byPath(view.states);
+  const clean = view.clean === 'unknown' ? null : byPath(view.clean);
+  return {
+    manifestDir,
+    worktrees: () => {
+      if (view.trees === 'unknown') throw new Error('the snapshot holds no desks reading');
+      return view.trees;
+    },
+    liveness: (worktrees) => {
+      if (states === null) throw new Error('the snapshot holds no workers reading');
+      return worktrees.map((worktree) => lookup(states, worktree) ?? 'unknown');
+    },
+    cleanliness: (worktrees) => worktrees.map((worktree) => (clean === null ? false : lookup(clean, worktree) ?? false)),
+    prIndex: (): PrIndex | null =>
+      view.prRows === 'unknown'
+        ? null
+        : { v: PR_INDEX_VERSION, connector: '', watermark: null, complete: false, at: '', rows: [...view.prRows] },
+  };
+};
+
+/**
+ * One beat served from fleetd's snapshot: the supervisor from the heartbeat,
+ * the agents from the registry over the snapshot's readings, and the view from
+ * `fleetViewFrom`. No scan, no branch, release, unmerged or question read, and
+ * no estate measure.
+ *
+ * The supervisor is read through `plot-fleetctl.sh --status` only where
+ * `supervisorSource` answers `script`: a live fleetd started by hand.
+ *
+ * @param opts - the board's options.
+ * @param entry - the cache entry.
+ * @param held - the snapshot fleetd sent.
+ * @param heartbeat - the heartbeat this beat read.
+ * @param now - the current time, epoch milliseconds.
+ */
+const serveSnapshot = async (
+  opts: BuildBoardOptions,
+  entry: CacheEntry,
+  held: HeldSnapshot,
+  heartbeat: FleetdHeartbeat | null,
+  now: number,
+): Promise<void> => {
+  entry.heartbeat = heartbeat;
+  const supervisor = supervisorSource(heartbeat, now);
+  entry.supervisor = supervisor.source === 'heartbeat' ? supervisor.run : await readSupervisor(opts);
+  const registry = await readAgentRegistryWithInfo(opts.repoRoot, undefined, await snapshotRegistryOptions(opts, held));
+  entry.agents = registry.entries;
+  entry.registry = registry.info;
+  installSnapshotView(entry, held, now);
+};
+
 export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
   if (entry.running) return;
   entry.running = true;
@@ -2925,6 +3147,18 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
   // previous document had and this one lacks, and a partial view of the scan
   // in progress cannot answer that.
   try {
+    // WHICH SOURCE, FIRST. The heartbeat is a file read and starts no process;
+    // on `snapshot` the beat installs fleetd's view and returns before any read
+    // below. On `own` and `idle` the board reads for itself, as it always did.
+    const heartbeatRead = await fleetdHeartbeatFile({ repoRoot: opts.repoRoot }).read();
+    const heartbeat = heartbeatRead.ok ? heartbeatRead.value : null;
+    entry.heartbeat = heartbeat;
+    const held = snapshotToServe(opts, entry, heartbeat, Date.now());
+    if (held !== null) {
+      await serveSnapshot(opts, entry, held, heartbeat, Date.now());
+      return;
+    }
+    entry.viewSource = 'own';
     const before = entry.pulseComplete ? entry.pulse : null;
     // FIRST, and before the scan spawns. The registry depends on neither git nor
     // the pulse — it reads `.plot/agents/` and the transcripts those manifests
@@ -2961,9 +3195,12 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // `plot-worker-state.sh`, the cleanliness batch) ran ON the request thread
     // of whichever poll first warmed the cache. `void refresh(...)` reads like
     // fire-and-forget and was not one.
+    // The directory through the cached config reader, so a beat that turns to
+    // the snapshot finds the answer already held and runs no `plot-config.sh`.
     const registryResult = await readAgentRegistryWithInfo(opts.repoRoot, undefined, {
       scriptsDir: opts.scriptsDir,
       cleanliness: bashCleanliness,
+      manifestDir: await manifestDirFor(opts),
     });
     entry.agents = registryResult.entries;
     entry.registry = registryResult.info;
@@ -2985,7 +3222,14 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // The supervisor is read on EVERY tick: it is the liveness probe. A stopped
     // fleet stops moving the bridge `at`, so a skip keyed on that `at` would keep
     // `supervisor: up` and the scan unowned for up to `OWNED_BRIDGE_MAX_AGE_MS`.
-    entry.supervisor = await readSupervisor(opts);
+    //
+    // EXCEPT WHILE fleetd'S HEARTBEAT IS LIVE. A live heartbeat from a fleetd
+    // that an init system started is the same fact at no cost: the script walks
+    // every desk (0.46-1.42 s). A stale or absent heartbeat still asks it, so
+    // `down` and `died` keep their one source.
+    entry.heartbeat = heartbeat;
+    const source = supervisorSource(entry.heartbeat, Date.now());
+    entry.supervisor = source.source === 'heartbeat' ? source.run : await readSupervisor(opts);
     // The three display reads below (versions, unmerged, questions) are skipped
     // on an OWNED tick whose bridge `at` equals the one the last owned tick
     // applied. A fleet-less tick sets `appliedBridgeAt` to null, so the board
@@ -3053,20 +3297,18 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // has reported some entries and re-derived others, and adopting that
     // partial map would quietly drop the branches it never reached — turning
     // a slow pulse into a cold cache on the pulse after it.
-    // WHO SCANS. The fleet does when its supervisor reads `up` and its bridge is
-    // fresh (`fleetOwnsScan`); the board then reads the bridge and spawns nothing.
+    // WHO SCANS. The fleet does when fleetd's heartbeat is live and its scan loop
+    // has passed within its bound (`fleetOwnsScan`); the board then reads
+    // the bridge, whatever its age, and spawns nothing.
     // Otherwise the board scans for display and writes NOTHING: `record: false`
     // keeps the script from touching the bridge, and the board has no writer
     // of it left, so a hung fleet cannot be corrupted by the board's fallback.
-    const owned = bridged !== null && fleetOwnsScan({
-      supervisor: entry.supervisor,
-      bridgeAt: bridged.at,
-      lastAttemptStartedAt: bridged.attempt?.startedAt ?? null,
-      now: Date.now(),
-    });
+    const owned = bridged !== null && fleetOwnsScan({ heartbeat, now: Date.now() });
     entry.scanNote = owned && bridged !== null
       ? ownedBridgeNote({ bridgeAt: bridged.at, attempt: bridged.attempt ?? null, now: Date.now() })
-      : null;
+      : heartbeat !== null && fleetdLiveness(heartbeat, Date.now()) === 'live'
+        ? lateLoopNote(lateLoops(heartbeat, Date.now()).filter((loop) => loop === 'scan'))
+        : null;
     const skipDisplay = owned && sameBridge;
     let scanned: ScanResult | null = null;
     if (!owned) {
@@ -3260,6 +3502,8 @@ export function freshCacheEntry(): CacheEntry {
     // has been asked yet, so the header renders nothing rather than reporting a
     // reading that was never attempted.
     supervisor: undefined,
+    heartbeat: null,
+    viewSource: null,
     // Empty at construction — nothing was dispatched before this process began,
     // and a restart re-derives liveness from git rather than trusting a set.
     prs: null, prsByNumber: null, prsByHead: null, runs: new Map(), prReader: 'this board', prAt: null, prError: null, appliedBridgeAt: null, prSpendPerHour: null,
@@ -3445,6 +3689,27 @@ export function ensureCache(opts: BuildBoardOptions): CacheEntry {
 export const watchFleet = (opts: BuildBoardOptions, count: number): void => {
   const entry = cacheEntry(opts);
   watchEntry(entry, count, watchDepsFor(opts, entry));
+};
+
+/**
+ * Re-derives the view from fleetd's snapshot when a new generation arrives.
+ * `index.ts` passes this to `startEventHub` as `onSnapshot`.
+ *
+ * Reads the heartbeat the last refresh read and starts nothing. The agents keep
+ * the last refresh's reading until the next beat.
+ *
+ * @param opts - the board's repo root and scripts directory.
+ * @returns true where the board serves from the snapshot and installed the
+ *   new view, so the hub sends one event; false otherwise.
+ */
+export const fleetSnapshotArrived = (opts: BuildBoardOptions): boolean => {
+  const entry = caches.get(cacheKey(opts));
+  if (entry === undefined) return false;
+  const now = Date.now();
+  const held = snapshotToServe(opts, entry, entry.heartbeat, now);
+  if (held === null) return false;
+  installSnapshotView(entry, held, now);
+  return true;
 };
 
 /**
@@ -8331,6 +8596,11 @@ export async function buildFleet(
     supervisor: entry.supervisor
       ? supervisorVerdict({ ...entry.supervisor, agentsRunning: liveAgents })
       : undefined,
+    // BOTH LIVENESS FACTS, NEITHER CHOSEN: the heartbeat file and the channel
+    // link can disagree, and a reader needs the disagreement.
+    fleetd: fleetdFacts(entry.heartbeat, opts.channelLink?.() ?? 'unknown', now),
+    // Where the last refresh took the view from; omitted before the first.
+    viewSource: entry.viewSource ?? undefined,
     issueError: entry.issueError,
     issueAbsence: entry.issueAbsence,
     ...(autoReviewValue === '' ? {} : { autoReview: autoReviewValue.toLowerCase() === 'true' }),

@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { rmTree } from '../helpers.mjs';
+import { liveFleetdHeartbeat, rmTree } from '../helpers.mjs';
 import {
   buildFleet, mergePlan, partialSummary, pulseShrink, runStreaming, stopFleetRefresh,
 } from '../../src/server/fleet.js';
@@ -236,13 +236,14 @@ describe('a completed scan renders identically to a batch one', () => {
   };
 
   it('produces the same rows and the same summary as the whole document', async () => {
-    // The fleet owns the scan here: supervisor up, a fresh bridge carrying the reading.
+    // The fleet owns the scan here: a live fleetd heartbeat and a bridge carrying the reading.
     const scripts = fakeScan([]);
     fs.mkdirSync(path.join(scripts, '.plot/state'), { recursive: true });
     fs.writeFileSync(path.join(scripts, '.plot/state/last-pulse.json'), JSON.stringify({
       version: 1, at: Date.now(), pulse: whole, ages: [], branchUrlBase: '', approvedAt: [], ideaPlans: [],
     }));
     fs.writeFileSync(path.join(scripts, 'plot-fleetctl.sh'), '#!/usr/bin/env bash\necho "summary: supervisor=up"\nexit 0\n', { mode: 0o755 });
+    liveFleetdHeartbeat(scripts);
     const opts = { repoRoot: scripts, scriptsDir: scripts };
     const streamed = await until(() => buildFleet(opts), (f) => f.complete && f.rows.length > 0);
 

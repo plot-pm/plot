@@ -1,4 +1,5 @@
 import { fencedLines } from '../rules/fences.js';
+import { HOLD_FILE } from '../rules/hold-clear.js';
 import { memberLineIndex } from '../rules/sprint-membership.js';
 import type { Decision, Write } from './decision.js';
 
@@ -327,8 +328,7 @@ export const pathsOf = (write: Write): readonly string[] => {
   }
 };
 
-/** Where the phase gate keeps its per-branch entries. */
-export const HOLD_FILE = '.plot/hold';
+export { HOLD_FILE };
 
 /**
  * Every repository path a decision would change, deduplicated and sorted.

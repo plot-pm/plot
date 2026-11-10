@@ -2,7 +2,7 @@ import { readFileSync, realpathSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
-import { fleetStateFile } from '@plot-pm/domain/adapters/fleet-state/fleet-state-file';
+import { fleetStateVouched } from '@plot-pm/domain/adapters/fleet-state/fleet-state-file';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import type { DetachedProcess, FleetReading, Scripts } from '@plot-pm/domain';
 import { agentLogPath } from '../../shared/agent-log.js';
@@ -72,8 +72,8 @@ export type LaunchedChild = DetachedProcess;
  * @param repoRoot - the repository root.
  * @returns the bridged reading, or `null` where there is no trustworthy one.
  */
-const bridgedPulse = (repoRoot: string): FleetReading | null => {
-  const read = fleetStateFile({ repoRoot }).readSync();
+export const bridgedPulse = (repoRoot: string): FleetReading | null => {
+  const read = fleetStateVouched(repoRoot).readSync();
   return read.ok && read.value !== null ? read.value.pulse : null;
 };
 

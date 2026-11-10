@@ -1,7 +1,9 @@
 import type http from 'node:http';
-import type { ChannelMessage } from '@plot-pm/domain';
+import type { ChannelLink, ChannelMessage } from '@plot-pm/domain';
 import { ruleEventWindow, SERVER_EVENT_WINDOW_MS, type EventWindow } from '@plot-pm/domain';
-import { subscribe, type Subscribed } from '@plot-pm/domain/adapters';
+import { subscribe, subscribeSnapshot, type Subscribed } from '@plot-pm/domain/adapters';
+import type { SnapshotLink } from '@plot-pm/domain/rules/snapshot-link';
+import type { HeldSnapshot } from '@plot-pm/domain/rules/snapshot-sync';
 
 /**
  * The board's one subscription to the channel, and the SSE fan-out behind
@@ -35,13 +37,29 @@ export interface EventHubOptions {
    * and 0 when `close` ends streams that were held.
    */
   onClients?: (count: number) => void;
+  /**
+   * Called once each time the held copy of fleetd's snapshot moves to a new
+   * generation or epoch. Where it answers true, the hub sends one event to the
+   * attached streams, through the same window as a finding.
+   */
+  onSnapshot?: () => boolean;
 }
 
 export interface EventHub {
   /** Hold `res` open as an event stream until the client goes away. */
   attach(req: http.IncomingMessage, res: http.ServerResponse): void;
+  /** Whether the subscription is up, down, or has not tried yet. */
+  link(): ChannelLink;
   /** Number of streams currently held. */
   clients(): number;
+  /**
+   * Where the hub's copy of fleetd's snapshot stands: `current`, `resyncing`,
+   * `mismatch` (with both protocol versions) or `absent`. The board serves
+   * from the copy only while it is `current`; otherwise it reads for itself.
+   */
+  snapshotLink(): SnapshotLink;
+  /** The copy of fleetd's snapshot, or `undefined` before the first one arrives. */
+  snapshot(): HeldSnapshot | undefined;
   /** Stop the subscription and end every stream. */
   close(): void;
 }
@@ -60,6 +78,7 @@ export const startEventHub = (options: EventHubOptions): EventHub => {
   const capMs = options.reconnectCapMs ?? RECONNECT_CAP_MS;
   const log = options.log ?? (() => undefined);
   const onClients = options.onClients ?? (() => undefined);
+  const onSnapshot = options.onSnapshot ?? (() => false);
 
   const streams = new Set<http.ServerResponse>();
   let eventWindow: EventWindow = {};
@@ -154,6 +173,38 @@ export const startEventHub = (options: EventHubOptions): EventHub => {
   };
   connect();
 
+  // THE SECOND SUBSCRIPTION, for the snapshot. A socket subscription starts no
+  // process. One line names a mismatch the first time it appears and again only
+  // after another state intervened, so a sender that stays old logs once.
+  let reported = '';
+  // The copy the page last heard about, as `epoch:generation`.
+  let announced = '';
+  const reader = subscribeSnapshot(
+    options.address,
+    (next, held) => {
+      if (next.state !== 'mismatch') {
+        reported = '';
+        // A NEW GENERATION RE-DERIVES THE VIEW AND SENDS ONE EVENT, so the
+        // page's refetch reads the view the copy now gives.
+        if (next.state === 'current' && held !== undefined) {
+          const key = `${held.epoch}:${held.snapshot.generation}`;
+          if (key !== announced) {
+            announced = key;
+            if (onSnapshot()) {
+              latest = JSON.stringify({ type: 'snapshot', generation: held.snapshot.generation });
+              arrive();
+            }
+          }
+        }
+        return;
+      }
+      const line = `channel: snapshot protocol mismatch (this board speaks ${next.ours}, fleetd ${next.theirs ?? 'a version that refused the purpose'}): ${next.reason}; reading for itself`;
+      if (line !== reported) log(line);
+      reported = line;
+    },
+    { reconnectStartMs: startMs, reconnectCapMs: capMs },
+  );
+
   return {
     attach: (req, res) => {
       res.writeHead(200, {
@@ -171,9 +222,13 @@ export const startEventHub = (options: EventHubOptions): EventHub => {
       // A page that connects while the subscription is live is current once.
       if (connected) write(res, JSON.stringify({ type: 'welcome' }));
     },
+    link: () => link,
     clients: () => streams.size,
+    snapshotLink: () => reader.link(),
+    snapshot: () => reader.held(),
     close: () => {
       stopped = true;
+      reader.close();
       if (timer) clearTimeout(timer);
       if (trailing) clearTimeout(trailing);
       subscription?.close();

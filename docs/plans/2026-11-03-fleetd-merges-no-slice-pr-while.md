@@ -102,7 +102,7 @@ Each test fails on `origin/main` before the change.
 The slice changes these in the same branch.
 
 - `packages/domain/src/entities/repair-record.ts:18-20`: drop "an undeclared `Merger app`" from the `exhausted` reasons. No code ends an episode at `exhausted` for that reason (`git grep -i merger origin/main -- packages/domain/src` finds only this comment and the merge rule).
-- `docs/stories/the-fleet-delivers-a-scope-alone/DESIGN-delivery-loop.md:37` and `:175` stay true under this decision. `:37` gains the two `always` bypass actors (Admin role 5, Integration 5173644) and states that the Merger App is neither.
+- `docs/stories/archived/the-fleet-delivers-a-scope-alone/DESIGN-delivery-loop.md:37` and `:175` stay true under this decision. `:37` gains the two `always` bypass actors (Admin role 5, Integration 5173644) and states that the Merger App is neither.
 - `docs/review-status-rollout.md:146-151`: a column for fleetd — key absent holds `merger-app-missing`, declared and readable merges as the App, malformed or unreadable or the same App id as `Writer app` holds `merger-app-invalid` with no merge attempt. Step 4 of the Merger App section (`:205-210`) names a fleetd merge and its `merge` record as the proof.
 - `skills/plot-init/SKILL.md` and `skills/plot-board-setup/SKILL.md`: for a repository on GitHub, name the `Merger app` key and link the Merger App steps in `docs/review-status-rollout.md`. Neither creates the App or writes the key. Each skill's `## Model Guidance` table and changeset bump follow.
 - `CLAUDE.md` `## Plot Config`: the `Merger app` line is a person-step (step 3), because the key path is the person's. The slice does not add it.

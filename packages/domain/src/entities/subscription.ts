@@ -2,6 +2,17 @@ import { z } from 'zod';
 import { FindingNameSchema, type Finding, type FindingName } from './finding.js';
 
 /**
+ * The version of the snapshot-and-delta protocol this build speaks.
+ *
+ * Raise it by one in the same change as any change to `RepoSnapshotSchema` or
+ * to the `snapshot` and `delta` messages that a reader of the previous version
+ * cannot parse. `test/snapshot-protocol.test.ts` compares the current schemas
+ * against the fixtures recorded under `test/fixtures/snapshot-protocol/` and
+ * fails when the shape moved and this number did not.
+ */
+export const SNAPSHOT_PROTOCOL = 2;
+
+/**
  * Why a subscriber connected.
  *
  * The purpose IS the subscription, not a filter on top of one. A subscriber
@@ -14,6 +25,11 @@ import { FindingNameSchema, type Finding, type FindingName } from './finding.js'
  */
 export const PurposeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('everything') }),
+  z.object({
+    kind: z.literal('snapshot'),
+    /** The snapshot protocol the subscriber speaks; `admit` serves it only when it equals {@link SNAPSHOT_PROTOCOL}. */
+    protocol: z.number().int().nonnegative(),
+  }),
   z.object({
     kind: z.literal('until'),
     /**
@@ -91,6 +107,7 @@ export type Admission = Admitted | PurposeRefused;
  */
 export const serves = (purpose: Purpose, finding: Finding): boolean => {
   if (purpose.kind === 'everything') return true;
+  if (purpose.kind === 'snapshot') return false;
   if (finding.finding !== purpose.finding) return false;
   return purpose.branch === '' || purpose.branch === finding.branch;
 };

@@ -423,7 +423,7 @@ describe('presentCard: a story card', () => {
   it('labels a status behind its plans, never a bare sign', () => {
     const s = storySections({ plans: { value: [storyPlan(1, { state: 'delivered' })] } });
     const alert = s.header.meta.find((p) => p.kind === 'piece' && p.piece.data.alert === 'status-behind');
-    expect(alert?.kind === 'piece' && alert.piece.text).toBe('status behind: plans delivered');
+    expect(alert?.kind === 'piece' && alert.piece.text).toBe('status behind: plans delivered; story still open');
     expect(alert?.kind === 'piece' && alert.piece.tone).toBe('warn');
   });
 

@@ -19,6 +19,8 @@ import {
   type RepairRole,
 } from '../rules/repair-pr.js';
 import { sameCommit } from '../rules/same-commit.js';
+import { isSyncPr, syncPathVerdict } from '../rules/state-sync.js';
+import type { StateWriteTarget } from '../rules/write-target.js';
 import { RELEASE_BRANCH } from '../rules/release-branch.js';
 import { type Caller, type Outcome, decide, refuse } from './decision.js';
 
@@ -42,6 +44,8 @@ export type MergeRefusal =
   | 'review-foreign-writer'
   | 'review-writer-unread'
   | 'release-pr'
+  | 'sync-path-outside-set'
+  | 'sync-diff-unread'
   | Exclude<RepairMergeRefusal, 'unaskable'>;
 
 /** What `merge` reads. Every reading is the host's, taken fresh for this call. */
@@ -82,6 +86,12 @@ export interface MergeReadings {
    * record: every PR then refuses `default-branch-red`.
    */
   readonly repair?: RepairMergeReading;
+  /**
+   * The changed paths of a sync PR and the set they must lie in. Present only
+   * where the PR runs from the state branch to the default branch; absent for
+   * every other PR and for a repository with no state key.
+   */
+  readonly sync?: { readonly files: readonly string[] | 'unknown'; readonly set: readonly string[] };
 }
 
 /** What the caller asks for. */
@@ -234,6 +244,14 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
   if (!sameCommit(pr.headSha, input.sha, input.minHexLen)) {
     return no('head-moved', `the head of PR #${input.pr} is ${short(pr.headSha)}; the caller read ${short(input.sha)}. Re-read the checks for the new head.`);
   }
+  if (readings.sync !== undefined) {
+    const verdict = syncPathVerdict(readings.sync.files, readings.sync.set);
+    if (!verdict.ok) {
+      return no(verdict.refusal, verdict.refusal === 'sync-diff-unread'
+        ? `the diff of sync PR #${input.pr} could not be read. An unread diff is not a clean one; nothing was merged.`
+        : `sync PR #${input.pr} changes ${verdict.paths.join(', ')}, outside the paths Plot writes. Nothing was merged.`);
+    }
+  }
   if (pr.draft) return no('draft', `PR #${input.pr} is a draft. Mark it ready, then ask again.`);
   if (pr.checks !== 'green') {
     return no('checks-not-green', `the checks of PR #${input.pr} read '${pr.checks}' at ${short(pr.headSha)}. Merge when they read 'green'.`);
@@ -336,6 +354,17 @@ export interface MergePorts {
   build?: Pick<BuildPort, 'runsForSha'>;
   /** The workflow names `Default branch checks` declares; empty folds every run. */
   checks?: readonly string[];
+  /**
+   * The state branch's sync PR gate. Absent where no state key is declared, so
+   * `mergeAt` behaves as before. `diff(sha)` returns the paths the PR changes
+   * at the pinned head, or `'unknown'`.
+   */
+  stateSync?: {
+    target: StateWriteTarget;
+    pathSet: readonly string[];
+    defaultBranch: string;
+    diff: (sha: string) => Promise<readonly string[] | 'unknown'>;
+  };
 }
 
 /**
@@ -424,9 +453,15 @@ export const mergeAt = async (
   const repair = settledReading !== null && settledReading.settled?.state === 'red'
     ? await readRepair(ports, settledReading.branch, settledReading.settled, pr)
     : undefined;
+  const lookedPr = lookup.ok ? lookup.value : null;
+  const gate = ports.stateSync;
+  const sync = gate !== undefined && lookedPr !== null && isSyncPr(lookedPr, gate.target, gate.defaultBranch)
+    ? { files: await gate.diff(sha), set: gate.pathSet }
+    : undefined;
   const outcome = merge(
     {
       caller: ports.caller,
+      ...(sync ? { sync } : {}),
       pr: lookup.ok ? lookup.value : 'unaskable',
       defaultBranch: reading.ok ? reading.value : 'unaskable',
       defaultBranchTip: tipSha,

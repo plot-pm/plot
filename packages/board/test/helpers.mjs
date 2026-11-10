@@ -822,14 +822,47 @@ export async function countSliceRows(page) {
 }
 
 /**
+ * Writes a live fleetd heartbeat, `.plot/state/fleetd.json`, under `repo` and
+ * rewrites it every 5 s for as long as this process runs, so it never reads
+ * `stale` (30 s) in a server test that outlasts one write. The timer is
+ * unref'd. Only the first write creates `.plot/state`; a rewrite after the
+ * repository is gone fails, stops the timer and creates nothing.
+ *
+ * @param {string} repo - the repository root the board serves.
+ * @param {number} [everyMs] - the rewrite interval in milliseconds.
+ */
+export function liveFleetdHeartbeat(repo, everyMs = 5_000) {
+  const file = path.join(repo, '.plot/state/fleetd.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  let timer;
+  const write = () => {
+    try {
+      const beatAt = Date.now();
+      const temp = `${file}.${process.pid}.tmp`;
+      fs.writeFileSync(temp, `${JSON.stringify({
+        version: 1, pid: process.ppid, startedAt: beatAt - 600_000, beatAt, generation: 1, bridgeAt: null,
+        supervised: 'none', watchesWanted: 0, watchesArmed: 0, lastEventAt: null, lastSafetyNetAt: null, loops: {},
+      })}\n`, 'utf8');
+      fs.renameSync(temp, file);
+    } catch {
+      clearInterval(timer); // the repository was removed
+    }
+  };
+  write();
+  timer = setInterval(write, everyMs);
+  timer.unref();
+}
+
+/**
  * Makes the fleet own the scan, with `pulse` as its last write.
  *
  * The scan walks the repository in process, so a stub `plot-fleet-scan.sh`
- * can no longer supply a pulse. A board reads the bridge instead when the
- * supervisor reads `up` and the bridge is fresh (`fleetOwnsScan`), which is
- * the state this plants: a `plot-fleetctl.sh` in `scriptsDir` that reports the
- * supervisor up, and `.plot/state/last-pulse.json` in `repo` holding `pulse`.
- * Replaces any `plot-fleetctl.sh` already in `scriptsDir`.
+ * can no longer supply a pulse. A board reads the bridge instead when fleetd's
+ * heartbeat is live with every loop on time (`fleetOwnsScan`), which is the
+ * state this plants: a kept-fresh `.plot/state/fleetd.json`
+ * ({@link liveFleetdHeartbeat}) and `.plot/state/last-pulse.json` in `repo`
+ * holding `pulse`. Replaces any `plot-fleetctl.sh` already in `scriptsDir`,
+ * which still reports the supervisor up for the readers that ask it.
  *
  * @param {string} scriptsDir - a scripts directory this test owns.
  * @param {string} repo - the repository the board serves.
@@ -845,4 +878,5 @@ export function ownTheScan(scriptsDir, repo, pulse) {
     version: 1, at: Date.now(), pulse,
     ages: [], branchUrlBase: '', approvedAt: [], ideaPlans: [],
   }), 'utf8');
+  liveFleetdHeartbeat(repo);
 }

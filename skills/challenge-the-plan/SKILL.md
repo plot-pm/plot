@@ -2,7 +2,7 @@
 name: challenge-the-plan
 description: "Systematically interrogate implementation plans through adaptive depth interviews covering technical, domain, UX, and non-functional dimensions to uncover gaps and validate decisions. Use when: user wants to challenge, refine, or validate a plan, spec, or idea. Triggers: challenge the plan, challenge me, quiz me, interview me, refine plan, validate plan, review plan, interrogate plan, stress-test plan, challenge the spec, challenge the story, review spec, review story."
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot

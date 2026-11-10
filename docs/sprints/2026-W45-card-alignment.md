@@ -47,7 +47,7 @@ three boards to it: Plans first as the tracer, then Stories, then Tickets.
 <!-- add items here -->
 
 ### Deferred
-- [ ] [passkey-registration-moves-to-a-settings] Passkey registration moves to a settings menu; release approval moves to the release PR (#3214) <!-- pr: #3215, branch: feature/passkey-registration-reads-the-attestation-object -->
+- [ ] ~~[passkey-registration-moves-to-a-settings]~~ Passkey registration moves to a settings menu; release approval moves to the release PR (#3214) <!-- pr: #3215, branch: feature/passkey-registration-reads-the-attestation-object -->
 
 <!-- Items moved here during sprint when they won't make the timebox -->
 

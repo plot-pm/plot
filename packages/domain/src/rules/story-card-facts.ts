@@ -45,6 +45,8 @@ export interface StoryCardFactsReadings {
   issue: StoryIssueLink;
   /** The plans naming the story; `unknown` where the plans could not be read. */
   plans: Known<readonly StoryPlanCardReading[]>;
+  /** The plan slugs the story's plan table names (`storyPlanTableSlugs`); absent where it has no table. */
+  tablePlans?: readonly string[];
   /** Every sprint the board read; `unknown` where the sprints could not be read. */
   sprints: Known<readonly PlanSprintReading[]>;
 }
@@ -72,6 +74,10 @@ const sprintRefs = (
   };
 };
 
+/** How many plans a story has: its plan files and the table slugs that have no file, each once. */
+const planTotal = (plans: readonly StoryPlanCardReading[], table: readonly string[] = []): number =>
+  new Set([...plans.map((p) => p.slug), ...table]).size;
+
 /**
  * What is true about one story, as its card shows it.
  *
@@ -79,8 +85,10 @@ const sprintRefs = (
  * that issue; an `issue:` this repository does not accept is an
  * `issue-link-unreadable` alert and links no ticket. `progress.state` is the
  * written `status:`, `unknown` where it is absent or not a status the domain
- * admits. `progress.work` counts its plans, done being Delivered or Released;
- * `null` where it has none or they were not read. A `status-behind` alert names the standing its
+ * admits. `progress.work` counts its plans, done being Delivered or Released, over the
+ * plan files that name the story together with the slugs its plan table names;
+ * a slug with no file is not started. It is `null` where the story has neither
+ * or the plans were not read. A `status-behind` alert names the standing its
  * plans prove where the written status is behind it. A live story committed on
  * the default branch offers *Add plan*: as the primary where it has no plans,
  * else as a secondary; a done, archived or uncommitted story, or one whose slug
@@ -144,12 +152,12 @@ export const storyCardFacts = (readings: StoryCardFactsReadings, directory: Pers
     progress: {
       state: status === null ? { unknown: 'failed' } : { value: { kind: 'story', status } },
       // Unread plans show as `plans unknown` in the lineage; a count of them would claim a total.
-      work: 'unknown' in plans || plans.value.length === 0
+      work: 'unknown' in plans || planTotal(plans.value, readings.tablePlans) === 0
           ? null
           : {
             unit: 'plans',
             done: { value: plans.value.filter((p) => p.state === 'delivered' || p.state === 'released').length },
-            total: plans.value.length,
+            total: planTotal(plans.value, readings.tablePlans),
           },
       prs: { value: [] },
       design: null,

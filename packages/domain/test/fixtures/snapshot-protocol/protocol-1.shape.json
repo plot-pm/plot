@@ -1,0 +1,2591 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "snapshot"
+        },
+        "protocol": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "epoch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "snapshot": {
+          "type": "object",
+          "properties": {
+            "generation": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "readings": {
+              "type": "object",
+              "properties": {
+                "refs": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "read"
+                        },
+                        "readAt": {
+                          "type": "number"
+                        },
+                        "value": {
+                          "type": "object",
+                          "properties": {
+                            "entries": {
+                              "readOnly": true,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "ref": {
+                                    "type": "string"
+                                  },
+                                  "sha": {
+                                    "type": "string"
+                                  },
+                                  "head": {
+                                    "type": "boolean",
+                                    "const": true
+                                  }
+                                },
+                                "required": [
+                                  "ref",
+                                  "sha"
+                                ]
+                              }
+                            },
+                            "digest": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "entries",
+                            "digest"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "readAt",
+                        "value"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "unread"
+                        }
+                      },
+                      "required": [
+                        "state"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "failed"
+                        },
+                        "readAt": {
+                          "type": "number"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "readAt",
+                        "reason"
+                      ]
+                    }
+                  ]
+                },
+                "desks": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "read"
+                        },
+                        "readAt": {
+                          "type": "number"
+                        },
+                        "value": {
+                          "readOnly": true,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "path": {
+                                "type": "string"
+                              },
+                              "branch": {
+                                "type": "string"
+                              },
+                              "detached": {
+                                "type": "boolean"
+                              },
+                              "isMain": {
+                                "type": "boolean"
+                              },
+                              "clean": {
+                                "type": "boolean"
+                              },
+                              "agentSession": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "prunable": {
+                                "type": "boolean"
+                              },
+                              "head": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "path",
+                              "branch",
+                              "detached",
+                              "isMain",
+                              "clean",
+                              "agentSession",
+                              "prunable"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "readAt",
+                        "value"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "unread"
+                        }
+                      },
+                      "required": [
+                        "state"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "failed"
+                        },
+                        "readAt": {
+                          "type": "number"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "readAt",
+                        "reason"
+                      ]
+                    }
+                  ]
+                },
+                "deskFiles": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "read"
+                        },
+                        "readAt": {
+                          "type": "number"
+                        },
+                        "value": {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {
+                            "type": "object",
+                            "properties": {
+                              "question": {
+                                "type": "string"
+                              },
+                              "markers": {
+                                "readOnly": true,
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "pid": {
+                                "type": "string"
+                              },
+                              "exit": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "question",
+                              "markers",
+                              "pid",
+                              "exit"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "readAt",
+                        "value"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "unread"
+                        }
+                      },
+                      "required": [
+                        "state"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "failed"
+                        },
+                        "readAt": {
+                          "type": "number"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "readAt",
+                        "reason"
+                      ]
+                    }
+                  ]
+                },
+                "workers": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "read"
+                        },
+                        "readAt": {
+                          "type": "number"
+                        },
+                        "value": {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {
+                            "type": "object",
+                            "properties": {
+                              "state": {
+                                "type": "string",
+                                "enum": [
+                                  "running",
+                                  "finished",
+                                  "failed",
+                                  "ended",
+                                  "none",
+                                  "elsewhere",
+                                  "waiting",
+                                  "stalled"
+                                ]
+                              },
+                              "pid": {
+                                "type": "string"
+                              },
+                              "exitCode": {
+                                "type": "string"
+                              },
+                              "activity": {
+                                "type": "string",
+                                "enum": [
+                                  "working",
+                                  "idle",
+                                  ""
+                                ]
+                              }
+                            },
+                            "required": [
+                              "state",
+                              "pid",
+                              "exitCode",
+                              "activity"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "readAt",
+                        "value"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "unread"
+                        }
+                      },
+                      "required": [
+                        "state"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "failed"
+                        },
+                        "readAt": {
+                          "type": "number"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "readAt",
+                        "reason"
+                      ]
+                    }
+                  ]
+                },
+                "plans": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "read"
+                        },
+                        "readAt": {
+                          "type": "number"
+                        },
+                        "value": {
+                          "type": "object",
+                          "properties": {
+                            "ref": {
+                              "type": "string"
+                            },
+                            "records": {
+                              "readOnly": true,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "file": {
+                                    "type": "string"
+                                  },
+                                  "format": {
+                                    "type": "string"
+                                  },
+                                  "phase": {
+                                    "type": "string"
+                                  },
+                                  "phaseRaw": {
+                                    "type": "string"
+                                  },
+                                  "type": {
+                                    "type": "string"
+                                  },
+                                  "title": {
+                                    "type": "string"
+                                  },
+                                  "sprint": {
+                                    "type": "string"
+                                  },
+                                  "story": {
+                                    "type": "string"
+                                  },
+                                  "assignee": {
+                                    "type": "string"
+                                  },
+                                  "branches": {
+                                    "readOnly": true,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "prs": {
+                                    "readOnly": true,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "deferredPrs": {
+                                    "readOnly": true,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "slices": {
+                                    "readOnly": true,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "name": {
+                                          "type": "string"
+                                        },
+                                        "branches": {
+                                          "readOnly": true,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "object",
+                                            "properties": {
+                                              "branch": {
+                                                "type": "string"
+                                              },
+                                              "deferred": {
+                                                "type": "boolean"
+                                              },
+                                              "deferredReason": {
+                                                "type": "string"
+                                              },
+                                              "claimed": {
+                                                "type": "string"
+                                              },
+                                              "waitsOn": {
+                                                "readOnly": true,
+                                                "type": "array",
+                                                "items": {
+                                                  "type": "string"
+                                                }
+                                              },
+                                              "spike": {
+                                                "type": "boolean"
+                                              },
+                                              "commits": {
+                                                "readOnly": true,
+                                                "type": "array",
+                                                "items": {
+                                                  "type": "string"
+                                                }
+                                              }
+                                            },
+                                            "required": [
+                                              "branch",
+                                              "deferred",
+                                              "deferredReason",
+                                              "claimed",
+                                              "waitsOn"
+                                            ]
+                                          }
+                                        }
+                                      },
+                                      "required": [
+                                        "name",
+                                        "branches"
+                                      ]
+                                    }
+                                  },
+                                  "tracer": {
+                                    "type": "boolean"
+                                  },
+                                  "review": {
+                                    "type": "string"
+                                  },
+                                  "impl": {
+                                    "type": "string"
+                                  },
+                                  "approvedRaw": {
+                                    "type": "string"
+                                  },
+                                  "spikeApprovedRaw": {
+                                    "type": "string"
+                                  },
+                                  "deliveredRaw": {
+                                    "type": "string"
+                                  },
+                                  "releasedRaw": {
+                                    "type": "string"
+                                  },
+                                  "startedRaw": {
+                                    "readOnly": true,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "rejectedRaw": {
+                                    "type": "string"
+                                  },
+                                  "unreadBranchItems": {
+                                    "readOnly": true,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "wave": {
+                                          "type": "string"
+                                        },
+                                        "branch": {
+                                          "type": "string"
+                                        },
+                                        "line": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "wave",
+                                        "branch",
+                                        "line"
+                                      ]
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "file",
+                                  "format",
+                                  "phase",
+                                  "phaseRaw",
+                                  "type",
+                                  "title",
+                                  "sprint",
+                                  "story",
+                                  "assignee",
+                                  "branches",
+                                  "prs",
+                                  "deferredPrs",
+                                  "slices",
+                                  "review",
+                                  "impl",
+                                  "approvedRaw",
+                                  "spikeApprovedRaw",
+                                  "deliveredRaw",
+                                  "releasedRaw",
+                                  "startedRaw",
+                                  "rejectedRaw",
+                                  "unreadBranchItems"
+                                ]
+                              }
+                            }
+                          },
+                          "required": [
+                            "ref",
+                            "records"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "readAt",
+                        "value"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "unread"
+                        }
+                      },
+                      "required": [
+                        "state"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "failed"
+                        },
+                        "readAt": {
+                          "type": "number"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "readAt",
+                        "reason"
+                      ]
+                    }
+                  ]
+                },
+                "registry": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "read"
+                        },
+                        "readAt": {
+                          "type": "number"
+                        },
+                        "value": {
+                          "readOnly": true,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "session": {
+                                "type": "string"
+                              },
+                              "resumeId": {
+                                "type": "string"
+                              },
+                              "branch": {
+                                "type": "string"
+                              },
+                              "slug": {
+                                "type": "string"
+                              },
+                              "worktree": {
+                                "type": "string"
+                              },
+                              "command": {
+                                "type": "string"
+                              },
+                              "startedAt": {
+                                "type": "string"
+                              },
+                              "pid": {
+                                "type": "string"
+                              },
+                              "previousPid": {
+                                "type": "string"
+                              },
+                              "relaunches": {
+                                "type": "number"
+                              },
+                              "attempts": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "session",
+                              "resumeId",
+                              "branch",
+                              "slug",
+                              "worktree",
+                              "command",
+                              "startedAt",
+                              "pid",
+                              "previousPid",
+                              "relaunches",
+                              "attempts"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "readAt",
+                        "value"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "unread"
+                        }
+                      },
+                      "required": [
+                        "state"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "failed"
+                        },
+                        "readAt": {
+                          "type": "number"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "readAt",
+                        "reason"
+                      ]
+                    }
+                  ]
+                },
+                "prs": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "read"
+                        },
+                        "readAt": {
+                          "type": "number"
+                        },
+                        "value": {
+                          "readOnly": true,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "number": {
+                                "type": "number"
+                              },
+                              "head": {
+                                "type": "string"
+                              },
+                              "state": {
+                                "type": "string"
+                              },
+                              "draft": {
+                                "type": "boolean"
+                              },
+                              "checks": {
+                                "type": "string"
+                              },
+                              "review": {
+                                "type": "string"
+                              },
+                              "url": {
+                                "type": "string"
+                              },
+                              "mergeable": {
+                                "type": "string"
+                              },
+                              "failing_checks": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "author": {
+                                "type": "string"
+                              },
+                              "updatedAt": {
+                                "type": "string"
+                              },
+                              "headSha": {
+                                "type": "string"
+                              },
+                              "headSince": {
+                                "type": "string"
+                              },
+                              "checksSha": {
+                                "type": "string"
+                              },
+                              "mergedAt": {
+                                "type": "string"
+                              },
+                              "checksLookup": {
+                                "type": "string",
+                                "enum": [
+                                  "skipped",
+                                  "broken"
+                                ]
+                              },
+                              "plotReview": {
+                                "type": "string",
+                                "enum": [
+                                  "success",
+                                  "failure",
+                                  "pending",
+                                  "error",
+                                  "absent"
+                                ]
+                              },
+                              "plotReviewSha": {
+                                "type": "string"
+                              },
+                              "plotReviewAt": {
+                                "type": "string"
+                              },
+                              "plotReviewJudged": {
+                                "type": "string",
+                                "enum": [
+                                  "success",
+                                  "failure",
+                                  "pending",
+                                  "absent",
+                                  "error"
+                                ]
+                              },
+                              "plotReviewCheckedSha": {
+                                "type": "string"
+                              },
+                              "plotReviewCheckedAt": {
+                                "type": "string"
+                              },
+                              "ciChecks": {
+                                "type": "string",
+                                "enum": [
+                                  "green",
+                                  "pending",
+                                  "failing",
+                                  "none",
+                                  "unknown"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "number",
+                              "head",
+                              "state",
+                              "draft",
+                              "checks",
+                              "review",
+                              "url"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "readAt",
+                        "value"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "unread"
+                        }
+                      },
+                      "required": [
+                        "state"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "failed"
+                        },
+                        "readAt": {
+                          "type": "number"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "readAt",
+                        "reason"
+                      ]
+                    }
+                  ]
+                },
+                "issues": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "read"
+                        },
+                        "readAt": {
+                          "type": "number"
+                        },
+                        "value": {
+                          "readOnly": true,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "number": {
+                                "type": "string"
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "url": {
+                                "type": "string"
+                              },
+                              "createdAt": {
+                                "type": "string"
+                              },
+                              "updatedAt": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "type": "string"
+                              },
+                              "statusCategory": {
+                                "type": "string"
+                              },
+                              "closedAt": {
+                                "type": "string"
+                              },
+                              "assignees": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "releases": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "type": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "number",
+                              "title",
+                              "url"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "readAt",
+                        "value"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "unread"
+                        }
+                      },
+                      "required": [
+                        "state"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "failed"
+                        },
+                        "readAt": {
+                          "type": "number"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "readAt",
+                        "reason"
+                      ]
+                    }
+                  ]
+                },
+                "defaultBranch": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "read"
+                        },
+                        "readAt": {
+                          "type": "number"
+                        },
+                        "value": {
+                          "type": "object",
+                          "properties": {
+                            "v": {
+                              "type": "number",
+                              "const": 1
+                            },
+                            "branch": {
+                              "type": "string"
+                            },
+                            "headSha": {
+                              "type": "string"
+                            },
+                            "head": {
+                              "type": "string",
+                              "enum": [
+                                "red",
+                                "green",
+                                "pending",
+                                "unknown"
+                              ]
+                            },
+                            "settled": {
+                              "type": "object",
+                              "properties": {
+                                "sha": {
+                                  "type": "string"
+                                },
+                                "state": {
+                                  "type": "string",
+                                  "enum": [
+                                    "red",
+                                    "green",
+                                    "pending",
+                                    "unknown"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "sha",
+                                "state"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "walked": {
+                              "type": "string"
+                            },
+                            "failingRuns": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "workflow": {
+                                    "type": "string"
+                                  },
+                                  "conclusion": {
+                                    "type": "string"
+                                  },
+                                  "url": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "workflow",
+                                  "conclusion",
+                                  "url"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "headSince": {
+                              "type": "string"
+                            },
+                            "askedAt": {
+                              "type": "string"
+                            },
+                            "at": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "v",
+                            "branch",
+                            "headSha",
+                            "head",
+                            "failingRuns",
+                            "headSince",
+                            "askedAt",
+                            "at"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "readAt",
+                        "value"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "unread"
+                        }
+                      },
+                      "required": [
+                        "state"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "failed"
+                        },
+                        "readAt": {
+                          "type": "number"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "readAt",
+                        "reason"
+                      ]
+                    }
+                  ]
+                },
+                "config": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "read"
+                        },
+                        "readAt": {
+                          "type": "number"
+                        },
+                        "value": {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "readAt",
+                        "value"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "unread"
+                        }
+                      },
+                      "required": [
+                        "state"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "failed"
+                        },
+                        "readAt": {
+                          "type": "number"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "readAt",
+                        "reason"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "refs",
+                "desks",
+                "deskFiles",
+                "workers",
+                "plans",
+                "registry",
+                "prs",
+                "issues",
+                "defaultBranch",
+                "config"
+              ]
+            }
+          },
+          "required": [
+            "generation",
+            "readings"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "protocol",
+        "epoch",
+        "generation",
+        "snapshot"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "delta"
+        },
+        "protocol": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "epoch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "base": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "readings": {
+          "type": "object",
+          "properties": {
+            "refs": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "read"
+                    },
+                    "readAt": {
+                      "type": "number"
+                    },
+                    "value": {
+                      "type": "object",
+                      "properties": {
+                        "entries": {
+                          "readOnly": true,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "ref": {
+                                "type": "string"
+                              },
+                              "sha": {
+                                "type": "string"
+                              },
+                              "head": {
+                                "type": "boolean",
+                                "const": true
+                              }
+                            },
+                            "required": [
+                              "ref",
+                              "sha"
+                            ]
+                          }
+                        },
+                        "digest": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "entries",
+                        "digest"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "readAt",
+                    "value"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "unread"
+                    }
+                  },
+                  "required": [
+                    "state"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "failed"
+                    },
+                    "readAt": {
+                      "type": "number"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "readAt",
+                    "reason"
+                  ]
+                }
+              ]
+            },
+            "desks": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "read"
+                    },
+                    "readAt": {
+                      "type": "number"
+                    },
+                    "value": {
+                      "readOnly": true,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "path": {
+                            "type": "string"
+                          },
+                          "branch": {
+                            "type": "string"
+                          },
+                          "detached": {
+                            "type": "boolean"
+                          },
+                          "isMain": {
+                            "type": "boolean"
+                          },
+                          "clean": {
+                            "type": "boolean"
+                          },
+                          "agentSession": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "prunable": {
+                            "type": "boolean"
+                          },
+                          "head": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "path",
+                          "branch",
+                          "detached",
+                          "isMain",
+                          "clean",
+                          "agentSession",
+                          "prunable"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "readAt",
+                    "value"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "unread"
+                    }
+                  },
+                  "required": [
+                    "state"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "failed"
+                    },
+                    "readAt": {
+                      "type": "number"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "readAt",
+                    "reason"
+                  ]
+                }
+              ]
+            },
+            "deskFiles": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "read"
+                    },
+                    "readAt": {
+                      "type": "number"
+                    },
+                    "value": {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "question": {
+                            "type": "string"
+                          },
+                          "markers": {
+                            "readOnly": true,
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "pid": {
+                            "type": "string"
+                          },
+                          "exit": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "question",
+                          "markers",
+                          "pid",
+                          "exit"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "readAt",
+                    "value"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "unread"
+                    }
+                  },
+                  "required": [
+                    "state"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "failed"
+                    },
+                    "readAt": {
+                      "type": "number"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "readAt",
+                    "reason"
+                  ]
+                }
+              ]
+            },
+            "workers": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "read"
+                    },
+                    "readAt": {
+                      "type": "number"
+                    },
+                    "value": {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "running",
+                              "finished",
+                              "failed",
+                              "ended",
+                              "none",
+                              "elsewhere",
+                              "waiting",
+                              "stalled"
+                            ]
+                          },
+                          "pid": {
+                            "type": "string"
+                          },
+                          "exitCode": {
+                            "type": "string"
+                          },
+                          "activity": {
+                            "type": "string",
+                            "enum": [
+                              "working",
+                              "idle",
+                              ""
+                            ]
+                          }
+                        },
+                        "required": [
+                          "state",
+                          "pid",
+                          "exitCode",
+                          "activity"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "readAt",
+                    "value"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "unread"
+                    }
+                  },
+                  "required": [
+                    "state"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "failed"
+                    },
+                    "readAt": {
+                      "type": "number"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "readAt",
+                    "reason"
+                  ]
+                }
+              ]
+            },
+            "plans": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "read"
+                    },
+                    "readAt": {
+                      "type": "number"
+                    },
+                    "value": {
+                      "type": "object",
+                      "properties": {
+                        "ref": {
+                          "type": "string"
+                        },
+                        "records": {
+                          "readOnly": true,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "file": {
+                                "type": "string"
+                              },
+                              "format": {
+                                "type": "string"
+                              },
+                              "phase": {
+                                "type": "string"
+                              },
+                              "phaseRaw": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string"
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "sprint": {
+                                "type": "string"
+                              },
+                              "story": {
+                                "type": "string"
+                              },
+                              "assignee": {
+                                "type": "string"
+                              },
+                              "branches": {
+                                "readOnly": true,
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "prs": {
+                                "readOnly": true,
+                                "type": "array",
+                                "items": {
+                                  "type": "number"
+                                }
+                              },
+                              "deferredPrs": {
+                                "readOnly": true,
+                                "type": "array",
+                                "items": {
+                                  "type": "number"
+                                }
+                              },
+                              "slices": {
+                                "readOnly": true,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "name": {
+                                      "type": "string"
+                                    },
+                                    "branches": {
+                                      "readOnly": true,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "branch": {
+                                            "type": "string"
+                                          },
+                                          "deferred": {
+                                            "type": "boolean"
+                                          },
+                                          "deferredReason": {
+                                            "type": "string"
+                                          },
+                                          "claimed": {
+                                            "type": "string"
+                                          },
+                                          "waitsOn": {
+                                            "readOnly": true,
+                                            "type": "array",
+                                            "items": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "spike": {
+                                            "type": "boolean"
+                                          },
+                                          "commits": {
+                                            "readOnly": true,
+                                            "type": "array",
+                                            "items": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        },
+                                        "required": [
+                                          "branch",
+                                          "deferred",
+                                          "deferredReason",
+                                          "claimed",
+                                          "waitsOn"
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "name",
+                                    "branches"
+                                  ]
+                                }
+                              },
+                              "tracer": {
+                                "type": "boolean"
+                              },
+                              "review": {
+                                "type": "string"
+                              },
+                              "impl": {
+                                "type": "string"
+                              },
+                              "approvedRaw": {
+                                "type": "string"
+                              },
+                              "spikeApprovedRaw": {
+                                "type": "string"
+                              },
+                              "deliveredRaw": {
+                                "type": "string"
+                              },
+                              "releasedRaw": {
+                                "type": "string"
+                              },
+                              "startedRaw": {
+                                "readOnly": true,
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "rejectedRaw": {
+                                "type": "string"
+                              },
+                              "unreadBranchItems": {
+                                "readOnly": true,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "wave": {
+                                      "type": "string"
+                                    },
+                                    "branch": {
+                                      "type": "string"
+                                    },
+                                    "line": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "wave",
+                                    "branch",
+                                    "line"
+                                  ]
+                                }
+                              }
+                            },
+                            "required": [
+                              "file",
+                              "format",
+                              "phase",
+                              "phaseRaw",
+                              "type",
+                              "title",
+                              "sprint",
+                              "story",
+                              "assignee",
+                              "branches",
+                              "prs",
+                              "deferredPrs",
+                              "slices",
+                              "review",
+                              "impl",
+                              "approvedRaw",
+                              "spikeApprovedRaw",
+                              "deliveredRaw",
+                              "releasedRaw",
+                              "startedRaw",
+                              "rejectedRaw",
+                              "unreadBranchItems"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "ref",
+                        "records"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "readAt",
+                    "value"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "unread"
+                    }
+                  },
+                  "required": [
+                    "state"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "failed"
+                    },
+                    "readAt": {
+                      "type": "number"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "readAt",
+                    "reason"
+                  ]
+                }
+              ]
+            },
+            "registry": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "read"
+                    },
+                    "readAt": {
+                      "type": "number"
+                    },
+                    "value": {
+                      "readOnly": true,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "session": {
+                            "type": "string"
+                          },
+                          "resumeId": {
+                            "type": "string"
+                          },
+                          "branch": {
+                            "type": "string"
+                          },
+                          "slug": {
+                            "type": "string"
+                          },
+                          "worktree": {
+                            "type": "string"
+                          },
+                          "command": {
+                            "type": "string"
+                          },
+                          "startedAt": {
+                            "type": "string"
+                          },
+                          "pid": {
+                            "type": "string"
+                          },
+                          "previousPid": {
+                            "type": "string"
+                          },
+                          "relaunches": {
+                            "type": "number"
+                          },
+                          "attempts": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "session",
+                          "resumeId",
+                          "branch",
+                          "slug",
+                          "worktree",
+                          "command",
+                          "startedAt",
+                          "pid",
+                          "previousPid",
+                          "relaunches",
+                          "attempts"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "readAt",
+                    "value"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "unread"
+                    }
+                  },
+                  "required": [
+                    "state"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "failed"
+                    },
+                    "readAt": {
+                      "type": "number"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "readAt",
+                    "reason"
+                  ]
+                }
+              ]
+            },
+            "prs": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "read"
+                    },
+                    "readAt": {
+                      "type": "number"
+                    },
+                    "value": {
+                      "readOnly": true,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "number": {
+                            "type": "number"
+                          },
+                          "head": {
+                            "type": "string"
+                          },
+                          "state": {
+                            "type": "string"
+                          },
+                          "draft": {
+                            "type": "boolean"
+                          },
+                          "checks": {
+                            "type": "string"
+                          },
+                          "review": {
+                            "type": "string"
+                          },
+                          "url": {
+                            "type": "string"
+                          },
+                          "mergeable": {
+                            "type": "string"
+                          },
+                          "failing_checks": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "author": {
+                            "type": "string"
+                          },
+                          "updatedAt": {
+                            "type": "string"
+                          },
+                          "headSha": {
+                            "type": "string"
+                          },
+                          "headSince": {
+                            "type": "string"
+                          },
+                          "checksSha": {
+                            "type": "string"
+                          },
+                          "mergedAt": {
+                            "type": "string"
+                          },
+                          "checksLookup": {
+                            "type": "string",
+                            "enum": [
+                              "skipped",
+                              "broken"
+                            ]
+                          },
+                          "plotReview": {
+                            "type": "string",
+                            "enum": [
+                              "success",
+                              "failure",
+                              "pending",
+                              "error",
+                              "absent"
+                            ]
+                          },
+                          "plotReviewSha": {
+                            "type": "string"
+                          },
+                          "plotReviewAt": {
+                            "type": "string"
+                          },
+                          "plotReviewJudged": {
+                            "type": "string",
+                            "enum": [
+                              "success",
+                              "failure",
+                              "pending",
+                              "absent",
+                              "error"
+                            ]
+                          },
+                          "plotReviewCheckedSha": {
+                            "type": "string"
+                          },
+                          "plotReviewCheckedAt": {
+                            "type": "string"
+                          },
+                          "ciChecks": {
+                            "type": "string",
+                            "enum": [
+                              "green",
+                              "pending",
+                              "failing",
+                              "none",
+                              "unknown"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "number",
+                          "head",
+                          "state",
+                          "draft",
+                          "checks",
+                          "review",
+                          "url"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "readAt",
+                    "value"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "unread"
+                    }
+                  },
+                  "required": [
+                    "state"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "failed"
+                    },
+                    "readAt": {
+                      "type": "number"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "readAt",
+                    "reason"
+                  ]
+                }
+              ]
+            },
+            "issues": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "read"
+                    },
+                    "readAt": {
+                      "type": "number"
+                    },
+                    "value": {
+                      "readOnly": true,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "number": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "url": {
+                            "type": "string"
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          },
+                          "updatedAt": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "statusCategory": {
+                            "type": "string"
+                          },
+                          "closedAt": {
+                            "type": "string"
+                          },
+                          "assignees": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "releases": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "type": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "number",
+                          "title",
+                          "url"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "readAt",
+                    "value"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "unread"
+                    }
+                  },
+                  "required": [
+                    "state"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "failed"
+                    },
+                    "readAt": {
+                      "type": "number"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "readAt",
+                    "reason"
+                  ]
+                }
+              ]
+            },
+            "defaultBranch": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "read"
+                    },
+                    "readAt": {
+                      "type": "number"
+                    },
+                    "value": {
+                      "type": "object",
+                      "properties": {
+                        "v": {
+                          "type": "number",
+                          "const": 1
+                        },
+                        "branch": {
+                          "type": "string"
+                        },
+                        "headSha": {
+                          "type": "string"
+                        },
+                        "head": {
+                          "type": "string",
+                          "enum": [
+                            "red",
+                            "green",
+                            "pending",
+                            "unknown"
+                          ]
+                        },
+                        "settled": {
+                          "type": "object",
+                          "properties": {
+                            "sha": {
+                              "type": "string"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "red",
+                                "green",
+                                "pending",
+                                "unknown"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "sha",
+                            "state"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "walked": {
+                          "type": "string"
+                        },
+                        "failingRuns": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "workflow": {
+                                "type": "string"
+                              },
+                              "conclusion": {
+                                "type": "string"
+                              },
+                              "url": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "workflow",
+                              "conclusion",
+                              "url"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "headSince": {
+                          "type": "string"
+                        },
+                        "askedAt": {
+                          "type": "string"
+                        },
+                        "at": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "v",
+                        "branch",
+                        "headSha",
+                        "head",
+                        "failingRuns",
+                        "headSince",
+                        "askedAt",
+                        "at"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "readAt",
+                    "value"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "unread"
+                    }
+                  },
+                  "required": [
+                    "state"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "failed"
+                    },
+                    "readAt": {
+                      "type": "number"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "readAt",
+                    "reason"
+                  ]
+                }
+              ]
+            },
+            "config": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "read"
+                    },
+                    "readAt": {
+                      "type": "number"
+                    },
+                    "value": {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "readAt",
+                    "value"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "unread"
+                    }
+                  },
+                  "required": [
+                    "state"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "const": "failed"
+                    },
+                    "readAt": {
+                      "type": "number"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "readAt",
+                    "reason"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "required": [
+        "type",
+        "protocol",
+        "epoch",
+        "generation",
+        "base",
+        "readings"
+      ]
+    }
+  ]
+}

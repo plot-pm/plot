@@ -5,7 +5,7 @@ description: >-
   Plot Config from that, create the plan/story skeleton, and offer optional
   extensions only where the repo shows it needs them. Use on /plot-init.
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot

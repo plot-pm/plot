@@ -1,5 +1,6 @@
 import { type Outcome, type Write, decide, refuse } from './decision.js';
 import { approvalArm } from '../rules/approval-arm.js';
+import { HOLD_FILE } from '../rules/hold-clear.js';
 import { approveSpike as approveSpikeTransition } from '../transitions/plan.js';
 import { confirmRefusal, type ConfirmReading } from '../rules/spike-confirm.js';
 import {
@@ -475,7 +476,7 @@ export const approve = (
  */
 const stagedPaths = (readings: ApproveReadings): string[] => {
   const paths = [readings.file];
-  if (readings.branches.length > 0) paths.push('.plot/hold');
+  if (readings.branches.length > 0) paths.push(HOLD_FILE);
   if (readings.sprint !== '' && readings.sprintFile !== '') paths.push(readings.sprintFile);
   return paths;
 };
@@ -613,7 +614,7 @@ export const approveSpike = (
   writes.push({
     kind: 'commit',
     message: `plot: approve spike of ${slug}`,
-    paths: [readings.file, '.plot/hold'],
+    paths: [readings.file, HOLD_FILE],
   });
   writes.push({
     kind: 'push',

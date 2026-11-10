@@ -4,7 +4,7 @@ description: >-
   Verify all implementation is done, then deliver the plan.
   Part of the Plot workflow. Use on /plot-deliver.
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot

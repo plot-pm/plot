@@ -13,6 +13,7 @@ import {
   type RecordRef,
   type RemovedKeyFinding,
 } from '../rules/record-ref.js';
+import { commitsAhead } from './state-sync.js';
 
 /** Where plan records live: the `State branch` key and the default branch. */
 export interface RecordSource {
@@ -69,7 +70,8 @@ export const listRecordBlobs = async (
 };
 
 /**
- * Counts the commits the state ref holds that the default branch lacks.
+ * Counts the commits the state ref holds that the default branch does not yet hold in content.
+ * Counts through {@link commitsAhead}, the one count the sync pull request reads too.
  *
  * @param refs - the ref reader.
  * @param source - the key and the default branch.
@@ -78,8 +80,7 @@ export const listRecordBlobs = async (
 export const recordsAhead = async (refs: Refs, source: RecordSource): Promise<number | null> => {
   const where = await resolveRecordRef(refs, source);
   if (where.kind !== 'state') return 0;
-  const range = await refs.commitSubjects(`${where.defaultRef}..${where.ref}`);
-  return range.ok ? range.value.length : null;
+  return commitsAhead(refs, where.defaultRef, where.ref);
 };
 
 
@@ -112,16 +113,19 @@ export interface RecordFindings {
 /**
  * Reads the lag line and the removed-key finding.
  *
- * The sync PR is always `null` until the Sync slice opens one.
+ * The lag line names the open sync pull request where the caller read one;
+ * `null` stays a valid answer and prints `none`.
  *
  * @param refs - the ref reader.
  * @param source - the key and the default branch.
+ * @param syncPr - the open sync pull request's number; null for none.
+ * @param conflictFiles - the files of the forward merge conflict fleetd recorded; empty for none.
  * @returns both findings; a read that fails yields null for that finding.
  */
-export const readRecordFindings = async (refs: Refs, source: RecordSource): Promise<RecordFindings> => {
+export const readRecordFindings = async (refs: Refs, source: RecordSource, syncPr: number | null = null, conflictFiles: readonly string[] = []): Promise<RecordFindings> => {
   if (source.stateBranch.trim() !== '') {
     const ahead = await recordsAhead(refs, source);
-    return { recordLag: ahead === null ? null : lagLine(ahead, null, source.defaultBranch), recordKeyRemoved: null };
+    return { recordLag: ahead === null ? null : lagLine(ahead, syncPr, source.defaultBranch, conflictFiles), recordKeyRemoved: null };
   }
   const stranded = await recordsAhead(refs, { stateBranch: DEFAULT_STATE_BRANCH, defaultBranch: source.defaultBranch });
   return { recordLag: null, recordKeyRemoved: removedKeyFinding('', source.defaultBranch, stranded) };

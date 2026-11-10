@@ -28,7 +28,7 @@ const git = (dir, args) => spawnSync('git', ['-C', dir, ...args], { encoding: 'u
 /** A throwaway repo with one generated bundle declared and committed on `base`. */
 function baseTree() {
   const dir = mkdtempSync(path.join(tmpdir(), 'plot-no-bundle-diff-'));
-  git(dir, ['init', '-q']);
+  git(dir, ['init', '-q', '-b', 'master']);
   git(dir, ['config', 'user.email', 'test@example.com']);
   git(dir, ['config', 'user.name', 'Test']);
   mkdirSync(path.join(dir, 'packages', 'board', 'src', 'contract'), { recursive: true });

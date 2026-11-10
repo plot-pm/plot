@@ -31,7 +31,7 @@
 
 ## Motivation
 
-fleetd escalates a `PLOT-BLOCKED` question and waits for a person. The tick's escalation pass produces `notify` writes and nothing else (`packages/fleet/src/server/entry/registryd.ts:396-412`), built on the readings-as-values rule `questionEscalation` (`packages/domain/src/rules/question-escalation.ts:42`). From 2026-10-16 to 2026-10-29 a master agent answered 99 such markers by hand. That count does not separate an agent's questions from the markers the loop and fleetd write themselves. When the master session ends, every blocked desk stops. The design [`DESIGN-delivery-loop.md`](../stories/the-fleet-delivers-a-scope-alone/DESIGN-delivery-loop.md) (approved by jwloka on 2026-10-29, section *A blocked agent*) makes the fleet answer.
+fleetd escalates a `PLOT-BLOCKED` question and waits for a person. The tick's escalation pass produces `notify` writes and nothing else (`packages/fleet/src/server/entry/registryd.ts:396-412`), built on the readings-as-values rule `questionEscalation` (`packages/domain/src/rules/question-escalation.ts:42`). From 2026-10-16 to 2026-10-29 a master agent answered 99 such markers by hand. That count does not separate an agent's questions from the markers the loop and fleetd write themselves. When the master session ends, every blocked desk stops. The design [`DESIGN-delivery-loop.md`](../stories/archived/the-fleet-delivers-a-scope-alone/DESIGN-delivery-loop.md) (approved by jwloka on 2026-10-29, section *A blocked agent*) makes the fleet answer.
 
 This plan reverses one line of the archived story `the-supervisor-delivers-the-approved-scope`: *"The supervisor escalates a question; it never answers one."* The new rule: the fleet answers an agent's question and records the answer.
 

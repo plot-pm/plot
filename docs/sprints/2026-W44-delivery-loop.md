@@ -12,7 +12,7 @@
 
 ## Sprint Goal
 
-The ten plans of the story [the-fleet-delivers-a-scope-alone](../stories/the-fleet-delivers-a-scope-alone/STORY-the-fleet-delivers-a-scope-alone.md), built from its design [DESIGN-delivery-loop.md](../stories/the-fleet-delivers-a-scope-alone/DESIGN-delivery-loop.md). Each plan passed one or two panel rounds of four jurors on 2026-10-29, and Jan Wloka decided the open questions. The plans carry 30 slices in 9 dependency levels; cross-plan order is held by `waits:` annotations.
+The ten plans of the story [the-fleet-delivers-a-scope-alone](../stories/archived/the-fleet-delivers-a-scope-alone/STORY-the-fleet-delivers-a-scope-alone.md), built from its design [DESIGN-delivery-loop.md](../stories/archived/the-fleet-delivers-a-scope-alone/DESIGN-delivery-loop.md). Each plan passed one or two panel rounds of four jurors on 2026-10-29, and Jan Wloka decided the open questions. The plans carry 30 slices in 9 dependency levels; cross-plan order is held by `waits:` annotations.
 
 ### Must Have
 

@@ -1,3 +1,5 @@
+import type { SnapshotLink } from '@plot-pm/domain/rules/snapshot-link';
+import type { HeldSnapshot } from '@plot-pm/domain/rules/snapshot-sync';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,7 +26,8 @@ import {
   type SliceSummary,
   type StoryStatus,
   type StoryStanding } from '../contract/schema.js';
-import { cachedPlanMetas, cachedRefs, freshWalkCache, readRefSnapshot, type PlanMetaFile, type WalkCache } from '@plot-pm/domain/workflows/plan-walk-cache';
+import { cachedPlanMetas, cachedRefs, freshWalkCache, readRefSnapshot, snapshotOf, type PlanMetaFile, type WalkCache } from '@plot-pm/domain/workflows/plan-walk-cache';
+import type { RefState } from '@plot-pm/domain/ports/refs';
 import { listRecordBlobs, readRecordFindings, resolveRecordRef, type RecordSource } from '@plot-pm/domain/workflows/record-listing';
 import { licensedSpike, spikeOf } from '@plot-pm/domain/rules/spike';
 import { refutedBadge, refutedClaims, verificationOf } from '@plot-pm/domain/rules/verification-record';
@@ -32,6 +35,8 @@ import {
   allSlicesMerged,
   deliveryPulse as chooseDeliveryPulse,
   derivedStanding,
+  laneStanding,
+  storyPlanTableSlugs,
   storyIssueValue,
   repoIssuePrefixOf,
   jiraProjectsOf,
@@ -41,6 +46,7 @@ import {
   timeboxStanding,
   planStatus as decidePlanStatus,
   type BuildPort,
+  type ChannelLink,
   ChecksSchema,
   MergeabilitySchema,
   type Checks,
@@ -67,6 +73,8 @@ import {
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 import type { GateContractReader } from '@plot-pm/domain/ports/gate-contract';
 import { SPAWN_CONTRACT } from '@plot-pm/domain/rules/spawn-contract';
+import { writeTarget } from '@plot-pm/domain/rules/write-target';
+import { isSyncHead } from '@plot-pm/domain/rules/state-sync';
 import type { ReaderLock } from '@plot-pm/domain/ports/reader-lock';
 import type { ProcessProbe } from '@plot-pm/domain/ports/process-probe';
 import { people } from './server-info.js';
@@ -76,7 +84,7 @@ import {
   planStoreShell,
   planParserPath,
   refsGit,
-  fleetStateFile,
+  fleetStateVouched,
   scriptsShell,
   scriptsConfigCached,
   sliceSpendFile,
@@ -86,6 +94,7 @@ import {
   readerLockFile,
   TRACKER_PROJECT_KEY_SCHEMES,
 } from '@plot-pm/domain/adapters';
+import { stateSyncFile } from '@plot-pm/domain/adapters/state-sync-record/state-sync-file';
 import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import { processProbeSystem } from '@plot-pm/domain/adapters/process-probe/process-probe-system';
 import { dispatchLogExists } from './dispatch.js';
@@ -229,6 +238,16 @@ export interface BuildBoardOptions {
    */
   readerLock?: ReaderLock;
   /**
+   * The board's channel link, for `/api/fleet`'s liveness facts. Absent means
+   * no hub: the link reads `unknown`.
+   */
+  channelLink?: () => ChannelLink;
+  /**
+   * The hub's copy of fleetd's snapshot and its link. Absent means no hub: the
+   * board never serves from a snapshot.
+   */
+  channelSnapshot?: () => { link: SnapshotLink; held: HeldSnapshot | undefined };
+  /**
    * Starts the machine's PR reader. Absent means a real detached `node`
    * process, the same seam `handleNeedsDesign` uses for its own bundle.
    *
@@ -307,14 +326,19 @@ const walkCaches = new Map<string, WalkCache>();
  * on the returned cache.
  *
  * @param opts - where to read, and optionally what to read through.
+ * @param entries - the refs fleetd's snapshot read, where the board serves from
+ *   it; the reader then keys its reads by those oids and lists no refs itself.
  * @returns the reader, and the cache it answers from or `null` where it is unwrapped.
  */
-export const heldRefsFor = async (opts: BuildBoardOptions): Promise<{ refs: Refs; cache: WalkCache | null }> => {
+export const heldRefsFor = async (
+  opts: BuildBoardOptions,
+  entries?: readonly RefState[],
+): Promise<{ refs: Refs; cache: WalkCache | null }> => {
   const inner = refsFor(opts);
   // A reader handed in by the caller answers by ref name and not by object id,
   // so a key built from the snapshot's oids would miss what it holds.
   if (opts.refs !== undefined) return { refs: inner, cache: null };
-  const snapshot = await readRefSnapshot(inner);
+  const snapshot = entries !== undefined ? { ok: true as const, value: snapshotOf(entries) } : await readRefSnapshot(inner);
   if (!snapshot.ok) return { refs: inner, cache: null };
   const cache = walkCacheFor(opts);
   return { refs: cachedRefs(inner, snapshot.value, cache), cache };
@@ -506,7 +530,7 @@ export const processProbeFor = (opts: BuildBoardOptions): ProcessProbe => opts.p
  * @returns a {@link FleetState} over `opts.repoRoot`.
  */
 export const fleetStateFor = (opts: BuildBoardOptions): FleetState =>
-  fleetStateFile({ repoRoot: opts.repoRoot });
+  fleetStateVouched(opts.repoRoot);
 
 /**
  * One cached `Scripts` per `(repoRoot, scriptsDir)`, built the first time a
@@ -2186,7 +2210,7 @@ export function deriveStoryStatus(
   const declared = (STORY_LIFECYCLE as readonly string[]).includes(declaredStatus)
     ? (declaredStatus as StoryStatus)
     : 'draft';
-  return derivedStanding(declared, plans);
+  return laneStanding(declared, derivedStanding(declared, plans));
 }
 
 /**
@@ -2264,7 +2288,7 @@ export const collectStoryCards = async (
   //
   // `ref` and `refs` are both optional and both must be present, exactly as in
   // `collectSprints`: a caller supplying neither reads the working tree alone.
-  const found: { slug: string; input: StoryCardInput }[] = [];
+  const found: { slug: string; input: StoryCardInput; tablePlans: string[] }[] = [];
   const refFiles = ref && refs ? await readRefFiles(refs, ref, storyDir) : null;
   const fromRef = refFiles ?? new Map<string, string>();
   for (const [relPath, content] of fromRef) {
@@ -2281,7 +2305,7 @@ export const collectStoryCards = async (
     const input = parseStoryContent(content, slug, relPath, '');
     if (!input) continue;
     takenSlugs.add(slug);
-    found.push({ slug, input: { ...input, committed: true } });
+    found.push({ slug, input: { ...input, committed: true }, tablePlans: storyPlanTableSlugs(content) });
   }
 
   for (const entry of fs.existsSync(root) ? fs.readdirSync(root, { withFileTypes: true }) : []) {
@@ -2304,10 +2328,16 @@ export const collectStoryCards = async (
     const input = parseStoryFile(abs, slug, path.relative(repoRoot, abs), dir);
     if (!input) continue;
     takenSlugs.add(slug);
-    found.push({ slug, input });
+    let text = '';
+    try {
+      text = fs.readFileSync(abs, 'utf8');
+    } catch {
+      // parseStoryFile read it a moment ago; a vanished file reads no table.
+    }
+    found.push({ slug, input, tablePlans: storyPlanTableSlugs(text) });
   }
 
-  for (const { slug, input } of found) {
+  for (const { slug, input, tablePlans } of found) {
 
     const storyPlans = plansByStory.get(slug) || [];
 
@@ -2339,7 +2369,7 @@ export const collectStoryCards = async (
       archived,
       plans,
       sprints,
-      ...(context ? { facts: storyFactsOf(input, storyPlans, archived, context) } : {}),
+      ...(context ? { facts: storyFactsOf(input, storyPlans, archived, context, tablePlans) } : {}),
     };
 
     // Parse through Zod to apply defaults and validate
@@ -3004,7 +3034,14 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
     cards: withFacts.filter((c) => c.phase === name),
   }));
 
-  const recordFindings = await readRecordFindings(refs, { stateBranch, defaultBranch });
+  // The open sync PR runs from the state branch. The PR records carry no base branch, so the head alone identifies it here.
+  const syncTarget = writeTarget(stateBranch, defaultBranch);
+  const syncPr = syncTarget.kind !== 'state' ? null
+    : [...(prLinks?.values() ?? [])].find((r) => r.state === 'OPEN' && isSyncHead(r.head, syncTarget))?.number ?? null;
+  // A recorded forward-merge conflict names its files in the lag line; an unread record shows none.
+  const refusal = stateBranch.trim() === '' ? null : await stateSyncFile({ cwd: repoRoot }).refusal();
+  const conflictFiles = refusal !== null && refusal.ok && refusal.value !== null ? refusal.value.files : [];
+  const recordFindings = await readRecordFindings(refs, { stateBranch, defaultBranch }, syncPr, conflictFiles);
   return {
     generatedAt: new Date().toISOString(),
     columns,

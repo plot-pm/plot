@@ -4683,6 +4683,18 @@ export const FleetShape = z.object({
    */
   supervisor: SupervisorSchema.optional(),
   /**
+   * Whether fleetd is alive, as two facts: what its heartbeat file reads and
+   * what the board's channel link reads. They can disagree, and neither wins.
+   * Optional so a client talking to an older server still validates.
+   */
+  fleetd: z.object({ file: z.enum(['live', 'stale', 'absent']), channel: z.enum(['unknown', 'up', 'down']) }).optional(),
+  /**
+   * Where the last refresh took the view from: `snapshot` where the board
+   * installed fleetd's snapshot, `own` where it read for itself. Optional so a
+   * client talking to an older server still validates.
+   */
+  viewSource: z.enum(['snapshot', 'own']).optional(),
+  /**
    * Whether the tracker could be asked. `.nullable()` because the cache entry
    * this reads now seeds `null` ("not read yet") rather than `unsupported` —
    * see `freshCacheEntry`. Defaults to `unsupported` only for an OLDER server
@@ -4864,6 +4876,19 @@ export const FleetShape = z.object({
    * renders no row from it yet.
    */
   design: DesignStatusSchema.nullable().default(null),
+  /**
+   * Where the hub's copy of fleetd's snapshot stands. `mismatch` names both
+   * protocol versions, with `theirs` absent where an older fleetd refused the
+   * purpose. Absent from an older server. The board renders nothing from it yet.
+   */
+  snapshotChannel: z
+    .discriminatedUnion('state', [
+      z.object({ state: z.literal('absent') }),
+      z.object({ state: z.literal('resyncing'), reason: z.string() }),
+      z.object({ state: z.literal('current'), epoch: z.string(), generation: z.number() }),
+      z.object({ state: z.literal('mismatch'), reason: z.string(), ours: z.number(), theirs: z.number().optional() }),
+    ])
+    .optional(),
 });
 export const FleetSchema = z.preprocess(readEitherSpelling, FleetShape);
 export type Fleet = z.infer<typeof FleetSchema>;

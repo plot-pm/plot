@@ -73,7 +73,7 @@ An **action** is `{ action, enabled, reason }`; `reason` is set exactly when `en
 | Alert | Means | Card words |
 |---|---|---|
 | `not-pushed` | The item exists only in the board's working tree. | *not pushed* |
-| `status-behind` | A story's written status is behind what its plans prove; `proven` names the standing they prove. | *status behind: plans delivered* |
+| `status-behind` | A story's written status is behind what its plans prove; `proven` names the standing they prove. | *status behind: plans delivered; story still open* — `done` and `archived` read as a hint, not a proven state |
 | `issue-link-unreadable` | A story's `issue:` names something not indexed; `value` is in the tooltip. | *issue link unreadable* |
 
 ## The story's ticket

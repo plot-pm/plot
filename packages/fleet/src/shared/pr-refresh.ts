@@ -32,7 +32,11 @@ import type { Host } from '@plot-pm/domain/ports/host';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 
+import { mapsOfRows, prOutranks, type PrMaps, type PrRecord } from '@plot-pm/domain/rules/pr-maps';
 import { PR_REFRESH_MS } from './fleet-scan.js';
+import { failedOf, readOf, type RecordReading } from './snapshot-fill.js';
+
+export { mapsOfRows, prOutranks, type PrMaps, type PrRecord };
 
 /**
  * What the PR reader keeps from one pass to the next.
@@ -161,6 +165,12 @@ export interface PrWorld {
   fenceFold?: () => Promise<boolean>;
   /** The clock in epoch ms; defaults to `Date.now`. A test injects one. */
   now?: () => number;
+  /**
+   * Records the pass's `prs` reading into the daemon's snapshot: the whole
+   * row set where the pass holds one, a `failed` reading where the host did
+   * not answer. A pass the gates skip records nothing. It adds no read.
+   */
+  record?: RecordReading;
 }
 
 /**
@@ -367,111 +377,6 @@ export const PR_FULL_READ_MS = 24 * 60 * 60 * 1000;
  */
 export const PR_FULL_READ_GRACE_MS = 60 * 60 * 1000;
 
-/** One PR as the host adapter reports it, collapsed to what the tab needs. */
-export interface PrRecord {
-  number: number;
-  head: string;
-  /** OPEN · MERGED · CLOSED, as the adapter normalizes it. */
-  state: string;
-  draft: boolean;
-  /** green · pending · failing · none · unknown — see plot-host.sh pr-list --rich. */
-  checks: string;
-  /**
-   * mergeable · conflicting · unknown — see plot-host.sh pr-list --rich.
-   *
-   * A SEPARATE question from `checks`, and the one that disambiguates it.
-   * GitHub starts no workflow for a PR that does not merge cleanly, so a
-   * conflicting PR reports an empty rollup — `checks: 'none'`, indistinguishable
-   * from a bot PR whose run is waiting for a human to approve it.
-   *
-   * `unknown` on every host that cannot answer (Bitbucket) and on every payload
-   * written before the field existed. Consumers must not read it as clean:
-   * absent is not false, the same rule the local signals obey.
-   */
-  mergeable?: string;
-  /** APPROVED · CHANGES_REQUESTED · REVIEW_REQUIRED · "" — informational only. */
-  review: string;
-  /**
-   * WHICH checks failed, by name — the detail `checks` collapses into the single
-   * word `failing`.
-   *
-   * `failing` names a symptom and withholds which machine produced it. On
-   * 2026-08-17 a markdown-only branch failed `validate` because the Playwright
-   * CDN answered `403 — this service is not available in your location`, and
-   * reaching that sentence took ten minutes of opening logs — from a row that
-   * already held the check name and did not say it.
-   *
-   * NAMES ONLY, and nothing interprets them. A heuristic mapping a failing check
-   * to the paths a branch changed was explicitly rejected: that table is
-   * unmaintained by construction and goes silently wrong the first time a
-   * workflow is restructured.
-   *
-   * Absent on an older adapter and on Bitbucket, normalized to [] — which reads
-   * as *no names available*, never as *nothing failed*: `checks` is what says
-   * whether anything failed, and these two fields answer different questions.
-   */
-  failing_checks?: string[];
-  /**
-   * The PR's web URL, verbatim from the host adapter — the board constructs no
-   * URL of its own, so it can never turn a self-hosted Bitbucket into a
-   * github.com link. "" where the host CLI omits it (an older `gh`/`bb`), which
-   * consumers must render as *no link* rather than as a guess.
-   */
-  url: string;
-  /**
-   * When the host last saw this PR change, in the host's own words.
-   *
-   * `updatedAt` on GitHub, `updated_on` on Bitbucket, normalized to the one
-   * name by `plot-host.sh pr-list --rich`. Absent on an older adapter, and
-   * absent is not a date: a row carrying none contributes nothing to the
-   * store's watermark rather than contributing a zero, which would reopen a
-   * window back to 1970 on every refresh.
-   *
-   * **THE HOST'S CLOCK, NEVER THIS BOARD'S.** A client two seconds ahead of the
-   * host excludes every PR updated in that gap from every later `updated:>`
-   * window — permanently and silently, because the window never reopens.
-   */
-  updatedAt?: string;
-  /**
-   * The author's handle as the host spells it — GitHub's login, Bitbucket's
-   * `nickname` — or `''` where the host did not answer.
-   *
-   * `''` means the owner is unknown, and `ownership` in the domain shows such a
-   * row. It is never written to the store as `''`: `storeRow` omits it.
-   */
-  author?: string;
-  /** The head commit the host answered, or absent; never `''` in the store. */
-  headSha?: string;
-  /** When the fold first saw `headSha`, this machine's clock; set by `storeRow`. */
-  headSince?: string;
-  /** The commit `checks` was computed for; the rollup arm only. */
-  checksSha?: string;
-  /**
-   * `'skipped'` where the cap left this row out — never named for a sha
-   * lookup this pass. `'broken'` where the row WAS named and the lookup then
-   * broke early (Jenkins unreachable mid-pass) — a different fact, kept
-   * distinct rather than collapsed into `'skipped'`. Neither is where Jenkins
-   * itself answered. Absent everywhere else; never a value `checks` already
-   * reports.
-   */
-  checksLookup?: 'skipped' | 'broken';
-  /** The host's merge time; absent on an open PR. */
-  mergedAt?: string;
-  /** The `plot/review` status context's state; the GitHub rollup arm only. */
-  plotReview?: 'success' | 'failure' | 'pending' | 'error' | 'absent';
-  /** The commit the rollup named for `plot/review`; absent where `plotReview` is. */
-  plotReviewSha?: string;
-  /** The `plot/review` status context's `startedAt`; absent where `plotReview` is. */
-  plotReviewAt?: string;
-  /** The writer check's state for `plotReviewCheckedSha`; see the row field. */
-  plotReviewJudged?: 'success' | 'failure' | 'pending' | 'absent' | 'error';
-  /** The head `plotReviewJudged` read. */
-  plotReviewCheckedSha?: string;
-  /** The rollup's `plotReviewAt` when the judgment was made. */
-  plotReviewCheckedAt?: string;
-  /** `checks` folded with `plot/review` excluded; the GitHub rollup arm only. */
-  ciChecks?: 'green' | 'pending' | 'failing' | 'none' | 'unknown';
-}
 
 /**
  * Fetch PRs through the adapter — never `gh` directly. Principle 3 keeps host
@@ -1254,45 +1159,6 @@ const withCarriedChecks = (pr: PrRecord, predecessor: PrIndexRow | undefined): v
   if (reading.failing_checks !== undefined) pr.failing_checks = reading.failing_checks;
 };
 
-/**
- * One stored row back in the shape the board's maps hold.
- *
- * The inverse of `storeRow`, and absence survives the round trip in both
- * directions: a row stored without `mergeable` comes back without it, and the
- * caller normalizes it exactly as it normalizes a host row that omitted it. A
- * value invented here would be indistinguishable from one the host answered.
- *
- * @param row - the row as the store holds it.
- * @returns the record the board's maps hold.
- */
-const recordOf = (row: PrIndexRow): PrRecord => {
-  const pr: PrRecord = {
-    number: row.number,
-    head: row.head,
-    state: row.state,
-    draft: row.draft,
-    checks: row.checks,
-    review: row.review,
-    url: row.url,
-  };
-  if (row.mergeable !== undefined) pr.mergeable = row.mergeable;
-  if (row.failing_checks !== undefined) pr.failing_checks = row.failing_checks;
-  if (row.updatedAt !== undefined) pr.updatedAt = row.updatedAt;
-  if (row.author !== undefined) pr.author = row.author;
-  if (row.headSha !== undefined) pr.headSha = row.headSha;
-  if (row.headSince !== undefined) pr.headSince = row.headSince;
-  if (row.checksSha !== undefined) pr.checksSha = row.checksSha;
-  if (row.checksLookup !== undefined) pr.checksLookup = row.checksLookup;
-  if (row.mergedAt !== undefined) pr.mergedAt = row.mergedAt;
-  if (row.plotReview !== undefined) pr.plotReview = row.plotReview;
-  if (row.plotReviewSha !== undefined) pr.plotReviewSha = row.plotReviewSha;
-  if (row.plotReviewAt !== undefined) pr.plotReviewAt = row.plotReviewAt;
-  if (row.ciChecks !== undefined) pr.ciChecks = row.ciChecks;
-  if (row.plotReviewJudged !== undefined) pr.plotReviewJudged = row.plotReviewJudged;
-  if (row.plotReviewCheckedSha !== undefined) pr.plotReviewCheckedSha = row.plotReviewCheckedSha;
-  if (row.plotReviewCheckedAt !== undefined) pr.plotReviewCheckedAt = row.plotReviewCheckedAt;
-  return pr;
-};
 
 /**
  * Seeds the entry's PR maps from the store, where it holds anything and the
@@ -1336,48 +1202,6 @@ export const seedPrsFromStore = async (
   applyPrMaps(entry, mapsOfRows(held.value.rows));
 };
 
-/** The three maps the board serves, derived from one set of rows. */
-export interface PrMaps {
-  /** Open PRs by head branch — what `classify` reads. */
-  prs: Map<string, PrRecord>;
-  /** Every PR by number, whatever its state. */
-  byNumber: Map<number, PrRecord>;
-  /** One PR per head branch, ranked; every state, for the link. */
-  byHead: Map<string, PrRecord>;
-}
-
-/**
- * Builds the three served maps from stored rows.
- *
- * **EXTRACTED SO THE DELTA PATH CAN REACH IT, and `seedPrsFromStore`'s guard
- * deliberately did not come with it.** That guard — `prsByNumber !== null` —
- * is what stops disk moving a live board backwards, and a delta path that
- * bypassed it would be one that could seed over live data too. So the guard
- * stays where it decides, and only the derivation moved.
- *
- * **THE THREE RULES ARE THE HOST PATH'S**, re-applied rather than shared by
- * accident: a stored row reaches these maps under exactly the conditions a
- * fetched one does, or a board served from the store would classify branches by
- * a rule the refreshed board does not use.
- *
- * @param rows - the rows to derive from, as the store holds them.
- * @returns the three maps.
- */
-export const mapsOfRows = (rows: readonly PrIndexRow[]): PrMaps => {
-  const prs = new Map<string, PrRecord>();
-  const byNumber = new Map<number, PrRecord>();
-  const byHead = new Map<string, PrRecord>();
-  for (const row of rows) {
-    const pr = recordOf(row);
-    if (pr.head && pr.state === 'OPEN') prs.set(pr.head, pr);
-    byNumber.set(pr.number, pr);
-    if (pr.head) {
-      const ranked = byHead.get(pr.head);
-      if (!ranked || prOutranks(pr, ranked)) byHead.set(pr.head, pr);
-    }
-  }
-  return { prs, byNumber, byHead };
-};
 
 /**
  * Puts one set of maps on the entry, as the three fields the board serves.
@@ -1820,6 +1644,7 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
       // rate limit here gets the same backoff the catch would apply.
       const message = 'all PRs returned unknown — the host could not be reached';
       entry.prError = message;
+      world.record?.('prs', failedOf(message, clock()));
       const reaction = hostReaction(message, rate?.resetAt ?? null);
       applyReaction(entry, reaction);
       scheduleNextPr(entry, startedAt, waitOf(reaction), backend, scheduleRate);
@@ -1892,6 +1717,12 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
       // found no store to write already falls back to below.
       await judgeReviews(world.host, rows);
       const folded = (await world.fenceFold?.()) === false ? null : await writePrStore(backend, rows, kind, prStore);
+      // THE ROWS THE PASS HOLDS WHOLE: a full read's own, or the fold's. A delta
+      // whose fold is absent holds only the window, and a window is not the set.
+      // A PARTIAL ANSWER IS A FAILED READING: a host state did not answer, so the set is not whole.
+      if (kind === 'partial') world.record?.('prs', failedOf(partialSaid ?? 'a host state did not answer', clock()));
+      else if (kind === 'whole') world.record?.('prs', readOf(rows, clock()));
+      else if (folded !== null) world.record?.('prs', readOf(folded.rows, clock()));
       // A FULL READ SERVES ITS OWN ROWS, and that is not merely an
       // optimisation: a whole answer REPLACED the store, so the fold and this
       // pass hold the same rows by construction. Deriving from the fold anyway
@@ -1940,6 +1771,7 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
     // git-only group, which looks like state changing rather than data missing.
     const message = err instanceof Error ? err.message : String(err);
     entry.prError = message;
+    world.record?.('prs', failedOf(message, clock()));
     // A FAILED FULL READ IS RECORDED, AND ONLY A FULL READ — WHETHER IT THREW
     // OR CAME BACK PARTIAL. This is the thrown half; the happy path above
     // records the same latch for a full-read window that answered `partial`.
@@ -1979,29 +1811,6 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
   }
 };
 
-/**
- * Which of two PRs on ONE head branch the row should point at.
- *
- * Only ever asked where a head carries more than one — a closed attempt and the
- * PR that replaced it — which is uncommon but not rare, and answered by the
- * host's listing order until this function existed. That order is not a promise:
- * `gh` happens to sort by number descending and `bb` documents nothing, so the
- * row's link would have been decided by whichever adapter answered.
- *
- * OPEN FIRST, because it is the one a reader can still act on: a closed PR
- * outranking its live successor would send them to a dead page while the real
- * review sat one number away. Between two PRs in the same standing the higher
- * number wins — the later attempt is the current one.
- *
- * MERGED IS NOT RANKED ABOVE CLOSED, deliberately. Both are finished, both are
- * worth linking, and neither is more current than the other; the number decides
- * and it decides consistently, which is all this needs to do.
- */
-export const prOutranks = (candidate: PrRecord, held: PrRecord): boolean => {
-  const open = (pr: PrRecord) => pr.state === 'OPEN';
-  if (open(candidate) !== open(held)) return open(candidate);
-  return candidate.number > held.number;
-};
 
 /**
  * A store that reads through to another and keeps its writes in memory.

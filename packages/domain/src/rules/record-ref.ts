@@ -100,12 +100,15 @@ export interface LagLine {
  * @param ahead - commits the state ref is ahead of the default branch.
  * @param syncPr - the open sync pull request's number; null for none.
  * @param defaultBranch - the default branch's short name.
- * @returns the line, with `none` for a missing sync pull request.
+ * @param conflictFiles - the files of a forward merge conflict fleetd recorded; empty for none.
+ * @returns the line, with `none` for a missing sync pull request and the conflict's files appended where one stands.
  */
-export const lagLine = (ahead: number, syncPr: number | null, defaultBranch: string): LagLine => ({
+export const lagLine = (ahead: number, syncPr: number | null, defaultBranch: string, conflictFiles: readonly string[] = []): LagLine => ({
   ahead,
   syncPr,
-  text: `Records: ${ahead} ahead of ${defaultBranch} · sync PR: ${syncPr === null ? 'none' : `#${syncPr}`}`,
+  text: `Records: ${ahead} ahead of ${defaultBranch} · sync PR: ${syncPr === null ? 'none' : `#${syncPr}`}${
+    conflictFiles.length === 0 ? '' : ` · forward merge conflicts in ${conflictFiles.join(', ')}`
+  }`,
 });
 
 /** The default name `plot/state` carries when a key was declared and then removed. */

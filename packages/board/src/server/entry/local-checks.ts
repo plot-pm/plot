@@ -2,6 +2,11 @@
 // two adapters and the one rule it uses.
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
+import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
+import { boundedRunProcess } from '@plot-pm/domain/adapters/bounded-run/bounded-run-process';
+import { processesShell } from '@plot-pm/domain/adapters/processes/processes-shell';
+import { localChecksBase } from '@plot-pm/domain/rules/local-checks-base';
+import { failedCheck, printedCommands } from '@plot-pm/domain/rules/local-checks-run';
 import {
   DEFAULT_LOCAL_CHECKS_LIMIT,
   candidateTests,
@@ -18,9 +23,12 @@ import {
 } from '@plot-pm/domain/rules/local-checks';
 import { ciSuiteRefusal } from '@plot-pm/domain/rules/ci-suite';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
-import { readFileSync, realpathSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { findPlanForBranch } from './plan-lookup.js';
 
 /**
  * The checks a branch's change needs — `localChecks` reached without HTTP, for
@@ -41,6 +49,15 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * `Local checks limit` and `CI suites` config keys, and the `-merge` attribute
  * for each changed path. One command goes out per line, then the report as
  * `#` lines, then a `summary:` line. Exit 0 always; 2 outside a git repository.
+ *
+ * The changes are read against `--base <branch>` when given. Otherwise a branch
+ * whose plan carries `Sprint: <slug>` is read against `sprint/<slug>` where
+ * `origin` holds that branch, and any other branch against the default branch.
+ * No host is asked.
+ *
+ * `--run` runs each printed command through `bash -c`, in order, and stops at
+ * the first failure: it prints the command and the last 80 lines of its output
+ * and exits 1. A pass exits 0.
  *
  * `--files <path>` reads the changed paths from that file, one per line, instead
  * of the branch and the working tree.
@@ -64,6 +81,8 @@ export const EXIT = {
   notRepository: 2,
   /** `--ci-suite-refusal`: the command runs a suite only CI runs. */
   refused: 3,
+  /** `--run`: a printed command failed. */
+  failed: 1,
   /** An argument this command does not know, or `--files` without a readable path. */
   usage: 2,
 } as const;
@@ -167,6 +186,8 @@ const readCorpus = async (
  *   it replaces the branch and working-tree reading.
  * @param ci - true prints the CI selection as JSON instead of the commands.
  * @param corpusGlob - with `ci`, the glob naming the corpus tier's files.
+ * @param base - the `--base` branch, or `null` to resolve it from the branch's plan.
+ * @param runChecks - true runs the printed commands and stops at the first failure.
  * @returns the process exit code.
  */
 export const run = async (
@@ -177,6 +198,8 @@ export const run = async (
   filesFrom: string | null = null,
   ci = false,
   corpusGlob: string | null = null,
+  base: string | null = null,
+  runChecks = false,
 ): Promise<number> => {
   let listed: string[] | null = null;
   if (filesFrom !== null) {
@@ -205,8 +228,10 @@ export const run = async (
   const refs = refsGit(context);
   const scripts = scriptsShell(context);
 
+  const against = listed === null ? await resolveBase(refs, planStoreShell(context), base) : undefined;
+
   const [committed, working, rawChecks, rawLimit, rawSuites, rawPlans, rawSprints] = await Promise.all([
-    listed === null ? refs.changedFiles('HEAD') : Promise.resolve({ ok: true as const, value: [] as string[] }),
+    listed === null ? refs.changedFiles('HEAD', against) : Promise.resolve({ ok: true as const, value: [] as string[] }),
     listed === null ? refs.workingChanges() : Promise.resolve({ ok: true as const, value: [] as string[] }),
     scripts.config('Local checks', ''),
     scripts.config('Local checks limit', String(DEFAULT_LOCAL_CHECKS_LIMIT)),
@@ -244,8 +269,7 @@ export const run = async (
     tests,
   );
 
-  write(
-    render(
+  const output = render(
       localChecks({
         changed,
         generated,
@@ -255,9 +279,66 @@ export const run = async (
         root: repoRoot,
       }),
       parseList(rawSuites.ok ? rawSuites.value.trim() : ''),
-    ),
-  );
-  return EXIT.ok;
+    );
+  write(output);
+  return runChecks ? runPrinted(context, printedCommands(output), write) : EXIT.ok;
+};
+
+/**
+ * Resolves the branch the changes are read against.
+ *
+ * @param refs - the git adapter.
+ * @param store - the plan store of the repository.
+ * @param flag - the `--base` argument, or `null`.
+ * @returns the base branch, or `undefined` for the default branch.
+ */
+const resolveBase = async (
+  refs: ReturnType<typeof refsGit>,
+  store: ReturnType<typeof planStoreShell>,
+  flag: string | null,
+): Promise<string | undefined> => {
+  if (flag !== null) return localChecksBase({ flag, sprint: null, remoteBranches: [] });
+  const current = await refs.currentBranch();
+  if (!current.ok) return undefined;
+  const dir = await store.config('Plan directory', 'docs/plans/');
+  const found = await findPlanForBranch(store, dir.ok && dir.value.trim() !== '' ? dir.value.trim() : 'docs/plans/', current.value);
+  const plan = found === undefined ? undefined : await store.readPlans([found.file]);
+  const remote = await refs.listBranches(true);
+  return localChecksBase({
+    flag: null,
+    sprint: plan !== undefined && plan.ok ? (plan.value[0]?.sprint ?? null) : null,
+    remoteBranches: remote.ok ? remote.value : [],
+  });
+};
+
+/**
+ * Runs the printed commands in order and stops at the first failure.
+ *
+ * @param context - the repository root, where each command runs, and the script directory.
+ * @param commands - the printed commands.
+ * @param write - where progress and the failure go.
+ * @returns 0 when every command passed, 1 at the first that did not.
+ */
+const runPrinted = async (context: { repoRoot: string; scriptDir: string }, commands: readonly string[], write: (s: string) => void): Promise<number> => {
+  const boundedRun = boundedRunProcess(processesShell(context));
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'plot-local-checks-run-'));
+  const outFile = path.join(dir, 'out');
+  try {
+    for (const command of commands) {
+      writeFileSync(outFile, '');
+      write(`run: ${command}\n`);
+      const ran = await boundedRun.run('bash', ['-c', command], { cwd: context.repoRoot, boundSeconds: 0, outFile });
+      if (!ran.ok || ran.value.status !== 0) {
+        const failure = failedCheck(command, readFileSync(outFile, 'utf8'));
+        write(`FAILED: ${command}\n${failure.passed ? '' : failure.tail}\n`);
+        return EXIT.failed;
+      }
+    }
+    write(`passed: ${commands.length} commands\n`);
+    return EXIT.ok;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 };
 
 /**
@@ -301,11 +382,14 @@ export interface Args {
   readonly ci: boolean;
   readonly files: string | null;
   readonly corpus: string | null;
+  readonly base: string | null;
+  readonly run: boolean;
 }
 
 /**
- * Reads the command line: `--ci`, `--files <path>` and, with `--ci`,
- * `--corpus <glob>`, each at most once.
+ * Reads the command line: `--ci`, `--files <path>`, `--base <branch>`, `--run`
+ * and, with `--ci`, `--corpus <glob>`, each at most once. `--run` does not
+ * combine with `--ci`.
  *
  * @param argv - the arguments after the script.
  * @returns the arguments, or the first one this command does not take.
@@ -314,6 +398,8 @@ export const parseArgs = (argv: readonly string[]): Args | { readonly unknown: s
   let ci = false;
   let files: string | null = null;
   let corpus: string | null = null;
+  let base: string | null = null;
+  let run = false;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const value = argv[i + 1];
@@ -321,13 +407,18 @@ export const parseArgs = (argv: readonly string[]): Args | { readonly unknown: s
     else if (arg === '--files' && files === null && value !== undefined) {
       files = value;
       i += 1;
-    } else if (arg === '--corpus' && corpus === null && value !== undefined) {
+    } else if (arg === '--base' && base === null && value !== undefined && value.trim() !== '') {
+      base = value;
+      i += 1;
+    } else if (arg === '--run' && !run) run = true;
+    else if (arg === '--corpus' && corpus === null && value !== undefined) {
       corpus = value;
       i += 1;
     } else return { unknown: arg };
   }
   if (corpus !== null && !ci) return { unknown: '--corpus' };
-  return { ci, files, corpus };
+  if (run && ci) return { unknown: '--run' };
+  return { ci, files, corpus, base, run };
 };
 
 // Only when RUN as plot-local-checks.mjs, never when imported — the gate bundle
@@ -349,11 +440,11 @@ if (
     const parsed = parseArgs(process.argv.slice(2));
     if ('unknown' in parsed) {
       process.stderr.write(
-        `plot-local-checks: unknown argument ${parsed.unknown}\nusage: plot-local-checks.mjs [--ci [--corpus <glob>]] [--files <path>]\n`,
+        `plot-local-checks: unknown argument ${parsed.unknown}\nusage: plot-local-checks.mjs [--ci [--corpus <glob>]] [--files <path>] [--base <branch>] [--run]\n`,
       );
       void endEntry(EXIT.usage);
     } else {
-      void endEntry(await run(process.cwd(), scriptDir, undefined, undefined, parsed.files, parsed.ci, parsed.corpus));
+      void endEntry(await run(process.cwd(), scriptDir, undefined, undefined, parsed.files, parsed.ci, parsed.corpus, parsed.base, parsed.run));
     }
   }
 }

@@ -27,7 +27,7 @@
 
 ## Motivation
 
-The spec's section *A dead or stuck desk* ([DESIGN-delivery-loop.md](../stories/the-fleet-delivers-a-scope-alone/DESIGN-delivery-loop.md), approved by jwloka on 2026-10-29) names two stops that wait for a person. The story's goal 1 is that only the release waits for a person.
+The spec's section *A dead or stuck desk* ([DESIGN-delivery-loop.md](../stories/archived/the-fleet-delivers-a-scope-alone/DESIGN-delivery-loop.md), approved by jwloka on 2026-10-29) names two stops that wait for a person. The story's goal 1 is that only the release waits for a person.
 
 **The measurement.** Round 2's measure juror (`.plot/panels/2026-10-29-a-dead-desk-gets-a-fixer/r2-measure.md`) joined `fresh-agents.tsv` (33 rows) with `ending-asks.tsv` (109 rows, one per `needs-a-person` ask with its `endingAt`) under the common git dir, over 2026-10-09 to 2026-10-28. 33 fresh sessions started, and the branch of every one of them had a pull request before the session started. 10 branches reached a second ending after their fresh session and asked a person: `blocked` 7, `checks-unanswered` 1, `unreadable` 1, `holding-work` 1. All 10 pull requests (#1959, #2356, #2358, #2367, #2464, #2468, #2591, #2711, #2737, #2752) merged later, each merged by jwloka. 0 of the 33 sessions and 0 of the 10 second endings were on a desk with no pull request.
 
