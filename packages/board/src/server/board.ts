@@ -2526,10 +2526,9 @@ const readOwnEstate = async (
   // as `measureBehind` above it. `null` where it could not be read, never a
   // guessed clean: see `checkoutHealthStatus`, which treats null as "say
   // nothing" rather than "fine".
-  const checkoutClean = await (async () => {
-    const status = await treesFor(opts).isClean(repoRoot);
-    return status.ok ? status.value : null;
-  })();
+  // Asked on every build, and held under the checkout's stamp, so the first
+  // build on `snapshot` after this one reads the same answer without asking.
+  const checkoutClean = await askCheckoutClean(opts, repoRoot);
 
   // EACH PLAN'S AUTHOR — ONE BATCHED GIT-LOG WALK, READ ONCE ABOVE THE LOOP.
   // Same hoist as `spendLines` above: a per-plan call here would be one `git
@@ -2683,6 +2682,20 @@ const heldCheckoutClean = async (opts: BuildBoardOptions, repoRoot: string): Pro
   const stamp = checkoutStamp(repoRoot);
   const held = cleanReadings.get(repoRoot);
   if (stamp !== null && held !== undefined && held.stamp === stamp) return held.clean;
+  return askCheckoutClean(opts, repoRoot, stamp);
+};
+
+/**
+ * Asks whether the checkout is clean and holds the answer under the stamp read
+ * before the question, so a change during the question makes the next stamp differ.
+ *
+ * @returns the reading, or null where it could not be read.
+ */
+const askCheckoutClean = async (
+  opts: BuildBoardOptions,
+  repoRoot: string,
+  stamp: string | null = checkoutStamp(repoRoot),
+): Promise<boolean | null> => {
   const status = await treesFor(opts).isClean(repoRoot);
   const clean = status.ok ? status.value : null;
   if (stamp !== null && clean !== null) cleanReadings.set(repoRoot, { stamp, clean });

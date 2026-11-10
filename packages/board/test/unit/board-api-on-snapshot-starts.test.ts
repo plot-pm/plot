@@ -162,7 +162,12 @@ const quiet = async (): Promise<void> => {
 };
 
 describe('GET /api/board while fleetd serves its snapshot', () => {
-  it('starts no process on 10 warm requests (the inventory prints each start)', async () => {
+  // The census board's warm read runs before the channel holds a snapshot, so
+  // its first request on `snapshot` is the first poll inside the S7 window.
+  it.each([
+    ['every request', false],
+    ['a first request on the own path, as the census board\'s warm read', true],
+  ])('starts no process on 10 polls on snapshot after %s (the inventory prints each start)', async (_, ownFirst) => {
     const repoRoot = estateRepo();
     const gate = fixtureGate();
     const scriptsDir = scriptsWithSilentHost();
@@ -198,7 +203,12 @@ describe('GET /api/board while fleetd serves its snapshot', () => {
     ensureCache(opts).clients = 1;
     const estate = realEstate(opts);
 
-    await boardAnswer(opts, estate, 'localhost', 7777, false);
+    if (ownFirst) {
+      const own = { ...opts, channelSnapshot: undefined };
+      await boardAnswer(own, realEstate(own), 'localhost', 7777, false);
+    } else {
+      await boardAnswer(opts, estate, 'localhost', 7777, false);
+    }
     pauseFleetRefresh();
     await quiet();
     starts.lines.length = 0;

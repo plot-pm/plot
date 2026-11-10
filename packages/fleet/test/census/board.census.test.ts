@@ -245,6 +245,7 @@ describe.skipIf(gate.kind !== 'run')('an idle board with one visible page that p
 
   it(rowTitle(CENSUS_ROWS.S7, fixture), () => {
     recordCount(CENSUS_ROWS.S7, fixture, perMinute(window.execs.length), window.execs);
-    expect(window.execs).toHaveLength(0);
+    // Each start as its argv, so a failure names the command and not only its count.
+    expect(window.execs.map((e) => e.argv.join(' '))).toEqual([]);
   });
 });
