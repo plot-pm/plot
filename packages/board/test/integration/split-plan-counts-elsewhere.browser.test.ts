@@ -118,7 +118,7 @@ describe('a split plan counts what is elsewhere', () => {
       over: { fleet: fleet() },
       viewport: { width: 1400, height: 1200 },
     });
-    await page.getByText('Not started').first().waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="work-items"]').waitFor({ timeout: 10_000 });
     return page;
   }
 
@@ -135,7 +135,7 @@ describe('a split plan counts what is elsewhere', () => {
    */
   async function openDone(page: Page): Promise<void> {
     if (await done(page).count() === 0) {
-      await page.locator('[data-group-toggle]').filter({ hasText: 'Done' }).click();
+      await page.locator('[data-group-toggle="release-delivery"]').click();
     }
     await done(page).first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
@@ -233,7 +233,7 @@ describe('a split plan counts what is elsewhere', () => {
           })),
         }));
       await page.goto(`${cat.mock.baseURL}?tab=agents`);
-      await page.getByText('Not started').first().waitFor({ timeout: 10_000 });
+      await page.locator('[data-delivery-section="work-items"]').waitFor({ timeout: 10_000 });
       const summary = planHead(notStarted(page), 'whole-plan').locator('[data-slice-summary]');
       await expect.poll(() => summary.textContent(), { timeout: 10_000 })
         .toBe('2 slices, first eligible');

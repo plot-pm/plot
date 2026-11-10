@@ -636,7 +636,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // an `h3` — the row carries the phase, the age and the menu that a text
       // heading cannot. What this test asserts is unchanged: DONE groups like
       // every other section, and two plans mean two groups.
-      await expect.poll(() => group(page, 'Done').locator('[data-plan-row]').count())
+      await expect.poll(() => group(page, 'release-delivery').locator('[data-plan-row]').count())
         .toBe(2);
     } finally {
       await page.close();
@@ -1213,8 +1213,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     try {
       // DONE is folded on arrival, so its rows are NOT in the document — the
       // exact state that used to silence the mark.
-      await expect.poll(() => groupRows(page, 'Done').count()).toBe(0);
-      expect(await group(page, 'Done').locator('[data-slice-row="Shaped"]').count()).toBe(0);
+      await expect.poll(() => groupRows(page, 'release-delivery').count()).toBe(0);
+      expect(await group(page, 'release-delivery').locator('[data-slice-row="Shaped"]').count()).toBe(0);
 
       // Click the ⓘ on the blocked `Moved` wave, in NOT STARTED.
       const mark = group(page, 'Not started').locator('[data-slice-blocked-by="Shaped"]');
@@ -1223,7 +1223,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
 
       // The mark opened DONE and the blocker's row is now on the page — the
       // reveal that was silently impossible before.
-      const target = group(page, 'Done').locator('[data-slice-row="Shaped"]');
+      const target = group(page, 'release-delivery').locator('[data-slice-row="Shaped"]');
       await expect.poll(() => target.count()).toBeGreaterThan(0);
       // And it FLASHED, the same amber ring the mark already used for a sibling.
       await expect.poll(() => target.first().getAttribute('class'))
@@ -1753,7 +1753,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     try {
       await expect.poll(() => groupRows(page, 'Working').count()).toBeGreaterThan(0);
       expect(await groupRows(page, 'Quiet').count()).toBe(0);
-      expect(await groupRows(page, 'Done').count()).toBe(0);
+      expect(await groupRows(page, 'release-delivery').count()).toBe(0);
       // And the actionable end is untouched.
       expect(await groupRows(page, 'Waiting on you').count()).toBeGreaterThan(0);
       expect(await groupRows(page, 'Not started').count()).toBeGreaterThan(0);
@@ -1823,7 +1823,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expect.poll(() => groupRows(page, 'Quiet').count()).toBe(1);
       // And the group they never touched is still folded, so the reload
       // restored a SET rather than opening everything.
-      expect(await groupRows(page, 'Done').count()).toBe(0);
+      expect(await groupRows(page, 'release-delivery').count()).toBe(0);
     } finally {
       await context.close();
     }
@@ -2042,11 +2042,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // `groupRows` counts items and deliberately skips wave rows; here the
       // question is how tall the section is, so every box counts.
       const DONE_ROWS = 13, DONE_PLANS = 2;
-      await expect.poll(() => group(page, 'Done').locator('li[data-tuple-kind]').count())
+      await expect.poll(() => group(page, 'release-delivery').locator('li[data-tuple-kind]').count())
         .toBe(DONE_ROWS + DONE_PLANS * 2);
       // And the parts, so a wrong TOTAL says which half moved.
-      expect(await group(page, 'Done').locator('li[data-plan-row]').count()).toBe(DONE_PLANS);
-      expect(await group(page, 'Done').locator('li[data-slice-row]').count()).toBe(DONE_PLANS);
+      expect(await group(page, 'release-delivery').locator('li[data-plan-row]').count()).toBe(DONE_PLANS);
+      expect(await group(page, 'release-delivery').locator('li[data-slice-row]').count()).toBe(DONE_PLANS);
       const opened = await footer(page).evaluate((el) => {
         const r = el.getBoundingClientRect();
         return { top: r.top, viewport: window.innerHeight };

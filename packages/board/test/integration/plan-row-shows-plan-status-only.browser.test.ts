@@ -187,10 +187,10 @@ describe('a plan row shows plan status only', () => {
       over: scenario(),
       viewport: { width: 1400, height: 2000 },
     });
-    await page.getByText('Waiting on you').first().waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     // DONE is folded by default — unfold it, or its rows are not on the page and
     // every assertion about them passes for the wrong reason.
-    const done = page.locator('[data-group-toggle]').filter({ hasText: 'Done' });
+    const done = page.locator('[data-group-toggle="release-delivery"]');
     if ((await done.getAttribute('aria-expanded')) === 'false') await done.click();
     return page;
   }

@@ -127,9 +127,9 @@ describe('a deliverable plan carries Deliver, and no other plan does', () => {
       tab: 'agents',
       over: { fleet: payload, board: boardPayload },
     });
-    await page.getByText('Done').first().waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="release-delivery"]').waitFor({ timeout: 10_000 });
     // DONE is collapsed by default — the same click a reader makes to see inside.
-    const doneToggle = page.locator('[data-group-toggle="done"]');
+    const doneToggle = page.locator('[data-group-toggle="release-delivery"]');
     await doneToggle.waitFor({ timeout: 10_000 });
     if ((await doneToggle.getAttribute('aria-expanded')) === 'false') await doneToggle.click();
     return page;

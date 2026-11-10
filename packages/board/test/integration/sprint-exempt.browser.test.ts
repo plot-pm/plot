@@ -138,7 +138,7 @@ describe('a sprint view says what it hid', () => {
         .map((e) => e.getAttribute('data-branch') ?? e.querySelector('[data-branch]')?.getAttribute('data-branch') ?? ''));
 
   const header = (page: Page) =>
-    page.locator('section:has([data-group-toggle="waiting-on-you"]) h2').first();
+    page.locator('[data-delivery-section="you"]').first();
 
   // THE CHIP, all-or-nothing — replaces the per-sprint `data-sprint-toggle`.
   const chip = (page: Page) => page.locator('[data-chip="This sprint"]');
