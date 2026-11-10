@@ -8377,7 +8377,6 @@ export async function buildFleet(
       fleetPlanIndexOf(opts, entry),
     ]);
   const { map: phaseMap } = declaredPhaseMap(phasesValue);
-  const autoReviewValue = await readConfigAsync(opts, 'Auto-review', '');
   const correctionBudgetValue = await readConfigAsync(opts, 'Correction budget', '');
   const correctionBudgetNumber = Number(correctionBudgetValue);
   // Each open PR's branch tip, read from the local remote-tracking refs the scan
@@ -8603,7 +8602,7 @@ export async function buildFleet(
     viewSource: entry.viewSource ?? undefined,
     issueError: entry.issueError,
     issueAbsence: entry.issueAbsence,
-    ...(autoReviewValue === '' ? {} : { autoReview: autoReviewValue.toLowerCase() === 'true' }),
+    autoReview: settings.autoReview,
     ...(correctionBudgetValue === '' || !Number.isFinite(correctionBudgetNumber)
       ? {}
       : { correctionBudget: correctionBudgetNumber }),

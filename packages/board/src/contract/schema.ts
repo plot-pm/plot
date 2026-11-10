@@ -4772,6 +4772,14 @@ export const FleetShape = z.object({
        */
       machineOverride: z.boolean().optional(),
       /**
+       * The three automatic-step switches beside auto-dispatch. Optional for
+       * the reason `machineOverride` is: the client casts this payload, and an
+       * absent switch reads as off.
+       */
+      autoReview: z.boolean().optional(),
+      autoVerify: z.boolean().optional(),
+      autoDesign: z.boolean().optional(),
+      /**
        * How many workers are in WORKING — the registry size, one derivation
        * read twice.
        *

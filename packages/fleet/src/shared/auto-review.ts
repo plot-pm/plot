@@ -26,7 +26,8 @@ import { readRepair } from '@plot-pm/domain/workflows/merge';
 import type { RunLogLine } from '@plot-pm/domain/ports/run-log';
 import { hostOf, refsOf, runLogOf, scriptsOf, type ActOptions } from './action-log.js';
 import { commonGitDir } from './agent-log.js';
-import { readConfig, type ConfigReadOptions } from './config-reader.js';
+import { type ConfigReadOptions } from './config-reader.js';
+import { readSwitch } from './fleet-settings-store.js';
 import { pidAlive } from './fleet-run.js';
 
 /** The `## Plot Config` key that switches automatic review on. */
@@ -53,7 +54,7 @@ export const autoReview = (config: AutoReviewConfig): boolean => config.autoRevi
  * @returns the config reading.
  */
 export const readAutoReview = (opts: ConfigReadOptions): AutoReviewConfig => ({
-  autoReview: readConfig(opts, AUTO_REVIEW_KEY, '') === 'true',
+  autoReview: readSwitch(opts, 'autoReview'),
 });
 
 /** The most review runs live at once that the slice-PR pass starts toward, the release review's included. */
