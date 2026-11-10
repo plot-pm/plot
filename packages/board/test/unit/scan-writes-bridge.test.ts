@@ -230,44 +230,38 @@ describe('the scan writes its own bridge', () => {
     // its temp registry stays, and goes with the sandbox in `afterAll`.
     const killedTmp = path.join(tmp, 'killed-tmp');
     fs.mkdirSync(killedTmp, { recursive: true });
-    // Killed at a known point inside the walk: a `git` on PATH that writes its
-    // pid to `reached` and blocks on the walk's `worktree list`, its last git
-    // call before the bridge write.
-    const shim = path.join(tmp, 'killed-shim');
-    const reached = path.join(shim, 'reached');
-    fs.mkdirSync(shim, { recursive: true });
-    const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
-    fs.writeFileSync(path.join(shim, 'git'), [
-      '#!/bin/bash',
-      `case " $* " in *" worktree list "*) echo $$ > '${reached}.part'; mv '${reached}.part' '${reached}'; exec sleep 600;; esac`,
-      `exec '${realGit}' "$@"`,
-      '',
-    ].join('\n'), { mode: 0o755 });
-    const child = spawn('bash', [SCAN, '--offline', '--stream'], {
-      cwd: repo, stdio: ['ignore', 'ignore', 'ignore'],
-      env: { ...process.env, TMPDIR: killedTmp, PATH: `${shim}${path.delimiter}${process.env.PATH ?? ''}` },
+    // The scan cannot reach its rename: its temp file `last-pulse.json.<pid>.tmp`
+    // is a FIFO with no reader, so `writeFileSync` blocks in `open`. A
+    // launcher holds the scan on stdin until the FIFO exists; `exec` keeps the
+    // pid from launcher to `node`, which names the temp file by its own pid.
+    const child = spawn('bash', ['-c', 'read -r _ && exec bash "$0" "$@"', SCAN, '--offline', '--stream'], {
+      cwd: repo, stdio: ['pipe', 'pipe', 'ignore'], env: { ...process.env, TMPDIR: killedTmp },
     });
     const exited = new Promise<number | null>((r) => child.on('exit', (code) => r(code)));
-    let gone = false;
-    void exited.then(() => { gone = true; });
-    const atGate = async (): Promise<boolean> => {
-      while (!fs.existsSync(reached)) {
-        if (gone) return false;
-        await new Promise((r) => setTimeout(r, 10));
-      }
-      return true;
-    };
-    expect(await atGate(), 'the scan exited before it reached `git worktree list`').toBe(true);
+    const fifo = `${bridgeFile(repo)}.${child.pid}.tmp`;
+    execFileSync('mkfifo', [fifo]);
+    // Killed once the walk has printed its first plan, which it does before
+    // the bridge write.
+    const walking = new Promise<boolean>((r) => {
+      let out = '';
+      child.stdout!.on('data', (chunk: Buffer) => {
+        out += chunk.toString('utf8');
+        if (out.includes('{"kind":"plan"')) r(true);
+      });
+      void exited.then(() => r(false));
+    });
+    child.stdin!.end('\n');
+    expect(await walking, 'the scan exited before it printed a plan').toBe(true);
     child.kill('SIGKILL');
     await exited;
-    // The blocked `git` is not in the scan's process group, so it is ended by
-    // the pid it wrote.
-    process.kill(Number(fs.readFileSync(reached, 'utf8')), 'SIGKILL');
 
     expect(fs.readFileSync(bridgeFile(repo), 'utf8')).toBe(good);
-    // And nothing was left half-written beside it.
+    // And nothing was left half-written beside it: the one temp entry is the
+    // FIFO this test made, never replaced by a file.
     const strays = fs.readdirSync(path.join(repo, '.plot/state')).filter((n) => n.includes('.tmp'));
-    expect(strays).toEqual([]);
+    expect(strays).toEqual([path.basename(fifo)]);
+    expect(fs.lstatSync(fifo).isFIFO()).toBe(true);
+    fs.rmSync(fifo);
   });
 
   it('still reports when it cannot write', () => {
