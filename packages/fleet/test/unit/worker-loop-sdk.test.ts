@@ -146,7 +146,7 @@ const rig = (
   };
   const deps: LoopDeps = {
     ports,
-    idle: { selfPid: 1, windowSeconds: 900, intervalMs: 1_000_000, transcript: transcriptFixture({ spoken: [] }) },
+    idle: { selfPid: 1, windowSeconds: 900, intervalMs: 1_000_000, transcript: transcriptFixture({ spoken: [] }) , table: async () => ({ ok: true as const, rows: [{ pid: 100, ppid: 1, startedAt: 0, cpuCentis: 5, comm: 'claude' }] }) },
     manifestFile,
     repoRoot: dir,
     worktree: wt,

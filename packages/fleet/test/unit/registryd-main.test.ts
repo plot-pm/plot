@@ -7,7 +7,6 @@ import { refusedSlicesFixture, runLogFixture, answerRecordFile, ANSWER_RECORD_HO
 import type { AgentRun, AgentRunEnd, AgentRunRequest, AgentRunResult } from '@plot-pm/domain/ports/agent-run';
 import { UNBLOCKER_BOUND_SECONDS } from '@plot-pm/domain/rules/unblocker-due';
 import { QUESTION_MAX } from '../../src/shared/worker-question.js';
-import { REPORTER_FIFO_FILENAME } from '../../src/shared/continuation.js';
 import { join } from 'node:path';
 import { connect, createServer } from 'node:net';
 
@@ -3169,21 +3168,22 @@ describe('unblockWorldForRepo and unblockPortsFor — the production wiring', ()
   };
 
   /**
-   * Waits until the detached reporter `reporterShell` starts on `desk` has made
-   * its last write: one line in `.plot-worker.monitor.worker.jsonl`, and the
-   * reporter FIFO removed.
+   * Waits until the detached worker wrapper started on `desk` has made its last
+   * two writes: one line in `.plot-worker.monitor.worker.jsonl`, then the exit
+   * code in `.plot-worker.exit`.
    *
-   * @param desk the worktree the reporter writes to.
+   * @param desk the worktree the wrapper writes to.
    * @param boundMs how long to wait before failing.
-   * @throws when the reporter has not finished within `boundMs`, naming the desk and the bound.
+   * @throws when the wrapper has not finished within `boundMs`, naming the desk and the bound.
    */
   const reporterFinished = async (desk: string, boundMs = 10_000): Promise<void> => {
     const findings = join(desk, '.plot-worker.monitor.worker.jsonl');
-    const fifo = join(desk, REPORTER_FIFO_FILENAME);
+    const exit = join(desk, '.plot-worker.exit');
     const deadline = Date.now() + boundMs;
-    const done = (): boolean => existsSync(findings) && readFileSync(findings, 'utf8').trim() !== '' && !existsSync(fifo);
+    const filled = (file: string): boolean => existsSync(file) && readFileSync(file, 'utf8').trim() !== '';
+    const done = (): boolean => filled(findings) && filled(exit);
     while (!done()) {
-      if (Date.now() >= deadline) throw new Error(`the reporter on ${desk} did not finish within ${boundMs} ms`);
+      if (Date.now() >= deadline) throw new Error(`the wrapper on ${desk} did not finish within ${boundMs} ms`);
       await new Promise((r) => setTimeout(r, 25));
     }
   };
