@@ -131,7 +131,7 @@ interface Walk {
 }
 
 /** The GraphQL errors of a reply, as `gh` prints them, or null where it carries none. */
-const graphqlErrors = (reply: GithubReply): string | null => {
+export const graphqlErrors = (reply: GithubReply): string | null => {
   const errors = list(record(reply.body).errors);
   if (errors.length === 0) return null;
   return `GraphQL: ${errors.map((e) => text(record(e).message)).join(', ')}`;
