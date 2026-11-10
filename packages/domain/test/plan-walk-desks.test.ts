@@ -144,6 +144,24 @@ describe('readDeskReadings — what each desk reads', () => {
     ]);
   });
 
+  it('hands the process table the pass\'s own dirt and unpushed reads, and nothing it could not read', async () => {
+    const known: unknown[] = [];
+    const processes = {
+      workerState: async (worktree: string, _hasPr: boolean, given: unknown) => {
+        known.push([worktree, given]);
+        return answered(reading());
+      },
+    } as unknown as Processes;
+    await read(world({ dirty: { '/w/a': ['x.ts'] } }), desks(), processes, stageOf(['feature/a'], ['feature/b']));
+    const failing = { ...world(), dirtyPaths: async () => failed<readonly string[]>(), unpushedCommits: async () => failed<readonly string[]>() } as unknown as Trees;
+    await read(failing, desks(), processes, stageOf(['feature/a']));
+    expect(known).toEqual([
+      ['/w/a', { dirty: true, allPushed: true }],
+      ['/w/b', { dirty: false }],
+      ['/w/a', {}],
+    ]);
+  });
+
   it('spells an uncountable unpushed list unknown rather than failing the beat', async () => {
     const out = await read(world({ unpushed: {} }), desks(), processesOf(table), stageOf(['feature/a']));
     expect(out.desks[0]!.unpushed).toBe('unknown');

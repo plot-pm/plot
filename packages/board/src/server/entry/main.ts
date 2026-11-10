@@ -8,7 +8,8 @@ import { leaveBoardRunsToTheBoard } from '../board-run.js';
 import { gatherReadingsAndRelease } from '../release-claim.js';
 import { repairRecordFile } from '@plot-pm/domain/adapters/repair-record/repair-record-file';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
-import { fleetdStartFile } from '@plot-pm/domain/adapters';
+import { fleetdStartFile, readFleetdHeartbeatSync } from '@plot-pm/domain/adapters';
+import { hostTransportStatusLine } from '@plot-pm/domain/rules/host-transport';
 import { spawnerStatus, spawnerStatusText, spawnerStatusLines, bundleDriftDetected, bundleDriftText } from '@plot-pm/domain/rules/spawn-contract';
 import { callerOf } from '@plot-pm/domain/workflows/decision';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
@@ -18,6 +19,7 @@ import { finishContextFor, mergePortsFor } from './merge-ports.js';
 import { finishRelease } from './release-finish.js';
 import { recordActionReceipt } from '../action-receipt.js';
 import { planGateAnswer, planGateAskFrom } from './plangate.js';
+import { deskLiveness, resolveManifestDirAsync } from '@plot-pm/fleet/shared/registry';
 
 /**
  * The `node` entry point a skill runs.
@@ -31,6 +33,7 @@ import { planGateAnswer, planGateAskFrom } from './plangate.js';
  * node skills/plot/scripts/board/plot-ask.mjs release-approve <pr> <sha>
  * node skills/plot/scripts/board/plot-ask.mjs repair-pr <pr>
  * node skills/plot/scripts/board/plot-ask.mjs spawner [pid] [--lines]
+ * node skills/plot/scripts/board/plot-ask.mjs desk-states <desk>...
  * <GET /api/board body> | node skills/plot/scripts/board/plot-ask.mjs spawner --from-board [--lines]
  * <plan-meta JSON> | node skills/plot/scripts/board/plot-ask.mjs plangate --slug <slug> --default-branch <main> [--source <text>] [--ref-resolved] [--allow-local]
  * ```
@@ -294,7 +297,8 @@ export const run = async (
     const drifted = record.ok && record.value ? bundleDriftDetected(record.value.bundleHash, runningHash) : false;
     const driftText = drifted && record.ok && record.value ? bundleDriftText(record.value.bundlePath) : null;
     if (argv.includes('--lines')) {
-      write(spawnerStatusLines(verdict, driftText));
+      // The transport fleetd published with its heartbeat: in-process or shell, and why.
+      write(spawnerStatusLines(verdict, driftText) + hostTransportStatusLine(readFleetdHeartbeatSync(opts.repoRoot)?.hostTransport));
       return 0;
     }
     write(`${JSON.stringify({
@@ -306,6 +310,21 @@ export const run = async (
       gatePath,
       gateNumber: gateAnswer,
     })}\n`);
+    return 0;
+  }
+
+  if (argv[0] === 'desk-states') {
+    // The board's state of each desk, for `plot-fleetctl.sh --status` to print
+    // beside the shell's own: one line `<desk>\t<state>` per argument, in
+    // order, `unknown` for every desk where the batch could not be read.
+    const desks = argv.slice(1);
+    const { opts } = contextFrom(here);
+    const manifestDir = await resolveManifestDirAsync(opts.repoRoot, { scriptsDir: opts.scriptsDir });
+    const log = (line: string): void => {
+      process.stderr.write(`${line}\n`);
+    };
+    const states = await deskLiveness(opts.repoRoot, opts.scriptsDir, manifestDir, log)(desks);
+    for (const [i, desk] of desks.entries()) write(`${desk}\t${states.length === desks.length ? states[i] : 'unknown'}\n`);
     return 0;
   }
 
@@ -328,7 +347,7 @@ export const run = async (
   const question = questionFrom(argv);
   if (!question) {
     process.stderr.write(
-      'usage: plot-ask.mjs <board|fleet> | deliverable <slug> <plan-file> | release-claim <branch> | merge <pr> <sha> | spawner [pid] [--lines] | spawner --from-board [--lines] | plangate --slug <slug> --default-branch <main>\n',
+      'usage: plot-ask.mjs <board|fleet> | deliverable <slug> <plan-file> | release-claim <branch> | merge <pr> <sha> | spawner [pid] [--lines] | spawner --from-board [--lines] | desk-states <desk>... | plangate --slug <slug> --default-branch <main>\n',
     );
     return 2;
   }

@@ -8,7 +8,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // gate basename -> why it cannot run locally
-const CI_ONLY = {};
+const CI_ONLY = {
+  'check-host-https-callers.sh':
+    'github-reads-in-process names it a CI gate and adds no Local checks entry; its contract test runs locally with the gate tests',
+};
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const GATE = /scripts\/(check-[\w-]+\.sh)/g;

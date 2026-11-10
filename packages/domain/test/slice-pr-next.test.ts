@@ -77,6 +77,18 @@ describe('slicePrNext', () => {
     expect(slicePrNext(readings())).toEqual({ step: 'review', head: HEAD });
   });
 
+  it('acts on a slice PR into a sprint branch: green selects the review, failing selects the fixer', () => {
+    // The row carries no base branch; the sprint scope names the head, so the arms read only the rollup.
+    const sprintScope = { read: 'scope', sprint: {} as Sprint, slugs: ['x'], branches: ['infra/sprint-slice'] } as const;
+    const fixerFresh = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, pushedHead: false } as const;
+    const green = row({ head: 'infra/sprint-slice', ciChecks: 'green' });
+    expect(reviewArm(readings({ row: green, scope: sprintScope }))).toEqual({ step: 'review', head: HEAD });
+    const failing = row({ head: 'infra/sprint-slice', ciChecks: 'failing', checksSha: HEAD });
+    expect(
+      ciRedArm(readings({ row: failing, scope: sprintScope, fixer: fixerFresh, desk: { dead: true } })),
+    ).toEqual({ step: 'fixer', head: HEAD, evidence: 'ci-red' });
+  });
+
   it('reviews a head when the review names an older SHA', () => {
     const r = row({ plotReview: 'success', plotReviewSha: OLD });
     expect(slicePrNext(readings({ row: r }))).toEqual({ step: 'review', head: HEAD });

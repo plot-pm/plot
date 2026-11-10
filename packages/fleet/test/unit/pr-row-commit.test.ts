@@ -12,6 +12,7 @@ import {
   PR_PENDING_REASK_LIMIT, PR_PENDING_REASK_SLOW_MS, freshPrState, refreshPrs, type PrWorld,
 } from '../../src/shared/pr-refresh.js';
 import { removeTree as rmTree } from '../rm-tree.mjs';
+import { withSaidListing } from './listing-over-said.js';
 
 const SHA = 'a1'.repeat(20);
 const SHA2 = 'b2'.repeat(20);
@@ -51,7 +52,7 @@ afterEach(() => {
 });
 
 const worldOf = (f: Fake, clock: { t: number }): PrWorld => ({
-  scripts: f.scripts, host: hostFake, store: prIndexFile({ cwd: home }), now: () => clock.t,
+  scripts: f.scripts, host: withSaidListing(hostFake, f.scripts.hostSaid), store: prIndexFile({ cwd: home }), now: () => clock.t,
 });
 
 const stored = async (w: PrWorld) => {
@@ -354,7 +355,7 @@ describe('the Jenkins rotation reads every ambiguous row while a carried colour 
 
   const run = async (f: ReturnType<typeof jenkins>, passes: number) => {
     const clock = { t: T0 };
-    const w: PrWorld = { scripts: f.scripts, host: hostFake, store: prIndexFile({ cwd: home }), now: () => clock.t };
+    const w: PrWorld = { scripts: f.scripts, host: withSaidListing(hostFake, f.scripts.hostSaid), store: prIndexFile({ cwd: home }), now: () => clock.t };
     const state = freshPrState();
     for (let i = 0; i < passes; i += 1) {
       clock.t = T0 + i * 120_000;
@@ -394,7 +395,7 @@ describe('the Jenkins rotation reads every ambiguous row while a carried colour 
     let oldest = 'pending';
     const f = jenkins((n) => (n === N ? oldest : 'green'));
     const clock = { t: T0 };
-    const w: PrWorld = { scripts: f.scripts, host: hostFake, store: prIndexFile({ cwd: home }), now: () => clock.t };
+    const w: PrWorld = { scripts: f.scripts, host: withSaidListing(hostFake, f.scripts.hostSaid), store: prIndexFile({ cwd: home }), now: () => clock.t };
     const state = freshPrState();
     for (let i = 0; i < 2 * PASSES; i += 1) {
       clock.t = T0 + i * 120_000;

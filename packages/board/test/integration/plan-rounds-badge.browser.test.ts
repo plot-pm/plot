@@ -178,6 +178,8 @@ describe('the rounds ride beside the phase', () => {
   it('DOES NOT RENDER PAST DISCOVERY, even with rounds recorded', async () => {
     const page = await open();
     try {
+      // A plan past Discovery in Testing is delivered: its head sits under Release delivery, folded by default.
+      await page.locator('[data-group-toggle="release-delivery"]').click();
       await expect.poll(() => planRow(page, 'shipped').count(), { timeout: 10_000 })
         .toBeGreaterThan(0);
       // `roundsBadgeText` gates on `controls.roundsBadge` — and this

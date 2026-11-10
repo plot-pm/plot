@@ -12,7 +12,7 @@ metadata:
   repo: https://github.com/plot-pm/plot
   version: 0.9.0
 compatibility: >-
-  Designed for Claude Code and Cursor. Requires git, bash, curl, and the Node
+  Designed for Claude Code and Cursor. Requires git 2.42 or later, bash, curl, and the Node
   major the repository pins in `.nvmrc`. Git-host and CI CLIs are optional —
   the board works without any of them. The plugin start route is Claude Code-specific; on Cursor the probe
   finds no plugin directory and falls through to the npm or checkout route.
@@ -91,6 +91,8 @@ collect and report, skills interpret and adapt). The probe's contract has other
 callers, so it must not be asked to carry a ticket prefix it never had.
 
 `plot-board-probe.sh` reports the Node version and the major `.nvmrc` pins,
+the `git --version` output (fleetd and the board server refuse a git older
+than 2.42 at start, so report a version below it as the stop),
 whether the CWD is the repo root, where a board artifact lives, whether a
 `## Plot Config` exists, how many plan files there are, the CI signals present
 (`ci_signals.jenkinsfile`, `ci_signals.gh_workflows`), and the install/auth

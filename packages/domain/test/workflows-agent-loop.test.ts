@@ -467,6 +467,13 @@ describe('agentLoop — row 5: prompt running, idleNow answers idle', () => {
     expect(end?.reason).toBe('quiet');
     expect(end?.actor).toBe('monitor');
     expect(end?.exitCode).toBe(124);
+    expect(end && 'idle' in end).toBe(false);
+  });
+
+  it('carries the idle check inputs into the ending write', () => {
+    const idle = { logBytes: 40, logMtimeMs: 1_000, log: 'idle' as const, cpuRead: true, cpuDeltaCentis: 0 };
+    const end = endWrite(agentLoop({ ...readings, running: { ...readings.running!, idle } }).writes);
+    expect(end?.idle).toEqual(idle);
   });
 
   it('supervise answers correct — a live-looking manifest, no declaration, gates fail on a dirty desk', () => {

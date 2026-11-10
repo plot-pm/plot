@@ -8,7 +8,7 @@
 # FOUR READERS, not three. `plot_worker_dirty_filter` (`plot-worker-state.sh`)
 # decides `stalled`, `desk_is_resettable`, and the `--restart`/`--release`
 # refusals; `desk_dirt` below serves the reaper and reconcile §21;
-# `bashCleanliness` (`packages/board/src/server/registry.ts`) serves the
+# `deskCleanliness` (`packages/fleet/src/shared/registry.ts`) serves the
 # board's drop rule; and the raw porcelain reads in `plot-dispatch.sh` and
 # `plot-fleetctl.sh`. All four must read one desk the same way: a desk the
 # reaper removes and section 21 keeps for `uncommitted-changes` is two answers
@@ -128,7 +128,7 @@ exclude_bundle_paths() { # $1=worktree, stdin=porcelain lines
 desk_dirt() {
   git -C "$1" status --porcelain 2>/dev/null \
     | grep -v 'tiny-garden/\.plot/state' \
-    | grep -vxFf <(printf '%s\n' '?? PLOT-CORRECTION.md' '?? .plot-worker.continue.md' '?? .plot-worker.pid.startedAt' '?? .plot-worker.pid' '?? .plot-worker.wrapper.pid' '?? .plot-worker.exit' '?? .plot-worker.log' '?? .plot-worker.freewait' '?? .plot-worker.ending.json' '?? .plot-worker.envelope.json' '?? .plot-worker.monitor.worker.jsonl' '?? .plot-worker.monitor.agent.jsonl' '?? .plot-worker.monitor.build.jsonl') \
+    | grep -vxFf <(printf '%s\n' '?? PLOT-CORRECTION.md' '?? .plot-worker.continue.md' '?? .plot-worker.pid.startedAt' '?? .plot-worker.pid' '?? .plot-worker.wrapper.pid' '?? .plot-worker.exit' '?? .plot-worker.log' '?? .plot-worker.freewait' '?? .plot-worker.ending.json' '?? .plot-worker.envelope.json' '?? .plot-worker.monitor.worker.jsonl' '?? .plot-worker.monitor.agent.jsonl' '?? .plot-worker.monitor.build.jsonl' '?? .plot-worker.pass') \
     | exclude_bundle_paths "$1" \
     || true
 }

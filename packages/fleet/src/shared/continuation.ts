@@ -6,11 +6,12 @@ import { execFileSync, spawn } from 'node:child_process';
 import { readConfig } from './config-reader.js';
 import { markerReading } from './worker-question.js';
 import { answerRecordFile } from '@plot-pm/domain/adapters';
+import { TOKEN_FILENAME } from '@plot-pm/domain/rules/worker-liveness';
 import { isAnswered } from '@plot-pm/domain';
-import { deskManifestFor, assignEmptyManifestBranch, writeDeskManifest, writeManifestStamp, writeResumeId } from './manifest-stamp.js';
+import { deskManifestFor, assignEmptyManifestBranch, writeDeskManifest, writeResumeId } from './manifest-stamp.js';
 import { briefPath } from './brief-path.js';
 import { deskMonitorsShell, transcriptDirFor, TRANSCRIPT_HOME_ENV } from '@plot-pm/domain/adapters';
-import type { Caller, DeskMonitors, MonitoredDesk, MonitorPids, ProcessProbe } from '@plot-pm/domain';
+import type { Caller, DeskMonitors, ProcessProbe } from '@plot-pm/domain';
 import { deskWaitsFree, FREE_WAIT_FILENAME } from '@plot-pm/domain/rules/desk-loop-alive';
 import { deskFreeWait, readDeskLoop } from './desk-loop.js';
 import { continueTarget } from '@plot-pm/domain/rules/continue-target';
@@ -53,6 +54,8 @@ const resolveCapabilities = (opts: ContinuationOptions, agent: string): Capabili
 export interface ContinuationOptions {
   repoRoot: string;
   scriptsDir: string;
+  /** `plot-worker-start.mjs`; `<scriptsDir>/board/plot-worker-start.mjs` where absent. */
+  workerStart?: string;
 }
 
 export { CONTINUATION_NAME };
@@ -400,7 +403,7 @@ export type DeskContinuation =
       previousPid: string;
       prompt: string;
       log: string;
-      /** Set when the loop started but its manifest could not be stamped afterward; the registry row may still name the previous run. */
+      /** Set when the loop started but its manifest does not name the new pid within the bound; the registry row may still name the previous run. */
       warning?: string;
     }
   | { kind: 'refused'; status: number; reason: ContinueRefusal; detail: string }
@@ -473,7 +476,7 @@ export interface DeskContinuationInput {
    * so a start that throws afterwards cannot be repeated unrecorded.
    */
   beforeStart?: () => Promise<boolean>;
-  /** Starts the AgentMonitor; defaults to the shell script under `scriptsDir`. */
+  /** Stops the previous run's monitors; defaults to the shell adapter under `scriptsDir`. The wrapper starts none. */
   monitors?: DeskMonitors;
   /**
    * Stops a pid and waits for it to be gone; defaults to {@link stopAndAwaitExit}.
@@ -496,35 +499,12 @@ export interface DeskContinuationInput {
    */
   onLocked?: () => Promise<void>;
   /**
-   * Spawns the worker command; defaults to `node:child_process`'s `spawn`.
-   *
-   * Injected so a test can make the spawn itself fail — a stub that emits
-   * `'error'` instead of `'exit'`, the way a missing `sh` binary would — and
-   * assert {@link continueOnDesk} still settles and releases the lock, rather
-   * than needing a real broken `PATH` to provoke the same event.
+   * Spawns `node plot-worker-start.mjs <Worker command>`; defaults to
+   * `node:child_process`'s `spawn`. Injected so a test can make the spawn
+   * itself fail, as a missing binary would, and assert the lock is released.
    */
   spawn?: typeof spawn;
 }
-
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const pad2 = (n: number): string => String(n).padStart(2, '0');
-
-/**
- * A process start time in the text `ps -o lstart=` prints in the C locale,
- * local time: `Tue Oct 27 17:43:23 2026`. The dispatcher's awk writer stores
- * that text for `pidStartedAt` and `wrapperPidStartedAt`, so both writers
- * store one format, and `Date.parse` and `plot_pid_is_current` read either.
- *
- * @param startedAt - epoch milliseconds, or `null` where the start could not be read.
- * @returns the text, or `''` for `null`.
- */
-const lstartText = (startedAt: number | null): string => {
-  if (startedAt === null) return '';
-  const d = new Date(startedAt);
-  return `${WEEKDAYS[d.getDay()]} ${MONTHS[d.getMonth()]} ${pad2(d.getDate())} `
-    + `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())} ${d.getFullYear()}`;
-};
 
 /**
  * The monitor pids a manifest records; `[]` when it cannot be read.
@@ -637,29 +617,49 @@ export const stopAndAwaitExit = async (pid: string, pollMs = 50, deadlineMs = ST
 };
 
 /**
- * Reads `.plot-worker.pid`, polling briefly — the write lands from inside the
- * backgrounded subshell `continueOnDesk` spawns (see its own long comment),
- * never the outer shell whose exit this function's caller already awaited,
- * so a single read can race a write that is still a scheduler tick away.
- * Measured landing under 50 ms on this machine; bounded generously for load.
+ * Reads `.plot-worker.pid`, polling until the wrapper writes it. The wrapper
+ * writes it after two Node starts, `plot-worker-start.mjs` and
+ * `plot-worker-wrapper.mjs`, so the bound allows for a loaded machine.
  *
  * `stale`, where given, is rejected even though it is a positive number: a
- * continued or restarted desk's pid file already names the PREVIOUS worker
- * before this spawn's write lands, so a poll that accepts any positive value
- * can return that leftover pid on its very first read — measured directly,
- * `continue-command.test.ts`'s "starts a new pid through the default bridged
- * pulse" flaked on exactly this read before the guard existed.
+ * continued or restarted desk's pid file still names the previous worker
+ * until the wrapper's write lands.
  *
  * @param worktree - the desk whose pid file is read.
  * @param stale - a pid to keep polling past, even though it reads positive.
- * @returns the pid, parsed; `0` where the file never holds a fresh one within the bound.
+ * @returns the pid, parsed; the last reading, `0` or `stale`, where no fresh one lands within the bound.
  */
 const pollDeskPid = async (worktree: string, stale?: string): Promise<number> => {
-  const deadline = Date.now() + 2_000;
+  const deadline = Date.now() + START_BOUND_MS;
   const staleNum = Number(stale) || 0;
   for (;;) {
     const pid = Number(await readDeskPid(worktree)) || 0;
     if ((pid > 0 && pid !== staleNum) || Date.now() >= deadline) return pid;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+};
+
+/** How long a start waits for the wrapper's pid file and for its manifest stamp, each. */
+const START_BOUND_MS = 5_000;
+
+/**
+ * Polls the manifest until its `pid` names `pid`, the wrapper's stamp.
+ *
+ * @param manifestFile - the manifest the wrapper stamps.
+ * @param pid - the agent pid the wrapper wrote.
+ * @returns true once the stamp names it; false where it does not within the bound.
+ */
+const pollStamp = async (manifestFile: string, pid: number): Promise<boolean> => {
+  const deadline = Date.now() + START_BOUND_MS;
+  for (;;) {
+    let named = false;
+    try {
+      named = (JSON.parse(fs.readFileSync(manifestFile, 'utf8')) as Record<string, unknown>).pid === String(pid);
+    } catch {
+      /* a manifest mid-rename or unreadable is read again */
+    }
+    if (named) return true;
+    if (Date.now() >= deadline) return false;
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
 };
@@ -783,45 +783,6 @@ const logLine = (log: string, line: string): void => {
 };
 
 /**
- * Replaces the desk's monitor: stops the one the manifest records, then
- * starts a new one for the new run.
- *
- * The monitor starts only after `.plot-worker.pid` names the new run, because
- * it ends when that pid is gone. The old one would watch the new pid too, so
- * it is stopped first and the desk keeps one (#1255). Every step that does not
- * happen is written to the desk's log.
- *
- * @param input.previous - the monitor pids the manifest recorded before any
- *   stop, since a stopped loop removes its manifest.
- * @returns the new monitor's pid, `''` when it was not started.
- */
-const startMonitors = (input: {
-  monitors: DeskMonitors;
-  desk: MonitoredDesk;
-  pidRecorded: boolean;
-  previous: string[];
-}): MonitorPids => {
-  const { monitors, desk, previous } = input;
-  const none: MonitorPids = { agentMonitorPid: '' };
-  if (previous.length > 0 && !monitors.stop(previous).ok) {
-    logLine(desk.log, `could not stop the previous monitors (pids ${previous.join(', ')}); they may still run`);
-  }
-  if (!input.pidRecorded) {
-    logLine(desk.log, `AgentMonitor not started: ${desk.pidFile} could not be written, so it would watch the previous run`);
-    return none;
-  }
-  const result = monitors.start(desk);
-  if (!result.ok) {
-    logLine(desk.log, `AgentMonitor not started: the start answered ${result.why}`);
-    return none;
-  }
-  for (const [name, pid] of [['AgentMonitor', result.value.agentMonitorPid]]) {
-    if (pid === '') logLine(desk.log, `${name} not started: its script is not executable under the scripts directory`);
-  }
-  return result.value;
-};
-
-/**
  * Where a restart's manifest goes. A restart holds no live loop, so none is
  * stopped: a named manifest is stamped, an unnamed desk is given a new one,
  * and two manifests naming one desk stay an estate defect.
@@ -830,66 +791,6 @@ const restartTarget = (manifest: ReturnType<typeof deskManifestFor>): ReturnType
   if (manifest.kind === 'named') return { kind: 'continue', manifest: 'stamp', path: manifest.path };
   if (manifest.kind === 'several') return { kind: 'refused', reason: 'several' };
   return { kind: 'continue', manifest: 'write' };
-};
-
-/** Name of the FIFO the agent subshell holds open, in the desk's worktree. */
-export const REPORTER_FIFO_FILENAME = '.plot-worker.reporter.fifo';
-
-/**
- * The `sh -c` script that starts a continued or restarted agent and its reporter.
- *
- * Reads `PLOT_WORKTREE`, `PLOT_BRANCH`, `PLOT_EXIT_FILE`, `PLOT_PID_FILE`,
- * `PLOT_MANIFEST_FILE` and `PLOT_SCRIPT_DIR` from the environment. The script
- * starts `cmd` in an agent subshell, writes that subshell's pid to
- * `PLOT_PID_FILE`, starts a sibling reporter and exits.
- *
- * The agent subshell holds a read-write descriptor on the FIFO
- * `.plot-worker.reporter.fifo`; `cmd` runs with that descriptor closed. The
- * reporter reads the FIFO until end-of-file, which arrives when the agent
- * subshell ends by any cause including `SIGKILL`. The wait starts no process.
- * The reporter then writes `137` to `PLOT_EXIT_FILE` when the agent left none,
- * appends one `WorkerMonitor` finding (`clear` for exit 0, `gone` otherwise) to
- * the watched desk's worker log, and removes the FIFO.
- *
- * When `mkfifo` or the open fails, the agent still starts once and the reporter
- * polls `kill -0` on the agent's pid every second, then reports the same way.
- * The reporter starts with `SIGTERM` already ignored, so a group stop does not
- * end it before it reports. The outer shell sets the ignore after `agent=$!`
- * and before it forks the reporter; an ignore set earlier would reach `cmd`.
- * The reporting text matches `start_worker`'s tail in
- * `plot-worker-loop.sh`.
- *
- * @param cmd The `Worker command` shell fragment, run as `( cmd )`.
- * @returns The script text, to run as `sh -c <script>`.
- */
-export const reporterShell = (cmd: string): string => {
-  const reporterTail =
-    '[ -f "$PLOT_EXIT_FILE" ] || printf "%s" 137 > "$PLOT_EXIT_FILE"; ' +
-    'rc=$(cat "$PLOT_EXIT_FILE" 2>/dev/null); ' +
-    'wd="$PLOT_WORKTREE"; ' +
-    '[ -f "$PLOT_SCRIPT_DIR/plot-monitor-subject.sh" ] && . "$PLOT_SCRIPT_DIR/plot-monitor-subject.sh" 2>/dev/null && ' +
-    'wd=$(plot_watched_desk "$PLOT_MANIFEST_FILE" "$PLOT_WORKTREE"); ' +
-    'wf="$wd/.plot-worker.monitor.worker.jsonl"; ' +
-    'if [ -n "$wd" ]; then ' +
-    'now=$(date -u +%Y-%m-%dT%H:%M:%SZ); ' +
-    'if [ "$rc" = "0" ]; then f=clear; e="the agent pid $agent exited 0; the worker is finished"; ' +
-    'else f=gone; e="the agent pid $agent exited $rc; the wrapper that started it is unattended"; fi; ' +
-    'printf "{\\"monitor\\":\\"WorkerMonitor\\",\\"branch\\":\\"%s\\",\\"worktree\\":\\"%s\\",\\"finding\\":\\"%s\\",\\"since\\":\\"%s\\",\\"evidence\\":\\"%s\\",\\"measuredAt\\":\\"%s\\"}\\n" ' +
-    '"$PLOT_BRANCH" "$wd" "$f" "$now" "$e" "$now" >> "$wf" 2>/dev/null; ' +
-    'fi';
-  return (
-    `FIFO="$PLOT_WORKTREE/${REPORTER_FIFO_FILENAME}"; fifo=; ` +
-    'if mkfifo "$FIFO" 2>/dev/null && ( exec 3<>"$FIFO" ) 2>/dev/null; then fifo=1; exec 3<>"$FIFO"; fi; ' +
-    'poll() { while kill -0 "$agent" 2>/dev/null; do sleep 1; done; }; ' +
-    `( trap 'printf "%s" 143 > "$PLOT_EXIT_FILE"; exit 143' TERM; ( ${cmd} ) 3>&-; rc=$?; ` +
-    '[ -f "$PLOT_EXIT_FILE" ] || printf "%s" "$rc" > "$PLOT_EXIT_FILE" ) & ' +
-    'agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; trap \'\' TERM; ' +
-    '( trap \'\' TERM; ' +
-    'if [ -n "$fifo" ]; then { exec 3>&-; while read -r _; do :; done; } < "$FIFO" || poll; else poll; fi; ' +
-    `${reporterTail}; ` +
-    'if [ -n "$fifo" ]; then rm -f "$FIFO"; fi ) & ' +
-    'exec 3>&-'
-  );
 };
 
 /**
@@ -1292,12 +1193,18 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     // A NEW RUN, and every part of this says so. The previous `.plot-worker.exit`
     // is removed because it belongs to a process that has ended — leaving it
     // would let the scan read a fresh worker's state from its predecessor's exit
-    // code. The pid file is OVERWRITTEN below with the new child's pid; the old
-    // one is never inherited, which is the assertion the plan asks for.
-    try {
-      fs.rmSync(path.join(worktree, '.plot-worker.exit'), { force: true });
-    } catch {
-      /* a missing exit file is the normal case */
+    // code. The pid file and its start time are removed too: the wrapper writes
+    // the new agent's after the start has exited, and until then a left pid
+    // file would name the previous run, live or dead, to the poll below. The
+    // previous run's liveness token goes with the exit record, so a reader in
+    // the gap reads the start-time path and never a released token beside no
+    // exit record.
+    for (const name of ['.plot-worker.exit', '.plot-worker.pid', '.plot-worker.pid.startedAt', TOKEN_FILENAME]) {
+      try {
+        fs.rmSync(path.join(worktree, name), { force: true });
+      } catch {
+        /* a missing record is the normal case */
+      }
     }
     // THE PREVIOUS ENDING IS SUPERSEDED BY A RESTART. Left in place, a restarted
     // worker killed before it writes its own ending would be read as the
@@ -1310,202 +1217,99 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       }
     }
 
-    // THE STALE WRAPPER PID, REMOVED BEFORE THE SPAWN. This route starts no
-    // wrapper — it spawns the agent directly — so the file can only be the
-    // previous dispatch's. `plot_worker_state` reads it as proof a wrapper is
-    // watching; left in place, a waiting loop with no agent beneath it reads
-    // `finished` rather than `waiting`. `force: true` because the file is only
-    // ever stale here, same as the `.plot-worker.exit` removal above. The pid
-    // file itself (`.plot-worker.pid`) is NOT removed — it is overwritten below
-    // with the new child's pid.
+    // THE STALE WRAPPER PID, REMOVED BEFORE THE START. The wrapper this start
+    // runs writes its own; until it does, the file can only name the previous
+    // run's wrapper, and `plot_worker_state` reads it as proof a wrapper is
+    // watching.
     try {
       fs.rmSync(path.join(worktree, '.plot-worker.wrapper.pid'), { force: true });
     } catch {
       /* a missing wrapper pid file is the normal case */
     }
 
-    // THE STALE REPORTER FIFO, REMOVED BEFORE THE SPAWN, for the same reason: a
-    // previous run that ended without its reporter leaves the file behind, and
-    // `mkfifo` refuses an existing path.
-    try {
-      fs.rmSync(path.join(worktree, REPORTER_FIFO_FILENAME), { force: true });
-    } catch {
-      /* a missing FIFO is the normal case */
+    // THE PREVIOUS MONITORS ARE STOPPED BEFORE THE START: a desk launched
+    // before fleetd wrote the AgentMonitor's findings may still run one, and
+    // the wrapper starts none. A stopped loop removed its manifest, so the pids
+    // were read before any stop.
+    const monitors = input.monitors ?? deskMonitorsShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+    if (previousMonitors.length > 0 && !monitors.stop(previousMonitors).ok) {
+      logLine(log, `could not stop the previous monitors (pids ${previousMonitors.join(', ')}); they may still run`);
     }
 
-    // Spawned DETACHED and answered immediately, exactly as `/api/dispatch` is
-    // and for the same reason: the run outlives this request by design, and
-    // awaiting it would freeze this single-threaded server for the length of an
-    // agent's run. The row moving is the answer; the 202 is only the receipt.
-    //
-    // Through `sh -c` because `Worker command` is a shell FRAGMENT, not an argv
-    // vector — the same interpretation `start_worker` gives it, so a command that
-    // works under `/plot-dispatch` works here unchanged. Nothing from the request
-    // is interpolated into that string: the answer reached the worktree as a
-    // file, and its PATH travels in the environment.
-    //
-    // RE-PARENTED, NOT MERELY DETACHED. `detached: true` alone calls `setsid`
-    // and leaves the SPAWNING NODE PROCESS as `ppid` — measured 2026-10-07 on
-    // Darwin 24.6 (see the brief) — so `plot-boardctl.sh`'s `tree_pids`, which
-    // walks `ppid`, still finds this loop under the board and a `stop` reaches
-    // it. The outer `sh -c` below backgrounds the AGENT SUBSHELL directly and
-    // then has nothing left to do, so it exits almost at once — `init`/pid 1
-    // adopts the agent subshell, never Node's direct child, and `$!` read
-    // right after backgrounding it is `.plot-worker.pid`'s value.
-    // `continue-route.test.ts`'s "the loop is adopted by init" test checks
-    // exactly that pid's ppid.
-    //
-    // TWO SUBSHELLS, NOT ONE. `signalRecorded(file, 'SIGKILL')` sends the kill
-    // straight to the recorded pid, and SIGKILL ends that process in full,
-    // including a reporting tail queued behind `cmd` in the same shell body. So
-    // the AGENT subshell runs `cmd` and is what `.plot-worker.pid` names, and a
-    // REPORTER subshell is backgrounded beside it: a sibling, never its parent,
-    // because a parent that `wait`s is the agent's ppid, and the loop must have
-    // ppid 1 (`continue-route.test.ts`, "the loop is adopted by init").
-    // `reporterShell` holds the script and documents the wait.
-    //
-    // THE AGENT SELF-REPORTS ITS OWN EXIT, inside its own subshell: its
-    // `trap ... TERM` writes `.plot-worker.exit` (143) before it dies, and its
-    // ordinary post-`cmd` path writes the real `rc`, guarded by
-    // `[ -f "$PLOT_EXIT_FILE" ] ||` so a trap's earlier write stands. Only
-    // `SIGKILL` cannot be trapped; the reporter then writes `137`.
-    //
-    // `( ${cmd} )` IS DOUBLE-NESTED. `exit N` inside `cmd`, run directly in the
-    // trap-bearing subshell, would end that subshell before the exit-file
-    // write; the inner subshell gives `exit N` nothing above it to end.
+    // THE SAME WRAPPER AS A DISPATCH. `plot-worker-start.mjs` starts
+    // `plot-worker-wrapper.mjs` detached and exits, so the wrapper leads its own
+    // session and group and `init` adopts it: `plot-boardctl.sh`'s `tree_pids`,
+    // which walks `ppid` from the board, does not reach it. The wrapper writes
+    // `.plot-worker.wrapper.pid`, `.plot-worker.pid`, `.plot-worker.pid.startedAt`,
+    // the manifest stamp, one WorkerMonitor line and `.plot-worker.exit`. Its
+    // output is appended to the desk's log. Nothing from the request is
+    // interpolated into the command: the answer reached the worktree as a file.
     const exitFile = path.join(worktree, '.plot-worker.exit');
     const pidFile = path.join(worktree, '.plot-worker.pid');
+    const starter = opts.workerStart ?? path.join(opts.scriptsDir, 'board', 'plot-worker-start.mjs');
     const spawnFn = input.spawn ?? spawn;
-    const spawnResult = await new Promise<{ kind: 'exited' } | { kind: 'error'; err: Error }>((resolve) => {
-      const child = spawnFn(
-        'sh',
-        [
-          '-c',
-          reporterShell(cmd),
-        ],
-        {
-          cwd: worktree,
-          detached: true,
-          stdio: ['ignore', out, out],
-          env: {
-            ...process.env,
-            // CLEARED EVEN THOUGH THE PARENT MAY CARRY IT: a continued desk
-            // resumes a desk session, not the main-checkout bookkeeping a
-            // brief/implement/deliver/reslice/story run does, so it must not
-            // inherit that run's writer marker through the `...process.env`
-            // spread above.
-            [MAIN_CHECKOUT_WRITER_ENV]: '',
-            // AN AGENT ASKS FOR ITS OWN COMMON GIT DIR: a value this process
-            // inherited from a script that sourced `plot-worker-state.sh` is
-            // blanked, as `plot-dispatch.sh` blanks it on every agent launch.
-            PLOT_GIT_COMMON_DIR: '',
-            PLOT_BRANCH: branch,
-            PLOT_WORKTREE: worktree,
-            PLOT_EXIT_FILE: exitFile,
-            PLOT_PID_FILE: pidFile,
-            // THE MANIFEST THAT NAMES THIS DESK, so the loop's own wait can end
-            // honestly if that file later vanishes — `loopRegistration`'s `gone`.
-            // Refused above unless `continueTarget` found one to stamp or wrote a
-            // new one, so `manifestPath` is never empty here.
-            PLOT_MANIFEST_FILE: manifestPath,
-            PLOT_SCRIPT_DIR: opts.scriptsDir,
-            PLOT_CAPABILITIES: capabilities.kind === 'declared' ? capabilities.list : undefined,
-            [CONTINUATION_ENV]: promptPath,
-          },
+    const spawnResult = await new Promise<{ kind: 'exited'; code: number; stderr: string } | { kind: 'error'; err: Error }>((resolve) => {
+      const child = spawnFn(process.execPath, [starter, cmd], {
+        cwd: worktree,
+        detached: true,
+        stdio: ['ignore', out, 'pipe'],
+        env: {
+          ...process.env,
+          // CLEARED EVEN THOUGH THE PARENT MAY CARRY IT: a continued desk
+          // resumes a desk session, not the main-checkout bookkeeping a
+          // brief/implement/deliver/reslice/story run does.
+          [MAIN_CHECKOUT_WRITER_ENV]: '',
+          // AN AGENT ASKS FOR ITS OWN COMMON GIT DIR, as `plot-dispatch.sh`
+          // blanks it on every agent launch.
+          PLOT_GIT_COMMON_DIR: '',
+          PLOT_BRANCH: branch,
+          PLOT_WORKTREE: worktree,
+          PLOT_EXIT_FILE: exitFile,
+          PLOT_PID_FILE: pidFile,
+          PLOT_PID_STARTED_FILE: path.join(worktree, '.plot-worker.pid.startedAt'),
+          PLOT_WRAPPER_PID_FILE: path.join(worktree, '.plot-worker.wrapper.pid'),
+          // The manifest that names this desk: refused above unless
+          // `continueTarget` found one to stamp or wrote a new one.
+          PLOT_MANIFEST_FILE: manifestPath,
+          PLOT_STAMP_STARTED: new Date().toISOString(),
+          PLOT_SCRIPT_DIR: opts.scriptsDir,
+          PLOT_WORKER_LOG: log,
+          PLOT_WORKER_LOG_APPEND: '1',
+          PLOT_CAPABILITIES: capabilities.kind === 'declared' ? capabilities.list : undefined,
+          [CONTINUATION_ENV]: promptPath,
         },
-      );
-      // SETTLES THE PROMISE ON EITHER EVENT, never only logs. A spawn whose `sh`
-      // binary is missing (or any other spawn-time failure) fires `error`
-      // instead of `exit` — Node promises at most one of the two — so a
-      // handler that only logged left this function hanging, and after the
-      // lock existed, left it held until the bound (#1357's spawn half).
+      });
+      let stderr = '';
+      child.stderr?.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString('utf8');
+      });
+      // SETTLES THE PROMISE ON EITHER EVENT, never only logs. A spawn-time
+      // failure fires `error` instead of `exit`, and a handler that only logged
+      // left the continue lock held until the bound (#1357's spawn half).
       child.on('error', (err) => resolve({ kind: 'error', err }));
-      child.once('exit', () => resolve({ kind: 'exited' }));
+      // `close` waits for stderr to drain; a stub child with no streams emits `exit`.
+      child.once(child.stderr ? 'close' : 'exit', (code: number | null) => resolve({ kind: 'exited', code: code ?? 1, stderr }));
     });
+    fs.closeSync(out);
     if (spawnResult.kind === 'error') {
-      fs.closeSync(out);
       return failed(`continuation failed to spawn: ${spawnResult.err.message}`);
     }
-    // AWAITED, NOT UNREF'D YET. The outer shell backgrounds the middle
-    // subshell, writes `.plot-worker.pid` itself right after — the comment
-    // above says why that pid, not `agent`'s — and exits, well before the
-    // agent it started finishes. The write is in the outer shell's own
-    // foreground body, so `child.once('exit')` already proves it landed; the
-    // poll below stays for `continueTarget`'s stale-pid race (a continued or
-    // restarted desk's pid file still names the PREVIOUS worker for a moment),
-    // not for this write.
-    fs.closeSync(out);
+    if (spawnResult.code !== 0) {
+      const why = spawnResult.stderr.trim();
+      logLine(log, `the worker wrapper did not start: ${why}`);
+      return failed(`the worker wrapper did not start (exit ${spawnResult.code}): ${why}`);
+    }
 
+    // THE WRAPPER WRITES THE PID AND THEN THE STAMP, after the start has
+    // already exited. The poll waits past a pid file that still names the
+    // previous worker, then for the stamp that names the new one.
     const pid = await pollDeskPid(worktree, input.previousPid);
     let warning: string | undefined;
-    if (pid > 0) {
-      let pidRecorded = true;
-      // `pidStartedAt` is read once, here, through the process probe, and
-      // written both to the `.plot-worker.pid` sidecar and to the manifest
-      // stamp below, in the `ps -o lstart` text the dispatcher's awk writer
-      // stores, so a reader finds one shape whichever path started the worker.
-      const pidStartedAt = lstartText((input.probe ?? processProbeSystem()).startedAt(pid));
-      try {
-        fs.writeFileSync(path.join(worktree, '.plot-worker.pid'), String(pid), 'utf8');
-        fs.writeFileSync(path.join(worktree, '.plot-worker.pid.startedAt'), pidStartedAt, 'utf8');
-      } catch (err) {
-        // The worker IS running; only the record of it failed. Say so rather than
-        // reporting a failure that would invite a second spawn into the same
-        // worktree.
-        console.error('continuation started but its pid could not be recorded:', err);
-        pidRecorded = false;
-      }
-      const started = startMonitors({
-        monitors: input.monitors ?? deskMonitorsShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
-        desk: {
-          branch,
-          worktree,
-          manifestFile: manifestPath,
-          pidFile: path.join(worktree, '.plot-worker.pid'),
-          log,
-        },
-        pidRecorded,
-        previous: previousMonitors,
-      });
-      // STAMP THE MANIFEST — the path the reported defect came from. This route
-      // spawns directly and never runs `plot-dispatch.sh`, so the dispatcher's awk
-      // fix does not reach it; the manifest that names this worktree would keep
-      // pointing at the process that already exited. `stampManifest` is the same
-      // contract the awk implements (parity-tested), so a continued worker and a
-      // dispatched one leave an identical manifest. `manifestPath` already names
-      // either the manifest `continueTarget` found or the one just written, so
-      // it is reused rather than re-reading the registry directory a second time.
-      //
-      // No wrapper and no WorkerMonitor exist for a continued run, so those two
-      // are recorded `''`; omitting them would leave the previous dispatch's
-      // pids on the row. The stamp re-emits the whole group on every write.
-      //
-      // `pidStartedAt` was already read above, right after the spawn, and is
-      // reused here rather than read a second time — the fact the reaper's
-      // identity check needs to tell this run's pid apart from a later,
-      // unrelated process reusing it (`isRecordedProcess`). Raw text, not
-      // epoch milliseconds: the dispatcher's awk writer has no `date`
-      // conversion to spend, so both writers store what `ps` printed and
-      // every reader converts once, itself. `wrapperPidStartedAt` stays `''`
-      // beside the empty `wrapperPid`: there is no wrapper to have a start
-      // time.
-      const stamped = writeManifestStamp(manifestPath, {
-        pid: String(pid),
-        startedAt: new Date().toISOString(),
-        pidStartedAt,
-        wrapperPid: '',
-        wrapperPidStartedAt: '',
-        workerMonitorPid: '',
-        agentMonitorPid: started.agentMonitorPid,
-      });
-      // The run is already started, so a failed stamp is reported rather than
-      // answered `failed`: a `failed` answer invites a second spawn on this desk.
-      if (!stamped) {
-        const line = `started pid ${pid}, but ${manifestPath} could not be stamped; the registry still names the previous run`;
-        logLine(log, line);
-        console.error(`continuation: ${line}`);
-        warning = line;
-      }
+    if (pid > 0 && !(await pollStamp(manifestPath, pid))) {
+      const line = `started pid ${pid}, but ${manifestPath} does not name it yet; the registry may still name the previous run`;
+      logLine(log, line);
+      console.error(`continuation: ${line}`);
+      warning = line;
     }
     // THE RECORD COUNTS ANSWERS, NOT ATTEMPTS — written only on this success
     // path, never from a `refused(...)` return above, every one of which

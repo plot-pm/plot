@@ -58,6 +58,29 @@ test('desk root: no key answers <main>/.worktrees', () => {
   assert.equal(r.stdout.trim(), path.join(repo, '.worktrees'));
 });
 
+test('desk root: a root on a network filesystem exits 3 and names the type; a local one passes', () => {
+  const { repo } = makeRepo('network');
+  for (const type of ['nfs', 'smbfs']) {
+    const r = spawnSync('bash', ['-c', `. "${helper}"; plot_desk_root "$(plot_repo_root)"`], {
+      cwd: repo,
+      encoding: 'utf8',
+      env: { ...process.env, PLOT_DESK_FS_TYPE: type },
+    });
+    assert.equal(r.status, 3, r.stdout);
+    assert.equal(r.stdout, '');
+    assert.match(r.stderr, new RegExp(`lies on a ${type} filesystem; desks must be on a local filesystem`));
+  }
+  for (const type of ['apfs', 'ext4']) {
+    const r = spawnSync('bash', ['-c', `. "${helper}"; plot_desk_root "$(plot_repo_root)"`], {
+      cwd: repo,
+      encoding: 'utf8',
+      env: { ...process.env, PLOT_DESK_FS_TYPE: type },
+    });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout.trim(), path.join(repo, '.worktrees'));
+  }
+});
+
 test('desk root: an empty value is the absent row, not a relative ""', () => {
   const { repo } = makeRepo('empty', '- **Worktree root:**\n');
   const r = ask(repo, 'plot_desk_root "$(plot_repo_root)"');

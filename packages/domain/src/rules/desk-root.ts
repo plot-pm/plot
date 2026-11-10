@@ -91,3 +91,66 @@ export const deskRootPlacement = (reading: DeskRootReading): DeskRootPlacement =
   if (!resolved.startsWith(prefix)) return { inside: false };
   return { inside: true, excludeLine: `/${resolved.slice(prefix.length)}/` };
 };
+
+/**
+ * The filesystem types a desk root may not lie on. A FIFO on a network
+ * filesystem lives in each host's kernel, so a liveness token read from
+ * another host answers `released` for a live agent.
+ */
+export const NETWORK_FILESYSTEMS: readonly string[] = ['nfs', 'smbfs', 'cifs', 'afpfs', 'webdav'];
+
+/**
+ * The refusal for a desk root on a network filesystem.
+ *
+ * @param root - the desk root.
+ * @param type - the filesystem type of the root, or of its nearest existing parent; `null` where it could not be read.
+ * @returns the reason the root is refused, naming the type; `null` for a type outside {@link NETWORK_FILESYSTEMS} or an unread one.
+ */
+export const deskRootRefusal = (root: string, type: string | null): string | null =>
+  type !== null && NETWORK_FILESYSTEMS.includes(type)
+    ? `the desk root ${root} lies on a ${type} filesystem; desks must be on a local filesystem`
+    : null;
+
+/** Linux `statfs` magic numbers and the names `mount` prints for them. */
+const LINUX_MAGIC: Readonly<Record<number, string>> = {
+  0x6969: 'nfs',
+  0x517b: 'smbfs',
+  0xff534d42: 'cifs',
+  0xfe534d42: 'cifs',
+  0xef53: 'ext4',
+  0x58465342: 'xfs',
+  0x9123683e: 'btrfs',
+  0x01021994: 'tmpfs',
+  0x794c7630: 'overlay',
+  0x65735546: 'fuse',
+};
+
+/**
+ * The filesystem type name for a Linux `statfs` magic number.
+ *
+ * @param magic - `f_type` as `statfs` returns it.
+ * @returns the name, or the number in hex where it is not one this table names.
+ */
+export const linuxFilesystemName = (magic: number): string => LINUX_MAGIC[magic >>> 0] ?? `0x${(magic >>> 0).toString(16)}`;
+
+/**
+ * The filesystem type of the mount that holds a path, from macOS `mount` output.
+ *
+ * Each line reads `<device> on <mount point> (<type>, <options>)`. The longest
+ * mount point that is the path or a parent of it wins.
+ *
+ * @param mountOutput - what `mount` printed.
+ * @param path - an absolute, resolved path.
+ * @returns the type, or `null` where no line holds the path.
+ */
+export const mountTypeOf = (mountOutput: string, path: string): string | null => {
+  let best: { point: string; type: string } | null = null;
+  for (const line of mountOutput.split('\n')) {
+    const m = / on (\/.*?) \(([^,)]+)[,)]/.exec(line);
+    if (m === null) continue;
+    const point = m[1]!;
+    const inside = point === '/' || path === point || path.startsWith(`${point}/`);
+    if (inside && (best === null || point.length > best.point.length)) best = { point, type: m[2]!.trim() };
+  }
+  return best?.type ?? null;
+};

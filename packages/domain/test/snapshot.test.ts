@@ -16,8 +16,10 @@ import {
   type RefEntry,
   type RegistryEntry,
   type DeskProcessReading,
+  type RepoSnapshot,
 } from '../src/entities/snapshot.js';
 import { snapshotOf } from '../src/workflows/plan-walk-cache.js';
+import { planRecord } from '../src/adapters/plan-store/plan-store-fixture.js';
 import { fullSnapshot } from './fixtures/snapshot.js';
 
 describe('RepoSnapshotSchema', () => {
@@ -39,6 +41,9 @@ describe('RepoSnapshotSchema', () => {
       'releaseVersions',
       'unmerged',
       'questions',
+      'branchPlans',
+      'sprints',
+      'stories',
     ]);
   });
 
@@ -78,6 +83,74 @@ describe('RepoSnapshotSchema', () => {
     const snapshot = fullSnapshot();
     const readings = { ...snapshot.readings, prs: { state: 'read', readAt: 1, value: [{ number: 'seven' }] } };
     expect(RepoSnapshotSchema.safeParse({ ...snapshot, readings }).success).toBe(false);
+  });
+});
+
+describe('the plan-card readings', () => {
+  const entry: PlanEntry = {
+    ...planRecord({ file: 'docs/plans/2026-01-01-x.md', phase: 'delivered' }),
+    issues: ['226', 'PROJ-12'],
+    designRaw: '2026-10-12, alice, cli',
+    verifiedRaw: 'delivery 2026-11-01 at abc1234',
+    rounds: 2,
+  };
+  const story = {
+    slug: 's', title: 'S', status: 'active', declaredStatus: 'active', issue: '#3170', author: 'jwloka',
+    created: '2026-11-01', updated: '2026-11-02', objective: 'o', design: 'd', path: 'docs/stories/s/STORY-s.md',
+    designDocs: ['DESIGN-a.md'], hasOpenPoints: true, hasSessionLog: false,
+  };
+  const withReadings = (): RepoSnapshot => {
+    const snapshot = fullSnapshot();
+    snapshot.readings.plans = {
+      state: 'read',
+      readAt: 2,
+      value: {
+        ref: 'origin/main',
+        resolved: 'a'.repeat(40),
+        records: [entry, { ...planRecord({ file: 'docs/plans/missing.md' }), error: 'file not found' }],
+        authors: { state: 'read', value: { [entry.file]: 'Jan Wloka' } },
+        delivered: { state: 'read', value: { [entry.file]: { claimLines: ['- Claim-1 supported — it works'], deliveryCommit: 'abc1234' } } },
+      },
+    };
+    snapshot.readings.branchPlans = {
+      state: 'read',
+      readAt: 2,
+      value: [{ branch: 'feature/y', path: 'docs/plans/2026-01-02-other-name.md', record: planRecord({ file: 'docs/plans/2026-01-02-other-name.md', phase: 'draft' }) }],
+    };
+    snapshot.readings.stories = { state: 'read', readAt: 2, value: { live: [story], archived: [{ ...story, slug: 'old' }] } };
+    return snapshot;
+  };
+
+  it.each([
+    ['issues', (s: RepoSnapshot) => (s.readings.plans.state === 'read' ? s.readings.plans.value.records[0]!.issues : null)],
+    ['designRaw', (s: RepoSnapshot) => (s.readings.plans.state === 'read' ? s.readings.plans.value.records[0]!.designRaw : null)],
+    ['verifiedRaw', (s: RepoSnapshot) => (s.readings.plans.state === 'read' ? s.readings.plans.value.records[0]!.verifiedRaw : null)],
+    ['rounds', (s: RepoSnapshot) => (s.readings.plans.state === 'read' ? s.readings.plans.value.records[0]!.rounds : null)],
+    ['error', (s: RepoSnapshot) => (s.readings.plans.state === 'read' ? s.readings.plans.value.records[1]!.error : null)],
+    ['resolved', (s: RepoSnapshot) => (s.readings.plans.state === 'read' ? s.readings.plans.value.resolved : null)],
+    ['authors', (s: RepoSnapshot) => (s.readings.plans.state === 'read' ? s.readings.plans.value.authors : null)],
+    ['delivered', (s: RepoSnapshot) => (s.readings.plans.state === 'read' ? s.readings.plans.value.delivered : null)],
+    ['branchPlans', (s: RepoSnapshot) => s.readings.branchPlans],
+    ['sprints', (s: RepoSnapshot) => s.readings.sprints],
+    ['stories', (s: RepoSnapshot) => s.readings.stories],
+  ])('round-trips %s through RepoSnapshotSchema as JSON', (_field, pick) => {
+    const snapshot = withReadings();
+    const parsed = RepoSnapshotSchema.parse(JSON.parse(JSON.stringify(snapshot)));
+    expect(pick(parsed)).toEqual(pick(snapshot));
+    expect(pick(parsed)).not.toBeNull();
+    expect(pick(parsed)).not.toBeUndefined();
+  });
+
+  it('refuses a failed author answer that names no reason', () => {
+    const snapshot = withReadings();
+    if (snapshot.readings.plans.state !== 'read') throw new Error('fixture');
+    const plans = { ...snapshot.readings.plans, value: { ...snapshot.readings.plans.value, authors: { state: 'failed', reason: '' } } };
+    expect(RepoSnapshotSchema.safeParse({ ...snapshot, readings: { ...snapshot.readings, plans } }).success).toBe(false);
+  });
+
+  it('holds no identity key', () => {
+    expect(READING_KEYS as readonly string[]).not.toContain('identity');
+    expect(Object.keys(RepoSnapshotSchema.shape.readings.shape)).not.toContain('identity');
   });
 });
 

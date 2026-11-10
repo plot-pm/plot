@@ -170,7 +170,7 @@ export interface AgentRunSdkDeps {
   /** Spawns the child without `detached`, so a group stop still reaches it. */
   readonly spawnClaudeCodeProcess: (options: SpawnOptions) => SpawnedProcess;
   /** Reads the child's descendants before a stop signals them. */
-  readonly processes: Processes;
+  readonly processes: Pick<Processes, 'childrenOf'>;
   /** Epoch seconds. */
   readonly now: () => number;
   /** Whether this run starts after a usage-limit wait. */
@@ -188,13 +188,23 @@ export interface AgentRunSdkDeps {
  * @param options - what the SDK asks to spawn.
  * @returns the child, with piped stdin and stdout and the caller's stderr.
  */
-export const spawnAttached = (options: SpawnOptions): SpawnedProcess =>
-  spawn(options.command, options.args, {
-    cwd: options.cwd,
-    env: options.env,
-    stdio: ['pipe', 'pipe', 'inherit'],
-    signal: options.signal,
-  }) as unknown as SpawnedProcess;
+export const spawnAttached = (options: SpawnOptions): SpawnedProcess => spawnAttachedHolding(null)(options);
+
+/**
+ * {@link spawnAttached}, handing the child one more descriptor as fd 3.
+ *
+ * @param holdFd - the descriptor the child receives as fd 3, such as the desk's liveness token; `null` passes none.
+ * @returns the spawn function the SDK calls.
+ */
+export const spawnAttachedHolding =
+  (holdFd: number | null) =>
+  (options: SpawnOptions): SpawnedProcess =>
+    spawn(options.command, options.args, {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: holdFd === null ? ['pipe', 'pipe', 'inherit'] : ['pipe', 'pipe', 'inherit', holdFd],
+      signal: options.signal,
+    }) as unknown as SpawnedProcess;
 
 /**
  * Resolves `claude` from a `PATH` value, as a shell would.

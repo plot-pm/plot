@@ -1,10 +1,11 @@
-import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { appendFile, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
 import { encodeEntry, withinLineCap, type BudgetEntry } from '../../entities/budget.js';
 import type { BudgetRecord } from '../../ports/budget.js';
+import { rotationDue } from '../../rules/budget-rotation.js';
 
 /**
  * The environment variable that names the record's directory.
@@ -41,7 +42,7 @@ const FILE = 'budget.tsv';
  * `budget.tsv.1`; a reader reads both, so an append that races the rename lands
  * in one of them and is never missed. `budget.gen` is the counter a reader
  * checks before and after its read — the writer's half lives in
- * `plot-budget.sh`, which is what rotates.
+ * `plot-budget.sh`, and in this adapter where `rotate` is set.
  */
 const PREVIOUS_FILE = `${FILE}.1`;
 
@@ -63,6 +64,15 @@ export interface BudgetFileOptions {
   home?: string;
   /** Reads the environment; defaults to `process.env`. */
   env?: Record<string, string | undefined>;
+  /**
+   * Rotates the record before an append where {@link rotationDue} says a
+   * rotation is due, as `plot-budget.sh`'s appender does. Defaults to false.
+   */
+  rotate?: boolean;
+  /** The clock for the rotation rule, epoch milliseconds; defaults to `Date.now`. */
+  now?: () => number;
+  /** The pid the rotation lock's owner line names; defaults to `process.pid`. */
+  pid?: number;
 }
 
 /**
@@ -132,6 +142,106 @@ const generation = async (path: string): Promise<number> => {
   }
 };
 
+/** The rotation lock's directory name, beside the record. */
+const LOCK_DIR = 'budget.lock';
+
+/**
+ * The first line of a generation, or null where the file is missing, empty or
+ * unreadable. Reads at most one block, so a large ledger costs one read.
+ *
+ * @param path - the generation's file.
+ * @returns the first line without its newline, or null.
+ */
+const firstLine = async (path: string): Promise<string | null> => {
+  try {
+    const handle = await open(path, 'r');
+    try {
+      const buffer = Buffer.alloc(4096);
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+      if (bytesRead === 0) return null;
+      return buffer.subarray(0, bytesRead).toString('utf8').split('\n')[0] ?? null;
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Publishes a generation counter value: written aside, then renamed, so a
+ * reader never sees a partial number.
+ *
+ * @param path - the counter's file.
+ * @param value - the value to publish.
+ * @param pid - this process's pid, for the scratch name.
+ * @returns true where the value was published.
+ */
+const writeGeneration = async (path: string, value: number, pid: number): Promise<boolean> => {
+  const scratch = `${path}.${pid}.${Math.random().toString(36).slice(2)}.tmp`;
+  try {
+    await writeFile(scratch, `${value}\n`, 'utf8');
+    await rename(scratch, path);
+    return true;
+  } catch {
+    await rm(scratch, { force: true }).catch(() => undefined);
+    return false;
+  }
+};
+
+/** The owner line inside the lock directory, or null. */
+const lockOwner = async (lock: string): Promise<string | null> => {
+  try {
+    return (await readFile(join(lock, 'owner'), 'utf8')).split('\n')[0] ?? null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Rotates the current generation where a rotation is due, as `budget_rotate`
+ * in `plot-budget.sh` does: a `mkdir` lock with an owner line in the shell's
+ * format, an odd counter, a rename of `budget.tsv` over `budget.tsv.1`, and an
+ * even counter. The rule and the owner line are read again immediately before
+ * the rename.
+ *
+ * Never waits and never fails its caller. A lock that already exists, an odd
+ * counter and any file error skip the rotation; breaking a stale lock and
+ * repairing an odd counter stay with the shell, which owns that recovery.
+ *
+ * @param home - the record's directory.
+ * @param now - the clock, epoch milliseconds.
+ * @param pid - the pid the owner line names.
+ */
+const maybeRotate = async (home: string, now: number, pid: number): Promise<void> => {
+  const current = join(home, FILE);
+  const genPath = join(home, GEN_FILE);
+  const lock = join(home, LOCK_DIR);
+  if ((await generation(genPath)) % 2 === 1) return;
+  if (!rotationDue(await firstLine(current), now)) return;
+  try {
+    await mkdir(lock);
+  } catch {
+    return;
+  }
+  const owner = `${pid}\t${now}`;
+  try {
+    await writeFile(join(lock, 'owner'), `${owner}\n`, 'utf8');
+  } catch {
+    await rm(lock, { recursive: true, force: true }).catch(() => undefined);
+    return;
+  }
+  let gen = await generation(genPath);
+  if (gen % 2 === 1) gen += 1;
+  if (await writeGeneration(genPath, gen + 1, pid)) {
+    if (rotationDue(await firstLine(current), now) && (await lockOwner(lock)) === owner) {
+      await rename(current, join(home, PREVIOUS_FILE)).catch(() => undefined);
+    }
+    await writeGeneration(genPath, gen + 2, pid);
+  }
+  if ((await lockOwner(lock)) === owner) await rm(lock, { recursive: true, force: true }).catch(() => undefined);
+};
+
 /**
  * Reads and appends the budget record in a file outside every checkout.
  *
@@ -142,11 +252,12 @@ const generation = async (path: string): Promise<number> => {
  * checked against `withinLineCap` before it is written, and an over-long line is
  * refused rather than torn: a torn line loses the concurrent writer's line too.
  *
- * BOUNDED BY ROTATION, WHICH THIS DOES NOT PERFORM. `plot-budget.sh` rotates,
- * because it is what every appender already runs; this reads both generations
- * under the counter the rotator publishes. The adapter once carried a
- * `truncate()` that rewrote the record from a reader's live set, and it lost 59
- * of 600 concurrent appends when measured.
+ * BOUNDED BY ROTATION. `plot-budget.sh` rotates before every shell append;
+ * this adapter rotates before an append only where `options.rotate` is set,
+ * with the same rule and the same lock, and reads both generations under the
+ * counter the rotator publishes. The adapter once carried a `truncate()` that
+ * rewrote the record from a reader's live set, and it lost 59 of 600
+ * concurrent appends when measured.
  *
  * @param options - an explicit home or environment, for tests.
  * @returns a `BudgetRecord` backed by two generations per computer.
@@ -172,6 +283,9 @@ export const budgetFile = (options: BudgetFileOptions = {}): BudgetRecord => {
       if (!withinLineCap(line)) return failed<void>();
       try {
         await mkdir(dirname(path), { recursive: true });
+        if (options.rotate === true) {
+          await maybeRotate(dirname(path), (options.now ?? Date.now)(), options.pid ?? process.pid);
+        }
         await appendFile(path, line, { encoding: 'utf8' });
         return answered(undefined);
       } catch {

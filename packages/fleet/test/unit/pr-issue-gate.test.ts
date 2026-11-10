@@ -15,6 +15,7 @@ import {
 } from '../../src/shared/pr-refresh.js';
 import { PR_REFRESH_MS } from '../../src/shared/fleet-scan.js';
 import { removeTree as rmTree } from '../rm-tree.mjs';
+import { withSaidListing } from './listing-over-said.js';
 
 // The PR pass reads the issue gate (D28): the spike's Acceptance items 3 and 4,
 // and review finding H1 of PR #1647.
@@ -47,7 +48,7 @@ const scripts = {
   },
 } as unknown as Scripts;
 
-const host = { backend: async () => ({ ok: true, value: 'github' }) } as unknown as Host;
+const host = withSaidListing({ backend: async () => ({ ok: true, value: 'github' }) } as unknown as Host, (args) => scripts.hostSaid(args));
 
 /** A PR store that holds nothing and accepts every write. */
 const store: PrIndexStore = {

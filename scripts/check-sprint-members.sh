@@ -5,5 +5,6 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 bundle="$root/skills/plot/scripts/board/plot-sprint-member.mjs"
 [ -f "$bundle" ] || { echo "::error::$bundle is missing; run pnpm run build:board first."; exit 1; }
-base="$(git -C "$root" merge-base origin/main HEAD)"
+# An optional first argument names the branch the pull request targets; with none, origin/main.
+base="$(git -C "$root" merge-base "${1:-origin/main}" HEAD)"
 exec node "$bundle" check --base "$base"

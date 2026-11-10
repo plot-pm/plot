@@ -15,7 +15,7 @@ export interface Trees {
   /**
    * Lists every worktree git knows about on this machine.
    *
-   * @returns the worktrees, the main checkout among them.
+   * @returns the worktrees: main first, the rest unordered.
    */
   list(): Promise<PortResult<readonly Worktree[]>>;
 
@@ -319,7 +319,7 @@ export interface Trees {
    * The synchronous twin, for the signal that gates a monitor's cache from a
    * synchronous pulse.
    *
-   * @returns the worktrees, the main checkout among them.
+   * @returns the worktrees: main first, the rest unordered.
    */
   listSync(): PortResult<readonly Worktree[]>;
 

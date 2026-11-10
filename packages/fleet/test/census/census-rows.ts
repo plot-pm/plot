@@ -4,13 +4,17 @@ import type { ExecRecord } from './strace-execs.js';
 /** Who turns a zero row into a required pass: a plan, and its slice where the plan names one. */
 export type GreenBy = { plan: string; slice?: string; phase?: string };
 
-/** One row of the plan's scenario table (S1..S6) or per-source table (P1..P4). */
+/** One row of the plan's scenario table (S1..S7), per-source table (P2..P4, P6), or a launch row (D1). */
 export type CensusRow =
   | { id: string; claim: string; unit: string; target: 'zero'; greenBy: GreenBy; green?: true }
   | { id: string; claim: string; unit: string; target: 'measured'; tolerance: CensusTolerance };
 
 /**
- * The rows of `docs/plans/2026-11-08-process-census-gate.md`, in its order.
+ * The rows of `docs/plans/2026-11-08-process-census-gate.md`, in its order,
+ * with S7 from `docs/plans/2026-11-09-board-api-starts-nothing.md` after S3,
+ * then P5 from `docs/plans/2026-11-09-github-reads-in-process.md`,
+ * then P6 from `docs/plans/2026-11-09-liveness-token.md`, which retires P1,
+ * then D1 from `docs/plans/2026-11-09-node-worker-wrapper.md`.
  * A zero row is written as `it.fails` until the plan and slice it names turn
  * it green; that slice sets `green: true` and changes the row to `it`.
  */
@@ -39,6 +43,14 @@ export const CENSUS_ROWS = {
     greenBy: { plan: 'board-reads-the-channel', slice: 'Census zero' },
     green: true,
   },
+  S7: {
+    id: 'S7',
+    claim: 'an idle board with one visible page that polls GET /api/board every 30 s, and fleetd running, starts nothing',
+    unit: 'execve per minute',
+    target: 'zero',
+    greenBy: { plan: 'board-api-starts-nothing', slice: 'Census zero' },
+    green: true,
+  },
   S4: {
     id: 'S4',
     claim: 'an idle fleetd pass starts nothing',
@@ -59,14 +71,6 @@ export const CENSUS_ROWS = {
     unit: 'execve per change',
     target: 'measured',
     tolerance: { ratio: 0.1, plus: 2 },
-  },
-  P1: {
-    id: 'P1',
-    claim: 'an AgentMonitor over one live, idle desk starts no sleep',
-    unit: 'sleep execve per minute',
-    target: 'zero',
-    greenBy: { plan: 'monitors-nap-without-sleep', slice: 'Builtin nap' },
-    green: true,
   },
   P2: {
     id: 'P2',
@@ -92,6 +96,29 @@ export const CENSUS_ROWS = {
     target: 'zero',
     greenBy: { plan: 'fixed-answers-once', slice: 'Answers in scripts' },
     green: true,
+  },
+  P5: {
+    id: 'P5',
+    claim: 'an idle fleetd pass on GitHub starts no plot-host.sh pr-list or issue-list',
+    unit: 'execve per pass',
+    target: 'zero',
+    greenBy: { plan: 'github-reads-in-process', slice: 'Cutover' },
+    green: true,
+  },
+  P6: {
+    id: 'P6',
+    claim: 'an idle desk with a live agent starts no monitor process',
+    unit: 'monitor execve per launch',
+    target: 'zero',
+    greenBy: { plan: 'liveness-token', slice: 'Monitor in fleetd' },
+    green: true,
+  },
+  D1: {
+    id: 'D1',
+    claim: 'one dispatch',
+    unit: 'execve per launch',
+    target: 'measured',
+    tolerance: 'strict',
   },
 } as const satisfies Record<string, CensusRow>;
 

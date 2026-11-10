@@ -1,22 +1,23 @@
-import {
-  type WaitingGroup,
-} from '../../../contract/schema.js';
-import { GROUPS } from './sections.js';
+import { DELIVERY_LAYOUT } from '@plot-pm/domain';
+
+/** A section or a group of `DELIVERY_LAYOUT`: the keys a collapse toggle holds. */
+export type CollapseKey = string;
+
+const KNOWN_KEYS: ReadonlySet<string> = new Set(
+  DELIVERY_LAYOUT.flatMap(({ section, groups }) => [section, ...groups]),
+);
 
 /**
- * The groups that start collapsed.
+ * The keys that start collapsed: Release delivery, whose line stays visible
+ * over its folded rows, and Free agents, which fold into one line.
  *
- * Not a preference — the existing group order made effective. `GROUPS` is
- * already sorted actionable-before-diagnostic, and these two are the diagnostic
- * end: one means *go check whether this died*, the other *this is finished*.
- * Neither needs reading on arrival, and on the live board of 2026-08-16 they
- * cost twenty rows between them and pushed the footer — which reports when the
- * last scan ran — off the screen.
+ * A delivered item and a free agent owe nothing, so neither needs a reading on
+ * arrival. Stored keys from the earlier vocabulary (`quiet`, `done`) are not in
+ * `DELIVERY_LAYOUT` and fall away in `readCollapsed`.
  *
- * Exported for test: a blanket default passes an assertion that checks only one
- * group, so both halves are pinned.
+ * Exported for test.
  */
-export const COLLAPSED_BY_DEFAULT: WaitingGroup[] = ['quiet', 'done'];
+export const COLLAPSED_BY_DEFAULT: CollapseKey[] = ['release-delivery', 'free'];
 
 /**
  * Where the collapse state lives.
@@ -55,7 +56,7 @@ const COLLAPSE_KEY = 'plot-board:agents:collapsed';
  *
  * Exported for test.
  */
-export function readCollapsed(storage?: Pick<Storage, 'getItem'>): Set<WaitingGroup> {
+export function readCollapsed(storage?: Pick<Storage, 'getItem'>): Set<CollapseKey> {
   const fallback = new Set(COLLAPSED_BY_DEFAULT);
   let raw: string | null = null;
   try {
@@ -70,8 +71,11 @@ export function readCollapsed(storage?: Pick<Storage, 'getItem'>): Set<WaitingGr
     // Filtered against the known groups: a stored key from a renamed group is
     // stale state, and carrying it forward would collapse nothing while looking
     // like it had.
-    const known = new Set<string>(GROUPS.map((g) => g.key));
-    return new Set(parsed.filter((k): k is WaitingGroup => typeof k === 'string' && known.has(k)));
+    const kept = parsed.filter((k): k is CollapseKey => typeof k === 'string' && KNOWN_KEYS.has(k));
+    // A stored set from the earlier vocabulary holds no current key: it is
+    // stale, not a reader who opened everything, so the default applies.
+    if (kept.length === 0 && parsed.length > 0) return fallback;
+    return new Set(kept);
   } catch {
     return fallback;
   }
@@ -79,7 +83,7 @@ export function readCollapsed(storage?: Pick<Storage, 'getItem'>): Set<WaitingGr
 
 /** Persist the collapse set. Silent on failure — see `readCollapsed`. */
 export function writeCollapsed(
-  collapsed: Set<WaitingGroup>,
+  collapsed: Set<CollapseKey>,
   storage?: Pick<Storage, 'setItem'>,
 ): void {
   try {

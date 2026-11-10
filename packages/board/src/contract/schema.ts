@@ -4,6 +4,7 @@ import {
   BranchStateSchema,
   WorkerStateSchema,
   WorkerActivitySchema,
+  LivenessBasisSchema,
   PlanSchema,
   FindingSchema,
   FleetReadingSchema,
@@ -3333,6 +3334,12 @@ export const AgentRowSchema = z.object({
    */
   worker_activity: WorkerActivitySchema.default(''),
   /**
+   * What the worker reading's liveness rests on — `BranchSchema.worker_basis`,
+   * forwarded onto the row unchanged. `start-time` is a desk with no liveness
+   * token, and the row's status names it. Defaults to "".
+   */
+  worker_basis: LivenessBasisSchema.default(''),
+  /**
    * What this desk's `PLOT-BLOCKED*` marker asks and when it was written:
    * `firstLine` is the marker's first line, "" when the content did not read,
    * and `askedAt` is the file's modification time as an ISO-8601 string. `null`
@@ -4712,6 +4719,13 @@ export const FleetShape = z.object({
    * older server and a board that has not asked yet both send.
    */
   issueAbsence: z.string().nullable().default(null),
+  /**
+   * The `Auto-review` key of `## Plot Config`, as the server read it. Absent
+   * where the key is missing or an older server sends nothing; never defaulted.
+   */
+  autoReview: z.boolean().optional(),
+  /** The `Correction budget` key, absent on the same terms as `autoReview`. */
+  correctionBudget: z.number().optional(),
   /**
    * How old the rows in `issues` are, where they came from `issues.json`
    * rather than a live read — the fleet's own `at` on the index, not the

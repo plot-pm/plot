@@ -40,6 +40,13 @@
 # `git merge-base origin/main HEAD <each MERGE_HEAD>`, so it allows a commit
 # exactly when this script reads the path clean.
 #
+# THE BASE IS `origin/main` FOR A PR INTO ANY BRANCH, A SPRINT BRANCH INCLUDED.
+# Only `main` builds bundles, so a sprint branch carries `main`'s build at the
+# last `main` commit it took. A merge of `main` into a sprint carries `main`'s
+# newer bundles: against the sprint tip they read as the PR's change, against
+# `origin/main` they read clean, and the commit hook allows only those copies.
+# CI therefore calls this script with no base argument.
+#
 # THE REFUSAL PRINTS THE EXACT REPAIR: one `git checkout <merge-base> --
 # <path>` per changed generated path that the merge base holds, and `git rm`
 # for one the merge base lacks (a path born on this branch, which a checkout

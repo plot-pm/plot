@@ -187,8 +187,10 @@ describe('the read shape', () => {
     // And the reads this branch introduced are local ones, positively asserted
     // rather than left to the absence above: a test that only ever subtracts
     // would still pass if the batch read vanished entirely.
-    // The walk cache names the tip by the oid it read from `for-each-ref`, so the
-    // listing arrives as `ls-tree -r <40 hex>` rather than `ls-tree -r origin/…`.
-    assert.equal(linesIn(log, /^git .*ls-tree -r (origin\/|[0-9a-f]{40} )/).length >= 1, true);
+    // The board server installs one object reader at start, so the listing and
+    // the plan blobs are read through one `cat-file --batch-command` and no
+    // `ls-tree` starts.
+    assert.equal(linesIn(log, /^git .*cat-file --batch-command/).length, 1);
+    assert.deepEqual(linesIn(log, /^git .*ls-tree -r/), []);
   });
 });

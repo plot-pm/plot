@@ -52,6 +52,7 @@ import { TICK_INTERVAL_MS, applyUnblockDecisions, tick, type TickReport } from '
 import { readTick, worldFrom, type SupervisorWorld } from '../../src/shared/supervisor.js';
 import type { AgentEntry } from '../../src/shared/registry.js';
 import type { UnblockWrite } from '@plot-pm/domain/workflows/decision';
+import { SOCKET_TEMP_ROOT } from '../socket-root.js';
 
 const manifest = (over: Record<string, unknown> = {}) =>
   JSON.stringify({
@@ -1302,7 +1303,7 @@ describe('run — a failed tick must not end the daemon', () => {
 
   it('binds under the repo root it is given, never under PLOT_REPO_ROOT', async () => {
     const dir = sandbox();
-    const operator = mkdtempSync(join(tmpdir(), 'plot-registryd-op-'));
+    const operator = mkdtempSync(join(SOCKET_TEMP_ROOT, 'plot-registryd-op-'));
     mkdirSync(join(operator, '.plot'));
     const address = join(operator, CHANNEL_SOCKET);
     const listener = createServer((socket) => socket.end());
@@ -3163,11 +3164,28 @@ describe('unblockWorldForRepo and unblockPortsFor — the production wiring', ()
       '#!/usr/bin/env bash\nif [ "$2" = "Worker command" ]; then echo true; else echo "$3"; fi\n',
     );
     chmodSync(join(scriptsDir, 'plot-config.sh'), 0o755);
-    // `processesShell.workerState` sources this file and calls `plot_worker_state`
-    // (`processes-shell.ts:168`) — a real `waiting` answer, not a stubbed port,
-    // is what proves `unblockWorldForRepo`'s `deskDead` reads production code.
-    writeFileSync(join(scriptsDir, 'plot-worker-state.sh'), 'plot_worker_state() {\n  printf "waiting\\t\\t\\t\\n"\n}\n');
     return { repoRoot, scriptsDir };
+  };
+
+  /**
+   * Waits until the detached worker wrapper started on `desk` has made its last
+   * two writes: one line in `.plot-worker.monitor.worker.jsonl`, then the exit
+   * code in `.plot-worker.exit`.
+   *
+   * @param desk the worktree the wrapper writes to.
+   * @param boundMs how long to wait before failing.
+   * @throws when the wrapper has not finished within `boundMs`, naming the desk and the bound.
+   */
+  const reporterFinished = async (desk: string, boundMs = 10_000): Promise<void> => {
+    const findings = join(desk, '.plot-worker.monitor.worker.jsonl');
+    const exit = join(desk, '.plot-worker.exit');
+    const deadline = Date.now() + boundMs;
+    const filled = (file: string): boolean => existsSync(file) && readFileSync(file, 'utf8').trim() !== '';
+    const done = (): boolean => filled(findings) && filled(exit);
+    while (!done()) {
+      if (Date.now() >= deadline) throw new Error(`the wrapper on ${desk} did not finish within ${boundMs} ms`);
+      await new Promise((r) => setTimeout(r, 25));
+    }
   };
 
   it('unblockWorldForRepo reads a real marker and answerCap through real config', async () => {
@@ -3196,14 +3214,19 @@ describe('unblockWorldForRepo and unblockPortsFor — the production wiring', ()
       dirs.push(manifestDir);
       writeFileSync(join(manifestDir, 'sess.json'), JSON.stringify({ session: 'sess', branch: 'feature/waiting', worktree: repoRoot, pid: '424242' }));
 
-      const unblock = unblockWorldForRepo(repoRoot, scriptsDir);
+      // The desk reads `waiting` through a stubbed worker-state reader: the
+      // world asks with `hasPr` set, and a real desk's task state reads
+      // `finished` whenever a PR is named.
+      const waiting = { workerState: async () => ({ ok: true as const, value: { state: 'waiting' as const, pid: '', exitCode: '', activity: '' as const } }) };
+      const unblock = unblockWorldForRepo(repoRoot, scriptsDir, () => false, waiting);
       expect(unblock).toBeDefined();
 
       let runCalls = 0;
       const ports = unblockPortsFor({
         repoRoot,
         scriptsDir,
-        boardOpts: { repoRoot, scriptsDir, manifestDir } as unknown as { repoRoot: string; scriptsDir: string },
+        // `workerStart`: the shipped start `pnpm build:board` builds, since the fixture's scripts directory holds no bundle.
+        boardOpts: { repoRoot, scriptsDir, manifestDir, workerStart: join(import.meta.dirname, '../../../../skills/plot/scripts/board/plot-worker-start.mjs') } as unknown as { repoRoot: string; scriptsDir: string },
         // THE ROLE RUN ITSELF IS STUBBED: proving `unblockWorldForRepo`'s and
         // `unblockPortsFor`'s own wiring does not require a real `.claude/agents`
         // definition or a real `claude` binary on PATH — `unblockOutcome`'s
@@ -3256,6 +3279,10 @@ describe('unblockWorldForRepo and unblockPortsFor — the production wiring', ()
       expect(runCalls).toBe(1);
       expect(applied).toHaveLength(1);
       expect(applied[0]!.outcome, applied[0]?.detail).toBe('started');
+      // THE STARTED WORKER'S REPORTER IS DETACHED AND OUTLIVES THIS CALL by
+      // design; it appends to the desk after `true` exits, so it must finish
+      // before `afterAll` removes the desk.
+      await reporterFinished(repoRoot);
     },
   );
 });

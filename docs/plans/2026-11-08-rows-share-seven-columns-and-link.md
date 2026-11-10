@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-08, Jan Wloka, plan-PR #3249 merged
+- **Started:** 2026-11-10, Jan Wloka, `feature/rows-share-seven-columns-and-link`
 
 ## Changelog
 
@@ -53,7 +54,7 @@ Depends on plan 1 (Placement), which decides the section of every work item and 
 
 ### Row forms
 
-- `feature/rows-share-seven-columns-and-link` <!-- waits: feature/delivery-tab-sections --> — domain row forms and link targets for work-item and agent rows, the seven-column rendering with the details popover, the auto switches in the Fleet header, and removal of the replaced row code from `rows.tsx`
+- `feature/rows-share-seven-columns-and-link` <!-- waits: feature/delivery-tab-sections --> — domain row forms and link targets for work-item and agent rows, the seven-column rendering with the details popover, the auto switches in the Fleet header, and removal of the replaced row code from `rows.tsx` → #3393
 
 ## Notes
 

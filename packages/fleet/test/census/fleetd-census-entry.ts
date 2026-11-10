@@ -16,10 +16,14 @@
 // stdin takes only `stop`.
 //
 // `CENSUS_SPAWN_LOG=<file>` appends one JSON line per process this node
-// process starts directly (`spawn`, `execFile`), so a run without `strace`
+// process starts directly (`spawn`, `execFile`, `spawnSync`, `execFileSync`), so a run without `strace`
 // still shows which direct children a pass starts. It also appends one line,
 // `{"signal0": <pid>}`, per `process.kill(pid, 0)`, the liveness question that
 // starts no process.
+//
+// `CENSUS_SPAWN_CALLER=1` adds `CENSUS_CALLER` to every tracked child's
+// environment: the first product frames of the stack that started it, so a
+// shim on `PATH` can name the TypeScript site behind a grandchild.
 import { appendFileSync } from 'node:fs';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { dirname, join } from 'node:path';
@@ -50,7 +54,9 @@ const track = (child: ChildProcess | undefined, file: string, args: readonly unk
   if (spawnLog !== '') {
     appendFileSync(spawnLog, `${JSON.stringify({ at: Math.round(performance.now()), file, args: args.filter((a) => typeof a === 'string') })}\n`);
   }
-  if (child === undefined) return;
+  // THE OBJECT READER LIVES AS LONG AS FLEETD: it is logged and never counts
+  // as in flight, or no pass would settle.
+  if (child === undefined || (file === 'git' && args.includes('--batch-command'))) return;
   inFlight += 1;
   let done = false;
   const startedAt = performance.now();
@@ -69,33 +75,102 @@ const track = (child: ChildProcess | undefined, file: string, args: readonly unk
 
 const argsOf = (rest: unknown[]): unknown[] => (Array.isArray(rest[0]) ? (rest[0] as unknown[]) : []);
 
+const callerOn = process.env['CENSUS_SPAWN_CALLER'] === '1';
+
+/**
+ * The first four product frames of the current stack, as `path:line`, joined
+ * by ` < `; the process runners in `run-script.ts` and `git-dirs.ts` are
+ * skipped, since every adapter starts its children through them.
+ */
+const callerFrames = (): string =>
+  (new Error().stack ?? '')
+    .split('\n')
+    .map((line) => /\(?((?:\/|file:\/\/)[^()]*?\/packages\/[^()]*?):(\d+):\d+\)?$/.exec(line.trim()))
+    .filter((m): m is RegExpExecArray => m !== null && !/\/census\/|adapters\/run-script\.ts|adapters\/git-dirs\/git-dirs\.ts/.test(m[1]!))
+    .slice(0, 4)
+    .map((m) => `${m[1]!.replace(/^.*?\/packages\//, '')}:${m[2]}`)
+    .join(' < ');
+
+/**
+ * Returns `rest` with `CENSUS_CALLER` and `CENSUS_CHILD` (the direct child's
+ * file and first two arguments) added to the options object's `env`,
+ * inserting an options object where the call passed none.
+ */
+const withCaller = (file: string, rest: unknown[]): unknown[] => {
+  if (!callerOn) return rest;
+  const out = [...rest];
+  const at = Array.isArray(out[0]) ? 1 : 0;
+  const given = out[at];
+  const options = given !== null && typeof given === 'object' ? { ...(given as Record<string, unknown>) } : {};
+  options['env'] = { ...((options['env'] as NodeJS.ProcessEnv | undefined) ?? process.env), CENSUS_CALLER: callerFrames(),
+    CENSUS_CHILD: [file, ...argsOf(rest).filter((a): a is string => typeof a === 'string').slice(0, 2)].join(' ').replace(/[\t\n]/g, ' ').slice(0, 200),
+  };
+  if (given !== null && typeof given === 'object') out[at] = options;
+  else out.splice(at, 0, options);
+  return out;
+};
+
 const originalSpawn = cp.spawn;
 const originalExecFile = cp.execFile;
 const originalExecFilePromise = (originalExecFile as unknown as Record<symbol, (...a: unknown[]) => Promise<unknown> & { child?: ChildProcess }>)[
   promisify.custom
 ];
-const spawnTracked = ((file: string, ...rest: unknown[]) => {
+const spawnTracked = ((file: string, ...given: unknown[]) => {
+  const rest = withCaller(file, given);
   const child = (originalSpawn as (...a: unknown[]) => ChildProcess)(file, ...rest);
   track(child, file, argsOf(rest));
   return child;
 }) as typeof cp.spawn;
-const execFileTracked = ((file: string, ...rest: unknown[]) => {
+const execFileTracked = ((file: string, ...given: unknown[]) => {
+  const rest = withCaller(file, given);
   const child = (originalExecFile as (...a: unknown[]) => ChildProcess)(file, ...rest);
   track(child, file, argsOf(rest));
   return child;
 }) as unknown as typeof cp.execFile;
 if (originalExecFilePromise !== undefined) {
   Object.defineProperty(execFileTracked, promisify.custom, {
-    value: (file: string, ...rest: unknown[]) => {
+    value: (file: string, ...given: unknown[]) => {
+      const rest = withCaller(file, given);
       const pending = originalExecFilePromise(file, ...rest);
       track(pending.child, file, argsOf(rest));
       return pending;
     },
   });
 }
+// A SYNCHRONOUS START IS LOGGED AND NEVER IN FLIGHT: it has ended when the call returns.
+const syncTracked = <F>(original: F): F =>
+  ((file: string, ...given: unknown[]) => {
+    const rest = withCaller(file, given);
+    if (spawnLog !== '' && file !== MARK_IMAGE) {
+      appendFileSync(spawnLog, `${JSON.stringify({ at: Math.round(performance.now()), file, args: argsOf(rest).filter((a) => typeof a === 'string'), sync: true })}\n`);
+    }
+    return (original as (...a: unknown[]) => unknown)(file, ...rest);
+  }) as F;
+const spawnSyncTracked = syncTracked(cp.spawnSync);
+const execFileSyncTracked = syncTracked(cp.execFileSync);
 cp.spawn = spawnTracked;
 cp.execFile = execFileTracked;
+cp.spawnSync = spawnSyncTracked;
+cp.execFileSync = execFileSyncTracked;
 syncBuiltinESMExports();
+
+// AN IN-PROCESS REQUEST IS IN FLIGHT TOO: the GitHub client reads over
+// `http.request` (the stub API is plain HTTP), and a pass that settled while
+// one was open would count its follow-up children in the next pass.
+const httpModule = createRequire(import.meta.url)('node:http') as typeof import('node:http');
+const originalHttpRequest = httpModule.request;
+httpModule.request = ((...given: unknown[]) => {
+  const req = (originalHttpRequest as (...a: unknown[]) => import('node:http').ClientRequest)(...given);
+  inFlight += 1;
+  let done = false;
+  req.once('close', () => {
+    if (done) return;
+    done = true;
+    inFlight -= 1;
+    lastSettled = Date.now();
+  });
+  return req;
+}) as typeof httpModule.request;
 
 const originalKill = process.kill.bind(process);
 process.kill = ((pid: number, signal?: string | number) => {

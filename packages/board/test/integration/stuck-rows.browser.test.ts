@@ -73,7 +73,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     // A REAL conflict: needs judgement, so it offers an action and a cue.
     // In `waiting-on-you`, and it must STAY there.
     row({
-      branch: 'feature/collides', group: 'waiting-on-you', note: 'PR #201 conflicts',
+      branch: 'feature/collides', wave: 'Collide', group: 'waiting-on-you', note: 'PR #201 conflicts',
       pr: { number: 201, url: 'https://github.com/tiny/garden/pull/201', draft: false, state: 'conflicts' },
       branchUrl: `${GH}feature/collides`,
       stuck: stuck({ state: 'conflict', conflicts: ['packages/board/src/app/App.tsx', 'docs/plans/a.md'] }),
@@ -81,7 +81,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     // The artifact conflict: a committed bundle, fixed by the merge-base
     // restore the row names — never an automatic write. Offers NOTHING here.
     row({
-      branch: 'feature/artifact', group: 'waiting-on-you', note: 'PR #202 conflicts',
+      branch: 'feature/artifact', wave: 'Artifact', group: 'waiting-on-you', note: 'PR #202 conflicts',
       branchUrl: `${GH}feature/artifact`,
       stuck: stuck({ state: 'artifact-conflict', conflicts: [ARTIFACT] }),
     }),
@@ -90,7 +90,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     // history is the one that decided the 2026-08-17 case: the same branch was
     // green two minutes earlier.
     row({
-      branch: 'feature/red-ci', group: 'waiting-on-machine', note: 'PR #203 checks failing',
+      branch: 'feature/red-ci', wave: 'Red', group: 'waiting-on-machine', note: 'PR #203 checks failing',
       branchUrl: `${GH}feature/red-ci`,
       stuck: stuck({
         state: 'ci-failing',
@@ -110,13 +110,13 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     // Unpushed work: reported in WORDS. No cue, no action — pushing someone
     // else's judgement is not ours to do.
     row({
-      branch: 'feature/local-only', group: 'quiet', note: 'no commit for 3 hours',
+      branch: 'feature/local-only', wave: 'Local', group: 'quiet', note: 'no commit for 3 hours',
       branchUrl: `${GH}feature/local-only`,
       stuck: stuck({ state: 'unpushed', localAhead: 4 }),
     }),
     // The COMMON case: not stuck at all. This row must be exactly what it was
     // before this wave.
-    row({ branch: 'feature/healthy', group: 'working', branchUrl: `${GH}feature/healthy` }),
+    row({ branch: 'feature/healthy', wave: 'Healthy', group: 'working', branchUrl: `${GH}feature/healthy` }),
   ];
   return {
     generatedAt: new Date().toISOString(),
@@ -200,7 +200,7 @@ describe('a stuck branch says so in its row', () => {
       await real.route('**/api/fleet', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
       await real.goto(`${opts.url}?tab=agents`);
-      await real.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await real.locator('[data-delivery-section]').first().waitFor({ timeout: 10_000 });
       await expandAgentFolds(real);
       return real;
     }
@@ -209,7 +209,7 @@ describe('a stuck branch says so in its row', () => {
       over: { fleet: payload },
       ...(opts.reducedMotion ? { reducedMotion: 'reduce' as const } : {}),
     });
-    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section]').first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;
   }
@@ -240,7 +240,7 @@ describe('a stuck branch says so in its row', () => {
     // rebases are the same count and opposite errands.
     const page = await open();
     try {
-      await expand(page, 'quiet');
+      await expand(page, 'queued');
       const states = await Promise.all([
         ['feature/collides', 'conflict'],
         ['feature/artifact', 'artifact-conflict'],
@@ -362,7 +362,7 @@ describe('a stuck branch says so in its row', () => {
   it('shows unpushed work its commit count', async () => {
     const page = await open();
     try {
-      await expand(page, 'quiet');
+      await expand(page, 'queued');
       expect(await rowFor(page, 'feature/local-only').locator('[data-stuck]').innerText())
         .toContain('4 commits');
     } finally {
@@ -450,7 +450,7 @@ describe('a stuck branch says so in its row', () => {
     // an absent control claims nothing.
     const page = await open();
     try {
-      await expand(page, 'quiet');
+      await expand(page, 'queued');
       // `feature/local-only` is unpushed: no run, no dispatchable conflict, not
       // startable, not approvable. Nothing to offer, so no button.
       const r = rowFor(page, 'feature/local-only');
@@ -467,7 +467,7 @@ describe('a stuck branch says so in its row', () => {
     // The fix is a push, and pushing someone else's work is not ours.
     const page = await open();
     try {
-      await expand(page, 'quiet');
+      await expand(page, 'queued');
       const row = rowFor(page, 'feature/local-only');
       // No action anywhere — and since the actions moved, that means no menu
       // BUTTON at all rather than a dimmed one that opens nothing.
@@ -556,15 +556,16 @@ describe('a stuck branch says so in its row', () => {
     // conflicting PR and an unpushed rebase in the same place.
     const page = await open();
     try {
-      await expand(page, 'quiet');
+      await expand(page, 'queued');
       const groupOf = async (branch: string) =>
         rowFor(page, branch).evaluate((el) =>
-          el.closest('section')?.querySelector('h2')?.textContent ?? '');
-      expect(await groupOf('feature/collides')).toMatch(/Waiting on you/);
-      expect(await groupOf('feature/red-ci')).toMatch(/Waiting on a machine/);
-      expect(await groupOf('feature/local-only')).toMatch(/Quiet/);
-      // And no section was invented for them.
-      const headings = await page.locator('section > h2').allInnerTexts();
+          el.closest('[data-group]')?.getAttribute('data-group') ?? '');
+      // A conflict no agent works on needs a person; a stuck row with no PR is queued.
+      expect(await groupOf('feature/collides')).toBe('unblock');
+      expect(await groupOf('feature/red-ci')).toBe('queued');
+      expect(await groupOf('feature/local-only')).toBe('queued');
+      // No group of its own: the headings never name a "stuck" section.
+      const headings = await page.locator('[data-delivery-section], [data-delivery-group]').allInnerTexts();
       expect(headings.some((h) => /stuck/i.test(h))).toBe(false);
     } finally {
       await page.close();

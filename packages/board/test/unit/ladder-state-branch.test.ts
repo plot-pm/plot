@@ -49,6 +49,7 @@ describe('a lifecycle write in a repository that declares a State branch', () =>
     );
     chmodSync(path.join(origin, 'hooks', 'pre-receive'), 0o755);
     git(root, 'init', '-q', '-b', 'main', repo);
+    git(repo, 'config', 'user.email', 't@t');
     mkdirSync(path.join(repo, 'docs/plans'), { recursive: true });
     writeFileSync(path.join(repo, 'docs/plans/p.md'), '# P\n\n## Status\n\n- **State:** Draft\n\n## Notes\n\n- one\n');
     writeFileSync(path.join(repo, 'CLAUDE.md'), `## Plot Config\n\n- **Main branch:** main\n${key === '' ? '' : `- **State branch:** ${key}\n`}`);
