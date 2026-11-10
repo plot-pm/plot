@@ -211,7 +211,7 @@ const planOfItem = (item: PlacedItemView): string => item.rows[0]?.plan ?? '';
 const isSliceItem = (item: PlacedItemView): boolean => item.rows.length > 0 && rowInSlice(item.rows[0]!);
 
 /**
- * Nests a list of placed items: one plan head per plan that has a slice item in
+ * Nests a list of placed items, except in Being built, where every item is a row of its own: one plan head per plan that has a slice item in
  * the list, holding that plan's slice items, its plan row and its other items;
  * every other item on its own. Heads and lone items keep the order of their first
  * item.
@@ -222,6 +222,11 @@ const isSliceItem = (item: PlacedItemView): boolean => item.rows.length > 0 && r
  * @returns the blocks, each item in exactly one.
  */
 export const nestItems = (scope: string, items: readonly PlacedItemView[], slices?: Slice[]): BlockView[] => {
+  // Being built lists the branches an agent works on, one row each; a plan head
+  // over them would name a plan the agent's row already names.
+  if (scope === 'being-built') {
+    return oldestFirst(items.map((item): BlockView => ({ kind: 'item', key: item.anchor, item })));
+  }
   const withSlice = new Set(items.filter(isSliceItem).map(planOfItem).filter((p) => p !== ''));
   const blocks: BlockView[] = [];
   const heads = new Map<string, PlanBlockView>();

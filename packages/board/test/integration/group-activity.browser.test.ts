@@ -95,7 +95,7 @@ const FOLDED = [
     note: 'last commit 3 days ago', branchUrl: `${GH}feature/also-quiet`,
   }),
   row({
-    branch: 'feature/finished', group: 'done', state: 'merged',
+    branch: 'feature/finished', wave: 'Finished', group: 'done', state: 'merged',
     note: 'merged', branchUrl: `${GH}feature/finished`,
   }),
 ];

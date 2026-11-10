@@ -182,9 +182,6 @@ describe('a plan moves through the sections — approve it, and Start work takes
 
   const queued = (page: Page) =>
     page.locator('ul[role="grid"][aria-label^="Queued"]');
-  /** The approved plan's branch row inside Queued. */
-  const approvedRow = (page: Page) =>
-    queued(page).locator('[role="row"]').filter({ has: page.locator('[data-branch="feature/approved-w1"]') });
   const cardFor = (page: Page, title: string) => page.locator('article', { hasText: title });
 
   it('offers Approve on the Draft plan card — the operator\'s first act', async () => {
@@ -210,7 +207,7 @@ describe('a plan moves through the sections — approve it, and Start work takes
     const page = await openAgents();
     try {
       await expect
-        .poll(() => queued(page).locator('[data-branch="feature/approved-w1"]').count(), { timeout: 10_000 })
+        .poll(() => queued(page).locator(`li[data-plan-row="${APPROVED_SLUG}"]`).count(), { timeout: 10_000 })
         .toBe(1);
     } finally {
       await page.close();
@@ -260,9 +257,9 @@ describe('a plan moves through the sections — approve it, and Start work takes
     });
     try {
       await expandAgentFolds(page);
-      // The eligible branch's menu — `RowActions` offers Start work for a
-      // startable row once a card and a dispatch verdict exist.
-      const menuButton = approvedRow(page).locator('[data-row-actions]');
+      // The eligible wave's menu — `SliceActions` renders `data-slice-actions` for
+      // an eligible wave once a card and a dispatch verdict exist.
+      const menuButton = queued(page).locator('[data-slice-actions="Sown"]');
       await menuButton.waitFor({ timeout: 10_000 });
       await menuButton.click();
 
@@ -289,7 +286,7 @@ describe('a plan moves through the sections — approve it, and Start work takes
       route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ slug: APPROVED_SLUG }) }));
     try {
       await expandAgentFolds(page);
-      const menuButton = approvedRow(page).locator('[data-row-actions]');
+      const menuButton = queued(page).locator('[data-slice-actions="Sown"]');
       await menuButton.waitFor({ timeout: 10_000 });
       await menuButton.click();
       const start = page.getByRole('button', { name: 'Start work' });
