@@ -433,7 +433,8 @@ describe('the row says what it knows', () => {
       // not buy: #227 and #228 belong to no plan, and the layout must place
       // them where nothing claims they do.
       for (const number of [227, 228]) {
-        const link = section.locator(`[data-issue-link][href$="/${number}"]`);
+        // The issue rows render under Tickets and plan runs, outside every plan group.
+        const link = page.locator('section[data-outside-rule]').locator(`[data-issue-link][href$="/${number}"]`);
         await expect.poll(() => link.count()).toBe(1);
         await expect.poll(() =>
           group.locator(`[data-issue-link][href$="/${number}"]`).count()).toBe(0);

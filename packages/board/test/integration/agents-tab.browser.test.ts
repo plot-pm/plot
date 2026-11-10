@@ -2023,6 +2023,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       //
       // Unfolding both puts it back out of reach, which is what makes the
       // assertion above about the COLLAPSE rather than about a short fixture.
+      // Release delivery starts folded, so the reader opens it with the rest.
+      await expand(page, 'release-delivery');
       await expandAll(page);
       // EVERY BOX ON SCREEN, which is what a height claim is about, and the
       // number is the fixture's arithmetic rather than a constant to re-measure

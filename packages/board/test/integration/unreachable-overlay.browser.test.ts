@@ -424,8 +424,9 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       // running worker reads `running`; `a-state-is-a-word-not-a-sentence`
       // withdrew the old `someone is on it`, so the status is scoped to the row
       // rather than matched as free text.
-      const beansRow = page.locator('li').filter({ has: page.getByText('feature/beans-a', { exact: true }) });
-      await expect.poll(() => beansRow.first().textContent()).toContain('running');
+      // The agent row under Fleet is the last row naming the branch, and it states the worker running.
+      const beansRow = page.locator('li[data-agent-row]').filter({ has: page.getByText('feature/beans-a', { exact: true }) });
+      await expect.poll(() => beansRow.last().textContent()).toContain('running');
       expect(await page.getByText('someone is on it').count()).toBe(0);
     } finally {
       await page.close();
