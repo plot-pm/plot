@@ -22,7 +22,7 @@ It also closes the follow-up issues that sprint `desk-probes-and-liveness` filed
 
 ### Must Have
 - [ ] [bitbucket-and-jira-read-in-process] Bitbucket and Jira read in-process (#3170) <!-- pr: #3389, branch: feature/bitbucket-and-jira-read-in-process-bitbucket-client -->
-- [ ] [triggers-replace-the-tick] Triggers replace the tick (#3170)
+- [ ] [triggers-replace-the-tick] Triggers replace the tick (#3170) <!-- pr: #3387, branch: feature/triggers-replace-the-tick-deadlines -->
 
 <!-- An item is `- [ ] <description>`. A leading `[<plan-slug>]` names the plan
      it commits to, and only a plan slug is read as one: `- [ ] [#123](url) …`

@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** feature
 - **Sprint:** triggers-and-connectors
 - **Issue:** #3170
 - **Story:** nothing-changed-nothing-runs
 - **Review:** pr
 - **Impl:** own branches
+- **Approved:** 2026-11-11, jwloka, plan-PR #3387 merged
 
 ## Changelog
 
