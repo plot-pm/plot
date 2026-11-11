@@ -133,7 +133,7 @@ Upstream tracking does not answer the question: a slice branch tracks its own re
 
 ### CI tiers
 
-- `infra/ci-cheap-tier-first` — the `gates` job (static steps moved out of `checks`), `needs: [select, gates]` and the result condition on every tier-2 job, `needs: [select, gates, checks]` on `process-census`, `validate`'s `require gates`, a measured comment on every job cap, `test/reconcile/ci-tiers.test.mjs`, and the edge changes in `ci-selection-jobs.test.mjs`. Expected saving: a red static gate ends the run at the `gates` time instead of ~26 min (d1117a0a8); a red `checks` skips the census and ends the run at ~13 min <!-- builds: the CI tier contract test, ci-tiers.test.mjs -->
+- `infra/ci-cheap-tier-first` — the `gates` job (static steps moved out of `checks`), `needs: [select, gates]` and the result condition on every tier-2 job, `needs: [select, gates, checks]` on `process-census`, `validate`'s `require gates`, a measured comment on every job cap, `test/reconcile/ci-tiers.test.mjs`, and the edge changes in `ci-selection-jobs.test.mjs`. Expected saving: a red static gate ends the run at the `gates` time instead of ~26 min (d1117a0a8); a red `checks` skips the census and ends the run at ~13 min <!-- builds: the CI tier contract test, ci-tiers.test.mjs --> → #3295
 
 ### Census halves
 
