@@ -70,9 +70,6 @@ git rev-parse --git-dir >/dev/null 2>&1 \
 
 repo_root="$(git rev-parse --show-toplevel)"
 
-[ -n "$base" ] || base=$(bash "$script_dir/plot-host.sh" default-branch 2>/dev/null || echo main)
-[ -n "$base" ] || base=main
-
 # WHICH PLAN NAMES THIS BRANCH, AND UNDER WHICH HEADING. `plot-plan-meta.sh` is
 # the plan-format contract and answers both — the wave name is the title and the
 # slug and file are the body's first line. A branch belongs to whichever plan
@@ -89,15 +86,17 @@ repo_root="$(git rev-parse --show-toplevel)"
 # measured 2026-09-09, parsing all 253 plans here took 103 s against 0.6 s for
 # a text search first. A plan that does not contain the branch name cannot
 # name it, so the filter changes only how many files are read.
-plan_slug=""
-plan_file=""
-slice_name=""
+plan_slug="" plan_file="" slice_name=""
 found=$(node "$script_dir/board/plot-plan-for-branch.mjs" "$branch" 2>/dev/null) || found=""
 if [ -n "$found" ]; then
   plan_file=$(printf '%s' "$found" | cut -f1)
   slice_name=$(printf '%s' "$found" | cut -f2)
+  # The plan's base, the branch fleetd cut the slice from (`planBaseFor`).
+  [ -n "$base" ] || base=$(printf '%s' "$found" | cut -f3)
   plan_slug=$(basename "$plan_file" .md | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
 fi
+[ -n "$base" ] || base=$(bash "$script_dir/plot-host.sh" default-branch 2>/dev/null || echo main)
+[ -n "$base" ] || base=main
 
 # The brief, where the slice has one. Named for the branch's last segment, the
 # spelling plot-dispatch.sh writes and the worker prompt reads.

@@ -780,7 +780,8 @@ export const subjectProvenOf = async (
  * The plans only a sprint branch holds, each with that branch as its base.
  *
  * Lists `refs/remotes/origin/sprint/*`, lists each tip's plan files, and
- * parses only the files the default branch does not hold. `sprintPlanReads`
+ * parses only the files the default branch does not hold. A tip that
+ * `origin/<default>` already contains reads no plan. `sprintPlanReads`
  * decides which files to read and `chooseSprintPlans` which branch a file
  * belongs to. A ref list that fails, or a branch whose tree cannot be listed
  * or parsed, contributes no plan; the default branch's plans are unaffected.
@@ -798,12 +799,22 @@ export const sprintPlansOf = async (
   const tips = await refs.branchTips([`refs/remotes/origin/${SPRINT_BRANCH_PREFIX}*`]);
   if (!tips.ok || tips.value.length === 0) return [];
   const planDir = await planDirectory(scriptsShell(context));
-  const branches = [...tips.value].map((tip) => tip.branch).sort();
-  const stores = new Map(branches.map((branch) => [branch, planStoreRef(refs, context, `origin/${branch}`, planDir)]));
+  const base = await refs.defaultBranch();
+  if (!base.ok) return [];
+  const sorted = [...tips.value].sort((a, b) => (a.branch < b.branch ? -1 : 1));
+  const stores = new Map(sorted.map((tip) => [tip.branch, planStoreRef(refs, context, `origin/${tip.branch}`, planDir)]));
   const listings = await Promise.all(
-    branches.map(async (branch) => {
-      const files = await stores.get(branch)!.listPlans();
-      return { branch, files: files.ok ? files.value : [] };
+    sorted.map(async (tip) => {
+      // plot-ancestry: prefilter — a contained tip only SKIPS reading its plans.
+      // Every file it holds is in the default branch's history, so skipping it
+      // hides no plan the default branch lacks; an unknown answer reads it.
+      const contained = await refs.contains(tip.sha, `origin/${base.value}`);
+      const files = await stores.get(tip.branch)!.listPlans();
+      return {
+        branch: tip.branch,
+        files: files.ok ? files.value : [],
+        inDefault: contained.ok && contained.value === 'yes',
+      };
     }),
   );
   const candidates: BasedPlan[] = [];

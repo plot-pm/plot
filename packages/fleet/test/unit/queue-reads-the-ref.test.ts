@@ -164,6 +164,20 @@ describe('the queue reads a plan only a sprint branch holds from that branch', (
     expect(await queue.briefPresent('feature/sprint-alpha', '')).toBe(false);
   });
 
+  it('reads no plan from a merged sprint branch whose plan main has since removed', async () => {
+    const { bare, local } = hostAndClone();
+    pushSprintBranch(bare);
+    // The sprint branch merges into main and is not deleted; main then
+    // removes the plan, as a rename or a drop does.
+    git(local, ['fetch', '--quiet', 'origin']);
+    git(local, ['merge', '--quiet', '--ff-only', 'origin/sprint/s']);
+    git(local, ['rm', '--quiet', 'docs/plans/2026-11-10-a-sprint-plan.md']);
+    git(local, ['commit', '--quiet', '-m', 'drop the plan']);
+    git(local, ['push', '--quiet', 'origin', 'main']);
+    git(local, ['fetch', '--quiet', 'origin']);
+    expect(await queueWorldForRepo(local, SCRIPTS_DIR).sprintPlans!()).toEqual([]);
+  });
+
   it('reads no sprint plan where no sprint branch exists', async () => {
     const { bare, local } = hostAndClone();
     pushPlanFromElsewhere(bare);
