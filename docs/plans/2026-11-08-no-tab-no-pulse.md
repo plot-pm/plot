@@ -80,7 +80,7 @@ This plan depends on `process-census-gate`. It turns two of that plan's `it.fail
 
 ### Server pulse
 
-- `feature/no-tab-no-pulse-server` — `pulseWanted` in `packages/domain/src/rules/board-watch.ts`; `onClients` in `channel-events.ts`; `watchFleet` and the cold-read path in `fleet.ts`; the wiring in `index.ts`; census S1 flipped to `it`; a changeset for `@plot-pm/board` <!-- builds: pulseWanted, a domain rule for when the board pulse runs -->
+- `feature/no-tab-no-pulse-server` — `pulseWanted` in `packages/domain/src/rules/board-watch.ts`; `onClients` in `channel-events.ts`; `watchFleet` and the cold-read path in `fleet.ts`; the wiring in `index.ts`; census S1 flipped to `it`; a changeset for `@plot-pm/board` <!-- builds: pulseWanted, a domain rule for when the board pulse runs --> → #3251
 
 ### Hidden page
 
