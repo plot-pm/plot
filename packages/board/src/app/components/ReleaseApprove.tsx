@@ -8,9 +8,9 @@ import { approveRelease, releaseReadingOf } from '../lib/release-approve.js';
 /**
  * The release PR row's "Approve release" button.
  *
- * `releaseApprovable` decides whether it shows and whether it is enabled; this
- * renders that answer. The click approves the row's own PR number and head, and
- * the server re-reads both before it merges.
+ * The button always shows. `releaseApprovable` decides whether it is enabled and,
+ * where it is not, the reason this renders beside it. The click approves the row's
+ * own PR number and head, and the server re-reads both before it merges.
  */
 export const ReleaseApprove = ({ row }: { row: AgentRow }) => {
   const [held, setHeld] = useState<PasskeyRegistration | null>(null);
@@ -22,11 +22,11 @@ export const ReleaseApprove = ({ row }: { row: AgentRow }) => {
 
   const reading = releaseReadingOf(row.pr);
   const answer = releaseApprovable(reading, held);
-  if (answer.state === 'hidden' || row.pr === null || row.pr.headSha === undefined) return null;
-  const { number, headSha } = row.pr;
+  const pr = row.pr;
 
   const click = async () => {
-    if (busy) return;
+    if (busy || answer.state !== 'enabled' || pr === null || pr.headSha === undefined) return;
+    const { number, headSha } = pr;
     setBusy(true);
     setMessage('');
     try {
