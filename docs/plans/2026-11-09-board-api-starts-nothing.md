@@ -142,7 +142,7 @@ All four plans touch census counts and may touch `packages/fleet/test/census/`. 
 
 ### Census zero
 
-- `feature/board-api-starts-nothing-census` — census row S7 for the page's 30-second poll, S3 unchanged, set to `it` with `green: true` in `census-rows.ts` and `board.census.test.ts`; merges after `feature/refs-from-files-adapters` <!-- builds: a census row that holds GET /api/board at zero while fleetd serves -->
+- `feature/board-api-starts-nothing-census` — census row S7 for the page's 30-second poll, S3 unchanged, set to `it` with `green: true` in `census-rows.ts` and `board.census.test.ts`; merges after `feature/refs-from-files-adapters` <!-- builds: a census row that holds GET /api/board at zero while fleetd serves --> → #3363
 
 ## Notes
 
