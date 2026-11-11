@@ -81,7 +81,7 @@ This plan depends on `process-census-gate`. Slice *Builtin nap* turns its **P1**
 
 ### Liveness syscall
 
-- `bug/is-alive-without-a-process` — `packages/domain/src/adapters/processes/processes-shell.ts`: `isAlive` through a shared `signalZero` arrow function also used by `process-probe-system.ts`; unit rows; census P2 flipped to `it`; a changeset for `plot` <!-- builds: a shared signalZero liveness mapping in the domain adapters -->
+- `bug/is-alive-without-a-process` — `packages/domain/src/adapters/processes/processes-shell.ts`: `isAlive` through a shared `signalZero` arrow function also used by `process-probe-system.ts`; unit rows; census P2 flipped to `it`; a changeset for `plot` <!-- builds: a shared signalZero liveness mapping in the domain adapters --> → #3258
 
 ## Notes
 
