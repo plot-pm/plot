@@ -83,7 +83,7 @@ This plan depends on `the-channel-carries-readings` (the board receives `RepoSna
 
 ### Serve from snapshot
 
-- `feature/board-reads-the-channel-serve` — `refresh` and `GET /api/board` serve from the held snapshot when `boardSource` answers `snapshot` and fall back on `own`; a delta sends one SSE event; spawn-spy board tests; a changeset for `@plot-pm/board` <!-- builds: a board server that serves from the channel snapshot and spawns nothing while fleetd lives -->
+- `feature/board-reads-the-channel-serve` — `refresh` and `GET /api/board` serve from the held snapshot when `boardSource` answers `snapshot` and fall back on `own`; a delta sends one SSE event; spawn-spy board tests; a changeset for `@plot-pm/board` <!-- builds: a board server that serves from the channel snapshot and spawns nothing while fleetd lives --> → #3291
 
 ### Census zero
 
