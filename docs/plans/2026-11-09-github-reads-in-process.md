@@ -152,7 +152,7 @@ This plan depends on `the-snapshot-entity` (delivered). `triggers-replace-the-ti
 
 ### Client
 
-- `feature/github-reads-in-process-client` — `adapters/host/github-api.ts` with the token source and its refresh, the token's login as budget account, the proxy variables and the 30 s request bound, slots and the shared budget ledger, `rules/budget-rotation.ts` with its corpus test, the rate-limit observations, `scripts/check-host-https-callers.sh` with its contract test, and the census stub server <!-- builds: githubApi, the one in-process GitHub HTTPS client -->
+- `feature/github-reads-in-process-client` — `adapters/host/github-api.ts` with the token source and its refresh, the token's login as budget account, the proxy variables and the 30 s request bound, slots and the shared budget ledger, `rules/budget-rotation.ts` with its corpus test, the rate-limit observations, `scripts/check-host-https-callers.sh` with its contract test, and the census stub server <!-- builds: githubApi, the one in-process GitHub HTTPS client --> → #3347
 
 ### PR reads
 
