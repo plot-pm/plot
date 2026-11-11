@@ -6,6 +6,7 @@ import {
   releaseChainStep,
   type ReleaseChainCandidate,
   type ReleaseChainHop,
+  type ReleaseChainPrevious,
 } from '../src/rules/release-chain.js';
 
 const candidate = (over: Partial<ReleaseChainCandidate>): ReleaseChainCandidate => ({
@@ -19,7 +20,7 @@ const candidate = (over: Partial<ReleaseChainCandidate>): ReleaseChainCandidate 
 
 const answered = (...candidates: ReleaseChainCandidate[]): ReleaseChainHop => ({ answered: true, candidates });
 
-const reading = (hops: ReleaseChainHop[], destination = 'feature/b', planCommit = { commit: 'plan', mergedAt: '' }) => ({
+const reading = (hops: ReleaseChainHop[], destination = 'feature/b', planCommit: ReleaseChainPrevious = { commit: 'plan', mergedAt: '' }) => ({
   defaultBranch: 'main',
   planCommit,
   destination,
