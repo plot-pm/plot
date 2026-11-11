@@ -78,7 +78,7 @@ This plan depends on `process-census-gate`. Slice *Answers in process* turns its
 
 ### Answers in process
 
-- `bug/fixed-answers-once-in-process` — `packages/domain/src/adapters/git-dirs/git-dirs.ts`; `refs-git.ts`, the file adapters and `host-shell.ts` read through it and the backend memo; unit rows; census P3 flipped to `it`; a changeset for `plot` <!-- builds: gitDirs, a once-per-process git directory reading -->
+- `bug/fixed-answers-once-in-process` — `packages/domain/src/adapters/git-dirs/git-dirs.ts`; `refs-git.ts`, the file adapters and `host-shell.ts` read through it and the backend memo; unit rows; census P3 flipped to `it`; a changeset for `plot` <!-- builds: gitDirs, a once-per-process git directory reading --> → #3261
 
 ### Answers in scripts
 
