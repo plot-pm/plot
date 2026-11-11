@@ -75,6 +75,8 @@ export const FleetdHeartbeatSchema = z
     lastEventAt: z.number().nonnegative().nullable(),
     /** When the safety-net read last ran, epoch milliseconds; null if it has not. */
     lastSafetyNetAt: z.number().nonnegative().nullable(),
+    /** How many readings the full reads found changed with no trigger since this process started; absent from a fleetd that counts none. */
+    missedChanges: z.number().int().nonnegative().optional(),
     /** How fleetd reads the git host; absent from a fleetd that publishes none. */
     hostTransport: FleetdHostTransportSchema.optional(),
     /** Each running loop's last completed pass. */

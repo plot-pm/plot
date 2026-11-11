@@ -43,6 +43,13 @@ describe('the heartbeat codec', () => {
     expect(text.split('\n')).toHaveLength(2);
   });
 
+  it('carries the safety net\'s missed-change count, and reads a file without one', () => {
+    const beat = heartbeat({ lastSafetyNetAt: T0 - 1_000, missedChanges: 3 });
+    expect(decodeFleetdHeartbeat(encodeFleetdHeartbeat(beat))).toEqual(beat);
+    expect(decodeFleetdHeartbeat(encodeFleetdHeartbeat(heartbeat()))?.missedChanges).toBeUndefined();
+    expect(decodeFleetdHeartbeat(JSON.stringify({ ...heartbeat(), missedChanges: -1 }))).toBeNull();
+  });
+
   it('carries no protocol until the channel contract names one', () => {
     expect('protocol' in JSON.parse(encodeFleetdHeartbeat(heartbeat()))).toBe(false);
   });

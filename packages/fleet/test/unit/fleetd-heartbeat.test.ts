@@ -67,6 +67,18 @@ describe('startFleetdHeartbeat', () => {
     expect(written).toEqual([1_000, 11_000, 21_000]);
   });
 
+  it('reports the safety net\'s last read and its count, and null with no count where none runs', async () => {
+    const clock = clockManual(1_000);
+    const seen: FleetdHeartbeat[] = [];
+    const store: FleetdHeartbeatStore = { read: async () => answered(null), write: async (h) => (seen.push(h), answered(undefined)) };
+    startFleetdHeartbeat(clock, store, { ...source, safetyNet: () => ({ lastSafetyNetAt: 900, missedChanges: 2 }) }, () => undefined);
+    startFleetdHeartbeat(clock, store, source, () => undefined);
+    await settle();
+    expect(seen[0]).toMatchObject({ lastSafetyNetAt: 900, missedChanges: 2 });
+    expect(seen[1]?.lastSafetyNetAt).toBeNull();
+    expect(seen[1] !== undefined && 'missedChanges' in seen[1]).toBe(false);
+  });
+
   it('reports the process, the generation and the absent channel protocol', async () => {
     const clock = clockManual(1_000);
     let seen: unknown = null;
@@ -339,6 +351,40 @@ describe('run — the heartbeat', () => {
     expect(beat?.watchesWanted).toBe(armed.length);
     expect(beat?.watchesArmed).toBe(armed.length - 1);
     expect(beat?.lastEventAt).toBeNull();
+  });
+
+  it('stamps lastSafetyNetAt once the first full read finishes, with no missed change', async () => {
+    execFileSync('git', ['init', '-q', '-b', 'main', dir], { stdio: 'ignore' });
+    const clock = clockManual(1_000);
+    const store = fleetdHeartbeatFile({ repoRoot: dir });
+    let read: Awaited<ReturnType<typeof store.read>> | null = null;
+    let sleeps = 0;
+    let scanned = false;
+    await run(
+      [],
+      dir,
+      () => undefined,
+      async () => {
+        sleeps += 1;
+        // THE STAMP LANDS AFTER THE SCAN, so the beat that ran it may carry the
+        // old value: beat on until a heartbeat carries one, at most ten times.
+        let at = await nextBeat(store, null);
+        for (let n = 0; n < 10; n += 1) {
+          at = await advanceToBeat(clock, store, at);
+          read = await store.read();
+          const value = read.ok ? read.value : null;
+          if (scanned && value !== null && value.lastSafetyNetAt !== null) break;
+        }
+      },
+      () => sleeps > 0,
+      () => undefined,
+      dir,
+      quiet(clock, { watch: { arm: () => ({ degraded: false, close: () => undefined }) }, scan: async () => void (scanned = true) }),
+    );
+    const beat = read !== null && (read as { ok: boolean }).ok ? (read as unknown as { value: FleetdHeartbeat }).value : null;
+    expect(beat?.lastSafetyNetAt).toEqual(expect.any(Number));
+    expect(beat?.lastSafetyNetAt).toBeGreaterThan(1_000);
+    expect(beat?.missedChanges).toBe(0);
   });
 
   it('writes the generation the seam reports', async () => {

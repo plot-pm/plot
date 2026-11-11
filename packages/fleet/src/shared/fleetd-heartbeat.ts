@@ -54,6 +54,12 @@ export interface FleetdHeartbeatSource {
    * watches; the heartbeat then reports `0`, `0` and `null`.
    */
   observer?: () => { watchesWanted: number; watchesArmed: number; lastEventAt: number | null };
+  /**
+   * The safety net's last read and its missed-change count, read on every beat.
+   * Absent where this process runs no safety net; the heartbeat then reports
+   * `lastSafetyNetAt: null` and no count.
+   */
+  safetyNet?: () => { lastSafetyNetAt: number | null; missedChanges: number };
 }
 
 /**
@@ -87,6 +93,7 @@ export const startFleetdHeartbeat = (
     const loops: FleetdHeartbeat['loops'] = {};
     for (const loop of Object.keys(passes) as FleetdLoop[]) loops[loop] = { lastPassAt: passes[loop] ?? null };
     const observed = source.observer?.() ?? { watchesWanted: 0, watchesArmed: 0, lastEventAt: null };
+    const net = source.safetyNet?.();
     return {
       version: FLEETD_HEARTBEAT_VERSION,
       pid: source.pid,
@@ -98,7 +105,8 @@ export const startFleetdHeartbeat = (
       watchesWanted: observed.watchesWanted,
       watchesArmed: observed.watchesArmed,
       lastEventAt: observed.lastEventAt,
-      lastSafetyNetAt: null,
+      lastSafetyNetAt: net?.lastSafetyNetAt ?? null,
+      ...(net === undefined ? {} : { missedChanges: net.missedChanges }),
       ...(source.hostTransport === undefined ? {} : { hostTransport: source.hostTransport }),
       loops,
     };
