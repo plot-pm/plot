@@ -96,7 +96,7 @@ This plan depends on `the-snapshot-entity`: the heartbeat names the snapshot's `
 
 ### Follow-ups
 
-- `feature/fleetd-heartbeat-not-data-age-followups` — `fleetOwnsScan` follows the scan loop only; the bridge resolves to the main checkout through the shared `mainRootOf`; decided 2026-11-09 (see Notes); a changeset for `@plot-pm/board` <!-- builds: scan ownership by the scan loop, and the bridge at the main checkout -->
+- `feature/fleetd-heartbeat-not-data-age-followups` — `fleetOwnsScan` follows the scan loop only; the bridge resolves to the main checkout through the shared `mainRootOf`; decided 2026-11-09 (see Notes); a changeset for `@plot-pm/board` <!-- builds: scan ownership by the scan loop, and the bridge at the main checkout --> → #3298
 
 ### Issue index
 
