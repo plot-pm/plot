@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { removeTree } from '../rm-tree.mjs';
 import { productRoot, type CensusFixture, type CensusHost } from './census-report.js';
-import { hostCliStub, jiraCurlStub, startStubApi, type StubApi } from './stub-host.js';
+import { BITBUCKET_ROUTE, CENSUS_BB_EMAIL, hostCliStub, jiraCurlStub, startStubApi, type StubApi } from './stub-host.js';
 import { startStubWorker, type StubWorker } from './stub-worker.js';
 
 /**
@@ -39,7 +39,7 @@ export type Sandbox = {
   fixtures: string;
   /** The file every stub appends its argv to. */
   stubLog: string;
-  /** The stub GitHub API the in-process client reads, on a GitHub fixture; null on Bitbucket. */
+  /** The stub API the in-process clients read: GitHub's on a GitHub fixture, its Bitbucket route on a Bitbucket fixture. */
   api: StubApi | null;
   scriptsDir: string;
   size: FixtureSize;
@@ -228,6 +228,7 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
     // as `supervised: systemd`. Only `startFleetd`'s `supervisor: 'systemd'`
     // gives fleetd a unit of its own.
     for (const key of [
+      'BITBUCKET_API_BASE', 'BB_EMAIL', 'BB_TOKEN',
       'PLOT_HOST', 'PLOT_HOST_TRANSPORT', 'PLOT_TRACKER', 'PLOT_UNATTENDED', 'PLOT_BOARD_PORT', 'PORT', 'PLOT_PR_INDEX_HOME', 'PLOT_ISSUE_INDEX_HOME',
       ...SYSTEMD_UNIT_VARS,
     ]) {
@@ -241,6 +242,10 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
       env['GITHUB_API_URL'] = api.url;
     } else {
       delete env['GITHUB_API_URL'];
+      api = await startStubApi(join(fixtures, 'gh'), CENSUS_TOKEN);
+      env['BITBUCKET_API_BASE'] = `${api.url}${BITBUCKET_ROUTE}`;
+      env['BB_EMAIL'] = CENSUS_BB_EMAIL;
+      env['BB_TOKEN'] = CENSUS_TOKEN;
     }
     writeFileSync(join(home, '.gitconfig'), '[init]\n\tdefaultBranch = main\n');
     const git = (cwd: string, ...args: string[]): string =>

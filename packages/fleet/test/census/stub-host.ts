@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { createServer } from 'node:http';
+import { createServer, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 
@@ -237,6 +237,54 @@ export const restAnswer = (fixtures: string, path: string): unknown => {
   return null;
 };
 
+/** The `BB_EMAIL` the sandbox sets on the Bitbucket fixture; the stub server takes it with the fixture token. */
+export const CENSUS_BB_EMAIL = 'census@census.invalid';
+
+/** The path prefix of the Bitbucket route; the sandbox sets `BITBUCKET_API_BASE` to the server URL plus it. */
+export const BITBUCKET_ROUTE = '/2.0';
+
+/**
+ * The stub `bb` answer file a Bitbucket API request reads, keyed as
+ * `bb api <path>` keys it: `api-<last path segment>`, then `-<STATE>` from a
+ * `state=` parameter or a `state="…"` filter, then `-branch-<name>` from a
+ * `source.branch.name="…"` filter with `/` replaced by `_`.
+ *
+ * @param path - the request path, query stripped.
+ * @param query - the raw query string, without `?`.
+ * @returns the key, with no `.json`.
+ */
+export const bitbucketKey = (path: string, query: string): string => {
+  let text = query;
+  try {
+    text = decodeURIComponent(query);
+  } catch {
+    text = query;
+  }
+  const state = /state="?([^"&\s]*)/.exec(text)?.[1] ?? '';
+  const branch = /source\.branch\.name="([^"]*)"/.exec(text)?.[1] ?? '';
+  const last = path.split('/').at(-1) ?? '';
+  return `api-${last}${state === '' ? '' : `-${state}`}${branch === '' ? '' : `-branch-${branch.replaceAll('/', '_')}`}`;
+};
+
+/**
+ * Answers one request on the Bitbucket route from the stub `bb`'s answer
+ * files, so both transports read one fixture. A request whose `Authorization`
+ * is not Basic {@link CENSUS_BB_EMAIL} and the token answers `401`; a missing
+ * file answers an empty page envelope. No answer carries a rate-limit header.
+ */
+const answerBitbucket = (bbFixtures: string, url: string, authorization: string, token: string, res: ServerResponse): void => {
+  const [path = '', query = ''] = url.slice(BITBUCKET_ROUTE.length).split('?');
+  const headers = { 'Content-Type': 'application/json' };
+  if (authorization !== `Basic ${Buffer.from(`${CENSUS_BB_EMAIL}:${token}`).toString('base64')}`) {
+    res.writeHead(401, headers);
+    res.end('{"type":"error","error":{"message":"Unauthorized"}}');
+    return;
+  }
+  const file = join(bbFixtures, `${bitbucketKey(path, query)}.json`);
+  res.writeHead(200, headers);
+  res.end(existsSync(file) ? readFileSync(file) : '{"values":[],"size":0,"pagelen":50}');
+};
+
 /** One request the stub API server answered. */
 export type StubApiRequest = { method: string; path: string; authorization: string; body: string };
 
@@ -263,7 +311,9 @@ export type StubApi = {
  * exists, the server answers the requests the in-process reads send from the
  * stub `gh`'s own answer files ({@link graphqlAnswer}, {@link restAnswer}), so
  * both transports read one fixture. Any other `POST` answers `{"data":{}}`,
- * and any other `GET` answers `404`. A request whose
+ * and any other `GET` answers `404`. A path under {@link BITBUCKET_ROUTE}
+ * answers from the stub `bb`'s files in the sibling `bb` directory, under
+ * Basic auth with the same token. A request whose
  * `Authorization` is not `Bearer <token>` answers `401 Bad credentials`. Every
  * answer carries a full `X-RateLimit-*` window for the bucket it spends.
  *
@@ -290,6 +340,7 @@ export const startStubApi = async (fixtures: string, token: string): Promise<Stu
       const path = (req.url ?? '/').split('?')[0] ?? '/';
       const authorization = String(req.headers.authorization ?? '');
       seen.push({ method, path, authorization, body: Buffer.concat(chunks).toString('utf8') });
+      if (path.startsWith(`${BITBUCKET_ROUTE}/`)) return answerBitbucket(join(fixtures, '..', 'bb'), req.url ?? '', authorization, token, res);
       const headers = {
         'Content-Type': 'application/json',
         'X-RateLimit-Resource': path === '/graphql' ? 'graphql' : 'core',

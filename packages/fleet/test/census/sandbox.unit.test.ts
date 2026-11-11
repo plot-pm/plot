@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { bitbucketApi } from '@plot-pm/domain/adapters/host/bitbucket-api';
 import { githubApi } from '@plot-pm/domain/adapters/host/github-api';
 import { githubIssueList } from '@plot-pm/domain/adapters/host/github-issue-list';
 import { githubPrListing } from '@plot-pm/domain/adapters/host/github-pr-listing';
@@ -129,7 +130,7 @@ describe('the census sandbox', () => {
     expect(runs.ok && runs.runs.map((r) => [r.headSha, r.conclusion, r.workflowName])).toEqual([[box.git(box.repo, 'rev-parse', 'main'), 'success', 'CI']]);
   });
 
-  it('answers a request with another token 401, and runs no stub API on Bitbucket', async () => {
+  it('answers a request with another token 401, and points no GitHub client at the Bitbucket fixture', async () => {
     const box = await sandbox({ host: 'github', desks: 0, openPrs: 0 });
     const api = githubApi({ origin: box.origin, env: { ...box.env, GH_TOKEN: 'not-the-fixture' } });
 
@@ -137,8 +138,33 @@ describe('the census sandbox', () => {
 
     expect(answer.ok || answer.refusal.kind).toBe('auth');
     const bitbucket = await sandbox({ host: 'bitbucket', desks: 0, openPrs: 0 });
-    expect(bitbucket.api).toBeNull();
     expect(bitbucket.env['GITHUB_API_URL']).toBeUndefined();
+    expect(box.env['BITBUCKET_API_BASE']).toBeUndefined();
+  });
+
+  it('counts one stub-server request per in-process Bitbucket page, from the stub bb answer files', async () => {
+    const box = await sandbox({ host: 'bitbucket', desks: 0, openPrs: 5 });
+    const api = bitbucketApi({ origin: 'git@bitbucket.org:census/fixture.git', env: box.env });
+    const page = { method: 'GET' as const, path: '/repositories/{ws}/{repo}/pullrequests?state=OPEN&pagelen=50', label: 'pr-list state=OPEN' };
+    const path = '/2.0/repositories/census/fixture/pullrequests';
+
+    expect(box.env['BITBUCKET_API_BASE']).toBe(`${box.api?.url}/2.0`);
+    expect(await api.credentialSource()).toBe('environment');
+    const first = await api.request(page);
+    expect(first.ok && (first.reply.body as { values: unknown[] }).values).toHaveLength(5);
+    expect(box.api?.count(path)).toBe(1);
+    const branch = await api.request({
+      ...page,
+      path: `/repositories/{ws}/{repo}/pullrequests?q=${encodeURIComponent('state="OPEN" AND source.branch.name="feature/census-slice-2"')}&pagelen=50`,
+    });
+    expect(branch.ok && (branch.reply.body as { values: Array<{ id: number }> }).values.map((v) => v.id)).toEqual([2]);
+    expect(box.api?.count(path)).toBe(2);
+    const none = await api.request({ ...page, path: '/repositories/{ws}/{repo}/pullrequests?state=MERGED&pagelen=50' });
+    expect(none.ok && none.reply.body).toEqual({ values: [], size: 0, pagelen: 50 });
+    expect(box.api?.count(path)).toBe(3);
+
+    const refused = await bitbucketApi({ origin: 'git@bitbucket.org:census/fixture.git', env: { ...box.env, BB_TOKEN: 'not-the-fixture' } }).request(page);
+    expect(refused.ok || refused.refusal.kind).toBe('auth');
   });
 
   it('removes its root by name', async () => {
