@@ -105,7 +105,7 @@ This plan has no `Story:`. It touches `select`, the `if:` of the reusable jobs a
 
 ### Record inputs
 
-- `infra/ci-reuses-green-runs-record` — the `select` step that uploads `ci-inputs-<HEAD^1>-<HEAD^2>` (the two SHAs, `changed.txt` and the selection outputs) on `pull_request`, pinned by SHA with `retention-days: 7` and `continue-on-error: true`, and the rows in `ci-tiers.test.mjs` and `ci-selection-jobs.test.mjs` <!-- builds: a per-run CI record of the base and head SHAs a pull request run tested -->
+- `infra/ci-reuses-green-runs-record` — the `select` step that uploads `ci-inputs-<HEAD^1>-<HEAD^2>` (the two SHAs, `changed.txt` and the selection outputs) on `pull_request`, pinned by SHA with `retention-days: 7` and `continue-on-error: true`, and the rows in `ci-tiers.test.mjs` and `ci-selection-jobs.test.mjs` <!-- builds: a per-run CI record of the base and head SHAs a pull request run tested --> → #3349
 
 ### Reuse
 
