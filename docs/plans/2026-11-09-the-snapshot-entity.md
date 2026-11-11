@@ -92,7 +92,7 @@ Two arrow-function rules sit beside it:
 
 ### Entity
 
-- `feature/the-snapshot-entity-entity` — `RepoSnapshotSchema` in `packages/domain/src/entities/snapshot.ts`, `recordReading` in `rules/snapshot-record.ts`, `staleReadings` in `rules/snapshot-stale.ts`, unit rows for each <!-- builds: RepoSnapshot, a domain entity of readings with a generation -->
+- `feature/the-snapshot-entity-entity` — `RepoSnapshotSchema` in `packages/domain/src/entities/snapshot.ts`, `recordReading` in `rules/snapshot-record.ts`, `staleReadings` in `rules/snapshot-stale.ts`, unit rows for each <!-- builds: RepoSnapshot, a domain entity of readings with a generation --> → #3279
 
 ### Watch port
 
