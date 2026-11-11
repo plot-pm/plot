@@ -109,7 +109,7 @@ This plan has no `Story:`. It touches `select`, the `if:` of the reusable jobs a
 
 ### Reuse
 
-- `infra/ci-reuses-green-runs` — `scripts/ci-job-map.jq`, the ordered `gh api` read step and `actions: read` on `select`, the reuse diff `diff(H1, H2) ∪ (P1 △ P2)`, the summary table and notices, `ciReuse` in `packages/domain/src/rules/ci-reuse.ts` with `ci-reuse.test.ts`, the bundle `plot-ci-reuse.mjs`, the `reuse_*` outputs, the seven job conditions, `validate`'s fourth `require` argument, and the contract rows; merges after `infra/ci-reuses-green-runs-record` <!-- builds: ciReuse, CI job reuse while the merge's base SHA is unchanged -->
+- `infra/ci-reuses-green-runs` — `scripts/ci-job-map.jq`, the ordered `gh api` read step and `actions: read` on `select`, the reuse diff `diff(H1, H2) ∪ (P1 △ P2)`, the summary table and notices, `ciReuse` in `packages/domain/src/rules/ci-reuse.ts` with `ci-reuse.test.ts`, the bundle `plot-ci-reuse.mjs`, the `reuse_*` outputs, the seven job conditions, `validate`'s fourth `require` argument, and the contract rows; merges after `infra/ci-reuses-green-runs-record` <!-- builds: ciReuse, CI job reuse while the merge's base SHA is unchanged --> → #3360
 
 ## Notes
 
