@@ -164,7 +164,7 @@ This plan depends on `the-snapshot-entity` (delivered). `triggers-replace-the-ti
 
 ### Cutover
 
-- `feature/github-reads-in-process-cutover` — the composition switch in fleetd and in `plot-pr-reader.mjs`, `PLOT_HOST_TRANSPORT`, the census S4 and S6 measurement and the story's *Measures*; a changeset for `plot` <!-- builds: the GitHub transport switch in fleetd's composition root -->
+- `feature/github-reads-in-process-cutover` — the composition switch in fleetd and in `plot-pr-reader.mjs`, `PLOT_HOST_TRANSPORT`, the census S4 and S6 measurement and the story's *Measures*; a changeset for `plot` <!-- builds: the GitHub transport switch in fleetd's composition root --> → #3377
 
 ## Notes
 
