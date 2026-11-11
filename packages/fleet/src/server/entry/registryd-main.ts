@@ -64,6 +64,7 @@ import type { Watch } from '@plot-pm/domain/ports/watch';
 import { processAnswers } from '@plot-pm/domain/adapters/git-dirs/git-dirs';
 import { readRefSnapshot } from '@plot-pm/domain/workflows/plan-walk-cache';
 import { startWatchSet, type RunningWatchSet } from '../../shared/watch-set.js';
+import { startSafetyNet } from '../../shared/safety-net.js';
 import type { SliceRefusal, RefusedSliceRecord } from '@plot-pm/domain/ports/refused-slices';
 import type { NotifyWrite, IdleNotifyWrite, UnblockWrite } from '@plot-pm/domain/workflows/decision';
 import {
@@ -2739,23 +2740,6 @@ const armWatchSet = async (
 };
 
 /**
- * Wraps the scan so each beat first re-syncs the desk set and then clears the
- * pending set. The scan still reads everything on every beat, so the set it
- * clears has nothing left to name.
- *
- * @param watchSet - the running set, or `null` where fleetd arms none.
- * @param scan - the scan the clock runs.
- * @returns the scan to hand to `startFleetClock`.
- */
-export const drainWatches = (watchSet: RunningWatchSet | null, scan: () => Promise<void>): (() => Promise<void>) => async () => {
-  if (watchSet !== null) {
-    await watchSet.sync();
-    watchSet.drain();
-  }
-  await scan();
-};
-
-/**
  * Reads each declared App key once through the adapter and writes one line per
  * key that is missing or unreadable.
  *
@@ -3243,6 +3227,17 @@ export const run = async (
   // THE WATCH SET ARMS ONLY FOR THE LOOP, and only where git names a common
   // directory: a root that is no repository watches nothing and reports 0 of 0.
   const watchSet: RunningWatchSet | null = args.once ? null : await armWatchSet(repoRoot, registryDir, scriptsDir, seams.watch ?? watchFs(), seams.clock ?? clockSystem());
+  // EVERY SCAN IS A FULL READ, SO THE SAFETY NET COMPARES AFTER EVERY ONE: one
+  // line per reading that changed while no trigger named it.
+  const safetyNet = startSafetyNet({
+    held: snapshot.current,
+    record: recordSnapshot,
+    now: () => {
+      const at = (seams.clock ?? clockSystem()).now();
+      return at.ok ? at.value : Date.now();
+    },
+    write,
+  });
   const stopWatchHeartbeat: () => Promise<void> = args.once
     ? async () => undefined
     : startFleetdHeartbeat(
@@ -3261,6 +3256,7 @@ export const run = async (
             watchesArmed: watchSet?.armed() ?? 0,
             lastEventAt: watchSet?.lastEventAt() ?? null,
           }),
+          safetyNet: () => ({ lastSafetyNetAt: safetyNet.lastAt(), missedChanges: safetyNet.missed() }),
         },
         warn,
       );
@@ -3294,11 +3290,11 @@ export const run = async (
   const scanClock = args.once
     ? null
     : startFleetClock(seams.clock ?? clockSystem(), {
-        scan: drainWatches(watchSet, seams.scan ? passed('scan', seams.scan) : scanPassed(fleetScan(
+        scan: safetyNet.scan(watchSet, seams.scan ? passed('scan', seams.scan) : scanPassed(fleetScan(
           {
             repoRoot,
             scripts,
-            record: recordSnapshot,
+            record: safetyNet.record,
             refs: refsGit({ repoRoot, scriptDir: scriptsDir }),
             backend: async () => {
               const answer = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
@@ -3369,7 +3365,10 @@ export const run = async (
           warn,
           stateSyncStampOf(refsGit({ repoRoot, scriptDir: scriptsDir }), () => readConfigAsync({ repoRoot, scriptsDir }, 'State branch', '')),
         ),
-        woke: (drift) => write(`plot-fleetd: clock moved ${Math.round(drift.driftMs / 1000)}s against the monotonic clock; full read\n`),
+        woke: (drift) => {
+          write(`plot-fleetd: clock moved ${Math.round(drift.driftMs / 1000)}s against the monotonic clock; full read\n`);
+          safetyNet.woke();
+        },
       }, warn);
   const runTick = seams.tick ?? tick;
   // THE WAIT BETWEEN TICKS ENDS ON A STOP. A stop read before the wait skips

@@ -11,11 +11,13 @@ import { buildSandbox, githubPr, type Sandbox } from './sandbox.js';
 import { censusGate, findStrace } from './strace-run.js';
 import type { ExecRecord, StraceCensus } from './strace-execs.js';
 
-// fleetd per completed pass (S4, S5, S6, P2, P3, P4, P5, P7, P9), counted under `strace -f`
+// fleetd per completed pass (S4, S5, S6, S8, P2, P3, P4, P5, P7, P9), counted under `strace -f`
 // over the census entry, which runs fleetd's `run` in its loop mode on a clock
 // it drives. Pass 1 warms every loop and is never counted; passes 2 and 3 are
 // idle; on the GitHub fixture with desks, pass 4 follows one desk commit (S5)
-// and pass 5 follows one PR's CI turning green (S6).
+// and pass 5 follows one PR's CI turning green (S6). The last pass on every
+// fixture is a safety-net pass (S8): it moves the clock by the safety-net
+// interval, so the full read it holds is a safety-net read.
 
 const gate = censusGate({ stracePath: findStrace(process.env['PATH'] ?? ''), platform: process.platform });
 
@@ -29,6 +31,13 @@ const FIXTURES: CensusFixture[] = [
 ];
 
 const basename = (path: string): string => path.split('/').pop() ?? path;
+
+/** The safety net's stamp in the sandbox's `fleetd.json`; `undefined` where the file holds none. */
+const lastSafetyNetAtOf = (box: Sandbox): number | null | undefined => {
+  const path = join(box.repo, '.plot', 'state', 'fleetd.json');
+  if (!existsSync(path)) return undefined;
+  return (JSON.parse(readFileSync(path, 'utf8')) as { lastSafetyNetAt?: number | null }).lastSafetyNetAt;
+};
 
 const isFixedAnswer = (e: ExecRecord): boolean =>
   basename(e.path) === 'git' &&
@@ -102,6 +111,10 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
   /** In-process requests per idle pass (passes 2 and 3), and the shell's `gh` listing calls per idle pass on the same fixture. */
   let requests: number[] = [];
   let baseline: number[] = [];
+  /** The safety-net pass's number, and the stamps before it and after fleetd stopped. */
+  let netPass = 0;
+  let beforeNet: number | null | undefined;
+  let afterNet: number | null | undefined;
 
   beforeAll(async () => {
     box = await buildSandbox(fixture);
@@ -130,8 +143,11 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
         box.answer('gh', 'pr-list-all-head-feature_census-slice-1', [green[0]]);
         await fleetd.pass();
       }
+      beforeNet = lastSafetyNetAtOf(box);
+      netPass = await fleetd.safetyNet();
     } finally {
       const end = await fleetd.stop();
+      afterNet = lastSafetyNetAtOf(box);
       if (end.census === null) throw new Error('process census: the fleetd run was not traced');
       census = end.census;
     }
@@ -174,6 +190,14 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
     const execs = IDLE_PASSES.flatMap((l) => (idle.get(l) ?? []).filter(pick));
     return { mean: each.reduce((a, b) => a + b, 0) / each.length, each, execs };
   };
+
+  it(rowTitle(CENSUS_ROWS.S8, fixture), () => {
+    const execs = treeOf(census, between(census.execs, `pass-${netPass - 1}`, `pass-${netPass}`), root);
+    recordCount(CENSUS_ROWS.S8, fixture, execs.length, execs);
+    expect(execs.length).toBeGreaterThan(0);
+    expect(beforeNet).toEqual(expect.any(Number));
+    expect(afterNet).toBeGreaterThan(beforeNet ?? Number.POSITIVE_INFINITY);
+  });
 
   it('traces fleetd through its warm pass and two idle passes', () => {
     expect(root).toBeGreaterThan(0);

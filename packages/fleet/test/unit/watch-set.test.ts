@@ -10,7 +10,6 @@ import { answered, decodeFleetdHeartbeat, encodeFleetdHeartbeat, type SnapshotCh
 import type { FleetdHeartbeatStore } from '@plot-pm/domain/ports/fleetd-heartbeat';
 import { readRefSnapshot } from '@plot-pm/domain/workflows/plan-walk-cache';
 
-import { drainWatches } from '../../src/server/entry/registryd-main.js';
 import { startFleetdHeartbeat } from '../../src/shared/fleetd-heartbeat.js';
 import { startWatchSet, type RunningWatchSet } from '../../src/shared/watch-set.js';
 import { removeTree } from '../rm-tree.mjs';
@@ -216,23 +215,5 @@ describe('fleetd watch set', () => {
     await quiet(50);
     expect(seen).toMatchObject({ watchesWanted: 0, watchesArmed: 0, lastEventAt: null });
     await stop();
-  });
-});
-
-describe('drainWatches', () => {
-  it('syncs the desk set and clears the pending set before the scan, which still runs', async () => {
-    const order: string[] = [];
-    const fake = {
-      sync: async () => void order.push('sync'),
-      drain: () => (order.push('drain'), []),
-    } as unknown as RunningWatchSet;
-    await drainWatches(fake, async () => void order.push('scan'))();
-    expect(order).toEqual(['sync', 'drain', 'scan']);
-  });
-
-  it('runs the scan alone where fleetd arms no watch', async () => {
-    let scans = 0;
-    await drainWatches(null, async () => void (scans += 1))();
-    expect(scans).toBe(1);
   });
 });
