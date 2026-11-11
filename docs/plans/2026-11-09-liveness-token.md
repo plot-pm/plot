@@ -120,7 +120,7 @@ This plan depends on `node-worker-wrapper` (all three slices), because the token
 
 ### Worker token
 
-- `feature/liveness-token-worker` — the wrapper makes `.plot-worker.token.fifo` and hands fd 3 to the agent; a `LivenessToken` port and FIFO adapter in `packages/domain/src/adapters/liveness-token/`; `workerLiveness` in `rules/worker-liveness.ts`; `readWorkerReadings` reads the token before the start time; the loop passes fd 3 to the harness; the `orphaned` walk on a trigger; the network-filesystem refusal in the desk-root check; "liveness by start time" on the board; the pid-reuse and killed-wrapper tests <!-- builds: workerLiveness, worker liveness from an inherited FIFO token -->
+- `feature/liveness-token-worker` — the wrapper makes `.plot-worker.token.fifo` and hands fd 3 to the agent; a `LivenessToken` port and FIFO adapter in `packages/domain/src/adapters/liveness-token/`; `workerLiveness` in `rules/worker-liveness.ts`; `readWorkerReadings` reads the token before the start time; the loop passes fd 3 to the harness; the `orphaned` walk on a trigger; the network-filesystem refusal in the desk-root check; "liveness by start time" on the board; the pid-reuse and killed-wrapper tests <!-- builds: workerLiveness, worker liveness from an inherited FIFO token --> → #3361
 
 ### Locks
 
