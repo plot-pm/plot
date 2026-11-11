@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -8,6 +8,7 @@ import { githubApi } from '@plot-pm/domain/adapters/host/github-api';
 import { githubIssueList } from '@plot-pm/domain/adapters/host/github-issue-list';
 import { githubPrListing } from '@plot-pm/domain/adapters/host/github-pr-listing';
 import { githubRuns } from '@plot-pm/domain/adapters/host/github-runs';
+import { jiraApi } from '@plot-pm/domain/adapters/tracker/jira-api';
 
 import { buildSandbox, CENSUS_TOKEN, describeSize, type Sandbox } from './sandbox.js';
 
@@ -73,7 +74,27 @@ describe('the census sandbox', () => {
 
     host(box, 'issue-list', '--state', 'open');
 
-    expect(readFileSync(box.stubLog, 'utf8')).toMatch(/^curl .*https:\/\/jira\.census\.invalid\/rest\/api\/2\/search/m);
+    expect(readFileSync(box.stubLog, 'utf8')).toContain(`${box.api?.url}/rest/api/2/search`);
+    expect(box.env['PLOT_JIRA_BASE_URL']).toBe(box.api?.url);
+  });
+
+  it('counts one stub-server request per in-process Jira page, answered from the curl stub answer files', async () => {
+    const box = await sandbox({ host: 'bitbucket', desks: 0, openPrs: 0 });
+    const page = { issues: [{ key: 'CEN-1', fields: { summary: 'one' } }], isLast: true };
+    writeFileSync(join(box.fixtures, 'jira', '_rest_api_2_search_jql.json'), `${JSON.stringify(page)}\n`);
+    const api = jiraApi({ repoRoot: box.repo, baseUrl: 'https://jira.census.invalid', env: box.env });
+    const read = { method: 'GET' as const, path: '/rest/api/2/search/jql', query: { jql: 'project IN (CEN)' }, label: 'open issues' };
+
+    const first = await api.request(read);
+    const second = await api.request(read);
+
+    expect(first.ok && first.reply.body).toEqual(page);
+    expect(second.ok).toBe(true);
+    expect(box.api?.count('/rest/api/2/search/jql')).toBe(2);
+    const empty = await api.request({ method: 'GET', path: '/rest/api/2/serverInfo', label: 'server' });
+    expect(empty.ok && empty.reply.body).toEqual({ issues: [], isLast: true, total: 0 });
+    const refused = await jiraApi({ repoRoot: box.repo, env: { ...box.env, JIRA_API_TOKEN: 'not-the-fixture' } }).request(read);
+    expect(refused.ok || refused.refusal.kind).toBe('auth');
   });
 
   it('holds each desk with a live stub worker whose pid is in .plot-worker.pid, and stops each one', async () => {
@@ -139,6 +160,7 @@ describe('the census sandbox', () => {
     expect(answer.ok || answer.refusal.kind).toBe('auth');
     const bitbucket = await sandbox({ host: 'bitbucket', desks: 0, openPrs: 0 });
     expect(bitbucket.env['GITHUB_API_URL']).toBeUndefined();
+    expect(box.env['PLOT_JIRA_BASE_URL']).toBeUndefined();
     expect(box.env['BITBUCKET_API_BASE']).toBeUndefined();
   });
 

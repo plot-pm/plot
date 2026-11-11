@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 /**
  * The `PATH` stubs the census sandbox puts in front of the host CLIs.
@@ -285,6 +285,37 @@ const answerBitbucket = (bbFixtures: string, url: string, authorization: string,
   res.end(existsSync(file) ? readFileSync(file) : '{"values":[],"size":0,"pagelen":50}');
 };
 
+/** The Jira account email the census sandbox sets as `JIRA_EMAIL`. */
+export const CENSUS_JIRA_EMAIL = 'census@census.invalid';
+
+/** The Jira API token the census sandbox sets as `JIRA_API_TOKEN`. */
+export const CENSUS_JIRA_TOKEN = 'census';
+
+/** The answer the `curl` stub and the Jira route give where no answer file exists: an empty last search page. */
+const JIRA_EMPTY_PAGE = '{"issues":[],"isLast":true,"total":0}';
+
+/**
+ * Answers one in-process Jira request from the `curl` stub's answer files.
+ *
+ * The key is the one {@link jiraCurlStub} reads: the path, query stripped,
+ * `/` replaced by `_`, under `$CENSUS_FIXTURES/jira/`. A missing file answers
+ * an empty search page. A request whose `Authorization` is not Basic over
+ * {@link CENSUS_JIRA_EMAIL} and {@link CENSUS_JIRA_TOKEN} answers `401`. No
+ * answer carries a rate-limit header, as Jira's own answers measured
+ * 2026-11-10 carry none.
+ *
+ * @param jiraDir - the Jira fixture directory.
+ * @param path - the request path, query stripped.
+ * @param authorization - the request's `Authorization` header.
+ * @returns the status and the body.
+ */
+export const jiraAnswer = (jiraDir: string, path: string, authorization: string): { status: number; body: string } => {
+  const expected = `Basic ${Buffer.from(`${CENSUS_JIRA_EMAIL}:${CENSUS_JIRA_TOKEN}`).toString('base64')}`;
+  if (authorization !== expected) return { status: 401, body: '{"errorMessages":["Client must be authenticated to access this resource."]}' };
+  const file = join(jiraDir, `${path.replaceAll('/', '_')}.json`);
+  return { status: 200, body: existsSync(file) ? readFileSync(file, 'utf8') : JIRA_EMPTY_PAGE };
+};
+
 /** One request the stub API server answered. */
 export type StubApiRequest = { method: string; path: string; authorization: string; body: string };
 
@@ -316,6 +347,8 @@ export type StubApi = {
  * Basic auth with the same token. A request whose
  * `Authorization` is not `Bearer <token>` answers `401 Bad credentials`. Every
  * answer carries a full `X-RateLimit-*` window for the bucket it spends.
+ * A path under `/rest/api/` is a Jira request, answered by {@link jiraAnswer}
+ * from the `jira` directory beside `fixtures`.
  *
  * @param fixtures - the `gh` fixture directory.
  * @param token - the fixture token the sandbox sets as `GH_TOKEN`.
@@ -341,6 +374,12 @@ export const startStubApi = async (fixtures: string, token: string): Promise<Stu
       const authorization = String(req.headers.authorization ?? '');
       seen.push({ method, path, authorization, body: Buffer.concat(chunks).toString('utf8') });
       if (path.startsWith(`${BITBUCKET_ROUTE}/`)) return answerBitbucket(join(fixtures, '..', 'bb'), req.url ?? '', authorization, token, res);
+      if (path.startsWith('/rest/api/')) {
+        const jira = jiraAnswer(join(dirname(fixtures), 'jira'), path, authorization);
+        res.writeHead(jira.status, { 'Content-Type': 'application/json' });
+        res.end(jira.body);
+        return;
+      }
       const headers = {
         'Content-Type': 'application/json',
         'X-RateLimit-Resource': path === '/graphql' ? 'graphql' : 'core',

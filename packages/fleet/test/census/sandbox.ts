@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { removeTree } from '../rm-tree.mjs';
 import { productRoot, type CensusFixture, type CensusHost } from './census-report.js';
-import { BITBUCKET_ROUTE, CENSUS_BB_EMAIL, hostCliStub, jiraCurlStub, startStubApi, type StubApi } from './stub-host.js';
+import { BITBUCKET_ROUTE, CENSUS_BB_EMAIL, CENSUS_JIRA_EMAIL, CENSUS_JIRA_TOKEN, hostCliStub, jiraCurlStub, startStubApi, type StubApi } from './stub-host.js';
 import { startStubWorker, type StubWorker } from './stub-worker.js';
 
 /**
@@ -39,7 +39,7 @@ export type Sandbox = {
   fixtures: string;
   /** The file every stub appends its argv to. */
   stubLog: string;
-  /** The stub API the in-process clients read: GitHub's on a GitHub fixture, its Bitbucket route on a Bitbucket fixture. */
+  /** The stub API server: GitHub's API on a GitHub fixture; the Bitbucket route and Jira's REST API on a Bitbucket fixture. */
   api: StubApi | null;
   scriptsDir: string;
   size: FixtureSize;
@@ -216,8 +216,8 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
       // `budget_account` reads this variable, as it reads `hosts.yml` for a
       // person signed in to `gh`.
       PLOT_BUDGET_ACCOUNT: CENSUS_TOKEN,
-      JIRA_EMAIL: 'census@census.invalid',
-      JIRA_API_TOKEN: 'census',
+      JIRA_EMAIL: CENSUS_JIRA_EMAIL,
+      JIRA_API_TOKEN: CENSUS_JIRA_TOKEN,
     };
     // NO INDEX OVERRIDE: the PR index, the reader lock and the issue index
     // resolve from the sandbox repository's common git dir, as on an
@@ -246,6 +246,15 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
       env['BITBUCKET_API_BASE'] = `${api.url}${BITBUCKET_ROUTE}`;
       env['BB_EMAIL'] = CENSUS_BB_EMAIL;
       env['BB_TOKEN'] = CENSUS_TOKEN;
+    }
+    // THE IN-PROCESS JIRA CLIENT'S HOST: the Bitbucket fixture's tracker is
+    // Jira, and the same server answers its requests from the `curl` stub's
+    // answer files, so a census row can count them.
+    if (size.host === 'bitbucket') {
+      api ??= await startStubApi(join(fixtures, 'gh'), CENSUS_TOKEN);
+      env['PLOT_JIRA_BASE_URL'] = api.url;
+    } else {
+      delete env['PLOT_JIRA_BASE_URL'];
     }
     writeFileSync(join(home, '.gitconfig'), '[init]\n\tdefaultBranch = main\n');
     const git = (cwd: string, ...args: string[]): string =>
