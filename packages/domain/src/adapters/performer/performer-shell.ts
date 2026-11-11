@@ -47,7 +47,7 @@ const START_TIMEOUT_MS = 60_000;
  * @returns a performer that starts free agents.
  */
 export const performerShell = (context: ShellContext): Performer => ({
-  assignSlice: async (session, branch, slug): Promise<PortResult<boolean>> => {
+  assignSlice: async (session, branch, slug, base = ''): Promise<PortResult<boolean>> => {
     // A FILE WRITE, NOT A SPAWN, AND THEREFORE NOT A SCRIPT. Every other
     // member of this port shells out because the process table is the script's
     // to touch; a manifest is a JSON file this package already reads, and
@@ -68,6 +68,10 @@ export const performerShell = (context: ShellContext): Performer => ({
       if (typeof manifest.branch === 'string' && manifest.branch !== '') return answered(false);
       manifest.branch = branch;
       manifest.slug = slug;
+      // AN EMPTY BASE REMOVES THE FIELD, so a default-branch slice never reads
+      // the base an earlier sprint slice left in the manifest.
+      if (base !== '') manifest.base = base;
+      else delete manifest.base;
       writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
       return answered(true);
     } catch {

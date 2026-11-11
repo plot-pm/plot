@@ -56,8 +56,11 @@ export interface Performer {
    * @param session - the agent's session id, naming its manifest.
    * @param branch - the branch it is handed.
    * @param slug - that branch's plan slug, so the agent's scope travels with it.
+   * @param base - the branch the slice is cut from, without `origin/`; `''`
+   *   for the default branch. Recorded as the manifest's `base`, or removed
+   *   from it where empty.
    * @returns whether the assignment was recorded — `false` where the agent had
    *   since taken other work, never a throw.
    */
-  assignSlice(session: string, branch: string, slug: string): Promise<PortResult<boolean>>;
+  assignSlice(session: string, branch: string, slug: string, base?: string): Promise<PortResult<boolean>>;
 }

@@ -82,6 +82,13 @@ import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Trees } from '@plot-pm/domain/ports/trees';
 import type { PlanRecord, PlanStore } from '@plot-pm/domain/ports/plan-store';
+import {
+  chooseSprintPlans,
+  sliceBaseRef,
+  sprintPlanReads,
+  SPRINT_BRANCH_PREFIX,
+  type BasedPlan,
+} from '@plot-pm/domain/rules/slice-base';
 import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
 import type { EndingAskRecordStore } from '@plot-pm/domain/ports/ending-ask-record';
 import type { RunLog } from '@plot-pm/domain/ports/run-log';
@@ -770,6 +777,45 @@ export const subjectProvenOf = async (
 };
 
 /**
+ * The plans only a sprint branch holds, each with that branch as its base.
+ *
+ * Lists `refs/remotes/origin/sprint/*`, lists each tip's plan files, and
+ * parses only the files the default branch does not hold. `sprintPlanReads`
+ * decides which files to read and `chooseSprintPlans` which branch a file
+ * belongs to. A ref list that fails, or a branch whose tree cannot be listed
+ * or parsed, contributes no plan; the default branch's plans are unaffected.
+ *
+ * @param refs - the ref reader.
+ * @param context - where the scripts live and which repository to parse in.
+ * @param mainFiles - the plan paths `origin/<default>` holds.
+ * @returns the sprint-only plans, one per file.
+ */
+export const sprintPlansOf = async (
+  refs: Refs,
+  context: { repoRoot: string; scriptDir: string },
+  mainFiles: readonly string[],
+): Promise<readonly BasedPlan[]> => {
+  const tips = await refs.branchTips([`refs/remotes/origin/${SPRINT_BRANCH_PREFIX}*`]);
+  if (!tips.ok || tips.value.length === 0) return [];
+  const planDir = await planDirectory(scriptsShell(context));
+  const branches = [...tips.value].map((tip) => tip.branch).sort();
+  const stores = new Map(branches.map((branch) => [branch, planStoreRef(refs, context, `origin/${branch}`, planDir)]));
+  const listings = await Promise.all(
+    branches.map(async (branch) => {
+      const files = await stores.get(branch)!.listPlans();
+      return { branch, files: files.ok ? files.value : [] };
+    }),
+  );
+  const candidates: BasedPlan[] = [];
+  for (const read of sprintPlanReads(mainFiles, listings)) {
+    const records = await stores.get(read.branch)!.readPlans(read.files);
+    if (!records.ok) continue;
+    for (const record of records.value) candidates.push({ record, base: read.branch });
+  }
+  return chooseSprintPlans(candidates);
+};
+
+/**
  * Whether the host merged any PR for a QUEUED branch — the join
  * {@link QueueWorld.queuedHasLanded} and the hand-over check both need.
  *
@@ -869,6 +915,12 @@ export const queueWorldForRepo = (
       const records = await plans.readPlans(files.value);
       return records.ok ? records.value : [];
     },
+    // A DEFAULT BRANCH THAT CANNOT BE LISTED READS NO SPRINT PLAN: without its
+    // file list, a default-branch plan could be read from a sprint branch.
+    sprintPlans: async () => {
+      const files = await plans.listPlans();
+      return files.ok ? sprintPlansOf(refs, context, files.value) : [];
+    },
     claimedBranches: async () => {
       const answer = await refs.listBranches(true);
       // AN UNREADABLE REF LIST QUEUES NOTHING, and that direction is the safe
@@ -878,7 +930,7 @@ export const queueWorldForRepo = (
       if (!answer.ok) return new Set(['*']);
       return new Set(answer.value.map((name) => name.replace(/^origin\//, '')));
     },
-    briefPresent: async (branch) => {
+    briefPresent: async (branch, sliceBase) => {
       const base = await refs.defaultBranch();
       if (!base.ok) return false;
       // THE SAME PATH AND THE SAME REF `plot-dispatch.sh`'s `brief_present`
@@ -887,7 +939,9 @@ export const queueWorldForRepo = (
       // exists, not whether it is non-empty — and the shell's gate at the
       // hand-over is what refuses a zero-byte brief.
       const suffix = branch.split('/').pop() ?? branch;
-      const answer = refs.fileExistsSync(`origin/${base.value}`, `.plot/briefs/${suffix}.md`);
+      // A SPRINT SLICE'S BRIEF IS BOOKED ON ITS SPRINT BRANCH (`plot-brief-book.mjs
+      // --branch`), so the ref is the slice's base, `sliceBaseRef`.
+      const answer = refs.fileExistsSync(sliceBaseRef(sliceBase, `origin/${base.value}`), `.plot/briefs/${suffix}.md`);
       return answer.ok && answer.value;
     },
     mergedBranches: async () => {
@@ -1789,7 +1843,7 @@ export const startAgents = async (
       continue;
     }
 
-    const answer = await performer.assignSlice(item.session, item.branch, item.slug);
+    const answer = await performer.assignSlice(item.session, item.branch, item.slug, item.base);
     if (!answer.ok) {
       warn(
         `plot-fleetd: ${item.branch} could not be handed over; the next tick re-derives the queue\n`,
