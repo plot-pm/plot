@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { budgetAccountOf, hostsYmlUser, originOwner, type BudgetAccountReadings } from '../src/rules/budget-account.js';
+import { budgetAccountOf, hostsYmlUser, originOwner, type BudgetAccountReadings } from '../src/adapters/budget/budget-account.js';
 
 const NONE: BudgetAccountReadings = { override: undefined, hostsYml: null, originUrl: null, jiraEmailSha256: null };
 const HOSTS = 'github.com:\n    users:\n        jwloka:\n    git_protocol: ssh\n    user: jwloka\n';

@@ -104,7 +104,6 @@ export * from './rules/restart-offer.js';
 export * from './rules/attention.js';
 export * from './rules/monitor-log.js';
 export * from './rules/budget-record.js';
-export * from './rules/budget-account.js';
 export * from './rules/state-sync-trigger.js';
 export * from './rules/slice-spend-record.js';
 export * from './rules/pr-index.js';
