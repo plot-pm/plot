@@ -451,7 +451,12 @@ describe('issueOpen through the fixture', () => {
 });
 
 describe('trackerOfSource and trackerForIssues', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('resolve a repository with no Tracker key to the git host reader', async () => {
+    vi.stubEnv('PLOT_BUDGET_ACCOUNT', 'jwloka');
     const { context } = hostThat('');
     const viaSource = trackerOfSource({ ask: 'git-host' }, '', 'github', context);
     const viaIssues = trackerForIssues('', 'github', context);
