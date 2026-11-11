@@ -45,9 +45,9 @@ afterEach(() => {
 });
 
 describe('the census rows', () => {
-  it('holds every row of the plan but the retired P1, D1 of the worker wrapper plan, S7 of the board API plan, P5 of the GitHub reads plan, P6 of the liveness token plan and P7 of the triggers plan', () => {
-    expect(Object.keys(CENSUS_ROWS).filter((id) => id !== 'D1' && id !== 'S7' && id !== 'P5' && id !== 'P6' && id !== 'P7').sort()).toEqual([...planRows().keys()].sort());
-    expect(Object.keys(CENSUS_ROWS).sort()).toEqual(['D1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7']);
+  it('holds every row of the plan but the retired P1, D1 of the worker wrapper plan, S7 of the board API plan, P5 of the GitHub reads plan, P6 of the liveness token plan and P7 and S8 of the triggers plan', () => {
+    expect(Object.keys(CENSUS_ROWS).filter((id) => id !== 'D1' && id !== 'S7' && id !== 'P5' && id !== 'P6' && id !== 'P7' && id !== 'S8').sort()).toEqual([...planRows().keys()].sort());
+    expect(Object.keys(CENSUS_ROWS).sort()).toEqual(['D1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8']);
     expect(readFileSync(WRAPPER_PLAN, 'utf8')).toContain(`\`D1: ${CENSUS_ROWS.D1.claim}\``);
   });
 
@@ -56,6 +56,12 @@ describe('the census rows', () => {
     expect(readFileSync(LIVENESS_PLAN, 'utf8')).toContain('P1 is retired in the same slice that deletes the script');
     expect(CENSUS_ROWS.P6).toMatchObject({ target: 'zero', greenBy: { plan: 'liveness-token', slice: 'Monitor in fleetd' }, green: true });
     expect(rowTitle(CENSUS_ROWS.P6)).toMatch(/turned green by plan liveness-token, slice Monitor in fleetd/);
+  });
+
+  it('holds S8 as the triggers plan words it, a measured row held within 10 % + 2', () => {
+    expect(readFileSync(TRIGGERS_PLAN, 'utf8')).toContain(`| S8 | ${CENSUS_ROWS.S8.claim} | measured, 10 % + 2 | Safety net |`);
+    expect(CENSUS_ROWS.S8).toMatchObject({ target: 'measured', tolerance: { ratio: 0.1, plus: 2 } });
+    expect(rowTitle(CENSUS_ROWS.S8)).toMatch(/measured, held within 10 % \+ 2/);
   });
 
   it('holds P7 as the triggers plan words it, a zero row turned green by its Fleet size slice', () => {

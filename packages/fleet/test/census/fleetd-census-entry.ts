@@ -9,6 +9,10 @@
 //   pass   run one completed pass: the tick, and one beat of each of the scan,
 //          the PR reader, the issue reader and the issue writes; then start
 //          `/usr/bin/true census-mark pass-<n>` and print `census: pass <n> done`
+//   safety-net
+//          run one completed pass that moves the clock by at least the
+//          safety-net interval, so the full read it holds is a safety-net
+//          read; it prints `census: pass <n> done` as `pass` does
 //   stop   end the loop; prints `census: stopped <code>` and exits with it
 //
 // `CENSUS_CLOCK=system` runs fleetd on the system clock and real sleeps
@@ -215,6 +219,13 @@ const beatsPerPass = fleetDivisors().reduce((acc, { everyNthBeat }) => (acc * ev
 
 /** The fleet clock's beat, in ms: `clockManual` moves its own time by this per beat. */
 const BEAT_MS = 5_000;
+/**
+ * The safety-net interval, in ms: the product's `SAFETY_NET_MS`, written here
+ * because a merge-base product may not export it.
+ */
+const SAFETY_NET_MS = 600_000;
+/** Beats in one safety-net pass: whole passes that span at least the safety-net interval. */
+const safetyNetBeats = Math.ceil(SAFETY_NET_MS / (beatsPerPass * BEAT_MS)) * beatsPerPass;
 const clock = manual ? clockManual(Date.now()) : undefined;
 
 let stopped = false;
@@ -253,7 +264,7 @@ const mark = (label: string): void => {
 };
 
 let passes = 0;
-const pass = async (): Promise<void> => {
+const pass = async (beats: number = beatsPerPass): Promise<void> => {
   passes += 1;
   if (passes === 1) {
     await sleepsReach(1);
@@ -267,8 +278,8 @@ const pass = async (): Promise<void> => {
   // monotonic readings by the same beats, so `clockDrift` reads no jump across a
   // pass. `offsetMs` shifts only the patched `Date`, which fleetd's wake check
   // never reads: it reads the injected clock through the port.
-  offsetMs += beatsPerPass * BEAT_MS;
-  clock?.advance(beatsPerPass);
+  offsetMs += beats * BEAT_MS;
+  clock?.advance(beats);
   await sleepsReach(target);
   await quiet();
   mark(`pass-${passes}`);
@@ -294,6 +305,7 @@ lines.on('line', (line) => {
   const command = line.trim();
   queue = queue.then(async () => {
     if (command === 'pass' && manual && !stopped) await pass();
+    if (command === 'safety-net' && manual && !stopped) await pass(safetyNetBeats);
     if (command === 'stop') {
       stopped = true;
       wakeStop();
