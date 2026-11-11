@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-11, jwloka, plan-PR #3387 merged
+- **Started:** 2026-11-11, Jan Wloka, `feature/triggers-replace-the-tick-quiet-beats`
 
 ## Changelog
 
