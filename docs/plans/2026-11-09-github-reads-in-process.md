@@ -160,7 +160,7 @@ This plan depends on `the-snapshot-entity` (delivered). `triggers-replace-the-ti
 
 ### Issues and runs
 
-- `feature/github-reads-in-process-issues-runs` — the four GitHub issue reads in `tracker-github.ts` and `runsForSha` in `build-actions.ts` over the client, with tracker rows and the `runs-for-sha` corpus row <!-- builds: in-process GitHub issue and Actions-run reads -->
+- `feature/github-reads-in-process-issues-runs` — the four GitHub issue reads in `tracker-github.ts` and `runsForSha` in `build-actions.ts` over the client, with tracker rows and the `runs-for-sha` corpus row <!-- builds: in-process GitHub issue and Actions-run reads --> → #3375
 
 ### Cutover
 
