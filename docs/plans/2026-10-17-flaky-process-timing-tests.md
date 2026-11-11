@@ -53,7 +53,7 @@ No domain or board source changes are planned. If #1544 shows the grace period i
 
 ### Implementation
 
-- `infra/flaky-process-timing-tests` — fix the five tests named in #1850, one commit per issue, each with a stress run that fails without the fix
+- `infra/flaky-process-timing-tests` — fix the five tests named in #1850, one commit per issue, each with a stress run that fails without the fix → #1994
 
 ## Notes
 
