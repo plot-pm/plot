@@ -88,7 +88,7 @@ import { mineMode, planIndexOf } from '@plot-pm/domain';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
 import { ActivityMark } from '../lib/agent-rows/marks.js';
 import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
-import { deliveryMapping } from '../lib/agent-rows/delivery-readings.js';
+import { deliveryMapping, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
 import {
   machineLine,
   placeMapping,
@@ -1074,12 +1074,17 @@ export function AgentList({
           reader,
           mode,
           config: { autoReview: fleet.autoReview, correctionBudget: fleet.correctionBudget },
+          tickets: fleet.issueAnswer === 'answered' ? fleet.waiting?.tickets : null,
+          ticketSource: fleet.waiting?.source ?? null,
+          releases: sprintReleases(activeSprints, selectedSprints),
           sprints: (fleet.sprints ?? []).map((s) => ({ release: s.release, started: s.start ?? '' })),
           releaseTickets: fleet.releaseTickets,
         });
         const view = placeMapping(mapping, fleet.slices);
         const slices = fleet.slices;
         const issues = fleet.issueAnswer === 'answered' ? filteredIssues : [];
+        // A ticket a section holds is listed there only; the block and its count lines stay while the read has any.
+        const unplacedIssues = issues.filter((i) => !view.placedTickets.has(String(i.number)));
         const scrollTo = (anchor: string) => (e: { preventDefault: () => void }) => {
           e.preventDefault();
           document.getElementById(anchor)?.scrollIntoView({ block: 'center' });
@@ -1137,6 +1142,21 @@ export function AgentList({
         const itemBody = (item: PlacedItemView, inPlan = false) => [
           anchorOf(item),
           ...item.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={inPlan} />),
+          ...(item.ticket !== null
+            ? [(
+                <IssueRowView
+                  key={`ticket-${item.ticket.number}`}
+                  issue={item.ticket}
+                  idea={idea ?? { available: false, reason: 'this board has not said whether it can create plans' }}
+                  story={story ?? { available: false, reason: 'this board has not said whether it can create stories' }}
+                  issueAnswer={fleet.issueAnswer}
+                  facts={ticketFacts?.get(String(item.ticket.number))}
+                  showKindLabel={false}
+                  onOpenPlan={onOpenPlan}
+                  planIndex={planIndex}
+                />
+              )]
+            : []),
           ...(item.draft !== null
             ? [<DraftPlanRowView key={`draft-${item.draft.plan}`} draft={item.draft} onOpenPlan={onOpenPlan} planIndex={planIndex} />]
             : []),
@@ -1458,7 +1478,7 @@ export function AgentList({
                       </span>
                     </li>
                   )}
-                  {issues.map((issue) => (
+                  {unplacedIssues.map((issue) => (
                     <IssueRowView
                       key={`issue-${issue.number}`}
                       issue={issue}

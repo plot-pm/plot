@@ -14,8 +14,8 @@ import {
   type WorkItemReading,
 } from '@plot-pm/domain';
 import { ticketMarkOf, ticketRecordOf } from '@plot-pm/domain/rules/sprint-ticket-record';
-import type { AgentEntry, AgentRow, DraftPlan, ReleaseTickets, Slice } from '../../../contract/schema.js';
-import { ownedFromCard, ownedFromRow } from './mine-filter.js';
+import type { AgentEntry, AgentRow, DraftPlan, IssueRow, ReleaseTickets, Slice, TicketSourceShape } from '../../../contract/schema.js';
+import { ownedFromCard, ownedFromRow, ownedFromTicket } from './mine-filter.js';
 import { sliceKeyOf } from './sections.js';
 import { SLICE_LINKING_KINDS } from './slices.js';
 
@@ -36,6 +36,12 @@ export interface DeliveryMapInput {
   reader: Reader;
   mode: MineMode;
   config: DeliveryConfig;
+  /** The tickets the server chose for the reader (`fleet.waiting.tickets`); `null` or absent where the index was not read. */
+  tickets?: readonly IssueRow[] | null | undefined;
+  /** How the tickets name their assignees; `null` where unknown. */
+  ticketSource?: TicketSourceShape | null | undefined;
+  /** The target releases of the selected sprints; absent where the Sprint filter is off. */
+  releases?: readonly string[] | undefined;
   /** The Active sprints' `Release:` and `Start:` values; absent reads as no target release. */
   sprints?: readonly ReleaseTarget[];
   /** The issue index's `releases`, from `Fleet.releaseTickets`; absent or null reads as no ticket count. */
@@ -52,6 +58,8 @@ export interface DeliveryMapping {
   draftsByItem: Record<string, DraftPlan>;
   /** Agent id → the registry entry. */
   agentsById: Record<string, RegistryAgent>;
+  /** Item id → the ticket it stands for. */
+  ticketsByItem: Record<string, IssueRow>;
   /** One entry per distinct target release, and the tickets the release line counts for them. */
   releases: { targets: ReleaseTarget[]; tickets: ReleaseTicketReading | null };
 }
@@ -76,6 +84,7 @@ const phaseOf = (value: string | null): WorkItemReading['phase'] =>
 export const sliceItemId = (plan: string, wave: string): string => `slice:${sliceKeyOf(plan, wave)}`;
 export const branchItemId = (branch: string): string => `branch:${branch}`;
 export const draftItemId = (plan: string): string => `plan:${plan}`;
+export const ticketItemId = (number: string): string => `ticket:${number}`;
 export const agentId = (agent: AgentEntry): string =>
   `agent:${agent.session || agent.branch || agent.worktree || agent.pid}`;
 
@@ -153,6 +162,41 @@ const rowItem = (id: string, rows: readonly AgentRow[], slice: Slice | undefined
   return item;
 };
 
+/**
+ * The target releases the Sprint filter narrows tickets to.
+ *
+ * Each selected sprint's `Release:`, once per distinct name, so two sprints that
+ * name one release feed it once. A sprint that names none adds nothing.
+ *
+ * @param sprints - the active sprints.
+ * @param selected - the selected sprints' slugs.
+ * @returns the release names, or `undefined` where no selected sprint names one: the filter then has no release to narrow by.
+ */
+export const sprintReleases = (
+  sprints: readonly { slug: string; release: string }[],
+  selected: readonly string[],
+): string[] | undefined => {
+  const names = sprints.filter((s) => selected.includes(s.slug)).map((s) => s.release.trim()).filter((r) => r !== '');
+  return names.length === 0 ? undefined : [...new Set(names)];
+};
+
+/**
+ * One ticket reading per ticket the server chose. Ownership comes from the
+ * assignees and the source; `planned` and `releases` are copied as the wire
+ * states them, and a ticket the tracker categorises `Done` is `delivered`.
+ */
+const ticketItem = (ticket: IssueRow, source: TicketSourceShape | null, reader: Reader): WorkItemReading => {
+  const item: WorkItemReading = {
+    id: ticketItemId(ticket.number),
+    kind: 'ticket',
+    ownership: ownership(ownedFromTicket({ assignees: ticket.assignees ?? [] }, source), reader),
+  };
+  if (ticket.planned === true) item.planned = true;
+  if (ticket.releases !== undefined) item.releases = ticket.releases;
+  if (ticket.statusCategory === 'Done') item.delivered = true;
+  return item;
+};
+
 const processOf = (state: AgentEntry['state']): AgentPlacementReading['process'] => {
   switch (state) {
     case 'running':
@@ -208,6 +252,13 @@ export const deliveryMapping = (input: DeliveryMapInput): DeliveryMapping => {
     });
   }
 
+  const ticketsByItem: Record<string, IssueRow> = {};
+  for (const ticket of input.tickets ?? []) {
+    const reading = ticketItem(ticket, input.ticketSource ?? null, input.reader);
+    ticketsByItem[reading.id] = ticket;
+    items.push(reading);
+  }
+
   const itemOfBranch = new Map<string, string>();
   for (const row of input.rows) if (row.branch !== '') itemOfBranch.set(row.branch, itemIdOfRow(row));
 
@@ -230,6 +281,7 @@ export const deliveryMapping = (input: DeliveryMapInput): DeliveryMapping => {
     readings: { items, agents },
     input: {
       mine: MINE[input.mode],
+      ...(input.releases === undefined ? {} : { releases: input.releases }),
       // A key the payload did not carry stays absent. The rule types both as
       // required, so the cast is the one place the mapper cannot say so.
       ...input.config,
@@ -237,6 +289,7 @@ export const deliveryMapping = (input: DeliveryMapInput): DeliveryMapping => {
     rowsByItem,
     draftsByItem,
     agentsById,
+    ticketsByItem,
     releases: {
       targets: releaseTargets(input.sprints ?? []),
       tickets: input.releaseTickets == null ? null : input.releaseTickets,
