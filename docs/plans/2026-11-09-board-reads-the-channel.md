@@ -87,7 +87,7 @@ This plan depends on `the-channel-carries-readings` (the board receives `RepoSna
 
 ### Census zero
 
-- `feature/board-reads-the-channel-census` — the residual sources S3's log names removed; S3 set `green: true` with `greenBy` this plan and slice in `census-rows.ts`, and `it.fails` changed to `it` in `board.census.test.ts`; a changeset for `@plot-pm/board` <!-- builds: census S3 at zero, a required pass -->
+- `feature/board-reads-the-channel-census` — the residual sources S3's log names removed; S3 set `green: true` with `greenBy` this plan and slice in `census-rows.ts`, and `it.fails` changed to `it` in `board.census.test.ts`; a changeset for `@plot-pm/board` <!-- builds: census S3 at zero, a required pass --> → #3299
 
 ### Vendor gate
 
