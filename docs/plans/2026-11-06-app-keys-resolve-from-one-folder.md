@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** infra
 - **Sprint:** ship-2-32-0
 - **Review:** pr
@@ -14,6 +14,7 @@
 - **Started:** 2026-11-06, Jan Wloka, `feature/fleetd-names-a-missing-app-key`
 - **Started:** 2026-11-08, Jan Wloka, `infra/plot-config-names-app-ids-only`
 - **Delivered:** 2026-11-08
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
