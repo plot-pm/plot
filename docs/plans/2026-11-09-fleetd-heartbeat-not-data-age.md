@@ -100,7 +100,7 @@ This plan depends on `the-snapshot-entity`: the heartbeat names the snapshot's `
 
 ### Issue index
 
-- `feature/fleetd-heartbeat-not-data-age-issue-index` — the board reads the issue index while fleetd's heartbeat is `live` and its `issue-reader` loop is on time, instead of following the scan loop; decided 2026-11-09 by jwloka <!-- builds: an issue-index gate that follows the issue-reader loop -->
+- `feature/fleetd-heartbeat-not-data-age-issue-index` — the board reads the issue index while fleetd's heartbeat is `live` and its `issue-reader` loop is on time, instead of following the scan loop; decided 2026-11-09 by jwloka <!-- builds: an issue-index gate that follows the issue-reader loop --> → #3302
 
 ## Notes
 
