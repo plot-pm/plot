@@ -88,7 +88,7 @@ This plan depends on `process-census-gate`. It turns two of that plan's `it.fail
 
 ### PR reader
 
-- `feature/no-tab-no-pulse-reader` — a cold read starts no `plot-pr-reader.mjs`; the board starts the reader only while a client is attached and the reader ends within one beat after the last client detaches; census S1 and S2 flipped to `it` once they read 0; a changeset for `@plot-pm/board` <!-- builds: a PR reader that runs only while a client is attached -->
+- `feature/no-tab-no-pulse-reader` — a cold read starts no `plot-pr-reader.mjs`; the board starts the reader only while a client is attached and the reader ends within one beat after the last client detaches; census S1 and S2 flipped to `it` once they read 0; a changeset for `@plot-pm/board` <!-- builds: a PR reader that runs only while a client is attached --> → #3260
 
 ## Notes
 
