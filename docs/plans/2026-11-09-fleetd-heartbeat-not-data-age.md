@@ -92,7 +92,7 @@ This plan depends on `the-snapshot-entity`: the heartbeat names the snapshot's `
 
 ### Board
 
-- `feature/fleetd-heartbeat-not-data-age-board` — `refresh` runs `readSupervisor` only when the heartbeat is not `live`, and `/api/fleet` reports the file and channel heartbeats; a changeset for `@plot-pm/board` <!-- builds: a board refresh that runs plot-fleetctl.sh --status only without a live fleetd heartbeat -->
+- `feature/fleetd-heartbeat-not-data-age-board` — `refresh` runs `readSupervisor` only when the heartbeat is not `live`, and `/api/fleet` reports the file and channel heartbeats; a changeset for `@plot-pm/board` <!-- builds: a board refresh that runs plot-fleetctl.sh --status only without a live fleetd heartbeat --> → #3284
 
 ### Follow-ups
 
