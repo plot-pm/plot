@@ -138,7 +138,7 @@ All four plans touch census counts and may touch `packages/fleet/test/census/`. 
 
 ### Serve
 
-- `feature/board-api-starts-nothing-serve` — `boardInputsFrom` in `packages/domain/src/workflows/board-inputs.ts`, `buildBoardOver` over `BoardInputs`, `boardState` keyed by generation on `snapshot`, `serverInfo`'s identity behind a file stamp, `ticketLaneData` over the snapshot, the parity corpus test with its fixture, and a changeset for `@plot-pm/board`; merges after `feature/board-api-starts-nothing-readings` <!-- builds: a GET /api/board that renders from fleetd's snapshot -->
+- `feature/board-api-starts-nothing-serve` — `boardInputsFrom` in `packages/domain/src/workflows/board-inputs.ts`, `buildBoardOver` over `BoardInputs`, `boardState` keyed by generation on `snapshot`, `serverInfo`'s identity behind a file stamp, `ticketLaneData` over the snapshot, the parity corpus test with its fixture, and a changeset for `@plot-pm/board`; merges after `feature/board-api-starts-nothing-readings` <!-- builds: a GET /api/board that renders from fleetd's snapshot --> → #3359
 
 ### Census zero
 
