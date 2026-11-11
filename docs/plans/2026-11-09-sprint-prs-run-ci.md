@@ -104,7 +104,7 @@ In `ci.yml`, the step "Fetch the default branch the shell count reads" (`:1587-1
 
 ### Trigger
 
-- `infra/sprint-prs-run-ci` — `on.pull_request.branches: [main, 'sprint/**']`, the comment at `ci.yml:142-143`, and the trigger and group rows in `release-pr-ci.test.mjs`; merges after `infra/ci-cancels-superseded-runs` <!-- builds: CI runs on pull requests into sprint branches -->
+- `infra/sprint-prs-run-ci` — `on.pull_request.branches: [main, 'sprint/**']`, the comment at `ci.yml:142-143`, and the trigger and group rows in `release-pr-ci.test.mjs`; merges after `infra/ci-cancels-superseded-runs` <!-- builds: CI runs on pull requests into sprint branches --> → #3313
 
 ## Notes
 
