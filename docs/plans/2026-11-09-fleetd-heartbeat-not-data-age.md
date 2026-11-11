@@ -84,7 +84,7 @@ This plan depends on `the-snapshot-entity`: the heartbeat names the snapshot's `
 
 ### Heartbeat
 
-- `feature/fleetd-heartbeat-not-data-age-beat` — `FleetdHeartbeatSchema`, the heartbeat port and file adapter, `fleetdLiveness` and `observerFresh` in `rules/fleetd-live.ts`; fleetd writes `.plot/state/fleetd.json` every 10 s on an in-process timer <!-- builds: fleetdLiveness, a domain rule over a timer heartbeat with observer fields -->
+- `feature/fleetd-heartbeat-not-data-age-beat` — `FleetdHeartbeatSchema`, the heartbeat port and file adapter, `fleetdLiveness` and `observerFresh` in `rules/fleetd-live.ts`; fleetd writes `.plot/state/fleetd.json` every 10 s on an in-process timer <!-- builds: fleetdLiveness, a domain rule over a timer heartbeat with observer fields --> → #3287
 
 ### Readers
 
