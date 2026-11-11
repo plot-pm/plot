@@ -74,6 +74,19 @@ export const indexOpenHeads = (rows: readonly PrIndexRow[]): ReadonlySet<string>
   new Set(rows.filter((row) => row.state.toUpperCase() === 'OPEN').map((row) => row.head));
 
 /**
+ * Every head the PR index settles as merged: a merged, non-draft row and no
+ * `OPEN` row on the same name.
+ *
+ * @param rows - the index's rows; empty where there is no index.
+ * @returns the heads {@link indexMergedHeads} names, less those
+ *   {@link indexOpenHeads} names.
+ */
+export const indexSettledMergedHeads = (rows: readonly PrIndexRow[]): ReadonlySet<string> => {
+  const open = indexOpenHeads(rows);
+  return new Set([...indexMergedHeads(rows)].filter((head) => !open.has(head)));
+};
+
+/**
  * How much overlap a merged-set delta asks for, beyond the stored watermark.
  *
  * `updated:>` is exclusive on both hosts, so a PR updated in the same second

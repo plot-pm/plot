@@ -18,6 +18,7 @@ import {
   startNothingDoneReleases,
   freshAgentDeskReads,
   mergeMemoOver,
+  settledMergedHeadsFrom,
   escalationWorldForRepo,
   notifierFor,
   notifyEscalations,
@@ -2053,6 +2054,49 @@ describe('a tick asks the host about a branch once', () => {
       queue: queueWorldForRepo(root, root, { calls: 0 }, merges),
     };
   };
+
+  it('answers a branch the index settles as merged with no host call, and asks the host for every other', async () => {
+    const host = countingHost(() => answered('not-merged'));
+    const memo = mergeMemoOver(host, async () => new Set(['feature/done']));
+    expect(await memo.ask('feature/done')).toEqual(answered('merged'));
+    expect(await memo.ask('feature/busy')).toEqual(answered('not-merged'));
+    expect(host.asked).toEqual(['feature/busy']);
+  });
+
+  it('reads the settled heads from the store the backend word keys, and none where the backend is unread', async () => {
+    const rows = [
+      { number: 1, head: 'feature/done', state: 'MERGED', draft: false },
+      { number: 2, head: 'feature/reopened', state: 'MERGED', draft: false },
+      { number: 3, head: 'feature/reopened', state: 'OPEN', draft: false },
+    ];
+    const index = { read: async (backend: string) => answered(backend === 'github' ? { rows } : null) } as unknown as PrIndexStore;
+    expect([...(await settledMergedHeadsFrom({ backend: async () => answered('github') }, index)())]).toEqual(['feature/done']);
+    expect([...(await settledMergedHeadsFrom({ backend: async () => failed() }, index)())]).toEqual([]);
+  });
+
+  it('asks the host for every branch where the index read fails', async () => {
+    const host = countingHost(() => answered('merged'));
+    const memo = mergeMemoOver(host, async () => {
+      throw new Error('unreadable');
+    });
+    await memo.ask('feature/done');
+    expect(host.asked).toEqual(['feature/done']);
+  });
+
+  it('reads the index once per tick and again after clear', async () => {
+    const host = countingHost(() => answered('not-merged'));
+    let reads = 0;
+    const memo = mergeMemoOver(host, async () => {
+      reads += 1;
+      return new Set(['feature/done']);
+    });
+    await Promise.all([memo.ask('feature/done'), memo.ask('feature/other')]);
+    expect(reads).toBe(1);
+    memo.clear();
+    await memo.ask('feature/done');
+    expect(reads).toBe(2);
+    expect(host.asked).toEqual(['feature/other']);
+  });
 
   it('asks once for a branch the supervisor and the queue both read', async () => {
     const host = countingHost(() => answered('not-merged'));
