@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { budgetFile } from '../src/adapters/budget/budget-file.js';
 import {
+  BITBUCKET_NO_CREDENTIAL,
   bitbucketApi,
   bitbucketApiBase,
   type BitbucketApiOptions,
@@ -201,6 +202,7 @@ describe('credentials', () => {
         inProcessBackends: ['github', 'bitbucket'],
         shellCi: [],
         tokenSource: source,
+        noCredential: BITBUCKET_NO_CREDENTIAL,
       });
 
       expect(source).toBeNull();

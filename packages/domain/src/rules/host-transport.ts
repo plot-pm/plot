@@ -20,8 +20,10 @@ export interface HostTransportBasis {
 
 /** What decides the transport, a resolved token source included. */
 export interface HostTransportReading extends HostTransportBasis {
-  /** Where the client's credential came from (`GH_TOKEN`, `GITHUB_TOKEN`, `gh auth token`, or a Bitbucket credential source), or null where none resolved. */
+  /** Where the client's credential came from, such as `GH_TOKEN` or `gh auth token`, or null where none resolved. */
   readonly tokenSource: string | null;
+  /** The client's own reason where no credential resolved; the token sentence where absent. */
+  readonly noCredential?: string;
 }
 
 /** The transport a process reads with, and why. */
@@ -52,13 +54,8 @@ export const shellReasonOf = (basis: HostTransportBasis): string | null => {
   return null;
 };
 
-/** Why GitHub reads stay on the shell where the client resolved no token. */
-const NO_GITHUB_TOKEN = 'no token: GH_TOKEN, GITHUB_TOKEN and gh auth token answered none';
-
-/** Why another backend's reads stay on the shell where its client resolved no credential. */
-const NO_CREDENTIAL: Readonly<Record<string, string>> = {
-  bitbucket: "no credentials: BB_EMAIL and BB_TOKEN are unset in the environment and in the worktree's and the main checkout's .env",
-};
+/** The reason a reading with no {@link HostTransportReading.noCredential} gives where no token resolved. */
+const NO_TOKEN = 'no token: GH_TOKEN, GITHUB_TOKEN and gh auth token answered none';
 
 /**
  * Chooses the transport of a process's git host reads.
@@ -73,7 +70,7 @@ export const hostTransportOf = (reading: HostTransportReading): HostTransportCho
   const shell = shellReasonOf(reading);
   if (shell !== null) return { transport: 'shell', reason: shell, tokenSource: null };
   if (reading.tokenSource === null) {
-    return { transport: 'shell', reason: NO_CREDENTIAL[String(reading.backend)] ?? NO_GITHUB_TOKEN, tokenSource: null };
+    return { transport: 'shell', reason: reading.noCredential ?? NO_TOKEN, tokenSource: null };
   }
   return { transport: 'in-process', reason: `the git host is ${String(reading.backend)}`, tokenSource: reading.tokenSource };
 };

@@ -33,6 +33,10 @@ export const PREDICTED_LIMIT = 1000;
 /** The two variables the client reads its credential from, in the order the Basic header joins them. */
 export const BITBUCKET_CREDENTIAL_VARS = ['BB_EMAIL', 'BB_TOKEN'] as const;
 
+/** Why the Bitbucket reads stay on the shell where no credential resolves; the composition passes it as `noCredential`. */
+export const BITBUCKET_NO_CREDENTIAL =
+  "no credentials: BB_EMAIL and BB_TOKEN are unset in the environment and in the worktree's and the main checkout's .env";
+
 /** Where the client's credential came from. */
 export type BitbucketCredentialSource = 'environment' | 'worktree .env' | 'main checkout .env';
 
