@@ -95,6 +95,20 @@ describe('parseBriefBookArgs', () => {
     expect(parseBriefBookArgs(['foo', 'bug/foo'])).toMatch(/^usage: plot-brief-book\.mjs/);
   });
 
+  it('reads --branch as the branch to book on', () => {
+    expect(parseBriefBookArgs(['--branch', 'sprint/x', 'foo', 'bug/foo', '/tmp/brief.md'], () => 'brief text')).toEqual({
+      slug: 'foo',
+      branch: 'bug/foo',
+      briefText: 'brief text',
+      target: 'sprint/x',
+    });
+  });
+
+  it('answers the usage line for --branch with no name', () => {
+    expect(parseBriefBookArgs(['--branch', '--', 'foo', 'bug/foo', '/tmp/brief.md'], () => 'brief text')).toMatch(/^usage: /);
+    expect(parseBriefBookArgs(['--branch'], () => 'brief text')).toMatch(/^usage: /);
+  });
+
   it('refuses a brief file it cannot read', () => {
     expect(
       parseBriefBookArgs(['foo', 'bug/foo', '/tmp/missing.md'], () => {
@@ -125,6 +139,21 @@ describe('bookBrief', () => {
       `removeWithBranch ${TMPWT} plot/brief-book-foo`,
     ]);
     expect(out.join('')).toMatch(/push: clean/);
+  });
+
+  it('cuts the booking from the --branch target and pushes it there', async () => {
+    const files = new Map([[PLAN, PLAN_TEXT]]);
+    const calls: string[] = [];
+
+    const code = await bookBrief(
+      contextOver(files, calls),
+      { slug: 'foo', branch: 'bug/foo', briefText: 'the brief', target: 'sprint/x' },
+      () => {},
+    );
+
+    expect(code).toBe(0);
+    expect(calls[0]).toBe(`addBranch ${TMPWT} plot/brief-book-foo origin/sprint/x`);
+    expect(calls).toContain('plot-push-main.sh plot/brief-book-foo sprint/x');
   });
 
   it('writes no second commit once the brief and Started line are already on the ref', async () => {

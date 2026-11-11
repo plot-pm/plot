@@ -7,7 +7,10 @@
 // Called directly with `node`, no `.sh` launcher: the plan this implements
 // settles "no new shell" explicitly.
 //
-//   node plot-brief-book.mjs <slug> <branch> <brief-file>
+//   node plot-brief-book.mjs [--branch <name>] <slug> <branch> <brief-file>
+//
+// --branch <name> cuts the worktree from `origin/<name>` and books there,
+// for a plan that lives on an integration branch such as a sprint branch.
 //
 // <brief-file> is a path to the brief's text, written by the caller OUTSIDE
 // the repository — a scratch file, not a path under the checkout. Exit 0
@@ -29,7 +32,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { commitAndPush, cutBooking, localDate, Refused, type LadderContext, type Printer } from './ladder.js';
 import { findPlanForBranch } from './plan-lookup.js';
 
-const USAGE = 'usage: plot-brief-book.mjs <slug> <branch> <brief-file>';
+const USAGE = 'usage: plot-brief-book.mjs [--branch <name>] <slug> <branch> <brief-file>';
 
 /** The ports and paths this entry needs. */
 export interface BriefBookContext extends LadderContext {
@@ -39,16 +42,18 @@ export interface BriefBookContext extends LadderContext {
   pid: number;
 }
 
-/** The three arguments, validated. */
+/** The arguments, validated. */
 export interface BriefBookArgs {
   slug: string;
   branch: string;
   briefText: string;
+  /** The branch to book on, from `--branch`; absent books on the default branch. */
+  target?: string;
 }
 
 /**
- * Validates `<slug> <branch> <brief-file>`, reading the brief's text from
- * `<brief-file>`.
+ * Validates `[--branch <name>] <slug> <branch> <brief-file>`, reading the
+ * brief's text from `<brief-file>`.
  *
  * @param argv - the arguments after the script name.
  * @param readFile - reads a file's text; injected so a test needs no disk.
@@ -58,7 +63,14 @@ export const parseBriefBookArgs = (
   argv: readonly string[],
   readFile: (file: string) => string = (file) => readFileSync(file, 'utf8'),
 ): BriefBookArgs | string => {
-  const [slug = '', branch = '', briefFile = ''] = argv;
+  let rest = argv;
+  let target: string | undefined;
+  if (rest[0] === '--branch') {
+    target = rest[1] ?? '';
+    if (target === '' || target.startsWith('-')) return USAGE;
+    rest = rest.slice(2);
+  }
+  const [slug = '', branch = '', briefFile = ''] = rest;
   if (slug === '' || branch === '' || briefFile === '') return USAGE;
   let briefText: string;
   try {
@@ -66,7 +78,7 @@ export const parseBriefBookArgs = (
   } catch {
     return `could not read brief text from ${briefFile}`;
   }
-  return { slug, branch, briefText };
+  return target === undefined ? { slug, branch, briefText } : { slug, branch, briefText, target };
 };
 
 /** Reads one config key in `root`, falling back where the read fails or is empty. */
@@ -138,7 +150,8 @@ const bookInto = async (
 };
 
 /**
- * Books `args.branch`'s brief and `Started:` record on the default branch.
+ * Books `args.branch`'s brief and `Started:` record on the default branch,
+ * or on `args.target` where `--branch` names one.
  *
  * @param ctx - the ports, rooted at the caller's repository.
  * @param args - the validated slug, branch and brief text.
@@ -146,7 +159,7 @@ const bookInto = async (
  * @returns the process exit code; a refusal is thrown as {@link Refused}.
  */
 export const bookBrief = async (ctx: BriefBookContext, args: BriefBookArgs, write: Printer): Promise<number> => {
-  const main = await resolveMain(ctx);
+  const main = args.target ?? (await resolveMain(ctx));
   await ctx.trees.fetch(ctx.repoRoot, main);
 
   const mainRootRead = await ctx.trees.mainRoot(ctx.repoRoot);
