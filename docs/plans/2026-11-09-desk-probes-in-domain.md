@@ -116,7 +116,7 @@ This plan depends on `the-snapshot-entity` (delivered): every reading lands in t
 
 ### Registry
 
-- `feature/desk-probes-in-domain-registry` — `bashLiveness` and `bashCleanliness` in `registry.ts` become `readWorkerReadings` and `deskClean`; the parity test; the board's state beside the shell's in `/plot-fleet --status`; a changeset for `@plot-pm/board` <!-- builds: deskClean, the registry's cleanliness rule over the dirt filter -->
+- `feature/desk-probes-in-domain-registry` — `bashLiveness` and `bashCleanliness` in `registry.ts` become `readWorkerReadings` and `deskClean`; the parity test; the board's state beside the shell's in `/plot-fleet --status`; a changeset for `@plot-pm/board` <!-- builds: deskClean, the registry's cleanliness rule over the dirt filter --> → #3337
 
 ### Activity
 
