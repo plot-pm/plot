@@ -156,7 +156,7 @@ This plan depends on `the-snapshot-entity` (delivered). `triggers-replace-the-ti
 
 ### PR reads
 
-- `feature/github-reads-in-process-prs` — `adapters/host/github-pr-listing.ts`, `rules/checks-of.ts`, `rules/mergeable-of.ts`, `rules/github-pr-row.ts`, the recorder, `github-pr-listing.corpus.test.ts`, `checks-of.corpus.test.ts` and the per-field change rows <!-- builds: the in-process GitHub PR listing, with the corpus against plot-host.sh pr-list -->
+- `feature/github-reads-in-process-prs` — `adapters/host/github-pr-listing.ts`, `rules/checks-of.ts`, `rules/mergeable-of.ts`, `rules/github-pr-row.ts`, the recorder, `github-pr-listing.corpus.test.ts`, `checks-of.corpus.test.ts` and the per-field change rows <!-- builds: the in-process GitHub PR listing, with the corpus against plot-host.sh pr-list --> → #3371
 
 ### Issues and runs
 
