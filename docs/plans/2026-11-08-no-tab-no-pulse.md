@@ -84,7 +84,7 @@ This plan depends on `process-census-gate`. It turns two of that plan's `it.fail
 
 ### Hidden page
 
-- `feature/no-tab-no-pulse-page` — the visibility rule in `event-listener.ts` (stream, Web Lock, relay), the visible-only intervals in `App.tsx`, jsdom rows, census S2 flipped to `it`; a changeset for `@plot-pm/board` <!-- builds: a visibility-driven shared EventSource in event-listener.ts -->
+- `feature/no-tab-no-pulse-page` — the visibility rule in `event-listener.ts` (stream, Web Lock, relay), the visible-only intervals in `App.tsx`, jsdom rows, census S2 flipped to `it`; a changeset for `@plot-pm/board` <!-- builds: a visibility-driven shared EventSource in event-listener.ts --> → #3252
 
 ### PR reader
 
