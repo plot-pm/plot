@@ -10,6 +10,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-11, jwloka, plan-PR #3305 merged
+- **Started:** 2026-11-11, Jan Wloka, `infra/ci-cancels-superseded-runs`
 
 ## Changelog
 
