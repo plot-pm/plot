@@ -101,7 +101,7 @@ A failed read is never an empty one. `readBlobs` answers `failed`, and the plan 
 
 ### Reader
 
-- `feature/one-cat-file-batch-reader` — `objectsBatch` in `packages/domain/src/adapters/refs/objects-batch.ts`: one `git cat-file --batch-command --buffer`, a FIFO, byte framing, the 10 s per-request bound, drop and fallback; the tree parser in `packages/domain/src/rules/git-tree.ts` and `packages/domain/corpus/git-tree.corpus.test.ts`; adapter tests with a sandbox and a wedging stub `git` <!-- builds: objectsBatch, a long-lived bounded git cat-file reader per repository -->
+- `feature/one-cat-file-batch-reader` — `objectsBatch` in `packages/domain/src/adapters/refs/objects-batch.ts`: one `git cat-file --batch-command --buffer`, a FIFO, byte framing, the 10 s per-request bound, drop and fallback; the tree parser in `packages/domain/src/rules/git-tree.ts` and `packages/domain/corpus/git-tree.corpus.test.ts`; adapter tests with a sandbox and a wedging stub `git` <!-- builds: objectsBatch, a long-lived bounded git cat-file reader per repository --> → #3334
 
 ### Adapters
 
