@@ -91,7 +91,7 @@ This plan depends on `the-channel-carries-readings` (the board receives `RepoSna
 
 ### Vendor gate
 
-- `bug/board-reads-the-channel-vendor-gate` — `branchUrlBase` names `github` and `bitbucket` in `packages/domain/src/rules/branch-url.ts` since #3289, and CI's "The domain names no vendor" gate refuses it on the sprint PR (#3277, run 42578481530); move the host knowledge behind an adapter, as #3232 did for tracker keys <!-- builds: branchUrlBase outside the domain's rules -->
+- `bug/board-reads-the-channel-vendor-gate` — `branchUrlBase` names `github` and `bitbucket` in `packages/domain/src/rules/branch-url.ts` since #3289, and CI's "The domain names no vendor" gate refuses it on the sprint PR (#3277, run 42578481530); move the host knowledge behind an adapter, as #3232 did for tracker keys <!-- builds: branchUrlBase outside the domain's rules --> → #3301
 
 ### Main merge
 
