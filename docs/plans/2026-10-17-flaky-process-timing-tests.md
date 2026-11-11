@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** infra
 - **Issue:** #1850
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Approved:** 2026-10-17, Jan Wloka, plan-PR #1981 merged
 - **Started:** 2026-10-17, Jan Wloka, `infra/flaky-process-timing-tests`
 - **Delivered:** 2026-10-18
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
