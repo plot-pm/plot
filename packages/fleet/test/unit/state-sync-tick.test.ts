@@ -6,9 +6,12 @@ import { fleetDivisors } from '../../src/shared/fleet-clock.js';
 type Run = { stdout: string; stderr: string; code: number };
 const scriptsOf = (answers: Run[]) => {
   const calls: string[][] = [];
+  const names: string[] = [];
   return {
     calls,
-    awaited: async (_s: string, args: readonly string[]): Promise<Run> => {
+    names,
+    awaited: async (name: string, args: readonly string[]): Promise<Run> => {
+      names.push(name);
       calls.push([...args]);
       return answers.shift() ?? { stdout: '', stderr: '', code: 0 };
     },
@@ -29,6 +32,11 @@ describe('stateSyncTick', () => {
     const scripts = scriptsOf([ok('idle'), ok('none')]);
     await stateSyncTick(scripts, () => undefined)();
     expect(scripts.calls).toEqual([['--forward'], ['--pr', '--caller', 'fleetd']]);
+  });
+  it('asks for the bundle where build.mjs ships it, under board/', async () => {
+    const scripts = scriptsOf([ok('idle'), ok('none')]);
+    await stateSyncTick(scripts, () => undefined)();
+    expect(scripts.names).toEqual(['board/plot-state-sync.mjs', 'board/plot-state-sync.mjs']);
   });
   it('warns once per cause and again after the cause clears', async () => {
     const conflict = ok('refused', { files: ['docs/plans/a.md'] });

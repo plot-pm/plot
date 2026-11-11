@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** infra
 - **Issue:** #1850
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Approved:** 2026-10-17, Jan Wloka, plan-PR #1981 merged
 - **Started:** 2026-10-17, Jan Wloka, `infra/flaky-process-timing-tests`
 - **Delivered:** 2026-10-18
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
@@ -53,7 +54,7 @@ No domain or board source changes are planned. If #1544 shows the grace period i
 
 ### Implementation
 
-- `infra/flaky-process-timing-tests` — fix the five tests named in #1850, one commit per issue, each with a stress run that fails without the fix
+- `infra/flaky-process-timing-tests` — fix the five tests named in #1850, one commit per issue, each with a stress run that fails without the fix → #1994
 
 ## Notes
 

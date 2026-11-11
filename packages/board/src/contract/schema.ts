@@ -4,6 +4,7 @@ import {
   BranchStateSchema,
   WorkerStateSchema,
   WorkerActivitySchema,
+  LivenessBasisSchema,
   PlanSchema,
   FindingSchema,
   FleetReadingSchema,
@@ -3333,6 +3334,12 @@ export const AgentRowSchema = z.object({
    */
   worker_activity: WorkerActivitySchema.default(''),
   /**
+   * What the worker reading's liveness rests on — `BranchSchema.worker_basis`,
+   * forwarded onto the row unchanged. `start-time` is a desk with no liveness
+   * token, and the row's status names it. Defaults to "".
+   */
+  worker_basis: LivenessBasisSchema.default(''),
+  /**
    * What this desk's `PLOT-BLOCKED*` marker asks and when it was written:
    * `firstLine` is the marker's first line, "" when the content did not read,
    * and `askedAt` is the file's modification time as an ISO-8601 string. `null`
@@ -4234,11 +4241,25 @@ export type SprintCounts = z.infer<typeof SprintCountsSchema>;
  * carries a list and the control renders one row each — picking the newest
  * would silently hide a commitment.
  */
+/** One row's `releases` — present where the tracker was asked, absent where it was not. */
+const ReleaseRowSchema = z.object({ releases: z.array(z.string()).optional() });
+
+/** The wire shape of the domain's `ReleaseTicketReading`. */
+export const ReleaseTicketsSchema = z.object({
+  open: z.array(ReleaseRowSchema),
+  closed: z.array(ReleaseRowSchema).nullable(),
+  closedComplete: z.boolean(),
+  closedSince: z.string().nullable(),
+});
+export type ReleaseTickets = z.infer<typeof ReleaseTicketsSchema>;
+
 export const FleetSprintSchema = z.object({
   slug: z.string(),
   title: z.string(),
   /** The sprint's `- **Release:** x.y.z`, or "" — see {@link SprintCardSchema}. */
   release: z.string().default(''),
+  /** The sprint's `- **Start:** YYYY-MM-DD`, or "" — the Delivery tab's release line compares it with the closed window. */
+  start: z.string().default(''),
   counts: SprintCountsSchema,
   /**
    * Where the sprint sits against its dates, and the label the row prints —
@@ -4746,6 +4767,16 @@ export const FleetShape = z.object({
    * notice — rather than as a server that answered and found nothing.
    */
   waiting: FleetWaitingSchema.nullable().optional(),
+  /**
+   * The issue index as the Delivery tab's release line reads it: each open and
+   * closed row's `releases` and nothing else, so the domain's
+   * `releaseTicketWording` counts on the client without a second read.
+   *
+   * `null` where `issues.json` holds no usable rows (no read yet, source
+   * `nobody`); `closed` is null where no closed read has answered. Optional so
+   * an older server renders the line with slice counts only.
+   */
+  releaseTickets: ReleaseTicketsSchema.nullable().optional(),
   /**
    * The two fleet controls, SHARED across every board reading this repo.
    *

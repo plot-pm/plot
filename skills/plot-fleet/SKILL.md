@@ -9,7 +9,7 @@ license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 1.4.1
+  version: 1.5.0
 compatibility: >-
   Designed for Claude Code and Cursor. Requires git, bash and Node at the major
   Plot pins in its own `.nvmrc`. Installing the unit needs launchd (macOS) or systemd
@@ -36,7 +36,7 @@ give the old behaviour to somebody asking for fleet control.
 
 | Verb | What it does |
 |------|--------------|
-| `--status` | Is the supervisor alive, which agents run, how long each has been quiet, which other Plot processes run on this machine, and what automatic verification did. **Starts nothing.** |
+| `--status` | Is the supervisor alive, which agents run, how long each has been quiet, which other Plot processes run on this machine, and what automatic verification did. Each desk line also prints the board's state of that desk, marked `(differs)` where the board and the shell disagree. **Starts nothing.** |
 | `--once` | One supervisor tick against the live estate, then exit. **The gate.** |
 | `--start [N]` | Probe, fill the unit, load it, then bring up N free agents. |
 | `--restart` | Load the current fleetd bundle into the running supervisor and signal no agent. Prints the old pid, the new pid and the bundle's commit. |

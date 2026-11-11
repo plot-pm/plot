@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** infra
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #2260
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-21, Jan Wloka, plan-PR #2261 merged
 - **Started:** 2026-10-21, Jan Wloka, `infra/check-helper-table-declared-bundles`
 - **Delivered:** 2026-10-21
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 

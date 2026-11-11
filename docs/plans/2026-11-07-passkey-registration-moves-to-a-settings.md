@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** ship-2-32-0
 - **Issue:** #3214
@@ -15,6 +15,7 @@
 - **Started:** 2026-11-07, Jan Wloka, `feature/the-board-has-a-settings-view`
 - **Started:** 2026-11-08, Jan Wloka, `feature/the-release-row-approves-itself`
 - **Delivered:** 2026-11-08
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 

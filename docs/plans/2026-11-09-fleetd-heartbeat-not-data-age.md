@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** the-board-reads-the-channel
 - **Issue:** #3170
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-08, Jan Wloka, plan-PR #3278 merged
 - **Delivered:** 2026-11-09
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
@@ -84,23 +85,23 @@ This plan depends on `the-snapshot-entity`: the heartbeat names the snapshot's `
 
 ### Heartbeat
 
-- `feature/fleetd-heartbeat-not-data-age-beat` — `FleetdHeartbeatSchema`, the heartbeat port and file adapter, `fleetdLiveness` and `observerFresh` in `rules/fleetd-live.ts`; fleetd writes `.plot/state/fleetd.json` every 10 s on an in-process timer <!-- builds: fleetdLiveness, a domain rule over a timer heartbeat with observer fields -->
+- `feature/fleetd-heartbeat-not-data-age-beat` — `FleetdHeartbeatSchema`, the heartbeat port and file adapter, `fleetdLiveness` and `observerFresh` in `rules/fleetd-live.ts`; fleetd writes `.plot/state/fleetd.json` every 10 s on an in-process timer <!-- builds: fleetdLiveness, a domain rule over a timer heartbeat with observer fields --> → #3287
 
 ### Readers
 
-- `feature/fleetd-heartbeat-not-data-age-readers` — `fleetOwnsScan`, `fleetdHeartbeatIsLive`, `stillFollowed` and the four CLI controllers read the heartbeat; `bridgeVouched` accepts a bridge fleetd vouches for; a changeset for `@plot-pm/board` <!-- builds: bridgeVouched, heartbeat-based scan ownership and bridge trust -->
+- `feature/fleetd-heartbeat-not-data-age-readers` — `fleetOwnsScan`, `fleetdHeartbeatIsLive`, `stillFollowed` and the four CLI controllers read the heartbeat; `bridgeVouched` accepts a bridge fleetd vouches for; a changeset for `@plot-pm/board` <!-- builds: bridgeVouched, heartbeat-based scan ownership and bridge trust --> → #3286
 
 ### Board
 
-- `feature/fleetd-heartbeat-not-data-age-board` — `refresh` runs `readSupervisor` only when the heartbeat is not `live`, and `/api/fleet` reports the file and channel heartbeats; a changeset for `@plot-pm/board` <!-- builds: a board refresh that runs plot-fleetctl.sh --status only without a live fleetd heartbeat -->
+- `feature/fleetd-heartbeat-not-data-age-board` — `refresh` runs `readSupervisor` only when the heartbeat is not `live`, and `/api/fleet` reports the file and channel heartbeats; a changeset for `@plot-pm/board` <!-- builds: a board refresh that runs plot-fleetctl.sh --status only without a live fleetd heartbeat --> → #3284
 
 ### Follow-ups
 
-- `feature/fleetd-heartbeat-not-data-age-followups` — `fleetOwnsScan` follows the scan loop only; the bridge resolves to the main checkout through the shared `mainRootOf`; decided 2026-11-09 (see Notes); a changeset for `@plot-pm/board` <!-- builds: scan ownership by the scan loop, and the bridge at the main checkout -->
+- `feature/fleetd-heartbeat-not-data-age-followups` — `fleetOwnsScan` follows the scan loop only; the bridge resolves to the main checkout through the shared `mainRootOf`; decided 2026-11-09 (see Notes); a changeset for `@plot-pm/board` <!-- builds: scan ownership by the scan loop, and the bridge at the main checkout --> → #3298
 
 ### Issue index
 
-- `feature/fleetd-heartbeat-not-data-age-issue-index` — the board reads the issue index while fleetd's heartbeat is `live` and its `issue-reader` loop is on time, instead of following the scan loop; decided 2026-11-09 by jwloka <!-- builds: an issue-index gate that follows the issue-reader loop -->
+- `feature/fleetd-heartbeat-not-data-age-issue-index` — the board reads the issue index while fleetd's heartbeat is `live` and its `issue-reader` loop is on time, instead of following the scan loop; decided 2026-11-09 by jwloka <!-- builds: an issue-index gate that follows the issue-reader loop --> → #3302
 
 ## Notes
 

@@ -115,7 +115,7 @@ report() { # <label> <before-rev> <before-desc> <named-in-failure>
   if [ "$after" -gt "$before" ]; then
     echo "check-shell-lines: $((after - before)) lines over $3 ($4)." >&2
     echo "  A line counts once per command. Joining statements with ';' or '&&', or folding 'fi' or 'done' onto the line before, is not a payment." >&2
-    [ "$1" = pr ] && echo "  If $4 is stale, the $3 is older than the real fork point and this count can include growth that landed on the default branch. Run 'git fetch --no-tags origin ${4#refs/remotes/origin/}' and re-run this gate before you remove any shell." >&2
+    [ "$1" = pr ] && echo "  If $4 is stale, the $3 is older than the real fork point and this count can include growth that landed on the default branch. Run 'git fetch --no-tags origin $(b=${4#refs/remotes/}; echo "${b#origin/}")' and re-run this gate before you remove any shell." >&2
     echo "  The shell under skills/ may shrink and may not grow. Pay for the growth in one of two ways:" >&2
     echo "    - remove at least $((after - before)) lines of shell elsewhere in this same change, or" >&2
     echo "    - write the rule in packages/domain and ask it through a bundle (docs/shell-and-domain.md)." >&2
@@ -134,7 +134,9 @@ case "$mode" in
     echo "scripts/*.sh (CI and local tooling, not counted above): $(git ls-files 'scripts/*.sh' | xargs cat | count_stdin) lines"
     ;;
   pr)
-    ref=$(default_ref)
+    # An optional second argument names the branch the pull request targets;
+    # with none, the default branch, as before.
+    ref=${2:-$(default_ref)}
     git rev-parse -q --verify "$ref^{commit}" >/dev/null || fail "$ref is absent, so there is no base to compare with. Run: git fetch --no-tags origin main:refs/remotes/origin/main"
     base=$(git merge-base HEAD "$ref") || fail "no merge base between HEAD and $ref"
     [ -n "$base" ] || fail "no merge base between HEAD and $ref"
@@ -157,5 +159,5 @@ case "$mode" in
     fi
     report push "$before" "push start $(git rev-parse --short "$before")" "$(git log --format=%h -n 1 HEAD) and the commits since $(git rev-parse --short "$before")"
     ;;
-  *) fail "usage: check-shell-lines.sh pr | push <before-sha> | --per-file" ;;
+  *) fail "usage: check-shell-lines.sh pr [<base ref>] | push <before-sha> | --per-file" ;;
 esac

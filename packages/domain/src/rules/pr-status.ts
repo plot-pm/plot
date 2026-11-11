@@ -1,22 +1,6 @@
 import { refusalKind, type RefusalKind } from './refusal.js';
 
 /**
- * Whether a refusal names missing credentials rather than a limit or an
- * outage. `RefusalKind` stays closed over `quota`/`secondary`/`outage` — the
- * issue footer reads it too — so this is read from the message text directly,
- * the same way `refusalKind` itself is.
- *
- * `gh`'s own wording for a signed-out CLI: `gh: authentication required`. Read
- * off the wording for the reason `refusalKind`'s own doc gives: the exit code
- * is the same 1 a spent quota or a 503 exits with.
- *
- * @param message - the host CLI's stderr, or null where nothing failed.
- * @returns true where the message names missing credentials.
- */
-const missingCredentials = (message: string | null): boolean =>
-  message !== null && /authentication required/i.test(message);
-
-/**
  * The three severities the PR footer may show — a display axis, not a failure
  * kind. {@link RefusalKind} names WHICH limit refused; this names how urgent
  * that refusal reads to someone looking at the board.
@@ -213,7 +197,7 @@ export const prStatus = (input: PrStatusInput): PrStatus => {
   const kind = refusalKind(remainder);
 
   const backoffInSeconds = kind === null ? null : input.nextInSeconds;
-  const credentialsMissing = missingCredentials(remainder);
+  const credentialsMissing = kind === 'auth';
   const stale =
     kind === null && !credentialsMissing && input.ageSeconds !== null
       ? prStaleness(input.ageSeconds, input.intervalSeconds, input.overdueSeconds ?? null)

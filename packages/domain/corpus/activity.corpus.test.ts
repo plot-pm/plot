@@ -3,6 +3,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { shellContext } from '../src/adapters/scripts.js';
 import { processesShell } from '../src/adapters/processes/processes-shell.js';
+import { processesTable } from '../src/adapters/processes/processes-table.js';
+import { cpuDeltaCentis } from '../src/rules/log-activity.js';
 import { compareField, describingAs, type Disagreement, type Sides } from './compare.js';
 
 /**
@@ -101,6 +103,33 @@ describe('processesShell().activity agrees with plot_worker_activity', () => {
     for (let i = 0; i < all.length; i += 1) {
       compareField(found, all[i].name, 'activity', await ruleVerdict(all[i].pid), shell[i]);
     }
+    expect(found.map(report)).toEqual([]);
+  });
+});
+
+/**
+ * The agent loop's CPU reading: `cpuDeltaCentis` over two `processesTable()`
+ * reads, one window apart, as `working` (a positive delta), `idle` (none) or
+ * `''` (no row for the pid).
+ */
+const tableVerdicts = async (): Promise<string[]> => {
+  const table = processesTable();
+  const before = await table.read();
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  const after = await table.read();
+  if (!before.ok || !after.ok) throw new Error('ps could not read the process table');
+  return subjects().map(({ pid }) => {
+    const delta = cpuDeltaCentis(before.rows, after.rows, Number(pid));
+    return delta === null ? '' : delta > 0 ? 'working' : 'idle';
+  });
+};
+
+describe('cpuDeltaCentis over two table reads agrees with plot_worker_activity', () => {
+  it('answers what the shell answers on every subject', async () => {
+    const rule = await tableVerdicts();
+    const shell = shellVerdicts();
+    const found: Disagreement[] = [];
+    subjects().forEach((one, i) => compareField(found, one.name, 'activity', rule[i], shell[i]));
     expect(found.map(report)).toEqual([]);
   });
 });

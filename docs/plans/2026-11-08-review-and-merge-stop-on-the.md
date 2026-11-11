@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** ship-2-32-0
 - **Issue:** #3265
@@ -14,6 +14,7 @@
 - **Approved:** 2026-11-08, Jan Wloka, plan-PR #3268 merged
 - **Started:** 2026-11-08, Jan Wloka, `bug/github-arms-use-rest`
 - **Delivered:** 2026-11-08
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 

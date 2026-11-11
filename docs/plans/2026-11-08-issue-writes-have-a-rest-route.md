@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** ship-2-32-0
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Approved:** 2026-11-09, Jan Wloka, plan-PR #3272 merged
 - **Started:** 2026-11-09, Jan Wloka, `bug/issue-writes-have-a-rest-route`
 - **Delivered:** 2026-11-09
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 

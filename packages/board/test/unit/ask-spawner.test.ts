@@ -98,7 +98,30 @@ describe('plot-ask spawner [pid]', () => {
     const lines: string[] = [];
     const code = await run(['spawner', '4242', '--lines'], '/nonexistent', (line) => lines.push(line));
     expect(code).toBe(0);
-    expect(lines.join('')).toBe('  spawn contract: current\n');
+    expect(lines.join('')).toBe('  spawn contract: current\n  host reads: not reported (fleetd published no transport)\n');
+  });
+
+  it('prints the transport fleetd published with its heartbeat', async () => {
+    const { repoRoot, bundlePath, bundleHash } = repoWithBundle();
+    writeGate(repoRoot, 7);
+    useRepoScriptGate(repoRoot);
+    writeFleetdStart(repoRoot, { pid: 4242, spawnContract: 7, bundlePath, bundleHash });
+    fs.writeFileSync(
+      path.join(repoRoot, '.plot', 'state', 'fleetd.json'),
+      `${JSON.stringify({
+        version: 1, pid: 4242, startedAt: 1, beatAt: 2, generation: 0, bridgeAt: null, supervised: 'none',
+        watchesWanted: 0, watchesArmed: 0, lastEventAt: null, lastSafetyNetAt: null,
+        hostTransport: { transport: 'in-process', reason: 'the git host is github', tokenSource: 'gh auth token' },
+        loops: {},
+      })}\n`,
+    );
+
+    const lines: string[] = [];
+    const code = await run(['spawner', '4242', '--lines'], '/nonexistent', (line) => lines.push(line));
+    expect(code).toBe(0);
+    expect(lines.join('')).toBe(
+      '  spawn contract: current\n  host reads: in-process (the git host is github; token from gh auth token)\n',
+    );
   });
 
   it('reads current when the record, the live pid and the gate all agree', async () => {

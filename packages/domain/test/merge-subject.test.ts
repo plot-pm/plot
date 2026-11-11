@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeDetectOf, mergedBySubject, subjectsConform } from '../src/rules/merge-subject.js';
+import { carriesMergeOf, mergeDetectOf, mergedBySubject, subjectsConform } from '../src/rules/merge-subject.js';
 
 /**
  * The two forms the host adapter holds, written out here rather than imported.
@@ -318,3 +318,36 @@ describe('mergeDetectOf', () => {
     expect(mergeDetectOf({ subjects: plain, forms: [PR_FROM], asked: true, truncated: true })).toBe('none');
   });
 });
+
+describe('carriesMergeOf', () => {
+  const ask = { number: 3217, branch: 'feature/one-card-grammar-tickets', forms: [PR_FROM], owner: null };
+
+  it('finds the host\'s merge subject for the PR among the subjects', () => {
+    const subjects = ['plot: a fix', 'Merge pull request #3217 from plot-pm/feature/one-card-grammar-tickets'];
+    expect(carriesMergeOf({ ...ask, subjects })).toBe(true);
+  });
+
+  it('refuses a subject naming another PR from the same branch', () => {
+    expect(carriesMergeOf({ ...ask, subjects: ['Merge pull request #3218 from plot-pm/feature/one-card-grammar-tickets'] })).toBe(false);
+  });
+
+  it('refuses a subject naming the number with another branch', () => {
+    expect(carriesMergeOf({ ...ask, subjects: ['Merge pull request #3217 from plot-pm/feature/other'] })).toBe(false);
+  });
+
+  it('refuses a reverted merge subject', () => {
+    expect(carriesMergeOf({ ...ask, subjects: ['Revert "Merge pull request #3217 from plot-pm/feature/one-card-grammar-tickets"'] })).toBe(false);
+  });
+
+  it('proves nothing with a form that names no number', () => {
+    const subjects = ['Merged feature/one-card-grammar-tickets'];
+    expect(carriesMergeOf({ ...ask, forms: ['Merged <branch>'], subjects })).toBe(false);
+  });
+
+  it('matches the owner where one is read', () => {
+    const subjects = ['Merge pull request #3217 from Plot-PM/feature/one-card-grammar-tickets'];
+    expect(carriesMergeOf({ ...ask, owner: 'plot-pm', subjects })).toBe(true);
+    expect(carriesMergeOf({ ...ask, owner: 'someone', subjects })).toBe(false);
+  });
+});
+

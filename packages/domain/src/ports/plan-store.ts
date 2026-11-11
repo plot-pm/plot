@@ -63,6 +63,20 @@ export interface PlanRecord {
   rejectedRaw: string;
   /** A non-claim list item in a slice section that names a branch no claim reads, in document order. */
   unreadBranchItems: readonly PlanRecordUnreadBranchItem[];
+  /** The tracker issues the plan answers, from its `Issue:` record, as strings: `226` or `PROJ-12`. */
+  issues: readonly string[];
+  /** The `Design:` record verbatim, or `''`. */
+  designRaw: string;
+  /** The `Verified:` record of `## Status` outside fences, or `''` for no line or a placeholder. */
+  verifiedRaw: string;
+  /** How many challenge rounds the plan records; absent where no source carries a readable round. */
+  rounds?: number;
+  /**
+   * Why the parser could not read the file, such as `file not found`; absent
+   * for a parsed plan. A record with `error` carries its `file` and no plan
+   * fields, and `parsedPlans` (`rules/parsed-plans.ts`) drops it.
+   */
+  error?: string;
 }
 
 /** One list item `unreadBranchItems` reports, naming a branch outside claim grammar. */

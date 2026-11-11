@@ -154,6 +154,9 @@ export const msUntilReset = (resetAt: number | null, now: number): number | null
  * could explain. It rejoins the ordinary cadence, which is where every failure
  * that is not a limit already goes.
  *
+ * **A refused credential gets no wait either.** A wait does not repair a token;
+ * the next read runs on the next ordinary trigger.
+ *
  * **A QUOTA WITH NO STATED RESET WAITS THE CEILING AND SAYS SO.** `resetAt` is
  * nullable by design — a connector that reports no reset is the `unknown`
  * basis — and the answer is neither to invent a number nor to read absence as
@@ -180,7 +183,7 @@ export const reactionTo = (
   retryAfterMs: number | null = null,
 ): Reaction | null => {
   if (kind === null) return null;
-  if (kind === 'outage') {
+  if (kind === 'outage' || kind === 'auth') {
     return { waitMs: 0, stated: false, concurrencyFactor: 1, touchesCadence: false };
   }
   if (kind === 'secondary') {

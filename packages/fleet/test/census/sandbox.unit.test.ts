@@ -3,7 +3,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { buildSandbox, describeSize, type Sandbox } from './sandbox.js';
+import { githubApi } from '@plot-pm/domain/adapters/host/github-api';
+import { githubIssueList } from '@plot-pm/domain/adapters/host/github-issue-list';
+import { githubPrListing } from '@plot-pm/domain/adapters/host/github-pr-listing';
+import { githubRuns } from '@plot-pm/domain/adapters/host/github-runs';
+
+import { buildSandbox, CENSUS_TOKEN, describeSize, type Sandbox } from './sandbox.js';
 
 const open: Sandbox[] = [];
 
@@ -82,6 +87,58 @@ describe('the census sandbox', () => {
     const codes = await Promise.all(box.desks.map((d) => d.worker.stop()));
 
     expect(codes).toEqual([0, 0, 0]);
+  });
+
+  it('counts one stub-server request per in-process read, under the fixture GH_TOKEN', async () => {
+    const box = await sandbox({ host: 'github', desks: 0, openPrs: 1 });
+    const api = githubApi({ origin: box.origin, env: box.env });
+    const read = { method: 'POST' as const, path: '/graphql', body: { query: '{}' }, label: 'graphql' };
+
+    expect(box.env['GH_TOKEN']).toBe(CENSUS_TOKEN);
+    expect(box.env['GITHUB_API_URL']).toBe(box.api?.url);
+    expect((await api.request(read)).ok).toBe(true);
+    expect(box.api?.count('/graphql')).toBe(1);
+    expect((await api.request(read)).ok).toBe(true);
+
+    expect(box.api?.count('/graphql')).toBe(2);
+    expect(box.api?.count('/user')).toBe(1);
+    expect(box.api?.requests().every((r) => r.authorization === `Bearer ${CENSUS_TOKEN}`)).toBe(true);
+  });
+
+  it('answers the in-process reads from the stub gh answer files, so both transports read one fixture', async () => {
+    const box = await sandbox({ host: 'github', desks: 0, openPrs: 3 });
+    const api = githubApi({ origin: box.origin, env: box.env });
+    const shell = (args: string[]) =>
+      host(box, 'pr-list', ...args).trim().split('\n').filter((l) => l !== '').map((l) => JSON.parse(l) as Record<string, unknown>);
+    const pick = (rows: readonly Record<string, unknown>[]) => rows.map((r) => [r['number'], r['head'], r['state'], r['checks'] ?? null]);
+    for (const query of [
+      { state: 'open' as const, rich: true, limit: 100 },
+      { state: 'all' as const, limit: 100 },
+      { state: 'all' as const, rich: true, limit: 100, since: '2025-12-31T00:00:00Z' },
+      { state: 'merged' as const, limit: 500 },
+    ]) {
+      const args = ['--state', query.state, ...(query.rich ? ['--rich'] : []), '--limit', String(query.limit), ...(query.since ? ['--since', query.since] : [])];
+      const listed = await githubPrListing(api).prListing(query);
+      expect(listed.answer).toBe('answered');
+      expect(listed.rows).toHaveLength(query.state === 'merged' ? 0 : 3);
+      expect(pick(listed.rows as unknown as Record<string, unknown>[])).toEqual(pick(shell(args)));
+    }
+    const issues = await githubIssueList(api).list({ state: 'open' }, 100);
+    expect(issues.ok && issues.issues).toEqual([]);
+    const runs = await githubRuns(api).list('main');
+    expect(runs.ok && runs.runs.map((r) => [r.headSha, r.conclusion, r.workflowName])).toEqual([[box.git(box.repo, 'rev-parse', 'main'), 'success', 'CI']]);
+  });
+
+  it('answers a request with another token 401, and runs no stub API on Bitbucket', async () => {
+    const box = await sandbox({ host: 'github', desks: 0, openPrs: 0 });
+    const api = githubApi({ origin: box.origin, env: { ...box.env, GH_TOKEN: 'not-the-fixture' } });
+
+    const answer = await api.request({ method: 'POST', path: '/graphql', body: {}, label: 'graphql' });
+
+    expect(answer.ok || answer.refusal.kind).toBe('auth');
+    const bitbucket = await sandbox({ host: 'bitbucket', desks: 0, openPrs: 0 });
+    expect(bitbucket.api).toBeNull();
+    expect(bitbucket.env['GITHUB_API_URL']).toBeUndefined();
   });
 
   it('removes its root by name', async () => {

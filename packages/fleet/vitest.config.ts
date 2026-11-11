@@ -11,6 +11,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['test/unit/**/*.test.ts', 'test/census/**/*.unit.test.ts'],
+    setupFiles: ['test/unit/setup/shell-host-transport.ts'],
     // The delivery tests wait out a detached stub script, 4 s per pass.
     testTimeout: 30_000,
     /**

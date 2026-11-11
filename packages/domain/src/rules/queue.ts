@@ -193,7 +193,7 @@ export interface MergedSetState {
    * second field would let a caller print `whole` while silently never
    * learning which read paid for it.
    */
-  kind: 'throttled' | 'secondary' | 'failed' | 'delta' | null;
+  kind: 'throttled' | 'secondary' | 'auth' | 'failed' | 'delta' | null;
 }
 
 /** What the registry read when it asked whether it could hand anything over. */

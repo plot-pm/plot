@@ -7,10 +7,14 @@ import {
   type DeliveryReadings,
   type MineMode,
   type Ownership,
+  releaseTargets,
+  type ReleaseTarget,
+  type ReleaseTicketReading,
   type Reader,
   type WorkItemReading,
 } from '@plot-pm/domain';
-import type { AgentEntry, AgentRow, DraftPlan, IssueRow, Slice, TicketSourceShape } from '../../../contract/schema.js';
+import { ticketMarkOf, ticketRecordOf } from '@plot-pm/domain/rules/sprint-ticket-record';
+import type { AgentEntry, AgentRow, DraftPlan, IssueRow, ReleaseTickets, Slice, TicketSourceShape } from '../../../contract/schema.js';
 import { ownedFromCard, ownedFromRow, ownedFromTicket } from './mine-filter.js';
 import { sliceKeyOf } from './sections.js';
 import { SLICE_LINKING_KINDS } from './slices.js';
@@ -38,6 +42,10 @@ export interface DeliveryMapInput {
   ticketSource?: TicketSourceShape | null | undefined;
   /** The target releases of the selected sprints; absent where the Sprint filter is off. */
   releases?: readonly string[] | undefined;
+  /** The Active sprints' `Release:` and `Start:` values; absent reads as no target release. */
+  sprints?: readonly ReleaseTarget[];
+  /** The issue index's `releases`, from `Fleet.releaseTickets`; absent or null reads as no ticket count. */
+  releaseTickets?: ReleaseTickets | null | undefined;
 }
 
 /** What `placeDelivery` reads, and the payload rows each subject id stands for. */
@@ -52,6 +60,8 @@ export interface DeliveryMapping {
   agentsById: Record<string, RegistryAgent>;
   /** Item id → the ticket it stands for. */
   ticketsByItem: Record<string, IssueRow>;
+  /** One entry per distinct target release, and the tickets the release line counts for them. */
+  releases: { targets: ReleaseTarget[]; tickets: ReleaseTicketReading | null };
 }
 
 /** The domain index exports a different `PrReading` from `branch-state`; this names the placement rule's. */
@@ -280,5 +290,28 @@ export const deliveryMapping = (input: DeliveryMapInput): DeliveryMapping => {
     draftsByItem,
     agentsById,
     ticketsByItem,
+    releases: {
+      targets: releaseTargets(input.sprints ?? []),
+      tickets: input.releaseTickets == null ? null : input.releaseTickets,
+    },
   };
+};
+
+/**
+ * The mark a ticket row shows where a sprint opened the ticket.
+ *
+ * Asks {@link ticketRecordOf} of each sprint file's text in turn. A ticket no
+ * sprint recorded gets `null`, never a "not by sprint" text: the absence of a
+ * record says nothing about who opened the ticket.
+ *
+ * @param sprintTexts - the whole text of each sprint file the board has read.
+ * @param ticket - the ticket's identifier, as the issue index spells it.
+ * @returns the mark wording, or `null` where the row shows no mark.
+ */
+export const ticketMarkFor = (sprintTexts: readonly string[], ticket: string): string | null => {
+  for (const text of sprintTexts) {
+    const mark = ticketMarkOf(ticketRecordOf(text, ticket));
+    if (mark !== null) return mark;
+  }
+  return null;
 };

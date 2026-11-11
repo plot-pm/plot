@@ -69,9 +69,9 @@ export type LimitObservation = 'ok' | 'throttled' | 'secondary';
  * sentence is the only place the number appears.
  *
  * So the refusal travels beside the result rather than inside it. `throttled`
- * is a spent quota (exit 5), `secondary` a burst refusal (exit 6), and `failed`
- * every other non-zero exit — a DNS blip or an auth error, which a wait does
- * not fix.
+ * is a spent quota (exit 5), `secondary` a burst refusal (exit 6), `auth` a
+ * credential the host refused with a `401`, and `failed` every other non-zero
+ * exit, such as a DNS blip. A wait fixes neither `auth` nor `failed`.
  *
  * THE TWO LIMITS ARE KEPT APART BECAUSE THEY RECOVER DIFFERENTLY. A spent quota
  * returns at the reset the response carries, minutes away; a secondary limit
@@ -84,10 +84,85 @@ export type LimitObservation = 'ok' | 'throttled' | 'secondary';
  * refusal names neither the script that broke nor the path it could not read.
  */
 export interface HostRefusal {
-  /** `throttled` is a spent quota, `secondary` a burst; `failed` is everything else. */
-  kind: 'throttled' | 'secondary' | 'failed';
+  /**
+   * `throttled` is a spent quota, `secondary` a burst, `auth` a credential the
+   * host refused (a `401`); `failed` is everything else. A wait repairs none
+   * of `auth` and `failed`.
+   */
+  kind: 'throttled' | 'secondary' | 'auth' | 'failed';
   /** What the connector said, verbatim. */
   said: string;
+  /**
+   * The wait the connector named outside `said`, in milliseconds, such as a
+   * `Retry-After` header. Absent where it named none; the shell route never
+   * sets it, because `gh` states its wait only inside `said`.
+   */
+  waitMs?: number;
+}
+
+/** A state a {@link PrListingQuery} asks the host for. */
+export type PrListingState = 'open' | 'all' | 'merged';
+
+/** What one {@link Host.prListing} call asks the host for. */
+export interface PrListingQuery {
+  /** The state to list. */
+  state: PrListingState;
+  /** How many rows to ask for; the host's own page size when omitted. */
+  limit?: number;
+  /**
+   * Narrows to the PRs the host has seen change since this stamp, the host's
+   * own rendering, passed through byte for byte; every PR when omitted.
+   */
+  since?: string;
+  /** Asks every row for its checks, mergeability, review and draft. */
+  rich?: boolean;
+  /**
+   * Asks the open rows for the rich fields and the terminal rows for the plain
+   * ones; each terminal row carries the absent values. Implies `rich`.
+   */
+  richOpen?: boolean;
+  /**
+   * The checks commit the caller already holds per head branch, so a CI
+   * connector that binds checks to a commit asks first about the heads it does
+   * not hold. Absent, every row ranks the same.
+   */
+  boundShas?: Readonly<Record<string, string>>;
+}
+
+/**
+ * Whether a state's rows are every PR the host holds in that state.
+ *
+ * `whole` only where the connector claimed it; `possibly-truncated` for a page
+ * at its limit, a walk refused mid-way, and a page that made no claim.
+ */
+export type PrListingCompleteness = 'whole' | 'possibly-truncated';
+
+/**
+ * One PR row as the host listed it: every field the connector carried, none
+ * defaulted. The rules that read a listing read the fields they need.
+ */
+export type PrListingRow = Readonly<Record<string, unknown>>;
+
+/**
+ * The answer to one {@link Host.prListing} call.
+ *
+ * `answer` is `answered` where every asked state answered, `partial` where
+ * some did (the rows are kept), `failed` where the call answered nothing a
+ * caller may use, and `unaskable` where this host has no such listing.
+ */
+export interface PrListing {
+  /** Which of the four answers this was. */
+  answer: 'answered' | 'partial' | 'failed' | 'unaskable';
+  /** The rows the host returned; empty where the call failed. */
+  rows: readonly PrListingRow[];
+  /**
+   * One word per state the host was asked, keyed by the state word. The query's
+   * own `state` is always present; a state with no word reads
+   * `possibly-truncated`.
+   */
+  complete: Readonly<Record<string, PrListingCompleteness>>;
+  /** Why the call did not answer in full, or null where it did. */
+  refusal: HostRefusal | null;
 }
 
 /**
@@ -351,6 +426,19 @@ export interface Host {
    * @returns the PRs, newest first.
    */
   prList(state: string, limit?: number, since?: string, rich?: boolean): Promise<PortResult<readonly Pr[]>>;
+
+  /**
+   * Lists PRs as a typed answer: the rows, one completeness word per asked
+   * state, and the refusal.
+   *
+   * A failed or partial call is an answer, not a thrown error: its `refusal`
+   * holds the kind and the connector's words, and {@link lastRefusal} holds the
+   * same refusal.
+   *
+   * @param query - the state, the limit, the window and the fields to ask for.
+   * @returns the listing; never rejects for a host refusal.
+   */
+  prListing(query: PrListingQuery): Promise<PrListing>;
 
   /**
    * What is this connector's limit, and how well does it know it?
