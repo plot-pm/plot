@@ -105,7 +105,7 @@ A failed read is never an empty one. `readBlobs` answers `failed`, and the plan 
 
 ### Adapters
 
-- `feature/one-cat-file-batch-adapters` — a process-level holder beside `processAnswers`; `readBlobs`, `listBlobs`, `entriesAt`, `showFile` and `containsMany` read through an installed reader; the release-version read through `showFile`; fleetd and the board server install it and refuse a git older than 2.42; the minimum in `plot-board-setup` and `plot-board-probe.sh`; a `--once` spawn-spy test; a changeset <!-- builds: Refs object reads served by one installed cat-file process in fleetd and the board -->
+- `feature/one-cat-file-batch-adapters` — a process-level holder beside `processAnswers`; `readBlobs`, `listBlobs`, `entriesAt`, `showFile` and `containsMany` read through an installed reader; the release-version read through `showFile`; fleetd and the board server install it and refuse a git older than 2.42; the minimum in `plot-board-setup` and `plot-board-probe.sh`; a `--once` spawn-spy test; a changeset <!-- builds: Refs object reads served by one installed cat-file process in fleetd and the board --> → #3341
 
 ## Notes
 
