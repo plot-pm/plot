@@ -95,7 +95,7 @@ Each step that reaches a file goes through an existing port or a new `WorkerReco
 
 ### Bundle
 
-- `feature/node-worker-wrapper-bundle` — `worker-wrapper.ts` and the `plot-worker-wrapper.mjs` bundle; `workerEnding` in `rules/worker-ending.ts`; the `WorkerRecords` port and file adapter; the record-parity contract test against the `sh` wrapper; the agent-tree test on Linux and macOS; D1 measured on the merge base <!-- builds: plot-worker-wrapper.mjs, the worker wrapper as a node bundle -->
+- `feature/node-worker-wrapper-bundle` — `worker-wrapper.ts` and the `plot-worker-wrapper.mjs` bundle; `workerEnding` in `rules/worker-ending.ts`; the `WorkerRecords` port and file adapter; the record-parity contract test against the `sh` wrapper; the agent-tree test on Linux and macOS; D1 measured on the merge base <!-- builds: plot-worker-wrapper.mjs, the worker wrapper as a node bundle --> → #3325
 
 ### Dispatch
 
