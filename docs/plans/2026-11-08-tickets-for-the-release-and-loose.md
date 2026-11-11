@@ -17,6 +17,7 @@
 - **Started:** 2026-11-10, Jan Wloka, `feature/tickets-reach-input-to-the-fleet`
 - **Started:** 2026-11-10, Jan Wloka, `feature/sprint-work-records-the-ticket-it-opened`
 - **Started:** 2026-11-10, Jan Wloka, `feature/the-release-line-counts-tickets`
+- **Started:** 2026-11-11, Jan Wloka, `feature/loose-ends-show-under-unblock`
 
 ## Changelog
 
