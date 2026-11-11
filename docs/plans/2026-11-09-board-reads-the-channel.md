@@ -95,7 +95,7 @@ This plan depends on `the-channel-carries-readings` (the board receives `RepoSna
 
 ### Main merge
 
-- `bug/board-reads-the-channel-main-merge` — the sprint PR's CI (run 42589744654) fails three fleet tests after `main` merged in: the snapshot's `config` reading drops the `State branch` key `main` added, and two heartbeat `run` tests time out waiting for a beat under coverage <!-- builds: a config reading that carries every Plot Config key, and heartbeat run tests that wait on the beat itself -->
+- `bug/board-reads-the-channel-main-merge` — the sprint PR's CI (run 42589744654) fails three fleet tests after `main` merged in: the snapshot's `config` reading drops the `State branch` key `main` added, and two heartbeat `run` tests time out waiting for a beat under coverage <!-- builds: a config reading that carries every Plot Config key, and heartbeat run tests that wait on the beat itself --> → #3303
 
 ## Notes
 
