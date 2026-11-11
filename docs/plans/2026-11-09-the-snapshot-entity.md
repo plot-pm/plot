@@ -100,7 +100,7 @@ Two arrow-function rules sit beside it:
 
 ### Fleetd fills
 
-- `feature/the-snapshot-entity-fill` — one snapshot in `registryd-main.ts`; the scan, PR reader, issue reader, default-branch beat and tick record their existing readings through `recordReading`; a `--once` test over the census fixture; a changeset <!-- builds: fleetd's in-memory RepoSnapshot filled by the existing tick -->
+- `feature/the-snapshot-entity-fill` — one snapshot in `registryd-main.ts`; the scan, PR reader, issue reader, default-branch beat and tick record their existing readings through `recordReading`; a `--once` test over the census fixture; a changeset <!-- builds: fleetd's in-memory RepoSnapshot filled by the existing tick --> → #3285
 
 ## Notes
 
