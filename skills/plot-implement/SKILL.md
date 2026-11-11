@@ -247,7 +247,8 @@ node ../plot/scripts/board/plot-brief-book.mjs [--branch <name>] <slug> <branch>
 
 This books both the brief **and** step 5's `Started:` record in one call,
 in one disposable worktree cut from a freshly fetched `origin/<default
-branch>`: write, commit, push, remove the worktree. The main checkout is
+branch>`, or from `origin/<name>` with `--branch`: write, commit, push,
+remove the worktree. The main checkout is
 never opened, so running this under a stale or dirty operator checkout
 changes nothing about its outcome — `git status --porcelain`, `HEAD` and
 the checked-out branch on that checkout are exactly as this call found

@@ -1,5 +1,6 @@
 // Writes a branch's hand-off brief and its plan's `Started:` record in ONE
-// disposable worktree cut from `origin/<default>`, commits, pushes, and
+// disposable worktree cut from `origin/<default>`, or from `origin/<name>`
+// with `--branch`, commits, pushes, and
 // removes the worktree. The main checkout is never opened, so a
 // `--brief-only` implement run leaves it exactly as it found it —
 // `git status --porcelain`, `HEAD` and the checked out branch all unchanged.
@@ -11,6 +12,7 @@
 //
 // --branch <name> cuts the worktree from `origin/<name>` and books there,
 // for a plan that lives on an integration branch such as a sprint branch.
+// It bypasses a declared `State branch`, as `plot-deliver.mjs --branch` does.
 //
 // <brief-file> is a path to the brief's text, written by the caller OUTSIDE
 // the repository — a scratch file, not a path under the checkout. Exit 0
@@ -171,7 +173,9 @@ export const bookBrief = async (ctx: BriefBookContext, args: BriefBookArgs, writ
   const bookbr = `plot/brief-book-${args.slug}`;
   const tmpwt = path.join(deskRoot(deskReading), `.plot-brief-book-${args.slug}.${ctx.pid}`);
 
-  const added = await cutBooking(ctx, tmpwt, bookbr, main, 'add');
+  // A named target is cut and pushed as given: the `State branch` route
+  // belongs to the default branch only.
+  const added = args.target === undefined ? await cutBooking(ctx, tmpwt, bookbr, main, 'add') : await ctx.trees.addBranch(tmpwt, bookbr, `origin/${main}`);
   if (!added.ok) throw new Refused(`could not prepare a booking worktree at ${tmpwt}`);
   try {
     const store = ctx.planStoreAt(tmpwt);
@@ -200,6 +204,9 @@ export const bookBrief = async (ctx: BriefBookContext, args: BriefBookArgs, writ
       `nothing to commit — ${briefRel} and the Started: record may already be on origin/${main}`,
       reapply,
       write,
+      undefined,
+      undefined,
+      args.target === undefined ? 'default' : 'named',
     );
     if ('rejected' in landed) throw new Refused(`the brief booking for ${args.branch} could not reach ${main}; re-run this once the push works`);
     return 0;
