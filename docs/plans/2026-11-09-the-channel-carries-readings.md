@@ -76,7 +76,7 @@ This plan depends on `the-snapshot-entity`: it sends `RepoSnapshot` and its `gen
 
 ### Contract
 
-- `feature/the-channel-carries-readings-contract` — the `snapshot` purpose and `SNAPSHOT_PROTOCOL` in `entities/subscription.ts` and `rules/channel.ts`; the `snapshot` and `delta` messages in `entities/channel-message.ts`; `applySnapshotMessage` in `rules/snapshot-sync.ts`; recorded protocol-1 fixtures <!-- builds: SNAPSHOT_PROTOCOL, a versioned snapshot-and-delta channel contract -->
+- `feature/the-channel-carries-readings-contract` — the `snapshot` purpose and `SNAPSHOT_PROTOCOL` in `entities/subscription.ts` and `rules/channel.ts`; the `snapshot` and `delta` messages in `entities/channel-message.ts`; `applySnapshotMessage` in `rules/snapshot-sync.ts`; recorded protocol-1 fixtures <!-- builds: SNAPSHOT_PROTOCOL, a versioned snapshot-and-delta channel contract --> → #3283
 
 ### Fleetd publishes
 
