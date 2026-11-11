@@ -100,7 +100,7 @@ In `ci.yml`, the step "Fetch the default branch the shell count reads" (`:1587-1
 
 ### Gate base
 
-- `infra/sprint-prs-gate-base` — the optional base argument for `check-shell-lines.sh pr`, `check-decision-count.sh pr` and `check-sprint-members.sh`, the third argument to `check-no-bundle-diff.sh` in CI, the fetch of `origin/$GITHUB_BASE_REF`, and the fixture rows <!-- builds: the merge-base gates read the pull request's base -->
+- `infra/sprint-prs-gate-base` — the optional base argument for `check-shell-lines.sh pr`, `check-decision-count.sh pr` and `check-sprint-members.sh`, the third argument to `check-no-bundle-diff.sh` in CI, the fetch of `origin/$GITHUB_BASE_REF`, and the fixture rows <!-- builds: the merge-base gates read the pull request's base --> → #3312
 
 ### Trigger
 
