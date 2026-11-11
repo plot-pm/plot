@@ -27,6 +27,7 @@ const ports = (
     contains: async () => answered(over.contains ?? 'unknown'),
     tagsContaining: async () => tags,
     commitSubjects: async () => answered((over.subjects ?? []).map((subject) => ({ at: 0, subject, tree: 't', parentTree: 'p' }))),
+    remoteUrl: async () => answered('git@github.com:plot-pm/plot.git'),
   },
 });
 
@@ -56,6 +57,7 @@ describe('resolveRelease', () => {
         contains: async () => answered('unknown' as const),
         tagsContaining: async () => answered([]),
         commitSubjects: async () => answered([]),
+        remoteUrl: async () => answered('git@github.com:plot-pm/plot.git'),
       },
     };
     const line = await resolveRelease(input, failing, (s) => warned.push(s));
@@ -115,3 +117,13 @@ describe('carriedRelease', () => {
     expect(carried).toBeNull();
   });
 });
+
+describe('the owner the subject names', () => {
+  it('refuses a subject naming another owner\'s branch', async () => {
+    const rewritten = { ...input, head: 'feature/tickets', prSource: 'gh' };
+    const subjects = ['Merge pull request #3488 from otherorg/feature/tickets'];
+    const line = await resolveRelease(rewritten, ports({ 'feature/x': [hop] }, answered(['v2.32.0']), { contains: 'no', subjects }), () => {});
+    expect(line).toBe("finding\tdelivered, PR #3488 merged into 'feature/x' → cannot resolve (dead-end at 'feature/x')");
+  });
+});
+

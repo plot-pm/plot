@@ -1,6 +1,7 @@
 import { releaseChainStep, type ReleaseChainHop, type ReleaseChainStep } from '@plot-pm/domain/rules/release-chain';
 import { carriesMergeOf } from '@plot-pm/domain/rules/merge-subject';
 import { mergeSubjectForms } from '@plot-pm/domain/adapters/host/merge-subjects';
+import { ownerOfRemote } from '@plot-pm/domain/rules/remote-owner';
 import type { Host } from '@plot-pm/domain/ports/host';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 
@@ -34,7 +35,7 @@ export interface ResolveInput {
 /** The ports a walk reads. */
 export interface ResolvePorts {
   readonly host: Pick<Host, 'prMergeDests' | 'lastRefusal' | 'backend'>;
-  readonly refs: Pick<Refs, 'contains' | 'tagsContaining' | 'commitSubjects'>;
+  readonly refs: Pick<Refs, 'contains' | 'tagsContaining' | 'commitSubjects' | 'remoteUrl'>;
 }
 
 /**
@@ -56,13 +57,17 @@ export const walkReleaseChain = async (
   ports: ResolvePorts,
   warn: (s: string) => void,
 ): Promise<Exclude<ReleaseChainStep, { outcome: 'ask' }>> => {
-  let forms: readonly string[] | undefined;
-  const formsOf = async (): Promise<readonly string[]> => {
-    if (forms === undefined) {
+  let subjectReading: SubjectReading | undefined;
+  const subjectReadingOf = async (): Promise<SubjectReading> => {
+    if (subjectReading === undefined) {
       const backend = await ports.host.backend();
-      forms = backend.ok ? mergeSubjectForms(backend.value) : [];
+      const url = await ports.refs.remoteUrl('origin');
+      subjectReading = {
+        forms: backend.ok ? mergeSubjectForms(backend.value) : [],
+        owner: url.ok ? ownerOfRemote(url.value) : null,
+      };
     }
-    return forms;
+    return subjectReading;
   };
   const number = Number(input.pr);
   const planPr = input.head !== undefined && input.head !== '' && Number.isInteger(number) ? { number, head: input.head } : undefined;
@@ -78,7 +83,7 @@ export const walkReleaseChain = async (
     const merged = await ports.host.prMergeDests(step.branch);
     if (!merged.ok) {
       const said = ports.host.lastRefusal()?.said ?? '';
-      warn(`plot-release-chain: pr-merge-dest ${step.branch} failed${said === '' ? '' : `: ${said}`}\n`);
+      warn(`release chain: pr-merge-dest ${step.branch} failed${said === '' ? '' : `: ${said}`}\n`);
       hops.push({ answered: false });
       continue;
     }
@@ -86,24 +91,30 @@ export const walkReleaseChain = async (
     for (const dest of merged.value) {
       const contains = await ports.refs.contains(step.previous, dest.mergeCommit);
       const answer = contains.ok ? contains.value : ('unknown' as const);
-      const carries = answer !== 'yes' && step.previousPr !== undefined && (await carriesSubject(dest.mergeCommit, step.previousPr, await formsOf(), ports));
+      const carries = answer !== 'yes' && step.previousPr !== undefined && (await carriesSubject(dest.mergeCommit, step.previousPr, await subjectReadingOf(), ports));
       candidates.push({ ...dest, contains: answer, carries });
     }
     hops.push({ answered: true, candidates });
   }
 };
 
+/** The host's merge-subject forms and the repository's own owner, read once per walk. */
+interface SubjectReading {
+  readonly forms: readonly string[];
+  readonly owner: string | null;
+}
+
 /** Whether the commits one merge brought hold the host's merge subject for a PR. */
 const carriesSubject = async (
   mergeCommit: string,
   pr: { readonly number: number; readonly head: string },
-  forms: readonly string[],
+  { forms, owner }: SubjectReading,
   ports: ResolvePorts,
 ): Promise<boolean> => {
   if (forms.length === 0) return false;
   const brought = await ports.refs.commitSubjects(`${mergeCommit}^1..${mergeCommit}`);
   if (!brought.ok) return false;
-  return carriesMergeOf({ subjects: brought.value.map((c) => c.subject), number: pr.number, branch: pr.head, forms, owner: null });
+  return carriesMergeOf({ subjects: brought.value.map((c) => c.subject), number: pr.number, branch: pr.head, forms, owner });
 };
 
 /**
