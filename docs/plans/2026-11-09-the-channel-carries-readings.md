@@ -80,7 +80,7 @@ This plan depends on `the-snapshot-entity`: it sends `RepoSnapshot` and its `gen
 
 ### Fleetd publishes
 
-- `feature/the-channel-carries-readings-publish` — fleetd serves the snapshot purpose from its snapshot; `subscribeSnapshot` in `adapters/channel/channel-client.ts`; the board hub holds the copy and reports `current`, `resyncing`, `mismatch` or `absent` on `/api/fleet`; socket tests for both version directions; a changeset for `@plot-pm/board` <!-- builds: subscribeSnapshot, a channel reader that resynchronises on a gap and reports a version mismatch -->
+- `feature/the-channel-carries-readings-publish` — fleetd serves the snapshot purpose from its snapshot; `subscribeSnapshot` in `adapters/channel/channel-client.ts`; the board hub holds the copy and reports `current`, `resyncing`, `mismatch` or `absent` on `/api/fleet`; socket tests for both version directions; a changeset for `@plot-pm/board` <!-- builds: subscribeSnapshot, a channel reader that resynchronises on a gap and reports a version mismatch --> → #3288
 
 ## Notes
 
