@@ -107,7 +107,7 @@ The last row is a measured risk, not a theoretical one: the census counts 5 `git
 
 ### Files first
 
-- `feature/refs-from-files-adapters` — `refsGit` and `treesGit` ask the file reader first for `refState`, `refStateSync`, `defaultBranch`, `listBranches`, `branchTips`, `resolve`, `currentBranch`, `remoteHead` and `Trees.list`, and git for `unaskable`; the board's direct `worktree list` and `symbolic-ref` calls move to the port; a `--once` spawn-spy test; a changeset <!-- builds: Refs and Trees adapters that read refs and worktrees from files with a git fallback -->
+- `feature/refs-from-files-adapters` — `refsGit` and `treesGit` ask the file reader first for `refState`, `refStateSync`, `defaultBranch`, `listBranches`, `branchTips`, `resolve`, `currentBranch`, `remoteHead` and `Trees.list`, and git for `unaskable`; the board's direct `worktree list` and `symbolic-ref` calls move to the port; a `--once` spawn-spy test; a changeset <!-- builds: Refs and Trees adapters that read refs and worktrees from files with a git fallback --> → #3326
 
 ## Notes
 
