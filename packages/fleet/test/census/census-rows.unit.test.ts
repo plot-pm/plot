@@ -45,9 +45,9 @@ afterEach(() => {
 });
 
 describe('the census rows', () => {
-  it('holds every row of the plan but the retired P1, D1 of the worker wrapper plan, S7 of the board API plan, P5 of the GitHub reads plan, P6 of the liveness token plan and P7 and S8 of the triggers plan', () => {
-    expect(Object.keys(CENSUS_ROWS).filter((id) => id !== 'D1' && id !== 'S7' && id !== 'P5' && id !== 'P6' && id !== 'P7' && id !== 'S8').sort()).toEqual([...planRows().keys()].sort());
-    expect(Object.keys(CENSUS_ROWS).sort()).toEqual(['D1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8']);
+  it('holds every row of the plan but the retired P1, D1 of the worker wrapper plan, S7 of the board API plan, P5 of the GitHub reads plan, P6 of the liveness token plan and P7, P9 and S8 of the triggers plan', () => {
+    expect(Object.keys(CENSUS_ROWS).filter((id) => id !== 'D1' && id !== 'S7' && id !== 'P5' && id !== 'P6' && id !== 'P7' && id !== 'P9' && id !== 'S8').sort()).toEqual([...planRows().keys()].sort());
+    expect(Object.keys(CENSUS_ROWS).sort()).toEqual(['D1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P9', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8']);
     expect(readFileSync(WRAPPER_PLAN, 'utf8')).toContain(`\`D1: ${CENSUS_ROWS.D1.claim}\``);
   });
 
@@ -68,6 +68,12 @@ describe('the census rows', () => {
     expect(readFileSync(TRIGGERS_PLAN, 'utf8').replace(/`/g, '')).toContain(`| P7 | ${CENSUS_ROWS.P7.claim} | zero | Fleet size |`);
     expect(CENSUS_ROWS.P7).toMatchObject({ target: 'zero', greenBy: { plan: 'triggers-replace-the-tick', slice: 'Fleet size' }, green: true });
     expect(rowTitle(CENSUS_ROWS.P7)).toMatch(/turned green by plan triggers-replace-the-tick, slice Fleet size/);
+  });
+
+  it('holds P9 as the triggers plan words it, a zero row turned green by its Quiet beats slice', () => {
+    expect(readFileSync(TRIGGERS_PLAN, 'utf8').replace(/`/g, '')).toContain(`| P9 | ${CENSUS_ROWS.P9.claim} | zero | Quiet beats |`);
+    expect(CENSUS_ROWS.P9).toMatchObject({ target: 'zero', greenBy: { plan: 'triggers-replace-the-tick', slice: 'Quiet beats' }, green: true });
+    expect(rowTitle(CENSUS_ROWS.P9)).toMatch(/turned green by plan triggers-replace-the-tick, slice Quiet beats/);
   });
 
   it('holds P5 as the GitHub reads plan words it, a zero row turned green by its Cutover slice', () => {

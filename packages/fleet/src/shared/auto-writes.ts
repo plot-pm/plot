@@ -1,5 +1,6 @@
 import { runAutoProgressPass } from './auto-progress.js';
 import { dispatchPhase, type FleetReading, type HeldSlice } from '@plot-pm/domain';
+import { mergerAppHeld } from '@plot-pm/domain/adapters';
 
 import { runAutoMergePass } from './auto-merge.js';
 import { runAutoFixerPass } from './auto-fixer.js';
@@ -62,6 +63,9 @@ export const fleetAutoWrites = (
   const ticketLogged = new Set<string>();
   // THE MERGER-APP HOLDS ALREADY LOGGED, for the daemon's life: one line per PR, head and reason.
   const mergeLogged = new Set<string>();
+  // THE MERGER APP CHECK, held for the daemon's life: read again only after
+  // the key's directory or the config changed, and before a merge as the App.
+  const mergerApp = mergerAppHeld();
   // WHAT THIS DAEMON DISPATCHED, the set it renews each pass. The shared marks
   // on disk are merged in by `maybeAutoDispatch` for the budget arithmetic.
   let own = new Set<string>();
@@ -101,7 +105,7 @@ export const fleetAutoWrites = (
       await runAutoTicketPass(opts, ticketLogged);
       // ONE MERGE PER PASS, after delivery has read the merges already landed.
       // Under `--once` the scan clock does not run, so this never does either.
-      await runAutoMergePass(opts, mergeRefused, undefined, undefined, mergeLogged);
+      await runAutoMergePass(opts, mergeRefused, undefined, undefined, mergeLogged, mergerApp);
       // VERIFICATION GOES LAST: it takes an agent slot only when the queue
       // held no slice on `no-free-agent`, and dispatch has just had its turn.
       await runAutoVerifyPass(opts, pulse, {

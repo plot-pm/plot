@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { FleetReadingSchema, type FleetReading } from '@plot-pm/domain/entities/fleet';
-import { listingBackoff, listingSpend, PR_READ_BEAT_MS, type LimitBasis } from '@plot-pm/domain';
+import { listingBackoff, listingSpend, PR_READ_BEAT_MS } from '@plot-pm/domain';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import type { Agents } from '@plot-pm/domain/ports/agents';
 import type { Host, PrListingQuery } from '@plot-pm/domain/ports/host';
@@ -31,6 +31,7 @@ import {
   type CarriedListing, type ScanListingAnswer, type ScanListingFold, type ScanListingWindow,
 } from '@plot-pm/domain/rules/scan-listing';
 import { PR_FULL_READ_MS } from './pr-refresh.js';
+import type { SpendRate, SpendReader } from './spend-reader.js';
 import { failedOf, readOf, type RecordReading } from './snapshot-fill.js';
 import { workerQuestions } from './worker-question.js';
 
@@ -156,6 +157,8 @@ export interface ScanWorld {
   refs: Refs;
   /** The configured git host's name, e.g. `github`. */
   backend: () => Promise<string>;
+  /** Reads the host's spend for the listing's cadence; `plot-host.sh spend-rate` where absent. */
+  spend?: SpendReader;
   /** The ports the in-process plan walk reads through. */
   walk: WalkPorts;
   /**
@@ -305,17 +308,11 @@ export const mergeTerminal = (prior: string, learned: string): string => {
   return [...rows.values()].map((line) => `${line}\n`).join('');
 };
 
-/** The host's spend, as `plot-host.sh spend-rate` reports it. */
-export interface SpendRate {
-  perHour: number | null;
-  resetAt: number | null;
-  limit: number | null;
-  basis: LimitBasis;
-  account: string | null;
-}
+export type { SpendRate, SpendReader } from './spend-reader.js';
 
 /**
- * Asks the host connector what this account has spent.
+ * Asks `plot-host.sh spend-rate` what this account has spent. A world with no
+ * `spend` reader reads through this.
  *
  * @param scripts - the runner to ask through.
  * @returns the record, or null where the connector did not answer or answered
@@ -965,7 +962,7 @@ export const scanOnce = async (
         state.listing === '' ? null : listedRowCount(state.listing),
         bitbucketWindow,
       ),
-      rate: await spendRateFor(world.scripts),
+      rate: await (world.spend ?? (() => spendRateFor(world.scripts)))(),
       lastListedAt: state.listingAt,
       now,
       currentIntervalMs: state.listingIntervalMs,

@@ -43,6 +43,8 @@ import {
   fleetdHeartbeatFile,
   writeProbeShell,
   appKeyShell,
+  budgetAccount,
+  budgetFile,
   installObjectsReader,
   type RunningChannel,
   hostReadsFor,
@@ -109,7 +111,7 @@ import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 
 import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../../shared/registry.js';
 import { fleetPrs, fleetScan, startFleetClock } from '../../shared/fleet-clock.js';
-import { stateSyncTick } from '../../shared/state-sync-tick.js';
+import { stateSyncStampOf, stateSyncTick } from '../../shared/state-sync-tick.js';
 import { escalationPostWorldFor, postEscalation } from '../../shared/escalation-post.js';
 import { fleetAutoWrites } from '../../shared/auto-writes.js';
 import { verifyingCount } from '../../shared/auto-verify.js';
@@ -131,6 +133,7 @@ import { refreshDefaultBranch } from '../../shared/default-branch-refresh.js';
 import { createSnapshotHolder, failUnread, readOf, registryEntryOf, type RecordReading, type SnapshotHolder } from '../../shared/snapshot-fill.js';
 import type { RegistryEntry, RepoSnapshot } from '@plot-pm/domain/entities/snapshot';
 import { freshScanState, planDirectory } from '../../shared/fleet-scan.js';
+import { budgetSpendReader, type SpendReader } from '../../shared/spend-reader.js';
 import { readFleetSettings } from '../../shared/fleet-settings-store.js';
 import { readConfigAsync } from '../../shared/config-reader.js';
 import { markerReading, markerText } from '../../shared/worker-question.js';
@@ -518,13 +521,15 @@ export const accountRate = async (scripts: Pick<Scripts, 'hostSaid'>): Promise<n
  * @param scripts - the adapter that runs `plot-host.sh`.
  * @param loops - each loop's own call count and interval — the tick, the
  *   scan, the PR reader, and the issue reader, each on its own cadence.
+ * @param spend - reads the account's spend in process; absent, `plot-host.sh spend-rate` is asked.
  * @returns the account's rate and each loop's own rate at its own calls.
  */
 export const spendForTick = async (
   scripts: Pick<Scripts, 'hostSaid'>,
   loops: readonly LoopSpend[],
+  spend?: SpendReader,
 ): Promise<TickSpend> => ({
-  accountPerHour: await accountRate(scripts),
+  accountPerHour: spend === undefined ? await accountRate(scripts) : ((await spend())?.perHour ?? null),
   perLoop: loopSpendPerHour(loops),
 });
 
@@ -3114,9 +3119,17 @@ export const run = async (
     warn,
   );
   const prReaderLock = readerLockFile({ cwd: repoRoot });
+  // THE SPEND IS READ IN PROCESS, through the `Budget` port: the record and
+  // `hosts.yml` are files, so the scan, the PR reader and the tick line start
+  // no `plot-host.sh spend-rate`.
+  const spend = budgetSpendReader(budgetFile(), budgetAccount({ repoRoot }), async () => {
+    const answer = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
+    return answer.ok ? answer.value : null;
+  });
   const readPrs = fleetPrs(
     {
       scripts,
+      spend,
       host: hostReads.host,
       hostClaimsSlot: hostReads.api !== null,
       store: prIndexFile({ cwd: repoRoot }),
@@ -3287,6 +3300,7 @@ export const run = async (
               const answer = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
               return answer.ok ? answer.value : 'github';
             },
+            spend,
             // THE AGENTMONITOR'S FINDINGS, from the walk's own readings; one
             // host `pr-state` per agent end.
             findings: agentFindingsOver({ repoRoot, scriptDir: scriptsDir }, warn),
@@ -3344,7 +3358,13 @@ export const run = async (
         prs: passed('pr-reader', prsBeat({ readPrs: seams.readPrs ?? readPrs, readDefaultBranch }, slot, retryBind)),
         issues: passed('issue-reader', seams.readIssues ?? readIssues),
         issueWrites: seams.readIssueWrites ?? fleetIssueWrites(issueWorld, issueState, warn),
-        stateSync: seams.stateSync ?? stateSyncTick(scripts, warn),
+        // STATE SYNC FOLLOWS THE REFS: a beat whose state and default-branch
+        // tips have not moved since the last settled run starts no process.
+        stateSync: seams.stateSync ?? stateSyncTick(
+          scripts,
+          warn,
+          stateSyncStampOf(refsGit({ repoRoot, scriptDir: scriptsDir }), () => readConfigAsync({ repoRoot, scriptsDir }, 'State branch', '')),
+        ),
         woke: (drift) => {
           write(`plot-fleetd: clock moved ${Math.round(drift.driftMs / 1000)}s against the monotonic clock; full read\n`);
           safetyNet.woke();
@@ -3509,7 +3529,7 @@ export const run = async (
           { name: 'scan', calls: scanState.calls, intervalMs: backgroundWindowMs },
           { name: 'pr-reader', calls: prState.calls, intervalMs: backgroundWindowMs },
           { name: 'issue-reader', calls: issueState.calls, intervalMs: backgroundWindowMs },
-        ]),
+        ], spend),
       };
       lastReadAt = Date.now();
     }

@@ -15,7 +15,7 @@ export type CensusRow =
  * then P5 from `docs/plans/2026-11-09-github-reads-in-process.md`,
  * then P6 from `docs/plans/2026-11-09-liveness-token.md`, which retires P1,
  * then D1 from `docs/plans/2026-11-09-node-worker-wrapper.md`,
- * then P7 and S8 from `docs/plans/2026-11-10-triggers-replace-the-tick.md`.
+ * then P7, P9 and S8 from `docs/plans/2026-11-10-triggers-replace-the-tick.md`.
  * A zero row is written as `it.fails` until the plan and slice it names turn
  * it green; that slice sets `green: true` and changes the row to `it`.
  */
@@ -120,6 +120,14 @@ export const CENSUS_ROWS = {
     unit: 'execve per pass',
     target: 'zero',
     greenBy: { plan: 'triggers-replace-the-tick', slice: 'Fleet size' },
+    green: true,
+  },
+  P9: {
+    id: 'P9',
+    claim: 'an idle fleetd pass starts no plot-host.sh spend-rate, plot-state-sync.mjs or plot-merger-token.mjs',
+    unit: 'execve per pass',
+    target: 'zero',
+    greenBy: { plan: 'triggers-replace-the-tick', slice: 'Quiet beats' },
     green: true,
   },
   S8: {

@@ -4,6 +4,7 @@ import type { TrackerSpender } from '../../ports/tracker.js';
 import { LimitBasisSchema, type LimitBasis, type LimitReading } from '../../entities/limit.js';
 import type { ClosedIssues, IssueOpenOutcome, IssueRead } from '../../ports/tracker.js';
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
+import { budgetAccount } from '../budget/budget-account.js';
 import { asJson, asJsonLines, resultOf, runProcess, type ScriptRun } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { ISSUE_MAY_EXIST } from '../../rules/refuted-issues.js';
@@ -426,21 +427,14 @@ export const trackerReads = (shell: TrackerShell, env: Readonly<Record<string, s
     /**
      * Names this connector and the account its budget lines are keyed by.
      *
-     * Reads `plot-host.sh spend-rate --connector <connector>`, which reads the
-     * budget record and asks no service. Leaves the last refusal unchanged,
-     * because it reads no tracker. A run that fails or prints no account
-     * answers a null account.
+     * Reads the account in process through `budgetAccount`, as
+     * `plot-host.sh spend-rate --connector <connector>` names it, and asks no
+     * service. Leaves the last refusal unchanged, because it reads no tracker.
      *
      * @returns the connector and account, always answered.
      */
-    spender: async (): Promise<PortResult<TrackerSpender>> => {
-      const said = resultOf(
-        await runProcess('bash', [host, 'spend-rate', '--connector', shell.connector], run),
-        (stdout) => asJson<{ account?: unknown }>(stdout).account,
-      );
-      const account = said.ok && typeof said.value === 'string' && said.value !== '' ? said.value : null;
-      return answered({ connector: shell.connector, account });
-    },
+    spender: async (): Promise<PortResult<TrackerSpender>> =>
+      answered({ connector: shell.connector, account: await budgetAccount({ repoRoot: shell.context.repoRoot, env })(shell.connector) }),
 
     /** Lets a write record its own refusal on the same reading. */
     refuse: (said: string | null): void => {
