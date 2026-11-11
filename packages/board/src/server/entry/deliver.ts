@@ -17,7 +17,7 @@ import {
   type TransitionPlan,
 } from '@plot-pm/domain/transitions/plan';
 import { releasePr, releaseTag, type ReleasePrRow } from '@plot-pm/domain/rules/release-tag';
-import { carriedRelease } from './release-chain.js';
+import { carriedRelease } from './release-chain-walk.js';
 import { branchClaims, DEFAULT_BRANCH_PREFIXES, parseBranchPrefixes } from '@plot-pm/domain/rules/cross-repo-reference';
 import { normalizeVersion } from '@plot-pm/domain/entities/version';
 import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
@@ -975,7 +975,7 @@ export const runRelease = async (
       const containingTags = tagsResult.ok ? tagsResult.value : [];
       const carried = containingTags.length === 0 ? await carriedRelease(pr, main, ctx, warn) : null;
       if (carried !== null) write(`step: PR #${pr.number} merged into '${pr.base}'; ${carried.mergeCommit} carried it onto '${main}'\n`);
-      prRows.push(carried === null ? { ...pr, containingTags } : { ...pr, ...carried });
+      prRows.push(carried === null ? { ...pr, containingTags, ownCommit: pr.mergeCommit } : { ...pr, ...carried, ownCommit: pr.mergeCommit });
     }
 
     const resolved = releaseTag({ prs: prRows, wantedVersion: args.releaseVersion });
@@ -990,7 +990,8 @@ export const runRelease = async (
     tag = resolved.tag;
     tagDate = tagDateResult.value;
     const lastPr = prRows.reduce((latest, pr) => (pr.mergedAt > latest.mergedAt ? pr : latest));
-    write(`step: plan ${planFile} — phase=${plan.phase} PR #${lastPr.number} merged ${lastPr.mergeCommit}, shipped in ${tag} (${tagDate})\n`);
+    const carriedBy = lastPr.mergeCommit === lastPr.ownCommit ? '' : `, carried by ${lastPr.mergeCommit}`;
+    write(`step: plan ${planFile} — phase=${plan.phase} PR #${lastPr.number} merged ${lastPr.ownCommit}${carriedBy}, shipped in ${tag} (${tagDate})\n`);
   }
 
   const who = args.who || process.env.PLOT_DELIVER_WHO || (await gitUserName(ctx.repoRoot));
