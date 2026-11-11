@@ -120,7 +120,7 @@ This plan depends on `the-snapshot-entity` (delivered): every reading lands in t
 
 ### Activity
 
-- `feature/desk-probes-in-domain-activity` — `logActivity` in `rules/log-activity.ts`; the agent loop's idle check reads `.plot-worker.log` first and a CPU reading from `table()` only on a still log, instead of `Processes.activity`; the verdict inputs in `.plot-worker.ending.json` <!-- builds: logActivity, working/idle from the worker log -->
+- `feature/desk-probes-in-domain-activity` — `logActivity` in `rules/log-activity.ts`; the agent loop's idle check reads `.plot-worker.log` first and a CPU reading from `table()` only on a still log, instead of `Processes.activity`; the verdict inputs in `.plot-worker.ending.json` <!-- builds: logActivity, working/idle from the worker log --> → #3346
 
 ## Notes
 
