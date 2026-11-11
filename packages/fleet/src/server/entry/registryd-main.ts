@@ -69,6 +69,8 @@ import { headroomFor } from '@plot-pm/domain/entities/machine';
 import type { FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { Host, MergedAnswer, PrListingRow } from '@plot-pm/domain/ports/host';
+import { ISSUE_REFRESH_MS, nextDeadline, PR_READ_BEAT_MS, type NextDeadline } from '@plot-pm/domain';
+import { FIXER_BOUND_SECONDS } from '@plot-pm/domain/rules/fixer-attempts';
 import type { FleetdLoop, HeldSlice, PortResult } from '@plot-pm/domain';
 import { answered, failed } from '@plot-pm/domain';
 import { agentFindingsOver } from '../../shared/agent-findings.js';
@@ -3271,6 +3273,7 @@ export const run = async (
         issues: passed('issue-reader', seams.readIssues ?? readIssues),
         issueWrites: seams.readIssueWrites ?? fleetIssueWrites(issueWorld, issueState, warn),
         stateSync: seams.stateSync ?? stateSyncTick(scripts, warn),
+        woke: (drift) => write(`plot-fleetd: clock moved ${Math.round(drift.driftMs / 1000)}s against the monotonic clock; full read\n`),
       }, warn);
   const runTick = seams.tick ?? tick;
   // THE WAIT BETWEEN TICKS ENDS ON A STOP. A stop read before the wait skips
@@ -3281,6 +3284,31 @@ export const run = async (
   const pause = async (): Promise<void> => {
     if (stop()) return;
     await Promise.race([sleep(args.intervalMs), requested]);
+  };
+
+  // THE EARLIEST DEADLINE FLEETD HOLDS READINGS FOR: the PR and issue reads' next
+  // beats and the default-branch re-ask. The claim, slice, worker, checks and
+  // fixer deadlines name no reading here until a later slice feeds them.
+  const nextDeadlineOf = async (): Promise<NextDeadline | null> => {
+    const held = await defaultBranchFile(repoRoot).read();
+    const askedAt = held.ok && held.value !== null ? Date.parse(held.value.askedAt) : Number.NaN;
+    return nextDeadline(
+      {
+        defaultBranchAskedAt: Number.isNaN(askedAt) ? null : askedAt,
+        issueReadAt: issueState.issueNextAt > 0 ? issueState.issueNextAt - ISSUE_REFRESH_MS : null,
+        prReadAt: prState.prAt,
+      },
+      {
+        claimStaleMs: 24 * 3_600_000,
+        sliceIdleMs: 2 * 3_600_000,
+        workerBoundMs: 28_800_000,
+        checksWaitMs: await checksWaitMs(),
+        fixerBoundMs: FIXER_BOUND_SECONDS * 1000,
+        issueRefreshMs: ISSUE_REFRESH_MS,
+        prBeatMs: PR_READ_BEAT_MS,
+      },
+      Date.now(),
+    );
   };
 
   write(`plot-fleetd: supervising ${registryDir}\n`);
@@ -3420,6 +3448,7 @@ export const run = async (
     // scan, PR reader and issue reader tallies are reset the same way and for
     // the same reason — each runs on its own clock and keeps accruing calls
     // between ticks, so only the reading that just printed them may zero them.
+    if (report.incomplete === '') report = { ...report, nextDeadline: await nextDeadlineOf() };
     tally.calls = 0;
     scanState.calls = 0;
     prState.calls = 0;
