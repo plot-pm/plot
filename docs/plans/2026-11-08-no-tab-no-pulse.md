@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** nothing-runs
 - **Issue:** #3170
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-08, Jan Wloka, plan-PR #3238 merged
 - **Delivered:** 2026-11-08
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
