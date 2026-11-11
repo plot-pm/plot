@@ -17,6 +17,7 @@ import {
   type TransitionPlan,
 } from '@plot-pm/domain/transitions/plan';
 import { releasePr, releaseTag, type ReleasePrRow } from '@plot-pm/domain/rules/release-tag';
+import { carriedRelease } from './release-chain-walk.js';
 import { branchClaims, DEFAULT_BRANCH_PREFIXES, parseBranchPrefixes } from '@plot-pm/domain/rules/cross-repo-reference';
 import { normalizeVersion } from '@plot-pm/domain/entities/version';
 import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
@@ -955,7 +956,9 @@ export const runRelease = async (
         const prState = await ctx.host.prState(number);
         const mergeCommit = prState.ok && prState.value !== null ? prState.value.mergeCommit : '';
         const mergedAt = prState.ok && prState.value !== null ? prState.value.mergedAt ?? '' : '';
-        return { number, mergeCommit, mergedAt };
+        const base = prState.ok && prState.value !== null ? prState.value.base : '';
+        const head = prState.ok && prState.value !== null ? prState.value.head : '';
+        return { number, mergeCommit, mergedAt, base, head };
       }),
     );
 
@@ -964,13 +967,16 @@ export const runRelease = async (
       throw new Refused(`plan '${args.slug}''s last PR (#${noCommit.number}) carries no mergeCommit — it may not have merged, or the host could not answer.\n  Nothing was written. Verify #${noCommit.number} merged, then re-run.`);
     }
 
-    const prRows = await Promise.all(
-      prs.map(async (pr) => {
-        const tagsResult = await ctx.refs.tagsContaining(pr.mergeCommit);
-        const containingTags = tagsResult.ok ? tagsResult.value : [];
-        return { ...pr, containingTags };
-      }),
-    );
+    // A PR whose own merge commit no tag contains, merged into another
+    // branch, takes the merge commit that carried it onto the default branch.
+    const prRows = [];
+    for (const pr of prs) {
+      const tagsResult = await ctx.refs.tagsContaining(pr.mergeCommit);
+      const containingTags = tagsResult.ok ? tagsResult.value : [];
+      const carried = containingTags.length === 0 ? await carriedRelease(pr, main, ctx, warn) : null;
+      if (carried !== null) write(`step: PR #${pr.number} merged into '${pr.base}'; ${carried.mergeCommit} carried it onto '${main}'\n`);
+      prRows.push(carried === null ? { ...pr, containingTags, ownCommit: pr.mergeCommit } : { ...pr, ...carried, ownCommit: pr.mergeCommit });
+    }
 
     const resolved = releaseTag({ prs: prRows, wantedVersion: args.releaseVersion });
     if (resolved.outcome === 'refused') {
@@ -984,7 +990,8 @@ export const runRelease = async (
     tag = resolved.tag;
     tagDate = tagDateResult.value;
     const lastPr = prRows.reduce((latest, pr) => (pr.mergedAt > latest.mergedAt ? pr : latest));
-    write(`step: plan ${planFile} — phase=${plan.phase} PR #${lastPr.number} merged ${lastPr.mergeCommit}, shipped in ${tag} (${tagDate})\n`);
+    const carriedBy = lastPr.mergeCommit === lastPr.ownCommit ? '' : `, carried by ${lastPr.mergeCommit}`;
+    write(`step: plan ${planFile} — phase=${plan.phase} PR #${lastPr.number} merged ${lastPr.ownCommit}${carriedBy}, shipped in ${tag} (${tagDate})\n`);
   }
 
   const who = args.who || process.env.PLOT_DELIVER_WHO || (await gitUserName(ctx.repoRoot));
