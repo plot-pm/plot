@@ -14,7 +14,8 @@ export type CensusRow =
  * with S7 from `docs/plans/2026-11-09-board-api-starts-nothing.md` after S3,
  * then P5 from `docs/plans/2026-11-09-github-reads-in-process.md`,
  * then P6 from `docs/plans/2026-11-09-liveness-token.md`, which retires P1,
- * then D1 from `docs/plans/2026-11-09-node-worker-wrapper.md`.
+ * then D1 from `docs/plans/2026-11-09-node-worker-wrapper.md`,
+ * then P7 from `docs/plans/2026-11-10-triggers-replace-the-tick.md`.
  * A zero row is written as `it.fails` until the plan and slice it names turn
  * it green; that slice sets `green: true` and changes the row to `it`.
  */
@@ -111,6 +112,14 @@ export const CENSUS_ROWS = {
     unit: 'monitor execve per launch',
     target: 'zero',
     greenBy: { plan: 'liveness-token', slice: 'Monitor in fleetd' },
+    green: true,
+  },
+  P7: {
+    id: 'P7',
+    claim: 'an idle fleetd pass starts no git rev-parse --git-dir',
+    unit: 'execve per pass',
+    target: 'zero',
+    greenBy: { plan: 'triggers-replace-the-tick', slice: 'Fleet size' },
     green: true,
   },
   D1: {

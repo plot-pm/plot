@@ -63,7 +63,7 @@ const baseReadings: FixerTickReadings = {
   defaultBranch: null,
   config: { autoReview: false, reviewBoundMs: 3_600_000, startBudget: 3, checksWaitMs: 3_600_000 },
   now: NOW,
-  slot: { held: [], headroom: 'clear', machineOverride: false },
+  slot: { held: [], headroom: async () => 'clear' as const, machineOverride: false },
 };
 
 interface WorldOptions {
@@ -890,7 +890,7 @@ describe('fixerTick bounds the fixer', () => {
     const starts: Started[] = [];
     const logged = new Set<string>();
     const w = world({ agentRunStarts: starts });
-    const starved = { ...baseReadings, slot: { held: [], headroom: 'starved', machineOverride: false } } as const;
+    const starved = { ...baseReadings, slot: { held: [], headroom: async () => 'starved' as const, machineOverride: false } } as const;
     const [one] = await fixerTick([highRow], starved, opts, w, logged);
     await fixerTick([highRow], starved, opts, w, logged);
     expect(one!.started).toEqual({ started: false, why: 'starved' });

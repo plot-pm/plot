@@ -1,5 +1,5 @@
 import { supervise, type SuperviseDetail } from '@plot-pm/domain/workflows/supervise';
-import { assign, type AssignDetail, type FleetCap } from '@plot-pm/domain/workflows/assign';
+import { assign, startableSlices, type AssignDetail, type FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Decision, NotifyWrite, IdleNotifyWrite, UnblockWrite } from '@plot-pm/domain/workflows/decision';
 import { holdCounts, QUEUE_HOLDS } from '@plot-pm/domain/rules/queue';
 import type { NextDeadline } from '@plot-pm/domain/rules/next-deadline';
@@ -418,13 +418,22 @@ export const tick = async (options: TickOptions): Promise<TickReport> => {
     // decision reads the same estate the match did. A tick with no `fleet`
     // starts nothing and reports `scaling: null` — *nobody asked*, which is
     // what an operator running the supervision half alone gets.
-    const handOver =
-      options.queue === undefined
-        ? null
-        : assign(await readQueue(entries, options.queue), {
-            max: options.max ?? 0,
-            fleet: options.fleet === undefined ? undefined : await options.fleet(),
-          });
+    //
+    // THE CAP IS ASKED ONLY WHEN THE QUEUE HOLDS A STARTABLE SLICE. The pass
+    // runs once without it; `assign` is pure, so a second pass over the same
+    // readings with the cap costs nothing but the cap's own reading — and that
+    // reading includes the machine's five forks. A tick whose queue holds no
+    // slice waiting for an agent starts nothing and measures nothing, and
+    // reports `scaling: null`, as it does when nobody asked.
+    let handOver: Decision<AssignDetail> | null = null;
+    if (options.queue !== undefined) {
+      const queueReadings = await readQueue(entries, options.queue);
+      const max = options.max ?? 0;
+      handOver = assign(queueReadings, { max });
+      if (options.fleet !== undefined && startableSlices(handOver.detail.held) > 0) {
+        handOver = assign(queueReadings, { max, fleet: await options.fleet() });
+      }
+    }
 
     return {
       startedAt,

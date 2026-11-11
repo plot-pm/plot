@@ -23,7 +23,7 @@ A census row records each count it measures with `recordCensus` from `census-rep
 import { productRoot, recordCensus } from './census-report.js';
 
 recordCensus({
-  id: 'S4',                                        // S1..S7, P2..P4, P6 or D1
+  id: 'S4',                                        // S1..S7, P2..P4, P6, P7 or D1
   fixture: { desks: 3, openPrs: 5, host: 'github' }, // host: 'github' | 'bitbucket'
   count: perPass,                                  // the measured figure, in `unit`
   unit: 'execve per pass',
@@ -50,6 +50,7 @@ A row must resolve every script, bundle and product source module from `productR
 |---|---|---|
 | P1 | an AgentMonitor over one live, idle desk starts no `sleep` | Retired by `liveness-token`, slice *Monitor in fleetd*: its fixture started `plot-agent-monitor.sh`, which that slice removes. fleetd writes the AgentMonitor's findings from its own pass, and the worker wrapper runs the final pass where no fleetd heartbeat is live. |
 | P6 | an idle desk with a live agent starts no monitor process | Added by the same slice, in `dispatch.census.test.ts`: over D1's launch, with the agent live and idle for 2 s before it ends, no image is a `*-monitor.sh` script. |
+| P7 | an idle fleetd pass starts no `git rev-parse --git-dir` | Added by `triggers-replace-the-tick`, slice *Fleet size*, in `fleetd.census.test.ts`: over the two idle passes of each fixture, no image in fleetd's tree is `git rev-parse --git-dir`. The machine probe (`machine-system.ts`) runs only on a relaunch verdict, a startable slice, an eligible slice for auto-dispatch, or a fixer, verify or spec start that every other gate admits (`auto-writes.ts`). |
 
 ## The comparison
 
