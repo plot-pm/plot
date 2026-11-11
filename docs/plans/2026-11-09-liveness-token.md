@@ -124,7 +124,7 @@ This plan depends on `node-worker-wrapper` (all three slices), because the token
 
 ### Locks
 
-- `feature/liveness-token-locks` — `psLiveness` in `pr-reader.ts` becomes `process.kill(pid, 0)`; the implement lock and the continue lock stay on `ps` <!-- builds: a ps-free reader follower check -->
+- `feature/liveness-token-locks` — `psLiveness` in `pr-reader.ts` becomes `process.kill(pid, 0)`; the implement lock and the continue lock stay on `ps` <!-- builds: a ps-free reader follower check --> → #3364
 
 ### Monitor in fleetd
 
