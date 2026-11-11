@@ -88,7 +88,7 @@ This plan depends on `the-snapshot-entity`: the heartbeat names the snapshot's `
 
 ### Readers
 
-- `feature/fleetd-heartbeat-not-data-age-readers` — `fleetOwnsScan`, `fleetdHeartbeatIsLive`, `stillFollowed` and the four CLI controllers read the heartbeat; `bridgeVouched` accepts a bridge fleetd vouches for; a changeset for `@plot-pm/board` <!-- builds: bridgeVouched, heartbeat-based scan ownership and bridge trust -->
+- `feature/fleetd-heartbeat-not-data-age-readers` — `fleetOwnsScan`, `fleetdHeartbeatIsLive`, `stillFollowed` and the four CLI controllers read the heartbeat; `bridgeVouched` accepts a bridge fleetd vouches for; a changeset for `@plot-pm/board` <!-- builds: bridgeVouched, heartbeat-based scan ownership and bridge trust --> → #3286
 
 ### Board
 
