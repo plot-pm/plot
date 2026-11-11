@@ -103,7 +103,7 @@ Each step that reaches a file goes through an existing port or a new `WorkerReco
 
 ### Continue
 
-- `feature/node-worker-wrapper-continue` — `/api/continue`, restart and the fresh-session tick start the same wrapper; `reporterShell` removed; a changeset for `@plot-pm/board` <!-- builds: one worker wrapper for dispatch, continue and restart -->
+- `feature/node-worker-wrapper-continue` — `/api/continue`, restart and the fresh-session tick start the same wrapper; `reporterShell` removed; a changeset for `@plot-pm/board` <!-- builds: one worker wrapper for dispatch, continue and restart --> → #3356
 
 ## Notes
 
