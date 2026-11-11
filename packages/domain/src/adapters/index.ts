@@ -79,6 +79,7 @@ export {
 } from './agent-run/agent-run-fixture.js';
 
 export { budgetFile, BUDGET_HOME_ENV, type BudgetFileOptions } from './budget/budget-file.js';
+export { budgetAccount, type BudgetAccountOptions } from './budget/budget-account.js';
 
 export {
   sliceSpendFile,
@@ -313,6 +314,7 @@ export { performerShell } from './performer/performer-shell.js';
 export { deskMonitorsShell } from './desk-monitors/desk-monitors-shell.js';
 
 export { mergerAppShell } from './merger-app/merger-app-shell.js';
+export { mergerAppHeld, mergerKeyStamp, type MergerAppReader } from './merger-app/merger-app-held.js';
 export { appKeyShell } from './merger-app/app-key-shell.js';
 
 export { claimReleaseShell } from './claim-release/claim-release-shell.js';

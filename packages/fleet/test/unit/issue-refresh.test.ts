@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,12 +24,19 @@ import { removeTree as rmTree } from '../rm-tree.mjs';
 
 const NOW = 1_800_000_000_000;
 const ACCOUNT = 'jwloka';
-const JIRA_ACCOUNT = 'jira:0123456789ab';
+// The digest of `someone@example.com`, as `budget_account` keys a Jira account.
+const JIRA_ACCOUNT = 'jira:72497f475e4f';
 const SINCE = new Date(NOW - 14 * 86_400_000).toISOString();
 const RATE_LIMIT = 'API rate limit exceeded for user ID 1. Please wait 300 seconds before retrying.';
 
 const dirs: string[] = [];
+// THE SPENDER'S ACCOUNT IS READ IN PROCESS, from the environment.
+beforeEach(() => {
+  vi.stubEnv('PLOT_BUDGET_ACCOUNT', ACCOUNT);
+  vi.stubEnv('JIRA_EMAIL', 'someone@example.com');
+});
 afterEach(() => {
+  vi.unstubAllEnvs();
   for (const dir of dirs.splice(0)) rmTree(dir);
 });
 
@@ -50,8 +57,8 @@ const changedRow = (n: number, over: Partial<Record<string, unknown>> = {}): str
   });
 
 /**
- * A scripts directory whose `plot-host.sh` answers `spend-rate` with the
- * connector's account and `issue-list` as told, recording every call. Where
+ * A scripts directory whose `plot-host.sh` answers `issue-list` as told,
+ * recording every call. Where
  * `inbox` is given, a `plot-config.sh` declaring `Ticket prefixes` is written
  * alongside it, and `plot-host.sh ticket-projects` answers the same key (empty otherwise), so `trackerJira`'s D23 gate (packages/domain/src/adapters/
  * tracker/tracker-jira.ts) lets the inbox read through.
@@ -81,9 +88,6 @@ const fakeHost = (
     path.join(dir, 'plot-host.sh'),
     '#!/usr/bin/env bash\n'
     + `printf '%s\\n' "$*" >> ${JSON.stringify(argvFile)}\n`
-    + 'if [ "$1" = spend-rate ]; then\n'
-    + `  if [ "$3" = jira ]; then echo '{"account":"${JIRA_ACCOUNT}"}'; else echo '{"account":"${ACCOUNT}"}'; fi\n`
-    + '  exit 0\nfi\n'
     + (inbox === undefined ? '' : 'if [ "$1" = ticket-projects ]; then echo PROJ; exit 0; fi\n')
     + 'if [ "$1" = issue-list ]; then\n'
     + '  case " $* " in *" --state closed "*)\n'
@@ -244,7 +248,6 @@ describe('one issue pass (Acceptance 2)', () => {
       inboxAnswer: 'unaskable',
     });
     expect(argv()).toEqual([
-      'spend-rate --connector github',
       'issue-list --paged --limit 1000',
       `issue-list --state closed --since ${SINCE} --limit 1000`,
     ]);
@@ -277,7 +280,7 @@ describe('one issue pass (Acceptance 2)', () => {
     expect(index?.source).toBe('tracker');
     expect(index?.connector).toBe('jira');
     expect(index?.account).toBe(JIRA_ACCOUNT);
-    expect(argv()[0]).toBe('spend-rate --connector jira');
+    expect(argv().some((call) => call.startsWith('spend-rate'))).toBe(false);
   });
 });
 

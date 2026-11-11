@@ -5,6 +5,7 @@ const calls = vi.hoisted(() => [] as string[]);
 const fixerSlots = vi.hoisted(() => [] as { headroom: () => Promise<string>; machineOverride: boolean; held: unknown }[]);
 const dispatchMachines = vi.hoisted(() => [] as unknown[]);
 const machineReads = vi.hoisted(() => ({ count: 0 }));
+const mergerReaders = vi.hoisted(() => [] as unknown[]);
 vi.mock('../../src/shared/auto-dispatch.js', () => ({
   maybeAutoDispatch: (_o: unknown, _p: unknown, _c: unknown, _a: unknown, own: Set<string>, machine: unknown) => {
     calls.push('dispatch');
@@ -28,7 +29,10 @@ vi.mock('../../src/shared/auto-ticket.js', () => ({
   runAutoTicketPass: () => { calls.push('ticket'); },
 }));
 vi.mock('../../src/shared/auto-merge.js', () => ({
-  runAutoMergePass: () => { calls.push('merge'); },
+  runAutoMergePass: (_o: unknown, _r: unknown, _n: unknown, _a: unknown, _l: unknown, mergerApp: unknown) => {
+    calls.push('merge');
+    mergerReaders.push(mergerApp);
+  },
 }));
 vi.mock('../../src/shared/machine-reading.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/shared/machine-reading.js')>()),
@@ -105,6 +109,16 @@ describe('fleetAutoWrites', () => {
     stop = true;
     await pass(PULSE);
     expect(calls).toEqual(['deliver', 'ticket', 'merge']);
+  });
+
+  it('hands every merge pass the one Merger app reader, so the check runs once per process', async () => {
+    mergerReaders.length = 0;
+    const pass = fleetAutoWrites({ repoRoot: '/nowhere', scriptsDir: '/nowhere' }, () => {});
+    await pass(PULSE);
+    await pass(PULSE);
+    expect(mergerReaders).toHaveLength(2);
+    expect(mergerReaders[0]).toBeDefined();
+    expect(mergerReaders[1]).toBe(mergerReaders[0]);
   });
 
   it('contains a throw and reports it', async () => {

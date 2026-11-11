@@ -156,3 +156,18 @@ describe('the PR pass never gates on the account limit', () => {
     expect(ms).toBe(prRefreshMsFor('github', { perHour: 5_000 }, PR_REFRESH_MS));
   });
 });
+
+describe('the PR pass reads the spend through the world\'s reader', () => {
+  it('takes the account and the rate from the reader and asks no plot-host.sh spend-rate', async () => {
+    const entry = freshPrState();
+    entry.backend = 'github';
+    await refreshPrs(
+      { scripts, host, store, spend: async () => ({ perHour: 90, resetAt: null, limit: 5000, basis: 'actual', account: 'reader-account' }) },
+      entry,
+    );
+    expect(entry.prAccount).toBe('reader-account');
+    expect(entry.prSpendPerHour).toBe(90);
+    expect(entry.prLimit).toBe(5000);
+    expect(asked).not.toContain('spend-rate');
+  });
+});

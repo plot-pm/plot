@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 
 import { trackerFixture } from '../src/adapters/tracker/tracker-fixture.js';
 import { githubIssueNumberOf, trackerGithub } from '../src/adapters/tracker/tracker-github.js';
@@ -61,60 +61,52 @@ afterAll(() => {
   for (const dir of roots) rmSync(dir, { recursive: true, force: true });
 });
 
-const SPEND = `if [ "$1" = spend-rate ]; then
-  case "$3" in
-    github) echo '{"connector":"github","account":"jwloka","perHour":12}' ;;
-    jira) echo '{"connector":"jira","account":"jira:0123456789ab","perHour":3}' ;;
-    *) echo '{"connector":"'"$3"'","account":"unknown"}' ;;
-  esac
-  exit 0
-fi`;
-
 describe('the spender reading', () => {
-  it('names the git host connector and its account for trackerGitHost', async () => {
-    const { context, argv } = hostThat(SPEND);
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('names the git host connector and its account for trackerGitHost, and starts no plot-host.sh', async () => {
+    vi.stubEnv('PLOT_BUDGET_ACCOUNT', 'jwloka');
+    const { context, argv } = hostThat('');
     expect(await trackerGitHost('github', context).spender()).toEqual({
       ok: true,
       value: { connector: 'github', account: 'jwloka' },
     });
-    expect(calls(argv)).toEqual(['|spend-rate --connector github']);
+    expect(calls(argv)).toEqual([]);
   });
 
   it('names jira and the hashed Jira account for trackerJira', async () => {
-    const { context, argv } = hostThat(SPEND);
+    vi.stubEnv('JIRA_EMAIL', 'someone@example.com');
+    const { context, argv } = hostThat('');
     expect(await trackerJira(context).spender()).toEqual({
       ok: true,
-      value: { connector: 'jira', account: 'jira:0123456789ab' },
+      value: { connector: 'jira', account: 'jira:72497f475e4f' },
     });
-    expect(calls(argv)).toEqual(['jira|spend-rate --connector jira']);
+    expect(calls(argv)).toEqual([]);
   });
 
   it('names github for trackerGithub', async () => {
-    const { context } = hostThat(SPEND);
+    vi.stubEnv('PLOT_BUDGET_ACCOUNT', 'jwloka');
+    const { context } = hostThat('');
     expect(await trackerGithub(context).spender()).toEqual({
       ok: true,
       value: { connector: 'github', account: 'jwloka' },
     });
   });
 
-  it('answers a null account where spend-rate fails', async () => {
-    const { context } = hostThat('exit 1');
-    expect(await trackerGitHost('bitbucket', context).spender()).toEqual({
-      ok: true,
-      value: { connector: 'bitbucket', account: null },
-    });
-  });
-
-  it('answers a null account where spend-rate prints no account', async () => {
-    const { context } = hostThat('echo \'{"perHour":1}\'');
+  it('answers unknown where nothing names the account', async () => {
+    vi.stubEnv('PLOT_BUDGET_ACCOUNT', '');
+    const { context } = hostThat('');
+    vi.stubEnv('GH_CONFIG_DIR', context.repoRoot);
     expect(await trackerGitHost('github', context).spender()).toEqual({
       ok: true,
-      value: { connector: 'github', account: null },
+      value: { connector: 'github', account: 'unknown' },
     });
   });
 
   it('leaves the last refusal of the issue read in place', async () => {
-    const { context } = hostThat(`${SPEND}\necho 'API rate limit exceeded' >&2; exit 1`);
+    const { context } = hostThat(`echo 'API rate limit exceeded' >&2; exit 1`);
     const tracker = trackerGitHost('github', context);
     await tracker.issueList(50);
     await tracker.spender();
@@ -460,7 +452,7 @@ describe('issueOpen through the fixture', () => {
 
 describe('trackerOfSource and trackerForIssues', () => {
   it('resolve a repository with no Tracker key to the git host reader', async () => {
-    const { context } = hostThat(SPEND);
+    const { context } = hostThat('');
     const viaSource = trackerOfSource({ ask: 'git-host' }, '', 'github', context);
     const viaIssues = trackerForIssues('', 'github', context);
     expect((await viaSource.spender()).ok && (await viaIssues.spender())).toEqual({
@@ -470,7 +462,7 @@ describe('trackerOfSource and trackerForIssues', () => {
   });
 
   it('resolve a declared jira tracker to the jira connector', async () => {
-    const { context } = hostThat(SPEND);
+    const { context } = hostThat('');
     expect(trackerOfSource({ ask: 'tracker', scheme: 'jira' }, 'jira https://x.invalid', 'github', context).config())
       .toEqual({ scheme: 'jira', baseUrl: 'https://x.invalid' });
     expect(trackerForIssues('jira https://x.invalid', 'github', context).config().scheme).toBe('jira');
