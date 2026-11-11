@@ -16,7 +16,7 @@ import {
   release,
   type TransitionPlan,
 } from '@plot-pm/domain/transitions/plan';
-import { releasePr, releaseTag, type ReleasePrRow } from '@plot-pm/domain/rules/release-tag';
+import { releasePr, releaseTag, type ReleasePrRow, type ReleaseTagPrRow } from '@plot-pm/domain/rules/release-tag';
 import { carriedRelease } from './release-chain-walk.js';
 import { branchClaims, DEFAULT_BRANCH_PREFIXES, parseBranchPrefixes } from '@plot-pm/domain/rules/cross-repo-reference';
 import { normalizeVersion } from '@plot-pm/domain/entities/version';
@@ -969,13 +969,13 @@ export const runRelease = async (
 
     // A PR whose own merge commit no tag contains, merged into another
     // branch, takes the merge commit that carried it onto the default branch.
-    const prRows = [];
+    const prRows: (ReleaseTagPrRow & { readonly base: string; readonly head: string })[] = [];
     for (const pr of prs) {
       const tagsResult = await ctx.refs.tagsContaining(pr.mergeCommit);
       const containingTags = tagsResult.ok ? tagsResult.value : [];
       const carried = containingTags.length === 0 ? await carriedRelease(pr, main, ctx, warn) : null;
       if (carried !== null) write(`step: PR #${pr.number} merged into '${pr.base}'; ${carried.mergeCommit} carried it onto '${main}'\n`);
-      prRows.push(carried === null ? { ...pr, containingTags, ownCommit: pr.mergeCommit } : { ...pr, ...carried, ownCommit: pr.mergeCommit });
+      prRows.push(carried === null ? { ...pr, containingTags } : { ...pr, containingTags: carried.containingTags, carrier: carried.mergeCommit });
     }
 
     const resolved = releaseTag({ prs: prRows, wantedVersion: args.releaseVersion });
@@ -990,8 +990,8 @@ export const runRelease = async (
     tag = resolved.tag;
     tagDate = tagDateResult.value;
     const lastPr = prRows.reduce((latest, pr) => (pr.mergedAt > latest.mergedAt ? pr : latest));
-    const carriedBy = lastPr.mergeCommit === lastPr.ownCommit ? '' : `, carried by ${lastPr.mergeCommit}`;
-    write(`step: plan ${planFile} — phase=${plan.phase} PR #${lastPr.number} merged ${lastPr.ownCommit}${carriedBy}, shipped in ${tag} (${tagDate})\n`);
+    const carriedBy = lastPr.carrier === undefined ? '' : `, carried by ${lastPr.carrier}`;
+    write(`step: plan ${planFile} — phase=${plan.phase} PR #${lastPr.number} merged ${lastPr.mergeCommit}${carriedBy}, shipped in ${tag} (${tagDate})\n`);
   }
 
   const who = args.who || process.env.PLOT_DELIVER_WHO || (await gitUserName(ctx.repoRoot));

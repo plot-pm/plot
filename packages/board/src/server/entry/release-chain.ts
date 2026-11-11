@@ -215,7 +215,7 @@ export const resolvePlanRelease = async (
     const tags = pr.number === lastPr.number ? lastTags : await ports.refs.tagsContaining(pr.mergeCommit);
     const own = tags.ok ? tags.value : [];
     const carried = own.length === 0 ? await carriedRelease(pr, defaultBranch, ports, warn) : null;
-    prRowsForTag.push(carried === null ? { ...pr, containingTags: own } : { ...pr, ...carried });
+    prRowsForTag.push(carried === null ? { ...pr, containingTags: own } : { ...pr, containingTags: carried.containingTags, carrier: carried.mergeCommit });
   }
   const firstTag = prRowsForTag.find((row) => row.number === lastPr.number)?.containingTags[0];
   if (firstTag === undefined) return 'unreleased';
