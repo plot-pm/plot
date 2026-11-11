@@ -137,7 +137,7 @@ Upstream tracking does not answer the question: a slice branch tracks its own re
 
 ### Census halves
 
-- `infra/census-parallel-halves` — `census-gate.mjs` `--only head|before`, `--compare` and HEAD-first in the one-process mode; the `census-head`, `census-base` and `census-compare` jobs with the report artifacts; the two-tree rows in `ci-tiers.test.mjs`. Expected saving: a green census from ~33 min (a269f54d6) to ~20 min of wall time <!-- builds: census-gate.mjs split modes and the parallel census jobs -->
+- `infra/census-parallel-halves` — `census-gate.mjs` `--only head|before`, `--compare` and HEAD-first in the one-process mode; the `census-head`, `census-base` and `census-compare` jobs with the report artifacts; the two-tree rows in `ci-tiers.test.mjs`. Expected saving: a green census from ~33 min (a269f54d6) to ~20 min of wall time <!-- builds: census-gate.mjs split modes and the parallel census jobs --> → #3296
 
 ### Local checks
 
