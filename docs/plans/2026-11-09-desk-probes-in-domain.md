@@ -108,7 +108,7 @@ This plan depends on `the-snapshot-entity` (delivered): every reading lands in t
 
 ### Worker readings
 
-- `feature/desk-probes-in-domain-readings` — `Processes.table()` and `processes-table.ts`; `pidIsCurrent` and `agentAlive` in `rules/pid-current.ts`; `readWorkerReadings` in the `processesFiles` adapter; `agentProcess` in the desk manifest; the spawn-spy inventory of the probe sources; `processesFiles` replaces `processesShell.workerState` at every construction site; the free-agent arm in `agentState`; the dispatcher stamps `pidStartedAt` under `LC_ALL=C`; `worker-readings.corpus.test.ts`; the measured call-site split <!-- builds: readWorkerReadings, worker-state readings from desk files and one process table per pass -->
+- `feature/desk-probes-in-domain-readings` — `Processes.table()` and `processes-table.ts`; `pidIsCurrent` and `agentAlive` in `rules/pid-current.ts`; `readWorkerReadings` in the `processesFiles` adapter; `agentProcess` in the desk manifest; the spawn-spy inventory of the probe sources; `processesFiles` replaces `processesShell.workerState` at every construction site; the free-agent arm in `agentState`; the dispatcher stamps `pidStartedAt` under `LC_ALL=C`; `worker-readings.corpus.test.ts`; the measured call-site split <!-- builds: readWorkerReadings, worker-state readings from desk files and one process table per pass --> → #3319
 
 ### Dirt
 
