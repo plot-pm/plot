@@ -235,7 +235,10 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
       expect(each).toEqual([0, 0]);
       expect(requests).toHaveLength(2);
       expect(baseline).toHaveLength(2);
-      requests.forEach((n, i) => expect(n).toBeLessThanOrEqual(baseline[i] ?? 0));
+      // OVER BOTH IDLE PASSES, NOT PASS BY PASS: a periodic read falls in either
+      // pass, and the in-process and shell runs need not phase alike.
+      const sum = (ns: readonly number[]): number => ns.reduce((a, b) => a + b, 0);
+      expect(sum(requests)).toBeLessThanOrEqual(sum(baseline));
     });
   }
 
