@@ -148,7 +148,7 @@ This plan depends on `the-snapshot-entity` (delivered). `triggers-replace-the-ti
 
 ### Seam
 
-- `feature/github-reads-in-process-seam` — `Host.prListing` and `PrListing` in `ports/host.ts`, the shell answer in `host-shell.ts`, the three fleet callers moved to it, the refusal kind `auth` in `HostRefusal` and `RefusalKind`, and the completeness word in `foldScanListing` and `foldPulseListing` <!-- builds: Host.prListing, a typed PR listing with a per-state completeness word -->
+- `feature/github-reads-in-process-seam` — `Host.prListing` and `PrListing` in `ports/host.ts`, the shell answer in `host-shell.ts`, the three fleet callers moved to it, the refusal kind `auth` in `HostRefusal` and `RefusalKind`, and the completeness word in `foldScanListing` and `foldPulseListing` <!-- builds: Host.prListing, a typed PR listing with a per-state completeness word --> → #3338
 
 ### Client
 
