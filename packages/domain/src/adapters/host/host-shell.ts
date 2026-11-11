@@ -200,8 +200,11 @@ export const refusalKindOfExit = (code: number): HostRefusal['kind'] => {
   return 'failed';
 };
 
-/** `gh`'s words for a credential GitHub refused with a `401`. */
-const AUTH_REFUSED = /\bHTTP 401\b|\bBad credentials\b/i;
+/**
+ * The words of a credential a host refused with a `401`: `gh`'s `HTTP 401` and
+ * `Bad credentials`, and `bb`'s `error: HTTP 401 — …` or `401 Unauthorized`.
+ */
+const AUTH_REFUSED = /\bHTTP 401\b|\bBad credentials\b|\b401 Unauthorized\b/i;
 
 /**
  * Which refusal one `plot-host.sh` run names, from its exit code and its words.
@@ -232,6 +235,7 @@ export const prListingArgs = (query: PrListingQuery): string[] => [
   query.state,
   ...(query.limit === undefined ? [] : ['--limit', String(query.limit)]),
   ...(query.since === undefined ? [] : ['--since', query.since]),
+  ...(query.branches ?? []).flatMap((branch) => ['--branch', branch]),
   ...(query.boundShas === undefined || Object.keys(query.boundShas).length === 0
     ? []
     : ['--bound-shas', JSON.stringify(query.boundShas)]),
