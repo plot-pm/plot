@@ -77,7 +77,7 @@ This plan depends on `process-census-gate`. Slice *Builtin nap* turns its **P1**
 
 ### Builtin nap
 
-- `bug/monitor-nap-builtin-wait` — `skills/plot/scripts/plot-monitor-subject.sh`: the FIFO nap with the `sleep` fallback and the corrected `EPERM` comment; `.gitignore`; rows in `test/reconcile/agentmonitor.test.mjs`; census P1 flipped to `it`; a changeset for `plot` <!-- builds: a process-free nap in plot_monitor_wait -->
+- `bug/monitor-nap-builtin-wait` — `skills/plot/scripts/plot-monitor-subject.sh`: the FIFO nap with the `sleep` fallback and the corrected `EPERM` comment; `.gitignore`; rows in `test/reconcile/agentmonitor.test.mjs`; census P1 flipped to `it`; a changeset for `plot` <!-- builds: a process-free nap in plot_monitor_wait --> → #3259
 
 ### Liveness syscall
 
