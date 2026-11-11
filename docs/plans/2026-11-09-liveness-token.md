@@ -128,7 +128,7 @@ This plan depends on `node-worker-wrapper` (all three slices), because the token
 
 ### Monitor in fleetd
 
-- `feature/liveness-token-monitor` — `agentFinding` in `rules/agent-finding.ts`; fleetd writes the findings, and the final pass with one host `pr-state` per agent end; the node wrapper runs the final pass when no fleetd heartbeat is live; the wrapper stops starting `plot-agent-monitor.sh`; the script, `deskMonitorsShell.start` and the README row go; census P1 retired and P6 added in the census README; a changeset <!-- builds: agentFinding, the AgentMonitor's findings computed in fleetd -->
+- `feature/liveness-token-monitor` — `agentFinding` in `rules/agent-finding.ts`; fleetd writes the findings, and the final pass with one host `pr-state` per agent end; the node wrapper runs the final pass when no fleetd heartbeat is live; the wrapper stops starting `plot-agent-monitor.sh`; the script, `deskMonitorsShell.start` and the README row go; census P1 retired and P6 added in the census README; a changeset <!-- builds: agentFinding, the AgentMonitor's findings computed in fleetd --> → #3365
 
 ## Notes
 
