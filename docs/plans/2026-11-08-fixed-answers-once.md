@@ -86,7 +86,7 @@ This plan depends on `process-census-gate`. Slice *Answers in process* turns its
 
 ### Remaining askers
 
-- `bug/fixed-answers-once-remaining` — `plot-desk-root.sh` (`plot_repo_root`, `plot_exclude_desk_root`), `plot_desk_exclude` in `plot-worker-state.sh`, `plot-agent-settings.sh` and `plot_env_file` in `plot-host.sh` read `PLOT_REPO_ROOT` / `PLOT_GIT_COMMON_DIR` before they ask git, under the same same-repository check as `plot_given_common_dir`; each node bundle fleetd starts reads them from its environment before it asks; census P4 flipped to `it` once it reads 0; a changeset for `plot` <!-- builds: the remaining fixed-answer readers in scripts and bundles -->
+- `bug/fixed-answers-once-remaining` — `plot-desk-root.sh` (`plot_repo_root`, `plot_exclude_desk_root`), `plot_desk_exclude` in `plot-worker-state.sh`, `plot-agent-settings.sh` and `plot_env_file` in `plot-host.sh` read `PLOT_REPO_ROOT` / `PLOT_GIT_COMMON_DIR` before they ask git, under the same same-repository check as `plot_given_common_dir`; each node bundle fleetd starts reads them from its environment before it asks; census P4 flipped to `it` once it reads 0; a changeset for `plot` <!-- builds: the remaining fixed-answer readers in scripts and bundles --> → #3270
 
 ## Notes
 
