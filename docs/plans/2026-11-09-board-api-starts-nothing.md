@@ -134,7 +134,7 @@ All four plans touch census counts and may touch `packages/fleet/test/census/`. 
 
 ### Readings
 
-- `feature/board-api-starts-nothing-readings` — the route's spawn inventory test, the added `PlanEntry`, `PlansValue`, `branchPlans`, `sprints` and `stories` readings filled by fleetd from reads it makes or takes over, the branch-plan rule both paths call, `parsedPlans`, `SNAPSHOT_PROTOCOL` 3 with recorded fixtures, and the census row as `it.fails` <!-- builds: the board's plan-card readings in RepoSnapshot, SNAPSHOT_PROTOCOL 3 -->
+- `feature/board-api-starts-nothing-readings` — the route's spawn inventory test, the added `PlanEntry`, `PlansValue`, `branchPlans`, `sprints` and `stories` readings filled by fleetd from reads it makes or takes over, the branch-plan rule both paths call, `parsedPlans`, `SNAPSHOT_PROTOCOL` 3 with recorded fixtures, and the census row as `it.fails` <!-- builds: the board's plan-card readings in RepoSnapshot, SNAPSHOT_PROTOCOL 3 --> → #3352
 
 ### Serve
 
