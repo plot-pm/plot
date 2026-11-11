@@ -141,7 +141,7 @@ Upstream tracking does not answer the question: a slice branch tracks its own re
 
 ### Local checks
 
-- `infra/local-checks-cheapest-first` — this repository's `Local checks` key reordered cheapest first with the `AGENTS.md` mirror, the `plot-init` guidance, `plot-local-checks.mjs --run` and `--base` with the sprint-branch default, the fleet runner on the same default, and the rows in `local-checks.test.mjs` and the domain tests. Expected saving: a sprint slice runs its own tests instead of the sprint's 40 to 60 test files; the slice measures one slice of `the-board-reads-the-channel` before and after <!-- builds: plot-local-checks.mjs --run and --base -->
+- `infra/local-checks-cheapest-first` — this repository's `Local checks` key reordered cheapest first with the `AGENTS.md` mirror, the `plot-init` guidance, `plot-local-checks.mjs --run` and `--base` with the sprint-branch default, the fleet runner on the same default, and the rows in `local-checks.test.mjs` and the domain tests. Expected saving: a sprint slice runs its own tests instead of the sprint's 40 to 60 test files; the slice measures one slice of `the-board-reads-the-channel` before and after <!-- builds: plot-local-checks.mjs --run and --base --> → #3297
 
 ### Unchanged inputs
 
