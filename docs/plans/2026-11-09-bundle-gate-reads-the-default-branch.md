@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** desk-probes-and-liveness
 - **Issue:** #3344
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-09, jwloka, plan-PR #3345 merged
 - **Delivered:** 2026-11-10
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
