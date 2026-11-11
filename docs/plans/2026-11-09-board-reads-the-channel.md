@@ -79,7 +79,7 @@ This plan depends on `the-channel-carries-readings` (the board receives `RepoSna
 
 ### View from snapshot
 
-- `feature/board-reads-the-channel-view` — `boardSource` in `packages/domain/src/rules/board-watch.ts`; `fleetViewFrom` in `packages/domain/src/workflows/board-view.ts`; the readings the board still reads alone added to `RepoSnapshot` and filled by fleetd; a parity corpus test <!-- builds: fleetViewFrom, the board's fleet view derived from a RepoSnapshot -->
+- `feature/board-reads-the-channel-view` — `boardSource` in `packages/domain/src/rules/board-watch.ts`; `fleetViewFrom` in `packages/domain/src/workflows/board-view.ts`; the readings the board still reads alone added to `RepoSnapshot` and filled by fleetd; a parity corpus test <!-- builds: fleetViewFrom, the board's fleet view derived from a RepoSnapshot --> → #3289
 
 ### Serve from snapshot
 
