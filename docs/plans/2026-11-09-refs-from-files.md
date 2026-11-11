@@ -103,7 +103,7 @@ The last row is a measured risk, not a theoretical one: the census counts 5 `git
 
 ### Reader
 
-- `feature/refs-from-files-reader` — `packedRefsOf`, `refsFrom`, `symbolicTarget`, `resolveName` and `worktreesFrom` in `packages/domain/src/rules/ref-files.ts`; the file adapter in `packages/domain/src/adapters/refs/ref-files-fs.ts` with the reftable check and the `packed-refs` stat retry; `packages/domain/corpus/ref-files.corpus.test.ts` against git; the measured `rev-parse` and `git worktree` split <!-- builds: refFiles, a git ref and worktree file reader declared as a duplicate of git with a corpus test -->
+- `feature/refs-from-files-reader` — `packedRefsOf`, `refsFrom`, `symbolicTarget`, `resolveName` and `worktreesFrom` in `packages/domain/src/rules/ref-files.ts`; the file adapter in `packages/domain/src/adapters/refs/ref-files-fs.ts` with the reftable check and the `packed-refs` stat retry; `packages/domain/corpus/ref-files.corpus.test.ts` against git; the measured `rev-parse` and `git worktree` split <!-- builds: refFiles, a git ref and worktree file reader declared as a duplicate of git with a corpus test --> → #3316
 
 ### Files first
 
