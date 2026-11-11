@@ -82,7 +82,7 @@ This plan depends on `process-census-gate`. Slice *Answers in process* turns its
 
 ### Answers in scripts
 
-- `bug/fixed-answers-once-in-scripts` — the script-starting adapters pass `PLOT_REPO_ROOT`, `PLOT_GIT_COMMON_DIR` and `PLOT_HOST`; `plot-host.sh`, `plot-worker-state.sh` and `plot-desk-root.sh` read them; contract rows in `test/reconcile/`; census P4 flipped to `it`; a changeset for `plot` <!-- builds: PLOT_GIT_COMMON_DIR, an environment answer the helper scripts read -->
+- `bug/fixed-answers-once-in-scripts` — the script-starting adapters pass `PLOT_REPO_ROOT`, `PLOT_GIT_COMMON_DIR` and `PLOT_HOST`; `plot-host.sh`, `plot-worker-state.sh` and `plot-desk-root.sh` read them; contract rows in `test/reconcile/`; census P4 flipped to `it`; a changeset for `plot` <!-- builds: PLOT_GIT_COMMON_DIR, an environment answer the helper scripts read --> → #3262
 
 ### Remaining askers
 
