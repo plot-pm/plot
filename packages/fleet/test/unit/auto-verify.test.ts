@@ -31,7 +31,7 @@ afterEach(async () => {
 });
 
 const pulse = { plans: [] } as unknown as FleetReading;
-const readings = { headroom: 'clear' as const, machineOverride: false, held: [] };
+const readings = { headroom: async () => 'clear' as const, machineOverride: false, held: [] };
 const candidate: VerifyCandidate = { slug: 'alpha', tracer: false, deliveryCommit: 'abc1234', verified: false };
 
 const world = (

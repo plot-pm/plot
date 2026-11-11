@@ -1,5 +1,5 @@
 import { machineSystem, shellContext } from '@plot-pm/domain/adapters';
-import { measureMachine, isAnswered, type Machine as MachineEntity } from '@plot-pm/domain';
+import { measureMachine, isAnswered, type Headroom, type HeldSlice, type Machine as MachineEntity } from '@plot-pm/domain';
 import type { ConfigReadOptions } from './config-reader.js';
 
 /**
@@ -77,3 +77,53 @@ export async function readMachine(opts: ConfigReadOptions): Promise<MachineEntit
     cores: reading.value.cores,
   });
 }
+
+/**
+ * The queue and machine readings a run start takes its slot from, with the
+ * machine read only when a start asks for it.
+ */
+export interface MachineSlot {
+  /** The slices the queue's last pass held, or `null` where no pass has been read. */
+  readonly held: readonly HeldSlice[] | null;
+  /** Measures the machine and answers its headroom; the caller asks it only for a start that the headroom can refuse. */
+  readonly headroom: () => Promise<Headroom>;
+  /** Whether `Machine override` is on. */
+  readonly machineOverride: boolean;
+}
+
+/**
+ * Wraps a reading so that it runs on the first call only.
+ *
+ * @param read - the reading.
+ * @returns a function that answers the first call's promise on every call.
+ */
+export const readOnce = <T>(read: () => Promise<T>): (() => Promise<T>) => {
+  let reading: Promise<T> | undefined;
+  return () => {
+    reading ??= read();
+    return reading;
+  };
+};
+
+/**
+ * Asks a start rule with the headroom read only where it can change the answer.
+ *
+ * The rule is asked once with `unmeasured`, which refuses nothing. Where that
+ * answer refuses, the measurement could not admit the start, so the machine is
+ * not read. Where it admits and `Machine override` is off, the rule is asked
+ * again with the measured headroom.
+ *
+ * @param slot - the queue and machine readings.
+ * @param ask - the start rule, given a headroom.
+ * @param admits - whether an answer admits the start.
+ * @returns the rule's answer for this pass.
+ */
+export const askWithHeadroom = async <A>(
+  slot: MachineSlot,
+  ask: (headroom: Headroom) => A,
+  admits: (answer: A) => boolean,
+): Promise<A> => {
+  const unmeasured = ask('unmeasured');
+  if (!admits(unmeasured) || slot.machineOverride) return unmeasured;
+  return ask(await slot.headroom());
+};
