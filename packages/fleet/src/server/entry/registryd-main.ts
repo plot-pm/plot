@@ -35,6 +35,9 @@ import {
   agentsFs,
   fleetStateFile,
   clockSystem,
+  watchFs,
+  deskFingerprint,
+  readWatchLayout,
   startChannel,
   fleetdStartFile,
   fleetdHeartbeatFile,
@@ -55,6 +58,10 @@ import type { WriteProbe } from '@plot-pm/domain/ports/write-probe';
 import { writeProbeNeeded, writeProbeOutcome } from '@plot-pm/domain/rules/write-probe';
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
 import type { Clock } from '@plot-pm/domain/ports/clock';
+import type { Watch } from '@plot-pm/domain/ports/watch';
+import { processAnswers } from '@plot-pm/domain/adapters/git-dirs/git-dirs';
+import { readRefSnapshot } from '@plot-pm/domain/workflows/plan-walk-cache';
+import { startWatchSet, type RunningWatchSet } from '../../shared/watch-set.js';
 import type { SliceRefusal, RefusedSliceRecord } from '@plot-pm/domain/ports/refused-slices';
 import type { NotifyWrite, IdleNotifyWrite, UnblockWrite } from '@plot-pm/domain/workflows/decision';
 import {
@@ -2655,6 +2662,8 @@ export interface RunSeams {
   tick?: typeof tick;
   /** The fleet clock's beat source; the system clock by default. */
   clock?: Clock;
+  /** Arms the directories fleetd watches; `watchFs` by default. */
+  watch?: Watch;
   /** Opens the channel transport; `startChannel` by default. */
   openChannel?: typeof startChannel;
   /** Builds the monitor and the relay over an opened channel. */
@@ -2685,6 +2694,61 @@ export interface RunSeams {
   /** The App key probe at start; reads every declared key through the adapter by default. */
   probeAppKeys?: (repoRoot: string, scriptsDir: string, write: (line: string) => void) => void;
 }
+
+/**
+ * Arms fleetd's watch set over the repository's refs, desks, registry and `CLAUDE.md`.
+ *
+ * @param repoRoot - the main checkout.
+ * @param registryDir - the `Agent registry` directory.
+ * @param scriptsDir - where the helper scripts live.
+ * @param watch - arms one directory.
+ * @param clock - stamps `lastEventAt`.
+ * @returns the running set, or `null` where git names no common directory.
+ */
+const armWatchSet = async (
+  repoRoot: string,
+  registryDir: string,
+  scriptsDir: string,
+  watch: Watch,
+  clock: Clock,
+): Promise<RunningWatchSet | null> => {
+  const common = await processAnswers.absoluteCommonDir(repoRoot, repoRoot);
+  const commonDir = common.code === 0 ? common.stdout.trim() : '';
+  if (commonDir === '') return null;
+  const refs = refsGit({ repoRoot, scriptDir: scriptsDir });
+  const set = startWatchSet({
+    watch,
+    layout: () => readWatchLayout({ repoRoot, commonDir, registryDir }),
+    now: () => {
+      const at = clock.now();
+      return at.ok ? at.value : Date.now();
+    },
+    refsDigest: async () => {
+      const snapshot = await readRefSnapshot(refs);
+      return snapshot.ok ? snapshot.value.digest : null;
+    },
+    deskFingerprint,
+  });
+  await set.sync();
+  return set;
+};
+
+/**
+ * Wraps the scan so each beat first re-syncs the desk set and then clears the
+ * pending set. The scan still reads everything on every beat, so the set it
+ * clears has nothing left to name.
+ *
+ * @param watchSet - the running set, or `null` where fleetd arms none.
+ * @param scan - the scan the clock runs.
+ * @returns the scan to hand to `startFleetClock`.
+ */
+export const drainWatches = (watchSet: RunningWatchSet | null, scan: () => Promise<void>): (() => Promise<void>) => async () => {
+  if (watchSet !== null) {
+    await watchSet.sync();
+    watchSet.drain();
+  }
+  await scan();
+};
 
 /**
  * Reads each declared App key once through the adapter and writes one line per
@@ -3163,7 +3227,10 @@ export const run = async (
     process.env.PLOT_FLEET_LABEL ||
     (args.once ? '' : await readConfigAsync({ repoRoot, scriptsDir }, 'Fleet label', 'com.plot-pm.fleetd')) ||
     'com.plot-pm.fleetd';
-  const stopHeartbeat: () => Promise<void> = args.once
+  // THE WATCH SET ARMS ONLY FOR THE LOOP, and only where git names a common
+  // directory: a root that is no repository watches nothing and reports 0 of 0.
+  const watchSet: RunningWatchSet | null = args.once ? null : await armWatchSet(repoRoot, registryDir, scriptsDir, seams.watch ?? watchFs(), seams.clock ?? clockSystem());
+  const stopWatchHeartbeat: () => Promise<void> = args.once
     ? async () => undefined
     : startFleetdHeartbeat(
         seams.clock ?? clockSystem(),
@@ -3176,9 +3243,18 @@ export const run = async (
           bridgeAt: bridge.bridgeAt,
           generation: seams.snapshotGeneration ?? (() => snapshot.current().generation),
           hostTransport: hostReads.choice,
+          observer: () => ({
+            watchesWanted: watchSet?.wanted() ?? 0,
+            watchesArmed: watchSet?.armed() ?? 0,
+            lastEventAt: watchSet?.lastEventAt() ?? null,
+          }),
         },
         warn,
       );
+  const stopHeartbeat = async (): Promise<void> => {
+    watchSet?.stop();
+    await stopWatchHeartbeat();
+  };
   const overChannel =
     seams.overChannel ??
     ((channel: RunningChannel) => ({
@@ -3205,7 +3281,7 @@ export const run = async (
   const scanClock = args.once
     ? null
     : startFleetClock(seams.clock ?? clockSystem(), {
-        scan: seams.scan ? passed('scan', seams.scan) : scanPassed(fleetScan(
+        scan: drainWatches(watchSet, seams.scan ? passed('scan', seams.scan) : scanPassed(fleetScan(
           {
             repoRoot,
             scripts,
@@ -3268,7 +3344,7 @@ export const run = async (
             () => queueHolds.held,
             stop,
           ),
-        )),
+        ))),
         prs: passed('pr-reader', prsBeat({ readPrs: seams.readPrs ?? readPrs, readDefaultBranch }, slot, retryBind)),
         issues: passed('issue-reader', seams.readIssues ?? readIssues),
         issueWrites: seams.readIssueWrites ?? fleetIssueWrites(issueWorld, issueState, warn),
