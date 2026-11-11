@@ -108,7 +108,7 @@ Two earlier plans counted processes with `PATH` shims: `packages/board/test/plan
 
 ### Scenarios
 
-- `infra/process-census-scenarios` — the sandbox fixtures (stub `gh`, stub `bb`, stub tracker, stub worker on a FIFO), the census entry that runs fleetd's `run` on `clockManual`, scenarios S1 to S6 and assertions P1 to P4, every zero as `it.fails`; a changeset for `plot` <!-- builds: the process census scenarios and their stub fixtures -->
+- `infra/process-census-scenarios` — the sandbox fixtures (stub `gh`, stub `bb`, stub tracker, stub worker on a FIFO), the census entry that runs fleetd's `run` on `clockManual`, scenarios S1 to S6 and assertions P1 to P4, every zero as `it.fails`; a changeset for `plot` <!-- builds: the process census scenarios and their stub fixtures --> → #3253
 
 ### CI gate
 
