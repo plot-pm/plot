@@ -96,7 +96,7 @@ Two arrow-function rules sit beside it:
 
 ### Watch port
 
-- `feature/the-snapshot-entity-watch` — the `Watch` port in `packages/domain/src/ports/watch.ts` and the `watchFs` adapter in `packages/domain/src/adapters/watch/watch-fs.ts`: directories only, re-arm on `rename`, `degraded` on a failed arm; adapter tests in a temporary repository <!-- builds: Watch, a domain-owned file-watch port with an fs.watch directory adapter -->
+- `feature/the-snapshot-entity-watch` — the `Watch` port in `packages/domain/src/ports/watch.ts` and the `watchFs` adapter in `packages/domain/src/adapters/watch/watch-fs.ts`: directories only, re-arm on `rename`, `degraded` on a failed arm; adapter tests in a temporary repository <!-- builds: Watch, a domain-owned file-watch port with an fs.watch directory adapter --> → #3282
 
 ### Fleetd fills
 
