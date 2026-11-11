@@ -1,13 +1,8 @@
-// The launch stamp: one contract, two implementations.
+// The launch stamp: one implementation.
 //
-// A worker's pid is stamped into its manifest by whichever path launched it —
-// the dispatcher's detached `sh -c` (inline `awk`, because a fresh shell cannot
-// reach a bash function) or `/api/continue` (this TypeScript helper). The two
-// MUST produce a byte-identical manifest for the same inputs, or the board reads
-// one shape from a dispatched worker and another from a continued one. That is
-// the `plot-worker-state.sh` lesson: five of six states drifted while the same
-// computation was held in two copies. The cross-implementation identity is
-// asserted in `manifest-stamp-parity.test.ts`; this file pins the TS side.
+// A worker's pid is stamped into its manifest by `stampManifest`, whichever
+// path launched it: the dispatcher through `plot-worker-wrapper.mjs`, or
+// `/api/continue`. This file pins that function.
 //
 // THE DEFECT THIS FIXES: the old stamp fired once per manifest, matching only
 // the empty placeholder `  "pid": "",`. A relaunch found a filled pid, matched
@@ -90,6 +85,22 @@ describe('stampManifest — a first dispatch fills the pid and records the group
     const out = stampManifest(firstDispatch(''), { pid: '4242', startedAt: '2026-08-20T10:00:00Z' });
     assert.ok(out.includes('"wrapperPid": "",'), 'the line is present and empty');
     assert.equal(JSON.parse(out).workerMonitorPid, '', 'empty means not attached');
+  });
+});
+
+describe('stampManifest — the liveness token line', () => {
+  it('writes the token after the group, and no line where the caller names none', () => {
+    const out = stampManifest(firstDispatch(''), { pid: '4242', startedAt: '2026-08-20T10:00:00Z', ...GROUP, token: '/wt/x/.plot-worker.token.fifo' });
+    assert.equal(out, firstDispatch('4242', [...GROUP_LINES, '  "token": "/wt/x/.plot-worker.token.fifo",']));
+    assert.ok(!stampManifest(firstDispatch(''), { pid: '4242', startedAt: '2026-08-20T10:00:00Z' }).includes('"token"'));
+  });
+
+  it('records a reason as one plain string and replaces it on a relaunch', () => {
+    const first = stampManifest(firstDispatch(''), { pid: '1', startedAt: '2026-08-20T10:00:00Z', token: 'none (mkfifo: "x" \\ y)' });
+    assert.equal(JSON.parse(first).token, "none (mkfifo: 'x' ' y)");
+    const again = stampManifest(first, { pid: '2', startedAt: '2026-08-20T11:00:00Z', token: '/wt/x/.plot-worker.token.fifo' });
+    assert.equal(again.match(/"token"/g)?.length, 1);
+    assert.equal(JSON.parse(again).token, '/wt/x/.plot-worker.token.fifo');
   });
 });
 

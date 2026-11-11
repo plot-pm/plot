@@ -1,23 +1,10 @@
-import type { WorkerActivity, WorkerState } from '../../entities/fleet.js';
+import type { WorkerActivity } from '../../entities/fleet.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
-import type { Processes, ProcessReading } from '../../ports/processes.js';
-import { asLines, asText, runProcess, runScript, resultOf } from '../run-script.js';
-import { processAnswers, scriptRunner, type FixedAnswers } from '../git-dirs/git-dirs.js';
-import { scriptPath, type ShellContext } from '../scripts.js';
+import type { Processes } from '../../ports/processes.js';
+import { asLines, asText, runProcess, runScript } from '../run-script.js';
+import { processAnswers, type FixedAnswers } from '../git-dirs/git-dirs.js';
+import type { ShellContext } from '../scripts.js';
 import { signalZero } from '../signal-zero.js';
-
-const WORKER_STATES: readonly string[] = [
-  'running',
-  'finished',
-  'failed',
-  'ended',
-  'none',
-  'elsewhere',
-  'waiting',
-  'stalled',
-];
-
-const ACTIVITIES: readonly string[] = ['working', 'idle', ''];
 
 /**
  * `ps -o etime=` output → seconds, or null for anything it does not recognise.
@@ -116,69 +103,27 @@ const sampleIntervalMs = (): number => {
   return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : 400;
 };
 
-/**
- * Reads the tab-separated fields `plot_worker_state` prints.
- *
- * An unrecognised state throws rather than degrading, because every value the
- * function can print is enumerated: a word outside the set means the script
- * and this adapter have diverged, and reporting it as `none` would hide that
- * behind a plausible reading.
- *
- * @param stdout - the function's output: state, pid, exit code, activity.
- * @returns the reading.
- */
-const readingOf = (stdout: string): ProcessReading => {
-  const [state = '', pid = '', exitCode = '', activity = ''] = asText(stdout).split('\t');
-  if (!WORKER_STATES.includes(state)) {
-    throw new Error(`plot-worker-state: unrecognised state ${state}`);
-  }
-  return {
-    state: state as WorkerState,
-    pid,
-    exitCode,
-    activity: (ACTIVITIES.includes(activity) ? activity : '') as WorkerActivity,
-  };
-};
+/** The {@link Processes} questions about one pid, which need no desk and no table. */
+export type ProcessProbes = Omit<Processes, 'workerState' | 'table'>;
 
 /**
- * Reads the process table through `plot-worker-state.sh`.
+ * Answers the questions about one pid with `ps`, `pgrep` and `kill -0`.
  *
- * That script is sourced rather than run, so this adapter sources it inside a
- * `bash -c` and calls the function — which is how one computation stays one
- * implementation. Reimplementing the eight states here is exactly the
- * duplication that had already drifted on the sixth state before the script
- * became their single home.
+ * The worker state is not here: `processesFiles` reads it from the desk files and
+ * one process-table reading per pass.
  *
- * @param context - where the scripts and the repository are.
- * @param answers - the held answers the sourced script reads from its environment; this process's own by default.
- * @returns a `Processes` backed by the shell function and the process table.
+ * @param context - where the repository is.
+ * @param _answers - kept for the callers' signature; unused.
+ * @returns the probes.
  */
-export const processesShell = (context: ShellContext, answers: FixedAnswers = processAnswers): Processes => {
-  const workerState = scriptPath(context, 'plot-worker-state.sh');
+export const processesShell = (context: ShellContext, _answers: FixedAnswers = processAnswers): ProcessProbes => {
   const inRepo = { cwd: context.repoRoot };
-  const runScripted = scriptRunner(context.repoRoot, answers);
 
   return {
     isAlive: async (pid) => {
       if (!Number.isInteger(pid) || pid <= 0) return answered(false);
       const alive = signalZero(pid);
       return alive === null ? failed() : answered(alive);
-    },
-
-    workerState: async (worktree, hasPr): Promise<PortResult<ProcessReading>> => {
-      const run = await runScripted(
-        'bash',
-        [
-          '-c',
-          '. "$1" && plot_worker_state "$2" "$3"',
-          'bash',
-          workerState,
-          worktree,
-          hasPr ? 'pr' : '',
-        ],
-        inRepo,
-      );
-      return resultOf(run, readingOf);
     },
 
     childrenOf: async (pid): Promise<PortResult<readonly number[]>> => {

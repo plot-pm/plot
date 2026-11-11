@@ -6,7 +6,7 @@
  * reachable from a plain call with no repository, no host and no process.
  */
 
-import type { EndingActor, EndingReason } from '../entities/ending.js';
+import type { EndingActor, EndingReason, IdleInputs } from '../entities/ending.js';
 
 /**
  * Who is asking a workflow to act.
@@ -631,6 +631,8 @@ export interface LoopEndWrite {
    * Absent for every ending but `unstarted`.
    */
   readonly resumeId?: string;
+  /** What the idle watch read at the check that ended the loop; present only on `quiet`. */
+  readonly idle?: IdleInputs;
 }
 
 /**

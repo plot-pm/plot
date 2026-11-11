@@ -13,6 +13,7 @@ import {
   type Reader,
   type WorkItemReading,
 } from '@plot-pm/domain';
+import { ticketMarkOf, ticketRecordOf } from '@plot-pm/domain/rules/sprint-ticket-record';
 import type { AgentEntry, AgentRow, DraftPlan, ReleaseTickets, Slice } from '../../../contract/schema.js';
 import { ownedFromCard, ownedFromRow } from './mine-filter.js';
 import { sliceKeyOf } from './sections.js';
@@ -241,4 +242,23 @@ export const deliveryMapping = (input: DeliveryMapInput): DeliveryMapping => {
       tickets: input.releaseTickets == null ? null : input.releaseTickets,
     },
   };
+};
+
+/**
+ * The mark a ticket row shows where a sprint opened the ticket.
+ *
+ * Asks {@link ticketRecordOf} of each sprint file's text in turn. A ticket no
+ * sprint recorded gets `null`, never a "not by sprint" text: the absence of a
+ * record says nothing about who opened the ticket.
+ *
+ * @param sprintTexts - the whole text of each sprint file the board has read.
+ * @param ticket - the ticket's identifier, as the issue index spells it.
+ * @returns the mark wording, or `null` where the row shows no mark.
+ */
+export const ticketMarkFor = (sprintTexts: readonly string[], ticket: string): string | null => {
+  for (const text of sprintTexts) {
+    const mark = ticketMarkOf(ticketRecordOf(text, ticket));
+    if (mark !== null) return mark;
+  }
+  return null;
 };

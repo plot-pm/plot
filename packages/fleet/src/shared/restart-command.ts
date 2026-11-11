@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { pulseBranchReading, type Caller, type FleetReading } from '@plot-pm/domain';
-import { hostShell, processesShell } from '@plot-pm/domain/adapters';
+import { hostShell, processesFiles } from '@plot-pm/domain/adapters';
 import type { ProcessReading } from '@plot-pm/domain/ports/processes';
 import { isOpenDraft, restartWorker, type BranchPrReading } from '@plot-pm/domain/workflows/dispatch-verbs';
 import { deskManifestFor } from './manifest-stamp.js';
@@ -85,7 +85,7 @@ export const adapterReaders = (opts: ContinuationOptions, offline = false): Rest
       return { reachedReview: true, draft: asked.value.draft === true, number: asked.value.number, state: asked.value.state };
     },
     worker: async (worktree, hasPr) => {
-      const asked = await processesShell(context).workerState(worktree, hasPr);
+      const asked = await processesFiles(context).workerState(worktree, hasPr);
       return asked.ok ? asked.value : null;
     },
   };

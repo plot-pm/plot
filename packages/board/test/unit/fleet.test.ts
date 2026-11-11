@@ -2029,8 +2029,10 @@ describe('rowsFromPulse', () => {
       // bounded question asked by the same timer-gated function.
       const source = readFileSync(
         new URL('../../../fleet/src/shared/pr-refresh.ts', import.meta.url), 'utf8');
+      // The listing is asked through `Host.prListing` since the seam slice of
+      // `github-reads-in-process`, so the call sites are counted by that name.
       const calls = source.split('\n')
-        .filter((l) => l.includes("'pr-list'"));
+        .filter((l) => l.includes('host.prListing('));
       expect(calls, `expected exactly two pr-list call sites, saw:\n${calls.join('\n')}`)
         .toHaveLength(2);
       // And all three indexes are built from THAT one answer's loop, so a fourth

@@ -4,14 +4,18 @@ import { FleetReadingSchema, type FleetReading } from '@plot-pm/domain/entities/
 import { listingBackoff, listingSpend, PR_READ_BEAT_MS, type LimitBasis } from '@plot-pm/domain';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import type { Agents } from '@plot-pm/domain/ports/agents';
-import type { Host } from '@plot-pm/domain/ports/host';
+import type { Host, PrListingQuery } from '@plot-pm/domain/ports/host';
 import type { PlanStore } from '@plot-pm/domain/ports/plan-store';
 import type { Processes } from '@plot-pm/domain/ports/processes';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Trees } from '@plot-pm/domain/ports/trees';
-import { readBranchConflicts, readBranchReadings, type BranchStagePrs } from '@plot-pm/domain/workflows/plan-walk-branches';
-import { readDeskReadings } from '@plot-pm/domain/workflows/plan-walk-desks';
-import { readEstate } from '@plot-pm/domain/workflows/plan-walk-estate';
+import { readBranchConflicts, readBranchReadings, type BranchStagePrs, type BranchStageReadings } from '@plot-pm/domain/workflows/plan-walk-branches';
+import { readDeskReadings, type DeskStageReadings } from '@plot-pm/domain/workflows/plan-walk-desks';
+import { readEstate, type Estate } from '@plot-pm/domain/workflows/plan-walk-estate';
+import { readBranchPlans, readDeliveredInputs, readSprints, readStories } from '@plot-pm/domain/workflows/board-card-reads';
+import { resolveRecordRef, type RecordSource } from '@plot-pm/domain/workflows/record-listing';
+import { STORY_LEGACY_ISSUE_KEY } from '@plot-pm/domain/adapters/story-front-matter';
+import type { PortResult } from '@plot-pm/domain';
 import { cachedPlans, cachedRefs, freshWalkCache, readRefSnapshot, type WalkCache } from '@plot-pm/domain/workflows/plan-walk-cache';
 import { assemblePlanWalk, fleetReading } from '@plot-pm/domain/workflows/plan-walk-assembly';
 import { branchAgesOf, walkValueOf, type WalkHeader } from '@plot-pm/domain/workflows/board-view';
@@ -22,8 +26,9 @@ import { indexMergedHeads, indexOpenHeads } from '@plot-pm/domain/rules/known-pr
 import { githubListingPages } from '@plot-pm/domain/rules/listing-page';
 import { branchUrlBase as branchUrlBaseOf } from '@plot-pm/domain/rules/branch-url';
 import { HOST_BRANCH_URL_SCHEMES } from '@plot-pm/domain/adapters/host/host-branch-urls';
+import { listingCompleteness } from '@plot-pm/domain/adapters/host/listing-notices';
 import {
-  foldScanListing, parseScanListingRows, readCarriedPrStates, renderScanListing, scanListingWindowFor,
+  foldScanListing, parseScanListingRows, readCarriedPrStates, renderScanListing, scanListingRowsOf, scanListingWindowFor,
   type CarriedListing, type ScanListingAnswer, type ScanListingFold, type ScanListingWindow,
 } from '@plot-pm/domain/rules/scan-listing';
 import { PR_FULL_READ_MS } from './pr-refresh.js';
@@ -160,6 +165,11 @@ export interface ScanWorld {
    * nothing. It adds no read.
    */
   record?: RecordReading;
+  /**
+   * Receives the branch and desk stages of every walk whose desks answered;
+   * fleetd writes the AgentMonitor's findings here. Absent, nothing receives them.
+   */
+  findings?: (branches: BranchStageReadings, desks: DeskStageReadings) => Promise<void>;
 }
 
 /** The ports the plan walk reads through, beside `refs` and `scripts`. */
@@ -473,15 +483,16 @@ export const scanPrListLimit = (env: NodeJS.ProcessEnv = process.env): number =>
 };
 
 /**
- * Asks the host one `pr-list` call and reads it into rows.
+ * Asks the host one `pr-list` call through `Scripts.hostSaid` and reads it
+ * into rows. The Bitbucket listing asks this way.
  *
  * @param scripts - the one place `plot-*.sh` is invoked.
- * @param args - the `pr-list` arguments.
+ * @param args - the `pr-list` arguments; `--state` names the asked state.
  * @param onCall - called once the host has answered, win or lose — the
  *   scan's own tally of real requests spent.
- * @returns the rows and the raw stderr `foldScanListing`'s whole-page check
- *   reads, or `verdict: 'failed'` with no rows where the call failed, could
- *   not be asked, or printed a line that is not a PR row.
+ * @returns the rows and the asked state's completeness word, or
+ *   `verdict: 'failed'` with no rows where the call failed, could not be
+ *   asked, or printed a line that is not a PR row.
  */
 const askPrList = async (
   scripts: Scripts,
@@ -491,15 +502,49 @@ const askPrList = async (
   const said = await scripts.hostSaid(['pr-list', ...args]);
   if (said.answer === 'failed' || said.answer === 'unaskable') {
     onCall(said.said);
-    return { verdict: 'failed', rows: [], stderr: said.said };
+    return { verdict: 'failed', rows: [], complete: 'possibly-truncated' };
   }
   onCall();
   const rows = parseScanListingRows(said.stdout);
-  if (rows === null) return { verdict: 'failed', rows: [], stderr: 'pr-list printed a line that is not a PR row' };
+  if (rows === null) return { verdict: 'failed', rows: [], complete: 'possibly-truncated' };
+  const state = args[args.indexOf('--state') + 1] ?? '';
+  const notices = said.answer === 'partial' ? said.said : said.stderr;
   return {
     verdict: said.answer === 'partial' ? 'partial' : 'ok',
     rows,
-    stderr: said.answer === 'partial' ? said.said : said.stderr,
+    complete: listingCompleteness(notices, state)[state] ?? 'possibly-truncated',
+  };
+};
+
+/**
+ * Asks the host one typed listing and reads it into rows. The GitHub listing
+ * asks this way.
+ *
+ * @param host - the git host connector.
+ * @param query - the listing query.
+ * @param onCall - called once the host has answered, win or lose, with the
+ *   refusal's words where it refused.
+ * @returns the rows and the asked state's completeness word, or
+ *   `verdict: 'failed'` with no rows where the call failed, could not be
+ *   asked, or listed a row with no head or state.
+ */
+const askPrListing = async (
+  host: Host,
+  query: PrListingQuery,
+  onCall: (refusal?: string) => void,
+): Promise<ScanListingAnswer> => {
+  const listing = await host.prListing(query);
+  if (listing.answer === 'failed' || listing.answer === 'unaskable') {
+    onCall(listing.refusal?.said ?? 'pr-list failed and said nothing');
+    return { verdict: 'failed', rows: [], complete: 'possibly-truncated' };
+  }
+  onCall();
+  const rows = scanListingRowsOf(listing.rows);
+  if (rows === null) return { verdict: 'failed', rows: [], complete: 'possibly-truncated' };
+  return {
+    verdict: listing.answer === 'partial' ? 'partial' : 'ok',
+    rows,
+    complete: listing.complete[query.state] ?? 'possibly-truncated',
   };
 };
 
@@ -511,7 +556,7 @@ const askPrList = async (
  * `--limit`, the second with `--since` where {@link scanListingWindowFor}
  * answers `delta`. A refused delta is asked again as a full read.
  *
- * @param scripts - the one place `plot-*.sh` is invoked.
+ * @param host - the git host connector.
  * @param held - the listing the last host read held, or null.
  * @param now - this machine's clock, in epoch milliseconds.
  * @param onCall - called once per real `pr-list` call made — the scan's own
@@ -520,16 +565,16 @@ const askPrList = async (
  *   or null where the full read was refused too or a row has no branch name.
  */
 const readGithubListing = async (
-  scripts: Scripts,
+  host: Host,
   held: CarriedListing | null,
   now: number,
   onCall: (refusal?: string) => void,
 ): Promise<{ rendered: string; next: CarriedListing } | null> => {
-  const limit = ['--limit', String(scanPrListLimit())];
+  const limit = scanPrListLimit();
   const attempt = async (window: ScanListingWindow, base: CarriedListing | null) => {
-    const open = await askPrList(scripts, ['--state', 'open', ...limit, '--rich'], onCall);
-    const since = window.kind === 'delta' ? ['--since', window.since] : [];
-    const rest = await askPrList(scripts, ['--state', 'all', ...limit, ...since], onCall);
+    const open = await askPrListing(host, { state: 'open', limit, rich: true }, onCall);
+    const since = window.kind === 'delta' ? { since: window.since } : {};
+    const rest = await askPrListing(host, { state: 'all', limit, ...since }, onCall);
     return foldScanListing(base, open, rest);
   };
 
@@ -651,6 +696,65 @@ const shortSha = async (refs: Refs, ref: string): Promise<string> => {
   return sha.ok && sha.value !== '' ? sha.value.slice(0, 7) : 'unknown';
 };
 
+/** What {@link recordCardReadings} reads beside the walk's ports. */
+interface CardReadingsInput {
+  mainBranch: string;
+  planDir: string;
+  sprintDir: string;
+  storyDir: string;
+  prefixes: readonly string[];
+  recordSource: RecordSource;
+}
+
+/**
+ * Records `plans` with its authors and Delivered inputs, and the `branchPlans`,
+ * `sprints` and `stories` readings, through the walk's cached refs and plan
+ * store. Where the estate came from the checkout, every reading the default
+ * branch answers is recorded failed.
+ */
+const recordCardReadings = async (
+  record: RecordReading,
+  refs: Refs,
+  plansAt: PlanStore,
+  estate: PortResult<Estate>,
+  input: CardReadingsInput,
+): Promise<void> => {
+  if (!estate.ok) {
+    for (const key of ['plans', 'branchPlans', 'sprints', 'stories'] as const) record(key, failedOf('the estate stage failed'));
+    return;
+  }
+  const records = estate.value.plans.map((plan) => plan.record);
+  if (estate.value.source === 'worktree') {
+    const why = `origin/${input.mainBranch} did not resolve, so the plans were read from the checkout`;
+    record('plans', readOf({
+      ref: 'worktree',
+      resolved: '',
+      records,
+      authors: { state: 'failed', reason: why },
+      delivered: { state: 'failed', reason: why },
+    }));
+    for (const key of ['branchPlans', 'sprints', 'stories'] as const) record(key, failedOf(why));
+    return;
+  }
+  const main = `origin/${input.mainBranch}`;
+  const authors = await refs.planAuthors(main, input.planDir);
+  const recordRef = (await resolveRecordRef(refs, input.recordSource)).ref;
+  const delivered = await readDeliveredInputs(refs, estate.value.plans.map(({ blob, record: r }) => ({ record: r, sha: blob.sha })), recordRef);
+  record('plans', readOf({
+    ref: main,
+    resolved: estate.value.mainSha,
+    records,
+    authors: authors.ok ? { state: 'read', value: Object.fromEntries(authors.value) } : { state: 'failed', reason: 'the plan authors could not be read' },
+    delivered: delivered.ok ? { state: 'read', value: delivered.value } : { state: 'failed', reason: 'the Delivered plans could not be read' },
+  }));
+  const branchPlans = await readBranchPlans(refs, plansAt, { ...input, mainSha: estate.value.mainSha });
+  record('branchPlans', branchPlans.ok ? readOf(branchPlans.value) : failedOf('the branch plans could not be read'));
+  const sprints = await readSprints(refs, main, input.sprintDir);
+  record('sprints', sprints.ok ? readOf(sprints.value) : failedOf('the sprint files could not be read'));
+  const stories = await readStories(refs, main, input.storyDir, STORY_LEGACY_ISSUE_KEY);
+  record('stories', stories.ok ? readOf(stories.value) : failedOf('the story files could not be read'));
+};
+
 /**
  * Runs the plan walk's four stages in this process and builds the pulse.
  *
@@ -710,6 +814,9 @@ export const walkOnce = async (
   const prefixes = (await cfg('Branch prefixes', 'idea/, feature/, bug/, docs/, infra/'))
     .split(',').map((p) => p.trim().replace(/\/$/, '')).filter((p) => p !== '');
   const stateBranch = await cfg('State branch', '');
+  // Read only where the walk records: the sprint and story readings are the board's.
+  const sprintDir = record === undefined ? '' : await cfg('Sprint directory', 'docs/sprints/');
+  const storyDir = record === undefined ? '' : await cfg('Story directory', 'docs/stories/');
   const configured = await scripts.config('Main branch', '');
   if (configured.ok) configRead['Main branch'] = configured.value.trim();
   else configFailed.push('Main branch');
@@ -764,15 +871,23 @@ export const walkOnce = async (
   const estate = await readEstate(refs, plansAt, {
     mainBranch, stateBranch, planDir, activeDir, deliveredDir, prefixes: prefixes.length > 0 ? prefixes : ['idea', 'feature', 'bug', 'docs', 'infra'],
   }, walk.worktree);
-  record?.('plans', estate.ok
-    ? readOf({ ref: estate.value.source === 'worktree' ? 'worktree' : `origin/${mainBranch}`, records: estate.value.plans.map((plan) => plan.record) })
-    : failedOf('the estate stage failed'));
+  if (record !== undefined) {
+    await recordCardReadings(record, refs, plansAt, estate, {
+      mainBranch,
+      planDir,
+      sprintDir,
+      storyDir,
+      prefixes: prefixes.length > 0 ? prefixes : ['idea', 'feature', 'bug', 'docs', 'infra'],
+      recordSource: { stateBranch, defaultBranch: mainBranch },
+    });
+  }
   const branches = estate.ok
     ? await readBranchReadings(refs, walk.host, estate.value, { mainBranch, planDir, prs, indexMerged, ...(indexOpen === undefined ? {} : { indexOpen }) })
     : estate;
   const desks = branches.ok
     ? await readDeskReadings(walk.trees, walk.agents, walk.processes, branches.value)
     : branches;
+  if (world.findings !== undefined && branches.ok && desks.ok) await world.findings(branches.value, desks.value);
   if (record !== undefined) {
     if (!listed) record('desks', failedOf(`the desk stage did not run: the ${!estate.ok ? 'estate' : 'branches'} stage failed`));
     if (desks.ok) {
@@ -919,7 +1034,7 @@ export const scanOnce = async (
     if (refusal !== undefined) listingSaid = refusal;
   };
   if (spend && backend === 'github') {
-    hostRead = await readGithubListing(world.scripts, state.listingHeld, now, counted);
+    hostRead = await readGithubListing(world.walk.host, state.listingHeld, now, counted);
     state.listingHeld = hostRead?.next ?? null;
     if (hostRead !== null) {
       state.listing = hostRead.rendered;

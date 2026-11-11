@@ -1,17 +1,18 @@
 import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { startPulse, type Clock, type RunningPulse } from '@plot-pm/domain';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { heartbeatIsFresh } from '@plot-pm/domain/rules/reader-election';
 import { fleetdReadsPrs } from '@plot-pm/domain/rules/fleetd-live';
 import type { FleetdHeartbeat } from '@plot-pm/domain/entities/fleetd-heartbeat';
-import { clockSystem, hostShell, prIndexFile, readerLockFile, readFleetdHeartbeatSync, scriptsShell } from '@plot-pm/domain/adapters';
+import { clockSystem, hostReadsFor, IN_PROCESS_BACKENDS, SHELL_CI, prIndexFile, readerLockFile, readFleetdHeartbeatSync, scriptsShell, type HostReads, type ShellContext } from '@plot-pm/domain/adapters';
+import { HOST_TRANSPORT_ENV, hostTransportLine, shellReasonOf } from '@plot-pm/domain/rules/host-transport';
 import { fleetPrs, type PrLock } from '../../shared/fleet-clock.js';
 import { freshPrState, type PrState, type PrWorld } from '../../shared/pr-refresh.js';
 import { PR_REFRESH_MS } from '../../shared/fleet-scan.js';
 import { logDir, processLog } from '../../shared/process-log.js';
+import { pidAlive } from '../../shared/fleet-run.js';
 
 /**
  * The machine's PR reader, with no scan, no supervision tick and no issue
@@ -88,39 +89,6 @@ export const scriptDirFor = (env: NodeJS.ProcessEnv, moduleUrl: string): string 
 const EXIT_CHECK_MS = PR_REFRESH_MS;
 
 /**
- * Reads whether each pid in `pids` is alive, and its actual start time, with
- * one batched `ps` call rather than one spawn per pid.
- *
- * @param pids - the process ids to ask about; empty returns no entries.
- * @returns a map from pid to `{ alive, startedAt }`; a pid absent from `ps`'s
- *   output is alive: false, startedAt: null.
- */
-export const psLiveness = (pids: readonly number[]): Promise<Map<number, { alive: boolean; startedAt: number | null }>> =>
-  new Promise((resolve) => {
-    const result = new Map<number, { alive: boolean; startedAt: number | null }>();
-    for (const pid of pids) result.set(pid, { alive: false, startedAt: null });
-    if (pids.length === 0) {
-      resolve(result);
-      return;
-    }
-    const args = ['-o', 'pid=,lstart=', ...pids.flatMap((pid) => ['-p', String(pid)])];
-    execFile('ps', args, (error, stdout) => {
-      if (!error) {
-        for (const line of stdout.split('\n')) {
-          const trimmed = line.trim();
-          if (trimmed === '') continue;
-          const m = /^(\d+)\s+(.+)$/.exec(trimmed);
-          if (!m) continue;
-          const pid = Number(m[1]);
-          const startedAt = Date.parse(m[2]);
-          if (result.has(pid)) result.set(pid, { alive: true, startedAt: Number.isNaN(startedAt) ? null : startedAt });
-        }
-      }
-      resolve(result);
-    });
-  });
-
-/**
  * Whether this reader should keep running: `'fleetd'` where fleetd's own
  * heartbeat reads `live` with its `pr-reader` loop on time, `'followers'` where a fresh `board.<pid>` heartbeat
  * names a live process, and `'none'` otherwise.
@@ -133,14 +101,15 @@ export const psLiveness = (pids: readonly number[]): Promise<Map<number, { alive
  * @param heartbeats - every heartbeat currently published under the lock.
  * @param fleetd - fleetd's heartbeat file as read, or null where there is none.
  * @param now - epoch milliseconds.
- * @param liveness - reads pid liveness in one batch; {@link psLiveness} in production.
+ * @param liveness - whether a pid names a live process; `kill(pid, 0)`
+ *   through `pidAlive` by default, which reads `EPERM` as alive.
  * @returns the reading.
  */
 export const stillFollowed = async (
   heartbeats: readonly { name: string; at: number }[],
   fleetd: FleetdHeartbeat | null,
   now: number,
-  liveness: (pids: readonly number[]) => Promise<Map<number, { alive: boolean; startedAt: number | null }>>,
+  liveness: (pid: number) => boolean = pidAlive,
 ): Promise<'fleetd' | 'followers' | 'none'> => {
   if (fleetdReadsPrs(fleetd, now)) return 'fleetd';
   const fresh = heartbeats.filter((h) => heartbeatIsFresh(h.at, now));
@@ -148,9 +117,24 @@ export const stillFollowed = async (
     .map((h) => /^board\.(\d+)$/.exec(h.name))
     .filter((m): m is RegExpExecArray => m !== null)
     .map((m) => Number(m[1]));
-  if (boardPids.length === 0) return 'none';
-  const read = await liveness(boardPids);
-  return [...read.values()].some((r) => r.alive) ? 'followers' : 'none';
+  return boardPids.some((pid) => liveness(pid)) ? 'followers' : 'none';
+};
+
+/**
+ * Composes the reader's GitHub reads from its connector and the `CI` key.
+ *
+ * @param context - where the scripts and the repository are.
+ * @param backend - the connector the reader was started for.
+ * @returns the composed reads.
+ */
+const readsFor = async (context: ShellContext, backend: string): Promise<HostReads> => {
+  // NO CONFIG READ WHERE THE SHELL IS ALREADY DECIDED: a Bitbucket reader and
+  // the switch start no `plot-config.sh`.
+  if (shellReasonOf({ backend, ci: '', override: process.env[HOST_TRANSPORT_ENV], inProcessBackends: IN_PROCESS_BACKENDS, shellCi: SHELL_CI }) !== null) {
+    return hostReadsFor(context, { backend, ci: '' });
+  }
+  const ci = await scriptsShell(context).config('CI', '');
+  return hostReadsFor(context, { backend, ci: ci.ok ? ci.value : '' });
 };
 
 /**
@@ -165,12 +149,14 @@ export const stillFollowed = async (
  * @param repoRoot - the repository root; the reader's own `cwd`.
  * @param scriptDir - where the helper scripts live; see {@link scriptDirFor}.
  * @param warn - receives a one-line reason for a pass's own failures.
- * @param liveness - reads pid liveness in one batch; a test replaces it.
+ * @param liveness - whether a pid names a live process; a test replaces it.
  * @param stopRequested - reads true once a signal asks the reader to stop.
  * @param repoExists - reads whether `repoRoot` still exists; a pass after the
  *   repository is removed would only fail, and its log line would recreate
  *   the removed root's `.plot/logs/`.
  * @param clock - the clock the tick runs on; a test drives it by hand.
+ * @param composeReads - composes the GitHub reads, as fleetd's do: in-process
+ *   on GitHub with a token, through `plot-host.sh` otherwise.
  * @returns the process exit code: always 0 — the reader leaves because no one
  *   follows it or fleetd runs, never because it failed.
  */
@@ -179,12 +165,15 @@ export const run = async (
   repoRoot: string,
   scriptDir: string,
   warn: (line: string) => void = () => undefined,
-  liveness: (pids: readonly number[]) => Promise<Map<number, { alive: boolean; startedAt: number | null }>> = psLiveness,
+  liveness: (pid: number) => boolean = pidAlive,
   stopRequested: () => boolean = () => false,
   repoExists: () => boolean = () => existsSync(repoRoot),
   clock: Clock = clockSystem(),
+  composeReads: (context: ShellContext, backend: string) => Promise<HostReads> = readsFor,
 ): Promise<number> => {
   const context = { repoRoot, scriptDir };
+  const reads = await composeReads(context, args.connector);
+  warn(`plot-pr-reader: ${hostTransportLine(reads.choice)}\n`);
   const lock = readerLockFile({ home: args.lockDir });
   const heartbeatName = `reader.${process.pid}`;
   const prLock: PrLock = { lock, name: heartbeatName };
@@ -192,7 +181,8 @@ export const run = async (
   state.backend = args.connector;
   const world: PrWorld = {
     scripts: scriptsShell(context),
-    host: hostShell(context),
+    host: reads.host,
+    hostClaimsSlot: reads.api !== null,
     store: prIndexFile({ cwd: repoRoot }),
   };
   const readPrs = fleetPrs(world, state, prLock, warn);
@@ -279,6 +269,6 @@ if (
     };
     process.on('SIGTERM', onSignal);
     process.on('SIGINT', onSignal);
-    void endEntry(await run(parsed, repoRoot, scriptDirFor(process.env, import.meta.url), warn, psLiveness, () => signalled));
+    void endEntry(await run(parsed, repoRoot, scriptDirFor(process.env, import.meta.url), warn, pidAlive, () => signalled));
   }
 }

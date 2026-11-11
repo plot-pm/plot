@@ -141,6 +141,25 @@ test('the node compile cache is pointed into the run HOME', (t) => {
   assert.deepEqual(readdirSync(tmp), [], 'the root is removed, the cache with it');
 });
 
+test('a commit with no configured email is refused inside the run, not guessed from the hostname', (t) => {
+  const tmp = privateTmp(t);
+  const res = runWrapped(tmp, ['sh', '-c',
+    'cd "$TMPDIR" && git init -q r && cd r && echo a > a && git add a && '
+    + 'if git -c user.name=t commit -q -m m 2>/dev/null; then echo guessed; else echo refused; fi; '
+    + 'git -c user.name=t -c user.email=t@t commit -q -m m && echo configured; cd .. && rm -rf r'],
+  { GIT_CONFIG_COUNT: '' });
+  assert.equal(res.status, 0, res.stderr);
+  assert.deepEqual(res.stdout.trim().split('\n').slice(0, 2), ['refused', 'configured']);
+});
+
+test("a caller's GIT_CONFIG_COUNT entries keep their indices", (t) => {
+  const tmp = privateTmp(t);
+  const res = runWrapped(tmp, ['sh', '-c', 'git config --get core.abbrev; git config --get user.useConfigOnly'],
+    { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.abbrev', GIT_CONFIG_VALUE_0: '9' });
+  assert.equal(res.status, 0, res.stderr);
+  assert.deepEqual(res.stdout.trim().split('\n').slice(0, 2), ['9', 'true']);
+});
+
 test("a caller's NODE_COMPILE_CACHE wins", (t) => {
   const tmp = privateTmp(t);
   const res = runWrapped(tmp, ['sh', '-c', 'printf "%s\\n" "$NODE_COMPILE_CACHE"'],

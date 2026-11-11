@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** ship-2-32-0
 - **Issue:** #3293
@@ -14,6 +14,7 @@
 - **Approved:** 2026-11-09, Jan Wloka, plan-PR #3294 merged
 - **Started:** 2026-11-09, Jan Wloka, `bug/restart-a-slice-whose-dead-agent-left-a-draft-pr`
 - **Delivered:** 2026-11-09
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 

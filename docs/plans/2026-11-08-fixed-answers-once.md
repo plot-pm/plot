@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** nothing-runs
 - **Issue:** #3170
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-08, Jan Wloka, plan-PR #3238 merged
 - **Delivered:** 2026-11-08
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
@@ -78,15 +79,15 @@ This plan depends on `process-census-gate`. Slice *Answers in process* turns its
 
 ### Answers in process
 
-- `bug/fixed-answers-once-in-process` — `packages/domain/src/adapters/git-dirs/git-dirs.ts`; `refs-git.ts`, the file adapters and `host-shell.ts` read through it and the backend memo; unit rows; census P3 flipped to `it`; a changeset for `plot` <!-- builds: gitDirs, a once-per-process git directory reading -->
+- `bug/fixed-answers-once-in-process` — `packages/domain/src/adapters/git-dirs/git-dirs.ts`; `refs-git.ts`, the file adapters and `host-shell.ts` read through it and the backend memo; unit rows; census P3 flipped to `it`; a changeset for `plot` <!-- builds: gitDirs, a once-per-process git directory reading --> → #3261
 
 ### Answers in scripts
 
-- `bug/fixed-answers-once-in-scripts` — the script-starting adapters pass `PLOT_REPO_ROOT`, `PLOT_GIT_COMMON_DIR` and `PLOT_HOST`; `plot-host.sh`, `plot-worker-state.sh` and `plot-desk-root.sh` read them; contract rows in `test/reconcile/`; census P4 flipped to `it`; a changeset for `plot` <!-- builds: PLOT_GIT_COMMON_DIR, an environment answer the helper scripts read -->
+- `bug/fixed-answers-once-in-scripts` — the script-starting adapters pass `PLOT_REPO_ROOT`, `PLOT_GIT_COMMON_DIR` and `PLOT_HOST`; `plot-host.sh`, `plot-worker-state.sh` and `plot-desk-root.sh` read them; contract rows in `test/reconcile/`; census P4 flipped to `it`; a changeset for `plot` <!-- builds: PLOT_GIT_COMMON_DIR, an environment answer the helper scripts read --> → #3262
 
 ### Remaining askers
 
-- `bug/fixed-answers-once-remaining` — `plot-desk-root.sh` (`plot_repo_root`, `plot_exclude_desk_root`), `plot_desk_exclude` in `plot-worker-state.sh`, `plot-agent-settings.sh` and `plot_env_file` in `plot-host.sh` read `PLOT_REPO_ROOT` / `PLOT_GIT_COMMON_DIR` before they ask git, under the same same-repository check as `plot_given_common_dir`; each node bundle fleetd starts reads them from its environment before it asks; census P4 flipped to `it` once it reads 0; a changeset for `plot` <!-- builds: the remaining fixed-answer readers in scripts and bundles -->
+- `bug/fixed-answers-once-remaining` — `plot-desk-root.sh` (`plot_repo_root`, `plot_exclude_desk_root`), `plot_desk_exclude` in `plot-worker-state.sh`, `plot-agent-settings.sh` and `plot_env_file` in `plot-host.sh` read `PLOT_REPO_ROOT` / `PLOT_GIT_COMMON_DIR` before they ask git, under the same same-repository check as `plot_given_common_dir`; each node bundle fleetd starts reads them from its environment before it asks; census P4 flipped to `it` once it reads 0; a changeset for `plot` <!-- builds: the remaining fixed-answer readers in scripts and bundles --> → #3270
 
 ## Notes
 

@@ -5,6 +5,7 @@ import { answered, failed, type PortResult } from '../../port-result.js';
 import type { AgentDesk, AgentManifest, Agents } from '../../ports/agents.js';
 import { scriptsShell } from '../scripts/scripts-shell.js';
 import type { ShellContext } from '../scripts.js';
+import { DEFAULT_AGENT_PROCESS } from '../../rules/pid-current.js';
 
 /**
  * THE ONE PLACE AN AGENT'S PATHS APPEAR.
@@ -361,6 +362,7 @@ export const agentsFs = (context: ShellContext, options: AgentsFsOptions = {}): 
         command: agent.command,
         pid: '',
         attempts: 0,
+        agentProcess: process.env.PLOT_AGENT_PROCESS || DEFAULT_AGENT_PROCESS,
         startedAt: (options.now?.() ?? new Date()).toISOString().replace(/\.\d{3}Z$/, 'Z'),
       };
       try {

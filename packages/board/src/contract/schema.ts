@@ -4,6 +4,7 @@ import {
   BranchStateSchema,
   WorkerStateSchema,
   WorkerActivitySchema,
+  LivenessBasisSchema,
   PlanSchema,
   FindingSchema,
   FleetReadingSchema,
@@ -3332,6 +3333,12 @@ export const AgentRowSchema = z.object({
    * once, and this carries that verdict outward.
    */
   worker_activity: WorkerActivitySchema.default(''),
+  /**
+   * What the worker reading's liveness rests on — `BranchSchema.worker_basis`,
+   * forwarded onto the row unchanged. `start-time` is a desk with no liveness
+   * token, and the row's status names it. Defaults to "".
+   */
+  worker_basis: LivenessBasisSchema.default(''),
   /**
    * What this desk's `PLOT-BLOCKED*` marker asks and when it was written:
    * `firstLine` is the marker's first line, "" when the content did not read,

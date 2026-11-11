@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { removeTree } from '../rm-tree.mjs';
 import { productRoot, type CensusFixture, type CensusHost } from './census-report.js';
-import { hostCliStub, jiraCurlStub } from './stub-host.js';
+import { hostCliStub, jiraCurlStub, startStubApi, type StubApi } from './stub-host.js';
 import { startStubWorker, type StubWorker } from './stub-worker.js';
 
 /**
@@ -15,12 +15,17 @@ import { startStubWorker, type StubWorker } from './stub-worker.js';
  */
 export const SYSTEMD_UNIT_VARS = ['INVOCATION_ID', 'JOURNAL_STREAM', 'SYSTEMD_EXEC_PID', 'MANAGERPID', 'NOTIFY_SOCKET'] as const;
 
+/** The fixture token the sandbox sets as `GH_TOKEN` and the stub API accepts. */
+export const CENSUS_TOKEN = 'census';
+
 /** What a scenario states beside its number: desks, open PRs, host. */
 export type FixtureSize = CensusFixture;
 
 export type SandboxOptions = FixtureSize & {
   /** The checkout whose `skills/plot/scripts` the sandbox runs; `productRoot()` by default. */
   productRoot?: string;
+  /** The directory the sandbox's root is made in; `tmpdir()` by default. A test that binds `.plot/fleet.sock` passes `SOCKET_TEMP_ROOT`. */
+  tempRoot?: string;
 };
 
 /** One desk: a worktree on a slice branch, with a stub worker's pid in `.plot-worker.pid`. */
@@ -34,6 +39,8 @@ export type Sandbox = {
   fixtures: string;
   /** The file every stub appends its argv to. */
   stubLog: string;
+  /** The stub GitHub API the in-process client reads, on a GitHub fixture; null on Bitbucket. */
+  api: StubApi | null;
   scriptsDir: string;
   size: FixtureSize;
   desks: Desk[];
@@ -171,8 +178,9 @@ const writeStub = (bin: string, name: string, text: string): void => {
  * @returns the sandbox.
  */
 export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'plot-census-')));
+  const root = realpathSync(mkdtempSync(join(options.tempRoot ?? tmpdir(), 'plot-census-')));
   const desks: Desk[] = [];
+  let api: StubApi | null = null;
   try {
     const size: FixtureSize = { host: options.host, desks: options.desks, openPrs: options.openPrs };
     const scriptsDir = join(options.productRoot ?? productRoot(), 'skills/plot/scripts');
@@ -202,7 +210,12 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
       GIT_AUTHOR_EMAIL: 'census@census.invalid',
       GIT_COMMITTER_NAME: 'census',
       GIT_COMMITTER_EMAIL: 'census@census.invalid',
-      GH_TOKEN: 'census',
+      GH_TOKEN: CENSUS_TOKEN,
+      // ONE BUDGET KEY FOR BOTH TRANSPORTS: the in-process client charges the
+      // login `GET /user` names (the stub answers `census`), and the shell's
+      // `budget_account` reads this variable, as it reads `hosts.yml` for a
+      // person signed in to `gh`.
+      PLOT_BUDGET_ACCOUNT: CENSUS_TOKEN,
       JIRA_EMAIL: 'census@census.invalid',
       JIRA_API_TOKEN: 'census',
     };
@@ -215,10 +228,19 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
     // as `supervised: systemd`. Only `startFleetd`'s `supervisor: 'systemd'`
     // gives fleetd a unit of its own.
     for (const key of [
-      'PLOT_HOST', 'PLOT_TRACKER', 'PLOT_UNATTENDED', 'PLOT_BOARD_PORT', 'PORT', 'PLOT_PR_INDEX_HOME', 'PLOT_ISSUE_INDEX_HOME',
+      'PLOT_HOST', 'PLOT_HOST_TRANSPORT', 'PLOT_TRACKER', 'PLOT_UNATTENDED', 'PLOT_BOARD_PORT', 'PORT', 'PLOT_PR_INDEX_HOME', 'PLOT_ISSUE_INDEX_HOME',
       ...SYSTEMD_UNIT_VARS,
     ]) {
       delete env[key];
+    }
+    // THE IN-PROCESS CLIENT'S HOST: a local server over the same fixtures as
+    // the stub `gh`, so a census row can count the requests a PATH stub
+    // cannot see.
+    if (size.host === 'github') {
+      api = await startStubApi(join(fixtures, 'gh'), CENSUS_TOKEN);
+      env['GITHUB_API_URL'] = api.url;
+    } else {
+      delete env['GITHUB_API_URL'];
     }
     writeFileSync(join(home, '.gitconfig'), '[init]\n\tdefaultBranch = main\n');
     const git = (cwd: string, ...args: string[]): string =>
@@ -321,6 +343,7 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
       origin,
       fixtures,
       stubLog,
+      api,
       scriptsDir,
       size,
       desks,
@@ -329,11 +352,13 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
       answer,
       remove: async () => {
         await Promise.all(desks.map((d) => d.worker.stop()));
+        await api?.close();
         removeTree(root);
       },
     };
   } catch (e) {
     await Promise.all(desks.map((d) => d.worker.stop()));
+    await api?.close();
     removeTree(root);
     throw e;
   }

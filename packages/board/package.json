@@ -1,6 +1,6 @@
 {
   "name": "@plot-pm/board",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "description": "Local Kanban board for Plot — a glanceable view of plan phases from docs/plans, with sprint and story filters",
   "type": "module",
   "license": "CC0-1.0",
@@ -22,9 +22,7 @@
   },
   "files": [
     "dist/board-server.mjs",
-    "plot-agent-monitor.sh",
     "plot-agent-manifest.sh",
-    "plot-monitor-subject.sh",
     "plot-approve.sh",
     "plot-budget.sh",
     "plot-config.sh",

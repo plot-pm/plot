@@ -1,5 +1,11 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
-import { EXIT, roleDenyGateOf, runGates } from '../../src/server/entry/gate.js';
+import { EXIT, NAME_ONLY_GATES, roleDenyGateOf, runGates } from '../../src/server/entry/gate.js';
+import { removeTree } from '../rm-tree.mjs';
 
 /**
  * The `role-deny` gate a non-reviewer role's settings file wires: refuses the
@@ -98,5 +104,37 @@ describe('the role-deny gate — a gate inside the role\'s own tree', () => {
     const outside = gateOf('main', 'fix/the-slice');
     expect(await runGates([outside], ['role-deny'], 'echo permitted-control-ran', () => {})).toBe(EXIT.allow);
     expect(await runGates([outside], ['role-deny'], '', () => {}, 'packages/domain/src/index.ts')).toBe(EXIT.allow);
+  });
+});
+
+describe('the role-deny gate — the branch read from the checkout', () => {
+  it('refuses a bare git push from the default branch with a tag and a remote named like the branch', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'plot-role-deny-tag-')));
+    const saved = process.cwd();
+    try {
+      const git = (...args: string[]): string =>
+        execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], {
+          cwd: root,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+        }).trim();
+      git('init', '-q', '-b', 'main');
+      git('commit', '-q', '--allow-empty', '-m', 'root');
+      git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+      git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+      git('tag', 'main');
+      git('update-ref', 'refs/remotes/main/HEAD', 'HEAD');
+      expect(git('rev-parse', '--abbrev-ref', 'HEAD')).toBe('heads/main');
+      process.chdir(root);
+
+      const gate = NAME_ONLY_GATES.find((g) => g.name === 'role-deny')!;
+      const warned: string[] = [];
+      const code = await runGates([gate], ['role-deny'], 'git push', (l) => warned.push(l));
+      expect(code).toBe(EXIT.refuse);
+      expect(warned[0]).toContain('pushes the default branch');
+    } finally {
+      process.chdir(saved);
+      removeTree(root);
+    }
   });
 });
