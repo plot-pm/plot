@@ -104,7 +104,7 @@ Two earlier plans counted processes with `PATH` shims: `packages/board/test/plan
 
 ### Harness
 
-- `infra/process-census-harness` — `packages/fleet/test/census/`: `parseStraceExecs` and its unit rows, the helper that runs a command tree under `strace -f` and returns records, the presence check, `vitest.census.config.ts`; a changeset for `plot` <!-- builds: parseStraceExecs, an strace execve census helper -->
+- `infra/process-census-harness` — `packages/fleet/test/census/`: `parseStraceExecs` and its unit rows, the helper that runs a command tree under `strace -f` and returns records, the presence check, `vitest.census.config.ts`; a changeset for `plot` <!-- builds: parseStraceExecs, an strace execve census helper --> → #3243
 
 ### Scenarios
 
