@@ -44,6 +44,7 @@ import {
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
 import { promptExit } from '@plot-pm/domain/rules/prompt-exit';
 import { backgroundGateEnv } from '@plot-pm/domain/rules/agent-run-env';
+import { sliceBaseRef } from '@plot-pm/domain/rules/slice-base';
 import { spawnContractEnv } from '@plot-pm/domain/rules/spawn-contract';
 import { restartAnswer, type LoopRestartReadings } from '@plot-pm/domain/rules/loop-restart';
 import { DEFAULT_SLICE_MAX_RUNS } from '@plot-pm/domain/rules/run-limit';
@@ -470,6 +471,8 @@ export interface ManifestFields {
   session: string;
   worktree: string;
   branch: string;
+  /** The branch the assigned slice is cut from, without `origin/`; `''` for the default branch. */
+  base: string;
   attempts: number;
   correctionAttempts: number;
   resumeId: string;
@@ -482,6 +485,7 @@ const EMPTY_MANIFEST: ManifestFields = {
   session: '',
   worktree: '',
   branch: '',
+  base: '',
   attempts: 0,
   correctionAttempts: 0,
   resumeId: '',
@@ -550,6 +554,7 @@ export const readManifestFields = async (manifestFile: string): Promise<Manifest
       session: typeof o.session === 'string' ? o.session : '',
       worktree: typeof o.worktree === 'string' ? o.worktree : '',
       branch: typeof o.branch === 'string' ? o.branch : '',
+      base: typeof o.base === 'string' ? o.base : '',
       attempts: typeof o.attempts === 'number' && Number.isInteger(o.attempts) ? o.attempts : 0,
       correctionAttempts:
         typeof o.correctionAttempts === 'number' && Number.isInteger(o.correctionAttempts)
@@ -865,7 +870,9 @@ export const readPass = async (
     registration: 'registered',
     claim: null,
     takeUpRefused: null,
-    base: config.base,
+    // A SPRINT SLICE IS CUT FROM ITS SPRINT BRANCH: the supervisor records the
+    // slice's base in the manifest at hand-over.
+    base: sliceBaseRef(manifest.base, config.base),
     continuation: null,
     running: prompt.running,
     exit: prompt.exit,
@@ -1903,7 +1910,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
     const refused = takeUpRefusalOf(applied);
     if (refused !== null) {
       const branch = readings.assignedBranch;
-      const claim = refused === 'push' ? await readClaimAnswer(deps.ports, branch, deps.config.base, readings.session) : null;
+      const claim = refused === 'push' ? await readClaimAnswer(deps.ports, branch, readings.base, readings.session) : null;
       deps.log(takeUpLine(refused, claim, branch, worktree));
       const cleared = agentLoop({ ...readings, takeUpRefused: refused, claim });
       await performLoopWrites(loopWritesOf(cleared.writes, deps.sdk !== undefined), deps.ports, worktree);

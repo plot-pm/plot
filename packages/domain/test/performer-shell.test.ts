@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -89,5 +89,32 @@ describe('perform-fs skips the agent-loop write kinds on purpose', () => {
     expect(() =>
       performDecision({ root }, { outcome: 'decided', workflow: 'agent-loop', writes, detail: null }),
     ).toThrow(/unrecognised write kind/);
+  });
+});
+
+describe('performerShell.assignSlice', () => {
+  /** A repository holding one free agent's manifest, with the given fields. */
+  const withManifest = (fields: Record<string, unknown>): { context: ShellContext; file: string } => {
+    const root = mkdtempSync(join(tmpdir(), 'plot-performer-assign-'));
+    shells.push(root);
+    mkdirSync(join(root, '.plot/agents'), { recursive: true });
+    const file = join(root, '.plot/agents/s1.json');
+    writeFileSync(file, JSON.stringify({ session: 's1', branch: '', ...fields }));
+    return { context: { repoRoot: root, scriptDir: join(root, 'scripts') }, file };
+  };
+  const read = (file: string): Record<string, unknown> => JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+
+  it('records a sprint slice\'s base beside its branch', async () => {
+    const { context, file } = withManifest({});
+    const answer = await performerShell(context).assignSlice('s1', 'feature/x', 'a-plan', 'sprint/s');
+    expect(answer).toEqual({ ok: true, value: true });
+    expect(read(file)).toMatchObject({ branch: 'feature/x', slug: 'a-plan', base: 'sprint/s' });
+  });
+
+  it('removes a base an earlier slice left when the new slice is on the default branch', async () => {
+    const { context, file } = withManifest({ base: 'sprint/old' });
+    await performerShell(context).assignSlice('s1', 'feature/y', 'b-plan');
+    expect(read(file)).not.toHaveProperty('base');
+    expect(read(file)).toMatchObject({ branch: 'feature/y', slug: 'b-plan' });
   });
 });

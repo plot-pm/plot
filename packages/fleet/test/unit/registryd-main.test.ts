@@ -949,11 +949,11 @@ describe('starting agents is the one write this daemon performs', () => {
       outcome: 'decided',
       workflow: 'assign',
       writes: [
-        { kind: 'agent-assign', session: 'sess-1', worktree: '/estate/a', branch: 'feature/a', slug: 'a-plan' },
+        { kind: 'agent-assign', session: 'sess-1', worktree: '/estate/a', branch: 'feature/a', slug: 'a-plan', base: '' },
         { kind: 'worker-start', branch: '', worktree: '/estate/free' },
       ],
       detail: {
-        assignments: [{ session: 'sess-1', worktree: '/estate/a', branch: 'feature/a', slug: 'a-plan' }],
+        assignments: [{ session: 'sess-1', worktree: '/estate/a', branch: 'feature/a', slug: 'a-plan', base: '' }],
         held: [],
         idle: [],
         scaling: null,
@@ -976,6 +976,23 @@ describe('starting agents is the one write this daemon performs', () => {
 
     await startAgents(withAssign(), performer, handOverReady, () => {}, () => {});
     expect(assigned).toEqual(['sess-1:feature/a']);
+  });
+
+  it('hands a sprint slice\'s base to the manifest write', async () => {
+    const bases: string[] = [];
+    const performer: Performer = {
+      startFreeAgent: async () => answered(1),
+      assignSlice: async (_session, branch, _slug, base) => {
+        bases.push(`${branch}:${base ?? ''}`);
+        return answered(true);
+      },
+    };
+    const report = withAssign();
+    const writes = report.handOver!.writes.map((write) =>
+      write.kind === 'agent-assign' ? { ...write, base: 'sprint/s' } : write,
+    );
+    await startAgents({ ...report, handOver: { ...report.handOver!, writes } }, performer, handOverReady, () => {}, () => {});
+    expect(bases).toEqual(['feature/a:sprint/s']);
   });
 
   it('reports a hand-over the agent had since outgrown, and does not count it', async () => {

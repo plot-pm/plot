@@ -404,6 +404,9 @@ export const agentsFs = (context: ShellContext, options: AgentsFsOptions = {}): 
         return failed<void>();
       }
       manifest.branch = '';
+      // THE BASE LEAVES WITH THE BRANCH: a later slice must not be cut from
+      // the sprint branch the cleared one came from.
+      delete manifest.base;
       const tmp = `${file}.plot-free-tmp`;
       try {
         writeFileSync(tmp, `${JSON.stringify(manifest, null, 2)}\n`);

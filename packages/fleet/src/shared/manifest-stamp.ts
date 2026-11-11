@@ -360,8 +360,8 @@ export const writeResumeId = (manifestPath: string, resumeId: string): boolean =
 /**
  * Writes `branch` into a manifest whose `branch` is empty or absent,
  * atomically. A free loop's manifest holds `branch: ''`, and a loop started on
- * it reads no assignment. Every other field is kept, and a non-empty `branch`
- * is left as it is.
+ * it reads no assignment. A `base` field is removed; every other field is
+ * kept, and a non-empty `branch` is left as it is.
  *
  * @param manifestPath - the manifest file.
  * @param branch - the branch the desk holds, non-empty.
@@ -376,6 +376,9 @@ export const assignEmptyManifestBranch = (manifestPath: string, branch: string):
     if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) return false;
     if (typeof manifest.branch === 'string' && manifest.branch !== '') return true;
     manifest.branch = branch;
+    // A BASE AN EARLIER SLICE LEFT DOES NOT NAME THIS BRANCH'S BASE, so the
+    // desk is not reset onto it.
+    delete manifest.base;
     fs.writeFileSync(tmp, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
     fs.renameSync(tmp, manifestPath);
     return true;
