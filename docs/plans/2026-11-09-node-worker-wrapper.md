@@ -99,7 +99,7 @@ Each step that reaches a file goes through an existing port or a new `WorkerReco
 
 ### Dispatch
 
-- `feature/node-worker-wrapper-dispatch` — `worker-start.ts` and `plot-worker-start.mjs` start the wrapper through `detachedNode`; `start_worker` calls it in place of the inline `sh -c` and `awk`; the Node major check; census row D1 recorded and held; `manifest-stamp-parity.test.ts` deleted; a row in `skills/plot/scripts/README.md`; a changeset <!-- builds: plot-worker-start.mjs, a detached start of the worker wrapper through the Detached port -->
+- `feature/node-worker-wrapper-dispatch` — `worker-start.ts` and `plot-worker-start.mjs` start the wrapper through `detachedNode`; `start_worker` calls it in place of the inline `sh -c` and `awk`; the Node major check; census row D1 recorded and held; `manifest-stamp-parity.test.ts` deleted; a row in `skills/plot/scripts/README.md`; a changeset <!-- builds: plot-worker-start.mjs, a detached start of the worker wrapper through the Detached port --> → #3335
 
 ### Continue
 
