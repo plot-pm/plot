@@ -22,6 +22,7 @@ import {
   type DesignStatus as DesignStatusPayload,
   type FleetReading,
   type FleetSprint,
+  type ReleaseTickets,
   type IssueAnswer,
   type IssueRow,
   type MachineProcess,
@@ -1991,6 +1992,24 @@ export async function ticketLaneData(opts: BuildBoardOptions): Promise<TicketLan
     categoryStated: entry.issueConnector === 'jira',
   };
 }
+
+/**
+ * The `releases` of the open and closed rows the issue index holds, for the release line.
+ *
+ * @param sets - the cache's issue sets.
+ * @returns null where no open rows were read; `closed` is null where no closed read has answered.
+ */
+export const releaseTicketsOf = (sets: IssueSets | null): ReleaseTickets | null => {
+  if (sets === null || sets.rows === undefined) return null;
+  const pick = (rows: readonly IssueIndexRow[]) => rows.map((r) => (r.releases === undefined ? {} : { releases: r.releases }));
+  const closed = sets.closed?.rows;
+  return {
+    open: pick(sets.rows),
+    closed: closed === undefined ? null : pick(closed),
+    closedComplete: sets.closed?.complete === true,
+    closedSince: sets.closed?.since ?? null,
+  };
+};
 
 /** What `GET /api/issues/closed` answers. */
 export interface IssuesClosedReading {
@@ -8230,6 +8249,7 @@ export async function activeSprints(
       slug: sprint.slug,
       title: sprint.title,
       release: sprint.release,
+      start: sprint.start,
       counts,
       timebox: timeboxStanding(readings),
       timeboxLabel: timeboxLabel(readings),
@@ -8625,6 +8645,8 @@ export async function buildFleet(
     // `null` only where the read failed or the source is `nobody` — the same
     // cases `issues` holds its last good value or `[]` for.
     waiting: entry.waiting,
+    // The index's `releases`, for the Delivery tab's release line: no second read.
+    releaseTickets: releaseTicketsOf(entry.issueSets),
     // Beside `rows`, never derived from them: a row is a branch that mentions an
     // agent, this is an agent that mentions a branch. A running worker appears
     // in both and is not duplicated — the entities differ.

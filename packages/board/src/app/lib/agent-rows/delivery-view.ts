@@ -1,6 +1,7 @@
 import {
   DELIVERY_LAYOUT,
   placeDelivery,
+  releaseTicketWording,
   type AgentPlacement,
   type DeliveryPlacement,
   type DeliverySection,
@@ -177,8 +178,11 @@ export interface DeliveryView {
   sections: SectionView[];
   /** Subjects with a reading nobody took — shown in a note, never dropped. */
   notPlaced: UnplacedView[];
-  /** The Release delivery line: delivered, held at gates, blocked. */
-  releaseLine: string;
+  /**
+   * The Release delivery lines: delivered, held at gates, blocked, and where the sprint names a target release the
+   * tickets of it. One line per distinct target release; one line without the tickets where none is named.
+   */
+  releaseLines: string[];
   delivered: UnplacedView[];
   /** The delivered items, nested as a group's are; rendered under the release line. */
   deliveredBlocks: BlockView[];
@@ -400,7 +404,13 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
   const slicesDelivered = delivered.filter((u) => u.id.startsWith('slice:')).length;
   const held = placement.items.filter((p) => p.section === 'work-items' && p.group === 'at-a-gate').length;
   const blocked = placement.items.filter((p) => p.section === 'you' && p.group === 'unblock').length;
-  const releaseLine = `${slicesDelivered} of ${slicesTotal} slices delivered · ${held} held at gates · ${blocked} blocked`;
+  const sliceLine = `${slicesDelivered} of ${slicesTotal} slices delivered · ${held} held at gates · ${blocked} blocked`;
+  const { targets, tickets } = mapping.releases;
+  const ticketLines = tickets === null ? [] : targets.flatMap((t) => {
+    const wording = releaseTicketWording(tickets, t.release, t.started);
+    return wording === null ? [] : [`${sliceLine} · ${wording}`];
+  });
+  const releaseLines = ticketLines.length > 0 ? ticketLines : [sliceLine];
 
   const deliveredItems = placement.unplaced
     .filter((u) => u.reason === 'delivered' && u.subject === 'item')
@@ -415,7 +425,7 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
   const deliveredBlocks = nestItems('delivered', deliveredItems, slices);
 
   return {
-    sections, notPlaced, releaseLine, delivered, deliveredBlocks,
+    sections, notPlaced, releaseLines, delivered, deliveredBlocks,
     deliveredRows: deliveredItems.flatMap((v) => v.rows),
   };
 };
