@@ -112,7 +112,7 @@ Two earlier plans counted processes with `PATH` shims: `packages/board/test/plan
 
 ### CI gate
 
-- `infra/process-census-ci-gate` — the `process-census` job in `.github/workflows/ci.yml`, the `select` mapping, the merge-base worktree run and the comparison with tolerances, `docs/process-census.md` with the macOS manual measurement, the baseline in the story; a changeset for `plot` <!-- builds: the process-census CI job and its merge-base comparison -->
+- `infra/process-census-ci-gate` — the `process-census` job in `.github/workflows/ci.yml`, the `select` mapping, the merge-base worktree run and the comparison with tolerances, `docs/process-census.md` with the macOS manual measurement, the baseline in the story; a changeset for `plot` <!-- builds: the process-census CI job and its merge-base comparison --> → #3247
 
 ## Notes
 
