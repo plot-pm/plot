@@ -112,7 +112,7 @@ This plan depends on `the-snapshot-entity` (delivered): every reading lands in t
 
 ### Dirt
 
-- `feature/desk-probes-in-domain-dirt` — `deskDirtFilter` in `rules/desk-dirt-filter.ts`; `treesGit.dirtyPaths`, `quietSeconds` and `markers` with no `bash`; `desk-dirt-filter.corpus.test.ts` <!-- builds: deskDirtFilter, the desk dirt filter as a domain rule with a corpus test -->
+- `feature/desk-probes-in-domain-dirt` — `deskDirtFilter` in `rules/desk-dirt-filter.ts`; `treesGit.dirtyPaths`, `quietSeconds` and `markers` with no `bash`; `desk-dirt-filter.corpus.test.ts` <!-- builds: deskDirtFilter, the desk dirt filter as a domain rule with a corpus test --> → #3324
 
 ### Registry
 
