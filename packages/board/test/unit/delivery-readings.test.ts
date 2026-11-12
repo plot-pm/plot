@@ -261,3 +261,42 @@ describe('release lines', () => {
       .toEqual(['0 of 0 slices delivered · 0 held at gates · 0 blocked']);
   });
 });
+
+describe('deliveryMapping loose ends', () => {
+  const loose = (rows: AgentRow[], agents: RegistryAgent[] = []) =>
+    deliveryMapping(input({ rows, agents })).readings.items[0]!.loose;
+  const idle = { state: 'merged-not', worker: 'none' };
+
+  it('reads a planless branch with no desk, claim or agent as named false and held false', () => {
+    expect(loose([row({ branch: 'feature/x', ...idle })])).toEqual({ named: false, held: false });
+  });
+
+  it('reads a branch a registry agent names as held', () => {
+    expect(loose([row({ branch: 'feature/x', ...idle })], [agent({ branch: 'feature/x' })])).toMatchObject({ held: true });
+  });
+
+  it('reads a branch with a running worker or a claim as held', () => {
+    expect(loose([row({ branch: 'feature/x', state: 'merged-not', worker: 'running' })])).toMatchObject({ held: true });
+    expect(loose([row({ branch: 'feature/x', state: 'claimed', worker: 'none' })])).toMatchObject({ held: true });
+  });
+
+  it('reads a branch a plan names as named', () => {
+    expect(loose([row({ branch: 'feature/x', plan: 'p', kind: 'pr-link', ...idle })])).toMatchObject({ named: true });
+  });
+
+  it('leaves a PR with no fixer record read without a loose reading', () => {
+    expect(loose([row({ branch: 'feature/x', pr: pr({ ciChecks: 'green' }), ...idle })])).toBeUndefined();
+  });
+
+  it('carries the fixer mark of a PR whose record was read', () => {
+    expect(loose([row({ branch: 'feature/x', pr: pr({ ciChecks: 'green' }), fixerInFlight: true, ...idle })])).toEqual({ named: false, held: false, fixing: true });
+    expect(loose([row({ branch: 'feature/x', pr: pr({ ciChecks: 'green' }), fixerInFlight: false, ...idle })])).toMatchObject({ fixing: false });
+  });
+
+  it('places a loose branch under You > Unblock and a held one elsewhere', () => {
+    const place1 = (agents: RegistryAgent[]) =>
+      place(deliveryMapping(input({ rows: [row({ branch: 'feature/x', ...idle })], agents }))).items[0];
+    expect(place1([])).toMatchObject({ section: 'you', group: 'unblock', reason: 'loose' });
+    expect(place1([agent({ branch: 'feature/x' })])).not.toMatchObject({ reason: 'loose' });
+  });
+});

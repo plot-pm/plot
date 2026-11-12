@@ -133,7 +133,30 @@ const ownershipOfRows = (rows: readonly AgentRow[], reader: Reader): Ownership =
   return readings.includes('theirs') ? 'theirs' : 'unknown';
 };
 
-const rowItem = (id: string, rows: readonly AgentRow[], slice: Slice | undefined, reader: Reader): WorkItemReading => {
+/**
+ * What was measured of whether a PR or branch is loose, or `undefined` where nobody asked.
+ *
+ * `named` is a plan or a slice naming a row. `held` is a desk, a claim, a running worker or a
+ * registry agent on the branch. `fixing` is the fixer mark the server read for an open PR. A
+ * branch with no PR is asked on `named` and `held`; a PR is asked only once the server read
+ * its fixer record, so a PR whose record nobody read keeps the placement it had.
+ */
+const looseOf = (rows: readonly AgentRow[], held: ReadonlySet<string>): WorkItemReading['loose'] => {
+  const first = rows[0]!;
+  const loose: NonNullable<WorkItemReading['loose']> = {
+    named: first.plan !== '' || first.wave !== '',
+    held:
+      held.has(first.branch) ||
+      rows.some((r) => r.worker === 'running' || r.worker === 'waiting' || r.state === 'wip' || r.state === 'claimed'),
+  };
+  if (first.pr === null) return loose;
+  const fixing = rows.find((r) => r.fixerInFlight !== undefined)?.fixerInFlight;
+  if (fixing === undefined) return undefined;
+  loose.fixing = fixing;
+  return loose;
+};
+
+const rowItem = (id: string, rows: readonly AgentRow[], slice: Slice | undefined, reader: Reader, held: ReadonlySet<string> = new Set()): WorkItemReading => {
   const first = rows[0]!;
   const open = rows.find(hasOpenPr);
   const item: WorkItemReading = {
@@ -159,6 +182,10 @@ const rowItem = (id: string, rows: readonly AgentRow[], slice: Slice | undefined
   }
   const blockedBy = rows.find((r) => r.blockedBy !== null)?.blockedBy;
   if (blockedBy) item.waitsOn = blockedBy;
+  if (item.kind === 'pr' || item.kind === 'branch') {
+    const loose = looseOf(rows, held);
+    if (loose !== undefined) item.loose = loose;
+  }
   return item;
 };
 
@@ -232,10 +259,11 @@ export const deliveryMapping = (input: DeliveryMapInput): DeliveryMapping => {
   for (const row of input.rows) (rowsByItem[itemIdOfRow(row)] ??= []).push(row);
 
   const sliceByKey = new Map(input.slices.map((s) => [sliceKeyOf(s.plan, s.name), s]));
+  const heldBranches = new Set(input.agents.map((a) => a.branch).filter((b) => b !== ''));
   const items: WorkItemReading[] = Object.entries(rowsByItem).map(([id, rows]) => {
     const first = rows[0]!;
     const slice = rowInSlice(first) ? sliceByKey.get(sliceKeyOf(first.plan, first.wave)) : undefined;
-    return rowItem(id, rows, slice, input.reader);
+    return rowItem(id, rows, slice, input.reader, heldBranches);
   });
 
   const withRow = new Set(input.rows.map((r) => r.plan).filter((p) => p !== ''));

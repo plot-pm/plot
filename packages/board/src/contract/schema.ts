@@ -3321,6 +3321,13 @@ export const AgentRowSchema = z.object({
    */
   worker: WorkerStateSchema.default('elsewhere'),
   /**
+   * A fleetd fixer runs on this row's open PR now: `.plot/state/fixer-attempts/<pr>.json`
+   * carries an `inFlight` mark. Read on the render clock for a planless open PR only —
+   * the one row the loose-end rule asks — and absent everywhere else. Absent is not
+   * false: a row whose record nobody read says nothing about a fixer.
+   */
+  fixerInFlight: z.boolean().optional(),
+  /**
    * Whether a `running` worker's child is doing work — `BranchSchema.
    * worker_activity`, forwarded onto the row unchanged.
    *
