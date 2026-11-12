@@ -362,6 +362,59 @@ describe('the PR beat on snapshot, with an issue index to serve', () => {
   });
 });
 
+describe('the PR schedule on snapshot', () => {
+  // The snapshot carries fleetd's PR rows and when they were read, not when the
+  // next read is due. That schedule is the reader's published state, so the
+  // board measures `prOverdueSeconds` against it rather than against the
+  // `prNextAt` of its own first beat.
+  const state = (prNextAt: number) => ({
+    v: 1 as const,
+    prError: null,
+    prNextAt,
+    prNextIsBackoff: false,
+    prFullReadFailedAt: null,
+    at: prNextAt - 300_000,
+  });
+
+  it('takes the reader\'s published prNextAt on every PR beat', async () => {
+    const { dir, opts } = await fixture();
+    const held = { epoch: 'e1', snapshot: snapshotTitled('X', 1) };
+    const served = { ...opts, channelSnapshot: () => current(held) };
+    const lock = adapters.readerLockFile({ cwd: dir });
+    const entry = fleet.freshCacheEntry();
+    entry.clients = 1;
+    entry.backend = 'github';
+    // The board's own first beat, hours ago.
+    entry.prNextAt = Date.now() - 5 * 3_600_000;
+    entry.prNextScheduled = true;
+    const next = Date.now() + 240_000;
+    expect((await lock.writeReaderState('github', state(next))).ok).toBe(true);
+    await fleet.maybeRefreshPrs(served, entry);
+    expect(entry.prNextAt).toBe(next);
+    expect(entry.prNextScheduled).toBe(true);
+    expect(fleet.prOverdueSecondsFor(entry, Date.now())).toBe(0);
+    // The next publish moves it again.
+    const later = next + 480_000;
+    await lock.writeReaderState('github', state(later));
+    await fleet.maybeRefreshPrs(served, entry);
+    expect(entry.prNextAt).toBe(later);
+  });
+
+  it('reads the schedule as unknown where the reader published none', async () => {
+    const { opts } = await fixture();
+    const held = { epoch: 'e1', snapshot: snapshotTitled('X', 1) };
+    const served = { ...opts, channelSnapshot: () => current(held) };
+    const entry = fleet.freshCacheEntry();
+    entry.clients = 1;
+    entry.backend = 'github';
+    entry.prNextAt = Date.now() - 5 * 3_600_000;
+    entry.prNextScheduled = true;
+    await fleet.maybeRefreshPrs(served, entry);
+    expect(entry.prNextScheduled).toBe(false);
+    expect(fleet.prOverdueSecondsFor(entry, Date.now())).toBeNull();
+  });
+});
+
 describe('no tab, no pulse, with a snapshot held', () => {
   it('starts no pulse with no stream, runs one while a stream is attached, and stops it when the last leaves', async () => {
     const { opts } = await fixture();
