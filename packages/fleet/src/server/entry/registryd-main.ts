@@ -1808,6 +1808,17 @@ export const probeBeforeStarting = async (
 };
 
 /**
+ * The cause a failed `assignSlice` names in the supervisor's log.
+ *
+ * @param answer - the performer's answer, not answered.
+ * @returns the reason the performer gave, or what a `failed` answer means.
+ */
+export const handOverFailure = (answer: { ok: false; why: 'failed' } | { ok: false; why: 'unaskable'; reason?: string }): string =>
+  answer.why === 'unaskable'
+    ? (answer.reason ?? 'the agent has no manifest to write')
+    : 'its manifest could not be read or written';
+
+/**
  * Applies the tick's `agent-assign` and `worker-start` writes — what this
  * daemon performs.
  *
@@ -1882,9 +1893,7 @@ export const startAgents = async (
 
     const answer = await performer.assignSlice(item.session, item.branch, item.slug, item.base);
     if (!answer.ok) {
-      warn(
-        `plot-fleetd: ${item.branch} could not be handed over; the next tick re-derives the queue\n`,
-      );
+      warn(`plot-fleetd: ${item.branch} could not be handed over to ${item.session}: ${handOverFailure(answer)}; the next tick re-derives the queue\n`);
       continue;
     }
     // A REFUSAL IS REPORTED, NOT SWALLOWED. `false` means the agent had taken
@@ -3008,7 +3017,10 @@ export const run = async (
   const scripts = scriptsShell({ repoRoot, scriptDir: scriptsDir });
   // BUILT WHETHER OR NOT IT IS USED, because building it reaches nothing: the
   // adapter is a closure over two paths and spawns only when it is called.
-  const performer = performerShell({ repoRoot, scriptDir: scriptsDir });
+  // THE REGISTRY THE TICK READ IS THE ONE THE HAND-OVER WRITES. Measured
+  // 2026-11-12: with `Agent registry` pointing outside the checkout, the write
+  // went to `<repo>/.plot/agents`, found no manifest, and every hand-over failed.
+  const performer = performerShell({ repoRoot, scriptDir: scriptsDir }, { manifestDir: registryDir });
   // SAME REASON: the probe cuts and removes its own scratch desk only when
   // `startAgents` below actually calls it, ahead of the first `worker-start`.
   const probe = writeProbeShell({ repoRoot, scriptDir: scriptsDir });

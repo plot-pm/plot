@@ -1009,6 +1009,30 @@ describe('starting agents is the one write this daemon performs', () => {
     expect(out.join('')).toContain('feature/a');
   });
 
+  it('names the agent and the missing manifest when a hand-over cannot be written', async () => {
+    // MEASURED 2026-11-12: `infra/ci-cancels-superseded-runs could not be handed
+    // over` seven times, with no cause, while the write looked in the wrong registry.
+    const performer: Performer = {
+      startFreeAgent: async () => answered(1),
+      assignSlice: async () => unaskable<boolean>('no manifest at /registry/sess-1.json'),
+    };
+    const err: string[] = [];
+    await startAgents(withAssign(), performer, handOverReady, () => {}, (s) => err.push(s));
+    expect(err.join('')).toContain(
+      'feature/a could not be handed over to sess-1: no manifest at /registry/sess-1.json; the next tick re-derives the queue',
+    );
+  });
+
+  it('names an unreadable or unwritable manifest when a hand-over fails', async () => {
+    const performer: Performer = {
+      startFreeAgent: async () => answered(1),
+      assignSlice: async () => failed<boolean>(),
+    };
+    const err: string[] = [];
+    await startAgents(withAssign(), performer, handOverReady, () => {}, (s) => err.push(s));
+    expect(err.join('')).toContain('feature/a could not be handed over to sess-1: its manifest could not be read or written');
+  });
+
   it('starts one agent per `worker-start` write and reports the count', async () => {
     const { performer, asked } = spy(async () => answered(1));
     const out: string[] = [];

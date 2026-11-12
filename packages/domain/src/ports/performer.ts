@@ -60,7 +60,9 @@ export interface Performer {
    *   for the default branch. Recorded as the manifest's `base`, or removed
    *   from it where empty.
    * @returns whether the assignment was recorded — `false` where the agent had
-   *   since taken other work, never a throw.
+   *   since taken other work, never a throw. `unaskable`, with the path in
+   *   `reason`, where the agent has no manifest in the registry; `failed` where
+   *   its manifest could not be read or written.
    */
   assignSlice(session: string, branch: string, slug: string, base?: string): Promise<PortResult<boolean>>;
 }
