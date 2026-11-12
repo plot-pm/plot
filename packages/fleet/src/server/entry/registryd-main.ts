@@ -76,7 +76,7 @@ import { startFleetdHeartbeat, supervisedFrom, trackBridgeWrites } from '../../s
 import { deskDead, type DeskDeadAnswer } from '@plot-pm/domain/rules/desk-dead';
 import type { Processes } from '@plot-pm/domain/ports/processes';
 import { landed, type LandedAnswer } from '@plot-pm/domain/rules/landed';
-import { indexMergedHeads, mergedSetWindowFor, viewLanded } from '@plot-pm/domain/rules/known-pr';
+import { indexMergedHeads, indexSettledMergedHeads, mergedSetWindowFor, viewLanded } from '@plot-pm/domain/rules/known-pr';
 import { checkNamesOf, checksWaitMsOf, defaultBranchRed, mainRepairBoundMsOf } from '@plot-pm/domain/rules/default-branch';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { Refs } from '@plot-pm/domain/ports/refs';
@@ -531,7 +531,9 @@ export const spendForTick = async (
  * The supervisor world and the queue world ask the same question about the
  * same branch: `merge` for every registered agent, and `sliceHasMerged` for
  * every agent with a branch. Both read through one memo, so a busy agent costs
- * one host call per tick rather than two.
+ * one host call per tick rather than two. A branch the PR index settles as
+ * merged ({@link indexSettledMergedHeads}) is answered `merged` with no host
+ * call; every other branch is asked.
  */
 export interface MergeMemo {
   /**
@@ -551,22 +553,46 @@ export interface MergeMemo {
  * call. A memo of booleans would read a host outage as *not merged*.
  *
  * @param host - the host to ask.
+ * @param settled - reads the heads the PR index settles as merged; read once
+ *   per tick, on the first `ask` after a `clear`. A failed read answers the
+ *   empty set, so every branch goes to the host.
  * @returns a memo that is empty until its first `ask`.
  */
-export const mergeMemoOver = (host: Pick<Host, 'prMerged'>): MergeMemo => {
+export const mergeMemoOver = (
+  host: Pick<Host, 'prMerged'>,
+  settled: () => Promise<ReadonlySet<string>> = async () => new Set(),
+): MergeMemo => {
   let asked = new Map<string, Promise<PortResult<MergedAnswer>>>();
+  let heads: Promise<ReadonlySet<string>> | undefined;
   return {
     ask: (branch) => {
       const known = asked.get(branch);
       if (known !== undefined) return known;
-      const answer = host.prMerged(branch);
+      heads ??= settled().catch(() => new Set<string>());
+      const answer = heads.then((set) => (set.has(branch) ? answered<MergedAnswer>('merged') : host.prMerged(branch)));
       asked.set(branch, answer);
       return answer;
     },
     clear: () => {
       asked = new Map();
+      heads = undefined;
     },
   };
+};
+
+/**
+ * Reads the heads the PR index settles as merged, for {@link mergeMemoOver}.
+ *
+ * @param host - answers the backend word the store is keyed by.
+ * @param index - the PR index store.
+ * @returns the settled heads; empty where the backend, the store or its rows
+ *   cannot be read.
+ */
+export const settledMergedHeadsFrom = (host: Pick<Host, 'backend'>, index: PrIndexStore) => async (): Promise<ReadonlySet<string>> => {
+  const backend = await host.backend();
+  if (!backend.ok) return new Set();
+  const held = await index.read(backend.value);
+  return held.ok && held.value !== null ? indexSettledMergedHeads(held.value.rows) : new Set();
 };
 
 /**
@@ -2970,7 +2996,8 @@ export const run = async (
   // ONE MEMO FOR BOTH WORLDS. `tick` reads the supervisor world first, and its
   // `beginTick` clears the memo, so the queue read that follows shares the
   // tick's answers and the next tick asks again.
-  const merges = mergeMemoOver(hostShell({ repoRoot, scriptDir: scriptsDir }));
+  const memoHost = hostShell({ repoRoot, scriptDir: scriptsDir });
+  const merges = mergeMemoOver(memoHost, settledMergedHeadsFrom(memoHost, prIndexFile({ cwd: repoRoot })));
   const world = worldForRepo(repoRoot, scriptsDir, tally, merges);
   const queue = queueWorldForRepo(repoRoot, scriptsDir, tally, merges, undefined, undefined, checksWaitMs, hostReads.host);
   // SHARES `tally` WITH `queue` ABOVE so a hand-over's fresh `queuedHasLanded`
