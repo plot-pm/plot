@@ -190,6 +190,7 @@ Each row has one unit. A baseline names its fixture. Baselines come from the Lin
 | Board, no tab, no fleetd (S1) | `execve` per minute | `main` 1549 (GitHub), 1926 (Bitbucket); sprint head 0 (GitHub), 0 (Bitbucket; 772 before #3269) — 0 desks, 5 open PRs | 0 |
 | Board, one visible tab, fleetd running (S3) | `execve` per minute | `main` 1429; sprint head 1248 — GitHub, 0 desks, 5 open PRs. 2026-11-09: `main` 1212, sprint `the-board-reads-the-channel` 0, census fleetd under `systemd-run --user` (#3277, run 42595561157) | 0 |
 | fleetd, idle repository (S4) | `execve` per completed pass, N desks, M open PRs | `main` 1291.5 (GitHub, 0 desks), 2868.5 (GitHub, 3 desks), 2879.5 (Bitbucket, 3 desks); sprint head 1099.5, 2560.5, 2662 — 5 open PRs | 0, except the safety-net pass |
+| fleetd, idle repository, Bitbucket cutover (S4) | `execve` per completed pass, Bitbucket fixture | not yet measured: the Bitbucket cutover (2026-11-12) was written on macOS, which has no `strace`; the CI census (row P10) records the figure | 0, except the safety-net pass |
 | fleetd, safety-net pass | `execve` per pass | Phase 1 fixture | measured, then held by the gate |
 | A board page turned hidden (S2) | `execve` per minute | `main` 1546; sprint head 0 — GitHub, 0 desks, 5 open PRs | 0 |
 | One PR whose CI turns green (S6) | `execve` per change | `main` 2992; sprint head 2671 — GitHub, 3 desks, 5 open PRs | measured, then held by the gate |
