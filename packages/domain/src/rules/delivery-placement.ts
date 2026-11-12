@@ -72,6 +72,21 @@ export interface WorkItemReading {
   planned?: boolean;
   /** A ticket's planned release versions: `[]` where the tracker was asked and named none, absent where it was not asked. */
   releases?: readonly string[];
+  /** What was measured to decide whether a PR or branch is loose; absent where nobody asked. */
+  loose?: LooseReading;
+}
+
+/**
+ * The facts that decide whether a PR or a branch is loose: no plan names it and
+ * nobody works on it. Each is absent where nobody read it, never `false`.
+ */
+export interface LooseReading {
+  /** A plan names the item, whatever its state. */
+  named?: boolean;
+  /** A live desk or a registry manifest holds the branch's claim. */
+  held?: boolean;
+  /** A fleetd fixer runs on the item's open PR now. Read for a `pr` only. */
+  fixing?: boolean;
 }
 
 export type AgentRole = 'loop' | 'fixer' | 'reviewer' | 'approver' | 'idea' | 'brief';
@@ -118,6 +133,7 @@ export type YouReason =
   | 'fleet-stuck'
   | 'merge-conflict'
   | 'agent-died'
+  | 'loose'
   | 'ticket-assigned';
 
 export type ItemPlacement =
@@ -154,6 +170,25 @@ export interface DeliveryPlacement {
 
 type YouCase = { group: YouGroup; reason: YouReason };
 
+/**
+ * Whether a PR or a branch is loose, from the readings taken of it.
+ *
+ * Loose means no plan names the item, no desk or manifest holds it, and, for a
+ * PR, no fixer runs on it. A delivered item has left the fleet and is never
+ * loose. An item with no `loose` reading was never asked and is `not-loose`;
+ * one with a reading that lacks a fact the decision needs is `unread`, because
+ * an absent fact is not a false one.
+ */
+const looseOf = (item: WorkItemReading): 'loose' | 'not-loose' | 'unread' => {
+  if (item.kind !== 'pr' && item.kind !== 'branch') return 'not-loose';
+  const facts = item.loose;
+  if (facts === undefined || item.delivered === true) return 'not-loose';
+  if (facts.named === true || facts.held === true || facts.fixing === true) return 'not-loose';
+  if (facts.named === undefined || facts.held === undefined) return 'unread';
+  if (item.kind === 'pr' && facts.fixing === undefined) return 'unread';
+  return 'loose';
+};
+
 const mineAllows = (mode: DeliveryMine, ownership: Ownership): boolean =>
   mode === 'off' || (mode === 'strict' ? ownership === 'mine' : ownership !== 'theirs');
 
@@ -183,6 +218,7 @@ const youCase = (
     }
   }
   if (item.stage === 'building' && live === 0 && stopped > 0) return { group: 'unblock', reason: 'agent-died' };
+  if (looseOf(item) === 'loose') return { group: 'unblock', reason: 'loose' };
   return null;
 };
 
@@ -243,6 +279,10 @@ const agentGroup = (agent: AgentPlacementReading): FleetGroup | null => {
  * the Mine mode or the Sprint filter (`input.releases`) excludes it; each of
  * those appears in `unplaced`.
  *
+ * A PR or branch that no plan names, no desk or manifest holds and no fixer
+ * works on is loose and goes to You › Unblock with the reason `loose`; one whose
+ * loose reading lacks a fact is `unread`, never loose.
+ *
  * A subject whose needed reading is absent, and a delivered item, appear in
  * `unplaced` with the reason; nothing defaults to Work items. The rule stores
  * nothing and reads nothing outside its arguments.
@@ -286,6 +326,11 @@ export const placeDelivery = (readings: DeliveryReadings, input: DeliveryInput):
         unplaced.push({ id: item.id, subject: 'item', reason: why });
         continue;
       }
+    }
+
+    if (looseOf(item) === 'unread') {
+      unplaced.push({ id: item.id, subject: 'item', reason: 'unread' });
+      continue;
     }
 
     const you = youCase(item, input, live, stopped);
