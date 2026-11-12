@@ -13,7 +13,7 @@ import {
   settingsFilesOf,
   spawnAttachedHolding,
 } from '@plot-pm/domain/adapters/agent-run/agent-run-sdk';
-import { PASS_FILE, TOKEN_FD, TOKEN_FD_ENV, TOKEN_FILENAME } from '@plot-pm/domain/rules/worker-liveness';
+import { PASS_FILE, TOKEN_FD, TOKEN_FD_ENV, TOKEN_FILENAME, TOKEN_ON_PATH_ENV } from '@plot-pm/domain/rules/worker-liveness';
 
 import {
   agentsFs,
@@ -342,6 +342,8 @@ export interface RestartDeps {
   readonly logOnce: (line: string) => void;
   readonly log: (line: string) => void;
   readonly env: NodeJS.ProcessEnv;
+  /** The descriptor this process holds the liveness token on; `null` or absent where it holds none. */
+  readonly tokenFd?: number | null;
 }
 
 /**
@@ -404,7 +406,9 @@ const selfCheckFailure = (check: Awaited<ReturnType<BoundedRun['run']>>): string
  * {@link SELF_CHECK_ATTEMPTS} times, or whose replace failed, is not tried
  * again, and the rejection is logged once. A restart replaces the process
  * through `reexec` with the same arguments, the candidate bundle,
- * `PLOT_WAIT_STARTED` and `PLOT_HOP_FROM`.
+ * `PLOT_WAIT_STARTED` and `PLOT_HOP_FROM`. Where this process holds the token
+ * on a descriptor other than fd 3, which `execve` closes, the restart also
+ * carries {@link TOKEN_ON_PATH_ENV}.
  *
  * @param ports - the loop's `trees`, `boundedRun` and `reexec`.
  * @param deps - the pinned checkout, the running bundle and the platform readings.
@@ -458,6 +462,7 @@ export const checkRestart = async (
       ...deps.env,
       PLOT_WAIT_STARTED: carry.waitStartedAt === null ? '' : String(carry.waitStartedAt),
       PLOT_HOP_FROM: carry.hopFrom,
+      ...(typeof deps.tokenFd === 'number' && deps.tokenFd !== TOKEN_FD ? { [TOKEN_ON_PATH_ENV]: '1' } : {}),
     },
   );
   if (!replaced.ok) {
@@ -2556,8 +2561,13 @@ export const selfCheck = async (
 };
 
 /** A FIFO's identity: its device and inode. */
+/**
+ * The device and inode of a named FIFO, or `null` for anything else. macOS
+ * reports a kqueue descriptor as a FIFO with device 0 and inode 0, so a FIFO
+ * with no inode is not a named one.
+ */
 const fifoIdentity = (stat: { isFIFO: () => boolean; dev: number; ino: number } | null): string | null =>
-  stat !== null && stat.isFIFO() ? `${stat.dev}:${stat.ino}` : null;
+  stat !== null && stat.isFIFO() && stat.ino !== 0 ? `${stat.dev}:${stat.ino}` : null;
 
 /** `fstat` of a descriptor, or `null` where it is not open. */
 const fdStat = (fd: number) => {
@@ -2586,8 +2596,10 @@ const pathStat = (path: string) => {
  * loop therefore opens the desk's token path again, which Node opens
  * close-on-exec, and closes fd 3 once the new descriptor names the same FIFO.
  * Only the harness, which names the descriptor in its `stdio`, receives it.
- * A loop restarted through `execve` finds no fd 3 and opens the path. Where
- * the path names another FIFO or none, the inherited fd 3 stays.
+ * A loop restarted through `execve` with {@link TOKEN_ON_PATH_ENV} set opens
+ * the path and leaves fd 3, which then holds a descriptor of its own Node,
+ * untouched. Where the path names another FIFO or none, the inherited fd 3
+ * stays.
  *
  * @param env - the process environment.
  * @param worktree - the desk the token lies in.
@@ -2597,7 +2609,7 @@ const pathStat = (path: string) => {
 export const acquireToken = (env: NodeJS.ProcessEnv, worktree: string, inherited: number = TOKEN_FD): number | null => {
   if (env[TOKEN_FD_ENV] !== String(TOKEN_FD)) return null;
   const path = join(worktree, TOKEN_FILENAME);
-  const held = fifoIdentity(fdStat(inherited));
+  const held = env[TOKEN_ON_PATH_ENV] === '1' ? null : fifoIdentity(fdStat(inherited));
   const named = fifoIdentity(pathStat(path));
   if (named === null || (held !== null && held !== named)) return held === null ? null : inherited;
   let fresh: number;
@@ -2680,12 +2692,14 @@ export const main = async (
     const hop = hopFrom === '' ? '' : ` and the hop from ${hopFrom}`;
     stderrLog(`plot-worker-loop: restarted as pid ${process.pid} on ${join(scriptDir, 'board', 'plot-worker-loop.mjs')}, keeping ${wait}${hop}`);
   }
+  const tokenFd = acquireToken(env, worktree);
   // The carried state reaches no prompt and no check this process starts.
   delete env.PLOT_WAIT_STARTED;
   delete env.PLOT_HOP_FROM;
-  const restart = await restartDeps(ports.trees, scriptDir, env, stderrLog);
+  delete env[TOKEN_ON_PATH_ENV];
+  const found = await restartDeps(ports.trees, scriptDir, env, stderrLog);
+  const restart = found === undefined ? undefined : { ...found, tokenFd };
   const now = offsetClock(env);
-  const tokenFd = acquireToken(env, worktree);
   const runner = await runnerDeps({
     tokenFd,
     env,
