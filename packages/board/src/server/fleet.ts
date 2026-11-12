@@ -22,6 +22,7 @@ import {
   type DesignStatus as DesignStatusPayload,
   type FleetReading,
   type FleetSprint,
+  type ReleaseTickets,
   type IssueAnswer,
   type IssueRow,
   type MachineProcess,
@@ -40,7 +41,7 @@ import { stuckState, summarizeStuck } from './stuck.js';
 import { listRecordBlobs } from '@plot-pm/domain/workflows/record-listing';
 import { blobIdOfBytes, parsePlanMetaFiles, planMetaOf, planSlug, heldRefsFor, workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
 import type { RefState, Refs } from '@plot-pm/domain/ports/refs';
-import type { BuildPort } from '@plot-pm/domain';
+import type { BuildPort, ReaderState } from '@plot-pm/domain';
 import type { DetachedProcess } from '@plot-pm/domain/ports/detached';
 import { electReader, HEARTBEAT_STALE_MS, type ReaderClaim, type ReaderVerdict } from '@plot-pm/domain/rules/reader-election';
 import { PR_READ_BEAT_MS } from '@plot-pm/domain/rules/pr-status';
@@ -1992,6 +1993,24 @@ export async function ticketLaneData(opts: BuildBoardOptions): Promise<TicketLan
   };
 }
 
+/**
+ * The `releases` of the open and closed rows the issue index holds, for the release line.
+ *
+ * @param sets - the cache's issue sets.
+ * @returns null where no open rows were read; `closed` is null where no closed read has answered.
+ */
+export const releaseTicketsOf = (sets: IssueSets | null): ReleaseTickets | null => {
+  if (sets === null || sets.rows === undefined) return null;
+  const pick = (rows: readonly IssueIndexRow[]) => rows.map((r) => (r.releases === undefined ? {} : { releases: r.releases }));
+  const closed = sets.closed?.rows;
+  return {
+    open: pick(sets.rows),
+    closed: closed === undefined ? null : pick(closed),
+    closedComplete: sets.closed?.complete === true,
+    closedSince: sets.closed?.since ?? null,
+  };
+};
+
 /** What `GET /api/issues/closed` answers. */
 export interface IssuesClosedReading {
   /** The closed rows the read returned, or the last cached answer. */
@@ -2231,6 +2250,8 @@ const waitingOf = async (
       assignees: [...t.assignees],
       type: t.type,
       owner: t.owner,
+      ...(t.releases === undefined ? {} : { releases: [...t.releases] }),
+      ...(t.planned === true ? { planned: true as const } : {}),
     })),
     shown: result.shown,
     hidden: result.hidden,
@@ -2795,11 +2816,25 @@ const readPrsFromStore = async (opts: BuildBoardOptions, entry: CacheEntry, key:
     entry.prAt = Number.isNaN(at) ? startedAt : at;
     await refreshRuns(opts, entry, maps.prs, await buildPortFor(opts));
   }
-  if (published.ok && published.value !== null) {
-    entry.prError = published.value.prError;
-    entry.prNextAt = published.value.prNextAt;
-    entry.prNextIsBackoff = published.value.prNextIsBackoff;
-    entry.prFullReadFailedAt = published.value.prFullReadFailedAt;
+  adoptPublishedSchedule(entry, published.ok ? published.value : null, startedAt);
+};
+
+/**
+ * Copies the PR reader's published cadence into the cache entry.
+ *
+ * @param entry - the board's cache entry.
+ * @param published - the state the reader lock holds for this connector, or
+ *   null where none was published or it could not be read.
+ * @param startedAt - when this tick started, epoch ms; with no published
+ *   state, the next read is paced one ordinary interval from it and the
+ *   schedule reads as unknown (`prNextScheduled` false).
+ */
+const adoptPublishedSchedule = (entry: CacheEntry, published: ReaderState | null, startedAt: number): void => {
+  if (published !== null) {
+    entry.prError = published.prError;
+    entry.prNextAt = published.prNextAt;
+    entry.prNextIsBackoff = published.prNextIsBackoff;
+    entry.prFullReadFailedAt = published.prFullReadFailedAt;
     entry.prNextScheduled = true;
   } else {
     entry.prNextAt = startedAt + PR_REFRESH_MS;
@@ -2916,6 +2951,15 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
     const refs = held.snapshot.readings.refs;
     try {
       await readIssuesFromStore(opts, entry, refs.state === 'read' ? refs.value.entries : undefined);
+      // THE SCHEDULE COMES FROM THE READER, NOT THE SNAPSHOT: the snapshot
+      // carries the PR rows and when they were read, not when the next read is
+      // due, so `prOverdueSeconds` measures against the reader's published
+      // `prNextAt`.
+      const key = await readerLockKey(opts, entry);
+      if (key !== '') {
+        const published = await readerLockFor(opts).readerState(key);
+        adoptPublishedSchedule(entry, published.ok ? published.value : null, Date.now());
+      }
     } finally {
       entry.prRunning = false;
     }
@@ -8230,6 +8274,7 @@ export async function activeSprints(
       slug: sprint.slug,
       title: sprint.title,
       release: sprint.release,
+      start: sprint.start,
       counts,
       timebox: timeboxStanding(readings),
       timeboxLabel: timeboxLabel(readings),
@@ -8624,6 +8669,8 @@ export async function buildFleet(
     // `null` only where the read failed or the source is `nobody` — the same
     // cases `issues` holds its last good value or `[]` for.
     waiting: entry.waiting,
+    // The index's `releases`, for the Delivery tab's release line: no second read.
+    releaseTickets: releaseTicketsOf(entry.issueSets),
     // Beside `rows`, never derived from them: a row is a branch that mentions an
     // agent, this is an agent that mentions a branch. A running worker appears
     // in both and is not duplicated — the entities differ.

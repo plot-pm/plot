@@ -14,9 +14,11 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * node plot-restart-command.mjs <branch>
  * ```
  *
- * Looks the branch up in the pulse the fleet bridged to disk, refuses
- * `no-pulse`, `unknown-branch` and `no-worktree`, asks the domain's `restartWorker`, and
- * on its decision starts a NEW agent on the desk. The new agent has a new pid.
+ * Looks the branch up in the pulse the fleet bridged to disk and refuses
+ * `no-pulse` and `unknown-branch`. Where this machine holds no worktree for the
+ * branch, cuts one at `origin/<branch>` when the domain's `originResume`
+ * allows it. Asks the domain's `restartWorker`, and on its decision starts a
+ * NEW agent on the desk. The new agent has a new pid.
  */
 
 /** The usage line. */

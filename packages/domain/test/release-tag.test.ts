@@ -169,3 +169,40 @@ describe('releaseTag', () => {
     expect((result as { detail: string }).detail).toContain('none');
   });
 });
+
+describe('releaseTag refusals for a PR carried onto the default branch', () => {
+  const carried = (overrides: Partial<ReleaseTagPrRow> = {}): ReleaseTagPrRow =>
+    prRow({ mergeCommit: 'own8f6f', carrier: 'sprint7fcf', ...overrides });
+  const detail = (result: ReturnType<typeof releaseTag>): string => (result as { detail: string }).detail;
+
+  it('names the PR\'s own merge commit and the carrier where no tag contains the carrier', () => {
+    const result = releaseTag({ ...BASE, prs: [carried({ containingTags: [] })] });
+    expect(result).toMatchObject({ outcome: 'refused', reason: 'no-tag' });
+    expect(detail(result)).toContain('(own8f6f, carried by sprint7fcf, from PR #1200)');
+  });
+
+  it('names both commits where the named tag does not contain the carrier', () => {
+    const result = releaseTag({ ...BASE, prs: [carried()], wantedVersion: '3.0.0' });
+    expect(result).toMatchObject({ outcome: 'refused', reason: 'tag-does-not-contain' });
+    expect(detail(result)).toContain('(own8f6f, carried by sprint7fcf, from PR #1200)');
+  });
+
+  it('names both commits where the carrier shipped in an earlier tag', () => {
+    const result = releaseTag({ ...BASE, prs: [carried()], wantedVersion: '2.10.0' });
+    expect(result).toMatchObject({ outcome: 'refused', reason: 'tag-mismatch' });
+    expect(detail(result)).toContain('(own8f6f, carried by sprint7fcf, from PR #1200)');
+  });
+
+  it('names both commits of the carried PR the resolved tag misses', () => {
+    const later = prRow({ number: 1300, mergedAt: '2026-09-02T00:00:00Z' });
+    const result = releaseTag({ ...BASE, prs: [carried({ containingTags: ['v2.10.0'] }), later] });
+    expect(result).toMatchObject({ outcome: 'refused', reason: 'tag-misses-pr' });
+    expect(detail(result)).toContain("PR #1200's merge commit (own8f6f, carried by sprint7fcf)");
+  });
+
+  it('names only the PR\'s own merge commit for a row with no carrier', () => {
+    const result = releaseTag({ ...BASE, prs: [prRow({ containingTags: [] })] });
+    expect(detail(result)).toContain('(abc123, from PR #1200)');
+  });
+});
+

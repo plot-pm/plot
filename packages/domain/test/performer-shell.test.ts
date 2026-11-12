@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -89,5 +89,74 @@ describe('perform-fs skips the agent-loop write kinds on purpose', () => {
     expect(() =>
       performDecision({ root }, { outcome: 'decided', workflow: 'agent-loop', writes, detail: null }),
     ).toThrow(/unrecognised write kind/);
+  });
+});
+
+describe('performerShell.assignSlice', () => {
+  /** A repository holding one free agent's manifest, with the given fields. */
+  const withManifest = (fields: Record<string, unknown>): { context: ShellContext; file: string } => {
+    const root = mkdtempSync(join(tmpdir(), 'plot-performer-assign-'));
+    shells.push(root);
+    mkdirSync(join(root, '.plot/agents'), { recursive: true });
+    const file = join(root, '.plot/agents/s1.json');
+    writeFileSync(file, JSON.stringify({ session: 's1', branch: '', ...fields }));
+    return { context: { repoRoot: root, scriptDir: join(root, 'scripts') }, file };
+  };
+  const read = (file: string): Record<string, unknown> => JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+
+  it('records a sprint slice\'s base beside its branch', async () => {
+    const { context, file } = withManifest({});
+    const answer = await performerShell(context).assignSlice('s1', 'feature/x', 'a-plan', 'sprint/s');
+    expect(answer).toEqual({ ok: true, value: true });
+    expect(read(file)).toMatchObject({ branch: 'feature/x', slug: 'a-plan', base: 'sprint/s' });
+  });
+
+  it('removes a base an earlier slice left when the new slice is on the default branch', async () => {
+    const { context, file } = withManifest({ base: 'sprint/old' });
+    await performerShell(context).assignSlice('s1', 'feature/y', 'b-plan');
+    expect(read(file)).not.toHaveProperty('base');
+    expect(read(file)).toMatchObject({ branch: 'feature/y', slug: 'b-plan' });
+  });
+});
+
+describe('performerShell.assignSlice writes into the Agent registry', () => {
+  /** A repository with no `.plot/agents`, and a registry elsewhere holding one free manifest. */
+  const withRegistryElsewhere = (): { root: string; registry: string; file: string } => {
+    const root = mkdtempSync(join(tmpdir(), 'plot-performer-repo-'));
+    const registry = mkdtempSync(join(tmpdir(), 'plot-performer-registry-'));
+    shells.push(root, registry);
+    const file = join(registry, 's1.json');
+    writeFileSync(file, JSON.stringify({ session: 's1', branch: '' }));
+    return { root, registry, file };
+  };
+  const read = (file: string): Record<string, unknown> => JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+
+  it('records the branch in the manifest of the registry it is given', async () => {
+    // MEASURED 2026-11-12: `Agent registry` named a directory outside the
+    // checkout, the write joined `<repo>/.plot/agents`, and every hand-over failed.
+    const { root, registry, file } = withRegistryElsewhere();
+    const context = { repoRoot: root, scriptDir: join(root, 'scripts') };
+    const answer = await performerShell(context, { manifestDir: registry }).assignSlice('s1', 'feature/x', 'a-plan', 'sprint/s');
+    expect(answer).toEqual({ ok: true, value: true });
+    expect(read(file)).toMatchObject({ branch: 'feature/x', slug: 'a-plan', base: 'sprint/s' });
+  });
+
+  it('reads the registry from the Agent registry key when none is given', async () => {
+    const { root, registry, file } = withRegistryElsewhere();
+    const scriptDir = join(root, 'scripts');
+    mkdirSync(scriptDir);
+    const config = join(scriptDir, 'plot-config.sh');
+    writeFileSync(config, `#!/usr/bin/env bash\nif [ "$2" = "Agent registry" ]; then echo '${registry}'; else echo "$3"; fi\n`);
+    chmodSync(config, 0o755);
+    const answer = await performerShell({ repoRoot: root, scriptDir }).assignSlice('s1', 'feature/y', 'b-plan');
+    expect(answer).toEqual({ ok: true, value: true });
+    expect(read(file)).toMatchObject({ branch: 'feature/y', slug: 'b-plan' });
+  });
+
+  it('answers unaskable naming the path where the agent has no manifest', async () => {
+    const { root, registry } = withRegistryElsewhere();
+    const context = { repoRoot: root, scriptDir: join(root, 'scripts') };
+    const answer = await performerShell(context, { manifestDir: registry }).assignSlice('s2', 'feature/z', 'c-plan');
+    expect(answer).toEqual({ ok: false, why: 'unaskable', reason: `no manifest at ${join(registry, 's2.json')}` });
   });
 });

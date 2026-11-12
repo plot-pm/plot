@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** desk-probes-and-liveness
 - **Issue:** #3344
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-09, jwloka, plan-PR #3345 merged
 - **Delivered:** 2026-11-10
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
@@ -92,7 +93,7 @@ The commit hook, `bundleCommitRefusal`, its tests (`packages/domain/test/bundle-
 
 ### Bundle base
 
-- `bug/bundle-gate-reads-the-default-branch` — `ci.yml:1383` with no base argument and its comment, the `ci-tiers.test.mjs` rows, the comment in `check-no-bundle-diff.sh`, the agreement row in `bundle-commit-gate.test.mjs`, and the changeset sentence; targets `sprint/desk-probes-and-liveness` and merges before the sprint PR into `main` <!-- builds: CI's bundle gate and the commit hook read one base -->
+- `bug/bundle-gate-reads-the-default-branch` — `ci.yml:1383` with no base argument and its comment, the `ci-tiers.test.mjs` rows, the comment in `check-no-bundle-diff.sh`, the agreement row in `bundle-commit-gate.test.mjs`, and the changeset sentence; targets `sprint/desk-probes-and-liveness` and merges before the sprint PR into `main` <!-- builds: CI's bundle gate and the commit hook read one base --> → #3350
 
 ## Notes
 

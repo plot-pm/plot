@@ -349,6 +349,42 @@ test('open-pr: a closed PR on another branch is not this branch\'s row', () => {
   assert.doesNotMatch(err, /closed unmerged/, err);
 });
 
+// --- the base -----------------------------------------------------------------
+
+test('open-pr: a slice on the default branch targets the default branch', () => {
+  makeRepo();
+  run([]);
+  const argv = created();
+  assert.equal(argv[argv.indexOf('--base') + 1], 'main');
+});
+
+test('open-pr: a slice whose plan only a sprint branch holds targets that sprint branch', () => {
+  // The plan moves off `main` onto `sprint/s`, and the slice is cut from
+  // `origin/sprint/s`, as fleetd cuts it.
+  makeRepo({ branch: '' });
+  git(repo, 'checkout', '-q', '-b', 'sprint/s');
+  const planPath = path.join(repo, 'docs', 'plans', '2026-09-09-a-plan-with-waves.md');
+  fs.writeFileSync(planPath, PLAN.replace('- **Type:** feature', '- **Type:** feature\n- **Sprint:** s'));
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'sprint plan');
+  git(repo, 'push', '-q', 'origin', 'sprint/s');
+  git(repo, 'checkout', '-q', 'main');
+  git(repo, 'rm', '-q', planPath);
+  git(repo, 'commit', '-qm', 'the plan lives on the sprint branch');
+  git(repo, 'push', '-q', 'origin', 'main');
+  git(repo, 'checkout', '-q', '-b', 'feature/alpha', 'origin/sprint/s');
+  fs.mkdirSync(path.join(repo, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'src', 'alpha.ts'), 'export const a = 1;\n');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'alpha');
+  run([]);
+
+  const argv = created();
+  assert.ok(argv, `nothing was opened:\n${calls()}`);
+  assert.equal(argv[argv.indexOf('--base') + 1], 'sprint/s');
+  assert.equal(argv[argv.indexOf('--title') + 1], 'The slice that opens its own PR');
+});
+
 test('open-pr: refuses a branch holding no commit its base does not', () => {
   makeRepo({ files: {} });
   const { err } = run([], { expectFail: true });

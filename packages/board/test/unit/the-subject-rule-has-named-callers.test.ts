@@ -98,6 +98,7 @@ describe('the subject rule has named callers', () => {
   it('names `ownerOfRemote` only where the owner is read', () => {
     expect(callersOf('ownerOfRemote')).toEqual([
       'packages/board/src/server/entry/merge-subject.ts',
+      'packages/board/src/server/entry/release-chain-walk.ts',
       'packages/domain/src/rules/remote-owner.ts',
       'packages/domain/src/workflows/plan-walk-branches.ts',
       'packages/fleet/src/server/entry/registryd-main.ts',
@@ -141,13 +142,24 @@ describe('the subject rule has named callers', () => {
     expect(source).not.toContain('mergeSubjects');
   });
 
-  // THE FORMS, which carry the vendor words. They belong to the host adapter
-  // and to the two entries that ask it — a domain rule holding one would fail
-  // the vendor gate, and `shared/queue-reading.ts` holding one would put a
-  // vendor word outside the vendor gate's root.
-  it('names `mergeSubjectForms` only in the adapter and the two entries', () => {
+  // THE RELEASE CHAIN'S READING. A subject proves that a merge carried a PR
+  // the host already reports as merged; it locates the release tag and
+  // decides no landing (docs/domain/merge-subject.md).
+  it('names `carriesMergeOf` only in the rule and the release-chain walk', () => {
+    expect(callersOf('carriesMergeOf')).toEqual([
+      'packages/board/src/server/entry/release-chain-walk.ts',
+      'packages/domain/src/rules/merge-subject.ts',
+    ]);
+  });
+
+  // THE FORMS, which carry the vendor words. They belong to the host adapter,
+  // to the two entries that ask it and to the release-chain walk — a domain
+  // rule holding one would fail the vendor gate, and `shared/queue-reading.ts`
+  // holding one would put a vendor word outside the vendor gate's root.
+  it('names `mergeSubjectForms` only in the adapter, the two entries and the release-chain walk', () => {
     expect(callersOf('mergeSubjectForms')).toEqual([
       'packages/board/src/server/entry/merge-subject.ts',
+      'packages/board/src/server/entry/release-chain-walk.ts',
       'packages/domain/src/adapters/host/merge-subjects.ts',
       'packages/domain/src/workflows/plan-walk-branches.ts',
       'packages/fleet/src/server/entry/registryd-main.ts',

@@ -1,13 +1,14 @@
 import {
   DELIVERY_LAYOUT,
   placeDelivery,
+  releaseTicketWording,
   type AgentPlacement,
   type DeliveryPlacement,
   type DeliverySection,
   type ItemPlacement,
   type Unplaced,
 } from '@plot-pm/domain';
-import type { AgentRow, DraftPlan, Slice } from '../../../contract/schema.js';
+import type { AgentRow, DraftPlan, IssueRow, Slice } from '../../../contract/schema.js';
 import type { DeliveryMapping, RegistryAgent } from './delivery-readings.js';
 import { isUnbegun } from './row-identity.js';
 import { groupBySlice, type SliceGroup } from './slices.js';
@@ -51,6 +52,7 @@ const REASON_WORDS: Record<string, string> = {
   'fleet-stuck': 'the fleet cannot pass the gate alone',
   'merge-conflict': 'the PR conflicts and no agent works on it',
   'agent-died': 'the agent died and left the slice unbuilt',
+  'ticket-assigned': 'a ticket is assigned to you and no plan names it',
 };
 
 export const reasonWords = (reason: string): string => REASON_WORDS[reason] ?? reason;
@@ -61,6 +63,8 @@ export interface PlacedItemView {
   placement: ItemPlacement | null;
   rows: AgentRow[];
   draft: DraftPlan | null;
+  /** The ticket the item stands for; `null` for every other kind. */
+  ticket: IssueRow | null;
   /** The label a link to this item shows. */
   label: string;
   /** The DOM id a link to this item scrolls to. */
@@ -177,19 +181,25 @@ export interface DeliveryView {
   sections: SectionView[];
   /** Subjects with a reading nobody took — shown in a note, never dropped. */
   notPlaced: UnplacedView[];
-  /** The Release delivery line: delivered, held at gates, blocked. */
-  releaseLine: string;
+  /**
+   * The Release delivery lines: delivered, held at gates, blocked, and where the sprint names a target release the
+   * tickets of it. One line per distinct target release; one line without the tickets where none is named.
+   */
+  releaseLines: string[];
   delivered: UnplacedView[];
   /** The delivered items, nested as a group's are; rendered under the release line. */
   deliveredBlocks: BlockView[];
   /** Every payload row the delivered items hold. */
   deliveredRows: AgentRow[];
+  /** The numbers of the tickets a section holds; the ticket list outside the rule leaves these out. */
+  placedTickets: ReadonlySet<string>;
 }
 
 export const itemAnchor = (id: string): string => `delivery-item-${id}`;
 export const agentAnchor = (id: string): string => `delivery-agent-${id}`;
 
-const itemLabel = (id: string, rows: readonly AgentRow[], draft: DraftPlan | null): string => {
+const itemLabel = (id: string, rows: readonly AgentRow[], draft: DraftPlan | null, ticket: IssueRow | null = null): string => {
+  if (ticket !== null) return `${ticket.number} ${ticket.title}`;
   const first = rows[0];
   if (first !== undefined) {
     if (first.wave !== '') return `${first.plan} › ${first.wave}`;
@@ -201,9 +211,11 @@ const itemLabel = (id: string, rows: readonly AgentRow[], draft: DraftPlan | nul
 const agentLabel = (id: string, entry: RegistryAgent | null): string =>
   entry?.branch || entry?.worktree || id;
 
-const unreadNote = (subject: Unplaced['subject']): string =>
+const unreadNote = (subject: Unplaced['subject'], ticket = false): string =>
   subject === 'item'
-    ? 'not placed: a reading the scan did not take (CI, review or stage is unread)'
+    ? ticket
+      ? 'not placed: the ticket\'s releases were not read, so the Sprint filter cannot place it'
+      : 'not placed: a reading the scan did not take (CI, review or stage is unread)'
     : 'not placed: the process of this agent was not read';
 
 const isPlanRow = (item: PlacedItemView): boolean =>
@@ -321,13 +333,14 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
     return null;
   };
   const labelOfItem = (id: string): string =>
-    itemLabel(id, mapping.rowsByItem[id] ?? [], mapping.draftsByItem[id] ?? null);
+    itemLabel(id, mapping.rowsByItem[id] ?? [], mapping.draftsByItem[id] ?? null, mapping.ticketsByItem[id] ?? null);
   const labelOfAgent = (id: string): string => agentLabel(id, mapping.agentsById[id] ?? null);
 
   const itemViews = placement.items.map((p): PlacedItemView => ({
     placement: p,
     rows: mapping.rowsByItem[p.id] ?? [],
     draft: mapping.draftsByItem[p.id] ?? null,
+    ticket: mapping.ticketsByItem[p.id] ?? null,
     label: labelOfItem(p.id),
     anchor: itemAnchor(p.id),
     links: p.agents.map((a) => ({ label: labelOfAgent(a), anchor: agentAnchor(a) })),
@@ -389,7 +402,7 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
     subject: u.subject,
     reason: u.reason,
     label: u.subject === 'item' ? labelOfItem(u.id) : labelOfAgent(u.id),
-    note: u.reason === 'delivered' ? 'delivered' : unreadNote(u.subject),
+    note: u.reason === 'delivered' ? 'delivered' : unreadNote(u.subject, mapping.ticketsByItem[u.id] !== undefined),
     rows: u.subject === 'item' ? mapping.rowsByItem[u.id] ?? [] : [],
   });
   const notPlaced = placement.unplaced.filter((u) => u.reason === 'unread').map(view);
@@ -400,7 +413,13 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
   const slicesDelivered = delivered.filter((u) => u.id.startsWith('slice:')).length;
   const held = placement.items.filter((p) => p.section === 'work-items' && p.group === 'at-a-gate').length;
   const blocked = placement.items.filter((p) => p.section === 'you' && p.group === 'unblock').length;
-  const releaseLine = `${slicesDelivered} of ${slicesTotal} slices delivered · ${held} held at gates · ${blocked} blocked`;
+  const sliceLine = `${slicesDelivered} of ${slicesTotal} slices delivered · ${held} held at gates · ${blocked} blocked`;
+  const { targets, tickets } = mapping.releases;
+  const ticketLines = tickets === null ? [] : targets.flatMap((t) => {
+    const wording = releaseTicketWording(tickets, t.release, t.started);
+    return wording === null ? [] : [`${sliceLine} · ${wording}`];
+  });
+  const releaseLines = ticketLines.length > 0 ? ticketLines : [sliceLine];
 
   const deliveredItems = placement.unplaced
     .filter((u) => u.reason === 'delivered' && u.subject === 'item')
@@ -408,6 +427,7 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
       placement: null,
       rows: mapping.rowsByItem[u.id] ?? [],
       draft: mapping.draftsByItem[u.id] ?? null,
+      ticket: mapping.ticketsByItem[u.id] ?? null,
       label: labelOfItem(u.id),
       anchor: itemAnchor(u.id),
       links: [],
@@ -415,8 +435,9 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
   const deliveredBlocks = nestItems('delivered', deliveredItems, slices);
 
   return {
-    sections, notPlaced, releaseLine, delivered, deliveredBlocks,
+    sections, notPlaced, releaseLines, delivered, deliveredBlocks,
     deliveredRows: deliveredItems.flatMap((v) => v.rows),
+    placedTickets: new Set(placement.items.flatMap((p) => mapping.ticketsByItem[p.id]?.number ?? [])),
   };
 };
 

@@ -40,8 +40,13 @@ const storeOver = (files: Map<string, string>): PlanStore =>
   }) as unknown as PlanStore;
 
 /** A context whose trees record each call and track real staged state, and whose push lands clean. */
-const contextOver = (files: Map<string, string>, calls: string[]): BriefBookContext => {
+const contextOver = (
+  files: Map<string, string>,
+  calls: string[],
+  over: { stateBranch?: string; rejections?: number } = {},
+): BriefBookContext => {
   let staged = false;
+  let pushes = 0;
   return {
     repoRoot: '/repo',
     pid: 42,
@@ -51,8 +56,12 @@ const contextOver = (files: Map<string, string>, calls: string[]): BriefBookCont
     scripts: {
       awaited: async (name: string, args: string[]) => {
         calls.push(`${name} ${args.join(' ')}`);
+        pushes += 1;
+        if (pushes <= (over.rejections ?? 0)) return { stdout: '', stderr: 'remote: rejected\n', code: 1 };
         return { stdout: 'push: clean — plot/brief-book-foo → main\n', stderr: '', code: 0 };
       },
+      config: async (key: string, fallback: string) =>
+        answered(key === 'State branch' && over.stateBranch !== undefined ? over.stateBranch : fallback),
     } as unknown as Scripts,
     trees: {
       originHead: async () => answered('main'),
@@ -62,6 +71,18 @@ const contextOver = (files: Map<string, string>, calls: string[]): BriefBookCont
       addBranch: async (path: string, branch: string, start: string) => {
         calls.push(`addBranch ${path} ${branch} ${start}`);
         return answered(undefined);
+      },
+      resetBranch: async (path: string, branch: string, start: string) => {
+        calls.push(`resetBranch ${path} ${branch} ${start}`);
+        return answered(undefined);
+      },
+      fetchRef: async (_root: string, ref: string) => {
+        calls.push(`fetchRef ${ref}`);
+        return answered(true);
+      },
+      mergeIn: async (path: string, ref: string) => {
+        calls.push(`mergeIn ${path} ${ref}`);
+        return answered([]);
       },
       stage: async (path: string, specs: readonly string[]) => {
         calls.push(`stage ${path} ${specs.join(' ')}`);
@@ -95,6 +116,20 @@ describe('parseBriefBookArgs', () => {
     expect(parseBriefBookArgs(['foo', 'bug/foo'])).toMatch(/^usage: plot-brief-book\.mjs/);
   });
 
+  it('reads --branch as the branch to book on', () => {
+    expect(parseBriefBookArgs(['--branch', 'sprint/x', 'foo', 'bug/foo', '/tmp/brief.md'], () => 'brief text')).toEqual({
+      slug: 'foo',
+      branch: 'bug/foo',
+      briefText: 'brief text',
+      target: 'sprint/x',
+    });
+  });
+
+  it('answers the usage line for --branch with no name', () => {
+    expect(parseBriefBookArgs(['--branch', '--', 'foo', 'bug/foo', '/tmp/brief.md'], () => 'brief text')).toMatch(/^usage: /);
+    expect(parseBriefBookArgs(['--branch'], () => 'brief text')).toMatch(/^usage: /);
+  });
+
   it('refuses a brief file it cannot read', () => {
     expect(
       parseBriefBookArgs(['foo', 'bug/foo', '/tmp/missing.md'], () => {
@@ -125,6 +160,66 @@ describe('bookBrief', () => {
       `removeWithBranch ${TMPWT} plot/brief-book-foo`,
     ]);
     expect(out.join('')).toMatch(/push: clean/);
+  });
+
+  it('cuts the booking from the --branch target and pushes it there', async () => {
+    const files = new Map([[PLAN, PLAN_TEXT]]);
+    const calls: string[] = [];
+
+    const code = await bookBrief(
+      contextOver(files, calls),
+      { slug: 'foo', branch: 'bug/foo', briefText: 'the brief', target: 'sprint/x' },
+      () => {},
+    );
+
+    expect(code).toBe(0);
+    expect(calls[0]).toBe(`addBranch ${TMPWT} plot/brief-book-foo origin/sprint/x`);
+    expect(calls).toContain('plot-push-main.sh plot/brief-book-foo sprint/x');
+  });
+
+  it('books a --branch target as named where a State branch is declared, merging nothing into the state ref', async () => {
+    const files = new Map([[PLAN, PLAN_TEXT]]);
+    const calls: string[] = [];
+
+    const code = await bookBrief(
+      contextOver(files, calls, { stateBranch: 'plot/state' }),
+      { slug: 'foo', branch: 'bug/foo', briefText: 'the brief', target: 'sprint/x' },
+      () => {},
+    );
+
+    expect(code).toBe(0);
+    expect(calls[0]).toBe(`addBranch ${TMPWT} plot/brief-book-foo origin/sprint/x`);
+    expect(calls).toContain('plot-push-main.sh plot/brief-book-foo sprint/x');
+    expect(calls.filter((c) => c.startsWith('mergeIn') || c.startsWith('fetchRef'))).toEqual([]);
+  });
+
+  it('routes a default-branch booking through a declared State branch', async () => {
+    const files = new Map([[PLAN, PLAN_TEXT]]);
+    const calls: string[] = [];
+
+    await bookBrief(contextOver(files, calls, { stateBranch: 'plot/state' }), { slug: 'foo', branch: 'bug/foo', briefText: 'the brief' }, () => {});
+
+    expect(calls).toContain(`mergeIn ${TMPWT} refs/remotes/origin/main`);
+    expect(calls).toContain('plot-push-main.sh plot/brief-book-foo refs/heads/plot/state');
+  });
+
+  it('resets a rejected --branch booking to origin/<target> and pushes there again', async () => {
+    const files = new Map([[PLAN, PLAN_TEXT]]);
+    const calls: string[] = [];
+
+    const code = await bookBrief(
+      contextOver(files, calls, { stateBranch: 'plot/state', rejections: 1 }),
+      { slug: 'foo', branch: 'bug/foo', briefText: 'the brief', target: 'sprint/x' },
+      () => {},
+    );
+
+    expect(code).toBe(0);
+    expect(calls).toContain(`resetBranch ${TMPWT} plot/brief-book-foo origin/sprint/x`);
+    expect(calls.filter((c) => c.startsWith('plot-push-main.sh'))).toEqual([
+      'plot-push-main.sh plot/brief-book-foo sprint/x',
+      'plot-push-main.sh plot/brief-book-foo sprint/x',
+    ]);
+    expect(calls.filter((c) => c.startsWith('mergeIn'))).toEqual([]);
   });
 
   it('writes no second commit once the brief and Started line are already on the ref', async () => {

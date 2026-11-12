@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** infra
 - **Sprint:** desk-probes-and-liveness
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Rounds:** 2
 - **Approved:** 2026-11-09, jwloka, plan-PR #3308 merged
 - **Delivered:** 2026-11-10
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
@@ -105,11 +106,11 @@ This plan has no `Story:`. It touches `select`, the `if:` of the reusable jobs a
 
 ### Record inputs
 
-- `infra/ci-reuses-green-runs-record` — the `select` step that uploads `ci-inputs-<HEAD^1>-<HEAD^2>` (the two SHAs, `changed.txt` and the selection outputs) on `pull_request`, pinned by SHA with `retention-days: 7` and `continue-on-error: true`, and the rows in `ci-tiers.test.mjs` and `ci-selection-jobs.test.mjs` <!-- builds: a per-run CI record of the base and head SHAs a pull request run tested -->
+- `infra/ci-reuses-green-runs-record` — the `select` step that uploads `ci-inputs-<HEAD^1>-<HEAD^2>` (the two SHAs, `changed.txt` and the selection outputs) on `pull_request`, pinned by SHA with `retention-days: 7` and `continue-on-error: true`, and the rows in `ci-tiers.test.mjs` and `ci-selection-jobs.test.mjs` <!-- builds: a per-run CI record of the base and head SHAs a pull request run tested --> → #3349
 
 ### Reuse
 
-- `infra/ci-reuses-green-runs` — `scripts/ci-job-map.jq`, the ordered `gh api` read step and `actions: read` on `select`, the reuse diff `diff(H1, H2) ∪ (P1 △ P2)`, the summary table and notices, `ciReuse` in `packages/domain/src/rules/ci-reuse.ts` with `ci-reuse.test.ts`, the bundle `plot-ci-reuse.mjs`, the `reuse_*` outputs, the seven job conditions, `validate`'s fourth `require` argument, and the contract rows; merges after `infra/ci-reuses-green-runs-record` <!-- builds: ciReuse, CI job reuse while the merge's base SHA is unchanged -->
+- `infra/ci-reuses-green-runs` — `scripts/ci-job-map.jq`, the ordered `gh api` read step and `actions: read` on `select`, the reuse diff `diff(H1, H2) ∪ (P1 △ P2)`, the summary table and notices, `ciReuse` in `packages/domain/src/rules/ci-reuse.ts` with `ci-reuse.test.ts`, the bundle `plot-ci-reuse.mjs`, the `reuse_*` outputs, the seven job conditions, `validate`'s fourth `require` argument, and the contract rows; merges after `infra/ci-reuses-green-runs-record` <!-- builds: ciReuse, CI job reuse while the merge's base SHA is unchanged --> → #3360
 
 ## Notes
 

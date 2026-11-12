@@ -240,12 +240,15 @@ directory — never a path under the checkout, which this step must not
 write into), then call:
 
 ```bash
-node ../plot/scripts/board/plot-brief-book.mjs <slug> <branch> <scratch-brief-file>
+node ../plot/scripts/board/plot-brief-book.mjs [--branch <name>] <slug> <branch> <scratch-brief-file>
 ```
+
+**Pass `--branch <name>` when the plan lives on an integration branch.** A sprint plan merged into `sprint/<sprint>` is absent from `origin/<default branch>` until the sprint merges, and the call refuses `no plan in docs/plans/ names branch` there. With `--branch sprint/<sprint>`, the call cuts its worktree from `origin/sprint/<sprint>` and books on that branch. Read the plan's location from where its file exists: on `origin/<name>` and not on `origin/<default branch>`.
 
 This books both the brief **and** step 5's `Started:` record in one call,
 in one disposable worktree cut from a freshly fetched `origin/<default
-branch>`: write, commit, push, remove the worktree. The main checkout is
+branch>`, or from `origin/<name>` with `--branch`: write, commit, push,
+remove the worktree. The main checkout is
 never opened, so running this under a stale or dirty operator checkout
 changes nothing about its outcome — `git status --porcelain`, `HEAD` and
 the checked-out branch on that checkout are exactly as this call found

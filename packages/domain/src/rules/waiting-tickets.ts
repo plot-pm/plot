@@ -19,6 +19,10 @@ export interface WaitingTicket {
   readonly type: string | null;
   /** An assignee, resolved through `People` the same way the Discovery card resolves it; `null` where nobody is assigned. */
   readonly owner: string | null;
+  /** The release versions the tracker planned the ticket for; absent where the row was not asked for them. */
+  readonly releases?: readonly string[];
+  /** `true` where a plan in `plans` names the ticket; absent otherwise. */
+  readonly planned?: true;
 }
 
 /** What *Waiting on you* shows, and why. */
@@ -52,6 +56,7 @@ const toWaitingTicket = (
   source: TicketSource | null,
   reader: Reader,
   phase: string | null,
+  planned: boolean,
 ): WaitingTicket => ({
   kind: 'ticket',
   number: row.number,
@@ -63,6 +68,8 @@ const toWaitingTicket = (
   assignees: row.assignees ?? [],
   type: typeOf(row.type),
   owner: ownerOf(row.assignees, { source, directory: reader.directory }, reader),
+  ...(row.releases === undefined ? {} : { releases: row.releases }),
+  ...(planned ? { planned: true as const } : {}),
 });
 
 const byNewestFirst = (a: IssueIndexRow, b: IssueIndexRow): number => {
@@ -165,7 +172,7 @@ export const waitingTickets = (
         ...phased.filter(({ unplanned }) => !unplanned),
       ]
         .slice(0, ISSUE_LIMIT)
-        .map(({ row, phase }) => toWaitingTicket(row, now, source, reader, keepsTrackerState ? null : phase?.label ?? null)),
+        .map(({ row, phase }) => toWaitingTicket(row, now, source, reader, keepsTrackerState ? null : phase?.label ?? null, (plans.get(row.number) ?? []).length > 0)),
       shown: phased.length,
       hidden: hiddenRows.length,
       unassigned: hiddenRows.filter((row) => (row.assignees ?? []).length === 0).length,

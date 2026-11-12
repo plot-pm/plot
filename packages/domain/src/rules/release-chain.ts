@@ -36,6 +36,13 @@ export interface ReleaseChainCandidate {
    * `unknown` where either commit is absent from the clone.
    */
   readonly contains: ReleaseChainContainment;
+  /**
+   * Whether this PR's merge brought a commit whose subject is the host's
+   * merge subject for the PR the previous step reached. It proves the hop
+   * where a rewritten branch makes `contains` read `no`. Absent reads as
+   * `false`.
+   */
+  readonly carries?: boolean;
 }
 
 /** What asking the host about one branch returned. */
@@ -79,6 +86,11 @@ export type ReleaseChainStep =
       readonly branch: string;
       /** The commit each candidate's merge commit must contain. */
       readonly previous: string;
+      /**
+       * The PR that merged `previous`, whose merge subject a candidate may
+       * carry; absent where the walk does not know it.
+       */
+      readonly previousPr?: ReleaseChainPr;
     }
   | {
       readonly outcome: 'resolved';
@@ -94,12 +106,22 @@ export type ReleaseChainStep =
       readonly candidates: number;
     };
 
+/** A merged PR, as its host-written merge subject names it. */
+export interface ReleaseChainPr {
+  /** The PR's number. */
+  readonly number: number;
+  /** The PR's head branch. */
+  readonly head: string;
+}
+
 /** The commit and merge time a walk step reached. */
 export interface ReleaseChainPrevious {
   /** The commit a candidate must contain. */
   readonly commit: string;
   /** When that commit merged, ISO-8601, or `''` where unknown. */
   readonly mergedAt: string;
+  /** The PR whose merge produced `commit`; absent where unknown. */
+  readonly pr?: ReleaseChainPr;
 }
 
 const timeOf = (iso: string): number => (iso === '' ? Number.NaN : Date.parse(iso));
@@ -110,9 +132,10 @@ const earliest = (candidates: readonly ReleaseChainCandidate[]): ReleaseChainCan
 /**
  * Picks the merged PR that carried the previous commit onward.
  *
- * A candidate whose merge commit contains the previous commit wins, the
- * earliest-merged where several do. A candidate that does not contain it never
- * qualifies. Where containment is unknown, a candidate qualifies by merging at
+ * A candidate whose merge commit contains the previous commit, or whose merge
+ * carries the previous PR's merge subject, wins, the earliest-merged where
+ * several do. A candidate that does not contain it and carries no such
+ * subject never qualifies. Where containment is unknown, a candidate qualifies by merging at
  * or after the previous merge, and the earliest wins. With no previous merge
  * time, one candidate of unknown containment qualifies and several are
  * ambiguous.
@@ -126,7 +149,7 @@ export const pickReleaseHop = (
   candidates: readonly ReleaseChainCandidate[],
   previous: ReleaseChainPrevious,
 ): ReleaseChainCandidate | 'none' | { readonly ambiguous: number } => {
-  const proven = earliest(candidates.filter((c) => c.contains === 'yes'));
+  const proven = earliest(candidates.filter((c) => c.contains === 'yes' || c.carries === true));
   if (proven !== undefined) return proven;
   const open = candidates.filter((c) => c.contains === 'unknown');
   const after = timeOf(previous.mergedAt);
@@ -163,14 +186,17 @@ export const releaseChainStep = (reading: ReleaseChainReading): ReleaseChainStep
     visited.add(at);
     const hop = reading.hops[depth];
     if (hop === undefined) {
-      return depth >= MAX_RELEASE_CHAIN_DEPTH ? refuse('too-deep') : { outcome: 'ask', branch: at, previous: previous.commit };
+      if (depth >= MAX_RELEASE_CHAIN_DEPTH) return refuse('too-deep');
+      return previous.pr === undefined
+        ? { outcome: 'ask', branch: at, previous: previous.commit }
+        : { outcome: 'ask', branch: at, previous: previous.commit, previousPr: previous.pr };
     }
     if (!hop.answered) return refuse('host-failed');
     const picked = pickReleaseHop(hop.candidates, previous);
     if (picked === 'none') return refuse('dead-end');
     if ('ambiguous' in picked) return refuse('ambiguous', picked.ambiguous);
     if (picked.base === reading.defaultBranch) return { outcome: 'resolved', mergeCommit: picked.mergeCommit };
-    previous = { commit: picked.mergeCommit, mergedAt: picked.mergedAt };
+    previous = { commit: picked.mergeCommit, mergedAt: picked.mergedAt, pr: { number: picked.number, head: at } };
     branch = picked.base;
   }
 };

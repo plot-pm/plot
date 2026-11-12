@@ -33,6 +33,9 @@ const agent = (over: Partial<AgentPlacementReading> & { id: string }): AgentPlac
   ...over,
 });
 
+const ticket = (over: Partial<WorkItemReading> & { id: string }): WorkItemReading =>
+  item({ kind: 'ticket', ...over });
+
 const failedCi = { ci: 'failed', review: 'unread' } as const;
 
 /** A slice at the CI gate with a live fixer, the design's worked example. */
@@ -255,6 +258,10 @@ describe('a mixed estate', () => {
     item({ id: 'built', stage: 'building' }),
     item({ id: 'done', delivered: true }),
     item({ id: 'unread' }),
+    ticket({ id: 'ticket:own' }),
+    ticket({ id: 'ticket:planned', planned: true }),
+    ticket({ id: 'ticket:other', ownership: 'theirs' }),
+    ticket({ id: 'ticket:closed', delivered: true }),
   ];
   const agents: AgentPlacementReading[] = [
     fixer,
@@ -282,6 +289,90 @@ describe('a mixed estate', () => {
     for (const i of p.items) {
       for (const name of i.agents) expect(p.agents.find((a) => a.id === name)?.actsOn).toBe(i.id);
     }
+  });
+});
+
+describe('tickets', () => {
+  const place = (items: WorkItemReading[], over: Partial<DeliveryInput> = {}) =>
+    placeDelivery({ items, agents: [] }, input(over));
+
+  it('places a ticket assigned to the reader under You › Input to the fleet', () => {
+    const p = place([ticket({ id: 'ticket:1' })]);
+
+    expect(p.items).toEqual([
+      { id: 'ticket:1', kind: 'ticket', section: 'you', group: 'input-to-the-fleet', reason: 'ticket-assigned', agents: [] },
+    ]);
+  });
+
+  it('leaves a planned ticket out of Input to the fleet, beside an unplanned one', () => {
+    const p = place([ticket({ id: 'ticket:planned', planned: true }), ticket({ id: 'ticket:free' })]);
+
+    expect(p.items.map((i) => i.id)).toEqual(['ticket:free']);
+    expect(p.unplaced).toEqual([{ id: 'ticket:planned', subject: 'item', reason: 'planned' }]);
+  });
+
+  it('never places a ticket of someone else under You', () => {
+    const p = place([ticket({ id: 'ticket:theirs', ownership: 'theirs' })]);
+
+    expect(p.items).toEqual([
+      { id: 'ticket:theirs', kind: 'ticket', section: 'work-items', group: 'queued', reason: null, agents: [] },
+    ]);
+  });
+
+  it('hides a ticket of someone else under the Mine mode, and an unknown one under strict only', () => {
+    const items = [
+      ticket({ id: 'ticket:theirs', ownership: 'theirs' }),
+      ticket({ id: 'ticket:unknown', ownership: 'unknown' }),
+    ];
+
+    expect(place(items, { mine: 'mine' }).items.map((i) => i.id)).toEqual(['ticket:unknown']);
+    expect(place(items, { mine: 'strict' }).items).toEqual([]);
+    expect(place(items, { mine: 'strict' }).unplaced.map((u) => u.reason)).toEqual(['filtered', 'filtered']);
+  });
+
+  it('does not place a closed ticket', () => {
+    const p = place([ticket({ id: 'ticket:closed', delivered: true })]);
+
+    expect(p.items).toEqual([]);
+    expect(p.unplaced).toEqual([{ id: 'ticket:closed', subject: 'item', reason: 'delivered' }]);
+  });
+
+  describe('the Sprint filter', () => {
+    const items = [
+      ticket({ id: 'ticket:new', releases: ['2.32.0'] }),
+      ticket({ id: 'ticket:old', releases: ['2.31.0'] }),
+    ];
+
+    it('narrows to the target release when on, and shows both when off', () => {
+      expect(place(items, { releases: ['2.32.0'] }).items.map((i) => i.id)).toEqual(['ticket:new']);
+      expect(place(items).items.map((i) => i.id)).toEqual(['ticket:new', 'ticket:old']);
+    });
+
+    it('takes a ticket planned for any release of two sprints', () => {
+      expect(place(items, { releases: ['2.32.0', '2.31.0'] }).items).toHaveLength(2);
+    });
+
+    it('compares the release as a name: 2.32 is not 2.32.0', () => {
+      const p = place([ticket({ id: 'ticket:short', releases: ['2.32'] })], { releases: ['2.32.0'] });
+
+      expect(p.items).toEqual([]);
+      expect(p.unplaced).toEqual([{ id: 'ticket:short', subject: 'item', reason: 'filtered' }]);
+    });
+
+    it('names a ticket whose releases were never read, and keeps it with the filter off', () => {
+      const unread = ticket({ id: 'ticket:unread' });
+
+      expect(place([unread], { releases: ['2.32.0'] }).unplaced).toEqual([
+        { id: 'ticket:unread', subject: 'item', reason: 'unread' },
+      ]);
+      expect(place([unread]).items.map((i) => i.id)).toEqual(['ticket:unread']);
+    });
+
+    it('treats an empty releases array as read and planned for nothing', () => {
+      const p = place([ticket({ id: 'ticket:none', releases: [] })], { releases: ['2.32.0'] });
+
+      expect(p.unplaced).toEqual([{ id: 'ticket:none', subject: 'item', reason: 'filtered' }]);
+    });
   });
 });
 

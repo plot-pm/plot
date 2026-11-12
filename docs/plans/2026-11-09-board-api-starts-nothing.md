@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** desk-probes-and-liveness
 - **Issue:** #3170
@@ -14,6 +14,7 @@
 - **Rounds:** 2
 - **Approved:** 2026-11-09, jwloka, plan-PR #3308 merged
 - **Delivered:** 2026-11-10
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
@@ -134,15 +135,15 @@ All four plans touch census counts and may touch `packages/fleet/test/census/`. 
 
 ### Readings
 
-- `feature/board-api-starts-nothing-readings` — the route's spawn inventory test, the added `PlanEntry`, `PlansValue`, `branchPlans`, `sprints` and `stories` readings filled by fleetd from reads it makes or takes over, the branch-plan rule both paths call, `parsedPlans`, `SNAPSHOT_PROTOCOL` 3 with recorded fixtures, and the census row as `it.fails` <!-- builds: the board's plan-card readings in RepoSnapshot, SNAPSHOT_PROTOCOL 3 -->
+- `feature/board-api-starts-nothing-readings` — the route's spawn inventory test, the added `PlanEntry`, `PlansValue`, `branchPlans`, `sprints` and `stories` readings filled by fleetd from reads it makes or takes over, the branch-plan rule both paths call, `parsedPlans`, `SNAPSHOT_PROTOCOL` 3 with recorded fixtures, and the census row as `it.fails` <!-- builds: the board's plan-card readings in RepoSnapshot, SNAPSHOT_PROTOCOL 3 --> → #3352
 
 ### Serve
 
-- `feature/board-api-starts-nothing-serve` — `boardInputsFrom` in `packages/domain/src/workflows/board-inputs.ts`, `buildBoardOver` over `BoardInputs`, `boardState` keyed by generation on `snapshot`, `serverInfo`'s identity behind a file stamp, `ticketLaneData` over the snapshot, the parity corpus test with its fixture, and a changeset for `@plot-pm/board`; merges after `feature/board-api-starts-nothing-readings` <!-- builds: a GET /api/board that renders from fleetd's snapshot -->
+- `feature/board-api-starts-nothing-serve` — `boardInputsFrom` in `packages/domain/src/workflows/board-inputs.ts`, `buildBoardOver` over `BoardInputs`, `boardState` keyed by generation on `snapshot`, `serverInfo`'s identity behind a file stamp, `ticketLaneData` over the snapshot, the parity corpus test with its fixture, and a changeset for `@plot-pm/board`; merges after `feature/board-api-starts-nothing-readings` <!-- builds: a GET /api/board that renders from fleetd's snapshot --> → #3359
 
 ### Census zero
 
-- `feature/board-api-starts-nothing-census` — census row S7 for the page's 30-second poll, S3 unchanged, set to `it` with `green: true` in `census-rows.ts` and `board.census.test.ts`; merges after `feature/refs-from-files-adapters` <!-- builds: a census row that holds GET /api/board at zero while fleetd serves -->
+- `feature/board-api-starts-nothing-census` — census row S7 for the page's 30-second poll, S3 unchanged, set to `it` with `green: true` in `census-rows.ts` and `board.census.test.ts`; merges after `feature/refs-from-files-adapters` <!-- builds: a census row that holds GET /api/board at zero while fleetd serves --> → #3363
 
 ## Notes
 

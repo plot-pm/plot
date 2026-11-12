@@ -182,8 +182,12 @@ const readMarkers = (worktree: string): { markers: string[]; question: string } 
  * repository; an absolute one is taken as-is, so a project may name a registry
  * outside its own tree. An unreadable config answers the default rather than
  * failing: the registry must never go unread for want of a config lookup.
+ *
+ * @param context - the repository and where its helper scripts live.
+ * @param override - a directory the caller already resolved; skips the config read.
+ * @returns the registry directory, absolute.
  */
-const manifestDir = async (context: ShellContext, override?: string): Promise<string> => {
+export const manifestDir = async (context: ShellContext, override?: string): Promise<string> => {
   const configured =
     override ??
     (await (async () => {
@@ -404,6 +408,9 @@ export const agentsFs = (context: ShellContext, options: AgentsFsOptions = {}): 
         return failed<void>();
       }
       manifest.branch = '';
+      // THE BASE LEAVES WITH THE BRANCH: a later slice must not be cut from
+      // the sprint branch the cleared one came from.
+      delete manifest.base;
       const tmp = `${file}.plot-free-tmp`;
       try {
         writeFileSync(tmp, `${JSON.stringify(manifest, null, 2)}\n`);

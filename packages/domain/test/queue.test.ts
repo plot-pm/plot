@@ -38,6 +38,7 @@ import {
 const slice = (over: Partial<QueuedSlice> = {}): QueuedSlice => ({
   branch: 'feature/x',
   slug: 'a-plan',
+  base: '',
   briefPresent: true,
   claimable: true,
   // A NAMED SLICE IS THE DEFAULT, because every case but the new hold's is
@@ -429,7 +430,7 @@ describe('matchQueue — one slice to one agent', () => {
     });
 
     expect(match.assignments).toEqual([
-      { session: 's1', worktree: '/desks/s1', branch: 'feature/b', slug: 'a-plan' },
+      { session: 's1', worktree: '/desks/s1', branch: 'feature/b', slug: 'a-plan', base: '' },
     ]);
     expect(match.held).toEqual([{ branch: 'feature/a', hold: 'no-brief', waitsOn: [], waitHeld: '', assignedTo: '' }]);
   });
@@ -483,8 +484,8 @@ describe('assign — the hand-over workflow', () => {
     expect(decision.outcome).toBe('decided');
     expect(decision.workflow).toBe('assign');
     expect(decision.writes).toEqual([
-      { kind: 'agent-assign', session: 's1', worktree: '/desks/s1', branch: 'feature/a', slug: 'a-plan' },
-      { kind: 'agent-assign', session: 's2', worktree: '/desks/s2', branch: 'feature/b', slug: 'a-plan' },
+      { kind: 'agent-assign', session: 's1', worktree: '/desks/s1', branch: 'feature/a', slug: 'a-plan', base: '' },
+      { kind: 'agent-assign', session: 's2', worktree: '/desks/s2', branch: 'feature/b', slug: 'a-plan', base: '' },
     ]);
   });
 
@@ -1157,5 +1158,32 @@ describe('default-branch-red — the pass-level hold', () => {
 
   it('holdCounts reports the key at zero', () => {
     expect(holdCounts([])['default-branch-red']).toBe(0);
+  });
+});
+
+describe('a slice carries its base from the plan to the hand-over', () => {
+  const plan = {
+    file: 'docs/plans/2026-11-10-a-sprint-plan.md',
+    phase: 'approved',
+    slices: [{ name: 'Wave 1', branches: [{ branch: 'feature/a-sprint-plan-one', deferred: false, waitsOn: [] }] }],
+  } as unknown as PlanRecord;
+
+  it('queues a default-branch plan with an empty base, as before', () => {
+    const queued = planQueue(plan, new Set<string>(), new Set<string>(), true);
+    expect(queued.map((q) => q.base)).toEqual(['']);
+  });
+
+  it('queues a sprint-only plan with its sprint branch as the base, and keeps it claimable', () => {
+    const queued = planQueue(plan, new Set<string>(), new Set<string>(), true, 'sprint/s');
+    expect(queued.map((q) => [q.base, q.claimable])).toEqual([['sprint/s', true]]);
+  });
+
+  it('hands the base to the agent-assign write', () => {
+    const decision = assign({ slices: [slice({ base: 'sprint/s' }), slice({ branch: 'feature/y' })], agents: [agent('a'), agent('b')] });
+    const writes = decision.writes.filter((write) => write.kind === 'agent-assign');
+    expect(writes.map((write) => (write.kind === 'agent-assign' ? [write.branch, write.base] : []))).toEqual([
+      ['feature/x', 'sprint/s'],
+      ['feature/y', ''],
+    ]);
   });
 });

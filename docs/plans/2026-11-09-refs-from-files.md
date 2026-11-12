@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** desk-probes-and-liveness
 - **Issue:** #3170
@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-09, jwloka, plan-PR #3308 merged
 - **Delivered:** 2026-11-09
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
@@ -103,11 +104,11 @@ The last row is a measured risk, not a theoretical one: the census counts 5 `git
 
 ### Reader
 
-- `feature/refs-from-files-reader` — `packedRefsOf`, `refsFrom`, `symbolicTarget`, `resolveName` and `worktreesFrom` in `packages/domain/src/rules/ref-files.ts`; the file adapter in `packages/domain/src/adapters/refs/ref-files-fs.ts` with the reftable check and the `packed-refs` stat retry; `packages/domain/corpus/ref-files.corpus.test.ts` against git; the measured `rev-parse` and `git worktree` split <!-- builds: refFiles, a git ref and worktree file reader declared as a duplicate of git with a corpus test -->
+- `feature/refs-from-files-reader` — `packedRefsOf`, `refsFrom`, `symbolicTarget`, `resolveName` and `worktreesFrom` in `packages/domain/src/rules/ref-files.ts`; the file adapter in `packages/domain/src/adapters/refs/ref-files-fs.ts` with the reftable check and the `packed-refs` stat retry; `packages/domain/corpus/ref-files.corpus.test.ts` against git; the measured `rev-parse` and `git worktree` split <!-- builds: refFiles, a git ref and worktree file reader declared as a duplicate of git with a corpus test --> → #3316
 
 ### Files first
 
-- `feature/refs-from-files-adapters` — `refsGit` and `treesGit` ask the file reader first for `refState`, `refStateSync`, `defaultBranch`, `listBranches`, `branchTips`, `resolve`, `currentBranch`, `remoteHead` and `Trees.list`, and git for `unaskable`; the board's direct `worktree list` and `symbolic-ref` calls move to the port; a `--once` spawn-spy test; a changeset <!-- builds: Refs and Trees adapters that read refs and worktrees from files with a git fallback -->
+- `feature/refs-from-files-adapters` — `refsGit` and `treesGit` ask the file reader first for `refState`, `refStateSync`, `defaultBranch`, `listBranches`, `branchTips`, `resolve`, `currentBranch`, `remoteHead` and `Trees.list`, and git for `unaskable`; the board's direct `worktree list` and `symbolic-ref` calls move to the port; a `--once` spawn-spy test; a changeset <!-- builds: Refs and Trees adapters that read refs and worktrees from files with a git fallback --> → #3326
 
 ## Notes
 

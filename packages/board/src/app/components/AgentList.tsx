@@ -84,7 +84,7 @@ import {
 import { mineMode, placeDelivery, planIndexOf } from '@plot-pm/domain';
 import { ActivityEcho, activeRowKeys, groupPace } from '../lib/agent-rows/activity.js';
 import { ActivityMark } from '../lib/agent-rows/marks.js';
-import { deliveryMapping } from '../lib/agent-rows/delivery-readings.js';
+import { deliveryMapping, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
 import {
   deliveryView,
   machineLine,
@@ -970,12 +970,19 @@ export function AgentList({
           reader,
           mode,
           config: { autoReview: fleet.autoReview, correctionBudget: fleet.correctionBudget },
+          tickets: fleet.issueAnswer === 'answered' ? fleet.waiting?.tickets : null,
+          ticketSource: fleet.waiting?.source ?? null,
+          releases: sprintReleases(activeSprints, selectedSprints),
+          sprints: (fleet.sprints ?? []).map((s) => ({ release: s.release, started: s.start ?? '' })),
+          releaseTickets: fleet.releaseTickets,
         });
         const placement = placeDelivery(mapping.readings, mapping.input);
         const view = deliveryView(mapping, placement, fleet.slices);
         const forms = rowFormsOf(mapping, placement, Date.now());
         const switches = switchesOf(fleet);
         const issues = fleet.issueAnswer === 'answered' ? filteredIssues : [];
+        // A ticket a section holds is listed there only; the block and its count lines stay while the read has any.
+        const unplacedIssues = issues.filter((i) => !view.placedTickets.has(String(i.number)));
         const prUrls = new Map<number, string>();
         for (const r of fleet.rows) if (r.pr !== null && r.pr.url !== '') prUrls.set(r.pr.number, r.pr.url);
         const linkHandlers = (plan: string): LinkHandlers => ({
@@ -1003,6 +1010,23 @@ export function AgentList({
           },
         });
         const itemRows = (item: PlacedItemView) => {
+          // A ticket keeps its own row and its create-plan and create-story actions.
+          if (item.ticket !== null) {
+            return [
+              <li key={`anchor-${item.anchor}`} role="presentation" id={item.anchor} className="h-0" />,
+              <IssueRowView
+                key={`ticket-${item.ticket.number}`}
+                issue={item.ticket}
+                idea={idea ?? { available: false, reason: 'this board has not said whether it can create plans' }}
+                story={story ?? { available: false, reason: 'this board has not said whether it can create stories' }}
+                issueAnswer={fleet.issueAnswer}
+                facts={ticketFacts?.get(String(item.ticket.number))}
+                showKindLabel={false}
+                onOpenPlan={onOpenPlan}
+                planIndex={planIndex}
+              />,
+            ];
+          }
           const cells = forms.items.get(item.placement?.id ?? '');
           if (cells === undefined) return [];
           const plan = item.rows[0]?.plan ?? item.draft?.plan ?? '';
@@ -1076,9 +1100,9 @@ export function AgentList({
               return (
                 <section key={section.key} data-section={section.key} className="space-y-2">
                   {header}
-                  {section.key === 'release-delivery' && (
-                    <p data-release-line className="px-3 text-sm text-slate-600 dark:text-slate-300">{view.releaseLine}</p>
-                  )}
+                  {section.key === 'release-delivery' && view.releaseLines.map((line) => (
+                    <p key={line} data-release-line className="px-3 text-sm text-slate-600 dark:text-slate-300">{line}</p>
+                  ))}
                   {release && !folded && view.deliveredBlocks.length > 0 && (
                     <ul
                       role="grid"
@@ -1211,7 +1235,7 @@ export function AgentList({
                       </span>
                     </li>
                   )}
-                  {issues.map((issue) => (
+                  {unplacedIssues.map((issue) => (
                     <IssueRowView
                       key={`issue-${issue.number}`}
                       issue={issue}

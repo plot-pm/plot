@@ -18,6 +18,7 @@ import {
   startNothingDoneReleases,
   freshAgentDeskReads,
   mergeMemoOver,
+  settledMergedHeadsFrom,
   escalationWorldForRepo,
   notifierFor,
   notifyEscalations,
@@ -949,11 +950,11 @@ describe('starting agents is the one write this daemon performs', () => {
       outcome: 'decided',
       workflow: 'assign',
       writes: [
-        { kind: 'agent-assign', session: 'sess-1', worktree: '/estate/a', branch: 'feature/a', slug: 'a-plan' },
+        { kind: 'agent-assign', session: 'sess-1', worktree: '/estate/a', branch: 'feature/a', slug: 'a-plan', base: '' },
         { kind: 'worker-start', branch: '', worktree: '/estate/free' },
       ],
       detail: {
-        assignments: [{ session: 'sess-1', worktree: '/estate/a', branch: 'feature/a', slug: 'a-plan' }],
+        assignments: [{ session: 'sess-1', worktree: '/estate/a', branch: 'feature/a', slug: 'a-plan', base: '' }],
         held: [],
         idle: [],
         scaling: null,
@@ -978,6 +979,23 @@ describe('starting agents is the one write this daemon performs', () => {
     expect(assigned).toEqual(['sess-1:feature/a']);
   });
 
+  it('hands a sprint slice\'s base to the manifest write', async () => {
+    const bases: string[] = [];
+    const performer: Performer = {
+      startFreeAgent: async () => answered(1),
+      assignSlice: async (_session, branch, _slug, base) => {
+        bases.push(`${branch}:${base ?? ''}`);
+        return answered(true);
+      },
+    };
+    const report = withAssign();
+    const writes = report.handOver!.writes.map((write) =>
+      write.kind === 'agent-assign' ? { ...write, base: 'sprint/s' } : write,
+    );
+    await startAgents({ ...report, handOver: { ...report.handOver!, writes } }, performer, handOverReady, () => {}, () => {});
+    expect(bases).toEqual(['feature/a:sprint/s']);
+  });
+
   it('reports a hand-over the agent had since outgrown, and does not count it', async () => {
     // AN AGENT MAY HAVE TAKEN WORK BETWEEN THE READING AND THE WRITE. Silence
     // here would report a hand-over that never happened.
@@ -989,6 +1007,30 @@ describe('starting agents is the one write this daemon performs', () => {
 
     await startAgents(withAssign(), performer, handOverReady, (s) => out.push(s), (s) => out.push(s));
     expect(out.join('')).toContain('feature/a');
+  });
+
+  it('names the agent and the missing manifest when a hand-over cannot be written', async () => {
+    // MEASURED 2026-11-12: `infra/ci-cancels-superseded-runs could not be handed
+    // over` seven times, with no cause, while the write looked in the wrong registry.
+    const performer: Performer = {
+      startFreeAgent: async () => answered(1),
+      assignSlice: async () => unaskable<boolean>('no manifest at /registry/sess-1.json'),
+    };
+    const err: string[] = [];
+    await startAgents(withAssign(), performer, handOverReady, () => {}, (s) => err.push(s));
+    expect(err.join('')).toContain(
+      'feature/a could not be handed over to sess-1: no manifest at /registry/sess-1.json; the next tick re-derives the queue',
+    );
+  });
+
+  it('names an unreadable or unwritable manifest when a hand-over fails', async () => {
+    const performer: Performer = {
+      startFreeAgent: async () => answered(1),
+      assignSlice: async () => failed<boolean>(),
+    };
+    const err: string[] = [];
+    await startAgents(withAssign(), performer, handOverReady, () => {}, (s) => err.push(s));
+    expect(err.join('')).toContain('feature/a could not be handed over to sess-1: its manifest could not be read or written');
   });
 
   it('starts one agent per `worker-start` write and reports the count', async () => {
@@ -2053,6 +2095,49 @@ describe('a tick asks the host about a branch once', () => {
       queue: queueWorldForRepo(root, root, { calls: 0 }, merges),
     };
   };
+
+  it('answers a branch the index settles as merged with no host call, and asks the host for every other', async () => {
+    const host = countingHost(() => answered('not-merged'));
+    const memo = mergeMemoOver(host, async () => new Set(['feature/done']));
+    expect(await memo.ask('feature/done')).toEqual(answered('merged'));
+    expect(await memo.ask('feature/busy')).toEqual(answered('not-merged'));
+    expect(host.asked).toEqual(['feature/busy']);
+  });
+
+  it('reads the settled heads from the store the backend word keys, and none where the backend is unread', async () => {
+    const rows = [
+      { number: 1, head: 'feature/done', state: 'MERGED', draft: false },
+      { number: 2, head: 'feature/reopened', state: 'MERGED', draft: false },
+      { number: 3, head: 'feature/reopened', state: 'OPEN', draft: false },
+    ];
+    const index = { read: async (backend: string) => answered(backend === 'github' ? { rows } : null) } as unknown as PrIndexStore;
+    expect([...(await settledMergedHeadsFrom({ backend: async () => answered('github') }, index)())]).toEqual(['feature/done']);
+    expect([...(await settledMergedHeadsFrom({ backend: async () => failed() }, index)())]).toEqual([]);
+  });
+
+  it('asks the host for every branch where the index read fails', async () => {
+    const host = countingHost(() => answered('merged'));
+    const memo = mergeMemoOver(host, async () => {
+      throw new Error('unreadable');
+    });
+    await memo.ask('feature/done');
+    expect(host.asked).toEqual(['feature/done']);
+  });
+
+  it('reads the index once per tick and again after clear', async () => {
+    const host = countingHost(() => answered('not-merged'));
+    let reads = 0;
+    const memo = mergeMemoOver(host, async () => {
+      reads += 1;
+      return new Set(['feature/done']);
+    });
+    await Promise.all([memo.ask('feature/done'), memo.ask('feature/other')]);
+    expect(reads).toBe(1);
+    memo.clear();
+    await memo.ask('feature/done');
+    expect(reads).toBe(2);
+    expect(host.asked).toEqual(['feature/other']);
+  });
 
   it('asks once for a branch the supervisor and the queue both read', async () => {
     const host = countingHost(() => answered('not-merged'));

@@ -76,12 +76,19 @@ import { startFleetdHeartbeat, supervisedFrom, trackBridgeWrites } from '../../s
 import { deskDead, type DeskDeadAnswer } from '@plot-pm/domain/rules/desk-dead';
 import type { Processes } from '@plot-pm/domain/ports/processes';
 import { landed, type LandedAnswer } from '@plot-pm/domain/rules/landed';
-import { indexMergedHeads, mergedSetWindowFor, viewLanded } from '@plot-pm/domain/rules/known-pr';
+import { indexMergedHeads, indexSettledMergedHeads, mergedSetWindowFor, viewLanded } from '@plot-pm/domain/rules/known-pr';
 import { checkNamesOf, checksWaitMsOf, defaultBranchRed, mainRepairBoundMsOf } from '@plot-pm/domain/rules/default-branch';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Trees } from '@plot-pm/domain/ports/trees';
 import type { PlanRecord, PlanStore } from '@plot-pm/domain/ports/plan-store';
+import {
+  chooseSprintPlans,
+  sliceBaseRef,
+  sprintPlanReads,
+  SPRINT_BRANCH_PREFIX,
+  type BasedPlan,
+} from '@plot-pm/domain/rules/slice-base';
 import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
 import type { EndingAskRecordStore } from '@plot-pm/domain/ports/ending-ask-record';
 import type { RunLog } from '@plot-pm/domain/ports/run-log';
@@ -524,7 +531,9 @@ export const spendForTick = async (
  * The supervisor world and the queue world ask the same question about the
  * same branch: `merge` for every registered agent, and `sliceHasMerged` for
  * every agent with a branch. Both read through one memo, so a busy agent costs
- * one host call per tick rather than two.
+ * one host call per tick rather than two. A branch the PR index settles as
+ * merged ({@link indexSettledMergedHeads}) is answered `merged` with no host
+ * call; every other branch is asked.
  */
 export interface MergeMemo {
   /**
@@ -544,22 +553,46 @@ export interface MergeMemo {
  * call. A memo of booleans would read a host outage as *not merged*.
  *
  * @param host - the host to ask.
+ * @param settled - reads the heads the PR index settles as merged; read once
+ *   per tick, on the first `ask` after a `clear`. A failed read answers the
+ *   empty set, so every branch goes to the host.
  * @returns a memo that is empty until its first `ask`.
  */
-export const mergeMemoOver = (host: Pick<Host, 'prMerged'>): MergeMemo => {
+export const mergeMemoOver = (
+  host: Pick<Host, 'prMerged'>,
+  settled: () => Promise<ReadonlySet<string>> = async () => new Set(),
+): MergeMemo => {
   let asked = new Map<string, Promise<PortResult<MergedAnswer>>>();
+  let heads: Promise<ReadonlySet<string>> | undefined;
   return {
     ask: (branch) => {
       const known = asked.get(branch);
       if (known !== undefined) return known;
-      const answer = host.prMerged(branch);
+      heads ??= settled().catch(() => new Set<string>());
+      const answer = heads.then((set) => (set.has(branch) ? answered<MergedAnswer>('merged') : host.prMerged(branch)));
       asked.set(branch, answer);
       return answer;
     },
     clear: () => {
       asked = new Map();
+      heads = undefined;
     },
   };
+};
+
+/**
+ * Reads the heads the PR index settles as merged, for {@link mergeMemoOver}.
+ *
+ * @param host - answers the backend word the store is keyed by.
+ * @param index - the PR index store.
+ * @returns the settled heads; empty where the backend, the store or its rows
+ *   cannot be read.
+ */
+export const settledMergedHeadsFrom = (host: Pick<Host, 'backend'>, index: PrIndexStore) => async (): Promise<ReadonlySet<string>> => {
+  const backend = await host.backend();
+  if (!backend.ok) return new Set();
+  const held = await index.read(backend.value);
+  return held.ok && held.value !== null ? indexSettledMergedHeads(held.value.rows) : new Set();
 };
 
 /**
@@ -770,6 +803,56 @@ export const subjectProvenOf = async (
 };
 
 /**
+ * The plans only a sprint branch holds, each with that branch as its base.
+ *
+ * Lists `refs/remotes/origin/sprint/*`, lists each tip's plan files, and
+ * parses only the files the default branch does not hold. A tip that
+ * `origin/<default>` already contains reads no plan. `sprintPlanReads`
+ * decides which files to read and `chooseSprintPlans` which branch a file
+ * belongs to. A ref list that fails, or a branch whose tree cannot be listed
+ * or parsed, contributes no plan; the default branch's plans are unaffected.
+ *
+ * @param refs - the ref reader.
+ * @param context - where the scripts live and which repository to parse in.
+ * @param mainFiles - the plan paths `origin/<default>` holds.
+ * @returns the sprint-only plans, one per file.
+ */
+export const sprintPlansOf = async (
+  refs: Refs,
+  context: { repoRoot: string; scriptDir: string },
+  mainFiles: readonly string[],
+): Promise<readonly BasedPlan[]> => {
+  const tips = await refs.branchTips([`refs/remotes/origin/${SPRINT_BRANCH_PREFIX}*`]);
+  if (!tips.ok || tips.value.length === 0) return [];
+  const planDir = await planDirectory(scriptsShell(context));
+  const base = await refs.defaultBranch();
+  if (!base.ok) return [];
+  const sorted = [...tips.value].sort((a, b) => (a.branch < b.branch ? -1 : 1));
+  const stores = new Map(sorted.map((tip) => [tip.branch, planStoreRef(refs, context, `origin/${tip.branch}`, planDir)]));
+  const listings = await Promise.all(
+    sorted.map(async (tip) => {
+      // plot-ancestry: prefilter — a contained tip only SKIPS reading its plans.
+      // Every file it holds is in the default branch's history, so skipping it
+      // hides no plan the default branch lacks; an unknown answer reads it.
+      const contained = await refs.contains(tip.sha, `origin/${base.value}`);
+      const files = await stores.get(tip.branch)!.listPlans();
+      return {
+        branch: tip.branch,
+        files: files.ok ? files.value : [],
+        inDefault: contained.ok && contained.value === 'yes',
+      };
+    }),
+  );
+  const candidates: BasedPlan[] = [];
+  for (const read of sprintPlanReads(mainFiles, listings)) {
+    const records = await stores.get(read.branch)!.readPlans(read.files);
+    if (!records.ok) continue;
+    for (const record of records.value) candidates.push({ record, base: read.branch });
+  }
+  return chooseSprintPlans(candidates);
+};
+
+/**
  * Whether the host merged any PR for a QUEUED branch — the join
  * {@link QueueWorld.queuedHasLanded} and the hand-over check both need.
  *
@@ -869,6 +952,12 @@ export const queueWorldForRepo = (
       const records = await plans.readPlans(files.value);
       return records.ok ? records.value : [];
     },
+    // A DEFAULT BRANCH THAT CANNOT BE LISTED READS NO SPRINT PLAN: without its
+    // file list, a default-branch plan could be read from a sprint branch.
+    sprintPlans: async () => {
+      const files = await plans.listPlans();
+      return files.ok ? sprintPlansOf(refs, context, files.value) : [];
+    },
     claimedBranches: async () => {
       const answer = await refs.listBranches(true);
       // AN UNREADABLE REF LIST QUEUES NOTHING, and that direction is the safe
@@ -878,7 +967,7 @@ export const queueWorldForRepo = (
       if (!answer.ok) return new Set(['*']);
       return new Set(answer.value.map((name) => name.replace(/^origin\//, '')));
     },
-    briefPresent: async (branch) => {
+    briefPresent: async (branch, sliceBase) => {
       const base = await refs.defaultBranch();
       if (!base.ok) return false;
       // THE SAME PATH AND THE SAME REF `plot-dispatch.sh`'s `brief_present`
@@ -887,7 +976,9 @@ export const queueWorldForRepo = (
       // exists, not whether it is non-empty — and the shell's gate at the
       // hand-over is what refuses a zero-byte brief.
       const suffix = branch.split('/').pop() ?? branch;
-      const answer = refs.fileExistsSync(`origin/${base.value}`, `.plot/briefs/${suffix}.md`);
+      // A SPRINT SLICE'S BRIEF IS BOOKED ON ITS SPRINT BRANCH (`plot-brief-book.mjs
+      // --branch`), so the ref is the slice's base, `sliceBaseRef`.
+      const answer = refs.fileExistsSync(sliceBaseRef(sliceBase, `origin/${base.value}`), `.plot/briefs/${suffix}.md`);
       return answer.ok && answer.value;
     },
     mergedBranches: async () => {
@@ -1717,6 +1808,17 @@ export const probeBeforeStarting = async (
 };
 
 /**
+ * The cause a failed `assignSlice` names in the supervisor's log.
+ *
+ * @param answer - the performer's answer, not answered.
+ * @returns the reason the performer gave, or what a `failed` answer means.
+ */
+export const handOverFailure = (answer: { ok: false; why: 'failed' } | { ok: false; why: 'unaskable'; reason?: string }): string =>
+  answer.why === 'unaskable'
+    ? (answer.reason ?? 'the agent has no manifest to write')
+    : 'its manifest could not be read or written';
+
+/**
  * Applies the tick's `agent-assign` and `worker-start` writes — what this
  * daemon performs.
  *
@@ -1789,11 +1891,9 @@ export const startAgents = async (
       continue;
     }
 
-    const answer = await performer.assignSlice(item.session, item.branch, item.slug);
+    const answer = await performer.assignSlice(item.session, item.branch, item.slug, item.base);
     if (!answer.ok) {
-      warn(
-        `plot-fleetd: ${item.branch} could not be handed over; the next tick re-derives the queue\n`,
-      );
+      warn(`plot-fleetd: ${item.branch} could not be handed over to ${item.session}: ${handOverFailure(answer)}; the next tick re-derives the queue\n`);
       continue;
     }
     // A REFUSAL IS REPORTED, NOT SWALLOWED. `false` means the agent had taken
@@ -2905,7 +3005,8 @@ export const run = async (
   // ONE MEMO FOR BOTH WORLDS. `tick` reads the supervisor world first, and its
   // `beginTick` clears the memo, so the queue read that follows shares the
   // tick's answers and the next tick asks again.
-  const merges = mergeMemoOver(hostShell({ repoRoot, scriptDir: scriptsDir }));
+  const memoHost = hostShell({ repoRoot, scriptDir: scriptsDir });
+  const merges = mergeMemoOver(memoHost, settledMergedHeadsFrom(memoHost, prIndexFile({ cwd: repoRoot })));
   const world = worldForRepo(repoRoot, scriptsDir, tally, merges);
   const queue = queueWorldForRepo(repoRoot, scriptsDir, tally, merges, undefined, undefined, checksWaitMs, hostReads.host);
   // SHARES `tally` WITH `queue` ABOVE so a hand-over's fresh `queuedHasLanded`
@@ -2916,7 +3017,10 @@ export const run = async (
   const scripts = scriptsShell({ repoRoot, scriptDir: scriptsDir });
   // BUILT WHETHER OR NOT IT IS USED, because building it reaches nothing: the
   // adapter is a closure over two paths and spawns only when it is called.
-  const performer = performerShell({ repoRoot, scriptDir: scriptsDir });
+  // THE REGISTRY THE TICK READ IS THE ONE THE HAND-OVER WRITES. Measured
+  // 2026-11-12: with `Agent registry` pointing outside the checkout, the write
+  // went to `<repo>/.plot/agents`, found no manifest, and every hand-over failed.
+  const performer = performerShell({ repoRoot, scriptDir: scriptsDir }, { manifestDir: registryDir });
   // SAME REASON: the probe cuts and removes its own scratch desk only when
   // `startAgents` below actually calls it, ahead of the first `worker-start`.
   const probe = writeProbeShell({ repoRoot, scriptDir: scriptsDir });

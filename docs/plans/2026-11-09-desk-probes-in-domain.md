@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** desk-probes-and-liveness
 - **Issue:** #3170
@@ -14,6 +14,7 @@
 - **Rounds:** 2
 - **Approved:** 2026-11-09, jwloka, plan-PR #3308 merged
 - **Delivered:** 2026-11-10
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
@@ -108,19 +109,19 @@ This plan depends on `the-snapshot-entity` (delivered): every reading lands in t
 
 ### Worker readings
 
-- `feature/desk-probes-in-domain-readings` — `Processes.table()` and `processes-table.ts`; `pidIsCurrent` and `agentAlive` in `rules/pid-current.ts`; `readWorkerReadings` in the `processesFiles` adapter; `agentProcess` in the desk manifest; the spawn-spy inventory of the probe sources; `processesFiles` replaces `processesShell.workerState` at every construction site; the free-agent arm in `agentState`; the dispatcher stamps `pidStartedAt` under `LC_ALL=C`; `worker-readings.corpus.test.ts`; the measured call-site split <!-- builds: readWorkerReadings, worker-state readings from desk files and one process table per pass -->
+- `feature/desk-probes-in-domain-readings` — `Processes.table()` and `processes-table.ts`; `pidIsCurrent` and `agentAlive` in `rules/pid-current.ts`; `readWorkerReadings` in the `processesFiles` adapter; `agentProcess` in the desk manifest; the spawn-spy inventory of the probe sources; `processesFiles` replaces `processesShell.workerState` at every construction site; the free-agent arm in `agentState`; the dispatcher stamps `pidStartedAt` under `LC_ALL=C`; `worker-readings.corpus.test.ts`; the measured call-site split <!-- builds: readWorkerReadings, worker-state readings from desk files and one process table per pass --> → #3319
 
 ### Dirt
 
-- `feature/desk-probes-in-domain-dirt` — `deskDirtFilter` in `rules/desk-dirt-filter.ts`; `treesGit.dirtyPaths`, `quietSeconds` and `markers` with no `bash`; `desk-dirt-filter.corpus.test.ts` <!-- builds: deskDirtFilter, the desk dirt filter as a domain rule with a corpus test -->
+- `feature/desk-probes-in-domain-dirt` — `deskDirtFilter` in `rules/desk-dirt-filter.ts`; `treesGit.dirtyPaths`, `quietSeconds` and `markers` with no `bash`; `desk-dirt-filter.corpus.test.ts` <!-- builds: deskDirtFilter, the desk dirt filter as a domain rule with a corpus test --> → #3324
 
 ### Registry
 
-- `feature/desk-probes-in-domain-registry` — `bashLiveness` and `bashCleanliness` in `registry.ts` become `readWorkerReadings` and `deskClean`; the parity test; the board's state beside the shell's in `/plot-fleet --status`; a changeset for `@plot-pm/board` <!-- builds: deskClean, the registry's cleanliness rule over the dirt filter -->
+- `feature/desk-probes-in-domain-registry` — `bashLiveness` and `bashCleanliness` in `registry.ts` become `readWorkerReadings` and `deskClean`; the parity test; the board's state beside the shell's in `/plot-fleet --status`; a changeset for `@plot-pm/board` <!-- builds: deskClean, the registry's cleanliness rule over the dirt filter --> → #3337
 
 ### Activity
 
-- `feature/desk-probes-in-domain-activity` — `logActivity` in `rules/log-activity.ts`; the agent loop's idle check reads `.plot-worker.log` first and a CPU reading from `table()` only on a still log, instead of `Processes.activity`; the verdict inputs in `.plot-worker.ending.json` <!-- builds: logActivity, working/idle from the worker log -->
+- `feature/desk-probes-in-domain-activity` — `logActivity` in `rules/log-activity.ts`; the agent loop's idle check reads `.plot-worker.log` first and a CPU reading from `table()` only on a still log, instead of `Processes.activity`; the verdict inputs in `.plot-worker.ending.json` <!-- builds: logActivity, working/idle from the worker log --> → #3346
 
 ## Notes
 

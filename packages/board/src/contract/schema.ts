@@ -3738,6 +3738,14 @@ export const IssueRowSchema = z.object({
    * otherwise, `null` where nobody is assigned.
    */
   owner: z.string().nullable().default(null),
+  /**
+   * The release versions the tracker planned the ticket for, from the issue
+   * index. OPTIONAL and never defaulted: absent means the row was never asked
+   * for them, `[]` means it was asked and named none.
+   */
+  releases: z.array(z.string()).optional(),
+  /** `true` where a plan names the ticket — the same join `waitingTickets` makes; absent otherwise. */
+  planned: z.literal(true).optional(),
 });
 export type IssueRow = z.infer<typeof IssueRowSchema>;
 
@@ -4233,11 +4241,25 @@ export type SprintCounts = z.infer<typeof SprintCountsSchema>;
  * carries a list and the control renders one row each — picking the newest
  * would silently hide a commitment.
  */
+/** One row's `releases` — present where the tracker was asked, absent where it was not. */
+const ReleaseRowSchema = z.object({ releases: z.array(z.string()).optional() });
+
+/** The wire shape of the domain's `ReleaseTicketReading`. */
+export const ReleaseTicketsSchema = z.object({
+  open: z.array(ReleaseRowSchema),
+  closed: z.array(ReleaseRowSchema).nullable(),
+  closedComplete: z.boolean(),
+  closedSince: z.string().nullable(),
+});
+export type ReleaseTickets = z.infer<typeof ReleaseTicketsSchema>;
+
 export const FleetSprintSchema = z.object({
   slug: z.string(),
   title: z.string(),
   /** The sprint's `- **Release:** x.y.z`, or "" — see {@link SprintCardSchema}. */
   release: z.string().default(''),
+  /** The sprint's `- **Start:** YYYY-MM-DD`, or "" — the Delivery tab's release line compares it with the closed window. */
+  start: z.string().default(''),
   counts: SprintCountsSchema,
   /**
    * Where the sprint sits against its dates, and the label the row prints —
@@ -4745,6 +4767,16 @@ export const FleetShape = z.object({
    * notice — rather than as a server that answered and found nothing.
    */
   waiting: FleetWaitingSchema.nullable().optional(),
+  /**
+   * The issue index as the Delivery tab's release line reads it: each open and
+   * closed row's `releases` and nothing else, so the domain's
+   * `releaseTicketWording` counts on the client without a second read.
+   *
+   * `null` where `issues.json` holds no usable rows (no read yet, source
+   * `nobody`); `closed` is null where no closed read has answered. Optional so
+   * an older server renders the line with slice counts only.
+   */
+  releaseTickets: ReleaseTicketsSchema.nullable().optional(),
   /**
    * The two fleet controls, SHARED across every board reading this repo.
    *

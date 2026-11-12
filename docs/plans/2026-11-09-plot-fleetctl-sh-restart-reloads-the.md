@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Approved:** 2026-11-09, Jan Wloka, plan-PR #3330 merged
 - **Sprint:** ship-2-32-0
@@ -12,6 +12,7 @@
 - **Started:** 2026-11-09, Jan Wloka, `feature/plot-fleetctl-restart`
 - **Started:** 2026-11-10, Jan Wloka, `feature/plot-fleetctl-restart-agents`
 - **Delivered:** 2026-11-10
+- **Released:** 2026-11-11, v2.32.0
 - **Story:** <!-- optional -->
 - **Review:** pr
 - **Impl:** own branches

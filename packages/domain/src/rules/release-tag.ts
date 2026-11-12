@@ -83,11 +83,18 @@ export interface ReleaseTagPrRow {
   /** When it merged, ISO-8601, or `''` where the host answered none. */
   readonly mergedAt: string;
   /**
-   * The `vX.Y.Z` tags containing {@link mergeCommit}, sorted oldest version
-   * first — {@link Refs.tagsContaining}'s answer, read only once a merge
-   * commit exists to ask about.
+   * The `vX.Y.Z` tags containing {@link mergeCommit}, or {@link carrier}
+   * where one is named, sorted oldest version first —
+   * {@link Refs.tagsContaining}'s answer, read only once a merge commit
+   * exists to ask about.
    */
   readonly containingTags: readonly string[];
+  /**
+   * The default branch's merge commit that carried a PR merged into another
+   * branch; absent where the PR's own merge commit is the one the tags were
+   * read for.
+   */
+  readonly carrier?: string;
 }
 
 /** What the caller read before asking. */
@@ -106,6 +113,10 @@ export type ReleaseTagResult =
       readonly reason: 'no-merge-commit' | 'no-tag' | 'tag-does-not-contain' | 'tag-mismatch' | 'tag-misses-pr';
       readonly detail: string;
     };
+
+/** A row's merge commit as a refusal names it: its own, and the merge that carried it where one did. */
+const commitOf = (pr: ReleaseTagPrRow): string =>
+  pr.carrier === undefined ? pr.mergeCommit : `${pr.mergeCommit}, carried by ${pr.carrier}`;
 
 /** `v<version>` with any existing `v`/`V` prefix stripped first, matching the shell's normalisation. */
 const asTag = (version: string): string => `v${version.replace(/^[Vv]/, '')}`;
@@ -149,21 +160,21 @@ export const releaseTag = (reading: ReleaseTagReading): ReleaseTagResult => {
     return {
       outcome: 'refused',
       reason: 'no-tag',
-      detail: `no 'v*.*.*' tag contains the merge commit (${lastPr.mergeCommit}, from PR #${lastPr.number}).`,
+      detail: `no 'v*.*.*' tag contains the merge commit (${commitOf(lastPr)}, from PR #${lastPr.number}).`,
     };
   }
   if (!lastPr.containingTags.includes(wanted)) {
     return {
       outcome: 'refused',
       reason: 'tag-does-not-contain',
-      detail: `tag '${wanted}' does not contain the merge commit (${lastPr.mergeCommit}, from PR #${lastPr.number}). The tags that do: ${lastPr.containingTags.join(' ')}`,
+      detail: `tag '${wanted}' does not contain the merge commit (${commitOf(lastPr)}, from PR #${lastPr.number}). The tags that do: ${lastPr.containingTags.join(' ')}`,
     };
   }
   if (firstTag !== wanted) {
     return {
       outcome: 'refused',
       reason: 'tag-mismatch',
-      detail: `shipped in '${firstTag}', not '${wanted}' — '${firstTag}' is the FIRST tag (by version) containing the merge commit (${lastPr.mergeCommit}, from PR #${lastPr.number}).`,
+      detail: `shipped in '${firstTag}', not '${wanted}' — '${firstTag}' is the FIRST tag (by version) containing the merge commit (${commitOf(lastPr)}, from PR #${lastPr.number}).`,
     };
   }
 
@@ -172,7 +183,7 @@ export const releaseTag = (reading: ReleaseTagReading): ReleaseTagResult => {
     return {
       outcome: 'refused',
       reason: 'tag-misses-pr',
-      detail: `tag '${wanted}' does not contain PR #${missed.number}'s merge commit (${missed.mergeCommit}) — the first tag that does: ${missed.containingTags[0] ?? 'none'}.`,
+      detail: `tag '${wanted}' does not contain PR #${missed.number}'s merge commit (${commitOf(missed)}) — the first tag that does: ${missed.containingTags[0] ?? 'none'}.`,
     };
   }
 

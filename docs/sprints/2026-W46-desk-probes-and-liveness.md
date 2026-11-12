@@ -4,7 +4,8 @@
 
 ## Status
 
-- **State:** Active
+- **State:** Closed
+- **Actual End:** 2026-11-10
 - **Start:** 2026-11-09
 - **End:** 2026-11-13
 - **Release:** 2.35.0
@@ -41,7 +42,20 @@ All work for this sprint goes to the integration branch `sprint/desk-probes-and-
 
 ## Retrospective
 
-<!-- Filled during /plot-sprint close: What went well / What could improve / Action items -->
+### What went well
+
+### What could improve
+
+### Action items
+
+### Metrics
+
+- **Must-haves completed:** 7/7
+- **Should-haves completed:** 3/3
+- **Could-haves completed:** 0/0
+- **Deferred items:** 0
+- **Scope changes during sprint:** 1
+- **Duration:** planned 5 days (2026-11-09 to 2026-11-13), actual 2 days (closed 2026-11-10)
 
 ## Notes
 

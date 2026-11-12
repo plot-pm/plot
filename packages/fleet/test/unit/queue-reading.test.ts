@@ -1378,3 +1378,70 @@ describe('deadClaims names a dead claim from the same per-branch read orphanedCl
     expect(readings.deadClaims).toEqual([]);
   });
 });
+
+describe('a plan only a sprint branch holds is queued from that branch', () => {
+  const sprintPlan = (): PlanRecord =>
+    ({
+      file: 'docs/plans/2026-11-10-a-sprint-plan.md',
+      phase: 'approved',
+      sprint: 's',
+      slices: [
+        { name: 'Wave 1', branches: [{ branch: 'feature/sprint-one', deferred: false, waitsOn: [] }] },
+        { name: 'Wave 2', branches: [{ branch: 'feature/sprint-two', deferred: false, waitsOn: [] }] },
+      ],
+    }) as unknown as PlanRecord;
+  const world = (over: Partial<QueueWorld> = {}): QueueWorld => ({
+    plans: async () => [plan([['feature/one']])],
+    sprintPlans: async () => [{ record: sprintPlan(), base: 'sprint/s' }],
+    claimedBranches: async () => new Set<string>(),
+    mergedBranches: async () => wholeListing(['feature/sprint-one']),
+    prIndexRows: async () => [],
+    viewLanded: async () => 'unknown',
+    briefPresent: async () => true,
+    sliceHasMerged: async () => false,
+    subjectProven: async () => null,
+    queuedHasLanded: async () => 'not-landed',
+    workerAlive: async () => true,
+    blocked: async () => false,
+    refused: async () => false,
+    remoteHead: async () => 'absent',
+    commitSubjects: async () => ({ ok: true, value: [] }),
+    now: () => 0,
+    defaultBranch: async () => 'main',
+    alive: () => false,
+    ...over,
+  });
+
+  it('reads the sprint slice as claimable once its earlier wave merged into the sprint branch', async () => {
+    const readings = await readQueue([], world());
+    const two = readings.slices.find((s) => s.branch === 'feature/sprint-two');
+    expect(two).toMatchObject({ claimable: true, base: 'sprint/s' });
+    expect(whyNotReady(two!)).toBeNull();
+  });
+
+  it('asks the brief gate on the sprint branch for a sprint slice and on the default branch otherwise', async () => {
+    const asked: string[] = [];
+    await readQueue([], world({ briefPresent: async (branch, base) => (asked.push(`${branch}@${base}`), true) }));
+    expect(asked).toEqual(['feature/one@', 'feature/sprint-two@sprint/s']);
+  });
+
+  it('holds a sprint slice on no-brief when only the default branch holds briefs', async () => {
+    const readings = await readQueue([], world({ briefPresent: async (_branch, base) => base === '' }));
+    const two = readings.slices.find((s) => s.branch === 'feature/sprint-two');
+    expect(whyNotReady(two!)).toBe('no-brief');
+  });
+
+  it("reads a sprint slice's claim against its sprint branch", async () => {
+    const ranges: string[] = [];
+    await readQueue([], world({
+      remoteHead: async () => 'present',
+      commitSubjects: async (range) => (ranges.push(range), { ok: true, value: [] }),
+    }));
+    expect(ranges).toEqual(['origin/main..origin/feature/one', 'origin/sprint/s..origin/feature/sprint-two']);
+  });
+
+  it('queues the default-branch plan exactly as before when no sprint plan exists', async () => {
+    const readings = await readQueue([], world({ sprintPlans: undefined }));
+    expect(readings.slices.map((s) => [s.branch, s.base, s.claimable])).toEqual([['feature/one', '', true]]);
+  });
+});

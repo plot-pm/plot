@@ -115,6 +115,7 @@ const REASON_STATUS: Record<YouReason, string> = {
   'fleet-stuck': 'stuck',
   'merge-conflict': 'conflict',
   'agent-died': 'agent died',
+  'ticket-assigned': 'assigned',
 };
 
 /** What a You reason offers in the DO column: one verb with `›`. */
@@ -129,6 +130,7 @@ const REASON_DO: Record<YouReason, { verb: string; action: string }> = {
   'fleet-stuck': { verb: 'unblock', action: 'unblock' },
   'merge-conflict': { verb: 'resolve', action: 'resolve-conflict' },
   'agent-died': { verb: 'restart', action: 'restart' },
+  'ticket-assigned': { verb: 'plan', action: 'create-plan' },
 };
 
 /** The gate readings of a PR as `CI ⟳ #3234` and `review ✗`; absent where a gate was not read. */
@@ -151,6 +153,7 @@ const gateValue = (pr: PrReading | undefined, ciRun: string | undefined): string
  */
 export const rowShape = (placement: ItemPlacement, facts: ItemRowFacts): RowShape | null => {
   const kind: ItemKind = placement.kind;
+  if (kind === 'ticket') return null;
   if (kind === 'release') return 'release';
   if (kind === 'branch') return 'branch-loose-end';
   if (kind === 'plan') {

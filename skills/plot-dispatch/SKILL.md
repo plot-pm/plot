@@ -9,7 +9,7 @@ license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 0.21.0
+  version: 0.22.0
 compatibility: >-
   Designed for Claude Code and Cursor. Requires git with worktree support and
   python3. Starting workers needs a `Worker command` in Plot Config, which
@@ -606,6 +606,8 @@ uncommitted work — that is what `stalled` means, and a measured stall here lef
 324 finished lines on the floor — so nothing is cleaned, reset or stashed. The
 new worker starts through the continuation engine, so it gets a manifest and
 the fleet can see it: a restart the fleet cannot see has not succeeded.
+
+**A branch with no worktree on this machine resumes from origin.** Where `origin/<branch>` carries a `plot: claim <branch>` commit and work beyond it, an approved plan's slice names the branch, and the host reports no PR other than an open draft, the restart cuts `<Worktree root>/desk-<8 hex>` on the branch tracking `origin/<branch>` and starts the agent there; the manifest records the slice's `base` for a sprint plan, so the PR targets the sprint branch. It refuses `no-worktree` (origin holds no ref), `origin-unreadable`, `not-claimed`, `no-work` (only the claim), `held-by-agent` (a live agent's manifest names the branch), `local-unpushed` (the local branch holds commits origin lacks), `pr-unanswerable` (including `--offline`) and `reached-review`, each before any desk is cut.
 
 ## Migrating existing worktrees into the configured root
 

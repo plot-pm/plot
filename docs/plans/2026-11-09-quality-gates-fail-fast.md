@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** infra
 - **Sprint:** the-board-reads-the-channel
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-08, Jan Wloka, plan-PR #3278 merged
 - **Delivered:** 2026-11-09
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
@@ -133,15 +134,15 @@ Upstream tracking does not answer the question: a slice branch tracks its own re
 
 ### CI tiers
 
-- `infra/ci-cheap-tier-first` — the `gates` job (static steps moved out of `checks`), `needs: [select, gates]` and the result condition on every tier-2 job, `needs: [select, gates, checks]` on `process-census`, `validate`'s `require gates`, a measured comment on every job cap, `test/reconcile/ci-tiers.test.mjs`, and the edge changes in `ci-selection-jobs.test.mjs`. Expected saving: a red static gate ends the run at the `gates` time instead of ~26 min (d1117a0a8); a red `checks` skips the census and ends the run at ~13 min <!-- builds: the CI tier contract test, ci-tiers.test.mjs -->
+- `infra/ci-cheap-tier-first` — the `gates` job (static steps moved out of `checks`), `needs: [select, gates]` and the result condition on every tier-2 job, `needs: [select, gates, checks]` on `process-census`, `validate`'s `require gates`, a measured comment on every job cap, `test/reconcile/ci-tiers.test.mjs`, and the edge changes in `ci-selection-jobs.test.mjs`. Expected saving: a red static gate ends the run at the `gates` time instead of ~26 min (d1117a0a8); a red `checks` skips the census and ends the run at ~13 min <!-- builds: the CI tier contract test, ci-tiers.test.mjs --> → #3295
 
 ### Census halves
 
-- `infra/census-parallel-halves` — `census-gate.mjs` `--only head|before`, `--compare` and HEAD-first in the one-process mode; the `census-head`, `census-base` and `census-compare` jobs with the report artifacts; the two-tree rows in `ci-tiers.test.mjs`. Expected saving: a green census from ~33 min (a269f54d6) to ~20 min of wall time <!-- builds: census-gate.mjs split modes and the parallel census jobs -->
+- `infra/census-parallel-halves` — `census-gate.mjs` `--only head|before`, `--compare` and HEAD-first in the one-process mode; the `census-head`, `census-base` and `census-compare` jobs with the report artifacts; the two-tree rows in `ci-tiers.test.mjs`. Expected saving: a green census from ~33 min (a269f54d6) to ~20 min of wall time <!-- builds: census-gate.mjs split modes and the parallel census jobs --> → #3296
 
 ### Local checks
 
-- `infra/local-checks-cheapest-first` — this repository's `Local checks` key reordered cheapest first with the `AGENTS.md` mirror, the `plot-init` guidance, `plot-local-checks.mjs --run` and `--base` with the sprint-branch default, the fleet runner on the same default, and the rows in `local-checks.test.mjs` and the domain tests. Expected saving: a sprint slice runs its own tests instead of the sprint's 40 to 60 test files; the slice measures one slice of `the-board-reads-the-channel` before and after <!-- builds: plot-local-checks.mjs --run and --base -->
+- `infra/local-checks-cheapest-first` — this repository's `Local checks` key reordered cheapest first with the `AGENTS.md` mirror, the `plot-init` guidance, `plot-local-checks.mjs --run` and `--base` with the sprint-branch default, the fleet runner on the same default, and the rows in `local-checks.test.mjs` and the domain tests. Expected saving: a sprint slice runs its own tests instead of the sprint's 40 to 60 test files; the slice measures one slice of `the-board-reads-the-channel` before and after <!-- builds: plot-local-checks.mjs --run and --base --> → #3297
 
 ### Unchanged inputs
 

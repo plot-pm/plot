@@ -1,6 +1,7 @@
 // THROUGH THE NARROW PATHS, not the package root, for the reason
 // `agent-settings.ts` gives: the root import bundles every entity and rule.
-import { releaseChainStep, type ReleaseChainHop, type ReleaseChainStep } from '@plot-pm/domain/rules/release-chain';
+import type { ReleaseChainStep } from '@plot-pm/domain/rules/release-chain';
+import { carriedRelease, walkReleaseChain, type ResolveInput, type ResolvePorts } from './release-chain-walk.js';
 import { releasePr, releaseTag, type ReleasePrRow, type ReleaseTagPrRow } from '@plot-pm/domain/rules/release-tag';
 import { branchClaims, DEFAULT_BRANCH_PREFIXES, parseBranchPrefixes } from '@plot-pm/domain/rules/cross-repo-reference';
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
@@ -48,29 +49,7 @@ export const EXIT = {
   usage: 2,
 } as const;
 
-/** What the scan knows about the plan's PR. */
-export interface ResolveInput {
-  /** The PR number the plan names last. */
-  readonly pr: string;
-  /** The PR's merge commit, or `''` where the host named none. */
-  readonly mergeCommit: string;
-  /** When the PR itself merged, ISO-8601, or `''` where the host did not say. */
-  readonly mergedAt: string;
-  /** The branch the PR merged into, or `''` where the host did not say. */
-  readonly base: string;
-  /** The repository's default branch. */
-  readonly defaultBranch: string;
-  /** The scan's PR source: the CLI name `gh` or `bb`, or a status word. */
-  readonly prSource: string;
-  /** Whether the scan ran `--no-fetch`/`--offline`, skipping `git fetch`. */
-  readonly noFetch: boolean;
-}
-
-/** The ports a walk reads. */
-export interface ResolvePorts {
-  readonly host: Pick<Host, 'prMergeDests' | 'lastRefusal'>;
-  readonly refs: Pick<Refs, 'contains' | 'tagsContaining'>;
-}
+export { carriedRelease, walkReleaseChain, type ResolveInput, type ResolvePorts };
 
 const fetchAdvice = (prSource: string, noFetch: boolean): string => {
   if (prSource === 'bb') return 'unreachable: Bitbucket exposes no ref for this merge commit — a fetch cannot bring it';
@@ -105,7 +84,7 @@ export const resolveRelease = async (
   ports: ResolvePorts,
   warn: (s: string) => void,
 ): Promise<string> => {
-  const { pr, mergeCommit, mergedAt, base, defaultBranch, prSource, noFetch } = input;
+  const { pr, mergeCommit, base, defaultBranch, prSource, noFetch } = input;
   if (mergeCommit === '') {
     return `finding\tdelivered, but PR #${pr} has no merge commit → cannot resolve\\n    inspect: ${inspectPr(prSource, pr)}`;
   }
@@ -113,37 +92,14 @@ export const resolveRelease = async (
     return `finding\tdelivered, PR #${pr} names merge commit ${mergeCommit}, not in this clone → cannot resolve\\n    ${fetchAdvice(prSource, noFetch)}`;
   }
   const into = `delivered, PR #${pr} merged into '${base}' →`;
-  const hops: ReleaseChainHop[] = [];
-  for (;;) {
-    const step = releaseChainStep({
-      defaultBranch,
-      planCommit: { commit: mergeCommit, mergedAt },
-      destination: base,
-      hops,
-    });
-    if (step.outcome === 'refused') return `finding\t${into} ${refusalText(step)}`;
-    if (step.outcome === 'resolved') {
-      const tags = await ports.refs.tagsContaining(step.mergeCommit);
-      if (!tags.ok) {
-        return `finding\t${into} cannot tell (merge commit ${step.mergeCommit} on '${defaultBranch}' is not in this clone)\\n    ${fetchAdvice(prSource, noFetch)}`;
-      }
-      const tag = tags.value[0];
-      return tag === undefined ? 'unreleased' : `shipped\t${tag} via ${base}`;
-    }
-    const merged = await ports.host.prMergeDests(step.branch);
-    if (!merged.ok) {
-      const said = ports.host.lastRefusal()?.said ?? '';
-      warn(`plot-release-chain: pr-merge-dest ${step.branch} failed${said === '' ? '' : `: ${said}`}\n`);
-      hops.push({ answered: false });
-      continue;
-    }
-    const candidates = [];
-    for (const dest of merged.value) {
-      const contains = await ports.refs.contains(step.previous, dest.mergeCommit);
-      candidates.push({ ...dest, contains: contains.ok ? contains.value : ('unknown' as const) });
-    }
-    hops.push({ answered: true, candidates });
+  const step = await walkReleaseChain(input, ports, warn);
+  if (step.outcome === 'refused') return `finding\t${into} ${refusalText(step)}`;
+  const tags = await ports.refs.tagsContaining(step.mergeCommit);
+  if (!tags.ok) {
+    return `finding\t${into} cannot tell (merge commit ${step.mergeCommit} on '${defaultBranch}' is not in this clone)\\n    ${fetchAdvice(prSource, noFetch)}`;
   }
+  const tag = tags.value[0];
+  return tag === undefined ? 'unreleased' : `shipped\t${tag} via ${base}`;
 };
 
 /** The ports a plan's release resolution reads — `releasePr`/`releaseTag`'s readings, plus {@link resolveRelease}'s walk for the cases the direct tag lookup cannot tell apart from a shallow clone. */
@@ -213,6 +169,7 @@ export const resolvePlanRelease = async (
         mergeCommit: pr?.mergeCommit ?? '',
         mergedAt: pr?.mergedAt ?? '',
         base: pr?.base ?? '',
+        head: pr?.head ?? '',
       };
     }),
   );
@@ -245,21 +202,23 @@ export const resolvePlanRelease = async (
   const lastTags = await ports.refs.tagsContaining(lastPr.mergeCommit);
   if (!lastTags.ok) {
     return resolveRelease(
-      { pr: String(lastPr.number), mergeCommit: lastPr.mergeCommit, mergedAt: lastPr.mergedAt, base: lastPr.base, defaultBranch, prSource, noFetch },
+      { pr: String(lastPr.number), mergeCommit: lastPr.mergeCommit, mergedAt: lastPr.mergedAt, base: lastPr.base, head: lastPr.head, defaultBranch, prSource, noFetch },
       ports,
       warn,
     );
   }
-  const firstTag = lastTags.value[0];
-  if (firstTag === undefined) return 'unreleased';
 
-  const prRowsForTag: ReleaseTagPrRow[] = await Promise.all(
-    prs.map(async (pr) => {
-      if (pr.number === lastPr.number) return { ...pr, containingTags: lastTags.value };
-      const tags = await ports.refs.tagsContaining(pr.mergeCommit);
-      return { ...pr, containingTags: tags.ok ? tags.value : [] };
-    }),
-  );
+  // A PR whose own merge commit no tag contains, merged into another branch,
+  // takes the merge commit that carried it onto the default branch.
+  const prRowsForTag: ReleaseTagPrRow[] = [];
+  for (const pr of prs) {
+    const tags = pr.number === lastPr.number ? lastTags : await ports.refs.tagsContaining(pr.mergeCommit);
+    const own = tags.ok ? tags.value : [];
+    const carried = own.length === 0 ? await carriedRelease(pr, defaultBranch, ports, warn) : null;
+    prRowsForTag.push(carried === null ? { ...pr, containingTags: own } : { ...pr, containingTags: carried.containingTags, carrier: carried.mergeCommit });
+  }
+  const firstTag = prRowsForTag.find((row) => row.number === lastPr.number)?.containingTags[0];
+  if (firstTag === undefined) return 'unreleased';
 
   const resolved = releaseTag({ prs: prRowsForTag, wantedVersion: firstTag });
   if (resolved.outcome === 'resolved') return `shipped\t${resolved.tag}`;
@@ -270,18 +229,19 @@ export const resolvePlanRelease = async (
  * Parses the `pr-state` row.
  *
  * @param stdin - the row as `plot-host.sh pr-state` printed it.
- * @returns the merge commit, its merge time, and the destination, each `''` where absent or unreadable.
+ * @returns the merge commit, its merge time, the destination and the head branch, each `''` where absent or unreadable.
  */
-export const parseRow = (stdin: string): { mergeCommit: string; mergedAt: string; base: string } => {
+export const parseRow = (stdin: string): { mergeCommit: string; mergedAt: string; base: string; head: string } => {
   try {
-    const row = JSON.parse(stdin) as { mergeCommit?: unknown; mergedAt?: unknown; base?: unknown };
+    const row = JSON.parse(stdin) as { mergeCommit?: unknown; mergedAt?: unknown; base?: unknown; head?: unknown };
     return {
       mergeCommit: typeof row.mergeCommit === 'string' ? row.mergeCommit : '',
       mergedAt: typeof row.mergedAt === 'string' ? row.mergedAt : '',
       base: typeof row.base === 'string' ? row.base : '',
+      head: typeof row.head === 'string' ? row.head : '',
     };
   } catch {
-    return { mergeCommit: '', mergedAt: '', base: '' };
+    return { mergeCommit: '', mergedAt: '', base: '', head: '' };
   }
 };
 

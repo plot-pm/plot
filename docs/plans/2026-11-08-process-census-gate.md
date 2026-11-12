@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** infra
 - **Sprint:** nothing-runs
 - **Issue:** #3170
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-08, Jan Wloka, plan-PR #3238 merged
 - **Delivered:** 2026-11-08
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
@@ -104,15 +105,15 @@ Two earlier plans counted processes with `PATH` shims: `packages/board/test/plan
 
 ### Harness
 
-- `infra/process-census-harness` — `packages/fleet/test/census/`: `parseStraceExecs` and its unit rows, the helper that runs a command tree under `strace -f` and returns records, the presence check, `vitest.census.config.ts`; a changeset for `plot` <!-- builds: parseStraceExecs, an strace execve census helper -->
+- `infra/process-census-harness` — `packages/fleet/test/census/`: `parseStraceExecs` and its unit rows, the helper that runs a command tree under `strace -f` and returns records, the presence check, `vitest.census.config.ts`; a changeset for `plot` <!-- builds: parseStraceExecs, an strace execve census helper --> → #3243
 
 ### Scenarios
 
-- `infra/process-census-scenarios` — the sandbox fixtures (stub `gh`, stub `bb`, stub tracker, stub worker on a FIFO), the census entry that runs fleetd's `run` on `clockManual`, scenarios S1 to S6 and assertions P1 to P4, every zero as `it.fails`; a changeset for `plot` <!-- builds: the process census scenarios and their stub fixtures -->
+- `infra/process-census-scenarios` — the sandbox fixtures (stub `gh`, stub `bb`, stub tracker, stub worker on a FIFO), the census entry that runs fleetd's `run` on `clockManual`, scenarios S1 to S6 and assertions P1 to P4, every zero as `it.fails`; a changeset for `plot` <!-- builds: the process census scenarios and their stub fixtures --> → #3253
 
 ### CI gate
 
-- `infra/process-census-ci-gate` — the `process-census` job in `.github/workflows/ci.yml`, the `select` mapping, the merge-base worktree run and the comparison with tolerances, `docs/process-census.md` with the macOS manual measurement, the baseline in the story; a changeset for `plot` <!-- builds: the process-census CI job and its merge-base comparison -->
+- `infra/process-census-ci-gate` — the `process-census` job in `.github/workflows/ci.yml`, the `select` mapping, the merge-base worktree run and the comparison with tolerances, `docs/process-census.md` with the macOS manual measurement, the baseline in the story; a changeset for `plot` <!-- builds: the process-census CI job and its merge-base comparison --> → #3247
 
 ## Notes
 
