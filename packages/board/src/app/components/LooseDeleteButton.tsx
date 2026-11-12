@@ -4,8 +4,9 @@ import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
 /**
  * *Delete branch* — deletes the remote ref of a loose branch.
  *
- * Calls `POST /api/loose-delete`, which refuses an open PR, a merged PR, an unpushed
- * commit and a host it cannot ask, pins the tip at `refs/plot/reaped/<branch>/<sha>`
+ * Calls `POST /api/loose-delete`, which refuses a protected, named, held or claimed
+ * branch, an open PR, a merged PR, an unpushed commit and a reading that does not
+ * answer, pins the tip at `refs/plot/reaped/<branch>/<sha>`
  * and only then deletes. A refusal's `detail` is shown as the reason, and the ref is
  * untouched.
  *

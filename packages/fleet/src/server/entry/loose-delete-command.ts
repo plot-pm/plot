@@ -14,8 +14,9 @@ import { deleteLooseBranch, type LooseDeletePorts } from '../../shared/loose-del
  * ```
  *
  * Deletes the remote ref of a branch no plan names and nobody works on. Refuses
- * an open PR, a merged PR, an unpushed commit in this checkout and a host that
- * cannot be asked. Pins the tip at `refs/plot/reaped/<branch>/<sha>` before it
+ * the default, sprint and release branches, a branch a plan names, a branch a
+ * desk or a registry manifest holds, a claimed branch, an open PR, a merged PR,
+ * an unpushed local commit and a reading that does not answer. Pins the tip at `refs/plot/reaped/<branch>/<sha>` before it
  * deletes, and deletes nothing where the pin does not land.
  */
 

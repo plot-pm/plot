@@ -38,10 +38,17 @@ const ports = (prOpen: boolean, calls: string[]): LooseDeletePorts =>
       prState: async () => ({ ok: true, value: prOpen ? { number: 9, state: 'OPEN' } : null }),
       prMerged: async () => ({ ok: true, value: 'not-merged' }),
     },
-    refs: { resolve: async () => ({ ok: true, value: TIP }), remoteSha: async () => ({ ok: true, value: { sha: TIP } }) },
+    refs: {
+      resolve: async (ref: string) => ({ ok: true, value: ref.startsWith('refs/heads/') ? '' : TIP }),
+      remoteSha: async () => ({ ok: true, value: { sha: TIP } }),
+      defaultBranch: async () => ({ ok: true, value: 'main' }),
+      commitSubjects: async () => ({ ok: true, value: [] }),
+      countAheadSync: () => ({ ok: true, value: 0 }),
+    },
+    plan: async () => ({ kind: 'none' }),
+    manifests: async () => ({ ok: true, value: [] }),
     trees: {
       forBranch: async () => ({ ok: true, value: null }),
-      unpushedCommits: async () => ({ ok: true, value: [] }),
       deleteRemoteBranch: async () => {
         calls.push('delete');
         return { ok: true, value: undefined };
