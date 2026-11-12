@@ -99,11 +99,14 @@ const bbApiLogged = (box: Sandbox): number =>
   existsSync(box.stubLog) ? readFileSync(box.stubLog, 'utf8').split('\n').filter((l) => /^bb api\b/.test(l)).length : 0;
 
 /**
- * A Bitbucket read P10 counts: the stub `bb`, or `plot-host.sh` asked for
- * `pr-list`.
+ * A Bitbucket read P10 counts: a stub `bb api` listing, or `plot-host.sh` asked
+ * for `pr-list`. A per-branch merge question (`pr-merged`: a `bb api` whose
+ * query names `source.branch.name`) and the capability probes the shell runs
+ * before any `bb` call (`bb --version`, `bb pr list --help`) stay on the shell,
+ * as P5 leaves `gh pr list --head` there.
  */
 const isBitbucketRead = (e: ExecRecord): boolean =>
-  basename(e.path) === 'bb' ||
+  (basename(e.path) === 'bb' && e.argv[1] === 'api' && !e.argv.some((a) => a.includes('source.branch.name'))) ||
   (basename(e.path) === 'bash' && e.argv.some((a) => a.endsWith('/plot-host.sh')) && e.argv.includes('pr-list'));
 
 /** Per-pass deltas of a running count, sampled after passes 1..n. */

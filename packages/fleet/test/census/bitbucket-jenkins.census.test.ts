@@ -12,17 +12,16 @@ import { BITBUCKET_ROUTE } from './stub-host.js';
 // because only the shell overlays Jenkins colours on the checks. The census
 // P10 row runs on a fixture with no `CI` key and so cannot see the split. This
 // file runs fleetd untraced against a `CI: jenkins` fixture and counts the
-// requests the stub server and the stub `bb` answer.
+// requests the stub `bb` and the stub server answer. A Bitbucket open listing is
+// the same HTTP request whether it is rich or plain, so the server's count cannot
+// tell the two apart; the shell's `bb api` open reads are the proof that the rich
+// read left the process.
 
 /** The stub `bb api` calls naming the open state, which only an open read sends. */
 const bbOpenReads = (box: Sandbox): number =>
   existsSync(box.stubLog)
     ? readFileSync(box.stubLog, 'utf8').split('\n').filter((l) => /^bb api\b/.test(l) && /state=OPEN/.test(l)).length
     : 0;
-
-/** The requests to the stub server's Bitbucket route that read the open state. */
-const serverOpenReads = (box: Sandbox): number =>
-  (box.api?.requests() ?? []).filter((r) => r.path.startsWith(`${BITBUCKET_ROUTE}/`) && /(^|&)state=OPEN(&|$)/.test(r.query)).length;
 
 // The census runs where strace exists (Linux CI); a macOS run skips it, as the other census files do.
 const gate = censusGate({ stracePath: findStrace(process.env['PATH'] ?? ''), platform: process.platform });
@@ -50,11 +49,10 @@ afterAll(async () => {
 });
 
 describe.skipIf(gate.kind !== 'run')('fleetd on bitbucket with CI: jenkins', () => {
-  it('reads the rich open pull requests through the shell, and sends the stub server no open read', () => {
+  it('reads the rich open pull requests through the shell', () => {
     expect(box).toBeDefined();
     if (box === undefined) return;
     expect(bbOpenReads(box)).toBeGreaterThan(0);
-    expect(serverOpenReads(box)).toBe(0);
   });
 
   it('reads the other states in-process', () => {

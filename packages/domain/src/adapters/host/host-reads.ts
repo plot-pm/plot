@@ -1,5 +1,5 @@
 import { answered, failed, unaskable } from '../../port-result.js';
-import type { Host, HostRefusal } from '../../ports/host.js';
+import type { Host, HostRefusal, PrListingState } from '../../ports/host.js';
 import { HOST_TRANSPORT_ENV, hostTransportOf, shellReasonOf, type HostTransportChoice } from '../../rules/host-transport.js';
 import { refsGit } from '../refs/refs-git.js';
 import type { ShellContext } from '../scripts.js';
@@ -69,15 +69,15 @@ export interface HostReadsOptions {
 }
 
 /** The `pr-list` states the in-process GitHub listing answers; `settled` reads as `all` on GitHub, as the shell's GitHub arm reads it. */
-const LISTED_STATES: Readonly<Record<string, 'open' | 'all' | 'merged'>> = { open: 'open', all: 'all', merged: 'merged', settled: 'all' };
+const LISTED_STATES: Readonly<Record<string, PrListingState>> = { open: 'open', all: 'all', merged: 'merged', settled: 'all' };
 
-/** The `pr-list` states the in-process Bitbucket listing answers; `settled` is merged and declined there and stays on the shell. */
-const BITBUCKET_LISTED_STATES: Readonly<Record<string, 'open' | 'all' | 'merged'>> = { open: 'open', all: 'all', merged: 'merged' };
+/** The `pr-list` states the in-process Bitbucket listing answers; `settled` is merged and declined there. */
+const BITBUCKET_LISTED_STATES: Readonly<Record<string, PrListingState>> = { open: 'open', all: 'all', merged: 'merged', settled: 'settled' };
 
 /** How {@link hostWithListing} divides the reads between the listing and the shell. */
 export interface ListingSplit {
   /** The `pr-list` states the listing answers; any other state calls the shell. */
-  readonly states?: Readonly<Record<string, 'open' | 'all' | 'merged'>>;
+  readonly states?: Readonly<Record<string, PrListingState>>;
   /** Sends every rich read to the shell, which overlays the CI colours on the checks. */
   readonly richOnShell?: boolean;
 }

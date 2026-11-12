@@ -80,7 +80,7 @@ const configFor = (host: CensusHost, ci?: string): string =>
     `- **Git host:** ${host}`,
     ...(host === 'github'
       ? ['- **CI:** github-actions', '- **Default branch checks:** CI']
-      : ['- **Tracker:** jira https://jira.census.invalid', ...(ci === undefined ? [] : [`- **CI:** ${ci}`])]),
+      : ['- **Tracker:** jira https://jira.census.invalid', ...(ci === undefined ? [] : [`- **CI:** ${ci}`, ...(ci === 'jenkins' ? ['- **Jenkins instance:** census'] : [])])]),
     '- **Auto-review:** false',
     '- **Auto-verify:** false',
     '- **Auto-design:** false',

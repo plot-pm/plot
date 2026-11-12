@@ -157,6 +157,20 @@ describe('hostReadsFor', () => {
       expect(shell.calls).not.toContain('prListing');
     });
 
+    it('reads the settled state in-process as merged plus declined', async () => {
+      const shell = shellHost();
+      const seen = { options: null as BitbucketApiOptions | null, paths: [] as string[] };
+      const reads = await hostReadsFor(context, bitbucket('github-actions'), {
+        env: {},
+        shell,
+        origin: async () => 'git@bitbucket.org:ws/repo.git',
+        bitbucketClient: fakeBitbucket('environment', seen),
+      });
+      await reads.host.prList('settled', 50);
+      expect(shell.calls).toEqual([]);
+      expect(seen.paths).toHaveLength(2);
+    });
+
     it('keeps the shell where no credential resolves, and says why', async () => {
       const shell = shellHost();
       const seen = { options: null as BitbucketApiOptions | null, paths: [] as string[] };
@@ -214,19 +228,6 @@ describe('hostReadsFor', () => {
       expect(seen.paths.length).toBeGreaterThan(0);
     });
 
-    it('leaves settled to the shell, which reads merged and declined', async () => {
-      const shell = shellHost();
-      const seen = { options: null as BitbucketApiOptions | null, paths: [] as string[] };
-      const reads = await hostReadsFor(context, bitbucket('github-actions'), {
-        env: {},
-        shell,
-        origin: async () => 'git@bitbucket.org:ws/repo.git',
-        bitbucketClient: fakeBitbucket('environment', seen),
-      });
-      await reads.host.prList('settled', 50);
-      expect(shell.calls).toEqual(['prList']);
-      expect(seen.paths).toEqual([]);
-    });
   });
 
   it('keeps the shell where PLOT_HOST_TRANSPORT=shell', async () => {
