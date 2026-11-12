@@ -1043,7 +1043,9 @@ export const controllerGateOf = (readings: ControllerReadings): Gate => ({
 
     const action = controllerInvocation(stripped);
     const refusals = unpinnedMerges(stripped).map((program) => unpinnedMergeRefusal(scriptDir, program));
-    if (action !== null) {
+    if (action === 'loose-delete') {
+      refusals.unshift(finalControllerRefusal(action, scriptDir));
+    } else if (action !== null) {
       if (!existsSync(join(root.value, '.plot', 'state'))) {
         process.stderr.write(`plot-controller-gate: no .plot/state/ — controller routing went UNVERIFIED for ${action}.\n`);
       } else {

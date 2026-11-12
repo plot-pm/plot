@@ -1,5 +1,3 @@
-import { ReleaseClaimButton } from './ReleaseClaimButton.js';
-import { LooseDeleteButton } from './LooseDeleteButton.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   type AgentRow,
@@ -30,6 +28,8 @@ function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents:
 }
 import { AutoDispatchSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
+import { ReleaseClaimButton } from './ReleaseClaimButton.js';
+import { LooseDeleteButton } from './LooseDeleteButton.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
 import { checkoutHealthStatus } from '@plot-pm/domain/rules/checkout-health';
 import {

@@ -443,7 +443,6 @@ describe('the refusal texts', () => {
   });
 
   it('names the bundle for dispatch and restart, and the branch for restart', () => {
-    expect(controllerRefusal('loose-delete', dir)).toContain(`node ${dir}/board/plot-loose-delete-command.mjs <branch>`);
     expect(controllerRefusal('dispatch', dir)).toContain(`node ${dir}/board/plot-dispatch-command.mjs <slug>`);
     expect(controllerRefusal('restart', dir)).toContain(`node ${dir}/board/plot-restart-command.mjs <branch>`);
   });

@@ -344,13 +344,14 @@ export const carriesSpikeFlag = (command: string): boolean =>
  * `--who`/`--release` modes the gate itself reads as a run, so the text does
  * not send the reader to them.
  *
- * @param action - the action the command runs.
+ * @param action - the action the command runs; `loose-delete` has no receipt
+ *   escape and takes {@link finalControllerRefusal} instead.
  * @param scriptDir - the absolute directory holding the plot scripts.
  * @param spike - whether the command line carries `--spike`; an `approve`
  *   refusal then names the request body that carries `"spike":true`.
  * @returns the text for stderr.
  */
-export const controllerRefusal = (action: ControllerAction, scriptDir: string, spike = false): string => {
+export const controllerRefusal = (action: Exclude<ControllerAction, 'loose-delete'>, scriptDir: string, spike = false): string => {
   const owner = action === 'release' ? 'deliver' : action === 'restart' ? 'dispatch' : action;
   const named = action === 'release-approve' ? 'plot-ask.mjs release-approve' : `plot-${owner}.sh`;
   const lines = [`plot-controller-gate: ${named} is a controller-owned action.`, '', '  Call the controller instead:'];
@@ -360,9 +361,6 @@ export const controllerRefusal = (action: ControllerAction, scriptDir: string, s
   } else if (action === 'release-approve') {
     lines.push(`      node ${shellQuote(`${scriptDir}/board/plot-ask.mjs`)} release-approve <pr> <sha>`);
     lines.push('    which runs with no board and has no HTTP route.');
-  } else if (action === 'loose-delete') {
-    lines.push(`      node ${shellQuote(`${scriptDir}/board/plot-loose-delete-command.mjs`)} <branch>`);
-    lines.push(`    which runs with no board. With the board up, ${ENDPOINT[action]} is its button.`);
   } else if (action === 'restart') {
     lines.push(`      node ${shellQuote(`${scriptDir}/board/plot-restart-command.mjs`)} <branch>`);
     lines.push(`    which runs with no board. With the board up, ${ENDPOINT[action]} is its button.`);
@@ -373,7 +371,7 @@ export const controllerRefusal = (action: ControllerAction, scriptDir: string, s
   lines.push(
     '',
     '  Or, where the board is not running and you accept the bypass, run these as TWO calls, in this order:',
-    `      1. bash ${shellQuote(`${scriptDir}/plot-state-receipt.sh`)} --unowned-action ${action} ${action === 'restart' || action === 'loose-delete' ? '<branch>' : '<slug>'} "<reason>"`,
+    `      1. bash ${shellQuote(`${scriptDir}/plot-state-receipt.sh`)} --unowned-action ${action} ${action === 'restart' ? '<branch>' : '<slug>'} "<reason>"`,
     `      2. the ${action} command you meant`,
     '    A chained `receipt && command` is checked before either runs, and is refused. The receipt stays until the',
     '    action exits 0.',
