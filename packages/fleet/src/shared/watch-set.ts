@@ -23,6 +23,11 @@ export interface WatchSetWorld {
   refsDigest: () => Promise<string | null>;
   /** One desk's git state as a string; `null` where it cannot be read. */
   deskFingerprint: (admin: string) => string | null;
+  /**
+   * Whether a directory exists. Where given, a directory that does not exist is not wanted: it
+   * holds nothing to read and a watch on it cannot arm. Absent, every directory is wanted.
+   */
+  exists?: (dir: string) => boolean;
   /** Receives each change `changeOf` raised, before the content check; `null` events are not reported. */
   onRaised?: (change: SnapshotChange) => void;
   /** Receives each change that passed the content check and entered the pending set. */
@@ -47,7 +52,7 @@ export interface RunningWatchSet {
   requeue: (readings: readonly StaleReading[], remote: boolean) => void;
   /** Adds a change a read reported in process, with no content check: a read raised it. */
   raise: (change: SnapshotChange) => void;
-  /** Reads the layout again, arms new directories and closes removed ones. */
+  /** Reads the layout again, arms new directories, arms degraded ones again and closes removed ones. */
   sync: () => Promise<void>;
   /** Closes every watch and ignores later events; calling it again does nothing. */
   stop: () => void;
@@ -113,10 +118,11 @@ export const startWatchSet = (world: WatchSetWorld): RunningWatchSet => {
   const sync = async (): Promise<void> => {
     if (stopped) return;
     layout = world.layout();
-    targets = watchTargets(layout);
+    targets = watchTargets(layout).filter((target) => world.exists === undefined || world.exists(target.dir));
     const wanted = new Set(targets.map(targetId));
     for (const [id, open] of handles) {
-      if (!wanted.has(id)) {
+      // A degraded handle delivers nothing: close it so the loop below arms the directory again.
+      if (!wanted.has(id) || open.degraded) {
         open.close();
         handles.delete(id);
       }

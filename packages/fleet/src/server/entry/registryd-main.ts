@@ -2726,6 +2726,7 @@ const armWatchSet = async (
   const set = startWatchSet({
     watch,
     layout: () => readWatchLayout({ repoRoot, commonDir, registryDir }),
+    exists: existsSync,
     now: () => {
       const at = clock.now();
       return at.ok ? at.value : Date.now();
