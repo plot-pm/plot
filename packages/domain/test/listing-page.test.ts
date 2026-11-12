@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { listingPagingFor, walkToLimit } from '../src/adapters/host/listing-paging.js';
 import {
-  GH_PAGE_ROWS, githubExtraPages, githubListingPages, pagePossiblyTruncated, walkStep, type ListingPaging,
+  GH_PAGE_ROWS, githubExtraPages, githubListingPages, listingWords, pagePossiblyTruncated, sweepComplete, walkStep, type ListingPaging,
 } from '../src/rules/listing-page.js';
 
 const honours: ListingPaging = { kind: 'honours-limit' };
@@ -133,5 +133,42 @@ describe('a gh listing makes ceil(rows / 100) requests', () => {
 
   it('pages at 100 rows', () => {
     expect(GH_PAGE_ROWS).toBe(100);
+  });
+});
+
+describe('a sweep claim', () => {
+  it('holds only where a branch was asked and every state answered', () => {
+    expect(sweepComplete({ branches: 2, statesAnswered: 3, statesAsked: 3 })).toBe(true);
+    expect(sweepComplete({ branches: 2, statesAnswered: 2, statesAsked: 3 })).toBe(false);
+    expect(sweepComplete({ branches: 0, statesAnswered: 3, statesAsked: 3 })).toBe(false);
+  });
+});
+
+describe('the completeness words of a listing', () => {
+  const words = (claimed: string[], doubted: string[], sweep: boolean, asked = 'all') =>
+    listingWords({ claimed: new Set(claimed), doubted: new Set(doubted), sweep }, asked);
+
+  it('names a claimed state whole and a doubted one possibly-truncated', () => {
+    expect(words(['open'], ['merged'], false, 'open')).toEqual({ open: 'whole', merged: 'possibly-truncated' });
+  });
+
+  it('names a state both claimed and doubted possibly-truncated', () => {
+    expect(words(['open'], ['open'], false, 'open')).toEqual({ open: 'possibly-truncated' });
+  });
+
+  it('names the asked state whole under the sweep claim', () => {
+    expect(words([], ['open'], true)).toEqual({ open: 'possibly-truncated', all: 'whole' });
+  });
+
+  it('names an unnamed asked state whole where every named state is whole', () => {
+    expect(words(['open', 'merged'], [], false)).toEqual({ open: 'whole', merged: 'whole', all: 'whole' });
+  });
+
+  it('names an unnamed asked state possibly-truncated where a named state is not whole', () => {
+    expect(words(['open'], ['merged'], false).all).toBe('possibly-truncated');
+  });
+
+  it('names an unnamed asked state possibly-truncated where no claim names any state', () => {
+    expect(words([], [], false)).toEqual({ all: 'possibly-truncated' });
   });
 });
