@@ -38,8 +38,8 @@ For a pull request, `github.ref` is `refs/pull/<n>/merge`, so a ref-keyed group 
 
 ### Open Questions
 
-- [ ] Does the release PR need its own exception, or does its `pull_request` run never receive a second push while a person approves it? `release.yml` force-pushes `changeset-release/main` on every regeneration, so a regeneration during approval would cancel the run the ruleset counts.
-- [ ] Does any reader of check results (`checks-verdict.ts`, the fixer, the merge arm, `plot-ask merge`) read a run on a head other than the pull request's current head? If one does, a superseded run cancelled after 5 minutes reads as a timeout there. The slice either shows no reader does, or makes `runWasTimedOut` tell a superseded run from a capped one (for example by the run's head SHA against the pull request's head).
+- [x] Does the release PR need its own exception, or does its `pull_request` run never receive a second push while a person approves it? `release.yml` force-pushes `changeset-release/main` on every regeneration, so a regeneration during approval would cancel the run the ruleset counts. **Answer: yes, kept.** The exception costs one expression arm and protects the run the ruleset counts.
+- [x] Does any reader of check results (`checks-verdict.ts`, the fixer, the merge arm, `plot-ask merge`) read a run on a head other than the pull request's current head? If one does, a superseded run cancelled after 5 minutes reads as a timeout there. The slice either shows no reader does, or makes `runWasTimedOut` tell a superseded run from a capped one (for example by the run's head SHA against the pull request's head). **Answer: no reader sees a superseded run.** The loop's only readers (`checksFromRuns`, `buildFindingFor` in `worker-loop.ts`) ask `runForSha` for the pushed sha, read the remote tip first and answer `tip-moved`, and drop a run whose sha differs from the pushed sha. A test in `checks-from-runs.test.ts` shows it. No code change.
 
 ## Done when
 

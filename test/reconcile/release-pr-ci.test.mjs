@@ -228,20 +228,6 @@ test("ci.yml gives the release PR's pull request run its own group", () => {
   assert.notEqual(a, b, 'a regeneration must not cancel the run the ruleset counts');
 });
 
-test('a copy of ci.yml that groups main pushes together is refused', () => {
-  const grouped = CI.replace(
-    /\|\| github\.run_id \}\}/,
-    "|| 'main-pushes' }}",
-  );
-  assert.notEqual(grouped, CI, 'the mutation must change the group line');
-  assert.equal(concurrencyGroup(grouped, PUSH_CTX(111)), 'ci-main-pushes');
-  assert.notEqual(
-    concurrencyGroup(grouped, PUSH_CTX(111)),
-    'ci-111',
-    'the mutant shares one group across pushes, which the push row above refuses',
-  );
-});
-
 test('no concurrency group in ci.yml is keyed on the ref', () => {
   // A ref-keyed group would cancel pull request runs against each other.
   const groups = CI.split('\n').filter((l) => /^\s*group:/.test(l));
