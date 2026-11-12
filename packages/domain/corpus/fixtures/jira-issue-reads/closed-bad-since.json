@@ -1,0 +1,1 @@
+{"name":"closed-bad-since","read":{"kind":"closed","since":"last week","limit":30},"env":{"PLOT_TICKET_PREFIXES":"AB, CD"},"calls":[{"argv":["issue-list","--state","closed","--since","last week","--limit","30"],"stdout":"","stderr":"plot-host: issue-list: --state closed needs --since <iso>\n","code":1}],"exchanges":[]}
