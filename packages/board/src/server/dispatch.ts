@@ -5,8 +5,8 @@ import { readConfig, scriptsFor } from './board.js';
 import { readTail, type LogMissReason } from './worker-log.js';
 import { pulseFor } from './fleet.js';
 import { localCapability } from './controllers/caller.js';
-import { startReadingFromPulse, startDispatch } from '@plot-pm/fleet/shared/dispatch-command';
-import type { DispatchReading } from '@plot-pm/domain/rules/auto-dispatch';
+import { bodyBranch, startReadingFromPulse, startDispatch } from '@plot-pm/fleet/shared/dispatch-command';
+import type { DispatchReadingFor } from '@plot-pm/domain/rules/auto-dispatch';
 
 /**
  * The board's ONE state-changing route.
@@ -228,7 +228,7 @@ export interface DispatchDeps {
   /** Read a Plot Config key, or return the fallback. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
   /** What to do about starting a plan; `startReadingFromPulse` over the board's pulse where absent. */
-  startReading?: (opts: BuildBoardOptions, slug: string) => DispatchReading;
+  startReading?: (opts: BuildBoardOptions, slug: string, branch?: string) => DispatchReadingFor;
 }
 
 /**
@@ -341,6 +341,11 @@ export async function handleDispatch(
     json(400, { error: 'slug must be a plan slug' });
     return;
   }
+  const named = bodyBranch(body);
+  if (named === null) {
+    json(400, { error: 'branch must be a branch name' });
+    return;
+  }
 
   // THE BRIEF GATE LIVES IN `startDispatch`, shared with the dispatch command:
   // the `Implement command` check, the second-click refusal, the implement run
@@ -349,8 +354,10 @@ export async function handleDispatch(
   const started = startDispatch({
     opts: { ...opts, scripts: scriptsFor(opts) },
     slug,
+    branch: named.branch,
     readCfg,
-    startReading: (s) => (deps.startReading ?? ((o, planSlug) => startReadingFromPulse(pulseFor(o), planSlug)))(opts, s),
+    startReading: (s, b) =>
+      (deps.startReading ?? ((o, planSlug, br) => startReadingFromPulse(pulseFor(o), planSlug, br)))(opts, s, b),
   });
   if (started.kind === 'refused') {
     const { status, kind: _kind, ...refusal } = started;

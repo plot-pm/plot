@@ -4,9 +4,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Scripts } from '@plot-pm/domain';
-import { run, runDetached } from '../../src/server/entry/dispatch-command.js';
+import { FleetReadingSchema, type FleetReading } from '@plot-pm/domain/entities/fleet';
+import { parseDispatchArgs, run, runDetached, type DispatchArgs } from '../../src/server/entry/dispatch-command.js';
 import { actionReceiptPath } from '../../src/shared/action-receipt.js';
-import { nothingStartableDetail, startDispatch } from '../../src/shared/dispatch-command.js';
+import { bodyBranch, nothingStartableDetail, startDispatch } from '../../src/shared/dispatch-command.js';
 import { markBoardRun, writeState } from '../../src/shared/board-run.js';
 import { IMPLEMENT_COMMAND_KEY, implementLogPath, implementStatePath } from '../../src/shared/implement-run.js';
 import { removeTree as rmTree } from '../rm-tree.mjs';
@@ -254,5 +255,93 @@ describe('startDispatch', () => {
 
   it('words a blocked branch with the missing-pull-request clause', () => {
     expect(nothingStartableDetail({ kind: 'held', held: [{ branch: 'b', state: 'blocked', waits_on: ['y'] }] })).toContain('b waits for y, which has no pull request');
+  });
+});
+
+describe('the dispatch entry with a named branch', () => {
+  /** A pulse where wave 4 offers two startable branches and a claimed one. */
+  const pulse = (): FleetReading =>
+    FleetReadingSchema.parse({
+      main: 'main', head: 'abc1234',
+      plans: [{ file: `2026-11-02-${SLUG}.md`, phase: 'approved', slices: [{
+        name: 'wave 4',
+        verdict: 'eligible',
+        branches: ['feature/bitbucket-cutover', 'feature/jira-cutover', 'feature/taken'].map((branch) => ({
+          branch, state: branch === 'feature/taken' ? 'claimed' : 'open', waits_on: [], held: false, deferred: false, claimed: '', ref_held: false,
+        })),
+      }] }],
+      summary: { plans: 1, waves: 1, branches: 3, claimed: 1, eligible: 1, blocked: 0, deferred: 0 },
+    });
+  /** An `Implement command` that writes the brief branch it was handed. */
+  const briefed = (): { command: string; read: () => string } => {
+    const file = path.join(tmp, 'brief-branch');
+    return { command: `printf '%s' "$PLOT_BRIEF_BRANCH" > '${file}'; true`, read: () => fs.readFileSync(file, 'utf8') };
+  };
+
+  it('briefs the named branch and hands plot-dispatch.sh that branch alone', async () => {
+    const { scripts, starts } = recordingScripts();
+    const brief = briefed();
+    const code = await run([SLUG, '--branch', 'feature/jira-cutover'], repo, SCRIPT_DIR, { scripts, readCfg: configured(brief.command), pulse });
+    expect(code).toBe(0);
+    expect(brief.read()).toBe('feature/jira-cutover');
+    expect(starts.map((s) => s.args)).toEqual([['--max', '1', '--branch', 'feature/jira-cutover', SLUG]]);
+  });
+
+  it('briefs the first startable branch and passes no --branch where none is named', async () => {
+    const { scripts, starts } = recordingScripts();
+    const brief = briefed();
+    const code = await run([SLUG], repo, SCRIPT_DIR, { scripts, readCfg: configured(brief.command), pulse });
+    expect(code).toBe(0);
+    expect(brief.read()).toBe('feature/bitbucket-cutover');
+    expect(starts.map((s) => s.args)).toEqual([['--max', '1', SLUG]]);
+  });
+
+  it('refuses a claimed branch and a foreign branch by name, starting nothing and writing no receipt', async () => {
+    for (const [branch, refusal] of [
+      ['feature/taken', 'branch-not-startable: feature/taken is not startable: it is claimed'],
+      ['feature/elsewhere', `branch-not-in-plan: feature/elsewhere is not a branch of plan ${SLUG}`],
+    ] as const) {
+      const { scripts, starts } = recordingScripts();
+      const warned: string[] = [];
+      const code = await run([SLUG, '--branch', branch], repo, SCRIPT_DIR, { scripts, readCfg: configured('true'), pulse }, () => {}, (s) => warned.push(s));
+      expect(code).toBe(1);
+      expect(warned.join('')).toContain(refusal);
+      expect(starts).toHaveLength(0);
+      expect(fs.existsSync(actionReceiptPath(repo, 'dispatch'))).toBe(false);
+    }
+  });
+
+  it('refuses a named branch where there is no pulse to confirm it', async () => {
+    const warned: string[] = [];
+    const code = await run([SLUG, '--branch', 'feature/jira-cutover'], repo, SCRIPT_DIR, { readCfg: configured('true'), pulse: () => null }, () => {}, (s) => warned.push(s));
+    expect(code).toBe(1);
+    expect(warned.join('')).toContain('no-pulse-reading');
+  });
+
+  it('forwards the named branch to the launched process', async () => {
+    let launched: DispatchArgs | undefined;
+    await runDetached(['--branch', 'feature/jira-cutover', SLUG], repo, SCRIPT_DIR, {
+      launch: (args) => {
+        launched = args;
+        return { pid: 1, exitCode: () => 1 };
+      },
+    }, () => {}, () => {});
+    expect(launched).toEqual({ slug: SLUG, branch: 'feature/jira-cutover' });
+  });
+
+  it('parses the flag in either position and refuses a missing or malformed value', () => {
+    expect(parseDispatchArgs([SLUG, '--branch', 'feature/a'])).toEqual({ slug: SLUG, branch: 'feature/a' });
+    expect(parseDispatchArgs(['--branch', 'feature/a', SLUG])).toEqual({ slug: SLUG, branch: 'feature/a' });
+    expect(parseDispatchArgs([SLUG])).toEqual({ slug: SLUG });
+    expect(parseDispatchArgs([SLUG, '--branch'])).toBeNull();
+    expect(parseDispatchArgs([SLUG, '--branch', '--max'])).toBeNull();
+    expect(parseDispatchArgs([SLUG, '--branch', 'feature/a', 'extra'])).toBeNull();
+  });
+
+  it('reads a request body\'s branch, and refuses a value that is not a branch name', () => {
+    expect(bodyBranch({ slug: SLUG })).toEqual({});
+    expect(bodyBranch({ slug: SLUG, branch: 'feature/a' })).toEqual({ branch: 'feature/a' });
+    expect(bodyBranch({ slug: SLUG, branch: 7 })).toBeNull();
+    expect(bodyBranch({ slug: SLUG, branch: '-x' })).toBeNull();
   });
 });

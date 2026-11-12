@@ -214,6 +214,19 @@ test('dispatch: --dry-run lists eligible branches and creates nothing', () => {
   assert.equal(git(repo, 'status', '--porcelain').trim(), '');
 });
 
+test('dispatch: --branch hands over the named branch and no other eligible one', () => {
+  const out = run(['--dry-run', '--offline', '--branch', 'feature/two', 'fan']);
+  assert.match(out, /would (hand over|dispatch) feature\/two/);
+  assert.doesNotMatch(out, /would (hand over|dispatch) feature\/one/);
+  assert.match(out, /dispatched=1/);
+});
+
+test('dispatch: --branch naming a branch the scan does not offer hands over nothing', () => {
+  const out = run(['--dry-run', '--offline', '--branch', 'feature/skipped', 'fan']);
+  assert.doesNotMatch(out, /would (hand over|dispatch)/);
+  assert.match(out, /dispatched=0/);
+});
+
 test('dispatch: --dry-run reports the missing brief rather than refusing', () => {
   // A DIRECT script call cannot write a hand-off brief — a brief is
   // interpretation, and no script here invokes a skill. So it says so, in the

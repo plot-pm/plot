@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import type { FleetReading } from '@plot-pm/domain';
-import type { DispatchReading } from '@plot-pm/domain/rules/auto-dispatch';
+import type { DispatchReadingFor } from '@plot-pm/domain/rules/auto-dispatch';
 import { rmTree } from '../helpers.mjs';
 
 // The dispatch route's DEFAULT brief-branch resolver: the fleet's
@@ -15,12 +15,14 @@ import { rmTree } from '../helpers.mjs';
 // received.
 
 const pulse = { main: 'main', plans: [] } as unknown as FleetReading;
-const startReadingFromPulse = vi.fn((_pulse: FleetReading | null, _slug: string): DispatchReading => ({ kind: 'branch', branch: 'feature/the-chosen-slice' }));
+const startReadingFromPulse = vi.fn(
+  (_pulse: FleetReading | null, _slug: string, branch?: string): DispatchReadingFor => ({ kind: 'branch', branch: branch ?? 'feature/the-chosen-slice' }),
+);
 
 vi.mock('../../src/server/fleet.js', () => ({ pulseFor: () => pulse }));
 vi.mock('@plot-pm/fleet/shared/dispatch-command', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@plot-pm/fleet/shared/dispatch-command')>()),
-  startReadingFromPulse: (p: FleetReading | null, s: string) => startReadingFromPulse(p, s),
+  startReadingFromPulse: (p: FleetReading | null, s: string, b?: string) => startReadingFromPulse(p, s, b),
 }));
 
 const SLUG = 'a-dispatch-briefs-the-pulses-branch';
@@ -64,8 +66,37 @@ describe('handleDispatch without an injected resolver', () => {
         key === IMPLEMENT_COMMAND_KEY ? `printf %s "$PLOT_BRIEF_BRANCH" > '${received}'; false` : fallback,
     });
     expect(status).toBe(202);
-    expect(startReadingFromPulse).toHaveBeenCalledWith(pulse, SLUG);
+    expect(startReadingFromPulse).toHaveBeenCalledWith(pulse, SLUG, undefined);
     const branch = await until(() => (fs.existsSync(received) ? fs.readFileSync(received, 'utf8') : null));
     expect(branch).toBe('feature/the-chosen-slice');
+  });
+});
+
+describe('handleDispatch with a branch in the body', () => {
+  it('hands the resolver the named branch and the run the branch it answers', async () => {
+    const { handleDispatch } = await import('../../src/server/dispatch.js');
+    const { IMPLEMENT_COMMAND_KEY } = await import('@plot-pm/fleet/shared/implement-run');
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-dispatch-brief-'));
+    made.push(parent);
+    const repoRoot = path.join(parent, 'repo');
+    fs.mkdirSync(repoRoot, { recursive: true });
+    const received = path.join(parent, 'received');
+    const req = Readable.from([JSON.stringify({ slug: SLUG, branch: 'feature/jira-cutover' })]) as unknown as http.IncomingMessage;
+    req.headers = {};
+    req.method = 'POST';
+    let status = 0;
+    const res = {
+      headersSent: false,
+      writeHead(s: number) { status = s; return this; },
+      end() { return this; },
+    } as unknown as http.ServerResponse;
+    await handleDispatch(req, res, { repoRoot, scriptsDir: SCRIPTS, host: 'localhost', port: 7777 }, {
+      config: (_o, key, fallback) =>
+        key === IMPLEMENT_COMMAND_KEY ? `printf %s "$PLOT_BRIEF_BRANCH" > '${received}'; false` : fallback,
+    });
+    expect(status).toBe(202);
+    expect(startReadingFromPulse).toHaveBeenCalledWith(pulse, SLUG, 'feature/jira-cutover');
+    const branch = await until(() => (fs.existsSync(received) ? fs.readFileSync(received, 'utf8') : null));
+    expect(branch).toBe('feature/jira-cutover');
   });
 });
