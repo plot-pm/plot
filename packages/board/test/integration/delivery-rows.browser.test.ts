@@ -106,7 +106,8 @@ describe('the Delivery tab rows', () => {
       await link.waitFor({ timeout: 10_000 });
       const target = (await link.getAttribute('href'))!.slice(1);
       await link.click();
-      await page.locator(`[id="${target}"][data-link-target]`).waitFor({ timeout: 2_000 });
+      // The id sits on a zero-height anchor; the row after it is what the reader sees marked.
+      await page.locator(`[id="${target}"] + [data-delivery-row][data-link-target]`).waitFor({ timeout: 2_000 });
     } finally {
       await page.close();
     }

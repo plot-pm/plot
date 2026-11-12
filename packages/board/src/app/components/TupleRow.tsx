@@ -690,7 +690,7 @@ export function TupleRowView({
       // colour across both tabs.
       className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2 text-sm sm:grid ${tracks} sm:items-baseline sm:gap-x-3 ${
         bordered ? 'border-t border-slate-100 dark:border-slate-800' : ''
-      } ${highlighted ? 'rounded-sm ring-2 ring-inset ring-blue-500' : ''}`}
+      } ${highlighted ? 'rounded-sm ring-2 ring-inset ring-blue-500' : ''} data-[link-target]:bg-amber-100 dark:data-[link-target]:bg-amber-900/40`}
     >
       {/* SLOT 1 — THE MARKS TRACK, AND NOTHING ELSE.
           It held the icon too until 2026-08-20, and the comment that lived here
@@ -837,8 +837,18 @@ export function TupleRowView({
       </span>
       {/* BY — who acts on the item; for an agent, who started it. Empty where
           nobody read it, never a default word. */}
-      <span role="gridcell" data-row-cell="by" className="min-w-0 truncate text-xs text-slate-500 dark:text-slate-400">
-        {by}
+      <span role="gridcell" data-row-cell="by" className="relative flex min-w-0 items-baseline gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+        {by !== undefined && by !== null && <span className="min-w-0 truncate">{by}</span>}
+        {/* THE DETAILS POPOVER sits in this cell, so it costs the row no line of its own;
+            it opens over the rows below. */}
+        {details !== undefined && details.length > 0 && (
+          <details data-row-details className="relative shrink-0">
+            <summary aria-label="Details" className="cursor-pointer select-none list-none">ⓘ</summary>
+            <ul className="absolute right-0 z-10 mt-1 w-max max-w-[80vw] rounded border border-slate-200 bg-white p-2 font-mono shadow-sm dark:border-slate-700 dark:bg-slate-900">
+              {details.map((line) => <li key={line} className="break-all">{line}</li>)}
+            </ul>
+          </details>
+        )}
       </span>
       {/* SLOT 6 — THE AGE, from the row's LAST CHANGE. Unlabelled, because that
           is the rule; the label appears exactly where the rule does not apply —
@@ -861,14 +871,6 @@ export function TupleRowView({
         {tuple.age.text}
       </span>
       {extra}
-      {details !== undefined && details.length > 0 && (
-        <details data-row-details className="relative w-full text-xs text-slate-500 sm:col-span-full">
-          <summary aria-label="Details" className="cursor-pointer select-none">details</summary>
-          <ul className="mt-1 rounded border border-slate-200 bg-white p-2 font-mono shadow-sm dark:border-slate-700 dark:bg-slate-900">
-            {details.map((line) => <li key={line} className="break-all">{line}</li>)}
-          </ul>
-        </details>
-      )}
     </li>
   );
 }

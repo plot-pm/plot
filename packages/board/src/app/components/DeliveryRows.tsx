@@ -9,13 +9,21 @@ export interface LinkHandlers {
   onAct: (action: string, id: string) => void;
 }
 
-/** Moves to a row and marks it for two seconds, so the reader sees where the link led. */
+/**
+ * Moves to a row and marks it for two seconds, so the reader sees where the link led.
+ *
+ * An id on a zero-height anchor marks the row that follows the anchor as well,
+ * because the anchor itself has no box to see.
+ */
 export const scrollToAnchor = (id: string): void => {
   const el = document.getElementById(id);
   if (el === null) return;
   el.scrollIntoView({ block: 'center' });
-  el.setAttribute('data-link-target', '');
-  window.setTimeout(() => el.removeAttribute('data-link-target'), 2000);
+  const row = el.getAttribute('role') === 'presentation' ? el.nextElementSibling : null;
+  for (const mark of row === null ? [el] : [el, row]) {
+    mark.setAttribute('data-link-target', '');
+    window.setTimeout(() => mark.removeAttribute('data-link-target'), 2000);
+  }
 };
 
 const LINK_CLASS = 'text-blue-600 hover:underline dark:text-blue-400';

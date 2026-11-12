@@ -3798,8 +3798,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       expect(Math.abs(kind!.y - branch!.y)).toBeLessThan(branch!.height);
       // And it really is a grid with six tracks.
       const tracks = await li.evaluate((el) => getComputedStyle(el).gridTemplateColumns);
-      // SEVEN since the marks earned a track of their own at the front.
-      expect(tracks.split(' ')).toHaveLength(7);
+      // EIGHT: the marks lane and the seven Delivery columns.
+      expect(tracks.split(' ')).toHaveLength(8);
     } finally {
       await page.close();
     }

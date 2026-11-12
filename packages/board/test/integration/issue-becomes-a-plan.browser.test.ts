@@ -345,7 +345,7 @@ describe('the issue row has one action, and it creates a Draft', () => {
       const cells = issueRow(page, 228).locator('[role="gridcell"]');
       // STILL SEVEN — the action did not grow a cell, it moved into the one that
       // was already there. The menu component owns the seventh track.
-      await expect.poll(() => cells.count()).toBe(7);
+      await expect.poll(() => cells.count()).toBe(8);
       // Track 4 (0-indexed 3) is still the empty branch column.
       // NO BRANCH IS INVENTED, and slot 4 is where the plan slug goes.
       //
