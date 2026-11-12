@@ -41,7 +41,7 @@ import { stuckState, summarizeStuck } from './stuck.js';
 import { listRecordBlobs } from '@plot-pm/domain/workflows/record-listing';
 import { blobIdOfBytes, parsePlanMetaFiles, planMetaOf, planSlug, heldRefsFor, workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
 import type { RefState, Refs } from '@plot-pm/domain/ports/refs';
-import type { BuildPort } from '@plot-pm/domain';
+import type { BuildPort, ReaderState } from '@plot-pm/domain';
 import type { DetachedProcess } from '@plot-pm/domain/ports/detached';
 import { electReader, HEARTBEAT_STALE_MS, type ReaderClaim, type ReaderVerdict } from '@plot-pm/domain/rules/reader-election';
 import { PR_READ_BEAT_MS } from '@plot-pm/domain/rules/pr-status';
@@ -2816,11 +2816,25 @@ const readPrsFromStore = async (opts: BuildBoardOptions, entry: CacheEntry, key:
     entry.prAt = Number.isNaN(at) ? startedAt : at;
     await refreshRuns(opts, entry, maps.prs, await buildPortFor(opts));
   }
-  if (published.ok && published.value !== null) {
-    entry.prError = published.value.prError;
-    entry.prNextAt = published.value.prNextAt;
-    entry.prNextIsBackoff = published.value.prNextIsBackoff;
-    entry.prFullReadFailedAt = published.value.prFullReadFailedAt;
+  adoptPublishedSchedule(entry, published.ok ? published.value : null, startedAt);
+};
+
+/**
+ * Copies the PR reader's published cadence into the cache entry.
+ *
+ * @param entry - the board's cache entry.
+ * @param published - the state the reader lock holds for this connector, or
+ *   null where none was published or it could not be read.
+ * @param startedAt - when this tick started, epoch ms; with no published
+ *   state, the next read is paced one ordinary interval from it and the
+ *   schedule reads as unknown (`prNextScheduled` false).
+ */
+const adoptPublishedSchedule = (entry: CacheEntry, published: ReaderState | null, startedAt: number): void => {
+  if (published !== null) {
+    entry.prError = published.prError;
+    entry.prNextAt = published.prNextAt;
+    entry.prNextIsBackoff = published.prNextIsBackoff;
+    entry.prFullReadFailedAt = published.prFullReadFailedAt;
     entry.prNextScheduled = true;
   } else {
     entry.prNextAt = startedAt + PR_REFRESH_MS;
@@ -2937,6 +2951,15 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
     const refs = held.snapshot.readings.refs;
     try {
       await readIssuesFromStore(opts, entry, refs.state === 'read' ? refs.value.entries : undefined);
+      // THE SCHEDULE COMES FROM THE READER, NOT THE SNAPSHOT: the snapshot
+      // carries the PR rows and when they were read, not when the next read is
+      // due, so `prOverdueSeconds` measures against the reader's published
+      // `prNextAt`.
+      const key = await readerLockKey(opts, entry);
+      if (key !== '') {
+        const published = await readerLockFor(opts).readerState(key);
+        adoptPublishedSchedule(entry, published.ok ? published.value : null, Date.now());
+      }
     } finally {
       entry.prRunning = false;
     }
