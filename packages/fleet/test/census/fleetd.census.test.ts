@@ -241,7 +241,9 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
   it(rowTitle(CENSUS_ROWS.P8, fixture), () => {
     const { mean, each, execs } = perPass(isGitFetch);
     recordCount(CENSUS_ROWS.P8, fixture, mean, execs);
-    expect(each).toEqual([0, 0]);
+    const parentOf = (e: ExecRecord): string => census.execs.find((p) => p.pid === e.ppid)?.argv.join(' ') ?? 'unknown';
+    const started = execs.map((e) => `${e.argv.join(' ')} <- ${parentOf(e)}`).join('\n');
+    expect(each, started).toEqual([0, 0]);
   });
 
   if (fixture.host === 'github') {
