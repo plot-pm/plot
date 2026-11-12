@@ -378,6 +378,9 @@ describe('the PR schedule on snapshot', () => {
 
   it('takes the reader\'s published prNextAt on every PR beat', async () => {
     const { dir, opts } = await fixture();
+    // OWN INDEX HOME: a suite run under `owned-run.sh` shares one
+    // `PLOT_PR_INDEX_HOME`, where another test's reader state would answer.
+    vi.stubEnv('PLOT_PR_INDEX_HOME', path.join(dir, 'pr-index'));
     const held = { epoch: 'e1', snapshot: snapshotTitled('X', 1) };
     const served = { ...opts, channelSnapshot: () => current(held) };
     const lock = adapters.readerLockFile({ cwd: dir });
@@ -401,7 +404,8 @@ describe('the PR schedule on snapshot', () => {
   });
 
   it('reads the schedule as unknown where the reader published none', async () => {
-    const { opts } = await fixture();
+    const { dir, opts } = await fixture();
+    vi.stubEnv('PLOT_PR_INDEX_HOME', path.join(dir, 'pr-index'));
     const held = { epoch: 'e1', snapshot: snapshotTitled('X', 1) };
     const served = { ...opts, channelSnapshot: () => current(held) };
     const entry = fleet.freshCacheEntry();
