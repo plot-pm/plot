@@ -81,7 +81,7 @@ const BY_BEAT: readonly FleetdLoop[] = ['tick', 'scan'];
 /**
  * Names the loops that are late.
  *
- * `scan` and `tick` are late when `beatAt` is older than the loop's bound, not
+ * `scan` and `tick` are late when `beatAt` is at least the loop's bound old, not
  * when the last finished pass is: a scan that starts only on a trigger leaves
  * no pass on a quiet repository. `pr-reader` and `issue-reader` are late when
  * their last pass is older than the bound.
@@ -95,7 +95,7 @@ export const lateLoops = (heartbeat: FleetdHeartbeat, now: number): FleetdLoop[]
     const pass = heartbeat.loops[loop];
     if (pass === undefined) return false;
     const since = BY_BEAT.includes(loop) ? heartbeat.beatAt : (pass.lastPassAt ?? heartbeat.startedAt);
-    return now - since > FLEETD_LOOP_BOUND_MS[loop];
+    return now - since >= FLEETD_LOOP_BOUND_MS[loop];
   });
 
 /**

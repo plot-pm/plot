@@ -86,7 +86,7 @@ describe('observerFresh', () => {
     const beat = heartbeat({
       loops: {
         tick: { lastPassAt: T0 - 60_000 },
-        scan: { lastPassAt: T0 - 180_000 },
+        scan: { lastPassAt: T0 - 900_000 },
         'pr-reader': { lastPassAt: T0 - 60_000 },
         'issue-reader': { lastPassAt: T0 - 120_000 },
       },
@@ -95,15 +95,28 @@ describe('observerFresh', () => {
     expect(lateLoops(beat, T0)).toEqual([]);
   });
 
-  it('fails when the scan passed more than 180 s ago under a fresh beat', () => {
-    const beat = heartbeat({ loops: { scan: { lastPassAt: T0 - 181_000 } } });
+  it('names no loop for a fresh beat and a scan that passed long ago: an idle scan starts none', () => {
+    const beat = heartbeat({ loops: { scan: { lastPassAt: T0 - 181_000 }, tick: { lastPassAt: T0 - 400_000 } } });
     expect(fleetdLiveness(beat, T0)).toBe('live');
-    expect(observerFresh(beat, T0)).toBe(false);
-    expect(lateLoops(beat, T0)).toEqual(['scan']);
+    expect(observerFresh(beat, T0)).toBe(true);
+    expect(lateLoops(beat, T0)).toEqual([]);
+  });
+
+  it('names scan for a beat 180 s old and no loop for one 179 s old', () => {
+    const loops = { scan: { lastPassAt: T0 } };
+    expect(lateLoops(heartbeat({ beatAt: T0 - 180_000, loops }), T0)).toEqual(['scan']);
+    expect(lateLoops(heartbeat({ beatAt: T0 - 179_000, loops }), T0)).toEqual([]);
+  });
+
+  it('names tick for a beat 300 s old and no loop for one 299 s old', () => {
+    const loops = { tick: { lastPassAt: T0 } };
+    expect(lateLoops(heartbeat({ beatAt: T0 - 300_000, loops }), T0)).toEqual(['tick']);
+    expect(lateLoops(heartbeat({ beatAt: T0 - 299_000, loops }), T0)).toEqual([]);
   });
 
   it('names every late loop in a fixed order', () => {
     const beat = heartbeat({
+      beatAt: T0 - 400_000,
       loops: {
         'issue-reader': { lastPassAt: T0 - 700_000 },
         tick: { lastPassAt: T0 - 400_000 },
@@ -114,8 +127,8 @@ describe('observerFresh', () => {
   });
 
   it('judges a loop with no pass yet from the process start', () => {
-    const young = heartbeat({ startedAt: T0 - 100_000, loops: { scan: { lastPassAt: null } } });
-    const old = heartbeat({ startedAt: T0 - 200_000, loops: { scan: { lastPassAt: null } } });
+    const young = heartbeat({ startedAt: T0 - 500_000, loops: { 'pr-reader': { lastPassAt: null } } });
+    const old = heartbeat({ startedAt: T0 - 700_000, loops: { 'pr-reader': { lastPassAt: null } } });
     expect(observerFresh(young, T0)).toBe(true);
     expect(observerFresh(old, T0)).toBe(false);
   });
@@ -200,7 +213,7 @@ describe('bridgeVouched', () => {
 describe('bridgeVouched with a late scan', () => {
   it('refuses while the scan loop is late and vouches once it is back', () => {
     const named = { bridgeAt: T0 - 1_200_000 };
-    const late = heartbeat({ ...named, loops: { scan: { lastPassAt: T0 - 181_000 } } });
+    const late = heartbeat({ ...named, beatAt: T0 - 181_000, loops: { scan: { lastPassAt: T0 - 181_000 } } });
     expect(bridgeVouched({ at: T0 - 1_200_000 }, late, T0)).toBe(false);
     const onTime = heartbeat({ ...named, loops: { scan: { lastPassAt: T0 - 5_000 } } });
     expect(bridgeVouched({ at: T0 - 1_200_000 }, onTime, T0)).toBe(true);
