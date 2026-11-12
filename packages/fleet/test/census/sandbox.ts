@@ -287,6 +287,17 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
       shas.set(branch, mainSha);
     }
     git(repo, 'fetch', '--quiet', 'origin');
+    // A BITBUCKET ORIGIN THE IN-PROCESS CLIENT CAN READ: `remoteSlug` accepts
+    // only a host URL, and a local path gives the client no slug, so every read
+    // would fall to the shell. The remote names the workspace and repository
+    // over ssh; `GIT_SSH_COMMAND` answers that transport from the local bare
+    // repository, so fetches reach no network; pushes keep the local path.
+    if (size.host === 'bitbucket') {
+      writeStub(bin, 'census-ssh', `#!/bin/sh\nfor last; do :; done\nexec "\${last%% *}" '${origin}'\n`);
+      env['GIT_SSH_COMMAND'] = join(bin, 'census-ssh');
+      git(repo, 'remote', 'set-url', '--push', 'origin', origin);
+      git(repo, 'remote', 'set-url', 'origin', 'ssh://git@bitbucket.org/census/fixture.git');
+    }
 
     const answer = (cli: 'gh' | 'bb', key: string, body: unknown): void => {
       writeFileSync(join(fixtures, cli, `${key}.json`), `${typeof body === 'string' ? body : JSON.stringify(body)}\n`);
