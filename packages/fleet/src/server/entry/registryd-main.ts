@@ -50,6 +50,7 @@ import {
   hostReadsFor,
   type HostReads,
 } from '@plot-pm/domain/adapters';
+import { indexChange, type PrIndexRow, type ScanPlan } from '@plot-pm/domain';
 import { hostTransportLine } from '@plot-pm/domain/rules/host-transport';
 import { probeAppKeysAtStart } from '@plot-pm/domain/workflows/app-key-start-probe';
 import { removeStageDirsOnExit } from '@plot-pm/domain/adapters/stage-dirs';
@@ -3215,10 +3216,12 @@ export const run = async (
   const bridge = trackBridgeWrites(fleetStateFile({ repoRoot }));
   // A scan passes only when it landed a bridge: `fleetScan` contains its own failures and
   // returns, so a failing scan would otherwise read as a loop that keeps up.
-  const scanPassed = (scan: () => Promise<void>): (() => Promise<void>) => async () => {
+  const scanPassed = (scan: (plan: ScanPlan) => Promise<void>): ((plan: ScanPlan) => Promise<boolean>) => async (plan) => {
     const before = bridge.writes();
-    await scan();
-    if (bridge.writes() > before) passes.scan = Date.now();
+    await scan(plan);
+    const landed = bridge.writes() > before;
+    if (landed) passes.scan = Date.now();
+    return landed;
   };
   const fleetLabel =
     process.env.PLOT_FLEET_LABEL ||
@@ -3287,14 +3290,32 @@ export const run = async (
           () => warn('plot-fleetd: channel bound\n'),
           stop,
         );
+  // A PR BEAT THAT MOVED A REF OR A CI ANSWER names it to the watch set: the index rows
+  // before and after the beat decide, so an idle beat raises nothing.
+  const indexRows = async (): Promise<readonly PrIndexRow[]> => {
+    const backend = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
+    if (!backend.ok) return [];
+    const held = await prIndexFile({ cwd: repoRoot }).read(backend.value);
+    return held.ok && held.value !== null ? held.value.rows : [];
+  };
+  const raisingPrs = (read: () => Promise<void>): (() => Promise<void>) => async () => {
+    if (watchSet === null) return read();
+    const before = await indexRows();
+    await read();
+    const moved = indexChange(before, await indexRows());
+    if (moved.remote) watchSet.raise({ kind: 'remote' });
+    else if (moved.prs) watchSet.raise({ kind: 'host-answer', reading: 'prs' });
+  };
   const scanClock = args.once
     ? null
     : startFleetClock(seams.clock ?? clockSystem(), {
-        scan: safetyNet.scan(watchSet, seams.scan ? passed('scan', seams.scan) : scanPassed(fleetScan(
+        scan: safetyNet.scan(watchSet, seams.scan ? async () => { await passed('scan', seams.scan!)(); return true; } : scanPassed(fleetScan(
           {
             repoRoot,
             scripts,
             record: safetyNet.record,
+            // A LISTING THAT MOVED A REF names `remote` to the watch set.
+            raise: (change) => watchSet?.raise(change),
             refs: refsGit({ repoRoot, scriptDir: scriptsDir }),
             backend: async () => {
               const answer = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
@@ -3355,7 +3376,7 @@ export const run = async (
             stop,
           ),
         ))),
-        prs: passed('pr-reader', prsBeat({ readPrs: seams.readPrs ?? readPrs, readDefaultBranch }, slot, retryBind)),
+        prs: passed('pr-reader', prsBeat({ readPrs: raisingPrs(seams.readPrs ?? readPrs), readDefaultBranch }, slot, retryBind)),
         issues: passed('issue-reader', seams.readIssues ?? readIssues),
         issueWrites: seams.readIssueWrites ?? fleetIssueWrites(issueWorld, issueState, warn),
         // STATE SYNC FOLLOWS THE REFS: a beat whose state and default-branch

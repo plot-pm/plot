@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { FleetReadingSchema, type FleetReading } from '@plot-pm/domain/entities/fleet';
-import { listingBackoff, listingSpend, PR_READ_BEAT_MS } from '@plot-pm/domain';
+import { deskReadsOf, listingBackoff, listingChange, listingSpend, PR_READ_BEAT_MS, type ScanPlan, type SnapshotChange } from '@plot-pm/domain';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import type { Agents } from '@plot-pm/domain/ports/agents';
 import type { Host, PrListingQuery } from '@plot-pm/domain/ports/host';
@@ -34,6 +34,7 @@ import { PR_FULL_READ_MS } from './pr-refresh.js';
 import type { SpendRate, SpendReader } from './spend-reader.js';
 import { failedOf, readOf, type RecordReading } from './snapshot-fill.js';
 import { workerQuestions } from './worker-question.js';
+import { freshDeskHold, holdDeskReads, type DeskHold } from './desk-hold.js';
 
 /** The scan Plot ships, streamed one plan at a time. */
 /** The branch-URL prefix for an origin URL, over the hosts Plot drives. */
@@ -129,6 +130,8 @@ export interface ScanState {
    * Absent, the walk runs cold every beat, as the board's fallback does.
    */
   walkCache?: WalkCache;
+  /** The desk reads held between scans, in this process only; absent, every desk is read each scan. */
+  deskHold?: DeskHold;
 }
 
 /**
@@ -148,6 +151,7 @@ export const freshScanState = (): ScanState => ({
   backoffMs: null,
   calls: 0,
   walkCache: freshWalkCache(),
+  deskHold: freshDeskHold(),
 });
 
 /** What a scan reads through; every spawn goes through `scripts` or `refs`. */
@@ -172,6 +176,12 @@ export interface ScanWorld {
    * fleetd writes the AgentMonitor's findings here. Absent, nothing receives them.
    */
   findings?: (branches: BranchStageReadings, desks: DeskStageReadings) => Promise<void>;
+  /**
+   * Receives a change the scan's own read found: a listing that names a branch
+   * that appeared or went away, or a newly merged PR, raises `remote`. Absent,
+   * the scan raises none.
+   */
+  raise?: (change: SnapshotChange) => void;
 }
 
 /** The ports the plan walk reads through, beside `refs` and `scripts`. */
@@ -210,6 +220,11 @@ export interface ScanResult {
 
 /** How a scan runs. */
 export interface ScanOptions {
+  /**
+   * What this scan reads, from the trigger. Absent, the scan reads every
+   * reading and fetches, as every scan did before a trigger started it.
+   */
+  plan?: ScanPlan;
   /** Retained for callers; the in-process walk writes no bridge of its own. */
   record: boolean;
   /** Retained for callers; the in-process walk streams no lines. */
@@ -719,9 +734,11 @@ const recordCardReadings = async (
 /**
  * Runs the plan walk's four stages in this process and builds the pulse.
  *
- * Fetches `origin` first, pruning, as the shell scan did; a failed fetch is
- * carried in the reading as `fetch_failed` and does not stop the walk. Every
- * read is cold: no stage's answer is kept between beats.
+ * Fetches `origin` first, pruning, as the shell scan did, unless `held.plan`
+ * says no remote change named it; a failed fetch is carried in the reading as
+ * `fetch_failed` and does not stop the walk. A `held` plan that names desks
+ * reads their git status again and answers the other desks from `held.hold`.
+ * Without `held`, every read is cold.
  *
  * Reads PR states from `listing` and never calls `Host.prList`. Reads the PR
  * index's merged rows through `walk.prIndexRows`, which confirm a refless
@@ -735,6 +752,8 @@ const recordCardReadings = async (
  * @param world - what the walk reads through.
  * @param listing - the rendered PR listing the scan carries, or `''` where none is held.
  * @param listingSaid - what the host said when the listing read was refused, or `''`; a host that could not be asked reads `unasked` rather than `failed`.
+ * @param cache - the oid-keyed answers held between walks.
+ * @param held - the trigger's plan and the desk reads held between walks.
  * @returns the pulse.
  * @throws where a stage fails or the assembled document is not a pulse.
  */
@@ -743,6 +762,7 @@ export const walkOnce = async (
   listing: string,
   listingSaid = '',
   cache?: WalkCache,
+  held?: { plan: ScanPlan; hold: DeskHold },
 ): Promise<FleetReading> => {
   const { scripts, record } = world;
   let refs = world.refs;
@@ -790,7 +810,9 @@ export const walkOnce = async (
 
   // `--prune` and the heads refspec ride after `origin`, where git reads them as
   // the shell scan's command did: the prune then covers the whole mirror.
-  const fetched = await walk.trees.fetch(world.repoRoot, ['--prune', mainBranch, '+refs/heads/*:refs/remotes/origin/*']);
+  const fetched = held !== undefined && !held.plan.fetch
+    ? { ok: true as const }
+    : await walk.trees.fetch(world.repoRoot, ['--prune', mainBranch, '+refs/heads/*:refs/remotes/origin/*']);
 
   // THE SNAPSHOT IS READ ONCE, AFTER THE FETCH AND BEFORE ANY CACHED READ. Every
   // cached read below resolves its names through it, so a ref that moves later
@@ -846,7 +868,12 @@ export const walkOnce = async (
     ? await readBranchReadings(refs, walk.host, estate.value, { mainBranch, planDir, prs, indexMerged, ...(indexOpen === undefined ? {} : { indexOpen }) })
     : estate;
   const desks = branches.ok
-    ? await readDeskReadings(walk.trees, walk.agents, walk.processes, branches.value)
+    ? await readDeskReadings(
+      held === undefined ? walk.trees : holdDeskReads(walk.trees, held.hold, deskReadsOf(held.plan.readings), Date.now()),
+      walk.agents,
+      walk.processes,
+      branches.value,
+    )
     : branches;
   if (world.findings !== undefined && branches.ok && desks.ok) await world.findings(branches.value, desks.value);
   if (record !== undefined) {
@@ -942,10 +969,11 @@ export const walkOnce = async (
 export const scanOnce = async (
   world: ScanWorld,
   state: ScanState,
-  _options: ScanOptions,
+  options: ScanOptions,
 ): Promise<ScanResult> => {
   const now = Date.now();
-  const due = state.listingAt === null || now >= state.listingAt + state.listingIntervalMs;
+  const heldListing = state.listing;
+  const due = options.plan?.listing === true || state.listingAt === null || now >= state.listingAt + state.listingIntervalMs;
   const backoff = listingBackoff({ backoffUntil: state.backoffUntil, backoffMs: state.backoffMs, now });
   let spend = true;
   let reusedAgeMs: number | null = null;
@@ -1027,7 +1055,8 @@ export const scanOnce = async (
   // not the walk.
   let parsed: FleetReading;
   try {
-    parsed = await withinBudget(walkOnce(world, state.listing, listingSaid, state.walkCache), FLEET_SCAN_BUDGET_MS);
+    const held = options.plan === undefined || state.deskHold === undefined ? undefined : { plan: options.plan, hold: state.deskHold };
+    parsed = await withinBudget(walkOnce(world, state.listing, listingSaid, state.walkCache, held), FLEET_SCAN_BUDGET_MS);
     // Pruned only here, after a beat that completed: a beat that timed out
     // keeps what it read, so the next one does not start cold again.
     state.walkCache?.sweep();
@@ -1046,6 +1075,8 @@ export const scanOnce = async (
     }
   }
   const reading: FleetReading = parsed;
+  // A LISTING THAT MOVED A REF RAISES `remote`; one that changed only a CI answer raises nothing.
+  if (hostRead !== null && listingChange(heldListing, state.listing).remote) world.raise?.({ kind: 'remote' });
   const dates = await readBranchDates(world.refs);
   world.record?.('branchDates', dates === null ? failedOf('the branch dates could not be read') : readOf(dates));
   const { ages, tipAt } = branchAgesOf(dates ?? [], Date.now());

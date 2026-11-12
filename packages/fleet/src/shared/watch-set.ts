@@ -39,8 +39,14 @@ export interface RunningWatchSet {
   lastEventAt: () => number | null;
   /** The readings pending, in the order they were named. */
   pending: () => readonly StaleReading[];
-  /** Returns the pending readings and empties the set. */
+  /** Whether a `remote` change or the safety net is among the pending changes: the walk fetches. */
+  remotePending: () => boolean;
+  /** Returns the pending readings and empties the set, the remote flag included. */
   drain: () => readonly StaleReading[];
+  /** Puts drained readings back, and the remote flag where the drain held it: a scan that threw read none of them. */
+  requeue: (readings: readonly StaleReading[], remote: boolean) => void;
+  /** Adds a change a read reported in process, with no content check: a read raised it. */
+  raise: (change: SnapshotChange) => void;
   /** Reads the layout again, arms new directories and closes removed ones. */
   sync: () => Promise<void>;
   /** Closes every watch and ignores later events; calling it again does nothing. */
@@ -68,12 +74,14 @@ export const startWatchSet = (world: WatchSetWorld): RunningWatchSet => {
   let targets: readonly WatchTarget[] = [];
   let held: { refs: string | null; desks: Map<string, string | null> } = { refs: null, desks: new Map() };
   let pending: readonly StaleReading[] = [];
+  let remote = false;
   let lastEventAt: number | null = null;
   let stopped = false;
   let queue: Promise<void> = Promise.resolve();
 
   const accept = (change: SnapshotChange): void => {
     pending = addPending(pending, staleReadings(change));
+    if (change.kind === 'remote' || change.kind === 'safety-net') remote = true;
     world.onChange?.(change);
   };
 
@@ -136,10 +144,19 @@ export const startWatchSet = (world: WatchSetWorld): RunningWatchSet => {
     armed: () => [...handles.values()].filter((open) => !open.degraded).length,
     lastEventAt: () => lastEventAt,
     pending: () => pending,
+    remotePending: () => remote,
     drain: () => {
       const drained = pending;
       pending = [];
+      remote = false;
       return drained;
+    },
+    requeue: (readings, again) => {
+      pending = addPending(readings, pending);
+      remote = remote || again;
+    },
+    raise: (change) => {
+      if (!stopped) accept(change);
     },
     sync,
     stop: () => {
