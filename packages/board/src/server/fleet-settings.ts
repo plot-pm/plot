@@ -100,10 +100,16 @@ export async function handleFleetSettings(
   let autoDispatch: boolean | undefined;
   let parallelAgents: number | undefined;
   let machineOverride: boolean | undefined;
+  let autoReview: boolean | undefined;
+  let autoVerify: boolean | undefined;
+  let autoDesign: boolean | undefined;
   try {
     autoDispatch = field(body as Record<string, unknown>, 'autoDispatch', isBoolean);
     parallelAgents = field(body as Record<string, unknown>, 'parallelAgents', isInteger);
     machineOverride = field(body as Record<string, unknown>, 'machineOverride', isBoolean);
+    autoReview = field(body as Record<string, unknown>, 'autoReview', isBoolean);
+    autoVerify = field(body as Record<string, unknown>, 'autoVerify', isBoolean);
+    autoDesign = field(body as Record<string, unknown>, 'autoDesign', isBoolean);
   } catch (err) {
     json(400, { error: err instanceof Error ? err.message : String(err) });
     return;
@@ -113,6 +119,9 @@ export async function handleFleetSettings(
     autoDispatch: autoDispatch ?? current.autoDispatch,
     parallelAgents: parallelAgents ?? current.parallelAgents,
     machineOverride: machineOverride ?? current.machineOverride,
+    autoReview: autoReview ?? current.autoReview,
+    autoVerify: autoVerify ?? current.autoVerify,
+    autoDesign: autoDesign ?? current.autoDesign,
   };
 
   try {

@@ -26,6 +26,7 @@ import type { Trees } from '@plot-pm/domain/ports/trees';
 import type { Host, PrLookup } from '@plot-pm/domain/ports/host';
 import type { BoardRunRecord } from '@plot-pm/domain/rules/board-run-end';
 import { readConfig } from './config-reader.js';
+import { readSwitch } from './fleet-settings-store.js';
 import { usableCommand } from './usable-command.js';
 import { designLogPath, designPromptPath } from './agent-log.js';
 import type { ActOptions } from './action-log.js';
@@ -509,7 +510,7 @@ export const runAutoDesignPass = async (
   world: DesignPassWorld = defaultWorld,
 ): Promise<string[]> => {
   const command = usableCommand(readConfig(opts, DESIGN_COMMAND_KEY, ''));
-  const autoDesign = readConfig(opts, AUTO_DESIGN_KEY, '') === 'true';
+  const autoDesign = readSwitch(opts, 'autoDesign');
   foldRestartMarks(opts.repoRoot, now);
 
   const before = readDesignState(opts.repoRoot);

@@ -1,4 +1,4 @@
-import { useState, type MouseEvent } from 'react';
+import { useState, type MouseEvent, type ReactNode } from 'react';
 import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
 import type { DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
 import { planIndexOf, planReference, planRefOfIssue, type PlanIndex } from '@plot-pm/domain';
@@ -459,11 +459,12 @@ export function HeaderRow() {
           naming one kind's case for all of them. */}
       <span role="columnheader">Marks</span>
       <span role="columnheader">Kind</span>
-      <span role="columnheader">Name</span>
-      <span role="columnheader">Related</span>
+      <span role="columnheader">Item</span>
+      <span role="columnheader">Where</span>
       <span role="columnheader">Status</span>
+      <span role="columnheader">Do</span>
+      <span role="columnheader">By</span>
       <span role="columnheader">Age</span>
-      <span role="columnheader">Actions</span>
     </li>
   );
 }
@@ -518,7 +519,13 @@ export function PlanRow({
   dispatch,
   onStarting,
   planIndex,
+  by,
+  details,
 }: {
+  /** The BY cell: who acts on the item. */
+  by?: ReactNode;
+  /** The details popover's lines. */
+  details?: readonly string[];
   group: PlanGroup;
   /**
    * The fleet's server-derived slices — the list the head's count reads instead
@@ -676,6 +683,8 @@ export function PlanRow({
   const planOwnRow = group.rows.find((r) => r.kind === 'plan');
   return (
     <TupleRowView
+      by={by}
+      details={details}
       tuple={(() => {
         const t = tupleFromPlan({
           plan: group.plan,
@@ -1010,7 +1019,13 @@ export function SliceRow({
   slices,
   onExpandSection,
   planIndex,
+  by,
+  details,
 }: {
+  /** The BY cell: who acts on the item. */
+  by?: ReactNode;
+  /** The details popover's lines. */
+  details?: readonly string[];
   group: SliceGroup;
   /** The plan this slice slices — for the row's test hook, not for a link. */
   plan: string;
@@ -1177,6 +1192,8 @@ export function SliceRow({
         || reading.note;
   return (
     <TupleRowView
+      by={by}
+      details={details}
       tuple={tupleFromSlice({
         name: group.wave,
         plan,
@@ -1733,7 +1750,13 @@ export function Row({
   onRevealBranch,
   highlighted = false,
   planIndex,
+  by,
+  details,
 }: {
+  /** The BY cell: who acts on the item. */
+  by?: ReactNode;
+  /** The details popover's lines. */
+  details?: readonly string[];
   row: AgentRow;
   /**
    * The sprint filter is on and passed this row without a membership test —
@@ -2009,6 +2032,8 @@ export function Row({
 
   return (
     <TupleRowView
+      by={by}
+      details={details}
       tuple={tuple}
       onOpenPlan={onOpenPlan}
       // AN AGENT'S NAME OPENS THE PANEL, which is what the name is FOR: the
@@ -2434,7 +2459,13 @@ export function RegistryRow({
   onRevealBranch,
   highlighted = false,
   planIndex,
+  by,
+  details,
 }: {
+  /** The BY cell: who acts on the item. */
+  by?: ReactNode;
+  /** The details popover's lines. */
+  details?: readonly string[];
   /** The agent registry entry — the source of truth for a WORKING row. */
   agent: AgentEntry;
   /**
@@ -2624,6 +2655,8 @@ export function RegistryRow({
   return (
     <>
       <TupleRowView
+        by={by}
+        details={details}
         tuple={tuple}
         onOpenPlan={onOpenPlan}
         // THE NAME OPENS THE PANEL — the session has no address, so the name is
