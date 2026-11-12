@@ -73,6 +73,11 @@ describe('indexChange', () => {
     expect(indexChange([row('a')], [row('a')])).toEqual({ remote: false, prs: false });
   });
 
+  it('names nothing where no store was held before, or none can be read after', () => {
+    expect(indexChange(null, [row('a')])).toEqual({ remote: false, prs: false });
+    expect(indexChange([row('a')], null)).toEqual({ remote: false, prs: false });
+  });
+
   it('names remote for a merge and for a new head, prs alone for a CI change', () => {
     expect(indexChange([row('a')], [row('a', { state: 'MERGED' })]).remote).toBe(true);
     expect(indexChange([row('a')], [row('a'), row('b')]).remote).toBe(true);

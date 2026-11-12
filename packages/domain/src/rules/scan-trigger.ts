@@ -109,11 +109,15 @@ export const listingChange = (before: string, after: string): { remote: boolean;
 /**
  * Names what the PR index's rows changed between two reads, the same way {@link listingChange} reads a listing.
  *
- * @param before - the rows held before the PR pass.
- * @param after - the rows after it.
- * @returns the change; a CI, review or draft change is `prs` alone.
+ * @param before - the rows held before the PR pass; `null` where no store was held, which gives nothing to compare against.
+ * @param after - the rows after it; `null` where the store cannot be read.
+ * @returns the change; a CI, review or draft change is `prs` alone. Both flags are false where either side is `null`.
  */
-export const indexChange = (before: readonly PrIndexRow[], after: readonly PrIndexRow[]): { remote: boolean; prs: boolean } => {
+export const indexChange = (
+  before: readonly PrIndexRow[] | null,
+  after: readonly PrIndexRow[] | null,
+): { remote: boolean; prs: boolean } => {
+  if (before === null || after === null) return { remote: false, prs: false };
   const rowsOf = (rows: readonly PrIndexRow[]): Row[] =>
     rows.map((row) => ({ head: row.head, state: row.state, content: `${row.state}\t${row.checks}\t${row.review}\t${row.draft}` }));
   return verdict(rowsOf(after), rowsOf(before));

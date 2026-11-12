@@ -3293,11 +3293,12 @@ export const run = async (
         );
   // A PR BEAT THAT MOVED A REF OR A CI ANSWER names it to the watch set: the index rows
   // before and after the beat decide, so an idle beat raises nothing.
-  const indexRows = async (): Promise<readonly PrIndexRow[]> => {
+  /** The stored index's rows, or `null` where no store is held: a first read has nothing to compare against. */
+  const indexRows = async (): Promise<readonly PrIndexRow[] | null> => {
     const backend = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
-    if (!backend.ok) return [];
+    if (!backend.ok) return null;
     const held = await prIndexFile({ cwd: repoRoot }).read(backend.value);
-    return held.ok && held.value !== null ? held.value.rows : [];
+    return held.ok && held.value !== null ? held.value.rows : null;
   };
   const raisingPrs = (read: () => Promise<void>): (() => Promise<void>) => async () => {
     if (watchSet === null) return read();
