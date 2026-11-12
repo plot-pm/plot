@@ -3062,13 +3062,13 @@ describe('TUPLE_TRACKS — one grid, and where its width goes', () => {
     return inner!.split('_');
   };
 
-  it('lays out the six slots, with the marks and the menu around them', () => {
-    // `[marks, kind, name, links, status, age, menu]` — the six slots plus the
-    // two the tuple does not own. The MARKS track comes first and holds slot
-    // 1's icon beside the activity marks; the MENU track is last and holds
-    // whatever the kind offers.
+  it('lays out the seven columns, with the marks lane before them', () => {
+    // `[marks, kind, item, where, status, do, by, age]` — the Delivery tab's
+    // seven columns in the design's order, after the marks lane. The DO track
+    // holds the row's menu; BY sizes to who acts and holds nothing where
+    // nobody was read.
     expect(tracks()).toEqual(
-      ['1.5rem', '4.5rem', 'minmax(12rem,auto)', '1fr', '8rem', '4.5rem', '1.25rem']);
+      ['1.5rem', '4.5rem', 'minmax(12rem,auto)', '1fr', '8rem', '1.25rem', 'minmax(0rem,auto)', '4.5rem']);
   });
 
   it('flexes the LINKS track and no other', () => {
@@ -3144,7 +3144,7 @@ describe('TUPLE_TRACKS — one grid, and where its width goes', () => {
     // AND THE HEADROOM IS NAMED, so a later widening has to argue with a
     // number rather than merely stay under a ceiling — which is exactly what
     // the docstring's uncounted gap took away.
-    expect(CARD_BELOW_PX - (fixedPx + gapsAndPadding)).toBe(36);
+    expect(CARD_BELOW_PX - (fixedPx + gapsAndPadding)).toBe(24);
   });
 
   it('has no second grid left to drift from this one', () => {
@@ -3170,8 +3170,6 @@ describe('TUPLE_TRACKS — one grid, and where its width goes', () => {
     ]
       .map((f) => readFileSync(new URL(`../../src/app/${f}`, import.meta.url), 'utf8'))
       .join('\n');
-    const deliverySrc = readFileSync(
-      new URL('../../src/app/components/DeliveryRows.tsx', import.meta.url), 'utf8');
     // COMMENTS STRIPPED, and the distinction is the whole reason this is worth
     // anything. Both adapters DISCUSS the grids they replaced — `PlanRow`'s
     // docstring records the reversal at length, because *a plan row is not a
@@ -3187,10 +3185,7 @@ describe('TUPLE_TRACKS — one grid, and where its width goes', () => {
     expect(code).not.toMatch(/PLAN_ROW_TRACKS/);
     // And the stripping removed something, so the two assertions above are
     // about code rather than about an empty string.
-    expect(src).toMatch(/IssueRowView/);
-    // The seven-column grid of the Delivery tab is declared ONCE, in
-    // `DeliveryRows.tsx`, and the header row reads the same constant.
-    expect([...deliverySrc.matchAll(/grid-cols-\[/g)]).toHaveLength(1);
+    expect(src).toMatch(/PLAN_ROW_TRACKS/);
     // TWO `grid-cols-` in the whole row estate, both in `TupleRow.tsx`:
     // `TUPLE_TRACKS` and `TICKET_TRACKS` (#1960, a ticket's title gives way).
     const tupleSrc = readFileSync(
@@ -3252,7 +3247,6 @@ describe("a row's actions all live in its menu", () => {
     'lib/agent-rows/rows.tsx',
     'lib/agent-rows/menus.tsx',
     'lib/agent-rows/marks.tsx',
-    'components/DeliveryRows.tsx',
   ] as const;
   const sources = FILES.map((f) =>
     readFileSync(new URL(`../../src/app/${f}`, import.meta.url), 'utf8'));
@@ -3285,22 +3279,13 @@ describe("a row's actions all live in its menu", () => {
         return src.slice(start, end + 3);
       }
     }
-    for (const src of sources) {
-      const m = new RegExp(`(?:export )?const ${name} = `).exec(src);
-      if (m === null) continue;
-      const rest = src.slice(m.index);
-      const close = rest.search(/\n(\);|\};)\n/);
-      expect(close, `${name} does not close in column zero`).toBeGreaterThan(-1);
-      return rest.slice(0, close + 4);
-    }
     expect.fail(`no component named ${name} in ${FILES.join(' or ')}`);
   }
 
   /** Whether a name is a component either file declares. */
   const declares = (name: string): boolean =>
     sources.some((src) =>
-      src.includes(`function ${name}(`) || src.includes(`export function ${name}(`)
-      || new RegExp(`(?:export )?const ${name} = `).test(src));
+      src.includes(`function ${name}(`) || src.includes(`export function ${name}(`));
 
   /**
    * Every component reachable from the ROW BODY, following what each mounts —
@@ -3313,9 +3298,9 @@ describe("a row's actions all live in its menu", () => {
    * exactly where the next one would land.
    */
   function rowBodySources(): { name: string; source: string }[] {
-    const seen = new Set<string>(['RowActions', 'IssueRowActions']);
+    const seen = new Set<string>(['RowActions']);
     const out: { name: string; source: string }[] = [];
-    const queue = ['DeliveryRow', 'IssueRowView'];
+    const queue = ['Row'];
     while (queue.length) {
       const name = queue.shift() as string;
       if (seen.has(name)) continue;
@@ -3426,15 +3411,6 @@ describe("a row's actions all live in its menu", () => {
     // wears, because the property tests assert on it is *this is not an anchor*
     // — true of both, and the assertion that matters.
     'data-tuple-text',
-    // THE DELIVERY TAB'S ROW LINKS. Every `<a>` and `<button>` `Linked` renders
-    // is navigation to a thing a cell NAMES — a plan, a PR, a branch, a row on
-    // the same page — and `data-row-link` is the hook that says so.
-    'data-row-link',
-    // THE DO CELL, the one place a row carries an action. The row form gives
-    // every row ONE action in a fixed column (`delivery-row-form.ts`), shown
-    // under You only; it opens the place that holds the controller and
-    // performs nothing itself.
-    'data-row-do',
   ];
 
   it('renders no interactive element in a row body outside the menu', () => {
@@ -3475,9 +3451,9 @@ describe("a row's actions all live in its menu", () => {
     // Injected at the row's MENU prop, which every kind's adapter has and which
     // is the nearest thing left to the branch cell the old injection used —
     // `<BranchName row={row} />` was deleted with the component that held it.
-    const withStray = declaration('DeliveryRow').replace(
-      '    {ROW_COLUMNS.map(',
-      '    <a href={runUrl} data-stuck-link>Open failing run</a>\n    {ROW_COLUMNS.map(',
+    const withStray = declaration('Row').replace(
+      '      menu={',
+      '      extra={<a href={runUrl} data-stuck-link>Open failing run</a>}\n      menu={',
     );
     expect(withStray).toContain('data-stuck-link');
     const found = [...withStray.matchAll(/<(a|button)[\s>]/g)].filter((m) => {
@@ -3487,7 +3463,7 @@ describe("a row's actions all live in its menu", () => {
     expect(found.length).toBe(1);
   });
 
-  it('reaches the components the row mounts, not only DeliveryRow itself', () => {
+  it('reaches the components the row mounts, not only Row itself', () => {
     // THE PROPERTY THAT MAKES THE GATE WORTH ANYTHING, and the collapse moved
     // what it has to reach. The row's own links used to live in `BranchName`
     // and `PrCell`; they now live in `TupleLinkView`, reached through
@@ -3508,7 +3484,7 @@ describe("a row's actions all live in its menu", () => {
     // row for as long as it did. One component renders every kind now, and the
     // gate reaching it from all three adapters is what says so structurally
     // rather than in a comment.
-    for (const adapter of ['IssueRowView']) {
+    for (const adapter of ['PlanRow', 'IssueRowView']) {
       expect(declaration(adapter)).toContain('<TupleRowView');
     }
   });

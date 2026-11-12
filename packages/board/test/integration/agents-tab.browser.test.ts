@@ -903,7 +903,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // was one kind's. `Related` heads slot 4, which holds whatever a kind's
       // artifacts are and where each link states its own `what` beside itself.
       await expect.poll(() => headers.allTextContents())
-        .toEqual(['Marks', 'Kind', 'Name', 'Related', 'Status', 'Age', 'Actions']);
+        .toEqual(['Marks', 'Kind', 'Item', 'Where', 'Status', 'Do', 'By', 'Age']);
       // The accessible name, not `textContent`: what a screen reader hears is
       // the question, and it must hear the header once and the cell's word once.
       const kindCell = li.locator('[role="gridcell"]').nth(KIND_CELL);
@@ -1426,9 +1426,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // divergence the old placeholder existed to prevent.
       expect(await menu(page, 'feature/blocked').count()).toBe(0);
       const withAction = await rowFor(page, 'feature/untaken')
-        .locator('[role="gridcell"]').last().boundingBox();
+        .locator('[data-row-cell="do"]').boundingBox();
       const without = await rowFor(page, 'feature/blocked')
-        .locator('[role="gridcell"]').last().boundingBox();
+        .locator('[data-row-cell="do"]').boundingBox();
       // Same width and same right edge, with no button in one of them.
       expect(withAction!.width).toBe(without!.width);
       expect(Math.round(withAction!.x + withAction!.width))
@@ -2567,7 +2567,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   const KIND_CELL = 1;
   const BRANCH_CELL = 2;
   const STATUS_CELL = 4;
-  const AGE_CELL = 5;
+  const AGE_CELL = 7;
 
   it('starts every branch cell at the same x, with a phase and without one', async () => {
     // The first of the three defects, and the reason the row became a grid at
@@ -2899,7 +2899,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         })));
       expect(cols.length).toBeGreaterThanOrEqual(4);
       for (const c of cols) {
-        expect(c.n, `${c.kind} has ${c.n} tracks`).toBe(7);
+        expect(c.n, `${c.kind} has ${c.n} tracks`).toBe(8);
       }
       // NOT COMPARED ACROSS DEPTHS, and that is what this pair stopped being
       // able to say. `truth-a` names a wave and `plain-a` does not, so a named
@@ -3090,7 +3090,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         const counts = await rows.evaluateAll((els) => els.map(
           (e) => getComputedStyle(e).gridTemplateColumns.split(' ').length));
         for (const n of counts) {
-          expect(n, `${label} lays a row on ${n} tracks`).toBe(7);
+          expect(n, `${label} lays a row on ${n} tracks`).toBe(8);
         }
       }
     } finally {

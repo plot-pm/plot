@@ -360,10 +360,10 @@ describe('the issue row has one action, and it creates a Draft', () => {
       // THE AGE COLUMN RENDERS ALONE — the reported defect. Track 6 (0-indexed
       // 5) held `1d`/`Create plan` overlapping when the button sat one track
       // over and overflowed left; now it holds only the age.
-      await expect.poll(() => cells.nth(5).textContent()).toBe('2h');
-      // Track 7 (0-indexed 6) is the menu, and it holds the glyph — not the
+      await expect.poll(() => issueRow(page, 228).locator('[data-row-cell="age"]').textContent()).toBe('2h');
+      // The DO column is the menu, and it holds the glyph — not the
       // words. The action is one click in, not spilling across the age.
-      const menuCell = cells.nth(6);
+      const menuCell = issueRow(page, 228).locator('[data-row-cell="do"]');
       await expect.poll(() => menuCell.locator('[data-issue-actions="228"]').count()).toBe(1);
       await expect.poll(() => menuCell.textContent()).not.toContain('Create plan');
     } finally {

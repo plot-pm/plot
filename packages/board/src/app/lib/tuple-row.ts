@@ -7,7 +7,7 @@
 // last three attempts drifted — 5,664 lines, eleven commits on 2026-08-20
 // alone, and a conflict on nearly every merge that day.
 //
-// THAT BET PAID. `Row`, the plan row and `IssueRowView` are gone, and the slice
+// THAT BET PAID. `Row`, `PlanRow` and `IssueRowView` are gone, and the slice
 // that deleted them moved rendering ONLY: not one slot rule changed, because
 // they were already landed, tested and stable here. What `AgentList.tsx` keeps
 // are three ADAPTERS, each answering what only its call site knows — the marks,
@@ -1395,7 +1395,7 @@ export interface SliceRowFacts {
    *
    * Carried on the facts rather than read by `tupleFromSlice`, because slot 3's
    * `beside` belongs to the renderer: the projection decides what a row SAYS
-   * and `TupleRowView` decides what sits inside a slot. the slice row passes it.
+   * and `TupleRowView` decides what sits inside a slot. `SliceRow` passes it.
    *
    * The third fact is the one that says why this had to move at all. It counts
    * what is unfinished in the BLOCKER, so a slice holding three others back
@@ -1431,7 +1431,7 @@ export interface SliceRowFacts {
    * A slice of one has no fold, so this row is the only row that branch gets.
    * Measured when they were absent: `expected 'Kind: Slice w branch
    * feature/phone…' to contain 'lonely-plan'` — the plan link, gone from a row
-   * that had it. the slice row was written for NOT STARTED, where a branch has
+   * that had it. `SliceRow` was written for NOT STARTED, where a branch has
    * neither; every other section's branches have both.
    *
    * Ordered plan → slice's branches → PR in the projection, the same chain a PR

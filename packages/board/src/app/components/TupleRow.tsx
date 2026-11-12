@@ -10,7 +10,7 @@
 // grids.
 //
 // This renders a {@link TupleRow} — six slots, projected from whatever the kind
-// is by `src/app/lib/tuple-row.ts`. `Row`, the plan row and `IssueRowView` are
+// is by `src/app/lib/tuple-row.ts`. `Row`, `PlanRow` and `IssueRowView` are
 // GONE: the slice that landed this component deleted nothing on purpose, and the
 // slice that deleted them moved rendering only, because the shape and the
 // projection were already landed and tested.
@@ -32,12 +32,14 @@ import { splitBranch, KIND_ICON_PATH,
 import type { RowKind } from '../../contract/schema.js';
 
 /**
- * The tuple's tracks — six slots. Slot 3 (the NAME) is floor-and-grow, slot 4
- * (the links) is the flexible one.
+ * The tuple's tracks — the marks lane and the Delivery tab's seven columns,
+ * KIND, ITEM, WHERE, STATUS, DO, BY, AGE. Slot 3 (the NAME) is floor-and-grow,
+ * slot 4 (the links) is the flexible one, and BY takes only the width of what
+ * it holds.
  *
  * ```
- * 1.5rem  4.5rem  minmax(12rem,auto)  1fr   8rem    4.5rem  1.25rem
- * marks   kind    name                links status  age     menu
+ * 1.5rem  4.5rem  minmax(12rem,auto)  1fr    8rem    1.25rem  minmax(0rem,auto)  4.5rem
+ * marks   kind    item                where  status  do       by                 age
  * ```
  *
  * **Slot 3 is `minmax(12rem, auto)`: 12rem is the floor, and it grows into the
@@ -66,10 +68,10 @@ import type { RowKind } from '../../contract/schema.js';
  * track, slot 1, is still 1.5rem-first and DOES stay aligned; only slots 3+ move.)
  *
  * The fixed tracks — every track but slot 3's grow and slot 4's `1fr` — plus
- * slot 3's 12rem FLOOR total 508 px, and the six gaps and 24 px of padding add
- * 96, so the grid needs **604 px** before the links track gets a pixel — under
+ * slot 3's 12rem FLOOR total 508 px, and the seven gaps and 24 px of padding add
+ * 108, so the grid needs **616 px** before the links track gets a pixel — under
  * the 640 px `sm` breakpoint the rest of the board turns into cards at, with
- * 36 px to spare. `minmax` keeps the floor at 12rem, so the figure is unchanged
+ * 24 px to spare. `minmax` keeps the floor at 12rem, so the figure is unchanged
  * from the fixed-12rem grid this replaced; a later widening of a floor still has
  * to be checked against it.
  *
@@ -85,7 +87,7 @@ import type { RowKind } from '../../contract/schema.js';
  * line — the one part of `agent-rows-line-up` this change keeps.
  */
 export const TUPLE_TRACKS =
-  'grid-cols-[1.5rem_4.5rem_minmax(12rem,auto)_1fr_8rem_4.5rem_1.25rem]';
+  'grid-cols-[1.5rem_4.5rem_minmax(12rem,auto)_1fr_8rem_1.25rem_minmax(0rem,auto)_4.5rem]';
 
 /**
  * A TICKET ROW's tracks: the title gives way, the plan name keeps a floor.
@@ -98,11 +100,11 @@ export const TUPLE_TRACKS =
  * where the title leaves room.
  *
  * The floors are sized for 640 px, the `sm` breakpoint where rows become grids:
- * 640 − 24 padding − 72 gaps − 316 fixed tracks (24 + 72 + 128 + 72 + 20) leaves
- * 228 px, and 8rem + 6rem is 224 px.
+ * 640 − 24 padding − 84 gaps − 316 fixed tracks (24 + 72 + 128 + 20 + 72) leaves
+ * 216 px, and 7.5rem + 6rem is 216 px.
  */
 export const TICKET_TRACKS =
-  'grid-cols-[1.5rem_4.5rem_minmax(8rem,1fr)_minmax(6rem,auto)_8rem_4.5rem_1.25rem]';
+  'grid-cols-[1.5rem_4.5rem_minmax(7.5rem,1fr)_minmax(6rem,auto)_8rem_1.25rem_minmax(0rem,auto)_4.5rem]';
 
 /**
  * SLOT 1's CELL — the marks track, and it is declared HERE because the tuple is
@@ -566,6 +568,8 @@ export function TupleRowView({
   highlighted = false,
   bordered = true,
   tracks = TUPLE_TRACKS,
+  by,
+  details,
 }: {
   tuple: TupleRowData;
   onOpenPlan?: (planFile: string) => boolean;
@@ -668,12 +672,17 @@ export function TupleRowView({
   bordered?: boolean;
   /** The grid's tracks. Defaults to `TUPLE_TRACKS`; a ticket row passes `TICKET_TRACKS`. */
   tracks?: string;
+  /** The BY cell: who acts on the item, or for an agent who started it. Empty where nobody read it. */
+  by?: ReactNode;
+  /** The details popover's lines — pids, desk paths, extra branches. No popover where there are none. */
+  details?: readonly string[];
 }) {
   return (
     <li
       role="row"
       id={id}
       data-tuple-kind={tuple.kind}
+      data-delivery-row=""
       data-highlighted={highlighted ? 'true' : undefined}
       {...rowAttr}
       // The ring is `-inset` so it hugs the row without a track of its own, and
@@ -728,6 +737,7 @@ export function TupleRowView({
           of them is what the hook names. */}
       <span
         role="gridcell"
+        data-row-cell="kind"
         className="min-w-0 shrink-0 truncate text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400"
       >
         <span className="sr-only sm:hidden">Kind: </span>
@@ -739,7 +749,7 @@ export function TupleRowView({
           leads with the PR, a branch with the branch, a ticket with its title.
           `showWhat` is off here — the kind slot immediately left has already
           said what this is, and repeating it would be the same word twice. */}
-      <span role="gridcell" className="flex min-w-0 items-baseline gap-1.5 font-medium">
+      <span role="gridcell" data-row-cell="item" className="flex min-w-0 items-baseline gap-1.5 font-medium">
         {/* THE ICON MARKS THE NAME, which is where a mark on a thing belongs and
             how `⑂240` and `⊙228` already read elsewhere on this board. It left
             the marks track on 2026-08-20 so that track could hold activity
@@ -766,6 +776,7 @@ export function TupleRowView({
           with no PR. */}
       <span
         role="gridcell"
+        data-row-cell="where"
         className="flex w-full min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1 text-xs sm:w-auto"
       >
         {tuple.links.map((link) => (
@@ -790,6 +801,7 @@ export function TupleRowView({
           separation is what lets the unit suite test the slot rules as data. */}
       <span
         role="gridcell"
+        data-row-cell="status"
         data-tuple-status
         className="flex min-w-0 items-baseline gap-2 truncate text-xs text-slate-500 dark:text-slate-400"
       >
@@ -804,25 +816,6 @@ export function TupleRowView({
           </span>
         )}
         {statusExtra}
-      </span>
-      {/* SLOT 6 — THE AGE, from the row's LAST CHANGE. Unlabelled, because that
-          is the rule; the label appears exactly where the rule does not apply —
-          a not-started row's approval clock, and an agent's session and idle —
-          which is the inverse of the four-meanings column, unlabelled *because*
-          its meaning varied. */}
-      <span
-        role="gridcell"
-        data-tuple-age
-        data-tuple-age-label={tuple.age.label || undefined}
-        title={ageTitle ?? (tuple.age.label ? `${tuple.age.label}: ${tuple.age.text}` : undefined)}
-        className="shrink-0 text-right text-xs tabular-nums text-slate-500 dark:text-slate-400"
-      >
-        {tuple.age.label && (
-          <span className="mr-1 text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
-            {tuple.age.label}
-          </span>
-        )}
-        {tuple.age.text}
       </span>
       {/* THE MENU — per kind, and passed in. The tuple says what a row IS; the
           menu says what can be DONE to it, and a kind with nothing to offer is
@@ -839,10 +832,43 @@ export function TupleRowView({
           of their own: this is the cell, and a nested one is something the grid
           role does not admit. Each keeps its own `relative` box, which is what
           floats the popup out over the rows below. */}
-      <span role="gridcell" className="relative flex w-5 shrink-0 items-center justify-end">
+      <span role="gridcell" data-row-cell="do" className="relative flex w-5 shrink-0 items-center justify-end">
         {menu}
       </span>
+      {/* BY — who acts on the item; for an agent, who started it. Empty where
+          nobody read it, never a default word. */}
+      <span role="gridcell" data-row-cell="by" className="min-w-0 truncate text-xs text-slate-500 dark:text-slate-400">
+        {by}
+      </span>
+      {/* SLOT 6 — THE AGE, from the row's LAST CHANGE. Unlabelled, because that
+          is the rule; the label appears exactly where the rule does not apply —
+          a not-started row's approval clock, and an agent's session and idle —
+          which is the inverse of the four-meanings column, unlabelled *because*
+          its meaning varied. */}
+      <span
+        role="gridcell"
+        data-row-cell="age"
+        data-tuple-age
+        data-tuple-age-label={tuple.age.label || undefined}
+        title={ageTitle ?? (tuple.age.label ? `${tuple.age.label}: ${tuple.age.text}` : undefined)}
+        className="shrink-0 text-right text-xs tabular-nums text-slate-500 dark:text-slate-400"
+      >
+        {tuple.age.label && (
+          <span className="mr-1 text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
+            {tuple.age.label}
+          </span>
+        )}
+        {tuple.age.text}
+      </span>
       {extra}
+      {details !== undefined && details.length > 0 && (
+        <details data-row-details className="relative w-full text-xs text-slate-500 sm:col-span-full">
+          <summary aria-label="Details" className="cursor-pointer select-none">details</summary>
+          <ul className="mt-1 rounded border border-slate-200 bg-white p-2 font-mono shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            {details.map((line) => <li key={line} className="break-all">{line}</li>)}
+          </ul>
+        </details>
+      )}
     </li>
   );
 }
