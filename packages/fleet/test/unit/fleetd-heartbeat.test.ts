@@ -435,6 +435,42 @@ describe('run — the heartbeat', () => {
     expect(after.ok && after.value !== null && fleetdLiveness(after.value, Date.now())).toBe('stale');
   });
 
+  it('starts no scan for ten quiet minutes on a repository, and the heartbeat reads live with no late loop', async () => {
+    execFileSync('git', ['init', '-q', '-b', 'main', dir]);
+    const clock = clockManual(Date.now());
+    const store = fleetdHeartbeatFile({ repoRoot: dir });
+    let scans = 0;
+    let sleeps = 0;
+    let last: FleetdHeartbeat | null = null;
+    await run(
+      [],
+      dir,
+      () => undefined,
+      async () => {
+        sleeps += 1;
+        await new Promise((r) => setTimeout(r, 300));
+        for (let beat = 0; beat < 118; beat += 1) {
+          clock.advance(1);
+          await new Promise((r) => setTimeout(r, 2));
+        }
+        const read = await store.read();
+        last = read.ok ? read.value : null;
+      },
+      () => sleeps > 0,
+      () => undefined,
+      dir,
+      quiet(clock, {
+        // Every directory arms and no event ever arrives: the watch is intact and the repository quiet.
+        watch: { arm: () => ({ degraded: false, close: () => undefined }) },
+        scan: async () => void (scans += 1),
+      }),
+    );
+    const seen = last as unknown as FleetdHeartbeat;
+    expect(scans).toBe(1);
+    expect(fleetdLiveness(seen, seen.beatAt)).toBe('live');
+    expect(lateLoops(seen, seen.beatAt)).toEqual([]);
+  });
+
   it('registers every loop at start, and keeps a scan whose first pass never resolves on time while the beat runs', async () => {
     const clock = clockManual(Date.now());
     const store = fleetdHeartbeatFile({ repoRoot: dir });
