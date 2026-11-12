@@ -424,6 +424,11 @@ export interface DeskManifestFields {
    * `write`-path continuation look like run zero forever.
    */
   sliceRuns: number;
+  /**
+   * The slice's base branch without `origin/`, such as `sprint/<slug>`;
+   * absent or `''` writes no `base` field, which reads as the default branch.
+   */
+  base?: string;
 }
 
 /**
@@ -468,6 +473,7 @@ export const writeDeskManifest = (dir: string, fields: DeskManifestFields): stri
     attempts: 0,
     startedAt: new Date().toISOString(),
     sliceRuns: { branch: fields.branch, runs: fields.sliceRuns },
+    ...(fields.base !== undefined && fields.base !== '' ? { base: fields.base } : {}),
   };
   try {
     fs.mkdirSync(dir, { recursive: true });

@@ -340,6 +340,22 @@ export interface Trees {
   addBranch(path: string, branch: string, start: string): Promise<PortResult<void>>;
 
   /**
+   * Creates a worktree at a path, checked out on a branch that tracks its ref
+   * on origin, at that ref's tip.
+   *
+   * Where no local `refs/heads/<branch>` exists, the branch is created at
+   * `origin/<branch>` with `--track`. Where one exists, it is checked out,
+   * fast-forwarded to `origin/<branch>` with `--ff-only`, and set to track it;
+   * a branch that holds commits origin lacks refuses the fast-forward, and the
+   * created worktree is removed again.
+   *
+   * @param path - where to create it, absolute; it must not exist.
+   * @param branch - the branch, without a remote prefix.
+   * @returns nothing; a failure leaves no worktree at `path`.
+   */
+  addTracking(path: string, branch: string): Promise<PortResult<void>>;
+
+  /**
    * Resets an existing worktree's branch to `start`, in place.
    *
    * `git -C <path> checkout -q -f -B <branch> <start>`. A booking run whose

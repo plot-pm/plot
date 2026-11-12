@@ -67,9 +67,9 @@ describe('handleRestart', () => {
     expect(out).toMatchObject({ status: 404, body: { ok: false, reason: 'no-pulse', branch: 'nope' } });
   });
 
-  it('refuses no-worktree with 404 where the pulse lists the branch with no desk', async () => {
+  it('asks origin for a desk where the pulse lists the branch with none, and names its refusal', async () => {
     const { res, out } = response();
     await handleRestart(request({ branch: 'feature/no-desk' }), res, opts, { pulse: () => pulse });
-    expect(out).toMatchObject({ status: 404, body: { ok: false, reason: 'no-worktree' } });
+    expect(out).toMatchObject({ status: 409, body: { ok: false, reason: 'origin-unreadable' } });
   });
 });
