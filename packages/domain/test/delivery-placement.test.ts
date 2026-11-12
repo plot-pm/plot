@@ -464,6 +464,17 @@ describe('loose ends', () => {
     expect(p.items[0]).toMatchObject({ group: 'review-a-result', reason: 'review-pr' });
   });
 
+  it('keeps another You case for an item whose loose reading lacks a fact', () => {
+    const p = placed(openPr({ named: false }, { pr: { ci: 'passed', review: 'pending' } }), { autoReview: false });
+    expect(p.items[0]).toMatchObject({ group: 'review-a-result', reason: 'review-pr' });
+    expect(p.unplaced).toEqual([]);
+  });
+
+  it('never calls a release item loose', () => {
+    const release = item({ id: 'branch:changeset-release/main', kind: 'release', stage: 'pr', pr: { ci: 'passed', review: 'passed' }, loose: { ...nobody, fixing: false } });
+    expect(placed(release).items.map((i) => i.reason)).not.toContain('loose');
+  });
+
   it('applies the Mine filter to a loose item as it does to any Unblock item', () => {
     const stuck = (ownership: 'mine' | 'theirs' | 'unknown') =>
       item({ id: 's', stage: 'pr', pr: failedCi, corrections: 2, ownership });

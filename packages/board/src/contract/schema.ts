@@ -3328,6 +3328,12 @@ export const AgentRowSchema = z.object({
    */
   fixerInFlight: z.boolean().optional(),
   /**
+   * A worktree on this machine holds this row's branch. Read from the worktree
+   * listing for a planless row only — the rows the loose-end rule asks — and absent
+   * everywhere else and where the listing failed. Absent is not false.
+   */
+  desk: z.boolean().optional(),
+  /**
    * Whether a `running` worker's child is doing work — `BranchSchema.
    * worker_activity`, forwarded onto the row unchanged.
    *

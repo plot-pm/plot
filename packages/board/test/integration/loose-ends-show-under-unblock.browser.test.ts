@@ -23,7 +23,7 @@ describe('a loose branch under You > Unblock', () => {
   it('shows the reason and the release and delete buttons', async () => {
     const base = scenario('a-full-estate');
     const loose = row({
-      branch: 'feature/nobody-wants-this', plan: '', wave: '', group: 'quiet', state: 'open', worker: 'none',
+      branch: 'feature/nobody-wants-this', plan: '', wave: '', group: 'quiet', state: 'wip', worker: 'elsewhere', desk: false,
       ageMinutes: 900, pr: null,
     });
     const page = await cat.open('a-full-estate', {

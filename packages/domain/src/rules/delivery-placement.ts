@@ -83,7 +83,7 @@ export interface WorkItemReading {
 export interface LooseReading {
   /** A plan names the item, whatever its state. */
   named?: boolean;
-  /** A live desk or a registry manifest holds the branch's claim. */
+  /** A desk on this machine, a registry manifest or a running worker holds the branch. A claim commit alone is not a hold. */
   held?: boolean;
   /** A fleetd fixer runs on the item's open PR now. Read for a `pr` only. */
   fixing?: boolean;
@@ -280,8 +280,9 @@ const agentGroup = (agent: AgentPlacementReading): FleetGroup | null => {
  * those appears in `unplaced`.
  *
  * A PR or branch that no plan names, no desk or manifest holds and no fixer
- * works on is loose and goes to You › Unblock with the reason `loose`; one whose
- * loose reading lacks a fact is `unread`, never loose.
+ * works on is loose and goes to You › Unblock with the reason `loose`. One whose
+ * loose reading lacks a fact, and that meets no other You case, is `unread` and
+ * never loose. A `release` item is never loose.
  *
  * A subject whose needed reading is absent, and a delivered item, appear in
  * `unplaced` with the reason; nothing defaults to Work items. The rule stores
@@ -328,12 +329,11 @@ export const placeDelivery = (readings: DeliveryReadings, input: DeliveryInput):
       }
     }
 
-    if (looseOf(item) === 'unread') {
+    const you = youCase(item, input, live, stopped);
+    if (you === null && looseOf(item) === 'unread') {
       unplaced.push({ id: item.id, subject: 'item', reason: 'unread' });
       continue;
     }
-
-    const you = youCase(item, input, live, stopped);
     if (you !== null && mineAllows(input.mine, item.ownership)) {
       items.push({ id: item.id, kind: item.kind, section: 'you', ...you, agents: names });
       continue;

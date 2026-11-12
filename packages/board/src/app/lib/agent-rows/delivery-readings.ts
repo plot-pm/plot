@@ -136,19 +136,22 @@ const ownershipOfRows = (rows: readonly AgentRow[], reader: Reader): Ownership =
 /**
  * What was measured of whether a PR or branch is loose, or `undefined` where nobody asked.
  *
- * `named` is a plan or a slice naming a row. `held` is a desk, a claim, a running worker or a
- * registry agent on the branch. `fixing` is the fixer mark the server read for an open PR. A
- * branch with no PR is asked on `named` and `held`; a PR is asked only once the server read
- * its fixer record, so a PR whose record nobody read keeps the placement it had.
+ * `named` is a plan or a slice naming a row. `held` is a desk on this machine, a
+ * registry manifest or a running worker on the branch; a row whose desk was not
+ * read and that nothing else holds leaves `held` absent. A claim commit is not a
+ * hold: a claim nobody holds is what the release action gives up. `fixing` is the
+ * fixer mark the server read for an open PR. A PR is asked only once the server
+ * read its fixer record, so a PR whose record nobody read keeps the placement it had.
  */
-const looseOf = (rows: readonly AgentRow[], held: ReadonlySet<string>): WorkItemReading['loose'] => {
+const looseOf = (rows: readonly AgentRow[], manifests: ReadonlySet<string>): WorkItemReading['loose'] => {
   const first = rows[0]!;
-  const loose: NonNullable<WorkItemReading['loose']> = {
-    named: first.plan !== '' || first.wave !== '',
-    held:
-      held.has(first.branch) ||
-      rows.some((r) => r.worker === 'running' || r.worker === 'waiting' || r.state === 'wip' || r.state === 'claimed'),
-  };
+  const named = first.plan !== '' || first.wave !== '';
+  const holds =
+    manifests.has(first.branch) ||
+    rows.some((r) => r.worker === 'running' || r.worker === 'waiting' || r.desk === true);
+  const loose: NonNullable<WorkItemReading['loose']> = { named };
+  if (holds) loose.held = true;
+  else if (rows.every((r) => r.desk === false)) loose.held = false;
   if (first.pr === null) return loose;
   const fixing = rows.find((r) => r.fixerInFlight !== undefined)?.fixerInFlight;
   if (fixing === undefined) return undefined;
