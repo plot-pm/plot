@@ -54,17 +54,29 @@ on:
 permissions:
   contents: read
 
-# EVERY DISPATCHED RUN SHARES ONE GROUP, so a regeneration cancels the
+# THREE GROUPS, ONE PER KIND OF RUN.
+#
+# A DISPATCHED RUN SHARES `release-dispatch`, so a regeneration cancels the
 # superseded release run. Measured 2026-10-01: the branch regenerated five
 # times between 22:23 and 22:39, and each regeneration starts a `validate` with
 # a 25-minute ceiling.
 #
-# EVERY OTHER RUN GETS ITS OWN GROUP — `github.run_id` is unique — so a `main`
-# push run and a pull request run are never cancelled. A group keyed on
-# `github.ref` would cancel pull request runs against each other, which is why
-# the ref does not appear here.
+# A PULL REQUEST RUN SHARES `pr-<number>` WITH EVERY OTHER RUN OF THAT PULL
+# REQUEST, so a push cancels the run on the older head. Measured 2026-11-09:
+# sprint PR #3277 took eight pushes in about 40 minutes, no run was cancelled,
+# and the run on the current head queued until a person cancelled eight older
+# runs by hand. The group keys on the pull request number and never on
+# `github.ref`.
+#
+# EVERY OTHER RUN GETS ITS OWN GROUP — `github.run_id` is unique. That covers a
+# `main` push run, which a later merge must never cancel, and the release PR's
+# `pull_request` run: `release.yml` force-pushes `changeset-release/main` on
+# every regeneration, and the `validate` of that run is the one the ruleset
+# counts once a person approves it (2.31.0, #3080). `github.head_ref` is empty
+# on `push` and `workflow_dispatch`, so the exception can only match inside the
+# `pull_request` arm.
 concurrency:
-  group: ci-${{ github.event_name == 'workflow_dispatch' && 'release-dispatch' || github.run_id }}
+  group: ci-${{ github.event_name == 'workflow_dispatch' && 'release-dispatch' || (github.event_name == 'pull_request' && github.head_ref != 'changeset-release/main') && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
   cancel-in-progress: true
 
 jobs:

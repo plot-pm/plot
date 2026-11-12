@@ -147,21 +147,98 @@ test('ci.yml carries a top-level permissions: contents: read', () => {
   );
 });
 
-test('ci.yml shares one concurrency group across dispatched runs and isolates every other run', () => {
-  const head = preamble(CI);
-  const block = head.slice(head.indexOf('\nconcurrency:'));
+/**
+ * Evaluates the top-level concurrency group of a workflow for one event, with
+ * the subset of Actions expression syntax the group uses: string literals,
+ * `==`, `!=`, `&&`, `||`, parentheses, `format()` and dotted context reads.
+ * Evaluating, not grepping, because the comment block is part of
+ * `preamble(CI)` and a regex finds `github.run_id` there as readily as in the
+ * expression.
+ */
+const concurrencyGroup = (yaml, ctx) => {
+  const head = preamble(yaml);
   assert.notEqual(head.indexOf('\nconcurrency:'), -1, 'ci.yml must declare a top-level concurrency block');
-  assert.match(block, /cancel-in-progress: true/, 'a superseded release run must be cancelled');
-  assert.match(
-    block,
-    /github\.event_name == 'workflow_dispatch'/,
-    'the group must distinguish a dispatched run from every other run',
+  const line = head
+    .slice(head.indexOf('\nconcurrency:'))
+    .split('\n')
+    .find((l) => /^\s*group:/.test(l));
+  assert.ok(line, 'ci.yml must declare a top-level concurrency group');
+  const template = line.replace(/^\s*group:\s*/, '');
+  return template.replace(/\$\{\{(.*?)\}\}/g, (_, expr) => {
+    const js = expr
+      .replace(/\bgithub\.[A-Za-z_.]+/g, (m) => `ctx[${JSON.stringify(m)}]`)
+      .replace(/\bformat\(/g, 'fmt(')
+      .replace(/==/g, '===')
+      .replace(/!=/g, '!==');
+    const fmt = (f, ...a) => f.replace(/\{(\d+)\}/g, (_m, i) => String(a[Number(i)]));
+    return String(new Function('ctx', 'fmt', `return (${js});`)(ctx, fmt));
+  });
+};
+
+const PR_CTX = (n, headRef) => ({
+  'github.event_name': 'pull_request',
+  'github.event.pull_request.number': n,
+  'github.head_ref': headRef,
+  'github.run_id': 900000 + n * 7 + headRef.length,
+});
+const PUSH_CTX = (runId) => ({
+  'github.event_name': 'push',
+  'github.event.pull_request.number': undefined,
+  'github.head_ref': '',
+  'github.run_id': runId,
+});
+const DISPATCH_CTX = (runId) => ({
+  'github.event_name': 'workflow_dispatch',
+  'github.event.pull_request.number': undefined,
+  'github.head_ref': '',
+  'github.run_id': runId,
+});
+
+test('ci.yml cancels a superseded run in its group', () => {
+  const head = preamble(CI);
+  assert.match(head.slice(head.indexOf('\nconcurrency:')), /cancel-in-progress: true/);
+});
+
+test('ci.yml shares one concurrency group across dispatched runs', () => {
+  assert.equal(concurrencyGroup(CI, DISPATCH_CTX(1)), 'ci-release-dispatch');
+  assert.equal(concurrencyGroup(CI, DISPATCH_CTX(2)), 'ci-release-dispatch');
+});
+
+test('ci.yml gives every run of one pull request the same group, and another pull request another', () => {
+  const first = concurrencyGroup(CI, PR_CTX(3277, 'sprint/x'));
+  const second = concurrencyGroup(CI, { ...PR_CTX(3277, 'sprint/x'), 'github.run_id': 42 });
+  assert.equal(first, 'ci-pr-3277');
+  assert.equal(second, first, 'two runs of one pull request must share a group so the older is cancelled');
+  assert.notEqual(concurrencyGroup(CI, PR_CTX(3278, 'sprint/y')), first);
+});
+
+test('ci.yml gives every main push run its own group', () => {
+  const a = concurrencyGroup(CI, PUSH_CTX(111));
+  const b = concurrencyGroup(CI, PUSH_CTX(222));
+  assert.equal(a, 'ci-111');
+  assert.equal(b, 'ci-222');
+  assert.notEqual(a, b, 'a later merge must never cancel the run validating the earlier one');
+});
+
+test("ci.yml gives the release PR's pull request run its own group", () => {
+  const a = concurrencyGroup(CI, { ...PR_CTX(3080, 'changeset-release/main'), 'github.run_id': 10 });
+  const b = concurrencyGroup(CI, { ...PR_CTX(3080, 'changeset-release/main'), 'github.run_id': 11 });
+  assert.equal(a, 'ci-10');
+  assert.equal(b, 'ci-11');
+  assert.notEqual(a, b, 'a regeneration must not cancel the run the ruleset counts');
+});
+
+test('a copy of ci.yml that groups main pushes together is refused', () => {
+  const grouped = CI.replace(
+    /\|\| github\.run_id \}\}/,
+    "|| 'main-pushes' }}",
   );
-  assert.match(block, /release-dispatch/, 'every dispatched run must share one group');
-  assert.match(
-    block,
-    /github\.run_id/,
-    'every non-dispatched run must get its own group, so a main push or a pull request run is never cancelled',
+  assert.notEqual(grouped, CI, 'the mutation must change the group line');
+  assert.equal(concurrencyGroup(grouped, PUSH_CTX(111)), 'ci-main-pushes');
+  assert.notEqual(
+    concurrencyGroup(grouped, PUSH_CTX(111)),
+    'ci-111',
+    'the mutant shares one group across pushes, which the push row above refuses',
   );
 });
 
