@@ -21,6 +21,10 @@ import {
 import { asText, runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { noTransitionOutcome } from '../../rules/issue-status.js';
+import { jiraProjects } from '../../rules/jira-jql.js';
+import { UNKNOWN_BUDGET_ACCOUNT } from '../../rules/jira-budget-account.js';
+import type { JiraApi } from './jira-api.js';
+import { jiraInProcessReads } from './tracker-jira-reads.js';
 import { issueOpenOf, trackerReads, type RawVersion } from './tracker-shell.js';
 
 /**
@@ -95,6 +99,18 @@ export const keyIn = (prUrl: string): string | null => {
   return found === null ? null : found[1];
 };
 
+/** What selects the in-process read path of {@link trackerJira}. */
+export interface JiraInProcess {
+  /** The in-process client; its presence selects the path. */
+  readonly api: JiraApi;
+  /** The `Ticket prefixes` config value, as written; `PLOT_TICKET_PREFIXES` in `env` overrides it. */
+  readonly ticketPrefixes: string;
+  /** Reads `PLOT_TICKET_PREFIXES` and `PLOT_JIRA_JQL`; defaults to `process.env`. */
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  /** The clock, epoch milliseconds; defaults to `Date.now`. */
+  readonly now?: () => number;
+}
+
 /**
  * Reads and writes a tracker that is not the git host, under its own account.
  *
@@ -113,11 +129,18 @@ export const keyIn = (prUrl: string): string | null => {
  * `issue-open` request: the first `Ticket prefixes` project, the
  * `Tracker issue type` word (default `Task`), the title, body and labels.
  *
+ * Given `inProcess`, the open, closed, changed and inbox reads go to Jira's
+ * search in this process instead of through `plot-host.sh`, and the project
+ * scope and the spender answer from the config reading and the client with no
+ * process started. `issueView`, `versionRead`, the unpaged `issueList` and the
+ * writes keep the script.
+ *
  * @param context - where the scripts and the repository are.
  * @param baseUrl - the tracker's address; `''` lets the script read its config.
+ * @param inProcess - the client and the config reading; absent, every read runs the script.
  * @returns a `Tracker` backed by this vendor's connector.
  */
-export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
+export const trackerJira = (context: ShellContext, baseUrl = '', inProcess?: JiraInProcess): Tracker => {
   // THE ADDRESS IS PASSED ONLY WHERE IT WAS GIVEN. An empty override would
   // otherwise blank the base URL the repository configured, and a blanked base
   // URL composes `/browse/PROJ-1` — a relative address that resolves nowhere.
@@ -134,19 +157,33 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
   // shell's own answer, so `PLOT_TICKET_PREFIXES` reaches this connector the
   // way it reaches `issue-list`, and the gate, the project pick and the JQL
   // scope cannot disagree inside one pass.
+  const processEnv = inProcess?.env ?? process.env;
+  const declared = (): string[] => jiraProjects(processEnv.PLOT_TICKET_PREFIXES ?? inProcess?.ticketPrefixes ?? '');
   const projectsRead = async (): Promise<{ ok: true; projects: string[] } | { ok: false; why: string }> => {
+    if (inProcess !== undefined) return { ok: true, projects: declared() };
     const said = await runProcess('bash', [host, 'ticket-projects'], run);
     if (said.code !== 0) return { ok: false, why: said.stderr.trim() || `plot-host.sh exited ${said.code}` };
     return { ok: true, projects: said.stdout.split('\n').map((key) => key.trim()).filter((key) => key !== '') };
   };
+
+  const fast =
+    inProcess === undefined
+      ? null
+      : jiraInProcessReads({
+          api: inProcess.api,
+          projects: declared(),
+          override: processEnv.PLOT_JIRA_JQL ?? '',
+          now: inProcess.now ?? Date.now,
+          refuse: reads.refuse,
+        });
 
   return {
     config: (): TrackerConfig => ({ scheme: SCHEME, baseUrl }),
 
     issueList: (limit): Promise<PortResult<readonly Issue[]>> => reads.issueList(limit),
 
-    issueListClosed: (since, limit): Promise<PortResult<ClosedIssues>> => reads.issueListClosed(since, limit),
-    issueListOpen: (limit): Promise<PortResult<IssueRead>> => reads.issueListOpen(limit),
+    issueListClosed: (since, limit): Promise<PortResult<ClosedIssues>> => (fast ?? reads).issueListClosed(since, limit),
+    issueListOpen: (limit): Promise<PortResult<IssueRead>> => (fast ?? reads).issueListOpen(limit),
     issueListWithTitle: async (): Promise<PortResult<IssueRead>> => unaskable('the Jira tracker cannot search issues by title'),
 
     // GATED THE SAME WAY `issueListInbox` IS: a changed-since read scoped by
@@ -162,7 +199,7 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
         reads.refuse(null);
         return unaskable(`a Jira changed-issue read needs '${PROJECTS_KEY}' declared`);
       }
-      return reads.issueListChanged(since, limit);
+      return (fast ?? reads).issueListChanged(since, limit);
     },
 
     // GATED HERE, NOT IN THE SHELL. `plot-host.sh`'s own `inbox` arm sends its
@@ -182,7 +219,7 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
         reads.refuse(null);
         return unaskable(`the Jira inbox read needs '${PROJECTS_KEY}' declared; with none, the open read is already person-scoped`);
       }
-      return reads.issueListInbox(limit);
+      return (fast ?? reads).issueListInbox(limit);
     },
 
     issueView: (id): Promise<PortResult<Issue>> => reads.issueView(id),
@@ -314,6 +351,10 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
 
     lastRefusal: (): string | null => reads.lastRefusal(),
 
-    spender: (): Promise<PortResult<TrackerSpender>> => reads.spender(),
+    spender: async (): Promise<PortResult<TrackerSpender>> => {
+      if (inProcess === undefined) return reads.spender();
+      const account = inProcess.api.account();
+      return answered({ connector: CONNECTOR, account: account === UNKNOWN_BUDGET_ACCOUNT ? null : account });
+    },
   };
 };
