@@ -288,7 +288,6 @@ claim_only=""
 allow_local=0
 allow_waiting=0
 max=0
-only_branch=""
 slug=""
 migrate_yes=0
 agent=""
@@ -3497,7 +3496,6 @@ work_in_flight() { # $1=branch to exclude (the candidate)
   # rather than a map. Sorted output keeps the report stable between runs.
   git for-each-ref --format='%(refname:short)' refs/heads/ </dev/null 2>/dev/null \
   | while read -r br; do
-      [ -n "$br" ] || continue
       [ "$br" = "$exclude" ] && continue
       [ "$br" = "$MAIN" ] && continue
       files=$( { committed_files "$br"; uncommitted_files "$(worktree_for "$br")"; } \
@@ -3565,8 +3563,8 @@ run_waits_preflight
 # set once. (`--next` would loop forever here: without a claim it keeps
 # returning the same branch.)
 if [ "$dry_run" = 1 ]; then
+  # The list below drops empty lines (`grep -v '^$'`), so every `br` names a branch.
   while read -r br; do
-    [ -n "$br" ] || continue
     # The gate, BEFORE the "would dispatch" line — this loop's whole output is
     # a prediction, and predicting a dispatch the real run refuses is the
     # failure the gate exists to stop.
@@ -3588,7 +3586,7 @@ if [ "$dry_run" = 1 ]; then
     # branch the scan DID offer (its host call failed where the preflight's
     # succeeded) must be dispatched once, not twice.
   done < <({ "$script_dir/plot-fleet-scan.sh" $offline --list-eligible "$slug" 2>/dev/null
-             printf '%s\n' ${waits_freed[@]+"${waits_freed[@]}"}; } | grep -v '^$' | sort -u | awk -v b="$only_branch" 'b == "" || $0 == b')
+             printf '%s\n' ${waits_freed[@]+"${waits_freed[@]}"}; } | grep -v '^$' | sort -u | awk -v b="${only_branch:-}" 'b == "" || $0 == b')
   # A dry run starts nothing BY CONSTRUCTION, so its `started=0` carries no
   # information about the config — reporting "no workers started" here would be
   # true and useless, and would train the reader to skip the line on the real
@@ -3637,7 +3635,7 @@ while IFS= read -r _line; do
   fan_out+=("$_line")
 done < <({ "$script_dir/plot-fleet-scan.sh" $offline --list-eligible "$slug" 2>/dev/null
            [ "$allow_waiting" = 1 ] && printf '%s\n' ${waits_freed[@]+"${waits_freed[@]}"}
-           :; } | grep -v '^$' | sort -u | awk -v b="$only_branch" 'b == "" || $0 == b')
+           :; } | grep -v '^$' | sort -u | awk -v b="${only_branch:-}" 'b == "" || $0 == b')
 
 for branch in ${fan_out[@]+"${fan_out[@]}"}; do
   [ "$max" -gt 0 ] && [ "$n_dispatched" -ge "$max" ] && break
