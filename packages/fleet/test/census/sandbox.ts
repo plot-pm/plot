@@ -26,6 +26,8 @@ export type SandboxOptions = FixtureSize & {
   productRoot?: string;
   /** The directory the sandbox's root is made in; `tmpdir()` by default. A test that binds `.plot/fleet.sock` passes `SOCKET_TEMP_ROOT`. */
   tempRoot?: string;
+  /** The `CI` key of a Bitbucket fixture; the key is absent where this is. */
+  ci?: string;
 };
 
 /** One desk: a worktree on a slice branch, with a stub worker's pid in `.plot-worker.pid`. */
@@ -64,7 +66,7 @@ export const sliceBranches = (size: FixtureSize): string[] =>
 
 const PLAN_SLUG = '2026-01-01-census-fixture';
 
-const configFor = (host: CensusHost): string =>
+const configFor = (host: CensusHost, ci?: string): string =>
   [
     '# Census fixture',
     '',
@@ -78,7 +80,7 @@ const configFor = (host: CensusHost): string =>
     `- **Git host:** ${host}`,
     ...(host === 'github'
       ? ['- **CI:** github-actions', '- **Default branch checks:** CI']
-      : ['- **Tracker:** jira https://jira.census.invalid']),
+      : ['- **Tracker:** jira https://jira.census.invalid', ...(ci === undefined ? [] : [`- **CI:** ${ci}`])]),
     '- **Auto-review:** false',
     '- **Auto-verify:** false',
     '- **Auto-design:** false',
@@ -269,7 +271,7 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
     git(repo, 'remote', 'add', 'origin', origin);
     const branches = sliceBranches(size);
     mkdirSync(join(repo, 'docs/plans/active'), { recursive: true });
-    writeFileSync(join(repo, 'CLAUDE.md'), configFor(size.host));
+    writeFileSync(join(repo, 'CLAUDE.md'), configFor(size.host, options.ci));
     writeFileSync(join(repo, '.gitignore'), '.plot/state/\n.plot/agents/\n.plot/fleet.sock\n.plot-worker*\n.worktrees/\n');
     writeFileSync(join(repo, `docs/plans/${PLAN_SLUG}.md`), planFor(branches));
     symlinkSync(`../${PLAN_SLUG}.md`, join(repo, `docs/plans/active/${PLAN_SLUG}.md`));

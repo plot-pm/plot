@@ -8,10 +8,11 @@ import type { CensusFixture } from './census-report.js';
 import { buildFleetdEntry, type FleetdEntry } from './fleetd-entry-build.js';
 import { startFleetd } from './fleetd-driver.js';
 import { buildSandbox, githubPr, type Sandbox } from './sandbox.js';
+import { BITBUCKET_ROUTE } from './stub-host.js';
 import { censusGate, findStrace } from './strace-run.js';
 import type { ExecRecord, StraceCensus } from './strace-execs.js';
 
-// fleetd per completed pass (S4, S5, S6, S8, P2, P3, P4, P5, P7, P9), counted under `strace -f`
+// fleetd per completed pass (S4, S5, S6, S8, P2, P3, P4, P5, P7, P9, P10), counted under `strace -f`
 // over the census entry, which runs fleetd's `run` in its loop mode on a clock
 // it drives. Pass 1 warms every loop and is never counted; passes 2 and 3 are
 // idle; on the GitHub fixture with desks, pass 4 follows one desk commit (S5)
@@ -80,13 +81,30 @@ const ghReadsLogged = (box: Sandbox): number =>
     : 0;
 
 /**
- * The in-process requests the stub API answered so far. Two once-per-process
- * requests are left out: `GET /user`, which names the token's login, and the
- * search-type introspection, which `gh` keeps in its on-disk cache and so
- * sends at most once a day.
+ * The in-process requests the stub API answered so far. On GitHub two
+ * once-per-process requests are left out: `GET /user`, which names the token's
+ * login, and the search-type introspection, which `gh` keeps in its on-disk
+ * cache and so sends at most once a day. On Bitbucket only the requests under
+ * the Bitbucket route count: the Jira reads share the server.
  */
 const apiReads = (box: Sandbox): number =>
-  (box.api?.requests() ?? []).filter((r) => r.path !== '/user' && !r.body.includes('SearchType_enumValues')).length;
+  (box.api?.requests() ?? []).filter((r) =>
+    box.size.host === 'bitbucket'
+      ? r.path.startsWith(`${BITBUCKET_ROUTE}/`)
+      : r.path !== '/user' && !r.body.includes('SearchType_enumValues'),
+  ).length;
+
+/** The stub `bb api` calls in the stub log so far. */
+const bbApiLogged = (box: Sandbox): number =>
+  existsSync(box.stubLog) ? readFileSync(box.stubLog, 'utf8').split('\n').filter((l) => /^bb api\b/.test(l)).length : 0;
+
+/**
+ * A Bitbucket read P10 counts: the stub `bb`, or `plot-host.sh` asked for
+ * `pr-list`.
+ */
+const isBitbucketRead = (e: ExecRecord): boolean =>
+  basename(e.path) === 'bb' ||
+  (basename(e.path) === 'bash' && e.argv.some((a) => a.endsWith('/plot-host.sh')) && e.argv.includes('pr-list'));
 
 /** Per-pass deltas of a running count, sampled after passes 1..n. */
 const deltas = (samples: readonly number[]): number[] => samples.slice(1).map((n, i) => n - (samples[i] ?? 0));
@@ -159,8 +177,8 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
       idle.set(label, treeOf(census, between(census.execs, from, label), root));
     }
     // THE BASELINE: the same fixture read through the shell, untraced, so P5
-    // can hold the in-process requests to the `gh` calls they replace.
-    if (fixture.host === 'github') {
+    // can hold the in-process requests to the `gh` or `bb api` calls they replace.
+    {
       const shellBox = await buildSandbox(fixture);
       try {
         shellBox.env['PLOT_HOST_TRANSPORT'] = 'shell';
@@ -169,7 +187,7 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
         try {
           for (let n = 0; n < 3; n += 1) {
             await shellFleetd.pass();
-            logged.push(ghReadsLogged(shellBox));
+            logged.push(fixture.host === 'github' ? ghReadsLogged(shellBox) : bbApiLogged(shellBox));
           }
         } finally {
           await shellFleetd.stop();
@@ -252,6 +270,19 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
       expect(baseline).toHaveLength(2);
       // OVER BOTH IDLE PASSES, NOT PASS BY PASS: a periodic read falls in either
       // pass, and the in-process and shell runs need not phase alike.
+      const sum = (ns: readonly number[]): number => ns.reduce((a, b) => a + b, 0);
+      expect(sum(requests)).toBeLessThanOrEqual(sum(baseline));
+    });
+  }
+
+  if (fixture.host === 'bitbucket') {
+    it(rowTitle(CENSUS_ROWS.P10, fixture), () => {
+      const { mean, each, execs } = perPass(isBitbucketRead);
+      recordCount(CENSUS_ROWS.P10, fixture, mean, execs);
+      console.log(`process census P10 ${fixture.desks} desks: in-process requests per idle pass ${requests.join(', ')}; shell bb api calls ${baseline.join(', ')}`);
+      expect(each).toEqual([0, 0]);
+      expect(requests).toHaveLength(2);
+      expect(baseline).toHaveLength(2);
       const sum = (ns: readonly number[]): number => ns.reduce((a, b) => a + b, 0);
       expect(sum(requests)).toBeLessThanOrEqual(sum(baseline));
     });
