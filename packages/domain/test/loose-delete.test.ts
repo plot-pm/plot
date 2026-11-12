@@ -16,6 +16,10 @@ describe('looseDelete', () => {
     expect(looseDelete(base())).toEqual({ kind: 'delete', tip: TIP });
   });
 
+  it('deletes when the checkout holds no unpushed commit', () => {
+    expect(looseDelete({ ...base(), unpushed: { ok: true, value: [] } })).toEqual({ kind: 'delete', tip: TIP });
+  });
+
   it('refuses on each reading that disagrees with the baseline, and only that one', () => {
     const cases: Array<[Partial<LooseDeleteReadings>, string]> = [
       [{ caller: 'unattended' }, 'unattended'],
@@ -27,6 +31,7 @@ describe('looseDelete', () => {
       [{ unpushed: { ok: false, why: 'failed' } }, 'unaskable'],
       [{ remoteTip: { ok: true, value: 'unknown' } }, 'no-remote-branch'],
       [{ localTip: { ok: true, value: 'b'.repeat(40) } }, 'tip-moved'],
+      [{ localTip: { ok: false, why: 'failed' } as never }, 'tip-moved'],
     ];
     for (const [over, reason] of cases) {
       expect(looseDelete({ ...base(), ...over })).toMatchObject({ kind: 'refuse', reason });
