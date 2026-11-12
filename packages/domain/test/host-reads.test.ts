@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { BITBUCKET_NO_CREDENTIAL, type BitbucketApi, type BitbucketApiOptions } from '../src/adapters/host/bitbucket-api.js';
 import type { GithubApi, GithubApiOptions, GithubRequest } from '../src/adapters/host/github-api.js';
 import { hostFixture } from '../src/adapters/host/host-fixture.js';
 import { hostReadsFor, hostWithListing } from '../src/adapters/host/host-reads.js';
@@ -105,13 +106,127 @@ describe('hostReadsFor', () => {
     expect(seen.options).toBeNull();
   });
 
-  it('keeps the shell untouched on Bitbucket', async () => {
-    const shell = shellHost();
-    const seen = { options: null as GithubApiOptions | null, requests: [] as GithubRequest[] };
-    const reads = await hostReadsFor(context, { backend: 'bitbucket', ci: 'jenkins' }, { env: {}, shell, client: fakeClient('GH_TOKEN', seen) });
-    expect(reads.choice).toEqual({ transport: 'shell', reason: 'the git host is bitbucket', tokenSource: null });
-    expect(reads.host).toBe(shell);
-    expect(seen.options).toBeNull();
+  describe('on Bitbucket', () => {
+    const bbPr = (id: number): Record<string, unknown> => ({
+      id,
+      title: `Change ${id}`,
+      state: 'MERGED',
+      draft: false,
+      updated_on: '2026-10-01T00:00:00.123456+00:00',
+      links: { html: { href: `https://bitbucket.org/ws/repo/pull-requests/${id}` } },
+      author: { nickname: 'dev' },
+      source: { branch: { name: `feature/c-${id}` }, commit: { hash: 'a'.repeat(40) } },
+      destination: { branch: { name: 'main' } },
+    });
+
+    /** A fake client: a credential from `source`, one page with PR #3, and every request path recorded. */
+    const fakeBitbucket =
+      (source: 'environment' | null, seen: { options: BitbucketApiOptions | null; paths: string[] }) =>
+      (options: BitbucketApiOptions): BitbucketApi => {
+        seen.options = options;
+        return {
+          base: 'http://stub/2.0',
+          slug: 'ws/repo',
+          account: 'ws',
+          credentialSource: async () => source,
+          nextPath: () => ({ ok: false, refusal: { kind: 'failed', said: 'no next' } }),
+          request: async (request) => {
+            seen.paths.push(request.path);
+            return { ok: true, reply: { status: 200, headers: {}, body: { pagelen: 50, page: 1, size: 1, values: [bbPr(3)] } } };
+          },
+        };
+      };
+
+    const bitbucket = (ci: string): { backend: string; ci: string } => ({ backend: 'bitbucket', ci });
+
+    it('reads the plain listings in-process with a credential, and names its source', async () => {
+      const shell = shellHost();
+      const seen = { options: null as BitbucketApiOptions | null, paths: [] as string[] };
+      const reads = await hostReadsFor(context, bitbucket('github-actions'), {
+        env: {},
+        shell,
+        origin: async () => 'git@bitbucket.org:ws/repo.git',
+        bitbucketClient: fakeBitbucket('environment', seen),
+      });
+      expect(reads.choice).toEqual({ transport: 'in-process', reason: 'the git host is bitbucket', tokenSource: 'environment' });
+      expect(reads.api).toBeNull();
+      expect(seen.options?.origin).toBe('git@bitbucket.org:ws/repo.git');
+      const listing = await reads.host.prListing({ state: 'merged', limit: 50 });
+      expect(listing.rows.map((r) => r.number)).toEqual([3]);
+      expect(seen.paths).toHaveLength(1);
+      expect(shell.calls).not.toContain('prListing');
+    });
+
+    it('keeps the shell where no credential resolves, and says why', async () => {
+      const shell = shellHost();
+      const seen = { options: null as BitbucketApiOptions | null, paths: [] as string[] };
+      const reads = await hostReadsFor(context, bitbucket('jenkins'), { env: {}, shell, origin: async () => null, bitbucketClient: fakeBitbucket(null, seen) });
+      expect(reads.choice).toEqual({ transport: 'shell', reason: BITBUCKET_NO_CREDENTIAL, tokenSource: null });
+      expect(reads.host).toBe(shell);
+      expect(seen.paths).toEqual([]);
+    });
+
+    it('keeps the shell where PLOT_HOST_TRANSPORT=shell, and builds no client', async () => {
+      const shell = shellHost();
+      const seen = { options: null as BitbucketApiOptions | null, paths: [] as string[] };
+      const reads = await hostReadsFor(context, bitbucket('github-actions'), {
+        env: { PLOT_HOST_TRANSPORT: 'shell' },
+        shell,
+        bitbucketClient: fakeBitbucket('environment', seen),
+      });
+      expect(reads.choice.reason).toBe('PLOT_HOST_TRANSPORT=shell');
+      expect(reads.host).toBe(shell);
+      expect(seen.options).toBeNull();
+    });
+
+    it('with CI: jenkins reads the plain states in-process and the rich open read through the shell', async () => {
+      const shell = shellHost();
+      const seen = { options: null as BitbucketApiOptions | null, paths: [] as string[] };
+      const reads = await hostReadsFor(context, bitbucket('jenkins'), {
+        env: {},
+        shell,
+        origin: async () => 'git@bitbucket.org:ws/repo.git',
+        bitbucketClient: fakeBitbucket('environment', seen),
+      });
+      expect(reads.choice.transport).toBe('in-process');
+      expect(reads.choice.reason).toMatch(/CI is jenkins.*rich open read stays on the shell/);
+      await reads.host.prListing({ state: 'open', limit: 50, richOpen: true });
+      await reads.host.prList('open', 50, undefined, true);
+      expect(shell.calls).toEqual(['prListing', 'prList']);
+      expect(seen.paths).toEqual([]);
+      await reads.host.prListing({ state: 'all', limit: 50, since: '2026-10-01T00:00:00Z' });
+      await reads.host.prList('merged', 50);
+      expect(shell.calls).toEqual(['prListing', 'prList']);
+      expect(seen.paths.length).toBeGreaterThan(0);
+    });
+
+    it('reads the rich open listing in-process where CI is not jenkins', async () => {
+      const shell = shellHost();
+      const seen = { options: null as BitbucketApiOptions | null, paths: [] as string[] };
+      const reads = await hostReadsFor(context, bitbucket('github-actions'), {
+        env: {},
+        shell,
+        origin: async () => 'git@bitbucket.org:ws/repo.git',
+        bitbucketClient: fakeBitbucket('environment', seen),
+      });
+      await reads.host.prListing({ state: 'open', limit: 50, richOpen: true });
+      expect(shell.calls).toEqual([]);
+      expect(seen.paths.length).toBeGreaterThan(0);
+    });
+
+    it('leaves settled to the shell, which reads merged and declined', async () => {
+      const shell = shellHost();
+      const seen = { options: null as BitbucketApiOptions | null, paths: [] as string[] };
+      const reads = await hostReadsFor(context, bitbucket('github-actions'), {
+        env: {},
+        shell,
+        origin: async () => 'git@bitbucket.org:ws/repo.git',
+        bitbucketClient: fakeBitbucket('environment', seen),
+      });
+      await reads.host.prList('settled', 50);
+      expect(shell.calls).toEqual(['prList']);
+      expect(seen.paths).toEqual([]);
+    });
   });
 
   it('keeps the shell where PLOT_HOST_TRANSPORT=shell', async () => {

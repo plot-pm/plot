@@ -3,16 +3,38 @@ import type { Host, HostRefusal } from '../../ports/host.js';
 import { HOST_TRANSPORT_ENV, hostTransportOf, shellReasonOf, type HostTransportChoice } from '../../rules/host-transport.js';
 import { refsGit } from '../refs/refs-git.js';
 import type { ShellContext } from '../scripts.js';
+import {
+  BITBUCKET_NO_CREDENTIAL,
+  bitbucketApi,
+  type BitbucketApi,
+  type BitbucketApiOptions,
+} from './bitbucket-api.js';
+import { bitbucketPrListing, type BitbucketPrListing } from './bitbucket-pr-listing.js';
 import { githubApi, type GithubApi, type GithubApiOptions } from './github-api.js';
 import { githubPrListing, type GithubPrListing } from './github-pr-listing.js';
 import { hostShell, prOf } from './host-shell.js';
 import { recordHostReads } from './process-host-reads.js';
 
 /** The backends whose reads the in-process client answers. */
-export const IN_PROCESS_BACKENDS: readonly string[] = ['github'];
+export const IN_PROCESS_BACKENDS: readonly string[] = ['github', 'bitbucket'];
 
 /** The `CI` systems whose colours only the shell's GitHub listing overlays on the checks (`plot-host.sh` pr-list). */
 export const SHELL_CI: readonly string[] = ['jenkins'];
+
+/**
+ * The `CI` systems whose colours only the shell overlays on the Bitbucket rich
+ * open read (`_bb_jen_bind`). The plain reads of such a repository stay
+ * in-process; only the rich read goes to the shell.
+ */
+export const SHELL_RICH_CI: readonly string[] = ['jenkins'];
+
+/**
+ * The `CI` systems that keep every read of a backend on the shell.
+ *
+ * @param backend - the git host backend word, or null.
+ * @returns {@link SHELL_CI} on GitHub and none elsewhere.
+ */
+export const shellCiOf = (backend: string | null): readonly string[] => (backend === 'github' ? SHELL_CI : []);
 
 /** The composition of a process's GitHub reads. */
 export interface HostReads {
@@ -40,27 +62,44 @@ export interface HostReadsOptions {
   readonly shell?: Host;
   /** The `origin` remote's URL; defaults to `git remote get-url origin`. */
   readonly origin?: () => Promise<string | null>;
-  /** Builds the client; defaults to {@link githubApi}. */
+  /** Builds the GitHub client; defaults to {@link githubApi}. */
   readonly client?: (options: GithubApiOptions) => GithubApi;
+  /** Builds the Bitbucket client; defaults to {@link bitbucketApi}. */
+  readonly bitbucketClient?: (options: BitbucketApiOptions) => BitbucketApi;
 }
 
-/** The `pr-list` states the in-process listing answers; `settled` reads as `all` on GitHub, as the shell's GitHub arm reads it. */
+/** The `pr-list` states the in-process GitHub listing answers; `settled` reads as `all` on GitHub, as the shell's GitHub arm reads it. */
 const LISTED_STATES: Readonly<Record<string, 'open' | 'all' | 'merged'>> = { open: 'open', all: 'all', merged: 'merged', settled: 'all' };
+
+/** The `pr-list` states the in-process Bitbucket listing answers; `settled` is merged and declined there and stays on the shell. */
+const BITBUCKET_LISTED_STATES: Readonly<Record<string, 'open' | 'all' | 'merged'>> = { open: 'open', all: 'all', merged: 'merged' };
+
+/** How {@link hostWithListing} divides the reads between the listing and the shell. */
+export interface ListingSplit {
+  /** The `pr-list` states the listing answers; any other state calls the shell. */
+  readonly states?: Readonly<Record<string, 'open' | 'all' | 'merged'>>;
+  /** Sends every rich read to the shell, which overlays the CI colours on the checks. */
+  readonly richOnShell?: boolean;
+}
 
 /**
  * The shell `Host` with `prListing` and `prList` answered in-process.
  *
- * `prList` answers in-process for `open`, `all`, `merged` and `settled`, with
- * `rich` read as the shell's `--rich-open`; a partial listing answers its rows,
- * as the shell's exit 7 does. Any other state, and every other operation,
- * calls the shell. `lastRefusal` reports the listing's refusal after an
+ * `prList` answers in-process for the states of `split.states` (GitHub's
+ * `open`, `all`, `merged` and `settled` by default), with `rich` read as the
+ * shell's `--rich-open`; a partial listing answers its rows, as the shell's
+ * exit 7 does. With `split.richOnShell`, a rich `prList` and a `prListing`
+ * asking `rich` or `richOpen` call the shell. Any other state, and every other
+ * operation, calls the shell. `lastRefusal` reports the listing's refusal after an
  * in-process call and the shell's after any other call.
  *
  * @param shell - the shell `Host`.
  * @param listing - the in-process listing.
+ * @param split - which reads stay on the shell.
  * @returns the composed `Host`.
  */
-export const hostWithListing = (shell: Host, listing: GithubPrListing): Host => {
+export const hostWithListing = (shell: Host, listing: GithubPrListing | BitbucketPrListing, split: ListingSplit = {}): Host => {
+  const states = split.states ?? LISTED_STATES;
   let listed = false;
   const composed: Record<string, unknown> = {};
   for (const [name, member] of Object.entries(shell)) {
@@ -75,12 +114,16 @@ export const hostWithListing = (shell: Host, listing: GithubPrListing): Host => 
   return {
     ...(composed as unknown as Host),
     prListing: (query) => {
+      if (split.richOnShell === true && (query.rich === true || query.richOpen === true)) {
+        listed = false;
+        return shell.prListing(query);
+      }
       listed = true;
       return listing.prListing(query);
     },
     prList: async (state, limit, since, rich) => {
-      const asked = LISTED_STATES[state];
-      if (asked === undefined) {
+      const asked = states[state];
+      if (asked === undefined || (split.richOnShell === true && rich === true)) {
         listed = false;
         return shell.prList(state, limit, since, rich);
       }
@@ -99,10 +142,16 @@ export const hostWithListing = (shell: Host, listing: GithubPrListing): Host => 
 };
 
 /**
- * Composes a process's GitHub reads: the in-process client or the shell.
+ * Composes a process's git host reads: the in-process client or the shell.
  *
  * It reads the switch {@link HOST_TRANSPORT_ENV}, the backend and the `CI`
- * key first, and resolves a token only where none of them keeps the shell.
+ * key first, and resolves a credential only where none of them keeps the
+ * shell. On `bitbucket` the credential is `BB_EMAIL` and `BB_TOKEN` from the
+ * environment or `.env`, never the keychain; with none, the shell reads and
+ * the reason says so. A Bitbucket repository whose `CI` is in
+ * {@link SHELL_RICH_CI} reads its rich open pull requests through the shell
+ * and everything else in-process. `api` is the GitHub client and is null on
+ * Bitbucket.
  * The client reports its rate-limit observations to the shell `Host`'s
  * `observe`. An in-process composition is recorded for the repository, so
  * `hostForReads` answers it to an adapter that builds its own `Host`. It never
@@ -120,7 +169,7 @@ export const hostReadsFor = async (
 ): Promise<HostReads> => {
   const env = options.env ?? process.env;
   const shell = options.shell ?? hostShell(context);
-  const reading = { ...basis, override: env[HOST_TRANSPORT_ENV], inProcessBackends: IN_PROCESS_BACKENDS, shellCi: SHELL_CI };
+  const reading = { ...basis, override: env[HOST_TRANSPORT_ENV], inProcessBackends: IN_PROCESS_BACKENDS, shellCi: shellCiOf(basis.backend) };
   const early = shellReasonOf(reading);
   if (early !== null) return { choice: { transport: 'shell', reason: early, tokenSource: null }, api: null, host: shell };
   const originOf =
@@ -129,6 +178,17 @@ export const hostReadsFor = async (
       const said = await refsGit(context).remoteUrl('origin');
       return said.ok ? said.value.trim() : null;
     });
+  if (basis.backend === 'bitbucket') {
+    const bitbucket = (options.bitbucketClient ?? bitbucketApi)({ origin: await originOf(), env, observe: (observed) => shell.observe(observed) });
+    const source = await bitbucket.credentialSource();
+    const picked = hostTransportOf({ ...reading, tokenSource: source, noCredential: BITBUCKET_NO_CREDENTIAL });
+    if (picked.transport === 'shell') return { choice: picked, api: null, host: shell };
+    const richOnShell = SHELL_RICH_CI.includes(basis.ci.trim().toLowerCase());
+    const host = hostWithListing(shell, bitbucketPrListing(bitbucket, refsGit(context)), { states: BITBUCKET_LISTED_STATES, richOnShell });
+    recordHostReads(context.repoRoot, host);
+    const reason = richOnShell ? `${picked.reason}; CI is jenkins, so the rich open read stays on the shell` : picked.reason;
+    return { choice: { ...picked, reason }, api: null, host };
+  }
   const api = (options.client ?? githubApi)({ origin: await originOf(), env, observe: (observed) => shell.observe(observed) });
   const choice = hostTransportOf({ ...reading, tokenSource: await api.tokenSource() });
   if (choice.transport === 'shell') return { choice, api: null, host: shell };
