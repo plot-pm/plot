@@ -1005,7 +1005,7 @@ export const controllerGateOf = (readings: ControllerReadings): Gate => ({
     if (named) {
       if (controllerInvocation(stripped) === 'release-approve') return finalControllerRefusal('release-approve', scriptDir);
       const httpAction = controllerHttpAction(stripped);
-      if (httpAction === 'release' || httpAction === 'restart') return finalControllerRefusal(httpAction, scriptDir);
+      if (httpAction === 'release' || httpAction === 'restart' || httpAction === 'loose-delete') return finalControllerRefusal(httpAction, scriptDir);
     }
 
     const atDesk = process.env.PLOT_UNATTENDED === '1' && readings.desk(cwd);

@@ -9,7 +9,7 @@ import { isReadSegment, programWords, withoutComments, withoutQuotes, wordBasena
 import { blankSpans, readShell, type ShellCommand, type ShellWord } from './shell-reading.js';
 
 /** The actions a controller owns. */
-export type ControllerAction = 'dispatch' | 'approve' | 'deliver' | 'release' | 'release-approve' | 'restart';
+export type ControllerAction = 'dispatch' | 'approve' | 'deliver' | 'release' | 'release-approve' | 'restart' | 'loose-delete';
 
 /**
  * Blanks the body of every single-quoted heredoc (`<<'EOF'` or `<<-'EOF'`),
@@ -204,7 +204,7 @@ export const withoutMessageSinks = (command: string): string => {
 };
 
 /** The board routes `mayRunController` watches for, so a bare `curl .../api/restart` is not filtered out before `controllerInvocation` can read its method. */
-const API_ROUTES = ['/api/release', '/api/release-approve', '/api/restart'];
+const API_ROUTES = ['/api/release', '/api/release-approve', '/api/restart', '/api/loose-delete'];
 
 /**
  * Whether a command could name a controller-owned script, call `plot-ask`, hit
@@ -322,6 +322,7 @@ const ENDPOINT: Record<ControllerAction, string> = {
   release: 'POST /api/release {"slug":"<slug>","version":"<version>"}',
   'release-approve': 'plot-ask.mjs release-approve <pr> <sha>',
   restart: 'POST /api/restart {"branch":"<branch>"}',
+  'loose-delete': 'POST /api/loose-delete {"branch":"<branch>"}',
 };
 
 /** The request body of the spike mode of `approve`. */
@@ -359,6 +360,9 @@ export const controllerRefusal = (action: ControllerAction, scriptDir: string, s
   } else if (action === 'release-approve') {
     lines.push(`      node ${shellQuote(`${scriptDir}/board/plot-ask.mjs`)} release-approve <pr> <sha>`);
     lines.push('    which runs with no board and has no HTTP route.');
+  } else if (action === 'loose-delete') {
+    lines.push(`      node ${shellQuote(`${scriptDir}/board/plot-loose-delete-command.mjs`)} <branch>`);
+    lines.push(`    which runs with no board. With the board up, ${ENDPOINT[action]} is its button.`);
   } else if (action === 'restart') {
     lines.push(`      node ${shellQuote(`${scriptDir}/board/plot-restart-command.mjs`)} <branch>`);
     lines.push(`    which runs with no board. With the board up, ${ENDPOINT[action]} is its button.`);
@@ -369,7 +373,7 @@ export const controllerRefusal = (action: ControllerAction, scriptDir: string, s
   lines.push(
     '',
     '  Or, where the board is not running and you accept the bypass, run these as TWO calls, in this order:',
-    `      1. bash ${shellQuote(`${scriptDir}/plot-state-receipt.sh`)} --unowned-action ${action} ${action === 'restart' ? '<branch>' : '<slug>'} "<reason>"`,
+    `      1. bash ${shellQuote(`${scriptDir}/plot-state-receipt.sh`)} --unowned-action ${action} ${action === 'restart' || action === 'loose-delete' ? '<branch>' : '<slug>'} "<reason>"`,
     `      2. the ${action} command you meant`,
     '    A chained `receipt && command` is checked before either runs, and is refused. The receipt stays until the',
     '    action exits 0.',
@@ -382,11 +386,11 @@ export const controllerRefusal = (action: ControllerAction, scriptDir: string, s
 };
 
 /** Actions this slice refuses with no receipt escape: a release approval, and the two HTTP routes with no board-free bundle of their own. */
-export type FinalAction = 'release-approve' | 'release' | 'restart';
+export type FinalAction = 'release-approve' | 'release' | 'restart' | 'loose-delete';
 
 /**
  * The refusal for `plot-ask.mjs release-approve`, or an HTTP POST to
- * `/api/release`, `/api/release-approve` or `/api/restart`. Unlike
+ * `/api/release`, `/api/release-approve`, `/api/restart` or `/api/loose-delete`. Unlike
  * {@link controllerRefusal}, this names only the person's route — the
  * board's button for `release`/`restart`, `plot-ask.mjs release-approve`'s
  * own bundle for `release-approve` — and offers no receipt bypass: a receipt
@@ -408,7 +412,11 @@ export const finalControllerRefusal = (action: FinalAction, scriptDir: string): 
     ].join('\n');
   }
   const bundle =
-    action === 'release' ? `node ${shellQuote(`${scriptDir}/board/plot-deliver.mjs`)} --release <slug> <version>` : `node ${shellQuote(`${scriptDir}/board/plot-restart-command.mjs`)} <branch>`;
+    action === 'release'
+      ? `node ${shellQuote(`${scriptDir}/board/plot-deliver.mjs`)} --release <slug> <version>`
+      : action === 'loose-delete'
+        ? `node ${shellQuote(`${scriptDir}/board/plot-loose-delete-command.mjs`)} <branch>`
+        : `node ${shellQuote(`${scriptDir}/board/plot-restart-command.mjs`)} <branch>`;
   return [
     `plot-controller-gate: ${ENDPOINT[action]} is a controller-owned action.`,
     '',
