@@ -151,7 +151,7 @@ const shellRead = async (fixture: Fixture, dir: string): Promise<Side> => {
     writeFileSync(join(dir, `call-${i}.body`), JSON.stringify(one.response));
     writeFileSync(join(dir, `call-${i}.status`), String(one.status));
   });
-  const env = { ...environmentOf(fixture, BASE), PATH: `${bin}:${process.env.PATH}`, JIRA_STUB_DIR: dir, PLOT_TRACKER: 'jira', PLOT_BUDGET_OFF: '1', PLOT_REPO_ROOT: undefined, PLOT_UNATTENDED: undefined };
+  const env: Record<string, string | undefined> = { ...environmentOf(fixture, BASE), PATH: `${bin}:${process.env.PATH}`, JIRA_STUB_DIR: dir, PLOT_TRACKER: 'jira', PLOT_BUDGET_OFF: '1', PLOT_REPO_ROOT: undefined, PLOT_UNATTENDED: undefined };
   const before = Date.now();
   const { result, refusal } = await withEnv(env, async () => {
     const tracker = trackerJira(shellContext(ROOT), env.PLOT_JIRA_BASE_URL ?? '');
