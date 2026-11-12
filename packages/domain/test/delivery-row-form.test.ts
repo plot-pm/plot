@@ -342,4 +342,9 @@ describe('the remaining branches', () => {
     const plan = you('test-delivered-plan', 'review-a-result', [], 'plan');
     expect(groupHeader('Review a result', 'you', 'review-a-result', [plan], off).held.map((h) => h.switch)).toEqual(['autoVerify']);
   });
+
+  it('gives a ticket no seven-column row, because a ticket keeps its own row', () => {
+    expect(itemRowCells(you('ticket-assigned', 'input-to-the-fleet', [], 'ticket'), facts)).toBeNull();
+    expect(itemRowCells(work('queued', [], 'ticket'), facts)).toBeNull();
+  });
 });
