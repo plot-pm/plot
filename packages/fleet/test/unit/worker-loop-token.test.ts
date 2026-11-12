@@ -7,7 +7,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { livenessTokenFifo } from '@plot-pm/domain/adapters/liveness-token/liveness-token-fifo';
-import { TOKEN_FILENAME } from '@plot-pm/domain/rules/worker-liveness';
+import { TOKEN_FILENAME, TOKEN_ON_PATH_ENV } from '@plot-pm/domain/rules/worker-liveness';
 
 import { acquireToken, recordPassFile } from '../../src/server/entry/worker-loop.js';
 import { removeTree } from '../rm-tree.mjs';
@@ -78,6 +78,49 @@ describe('acquireToken', () => {
     expect(acquireToken(ENV, d, inherited)).toBe(inherited);
     expect(acquireToken(ENV, path.join(d, 'none'), inherited)).toBe(inherited);
     for (const fd of [inherited, theirs.token.fd, ours.token.fd]) closeSync(fd);
+  });
+});
+
+/** A descriptor this Node holds that `fstat` reports as a FIFO with no device and no inode: libuv's kqueue on macOS; `null` elsewhere. */
+const inodelessFifo = (): number | null => {
+  for (let fd = 0; fd < 256; fd += 1) {
+    try {
+      const stat = fstatSync(fd);
+      if (stat.isFIFO() && stat.dev === 0 && stat.ino === 0) return fd;
+    } catch {
+      /* not open */
+    }
+  }
+  return null;
+};
+
+describe('acquireToken after the loop replaced itself through execve', () => {
+  it('opens the token path where the restart carried the token on it, and leaves fd 3 to its new occupant', () => {
+    const d = desk();
+    const other = desk();
+    const ours = token.make(d);
+    const theirs = token.make(other);
+    if (!ours.ok || !theirs.ok) throw new Error('no token');
+    const occupant = openSync(path.join(other, TOKEN_FILENAME), constants.O_RDWR);
+    const fresh = acquireToken({ ...ENV, [TOKEN_ON_PATH_ENV]: '1' }, d, occupant);
+    expect(fresh).not.toBeNull();
+    expect(fresh).not.toBe(occupant);
+    expect(fstatSync(fresh!).ino).toBe(statSync(path.join(d, TOKEN_FILENAME)).ino);
+    expect(() => fstatSync(occupant)).not.toThrow();
+    for (const fd of [fresh!, occupant, ours.token.fd, theirs.token.fd]) closeSync(fd);
+  });
+
+  it.skipIf(inodelessFifo() === null)('never takes the event loop’s own descriptor, which fstat reports as an inodeless FIFO, for the token', () => {
+    const d = desk();
+    const ours = token.make(d);
+    if (!ours.ok) throw new Error(ours.reason);
+    const kqueue = inodelessFifo()!;
+    const fresh = acquireToken(ENV, d, kqueue);
+    expect(fresh).not.toBe(kqueue);
+    expect(fstatSync(fresh!).ino).toBe(statSync(path.join(d, TOKEN_FILENAME)).ino);
+    expect(() => fstatSync(kqueue)).not.toThrow();
+    closeSync(fresh!);
+    token.close(ours.token);
   });
 });
 
