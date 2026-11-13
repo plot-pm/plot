@@ -15,6 +15,7 @@
 - **Started:** 2026-11-11, Jan Wloka, `feature/bitbucket-and-jira-read-in-process-bitbucket-prs`
 - **Started:** 2026-11-12, Jan Wloka, `feature/bitbucket-and-jira-read-in-process-jira-issues`
 - **Started:** 2026-11-12, Jan Wloka, `feature/bitbucket-and-jira-read-in-process-bitbucket-cutover`
+- **Started:** 2026-11-13, Jan Wloka, `feature/bitbucket-and-jira-read-in-process-jira-cutover`
 
 ## Changelog
 
