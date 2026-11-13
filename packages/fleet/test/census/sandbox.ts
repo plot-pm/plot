@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { removeTree } from '../rm-tree.mjs';
 import { productRoot, type CensusFixture, type CensusHost } from './census-report.js';
-import { hostCliStub, jiraCurlStub, startStubApi, type StubApi } from './stub-host.js';
+import { BITBUCKET_ROUTE, CENSUS_BB_EMAIL, CENSUS_JIRA_EMAIL, CENSUS_JIRA_TOKEN, hostCliStub, jiraCurlStub, startStubApi, type StubApi } from './stub-host.js';
 import { startStubWorker, type StubWorker } from './stub-worker.js';
 
 /**
@@ -26,6 +26,8 @@ export type SandboxOptions = FixtureSize & {
   productRoot?: string;
   /** The directory the sandbox's root is made in; `tmpdir()` by default. A test that binds `.plot/fleet.sock` passes `SOCKET_TEMP_ROOT`. */
   tempRoot?: string;
+  /** The `CI` key of a Bitbucket fixture; the key is absent where this is. */
+  ci?: string;
 };
 
 /** One desk: a worktree on a slice branch, with a stub worker's pid in `.plot-worker.pid`. */
@@ -39,7 +41,7 @@ export type Sandbox = {
   fixtures: string;
   /** The file every stub appends its argv to. */
   stubLog: string;
-  /** The stub GitHub API the in-process client reads, on a GitHub fixture; null on Bitbucket. */
+  /** The stub API server: GitHub's API on a GitHub fixture; the Bitbucket route and Jira's REST API on a Bitbucket fixture. */
   api: StubApi | null;
   scriptsDir: string;
   size: FixtureSize;
@@ -64,7 +66,7 @@ export const sliceBranches = (size: FixtureSize): string[] =>
 
 const PLAN_SLUG = '2026-01-01-census-fixture';
 
-const configFor = (host: CensusHost): string =>
+const configFor = (host: CensusHost, ci?: string): string =>
   [
     '# Census fixture',
     '',
@@ -78,7 +80,7 @@ const configFor = (host: CensusHost): string =>
     `- **Git host:** ${host}`,
     ...(host === 'github'
       ? ['- **CI:** github-actions', '- **Default branch checks:** CI']
-      : ['- **Tracker:** jira https://jira.census.invalid']),
+      : ['- **Tracker:** jira https://jira.census.invalid', ...(ci === undefined ? [] : [`- **CI:** ${ci}`, ...(ci === 'jenkins' ? ['- **Jenkins instance:** census'] : [])])]),
     '- **Auto-review:** false',
     '- **Auto-verify:** false',
     '- **Auto-design:** false',
@@ -216,8 +218,8 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
       // `budget_account` reads this variable, as it reads `hosts.yml` for a
       // person signed in to `gh`.
       PLOT_BUDGET_ACCOUNT: CENSUS_TOKEN,
-      JIRA_EMAIL: 'census@census.invalid',
-      JIRA_API_TOKEN: 'census',
+      JIRA_EMAIL: CENSUS_JIRA_EMAIL,
+      JIRA_API_TOKEN: CENSUS_JIRA_TOKEN,
     };
     // NO INDEX OVERRIDE: the PR index, the reader lock and the issue index
     // resolve from the sandbox repository's common git dir, as on an
@@ -228,6 +230,7 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
     // as `supervised: systemd`. Only `startFleetd`'s `supervisor: 'systemd'`
     // gives fleetd a unit of its own.
     for (const key of [
+      'BITBUCKET_API_BASE', 'BB_EMAIL', 'BB_TOKEN',
       'PLOT_HOST', 'PLOT_HOST_TRANSPORT', 'PLOT_TRACKER', 'PLOT_UNATTENDED', 'PLOT_BOARD_PORT', 'PORT', 'PLOT_PR_INDEX_HOME', 'PLOT_ISSUE_INDEX_HOME',
       ...SYSTEMD_UNIT_VARS,
     ]) {
@@ -241,6 +244,19 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
       env['GITHUB_API_URL'] = api.url;
     } else {
       delete env['GITHUB_API_URL'];
+      api = await startStubApi(join(fixtures, 'gh'), CENSUS_TOKEN);
+      env['BITBUCKET_API_BASE'] = `${api.url}${BITBUCKET_ROUTE}`;
+      env['BB_EMAIL'] = CENSUS_BB_EMAIL;
+      env['BB_TOKEN'] = CENSUS_TOKEN;
+    }
+    // THE IN-PROCESS JIRA CLIENT'S HOST: the Bitbucket fixture's tracker is
+    // Jira, and the same server answers its requests from the `curl` stub's
+    // answer files, so a census row can count them.
+    if (size.host === 'bitbucket') {
+      api ??= await startStubApi(join(fixtures, 'gh'), CENSUS_TOKEN);
+      env['PLOT_JIRA_BASE_URL'] = api.url;
+    } else {
+      delete env['PLOT_JIRA_BASE_URL'];
     }
     writeFileSync(join(home, '.gitconfig'), '[init]\n\tdefaultBranch = main\n');
     const git = (cwd: string, ...args: string[]): string =>
@@ -255,7 +271,7 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
     git(repo, 'remote', 'add', 'origin', origin);
     const branches = sliceBranches(size);
     mkdirSync(join(repo, 'docs/plans/active'), { recursive: true });
-    writeFileSync(join(repo, 'CLAUDE.md'), configFor(size.host));
+    writeFileSync(join(repo, 'CLAUDE.md'), configFor(size.host, options.ci));
     writeFileSync(join(repo, '.gitignore'), '.plot/state/\n.plot/agents/\n.plot/fleet.sock\n.plot-worker*\n.worktrees/\n');
     writeFileSync(join(repo, `docs/plans/${PLAN_SLUG}.md`), planFor(branches));
     symlinkSync(`../${PLAN_SLUG}.md`, join(repo, `docs/plans/active/${PLAN_SLUG}.md`));
@@ -271,6 +287,17 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
       shas.set(branch, mainSha);
     }
     git(repo, 'fetch', '--quiet', 'origin');
+    // A BITBUCKET ORIGIN THE IN-PROCESS CLIENT CAN READ: `remoteSlug` accepts
+    // only a host URL, and a local path gives the client no slug, so every read
+    // would fall to the shell. The remote names the workspace and repository
+    // over ssh; `GIT_SSH_COMMAND` answers that transport from the local bare
+    // repository, so fetches reach no network; pushes keep the local path.
+    if (size.host === 'bitbucket') {
+      writeStub(bin, 'census-ssh', `#!/bin/sh\nfor last; do :; done\nexec "\${last%% *}" '${origin}'\n`);
+      env['GIT_SSH_COMMAND'] = join(bin, 'census-ssh');
+      git(repo, 'remote', 'set-url', '--push', 'origin', origin);
+      git(repo, 'remote', 'set-url', 'origin', 'ssh://git@bitbucket.org/census/fixture.git');
+    }
 
     const answer = (cli: 'gh' | 'bb', key: string, body: unknown): void => {
       writeFileSync(join(fixtures, cli, `${key}.json`), `${typeof body === 'string' ? body : JSON.stringify(body)}\n`);

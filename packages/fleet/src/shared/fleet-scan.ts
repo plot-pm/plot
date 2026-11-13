@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { FleetReadingSchema, type FleetReading } from '@plot-pm/domain/entities/fleet';
-import { listingBackoff, listingSpend, PR_READ_BEAT_MS, type LimitBasis } from '@plot-pm/domain';
+import { deskReadsOf, listingBackoff, listingChange, listingSpend, PR_READ_BEAT_MS, type ScanPlan, type SnapshotChange } from '@plot-pm/domain';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import type { Agents } from '@plot-pm/domain/ports/agents';
 import type { Host, PrListingQuery } from '@plot-pm/domain/ports/host';
@@ -26,14 +26,15 @@ import { indexMergedHeads, indexOpenHeads } from '@plot-pm/domain/rules/known-pr
 import { githubListingPages } from '@plot-pm/domain/rules/listing-page';
 import { branchUrlBase as branchUrlBaseOf } from '@plot-pm/domain/rules/branch-url';
 import { HOST_BRANCH_URL_SCHEMES } from '@plot-pm/domain/adapters/host/host-branch-urls';
-import { listingCompleteness } from '@plot-pm/domain/adapters/host/listing-notices';
 import {
-  foldScanListing, parseScanListingRows, readCarriedPrStates, renderScanListing, scanListingRowsOf, scanListingWindowFor,
+  foldScanListing, readCarriedPrStates, renderScanListing, scanListingRowsOf, scanListingWindowFor,
   type CarriedListing, type ScanListingAnswer, type ScanListingFold, type ScanListingWindow,
 } from '@plot-pm/domain/rules/scan-listing';
 import { PR_FULL_READ_MS } from './pr-refresh.js';
+import type { SpendRate, SpendReader } from './spend-reader.js';
 import { failedOf, readOf, type RecordReading } from './snapshot-fill.js';
 import { workerQuestions } from './worker-question.js';
+import { freshDeskHold, holdDeskReads, type DeskHold } from './desk-hold.js';
 
 /** The scan Plot ships, streamed one plan at a time. */
 /** The branch-URL prefix for an origin URL, over the hosts Plot drives. */
@@ -119,7 +120,7 @@ export interface ScanState {
   backoffMs: number | null;
   /**
    * Host requests this scan has spent since the tick last read and zeroed it —
-   * the in-process `askPrList` calls plus the shell's own reported `spend:`
+   * the in-process `askPrListing` calls plus the shell's own reported `spend:`
    * count. Never reset at the top of a pass; only the reader zeroes it.
    */
   calls: number;
@@ -129,6 +130,8 @@ export interface ScanState {
    * Absent, the walk runs cold every beat, as the board's fallback does.
    */
   walkCache?: WalkCache;
+  /** The desk reads held between scans, in this process only; absent, every desk is read each scan. */
+  deskHold?: DeskHold;
 }
 
 /**
@@ -148,6 +151,7 @@ export const freshScanState = (): ScanState => ({
   backoffMs: null,
   calls: 0,
   walkCache: freshWalkCache(),
+  deskHold: freshDeskHold(),
 });
 
 /** What a scan reads through; every spawn goes through `scripts` or `refs`. */
@@ -157,6 +161,8 @@ export interface ScanWorld {
   refs: Refs;
   /** The configured git host's name, e.g. `github`. */
   backend: () => Promise<string>;
+  /** Reads the host's spend for the listing's cadence; `plot-host.sh spend-rate` where absent. */
+  spend?: SpendReader;
   /** The ports the in-process plan walk reads through. */
   walk: WalkPorts;
   /**
@@ -170,6 +176,12 @@ export interface ScanWorld {
    * fleetd writes the AgentMonitor's findings here. Absent, nothing receives them.
    */
   findings?: (branches: BranchStageReadings, desks: DeskStageReadings) => Promise<void>;
+  /**
+   * Receives a change the scan's own read found: a listing that names a branch
+   * that appeared or went away, or a newly merged PR, raises `remote`. Absent,
+   * the scan raises none.
+   */
+  raise?: (change: SnapshotChange) => void;
 }
 
 /** The ports the plan walk reads through, beside `refs` and `scripts`. */
@@ -208,6 +220,11 @@ export interface ScanResult {
 
 /** How a scan runs. */
 export interface ScanOptions {
+  /**
+   * What this scan reads, from the trigger. Absent, the scan reads every
+   * reading and fetches, as every scan did before a trigger started it.
+   */
+  plan?: ScanPlan;
   /** Retained for callers; the in-process walk writes no bridge of its own. */
   record: boolean;
   /** Retained for callers; the in-process walk streams no lines. */
@@ -306,17 +323,11 @@ export const mergeTerminal = (prior: string, learned: string): string => {
   return [...rows.values()].map((line) => `${line}\n`).join('');
 };
 
-/** The host's spend, as `plot-host.sh spend-rate` reports it. */
-export interface SpendRate {
-  perHour: number | null;
-  resetAt: number | null;
-  limit: number | null;
-  basis: LimitBasis;
-  account: string | null;
-}
+export type { SpendRate, SpendReader } from './spend-reader.js';
 
 /**
- * Asks the host connector what this account has spent.
+ * Asks `plot-host.sh spend-rate` what this account has spent. A world with no
+ * `spend` reader reads through this.
  *
  * @param scripts - the runner to ask through.
  * @returns the record, or null where the connector did not answer or answered
@@ -483,42 +494,8 @@ export const scanPrListLimit = (env: NodeJS.ProcessEnv = process.env): number =>
 };
 
 /**
- * Asks the host one `pr-list` call through `Scripts.hostSaid` and reads it
- * into rows. The Bitbucket listing asks this way.
- *
- * @param scripts - the one place `plot-*.sh` is invoked.
- * @param args - the `pr-list` arguments; `--state` names the asked state.
- * @param onCall - called once the host has answered, win or lose — the
- *   scan's own tally of real requests spent.
- * @returns the rows and the asked state's completeness word, or
- *   `verdict: 'failed'` with no rows where the call failed, could not be
- *   asked, or printed a line that is not a PR row.
- */
-const askPrList = async (
-  scripts: Scripts,
-  args: readonly string[],
-  onCall: (refusal?: string) => void,
-): Promise<ScanListingAnswer> => {
-  const said = await scripts.hostSaid(['pr-list', ...args]);
-  if (said.answer === 'failed' || said.answer === 'unaskable') {
-    onCall(said.said);
-    return { verdict: 'failed', rows: [], complete: 'possibly-truncated' };
-  }
-  onCall();
-  const rows = parseScanListingRows(said.stdout);
-  if (rows === null) return { verdict: 'failed', rows: [], complete: 'possibly-truncated' };
-  const state = args[args.indexOf('--state') + 1] ?? '';
-  const notices = said.answer === 'partial' ? said.said : said.stderr;
-  return {
-    verdict: said.answer === 'partial' ? 'partial' : 'ok',
-    rows,
-    complete: listingCompleteness(notices, state)[state] ?? 'possibly-truncated',
-  };
-};
-
-/**
- * Asks the host one typed listing and reads it into rows. The GitHub listing
- * asks this way.
+ * Asks the host one typed listing and reads it into rows. Both listings
+ * ask this way.
  *
  * @param host - the git host connector.
  * @param query - the listing query.
@@ -619,7 +596,7 @@ const BB_LIST_PAGELEN = 50;
  * refused delta is asked again as a full sweep, the same retry
  * {@link readGithubListing} makes.
  *
- * @param scripts - the one place `plot-*.sh` is invoked.
+ * @param host - the git host connector.
  * @param branches - the tracked branches a full read sweeps.
  * @param held - the listing the last host read held, or null.
  * @param now - this machine's clock, in epoch milliseconds — stamps the full
@@ -633,7 +610,7 @@ const BB_LIST_PAGELEN = 50;
  *   a row has no branch name.
  */
 const readBitbucketListing = async (
-  scripts: Scripts,
+  host: Host,
   branches: readonly string[],
   held: CarriedListing | null,
   now: number,
@@ -641,14 +618,13 @@ const readBitbucketListing = async (
   onCall: (refusal?: string) => void,
 ): Promise<{ rendered: string; next: CarriedListing; window: ScanListingWindow } | null> => {
   const full = async (): Promise<ScanListingFold> => {
-    const args = branches.flatMap((branch) => ['--branch', branch]);
-    const open = await askPrList(scripts, ['--state', 'open', '--rich', ...args], onCall);
-    const rest = await askPrList(scripts, ['--state', 'all', ...args], onCall);
+    const open = await askPrListing(host, { state: 'open', rich: true, branches }, onCall);
+    const rest = await askPrListing(host, { state: 'all', branches }, onCall);
     return foldScanListing(null, open, rest);
   };
   const delta = async (since: string): Promise<ScanListingFold> => {
-    const open = await askPrList(scripts, ['--state', 'open', '--rich', '--limit', String(BB_LIST_PAGELEN - 1)], onCall);
-    const rest = await askPrList(scripts, ['--state', 'all', '--since', since], onCall);
+    const open = await askPrListing(host, { state: 'open', rich: true, limit: BB_LIST_PAGELEN - 1 }, onCall);
+    const rest = await askPrListing(host, { state: 'all', since }, onCall);
     return foldScanListing(held, open, rest);
   };
 
@@ -758,9 +734,11 @@ const recordCardReadings = async (
 /**
  * Runs the plan walk's four stages in this process and builds the pulse.
  *
- * Fetches `origin` first, pruning, as the shell scan did; a failed fetch is
- * carried in the reading as `fetch_failed` and does not stop the walk. Every
- * read is cold: no stage's answer is kept between beats.
+ * Fetches `origin` first, pruning, as the shell scan did, unless `held.plan`
+ * says no remote change named it; a failed fetch is carried in the reading as
+ * `fetch_failed` and does not stop the walk. A `held` plan that names desks
+ * reads their git status again and answers the other desks from `held.hold`.
+ * Without `held`, every read is cold.
  *
  * Reads PR states from `listing` and never calls `Host.prList`. Reads the PR
  * index's merged rows through `walk.prIndexRows`, which confirm a refless
@@ -774,6 +752,8 @@ const recordCardReadings = async (
  * @param world - what the walk reads through.
  * @param listing - the rendered PR listing the scan carries, or `''` where none is held.
  * @param listingSaid - what the host said when the listing read was refused, or `''`; a host that could not be asked reads `unasked` rather than `failed`.
+ * @param cache - the oid-keyed answers held between walks.
+ * @param held - the trigger's plan and the desk reads held between walks.
  * @returns the pulse.
  * @throws where a stage fails or the assembled document is not a pulse.
  */
@@ -782,6 +762,7 @@ export const walkOnce = async (
   listing: string,
   listingSaid = '',
   cache?: WalkCache,
+  held?: { plan: ScanPlan; hold: DeskHold },
 ): Promise<FleetReading> => {
   const { scripts, record } = world;
   let refs = world.refs;
@@ -829,7 +810,9 @@ export const walkOnce = async (
 
   // `--prune` and the heads refspec ride after `origin`, where git reads them as
   // the shell scan's command did: the prune then covers the whole mirror.
-  const fetched = await walk.trees.fetch(world.repoRoot, ['--prune', mainBranch, '+refs/heads/*:refs/remotes/origin/*']);
+  const fetched = held !== undefined && !held.plan.fetch
+    ? { ok: true as const }
+    : await walk.trees.fetch(world.repoRoot, ['--prune', mainBranch, '+refs/heads/*:refs/remotes/origin/*']);
 
   // THE SNAPSHOT IS READ ONCE, AFTER THE FETCH AND BEFORE ANY CACHED READ. Every
   // cached read below resolves its names through it, so a ref that moves later
@@ -885,7 +868,12 @@ export const walkOnce = async (
     ? await readBranchReadings(refs, walk.host, estate.value, { mainBranch, planDir, prs, indexMerged, ...(indexOpen === undefined ? {} : { indexOpen }) })
     : estate;
   const desks = branches.ok
-    ? await readDeskReadings(walk.trees, walk.agents, walk.processes, branches.value)
+    ? await readDeskReadings(
+      held === undefined ? walk.trees : holdDeskReads(walk.trees, held.hold, deskReadsOf(held.plan.readings), Date.now()),
+      walk.agents,
+      walk.processes,
+      branches.value,
+    )
     : branches;
   if (world.findings !== undefined && branches.ok && desks.ok) await world.findings(branches.value, desks.value);
   if (record !== undefined) {
@@ -981,10 +969,11 @@ export const walkOnce = async (
 export const scanOnce = async (
   world: ScanWorld,
   state: ScanState,
-  _options: ScanOptions,
+  options: ScanOptions,
 ): Promise<ScanResult> => {
   const now = Date.now();
-  const due = state.listingAt === null || now >= state.listingAt + state.listingIntervalMs;
+  const heldListing = state.listing;
+  const due = options.plan?.listing === true || state.listingAt === null || now >= state.listingAt + state.listingIntervalMs;
   const backoff = listingBackoff({ backoffUntil: state.backoffUntil, backoffMs: state.backoffMs, now });
   let spend = true;
   let reusedAgeMs: number | null = null;
@@ -1001,7 +990,7 @@ export const scanOnce = async (
         state.listing === '' ? null : listedRowCount(state.listing),
         bitbucketWindow,
       ),
-      rate: await spendRateFor(world.scripts),
+      rate: await (world.spend ?? (() => spendRateFor(world.scripts)))(),
       lastListedAt: state.listingAt,
       now,
       currentIntervalMs: state.listingIntervalMs,
@@ -1046,7 +1035,7 @@ export const scanOnce = async (
   } else if (spend && backend === 'bitbucket') {
     const tracked = await world.refs.listBranches(true);
     const branches = tracked.ok ? tracked.value : [];
-    const read = await readBitbucketListing(world.scripts, branches, state.listingHeld, now, bitbucketWindow, counted);
+    const read = await readBitbucketListing(world.walk.host, branches, state.listingHeld, now, bitbucketWindow, counted);
     state.listingHeld = read?.next ?? null;
     if (read !== null) {
       hostRead = read;
@@ -1066,7 +1055,8 @@ export const scanOnce = async (
   // not the walk.
   let parsed: FleetReading;
   try {
-    parsed = await withinBudget(walkOnce(world, state.listing, listingSaid, state.walkCache), FLEET_SCAN_BUDGET_MS);
+    const held = options.plan === undefined || state.deskHold === undefined ? undefined : { plan: options.plan, hold: state.deskHold };
+    parsed = await withinBudget(walkOnce(world, state.listing, listingSaid, state.walkCache, held), FLEET_SCAN_BUDGET_MS);
     // Pruned only here, after a beat that completed: a beat that timed out
     // keeps what it read, so the next one does not start cold again.
     state.walkCache?.sweep();
@@ -1085,6 +1075,8 @@ export const scanOnce = async (
     }
   }
   const reading: FleetReading = parsed;
+  // A LISTING THAT MOVED A REF RAISES `remote`; one that changed only a CI answer raises nothing.
+  if (hostRead !== null && listingChange(heldListing, state.listing).remote) world.raise?.({ kind: 'remote' });
   const dates = await readBranchDates(world.refs);
   world.record?.('branchDates', dates === null ? failedOf('the branch dates could not be read') : readOf(dates));
   const { ages, tipAt } = branchAgesOf(dates ?? [], Date.now());

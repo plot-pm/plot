@@ -6,7 +6,7 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { heartbeatIsFresh } from '@plot-pm/domain/rules/reader-election';
 import { fleetdReadsPrs } from '@plot-pm/domain/rules/fleetd-live';
 import type { FleetdHeartbeat } from '@plot-pm/domain/entities/fleetd-heartbeat';
-import { clockSystem, hostReadsFor, IN_PROCESS_BACKENDS, SHELL_CI, prIndexFile, readerLockFile, readFleetdHeartbeatSync, scriptsShell, type HostReads, type ShellContext } from '@plot-pm/domain/adapters';
+import { clockSystem, hostReadsFor, IN_PROCESS_BACKENDS, shellCiOf, prIndexFile, readerLockFile, readFleetdHeartbeatSync, scriptsShell, type HostReads, type ShellContext } from '@plot-pm/domain/adapters';
 import { HOST_TRANSPORT_ENV, hostTransportLine, shellReasonOf } from '@plot-pm/domain/rules/host-transport';
 import { fleetPrs, type PrLock } from '../../shared/fleet-clock.js';
 import { freshPrState, type PrState, type PrWorld } from '../../shared/pr-refresh.js';
@@ -130,7 +130,7 @@ export const stillFollowed = async (
 const readsFor = async (context: ShellContext, backend: string): Promise<HostReads> => {
   // NO CONFIG READ WHERE THE SHELL IS ALREADY DECIDED: a Bitbucket reader and
   // the switch start no `plot-config.sh`.
-  if (shellReasonOf({ backend, ci: '', override: process.env[HOST_TRANSPORT_ENV], inProcessBackends: IN_PROCESS_BACKENDS, shellCi: SHELL_CI }) !== null) {
+  if (shellReasonOf({ backend, ci: '', override: process.env[HOST_TRANSPORT_ENV], inProcessBackends: IN_PROCESS_BACKENDS, shellCi: shellCiOf(backend) }) !== null) {
     return hostReadsFor(context, { backend, ci: '' });
   }
   const ci = await scriptsShell(context).config('CI', '');
@@ -182,7 +182,8 @@ export const run = async (
   const world: PrWorld = {
     scripts: scriptsShell(context),
     host: reads.host,
-    hostClaimsSlot: reads.api !== null,
+    // Both transports claim their own slot per request: `plot-host.sh` in its `gh`/`bb` wrappers.
+    hostClaimsSlot: true,
     store: prIndexFile({ cwd: repoRoot }),
   };
   const readPrs = fleetPrs(world, state, prLock, warn);

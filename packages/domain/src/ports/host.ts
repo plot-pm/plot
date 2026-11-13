@@ -101,7 +101,7 @@ export interface HostRefusal {
 }
 
 /** A state a {@link PrListingQuery} asks the host for. */
-export type PrListingState = 'open' | 'all' | 'merged';
+export type PrListingState = 'open' | 'all' | 'merged' | 'settled';
 
 /** What one {@link Host.prListing} call asks the host for. */
 export interface PrListingQuery {
@@ -114,6 +114,11 @@ export interface PrListingQuery {
    * own rendering, passed through byte for byte; every PR when omitted.
    */
   since?: string;
+  /**
+   * The branches a sweep asks, one request per branch and state; every PR when
+   * omitted or empty. A host that cannot narrow by branch ignores it.
+   */
+  branches?: readonly string[];
   /** Asks every row for its checks, mergeability, review and draft. */
   rich?: boolean;
   /**

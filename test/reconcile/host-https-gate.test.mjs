@@ -36,6 +36,8 @@ const VIOLATIONS = {
   'api.github.com': "const base = 'https://api.github.com';\n",
   GITHUB_API_URL: 'const base = process.env.GITHUB_API_URL;\n',
   'fetch(': "const answer = await fetch('https://example.test/x');\n",
+  'api.bitbucket.org': "const base = 'https://api.bitbucket.org/2.0';\n",
+  BITBUCKET_API_BASE: 'const base = process.env.BITBUCKET_API_BASE;\n',
 };
 
 for (const [pattern, body] of Object.entries(VIOLATIONS)) {
@@ -66,6 +68,7 @@ test('host HTTPS gate: refuses a shipped script outside the named exceptions', (
 test('host HTTPS gate: passes the client, the exemptions, member calls, longer names and comments', () => {
   const dir = treeWith({
     'packages/domain/src/adapters/host/github-api.ts': "import https from 'node:https';\nconst base = 'https://api.github.com';\n",
+    'packages/domain/src/adapters/host/bitbucket-api.ts': "const base = process.env.BITBUCKET_API_BASE || 'https://api.bitbucket.org/2.0';\n",
     'packages/board/src/app/api.ts': "const r = await fetch('/api/board');\n",
     'packages/domain/src/ports/trees.ts': '  fetch(path: string, branch: string): Promise<void>;\n',
     'packages/fleet/src/shared/trees.ts': "await trees.fetch('a', 'b');\nconst refetch = prefetch(x);\nconst a = do_fetch(1);\n",
@@ -77,7 +80,7 @@ test('host HTTPS gate: passes the client, the exemptions, member calls, longer n
   try {
     const got = run(dir);
     assert.equal(got.status, 0, `the exemptions must pass:\n${got.stdout}`);
-    assert.match(got.stdout, /exempted paths: 6/, got.stdout);
+    assert.match(got.stdout, /exempted paths: 7/, got.stdout);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

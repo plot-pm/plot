@@ -23,7 +23,7 @@ A census row records each count it measures with `recordCensus` from `census-rep
 import { productRoot, recordCensus } from './census-report.js';
 
 recordCensus({
-  id: 'S4',                                        // S1..S7, P2..P4, P6 or D1
+  id: 'S4',                                        // S1..S7, P2..P4, P6..P9 or D1
   fixture: { desks: 3, openPrs: 5, host: 'github' }, // host: 'github' | 'bitbucket'
   count: perPass,                                  // the measured figure, in `unit`
   unit: 'execve per pass',
@@ -50,6 +50,10 @@ A row must resolve every script, bundle and product source module from `productR
 |---|---|---|
 | P1 | an AgentMonitor over one live, idle desk starts no `sleep` | Retired by `liveness-token`, slice *Monitor in fleetd*: its fixture started `plot-agent-monitor.sh`, which that slice removes. fleetd writes the AgentMonitor's findings from its own pass, and the worker wrapper runs the final pass where no fleetd heartbeat is live. |
 | P6 | an idle desk with a live agent starts no monitor process | Added by the same slice, in `dispatch.census.test.ts`: over D1's launch, with the agent live and idle for 2 s before it ends, no image is a `*-monitor.sh` script. |
+| P7 | an idle fleetd pass starts no `git rev-parse --git-dir` | Added by `triggers-replace-the-tick`, slice *Fleet size*, in `fleetd.census.test.ts`: over the two idle passes of each fixture, no image in fleetd's tree is `git rev-parse --git-dir`. The machine probe (`machine-system.ts`) runs only on a relaunch verdict, a startable slice, an eligible slice for auto-dispatch, or a fixer, verify or spec start that every other gate admits (`auto-writes.ts`). |
+| P8 | an idle fleetd pass starts no `git fetch` | Added by `triggers-replace-the-tick`, slice *Scan on trigger*, in `fleetd.census.test.ts`: over the two idle passes of each fixture, no image in fleetd's tree is `git fetch`. A beat with an empty pending set, an intact watch and no due safety net starts no scan. A scan fetches only where a `remote` change is pending, on a degraded watch, or on the safety net. |
+| P9 | an idle fleetd pass starts no `plot-host.sh spend-rate`, `plot-state-sync.mjs` or `plot-merger-token.mjs` | Added by `triggers-replace-the-tick`, slice *Quiet beats*, in `fleetd.census.test.ts`: over the two idle passes of each GitHub fixture, no image in fleetd's tree runs `plot-host.sh spend-rate`, `plot-state-sync.mjs` or `plot-merger-token.mjs`. fleetd reads the spend through the `Budget` port (`readSpendRate`, held to the shell by `corpus/spend-rate.corpus.test.ts`) and the spender's account in process (`budgetAccount`), runs state sync only when the state or default branch tips moved (`stateSyncDue`), and holds the Merger App reading for the process, reading it again after the key directory or the config changed and before a merge as the App (`mergerAppHeld`). |
+| S8 | a safety-net pass | Added by `triggers-replace-the-tick`, slice *Safety net*, in `fleetd.census.test.ts`: the last three passes of each fixture are the census entry's `safety-net` command, which moves the clock by at least `SAFETY_NET_MS` (600 s), so the full read each holds is a safety-net read. The row records the mean count of images in fleetd's tree per safety-net pass, as S4 records the mean of its two idle passes, held within 10 % + 2 of the merge base. It checks that each pass started at least one image and that `lastSafetyNetAt` in `fleetd.json` moved by more than two safety-net intervals, so each of the three passes landed its own full read. A census pass ends only once fleetd's bridge (`last-pulse.json`) marks no scan `running`, so a scan in flight holds the pass open and its children count in the pass that started it. |
 
 ## The comparison
 

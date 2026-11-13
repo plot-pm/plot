@@ -14,10 +14,10 @@ import {
 import {
   buildShell,
   defaultBranchFile,
-  mergerAppShell,
+  mergerAppHeld,
   prIndexFile,
   repairRecordFile,
-  type ShellContext,
+  type MergerAppReader,
 } from '@plot-pm/domain/adapters';
 import { refsRemoteGit } from '@plot-pm/domain/adapters/refs/refs-remote-git';
 import { sprintScopeRef } from '@plot-pm/domain/adapters/sprint-scope-ref';
@@ -157,6 +157,9 @@ const repairReading = async (
  * @param pidAlive - whether a review run's pid is alive.
  * @param opts - where the fleet acts; `undefined` logs nothing (unit tests that pass no `ActOptions`).
  * @param logged - the merge-hold keys already recorded, for the daemon's life.
+ * @param recheck - reads the `Merger app` key again immediately before a merge
+ *   as the App; a reading that no longer merges as the App starts no merge.
+ *   Absent, the merge goes on the reading in `readings`.
  * @returns every row's step and the merge attempt, if any.
  */
 export const mergeTick = async (
@@ -168,6 +171,7 @@ export const mergeTick = async (
   pidAlive: (pid: number) => boolean,
   opts?: ActOptions,
   logged: Set<string> = new Set(),
+  recheck?: () => MergerAppReading,
 ): Promise<MergeTickResult> => {
   const repairMerge = readings.repairMerge ?? (await repairReading(rows, readings.defaultBranch, ports));
   const live = liveReviewRuns(repoRoot, pidAlive, readings.now);
@@ -197,6 +201,11 @@ export const mergeTick = async (
   );
   const pick = nextMerge(candidates);
   if (pick === null) return { steps };
+  // THE KEY IS READ AGAIN BEFORE A MERGE AS THE APP: the held reading may be
+  // older than the key file, and the next pass holds on the fresh reading.
+  if (recheck !== undefined && mergeIdentity(readings.backend, readings.mergerApp).identity === 'app') {
+    if (mergeIdentity(readings.backend, recheck()).identity !== 'app') return { steps };
+  }
   const result = await mergeAt(ports, pick.pr, pick.head);
   if (!result.merged && result.reason === 'host-refused') refused.set(pick.pr, pick.head);
   if (opts !== undefined) {
@@ -220,7 +229,9 @@ export const mergeTick = async (
  * @param now - epoch milliseconds.
  * @param alive - whether a pid is alive.
  * @param logged - the merge-hold keys already recorded, for the daemon's life.
- * @param mergerApp - reads whether the `Merger app` key is usable; defaults to the real adapter.
+ * @param mergerApp - holds whether the `Merger app` key is usable, and reads it
+ *   again before a merge; a reader of its own by default. A caller that runs
+ *   many passes passes one reader, so the check runs once per process.
  * @returns the tick's result, or `null` where nothing was read to act on.
  */
 export const runAutoMergePass = async (
@@ -229,9 +240,10 @@ export const runAutoMergePass = async (
   now: number = Date.now(),
   alive: (pid: number) => boolean = pidAlive,
   logged: Set<string> = new Set(),
-  mergerApp: (context: ShellContext) => MergerAppReading = mergerAppShell,
+  mergerApp: MergerAppReader = mergerAppHeld(),
 ): Promise<MergeTickResult | null> => {
   const host = hostOf(opts);
+  const context = { repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir };
   const backend = await host.backend();
   if (!backend.ok) return null;
   const store = await prIndexFile({ cwd: opts.repoRoot }).read(backend.value);
@@ -275,7 +287,7 @@ export const runAutoMergePass = async (
       defaultBranch,
       desk: { dead: false, why: 'live' },
       backend: backend.value,
-      mergerApp: backend.value === 'github' ? mergerApp({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }) : undefined,
+      mergerApp: backend.value === 'github' ? mergerApp.held(context) : undefined,
       config: {
         autoReview: readAutoReview(opts).autoReview,
         reviewBoundMs: 0,
@@ -290,5 +302,6 @@ export const runAutoMergePass = async (
     alive,
     opts,
     logged,
+    () => mergerApp.fresh(context),
   );
 };

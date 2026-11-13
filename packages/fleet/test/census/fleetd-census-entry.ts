@@ -9,7 +9,15 @@
 //   pass   run one completed pass: the tick, and one beat of each of the scan,
 //          the PR reader, the issue reader and the issue writes; then start
 //          `/usr/bin/true census-mark pass-<n>` and print `census: pass <n> done`
+//   safety-net
+//          run one completed pass that moves the clock by at least the
+//          safety-net interval, so the full read it holds is a safety-net
+//          read; it prints `census: pass <n> done` as `pass` does
 //   stop   end the loop; prints `census: stopped <code>` and exits with it
+//
+// A pass is done once no direct child, no in-process HTTP request and no scan
+// that fleetd's bridge (`.plot/state/last-pulse.json`) marks `running` has been
+// in flight for 300 ms; a `running` mark holds a pass for at most 120 s.
 //
 // `CENSUS_CLOCK=system` runs fleetd on the system clock and real sleeps
 // instead, for a scenario that needs a fleetd running beside the board; then
@@ -24,12 +32,14 @@
 // `CENSUS_SPAWN_CALLER=1` adds `CENSUS_CALLER` to every tracked child's
 // environment: the first product frames of the stack that started it, so a
 // shim on `PATH` can name the TypeScript site behind a grandchild.
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, statSync } from 'node:fs';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import type { ChildProcess } from 'node:child_process';
+
+import { scanBusy, type BridgeReading } from './census-settle.js';
 
 /** The image a mark starts; the census filters it out by its first argument. */
 export const MARK_IMAGE = '/usr/bin/true';
@@ -37,6 +47,8 @@ export const MARK_ARG = 'census-mark';
 
 /** How long no direct child may run before a pass counts as settled, in ms. */
 const QUIET_MS = 300;
+/** How long a `running` scan attempt in fleetd's bridge holds a pass open, in ms. */
+const SCAN_BOUND_MS = 120_000;
 
 const say = (line: string): void => {
   process.stdout.write(`census: ${line}\n`);
@@ -215,6 +227,13 @@ const beatsPerPass = fleetDivisors().reduce((acc, { everyNthBeat }) => (acc * ev
 
 /** The fleet clock's beat, in ms: `clockManual` moves its own time by this per beat. */
 const BEAT_MS = 5_000;
+/**
+ * The safety-net interval, in ms: the product's `SAFETY_NET_MS`, written here
+ * because a merge-base product may not export it.
+ */
+const SAFETY_NET_MS = 600_000;
+/** Beats in one safety-net pass: whole passes that span at least the safety-net interval. */
+const safetyNetBeats = Math.ceil(SAFETY_NET_MS / (beatsPerPass * BEAT_MS)) * beatsPerPass;
 const clock = manual ? clockManual(Date.now()) : undefined;
 
 let stopped = false;
@@ -241,10 +260,25 @@ const sleep = manual
 const sleepsReach = (at: number): Promise<void> =>
   sleeps >= at ? Promise.resolve() : new Promise((resolve) => sleepWaiters.push({ at, resolve }));
 
+/** fleetd's bridge, which `fleetScan` marks `running` while a scan runs. */
+const bridgeOf = (): BridgeReading => {
+  const file = join(process.env['PLOT_REPO_ROOT'] ?? process.cwd(), '.plot', 'state', 'last-pulse.json');
+  try {
+    const mtimeMs = statSync(file).mtimeMs;
+    return { text: readFileSync(file, 'utf8'), mtimeMs };
+  } catch {
+    return { text: null, mtimeMs: null };
+  }
+};
+
+// A SCAN IN FLIGHT HOLDS THE PASS OPEN, children or not: a scan can run in
+// process for longer than `QUIET_MS` with no child started, and a pass that
+// settled then would place its mark inside the scan and fire its next beat
+// while the scan still runs, which skips that beat's scan.
 const quiet = async (): Promise<void> => {
   for (;;) {
     await new Promise((r) => setTimeout(r, 50));
-    if (inFlight === 0 && Date.now() - lastSettled >= QUIET_MS) return;
+    if (inFlight === 0 && Date.now() - lastSettled >= QUIET_MS && !scanBusy(bridgeOf(), RealDate.now(), QUIET_MS, SCAN_BOUND_MS)) return;
   }
 };
 
@@ -253,7 +287,7 @@ const mark = (label: string): void => {
 };
 
 let passes = 0;
-const pass = async (): Promise<void> => {
+const pass = async (beats: number = beatsPerPass): Promise<void> => {
   passes += 1;
   if (passes === 1) {
     await sleepsReach(1);
@@ -263,8 +297,20 @@ const pass = async (): Promise<void> => {
     release?.();
   }
   const target = passes;
-  offsetMs += beatsPerPass * BEAT_MS;
-  clock?.advance(beatsPerPass);
+  // BOTH READINGS MOVE TOGETHER: `advance` moves the manual clock's wall and
+  // monotonic readings by the same beats, so `clockDrift` reads no jump across a
+  // pass. `offsetMs` shifts only the patched `Date`, which fleetd's wake check
+  // never reads: it reads the injected clock through the port.
+  offsetMs += beats * BEAT_MS;
+  // A manual clock fires every beat of one `advance` before a scan can settle, so a
+  // scan that starts on a trigger decides once per advance. A pass longer than a
+  // census pass stops one beat short, settles, and fires the last beat, where the
+  // safety net is due.
+  if (beats > beatsPerPass) {
+    clock?.advance(beats - 1);
+    await quiet();
+    clock?.advance(1);
+  } else clock?.advance(beats);
   await sleepsReach(target);
   await quiet();
   mark(`pass-${passes}`);
@@ -290,6 +336,7 @@ lines.on('line', (line) => {
   const command = line.trim();
   queue = queue.then(async () => {
     if (command === 'pass' && manual && !stopped) await pass();
+    if (command === 'safety-net' && manual && !stopped) await pass(safetyNetBeats);
     if (command === 'stop') {
       stopped = true;
       wakeStop();

@@ -14,7 +14,7 @@ import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 import { roleFilesAt } from '@plot-pm/fleet/shared/role-files';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
-import { isSyncPr, syncPathVerdict } from '@plot-pm/domain/rules/state-sync';
+import { isSyncPr, mayBeSyncPr, syncPathVerdict, type UnreadSyncGate } from '@plot-pm/domain/rules/state-sync';
 import { stateSyncGateFor, type StateSyncGate } from './state-sync-gate.js';
 import {
   reviewerCommand,
@@ -122,9 +122,10 @@ export interface ReviewDeps {
   readChange: (tree: string, base: string, sha: string) => Promise<ReviewChange>;
   /**
    * The sync PR path gate; null or absent where no `State branch` key is
-   * declared, so a review runs as it did before the key existed.
+   * declared, so a review runs as it did before the key existed. An
+   * {@link UnreadSyncGate} where the key or the default branch could not be read.
    */
-  stateSync?: StateSyncGate | null;
+  stateSync?: StateSyncGate | UnreadSyncGate | null;
   readText: (file: string) => string | null;
   writeText: (file: string, text: string) => void;
   removeFile: (file: string) => void;
@@ -323,10 +324,20 @@ const readTrusted = async (deps: ReviewDeps, number: number): Promise<JudgedRevi
   return checkedReview(read.value, writer.value);
 };
 
-/** Refuses a sync PR whose diff leaves the paths Plot writes; null where it is no sync PR or the diff is inside the set. */
+/**
+ * Refuses a sync PR whose diff leaves the paths Plot writes, and a PR that
+ * could be a sync PR while the gate is unread; null where it is no sync PR or
+ * the diff is inside the set.
+ */
 const syncPathRefusal = async (deps: ReviewDeps, pr: Pr, sha: string): Promise<ReviewOutcome | null> => {
   const gate = deps.stateSync;
-  if (!gate || !isSyncPr(pr, gate.target, gate.defaultBranch)) return null;
+  if (!gate) return null;
+  if ('unread' in gate) {
+    return mayBeSyncPr(pr, gate)
+      ? refuse(`the ${gate.unread === 'state-branch-key' ? 'State branch key' : 'default branch'} could not be read, and PR #${pr.number} could be a sync PR: sync-gate-unread. Nothing was reviewed.`)
+      : null;
+  }
+  if (!isSyncPr(pr, gate.target, gate.defaultBranch)) return null;
   const verdict = syncPathVerdict(await gate.diff(sha), gate.pathSet);
   if (verdict.ok) return null;
   return refuse(verdict.refusal === 'sync-diff-unread'
@@ -634,7 +645,7 @@ const machineDeps = async (cwd: string, scriptDir: string): Promise<ReviewDeps |
   const stateSync = await stateSyncGateFor(
     async (key, fallback) => {
       const answer = await scripts.config(key, fallback);
-      return answer.ok ? answer.value.trim() || fallback : fallback;
+      return answer.ok ? { ok: true, value: answer.value.trim() || fallback } : answer;
     },
     { refs, trees, repoRoot },
   );

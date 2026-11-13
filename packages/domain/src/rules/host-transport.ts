@@ -20,8 +20,10 @@ export interface HostTransportBasis {
 
 /** What decides the transport, a resolved token source included. */
 export interface HostTransportReading extends HostTransportBasis {
-  /** Where the client's token came from (`GH_TOKEN`, `GITHUB_TOKEN` or `gh auth token`), or null where none resolved. */
+  /** Where the client's credential came from, such as `GH_TOKEN` or `gh auth token`, or null where none resolved. */
   readonly tokenSource: string | null;
+  /** The client's own reason where no credential resolved; the token sentence where absent. */
+  readonly noCredential?: string;
 }
 
 /** The transport a process reads with, and why. */
@@ -52,8 +54,11 @@ export const shellReasonOf = (basis: HostTransportBasis): string | null => {
   return null;
 };
 
+/** The reason a reading with no {@link HostTransportReading.noCredential} gives where no token resolved. */
+const NO_TOKEN = 'no token: GH_TOKEN, GITHUB_TOKEN and gh auth token answered none';
+
 /**
- * Chooses the transport of a process's GitHub reads.
+ * Chooses the transport of a process's git host reads.
  *
  * The in-process reads run where {@link shellReasonOf} names no reason and a
  * token resolved; the shell reads otherwise.
@@ -65,7 +70,7 @@ export const hostTransportOf = (reading: HostTransportReading): HostTransportCho
   const shell = shellReasonOf(reading);
   if (shell !== null) return { transport: 'shell', reason: shell, tokenSource: null };
   if (reading.tokenSource === null) {
-    return { transport: 'shell', reason: 'no token: GH_TOKEN, GITHUB_TOKEN and gh auth token answered none', tokenSource: null };
+    return { transport: 'shell', reason: reading.noCredential ?? NO_TOKEN, tokenSource: null };
   }
   return { transport: 'in-process', reason: `the git host is ${String(reading.backend)}`, tokenSource: reading.tokenSource };
 };

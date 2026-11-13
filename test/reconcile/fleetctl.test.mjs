@@ -3850,7 +3850,7 @@ test('--status from a linked worktree outside a symlinked desk root is still ref
 // forever with `stuck`. `workdir` names this checkout so `--start`'s label
 // check passes.
 
-const stubRestartLaunchctl = (box, root, fleetLabel, { loaded = true, stuck = false } = {}) => {
+const stubRestartLaunchctl = (box, root, fleetLabel, { loaded = true, stuck = false, kickExit = 0 } = {}) => {
   const bin = path.join(box, 'restart-bin');
   fs.mkdirSync(bin, { recursive: true });
   const log = path.join(box, 'launchctl.log');
@@ -3864,6 +3864,7 @@ const stubRestartLaunchctl = (box, root, fleetLabel, { loaded = true, stuck = fa
   write('launchctl', [
     `echo "$*" >> '${log}'`,
     loaded ? `[ "$1" = print ] && [ "$2" != "gui/${process.getuid()}/${fleetLabel}" ] && exit 113` : '[ "$1" = print ] && exit 113',
+    `[ "$1" = kickstart ] && [ ${kickExit} != 0 ] && exit ${kickExit}`,
     `[ "$1" = kickstart ] && touch '${kicked}'`,
     'if [ "$1" = print ]; then',
     `  if [ -f '${kicked}' ] && [ ${stuck ? 0 : 1} = 1 ]; then pid=5555; else pid=4242; fi`,
@@ -3919,6 +3920,15 @@ test('--restart exits 1 naming the unit when the pid never changes', () => {
   const r = run(ctl, ['--restart', '--wait', '1'], root, guardBin, restartEnv(box, bin, fleetLabel));
   assert.equal(r.status, 1, r.out);
   assert.ok(r.out.includes(`'${fleetLabel}' reported no new pid within 1s`), r.out);
+});
+
+test('--restart names a failed reload and its exit code, and polls no pid', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('restart-reloadfail');
+  const { bin } = stubRestartLaunchctl(box, root, fleetLabel, { kickExit: 37 });
+  const r = run(ctl, ['--restart', '--wait', '10'], root, guardBin, restartEnv(box, bin, fleetLabel));
+  assert.equal(r.status, 1, r.out);
+  assert.ok(r.out.includes(`the reload of '${fleetLabel}' failed with exit 37: launchctl kickstart -k gui/${process.getuid()}/${fleetLabel}`), r.out);
+  assert.doesNotMatch(r.out, /reported no new pid/);
 });
 
 test('--restart with no loaded unit refuses, names /plot-fleet --start, and kickstarts nothing', () => {

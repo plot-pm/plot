@@ -3,10 +3,14 @@ import {
   divisorFor,
   ISSUE_REFRESH_MS,
   startPulse,
+  clockDrift,
+  type ClockDrift,
+  type ClockReading,
   type FleetReading,
   type ReaderClaim,
   type RunningPulse,
 } from '@plot-pm/domain';
+import type { ScanPlan } from '@plot-pm/domain';
 import type { Clock } from '@plot-pm/domain/ports/clock';
 import type { ReaderLock } from '@plot-pm/domain/ports/reader-lock';
 
@@ -49,6 +53,12 @@ export interface FleetClockWork {
   issueWrites?: () => Promise<void>;
   /** One forward sync of the state ref and one sync PR pass. Never called while one is in flight. */
   stateSync?: () => Promise<void>;
+  /**
+   * Called when two beats read a wake or a clock jump, before the full read it
+   * starts: every deadline is checked against the wall clock again by the
+   * reads that own it, and the caller logs and re-derives its next deadline.
+   */
+  woke?: (drift: ClockDrift) => void;
 }
 
 /** The fleet's running clock: the pulse, plus a wait for the runs it started. */
@@ -69,6 +79,11 @@ export interface RunningFleetClock extends RunningPulse {
  * 5 s beat, so a beat that arrives while a scan runs is dropped rather than
  * queued: a slow scan never starts a second one, and it never delays the
  * supervision loop, which this clock does not share.
+ *
+ * **A WAKE RUNS A FULL READ.** Every beat compares the elapsed wall time with
+ * the elapsed monotonic time since the previous beat (`clockDrift`). Past the
+ * bound, the beat reports `work.woke` and runs the scan, the PR pass and the
+ * issue pass at once, each behind its own in-flight guard and cadence gate.
  *
  * @param clock - the beat source; a manual clock in tests.
  * @param work - what each subscriber runs. A rejection is contained and
@@ -113,6 +128,26 @@ export const startFleetClock = (
   for (const { name, everyNthBeat } of fleetDivisors()) {
     pulse.add({ name, everyNthBeat, tick: ticks[name] });
   }
+  const readBoth = (): ClockReading | null => {
+    const wall = clock.now();
+    const monotonic = clock.monotonic();
+    return wall.ok && monotonic.ok ? { wall: wall.value, monotonic: monotonic.value } : null;
+  };
+  let previous = readBoth();
+  pulse.add({
+    name: 'clock-drift',
+    everyNthBeat: 1,
+    tick: async () => {
+      const current = readBoth();
+      const before = previous;
+      previous = current;
+      if (before === null || current === null) return;
+      const drift = clockDrift(before, current);
+      if (!drift.jumped) return;
+      work.woke?.(drift);
+      await Promise.all([ticks['fleet-scan']!(), ticks['pr-reader']!(), ticks['issue-reader']!()]);
+    },
+  });
   const idle = async (): Promise<void> => {
     while (running.size > 0) await Promise.all([...running]);
   };
@@ -149,7 +184,7 @@ const recordAttempt = async (fleetState: FleetState, attempt: ScanAttempt): Prom
  * @param after - runs with the pulse the scan just wrote, on a successful scan
  *   only. A scan that throws or whose bridge write is refused never calls it,
  *   so no automatic write acts on a pulse that did not land.
- * @returns the function to hand to {@link startFleetClock} as `scan`.
+ * @returns the scan; it reads what its `plan` names, or everything with no plan.
  */
 export const fleetScan = (
   world: ScanWorld,
@@ -159,12 +194,12 @@ export const fleetScan = (
   warn: (line: string) => void,
   prError: () => string | null,
   after?: (pulse: FleetReading) => Promise<void>,
-): (() => Promise<void>) => async () => {
+): ((plan?: ScanPlan) => Promise<void>) => async (plan) => {
   let landed: FleetReading | null = null;
   const startedAt = now();
   await recordAttempt(fleetState, { startedAt, endedAt: null, outcome: 'running', error: null });
   try {
-    const result = await scanOnce(world, state, { record: false });
+    const result = await scanOnce(world, state, plan === undefined ? { record: false } : { record: false, plan });
     if (await writeScan(fleetState, result, now(), prError(), startedAt)) landed = result.reading;
     else warn('plot-fleetd: bridge write refused\n');
   } catch (e) {

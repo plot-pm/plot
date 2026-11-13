@@ -7,7 +7,7 @@ const desk = '/repo/.worktrees/x';
 
 // One row per row of the story's *Triggers* table, in its order.
 const rows: ReadonlyArray<readonly [string, SnapshotChange, ReturnType<typeof staleReadings>]> = [
-  ['a ref or packed-refs changes', { kind: 'refs' }, [{ key: 'refs' }, { key: 'walk' }, { key: 'branchDates' }, { key: 'ideaPlans' }, { key: 'releaseVersions' }, { key: 'unmerged' }, { key: 'branchPlans' }, { key: 'sprints' }, { key: 'stories' }]],
+  ['a ref or packed-refs changes', { kind: 'refs' }, [{ key: 'refs' }, { key: 'plans' }, { key: 'walk' }, { key: 'branchDates' }, { key: 'ideaPlans' }, { key: 'releaseVersions' }, { key: 'unmerged' }, { key: 'branchPlans' }, { key: 'sprints' }, { key: 'stories' }]],
   ["a desk's git state changes", { kind: 'desk-git', desk }, [{ key: 'desks', desk }, { key: 'walk' }]],
   [
     "a desk's own files change",
@@ -24,7 +24,7 @@ const rows: ReadonlyArray<readonly [string, SnapshotChange, ReturnType<typeof st
   ['the host answers new PR rows', { kind: 'host-answer', reading: 'prs' }, [{ key: 'prs' }, { key: 'walk' }]],
   ['the host answers new issue rows', { kind: 'host-answer', reading: 'issues' }, [{ key: 'issues' }]],
   ['the host answers a new default-branch reading', { kind: 'host-answer', reading: 'defaultBranch' }, [{ key: 'defaultBranch' }]],
-  ['a remote change', { kind: 'remote' }, [{ key: 'refs' }, { key: 'walk' }, { key: 'branchDates' }, { key: 'ideaPlans' }, { key: 'releaseVersions' }, { key: 'unmerged' }, { key: 'branchPlans' }, { key: 'sprints' }, { key: 'stories' }]],
+  ['a remote change', { kind: 'remote' }, [{ key: 'refs' }, { key: 'plans' }, { key: 'walk' }, { key: 'branchDates' }, { key: 'ideaPlans' }, { key: 'releaseVersions' }, { key: 'unmerged' }, { key: 'branchPlans' }, { key: 'sprints' }, { key: 'stories' }]],
   ['a deadline passes', { kind: 'deadline' }, []],
   ['plan, sprint or story content changes', { kind: 'plan-content' }, [{ key: 'plans' }, { key: 'walk' }]],
   ['the agent registry changes', { kind: 'registry' }, [{ key: 'registry' }]],

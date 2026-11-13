@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, existsSync, r
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
-import { refusedSlicesFixture, runLogFixture, answerRecordFile, ANSWER_RECORD_HOME_ENV } from '@plot-pm/domain/adapters';
+import { refusedSlicesFixture, runLogFixture, answerRecordFile, ANSWER_RECORD_HOME_ENV, channelAddressFor } from '@plot-pm/domain/adapters';
 import type { AgentRun, AgentRunEnd, AgentRunRequest, AgentRunResult } from '@plot-pm/domain/ports/agent-run';
 import { UNBLOCKER_BOUND_SECONDS } from '@plot-pm/domain/rules/unblocker-due';
 import { QUESTION_MAX } from '../../src/shared/worker-question.js';
@@ -26,7 +26,6 @@ import {
   readRegistry,
   reportTick,
   run,
-  CHANNEL_SOCKET,
   probeBeforeStarting,
   settleOnce,
   spendForTick,
@@ -1347,7 +1346,7 @@ describe('run — a failed tick must not end the daemon', () => {
     const dir = sandbox();
     const operator = mkdtempSync(join(SOCKET_TEMP_ROOT, 'plot-registryd-op-'));
     mkdirSync(join(operator, '.plot'));
-    const address = join(operator, CHANNEL_SOCKET);
+    const address = channelAddressFor(operator);
     const listener = createServer((socket) => socket.end());
     await new Promise<void>((resolve) => listener.listen(address, resolve));
     const before = process.env.PLOT_REPO_ROOT;

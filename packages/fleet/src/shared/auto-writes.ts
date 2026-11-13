@@ -1,5 +1,6 @@
 import { runAutoProgressPass } from './auto-progress.js';
-import type { FleetReading, HeldSlice } from '@plot-pm/domain';
+import { dispatchPhase, type FleetReading, type HeldSlice } from '@plot-pm/domain';
+import { mergerAppHeld } from '@plot-pm/domain/adapters';
 
 import { runAutoMergePass } from './auto-merge.js';
 import { runAutoFixerPass } from './auto-fixer.js';
@@ -10,7 +11,7 @@ import { runAutoVerifyPass, verifyingCount } from './auto-verify.js';
 import { runAutoDesignPass } from './auto-design.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
 import type { ActOptions } from './action-log.js';
-import { readMachine } from './machine-reading.js';
+import { readMachine, readOnce } from './machine-reading.js';
 import { readFleetSettings } from './fleet-settings-store.js';
 import { deskCleanliness, readAgentRegistryWithInfo } from './registry.js';
 
@@ -19,8 +20,10 @@ import { deskCleanliness, readAgentRegistryWithInfo } from './registry.js';
  * auto-delivery, then the fixer starts, then the review starts, then the
  * merge, then automatic verification, on the pulse the scan just wrote.
  *
- * The pass reads its inputs fresh: the settings file, the registry with
- * refreshed states, and one machine measurement. Dispatch runs before delivery
+ * The pass reads its inputs fresh: the settings file and the registry with
+ * refreshed states. It measures the machine at most once, and only for a pass
+ * whose start the headroom can refuse: dispatch with an eligible slice, or a
+ * fixer, verify or spec start that every other gate admits. Dispatch runs before delivery
  * because a delivery frees a slice only on a later pulse, never in the same one.
  * In-flight marks for both writes persist under `.plot/state/`, so a daemon
  * restart inside their 90 s lifetime starts nothing twice.
@@ -60,6 +63,9 @@ export const fleetAutoWrites = (
   const ticketLogged = new Set<string>();
   // THE MERGER-APP HOLDS ALREADY LOGGED, for the daemon's life: one line per PR, head and reason.
   const mergeLogged = new Set<string>();
+  // THE MERGER APP CHECK, held for the daemon's life: read again only after
+  // the key's directory or the config changed, and before a merge as the App.
+  const mergerApp = mergerAppHeld();
   // WHAT THIS DAEMON DISPATCHED, the set it renews each pass. The shared marks
   // on disk are merged in by `maybeAutoDispatch` for the budget arithmetic.
   let own = new Set<string>();
@@ -70,16 +76,24 @@ export const fleetAutoWrites = (
         scriptsDir: opts.scriptsDir,
         cleanliness: deskCleanliness,
       });
-      const machine = await readMachine(opts);
+      const machine = readOnce(() => readMachine(opts));
+      const headroom = async () => (await machine()).headroom;
       // A STOP THAT ARRIVED DURING THE SCAN STARTS NO NEW AGENT: only dispatch
       // creates one, so only it is skipped (#1577).
-      if (!stopped()) own = maybeAutoDispatch(opts, pulse, controls, entries, own, machine, briefsAsked, briefWaits);
+      if (!stopped()) {
+        // THE MACHINE IS READ FOR AN ELIGIBLE SLICE ONLY: with none, the
+        // planner starts nothing whatever the machine reads.
+        const eligible = controls.autoDispatch && pulse.plans.some(
+          (p) => dispatchPhase(p.phase) && p.slices.some((w) => w.verdict === 'eligible'),
+        );
+        own = maybeAutoDispatch(opts, pulse, controls, entries, own, eligible ? await machine() : undefined, briefsAsked, briefWaits);
+      }
       await runAutoDeliverPass(opts, pulse, undefined, deliverHeldLogged, deliverCarried);
       await runAutoProgressPass(opts, pulse, progressSent);
       // A FIXER IS AN AGENT, so a stop skips its start as it skips dispatch.
       if (!stopped()) {
         await runAutoFixerPass(opts, fixerLogged, Date.now(), undefined, undefined, {
-          headroom: machine.headroom,
+          headroom,
           machineOverride: controls.machineOverride,
           held: queueHeld(),
         });
@@ -91,11 +105,11 @@ export const fleetAutoWrites = (
       await runAutoTicketPass(opts, ticketLogged);
       // ONE MERGE PER PASS, after delivery has read the merges already landed.
       // Under `--once` the scan clock does not run, so this never does either.
-      await runAutoMergePass(opts, mergeRefused, undefined, undefined, mergeLogged);
+      await runAutoMergePass(opts, mergeRefused, undefined, undefined, mergeLogged, mergerApp);
       // VERIFICATION GOES LAST: it takes an agent slot only when the queue
       // held no slice on `no-free-agent`, and dispatch has just had its turn.
       await runAutoVerifyPass(opts, pulse, {
-        headroom: machine.headroom,
+        headroom,
         machineOverride: controls.machineOverride,
         held: queueHeld(),
       });
@@ -104,7 +118,7 @@ export const fleetAutoWrites = (
       // verification — the longer-standing pass — gets first claim on a free
       // slot each tick.
       await runAutoDesignPass(opts, pulse, {
-        headroom: machine.headroom,
+        headroom,
         machineOverride: controls.machineOverride,
         held: queueHeld(),
         verifying: verifyingCount(opts.repoRoot) > 0 ? new Set(['_verify']) : new Set<string>(),

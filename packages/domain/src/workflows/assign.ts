@@ -201,6 +201,18 @@ export const assign = (
 };
 
 /**
+ * How many held slices are ready and wait only for an agent.
+ *
+ * A slice held on `no-free-agent` has a brief, a claimable branch and a known
+ * merge state; a slice held on anything else would meet a gate first.
+ *
+ * @param held - the slices that stayed queued, with what held each.
+ * @returns the count of slices held on `no-free-agent`.
+ */
+export const startableSlices = (held: readonly HeldSlice[]): number =>
+  held.filter((slice) => slice.hold === 'no-free-agent').length;
+
+/**
  * How many agents this pass would bring up, or `null` where nobody asked.
  *
  * **THE TRIGGER IS `queued > running`, AND BOTH ARE COUNTED FROM THIS PASS'S
@@ -231,7 +243,7 @@ const scaleUp = (
 ): FleetSize | null => {
   if (fleet === undefined) return null;
 
-  const waiting = held.filter((slice) => slice.hold === 'no-free-agent').length;
+  const waiting = startableSlices(held);
   // EVERY REGISTERED AGENT COUNTS AS RUNNING, free or busy alike — EXCEPT ONE
   // WHOSE WORKER IS GONE. The question is how many workers this machine is
   // carrying, and a free agent is carrying one — it holds a slot and is about

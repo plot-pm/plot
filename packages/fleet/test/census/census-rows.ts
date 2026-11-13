@@ -14,7 +14,9 @@ export type CensusRow =
  * with S7 from `docs/plans/2026-11-09-board-api-starts-nothing.md` after S3,
  * then P5 from `docs/plans/2026-11-09-github-reads-in-process.md`,
  * then P6 from `docs/plans/2026-11-09-liveness-token.md`, which retires P1,
- * then D1 from `docs/plans/2026-11-09-node-worker-wrapper.md`.
+ * then D1 from `docs/plans/2026-11-09-node-worker-wrapper.md`,
+ * then P7, P8, P9 and S8 from `docs/plans/2026-11-10-triggers-replace-the-tick.md`,
+ * then P10 and P11 from `docs/plans/2026-11-10-bitbucket-and-jira-read-in-process.md`.
  * A zero row is written as `it.fails` until the plan and slice it names turn
  * it green; that slice sets `green: true` and changes the row to `it`.
  */
@@ -105,6 +107,14 @@ export const CENSUS_ROWS = {
     greenBy: { plan: 'github-reads-in-process', slice: 'Cutover' },
     green: true,
   },
+  P10: {
+    id: 'P10',
+    claim: 'an idle fleetd pass on Bitbucket starts no plot-host.sh pr-list and no bb',
+    unit: 'execve per pass',
+    target: 'zero',
+    greenBy: { plan: 'bitbucket-and-jira-read-in-process', slice: 'Bitbucket cutover' },
+    green: true,
+  },
   P6: {
     id: 'P6',
     claim: 'an idle desk with a live agent starts no monitor process',
@@ -112,6 +122,45 @@ export const CENSUS_ROWS = {
     target: 'zero',
     greenBy: { plan: 'liveness-token', slice: 'Monitor in fleetd' },
     green: true,
+  },
+  P7: {
+    id: 'P7',
+    claim: 'an idle fleetd pass starts no git rev-parse --git-dir',
+    unit: 'execve per pass',
+    target: 'zero',
+    greenBy: { plan: 'triggers-replace-the-tick', slice: 'Fleet size' },
+    green: true,
+  },
+  P8: {
+    id: 'P8',
+    claim: 'an idle fleetd pass starts no git fetch',
+    unit: 'execve per pass',
+    target: 'zero',
+    greenBy: { plan: 'triggers-replace-the-tick', slice: 'Scan on trigger' },
+    green: true,
+  },
+  P9: {
+    id: 'P9',
+    claim: 'an idle fleetd pass starts no plot-host.sh spend-rate, plot-state-sync.mjs or plot-merger-token.mjs',
+    unit: 'execve per pass',
+    target: 'zero',
+    greenBy: { plan: 'triggers-replace-the-tick', slice: 'Quiet beats' },
+    green: true,
+  },
+  P11: {
+    id: 'P11',
+    claim: 'an idle fleetd pass with a Jira tracker starts no curl and no plot-host.sh issue-list, ticket-projects or spend-rate --connector jira',
+    unit: 'execve per pass',
+    target: 'zero',
+    greenBy: { plan: 'bitbucket-and-jira-read-in-process', slice: 'Jira cutover' },
+    green: true,
+  },
+  S8: {
+    id: 'S8',
+    claim: 'a safety-net pass',
+    unit: 'execve per pass',
+    target: 'measured',
+    tolerance: { ratio: 0.1, plus: 2 },
   },
   D1: {
     id: 'D1',

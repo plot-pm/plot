@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import type { FleetReading } from '@plot-pm/domain/entities/fleet';
 import type { HostAnswer, Scripts } from '@plot-pm/domain/ports/scripts';
+import type { PrListing, PrListingQuery } from '@plot-pm/domain/ports/host';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 
 import { emptyWalk, withWalkRefs } from './walk-fake.js';
+import { saidListingWorld } from './listing-over-said.js';
 import { freshScanState, scanOnce, type ScanOptions, type ScanWorld } from '../../src/shared/fleet-scan.js';
 
 /**
@@ -53,7 +55,7 @@ const emptySweepAnswer = (state: string): HostAnswer => ({
   stderr: `plot-host: bitbucket pr-list sweep complete (0 rows across 1 branch) — every tracked branch was asked and each answered`,
 });
 
-const worldOf = (branches: readonly string[], stream: Scripts['stream'], hostSaid: Scripts['hostSaid']): ScanWorld => ({
+const worldOf = (branches: readonly string[], stream: Scripts['stream'], hostSaid: Scripts['hostSaid']): ScanWorld => saidListingWorld({
   repoRoot: '/repo',
   scripts: {
     stream,
@@ -84,7 +86,7 @@ describe('readBitbucketListing via scanOnce: a delta the host can prove whole', 
     const seenArgs: string[][] = [];
     const hostSaid: Scripts['hostSaid'] = async (args) => {
       seenArgs.push([...args]);
-      const state_ = args[1] === '--state' ? args[2] : '';
+      const state_ = args[args.indexOf('--state') + 1];
       if (state_ === 'open') {
         return {
           answer: 'answered',
@@ -147,7 +149,7 @@ describe('readBitbucketListing via scanOnce: a delta the host cannot prove whole
         return { answer: 'answered', stdout: '', stderr: 'plot-host: bitbucket pr-list state=all window complete (0 rows) — this window holds every pull request the host has in this state since the stamp' };
       }
       // The fallback full sweep: one branch, both states, whole and empty.
-      return emptySweepAnswer(args[2] ?? '');
+      return emptySweepAnswer(args[args.indexOf('--state') + 1] ?? '');
     };
 
     await scanOnce(worldOf(['feature_a'], cleanStream, hostSaid), state, OPTIONS);
@@ -189,7 +191,7 @@ describe('readBitbucketListing via scanOnce: a delta the host cannot prove whole
       if (args.includes('all') && args.includes('--since')) {
         return { answer: 'answered', stdout: '', stderr: 'plot-host: bitbucket pr-list state=all window complete (0 rows) — this window holds every pull request the host has in this state since the stamp' };
       }
-      return emptySweepAnswer(args[2] ?? '');
+      return emptySweepAnswer(args[args.indexOf('--state') + 1] ?? '');
     };
 
     await scanOnce(worldOf(['feature_a', 'feature_gone'], cleanStream, hostSaid), state, OPTIONS);
@@ -199,5 +201,42 @@ describe('readBitbucketListing via scanOnce: a delta the host cannot prove whole
     // One spend-rate call, two delta-side pr-list calls, plus the two
     // full-sweep calls the retry makes on the vanished-row refusal.
     expect(seenArgs.length).toBe(5);
+  });
+});
+
+describe('readBitbucketListing via scanOnce: the listing is a typed host answer', () => {
+  it('asks Host.prListing for the sweep with the tracked branches and for the window with since, and never reads pr-list stdout', async () => {
+    const queries: PrListingQuery[] = [];
+    const hostSaid: Scripts['hostSaid'] = async () => ({ answer: 'failed', said: 'hostSaid must not be asked', kind: 'failed' } as unknown as HostAnswer);
+    const typed = (world: ScanWorld): ScanWorld => ({
+      ...world,
+      walk: {
+        ...world.walk,
+        host: {
+          ...world.walk.host,
+          prListing: async (query: PrListingQuery): Promise<PrListing> => {
+            queries.push(query);
+            return { answer: 'answered', rows: [], complete: { [query.state]: 'whole' }, refusal: null };
+          },
+        },
+      },
+    });
+
+    await scanOnce(typed(worldOf(['feature_a', 'feature_b'], cleanStream, hostSaid)), freshScanState(), OPTIONS);
+    expect(queries).toEqual([
+      { state: 'open', rich: true, branches: ['feature_a', 'feature_b'] },
+      { state: 'all', branches: ['feature_a', 'feature_b'] },
+    ]);
+
+    queries.length = 0;
+    const state = freshScanState();
+    state.listingHeld = { rows: [{ head: 'feature_a', state: 'OPEN', updatedAt: '2026-10-01T00:00:00Z' }], complete: true, fullReadAt: Date.now() - 1000 };
+    state.listing = '.branches\t0\t-\t-\n.list-arrived\t1\t-\t-\n';
+    state.listingAt = Date.now() - (300_000 + 1);
+    await scanOnce(typed(worldOf(['feature_a'], cleanStream, hostSaid)), state, OPTIONS);
+    expect(queries[0]).toEqual({ state: 'open', rich: true, limit: 49 });
+    expect(queries[1]?.state).toBe('all');
+    expect(typeof queries[1]?.since).toBe('string');
+    expect(queries[1]?.branches).toBeUndefined();
   });
 });

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Stands in for curl in the Jira corpus. Call N logs its argv to sent-N.args and
+# answers call-N.body then the HTTP status on its own line, as jira_curl's -w
+# prints them. A call nobody scripted exits 7.
+dir="${JIRA_STUB_DIR:?}"
+n="$(cat "$dir/count" 2>/dev/null || echo 0)"
+printf '%s\n' "$@" > "$dir/sent-$n.args"
+echo $((n + 1)) > "$dir/count"
+if [ ! -f "$dir/call-$n.status" ]; then echo "stub curl: unrecorded call $n" >&2; exit 7; fi
+cat "$dir/call-$n.body"
+printf '\n%s' "$(cat "$dir/call-$n.status")"

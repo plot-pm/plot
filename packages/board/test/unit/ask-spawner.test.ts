@@ -124,6 +124,27 @@ describe('plot-ask spawner [pid]', () => {
     );
   });
 
+  it('prints the Bitbucket transport and its credential source from the heartbeat', async () => {
+    const { repoRoot, bundlePath, bundleHash } = repoWithBundle();
+    writeGate(repoRoot, 7);
+    useRepoScriptGate(repoRoot);
+    writeFleetdStart(repoRoot, { pid: 4242, spawnContract: 7, bundlePath, bundleHash });
+    fs.writeFileSync(
+      path.join(repoRoot, '.plot', 'state', 'fleetd.json'),
+      `${JSON.stringify({
+        version: 1, pid: 4242, startedAt: 1, beatAt: 2, generation: 0, bridgeAt: null, supervised: 'none',
+        watchesWanted: 0, watchesArmed: 0, lastEventAt: null, lastSafetyNetAt: null,
+        hostTransport: { transport: 'in-process', reason: 'the git host is bitbucket', tokenSource: 'environment' },
+        loops: {},
+      })}\n`,
+    );
+
+    const lines: string[] = [];
+    const code = await run(['spawner', '4242', '--lines'], '/nonexistent', (line) => lines.push(line));
+    expect(code).toBe(0);
+    expect(lines.join('')).toBe('  spawn contract: current\n  host reads: in-process (the git host is bitbucket; token from environment)\n');
+  });
+
   it('reads current when the record, the live pid and the gate all agree', async () => {
     const { repoRoot, bundlePath, bundleHash } = repoWithBundle();
     writeGate(repoRoot, 7);

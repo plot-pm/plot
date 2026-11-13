@@ -1,0 +1,1 @@
+{"name":"no-base-url","read":{"kind":"open","limit":30},"env":{"PLOT_TICKET_PREFIXES":"AB, CD","NO_BASE_URL":"1"},"calls":[{"argv":["issue-list","--paged","--limit","30"],"stdout":"","stderr":"plot-host: Tracker is jira but no base URL is configured (write 'Tracker: jira https://your.atlassian.net' or set PLOT_JIRA_BASE_URL)\n","code":3}],"exchanges":[]}

@@ -1,4 +1,5 @@
 import type { PrListingCompleteness } from '../../ports/host.js';
+import { listingWords } from '../../rules/listing-page.js';
 
 /** `plot-host.sh`'s per-state claim that a page or a window is whole. */
 const STATE_CLAIM = /pr-list state=(\S+) (?:page|window) complete\b/g;
@@ -28,15 +29,5 @@ const SWEEP_CLAIM = /pr-list sweep complete\b/;
 export const listingCompleteness = (stderr: string, asked: string): Record<string, PrListingCompleteness> => {
   const claimed = new Set([...stderr.matchAll(STATE_CLAIM)].map((match) => match[1]));
   const doubted = new Set([...stderr.matchAll(STATE_DOUBT)].map((match) => match[1]));
-  const words: Record<string, PrListingCompleteness> = {};
-  for (const state of [...claimed, ...doubted]) {
-    words[state] = claimed.has(state) && !doubted.has(state) ? 'whole' : 'possibly-truncated';
-  }
-  const sweep = SWEEP_CLAIM.test(stderr);
-  const reported = Object.values(words);
-  if (sweep) words[asked] = 'whole';
-  else if (words[asked] === undefined) {
-    words[asked] = reported.length > 0 && reported.every((word) => word === 'whole') ? 'whole' : 'possibly-truncated';
-  }
-  return words;
+  return listingWords({ claimed, doubted, sweep: SWEEP_CLAIM.test(stderr) }, asked);
 };

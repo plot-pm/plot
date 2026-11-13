@@ -35,6 +35,7 @@ import type { Scripts } from '@plot-pm/domain/ports/scripts';
 
 import { mapsOfRows, prOutranks, type PrMaps, type PrRecord } from '@plot-pm/domain/rules/pr-maps';
 import { PR_REFRESH_MS } from './fleet-scan.js';
+import type { SpendReader } from './spend-reader.js';
 import { failedOf, readOf, type RecordReading } from './snapshot-fill.js';
 
 export { mapsOfRows, prOutranks, type PrMaps, type PrRecord };
@@ -142,11 +143,15 @@ export interface IssueGateReading {
 export interface PrWorld {
   /** Asks the host and reads the spend record. */
   scripts: Scripts;
+  /** Reads the host's spend for the cadence; `plot-host.sh spend-rate` where absent. */
+  spend?: SpendReader;
   /** Names the git host backend. */
   host: Host;
   /**
    * True where `host.prListing` claims its own host slot per request, as the
-   * in-process client does; the pass then counts the call and claims none.
+   * in-process client and `plot-host.sh`'s `gh` and `bb` wrappers do; the pass
+   * then counts the call and claims none. A pass that claims a slot around a
+   * host that claims its own holds the account's slot while the host waits for it.
    */
   hostClaimsSlot?: boolean;
   /** The repository's PR index. The pass folds the host's answer into it. */
@@ -1350,7 +1355,7 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
   // Read BEFORE the fetch, so all three exits divide by the same number and a
   // failure is spaced exactly as a success is. Reading it after would also
   // count this refresh's own line, which the board is about to subtract anyway.
-  const rate = await spendRateFor(scripts);
+  const rate = await (world.spend ?? (() => spendRateFor(scripts)))();
   // Held for the banner, which needs the SAME number the cadence divided by.
   // Reading it again in the payload would be a second `bash` per refresh and a
   // different answer whenever a line landed between the two reads.
