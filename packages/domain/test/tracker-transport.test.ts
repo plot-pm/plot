@@ -18,10 +18,10 @@ const fakeApi = (source: ReturnType<JiraApi['credentialSource']>, base = 'https:
 });
 
 describe('trackerTransportOf', () => {
-  const ready = { scheme: 'jira', override: undefined, baseUrl: 'https://jira.example', credentialSource: 'the environment' };
+  const ready = { hasClient: true, override: undefined, baseUrl: 'https://jira.example', credentialSource: 'the environment' };
 
   it('picks the in-process reads for Jira with credentials, and names their source', () => {
-    expect(trackerTransportOf(ready)).toEqual({ transport: 'in-process', reason: 'the tracker is jira', tokenSource: 'the environment' });
+    expect(trackerTransportOf(ready)).toEqual({ transport: 'in-process', reason: 'the tracker has an in-process client', tokenSource: 'the environment' });
   });
 
   it('keeps the shell where PLOT_HOST_TRANSPORT is shell, whatever else resolved', () => {
@@ -33,16 +33,16 @@ describe('trackerTransportOf', () => {
   });
 
   it('keeps the shell with no base URL', () => {
-    expect(trackerTransportOf({ ...ready, baseUrl: '' })).toMatchObject({ transport: 'shell', reason: 'no Jira base URL is configured' });
+    expect(trackerTransportOf({ ...ready, baseUrl: '' })).toMatchObject({ transport: 'shell', reason: 'no base URL is configured' });
   });
 
   it('has no choice for a tracker that is not Jira', () => {
-    expect(trackerTransportOf({ ...ready, scheme: 'github-issues' })).toBeNull();
-    expect(trackerTransportOf({ ...ready, scheme: '' })).toBeNull();
+    expect(trackerTransportOf({ ...ready, hasClient: false })).toBeNull();
+    expect(trackerTransportOf({ ...ready, hasClient: false })).toBeNull();
   });
 
   it('prints a line that names the source and no credential, and no line where none is published', () => {
-    const line = trackerTransportLine({ transport: 'in-process', reason: 'the tracker is jira', tokenSource: '/repo/.env' });
+    const line = trackerTransportLine({ transport: 'in-process', reason: 'the tracker has an in-process client', tokenSource: '/repo/.env' });
     expect(line).toBe('tracker reads: in-process (the tracker is jira; credentials from /repo/.env)');
     expect(trackerTransportStatusLine({ transport: 'shell', reason: 'PLOT_HOST_TRANSPORT=shell', tokenSource: null })).toBe(
       '  tracker reads: shell (PLOT_HOST_TRANSPORT=shell)\n',

@@ -51,7 +51,7 @@ export const trackerReadsFor = (
   // OPEN: a forced shell never touches `.env`.
   const forced = (override ?? '').trim().toLowerCase() === 'shell';
   const credentialSource = forced || api.base === '' ? null : sourceText(api.credentialSource());
-  const choice = trackerTransportOf({ scheme, override, baseUrl: api.base, credentialSource });
+  const choice = trackerTransportOf({ hasClient: scheme.toLowerCase() === 'jira', override, baseUrl: api.base, credentialSource });
   if (choice === null || choice.transport === 'shell') return { choice, jira: null };
   return { choice, jira: { api, ticketPrefixes, env } };
 };

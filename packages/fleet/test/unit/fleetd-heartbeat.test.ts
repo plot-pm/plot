@@ -111,7 +111,7 @@ describe('startFleetdHeartbeat', () => {
   it('publishes the tracker transport fleetd chose at start', async () => {
     const clock = clockManual(1_000);
     let seen: unknown = null;
-    const trackerTransport = { transport: 'in-process', reason: 'the tracker is jira', tokenSource: 'the environment' } as const;
+    const trackerTransport = { transport: 'in-process', reason: 'the tracker has an in-process client', tokenSource: 'the environment' } as const;
     startFleetdHeartbeat(
       clock,
       { read: async () => answered(null), write: async (h) => ((seen = h), answered(undefined)) },
