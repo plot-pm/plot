@@ -136,6 +136,7 @@ export * from './rules/checks-reading.js';
 export * from './rules/default-branch.js';
 export * from './rules/snapshot-record.js';
 export * from './rules/snapshot-change.js';
+export * from './rules/scan-trigger.js';
 export * from './rules/snapshot-stale.js';
 export * from './rules/fixer-attempts.js';
 export * from './rules/fixer-concurrency.js';

@@ -149,7 +149,9 @@ export interface PrWorld {
   host: Host;
   /**
    * True where `host.prListing` claims its own host slot per request, as the
-   * in-process client does; the pass then counts the call and claims none.
+   * in-process client and `plot-host.sh`'s `gh` and `bb` wrappers do; the pass
+   * then counts the call and claims none. A pass that claims a slot around a
+   * host that claims its own holds the account's slot while the host waits for it.
    */
   hostClaimsSlot?: boolean;
   /** The repository's PR index. The pass folds the host's answer into it. */

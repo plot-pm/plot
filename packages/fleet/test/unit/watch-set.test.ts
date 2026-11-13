@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -151,6 +151,30 @@ describe('fleetd watch set', () => {
     await set!.sync();
     expect(set!.wanted()).toBe(before);
   }, 30_000);
+
+  it('wants no directory that does not exist, and arms it at the next sync once it does', async () => {
+    const refs = refsGit({ repoRoot: repo, scriptDir: repo });
+    const missing = join(root, 'agents-later');
+    const running = startWatchSet({
+      watch: watchFs(),
+      layout: () => readWatchLayout({ repoRoot: repo, commonDir: join(repo, '.git'), registryDir: missing }),
+      exists: existsSync,
+      now: () => Date.now(),
+      refsDigest: async () => {
+        const snapshot = await readRefSnapshot(refs);
+        return snapshot.ok ? snapshot.value.digest : null;
+      },
+      deskFingerprint,
+    });
+    set = running;
+    await running.sync();
+    const before = { wanted: running.wanted(), armed: running.armed() };
+    expect(before.armed).toBe(before.wanted);
+    mkdirSync(missing);
+    await running.sync();
+    expect(running.wanted()).toBe(before.wanted + 1);
+    expect(running.armed()).toBe(running.wanted());
+  });
 
   it('reads degraded when a desk root cannot be armed, and the heartbeat shows armed below wanted', async () => {
     const layout = () => {

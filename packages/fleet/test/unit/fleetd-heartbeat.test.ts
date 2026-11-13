@@ -64,7 +64,7 @@ describe('startFleetdHeartbeat', () => {
     await settle();
     clock.advance(1);
     await settle();
-    expect(written).toEqual([1_000, 11_000, 21_000]);
+    expect(written).toEqual([1_000, 6_000, 11_000]);
   });
 
   it('reports the safety net\'s last read and its count, and null with no count where none runs', async () => {
@@ -291,7 +291,7 @@ describe('run — the heartbeat', () => {
     ...overrides,
   });
 
-  it('writes fleetd.json at start and moves beatAt on every 10 s beat for 2 minutes, with no git host and idle loops', async () => {
+  it('writes fleetd.json at start and moves beatAt on every 5 s beat for 1 minute, with no git host and idle loops', async () => {
     const clock = clockManual(1_700_000_000_000);
     const store = fleetdHeartbeatFile({ repoRoot: dir });
     const beats: number[] = [];
@@ -315,8 +315,8 @@ describe('run — the heartbeat', () => {
     );
     expect(beats).toHaveLength(13);
     expect(beats[0]).toBe(1_700_000_000_000);
-    beats.slice(1).forEach((beatAt, i) => expect(beatAt - beats[i]!).toBe(10_000));
-    expect(beats[12]! - beats[0]!).toBe(120_000);
+    beats.slice(1).forEach((beatAt, i) => expect(beatAt - beats[i]!).toBe(5_000));
+    expect(beats[12]! - beats[0]!).toBe(60_000);
   });
 
   it('writes the armed watch set into the observer fields', async () => {
@@ -435,7 +435,43 @@ describe('run — the heartbeat', () => {
     expect(after.ok && after.value !== null && fleetdLiveness(after.value, Date.now())).toBe('stale');
   });
 
-  it('registers every loop at start, and judges a scan whose first pass never resolves late after its bound', async () => {
+  it('starts no scan for ten quiet minutes on a repository, and the heartbeat reads live with no late loop', async () => {
+    execFileSync('git', ['init', '-q', '-b', 'main', dir]);
+    const clock = clockManual(Date.now());
+    const store = fleetdHeartbeatFile({ repoRoot: dir });
+    let scans = 0;
+    let sleeps = 0;
+    let last: FleetdHeartbeat | null = null;
+    await run(
+      [],
+      dir,
+      () => undefined,
+      async () => {
+        sleeps += 1;
+        await new Promise((r) => setTimeout(r, 300));
+        for (let beat = 0; beat < 118; beat += 1) {
+          clock.advance(1);
+          await new Promise((r) => setTimeout(r, 2));
+        }
+        const read = await store.read();
+        last = read.ok ? read.value : null;
+      },
+      () => sleeps > 0,
+      () => undefined,
+      dir,
+      quiet(clock, {
+        // Every directory arms and no event ever arrives: the watch is intact and the repository quiet.
+        watch: { arm: () => ({ degraded: false, close: () => undefined }) },
+        scan: async () => void (scans += 1),
+      }),
+    );
+    const seen = last as unknown as FleetdHeartbeat;
+    expect(scans).toBe(1);
+    expect(fleetdLiveness(seen, seen.beatAt)).toBe('live');
+    expect(lateLoops(seen, seen.beatAt)).toEqual([]);
+  });
+
+  it('registers every loop at start, and keeps a scan whose first pass never resolves on time while the beat runs', async () => {
     const clock = clockManual(Date.now());
     const store = fleetdHeartbeatFile({ repoRoot: dir });
     let sleeps = 0;
@@ -467,13 +503,13 @@ describe('run — the heartbeat', () => {
     );
     expect(first).toMatchObject({ loops: { scan: { lastPassAt: null }, 'pr-reader': { lastPassAt: null }, 'issue-reader': { lastPassAt: null } } });
     const seen = last as unknown as FleetdHeartbeat;
-    expect(lateLoops(seen, seen.beatAt)).toEqual(['scan']);
+    expect(lateLoops(seen, seen.beatAt)).toEqual([]);
   });
 
   it.each([
     ['older than', 20 * 60_000],
     ['younger than', 5 * 60_000],
-  ])('ends ownership and the bridge vouch once a failing scan passes its bound, with a bridge %s 15 minutes', async (_name, bridgeAge) => {
+  ])('keeps ownership while the beat runs under a failing scan, and vouches for no bridge, with a bridge %s 15 minutes', async (_name, bridgeAge) => {
     // The real scan runs in a plain directory with no scripts, so every scan fails.
     const start = Date.now();
     const clock = clockManual(start);
@@ -520,7 +556,7 @@ describe('run — the heartbeat', () => {
     // A bridge under 15 minutes old still takes the scan's own `failed` attempt record.
     const bridge = await fleetStateFile({ repoRoot: dir }).read();
     if (bridgeAge < 15 * 60_000) expect(bridge.ok && bridge.value?.attempt?.outcome).toBe('failed');
-    expect(fleetOwnsScan({ heartbeat: seen, now: seen.beatAt })).toBe(false);
+    expect(fleetOwnsScan({ heartbeat: seen, now: seen.beatAt })).toBe(true);
     expect(bridgeVouched({ at: old }, seen, seen.beatAt)).toBe(false);
   });
 
