@@ -21,7 +21,7 @@ The census measures the outcome: S4 (an idle fleetd pass) reaches 0 except on th
 It also closes the follow-up issues that sprint `desk-probes-and-liveness` filed.
 
 ### Must Have
-- [ ] [bitbucket-and-jira-read-in-process] Bitbucket and Jira read in-process (#3170) <!-- pr: #3389, branch: feature/bitbucket-and-jira-read-in-process-bitbucket-client -->
+- [x] [bitbucket-and-jira-read-in-process] Bitbucket and Jira read in-process (#3170) <!-- pr: #3389, branch: feature/bitbucket-and-jira-read-in-process-bitbucket-client -->
 - [ ] [triggers-replace-the-tick] Triggers replace the tick (#3170) <!-- pr: #3387, branch: feature/triggers-replace-the-tick-deadlines -->
 
 <!-- An item is `- [ ] <description>`. A leading `[<plan-slug>]` names the plan
