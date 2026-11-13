@@ -14,6 +14,7 @@
 - **Approved:** 2026-11-11, jwloka, plan-PR #3387 merged
 - **Started:** 2026-11-11, Jan Wloka, `feature/triggers-replace-the-tick-quiet-beats`
 - **Started:** 2026-11-12, Jan Wloka, `feature/triggers-replace-the-tick-scan`
+- **Started:** 2026-11-13, Jan Wloka, `feature/triggers-replace-the-tick-tick`
 
 ## Changelog
 
