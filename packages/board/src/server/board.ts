@@ -2768,7 +2768,7 @@ const readServedEstate = async (
     slug: record.slug,
     // The board renders no design documents for a story it read from a ref.
     input: { ...record, designDocs: [], committed: true },
-    tablePlans: [],
+    tablePlans: record.tablePlans,
   });
   return {
     defaultBranch,
