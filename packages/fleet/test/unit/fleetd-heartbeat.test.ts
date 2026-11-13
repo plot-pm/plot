@@ -108,6 +108,21 @@ describe('startFleetdHeartbeat', () => {
     expect(decodeFleetdHeartbeat(encodeFleetdHeartbeat(seen as FleetdHeartbeat))?.hostTransport).toEqual(hostTransport);
   });
 
+  it('publishes the tracker transport fleetd chose at start', async () => {
+    const clock = clockManual(1_000);
+    let seen: unknown = null;
+    const trackerTransport = { transport: 'in-process', reason: 'the tracker is jira', tokenSource: 'the environment' } as const;
+    startFleetdHeartbeat(
+      clock,
+      { read: async () => answered(null), write: async (h) => ((seen = h), answered(undefined)) },
+      { ...source, trackerTransport },
+      () => undefined,
+    );
+    await settle();
+    expect(seen).toMatchObject({ trackerTransport });
+    expect(decodeFleetdHeartbeat(encodeFleetdHeartbeat(seen as FleetdHeartbeat))?.trackerTransport).toEqual(trackerTransport);
+  });
+
   it('stops beating on cancel', async () => {
     const clock = clockManual(0);
     let writes = 0;

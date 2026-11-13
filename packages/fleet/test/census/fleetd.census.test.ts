@@ -11,7 +11,7 @@ import { buildSandbox, githubPr, type Sandbox } from './sandbox.js';
 import { censusGate, findStrace } from './strace-run.js';
 import type { ExecRecord, StraceCensus } from './strace-execs.js';
 
-// fleetd per completed pass (S4, S5, S6, S8, P2, P3, P4, P5, P7, P8, P9), counted under `strace -f`
+// fleetd per completed pass (S4, S5, S6, S8, P2, P3, P4, P5, P7, P8, P9, P11), counted under `strace -f`
 // over the census entry, which runs fleetd's `run` in its loop mode on a clock
 // it drives. Pass 1 warms every loop and is never counted; passes 2 and 3 are
 // idle; on the GitHub fixture with desks, pass 4 follows one desk commit (S5)
@@ -61,6 +61,18 @@ const isBeatReader = (e: ExecRecord): boolean => {
   );
 };
 
+/**
+ * A Jira read P11 counts: a `curl` of any kind, or `plot-host.sh` asked for
+ * `issue-list`, `ticket-projects` or `spend-rate --connector jira`.
+ */
+const isJiraRead = (e: ExecRecord): boolean =>
+  basename(e.path) === 'curl' ||
+  (basename(e.path) === 'bash' &&
+    e.argv.some((a) => a.endsWith('/plot-host.sh')) &&
+    (e.argv.includes('issue-list') ||
+      e.argv.includes('ticket-projects') ||
+      (e.argv.includes('spend-rate') && e.argv.includes('jira'))));
+
 const isKillZero = (e: ExecRecord): boolean =>
   basename(e.path) === 'bash' && e.argv[1] === '-c' && /^kill -0 \d+/.test(e.argv[2] ?? '');
 
@@ -90,6 +102,13 @@ const ghReadsLogged = (box: Sandbox): number =>
 const apiReads = (box: Sandbox): number =>
   (box.api?.requests() ?? []).filter((r) => r.path !== '/user' && !r.body.includes('SearchType_enumValues')).length;
 
+/** The stub `curl` calls in the stub log so far: the shell's Jira REST requests. */
+const curlReadsLogged = (box: Sandbox): number =>
+  existsSync(box.stubLog) ? readFileSync(box.stubLog, 'utf8').split('\n').filter((l) => l.startsWith('curl ')).length : 0;
+
+/** The in-process Jira requests the stub API answered so far, whatever their path below `/rest/api/`. */
+const jiraRequests = (box: Sandbox): number => (box.api?.requests() ?? []).filter((r) => r.path.startsWith('/rest/api/')).length;
+
 /** Per-pass deltas of a running count, sampled after passes 1..n. */
 const deltas = (samples: readonly number[]): number[] => samples.slice(1).map((n, i) => n - (samples[i] ?? 0));
 
@@ -113,6 +132,9 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
   /** In-process requests per idle pass (passes 2 and 3), and the shell's `gh` listing calls per idle pass on the same fixture. */
   let requests: number[] = [];
   let baseline: number[] = [];
+  /** The in-process Jira requests per idle pass, and the shell's `curl` calls per idle pass on the same fixture. */
+  let jiraRequestsPerPass: number[] = [];
+  let jiraBaseline: number[] = [];
   /** The safety-net pass's number, and the stamps before it and after fleetd stopped. */
   let netPass = 0;
   let beforeNet: number | null | undefined;
@@ -122,12 +144,15 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
     box = await buildSandbox(fixture);
     const fleetd = startFleetd(entry as FleetdEntry, box, { trace: true });
     const sampled: number[] = [];
+    const jiraSampled: number[] = [];
     try {
       for (let n = 0; n < 3; n += 1) {
         await fleetd.pass();
         sampled.push(apiReads(box));
+        jiraSampled.push(jiraRequests(box));
       }
       requests = deltas(sampled);
+      jiraRequestsPerPass = deltas(jiraSampled);
       if (withChanges) {
         const desk = box.desks[0];
         if (desk === undefined) throw new Error('process census: the fixture holds no desk');
@@ -177,6 +202,26 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
           await shellFleetd.stop();
         }
         baseline = deltas(logged);
+      } finally {
+        await shellBox.remove();
+      }
+    } else {
+      // THE JIRA BASELINE: the Bitbucket fixture read with the one switch set,
+      // so P11 can hold the in-process requests to the `curl` calls they replace.
+      const shellBox = await buildSandbox(fixture);
+      try {
+        shellBox.env['PLOT_HOST_TRANSPORT'] = 'shell';
+        const shellFleetd = startFleetd(entry as FleetdEntry, shellBox, { trace: false });
+        const logged: number[] = [];
+        try {
+          for (let n = 0; n < 3; n += 1) {
+            await shellFleetd.pass();
+            logged.push(curlReadsLogged(shellBox));
+          }
+        } finally {
+          await shellFleetd.stop();
+        }
+        jiraBaseline = deltas(logged);
       } finally {
         await shellBox.remove();
       }
@@ -264,6 +309,20 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
       // pass, and the in-process and shell runs need not phase alike.
       const sum = (ns: readonly number[]): number => ns.reduce((a, b) => a + b, 0);
       expect(sum(requests)).toBeLessThanOrEqual(sum(baseline));
+    });
+  }
+
+  if (fixture.host === 'bitbucket') {
+    it(rowTitle(CENSUS_ROWS.P11, fixture), () => {
+      const { mean, each, execs } = perPass(isJiraRead);
+      recordCount(CENSUS_ROWS.P11, fixture, mean, execs);
+      console.log(`process census P11: in-process Jira requests per idle pass ${jiraRequestsPerPass.join(', ')}; shell curl calls ${jiraBaseline.join(', ')}`);
+      expect(each).toEqual([0, 0]);
+      expect(jiraRequestsPerPass).toHaveLength(2);
+      expect(jiraBaseline).toHaveLength(2);
+      // OVER BOTH IDLE PASSES, as P5 is: a periodic read falls in either pass.
+      const sum = (ns: readonly number[]): number => ns.reduce((a, b) => a + b, 0);
+      expect(sum(jiraRequestsPerPass)).toBeLessThanOrEqual(sum(jiraBaseline));
     });
   }
 
