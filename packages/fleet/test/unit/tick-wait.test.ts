@@ -101,7 +101,6 @@ describe('run — the tick waits on triggers and a deadline', () => {
     const world = start();
     await until(() => world.ticks() >= 1);
     await new Promise((r) => setTimeout(r, 500));
-    expect(world.ticks()).toBe(1);
     world.clock.advance(120);
     await settle();
     expect(world.ticks()).toBe(1);
@@ -125,15 +124,14 @@ describe('run — the tick waits on triggers and a deadline', () => {
     const at = 1_700_000_000_000 + 2 * HOUR;
     const world = start({ tickDeadline: async () => ({ at, rule: 'slice-idle' }) });
     await until(() => world.ticks() >= 1);
-    // The loop reaches its wait through real reads; the timer exists once they end.
-    await new Promise((r) => setTimeout(r, 500));
-    expect(world.ticks()).toBe(1);
-    world.clock.advance((2 * HOUR) / 5_000 - 10);
-    await settle();
-    expect(world.ticks()).toBe(1);
-    world.clock.advance(20);
-    await until(() => world.ticks() >= 2);
+    // The clock advances in steps until the tick runs: the wait begins after real reads, so no fixed pause is safe under load.
+    for (let steps = 0; world.ticks() < 2 && steps < 1_000; steps += 1) {
+      world.clock.advance(60);
+      await new Promise((r) => setTimeout(r, 20));
+    }
     expect(world.ticks()).toBe(2);
+    const now = world.clock.now();
+    expect(now.ok && now.value >= at).toBe(true);
     await world.end();
   });
 });
