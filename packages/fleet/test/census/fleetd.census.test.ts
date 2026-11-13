@@ -9,6 +9,7 @@ import { buildFleetdEntry, type FleetdEntry } from './fleetd-entry-build.js';
 import { startFleetd } from './fleetd-driver.js';
 import { buildSandbox, githubPr, type Sandbox } from './sandbox.js';
 import { BITBUCKET_ROUTE } from './stub-host.js';
+import { passWindows } from './census-settle.js';
 import { censusGate, findStrace } from './strace-run.js';
 import type { ExecRecord, StraceCensus } from './strace-execs.js';
 
@@ -16,13 +17,20 @@ import type { ExecRecord, StraceCensus } from './strace-execs.js';
 // over the census entry, which runs fleetd's `run` in its loop mode on a clock
 // it drives. Pass 1 warms every loop and is never counted; passes 2 and 3 are
 // idle; on the GitHub fixture with desks, pass 4 follows one desk commit (S5)
-// and pass 5 follows one PR's CI turning green (S6). The last pass on every
-// fixture is a safety-net pass (S8): it moves the clock by the safety-net
-// interval, so the full read it holds is a safety-net read.
+// and pass 5 follows one PR's CI turning green (S6). The last three passes on
+// every fixture are safety-net passes (S8): each moves the clock by the
+// safety-net interval, so the full read it holds is a safety-net read, and S8
+// records their mean as S4 records the mean of its two idle passes.
 
 const gate = censusGate({ stracePath: findStrace(process.env['PATH'] ?? ''), platform: process.platform });
 
 const IDLE_PASSES = ['pass-2', 'pass-3'] as const;
+
+/** The safety-net passes S8 averages over. */
+const NET_PASSES = 3;
+
+/** The product's `SAFETY_NET_MS`: the least time between two safety-net reads. */
+const SAFETY_NET_MS = 600_000;
 
 /** The idle fixtures of S4: GitHub with no desk and with three, Bitbucket with three. */
 const FIXTURES: CensusFixture[] = [
@@ -156,8 +164,10 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
   /** The in-process Jira requests per idle pass, and the shell's `curl` calls per idle pass on the same fixture. */
   let jiraRequestsPerPass: number[] = [];
   let jiraBaseline: number[] = [];
-  /** The safety-net pass's number, and the stamps before it and after fleetd stopped. */
+  /** The last safety-net pass's number, and the stamps before the first and after fleetd stopped. */
   let netPass = 0;
+  /** How long each safety-net pass took, in ms of the real clock. */
+  const netMs: number[] = [];
   let beforeNet: number | null | undefined;
   let afterNet: number | null | undefined;
 
@@ -192,7 +202,11 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
         await fleetd.pass();
       }
       beforeNet = lastSafetyNetAtOf(box);
-      netPass = await fleetd.safetyNet();
+      for (let n = 0; n < NET_PASSES; n += 1) {
+        const startedAt = Date.now();
+        netPass = await fleetd.safetyNet();
+        netMs.push(Date.now() - startedAt);
+      }
     } finally {
       const end = await fleetd.stop();
       afterNet = lastSafetyNetAtOf(box);
@@ -245,11 +259,16 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
   };
 
   it(rowTitle(CENSUS_ROWS.S8, fixture), () => {
-    const execs = treeOf(census, between(census.execs, `pass-${netPass - 1}`, `pass-${netPass}`), root);
-    recordCount(CENSUS_ROWS.S8, fixture, execs.length, execs);
-    expect(execs.length).toBeGreaterThan(0);
+    const windows = passWindows(netPass, NET_PASSES).map(([from, to]) => treeOf(census, between(census.execs, from, to), root));
+    const each = windows.map((execs) => execs.length);
+    const mean = each.reduce((a, b) => a + b, 0) / each.length;
+    recordCount(CENSUS_ROWS.S8, fixture, mean, windows.flat());
+    console.log(`process census S8 ${fixture.host} ${fixture.desks} desks: execve per safety-net pass ${each.join(', ')}; ms per pass ${netMs.join(', ')}`);
+    each.forEach((n) => expect(n).toBeGreaterThan(0));
+    // EVERY SAFETY-NET PASS LANDED ITS OWN FULL READ: two stamps lie at least
+    // SAFETY_NET_MS apart, so NET_PASSES reads move the stamp past this.
     expect(beforeNet).toEqual(expect.any(Number));
-    expect(afterNet).toBeGreaterThan(beforeNet ?? Number.POSITIVE_INFINITY);
+    expect(afterNet).toBeGreaterThan((beforeNet ?? Number.POSITIVE_INFINITY) + (NET_PASSES - 1) * SAFETY_NET_MS);
   });
 
   it('traces fleetd through its warm pass and two idle passes', () => {

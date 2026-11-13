@@ -15,6 +15,10 @@
 //          read; it prints `census: pass <n> done` as `pass` does
 //   stop   end the loop; prints `census: stopped <code>` and exits with it
 //
+// A pass is done once no direct child, no in-process HTTP request and no scan
+// that fleetd's bridge (`.plot/state/last-pulse.json`) marks `running` has been
+// in flight for 300 ms; a `running` mark holds a pass for at most 120 s.
+//
 // `CENSUS_CLOCK=system` runs fleetd on the system clock and real sleeps
 // instead, for a scenario that needs a fleetd running beside the board; then
 // stdin takes only `stop`.
@@ -28,12 +32,14 @@
 // `CENSUS_SPAWN_CALLER=1` adds `CENSUS_CALLER` to every tracked child's
 // environment: the first product frames of the stack that started it, so a
 // shim on `PATH` can name the TypeScript site behind a grandchild.
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, statSync } from 'node:fs';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import type { ChildProcess } from 'node:child_process';
+
+import { scanBusy, type BridgeReading } from './census-settle.js';
 
 /** The image a mark starts; the census filters it out by its first argument. */
 export const MARK_IMAGE = '/usr/bin/true';
@@ -41,6 +47,8 @@ export const MARK_ARG = 'census-mark';
 
 /** How long no direct child may run before a pass counts as settled, in ms. */
 const QUIET_MS = 300;
+/** How long a `running` scan attempt in fleetd's bridge holds a pass open, in ms. */
+const SCAN_BOUND_MS = 120_000;
 
 const say = (line: string): void => {
   process.stdout.write(`census: ${line}\n`);
@@ -252,10 +260,25 @@ const sleep = manual
 const sleepsReach = (at: number): Promise<void> =>
   sleeps >= at ? Promise.resolve() : new Promise((resolve) => sleepWaiters.push({ at, resolve }));
 
+/** fleetd's bridge, which `fleetScan` marks `running` while a scan runs. */
+const bridgeOf = (): BridgeReading => {
+  const file = join(process.env['PLOT_REPO_ROOT'] ?? process.cwd(), '.plot', 'state', 'last-pulse.json');
+  try {
+    const mtimeMs = statSync(file).mtimeMs;
+    return { text: readFileSync(file, 'utf8'), mtimeMs };
+  } catch {
+    return { text: null, mtimeMs: null };
+  }
+};
+
+// A SCAN IN FLIGHT HOLDS THE PASS OPEN, children or not: a scan can run in
+// process for longer than `QUIET_MS` with no child started, and a pass that
+// settled then would place its mark inside the scan and fire its next beat
+// while the scan still runs, which skips that beat's scan.
 const quiet = async (): Promise<void> => {
   for (;;) {
     await new Promise((r) => setTimeout(r, 50));
-    if (inFlight === 0 && Date.now() - lastSettled >= QUIET_MS) return;
+    if (inFlight === 0 && Date.now() - lastSettled >= QUIET_MS && !scanBusy(bridgeOf(), RealDate.now(), QUIET_MS, SCAN_BOUND_MS)) return;
   }
 };
 
