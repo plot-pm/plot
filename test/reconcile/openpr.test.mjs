@@ -65,7 +65,7 @@ function calls() {
   return fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '';
 }
 
-/** The argv of the `pr create` call, as JSON the stub recorded. */
+/** The fields of the REST create call, as `--key value` flags the stub recorded. */
 function created() {
   const file = path.join(stubDir, 'created.json');
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
@@ -110,10 +110,19 @@ if (argv[0] === 'pr' && argv[1] === 'list') {
     isDraft: false, statusCheckRollup: [], mergeable: 'MERGEABLE',
     mergeStateStatus: 'CLEAN', reviewDecision: null, url: 'https://example.invalid/pr/' + p.number,
   }))));
-} else if (argv[0] === 'pr' && argv[1] === 'create') {
-  // Record the whole argv: what a slice PR SAYS is the property under test.
-  fs.writeFileSync(${JSON.stringify(path.join(stubDir, 'created.json'))}, JSON.stringify(argv));
-  process.stdout.write('https://example.invalid/pr/900');
+} else if (argv[0] === 'api' && argv[1] === '-X' && argv[2] === 'POST' && argv[3].endsWith('/pulls')) {
+  // The REST create: \`-f key=value\` fields. They are recorded as the
+  // \`--key value\` flags a slice PR asks for, and \`draft=true\` as \`--draft\`,
+  // because what a slice PR SAYS is the property under test.
+  const said = [];
+  for (let i = 4; i < argv.length; i++) {
+    if (argv[i] !== '-f' && argv[i] !== '-F') continue;
+    const [key, ...rest] = argv[++i].split('=');
+    const value = rest.join('=');
+    if (key === 'draft') { if (value === 'true') said.push('--draft'); } else said.push('--' + key, value);
+  }
+  fs.writeFileSync(${JSON.stringify(path.join(stubDir, 'created.json'))}, JSON.stringify(said));
+  process.stdout.write(JSON.stringify({ html_url: 'https://example.invalid/pr/900' }));
 } else if (argv[0] === 'repo' && argv[1] === 'view') {
   process.stdout.write('main');
 } else {
@@ -418,5 +427,6 @@ test('open-pr: reaches the host only through the adapter', () => {
   const source = fs.readFileSync(openPr, 'utf8');
   const code = source.split('\n').filter((l) => !l.trimStart().startsWith('#')).join('\n');
   assert.doesNotMatch(code, /\bgh\s+pr\b/, 'the script must not call gh directly');
-  assert.match(calls(), /gh pr create/, 'and the adapter must have made the call');
+  assert.match(calls(), /gh api -X POST repos\/\S+\/pulls/, 'and the adapter must have made the call, over REST');
+  assert.doesNotMatch(calls(), /gh pr create/, '`gh pr create` spends GraphQL and must never run');
 });

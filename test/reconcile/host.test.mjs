@@ -1041,12 +1041,61 @@ test('host: pr-state bitbucket numeric miss carries mergeCommit too', () => {
   });
 });
 
-test('host: pr-create github maps flags in order', () => {
-  const stubs = makeStubs();
-  run(['pr-create', '--title', 'T', '--body', 'B', '--base', 'main', '--draft'],
+// `gh pr create` spends GraphQL. On 2026-11-13 it failed three times at 0 of
+// 5000 GraphQL while REST held more than 4600 of 5000, so the GitHub arm opens
+// the PR with `POST pulls` and prints its `html_url`, the line every caller
+// reads. The owner/repo is the origin remote's, never `{owner}/{repo}`.
+const originSlug = execFileSync(realGit, ['config', '--get', 'remote.origin.url'], { encoding: 'utf8' })
+  .trim().replace(/\.git\/?$/, '').replace(/^.*[:/]([^/:]+\/[^/:]+)$/, '$1');
+
+test('host: pr-create github opens the PR over REST with every field and prints its html_url', () => {
+  const stubs = makeStubs({ ghJson: '{"number":42,"html_url":"https://github.com/o/r/pull/42"}' });
+  const out = run(['pr-create', '--title', 'T', '--body', 'B `x`\nline two', '--base', 'main', '--head', 'feature/x'],
     { env: { PLOT_HOST: 'github' }, stubs });
-  assert.deepEqual(argvOf(stubs.ghArgv),
-    ['pr', 'create', '--title', 'T', '--body', 'B', '--base', 'main', '--draft']);
+  assert.equal(out, 'https://github.com/o/r/pull/42\n', 'the URL is the whole of stdout, as `gh pr create` printed it');
+  assert.deepEqual(argvOf(stubs.ghArgv), [
+    'api', '-X', 'POST', `repos/${originSlug}/pulls`,
+    '-f', 'title=T', '-f', 'head=feature/x', '-f', 'base=main', '-f', 'body=B `x`', 'line two', '-F', 'draft=false',
+    '--include',
+  ]);
+  assert.ok(!argvOf(stubs.ghArgv).includes('pr'), '`gh pr create` is GraphQL and must never run');
+});
+
+test('host: pr-create github sends --draft as the boolean draft=true', () => {
+  const stubs = makeStubs({ ghJson: '{"html_url":"https://github.com/o/r/pull/43"}' });
+  const out = run(['pr-create', '--title', 'T', '--body', 'B', '--base', 'main', '--head', 'feature/x', '--draft'],
+    { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(out.trim(), 'https://github.com/o/r/pull/43');
+  const argv = argvOf(stubs.ghArgv);
+  assert.equal(argv[argv.indexOf('-F') + 1], 'draft=true');
+});
+
+test('host: pr-create github fills a missing --base from default-branch and a missing --head from the current branch', () => {
+  const stubs = makeStubs({ ghJson: '{"html_url":"https://github.com/o/r/pull/44"}' });
+  const repo = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-create-')));
+  execFileSync(realGit, ['init', '-q', '-b', 'feature/here', repo]);
+  execFileSync(realGit, ['-C', repo, 'remote', 'add', 'origin', 'git@github.com:acme/widgets.git']);
+  writeFileSync(path.join(stubs.dir, 'gh'),
+    `#!/usr/bin/env bash\nif [ "$1" = repo ]; then echo trunk; exit 0; fi\nprintf '%s\\n' "$@" > "${stubs.ghArgv}"\n` +
+    `printf '%s' '{"html_url":"https://github.com/o/r/pull/44"}'\n`);
+  const res = spawnSync('bash', [adapter, 'pr-create', '--title', 'T', '--body', 'B'], {
+    cwd: repo, encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, ...budgetEnvFor(stubs), PLOT_HOST: 'github' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const argv = argvOf(stubs.ghArgv);
+  assert.equal(argv[3], 'repos/acme/widgets/pulls', 'the origin remote names the repository');
+  assert.ok(argv.includes('head=feature/here'), argv.join(' '));
+  assert.ok(argv.includes('base=trunk'), argv.join(' '));
+});
+
+test('host: pr-create github exits non-zero with the host\'s words and prints no URL when the POST fails', () => {
+  const stubs = makeStubs({ ghFail: 'gh: Validation Failed: A pull request already exists for o:feature/x. (HTTP 422)' });
+  const res = runAllowFail(['pr-create', '--title', 'T', '--body', 'B', '--base', 'main', '--head', 'feature/x'],
+    { env: { PLOT_HOST: 'github' }, stubs });
+  assert.notEqual(res.code, 0);
+  assert.equal(res.stdout, '', 'a failed create prints no URL');
+  assert.match(res.stderr, /A pull request already exists/);
 });
 
 test('host: pr-create bitbucket uses bb with same surface', () => {
