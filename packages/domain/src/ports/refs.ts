@@ -548,6 +548,17 @@ export interface Refs {
   countBehind(ref: string): Promise<PortResult<number | null>>;
 
   /**
+   * How many commits the checkout's HEAD holds that a ref does not.
+   *
+   * `git rev-list --count <ref>..HEAD`, which equals the count from the
+   * merge base of the two to HEAD.
+   *
+   * @param ref - the revision to measure from, such as `origin/main`.
+   * @returns the count; a failed result where either revision cannot be read.
+   */
+  countAhead(ref: string): Promise<PortResult<number>>;
+
+  /**
    * Reads a file's content at a ref, without checking it out.
    *
    * A phase read from `origin/<main>` is the gate `plot-phase-gate.sh` applies,

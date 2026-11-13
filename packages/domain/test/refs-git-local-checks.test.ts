@@ -79,3 +79,25 @@ describe('refsGit: the local-checks readings', () => {
     expect(result.ok && result.value).toEqual(['skills/plot/scripts/board/board-server.mjs']);
   });
 });
+
+describe('refsGit: countAhead', () => {
+  it('counts the commits HEAD holds past a ref, and fails on a ref that does not resolve', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-refs-ahead-'));
+    try {
+      git(dir, ['init', '--quiet', '--initial-branch=main']);
+      git(dir, ['config', 'user.email', 'test@example.com']);
+      git(dir, ['config', 'user.name', 'Test']);
+      git(dir, ['commit', '--quiet', '--allow-empty', '-m', 'base']);
+      git(dir, ['branch', 'sprint/s']);
+      git(dir, ['commit', '--quiet', '--allow-empty', '-m', 'main moves']);
+      git(dir, ['checkout', '--quiet', '-b', 'bug/x', 'sprint/s']);
+      git(dir, ['commit', '--quiet', '--allow-empty', '-m', 'fix']);
+      const refs = refsGit({ repoRoot: dir, scriptDir: dir });
+      expect(await refs.countAhead('sprint/s')).toEqual({ ok: true, value: 1 });
+      expect(await refs.countAhead('main')).toEqual({ ok: true, value: 1 });
+      expect((await refs.countAhead('no-such-ref')).ok).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

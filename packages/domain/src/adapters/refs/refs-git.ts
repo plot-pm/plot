@@ -976,6 +976,13 @@ export const refsGit = (
       return /^\d+$/.test(raw) ? answered<number | null>(Number(raw)) : failed<number | null>();
     },
 
+    countAhead: async (ref) => {
+      const count = await runProcess('git', ['rev-list', '--count', `${ref}..HEAD`], inRepo);
+      if (count.code !== 0) return failed<number>();
+      const raw = count.stdout.trim();
+      return /^\d+$/.test(raw) ? answered(Number(raw)) : failed<number>();
+    },
+
     showFile: async (ref, path) => {
       const via = /[\n\0]/.test(path) ? undefined : await throughReader(ref);
       if (via !== undefined) {

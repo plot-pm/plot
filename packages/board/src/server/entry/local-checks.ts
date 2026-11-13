@@ -2,10 +2,10 @@
 // two adapters and the one rule it uses.
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
-import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
 import { boundedRunProcess } from '@plot-pm/domain/adapters/bounded-run/bounded-run-process';
 import { processesShell } from '@plot-pm/domain/adapters/processes/processes-shell';
-import { localChecksBase } from '@plot-pm/domain/rules/local-checks-base';
+import { manifestBaseOf } from '@plot-pm/domain/adapters/agents/agents-fs';
+import { baseCandidateBranches, baseLine, localChecksBase, type BaseCandidate, type LocalChecksBase } from '@plot-pm/domain/rules/local-checks-base';
 import { failedCheck, printedCommands } from '@plot-pm/domain/rules/local-checks-run';
 import {
   DEFAULT_LOCAL_CHECKS_LIMIT,
@@ -28,8 +28,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { findPlanForBranch } from './plan-lookup.js';
-
 /**
  * The checks a branch's change needs — `localChecks` reached without HTTP, for
  * an agent before it pushes.
@@ -50,9 +48,11 @@ import { findPlanForBranch } from './plan-lookup.js';
  * for each changed path. One command goes out per line, then the report as
  * `#` lines, then a `summary:` line. Exit 0 always; 2 outside a git repository.
  *
- * The changes are read against `--base <branch>` when given. Otherwise a branch
- * whose plan carries `Sprint: <slug>` is read against `sprint/<slug>` where
- * `origin` holds that branch, and any other branch against the default branch.
+ * The changes are read against the branch's base, which `localChecksBase`
+ * chooses: the `--base <branch>` argument; else the `base` the desk manifest
+ * records, where `origin` holds it; else whichever of `origin/<default>` and
+ * every `origin/sprint/*` HEAD sits the fewest commits past, a tie going to
+ * the default branch. The first output line names the base and the reason.
  * No host is asked.
  *
  * `--run` runs each printed command through `bash -c`, in order, and stops at
@@ -228,7 +228,8 @@ export const run = async (
   const refs = refsGit(context);
   const scripts = scriptsShell(context);
 
-  const against = listed === null ? await resolveBase(refs, planStoreShell(context), base) : undefined;
+  const chosen = listed === null ? await resolveBase(refs, context, base) : null;
+  const against = chosen?.base.base;
 
   const [committed, working, rawChecks, rawLimit, rawSuites, rawPlans, rawSprints] = await Promise.all([
     listed === null ? refs.changedFiles('HEAD', against) : Promise.resolve({ ok: true as const, value: [] as string[] }),
@@ -239,7 +240,7 @@ export const run = async (
     scripts.config('Plan directory', 'docs/plans/'),
     scripts.config('Sprint directory', 'docs/sprints/'),
   ]);
-  if (listed === null && !committed.ok) warn('plot-local-checks: could not read the branch against the default branch; reading the working tree only\n');
+  if (listed === null && !committed.ok) warn(`plot-local-checks: could not read the branch against ${against ?? 'its base'}; reading the working tree only\n`);
 
   const changed = listed ?? [...new Set([...(committed.ok ? committed.value : []), ...(working.ok ? working.value : [])])];
   const checks = parseLocalChecks(rawChecks.ok ? rawChecks.value.trim() : '');
@@ -280,35 +281,41 @@ export const run = async (
       }),
       parseList(rawSuites.ok ? rawSuites.value.trim() : ''),
     );
-  write(output);
+  write(chosen === null ? output : `${baseLine(chosen.base, chosen.candidates)}\n${output}`);
   return runChecks ? runPrinted(context, printedCommands(output), write) : EXIT.ok;
 };
 
 /**
- * Resolves the branch the changes are read against.
+ * Reads what {@link localChecksBase} decides from, and asks it.
  *
  * @param refs - the git adapter.
- * @param store - the plan store of the repository.
+ * @param context - the repository root and the script directory, for the registry.
  * @param flag - the `--base` argument, or `null`.
- * @returns the base branch, or `undefined` for the default branch.
+ * @returns the chosen base and the counts it compared.
  */
 const resolveBase = async (
   refs: ReturnType<typeof refsGit>,
-  store: ReturnType<typeof planStoreShell>,
+  context: { repoRoot: string; scriptDir: string },
   flag: string | null,
-): Promise<string | undefined> => {
-  if (flag !== null) return localChecksBase({ flag, sprint: null, remoteBranches: [] });
-  const current = await refs.currentBranch();
-  if (!current.ok) return undefined;
-  const dir = await store.config('Plan directory', 'docs/plans/');
-  const found = await findPlanForBranch(store, dir.ok && dir.value.trim() !== '' ? dir.value.trim() : 'docs/plans/', current.value);
-  const plan = found === undefined ? undefined : await store.readPlans([found.file]);
-  const remote = await refs.listBranches(true);
-  return localChecksBase({
-    flag: null,
-    sprint: plan !== undefined && plan.ok ? (plan.value[0]?.sprint ?? null) : null,
-    remoteBranches: remote.ok ? remote.value : [],
-  });
+): Promise<{ base: LocalChecksBase; candidates: readonly BaseCandidate[] }> => {
+  const main = await refs.defaultBranch();
+  const defaultBranch = main.ok ? main.value : 'main';
+  if (flag !== null) {
+    return { base: localChecksBase({ flag, manifestBase: null, defaultBranch, remoteBranches: [], candidates: [] }), candidates: [] };
+  }
+  const [remote, recorded] = await Promise.all([refs.listBranches(true), manifestBaseOf(context, context.repoRoot)]);
+  const remoteBranches = remote.ok ? remote.value : [];
+  const manifestBase = recorded.ok ? recorded.value : null;
+  const held = manifestBase !== null && manifestBase !== '' && remoteBranches.includes(manifestBase);
+  const candidates: BaseCandidate[] = held
+    ? []
+    : await Promise.all(
+        baseCandidateBranches(defaultBranch, remoteBranches).map(async (branch) => {
+          const ahead = await refs.countAhead(`origin/${branch}`);
+          return { branch, ahead: ahead.ok ? ahead.value : null };
+        }),
+      );
+  return { base: localChecksBase({ flag: null, manifestBase, defaultBranch, remoteBranches, candidates }), candidates };
 };
 
 /**

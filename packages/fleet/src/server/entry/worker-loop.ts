@@ -1477,8 +1477,9 @@ export const loopWritesOf = (writes: readonly Write[], runsChecks = false): read
 /**
  * Runs the local checks a `checks` hand-back asks for: the commands
  * `plot-local-checks.mjs` prints, each through `boundedRun`, in order, until
- * one fails. The lister reads the worktree's branch against `sprint/<slug>`
- * where its plan names a sprint, so a sprint slice runs its own checks.
+ * one fails. The lister reads the worktree's branch against its base — the
+ * manifest's `base`, else the nearest of the default branch and the sprint
+ * branches — so a sprint slice runs its own checks.
  *
  * Only the lister's standard output names commands: its standard error goes
  * to a file of its own, so a warning is never read as a command. That file
