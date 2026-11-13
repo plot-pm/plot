@@ -29,8 +29,8 @@ export {
   startImplement,
   type ImplementStartFailure,
 };
-import { briefBranchOf, nothingStartableDetail, startReadingFromPulse } from '@plot-pm/fleet/shared/dispatch-command';
-import type { DispatchReading } from '@plot-pm/domain/rules/auto-dispatch';
+import { bodyBranch, briefBranchOf, nothingStartableDetail, startReadingFromPulse } from '@plot-pm/fleet/shared/dispatch-command';
+import type { DispatchReadingFor, NamedBranchRefusal } from '@plot-pm/domain/rules/auto-dispatch';
 import { pulseFor } from './fleet.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
 import { lastLines, usableCommand, type IdeaState } from './idea.js';
@@ -72,7 +72,9 @@ export type ImplementRefusal =
   /** No `Implement command` is configured, so no agent can be started. */
   | 'no-implement-command'
   /** The plan's only unsettled branches wait on an open prerequisite. */
-  | 'nothing-startable';
+  | 'nothing-startable'
+  /** The body names a branch the pulse does not show as startable for the plan. */
+  | NamedBranchRefusal;
 
 export interface ImplementOptions extends BuildBoardOptions {
   /** The interface the server bound to (`HOST`), verbatim. */
@@ -170,7 +172,7 @@ export interface ImplementDeps {
   /** The configured `Implement command`. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
   /** What to do about starting a plan; `startReadingFromPulse` over the board's pulse where absent. */
-  startReading?: (opts: BuildBoardOptions, slug: string) => DispatchReading;
+  startReading?: (opts: BuildBoardOptions, slug: string, branch?: string) => DispatchReadingFor;
 }
 
 /**
@@ -223,14 +225,20 @@ export async function handleImplement(
     return;
   }
 
-  // THE SLUG IS THE WHOLE REQUEST. Nothing else a page supplies is read: the
-  // plan is resolved from the slug by `/plot-implement` itself, from the file on
-  // disk, never from the caller. `SLUG_RE` bounds it to a plan slug — the same
+  // THE SLUG AND AN OPTIONAL BRANCH ARE THE WHOLE REQUEST. Nothing else a page
+  // supplies is read: the plan is resolved from the slug by `/plot-implement`
+  // itself, from the file on disk, never from the caller, and a named branch is
+  // briefed only where the pulse shows it startable for that plan. `SLUG_RE` bounds it to a plan slug — the same
   // value the skill will glob with — so a value that is not a slug is a caller
   // bug refused, not something to sanitize.
   const slug = (body as { slug?: unknown })?.slug;
   if (typeof slug !== 'string' || !SLUG_RE.test(slug)) {
     json(400, { error: 'slug must be a plan slug' });
+    return;
+  }
+  const named = bodyBranch(body);
+  if (named === null) {
+    json(400, { error: 'branch must be a branch name' });
     return;
   }
 
@@ -255,7 +263,11 @@ export async function handleImplement(
   // copy; the two drifted in the one way that mattered — only this one wrote
   // the state file the status route reads — so the child belongs to
   // `startImplement` and both callers get the same log, bound and recording.
-  const reading = (deps.startReading ?? ((o, s) => startReadingFromPulse(pulseFor(o), s)))(opts, slug);
+  const reading = (deps.startReading ?? ((o, s, b) => startReadingFromPulse(pulseFor(o), s, b)))(opts, slug, named.branch);
+  if (reading.kind === 'branch-refused') {
+    refuse(409, reading.reason, slug, reading.detail);
+    return;
+  }
   if (reading.kind === 'held') {
     refuse(409, 'nothing-startable', slug, nothingStartableDetail(reading));
     return;

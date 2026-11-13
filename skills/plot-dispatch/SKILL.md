@@ -34,8 +34,8 @@ agents, several branches, real tokens. Monitoring is automatable; committing to
 parallel work is a decision. This command therefore never runs itself, and
 `--dry-run` exists so the decision can be taken with the facts in hand.
 
-**Input:** `$ARGUMENTS` = `[--dry-run] [--no-start] [--max N] [--allow-local]
-[--allow-waiting] <slug>`,
+**Input:** `$ARGUMENTS` = `[--dry-run] [--no-start] [--max N] [--branch <branch>]
+[--allow-local] [--allow-waiting] <slug>`,
 or `--start [N]` to bring free agents into existence,
 or `--status` / `--stop <branch>` / `--restart <branch>` to inspect, stop or
 replace a worker, or `--release <branch>` to return an abandoned claim to the
@@ -238,8 +238,10 @@ Skip this step when the key already holds anything at all — a command or
 ### 4. Fan Out
 
 ```bash
-../plot/scripts/plot-dispatch.sh [--max N] <slug>
+../plot/scripts/plot-dispatch.sh [--max N] [--branch <branch>] <slug>
 ```
+
+`--branch <branch>` hands over that one branch of the plan and leaves every other eligible branch in the queue. A branch the scan does not offer as eligible is not handed over, and the footer reads `dispatched=0`. The master agent's controller takes the same choice: `plot-dispatch-command.mjs <slug> --branch <branch>` briefs and hands over that branch, and refuses `no-pulse-reading`, `branch-not-in-plan` or `branch-not-startable` (with the reason: the prerequisites it is held on, claimed, merged, deferred, a claim ref, or its slice's verdict) where the pulse does not show it startable.
 
 Per branch the script: creates `../plot-wt-<suffix>`, **claims the branch by
 pushing its ref**, and starts a detached worker. A push that would overwrite an

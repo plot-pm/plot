@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Plot helper: hand one slice + its brief to the registry per eligible branch.
 # Usage: plot-dispatch.sh [--dry-run] [--no-start] [--no-brief] [--offline]
-#                         [--max N] [--allow-local] <slug>
+#                         [--max N] [--branch <br>] [--allow-local] <slug>
 #        plot-dispatch.sh --start [N] [--dry-run]
 #        plot-dispatch.sh --migrate [--yes] [--max N]
 #        plot-dispatch.sh --release <branch>
@@ -86,6 +86,8 @@
 #               written when the plan was drafted. A charter this clone does
 #               not hold is REPORTED and dispatched anyway; see
 #               `plan_declared_agent`.
+#   --branch <br>  hand over only <br>, one branch of the plan; any other
+#               eligible branch is left in the queue.
 #   <slug>      the plan to fan out
 # Output: one line per branch, each optionally followed by an indented
 #         `in flight:` line naming a branch that already holds files, then the
@@ -340,6 +342,8 @@ while [ $# -gt 0 ]; do
                   -*) echo "plot-dispatch: --agent needs a charter name, got '$agent'" >&2; exit 1 ;;
                 esac
                 shift ;;
+    # `--branch <br>` hands over that one branch of the plan and no other.
+    --branch)   only_branch="${2:?--branch needs a branch name}"; shift ;;
     --max)      max="${2:?--max needs a value}"
                 case "$max" in
                   ''|*[!0-9]*) echo "plot-dispatch: --max needs a number, got '$max'" >&2; exit 1 ;;
@@ -348,10 +352,10 @@ while [ $# -gt 0 ]; do
     # THE RANGE MOVED WITH THE HEADER IT PRINTS. It ended at `<slug>` and still
     # does; adding `--agent` above pushed that line from 59 to 69, and
     # documenting the plan-declared kind pushed it from 69 to 78, and
-    # `--release` pushed it from 78 to 91. Two records
+    # `--release` pushed it from 78 to 91, and `--branch` from 89 to 91. Two records
     # of one fact, and nothing compares them — a stale number here silently
     # truncates the help rather than failing, so it is checked by a test.
-    -h|--help)  sed -n '2,89p' "$0"; exit 0 ;;
+    -h|--help)  sed -n '2,91p' "$0"; exit 0 ;;
     *)          slug="$1" ;;
   esac
   shift
@@ -3492,7 +3496,6 @@ work_in_flight() { # $1=branch to exclude (the candidate)
   # rather than a map. Sorted output keeps the report stable between runs.
   git for-each-ref --format='%(refname:short)' refs/heads/ </dev/null 2>/dev/null \
   | while read -r br; do
-      [ -n "$br" ] || continue
       [ "$br" = "$exclude" ] && continue
       [ "$br" = "$MAIN" ] && continue
       files=$( { committed_files "$br"; uncommitted_files "$(worktree_for "$br")"; } \
@@ -3560,8 +3563,8 @@ run_waits_preflight
 # set once. (`--next` would loop forever here: without a claim it keeps
 # returning the same branch.)
 if [ "$dry_run" = 1 ]; then
+  # The list below drops empty lines (`grep -v '^$'`), so every `br` names a branch.
   while read -r br; do
-    [ -n "$br" ] || continue
     # The gate, BEFORE the "would dispatch" line — this loop's whole output is
     # a prediction, and predicting a dispatch the real run refuses is the
     # failure the gate exists to stop.
@@ -3583,7 +3586,7 @@ if [ "$dry_run" = 1 ]; then
     # branch the scan DID offer (its host call failed where the preflight's
     # succeeded) must be dispatched once, not twice.
   done < <({ "$script_dir/plot-fleet-scan.sh" $offline --list-eligible "$slug" 2>/dev/null
-             printf '%s\n' ${waits_freed[@]+"${waits_freed[@]}"}; } | grep -v '^$' | sort -u)
+             printf '%s\n' ${waits_freed[@]+"${waits_freed[@]}"}; } | grep -v '^$' | sort -u | awk -v b="${only_branch:-}" 'b == "" || $0 == b')
   # A dry run starts nothing BY CONSTRUCTION, so its `started=0` carries no
   # information about the config — reporting "no workers started" here would be
   # true and useless, and would train the reader to skip the line on the real
@@ -3632,7 +3635,7 @@ while IFS= read -r _line; do
   fan_out+=("$_line")
 done < <({ "$script_dir/plot-fleet-scan.sh" $offline --list-eligible "$slug" 2>/dev/null
            [ "$allow_waiting" = 1 ] && printf '%s\n' ${waits_freed[@]+"${waits_freed[@]}"}
-           :; } | grep -v '^$' | sort -u)
+           :; } | grep -v '^$' | sort -u | awk -v b="${only_branch:-}" 'b == "" || $0 == b')
 
 for branch in ${fan_out[@]+"${fan_out[@]}"}; do
   [ "$max" -gt 0 ] && [ "$n_dispatched" -ge "$max" ] && break
