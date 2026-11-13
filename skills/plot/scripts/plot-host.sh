@@ -134,7 +134,9 @@
 #                                 through `plot-bitbucket-commit-status.mjs`.
 #                                 EXIT 3 is the question failing.
 #   pr-create --title T [--body B] [--base BR] [--head BR] [--draft]
-#                                 create a PR, print its URL
+#                                 create a PR, print its URL. GitHub
+#                                 creates it over REST (`POST pulls`), which
+#                                 spends `core` and never GraphQL.
 #   pr-merge <number> [--squash] [--delete-branch] --match-head <sha>
 #                                 merge the PR. --match-head is
 #                                 mandatory on every backend. bitbucket
@@ -2482,7 +2484,7 @@ graphql_budget_spent() {
 gh_route() { # $1=op → graphql|rest
   case "${1:-}" in
     # REST-only: no GraphQL route exists to choose, so nothing is consulted.
-    rate-limit|limit)
+    rate-limit|limit|pr-create)
       printf 'rest\n'
       ;;
     # Both transports implemented — the one op where the reasons apply.
@@ -4384,7 +4386,7 @@ case "$op" in
       || die3 "pr-review: the read failed" ;;
 
   pr-create)
-    title=""; body=""; base=""; head=""; draft=0
+    title=""; body=""; base=""; head=""; draft=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --title) title="${2:?}"; shift 2 ;;
@@ -4396,11 +4398,18 @@ case "$op" in
       esac
     done
     [ -n "$title" ] || die "pr-create needs --title"
-    args=(pr create --title "$title" --body "$body")
-    [ -n "$base" ] && args+=(--base "$base")
-    [ -n "$head" ] && args+=(--head "$head")
-    [ "$draft" = 1 ] && args+=(--draft)
-    if [ "$be" = "github" ]; then gh "${args[@]}"; else bb "${args[@]}"; fi
+    # GITHUB OPENS THE PR OVER REST, `POST repos/<origin slug>/pulls`, and prints
+    # its `html_url` as `gh pr create` printed its URL. `gh pr create` spends
+    # GraphQL: on 2026-11-13 it failed three times at 0 of 5000 GraphQL while
+    # REST held more than 4600 of 5000. The owner/repo is the origin remote's,
+    # as `pr-merge` reads it, never `gh`'s default repo. REST needs a base and a
+    # head where `gh pr create` filled them in: a missing `--head` is the
+    # current branch, and a missing `--base` is this script's `default-branch`.
+    # `pipefail` makes a failed POST the op's exit code, with `gh`'s own words.
+    if [ "$be" = "github" ]; then
+      slug="$(gh_origin_slug)" && head="${head:-$(git symbolic-ref --short HEAD)}" && base="${base:-$(bash "$here/plot-host.sh" default-branch)}" || die3 "pr-create: no owner/repo on origin or no head branch; nothing was opened"
+      gh_api_harvest -X POST "repos/$slug/pulls" -f title="$title" -f head="$head" -f base="$base" -f body="$body" -F draft="$([ -n "$draft" ] && echo true || echo false)" | jq -r '.html_url'
+    else bb pr create --title "$title" --body "$body" ${base:+--base "$base"} ${head:+--head "$head"} ${draft:+--draft}; fi
     ;;
 
   pr-merge)

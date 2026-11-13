@@ -533,8 +533,8 @@ export const hostShell = (context: ShellContext, answers: FixedAnswers = process
     prCreate: async (request): Promise<PortResult<string>> => {
       // THE BODY GOES THROUGH ARGV, not a heredoc or a temp file. It is
       // markdown holding backticks and newlines, and `plot-host.sh` passes
-      // `--body` straight to `gh`/`bb` — so quoting is the shell's problem only
-      // if a shell is involved, and `runProcess` spawns without one.
+      // `--body` straight to `gh api`/`bb` — so quoting is the shell's problem
+      // only if a shell is involved, and `runProcess` spawns without one.
       const args = [
         host,
         'pr-create',
@@ -548,7 +548,8 @@ export const hostShell = (context: ShellContext, answers: FixedAnswers = process
       if (request.base !== undefined && request.base !== '') args.push('--base', request.base);
       if (request.draft) args.push('--draft');
       const run = await runScripted('bash', args, inRepo);
-      // The URL is what `gh pr create` prints and the only thing it prints. A
+      // The URL is the only thing `pr-create` prints: the REST answer's
+      // `html_url` on GitHub, the CLI's own line on Bitbucket. A
       // host that opened one and said nothing about where answers `''` — the
       // PR exists either way, and a caller that treated silence as failure
       // would ask for a second one.
