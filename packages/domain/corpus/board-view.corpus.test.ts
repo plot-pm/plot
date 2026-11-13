@@ -297,6 +297,7 @@ const FIELD_SOURCES: Readonly<Record<string, Source>> = {
   backoffMs: SCANNER,
   calls: SCANNER,
   walkCache: SCANNER,
+  deskHold: SCANNER,
   agents: {
     gap: 'readAgentRegistryWithInfo synthesizes an entry per unregistered desk and asks liveness, cleanliness and transcript usage per entry; the registry reading holds the manifests alone',
   },

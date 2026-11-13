@@ -10,6 +10,7 @@ import {
   type ReaderClaim,
   type RunningPulse,
 } from '@plot-pm/domain';
+import type { ScanPlan } from '@plot-pm/domain';
 import type { Clock } from '@plot-pm/domain/ports/clock';
 import type { ReaderLock } from '@plot-pm/domain/ports/reader-lock';
 
@@ -183,7 +184,7 @@ const recordAttempt = async (fleetState: FleetState, attempt: ScanAttempt): Prom
  * @param after - runs with the pulse the scan just wrote, on a successful scan
  *   only. A scan that throws or whose bridge write is refused never calls it,
  *   so no automatic write acts on a pulse that did not land.
- * @returns the function to hand to {@link startFleetClock} as `scan`.
+ * @returns the scan; it reads what its `plan` names, or everything with no plan.
  */
 export const fleetScan = (
   world: ScanWorld,
@@ -193,12 +194,12 @@ export const fleetScan = (
   warn: (line: string) => void,
   prError: () => string | null,
   after?: (pulse: FleetReading) => Promise<void>,
-): (() => Promise<void>) => async () => {
+): ((plan?: ScanPlan) => Promise<void>) => async (plan) => {
   let landed: FleetReading | null = null;
   const startedAt = now();
   await recordAttempt(fleetState, { startedAt, endedAt: null, outcome: 'running', error: null });
   try {
-    const result = await scanOnce(world, state, { record: false });
+    const result = await scanOnce(world, state, plan === undefined ? { record: false } : { record: false, plan });
     if (await writeScan(fleetState, result, now(), prError(), startedAt)) landed = result.reading;
     else warn('plot-fleetd: bridge write refused\n');
   } catch (e) {

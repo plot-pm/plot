@@ -279,7 +279,15 @@ const pass = async (beats: number = beatsPerPass): Promise<void> => {
   // pass. `offsetMs` shifts only the patched `Date`, which fleetd's wake check
   // never reads: it reads the injected clock through the port.
   offsetMs += beats * BEAT_MS;
-  clock?.advance(beats);
+  // A manual clock fires every beat of one `advance` before a scan can settle, so a
+  // scan that starts on a trigger decides once per advance. A pass longer than a
+  // census pass stops one beat short, settles, and fires the last beat, where the
+  // safety net is due.
+  if (beats > beatsPerPass) {
+    clock?.advance(beats - 1);
+    await quiet();
+    clock?.advance(1);
+  } else clock?.advance(beats);
   await sleepsReach(target);
   await quiet();
   mark(`pass-${passes}`);

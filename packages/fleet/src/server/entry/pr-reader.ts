@@ -182,7 +182,8 @@ export const run = async (
   const world: PrWorld = {
     scripts: scriptsShell(context),
     host: reads.host,
-    hostClaimsSlot: reads.api !== null,
+    // Both transports claim their own slot per request: `plot-host.sh` in its `gh`/`bb` wrappers.
+    hostClaimsSlot: true,
     store: prIndexFile({ cwd: repoRoot }),
   };
   const readPrs = fleetPrs(world, state, prLock, warn);

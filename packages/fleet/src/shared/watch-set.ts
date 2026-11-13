@@ -23,6 +23,11 @@ export interface WatchSetWorld {
   refsDigest: () => Promise<string | null>;
   /** One desk's git state as a string; `null` where it cannot be read. */
   deskFingerprint: (admin: string) => string | null;
+  /**
+   * Whether a directory exists. Where given, a directory that does not exist is not wanted: it
+   * holds nothing to read and a watch on it cannot arm. Absent, every directory is wanted.
+   */
+  exists?: (dir: string) => boolean;
   /** Receives each change `changeOf` raised, before the content check; `null` events are not reported. */
   onRaised?: (change: SnapshotChange) => void;
   /** Receives each change that passed the content check and entered the pending set. */
@@ -39,9 +44,15 @@ export interface RunningWatchSet {
   lastEventAt: () => number | null;
   /** The readings pending, in the order they were named. */
   pending: () => readonly StaleReading[];
-  /** Returns the pending readings and empties the set. */
+  /** Whether a `remote` change or the safety net is among the pending changes: the walk fetches. */
+  remotePending: () => boolean;
+  /** Returns the pending readings and empties the set, the remote flag included. */
   drain: () => readonly StaleReading[];
-  /** Reads the layout again, arms new directories and closes removed ones. */
+  /** Puts drained readings back, and the remote flag where the drain held it: a scan that threw read none of them. */
+  requeue: (readings: readonly StaleReading[], remote: boolean) => void;
+  /** Adds a change a read reported in process, with no content check: a read raised it. */
+  raise: (change: SnapshotChange) => void;
+  /** Reads the layout again, arms new directories, arms degraded ones again and closes removed ones. */
   sync: () => Promise<void>;
   /** Closes every watch and ignores later events; calling it again does nothing. */
   stop: () => void;
@@ -68,12 +79,14 @@ export const startWatchSet = (world: WatchSetWorld): RunningWatchSet => {
   let targets: readonly WatchTarget[] = [];
   let held: { refs: string | null; desks: Map<string, string | null> } = { refs: null, desks: new Map() };
   let pending: readonly StaleReading[] = [];
+  let remote = false;
   let lastEventAt: number | null = null;
   let stopped = false;
   let queue: Promise<void> = Promise.resolve();
 
   const accept = (change: SnapshotChange): void => {
     pending = addPending(pending, staleReadings(change));
+    if (change.kind === 'remote' || change.kind === 'safety-net') remote = true;
     world.onChange?.(change);
   };
 
@@ -105,10 +118,11 @@ export const startWatchSet = (world: WatchSetWorld): RunningWatchSet => {
   const sync = async (): Promise<void> => {
     if (stopped) return;
     layout = world.layout();
-    targets = watchTargets(layout);
+    targets = watchTargets(layout).filter((target) => world.exists === undefined || world.exists(target.dir));
     const wanted = new Set(targets.map(targetId));
     for (const [id, open] of handles) {
-      if (!wanted.has(id)) {
+      // A degraded handle delivers nothing: close it so the loop below arms the directory again.
+      if (!wanted.has(id) || open.degraded) {
         open.close();
         handles.delete(id);
       }
@@ -136,10 +150,19 @@ export const startWatchSet = (world: WatchSetWorld): RunningWatchSet => {
     armed: () => [...handles.values()].filter((open) => !open.degraded).length,
     lastEventAt: () => lastEventAt,
     pending: () => pending,
+    remotePending: () => remote,
     drain: () => {
       const drained = pending;
       pending = [];
+      remote = false;
       return drained;
+    },
+    requeue: (readings, again) => {
+      pending = addPending(readings, pending);
+      remote = remote || again;
+    },
+    raise: (change) => {
+      if (!stopped) accept(change);
     },
     sync,
     stop: () => {
