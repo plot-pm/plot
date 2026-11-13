@@ -406,6 +406,18 @@ describe('mergeAt — the workflow wired to its ports', () => {
     expect(diffs).toEqual([HEAD2]);
   });
 
+  it('refuses a PR from the state branch while the default branch is unread, and merges any other PR', async () => {
+    const target = { kind: 'state', pushRef: 'refs/heads/plot/state', trackRef: 'origin/plot/state', defaultRef: 'origin/', isBranch: true } as unknown as import('../src/rules/write-target.js').StateWriteTarget;
+    const unread = { unread: 'default-branch', target, defaultBranch: 'unknown' } as const;
+    const sync = ports(prFixture({ head: 'plot/state' }));
+    sync.p.stateSync = unread;
+    expect(await mergeAt(sync.p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'sync-gate-unread' });
+    expect(sync.calls).toEqual([]);
+    const other = ports(prFixture());
+    other.p.stateSync = unread;
+    expect(await mergeAt(other.p, 7, HEAD2)).toMatchObject({ merged: true });
+  });
+
   it('asks the host nothing when the tip differs from the settled SHA', async () => {
     const fresh = new Date(NOW - 60_000).toISOString();
     const { p, calls } = ports(prFixture(), 'answered', { ok: true, value: settled('green', fresh) });
@@ -782,5 +794,10 @@ describe('merge — the sync PR path gate', () => {
 
   it('changes nothing for a PR with no sync reading', () => {
     expect(merged()).toBe('decided');
+  });
+
+  it('refuses a PR that could be a sync PR while the gate is unread', () => {
+    const out = merge(readings({ sync: 'unknown' }), { pr: 42, sha: HEAD, ...CLOCK });
+    expect(out).toMatchObject({ outcome: 'refused', reason: 'sync-gate-unread' });
   });
 });

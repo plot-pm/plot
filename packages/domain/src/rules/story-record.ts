@@ -1,6 +1,7 @@
 import type { StoryRecord } from '../entities/board-readings.js';
 import { StoryStatusSchema } from '../entities/story.js';
 import { storyIssueValue } from './story-issue.js';
+import { storyPlanTableSlugs } from './story-plan-table.js';
 import { UNADMITTED_STATE } from './sprint-record.js';
 
 /**
@@ -59,7 +60,7 @@ export const designDocsIn = (paths: readonly string[], dir: string): string[] =>
  * @param relPath - the file's path relative to the repository root.
  * @param designDocs - the `DESIGN-*.md` basenames beside the file.
  * @param legacyIssueKey - the front-matter key read for the ticket where `issue:` names none.
- * @returns the story. The title falls back to the first `# ` heading, then to
+ * @returns the story, with `tablePlans` the plan slugs its plan table names. The title falls back to the first `# ` heading, then to
  *   `slug`. A `status:` the domain does not admit reads as `UNKNOWN`.
  */
 export const storyRecordOf = (
@@ -107,5 +108,6 @@ export const storyRecordOf = (
     designDocs: [...designDocs],
     hasOpenPoints: /^## Open Points\s*$/m.test(content),
     hasSessionLog: /^## Session Log\s*$/m.test(content),
+    tablePlans: storyPlanTableSlugs(content),
   };
 };

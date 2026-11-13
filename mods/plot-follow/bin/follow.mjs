@@ -5,11 +5,16 @@
 // Exit 0: the channel closed or ended the subscription. Exit 2: no channel is
 // listening; the reason goes to stderr.
 //
-// DECLARED DUPLICATE of packages/domain/src/adapters/channel/channel-client.ts.
-// A mod installs as its own folder and cannot load that file. The wire format
-// is NDJSON over the unix socket <repo root>/.plot/fleet.sock; this file writes
-// the subscribe request and relays the lines. packages/domain/test/
-// follow-channel-follower.test.ts runs it against a real startChannel socket.
+// DECLARED DUPLICATE of packages/domain/src/adapters/channel/channel-client.ts
+// and of packages/domain/src/rules/channel-address.ts with its adapter
+// adapters/channel/channel-address.ts. A mod installs as its own folder and
+// cannot load those files. The wire format is NDJSON over a unix socket; this
+// file writes the subscribe request and relays the lines. The socket is
+// <repo root>/.plot/fleet.sock while that path is at most 103 bytes, else
+// /tmp/plot-<uid>/<first 16 hex of sha256(realpath of the root)>.sock in a
+// directory the uid owns with mode 0700. packages/domain/test/
+// follow-channel-follower.test.ts runs it against a real startChannel socket
+// bound at bindableChannelAddress, for a short root and a long one.
 //
 // THE CLAIM. Every session of one repository runs its own follower and hears
 // the same findings. Each reading is claimed by creating one lease file with
@@ -24,9 +29,9 @@
 // The reading's fields are those of readingOf and slotOf in
 // hooks/follow-channel.ts.
 import { createHash } from 'node:crypto';
-import { closeSync, mkdirSync, openSync, readdirSync, statSync, unlinkSync } from 'node:fs';
+import { closeSync, lstatSync, mkdirSync, openSync, readdirSync, realpathSync, statSync, unlinkSync } from 'node:fs';
 import { connect } from 'node:net';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 const LEASE_MS = 24 * 60 * 60 * 1000;
 
@@ -78,9 +83,39 @@ const relay = (message) => {
   return message;
 };
 
+/** The channel's socket path for `given`, or an Error naming a refused per-user directory. */
+const channelAddress = (given) => {
+  let real;
+  try {
+    real = realpathSync(given);
+  } catch {
+    real = resolve(given);
+  }
+  const inCheckout = `${real.replace(/\/+$/, '')}/.plot/fleet.sock`;
+  if (Buffer.byteLength(inCheckout) <= 103) return inCheckout;
+  const uid = process.getuid();
+  const dir = `/tmp/plot-${uid}`;
+  const address = `${dir}/${createHash('sha256').update(real).digest('hex').slice(0, 16)}.sock`;
+  let stat;
+  try {
+    stat = lstatSync(dir);
+  } catch {
+    return address;
+  }
+  if (stat.isSymbolicLink() || !stat.isDirectory() || stat.uid !== uid || (stat.mode & 0o077) !== 0) {
+    return new Error(`refusing the channel directory ${dir}: not a directory that uid ${uid} alone owns`);
+  }
+  return address;
+};
+
 prune();
 
-const socket = connect(join(root, '.plot', 'fleet.sock'));
+const address = channelAddress(root);
+if (address instanceof Error) {
+  console.error(address.message);
+  process.exit(2);
+}
+const socket = connect(address);
 socket.setEncoding('utf8');
 socket.on('connect', () => {
   socket.write(`${JSON.stringify({ subscriber: 'plot-follow', purpose: { kind: 'everything' } })}\n`);

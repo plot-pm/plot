@@ -88,3 +88,19 @@ describe('startEventHub onClients', () => {
     expect(counts).toEqual([1, 0]);
   });
 });
+
+describe('startEventHub with no socket path', () => {
+  it('subscribes to nothing, reads an absent snapshot, and still holds streams', () => {
+    const counts: number[] = [];
+    const lines: string[] = [];
+    hub = startEventHub({ address: null, log: (line) => lines.push(line), onClients: (count) => counts.push(count) });
+    const a = fakeStream();
+    hub.attach(a.req, a.res);
+    expect(hub.link()).toBe('unknown');
+    expect(hub.snapshotLink()).toEqual({ state: 'absent' });
+    expect(hub.snapshot()).toBeUndefined();
+    a.close();
+    expect(counts).toEqual([1, 0]);
+    expect(lines).toEqual([]);
+  });
+});

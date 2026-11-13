@@ -19,7 +19,7 @@ import {
   type RepairRole,
 } from '../rules/repair-pr.js';
 import { sameCommit } from '../rules/same-commit.js';
-import { isSyncPr, syncPathVerdict } from '../rules/state-sync.js';
+import { isSyncPr, mayBeSyncPr, syncPathVerdict, type UnreadSyncGate } from '../rules/state-sync.js';
 import type { StateWriteTarget } from '../rules/write-target.js';
 import { RELEASE_BRANCH } from '../rules/release-branch.js';
 import { type Caller, type Outcome, decide, refuse } from './decision.js';
@@ -46,6 +46,7 @@ export type MergeRefusal =
   | 'release-pr'
   | 'sync-path-outside-set'
   | 'sync-diff-unread'
+  | 'sync-gate-unread'
   | Exclude<RepairMergeRefusal, 'unaskable'>;
 
 /** What `merge` reads. Every reading is the host's, taken fresh for this call. */
@@ -89,9 +90,10 @@ export interface MergeReadings {
   /**
    * The changed paths of a sync PR and the set they must lie in. Present only
    * where the PR runs from the state branch to the default branch; absent for
-   * every other PR and for a repository with no state key.
+   * every other PR and for a repository with no state key. `'unknown'` where
+   * the gate is unread and the PR could be a sync PR.
    */
-  readonly sync?: { readonly files: readonly string[] | 'unknown'; readonly set: readonly string[] };
+  readonly sync?: { readonly files: readonly string[] | 'unknown'; readonly set: readonly string[] } | 'unknown';
 }
 
 /** What the caller asks for. */
@@ -244,6 +246,9 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
   if (!sameCommit(pr.headSha, input.sha, input.minHexLen)) {
     return no('head-moved', `the head of PR #${input.pr} is ${short(pr.headSha)}; the caller read ${short(input.sha)}. Re-read the checks for the new head.`);
   }
+  if (readings.sync === 'unknown') {
+    return no('sync-gate-unread', `the state branch key or the default branch could not be read, and PR #${input.pr} could be a sync PR. An unread gate is not an open one; nothing was merged.`);
+  }
   if (readings.sync !== undefined) {
     const verdict = syncPathVerdict(readings.sync.files, readings.sync.set);
     if (!verdict.ok) {
@@ -357,14 +362,15 @@ export interface MergePorts {
   /**
    * The state branch's sync PR gate. Absent where no state key is declared, so
    * `mergeAt` behaves as before. `diff(sha)` returns the paths the PR changes
-   * at the pinned head, or `'unknown'`.
+   * at the pinned head, or `'unknown'`. An {@link UnreadSyncGate} where the key
+   * or the default branch could not be read.
    */
   stateSync?: {
     target: StateWriteTarget;
     pathSet: readonly string[];
     defaultBranch: string;
     diff: (sha: string) => Promise<readonly string[] | 'unknown'>;
-  };
+  } | UnreadSyncGate;
 }
 
 /**
@@ -455,8 +461,9 @@ export const mergeAt = async (
     : undefined;
   const lookedPr = lookup.ok ? lookup.value : null;
   const gate = ports.stateSync;
-  const sync = gate !== undefined && lookedPr !== null && isSyncPr(lookedPr, gate.target, gate.defaultBranch)
-    ? { files: await gate.diff(sha), set: gate.pathSet }
+  const sync = gate === undefined || lookedPr === null ? undefined
+    : 'unread' in gate ? (mayBeSyncPr(lookedPr, gate) ? 'unknown' as const : undefined)
+    : isSyncPr(lookedPr, gate.target, gate.defaultBranch) ? { files: await gate.diff(sha), set: gate.pathSet }
     : undefined;
   const outcome = merge(
     {

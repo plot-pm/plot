@@ -50,6 +50,8 @@ export const StoryRecordSchema = z.object({
   designDocs: z.array(z.string()).readonly(),
   hasOpenPoints: z.boolean(),
   hasSessionLog: z.boolean(),
+  /** The plan slugs the story's plan table names, as `storyPlanTableSlugs` reads them. */
+  tablePlans: z.array(z.string()).readonly(),
 });
 export type StoryRecord = z.infer<typeof StoryRecordSchema>;
 

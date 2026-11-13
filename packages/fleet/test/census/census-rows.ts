@@ -16,7 +16,7 @@ export type CensusRow =
  * then P6 from `docs/plans/2026-11-09-liveness-token.md`, which retires P1,
  * then D1 from `docs/plans/2026-11-09-node-worker-wrapper.md`,
  * then P7, P8, P9 and S8 from `docs/plans/2026-11-10-triggers-replace-the-tick.md`,
- * then P11 from `docs/plans/2026-11-10-bitbucket-and-jira-read-in-process.md`.
+ * then P10 and P11 from `docs/plans/2026-11-10-bitbucket-and-jira-read-in-process.md`.
  * A zero row is written as `it.fails` until the plan and slice it names turn
  * it green; that slice sets `green: true` and changes the row to `it`.
  */
@@ -105,6 +105,14 @@ export const CENSUS_ROWS = {
     unit: 'execve per pass',
     target: 'zero',
     greenBy: { plan: 'github-reads-in-process', slice: 'Cutover' },
+    green: true,
+  },
+  P10: {
+    id: 'P10',
+    claim: 'an idle fleetd pass on Bitbucket starts no plot-host.sh pr-list and no bb',
+    unit: 'execve per pass',
+    target: 'zero',
+    greenBy: { plan: 'bitbucket-and-jira-read-in-process', slice: 'Bitbucket cutover' },
     green: true,
   },
   P6: {

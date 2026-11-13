@@ -1133,13 +1133,13 @@ if [ "$mode" = "start" ] || [ "$mode" = "restart" ]; then
   if [ "$mode" = restart ]; then
     old_pid=$(supervisor_pid)
     reload=$(node "$script_dir/board/plot-fleetctl-start.mjs" reload "$LABEL" "$plat" "$UNIT_NAME") || exit 1
+    # A failed reload is reported with its own exit code, and no pid is polled. `$?` expands before `$(read_cmd)` runs.
     # shellcheck disable=SC2086 # the command's words, split on purpose
-    $reload
+    $reload || exec node "$script_dir/board/plot-fleetctl-start.mjs" reload-failed "$LABEL" "$?" "$reload" "$(read_cmd)"
     pid_unchanged() { new_pid=$(supervisor_pid); [ "${new_pid:-$old_pid}" = "$old_pid" ]; }
     poll_while pid_unchanged
-    [ "$agents" = 0 ] && exec node "$script_dir/board/plot-fleetctl-start.mjs" restarted "$LABEL" "$old_pid" "$new_pid" "$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null)" "$wait_bound" "$(read_cmd)"
     node "$script_dir/board/plot-fleetctl-start.mjs" restarted "$LABEL" "$old_pid" "$new_pid" "$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null)" "$wait_bound" "$(read_cmd)" || exit 1
-    agents_pass
+    [ "$agents" = 0 ] || agents_pass
     exit 0
   fi
 
