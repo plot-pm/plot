@@ -13,6 +13,8 @@ export interface SafetyNetWorld {
   now: () => number;
   /** Receives each log line. */
   write: (line: string) => void;
+  /** Called after a landed scan whose drain named at least one reading. */
+  drained?: () => void;
 }
 
 /** The running safety net: the scan wrapper, the record it hands the scan, and what the heartbeat reports. */
@@ -86,6 +88,7 @@ export const startSafetyNet = (world: SafetyNetWorld): SafetyNet => {
       if (!landed) watchSet?.requeue(named, remote);
     }
     if (!landed) return;
+    if (named.length > 0) world.drained?.();
     if (watchSet !== null) {
       const found = missedChanges(held, fresh, [...named, ...watchSet.pending()]);
       for (const change of found) world.write(missedChangeLine(change));
