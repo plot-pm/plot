@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** ship-2-32-0
 - **Issue:** #3246
@@ -18,6 +18,7 @@
 - **Started:** 2026-11-10, Jan Wloka, `feature/sprint-work-records-the-ticket-it-opened`
 - **Started:** 2026-11-10, Jan Wloka, `feature/the-release-line-counts-tickets`
 - **Started:** 2026-11-11, Jan Wloka, `feature/loose-ends-show-under-unblock`
+- **Delivered:** 2026-11-13
 
 ## Changelog
 
