@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
@@ -195,6 +195,52 @@ export const manifestDir = async (context: ShellContext, override?: string): Pro
       return (answer.ok ? answer.value.trim() : '') || MANIFEST_DIR;
     })());
   return isAbsolute(configured) ? configured : join(context.repoRoot, configured);
+};
+
+/**
+ * The `base` field of the manifest whose `worktree` is the given desk.
+ *
+ * The dispatcher, the supervisor's hand-over and a restart record `base` for
+ * a slice cut from a sprint branch, without `origin/`. Paths are compared
+ * after `realpath`.
+ *
+ * @param context - the repository and where its helper scripts live.
+ * @param worktree - the desk's root, absolute.
+ * @param override - the registry directory, already resolved; absent, it is
+ *   read from the `Agent registry` key.
+ * @returns the recorded base; `''` where no manifest names the desk or the
+ *   manifest records none; a failed result where the registry cannot be listed.
+ */
+export const manifestBaseOf = async (context: ShellContext, worktree: string, override?: string): Promise<PortResult<string>> => {
+  const real = (path: string): string => {
+    try {
+      return realpathSync(path);
+    } catch {
+      return path;
+    }
+  };
+  const dir = await manifestDir(context, override);
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return failed<string>();
+  }
+  const desk = real(worktree);
+  for (const name of names.filter((each) => each.endsWith('.json')).sort()) {
+    const text = fileOrNull(join(dir, name));
+    if (text === null) continue;
+    try {
+      const raw: unknown = JSON.parse(text);
+      if (raw === null || typeof raw !== 'object') continue;
+      const o = raw as Record<string, unknown>;
+      const at = readText(o.worktree);
+      if (at !== '' && real(at) === desk) return answered(readText(o.base).trim());
+    } catch {
+      /* an unparseable manifest names no desk */
+    }
+  }
+  return answered('');
 };
 
 /** What a caller may resolve for itself rather than have this adapter ask. */
