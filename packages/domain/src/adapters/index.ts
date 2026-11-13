@@ -277,6 +277,12 @@ export { transcriptFs, type TranscriptFsOptions } from './transcript/transcript-
 export { transcriptFixture, type TranscriptFixture } from './transcript/transcript-fixture.js';
 
 export {
+  bindableChannelAddress,
+  channelAddressFor,
+  type ChannelAddressOptions,
+} from './channel/channel-address.js';
+
+export {
   startChannel,
   type ChannelOptions,
   type RunningChannel,
