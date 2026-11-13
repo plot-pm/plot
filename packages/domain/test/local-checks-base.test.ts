@@ -112,6 +112,19 @@ describe('baseLine', () => {
     );
   });
 
+  it('names an unread candidate, counts commits in the plural, and lists no others where none exist', () => {
+    const candidates = [
+      { branch: 'main', ahead: 3 },
+      { branch: 'sprint/s', ahead: null },
+    ];
+    expect(baseLine({ base: 'main', reason: 'nearest', ahead: 3 }, candidates)).toBe(
+      '# base: origin/main (nearest: HEAD is 3 commits past it; sprint/s unread)',
+    );
+    expect(baseLine({ base: 'main', reason: 'nearest', ahead: 2 }, [{ branch: 'main', ahead: 2 }])).toBe(
+      '# base: origin/main (nearest: HEAD is 2 commits past it)',
+    );
+  });
+
   it('names the reason for a flag, a manifest and an unread choice', () => {
     expect(baseLine({ base: 'main', reason: 'flag', ahead: null }, [])).toBe('# base: origin/main (the --base argument)');
     expect(baseLine({ base: 'sprint/s', reason: 'manifest', ahead: null }, [])).toBe('# base: origin/sprint/s (the desk manifest records it)');
