@@ -52,6 +52,7 @@ const REASON_WORDS: Record<string, string> = {
   'fleet-stuck': 'the fleet cannot pass the gate alone',
   'merge-conflict': 'the PR conflicts and no agent works on it',
   'agent-died': 'the agent died and left the slice unbuilt',
+  loose: 'no plan names it and nobody works on it',
   'ticket-assigned': 'a ticket is assigned to you and no plan names it',
 };
 

@@ -261,3 +261,75 @@ describe('release lines', () => {
       .toEqual(['0 of 0 slices delivered · 0 held at gates · 0 blocked']);
   });
 });
+
+describe('deliveryMapping loose ends', () => {
+  const loose = (rows: AgentRow[], agents: RegistryAgent[] = []) =>
+    deliveryMapping(input({ rows, agents })).readings.items[0]!.loose;
+  // The two states the planless loops in `rowsFromPulse` build, and the worker they state.
+  const wip = { state: 'wip', worker: 'elsewhere', group: 'quiet' };
+  const claimed = { state: 'claimed', worker: 'elsewhere', group: 'quiet' };
+
+  it('reads a planless wip branch with no desk and no agent as named false and held false', () => {
+    expect(loose([row({ branch: 'feature/x', ...wip, desk: false })])).toEqual({ named: false, held: false });
+  });
+
+  it('reads a claimed planless branch with no desk as not held: a claim nobody holds is what release gives up', () => {
+    expect(loose([row({ branch: 'feature/x', ...claimed, desk: false })])).toEqual({ named: false, held: false });
+  });
+
+  it('reads a branch a registry agent names as held', () => {
+    expect(loose([row({ branch: 'feature/x', ...wip, desk: false })], [agent({ branch: 'feature/x' })])).toMatchObject({ held: true });
+  });
+
+  it('reads a branch with a desk on this machine as held', () => {
+    expect(loose([row({ branch: 'feature/x', ...wip, desk: true })])).toMatchObject({ held: true });
+  });
+
+  it('reads a branch with a running worker as held', () => {
+    expect(loose([row({ branch: 'feature/x', ...wip, worker: 'running', desk: false })])).toMatchObject({ held: true });
+  });
+
+  it('leaves held absent where the desk was not read and nothing else holds the branch', () => {
+    expect(loose([row({ branch: 'feature/x', ...wip })])).toEqual({ named: false });
+  });
+
+  it('reads a branch a plan names as named', () => {
+    expect(loose([row({ branch: 'feature/x', plan: 'p', kind: 'pr-link', ...wip })])).toMatchObject({ named: true });
+  });
+
+  it('leaves a PR with no fixer record read without a loose reading', () => {
+    expect(loose([row({ branch: 'feature/x', kind: 'pr', pr: pr({ ciChecks: 'green' }), ...wip, desk: false })])).toBeUndefined();
+  });
+
+  it('carries the fixer mark of a PR whose record was read', () => {
+    const open = { branch: 'feature/x', kind: 'pr', pr: pr({ ciChecks: 'green' }), ...wip, desk: false };
+    expect(loose([row({ ...open, fixerInFlight: true })])).toEqual({ named: false, held: false, fixing: true });
+    expect(loose([row({ ...open, fixerInFlight: false })])).toMatchObject({ fixing: false });
+  });
+
+  it('places a loose wip branch under You > Unblock and a held one elsewhere', () => {
+    const place1 = (over: Record<string, unknown>, agents: RegistryAgent[] = []) =>
+      place(deliveryMapping(input({ rows: [row({ branch: 'feature/x', ...wip, ...over })], agents }))).items[0];
+    expect(place1({ desk: false })).toMatchObject({ section: 'you', group: 'unblock', reason: 'loose' });
+    expect(place1({ ...claimed, desk: false })).toMatchObject({ section: 'you', group: 'unblock', reason: 'loose' });
+    expect(place1({ desk: false }, [agent({ branch: 'feature/x' })])).not.toMatchObject({ reason: 'loose' });
+    expect(place1({ desk: true })).not.toMatchObject({ reason: 'loose' });
+  });
+
+  it('lists a planless branch whose desk was not read as unplaced for unread', () => {
+    const p = place(deliveryMapping(input({ rows: [row({ branch: 'feature/x', ...wip })] })));
+    expect(p.items).toEqual([]);
+    expect(p.unplaced).toContainEqual({ id: 'branch:feature/x', subject: 'item', reason: 'unread' });
+  });
+
+  it('never places changeset-release/main as loose: its row is a release item', () => {
+    const release = row({
+      branch: 'changeset-release/main', kind: 'release', ...wip, desk: false, fixerInFlight: false,
+      pr: pr({ ciChecks: 'green', plotReview: 'absent' }),
+    });
+    const m = deliveryMapping(input({ rows: [release], config: { autoReview: true, correctionBudget: 2 } }));
+    expect(m.readings.items[0]).toMatchObject({ kind: 'release' });
+    expect(m.readings.items[0]!.loose).toBeUndefined();
+    expect(place(m).items.map((i) => i.reason)).not.toContain('loose');
+  });
+});

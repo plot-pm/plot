@@ -247,6 +247,9 @@ describe('the board shows which kind of quiet a row is in', () => {
             branch, plan: '', planFile: '', wave: '', state: 'claimed', group: 'quiet',
             ageMinutes: 4_320, note: 'claimed, no work committed — claimed 3 days ago',
             quietKind: 'orphaned-claim', pr: null,
+            // A desk on this machine holds the branch, so it stays a work item under Queued. With no desk it
+            // is loose and goes to You › Unblock (`loose-ends-show-under-unblock.browser.test.ts`).
+            desk: true,
           })],
         }) as Fleet,
       },

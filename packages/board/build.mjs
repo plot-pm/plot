@@ -20,6 +20,7 @@ import {
   dispatchCommandArtifact,
   continueCommandArtifact,
   restartCommandArtifact,
+  looseDeleteCommandArtifact,
   restartStoppedCommandArtifact,
   deskLoopArtifact,
   prReaderArtifact,
@@ -385,6 +386,7 @@ fs.chmodSync(shippedPrompt, 0o755);
 const shippedDispatchCommand = path.join(here, '../../skills/plot/scripts/board/plot-dispatch-command.mjs');
 const shippedContinueCommand = path.join(here, '../../skills/plot/scripts/board/plot-continue-command.mjs');
 const shippedRestartCommand = path.join(here, '../../skills/plot/scripts/board/plot-restart-command.mjs');
+const shippedLooseDeleteCommand = path.join(here, '../../skills/plot/scripts/board/plot-loose-delete-command.mjs');
 const shippedRestartStoppedCommand = path.join(
   here,
   '../../skills/plot/scripts/board/plot-restart-stopped-command.mjs',
@@ -396,6 +398,8 @@ fs.copyFileSync(continueCommandArtifact, shippedContinueCommand);
 fs.chmodSync(shippedContinueCommand, 0o755);
 fs.copyFileSync(restartCommandArtifact, shippedRestartCommand);
 fs.chmodSync(shippedRestartCommand, 0o755);
+fs.copyFileSync(looseDeleteCommandArtifact, shippedLooseDeleteCommand);
+fs.chmodSync(shippedLooseDeleteCommand, 0o755);
 fs.copyFileSync(restartStoppedCommandArtifact, shippedRestartStoppedCommand);
 fs.chmodSync(shippedRestartStoppedCommand, 0o755);
 

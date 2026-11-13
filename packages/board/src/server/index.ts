@@ -19,6 +19,7 @@ import { dispatchLog, dispatchLogPath, handleDispatch, SLUG_RE } from './dispatc
 import { agentLogDir, isUnderAgentLogDir, migrateAgentLogs, primeWorktreeRoot } from './agent-log.js';
 import { handleContinue } from './continue.js';
 import { handleRestart } from './restart.js';
+import { handleLooseDelete } from './loose-delete.js';
 import { handlePasskeyChallenge, handlePasskeyRegister, handlePasskeyState, handleReleaseApprove } from './passkey.js';
 import { handleClaim } from './claim.js';
 import { handleFleetSettings } from './fleet-settings.js';
@@ -315,6 +316,9 @@ async function handleRequest(
     // The same class of route as /api/continue, and the same guards; the rule is
     // `restartWorker`, asked in restart.ts through `restartBranch`.
     { path: '/api/restart', verb: 'restarting', handle: handleRestart },
+    // POST /api/loose-delete — the remote ref of a branch no plan names and nobody works on,
+    // pinned at refs/plot/reaped first. The rule is `looseDelete`, asked in loose-delete.ts.
+    { path: '/api/loose-delete', verb: 'deleting a loose branch', handle: handleLooseDelete },
     { path: '/api/dispatch', verb: 'dispatching', handle: handleDispatch },
     // POST /api/idea — an issue becomes a Draft plan.
     //

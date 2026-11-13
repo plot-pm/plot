@@ -289,6 +289,12 @@ describe('the STATUS gate readings', () => {
   it('shows a stuck slice with no gate and no question as its reason alone', () => {
     expect(itemRowCells(you('agent-died', 'unblock', ['a']), { plan: 'p' })!.status).toEqual({ value: 'agent died', links: [] });
   });
+
+  it('shows a loose branch as loose, with its last commit, and offers to plan it', () => {
+    const cells = itemRowCells(you('loose', 'unblock', [], 'branch'), { branch: 'feature/x', lastCommit: 'abc1234' })!;
+    expect(cells.status).toEqual({ value: 'loose · abc1234', links: [] });
+    expect(cells.do).toEqual({ value: 'plan ›', links: [{ to: 'action', action: 'create-plan', id: 'slice:a' }] });
+  });
 });
 
 describe('agent rows, the other readings', () => {

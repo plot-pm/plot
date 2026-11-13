@@ -222,6 +222,7 @@ describe('mayRunController', () => {
     'curl -X POST http://localhost:4000/api/release',
     'curl -X POST http://localhost:4000/api/release-approve',
     'curl -X POST http://localhost:4000/api/restart',
+    'curl -X POST http://localhost:4000/api/loose-delete',
   ])('passes %s', (command) => expect(mayRunController(command)).toBe(true));
 
   it.each(['ls -la', 'git commit -m x', 'pnpm test', 'curl http://localhost:4000/api/dispatch'])('skips %s', (command) =>
@@ -242,6 +243,7 @@ describe('controllerInvocation reads plot-ask.mjs and the gated HTTP routes', ()
     ['release', 'curl -X POST http://localhost:4000/api/release'],
     ['release-approve', 'curl -X POST http://localhost:4000/api/release-approve'],
     ['restart', 'curl -X POST http://localhost:4000/api/restart'],
+    ['loose-delete', 'curl -X POST http://localhost:4000/api/loose-delete'],
   ])('answers %s for a POST to its route', (action, command) => expect(controllerInvocation(command)).toBe(action));
 
   it('answers restart for --request POST', () => {
@@ -332,6 +334,7 @@ describe('controllerHttpAction', () => {
     ['release', 'curl -X POST http://localhost:4000/api/release'],
     ['release-approve', 'curl -X POST http://localhost:4000/api/release-approve'],
     ['restart', 'curl -X POST http://localhost:4000/api/restart'],
+    ['loose-delete', 'curl -X POST http://localhost:4000/api/loose-delete'],
   ])('answers %s for a POST to its route', (action, command) => expect(controllerHttpAction(command)).toBe(action));
 
   it('answers null for the plot-ask.mjs script call, which is not an HTTP request', () => {
@@ -366,6 +369,14 @@ describe('finalControllerRefusal', () => {
     expect(text).toContain('POST /api/restart');
     expect(text).toContain(`node ${dir}/board/plot-restart-command.mjs <branch>`);
     expect(text).not.toContain('plot-state-receipt.sh');
+  });
+
+  it('names the board button and the loose-delete bundle for loose-delete, with no receipt bypass', () => {
+    const text = finalControllerRefusal('loose-delete', dir);
+    expect(text).toContain('POST /api/loose-delete');
+    expect(text).toContain(`node ${dir}/board/plot-loose-delete-command.mjs <branch>`);
+    expect(text).not.toContain('plot-state-receipt.sh');
+    expect(text).not.toContain('plot-restart-command');
   });
 });
 

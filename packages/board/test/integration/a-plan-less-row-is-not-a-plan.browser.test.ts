@@ -32,7 +32,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
 const planless = (branch: string): AgentRow => row({
   branch, plan: '', planFile: '', wave: '', state: 'wip', phase: null,
   ageMinutes: 5, waitingDays: null, waitingOn: null, startability: null,
-  note: 'last commit 5 min ago',
+  note: 'last commit 5 min ago', desk: true,
 });
 
 const fleet = (): Fleet => {
@@ -73,8 +73,9 @@ describe('NOT STARTED draws no plan head for rows no plan names', () => {
   };
 
   const section = (page: Page) => page.locator('ul[role="grid"][aria-label^="Not started"]');
-  // A plan-less `wip` branch that no running agent holds is a work item the
-  // placement rule puts in Work items › Queued.
+  // A plan-less `wip` branch that a desk on this machine holds, with no running
+  // agent, is a work item the placement rule puts in Work items › Queued. With no
+  // desk it is loose, and with no desk reading it is unread.
   const queued = (page: Page) => page.locator('ul[role="grid"][aria-label^="Queued"]');
 
   it('renders no nameless plan head or plan group', async () => {

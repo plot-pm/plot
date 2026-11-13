@@ -115,6 +115,7 @@ const REASON_STATUS: Record<YouReason, string> = {
   'fleet-stuck': 'stuck',
   'merge-conflict': 'conflict',
   'agent-died': 'agent died',
+  loose: 'loose',
   'ticket-assigned': 'assigned',
 };
 
@@ -130,6 +131,7 @@ const REASON_DO: Record<YouReason, { verb: string; action: string }> = {
   'fleet-stuck': { verb: 'unblock', action: 'unblock' },
   'merge-conflict': { verb: 'resolve', action: 'resolve-conflict' },
   'agent-died': { verb: 'restart', action: 'restart' },
+  loose: { verb: 'plan', action: 'create-plan' },
   'ticket-assigned': { verb: 'plan', action: 'create-plan' },
 };
 

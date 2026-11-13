@@ -31,6 +31,8 @@ import { RowCell, scrollToAnchor, type LinkHandlers } from './DeliveryRows.js';
 import { detailLines } from '../lib/agent-rows/delivery-link-targets.js';
 import { headerOf, rowFormsOf, switchesOf } from '../lib/agent-rows/delivery-row-facts.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
+import { ReleaseClaimButton } from './ReleaseClaimButton.js';
+import { LooseDeleteButton } from './LooseDeleteButton.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
 import { checkoutHealthStatus } from '@plot-pm/domain/rules/checkout-health';
 import {
@@ -1158,6 +1160,16 @@ export function AgentList({
           item.placement?.section === 'you' ? (
             <li key={`reason-${item.anchor}`} role="row" data-placement-reason={item.placement.reason} className="px-3 pb-1 text-xs text-amber-700 dark:text-amber-500">
               <span role="gridcell">{reasonWords(item.placement.reason)}</span>
+            </li>
+          ) : null,
+          // A loose BRANCH can be released or deleted; a loose PR has neither action (release
+          // refuses any branch with a PR, delete refuses an open one), so it shows none.
+          item.placement?.section === 'you' && item.placement.reason === 'loose' && item.rows[0]?.pr === null ? (
+            <li key={`loose-${item.anchor}`} role="row" data-loose-actions className="flex gap-3 px-3 pb-1">
+              <span role="gridcell" className="flex gap-3">
+                <ReleaseClaimButton branch={item.rows[0].branch} />
+                <LooseDeleteButton branch={item.rows[0].branch} />
+              </span>
             </li>
           ) : null,
           linkLine(`links-${item.anchor}`, item.links, '← agents:'),

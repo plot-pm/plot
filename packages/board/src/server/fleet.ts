@@ -97,6 +97,10 @@ import {
 // names. `slotsFile` is seamed by `PLOT_BUDGET_HOME`, which is how a test moves
 // it, exactly as `budgetFile` is.
 import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
+import { fixerAttemptsFile } from '@plot-pm/domain/adapters/fixer-attempts/fixer-attempts-file';
+import { fixerInFlight } from '@plot-pm/domain/rules/fixer-attempts';
+import type { PortResult } from '@plot-pm/domain';
+import type { Worktree } from '@plot-pm/domain/entities/worktree';
 import { fleetdHeartbeatFile, agentsFs, refsGit, shellContext, treesGit, planStoreRef, planStoreShell, processesFiles, issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { CarriedListing } from '@plot-pm/domain/rules/scan-listing';
@@ -6605,6 +6609,46 @@ export { doubleClaimedBranches };
 const HANDED_NOTE = 'handed over — not taken up yet';
 
 /**
+ * Marks each planless open-PR row with whether a fleetd fixer runs on it now.
+ *
+ * Reads `.plot/state/fixer-attempts/<pr>.json` for those rows alone — the rows the
+ * loose-end rule asks — and leaves every other row untouched. A failed read leaves
+ * the field absent, so the rule reads the row as unplaced rather than as loose.
+ *
+ * @param rows - the derived rows.
+ * @param repoRoot - the repository the records live under.
+ * @returns the rows, with `fixerInFlight` set on each planless open-PR row whose record was read.
+ */
+export const withFixerInFlight = async (rows: readonly AgentRow[], repoRoot: string): Promise<AgentRow[]> => {
+  const store = fixerAttemptsFile(repoRoot);
+  return Promise.all(
+    rows.map(async (row) => {
+      if (row.plan !== '' || row.pr === null || row.state === 'merged' || row.pr.state === 'closed' || row.pr.open === false) return row;
+      const read = await store.read(row.pr.number);
+      return read.ok ? { ...row, fixerInFlight: fixerInFlight(read.value) } : row;
+    }),
+  );
+};
+
+/**
+ * Marks each planless row with whether a worktree on this machine holds its branch.
+ *
+ * A planless row is built from the PR map or the refs, and no worktree is visited
+ * for it, so the loose-end rule has no desk reading without this one. A failed
+ * listing leaves the field absent, and the rule then reads the row as unplaced
+ * rather than as loose.
+ *
+ * @param rows - the derived rows.
+ * @param trees - this machine's worktree listing.
+ * @returns the rows, with `desk` set on each planless row where the listing answered.
+ */
+export const withDesks = (rows: readonly AgentRow[], trees: PortResult<readonly Worktree[]>): AgentRow[] => {
+  if (!trees.ok) return [...rows];
+  const desks = new Set(trees.value.filter((tree) => tree.branch !== '').map((tree) => tree.branch));
+  return rows.map((row) => (row.plan !== '' || row.wave !== '' ? row : { ...row, desk: desks.has(row.branch) }));
+};
+
+/**
  * Every row rewritten to read the hand-over the registry has already recorded.
  *
  * **The rows read the scan; WORKING reads the registry.** A free agent reads its
@@ -8488,7 +8532,7 @@ export async function buildFleet(
   // the result rather than threaded into `rowsFromPulse`, because `entry.agents`
   // is in scope HERE (`refresh` fills it, and the sections and the live count
   // below read it) while that function takes the scan's readings only.
-  const rows = entry.pulse
+  const pulseRows = entry.pulse
     ? withHandOver(rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, prsWithTips,
       entry.branchUrlBase, entry.approvedAt, now, entry.ideaPlans, entry.versions,
       entry.runs,
@@ -8522,6 +8566,7 @@ export async function buildFleet(
       // `ownedFromRow` can answer whose a no-PR row is. See `PlanOwnerFields`.
       fieldsBySlug, entry.claimOnly), entry.agents)
     : [];
+  const rows = withDesks(await withFixerInFlight(pulseRows, opts.repoRoot), await treesFor(opts).list());
 
   // THE SECTIONS, REMEMBERED OR CARRIED FORWARD — the whole of this fix, in the
   // one place that has both the derived rows and the scan's outcome.
