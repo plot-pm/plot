@@ -797,6 +797,25 @@ describe('the sync PR path gate in the review', () => {
     expect(out.lines.join('\n')).toContain('sync-diff-unread');
   });
 
+  it('refuses a PR from the state branch while the default branch is unread, and reviews any other PR', async () => {
+    const unread = { unread: 'default-branch', target, defaultBranch: 'unknown' } as const;
+    const sync = rig(FINDINGS, { prs: [pr({ head: 'plot/state', base: 'main' })] });
+    sync.deps.stateSync = unread;
+    const out = await reviewPr(sync.deps, '7');
+    expect(out.code).toBe(EXIT.refused);
+    expect(out.lines.join('\n')).toContain('sync-gate-unread');
+    expect((await reviewStatusOnly(sync.deps, '7')).lines.join('\n')).toContain('sync-gate-unread');
+    const other = rig(FINDINGS);
+    other.deps.stateSync = unread;
+    expect((await reviewPr(other.deps, '7')).code).toBe(EXIT.ok);
+  });
+
+  it('refuses a PR into the default branch while the State branch key is unread', async () => {
+    const r = rig(FINDINGS, { prs: [pr({ head: 'feature/x', base: 'main' })] });
+    r.deps.stateSync = { unread: 'state-branch-key', target: 'unknown', defaultBranch: 'main' };
+    expect((await reviewPr(r.deps, '7')).lines.join('\n')).toContain('sync-gate-unread');
+  });
+
   it('reviews a sync PR inside the set, and any other PR whatever the diff says', async () => {
     const inside = rig(FINDINGS, { prs: [pr({ head: 'plot/state', base: 'main' })] });
     inside.deps.stateSync = gate(['docs/plans/a.md']);

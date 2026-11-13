@@ -41,6 +41,9 @@ export interface InvalidWriteTarget {
 /** The three answers {@link writeTarget} gives. */
 export type WriteTarget = NoWriteTarget | StateWriteTarget | InvalidWriteTarget;
 
+/** The exit code `plot-state-sync.mjs` and `plot-state-cut.mjs --land` answer where no `State branch` key is declared. */
+export const NO_STATE_BRANCH = 4;
+
 const HEADS = 'refs/heads/';
 
 /** Whether a name is a ref name git accepts, as far as this rule can tell without git. */

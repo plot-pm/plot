@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cutRef, isStateRef, writeTarget, type StateWriteTarget } from '../src/rules/write-target.js';
+import { cutRef, isStateRef, NO_STATE_BRANCH, writeTarget, type StateWriteTarget } from '../src/rules/write-target.js';
 
 const state = (key: string): StateWriteTarget => {
   const target = writeTarget(key, 'main');
@@ -61,5 +61,11 @@ describe('isStateRef', () => {
   it('matches nothing where no key is declared or the branch differs', () => {
     expect(isStateRef('', 'main', 'plot/state')).toBe(false);
     expect(isStateRef('plot/state', 'main', 'plot/other')).toBe(false);
+  });
+});
+
+describe('NO_STATE_BRANCH', () => {
+  it('is the exit code the sync and land entries answer with no key, which the shell reads as 4', () => {
+    expect(NO_STATE_BRANCH).toBe(4);
   });
 });

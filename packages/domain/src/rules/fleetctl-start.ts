@@ -147,6 +147,27 @@ export const reloadCommand = ({ label, platform, unit, uid }: ReloadTarget): rea
   return undefined;
 };
 
+/** A reload command that exited non-zero. */
+export interface ReloadFailure {
+  /** The supervisor's label. */
+  readonly label: string;
+  /** The reload command's exit code, as the shell printed it. */
+  readonly exitCode: string;
+  /** The reload command's words, as run. */
+  readonly command: string;
+  /** The command that reads the job by hand. */
+  readonly readCmd: string;
+}
+
+/**
+ * Reports a reload command that failed, before any pid is polled.
+ *
+ * @param failure - the label, the exit code, the command and the read command.
+ * @returns the report text with no trailing newline.
+ */
+export const reloadFailedReport = ({ label, exitCode, command, readCmd }: ReloadFailure): string =>
+  `plot-fleetctl: the reload of '${label}' failed with exit ${exitCode}: ${command}\n  Read it: ${readCmd}`;
+
 /** The readings taken after the reload. */
 export interface RestartResult {
   /** The supervisor's label. */

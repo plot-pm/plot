@@ -8,6 +8,8 @@ import {
   fleetLiveAt,
   forwardSyncAt,
   openSyncPr,
+  standingConflictAt,
+  SYNC_PR_LIMIT,
   syncPrAt,
   type StateSyncPorts,
   type StateSyncSource,
@@ -23,7 +25,16 @@ const plan = (state: string): string => `# P\n\n## Status\n\nState: ${state}\n`;
 const lines = (n: number) => Array.from({ length: n }, (_, i) => ({ sha: `c${i}`, subject: `s${i}` }));
 
 interface World {
-  prs?: readonly { number: number; head: string; base: string; state: string }[] | 'fail';
+  /** The open PR rows the host lists; a row with no `base` is one the host listed without it. */
+  prs?: readonly { number: unknown; head: string; base?: string; state: string }[] | 'fail';
+  /** How the listing answered where it did not fail; `answered` by default. */
+  listing?: 'partial' | 'unaskable';
+  /** False for a host that ignores `branches` and lists every open PR. */
+  narrows?: boolean;
+  /** The base `prState` names per PR number; `'fail'` for a failed lookup, null for no PR. */
+  bases?: Readonly<Record<number, string | null | 'fail'>>;
+  /** The listing queries the host received. */
+  asked?: unknown[];
   changed?: readonly string[] | 'fail';
   files?: Readonly<Record<string, string>>;
   ahead?: number | 'fail';
@@ -42,7 +53,17 @@ const portsOf = (world: World): StateSyncPorts => {
   const files = world.files ?? {};
   return {
     host: {
-      prList: async () => (world.prs === 'fail' ? failed() : answered((world.prs ?? []) as never)),
+      prListing: async (query) => {
+        world.asked?.push(query);
+        if (world.prs === 'fail') return { answer: 'failed', rows: [], complete: { open: 'possibly-truncated' }, refusal: { kind: 'failed', said: 'x' } };
+        const rows = (world.prs ?? []).filter((row) => world.narrows === false || (query.branches ?? []).includes(row.head)).slice(0, query.limit);
+        return { answer: world.listing ?? 'answered', rows, complete: { open: 'possibly-truncated' }, refusal: null };
+      },
+      prState: async (ref) => {
+        const base = world.bases?.[ref as number];
+        if (base === 'fail') return failed();
+        return answered(base === null || base === undefined ? null : ({ number: ref, base } as never));
+      },
       prCreate: async (req) => {
         world.created?.push(req.head);
         if (world.fail?.includes('create')) return failed();
@@ -233,6 +254,60 @@ describe('the readings', () => {
     expect(await openSyncPr(portsOf({ prs }).host, source())).toBe(3);
     expect(await openSyncPr(portsOf({ prs: [] }).host, source())).toBeNull();
     expect(await openSyncPr(portsOf({ prs: 'fail' }).host, source())).toBe('unknown');
+  });
+
+  it('asks the host for the open PRs whose head is the state branch', async () => {
+    const asked: unknown[] = [];
+    await openSyncPr(portsOf({ prs: [], asked }).host, source());
+    expect(asked).toEqual([{ state: 'open', branches: ['plot/state'], limit: SYNC_PR_LIMIT }]);
+  });
+
+  it('finds the sync PR among more open PRs than one page holds', async () => {
+    const others = Array.from({ length: 150 }, (_, i) => ({ number: i + 10, head: `feature/f${i}`, base: 'main', state: 'OPEN' }));
+    const prs = [...others, { number: 3, head: 'plot/state', base: 'main', state: 'OPEN' }];
+    expect(await openSyncPr(portsOf({ prs }).host, source())).toBe(3);
+  });
+
+  it('reads the base from the PR itself where the listing names none', async () => {
+    const prs = [{ number: 4, head: 'plot/state', state: 'OPEN' }, { number: 3, head: 'plot/state', state: 'OPEN' }];
+    expect(await openSyncPr(portsOf({ prs, bases: { 4: 'develop', 3: 'main' } }).host, source())).toBe(3);
+    expect(await openSyncPr(portsOf({ prs, bases: { 4: null, 3: 'fail' } }).host, source())).toBe('unknown');
+    expect(await openSyncPr(portsOf({ prs, bases: {} }).host, source())).toBeNull();
+  });
+
+  it('skips a row with no PR number, and a row the host lists as not open', async () => {
+    expect(await openSyncPr(portsOf({ prs: [{ number: 'x', head: 'plot/state', base: 'main', state: 'OPEN' }] }).host, source())).toBeNull();
+    expect(await openSyncPr(portsOf({ prs: [{ number: 5, head: 'plot/state', base: 'main', state: 'CLOSED' }] }).host, source())).toBeNull();
+  });
+
+  it('reads a partial or unaskable listing as unknown, never as no PR', async () => {
+    expect(await openSyncPr(portsOf({ prs: [], listing: 'partial' }).host, source())).toBe('unknown');
+    expect(await openSyncPr(portsOf({ prs: [], listing: 'unaskable' }).host, source())).toBe('unknown');
+  });
+
+  it('reads a full page with no sync PR as unknown, where the host did not narrow by head', async () => {
+    const prs = Array.from({ length: SYNC_PR_LIMIT + 5 }, (_, i) => ({ number: i + 10, head: `feature/f${i}`, base: 'main', state: 'OPEN' }));
+    expect(await openSyncPr(portsOf({ prs, narrows: false }).host, source())).toBe('unknown');
+    expect(await openSyncPr(portsOf({ prs: prs.slice(0, 5), narrows: false }).host, source())).toBeNull();
+  });
+
+  it('answers no PR for a state ref that is not a branch, and asks nothing', async () => {
+    const asked: unknown[] = [];
+    expect(await openSyncPr(portsOf({ prs: [], asked }).host, source('refs/plot/state'))).toBeNull();
+    expect(asked).toEqual([]);
+  });
+});
+
+describe('standingConflictAt', () => {
+  const t = stateTarget('plot/state');
+  it('names the recorded files while both tips are the ones the record met', async () => {
+    const known = { defaultTip: 'd1', stateTip: 's1', files: ['docs/plans/a.md'] };
+    expect(await standingConflictAt(portsOf({}).refs, t, known)).toEqual(['docs/plans/a.md']);
+    expect(await standingConflictAt(portsOf({}).refs, t, { ...known, defaultTip: 'd0' })).toEqual([]);
+  });
+  it('names none where nothing is recorded or a tip could not be read', async () => {
+    expect(await standingConflictAt(portsOf({}).refs, t, null)).toEqual([]);
+    expect(await standingConflictAt(portsOf({ fail: ['resolve'] }).refs, t, { defaultTip: 'd1', stateTip: 's1', files: ['x'] })).toEqual([]);
   });
 });
 

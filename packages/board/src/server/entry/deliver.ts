@@ -25,6 +25,7 @@ import { sprintOfPlan, type SprintFile } from '@plot-pm/domain/rules/sprint-memb
 import { indexSymlinkPlacement } from '@plot-pm/domain/rules/index-symlink';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
 import { trackerReportOf } from '@plot-pm/domain/rules/issue-status';
+import { NO_STATE_BRANCH } from '@plot-pm/domain/rules/write-target';
 import { deliverabilityOf, type DeliverabilityPorts } from '../controllers/deliverability.js';
 import { tellTrackerAbout } from './release-tracker.js';
 import {
@@ -215,9 +216,6 @@ const resolveMain = async (repoRoot: string, scripts: Scripts): Promise<string> 
   const hostedTrimmed = hosted.ok ? hosted.value.trim() : '';
   return hostedTrimmed !== '' ? hostedTrimmed : 'main';
 };
-
-/** The exit code `plot-state-sync.mjs` answers where no `State branch` key is declared. */
-const NO_STATE_BRANCH = 4;
 
 /**
  * Where a delivery's booking worktree goes, and the booking branch it holds.
