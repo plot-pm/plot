@@ -244,12 +244,9 @@ describe('the board shows which kind of quiet a row is in', () => {
         fleet: buildFleet({
           ...envelope(),
           rows: [buildRow({
-            branch, plan: '', planFile: '', wave: '', state: 'claimed', group: 'quiet',
+            branch, plan: '', planFile: '', wave: '', state: 'claimed', group: 'quiet', desk: false,
             ageMinutes: 4_320, note: 'claimed, no work committed — claimed 3 days ago',
             quietKind: 'orphaned-claim', pr: null,
-            // A desk on this machine holds the branch, so it stays a work item under Queued. With no desk it
-            // is loose and goes to You › Unblock (`loose-ends-show-under-unblock.browser.test.ts`).
-            desk: true,
           })],
         }) as Fleet,
       },
@@ -263,14 +260,17 @@ describe('the board shows which kind of quiet a row is in', () => {
           body: JSON.stringify({ branch, released: true, hadClaim: true, detail: 'claim released' }),
         });
       });
-      const toggle = page.locator('[data-group-toggle="queued"]');
+      // No desk, manifest or worker holds the claim, so it is loose: You › Unblock.
+      const toggle = page.locator('[data-group-toggle="unblock"]');
       await toggle.waitFor({ timeout: 10_000 });
       if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
       await expandAgentFolds(page);
       const li = rowFor(page, branch);
       await expect.poll(() => li.textContent()).toContain('unclaimed');
       await li.locator('[data-row-actions]').click();
-      const release = page.locator('[data-release-claim]');
+      // A loose row also carries Release claim in its own actions line, so the
+      // menu's button is the one this asks about.
+      const release = page.locator('[role="menu"] [data-release-claim]');
       await release.waitFor({ timeout: 5_000 });
       await release.click();
       await release.click();
