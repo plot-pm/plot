@@ -183,6 +183,12 @@ describe('storyRecordOf', () => {
     expect(story.objective.length).toBeLessThanOrEqual(201);
   });
 
+  it('reads the plan slugs the story\'s plan table names, files or not', () => {
+    const text = '# Head\n\n## Plans\n\n| Plan | State |\n|------|-------|\n| written | Approved |\n| not-yet-written | Draft |\n';
+    expect(storyRecordOf(text, 's', 'p', [], 'jira').tablePlans).toEqual(['written', 'not-yet-written']);
+    expect(storyRecordOf('no table', 's', 'p', [], 'jira').tablePlans).toEqual([]);
+  });
+
   it('reads an unadmitted status and falls back to the heading, then to the slug', () => {
     expect(storyRecordOf('---\nstatus: archived\n---\n# Head\n', 's', 'p', [], 'jira')).toMatchObject({ status: UNADMITTED_STATE, title: 'Head', issue: '' });
     expect(storyRecordOf('no front matter', 's', 'p', [], 'jira')).toMatchObject({ status: '', title: 's', objective: '', design: '' });
