@@ -281,6 +281,18 @@ describe('a host that answers', () => {
     expect(await host.prState(7)).toMatchObject({ ok: true, value: { checks: 'unknown' } });
   });
 
+  it('reads the rollup items pr-state reports as the PR\'s check runs, and leaves them absent where none are reported', async () => {
+    const host = hostShell(hostThat(
+      'printf \'{"number":7,"state":"OPEN","checks":"green","checkRuns":[{"name":"build","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"validate"}]}\'',
+    ));
+    expect(await host.prState(7, { withChecks: true })).toMatchObject({ ok: true, value: { checkRuns: [
+      { name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' },
+      { name: 'validate', status: '', conclusion: '' },
+    ] } });
+    const none = await hostShell(hostThat('printf \'{"number":7,"state":"OPEN","checks":"unknown"}\'')).prState(7);
+    expect(none.ok && none.value !== null && 'checkRuns' in none.value).toBe(false);
+  });
+
   it('answers the merged question with each of its three words', async () => {
     for (const word of ['merged', 'not-merged', 'unknown'] as const) {
       const answer = await hostShell(hostThat(`echo ${word}`)).prMerged('some/branch');

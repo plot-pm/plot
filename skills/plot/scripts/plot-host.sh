@@ -727,7 +727,9 @@ MERGEABLE_OF='def mergeable_of: if .mergeable == "CONFLICTING" or .mergeable == 
 
 # THE ONE PROJECTION of a GraphQL-shaped PR into `pr-state`'s printed line, read by
 # the GraphQL arm and by `rest_pr_state`, so the two transports print one shape.
-PR_STATE_OF='{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // ""),head:(.headRefName // ""),headSha:(.headRefOid // ""),base:(.baseRefName // ""),checks:checks_of,ciChecks:ci_checks_of,checksSha:(.headRefOid // ""),mergeable:mergeable_of,mergedAt:(.mergedAt // "")}'
+# `checkRuns` carries every rollup item unfolded, so the merge controller can
+# require a named check (`Merge checks`) that the folded `checks` word cannot see.
+PR_STATE_OF='{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // ""),head:(.headRefName // ""),headSha:(.headRefOid // ""),base:(.baseRefName // ""),checks:checks_of,ciChecks:ci_checks_of,checkRuns:[.statusCheckRollup[]? | {name:(.name // .context // ""),status:(.status // .state // ""),conclusion:(.conclusion // "")}],checksSha:(.headRefOid // ""),mergeable:mergeable_of,mergedAt:(.mergedAt // "")}'
 
 # Exit 5 — the host refused to answer FOR NOW. A rate limit, primary or
 # secondary: nothing is broken, nothing needs fixing, and the same question

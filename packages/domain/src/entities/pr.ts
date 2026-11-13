@@ -32,6 +32,22 @@ export type Mergeability = z.infer<typeof MergeabilitySchema>;
 export const ChecksSchema = z.enum(['green', 'pending', 'failing', 'none', 'unknown']);
 export type Checks = z.infer<typeof ChecksSchema>;
 
+/**
+ * One item of a PR's check rollup on its head, in the host's own words.
+ *
+ * A check run carries its `name`, its `status` and, once completed, its
+ * `conclusion`. A status context carries its context as `name`, its state as
+ * `status`, and `''` as `conclusion`.
+ */
+export interface CheckRun {
+  /** The check run's name, or the status context. */
+  readonly name: string;
+  /** The check run's status (`QUEUED`, `IN_PROGRESS`, `COMPLETED`), or the status context's state. */
+  readonly status: string;
+  /** The check run's conclusion (`SUCCESS`, `FAILURE`), or `''` where it has none. */
+  readonly conclusion: string;
+}
+
 /** The review verdict; informational only, and `''` when there is none. */
 // plot-state: reading — the newest verdict the host reports. A reviewer may
 //                       replace it with any other at any time, in any order.
@@ -96,6 +112,11 @@ export interface Pr {
    * the host reports none (REST transport, Bitbucket). Absent is not `none`.
    */
   ciChecks?: Checks;
+  /**
+   * Every item of the check rollup on `checksSha`, or absent where the host
+   * reports none (Bitbucket). Absent is not empty.
+   */
+  checkRuns?: readonly CheckRun[];
 }
 
 /**

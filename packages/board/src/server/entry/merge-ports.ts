@@ -48,6 +48,7 @@ export const mergePortsFor = async (
     repair: repairRecordFile(opts.repoRoot),
     build: await buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
     checks: checkNamesOf(await readConfigAsync(opts, 'Default branch checks', '')),
+    mergeChecks: checkNamesOf(await readConfigAsync(opts, 'Merge checks', '')),
     // No in-process fleetd caller reaches this entrance yet — `PLOT_UNATTENDED`
     // maps to 'unattended', never to 'fleetd'.
     caller,

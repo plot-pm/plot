@@ -241,6 +241,17 @@
 #                       release workflow cannot raise the `default-branch-red`
 #                       hold or the board's red-branch status. Names match a run's
 #                       workflow name exactly. Absent = every workflow's runs.
+#   Merge checks        comma-separated check names (a job's check run or a
+#                       status context, `validate`) that `plot-ask.mjs merge`
+#                       and fleetd's merge arm require to have a completed
+#                       `success` on the pinned head. A named check with no run
+#                       on the head, or a queued or running one, reads
+#                       `pending` and refuses `checks-not-green`. Name the job
+#                       that aggregates the selected jobs: a re-run removes a
+#                       job from the rollup until it runs again, so the rest of
+#                       the rollup can read green without it. Bitbucket reports
+#                       no check runs, so a named check refuses there. Absent =
+#                       no named check is required.
 #   Jenkins instance    the slug or URL passed to a Jenkins CLI's -I flag.
 #                       Read back by /plot-board-setup to verify auth against
 #                       the right instance — without it the only runnable
