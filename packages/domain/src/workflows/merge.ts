@@ -18,6 +18,7 @@ import {
   type RepairMergeRefusal,
   type RepairRole,
 } from '../rules/repair-pr.js';
+import { mergeChecksVerdict } from '../rules/merge-checks.js';
 import { sameCommit } from '../rules/same-commit.js';
 import { isSyncPr, syncPathVerdict } from '../rules/state-sync.js';
 import type { StateWriteTarget } from '../rules/write-target.js';
@@ -125,6 +126,12 @@ export interface MergeInput {
    * holding nothing on a missing reading. fleetd sets this.
    */
   readonly requireReading?: boolean;
+  /**
+   * The check names (`Merge checks`) that must each have a completed `SUCCESS`
+   * on the head, read from `pr.checkRuns` through {@link mergeChecksVerdict}.
+   * Absent or empty requires none.
+   */
+  readonly mergeChecks?: readonly string[];
 }
 
 /** What a passing merge decides, beyond its write. */
@@ -208,6 +215,12 @@ const short = (sha: string | undefined): string =>
  * `default-branch-red`. `default-branch-stale` and `default-branch-unsettled`
  * refuse an admitted PR as they refuse every PR.
  *
+ * `checks-not-green` also guards each name in `input.mergeChecks`: a named
+ * check with no item in `pr.checkRuns`, or with a queued or running item,
+ * reads `pending`, and one that completed without `SUCCESS` reads `failing`.
+ * A rollup reads green over the items it holds, so a job that has no check run
+ * on the head yet is invisible to it.
+ *
  * `review-not-passed` guards the `plot/review` status, re-asked through the
  * host and never folded from the checks rollup — a rollup can read green with
  * `plot/review` absent. It refuses unless `readings.review` answers `success`
@@ -258,6 +271,10 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
   }
   if (pr.checksSha === undefined || pr.checksSha === '' || pr.checksSha !== pr.headSha) {
     return no('checks-unbound', `the green checks of PR #${input.pr} name ${short(pr.checksSha)}, not the head ${short(pr.headSha)}. A green that names no matching commit proves nothing about this head.`);
+  }
+  const named = mergeChecksVerdict(pr.checkRuns, input.mergeChecks ?? []);
+  if (named.read !== 'green') {
+    return no('checks-not-green', `the check '${named.name}' of PR #${input.pr} reads '${named.read}' at ${short(pr.headSha)}: ${named.seen}. Merge when every merge check completed with success on this head.`);
   }
   const review = readings.review;
   const writer = readings.reviewWriter ?? '';
@@ -354,6 +371,8 @@ export interface MergePorts {
   build?: Pick<BuildPort, 'runsForSha'>;
   /** The workflow names `Default branch checks` declares; empty folds every run. */
   checks?: readonly string[];
+  /** See {@link MergeInput.mergeChecks}. Absent requires none. */
+  mergeChecks?: readonly string[];
   /**
    * The state branch's sync PR gate. Absent where no state key is declared, so
    * `mergeAt` behaves as before. `diff(sha)` returns the paths the PR changes
@@ -477,6 +496,7 @@ export const mergeAt = async (
       minHexLen: minHexLenFor(backend.ok ? backend.value : ''),
       requireReading: ports.requireReading,
       viaReleaseApprove,
+      mergeChecks: ports.mergeChecks,
     },
   );
   if (outcome.outcome === 'refused') {

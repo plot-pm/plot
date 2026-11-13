@@ -163,6 +163,36 @@ describe('merge — the controller for a PR merge', () => {
     expect(refusalOf(readings({ pr: pr({ checksSha: OTHER }) }))).toBe('checks-unbound');
   });
 
+  describe('the named merge checks', () => {
+    const run = (name: string, status: string, conclusion = '') => ({ name, status, conclusion });
+    const named = (r: MergeReadings) => merge(r, { pr: 42, sha: HEAD, ...CLOCK, mergeChecks: ['validate'] });
+
+    it('refuses a green rollup with no run of a named check on the head, as pending', () => {
+      // PR #3365, 2026-11-10: a re-run removed `validate` from the check list and every other run read success.
+      const out = named(readings({ pr: pr({ checkRuns: [run('build', 'COMPLETED', 'SUCCESS')] }) }));
+      expect(out).toMatchObject({ outcome: 'refused', reason: 'checks-not-green' });
+      expect(JSON.stringify(out)).toContain(`the check 'validate' of PR #42 reads 'pending' at ${HEAD.slice(0, 12)}: no run`);
+    });
+
+    it('refuses a named check that is still running, and one that completed without success', () => {
+      expect(named(readings({ pr: pr({ checkRuns: [run('validate', 'IN_PROGRESS')] }) }))).toMatchObject({ reason: 'checks-not-green' });
+      const skipped = named(readings({ pr: pr({ checkRuns: [run('validate', 'COMPLETED', 'SKIPPED')] }) }));
+      expect(JSON.stringify(skipped)).toContain(`reads 'failing'`);
+    });
+
+    it('refuses a named check where the host reported no rollup items at all', () => {
+      expect(named(readings())).toMatchObject({ outcome: 'refused', reason: 'checks-not-green' });
+    });
+
+    it('merges where every named check completed with success on the head', () => {
+      expect(named(readings({ pr: pr({ checkRuns: [run('validate', 'COMPLETED', 'SUCCESS')] }) })).outcome).not.toBe('refused');
+    });
+
+    it('requires no named check where none is declared', () => {
+      expect(refusalOf(readings({ pr: pr({ checkRuns: [] }) }))).not.toBe('checks-not-green');
+    });
+  });
+
   it('refuses while the default branch is red', () => {
     expect(refusalOf(readings({ defaultBranch: reading('red') }))).toBe('default-branch-red');
   });
@@ -440,6 +470,13 @@ describe('mergeAt — the workflow wired to its ports', () => {
     const { p, calls } = ports(prFixture());
     p.caller = 'unattended';
     expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'unattended' });
+    expect(calls).toEqual([]);
+  });
+
+  it('passes the declared merge checks to the decision', async () => {
+    const { p, calls } = ports(prFixture({ checkRuns: [{ name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' }] }));
+    p.mergeChecks = ['validate'];
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'checks-not-green' });
     expect(calls).toEqual([]);
   });
 

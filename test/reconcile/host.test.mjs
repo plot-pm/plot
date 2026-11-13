@@ -461,7 +461,7 @@ test('host: pr-state github maps gh --json and normalizes', () => {
   const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(out, {
     number: 7, state: 'OPEN', draft: true, url: 'https://example.test/pr/7', mergeCommit: '',
-    head: '', headSha: '', base: 'main', checks: 'none', ciChecks: 'none', checksSha: '', mergeable: 'unknown', mergedAt: '',
+    head: '', headSha: '', base: 'main', checks: 'none', ciChecks: 'none', checkRuns: [], checksSha: '', mergeable: 'unknown', mergedAt: '',
   });
   assert.deepEqual(argvOf(stubs.ghArgv),
     ['pr', 'view', '7', '--json', 'number,state,isDraft,url,mergeCommit,headRefName,headRefOid,baseRefName,statusCheckRollup,mergeable,mergeStateStatus,mergedAt']);
@@ -534,6 +534,31 @@ test('host: pr-state github names the head and the checks read for it', () => {
       + '"statusCheckRollup":[{"conclusion":"SUCCESS"}]}',
   });
   assert.equal(JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs: green })).checks, 'green');
+});
+
+// The merge controller requires each `Merge checks` name to have a completed
+// success on the head, which the folded word cannot say: a job with no check
+// run yet is absent from the rollup, and the rest of it still reads green.
+test('host: pr-state reports every rollup item as a check run, on both GitHub transports', () => {
+  const sha = 'a'.repeat(40);
+  const graphql = makeStubs({
+    ghJson: `{"number":7,"state":"OPEN","isDraft":false,"url":"u","headRefOid":"${sha}",`
+      + '"statusCheckRollup":[{"name":"build","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"x"},{"context":"plot/review","state":"SUCCESS"}]}',
+  });
+  const out = JSON.parse(run(['pr-state', '7', '--with-checks'], { env: { PLOT_HOST: 'github' }, stubs: graphql }));
+  assert.equal(out.checks, 'green', 'a rollup with no validate item still reads green');
+  assert.deepEqual(out.checkRuns, [
+    { name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' },
+    { name: 'plot/review', status: 'SUCCESS', conclusion: '' },
+  ]);
+  const rest = makeStubsRateAware({
+    graphqlRemaining: 0,
+    coreRemaining: 4997,
+    restJson: JSON.stringify({ number: 7, state: 'open', draft: false, html_url: 'u', merged: false, head: { ref: 'f', sha }, base: { ref: 'main' } }),
+    checkRunsJson: JSON.stringify({ total_count: 1, check_runs: [{ name: 'validate', status: 'in_progress', conclusion: null }] }),
+  });
+  assert.deepEqual(JSON.parse(run(['pr-state', '7', '--with-checks'], { env: { PLOT_HOST: 'github' }, stubs: rest })).checkRuns,
+    [{ name: 'validate', status: 'IN_PROGRESS', conclusion: '' }]);
 });
 
 test("host: pr-state reports the rollup's checks without plot/review", () => {
@@ -995,7 +1020,7 @@ test('host: pr-state bitbucket does not infer mergeable from state or merge_comm
 // The keys a merge reads — the head and the checks read for it — are
 // carried only where the host names a head. Bitbucket cannot pin a merge, so its
 // arm leaves them out and a reader takes absent as not known.
-const MERGE_KEYS = new Set(['headSha', 'checks', 'checksSha', 'ciChecks']);
+const MERGE_KEYS = new Set(['headSha', 'checks', 'checksSha', 'ciChecks', 'checkRuns']);
 const keysOf = (json) => Object.keys(JSON.parse(json)).filter((k) => !MERGE_KEYS.has(k)).sort();
 
 test('host: pr-state returns the same key set on both backends — merged PR', () => {
@@ -6720,7 +6745,7 @@ test('host: pr-state falls back to REST when the GraphQL budget is spent', () =>
   const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(out, {
     number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', head: 'feature/x', headSha: sha, base: 'main',
-    checks: 'green', ciChecks: 'green', checksSha: sha, mergeable: 'mergeable', mergedAt: '',
+    checks: 'green', ciChecks: 'green', checkRuns: [{ name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' }], checksSha: sha, mergeable: 'mergeable', mergedAt: '',
   });
   const calls = callsOf(stubs.callsFile);
   assert.ok(
@@ -7752,7 +7777,7 @@ test('host: the harvested body reaches the caller unchanged', () => {
     stubs,
   });
   assert.deepEqual(JSON.parse(out), {
-    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', head: '', headSha: '', base: 'main', checks: 'none', checksSha: '', ciChecks: 'none',
+    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', head: '', headSha: '', base: 'main', checks: 'none', checksSha: '', ciChecks: 'none', checkRuns: [],
     mergeable: 'unknown', mergedAt: '',
   });
   assert.doesNotMatch(out, /X-Ratelimit|HTTP\//i, 'no header may reach a caller’s parse');

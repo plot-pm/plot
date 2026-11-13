@@ -62,6 +62,7 @@ interface RawPr {
   headSha?: string;
   checksSha?: string;
   ciChecks?: string;
+  checkRuns?: { name?: string; status?: string; conclusion?: string }[];
 }
 
 /** One limit reading as `plot-host.sh` reports it, before it is read as the entity. */
@@ -126,6 +127,7 @@ export const prOf = (raw: RawPr): Pr => ({
   ...(raw.headSha ? { headSha: raw.headSha } : {}),
   ...(raw.checksSha ? { checksSha: raw.checksSha } : {}),
   ...(raw.ciChecks ? { ciChecks: oneOf<Checks>(raw.ciChecks, CHECKS, 'unknown') } : {}),
+  ...(raw.checkRuns ? { checkRuns: raw.checkRuns.map((run) => ({ name: run.name ?? '', status: run.status ?? '', conclusion: run.conclusion ?? '' })) } : {}),
 });
 
 /** Milliseconds in a second — the script reports `reset` in epoch SECONDS. */
