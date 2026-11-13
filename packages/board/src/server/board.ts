@@ -78,6 +78,7 @@ import type { GateContractReader } from '@plot-pm/domain/ports/gate-contract';
 import { SPAWN_CONTRACT } from '@plot-pm/domain/rules/spawn-contract';
 import { writeTarget } from '@plot-pm/domain/rules/write-target';
 import { isSyncHead } from '@plot-pm/domain/rules/state-sync';
+import { standingConflictAt } from '@plot-pm/domain/workflows/state-sync';
 import type { ReaderLock } from '@plot-pm/domain/ports/reader-lock';
 import type { ProcessProbe } from '@plot-pm/domain/ports/process-probe';
 import { people } from './server-info.js';
@@ -3168,9 +3169,10 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs, served?: Boar
   const syncTarget = writeTarget(stateBranch, defaultBranch);
   const syncPr = syncTarget.kind !== 'state' ? null
     : [...(prLinks?.values() ?? [])].find((r) => r.state === 'OPEN' && isSyncHead(r.head, syncTarget))?.number ?? null;
-  // A recorded forward-merge conflict names its files in the lag line; an unread record shows none.
-  const refusal = stateBranch.trim() === '' ? null : await stateSyncFile({ cwd: repoRoot }).refusal();
-  const conflictFiles = refusal !== null && refusal.ok && refusal.value !== null ? refusal.value.files : [];
+  // A recorded forward-merge conflict names its files in the lag line while both recorded tips are current; an unread record or tip shows none.
+  const refusal = syncTarget.kind !== 'state' ? null : await stateSyncFile({ cwd: repoRoot }).refusal();
+  const conflictFiles = syncTarget.kind !== 'state' || refusal === null || !refusal.ok || refusal.value === null ? []
+    : await standingConflictAt(refs, syncTarget, refusal.value);
   const recordFindings = await readRecordFindings(refs, { stateBranch, defaultBranch }, syncPr, conflictFiles);
   return {
     generatedAt: new Date().toISOString(),

@@ -6,6 +6,7 @@ import {
   isSyncHead,
   isSyncPr,
   mayBeSyncPr,
+  standingConflictFiles,
   syncPathSet,
   syncPathVerdict,
   SYNC_PR_MARKER,
@@ -121,6 +122,19 @@ describe('mayBeSyncPr', () => {
   it('names every PR where neither the key nor the default branch was read', () => {
     const gate = { unread: 'state-branch-key', target: 'unknown', defaultBranch: 'unknown' } as const;
     expect(mayBeSyncPr({ head: 'feature/x', base: 'sprint/s' }, gate)).toBe(true);
+  });
+});
+
+describe('standingConflictFiles', () => {
+  const known = { defaultTip: 'd1', stateTip: 's1', files: ['docs/plans/a.md'] };
+  it('names the files while both recorded tips are the current ones', () => {
+    expect(standingConflictFiles(known, 'd1', 's1')).toEqual(['docs/plans/a.md']);
+  });
+  it('names none where either tip moved or is unread, or nothing is recorded', () => {
+    expect(standingConflictFiles(known, 'd2', 's1')).toEqual([]);
+    expect(standingConflictFiles(known, 'd1', 's2')).toEqual([]);
+    expect(standingConflictFiles(known, 'unknown', 'unknown')).toEqual([]);
+    expect(standingConflictFiles(null, 'd1', 's1')).toEqual([]);
   });
 });
 

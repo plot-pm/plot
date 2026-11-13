@@ -59,7 +59,7 @@ export interface StateSyncDeps {
   readonly ctx: LadderContext;
   readonly trees: Trees;
   readonly refs: Refs;
-  readonly host: Pick<Host, 'prList' | 'prCreate' | 'prComment' | 'backend'>;
+  readonly host: Pick<Host, 'prListing' | 'prState' | 'prCreate' | 'prComment' | 'backend'>;
   readonly record: StateSyncRecord;
   readonly lock: Pick<ReaderLock, 'heartbeats'>;
   readonly now: () => number;

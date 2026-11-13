@@ -152,6 +152,18 @@ export interface ForwardRefusal {
   readonly files: readonly string[];
 }
 
+/**
+ * The files of a recorded forward-merge conflict that still stands.
+ *
+ * @param known - the recorded conflict; null for none.
+ * @param defaultTip - the default branch's current tip; `'unknown'` where unread.
+ * @param stateTip - the state ref's current tip; `'unknown'` where unread.
+ * @returns the recorded files where both recorded tips equal the current ones;
+ *   empty otherwise, so a moved or unread tip shows no conflict.
+ */
+export const standingConflictFiles = (known: ForwardRefusal | null, defaultTip: string, stateTip: string): readonly string[] =>
+  known !== null && defaultTip !== 'unknown' && known.defaultTip === defaultTip && known.stateTip === stateTip ? known.files : [];
+
 /** What fleetd read before it decides on a forward merge. */
 export interface ForwardSyncReading {
   /** Commits `origin/<default>` holds that the state ref lacks; null where the count could not be read. */
@@ -191,10 +203,8 @@ export const forwardSync = (reading: ForwardSyncReading): ForwardSyncDecision =>
     return { kind: 'idle', reason: 'unread' };
   }
   if (reading.behind === 0) return { kind: 'idle', reason: 'in-sync' };
-  const known = reading.refused;
-  if (known !== null && known.defaultTip === reading.defaultTip && known.stateTip === reading.stateTip) {
-    return { kind: 'refused', files: known.files };
-  }
+  const standing = standingConflictFiles(reading.refused, reading.defaultTip, reading.stateTip);
+  if (standing.length > 0) return { kind: 'refused', files: standing };
   if (reading.lockHeld !== false) return { kind: 'wait', reason: 'writer-holds-lock' };
   return { kind: 'merge' };
 };
