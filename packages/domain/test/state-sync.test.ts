@@ -5,6 +5,7 @@ import {
   forwardSync,
   isSyncHead,
   isSyncPr,
+  mayBeSyncPr,
   syncPathSet,
   syncPathVerdict,
   SYNC_PR_MARKER,
@@ -102,6 +103,24 @@ describe('isSyncPr', () => {
   });
   it('never matches for a non-branch ref', () => {
     expect(isSyncPr({ head: 'plot/state', base: 'main' }, target('refs/plot/state'), 'main')).toBe(false);
+  });
+});
+
+describe('mayBeSyncPr', () => {
+  it('names only the state branch head where the key was read and the default branch was not', () => {
+    const gate = { unread: 'default-branch', target: target('plot/state'), defaultBranch: 'unknown' } as const;
+    expect(mayBeSyncPr({ head: 'plot/state', base: 'develop' }, gate)).toBe(true);
+    expect(mayBeSyncPr({ head: 'feature/x', base: 'main' }, gate)).toBe(false);
+  });
+  it('names every PR into the default branch where the key was not read', () => {
+    const gate = { unread: 'state-branch-key', target: 'unknown', defaultBranch: 'main' } as const;
+    expect(mayBeSyncPr({ head: 'feature/x', base: 'main' }, gate)).toBe(true);
+    expect(mayBeSyncPr({ head: 'feature/x', base: '' }, gate)).toBe(true);
+    expect(mayBeSyncPr({ head: 'feature/x', base: 'sprint/s' }, gate)).toBe(false);
+  });
+  it('names every PR where neither the key nor the default branch was read', () => {
+    const gate = { unread: 'state-branch-key', target: 'unknown', defaultBranch: 'unknown' } as const;
+    expect(mayBeSyncPr({ head: 'feature/x', base: 'sprint/s' }, gate)).toBe(true);
   });
 });
 

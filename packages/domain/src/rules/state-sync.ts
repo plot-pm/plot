@@ -115,6 +115,36 @@ export const isSyncPr = (pr: SyncPrShape, target: StateWriteTarget, defaultBranc
 export const isSyncHead = (head: string, target: StateWriteTarget): boolean =>
   target.isBranch && `refs/heads/${head}` === target.pushRef;
 
+/**
+ * A sync PR path gate that could not be built, because a read it needs failed.
+ *
+ * It holds what was read, so {@link mayBeSyncPr} can still clear a PR that
+ * plainly does not run from the state branch.
+ */
+export interface UnreadSyncGate {
+  /** The read that failed: the `State branch` key, or the default branch's name. */
+  readonly unread: 'state-branch-key' | 'default-branch';
+  /** The resolved state target; `'unknown'` where the key was not read. */
+  readonly target: StateWriteTarget | 'unknown';
+  /** The default branch's short name; `'unknown'` where it was not read. */
+  readonly defaultBranch: string;
+}
+
+/**
+ * Whether a pull request could be a sync pull request while the gate is unread.
+ *
+ * @param pr - the pull request's head and base branch names; `''` where the host named none.
+ * @param gate - what the gate read.
+ * @returns where the key was read, true only for a head that is the state
+ *   branch; where the key was not read, true for a base that is the default
+ *   branch or unnamed, and true for every PR where the default branch was not
+ *   read either.
+ */
+export const mayBeSyncPr = (pr: SyncPrShape, gate: UnreadSyncGate): boolean => {
+  if (gate.target !== 'unknown') return isSyncHead(pr.head, gate.target);
+  return gate.defaultBranch === 'unknown' || pr.base === '' || pr.base === gate.defaultBranch;
+};
+
 /** A forward-merge conflict a tick met, keyed by the two tips it merged. */
 export interface ForwardRefusal {
   readonly defaultTip: string;
