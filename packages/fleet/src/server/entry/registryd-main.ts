@@ -3133,7 +3133,8 @@ export const run = async (
       scripts,
       spend,
       host: hostReads.host,
-      hostClaimsSlot: hostReads.api !== null,
+      // Both transports claim their own slot per request: `plot-host.sh` in its `gh`/`bb` wrappers.
+      hostClaimsSlot: true,
       store: prIndexFile({ cwd: repoRoot }),
       issueGate: issueGateOf(issueStore),
       record: recordSnapshot,
