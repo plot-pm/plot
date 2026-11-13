@@ -49,6 +49,8 @@ export interface FleetdHeartbeatSource {
   passes: () => Partial<Record<FleetdLoop, number | null>>;
   /** How this process reads the git host; absent where it publishes none. */
   hostTransport?: FleetdHostTransport;
+  /** How this process reads the Jira tracker; absent where the declared tracker is not Jira. */
+  trackerTransport?: FleetdHostTransport;
   /**
    * The watch set's counts, read on every beat. Absent where this process arms no
    * watches; the heartbeat then reports `0`, `0` and `null`.
@@ -108,6 +110,7 @@ export const startFleetdHeartbeat = (
       lastSafetyNetAt: net?.lastSafetyNetAt ?? null,
       ...(net === undefined ? {} : { missedChanges: net.missedChanges }),
       ...(source.hostTransport === undefined ? {} : { hostTransport: source.hostTransport }),
+      ...(source.trackerTransport === undefined ? {} : { trackerTransport: source.trackerTransport }),
       loops,
     };
   };

@@ -48,10 +48,13 @@ import {
   installObjectsReader,
   type RunningChannel,
   hostReadsFor,
+  trackerReadsFor,
   type HostReads,
+  type TrackerReads,
 } from '@plot-pm/domain/adapters';
 import { indexChange, type PrIndexRow, type ScanPlan } from '@plot-pm/domain';
 import { hostTransportLine } from '@plot-pm/domain/rules/host-transport';
+import { trackerTransportLine } from '@plot-pm/domain/rules/tracker-transport';
 import { probeAppKeysAtStart } from '@plot-pm/domain/workflows/app-key-start-probe';
 import { removeStageDirsOnExit } from '@plot-pm/domain/adapters/stage-dirs';
 import { unpushedAfterMerge } from '@plot-pm/domain/workflows/unpushed-after-merge';
@@ -2685,6 +2688,8 @@ export interface RunSeams {
   readIssues?: () => Promise<void>;
   /** The composed GitHub reads; tests only, so no test resolves a real token. */
   hostReads?: HostReads;
+  /** The composed Jira reads; tests only, so no test resolves a real credential. */
+  trackerReads?: TrackerReads;
   /** Replaces the drain of the tracker writes Plot made; tests only. */
   readIssueWrites?: () => Promise<void>;
   /** Replaces the state-sync pass; tests only. */
@@ -2959,6 +2964,19 @@ export const run = async (
     ));
   warn(`plot-fleetd: ${hostTransportLine(hostReads.choice)}\n`);
   const readsApi = hostReads.api ?? undefined;
+  // THE TRACKER'S TRANSPORT IS CHOSEN ONCE, AT START, under the same switch as
+  // the git host's: the idle issue pass reads Jira in-process with credentials
+  // and through `plot-host.sh` otherwise. The line names the reason and the
+  // credential source, never the credential.
+  const declaredTracker = await readConfigAsync({ repoRoot, scriptsDir }, 'Tracker', '');
+  const trackerReads =
+    seams.trackerReads ??
+    trackerReadsFor(
+      { repoRoot, scriptDir: scriptsDir },
+      declaredTracker,
+      await readConfigAsync({ repoRoot, scriptsDir }, 'Ticket prefixes', ''),
+    );
+  if (trackerReads.choice !== null) warn(`plot-fleetd: ${trackerTransportLine(trackerReads.choice)}\n`);
   // ONE MEMO FOR BOTH WORLDS. `tick` reads the supervisor world first, and its
   // `beginTick` clears the memo, so the queue read that follows shares the
   // tick's answers and the next tick asks again.
@@ -3103,9 +3121,10 @@ export const run = async (
   const issueStore = issueIndexFile({ cwd: repoRoot });
   const issueWorld = {
     context: { repoRoot, scriptDir: scriptsDir },
-    declaredTracker: await readConfigAsync({ repoRoot, scriptsDir }, 'Tracker', ''),
+    declaredTracker,
     gitHost: probedHost ?? 'github',
     api: readsApi,
+    ...(trackerReads.jira === null ? {} : { jira: trackerReads.jira }),
     issueStore,
     record: recordSnapshot,
     issueWrites: issueWriteSpoolOver(issueStore),
@@ -3256,6 +3275,7 @@ export const run = async (
           bridgeAt: bridge.bridgeAt,
           generation: seams.snapshotGeneration ?? (() => snapshot.current().generation),
           hostTransport: hostReads.choice,
+          ...(trackerReads.choice === null ? {} : { trackerTransport: trackerReads.choice }),
           observer: () => ({
             watchesWanted: watchSet?.wanted() ?? 0,
             watchesArmed: watchSet?.armed() ?? 0,

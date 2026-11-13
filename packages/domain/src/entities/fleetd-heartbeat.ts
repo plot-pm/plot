@@ -79,6 +79,8 @@ export const FleetdHeartbeatSchema = z
     missedChanges: z.number().int().nonnegative().optional(),
     /** How fleetd reads the git host; absent from a fleetd that publishes none. */
     hostTransport: FleetdHostTransportSchema.optional(),
+    /** How fleetd reads the tracker; absent where the declared tracker is not Jira or fleetd publishes none. */
+    trackerTransport: FleetdHostTransportSchema.optional(),
     /** Each running loop's last completed pass. */
     loops: z.object({
       tick: FleetdLoopPassSchema.optional(),

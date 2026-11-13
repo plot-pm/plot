@@ -39,6 +39,8 @@ export { hostFixture, type HostFixture } from './host/host-fixture.js';
 // default configuration, a repository whose plans ARE the tracker.
 export { trackerGithub } from './tracker/tracker-github.js';
 export { trackerJira } from './tracker/tracker-jira.js';
+export { trackerReadsFor, type TrackerReads, type TrackerReadsOptions } from './tracker/tracker-transport.js';
+export type { JiraInProcess } from './tracker/tracker-jira.js';
 export { trackerNone } from './tracker/tracker-none.js';
 export {
   HOST_ISSUE_LISTERS,
