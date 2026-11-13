@@ -700,7 +700,8 @@ const branchHold = (b: Branch): string | null => {
  *
  * Without `branch` the answer is {@link dispatchReading}'s. With `branch` the
  * answer is `branch` carrying that name where the branch belongs to an eligible
- * slice of the plan and {@link startableBranches} offers it. Otherwise it is
+ * slice of the plan and no hold applies (exactly where {@link startableBranches}
+ * offers it, since `branchHold` covers every state it excludes). Otherwise it is
  * `branch-refused`: `no-pulse-reading` where the pulse holds no dispatchable
  * reading of the plan, `branch-not-in-plan` where no slice of the plan names the
  * branch, and `branch-not-startable` with the reason (the slice's verdict, the
@@ -725,9 +726,7 @@ export const dispatchReadingFor = (
   if (slice === undefined || found === undefined) return refuse('branch-not-in-plan', `${branch} is not a branch of plan ${slug}`);
   const why = slice.verdict === 'eligible' ? branchHold(found) : `its slice "${slice.name}" is ${slice.verdict}`;
   if (why !== null) return refuse('branch-not-startable', `${branch} is not startable: ${why}`);
-  return startableBranches(pulse, slug, new Set()).includes(branch)
-    ? { kind: 'branch', branch }
-    : refuse('branch-not-startable', `${branch} is not startable`);
+  return { kind: 'branch', branch };
 };
 
 /**

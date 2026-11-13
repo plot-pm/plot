@@ -1867,6 +1867,14 @@ describe('dispatchReadingFor — a dispatch that names its branch', () => {
     }
   });
 
+  it('names an unnamed prerequisite where a held branch lists none', () => {
+    const r = read('approved', [slice('w', [['a', 'waiting', []], ['b', 'blocked', ['y']]])]);
+    expect(dispatchReadingFor(r, 'p', 'a')).toEqual(
+      refusal('branch-not-startable', 'a', 'a is not startable: it is held on an unnamed prerequisite'),
+    );
+    expect(dispatchReadingFor(r, 'p', 'b')).toEqual(refusal('branch-not-startable', 'b', 'b is not startable: it is held on y'));
+  });
+
   it('names a branch only where startableBranches would offer it', () => {
     for (const b of ['feature/bitbucket-cutover', 'feature/jira-cutover', 'feature/cleanup', 'feature/bitbucket-read']) {
       const named = dispatchReadingFor(wave4, 'p', b).kind === 'branch';
