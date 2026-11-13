@@ -28,7 +28,7 @@ export {
 } from './plan-store/plan-store-fixture.js';
 
 export { hostShell } from './host/host-shell.js';
-export { hostReadsFor, hostWithListing, IN_PROCESS_BACKENDS, SHELL_CI, type HostReads, type HostReadsBasis, type HostReadsOptions } from './host/host-reads.js';
+export { hostReadsFor, hostWithListing, IN_PROCESS_BACKENDS, SHELL_CI, SHELL_RICH_CI, shellCiOf, type HostReads, type HostReadsBasis, type HostReadsOptions } from './host/host-reads.js';
 export type { GithubApi } from './host/github-api.js';
 export { BITBUCKET_PAGE_LENGTHS, BITBUCKET_REQUEST_PAGELEN, listingPagingFor, walkToLimit } from './host/listing-paging.js';
 export { hostFixture, type HostFixture } from './host/host-fixture.js';

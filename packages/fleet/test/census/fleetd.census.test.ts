@@ -8,10 +8,11 @@ import type { CensusFixture } from './census-report.js';
 import { buildFleetdEntry, type FleetdEntry } from './fleetd-entry-build.js';
 import { startFleetd } from './fleetd-driver.js';
 import { buildSandbox, githubPr, type Sandbox } from './sandbox.js';
+import { BITBUCKET_ROUTE } from './stub-host.js';
 import { censusGate, findStrace } from './strace-run.js';
 import type { ExecRecord, StraceCensus } from './strace-execs.js';
 
-// fleetd per completed pass (S4, S5, S6, S8, P2, P3, P4, P5, P7, P8, P9, P11), counted under `strace -f`
+// fleetd per completed pass (S4, S5, S6, S8, P2, P3, P4, P5, P7, P8, P9, P10, P11), counted under `strace -f`
 // over the census entry, which runs fleetd's `run` in its loop mode on a clock
 // it drives. Pass 1 warms every loop and is never counted; passes 2 and 3 are
 // idle; on the GitHub fixture with desks, pass 4 follows one desk commit (S5)
@@ -94,13 +95,33 @@ const ghReadsLogged = (box: Sandbox): number =>
     : 0;
 
 /**
- * The in-process requests the stub API answered so far. Two once-per-process
- * requests are left out: `GET /user`, which names the token's login, and the
- * search-type introspection, which `gh` keeps in its on-disk cache and so
- * sends at most once a day.
+ * The in-process requests the stub API answered so far. On GitHub two
+ * once-per-process requests are left out: `GET /user`, which names the token's
+ * login, and the search-type introspection, which `gh` keeps in its on-disk
+ * cache and so sends at most once a day. On Bitbucket only the requests under
+ * the Bitbucket route count: the Jira reads share the server.
  */
 const apiReads = (box: Sandbox): number =>
-  (box.api?.requests() ?? []).filter((r) => r.path !== '/user' && !r.body.includes('SearchType_enumValues')).length;
+  (box.api?.requests() ?? []).filter((r) =>
+    box.size.host === 'bitbucket'
+      ? r.path.startsWith(`${BITBUCKET_ROUTE}/`)
+      : r.path !== '/user' && !r.body.includes('SearchType_enumValues'),
+  ).length;
+
+/** The stub `bb api` calls in the stub log so far. */
+const bbApiLogged = (box: Sandbox): number =>
+  existsSync(box.stubLog) ? readFileSync(box.stubLog, 'utf8').split('\n').filter((l) => /^bb api\b/.test(l)).length : 0;
+
+/**
+ * A Bitbucket read P10 counts: a stub `bb api` listing, or `plot-host.sh` asked
+ * for `pr-list`. A per-branch merge question (`pr-merged`: a `bb api` whose
+ * query names `source.branch.name`) and the capability probes the shell runs
+ * before any `bb` call (`bb --version`, `bb pr list --help`) stay on the shell,
+ * as P5 leaves `gh pr list --head` there.
+ */
+const isBitbucketRead = (e: ExecRecord): boolean =>
+  (basename(e.path) === 'bb' && e.argv[1] === 'api' && !e.argv.some((a) => a.includes('source.branch.name'))) ||
+  (basename(e.path) === 'bash' && e.argv.some((a) => a.endsWith('/plot-host.sh')) && e.argv.includes('pr-list'));
 
 /** The stub `curl` calls in the stub log so far: the shell's Jira REST requests. */
 const curlReadsLogged = (box: Sandbox): number =>
@@ -186,42 +207,27 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
       idle.set(label, treeOf(census, between(census.execs, from, label), root));
     }
     // THE BASELINE: the same fixture read through the shell, untraced, so P5
-    // can hold the in-process requests to the `gh` calls they replace.
-    if (fixture.host === 'github') {
+    // and P10 can hold the in-process requests to the `gh` or `bb api` calls
+    // they replace, and P11 the Jira requests to the `curl` calls they replace.
+    // The one switch moves every connector to the shell, so one run gives both.
+    {
       const shellBox = await buildSandbox(fixture);
       try {
         shellBox.env['PLOT_HOST_TRANSPORT'] = 'shell';
         const shellFleetd = startFleetd(entry as FleetdEntry, shellBox, { trace: false });
         const logged: number[] = [];
+        const curlLogged: number[] = [];
         try {
           for (let n = 0; n < 3; n += 1) {
             await shellFleetd.pass();
-            logged.push(ghReadsLogged(shellBox));
+            logged.push(fixture.host === 'github' ? ghReadsLogged(shellBox) : bbApiLogged(shellBox));
+            curlLogged.push(curlReadsLogged(shellBox));
           }
         } finally {
           await shellFleetd.stop();
         }
         baseline = deltas(logged);
-      } finally {
-        await shellBox.remove();
-      }
-    } else {
-      // THE JIRA BASELINE: the Bitbucket fixture read with the one switch set,
-      // so P11 can hold the in-process requests to the `curl` calls they replace.
-      const shellBox = await buildSandbox(fixture);
-      try {
-        shellBox.env['PLOT_HOST_TRANSPORT'] = 'shell';
-        const shellFleetd = startFleetd(entry as FleetdEntry, shellBox, { trace: false });
-        const logged: number[] = [];
-        try {
-          for (let n = 0; n < 3; n += 1) {
-            await shellFleetd.pass();
-            logged.push(curlReadsLogged(shellBox));
-          }
-        } finally {
-          await shellFleetd.stop();
-        }
-        jiraBaseline = deltas(logged);
+        jiraBaseline = deltas(curlLogged);
       } finally {
         await shellBox.remove();
       }
@@ -313,6 +319,17 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
   }
 
   if (fixture.host === 'bitbucket') {
+    it(rowTitle(CENSUS_ROWS.P10, fixture), () => {
+      const { mean, each, execs } = perPass(isBitbucketRead);
+      recordCount(CENSUS_ROWS.P10, fixture, mean, execs);
+      console.log(`process census P10 ${fixture.desks} desks: in-process requests per idle pass ${requests.join(', ')}; shell bb api calls ${baseline.join(', ')}`);
+      expect(each).toEqual([0, 0]);
+      expect(requests).toHaveLength(2);
+      expect(baseline).toHaveLength(2);
+      const sum = (ns: readonly number[]): number => ns.reduce((a, b) => a + b, 0);
+      expect(sum(requests)).toBeLessThanOrEqual(sum(baseline));
+    });
+
     it(rowTitle(CENSUS_ROWS.P11, fixture), () => {
       const { mean, each, execs } = perPass(isJiraRead);
       recordCount(CENSUS_ROWS.P11, fixture, mean, execs);
