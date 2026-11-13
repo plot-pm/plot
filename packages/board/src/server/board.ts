@@ -99,6 +99,7 @@ import {
   TRACKER_PROJECT_KEY_SCHEMES,
 } from '@plot-pm/domain/adapters';
 import { stateSyncFile } from '@plot-pm/domain/adapters/state-sync-record/state-sync-file';
+import type { StateSyncRecord } from '@plot-pm/domain/ports/state-sync-record';
 import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import { processProbeSystem } from '@plot-pm/domain/adapters/process-probe/process-probe-system';
 import { dispatchLogExists } from './dispatch.js';
@@ -316,6 +317,23 @@ export const startBundleFor = (opts: BuildBoardOptions, here: string): { path: s
  */
 export const refsFor = (opts: BuildBoardOptions): Refs =>
   opts.refs ?? refsGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+
+/** One state-sync record per repository, so its common git directory resolves once per process. */
+const stateSyncRecords = new Map<string, StateSyncRecord>();
+
+/**
+ * The forward-sync record for a repository, built once per process.
+ *
+ * @param repoRoot - the repository's root.
+ * @returns the same record for every call with this root.
+ */
+export const stateSyncRecordFor = (repoRoot: string): StateSyncRecord => {
+  const existing = stateSyncRecords.get(repoRoot);
+  if (existing) return existing;
+  const built = stateSyncFile({ cwd: repoRoot });
+  stateSyncRecords.set(repoRoot, built);
+  return built;
+};
 
 /** One walk cache per repository and scripts directory, so two board configurations never share an answer. */
 const walkCaches = new Map<string, WalkCache>();
@@ -3170,7 +3188,7 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs, served?: Boar
   const syncPr = syncTarget.kind !== 'state' ? null
     : [...(prLinks?.values() ?? [])].find((r) => r.state === 'OPEN' && isSyncHead(r.head, syncTarget))?.number ?? null;
   // A recorded forward-merge conflict names its files in the lag line while both recorded tips are current; an unread record or tip shows none.
-  const refusal = syncTarget.kind !== 'state' ? null : await stateSyncFile({ cwd: repoRoot }).refusal();
+  const refusal = syncTarget.kind !== 'state' ? null : await stateSyncRecordFor(repoRoot).refusal();
   const conflictFiles = syncTarget.kind !== 'state' || refusal === null || !refusal.ok || refusal.value === null ? []
     : await standingConflictAt(refs, syncTarget, refusal.value);
   const recordFindings = await readRecordFindings(refs, { stateBranch, defaultBranch }, syncPr, conflictFiles);
