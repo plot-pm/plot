@@ -43,7 +43,7 @@ describe('trackerTransportOf', () => {
 
   it('prints a line that names the source and no credential, and no line where none is published', () => {
     const line = trackerTransportLine({ transport: 'in-process', reason: 'the tracker has an in-process client', tokenSource: '/repo/.env' });
-    expect(line).toBe('tracker reads: in-process (the tracker is jira; credentials from /repo/.env)');
+    expect(line).toBe('tracker reads: in-process (the tracker has an in-process client; credentials from /repo/.env)');
     expect(trackerTransportStatusLine({ transport: 'shell', reason: 'PLOT_HOST_TRANSPORT=shell', tokenSource: null })).toBe(
       '  tracker reads: shell (PLOT_HOST_TRANSPORT=shell)\n',
     );
