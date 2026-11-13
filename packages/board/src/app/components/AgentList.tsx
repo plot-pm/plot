@@ -26,7 +26,10 @@ import {
 function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents: number; working?: number } {
   return fleet.fleetControls ?? FLEET_CONTROLS_DEFAULT;
 }
-import { AutoDispatchSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
+import { AutoDispatchSwitch, AutoSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
+import { RowCell, scrollToAnchor, type LinkHandlers } from './DeliveryRows.js';
+import { detailLines } from '../lib/agent-rows/delivery-link-targets.js';
+import { headerOf, rowFormsOf, switchesOf } from '../lib/agent-rows/delivery-row-facts.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { ReleaseClaimButton } from './ReleaseClaimButton.js';
 import { LooseDeleteButton } from './LooseDeleteButton.js';
@@ -86,7 +89,7 @@ import {
   writeMineOnly,
   writeMineStrict,
 } from '../lib/agent-rows/mine-filter.js';
-import { mineMode, planIndexOf } from '@plot-pm/domain';
+import { mineMode, placeDelivery, planIndexOf } from '@plot-pm/domain';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
 import { ActivityMark } from '../lib/agent-rows/marks.js';
 import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
@@ -1082,7 +1085,26 @@ export function AgentList({
           sprints: (fleet.sprints ?? []).map((s) => ({ release: s.release, started: s.start ?? '' })),
           releaseTickets: fleet.releaseTickets,
         });
+        const placement = placeDelivery(mapping.readings, mapping.input);
         const view = placeMapping(mapping, fleet.slices);
+        // THE SEVEN COLUMNS' BY CELL AND THE HELD-GROUP HEADERS — domain properties, rendered here.
+        const forms = rowFormsOf(mapping, placement, Date.now());
+        const switches = switchesOf(fleet);
+        const linkHandlers: LinkHandlers = {
+          context: {
+            plan: '',
+            branchUrlBase: fleet.branchUrlBase ?? '',
+            prUrl: () => null,
+            planFileOf: (p) => planFileOf(p),
+            branchOfAgent: (id) => mapping.agentsById[id]?.branch ?? '',
+          },
+          onPlan: (file) => { onOpenPlan?.(file); },
+          onReveal: (branch) => onRevealBranch?.(branch),
+          onAct: () => undefined,
+        };
+        const byCell = (cells: { by: Parameters<typeof RowCell>[0]['cell'] } | undefined) =>
+          cells?.by ? <RowCell cell={cells.by} handlers={linkHandlers} /> : undefined;
+        const byItem = (item: PlacedItemView) => byCell(forms.items.get(item.placement?.id ?? ''));
         const slices = fleet.slices;
         const issues = fleet.issueAnswer === 'answered' ? filteredIssues : [];
         // A ticket a section holds is listed there only; the block and its count lines stay while the read has any.
@@ -1128,6 +1150,7 @@ export function AgentList({
           showSprintSlug,
           planIndex,
           onExpandSection: expandSection,
+          details: detailLines([r], null),
         });
         const anchorOf = (item: PlacedItemView) => (
           <li key={`anchor-${item.anchor}`} role="presentation" id={item.anchor} className="h-0" />
@@ -1153,7 +1176,7 @@ export function AgentList({
         ];
         const itemBody = (item: PlacedItemView, inPlan = false) => [
           anchorOf(item),
-          ...item.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={inPlan} />),
+          ...item.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={inPlan} by={byItem(item)} />),
           ...(item.ticket !== null
             ? [(
                 <IssueRowView
@@ -1211,6 +1234,7 @@ export function AgentList({
                   slices={slices}
                   onExpandSection={expandSection}
                   planIndex={planIndex}
+                  by={byItem(s.item)}
                 />
                 {many && sliceOpen && (
                   <ul
@@ -1223,7 +1247,7 @@ export function AgentList({
                 )}
               </li>
             ),
-            ...s.loose.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={block.headed} />),
+            ...s.loose.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={block.headed} by={byItem(s.item)} />),
             ...itemTail(s.item),
           ];
         };
@@ -1312,6 +1336,8 @@ export function AgentList({
               onRevealBranch={onRevealBranch}
               highlighted={agent.entry.branch !== '' && agent.entry.branch === highlightBranch}
               planIndex={planIndex}
+              by={byCell(forms.agents.get(agent.placement.id))}
+              details={detailLines(agent.row === null ? [] : [agent.row], agent.entry)}
             />
           ) : null,
           linkLine(`links-${agent.anchor}`, agent.links, '→ acts on:'),
@@ -1381,8 +1407,11 @@ export function AgentList({
                         hiddenByFilter={workersHiddenByFilter}
                         registry={fleet?.registry}
                       />
-                      <span data-fleet-control-column className="ml-auto flex items-center gap-3">
+                      <span id="fleet-controls" data-fleet-control-column className="ml-auto flex flex-wrap items-center gap-3">
                         <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
+                        <AutoSwitch name="autoReview" value={switches.autoReview} />
+                        <AutoSwitch name="autoVerify" value={switches.autoVerify} />
+                        <AutoSwitch name="autoDesign" value={switches.autoDesign} />
                         <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} />
                       </span>
                       <FleetAlert supervisor={fleet?.supervisor} />
@@ -1393,12 +1422,25 @@ export function AgentList({
                   )}
                   {!folded && section.groups.map((group) => {
                     const groupMark = groupPace(group.rows, active);
+                    const held = headerOf(
+                      group.label, section.key, group.key,
+                      placement.items.filter((p) => p.section === section.key && p.group === group.key),
+                      switches,
+                    );
                     const g = fold(group.key, group.count, (
-                      <h3 data-delivery-group={group.key} className="flex items-baseline gap-1 text-sm font-medium text-slate-700 dark:text-slate-200">
+                      <h3 data-delivery-group={group.key} className="flex flex-wrap items-baseline gap-1 text-sm font-medium text-slate-700 dark:text-slate-200">
                         {group.label}
                         <span className="ml-1 font-normal text-slate-500">
                           ({group.count > 0 ? group.tally : group.hint})
                         </span>
+                        {held.held.map((h) => (
+                          <span key={h.switch} data-group-held={h.switch} className="font-normal text-slate-500">
+                            · {h.name} off ·{' '}
+                            <button type="button" onClick={() => scrollToAnchor('fleet-controls')} className="text-blue-600 hover:underline dark:text-blue-400">
+                              {h.action} ›
+                            </button>
+                          </span>
+                        ))}
                         {groupMark && <ActivityMark pace={groupMark} place="heading" />}
                       </h3>
                     ));

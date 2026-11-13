@@ -6603,7 +6603,7 @@ export { doubleClaimedBranches };
  * NEW WORDING, deliberately: `handed to agent` and `not taken up` occur nowhere
  * else in this package. It names the STATE and not the session, because the
  * moved row is not drawn itself — WORKING renders registry agents through
- * `RegistryRow`, and the note appears beside a link that already shows the
+ * the agent row, and the note appears beside a link that already shows the
  * agent's session.
  */
 const HANDED_NOTE = 'handed over — not taken up yet';
@@ -8522,7 +8522,6 @@ export async function buildFleet(
       fleetPlanIndexOf(opts, entry),
     ]);
   const { map: phaseMap } = declaredPhaseMap(phasesValue);
-  const autoReviewValue = await readConfigAsync(opts, 'Auto-review', '');
   const correctionBudgetValue = await readConfigAsync(opts, 'Correction budget', '');
   const correctionBudgetNumber = Number(correctionBudgetValue);
   // Each open PR's branch tip, read from the local remote-tracking refs the scan
@@ -8751,7 +8750,7 @@ export async function buildFleet(
     viewSource: entry.viewSource ?? undefined,
     issueError: entry.issueError,
     issueAbsence: entry.issueAbsence,
-    ...(autoReviewValue === '' ? {} : { autoReview: autoReviewValue.toLowerCase() === 'true' }),
+    autoReview: settings.autoReview,
     ...(correctionBudgetValue === '' || !Number.isFinite(correctionBudgetNumber)
       ? {}
       : { correctionBudget: correctionBudgetNumber }),

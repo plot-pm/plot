@@ -79,7 +79,7 @@ Every rendered state is a domain property (CLAUDE.md, "Every rendered state is a
 
 ### Loose ends
 
-- `feature/loose-ends-show-under-unblock` <!-- waits: feature/delivery-tab-sections --> — a PR or branch that no plan names and nobody works on shows under **You › Unblock** with its actions <!-- builds: release and delete controllers for a loose PR or branch -->
+- `feature/loose-ends-show-under-unblock` <!-- waits: feature/delivery-tab-sections --> — a PR or branch that no plan names and nobody works on shows under **You › Unblock** with its actions <!-- builds: release and delete controllers for a loose PR or branch --> → #3420
 
 ## Notes
 

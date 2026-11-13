@@ -24,6 +24,7 @@ import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import type { BoardRunRecord } from '@plot-pm/domain/rules/board-run-end';
 import { readConfig } from './config-reader.js';
+import { readSwitch } from './fleet-settings-store.js';
 import { usableCommand } from './usable-command.js';
 import { scriptsOf, verifyLogPath, type ActOptions } from './action-log.js';
 import { startBoardRun } from './board-run.js';
@@ -389,7 +390,7 @@ export const runAutoVerifyPass = async (
   world: VerifyPassWorld = defaultWorld,
 ): Promise<string[]> => {
   const verifyCommand = usableCommand(readConfig(opts, VERIFY_COMMAND_KEY, ''));
-  const on = autoVerify({ autoVerify: readConfig(opts, AUTO_VERIFY_KEY, '') === 'true', verifyCommand });
+  const on = autoVerify({ autoVerify: readSwitch(opts, 'autoVerify'), verifyCommand });
   const before = readVerifyState(opts.repoRoot);
   if (before === null) {
     console.log('auto-verify: cannot read the verify state; starting nothing this pass');

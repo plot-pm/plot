@@ -118,6 +118,56 @@ export function AutoDispatchSwitch({ value }: { value: boolean }) {
   );
 }
 
+/** The three switches beside auto-dispatch, with the label each shows. */
+const AUTO_SWITCHES = {
+  autoReview: 'auto-review',
+  autoVerify: 'auto-verify',
+  autoDesign: 'auto-design',
+} as const;
+
+export type AutoSwitchName = keyof typeof AUTO_SWITCHES;
+
+/**
+ * One of the three agent switches — auto-review, auto-verify, auto-design — in
+ * the Fleet header. It echoes optimistically and writes through
+ * `/api/fleet-controls` like the auto-dispatch switch, and rolls back where the
+ * server refuses.
+ */
+export function AutoSwitch({ name, value }: { name: AutoSwitchName; value: boolean }) {
+  const [checked, setChecked] = useState(value);
+  const [busy, setBusy] = useState(false);
+  const writing = useRef(false);
+
+  useEffect(() => {
+    if (!writing.current) setChecked(value);
+  }, [value]);
+
+  const toggle = async () => {
+    const next = !checked;
+    setChecked(next);
+    setBusy(true);
+    writing.current = true;
+    const result = await postControls({ [name]: next });
+    writing.current = false;
+    setBusy(false);
+    setChecked(typeof result?.[name] === 'boolean' ? result[name] : value);
+  };
+
+  return (
+    <label className="flex items-center gap-1.5 text-xs font-normal normal-case tracking-normal text-slate-500 dark:text-slate-400">
+      <input
+        type="checkbox"
+        data-fleet-auto-switch={name}
+        checked={checked}
+        disabled={busy}
+        onChange={() => void toggle()}
+        className="h-3.5 w-3.5 accent-slate-500"
+      />
+      {AUTO_SWITCHES[name]}
+    </label>
+  );
+}
+
 /**
  * The parallel-agent cap, for the WORKING header — a real `spinbutton`.
  *
@@ -297,13 +347,21 @@ export function WorkingCounts({
         </span>
       )}
       {showRegistry && registry && (
-        <span
-          data-fleet-registry
-          className={`tabular-nums ${registry.manifestCount === 0 ? 'text-amber-600 dark:text-amber-500' : 'text-slate-400 dark:text-slate-500'}`}
-          title={`Registry: ${registry.directory}\n${registry.manifestCount} manifest(s) read, ${registry.synthesizedCount} synthesized from worktrees`}
-        >
-          · {registry.manifestCount} manifest{registry.manifestCount !== 1 ? 's' : ''}{registry.synthesizedCount > 0 && `, ${registry.synthesizedCount} synthesized`}
-        </span>
+        <details data-row-details data-fleet-details className="relative">
+          <summary
+            aria-label="Registry details"
+            className={`cursor-pointer select-none ${registry.manifestCount === 0 ? 'text-amber-600 dark:text-amber-500' : 'text-slate-400 dark:text-slate-500'}`}
+          >
+            · details
+          </summary>
+          <span
+            data-fleet-registry
+            className="absolute right-0 z-10 mt-1 block whitespace-nowrap rounded border border-slate-200 bg-white p-2 font-mono tabular-nums shadow-sm dark:border-slate-700 dark:bg-slate-900"
+          >
+            {registry.manifestCount} manifest{registry.manifestCount !== 1 ? 's' : ''}{registry.synthesizedCount > 0 && `, ${registry.synthesizedCount} synthesized`}
+            {registry.directory !== '' && ` · ${registry.directory}`}
+          </span>
+        </details>
       )}
     </span>
   );
