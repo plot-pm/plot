@@ -652,7 +652,7 @@ export async function handleDeliver(
       409,
       'branch-not-on-origin',
       slug,
-      `branch \`${branch}\` does not exist on origin in this clone — nothing was written; check the name with \`git ls-remote --heads origin ${branch}\``,
+      `branch \`${branch}\` does not exist on origin in this clone — nothing was written; check the name with \`git branch -r --list origin/${branch}\``,
     );
     return;
   }
