@@ -258,8 +258,9 @@ test('the artifact stays in git and CI still gates its freshness', () => {
   // EVERY GENERATED BUNDLE, NOT ONE FILE. Measured on PR #908, a change to
   // `adapters/refs/refs-git.ts` restaled `board-server.mjs`, `plot-ask.mjs` and
   // `plot-fleetd.mjs`, and a one-file diff named only the first. The check
-  // derives the set from `build.mjs`'s `shipped*` declarations.
-  assert.match(check, /shipped\[A-Za-z\]\* = path\\\.join/, 'the check must derive every generated bundle from build.mjs');
+  // derives the set from `build.mjs`'s `shipped*` declarations, through the
+  // shared reader that also reads a declaration wrapped over several lines.
+  assert.match(check, /read_shipped_bundles \. : worktree/, 'the check must derive every generated bundle from build.mjs');
   assert.match(
     check,
     /git status --porcelain --untracked-files=all -- "\$\{paths\[@\]\}"/,

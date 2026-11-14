@@ -12,7 +12,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -231,5 +231,30 @@ test('no-bundle-diff gate: with no base argument it compares with origin/main as
   const got = sh(dir, ['slice']);
   assert.equal(got.status, 1, `origin/main is the default base:\n${got.stdout}`);
   assert.match(got.stdout, /board-server\.mjs/);
+  rmTree(dir);
+});
+
+test('no-bundle-diff gate: refuses a changed bundle whose declaration wraps over several lines', () => {
+  // `shippedRestartStoppedCommand` is declared this way in build.mjs. A
+  // one-line grep did not see it, so a PR could carry that bundle unrefused.
+  const dir = baseTree();
+  const wrapped = path.join(dir, 'skills', 'plot', 'scripts', 'board', 'plot-wrapped-command.mjs');
+  const build = path.join(dir, 'packages', 'board', 'build.mjs');
+  git(dir, ['checkout', '-q', 'master']);
+  writeFileSync(
+    build,
+    `${readFileSync(build, 'utf8')}const shippedWrapped = path.join(\n  here,\n  '../../skills/plot/scripts/board/plot-wrapped-command.mjs',\n);\n`,
+  );
+  writeFileSync(wrapped, 'original bundle\n');
+  git(dir, ['add', '-A']);
+  git(dir, ['commit', '-q', '-m', 'declare a wrapped bundle']);
+  git(dir, ['checkout', '-q', '-B', 'feature']);
+  writeFileSync(wrapped, 'rebuilt locally\n');
+  git(dir, ['add', '-A']);
+  git(dir, ['commit', '-q', '-m', 'rebuilt the wrapped bundle']);
+
+  const got = sh(dir, ['feature', 'master']);
+  assert.equal(got.status, 1, `a changed wrapped bundle must fail:\n${got.stdout}`);
+  assert.match(got.stdout, /plot-wrapped-command\.mjs/, `and name it:\n${got.stdout}`);
   rmTree(dir);
 });

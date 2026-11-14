@@ -115,3 +115,41 @@ test('a build.mjs that declares nothing parseable fails', withFixture((work) => 
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, /::error::.*declares no bundle this gate can parse/);
 }, { build: 'export default {};\n' }));
+
+/** A build that copies `plot-copied` from another package's output, with no esbuild call of its own. */
+const COPIED_BUILD = [
+  BUILD_TEXT,
+  "import { copiedArtifact } from '@plot-pm/fleet/build';",
+  "const shippedCopied = path.join(here, '../../skills/plot/scripts/board/plot-copied.mjs');",
+  'fs.copyFileSync(copiedArtifact, shippedCopied);',
+  '',
+].join('\n');
+
+test('a bundle the build copies from another package, with no row, fails naming it', withFixture((work) => {
+  const r = run(work);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /board\/plot-copied\.mjs/);
+}, { build: COPIED_BUILD, rows: ['a.sh', 'board/plot-new.mjs'] }));
+
+test('a copied bundle with its row passes', withFixture((work) => {
+  const r = run(work);
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /0 of 3 shipped scripts lack a row/);
+}, { build: COPIED_BUILD, rows: ['a.sh', 'board/plot-new.mjs', 'board/plot-copied.mjs'] }));
+
+/** A shipped path wrapped onto its own line, the shape a formatter gives a long name. */
+const WRAPPED_BUILD = [
+  BUILD_TEXT,
+  'const shippedWrapped = path.join(',
+  '  here,',
+  "  '../../skills/plot/scripts/board/plot-wrapped.mjs',",
+  ');',
+  'fs.copyFileSync(wrappedArtifact, shippedWrapped);',
+  '',
+].join('\n');
+
+test('a shipped declaration wrapped over several lines, with no row, fails naming it', withFixture((work) => {
+  const r = run(work);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /board\/plot-wrapped\.mjs/);
+}, { build: WRAPPED_BUILD, rows: ['a.sh', 'board/plot-new.mjs'] }));
