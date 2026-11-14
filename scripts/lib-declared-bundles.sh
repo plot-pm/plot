@@ -74,3 +74,65 @@ read_declared_bundles() { # <root> <fail-fn>
   fi
   printf '%s\n' "$out"
 }
+
+# EVERY BUNDLE THE BUILD WRITES, not only the ones it compiles itself.
+#
+#   read_shipped_bundles <root> <fail-fn>
+#
+# Prints "board/<name>.mjs" per `const shipped<Name>` path to
+# skills/plot/scripts/board/<name>.mjs that build.mjs copies to with
+# `fs.copyFileSync(<artifact>, shipped<Name>)`, one per line. A declaration
+# may wrap its `path.join(` arguments over several lines. A shipped path that
+# no copy writes is not printed. <fail-fn> is called as above.
+#
+# `read_declared_bundles` prints only a bundle whose esbuild call sits in
+# build.mjs, because `check-decision-count.sh` needs its entry path. A bundle
+# that `@plot-pm/fleet` compiles and build.mjs only copies has no such call.
+# Measured on `main` at 20c7e04cc: build.mjs writes 80 bundles, and 13 of them
+# (`plot-fleetd.mjs`, `plot-worker-loop.mjs`, `plot-dispatch-command.mjs`, …)
+# have no esbuild call there that the parser above reads.
+# `check-helper-table.sh` reads this function, so the PR that adds such a
+# bundle needs its row before main's build commit adds the file.
+read_shipped_bundles() { # <root> <fail-fn>
+  local root=$1 fail_fn=$2 build=packages/board/build.mjs text out
+  text=$(git -C "$root" show "HEAD:$build" 2>/dev/null) || {
+    "$fail_fn" "$build is absent at HEAD, so no declared bundle can be read as evidence."
+    return 1
+  }
+  out=$(printf '%s\n' "$text" | awk -v q="'" '
+    function quoted(s) { sub("^[^" q "]*" q, "", s); sub(q ".*$", "", s); return s }
+    function decl(s,   name, p) {
+      if (!match(s, path_re)) return
+      name = s; sub(/^const /, "", name); sub(/ .*$/, "", name)
+      p = quoted(substr(s, RSTART)); sub(/^.*\/board\//, "", p)
+      shipped[name] = p
+    }
+    BEGIN {
+      open_re = "^const shipped[A-Za-z]* = path\\.join\\("
+      path_re = q "\\.\\./\\.\\./skills/plot/scripts/board/[^" q "]+\\.mjs" q
+      copy_re = "^[ \t]*fs\\.copyFileSync\\([A-Za-z]+, *[A-Za-z]+\\);"
+      pending = ""
+    }
+    # A wrapped declaration joins its lines up to the one that closes it.
+    pending != "" {
+      pending = pending " " $0
+      if ($0 ~ /\);/) { decl(pending); pending = "" }
+      next
+    }
+    $0 ~ open_re {
+      if ($0 ~ /\);/) decl($0); else pending = $0
+      next
+    }
+    $0 ~ copy_re {
+      c = $0; sub(/^[^(]*\(/, "", c); sub(/\).*$/, "", c); split(c, cp, / *, */)
+      copied[cp[2]] = 1
+      next
+    }
+    END { for (s in shipped) if (s in copied) printf "board/%s\n", shipped[s] }
+  ' | sort -u)
+  if [ -z "$out" ]; then
+    "$fail_fn" "$build at HEAD declares no bundle this gate can parse, so the declarations cannot serve as evidence. Fix the parser in lib-declared-bundles.sh, not the build."
+    return 1
+  fi
+  printf '%s\n' "$out"
+}
