@@ -3,10 +3,11 @@
 //
 //   node plot-plan-for-branch.mjs <branch>
 //
-// Prints `<absolute plan file>\t<slice name>\t<base>` and exits 0, or exits 1
-// with nothing printed when no plan in `Plan directory` names the branch.
-// `<base>` is the branch the slice is cut from (`planBaseFor`), empty for the
-// default branch.
+// Prints `<absolute plan file>\t<slice name>\t<base>\t<plan title>` and exits
+// 0, or exits 1 with nothing printed when no plan in `Plan directory` names the
+// branch. `<base>` is the branch the slice is cut from (`planBaseFor`), empty
+// for the default branch. `<plan title>` is the plan's first heading, with each
+// tab and line break read as a space, and empty where the plan has none.
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
@@ -41,7 +42,9 @@ export const run = async (
   if (found === undefined) return 1;
   const relative = path.relative(probe.value, path.resolve(probe.value, found.file));
   const base = await planBaseFor(refs, store, relative);
-  write(`${path.resolve(probe.value, found.file)}\t${found.sliceName}\t${base}\n`);
+  const plan = await store.readPlans([relative]);
+  const title = (plan.ok ? (plan.value[0]?.title ?? '') : '').replace(/[\t\r\n]+/g, ' ').trim();
+  write(`${path.resolve(probe.value, found.file)}\t${found.sliceName}\t${base}\t${title}\n`);
   return 0;
 };
 

@@ -16,7 +16,8 @@
 # `plot-host.sh pr-create` with the title and body it was handed.
 #
 # THE TITLE COMES FROM THE PLAN, NOT FROM `git log -1`. A slice's identity is
-# the wave heading the plan names it under; its last commit subject is whatever
+# the plan title and the wave heading the plan names it under, and the title is
+# `<plan title>: <wave heading>`; its last commit subject is whatever
 # the agent happened to finish with, and on this estate that is routinely
 # `plot: build the board artifact`. Measured 2026-09-09 while this branch was
 # being written: a PR opened for it by hand took the title
@@ -71,8 +72,8 @@ git rev-parse --git-dir >/dev/null 2>&1 \
 repo_root="$(git rev-parse --show-toplevel)"
 
 # WHICH PLAN NAMES THIS BRANCH, AND UNDER WHICH HEADING. `plot-plan-meta.sh` is
-# the plan-format contract and answers both — the wave name is the title and the
-# slug and file are the body's first line. A branch belongs to whichever plan
+# the plan-format contract and answers both — the plan title and the wave name
+# make the title, and the slug and file are the body's first line. A branch belongs to whichever plan
 # lists it, and nothing else records that.
 #
 # THE PLAN DIRECTORY IS ASKED, NOT THE ACTIVE INDEX. Measured 2026-09-09 on this
@@ -86,17 +87,18 @@ repo_root="$(git rev-parse --show-toplevel)"
 # measured 2026-09-09, parsing all 253 plans here took 103 s against 0.6 s for
 # a text search first. A plan that does not contain the branch name cannot
 # name it, so the filter changes only how many files are read.
-plan_slug="" plan_file="" slice_name=""
+plan_slug="" plan_file="" slice_name="" plan_title=""
 found=$(node "$script_dir/board/plot-plan-for-branch.mjs" "$branch" 2>/dev/null) || found=""
 if [ -n "$found" ]; then
   plan_file=$(printf '%s' "$found" | cut -f1)
   slice_name=$(printf '%s' "$found" | cut -f2)
+  plan_title=$(printf '%s' "$found" | cut -f4)
   # The plan's base, the branch fleetd cut the slice from (`planBaseFor`).
   [ -n "$base" ] || base=$(printf '%s' "$found" | cut -f3)
   plan_slug=$(basename "$plan_file" .md | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
 fi
-[ -n "$base" ] || base=$(bash "$script_dir/plot-host.sh" default-branch 2>/dev/null || echo main)
-[ -n "$base" ] || base=main
+[ -n "$base" ] || base=$(bash "$script_dir/plot-host.sh" default-branch 2>/dev/null)
+base=${base:-main}
 
 # The brief, where the slice has one. Named for the branch's last segment, the
 # spelling plot-dispatch.sh writes and the worker prompt reads.
@@ -177,7 +179,7 @@ plan_link="${plan_file#"$repo_root"/}"
 # ASK THE DOMAIN. JSON in, JSON out: the answer carries a markdown body, and a
 # tab-separated wire would mean re-assembling a shape the rule just composed.
 request=$(PLOT_BRANCH="$branch" PLOT_BASE="$base" PLOT_SLUG="$plan_slug" \
-  PLOT_FILE="$plan_link" PLOT_SLICE="$slice_name" PLOT_BRIEF="$brief_file" \
+  PLOT_FILE="$plan_link" PLOT_TITLE="$plan_title" PLOT_SLICE="$slice_name" PLOT_BRIEF="$brief_file" \
   PLOT_PRS="$pr_list" PLOT_COMMITS="$commits" PLOT_WORK="$carried_work" \
   PLOT_DRAFT="$draft" node -e '
     const e = process.env;
@@ -188,6 +190,7 @@ request=$(PLOT_BRANCH="$branch" PLOT_BASE="$base" PLOT_SLUG="$plan_slug" \
         base: e.PLOT_BASE,
         planSlug: e.PLOT_SLUG,
         planFile: e.PLOT_FILE,
+        planTitle: e.PLOT_TITLE,
         sliceName: e.PLOT_SLICE,
         briefFile: e.PLOT_BRIEF,
         prs: JSON.parse(e.PLOT_PRS),

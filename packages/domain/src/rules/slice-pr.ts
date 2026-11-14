@@ -19,10 +19,11 @@
  * `setSprintState` decided.
  *
  * THE TITLE AND BODY COME FROM THE PLAN, NOT FROM THE LAST COMMIT SUBJECT. A
- * slice's identity is the wave the plan names it under; its last commit is
- * whatever the agent happened to finish with, and on this estate that is
- * routinely `plot: build the board artifact`. So a wave with no name is a
- * refusal rather than a title borrowed from git.
+ * slice's identity is its plan and the wave the plan names it under; its last
+ * commit is whatever the agent happened to finish with, and on this estate that
+ * is routinely `plot: build the board artifact`. So a wave with no name is a
+ * refusal rather than a title borrowed from git, and the title is
+ * `<plan title>: <wave heading>` (see {@link slicePrTitle}).
  */
 
 /** Why opening a slice's PR refused, as a value a caller branches on. */
@@ -63,7 +64,7 @@ export interface SlicePrDecision {
   readonly head: string;
   /** The branch the PR merges into. */
   readonly base: string;
-  /** The title, from the wave the plan names the branch under. */
+  /** The title, from the plan title and the wave the plan names the branch under. */
   readonly title: string;
   /** The body, in the order its parts are written. */
   readonly body: string;
@@ -142,13 +143,14 @@ export interface SlicePrReadings {
   readonly planSlug: string;
   /** The plan file's path, or `''` where no plan names this branch. */
   readonly planFile: string;
+  /** The plan's title, from its first heading, or `''` where it has none. */
+  readonly planTitle: string;
   /**
    * The wave heading the plan names this branch under, or `''`.
    *
-   * THE TITLE IS THIS AND NOTHING ELSE. A plan that names a branch under no
-   * heading refuses rather than falling back to the branch name: the wave
-   * heading is a sentence a person wrote about the slice, and a branch name is
-   * a slug.
+   * A plan that names a branch under no heading refuses rather than falling
+   * back to the branch name: the wave heading is text a person wrote about the
+   * slice, and a branch name is a slug.
    */
   readonly sliceName: string;
   /** The brief's path, or `''` where the slice has none. */
@@ -221,6 +223,25 @@ export const closedPrNotice = (closedPrs: readonly number[]): string => {
   return `${subject} closed unmerged.`;
 };
 
+
+/**
+ * The title of a slice's PR: the plan title, a colon, and the wave heading.
+ *
+ * A wave heading alone often names no change: plans number their slice headings, and
+ * sprint `triggers-and-connectors` (2026-11-11 to 2026-11-14) opened five PRs
+ * of two plans titled `Wave 1`. The plan title names the change and the wave
+ * heading names the slice. Both parts are trimmed. The wave heading stands
+ * alone where the plan title is empty or equal to it.
+ *
+ * @param planTitle - the plan's first heading, or `''`.
+ * @param sliceName - the wave heading the plan names the branch under; not empty.
+ * @returns the title.
+ */
+export const slicePrTitle = (planTitle: string, sliceName: string): string => {
+  const plan = planTitle.trim();
+  const slice = sliceName.trim();
+  return plan === '' || plan === slice ? slice : `${plan}: ${slice}`;
+};
 
 /**
  * Compose the body of a slice's PR.
@@ -328,7 +349,7 @@ export const openSlicePr = (
     outcome: 'decided',
     head: readings.branch,
     base: readings.base,
-    title: readings.sliceName,
+    title: slicePrTitle(readings.planTitle, readings.sliceName),
     body: bodyFor(readings, notice, closedPrs),
     draft: input.draft,
     notice,
