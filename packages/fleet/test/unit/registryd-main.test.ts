@@ -1661,7 +1661,7 @@ describe('run — a failed tick must not end the daemon', () => {
  * above) equals 60 times the calls counted since the previous reading.
  */
 describe('acceptance — the step asks the host once per nothing-done desk with no commit beyond its claim, out of every leftover desk', () => {
-  it('makes M host calls for M of N desks, and reports 60 x M on the following tick', async () => {
+  it('makes M host calls for M of N desks, and reports them on the following tick over the window they accrued in', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'plot-registryd-acceptance-'));
     try {
       // A REAL GIT TREE PER DESK: `commitBeyondClaim` reads real git, never
@@ -1741,6 +1741,7 @@ describe('acceptance — the step asks the host once per nothing-done desk with 
       };
       let ticks = 0;
       const lines: string[] = [];
+      const before = Date.now();
       const code = await run(
         ['--start-agents'],
         dir,
@@ -1759,12 +1760,16 @@ describe('acceptance — the step asks the host once per nothing-done desk with 
       expect(code).toBe(0);
       expect(ticks).toBe(2);
       const mineLines = lines.filter((l) => l.includes('tick=')).map((l) => /tick=(\d+)\/hr/.exec(l)?.[1]);
+      const elapsedMs = Date.now() - before;
       // Tick 1 reports `0` (nothing ran before it); tick 2 reports what tick
       // 1's own nothing-done step added. The stub's `pr-state` does not
       // answer, so each of the M = 2 desks costs its `prOpen` call plus the
-      // one `pr-state` call of its local-evidence release: 4 calls, 60 x 4
-      // = 240/hr.
-      expect(mineLines).toEqual(['0', '240']);
+      // one `pr-state` call of its local-evidence release: 4 calls, priced
+      // over the window since the tick's calls were last counted, which is
+      // shorter than the whole run.
+      expect(mineLines).toHaveLength(2);
+      expect(mineLines[0]).toBe('0');
+      expect(Number(mineLines[1])).toBeGreaterThanOrEqual(Math.floor((4 * 3_600_000) / elapsedMs));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
