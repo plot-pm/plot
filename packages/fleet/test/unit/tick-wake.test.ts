@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { clockManual } from '@plot-pm/domain/adapters';
 
 import { sliceIdleDeadline } from '../../src/server/entry/registryd-main.js';
-import { startsTick, tickWake } from '../../src/shared/tick-wake.js';
+import { tickWake } from '../../src/shared/tick-wake.js';
 
 const HOUR = 3_600_000;
 const settle = async (): Promise<void> => {
@@ -17,20 +17,6 @@ const watched = (clock: ReturnType<typeof clockManual>) => {
   const wake = tickWake(clock, async (ms) => void slept.push(ms));
   return { wake, slept };
 };
-
-describe('startsTick', () => {
-  it.each([
-    [{ kind: 'registry' as const }, true],
-    [{ kind: 'desk-files' as const, desk: '/d' }, true],
-    [{ kind: 'worker-gone' as const, desk: '/d' }, true],
-    [{ kind: 'refs' as const }, false],
-    [{ kind: 'desk-git' as const, desk: '/d' }, false],
-    [{ kind: 'worker-log' as const, desk: '/d' }, false],
-    [{ kind: 'remote' as const }, false],
-  ])('%j starts a tick: %s', (change, expected) => {
-    expect(startsTick(change)).toBe(expected);
-  });
-});
 
 describe('the tick waits on a trigger or a deadline', () => {
   it('stays waiting while the watches are armed and nothing is pending, however long the clock runs, and never sleeps', async () => {

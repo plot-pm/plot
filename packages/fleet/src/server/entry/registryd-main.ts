@@ -70,7 +70,7 @@ import { processAnswers } from '@plot-pm/domain/adapters/git-dirs/git-dirs';
 import { readRefSnapshot } from '@plot-pm/domain/workflows/plan-walk-cache';
 import { startWatchSet, type RunningWatchSet } from '../../shared/watch-set.js';
 import { startSafetyNet } from '../../shared/safety-net.js';
-import { startsTick, tickWake } from '../../shared/tick-wake.js';
+import { tickWake } from '../../shared/tick-wake.js';
 import type { SliceRefusal, RefusedSliceRecord } from '@plot-pm/domain/ports/refused-slices';
 import type { NotifyWrite, IdleNotifyWrite, UnblockWrite } from '@plot-pm/domain/workflows/decision';
 import {
@@ -85,7 +85,7 @@ import { headroomFor } from '@plot-pm/domain/entities/machine';
 import type { FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { Host, MergedAnswer, PrListingRow } from '@plot-pm/domain/ports/host';
-import { ISSUE_REFRESH_MS, nextDeadline, PR_READ_BEAT_MS, type NextDeadline, type SnapshotChange } from '@plot-pm/domain';
+import { ISSUE_REFRESH_MS, nextDeadline, PR_READ_BEAT_MS, type NextDeadline } from '@plot-pm/domain';
 import { FIXER_BOUND_SECONDS } from '@plot-pm/domain/rules/fixer-attempts';
 import type { FleetdLoop, HeldSlice, PortResult } from '@plot-pm/domain';
 import { answered, failed } from '@plot-pm/domain';
@@ -2746,7 +2746,6 @@ export interface RunSeams {
  * @param scriptsDir - where the helper scripts live.
  * @param watch - arms one directory.
  * @param clock - stamps `lastEventAt`.
- * @param onChange - receives each change that entered the pending set.
  * @returns the running set, or `null` where git names no common directory.
  */
 const armWatchSet = async (
@@ -2755,7 +2754,6 @@ const armWatchSet = async (
   scriptsDir: string,
   watch: Watch,
   clock: Clock,
-  onChange: (change: SnapshotChange) => void,
 ): Promise<RunningWatchSet | null> => {
   const common = await processAnswers.absoluteCommonDir(repoRoot, repoRoot);
   const commonDir = common.code === 0 ? common.stdout.trim() : '';
@@ -2774,7 +2772,6 @@ const armWatchSet = async (
       return snapshot.ok ? snapshot.value.digest : null;
     },
     deskFingerprint,
-    onChange,
   });
   await set.sync();
   return set;
@@ -3297,14 +3294,14 @@ export const run = async (
     'com.plot-pm.fleetd';
   // THE WATCH SET ARMS ONLY FOR THE LOOP, and only where git names a common
   // directory: a root that is no repository watches nothing and reports 0 of 0.
-  // THE TICK WAITS ON A TRIGGER, NOT ON A CADENCE: a registry, desk-files or worker-gone change,
-  // a scan that drained a non-empty pending set, a wake, and the next deadline end the wait.
+  // THE TICK WAITS ON A TRIGGER, NOT ON A CADENCE: a scan that drained a non-empty pending set,
+  // a wake, and the next deadline end the wait. A registry, desk-files or worker-gone change enters
+  // the pending set, so the scan on the next beat drains it and starts the tick once, over readings
+  // that already hold the change.
   const wake = tickWake(seams.clock ?? clockSystem(), sleep);
   const watchSet: RunningWatchSet | null = args.once
     ? null
-    : await armWatchSet(repoRoot, registryDir, scriptsDir, seams.watch ?? watchFs(), seams.clock ?? clockSystem(), (change) => {
-        if (startsTick(change)) wake.trigger();
-      });
+    : await armWatchSet(repoRoot, registryDir, scriptsDir, seams.watch ?? watchFs(), seams.clock ?? clockSystem());
   // EVERY SCAN IS A FULL READ, SO THE SAFETY NET COMPARES AFTER EVERY ONE: one
   // line per reading that changed while no trigger named it.
   const safetyNet = startSafetyNet({

@@ -108,14 +108,24 @@ describe('run — the tick waits on triggers and a deadline', () => {
     await world.end();
   });
 
-  it('runs a tick for a registry change', async () => {
+  it('runs one tick for a registry change, once the next beat\'s scan drains it, and none before', async () => {
     const world = start();
     await until(() => world.ticks() >= 1);
-    await settle();
+    await new Promise((r) => setTimeout(r, 500));
+    const scans = world.scans();
     const registry = world.listeners.find((l) => l.dir === join(dir, '.plot', 'agents'));
     expect(registry).toBeDefined();
     registry!.listener({ dir: registry!.dir, name: 'a.json', kind: 'change' });
-    await until(() => world.ticks() >= 2);
+    await settle();
+    expect(world.ticks()).toBe(1);
+    // The clock advances one beat at a time until the scan drains the change.
+    for (let steps = 0; world.ticks() < 2 && steps < 100; steps += 1) {
+      world.clock.advance(1);
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(world.scans()).toBeGreaterThan(scans);
+    expect(world.ticks()).toBe(2);
+    await new Promise((r) => setTimeout(r, 300));
     expect(world.ticks()).toBe(2);
     await world.end();
   });

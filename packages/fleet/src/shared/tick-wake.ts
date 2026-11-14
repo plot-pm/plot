@@ -1,5 +1,4 @@
 import type { Clock } from '@plot-pm/domain/ports/clock';
-import type { SnapshotChange } from '@plot-pm/domain';
 
 /** What the wait reads each time it starts. */
 export interface TickWaitInput {
@@ -25,10 +24,6 @@ export interface TickWake {
    */
   wait: (input: TickWaitInput) => Promise<void>;
 }
-
-/** The changes that start a supervision tick: a registry, a desk's files or a worker's end. */
-export const startsTick = (change: SnapshotChange): boolean =>
-  change.kind === 'registry' || change.kind === 'desk-files' || change.kind === 'worker-gone';
 
 /**
  * Builds the supervision tick's wait.
