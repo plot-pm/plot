@@ -2,7 +2,7 @@ import { supervise, type SuperviseDetail } from '@plot-pm/domain/workflows/super
 import { assign, startableSlices, type AssignDetail, type FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Decision, NotifyWrite, IdleNotifyWrite, UnblockWrite } from '@plot-pm/domain/workflows/decision';
 import { holdCounts, QUEUE_HOLDS } from '@plot-pm/domain/rules/queue';
-import type { NextDeadline } from '@plot-pm/domain/rules/next-deadline';
+import { earliestDeadline, nextDeadline, type NextDeadline } from '@plot-pm/domain/rules/next-deadline';
 import { unclaimedNotice } from '@plot-pm/domain/rules/unclaimed';
 import { questionEscalation, type Rung } from '@plot-pm/domain/rules/question-escalation';
 import { sliceIdle, type SliceIdleReading } from '@plot-pm/domain/rules/slice-idle';
@@ -162,6 +162,13 @@ export interface TickReport {
    * `null` where the estate holds no deadline.
    */
   nextDeadline?: NextDeadline | null;
+  /**
+   * The earliest wall time a rule this tick applied to its own readings changes
+   * its answer: a question's next rung, a worker's `Worker bound`, an
+   * unheld claim's age and a launch's grace. `null` where none is held; absent
+   * where the tick did not complete.
+   */
+  deadline?: NextDeadline | null;
 }
 
 /**
@@ -324,6 +331,8 @@ export interface TickOptions {
    * there, and the record — a fifth question, independent of the other four.
    */
   unblock?: UnblockWorld;
+  /** The `Worker bound` in milliseconds, or absent to hold no worker deadline. */
+  workerBoundMs?(): Promise<number>;
   /** The clock, so a test can hold one. */
   now?(): number;
 }
@@ -376,13 +385,11 @@ export const tick = async (options: TickOptions): Promise<TickReport> => {
     // because `supervise`'s own verdict says nothing about a question's age.
     // Placing this inside the `needs-a-person` arm would miss exactly the
     // 2026-10-05 case — a live loop that went free after asking.
-    const escalated =
+    const questions =
       options.escalation === undefined
-        ? supervised
-        : { ...supervised, writes: [...supervised.writes, ...(await escalationWrites(
-            escalationDesks(supervised.detail.agents, readings.trees ?? []),
-            options.escalation,
-          ))] };
+        ? null
+        : await escalationWrites(escalationDesks(supervised.detail.agents, readings.trees ?? []), options.escalation);
+    const escalated = questions === null ? supervised : { ...supervised, writes: [...supervised.writes, ...questions.writes] };
 
     // THE IDLE PASS RUNS BESIDE THE ESCALATION PASS, OVER A DIFFERENT
     // POPULATION. It judges open slice PRs rather than registered desks, so it
@@ -426,14 +433,23 @@ export const tick = async (options: TickOptions): Promise<TickReport> => {
     // slice waiting for an agent starts nothing and measures nothing, and
     // reports `scaling: null`, as it does when nobody asked.
     let handOver: Decision<AssignDetail> | null = null;
+    let queueDeadline: NextDeadline | null = null;
     if (options.queue !== undefined) {
       const queueReadings = await readQueue(entries, options.queue);
+      queueDeadline = queueReadings.deadline ?? null;
       const max = options.max ?? 0;
       handOver = assign(queueReadings, { max });
       if (options.fleet !== undefined && startableSlices(handOver.detail.held) > 0) {
         handOver = assign(queueReadings, { max, fleet: await options.fleet() });
       }
     }
+
+    // A WORKER PAST `Worker bound` FROM ITS START reads `dead` where its token is held by a stray holder.
+    const workerStartedAt = entries.map((entry) => Date.parse(entry.startedAt)).filter((at) => !Number.isNaN(at));
+    const workerDeadline =
+      options.workerBoundMs === undefined || workerStartedAt.length === 0
+        ? null
+        : nextDeadline({ workerStartedAt }, { workerBoundMs: await options.workerBoundMs() }, now());
 
     return {
       startedAt,
@@ -443,6 +459,7 @@ export const tick = async (options: TickOptions): Promise<TickReport> => {
       handOver,
       ...(readings.trees === undefined ? {} : { trees: readings.trees }),
       incomplete: '',
+      deadline: earliestDeadline([questions?.deadline, workerDeadline, queueDeadline]),
     };
   } catch (error) {
     // THE AGENT COUNT IS ZERO RATHER THAN A GUESS. A tick that failed reading
@@ -493,9 +510,16 @@ export const escalationDesks = (
   return [...agents, ...unregistered];
 };
 
+/** What the escalation pass decided: its writes, and when a question it read reaches its next rung. */
+interface EscalationPass {
+  writes: readonly NotifyWrite[];
+  deadline: NextDeadline | null;
+}
+
 /**
  * One `notify` write per desk whose question reached a new rung, for every
- * desk {@link escalationDesks} names.
+ * desk {@link escalationDesks} names, and the earliest next rung of a question
+ * this pass read and did not skip.
  *
  * **THE DOMAIN TAKES READINGS AS VALUES.** This is where the marker, the
  * config and the TSV are read; `questionEscalation` itself imports no port and
@@ -504,16 +528,18 @@ export const escalationDesks = (
  *
  * @param agents - every desk to read, from {@link escalationDesks}.
  * @param world - what to read the marker, the config and the record through.
- * @returns one `notify` write per desk whose rung is new; a desk whose answer
- *   record reads `started` gets none — fleetd is already working it.
+ * @returns one `notify` write per desk whose rung is new, and the next rung's
+ *   deadline; a desk whose answer record reads `started` gets neither —
+ *   fleetd is already working it.
  */
 const escalationWrites = async (
   agents: readonly EscalationDesk[],
   world: EscalationWorld,
-): Promise<readonly NotifyWrite[]> => {
+): Promise<EscalationPass> => {
   const now = world.now ?? Date.now;
   const ages = await world.ages();
   const writes: NotifyWrite[] = [];
+  const askedAt: number[] = [];
   for (const agent of agents) {
     const marker = await world.marker(agent.worktree);
     if (marker === null) continue;
@@ -526,6 +552,7 @@ const escalationWrites = async (
     const recordedOutcome = await world.recordedOutcome(agent.worktree, marker.askedAt);
     const ageMs = now() - new Date(marker.askedAt).getTime();
     const result = questionEscalation({ marker, ageMs, ages, recordedRungs, recordedOutcome });
+    if (recordedOutcome !== 'started') askedAt.push(new Date(marker.askedAt).getTime());
     if (!result.isNew || result.rung === null || result.rung === 'listed') continue;
     writes.push({
       kind: 'notify',
@@ -535,7 +562,10 @@ const escalationWrites = async (
       message: escalationMessage(agent.branch, marker.firstLine, result.rung, ageMs),
     });
   }
-  return writes;
+  return {
+    writes,
+    deadline: nextDeadline({ questionAskedAt: askedAt.filter((at) => !Number.isNaN(at)) }, { questionEscalationMs: ages }, now()),
+  };
 };
 
 /**

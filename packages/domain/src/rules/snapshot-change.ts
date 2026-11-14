@@ -76,7 +76,7 @@ export const changeOf = (event: WatchEvent, layout: WatchLayout): SnapshotChange
     if (dir === strip(desk.admin)) return name === '' || name === 'HEAD' || name === 'index' ? { kind: 'desk-git', desk: desk.path } : null;
     if (dir === strip(desk.path)) {
       if (name === '.plot-worker.log') return { kind: 'worker-log', desk: desk.path };
-      return name === '' || name === 'PLOT-BLOCKED' || name === 'PLOT-CORRECTION.md' || name.startsWith('.plot-worker.')
+      return name === '' || name.startsWith('PLOT-BLOCKED') || name === 'PLOT-CORRECTION.md' || name.startsWith('.plot-worker.')
         ? { kind: 'desk-files', desk: desk.path }
         : null;
     }

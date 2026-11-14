@@ -23,6 +23,7 @@ describe('changeOf', () => {
     ["a desk's HEAD", '/repo/.git/worktrees/b', 'HEAD', { kind: 'desk-git', desk: '/repo/.worktrees/b' }],
     ['a nameless event in a desk admin dir', '/repo/.git/worktrees/a', '', { kind: 'desk-git', desk: '/repo/.worktrees/a' }],
     ['PLOT-BLOCKED in a desk root', '/repo/.worktrees/a', 'PLOT-BLOCKED', { kind: 'desk-files', desk: '/repo/.worktrees/a' }],
+    ['PLOT-BLOCKED.md in a desk root', '/repo/.worktrees/a', 'PLOT-BLOCKED.md', { kind: 'desk-files', desk: '/repo/.worktrees/a' }],
     ['PLOT-CORRECTION.md in a desk root', '/repo/.worktrees/a', 'PLOT-CORRECTION.md', { kind: 'desk-files', desk: '/repo/.worktrees/a' }],
     ['a worker file in a desk root', '/repo/.worktrees/a', '.plot-worker.pid', { kind: 'desk-files', desk: '/repo/.worktrees/a' }],
     ['a nameless event in a desk root', '/repo/.worktrees/a', '', { kind: 'desk-files', desk: '/repo/.worktrees/a' }],

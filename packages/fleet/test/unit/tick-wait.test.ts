@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { clockManual } from '@plot-pm/domain/adapters';
 import type { WatchListener } from '@plot-pm/domain/ports/watch';
 
-import { run, type RunSeams, type StopFlag } from '../../src/server/entry/registryd-main.js';
+import { loopSpends, run, type RunSeams, type StopFlag } from '../../src/server/entry/registryd-main.js';
 import type { TickReport } from '../../src/server/entry/registryd.js';
 
 const HOUR = 3_600_000;
@@ -143,5 +143,51 @@ describe('run — the tick waits on triggers and a deadline', () => {
     const now = world.clock.now();
     expect(now.ok && now.value >= at).toBe(true);
     await world.end();
+  });
+
+  /** Advances the manual clock one beat at a time until `done` holds; the wait begins after real reads. */
+  const stepUntil = async (world: ReturnType<typeof start>, done: () => boolean, beats = 1): Promise<void> => {
+    for (let steps = 0; !done() && steps < 2_000; steps += 1) {
+      world.clock.advance(beats);
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  };
+
+  it.each([
+    ['throws', (): TickReport => { throw new Error('the registry went away'); }],
+    ['is incomplete', (): TickReport => ({ ...completedTick(), incomplete: 'registry: gone' })],
+  ])('retries a tick that %s once --interval has passed, with no trigger', async (_what, failing) => {
+    let ticks = 0;
+    const world = start({ tick: async () => (ticks += 1, ticks === 1 ? failing() : completedTick()) });
+    await until(() => ticks >= 1);
+    const failedAt = world.clock.now();
+    await stepUntil(world, () => ticks >= 2);
+    expect(ticks).toBe(2);
+    const now = world.clock.now();
+    expect(failedAt.ok && now.ok && now.value - failedAt.value >= 60_000).toBe(true);
+    await world.end();
+  });
+
+  it('runs a tick at the deadline the last tick reported, with no event and no trigger', async () => {
+    let ticks = 0;
+    const at = 1_700_000_000_000 + 15 * 60_000 + 1;
+    const world = start({ tick: async () => (ticks += 1, { ...completedTick(), deadline: { at, rule: 'question-escalation' } }) });
+    await until(() => ticks >= 1);
+    await stepUntil(world, () => ticks >= 2, 12);
+    expect(ticks).toBe(2);
+    const now = world.clock.now();
+    expect(now.ok && now.value >= at).toBe(true);
+    await world.end();
+  });
+});
+
+describe('loopSpends', () => {
+  it('prices the tick over the window since its calls were last reset, not over --interval', () => {
+    expect(loopSpends({ tick: 3, scan: 1, prReader: 2, issueReader: 0 }, 7_000, 9_000)).toEqual([
+      { name: 'tick', calls: 3, intervalMs: 7_000 },
+      { name: 'scan', calls: 1, intervalMs: 9_000 },
+      { name: 'pr-reader', calls: 2, intervalMs: 9_000 },
+      { name: 'issue-reader', calls: 0, intervalMs: 9_000 },
+    ]);
   });
 });

@@ -23,7 +23,7 @@ describe('the tick waits on a trigger or a deadline', () => {
     const clock = clockManual(1_000_000);
     const { wake, slept } = watched(clock);
     let ended = false;
-    void wake.wait({ deadlineAt: null, degraded: false, intervalMs: 60_000, requested: never }).then(() => (ended = true));
+    void wake.wait({ deadlineAt: null, degraded: () => false, intervalMs: 60_000, requested: never }).then(() => (ended = true));
     clock.advance(24 * 60);
     await settle();
     expect(ended).toBe(false);
@@ -34,7 +34,7 @@ describe('the tick waits on a trigger or a deadline', () => {
     const clock = clockManual(1_000_000);
     const { wake } = watched(clock);
     let ended = false;
-    void wake.wait({ deadlineAt: null, degraded: false, intervalMs: 60_000, requested: never }).then(() => (ended = true));
+    void wake.wait({ deadlineAt: null, degraded: () => false, intervalMs: 60_000, requested: never }).then(() => (ended = true));
     await settle();
     expect(ended).toBe(false);
     wake.trigger();
@@ -48,14 +48,14 @@ describe('the tick waits on a trigger or a deadline', () => {
     wake.trigger();
     wake.clear();
     let ended = false;
-    void wake.wait({ deadlineAt: null, degraded: false, intervalMs: 60_000, requested: never }).then(() => (ended = true));
+    void wake.wait({ deadlineAt: null, degraded: () => false, intervalMs: 60_000, requested: never }).then(() => (ended = true));
     await settle();
     expect(ended).toBe(false);
     wake.trigger();
     await settle();
     expect(ended).toBe(true);
     let second = false;
-    void wake.wait({ deadlineAt: null, degraded: false, intervalMs: 60_000, requested: never }).then(() => (second = true));
+    void wake.wait({ deadlineAt: null, degraded: () => false, intervalMs: 60_000, requested: never }).then(() => (second = true));
     await settle();
     expect(second).toBe(true);
   });
@@ -64,7 +64,7 @@ describe('the tick waits on a trigger or a deadline', () => {
     const clock = clockManual(1_000_000);
     const { wake } = watched(clock);
     let ended = false;
-    void wake.wait({ deadlineAt: 1_000_000 + 2 * HOUR, degraded: false, intervalMs: 60_000, requested: never }).then(() => (ended = true));
+    void wake.wait({ deadlineAt: 1_000_000 + 2 * HOUR, degraded: () => false, intervalMs: 60_000, requested: never }).then(() => (ended = true));
     clock.advance((60 * 60_000) / 5_000);
     await settle();
     expect(ended).toBe(false);
@@ -77,9 +77,41 @@ describe('the tick waits on a trigger or a deadline', () => {
     const clock = clockManual(1_000_000);
     const { wake, slept } = watched(clock);
     let ended = false;
-    await wake.wait({ deadlineAt: null, degraded: true, intervalMs: 60_000, requested: never }).then(() => (ended = true));
+    await wake.wait({ deadlineAt: null, degraded: () => true, intervalMs: 60_000, requested: never }).then(() => (ended = true));
     expect(ended).toBe(true);
     expect(slept).toEqual([60_000]);
+  });
+
+  it('ends on the interval once a watch degrades during the wait, read again on a recheck', async () => {
+    const clock = clockManual(1_000_000);
+    const { wake, slept } = watched(clock);
+    let degraded = false;
+    let ended = false;
+    void wake.wait({ deadlineAt: null, degraded: () => degraded, intervalMs: 60_000, requested: never }).then(() => (ended = true));
+    wake.recheck();
+    await settle();
+    expect(slept).toEqual([]);
+    expect(ended).toBe(false);
+    degraded = true;
+    wake.recheck();
+    wake.recheck();
+    await settle();
+    expect(slept).toEqual([60_000]);
+    expect(ended).toBe(true);
+  });
+
+  it('waits the interval for the deadline where the clock does not answer', async () => {
+    const clock = clockManual(1_000_000);
+    clock.schedule(5_000, () => undefined);
+    const failing = { ...clock, now: () => ({ ok: false, why: 'unaskable' }) as never };
+    const wake = tickWake(failing, async () => undefined);
+    let ended = false;
+    void wake.wait({ deadlineAt: 1_000_000, degraded: () => false, intervalMs: 60_000, requested: never }).then(() => (ended = true));
+    await settle();
+    expect(ended).toBe(false);
+    clock.advance(60_000 / 5_000);
+    await settle();
+    expect(ended).toBe(true);
   });
 
   it('ends on a stop request', async () => {
@@ -88,7 +120,7 @@ describe('the tick waits on a trigger or a deadline', () => {
     let stop: () => void = () => undefined;
     const requested = new Promise<void>((resolve) => (stop = resolve));
     let ended = false;
-    void wake.wait({ deadlineAt: null, degraded: false, intervalMs: 60_000, requested }).then(() => (ended = true));
+    void wake.wait({ deadlineAt: null, degraded: () => false, intervalMs: 60_000, requested }).then(() => (ended = true));
     stop();
     await settle();
     expect(ended).toBe(true);
@@ -105,11 +137,15 @@ describe('sliceIdleDeadline', () => {
 
   it('names the earliest moment an open slice passes the bound, from its last moved line', () => {
     const slices = [slice('a', new Date(NOW - HOUR).toISOString()), slice('b', new Date(NOW - 30 * 60_000).toISOString())];
-    expect(sliceIdleDeadline(slices, 0, 2 * HOUR, NOW)).toEqual({ at: NOW + HOUR, rule: 'slice-idle' });
+    expect(sliceIdleDeadline(slices, 0, 2 * HOUR, NOW)).toEqual({ at: NOW + HOUR + 1, rule: 'slice-idle' });
   });
 
   it('floors the clock at fleetd\'s start', () => {
-    expect(sliceIdleDeadline([slice('a', null)], NOW - 10 * 60_000, 2 * HOUR, NOW)).toEqual({ at: NOW - 10 * 60_000 + 2 * HOUR, rule: 'slice-idle' });
+    expect(sliceIdleDeadline([slice('a', null)], NOW - 10 * 60_000, 2 * HOUR, NOW)).toEqual({ at: NOW - 10 * 60_000 + 2 * HOUR + 1, rule: 'slice-idle' });
+  });
+
+  it('names the moment 1 ms past the bound, so a tick at the deadline judges the slice idle', () => {
+    expect(sliceIdleDeadline([slice('a', new Date(NOW - 2 * HOUR).toISOString())], 0, 2 * HOUR, NOW)).toEqual({ at: NOW + 1, rule: 'slice-idle' });
   });
 
   it('holds none for a blocked slice, no slice, a disabled rule, or a slice already idle', () => {

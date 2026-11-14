@@ -1326,6 +1326,39 @@ describe('the tick escalates a desk\'s aged question, for every verdict includin
     expect(notify).toEqual([expect.objectContaining({ rung: 'notified-3' })]);
   });
 
+  it('reports the next rung, 1 ms past its age, as the tick deadline', async () => {
+    const marker: MarkerReading = { firstLine: 'which adapter?', askedAt: askedMinutesAgo(16) };
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({ workerAlive: async () => true }),
+      escalation: escalation({ marker: async () => marker, now: () => NOW }),
+      now: () => NOW,
+    });
+    expect(report.deadline).toEqual({ at: NOW - 16 * 60_000 + 3_600_000 + 1, rule: 'question-escalation' });
+  });
+
+  it('reports no rung deadline for a question fleetd is already answering', async () => {
+    const marker: MarkerReading = { firstLine: 'which adapter?', askedAt: askedMinutesAgo(16) };
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({ workerAlive: async () => true }),
+      escalation: escalation({ marker: async () => marker, recordedOutcome: async () => 'started', now: () => NOW }),
+      now: () => NOW,
+    });
+    expect(report.deadline).toBeNull();
+  });
+
+  it('reports each agent\'s `Worker bound` from its start as the tick deadline', async () => {
+    const startedAt = Date.parse('2026-09-04T10:00:00Z');
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({ workerAlive: async () => true }),
+      workerBoundMs: async () => 8 * 3_600_000,
+      now: () => startedAt + 3_600_000,
+    });
+    expect(report.deadline).toEqual({ at: startedAt + 8 * 3_600_000, rule: 'worker-bound' });
+  });
+
   it('writes nothing where `Question escalation` is `none`, whatever the age', async () => {
     const marker: MarkerReading = { firstLine: 'x', askedAt: askedMinutesAgo(300) };
     const report = await tick({

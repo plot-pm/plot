@@ -85,8 +85,7 @@ import { headroomFor } from '@plot-pm/domain/entities/machine';
 import type { FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { Host, MergedAnswer, PrListingRow } from '@plot-pm/domain/ports/host';
-import { ISSUE_REFRESH_MS, nextDeadline, PR_READ_BEAT_MS, type NextDeadline } from '@plot-pm/domain';
-import { FIXER_BOUND_SECONDS } from '@plot-pm/domain/rules/fixer-attempts';
+import { earliestDeadline, ISSUE_REFRESH_MS, nextDeadline, PR_READ_BEAT_MS, settledRed, type NextDeadline } from '@plot-pm/domain';
 import type { FleetdLoop, HeldSlice, PortResult } from '@plot-pm/domain';
 import { answered, failed } from '@plot-pm/domain';
 import { agentFindingsOver } from '../../shared/agent-findings.js';
@@ -122,7 +121,7 @@ import { escalationPostWorldFor, postEscalation } from '../../shared/escalation-
 import { fleetAutoWrites } from '../../shared/auto-writes.js';
 import { verifyingCount } from '../../shared/auto-verify.js';
 import { specRunningCount } from '../../shared/auto-design.js';
-import { boundSecondsOfKey, pidAlive } from '../../shared/fleet-run.js';
+import { boundSecondsOf, boundSecondsOfKey, pidAlive } from '../../shared/fleet-run.js';
 import { readAutoReview } from '../../shared/auto-review.js';
 import { releaseLine, releaseTick } from '../../shared/release-tick.js';
 import { repairStartWorldOf } from '../../shared/repair-start-world.js';
@@ -538,6 +537,29 @@ export const spendForTick = async (
   accountPerHour: spend === undefined ? await accountRate(scripts) : ((await spend())?.perHour ?? null),
   perLoop: loopSpendPerHour(loops),
 });
+
+/** The host calls each loop made since its tally was last reset. */
+export interface LoopCalls {
+  tick: number;
+  scan: number;
+  prReader: number;
+  issueReader: number;
+}
+
+/**
+ * Each loop's calls with the window they accrued over.
+ *
+ * @param calls - the calls each loop made since its tally was last reset.
+ * @param tickWindowMs - the time since the tick's tally was last reset.
+ * @param backgroundWindowMs - the time since the last spend reading, for the three background loops.
+ * @returns one {@link LoopSpend} per loop: `tick`, `scan`, `pr-reader`, `issue-reader`.
+ */
+export const loopSpends = (calls: LoopCalls, tickWindowMs: number, backgroundWindowMs: number): readonly LoopSpend[] => [
+  { name: 'tick', calls: calls.tick, intervalMs: tickWindowMs },
+  { name: 'scan', calls: calls.scan, intervalMs: backgroundWindowMs },
+  { name: 'pr-reader', calls: calls.prReader, intervalMs: backgroundWindowMs },
+  { name: 'issue-reader', calls: calls.issueReader, intervalMs: backgroundWindowMs },
+];
 
 /**
  * The host's merge answer for a branch, asked at most once per tick.
@@ -1273,11 +1295,7 @@ export const sliceIdleDeadline = (
   if (boundMs === null || slices.length === 0) return null;
   const verdicts = sliceIdle({ slices, fleetdStartedAt, boundMs, recordedEpisodes: new Set(), now: () => now });
   const since = slices.flatMap((slice, i) => (slice.blocked ? [] : [Date.parse(verdicts[i]!.clockStart)])).filter((at) => !Number.isNaN(at));
-  return nextDeadline(
-    { sliceIdleSince: since },
-    { claimStaleMs: 0, sliceIdleMs: boundMs, workerBoundMs: 0, checksWaitMs: 0, fixerBoundMs: 0, issueRefreshMs: 0, prBeatMs: 0 },
-    now,
-  );
+  return nextDeadline({ sliceIdleSince: since }, { sliceIdleMs: boundMs }, now);
 };
 
 /** The `## Plot Config` key naming the most `started` answer rows a desk may ever reach. */
@@ -3313,6 +3331,7 @@ export const run = async (
     },
     write,
     drained: wake.trigger,
+    beat: wake.recheck,
   });
   const stopWatchHeartbeat: () => Promise<void> = args.once
     ? async () => undefined
@@ -3473,55 +3492,68 @@ export const run = async (
   // SIGTERM ends the daemon within the current tick rather than after the
   // interval.
   const requested = stop.requested ?? new Promise<void>(() => undefined);
-  const pause = async (): Promise<void> => {
+  // A TICK THAT THREW OR DID NOT COMPLETE IS RETRIED: the wait after it ends `--interval` later at the latest.
+  const pause = async (last: TickReport | null): Promise<void> => {
     if (stop()) return;
-    const deadline = await tickDeadlineOf();
+    const clock = seams.clock ?? clockSystem();
+    const failed = last === null || last.incomplete !== '';
+    const deadline = await tickDeadlineOf(last);
+    const at = clock.now();
+    const retryAt = failed ? (at.ok ? at.value : Date.now()) + args.intervalMs : null;
+    const ends = [deadline?.at ?? null, retryAt].filter((when): when is number => when !== null);
     await wake.wait({
-      deadlineAt: deadline?.at ?? null,
-      // A WATCH THAT IS ABSENT OR DEGRADED LEAVES THE CADENCE: `--interval` ends the wait.
-      degraded: watchSet === null || watchSet.armed() < watchSet.wanted(),
+      deadlineAt: ends.length === 0 ? null : Math.min(...ends),
+      // A WATCH THAT IS ABSENT OR DEGRADED LEAVES THE CADENCE: `--interval` ends the wait,
+      // read again on every scan beat, so a watch that degrades during the wait counts too.
+      degraded: () => watchSet === null || watchSet.armed() < watchSet.wanted(),
       intervalMs: args.intervalMs,
       requested,
     });
   };
 
-  // THE EARLIEST DEADLINE FLEETD HOLDS READINGS FOR: the PR and issue reads' next
-  // beats and the default-branch re-ask. The claim, slice, worker, checks and
-  // fixer deadlines name no reading here until a later slice feeds them.
-  const nextDeadlineOf = async (): Promise<NextDeadline | null> => {
-    const held = await defaultBranchFile(repoRoot).read();
-    const askedAt = held.ok && held.value !== null ? Date.parse(held.value.askedAt) : Number.NaN;
-    return nextDeadline(
-      {
-        defaultBranchAskedAt: Number.isNaN(askedAt) ? null : askedAt,
-        issueReadAt: issueState.issueNextAt > 0 ? issueState.issueNextAt - ISSUE_REFRESH_MS : null,
-        prReadAt: prState.prAt,
-      },
-      {
-        claimStaleMs: 24 * 3_600_000,
-        sliceIdleMs: 2 * 3_600_000,
-        workerBoundMs: 28_800_000,
-        checksWaitMs: await checksWaitMs(),
-        fixerBoundMs: FIXER_BOUND_SECONDS * 1000,
-        issueRefreshMs: ISSUE_REFRESH_MS,
-        prBeatMs: PR_READ_BEAT_MS,
-      },
-      Date.now(),
-    );
-  };
-
-  // THE DEADLINES THE TICK OWNS: a slice going idle. The PR, issue and default-branch reads run on
-  // their own beats, so their deadlines never start a tick. `nextDeadlineOf` above still reports all.
-  const tickDeadlineOf = async (): Promise<NextDeadline | null> => {
+  // THE DEADLINES THE TICK OWNS: the tick's own (a question's next rung, a worker's
+  // `Worker bound`, an unheld claim's age, a launch's grace), a slice going idle, and a red
+  // default-branch hold that ends `Checks wait` after the last answer. The PR, issue and
+  // default-branch reads run on their own beats, so their deadlines never start a tick.
+  const tickDeadlineOf = async (last: TickReport | null): Promise<NextDeadline | null> => {
     if (seams.tickDeadline !== undefined) return seams.tickDeadline();
     const boundMs = idle === undefined ? null : await idle.boundMs();
-    const at = (seams.clock ?? clockSystem()).now();
-    return sliceIdleDeadline(idleHeld.slices, fleetdStartedAt, boundMs, at.ok ? at.value : Date.now());
+    const clock = (seams.clock ?? clockSystem()).now();
+    const now = clock.ok ? clock.value : Date.now();
+    const held = await defaultBranchFile(repoRoot).read();
+    const reading = held.ok ? held.value : null;
+    const redAskedAt = reading !== null && settledRed(reading) ? Date.parse(reading.askedAt) : Number.NaN;
+    return earliestDeadline([
+      last?.deadline,
+      sliceIdleDeadline(idleHeld.slices, fleetdStartedAt, boundMs, now),
+      Number.isNaN(redAskedAt) ? null : nextDeadline({ defaultBranchRedAskedAt: redAskedAt }, { checksWaitMs: await checksWaitMs() }, now),
+    ]);
+  };
+
+  // THE EARLIEST DEADLINE FLEETD HOLDS READINGS FOR: the tick's own, and the PR and
+  // issue reads' next beats and the default-branch re-ask.
+  const nextDeadlineOf = async (last: TickReport): Promise<NextDeadline | null> => {
+    const held = await defaultBranchFile(repoRoot).read();
+    const askedAt = held.ok && held.value !== null ? Date.parse(held.value.askedAt) : Number.NaN;
+    return earliestDeadline([
+      await tickDeadlineOf(last),
+      nextDeadline(
+        {
+          defaultBranchAskedAt: Number.isNaN(askedAt) ? null : askedAt,
+          issueReadAt: issueState.issueNextAt > 0 ? issueState.issueNextAt - ISSUE_REFRESH_MS : null,
+          prReadAt: prState.prAt,
+        },
+        { checksWaitMs: await checksWaitMs(), issueRefreshMs: ISSUE_REFRESH_MS, prBeatMs: PR_READ_BEAT_MS },
+        Date.now(),
+      ),
+    ]);
   };
 
   write(`plot-fleetd: supervising ${registryDir}\n`);
 
   let lastReadAt = Date.now();
+  // THE TICK'S CALLS ACCRUE FROM THE LAST RESET, so its rate is priced over that window: ticks are irregular.
+  let tickWindowAt = Date.now();
   for (;;) {
     // TRIGGERS NAMED BEFORE THIS TICK are read by it; one that arrives during it ends the next wait at once.
     wake.clear();
@@ -3592,6 +3624,11 @@ export const run = async (
         // ABSENT UNDER `--once`, same as `idle`: a one-shot tick answers no
         // desk's own question.
         unblock,
+        // THE BOUND A STRAY-HOLDER DESK IS JUDGED BY, `PLOT_WORKER_BOUND` first, as the desk reading takes it.
+        workerBoundMs: async () => {
+          const given = process.env.PLOT_WORKER_BOUND ?? '';
+          return (/^\d+$/.test(given) ? Number(given) : boundSecondsOf({ repoRoot, scriptsDir }, 28_800)) * 1000;
+        },
       });
     } catch (err) {
       // STDERR, AND THE ERROR'S OWN TEXT. `registryd.err` being empty on both
@@ -3605,8 +3642,8 @@ export const run = async (
       if (args.once) return 1;
       // NOTHING IS REPORTED FOR THIS TICK, and that is deliberate: a tick that
       // threw halfway decided nothing, and the contract says the decision is
-      // empty rather than truncated. The interval is still waited, so a
-      // failure that repeats cannot spin.
+      // empty rather than truncated. The next wait ends `--interval` later at
+      // the latest, so the tick is retried and a failure that repeats cannot spin.
       //
       // THE RELAY RUNS ON THIS PATH TOO: reading the desks' monitor logs needs
       // no host call, so a failing tick does not stop desk findings reaching
@@ -3618,7 +3655,8 @@ export const run = async (
       // other three loops run on their own clocks and are read (and reset)
       // only at the completion path below, so a throw here leaves them alone.
       tally.calls = 0;
-      await pause();
+      tickWindowAt = Date.now();
+      await pause(null);
       continue;
     }
 
@@ -3639,12 +3677,15 @@ export const run = async (
     if (report.incomplete === '') {
       report = {
         ...report,
-        spend: await spendForTick(scripts, [
-          { name: 'tick', calls: tally.calls, intervalMs: args.intervalMs },
-          { name: 'scan', calls: scanState.calls, intervalMs: backgroundWindowMs },
-          { name: 'pr-reader', calls: prState.calls, intervalMs: backgroundWindowMs },
-          { name: 'issue-reader', calls: issueState.calls, intervalMs: backgroundWindowMs },
-        ], spend),
+        spend: await spendForTick(
+          scripts,
+          loopSpends(
+            { tick: tally.calls, scan: scanState.calls, prReader: prState.calls, issueReader: issueState.calls },
+            Math.max(1, Date.now() - tickWindowAt),
+            backgroundWindowMs,
+          ),
+          spend,
+        ),
       };
       lastReadAt = Date.now();
     }
@@ -3658,8 +3699,9 @@ export const run = async (
     // scan, PR reader and issue reader tallies are reset the same way and for
     // the same reason — each runs on its own clock and keeps accruing calls
     // between ticks, so only the reading that just printed them may zero them.
-    if (report.incomplete === '') report = { ...report, nextDeadline: await nextDeadlineOf() };
+    if (report.incomplete === '') report = { ...report, nextDeadline: await nextDeadlineOf(report) };
     tally.calls = 0;
+    tickWindowAt = Date.now();
     scanState.calls = 0;
     prState.calls = 0;
     issueState.calls = 0;
@@ -3863,7 +3905,7 @@ export const run = async (
       failUnread(snapshot, 'not read: --once runs the tick alone');
       return code;
     }
-    await pause();
+    await pause(report);
   }
 };
 

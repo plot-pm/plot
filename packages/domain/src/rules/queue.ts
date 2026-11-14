@@ -6,6 +6,7 @@ import { sliceReadingsOf } from './slice-readings.js';
 import type { SliceRefusal } from '../ports/refused-slices.js';
 import type { PlanRecord, PlanRecordSlice } from '../ports/plan-store.js';
 import { planIdOf } from '../entities/plan.js';
+import type { NextDeadline } from './next-deadline.js';
 
 /**
  * One slice waiting to be handed to an agent.
@@ -266,6 +267,13 @@ export interface QueueReadings {
    * read the default branch, which holds nothing.
    */
   defaultBranchRed?: boolean;
+  /**
+   * The earliest wall time an age this pass compared changes its answer: an
+   * unheld claim passing `ORPHANED_CLAIM_AGE_MS`, a launch leaving its grace or
+   * its pid bound. A report and not a matching input: {@link matchQueue} never
+   * reads it. Absent means nobody asked; `null` means none is held.
+   */
+  deadline?: NextDeadline | null;
 }
 
 /**
