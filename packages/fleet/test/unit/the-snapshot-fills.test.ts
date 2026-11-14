@@ -63,19 +63,17 @@ describe('fleetd fills the snapshot from the readings its loops already take', (
     const snapshot = createSnapshotHolder();
     const clock = clockManual(Date.now());
     let stopped = false;
-    let wake: (() => void) | null = null;
-    let sleeps = 0;
-    const sleep = (): Promise<void> =>
-      new Promise<void>((resolve) => {
-        sleeps += 1;
-        wake = resolve;
-      });
-    const requested = new Promise<void>(() => undefined);
+    let release: () => void = () => undefined;
+    const requested = new Promise<void>((resolve) => (release = resolve));
+    // AN ARMED WATCH NEVER SLEEPS: the loop has started once it logs `supervising`.
+    let supervising = false;
     const daemon = run(
       ['--interval', '60'],
       join(box.scriptsDir, 'board'),
-      () => undefined,
-      sleep,
+      (s: string) => {
+        if (s.includes('plot-fleetd: supervising')) supervising = true;
+      },
+      undefined,
       Object.assign(() => stopped, { requested }),
       () => undefined,
       box.repo,
@@ -85,12 +83,12 @@ describe('fleetd fills the snapshot from the readings its loops already take', (
       const end = Date.now() + ms;
       while (!done() && Date.now() < end) await new Promise((r) => setTimeout(r, 100));
     };
-    await until(() => sleeps >= 1, 60_000);
+    await until(() => supervising, 60_000);
     clock.advance(beatsPerPass);
     await until(() => READING_KEYS.every((key) => snapshot.current().readings[key].state !== 'unread'), 90_000);
     const seen = states(snapshot);
     stopped = true;
-    (wake as (() => void) | null)?.();
+    release();
     await daemon;
     for (const key of READING_KEYS) expect(['read', 'failed'], `${key} ${seen[key]}`).toContain(seen[key]);
     const held = snapshot.current().readings;

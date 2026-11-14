@@ -70,13 +70,14 @@ import { processAnswers } from '@plot-pm/domain/adapters/git-dirs/git-dirs';
 import { readRefSnapshot } from '@plot-pm/domain/workflows/plan-walk-cache';
 import { startWatchSet, type RunningWatchSet } from '../../shared/watch-set.js';
 import { startSafetyNet } from '../../shared/safety-net.js';
+import { tickWake } from '../../shared/tick-wake.js';
 import type { SliceRefusal, RefusedSliceRecord } from '@plot-pm/domain/ports/refused-slices';
 import type { NotifyWrite, IdleNotifyWrite, UnblockWrite } from '@plot-pm/domain/workflows/decision';
 import {
   parseQuestionEscalation,
   DEFAULT_QUESTION_ESCALATION,
 } from '@plot-pm/domain/rules/question-escalation';
-import { parseSliceIdleAfter, DEFAULT_SLICE_IDLE_AFTER, idleEpisodeKey } from '@plot-pm/domain/rules/slice-idle';
+import { parseSliceIdleAfter, DEFAULT_SLICE_IDLE_AFTER, idleEpisodeKey, sliceIdle } from '@plot-pm/domain/rules/slice-idle';
 import type { SliceIdleReading } from '@plot-pm/domain/rules/slice-idle';
 import type { TempSweep } from '@plot-pm/domain/ports/temp-sweep';
 import { tempSweepDue } from '@plot-pm/domain/rules/temp-sweep';
@@ -1253,6 +1254,31 @@ export const idleWorldForRepo = (
     );
   },
 });
+
+/**
+ * The earliest wall time an open, unblocked slice goes idle.
+ *
+ * @param slices - the slices the last idle pass judged.
+ * @param fleetdStartedAt - when this fleetd process started, epoch milliseconds.
+ * @param boundMs - the `Slice idle after` bound; `null` disables the rule.
+ * @param now - the wall clock, epoch milliseconds.
+ * @returns the deadline, or `null` where no slice can go idle later.
+ */
+export const sliceIdleDeadline = (
+  slices: readonly SliceIdleReading[],
+  fleetdStartedAt: number,
+  boundMs: number | null,
+  now: number,
+): NextDeadline | null => {
+  if (boundMs === null || slices.length === 0) return null;
+  const verdicts = sliceIdle({ slices, fleetdStartedAt, boundMs, recordedEpisodes: new Set(), now: () => now });
+  const since = slices.flatMap((slice, i) => (slice.blocked ? [] : [Date.parse(verdicts[i]!.clockStart)])).filter((at) => !Number.isNaN(at));
+  return nextDeadline(
+    { sliceIdleSince: since },
+    { claimStaleMs: 0, sliceIdleMs: boundMs, workerBoundMs: 0, checksWaitMs: 0, fixerBoundMs: 0, issueRefreshMs: 0, prBeatMs: 0 },
+    now,
+  );
+};
 
 /** The `## Plot Config` key naming the most `started` answer rows a desk may ever reach. */
 export const CORRECTION_BUDGET_KEY = 'Correction budget';
@@ -2679,6 +2705,8 @@ export interface RunSeams {
   watch?: Watch;
   /** Opens the channel transport; `startChannel` by default. */
   openChannel?: typeof startChannel;
+  /** The earliest deadline the tick's wait ends on; the idle pass's slices by default. */
+  tickDeadline?: () => Promise<NextDeadline | null>;
   /** Builds the monitor and the relay over an opened channel. */
   overChannel?: (channel: RunningChannel) => Pick<ChannelSlot, 'indexMonitor' | 'deskRelay'>;
   /** The scan the clock runs on every beat. */
@@ -3019,7 +3047,8 @@ export const run = async (
   // own comment on `idleNotifyWrites`'s call site says why): the idle pass
   // judges open slice PRs, a population the registry does not enumerate.
   const idleTrees = treesGit({ repoRoot, scriptDir: scriptsDir });
-  const idle = args.once
+  const idleHeld: { slices: readonly SliceIdleReading[] } = { slices: [] };
+  const idleBase = args.once
     ? undefined
     : idleWorldForRepo(repoRoot, scriptsDir, fleetdStartedAt, async () => {
         const listed = await idleTrees.list();
@@ -3028,6 +3057,18 @@ export const run = async (
           .filter((tree) => !tree.isMain && tree.branch !== '')
           .map((tree) => ({ worktree: tree.path, branch: tree.branch }));
       });
+  // THE SLICES THE LAST IDLE PASS JUDGED, kept so the wait can name when the first of them goes idle.
+  const idle: SliceIdleReader | undefined =
+    idleBase === undefined
+      ? undefined
+      : {
+          ...idleBase,
+          readings: async () => {
+            const read = await idleBase.readings();
+            idleHeld.slices = read;
+            return read;
+          },
+        };
   // READ WHEN A TICK HOLDS A `notify` WRITE, so a `Notify command` added
   // while the daemon runs takes effect at the next escalation.
   const notifier =
@@ -3253,7 +3294,14 @@ export const run = async (
     'com.plot-pm.fleetd';
   // THE WATCH SET ARMS ONLY FOR THE LOOP, and only where git names a common
   // directory: a root that is no repository watches nothing and reports 0 of 0.
-  const watchSet: RunningWatchSet | null = args.once ? null : await armWatchSet(repoRoot, registryDir, scriptsDir, seams.watch ?? watchFs(), seams.clock ?? clockSystem());
+  // THE TICK WAITS ON A TRIGGER, NOT ON A CADENCE: a scan that drained a non-empty pending set,
+  // a wake, and the next deadline end the wait. A registry, desk-files or worker-gone change enters
+  // the pending set, so the scan on the next beat drains it and starts the tick once, over readings
+  // that already hold the change.
+  const wake = tickWake(seams.clock ?? clockSystem(), sleep);
+  const watchSet: RunningWatchSet | null = args.once
+    ? null
+    : await armWatchSet(repoRoot, registryDir, scriptsDir, seams.watch ?? watchFs(), seams.clock ?? clockSystem());
   // EVERY SCAN IS A FULL READ, SO THE SAFETY NET COMPARES AFTER EVERY ONE: one
   // line per reading that changed while no trigger named it.
   const safetyNet = startSafetyNet({
@@ -3264,6 +3312,7 @@ export const run = async (
       return at.ok ? at.value : Date.now();
     },
     write,
+    drained: wake.trigger,
   });
   const stopWatchHeartbeat: () => Promise<void> = args.once
     ? async () => undefined
@@ -3415,6 +3464,7 @@ export const run = async (
         woke: (drift) => {
           write(`plot-fleetd: clock moved ${Math.round(drift.driftMs / 1000)}s against the monotonic clock; full read\n`);
           safetyNet.woke();
+          wake.trigger();
         },
       }, warn);
   const runTick = seams.tick ?? tick;
@@ -3425,7 +3475,14 @@ export const run = async (
   const requested = stop.requested ?? new Promise<void>(() => undefined);
   const pause = async (): Promise<void> => {
     if (stop()) return;
-    await Promise.race([sleep(args.intervalMs), requested]);
+    const deadline = await tickDeadlineOf();
+    await wake.wait({
+      deadlineAt: deadline?.at ?? null,
+      // A WATCH THAT IS ABSENT OR DEGRADED LEAVES THE CADENCE: `--interval` ends the wait.
+      degraded: watchSet === null || watchSet.armed() < watchSet.wanted(),
+      intervalMs: args.intervalMs,
+      requested,
+    });
   };
 
   // THE EARLIEST DEADLINE FLEETD HOLDS READINGS FOR: the PR and issue reads' next
@@ -3453,10 +3510,21 @@ export const run = async (
     );
   };
 
+  // THE DEADLINES THE TICK OWNS: a slice going idle. The PR, issue and default-branch reads run on
+  // their own beats, so their deadlines never start a tick. `nextDeadlineOf` above still reports all.
+  const tickDeadlineOf = async (): Promise<NextDeadline | null> => {
+    if (seams.tickDeadline !== undefined) return seams.tickDeadline();
+    const boundMs = idle === undefined ? null : await idle.boundMs();
+    const at = (seams.clock ?? clockSystem()).now();
+    return sliceIdleDeadline(idleHeld.slices, fleetdStartedAt, boundMs, at.ok ? at.value : Date.now());
+  };
+
   write(`plot-fleetd: supervising ${registryDir}\n`);
 
   let lastReadAt = Date.now();
   for (;;) {
+    // TRIGGERS NAMED BEFORE THIS TICK are read by it; one that arrives during it ends the next wait at once.
+    wake.clear();
     if (stop()) {
       // THE CLOCK'S RUNS END BEFORE THE DAEMON DOES. `stop()` cancels the next
       // beat only; a scan already started still runs its automatic writes, and
