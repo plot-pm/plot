@@ -277,6 +277,7 @@ export const runAutoMergePass = async (
     repair: repairRecordFile(opts.repoRoot),
     build: await buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
     checks: checkNamesOf(readConfig(opts, 'Default branch checks', '')),
+    mergeChecks: checkNamesOf(readConfig(opts, 'Merge checks', '')),
   };
   return mergeTick(
     rows,
