@@ -46,6 +46,8 @@ export interface CheckRun {
   readonly status: string;
   /** The check run's conclusion (`SUCCESS`, `FAILURE`), or `''` where it has none. */
   readonly conclusion: string;
+  /** When the check run started, or the status context was created, as ISO 8601; absent or `''` where the host gave none. */
+  readonly at?: string;
 }
 
 /** The review verdict; informational only, and `''` when there is none. */

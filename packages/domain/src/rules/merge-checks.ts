@@ -27,10 +27,11 @@ const succeeded = (run: CheckRun): boolean =>
  * Whether every named check has a completed success on the head.
  *
  * Reads the names in order and answers for the first that fails: a name with
- * no item in `runs` reads `pending` (`no run`), a name with an unfinished item
- * reads `pending`, and a name with an item that completed with any conclusion
- * other than `SUCCESS` (`SKIPPED` and `NEUTRAL` included) reads `failing`.
- * Every item carrying the name is read, not only the first.
+ * no item in `runs` reads `pending` (`no run`), and a name with any unfinished
+ * item reads `pending`. Of the completed items carrying a name, those with the
+ * latest `at` decide: one that completed with any conclusion other than
+ * `SUCCESS` (`SKIPPED` and `NEUTRAL` included) reads `failing`. Items with no
+ * `at` sort before every dated item, so where none is dated every item decides.
  *
  * @param runs - the rollup items on the head; absent where the host reported none.
  * @param names - the check names a merge requires; empty requires none.
@@ -42,7 +43,8 @@ export const mergeChecksVerdict = (runs: readonly CheckRun[] | undefined, names:
     if (named.length === 0) return { read: 'pending', name, seen: 'no run' };
     const open = named.find((run) => run.conclusion === '' && UNFINISHED.includes(run.status));
     if (open !== undefined) return { read: 'pending', name, seen: open.status === '' ? 'unfinished' : open.status };
-    const bad = named.find((run) => !succeeded(run));
+    const latest = named.reduce((at, run) => ((run.at ?? '') > at ? (run.at ?? '') : at), '');
+    const bad = named.filter((run) => (run.at ?? '') === latest).find((run) => !succeeded(run));
     if (bad !== undefined) return { read: 'failing', name, seen: bad.conclusion === '' ? bad.status : bad.conclusion };
   }
   return { read: 'green' };

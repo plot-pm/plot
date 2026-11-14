@@ -543,22 +543,25 @@ test('host: pr-state reports every rollup item as a check run, on both GitHub tr
   const sha = 'a'.repeat(40);
   const graphql = makeStubs({
     ghJson: `{"number":7,"state":"OPEN","isDraft":false,"url":"u","headRefOid":"${sha}",`
-      + '"statusCheckRollup":[{"name":"build","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"x"},{"context":"plot/review","state":"SUCCESS"}]}',
+      + '"statusCheckRollup":[{"name":"build","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"x","startedAt":"2026-11-07T07:41:02Z"},{"context":"plot/review","state":"SUCCESS"}]}',
   });
   const out = JSON.parse(run(['pr-state', '7', '--with-checks'], { env: { PLOT_HOST: 'github' }, stubs: graphql }));
   assert.equal(out.checks, 'green', 'a rollup with no validate item still reads green');
   assert.deepEqual(out.checkRuns, [
-    { name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' },
-    { name: 'plot/review', status: 'SUCCESS', conclusion: '' },
+    { name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS', at: '2026-11-07T07:41:02Z' },
+    { name: 'plot/review', status: 'SUCCESS', conclusion: '', at: '' },
   ]);
   const rest = makeStubsRateAware({
     graphqlRemaining: 0,
     coreRemaining: 4997,
     restJson: JSON.stringify({ number: 7, state: 'open', draft: false, html_url: 'u', merged: false, head: { ref: 'f', sha }, base: { ref: 'main' } }),
-    checkRunsJson: JSON.stringify({ total_count: 1, check_runs: [{ name: 'validate', status: 'in_progress', conclusion: null }] }),
+    checkRunsJson: JSON.stringify({ total_count: 1, check_runs: [{ name: 'validate', status: 'in_progress', conclusion: null, started_at: '2026-11-07T07:41:02Z' }] }),
+    statusJson: JSON.stringify({ total_count: 1, statuses: [{ context: 'validate', state: 'success', created_at: '2026-11-07T07:41:05Z' }] }),
   });
-  assert.deepEqual(JSON.parse(run(['pr-state', '7', '--with-checks'], { env: { PLOT_HOST: 'github' }, stubs: rest })).checkRuns,
-    [{ name: 'validate', status: 'IN_PROGRESS', conclusion: '' }]);
+  assert.deepEqual(JSON.parse(run(['pr-state', '7', '--with-checks'], { env: { PLOT_HOST: 'github' }, stubs: rest })).checkRuns, [
+    { name: 'validate', status: 'IN_PROGRESS', conclusion: '', at: '2026-11-07T07:41:02Z' },
+    { name: 'validate', status: 'SUCCESS', conclusion: '', at: '2026-11-07T07:41:05Z' },
+  ]);
 });
 
 test("host: pr-state reports the rollup's checks without plot/review", () => {
@@ -6745,7 +6748,7 @@ test('host: pr-state falls back to REST when the GraphQL budget is spent', () =>
   const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(out, {
     number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', head: 'feature/x', headSha: sha, base: 'main',
-    checks: 'green', ciChecks: 'green', checkRuns: [{ name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' }], checksSha: sha, mergeable: 'mergeable', mergedAt: '',
+    checks: 'green', ciChecks: 'green', checkRuns: [{ name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS', at: '' }], checksSha: sha, mergeable: 'mergeable', mergedAt: '',
   });
   const calls = callsOf(stubs.callsFile);
   assert.ok(

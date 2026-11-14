@@ -246,7 +246,8 @@
 #                       and fleetd's merge arm require to have a completed
 #                       `success` on the pinned head. A named check with no run
 #                       on the head, or a queued or running one, reads
-#                       `pending` and refuses `checks-not-green`. Name the job
+#                       `pending` and refuses `checks-not-green`; of several
+#                       completed runs of one name, the latest decides. Name the job
 #                       that aggregates the selected jobs: a re-run removes a
 #                       job from the rollup until it runs again, so the rest of
 #                       the rollup can read green without it. Bitbucket reports

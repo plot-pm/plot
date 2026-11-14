@@ -283,11 +283,11 @@ describe('a host that answers', () => {
 
   it('reads the rollup items pr-state reports as the PR\'s check runs, and leaves them absent where none are reported', async () => {
     const host = hostShell(hostThat(
-      'printf \'{"number":7,"state":"OPEN","checks":"green","checkRuns":[{"name":"build","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"validate"}]}\'',
+      'printf \'{"number":7,"state":"OPEN","checks":"green","checkRuns":[{"name":"build","status":"COMPLETED","conclusion":"SUCCESS","at":"2026-11-07T07:41:02Z"},{"name":"validate"}]}\'',
     ));
     expect(await host.prState(7, { withChecks: true })).toMatchObject({ ok: true, value: { checkRuns: [
-      { name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' },
-      { name: 'validate', status: '', conclusion: '' },
+      { name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS', at: '2026-11-07T07:41:02Z' },
+      { name: 'validate', status: '', conclusion: '', at: '' },
     ] } });
     const none = await hostShell(hostThat('printf \'{"number":7,"state":"OPEN","checks":"unknown"}\'')).prState(7);
     expect(none.ok && none.value !== null && 'checkRuns' in none.value).toBe(false);
