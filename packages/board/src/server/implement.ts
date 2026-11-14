@@ -31,6 +31,8 @@ export {
 };
 import { bodyBranch, briefBranchOf, nothingStartableDetail, startReadingFromPulse } from '@plot-pm/fleet/shared/dispatch-command';
 import type { DispatchReadingFor, NamedBranchRefusal } from '@plot-pm/domain/rules/auto-dispatch';
+import { originPlanHome } from '@plot-pm/fleet/shared/origin-desk';
+import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { pulseFor } from './fleet.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
 import { lastLines, usableCommand, type IdeaState } from './idea.js';
@@ -173,7 +175,23 @@ export interface ImplementDeps {
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
   /** What to do about starting a plan; `startReadingFromPulse` over the board's pulse where absent. */
   startReading?: (opts: BuildBoardOptions, slug: string, branch?: string) => DispatchReadingFor;
+  /** The sprint branch the plan lives on, `''` for the default branch; {@link planHomeOf} where absent. */
+  home?: (opts: BuildBoardOptions, slug: string, branch: string | null) => Promise<string>;
 }
+
+/**
+ * The sprint branch a plan lives on, read on origin by `originPlanHome`: the
+ * plan whose slice names `branch`, or the plan file whose slug is `slug`.
+ *
+ * @param opts - the board's options; the injected ref reader where present.
+ * @param slug - the plan slug.
+ * @param branch - the branch the run briefs, or `null`.
+ * @returns the sprint branch without `origin/`; `''` for the default branch.
+ */
+export const planHomeOf = (opts: BuildBoardOptions, slug: string, branch: string | null): Promise<string> => {
+  const context = { repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir };
+  return originPlanHome(opts.refs ?? refsGit(context), context, slug, branch);
+};
 
 /**
  * Handle `POST /api/implement` — refuse, or spawn `/plot-implement` on the slug.
@@ -273,7 +291,8 @@ export async function handleImplement(
     return;
   }
   const branch = briefBranchOf(reading);
-  const started = startImplement(opts, slug, usable, undefined, readCfg, branch, {}, true);
+  const home = await (deps.home ?? planHomeOf)(opts, slug, branch);
+  const started = startImplement(opts, slug, usable, undefined, readCfg, branch, {}, true, home);
   if ('failure' in started) {
     json(
       started.failure.running ? 409 : 500,
