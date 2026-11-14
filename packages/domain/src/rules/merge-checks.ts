@@ -23,6 +23,9 @@ const UNFINISHED = ['', 'QUEUED', 'IN_PROGRESS', 'WAITING', 'REQUESTED', 'PENDIN
 const succeeded = (run: CheckRun): boolean =>
   run.conclusion === '' ? run.status === 'SUCCESS' : run.conclusion === 'SUCCESS' && (run.status === 'COMPLETED' || run.status === '');
 
+/** When the item started; `''` where the host gave no time, which sorts before every dated item. */
+const atOf = (run: CheckRun): string => run.at ?? '';
+
 /**
  * Whether every named check has a completed success on the head.
  *
@@ -43,8 +46,8 @@ export const mergeChecksVerdict = (runs: readonly CheckRun[] | undefined, names:
     if (named.length === 0) return { read: 'pending', name, seen: 'no run' };
     const open = named.find((run) => run.conclusion === '' && UNFINISHED.includes(run.status));
     if (open !== undefined) return { read: 'pending', name, seen: open.status === '' ? 'unfinished' : open.status };
-    const latest = named.reduce((at, run) => ((run.at ?? '') > at ? (run.at ?? '') : at), '');
-    const bad = named.filter((run) => (run.at ?? '') === latest).find((run) => !succeeded(run));
+    const latest = named.map(atOf).reduce((at, next) => (next > at ? next : at), '');
+    const bad = named.filter((run) => atOf(run) === latest).find((run) => !succeeded(run));
     if (bad !== undefined) return { read: 'failing', name, seen: bad.conclusion === '' ? bad.status : bad.conclusion };
   }
   return { read: 'green' };
