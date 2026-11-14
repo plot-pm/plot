@@ -174,6 +174,7 @@ describe('deskDirtFilter agrees with plot-worker-state.sh plot_worker_dirty_filt
     expect(bundlePathsOf(BUILD)).toEqual([
       'skills/plot/scripts/board/board-server.mjs',
       'skills/plot/scripts/board/plot-ask.mjs',
+      'skills/plot/scripts/board/plot-long.mjs',
     ]);
   });
 
@@ -200,7 +201,6 @@ describe('deskDirtFilter agrees with plot-worker-state.sh plot_worker_dirty_filt
     expect(answer('renames/no-worktree')).toEqual(both(['old.ts -> new.ts', 'x.ts -> y.ts']));
     expect(answer('bundles/build-desk')).toEqual(
       both([
-        'skills/plot/scripts/board/plot-long.mjs',
         'skills/plot/scripts/board/README.md',
         'x.mjs -> skills/plot/scripts/board/board-server.mjs',
         'skills/plot/scripts/board/',

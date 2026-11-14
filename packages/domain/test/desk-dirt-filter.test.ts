@@ -61,8 +61,9 @@ describe('bundlePathsOf', () => {
     ]);
   });
 
-  it('skips a declaration that spans lines', () => {
-    expect(bundlePathsOf("const shippedLong = path.join(\n  here,\n  '../../a/long.mjs',\n);")).toEqual([]);
+  it('reads a declaration that spans lines, with or without a trailing comma', () => {
+    expect(bundlePathsOf("const shippedLong = path.join(\n  here,\n  '../../a/long.mjs',\n);")).toEqual(['a/long.mjs']);
+    expect(bundlePathsOf("const shippedLong = path.join(\n  here,\n  '../../a/long.mjs'\n);")).toEqual(['a/long.mjs']);
   });
 
   it('keeps the whole declaration where no ../../ argument is named', () => {

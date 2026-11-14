@@ -13,8 +13,8 @@ export const TOOL_SCRATCH = /(^|\/)\.(playwright-mcp|plot\/agents|plot\/state|om
 /** The one whole porcelain line the filter drops: the loop's untracked correction file at the desk root. */
 const CORRECTION_LINE = '?? PLOT-CORRECTION.md';
 
-/** One `shipped… = path.join(…)` declaration in `packages/board/build.mjs`, on one line. */
-const SHIPPED_DECLARATION = /shipped[A-Za-z]* = path\.join\([^)]*'[^']*'\)/g;
+/** One `shipped… = path.join(…)` declaration in `packages/board/build.mjs`, read with its newlines as spaces. */
+const SHIPPED_DECLARATION = /shipped[A-Za-z]* = path\.join\([^)]*'[^']*'[\s,]*\)/g;
 
 /** The repository-relative path inside a declaration; the last `'../../…'` argument wins. */
 const SHIPPED_PATH = /^.*'\.\.\/\.\.\/([^']*)'.*$/;
@@ -23,20 +23,19 @@ const SHIPPED_PATH = /^.*'\.\.\/\.\.\/([^']*)'.*$/;
  * Reads the generated bundle paths a board build file declares, as
  * `plot-desk-dirt.sh`'s `bundle_paths` reads them.
  *
- * Each `shipped<Name> = path.join(…, '../../<path>')` declaration on a single
- * line yields `<path>`. A declaration that names no `'../../'` argument yields
- * its whole text, which matches no porcelain path. A declaration that spans
- * lines yields nothing.
+ * Each `shipped<Name> = path.join(…, '../../<path>')` declaration yields
+ * `<path>`, also where its arguments wrap over several lines, with or without
+ * a trailing comma. The text is read with each newline as a space. A
+ * declaration that names no `'../../'` argument yields its whole text, which
+ * matches no porcelain path.
  *
  * @param buildText - the text of a desk's own `packages/board/build.mjs`.
  * @returns the declared paths, each once, in declaration order.
  */
 export const bundlePathsOf = (buildText: string): string[] => {
   const paths = new Set<string>();
-  for (const line of buildText.split('\n')) {
-    for (const [declaration] of line.matchAll(SHIPPED_DECLARATION)) {
-      paths.add(SHIPPED_PATH.exec(declaration)?.[1] ?? declaration);
-    }
+  for (const [declaration] of buildText.replaceAll('\n', ' ').matchAll(SHIPPED_DECLARATION)) {
+    paths.add(SHIPPED_PATH.exec(declaration)?.[1] ?? declaration);
   }
   return [...paths];
 };

@@ -143,10 +143,10 @@ const commitsIn = async (git: GitIn, range: readonly string[]): Promise<readonly
  * The generated board bundle paths a worktree's own `packages/board/build.mjs`
  * declares, relative to the repository root.
  *
- * Matches `bundle_paths` (`plot-desk-dirt.sh`) exactly — same file, same
- * pattern, same `sed` capture — so a fifth derivation can never name a
- * different set. Prints nothing on any failure: a desk this cannot read is
- * excused from nothing rather than everything.
+ * Reads them through {@link bundlePathsOf}, the rule `bundle_paths`
+ * (`plot-desk-dirt.sh`) duplicates, so a declaration wrapped over several
+ * lines counts here too. Answers nothing on any failure: a desk this cannot
+ * read is excused from nothing rather than everything.
  */
 const bundlePaths = (worktree: string): readonly string[] => {
   let text: string;
@@ -155,15 +155,7 @@ const bundlePaths = (worktree: string): readonly string[] => {
   } catch {
     return [];
   }
-  const found = new Set<string>();
-  const pattern = /shipped[A-Za-z]* = path\.join\([^)]*'([^']*)'\)/g;
-  for (const match of text.matchAll(pattern)) {
-    const raw = match[1];
-    if (raw === undefined) continue;
-    const relative = raw.replace(/^\.\.\/\.\.\//, '');
-    if (relative) found.add(relative);
-  }
-  return [...found].sort();
+  return bundlePathsOf(text).sort();
 };
 
 /**
