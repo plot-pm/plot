@@ -10,12 +10,24 @@ import { bridgeVouched } from '@plot-pm/domain/rules/fleetd-live';
 import { fleetOwnsScan } from '@plot-pm/domain/rules/scan-owner';
 import type { FleetdHeartbeatStore } from '@plot-pm/domain/ports/fleetd-heartbeat';
 
-import { run, type RunSeams } from '../../src/server/entry/registryd-main.js';
+import { run, type RunSeams, type StopFlag } from '../../src/server/entry/registryd-main.js';
 import type { TickReport } from '../../src/server/entry/registryd.js';
 import { startFleetdHeartbeat, supervisedFrom, trackBridgeWrites } from '../../src/shared/fleetd-heartbeat.js';
 
 const settle = async (turns = 5): Promise<void> => {
   for (let i = 0; i < turns; i += 1) await new Promise((r) => setImmediate(r));
+};
+
+/** A stop flag a test settles when its driver ends: an armed watch never sleeps, so no `sleep` drives the run. */
+const stoppedWhenDone = (driver: () => Promise<void>): StopFlag => {
+  let stopped = false;
+  let release: () => void = () => undefined;
+  const requested = new Promise<void>((resolve) => (release = resolve));
+  void driver().finally(() => {
+    stopped = true;
+    release();
+  });
+  return Object.assign(() => stopped, { requested });
 };
 
 const completedTick = (): TickReport => ({
@@ -379,7 +391,8 @@ describe('run — the heartbeat', () => {
       [],
       dir,
       () => undefined,
-      async () => {
+      async () => undefined,
+      stoppedWhenDone(async () => {
         sleeps += 1;
         // THE STAMP LANDS AFTER THE SCAN, so the beat that ran it may carry the
         // old value: beat on until a heartbeat carries one, at most ten times.
@@ -390,8 +403,7 @@ describe('run — the heartbeat', () => {
           const value = read.ok ? read.value : null;
           if (scanned && value !== null && value.lastSafetyNetAt !== null) break;
         }
-      },
-      () => sleeps > 0,
+      }),
       () => undefined,
       dir,
       quiet(clock, { watch: { arm: () => ({ degraded: false, close: () => undefined }) }, scan: async () => void (scanned = true) }),
@@ -461,7 +473,8 @@ describe('run — the heartbeat', () => {
       [],
       dir,
       () => undefined,
-      async () => {
+      async () => undefined,
+      stoppedWhenDone(async () => {
         sleeps += 1;
         await new Promise((r) => setTimeout(r, 300));
         for (let beat = 0; beat < 118; beat += 1) {
@@ -470,8 +483,7 @@ describe('run — the heartbeat', () => {
         }
         const read = await store.read();
         last = read.ok ? read.value : null;
-      },
-      () => sleeps > 0,
+      }),
       () => undefined,
       dir,
       quiet(clock, {

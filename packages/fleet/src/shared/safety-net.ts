@@ -13,6 +13,10 @@ export interface SafetyNetWorld {
   now: () => number;
   /** Receives each log line. */
   write: (line: string) => void;
+  /** Called after a landed scan whose drain named at least one reading, or whose full read found a missed change. */
+  drained?: () => void;
+  /** Called at the start of every beat, before the trigger decides; a beat reads the watch set's health. */
+  beat?: () => void;
 }
 
 /** The running safety net: the scan wrapper, the record it hands the scan, and what the heartbeat reports. */
@@ -24,7 +28,8 @@ export interface SafetyNet {
    * watch and no due safety net starts nothing. Otherwise the watch set
    * re-syncs, its pending set is drained, and the scan runs with what that
    * names; a full read is then compared by `missedChanges` against the readings
-   * held before it, one line per missed change. A scan that did not land puts
+   * held before it, one line per missed change. A drain that named a reading,
+   * or a missed change, calls `drained`. A scan that did not land puts
    * the drained readings back and leaves the safety net due. Where no watch
    * set is armed, every beat scans in full and nothing is compared.
    */
@@ -62,6 +67,7 @@ export const startSafetyNet = (world: SafetyNetWorld): SafetyNet => {
   };
 
   const scan = (watchSet: RunningWatchSet | null, run: (plan: ScanPlan) => Promise<boolean>) => async (): Promise<void> => {
+    world.beat?.();
     const decision = scanTrigger({
       watched: watchSet !== null,
       pending: watchSet?.pending() ?? [],
@@ -86,11 +92,10 @@ export const startSafetyNet = (world: SafetyNetWorld): SafetyNet => {
       if (!landed) watchSet?.requeue(named, remote);
     }
     if (!landed) return;
-    if (watchSet !== null) {
-      const found = missedChanges(held, fresh, [...named, ...watchSet.pending()]);
-      for (const change of found) world.write(missedChangeLine(change));
-      missed += found.length;
-    }
+    const found = watchSet === null ? [] : missedChanges(held, fresh, [...named, ...watchSet.pending()]);
+    for (const change of found) world.write(missedChangeLine(change));
+    missed += found.length;
+    if (named.length > 0 || found.length > 0) world.drained?.();
     if (full) {
       lastAt = world.now();
       woke = false;

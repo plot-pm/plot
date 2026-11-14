@@ -20,7 +20,8 @@ import {
   knownPrFor,
   landedSource,
 } from '@plot-pm/domain/rules/known-pr';
-import { claimTip, orphanedClaims, type ClaimReading } from '@plot-pm/domain/rules/claim';
+import { claimTip, orphanedClaims, ORPHANED_CLAIM_AGE_MS, type ClaimReading } from '@plot-pm/domain/rules/claim';
+import { nextDeadline } from '@plot-pm/domain/rules/next-deadline';
 import { deadClaims, type DeadClaimReading } from '@plot-pm/domain/rules/dead-claim';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { PlanRecord, PlanRecordSlice, PortResult } from '@plot-pm/domain';
@@ -429,7 +430,15 @@ export const readQueue = async (
     });
   }
 
-  const { orphaned, dead } = await claimReadingsOf(plans, merged, assigned, world);
+  const { orphaned, dead, claimedAt } = await claimReadingsOf(plans, merged, assigned, world);
+  const launchGraceMs = world.launchGraceMs ? world.launchGraceMs() : DEFAULT_LAUNCH_GRACE_MS;
+  const launchPidBoundMs = world.pidLivenessBoundMs ? world.pidLivenessBoundMs() : DEFAULT_PID_LIVENESS_BOUND_MS;
+  const launched = entries.map((entry, at): LaunchedEntry => ({ state: states[at], pid: entry.pid, startedAt: entry.startedAt }));
+  const launchStarts = (withPid: boolean): readonly number[] =>
+    launched
+      .filter((entry) => entry.state === 'none' && (entry.pid !== '') === withPid && (!withPid || world.alive(entry.pid)))
+      .map((entry) => Date.parse(entry.startedAt))
+      .filter((at) => Number.isFinite(at));
 
   // THE LISTING'S STATE TRAVELS WITH THE SLICES IT EXPLAINS. Every `unknown`
   // landing and every slice held behind one came from this answer, and the tick
@@ -443,11 +452,10 @@ export const readQueue = async (
     defaultBranchRed: world.defaultBranchRed ? await world.defaultBranchRed() : false,
     verifying: world.verifying ? world.verifying() : 0,
     specRunning: world.specRunning ? world.specRunning() : 0,
-    launchedUnregistered: launchedUnregisteredCount(
-      entries.map((entry, at): LaunchedEntry => ({ state: states[at], pid: entry.pid, startedAt: entry.startedAt })),
-      world.launchGraceMs ? world.launchGraceMs() : DEFAULT_LAUNCH_GRACE_MS,
-      world.pidLivenessBoundMs ? world.pidLivenessBoundMs() : DEFAULT_PID_LIVENESS_BOUND_MS,
-      world.alive,
+    launchedUnregistered: launchedUnregisteredCount(launched, launchGraceMs, launchPidBoundMs, world.alive, world.now()),
+    deadline: nextDeadline(
+      { claimedAt, launchedAt: launchStarts(false), launchedPidAt: launchStarts(true) },
+      { claimStaleMs: ORPHANED_CLAIM_AGE_MS, launchGraceMs, launchPidBoundMs },
       world.now(),
     ),
   };
@@ -482,7 +490,7 @@ const claimReadingsOf = async (
   merged: ReadonlySet<string>,
   assigned: ReadonlyMap<string, string>,
   world: QueueWorld,
-): Promise<{ orphaned: readonly string[]; dead: readonly string[] }> => {
+): Promise<{ orphaned: readonly string[]; dead: readonly string[]; claimedAt: readonly number[] }> => {
   const base = await world.defaultBranch();
   const tickStartedAt = world.now();
   const readings: ClaimReading[] = [];
@@ -521,6 +529,7 @@ const claimReadingsOf = async (
   return {
     orphaned: orphanedClaims(readings, tickStartedAt),
     dead: deadClaims(deadCandidates, tickStartedAt),
+    claimedAt: readings.filter((reading) => reading.assignedTo === '' && reading.newestClaimAt > 0).map((reading) => reading.newestClaimAt),
   };
 };
 

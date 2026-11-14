@@ -143,9 +143,41 @@ describe('the safety net over a real watch set', () => {
     expect(lines).toEqual([]);
     expect(net.missed()).toBe(0);
   });
+
+  it('names a PLOT-BLOCKED.md write as a desk-files change in the pending set', async () => {
+    const watched = await startSet(null);
+    writeFileSync(join(desk, 'PLOT-BLOCKED.md'), 'which way?');
+    await quiet();
+    expect(watched.pending()).toContainEqual({ key: 'deskFiles', desk });
+  });
 });
 
 describe('the safety net around one scan', () => {
+  it('calls drained for a full read that finds a change no trigger named, and not for one that finds none', async () => {
+    const holder = createSnapshotHolder();
+    let drained = 0;
+    const net = startSafetyNet({ held: holder.current, record: holder.record, now: () => 1_000, write: () => undefined, drained: () => void (drained += 1) });
+    const read = (claude: string) => async (): Promise<boolean> => {
+      net.record('config', readOf({ claude }));
+      return true;
+    };
+    const degraded = fakeSet([], [], false, true);
+    await net.scan(degraded, read('x'))();
+    await net.scan(degraded, read('x'))();
+    expect(drained).toBe(0);
+    await net.scan(degraded, read('y'))();
+    expect(drained).toBe(1);
+  });
+
+  it('calls beat at the start of every beat, an idle one included', async () => {
+    const holder = createSnapshotHolder();
+    let beats = 0;
+    const net = startSafetyNet({ held: holder.current, record: holder.record, now: () => 1_000, write: () => undefined, beat: () => void (beats += 1) });
+    await net.scan(fakeSet(), async () => true)();
+    await net.scan(fakeSet(), async () => true)();
+    expect(beats).toBe(2);
+  });
+
   it('syncs the desk set and drains the pending set before the scan, which still runs', async () => {
     const watched = fakeSet();
     const holder = createSnapshotHolder();

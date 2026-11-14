@@ -6,8 +6,9 @@
 // entry runs against HEAD and against the merge base.
 //
 // stdin, one command per line:
-//   pass   run one completed pass: the tick, and one beat of each of the scan,
-//          the PR reader, the issue reader and the issue writes; then start
+//   pass   run one completed pass: move the manual clock by 120 s, so every beat of
+//          the scan, the PR reader, the issue reader and the issue writes comes
+//          due, and end when no direct child has run for `QUIET_MS`; then start
 //          `/usr/bin/true census-mark pass-<n>` and print `census: pass <n> done`
 //   safety-net
 //          run one completed pass that moves the clock by at least the
@@ -18,6 +19,10 @@
 // A pass is done once no direct child, no in-process HTTP request and no scan
 // that fleetd's bridge (`.plot/state/last-pulse.json`) marks `running` has been
 // in flight for 300 ms; a `running` mark holds a pass for at most 120 s.
+//
+// fleetd's `sleep` waits on the manual clock, so a product that ticks on
+// `--interval` (60 s) ticks once in each pass, and a product that waits on
+// triggers ticks where a trigger or a deadline starts the tick.
 //
 // `CENSUS_CLOCK=system` runs fleetd on the system clock and real sleeps
 // instead, for a scenario that needs a fleetd running beside the board; then
@@ -236,29 +241,18 @@ const SAFETY_NET_MS = 600_000;
 const safetyNetBeats = Math.ceil(SAFETY_NET_MS / (beatsPerPass * BEAT_MS)) * beatsPerPass;
 const clock = manual ? clockManual(Date.now()) : undefined;
 
+let markStarted: () => void = () => undefined;
+const started = new Promise<void>((resolve) => {
+  markStarted = resolve;
+});
 let stopped = false;
 let wakeStop: () => void = () => undefined;
 const requested = new Promise<void>((resolve) => {
   wakeStop = resolve;
 });
 const stop = Object.assign(() => stopped, { requested });
-
-let sleeps = 0;
-let wakeSleep: (() => void) | null = null;
-const sleepWaiters: { at: number; resolve: () => void }[] = [];
-const sleep = manual
-  ? (): Promise<void> =>
-      new Promise<void>((resolve) => {
-        sleeps += 1;
-        wakeSleep = resolve;
-        for (const w of sleepWaiters.splice(0)) {
-          if (sleeps >= w.at) w.resolve();
-          else sleepWaiters.push(w);
-        }
-      })
-  : undefined;
-const sleepsReach = (at: number): Promise<void> =>
-  sleeps >= at ? Promise.resolve() : new Promise((resolve) => sleepWaiters.push({ at, resolve }));
+/** fleetd's `sleep` on the manual clock: it ends when a pass moves the clock past `ms`. */
+const sleep = clock === undefined ? undefined : (ms: number): Promise<void> => new Promise<void>((resolve) => void clock.timeout(ms, resolve));
 
 /** fleetd's bridge, which `fleetScan` marks `running` while a scan runs. */
 const bridgeOf = (): BridgeReading => {
@@ -289,14 +283,12 @@ const mark = (label: string): void => {
 let passes = 0;
 const pass = async (beats: number = beatsPerPass): Promise<void> => {
   passes += 1;
+  // THE FIRST PASS WAITS FOR THE START: the loop logs `supervising` once the watch set is armed
+  // and the clock runs, and the first tick and the start scan then settle on quiet.
   if (passes === 1) {
-    await sleepsReach(1);
-  } else {
-    const release = wakeSleep;
-    wakeSleep = null;
-    release?.();
+    await started;
+    await quiet();
   }
-  const target = passes;
   // BOTH READINGS MOVE TOGETHER: `advance` moves the manual clock's wall and
   // monotonic readings by the same beats, so `clockDrift` reads no jump across a
   // pass. `offsetMs` shifts only the patched `Date`, which fleetd's wake check
@@ -311,7 +303,6 @@ const pass = async (beats: number = beatsPerPass): Promise<void> => {
     await quiet();
     clock?.advance(1);
   } else clock?.advance(beats);
-  await sleepsReach(target);
   await quiet();
   mark(`pass-${passes}`);
   say(`pass ${passes} done`);
@@ -322,7 +313,10 @@ const scriptsDir = process.env['PLOT_SCRIPTS_DIR'] ?? join(dirname(process.argv[
 const daemon = run(
   process.argv.slice(2),
   join(scriptsDir, 'board'),
-  (s: string) => process.stdout.write(s),
+  (s: string) => {
+    if (s.includes('plot-fleetd: supervising')) markStarted();
+    process.stdout.write(s);
+  },
   sleep,
   stop,
   (s: string) => process.stderr.write(s),
@@ -340,16 +334,12 @@ lines.on('line', (line) => {
     if (command === 'stop') {
       stopped = true;
       wakeStop();
-      const release = wakeSleep;
-      wakeSleep = null;
-      release?.();
     }
   });
 });
 process.on('SIGTERM', () => {
   stopped = true;
   wakeStop();
-  wakeSleep?.();
 });
 
 const code = await daemon;

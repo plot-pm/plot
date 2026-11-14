@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -12,6 +12,7 @@ import { SNAPSHOT_PROTOCOL } from '@plot-pm/domain/entities/subscription';
 import { run, startFleetChannel } from '../../src/server/entry/registryd-main.js';
 import { fleetDivisors } from '../../src/shared/fleet-clock.js';
 import { createSnapshotHolder } from '../../src/shared/snapshot-fill.js';
+import { scanBusy, type BridgeReading } from '../census/census-settle.js';
 import { buildSandbox, type Sandbox } from '../census/sandbox.js';
 import { SOCKET_TEMP_ROOT } from '../socket-root.js';
 
@@ -19,6 +20,9 @@ import { SOCKET_TEMP_ROOT } from '../socket-root.js';
 // real channel: a snapshot subscriber follows the daemon through three passes.
 
 const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+/** How long the snapshot and the bridge hold still before a pass counts as settled, milliseconds. */
+const SETTLE_MS = 500;
+
 const beatsPerPass = fleetDivisors().reduce((acc, { everyNthBeat }) => (acc * everyNthBeat) / gcd(acc, everyNthBeat), 1);
 
 describe('fleetd publishes its snapshot on the channel', () => {
@@ -40,17 +44,25 @@ describe('fleetd publishes its snapshot on the channel', () => {
     await box.remove();
   }, 60_000);
 
+  /** fleetd's bridge, which `fleetScan` marks `running` while a scan runs. */
+  const bridgeOf = (): BridgeReading => {
+    const file = join(box.repo, '.plot', 'state', 'last-pulse.json');
+    try {
+      const mtimeMs = statSync(file).mtimeMs;
+      return { text: readFileSync(file, 'utf8'), mtimeMs };
+    } catch {
+      return { text: null, mtimeMs: null };
+    }
+  };
+
   it('a subscriber holds the daemon snapshot through three passes, and a steady pass sends no delta', async () => {
     const snapshot = createSnapshotHolder();
     const clock = clockManual(Date.now());
     let stopped = false;
-    let wake: (() => void) | null = null;
-    let sleeps = 0;
-    const sleep = (): Promise<void> =>
-      new Promise<void>((resolve) => {
-        sleeps += 1;
-        wake = resolve;
-      });
+    let release: () => void = () => undefined;
+    const requested = new Promise<void>((resolve) => (release = resolve));
+    // AN ARMED WATCH NEVER SLEEPS: the loop has started once it logs `supervising`.
+    let supervising = false;
     const until = async (done: () => boolean, ms: number): Promise<void> => {
       const end = Date.now() + ms;
       while (!done() && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
@@ -61,14 +73,16 @@ describe('fleetd publishes its snapshot on the channel', () => {
     const daemon = run(
       ['--interval', '60'],
       join(box.scriptsDir, 'board'),
-      () => undefined,
-      sleep,
-      Object.assign(() => stopped, { requested: new Promise<void>(() => undefined) }),
+      (s: string) => {
+        if (s.includes('plot-fleetd: supervising')) supervising = true;
+      },
+      undefined,
+      Object.assign(() => stopped, { requested }),
       () => undefined,
       box.repo,
       { snapshot, clock, probeAppKeys: () => undefined },
     );
-    await until(() => sleeps >= 1, 60_000);
+    await until(() => supervising, 60_000);
     const socket = connect(channelAddressFor(box.repo));
     let buffer = '';
     socket.setEncoding('utf8');
@@ -91,19 +105,27 @@ describe('fleetd publishes its snapshot on the channel', () => {
     });
     const reader = subscribeSnapshot(channelAddressFor(box.repo), () => undefined, { reconnectStartMs: 50 });
     await until(() => reader.link().state === 'current', 10_000);
+    // A PASS ENDS WHEN ITS SCAN HAS WRITTEN THE BRIDGE AND SETTLED, and the snapshot holds still.
     for (pass = 1; pass <= 3; pass += 1) {
-      const target = sleeps + 1;
+      const before = bridgeOf().mtimeMs ?? 0;
       clock.advance(beatsPerPass);
-      (wake as (() => void) | null)?.();
-      await until(() => sleeps >= target, 120_000);
-      await new Promise((r) => setTimeout(r, 300));
+      await until(() => (bridgeOf().mtimeMs ?? 0) > before, 30_000);
+      let generation = snapshot.current().generation;
+      let stillSince = Date.now();
+      await until(() => {
+        if (snapshot.current().generation !== generation) {
+          generation = snapshot.current().generation;
+          stillSince = Date.now();
+        }
+        return Date.now() - stillSince >= SETTLE_MS && !scanBusy(bridgeOf(), Date.now(), SETTLE_MS, 120_000);
+      }, 120_000);
     }
     const held = reader.held();
     const daemonSnapshot = snapshot.current();
     reader.close();
     socket.destroy();
     stopped = true;
-    (wake as (() => void) | null)?.();
+    release();
     await daemon;
     expect(held?.snapshot.generation).toBe(daemonSnapshot.generation);
     expect(held?.snapshot).toEqual(daemonSnapshot);
