@@ -147,11 +147,20 @@ export const boundedRunProcess = (processes: Pick<Processes, 'childrenOf'>): Bou
       const startedAt = Date.now();
       // NO `detached`. The child stays in THIS process's group, which is the
       // whole contract — see the port's doc comment.
-      const child = spawn(command, [...args], {
-        cwd: options.cwd,
-        env: options.env ? { ...process.env, ...options.env } : process.env,
-        stdio: options.holdFd === undefined ? ['ignore', out, out] : ['ignore', out, out, options.holdFd],
-      });
+      // A DESCRIPTOR THE CHILD CANNOT RECEIVE (`EBADF`) makes `spawn` throw
+      // before any child exists; it answers `failed`, as `ENOENT` does.
+      let child: ReturnType<typeof spawn>;
+      try {
+        child = spawn(command, [...args], {
+          cwd: options.cwd,
+          env: options.env ? { ...process.env, ...options.env } : process.env,
+          stdio: options.holdFd === undefined ? ['ignore', out, out] : ['ignore', out, out, options.holdFd],
+        });
+      } catch {
+        closeSync(out);
+        resolve(failed<BoundedRunResult>());
+        return;
+      }
 
       // A THROWING CALLBACK MUST NOT ABANDON A STARTED CHILD: the listeners
       // below are what end and record it.

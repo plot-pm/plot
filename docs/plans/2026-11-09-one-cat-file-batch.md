@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** desk-probes-and-liveness
 - **Issue:** #3170
@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-09, jwloka, plan-PR #3308 merged
 - **Delivered:** 2026-11-09
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
@@ -101,11 +102,11 @@ A failed read is never an empty one. `readBlobs` answers `failed`, and the plan 
 
 ### Reader
 
-- `feature/one-cat-file-batch-reader` — `objectsBatch` in `packages/domain/src/adapters/refs/objects-batch.ts`: one `git cat-file --batch-command --buffer`, a FIFO, byte framing, the 10 s per-request bound, drop and fallback; the tree parser in `packages/domain/src/rules/git-tree.ts` and `packages/domain/corpus/git-tree.corpus.test.ts`; adapter tests with a sandbox and a wedging stub `git` <!-- builds: objectsBatch, a long-lived bounded git cat-file reader per repository -->
+- `feature/one-cat-file-batch-reader` — `objectsBatch` in `packages/domain/src/adapters/refs/objects-batch.ts`: one `git cat-file --batch-command --buffer`, a FIFO, byte framing, the 10 s per-request bound, drop and fallback; the tree parser in `packages/domain/src/rules/git-tree.ts` and `packages/domain/corpus/git-tree.corpus.test.ts`; adapter tests with a sandbox and a wedging stub `git` <!-- builds: objectsBatch, a long-lived bounded git cat-file reader per repository --> → #3334
 
 ### Adapters
 
-- `feature/one-cat-file-batch-adapters` — a process-level holder beside `processAnswers`; `readBlobs`, `listBlobs`, `entriesAt`, `showFile` and `containsMany` read through an installed reader; the release-version read through `showFile`; fleetd and the board server install it and refuse a git older than 2.42; the minimum in `plot-board-setup` and `plot-board-probe.sh`; a `--once` spawn-spy test; a changeset <!-- builds: Refs object reads served by one installed cat-file process in fleetd and the board -->
+- `feature/one-cat-file-batch-adapters` — a process-level holder beside `processAnswers`; `readBlobs`, `listBlobs`, `entriesAt`, `showFile` and `containsMany` read through an installed reader; the release-version read through `showFile`; fleetd and the board server install it and refuse a git older than 2.42; the minimum in `plot-board-setup` and `plot-board-probe.sh`; a `--once` spawn-spy test; a changeset <!-- builds: Refs object reads served by one installed cat-file process in fleetd and the board --> → #3341
 
 ## Notes
 

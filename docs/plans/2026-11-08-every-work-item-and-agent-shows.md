@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** ship-2-32-0
 - **Issue:** #3244
@@ -16,6 +16,7 @@
 - **Started:** 2026-11-08, Jan Wloka, `feature/delivery-placement-rule`
 - **Started:** 2026-11-08, Jan Wloka, `feature/delivery-tab-sections`
 - **Delivered:** 2026-11-10
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 

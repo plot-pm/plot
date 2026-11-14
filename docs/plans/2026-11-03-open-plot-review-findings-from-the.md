@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Issue:** #3069
 - **Sprint:** card-alignment
@@ -20,6 +20,7 @@
 - **Started:** 2026-11-06, Jan Wloka, `bug/the-review-comment-tests-can-fail`
 - **Started:** 2026-11-06, Jan Wloka, `bug/the-merge-gate-bounds-an-unknown-head`
 - **Delivered:** 2026-11-06
+- **Released:** 2026-11-07, v2.31.0
 
 ## Changelog
 

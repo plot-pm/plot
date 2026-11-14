@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** nothing-runs
 - **Issue:** #3170
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-08, Jan Wloka, plan-PR #3238 merged
 - **Delivered:** 2026-11-08
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
@@ -77,11 +78,11 @@ This plan depends on `process-census-gate`. Slice *Builtin nap* turns its **P1**
 
 ### Builtin nap
 
-- `bug/monitor-nap-builtin-wait` — `skills/plot/scripts/plot-monitor-subject.sh`: the FIFO nap with the `sleep` fallback and the corrected `EPERM` comment; `.gitignore`; rows in `test/reconcile/agentmonitor.test.mjs`; census P1 flipped to `it`; a changeset for `plot` <!-- builds: a process-free nap in plot_monitor_wait -->
+- `bug/monitor-nap-builtin-wait` — `skills/plot/scripts/plot-monitor-subject.sh`: the FIFO nap with the `sleep` fallback and the corrected `EPERM` comment; `.gitignore`; rows in `test/reconcile/agentmonitor.test.mjs`; census P1 flipped to `it`; a changeset for `plot` <!-- builds: a process-free nap in plot_monitor_wait --> → #3259
 
 ### Liveness syscall
 
-- `bug/is-alive-without-a-process` — `packages/domain/src/adapters/processes/processes-shell.ts`: `isAlive` through a shared `signalZero` arrow function also used by `process-probe-system.ts`; unit rows; census P2 flipped to `it`; a changeset for `plot` <!-- builds: a shared signalZero liveness mapping in the domain adapters -->
+- `bug/is-alive-without-a-process` — `packages/domain/src/adapters/processes/processes-shell.ts`: `isAlive` through a shared `signalZero` arrow function also used by `process-probe-system.ts`; unit rows; census P2 flipped to `it`; a changeset for `plot` <!-- builds: a shared signalZero liveness mapping in the domain adapters --> → #3258
 
 ## Notes
 

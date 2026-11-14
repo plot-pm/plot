@@ -10,6 +10,7 @@ import { parseRunMarker, type BoardConfigReader } from '../../shared/board-run.j
 import { implementLogPath, implementStatePath } from '../../shared/implement-run.js';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import {
+  BRANCH_RE,
   SLUG_RE,
   startReadingFromPulse,
   startDispatch,
@@ -19,8 +20,14 @@ import {
  * The master agent's `dispatch` controller, with no board and no HTTP.
  *
  * ```
- * node plot-dispatch-command.mjs <slug>
+ * node plot-dispatch-command.mjs <slug> [--branch <branch>]
  * ```
+ *
+ * With `--branch`, the implement briefs that branch and `plot-dispatch.sh`
+ * hands over that branch alone, and the command refuses by name where the
+ * bridged pulse does not show the branch as startable for the plan
+ * (`no-pulse-reading`, `branch-not-in-plan`, `branch-not-startable`). Without
+ * it, the first startable branch the pulse names is briefed.
  *
  * Holds what `POST /api/dispatch` decides: an `Implement command` must be
  * configured, a second dispatch of a slug whose implement still runs is
@@ -43,7 +50,40 @@ import {
  */
 
 /** The usage line. */
-const USAGE = 'usage: plot-dispatch-command.mjs <plan-slug>';
+const USAGE = 'usage: plot-dispatch-command.mjs <plan-slug> [--branch <branch>]';
+
+/** What the command line asks for. */
+export interface DispatchArgs {
+  /** The plan slug. */
+  slug: string;
+  /** The one branch to start; absent for the first startable branch. */
+  branch?: string;
+}
+
+/**
+ * Reads `<slug> [--branch <branch>]`, in either order.
+ *
+ * @param argv - the arguments after the script name.
+ * @returns the slug and the branch, or `null` for a usage error.
+ */
+export const parseDispatchArgs = (argv: readonly string[]): DispatchArgs | null => {
+  const rest = [...argv];
+  let branch: string | undefined;
+  const at = rest.indexOf('--branch');
+  if (at !== -1) {
+    const value = rest[at + 1];
+    if (value === undefined || !BRANCH_RE.test(value)) return null;
+    branch = value;
+    rest.splice(at, 2);
+  }
+  const [slug, ...extra] = rest;
+  if (slug === undefined || extra.length > 0 || !SLUG_RE.test(slug)) return null;
+  return branch === undefined ? { slug } : { slug, branch };
+};
+
+/** The arguments that hand {@link DispatchArgs} to the `--foreground` process. */
+const argvOf = (args: DispatchArgs): string[] =>
+  args.branch === undefined ? [args.slug] : [args.slug, '--branch', args.branch];
 
 type Printer = (s: string) => void;
 
@@ -56,7 +96,7 @@ export interface DispatchCommandDeps {
   /** The fleet reading the brief branch comes from; the bridge file where absent. */
   pulse?: (repoRoot: string) => FleetReading | null;
   /** Launches the `--foreground` process; a detached copy of this script where absent. */
-  launch?: (slug: string, repoRoot: string, launchLog: string) => LaunchedChild;
+  launch?: (args: DispatchArgs, repoRoot: string, launchLog: string) => LaunchedChild;
   /** How long {@link runDetached} waits for the implement to start, in ms; 30 s where absent. */
   startWaitMs?: number;
   /** Names this launch's log apart from a concurrent launch's; this process's pid where absent. */
@@ -80,7 +120,7 @@ export const bridgedPulse = (repoRoot: string): FleetReading | null => {
 /**
  * Runs the dispatch command.
  *
- * @param argv - the plan slug.
+ * @param argv - the plan slug and an optional `--branch <branch>`.
  * @param cwd - where the command runs; the repository is found from it.
  * @param scriptDir - where the helper scripts are.
  * @param deps - test seams.
@@ -96,11 +136,12 @@ export const run = async (
   write: Printer = (s) => process.stdout.write(s),
   warn: Printer = (s) => process.stderr.write(s),
 ): Promise<number> => {
-  const [slug, ...extra] = argv;
-  if (slug === undefined || extra.length > 0 || !SLUG_RE.test(slug)) {
+  const args = parseDispatchArgs(argv);
+  if (args === null) {
     warn(`plot-dispatch-command: ${USAGE}\n`);
     return 2;
   }
+  const { slug } = args;
   const probe = await refsGit({ repoRoot: cwd, scriptDir }).repoRoot();
   if (!probe.ok) {
     warn("plot-dispatch-command: not a git repository — run this from inside the checkout\n");
@@ -111,8 +152,9 @@ export const run = async (
   const started = startDispatch({
     opts: { repoRoot, scriptsDir: scriptDir, scripts: deps.scripts },
     slug,
+    branch: args.branch,
     readCfg: deps.readCfg,
-    startReading: (s) => startReadingFromPulse(readPulse(repoRoot), s),
+    startReading: (s, b) => startReadingFromPulse(readPulse(repoRoot), s, b),
   });
   if (started.kind === 'refused') {
     warn(`plot-dispatch-command: ${started.reason}: ${started.detail}\n`);
@@ -140,13 +182,13 @@ export const run = async (
 const FOREGROUND = '--foreground';
 
 /** Launches this script again with {@link FOREGROUND}, detached, output to `launchLog`. */
-const launchSelf = (slug: string, repoRoot: string, launchLog: string): LaunchedChild =>
-  detachedNode().node(process.argv[1], [FOREGROUND, slug], repoRoot, launchLog);
+const launchSelf = (args: DispatchArgs, repoRoot: string, launchLog: string): LaunchedChild =>
+  detachedNode().node(process.argv[1], [FOREGROUND, ...argvOf(args)], repoRoot, launchLog);
 
 /**
  * Runs the dispatch command and returns once the implement has started.
  *
- * @param argv - the plan slug.
+ * @param argv - the plan slug and an optional `--branch <branch>`.
  * @param cwd - where the command runs; the repository is found from it.
  * @param scriptDir - where the helper scripts are.
  * @param deps - test seams.
@@ -162,11 +204,12 @@ export const runDetached = async (
   write: Printer = (s) => process.stdout.write(s),
   warn: Printer = (s) => process.stderr.write(s),
 ): Promise<number> => {
-  const [slug, ...extra] = argv;
-  if (slug === undefined || extra.length > 0 || !SLUG_RE.test(slug)) {
+  const args = parseDispatchArgs(argv);
+  if (args === null) {
     warn(`plot-dispatch-command: ${USAGE}\n`);
     return 2;
   }
+  const { slug } = args;
   const probe = await refsGit({ repoRoot: cwd, scriptDir }).repoRoot();
   if (!probe.ok) {
     warn("plot-dispatch-command: not a git repository — run this from inside the checkout\n");
@@ -174,7 +217,7 @@ export const runDetached = async (
   }
   const repoRoot = probe.value;
   const launchLog = agentLogPath(repoRoot, 'implement', `${slug}.launch.${deps.launchId ?? process.pid}`, 'log');
-  const child = (deps.launch ?? launchSelf)(slug, repoRoot, launchLog);
+  const child = (deps.launch ?? launchSelf)(args, repoRoot, launchLog);
   const statePath = implementStatePath(repoRoot, slug);
   const deadline = Date.now() + (deps.startWaitMs ?? 30_000);
   while (Date.now() < deadline) {

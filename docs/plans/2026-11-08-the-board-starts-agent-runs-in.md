@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** ship-2-32-0
 - **Issue:** #3274
@@ -14,6 +14,7 @@
 - **Approved:** 2026-11-08, Jan Wloka, plan-PR #3275 merged
 - **Started:** 2026-11-08, Jan Wloka, `bug/board-runs-outlive-the-board`
 - **Delivered:** 2026-11-09
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 

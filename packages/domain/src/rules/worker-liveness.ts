@@ -18,6 +18,14 @@ export const TOKEN_FD = 3;
 /** The environment variable that tells the agent the token is on {@link TOKEN_FD}. */
 export const TOKEN_FD_ENV = 'PLOT_WORKER_TOKEN_FD';
 
+/**
+ * The environment variable a worker loop sets to `1` on the process it replaces
+ * itself with when it holds the token on a close-on-exec descriptor: the new
+ * process finds the token on its path, and fd 3 holds whatever the new process
+ * opened there.
+ */
+export const TOKEN_ON_PATH_ENV = 'PLOT_WORKER_TOKEN_ON_PATH';
+
 /** The reason a released token with no exit record writes to the desk log and the AgentMonitor's findings. */
 export const RELEASED_WITH_NO_EXIT = 'the token was released with no exit record';
 

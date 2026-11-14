@@ -6,6 +6,7 @@ import {
   releaseChainStep,
   type ReleaseChainCandidate,
   type ReleaseChainHop,
+  type ReleaseChainPrevious,
 } from '../src/rules/release-chain.js';
 
 const candidate = (over: Partial<ReleaseChainCandidate>): ReleaseChainCandidate => ({
@@ -19,7 +20,7 @@ const candidate = (over: Partial<ReleaseChainCandidate>): ReleaseChainCandidate 
 
 const answered = (...candidates: ReleaseChainCandidate[]): ReleaseChainHop => ({ answered: true, candidates });
 
-const reading = (hops: ReleaseChainHop[], destination = 'feature/b', planCommit = { commit: 'plan', mergedAt: '' }) => ({
+const reading = (hops: ReleaseChainHop[], destination = 'feature/b', planCommit: ReleaseChainPrevious = { commit: 'plan', mergedAt: '' }) => ({
   defaultBranch: 'main',
   planCommit,
   destination,
@@ -38,7 +39,7 @@ describe('releaseChainStep', () => {
 
   it('asks the next branch with the picked merge commit as the commit to contain', () => {
     const step = releaseChainStep(reading([answered(candidate({ base: 'develop', mergeCommit: 'aaa' }))]));
-    expect(step).toEqual({ outcome: 'ask', branch: 'develop', previous: 'aaa' });
+    expect(step).toEqual({ outcome: 'ask', branch: 'develop', previous: 'aaa', previousPr: { number: 1, head: 'feature/b' } });
   });
 
   it('follows a second hop by containment, not by the first merged PR the host lists', () => {
@@ -167,3 +168,24 @@ describe('pickReleaseHop', () => {
     expect(picked).toMatchObject({ mergeCommit: 'second' });
   });
 });
+
+describe('carried merge subject', () => {
+  const previous = { commit: 'prev', mergedAt: '2026-03-01T00:00:00Z' };
+
+  it('picks a candidate that provably does not contain the previous commit where its merge carries the previous PR\'s subject', () => {
+    const rewritten = candidate({ number: 3204, mergeCommit: 'sprint', contains: 'no', carries: true });
+    expect(pickReleaseHop([rewritten], previous)).toBe(rewritten);
+  });
+
+  it('prefers the earliest of several carrying candidates', () => {
+    const early = candidate({ number: 1, mergedAt: '2026-03-02T00:00:00Z', contains: 'no', carries: true });
+    const late = candidate({ number: 2, mergedAt: '2026-03-03T00:00:00Z', contains: 'no', carries: true });
+    expect(pickReleaseHop([late, early], previous)).toBe(early);
+  });
+
+  it('asks the first hop with the plan PR the reading names', () => {
+    const step = releaseChainStep(reading([], 'sprint/x', { commit: 'plan', mergedAt: '', pr: { number: 3217, head: 'feature/t' } }));
+    expect(step).toEqual({ outcome: 'ask', branch: 'sprint/x', previous: 'plan', previousPr: { number: 3217, head: 'feature/t' } });
+  });
+});
+

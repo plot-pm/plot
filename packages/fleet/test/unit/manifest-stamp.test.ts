@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { stampManifest, writeDeskManifest, writeManifestStamp, writeResumeId } from '../../src/shared/manifest-stamp.js';
+import { assignEmptyManifestBranch, stampManifest, writeDeskManifest, writeManifestStamp, writeResumeId } from '../../src/shared/manifest-stamp.js';
 import { removeTree as rmTree } from '../rm-tree.mjs';
 
 /** The manifest a first dispatch writes — two-space indent, no trailing comma. */
@@ -290,6 +290,23 @@ describe('writeDeskManifest', () => {
     } finally {
       fs.chmodSync(parent, 0o755);
       rmTree(parent);
+    }
+  });
+});
+
+describe('assignEmptyManifestBranch', () => {
+  it('writes the branch into a free manifest and removes the base an earlier sprint slice left', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-assign-empty-branch-'));
+    try {
+      const file = path.join(dir, 's.json');
+      fs.writeFileSync(file, JSON.stringify({ session: 's', branch: '', base: 'sprint/old', pid: '7' }));
+      assert.equal(assignEmptyManifestBranch(file, 'feature/next'), true);
+      const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
+      assert.equal(manifest.branch, 'feature/next');
+      assert.equal(manifest.pid, '7');
+      assert.equal('base' in manifest, false);
+    } finally {
+      rmTree(dir);
     }
   });
 });

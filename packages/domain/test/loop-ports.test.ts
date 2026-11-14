@@ -347,6 +347,14 @@ describe('agentsFs: raiseAttempts, raiseCorrections, clearAssignment', () => {
     expect(manifest.pid).toBe('123');
   });
 
+  it('clearAssignment removes the base a sprint slice left', async () => {
+    write('sess-s.json', { session: 'sess-s', worktree: '/tmp/desk-s', branch: 'feature/x', base: 'sprint/s' });
+    await agents().clearAssignment('sess-s');
+    const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'sess-s.json'), 'utf8'));
+    expect(manifest.branch).toBe('');
+    expect(manifest).not.toHaveProperty('base');
+  });
+
   it('clearAssignment for an absent session answers ok rather than failing', async () => {
     const result = await agents().clearAssignment('sess-ghost');
     expect(result).toEqual({ ok: true, value: undefined });

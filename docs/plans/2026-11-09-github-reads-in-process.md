@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** desk-probes-and-liveness
 - **Issue:** #3170
@@ -14,6 +14,7 @@
 - **Rounds:** 2
 - **Approved:** 2026-11-09, jwloka, plan-PR #3308 merged
 - **Delivered:** 2026-11-10
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
@@ -148,23 +149,23 @@ This plan depends on `the-snapshot-entity` (delivered). `triggers-replace-the-ti
 
 ### Seam
 
-- `feature/github-reads-in-process-seam` — `Host.prListing` and `PrListing` in `ports/host.ts`, the shell answer in `host-shell.ts`, the three fleet callers moved to it, the refusal kind `auth` in `HostRefusal` and `RefusalKind`, and the completeness word in `foldScanListing` and `foldPulseListing` <!-- builds: Host.prListing, a typed PR listing with a per-state completeness word -->
+- `feature/github-reads-in-process-seam` — `Host.prListing` and `PrListing` in `ports/host.ts`, the shell answer in `host-shell.ts`, the three fleet callers moved to it, the refusal kind `auth` in `HostRefusal` and `RefusalKind`, and the completeness word in `foldScanListing` and `foldPulseListing` <!-- builds: Host.prListing, a typed PR listing with a per-state completeness word --> → #3338
 
 ### Client
 
-- `feature/github-reads-in-process-client` — `adapters/host/github-api.ts` with the token source and its refresh, the token's login as budget account, the proxy variables and the 30 s request bound, slots and the shared budget ledger, `rules/budget-rotation.ts` with its corpus test, the rate-limit observations, `scripts/check-host-https-callers.sh` with its contract test, and the census stub server <!-- builds: githubApi, the one in-process GitHub HTTPS client -->
+- `feature/github-reads-in-process-client` — `adapters/host/github-api.ts` with the token source and its refresh, the token's login as budget account, the proxy variables and the 30 s request bound, slots and the shared budget ledger, `rules/budget-rotation.ts` with its corpus test, the rate-limit observations, `scripts/check-host-https-callers.sh` with its contract test, and the census stub server <!-- builds: githubApi, the one in-process GitHub HTTPS client --> → #3347
 
 ### PR reads
 
-- `feature/github-reads-in-process-prs` — `adapters/host/github-pr-listing.ts`, `rules/checks-of.ts`, `rules/mergeable-of.ts`, `rules/github-pr-row.ts`, the recorder, `github-pr-listing.corpus.test.ts`, `checks-of.corpus.test.ts` and the per-field change rows <!-- builds: the in-process GitHub PR listing, with the corpus against plot-host.sh pr-list -->
+- `feature/github-reads-in-process-prs` — `adapters/host/github-pr-listing.ts`, `rules/checks-of.ts`, `rules/mergeable-of.ts`, `rules/github-pr-row.ts`, the recorder, `github-pr-listing.corpus.test.ts`, `checks-of.corpus.test.ts` and the per-field change rows <!-- builds: the in-process GitHub PR listing, with the corpus against plot-host.sh pr-list --> → #3371
 
 ### Issues and runs
 
-- `feature/github-reads-in-process-issues-runs` — the four GitHub issue reads in `tracker-github.ts` and `runsForSha` in `build-actions.ts` over the client, with tracker rows and the `runs-for-sha` corpus row <!-- builds: in-process GitHub issue and Actions-run reads -->
+- `feature/github-reads-in-process-issues-runs` — the four GitHub issue reads in `tracker-github.ts` and `runsForSha` in `build-actions.ts` over the client, with tracker rows and the `runs-for-sha` corpus row <!-- builds: in-process GitHub issue and Actions-run reads --> → #3375
 
 ### Cutover
 
-- `feature/github-reads-in-process-cutover` — the composition switch in fleetd and in `plot-pr-reader.mjs`, `PLOT_HOST_TRANSPORT`, the census S4 and S6 measurement and the story's *Measures*; a changeset for `plot` <!-- builds: the GitHub transport switch in fleetd's composition root -->
+- `feature/github-reads-in-process-cutover` — the composition switch in fleetd and in `plot-pr-reader.mjs`, `PLOT_HOST_TRANSPORT`, the census S4 and S6 measurement and the story's *Measures*; a changeset for `plot` <!-- builds: the GitHub transport switch in fleetd's composition root --> → #3377
 
 ## Notes
 

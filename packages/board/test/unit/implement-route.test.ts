@@ -19,7 +19,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
-import type { DispatchReading } from '@plot-pm/domain/rules/auto-dispatch';
+import type { DispatchReadingFor } from '@plot-pm/domain/rules/auto-dispatch';
 import {
   composeImplementPrompt,
   handleImplement,
@@ -98,7 +98,9 @@ async function post(
     command?: string;
     /** The branch the controller resolves; none by default, so no scan is read. */
     branch?: string | null;
-    reading?: DispatchReading;
+    reading?: DispatchReadingFor;
+    /** Receives the branch the route hands the resolver. */
+    asked?: (branch: string | undefined) => void;
     host?: string;
     headers?: http.IncomingHttpHeaders;
   },
@@ -107,7 +109,10 @@ async function post(
   const deps: ImplementDeps = {
     config: (_o, key, fallback) =>
       key === IMPLEMENT_COMMAND_KEY ? (opts.command ?? 'true') : fallback,
-    startReading: () => (opts.reading ?? (opts.branch ? { kind: 'branch', branch: opts.branch } : { kind: 'no-reading' })),
+    startReading: (_o, _s, named) => {
+      opts.asked?.(named);
+      return opts.reading ?? (opts.branch ? { kind: 'branch', branch: opts.branch } : { kind: 'no-reading' });
+    },
   };
   await handleImplement(
     request(opts.body ?? { slug: SLUG }, opts.headers),
@@ -266,5 +271,49 @@ describe('the controller names the branch before the writer starts', () => {
     }
     await post({ repoRoot: dir, branch: null });
     assert.ok(!fs.existsSync(implementBranchRecordPath(dir, SLUG)));
+  });
+});
+
+describe('a body that names a branch', () => {
+  it('hands the named branch to the resolver and briefs the branch it answers', async () => {
+    const dir = repo();
+    const asked: Array<string | undefined> = [];
+    const got = await post({
+      repoRoot: dir,
+      body: { slug: SLUG, branch: 'feature/jira-cutover' },
+      reading: { kind: 'branch', branch: 'feature/jira-cutover' },
+      asked: (b) => asked.push(b),
+    });
+    assert.equal(got.status, 202);
+    assert.deepEqual(asked, ['feature/jira-cutover']);
+    assert.equal(fs.readFileSync(implementBranchRecordPath(dir, SLUG), 'utf8'), 'feature/jira-cutover');
+  });
+
+  it('passes no branch where the body names none', async () => {
+    const dir = repo();
+    const asked: Array<string | undefined> = [];
+    await post({ repoRoot: dir, asked: (b) => asked.push(b) });
+    assert.deepEqual(asked, [undefined]);
+  });
+
+  it('answers 409 with the refusal\'s name and writes no log where the branch is not startable', async () => {
+    const dir = repo();
+    const got = await post({
+      repoRoot: dir,
+      body: { slug: SLUG, branch: 'feature/taken' },
+      reading: { kind: 'branch-refused', reason: 'branch-not-startable', branch: 'feature/taken', detail: 'feature/taken is not startable: it is claimed' },
+    });
+    assert.equal(got.status, 409);
+    assert.equal(got.body.reason, 'branch-not-startable');
+    assert.equal(got.body.detail, 'feature/taken is not startable: it is claimed');
+    assert.equal(fs.existsSync(implementLogPath(dir, SLUG)), false);
+  });
+
+  it('rejects a branch that is not a branch name', async () => {
+    const dir = repo();
+    for (const bad of [{ slug: SLUG, branch: 7 }, { slug: SLUG, branch: '--max' }, { slug: SLUG, branch: '' }]) {
+      const got = await post({ repoRoot: dir, body: bad });
+      assert.equal(got.status, 400, `${JSON.stringify(bad)} must be refused`);
+    }
   });
 });

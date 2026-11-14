@@ -22,6 +22,7 @@ import {
   type DesignStatus as DesignStatusPayload,
   type FleetReading,
   type FleetSprint,
+  type ReleaseTickets,
   type IssueAnswer,
   type IssueRow,
   type MachineProcess,
@@ -40,7 +41,7 @@ import { stuckState, summarizeStuck } from './stuck.js';
 import { listRecordBlobs } from '@plot-pm/domain/workflows/record-listing';
 import { blobIdOfBytes, parsePlanMetaFiles, planMetaOf, planSlug, heldRefsFor, workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
 import type { RefState, Refs } from '@plot-pm/domain/ports/refs';
-import type { BuildPort } from '@plot-pm/domain';
+import type { BuildPort, ReaderState } from '@plot-pm/domain';
 import type { DetachedProcess } from '@plot-pm/domain/ports/detached';
 import { electReader, HEARTBEAT_STALE_MS, type ReaderClaim, type ReaderVerdict } from '@plot-pm/domain/rules/reader-election';
 import { PR_READ_BEAT_MS } from '@plot-pm/domain/rules/pr-status';
@@ -96,6 +97,10 @@ import {
 // names. `slotsFile` is seamed by `PLOT_BUDGET_HOME`, which is how a test moves
 // it, exactly as `budgetFile` is.
 import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
+import { fixerAttemptsFile } from '@plot-pm/domain/adapters/fixer-attempts/fixer-attempts-file';
+import { fixerInFlight } from '@plot-pm/domain/rules/fixer-attempts';
+import type { PortResult } from '@plot-pm/domain';
+import type { Worktree } from '@plot-pm/domain/entities/worktree';
 import { fleetdHeartbeatFile, agentsFs, refsGit, shellContext, treesGit, planStoreRef, planStoreShell, processesFiles, issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { CarriedListing } from '@plot-pm/domain/rules/scan-listing';
@@ -1992,6 +1997,24 @@ export async function ticketLaneData(opts: BuildBoardOptions): Promise<TicketLan
   };
 }
 
+/**
+ * The `releases` of the open and closed rows the issue index holds, for the release line.
+ *
+ * @param sets - the cache's issue sets.
+ * @returns null where no open rows were read; `closed` is null where no closed read has answered.
+ */
+export const releaseTicketsOf = (sets: IssueSets | null): ReleaseTickets | null => {
+  if (sets === null || sets.rows === undefined) return null;
+  const pick = (rows: readonly IssueIndexRow[]) => rows.map((r) => (r.releases === undefined ? {} : { releases: r.releases }));
+  const closed = sets.closed?.rows;
+  return {
+    open: pick(sets.rows),
+    closed: closed === undefined ? null : pick(closed),
+    closedComplete: sets.closed?.complete === true,
+    closedSince: sets.closed?.since ?? null,
+  };
+};
+
 /** What `GET /api/issues/closed` answers. */
 export interface IssuesClosedReading {
   /** The closed rows the read returned, or the last cached answer. */
@@ -2231,6 +2254,8 @@ const waitingOf = async (
       assignees: [...t.assignees],
       type: t.type,
       owner: t.owner,
+      ...(t.releases === undefined ? {} : { releases: [...t.releases] }),
+      ...(t.planned === true ? { planned: true as const } : {}),
     })),
     shown: result.shown,
     hidden: result.hidden,
@@ -2795,11 +2820,25 @@ const readPrsFromStore = async (opts: BuildBoardOptions, entry: CacheEntry, key:
     entry.prAt = Number.isNaN(at) ? startedAt : at;
     await refreshRuns(opts, entry, maps.prs, await buildPortFor(opts));
   }
-  if (published.ok && published.value !== null) {
-    entry.prError = published.value.prError;
-    entry.prNextAt = published.value.prNextAt;
-    entry.prNextIsBackoff = published.value.prNextIsBackoff;
-    entry.prFullReadFailedAt = published.value.prFullReadFailedAt;
+  adoptPublishedSchedule(entry, published.ok ? published.value : null, startedAt);
+};
+
+/**
+ * Copies the PR reader's published cadence into the cache entry.
+ *
+ * @param entry - the board's cache entry.
+ * @param published - the state the reader lock holds for this connector, or
+ *   null where none was published or it could not be read.
+ * @param startedAt - when this tick started, epoch ms; with no published
+ *   state, the next read is paced one ordinary interval from it and the
+ *   schedule reads as unknown (`prNextScheduled` false).
+ */
+const adoptPublishedSchedule = (entry: CacheEntry, published: ReaderState | null, startedAt: number): void => {
+  if (published !== null) {
+    entry.prError = published.prError;
+    entry.prNextAt = published.prNextAt;
+    entry.prNextIsBackoff = published.prNextIsBackoff;
+    entry.prFullReadFailedAt = published.prFullReadFailedAt;
     entry.prNextScheduled = true;
   } else {
     entry.prNextAt = startedAt + PR_REFRESH_MS;
@@ -2916,6 +2955,15 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
     const refs = held.snapshot.readings.refs;
     try {
       await readIssuesFromStore(opts, entry, refs.state === 'read' ? refs.value.entries : undefined);
+      // THE SCHEDULE COMES FROM THE READER, NOT THE SNAPSHOT: the snapshot
+      // carries the PR rows and when they were read, not when the next read is
+      // due, so `prOverdueSeconds` measures against the reader's published
+      // `prNextAt`.
+      const key = await readerLockKey(opts, entry);
+      if (key !== '') {
+        const published = await readerLockFor(opts).readerState(key);
+        adoptPublishedSchedule(entry, published.ok ? published.value : null, Date.now());
+      }
     } finally {
       entry.prRunning = false;
     }
@@ -6555,10 +6603,50 @@ export { doubleClaimedBranches };
  * NEW WORDING, deliberately: `handed to agent` and `not taken up` occur nowhere
  * else in this package. It names the STATE and not the session, because the
  * moved row is not drawn itself — WORKING renders registry agents through
- * `RegistryRow`, and the note appears beside a link that already shows the
+ * the agent row, and the note appears beside a link that already shows the
  * agent's session.
  */
 const HANDED_NOTE = 'handed over — not taken up yet';
+
+/**
+ * Marks each planless open-PR row with whether a fleetd fixer runs on it now.
+ *
+ * Reads `.plot/state/fixer-attempts/<pr>.json` for those rows alone — the rows the
+ * loose-end rule asks — and leaves every other row untouched. A failed read leaves
+ * the field absent, so the rule reads the row as unplaced rather than as loose.
+ *
+ * @param rows - the derived rows.
+ * @param repoRoot - the repository the records live under.
+ * @returns the rows, with `fixerInFlight` set on each planless open-PR row whose record was read.
+ */
+export const withFixerInFlight = async (rows: readonly AgentRow[], repoRoot: string): Promise<AgentRow[]> => {
+  const store = fixerAttemptsFile(repoRoot);
+  return Promise.all(
+    rows.map(async (row) => {
+      if (row.plan !== '' || row.pr === null || row.state === 'merged' || row.pr.state === 'closed' || row.pr.open === false) return row;
+      const read = await store.read(row.pr.number);
+      return read.ok ? { ...row, fixerInFlight: fixerInFlight(read.value) } : row;
+    }),
+  );
+};
+
+/**
+ * Marks each planless row with whether a worktree on this machine holds its branch.
+ *
+ * A planless row is built from the PR map or the refs, and no worktree is visited
+ * for it, so the loose-end rule has no desk reading without this one. A failed
+ * listing leaves the field absent, and the rule then reads the row as unplaced
+ * rather than as loose.
+ *
+ * @param rows - the derived rows.
+ * @param trees - this machine's worktree listing.
+ * @returns the rows, with `desk` set on each planless row where the listing answered.
+ */
+export const withDesks = (rows: readonly AgentRow[], trees: PortResult<readonly Worktree[]>): AgentRow[] => {
+  if (!trees.ok) return [...rows];
+  const desks = new Set(trees.value.filter((tree) => tree.branch !== '').map((tree) => tree.branch));
+  return rows.map((row) => (row.plan !== '' || row.wave !== '' ? row : { ...row, desk: desks.has(row.branch) }));
+};
 
 /**
  * Every row rewritten to read the hand-over the registry has already recorded.
@@ -8230,6 +8318,7 @@ export async function activeSprints(
       slug: sprint.slug,
       title: sprint.title,
       release: sprint.release,
+      start: sprint.start,
       counts,
       timebox: timeboxStanding(readings),
       timeboxLabel: timeboxLabel(readings),
@@ -8433,7 +8522,6 @@ export async function buildFleet(
       fleetPlanIndexOf(opts, entry),
     ]);
   const { map: phaseMap } = declaredPhaseMap(phasesValue);
-  const autoReviewValue = await readConfigAsync(opts, 'Auto-review', '');
   const correctionBudgetValue = await readConfigAsync(opts, 'Correction budget', '');
   const correctionBudgetNumber = Number(correctionBudgetValue);
   // Each open PR's branch tip, read from the local remote-tracking refs the scan
@@ -8444,7 +8532,7 @@ export async function buildFleet(
   // the result rather than threaded into `rowsFromPulse`, because `entry.agents`
   // is in scope HERE (`refresh` fills it, and the sections and the live count
   // below read it) while that function takes the scan's readings only.
-  const rows = entry.pulse
+  const pulseRows = entry.pulse
     ? withHandOver(rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, prsWithTips,
       entry.branchUrlBase, entry.approvedAt, now, entry.ideaPlans, entry.versions,
       entry.runs,
@@ -8478,6 +8566,7 @@ export async function buildFleet(
       // `ownedFromRow` can answer whose a no-PR row is. See `PlanOwnerFields`.
       fieldsBySlug, entry.claimOnly), entry.agents)
     : [];
+  const rows = withDesks(await withFixerInFlight(pulseRows, opts.repoRoot), await treesFor(opts).list());
 
   // THE SECTIONS, REMEMBERED OR CARRIED FORWARD — the whole of this fix, in the
   // one place that has both the derived rows and the scan's outcome.
@@ -8625,6 +8714,8 @@ export async function buildFleet(
     // `null` only where the read failed or the source is `nobody` — the same
     // cases `issues` holds its last good value or `[]` for.
     waiting: entry.waiting,
+    // The index's `releases`, for the Delivery tab's release line: no second read.
+    releaseTickets: releaseTicketsOf(entry.issueSets),
     // Beside `rows`, never derived from them: a row is a branch that mentions an
     // agent, this is an agent that mentions a branch. A running worker appears
     // in both and is not duplicated — the entities differ.
@@ -8659,7 +8750,7 @@ export async function buildFleet(
     viewSource: entry.viewSource ?? undefined,
     issueError: entry.issueError,
     issueAbsence: entry.issueAbsence,
-    ...(autoReviewValue === '' ? {} : { autoReview: autoReviewValue.toLowerCase() === 'true' }),
+    autoReview: settings.autoReview,
     ...(correctionBudgetValue === '' || !Number.isFinite(correctionBudgetNumber)
       ? {}
       : { correctionBudget: correctionBudgetNumber }),

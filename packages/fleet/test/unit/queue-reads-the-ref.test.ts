@@ -124,3 +124,64 @@ describe('the queue reads plans from origin/<default>, not the checkout', () => 
     expect(plans).toEqual([]);
   });
 });
+
+describe('the queue reads a plan only a sprint branch holds from that branch', () => {
+  /** Pushes `sprint/s` from `main`, holding one plan and its slice's brief that `main` lacks. */
+  const pushSprintBranch = (bare: string): void => {
+    const other = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-ref-sprint-'));
+    rmTree(other);
+    git(os.tmpdir(), ['clone', '--quiet', bare, other]);
+    git(other, ['config', 'user.email', 'test@example.com']);
+    git(other, ['config', 'user.name', 'Test']);
+    temps.push(other);
+    git(other, ['checkout', '--quiet', '-b', 'sprint/s']);
+    fs.mkdirSync(path.join(other, 'docs/plans'), { recursive: true });
+    fs.mkdirSync(path.join(other, '.plot/briefs'), { recursive: true });
+    fs.writeFileSync(
+      path.join(other, 'docs/plans/2026-11-10-a-sprint-plan.md'),
+      PLAN_TEXT.replace('- **State:** Approved', '- **State:** Approved\n- **Sprint:** s').replace('feature/alpha', 'feature/sprint-alpha'),
+    );
+    fs.writeFileSync(path.join(other, '.plot/briefs/sprint-alpha.md'), '# Brief\n');
+    git(other, ['add', '.']);
+    git(other, ['commit', '--quiet', '-m', 'sprint plan and brief']);
+    git(other, ['push', '--quiet', 'origin', 'sprint/s']);
+  };
+
+  it('answers the sprint plan with its sprint branch as the base, and the brief on that branch', async () => {
+    const { bare, local } = hostAndClone();
+    pushPlanFromElsewhere(bare);
+    pushSprintBranch(bare);
+    git(local, ['fetch', '--quiet', 'origin']);
+
+    const queue = queueWorldForRepo(local, SCRIPTS_DIR);
+    const main = await queue.plans();
+    expect(main.map((plan) => plan.file)).toEqual(['docs/plans/2026-10-27-a-plan.md']);
+    const sprint = await queue.sprintPlans!();
+    expect(sprint.map((plan) => [plan.record.file, plan.base])).toEqual([
+      ['docs/plans/2026-11-10-a-sprint-plan.md', 'sprint/s'],
+    ]);
+    expect(await queue.briefPresent('feature/sprint-alpha', 'sprint/s')).toBe(true);
+    expect(await queue.briefPresent('feature/sprint-alpha', '')).toBe(false);
+  });
+
+  it('reads no plan from a merged sprint branch whose plan main has since removed', async () => {
+    const { bare, local } = hostAndClone();
+    pushSprintBranch(bare);
+    // The sprint branch merges into main and is not deleted; main then
+    // removes the plan, as a rename or a drop does.
+    git(local, ['fetch', '--quiet', 'origin']);
+    git(local, ['merge', '--quiet', '--ff-only', 'origin/sprint/s']);
+    git(local, ['rm', '--quiet', 'docs/plans/2026-11-10-a-sprint-plan.md']);
+    git(local, ['commit', '--quiet', '-m', 'drop the plan']);
+    git(local, ['push', '--quiet', 'origin', 'main']);
+    git(local, ['fetch', '--quiet', 'origin']);
+    expect(await queueWorldForRepo(local, SCRIPTS_DIR).sprintPlans!()).toEqual([]);
+  });
+
+  it('reads no sprint plan where no sprint branch exists', async () => {
+    const { bare, local } = hostAndClone();
+    pushPlanFromElsewhere(bare);
+    git(local, ['fetch', '--quiet', 'origin']);
+    expect(await queueWorldForRepo(local, SCRIPTS_DIR).sprintPlans!()).toEqual([]);
+  });
+});

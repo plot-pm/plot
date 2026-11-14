@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** ship-2-32-0
 - **Issue:** #3246
@@ -17,6 +17,8 @@
 - **Started:** 2026-11-10, Jan Wloka, `feature/tickets-reach-input-to-the-fleet`
 - **Started:** 2026-11-10, Jan Wloka, `feature/sprint-work-records-the-ticket-it-opened`
 - **Started:** 2026-11-10, Jan Wloka, `feature/the-release-line-counts-tickets`
+- **Started:** 2026-11-11, Jan Wloka, `feature/loose-ends-show-under-unblock`
+- **Delivered:** 2026-11-13
 
 ## Changelog
 
@@ -78,7 +80,7 @@ Every rendered state is a domain property (CLAUDE.md, "Every rendered state is a
 
 ### Loose ends
 
-- `feature/loose-ends-show-under-unblock` <!-- waits: feature/delivery-tab-sections --> — a PR or branch that no plan names and nobody works on shows under **You › Unblock** with its actions <!-- builds: release and delete controllers for a loose PR or branch -->
+- `feature/loose-ends-show-under-unblock` <!-- waits: feature/delivery-tab-sections --> — a PR or branch that no plan names and nobody works on shows under **You › Unblock** with its actions <!-- builds: release and delete controllers for a loose PR or branch --> → #3420
 
 ## Notes
 

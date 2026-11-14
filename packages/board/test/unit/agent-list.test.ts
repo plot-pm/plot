@@ -3062,13 +3062,13 @@ describe('TUPLE_TRACKS — one grid, and where its width goes', () => {
     return inner!.split('_');
   };
 
-  it('lays out the six slots, with the marks and the menu around them', () => {
-    // `[marks, kind, name, links, status, age, menu]` — the six slots plus the
-    // two the tuple does not own. The MARKS track comes first and holds slot
-    // 1's icon beside the activity marks; the MENU track is last and holds
-    // whatever the kind offers.
+  it('lays out the seven columns, with the marks lane before them', () => {
+    // `[marks, kind, item, where, status, do, by, age]` — the Delivery tab's
+    // seven columns in the design's order, after the marks lane. The DO track
+    // holds the row's menu; BY sizes to who acts and holds nothing where
+    // nobody was read.
     expect(tracks()).toEqual(
-      ['1.5rem', '4.5rem', 'minmax(12rem,auto)', '1fr', '8rem', '4.5rem', '1.25rem']);
+      ['1.5rem', '4.5rem', 'minmax(12rem,auto)', '1fr', '8rem', '1.25rem', 'minmax(0rem,auto)', '4.5rem']);
   });
 
   it('flexes the LINKS track and no other', () => {
@@ -3144,7 +3144,7 @@ describe('TUPLE_TRACKS — one grid, and where its width goes', () => {
     // AND THE HEADROOM IS NAMED, so a later widening has to argue with a
     // number rather than merely stay under a ceiling — which is exactly what
     // the docstring's uncounted gap took away.
-    expect(CARD_BELOW_PX - (fixedPx + gapsAndPadding)).toBe(36);
+    expect(CARD_BELOW_PX - (fixedPx + gapsAndPadding)).toBe(24);
   });
 
   it('has no second grid left to drift from this one', () => {

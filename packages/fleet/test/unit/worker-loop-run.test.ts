@@ -589,6 +589,21 @@ describe('runWorkerLoop — a prompt', () => {
     expect(r.runs.length).toBeGreaterThanOrEqual(2);
   });
 
+  it.each([
+    ['a default-branch slice', {}, 'origin/main'],
+    ['a sprint slice', { base: 'sprint/s' }, 'origin/sprint/s'],
+  ] as const)('cuts %s from its own base at take-up', async (_name, extra, expected) => {
+    const r = rig({ ...ASSIGNED, ...extra }, [], { config: { ...rigConfig(), waitBudgetSeconds: 100 } });
+    const bases: string[] = [];
+    const trees: Trees = {
+      ...r.ports.trees,
+      resetOnto: async (_path, _branch, base) => (bases.push(base), { ok: false, why: 'failed' }),
+    };
+    r.deps = { ...r.deps, ports: { ...r.ports, trees } };
+    await runWorkerLoop(r.deps);
+    expect(bases).toEqual([expected]);
+  });
+
   it('clears the assignment and goes free when the desk reset is refused, running no prompt', async () => {
     const r = rig(ASSIGNED, [], { config: { ...rigConfig(), waitBudgetSeconds: 100 } });
     const trees: Trees = { ...r.ports.trees, resetOnto: async () => ({ ok: false, why: 'failed' }) };
@@ -1879,9 +1894,11 @@ describe('manifest and marker readers', () => {
     fs.writeFileSync(f, '{not json');
     expect((await readManifestFields(f)).session).toBe('');
     fs.writeFileSync(f, JSON.stringify({ session: 1, worktree: 2, branch: 3, attempts: 1.5, correctionAttempts: 'x', resumeId: 4 }));
-    expect(await readManifestFields(f)).toEqual({ session: '', worktree: '', branch: '', attempts: 0, correctionAttempts: 0, resumeId: '', sliceRuns: 0 });
+    expect(await readManifestFields(f)).toEqual({ session: '', worktree: '', branch: '', base: '', attempts: 0, correctionAttempts: 0, resumeId: '', sliceRuns: 0 });
     fs.writeFileSync(f, JSON.stringify({ session: 's', worktree: 'w', branch: 'b', attempts: 2, correctionAttempts: 1, resumeId: 'h' }));
-    expect(await readManifestFields(f)).toEqual({ session: 's', worktree: 'w', branch: 'b', attempts: 2, correctionAttempts: 1, resumeId: 'h', sliceRuns: 0 });
+    expect(await readManifestFields(f)).toEqual({ session: 's', worktree: 'w', branch: 'b', base: '', attempts: 2, correctionAttempts: 1, resumeId: 'h', sliceRuns: 0 });
+    fs.writeFileSync(f, JSON.stringify({ session: 's', worktree: 'w', branch: 'b', base: 'sprint/s' }));
+    expect((await readManifestFields(f)).base).toBe('sprint/s');
   });
 
   it('stamps loop: js, and leaves an absent, empty-path or non-object manifest alone', async () => {

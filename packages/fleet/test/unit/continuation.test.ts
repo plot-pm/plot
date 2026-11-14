@@ -14,6 +14,7 @@ import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-wr
 import { answerRecordFile, ANSWER_RECORD_HOME_ENV } from '@plot-pm/domain/adapters';
 import { isAnswered } from '@plot-pm/domain';
 import { removeTree } from '../rm-tree.mjs';
+import { readManifestFields } from '../../src/server/entry/worker-loop.js';
 
 /**
  * Removes every recorded directory, then rethrows the first failure.
@@ -662,6 +663,62 @@ describe('removeAll — a failed removal does not leak its siblings', () => {
     } finally {
       removeTree(first);
       removeTree(second);
+    }
+  });
+});
+
+describe('continueOnDesk — a desk the loop ended corrections-spent', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    removeAll(dirs.splice(0));
+  });
+
+  // Writes what the wrapper would: a new agent pid and the stamp naming it.
+  const fakeSpawn = ((_cmd: string, _args: readonly string[], o: { cwd: string; env: Record<string, string | undefined> }) => {
+    const child = new EventEmitter();
+    writeFileSync(join(o.cwd, '.plot-worker.pid'), '424244');
+    const manifest = o.env.PLOT_MANIFEST_FILE ?? '';
+    writeFileSync(manifest, JSON.stringify({ ...JSON.parse(readFileSync(manifest, 'utf8')), pid: '424244' }));
+    queueMicrotask(() => child.emit('exit', 0));
+    return child;
+  }) as unknown as typeof SpawnFn;
+
+  it("writes a manifest that resumes the spent session with a correction count of 0, while the loop's marker stands", async () => {
+    const worktree = mkdtempSync(join(tmpdir(), 'plot-continue-spent-'));
+    const manifestDir = mkdtempSync(join(tmpdir(), 'plot-continue-spent-manifests-'));
+    const home = mkdtempSync(join(tmpdir(), 'plot-continue-spent-record-'));
+    dirs.push(worktree, manifestDir, home);
+    writeFileSync(
+      join(worktree, 'PLOT-BLOCKED.md'),
+      "PLOT-BLOCKED: `feature/x`'s checks failed after 2 corrections against PR #7 — a person decides what to do next.\n<!-- author: loop -->\n",
+    );
+    writeFileSync(
+      join(worktree, ENDING_FILENAME),
+      JSON.stringify({ reason: 'corrections-spent', actor: 'agent', branch: 'feature/x', detail: 'correction budget spent', resumeId: 'sess-spent' }),
+      'utf8',
+    );
+
+    process.env[ANSWER_RECORD_HOME_ENV] = home;
+    try {
+      const result = await continueOnDesk({
+        opts: { repoRoot: worktree, scriptsDir: '/s', manifestDir },
+        branch: 'feature/x',
+        worktree,
+        main: '',
+        previousPid: '',
+        caller: 'person',
+        answer: 'the lint failure is the new rule; fix the import order',
+        readCfg: (_opts, key, fallback) => (key === 'Worker command' ? 'true' : fallback),
+        spawn: fakeSpawn,
+      });
+
+      expect(result.kind).toBe('started');
+      const written = readdirSync(manifestDir).filter((f) => f.endsWith('.json'));
+      expect(written).toHaveLength(1);
+      const fields = await readManifestFields(join(manifestDir, written[0] ?? ''));
+      expect(fields).toMatchObject({ branch: 'feature/x', worktree, resumeId: 'sess-spent', correctionAttempts: 0, sliceRuns: 1 });
+    } finally {
+      delete process.env[ANSWER_RECORD_HOME_ENV];
     }
   });
 });

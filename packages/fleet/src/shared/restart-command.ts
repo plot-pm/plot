@@ -14,6 +14,7 @@ import {
   type RestartVerdict,
 } from './continuation.js';
 import type { DeskMonitors } from '@plot-pm/domain';
+import { deskFromOrigin, type OriginDesk, type OriginDeskInput } from './origin-desk.js';
 
 /** The prompt the restarted worker reads in place of a person's answer. */
 export const RESTART_ANSWER =
@@ -60,6 +61,8 @@ export interface RestartBranchInput {
   monitors?: DeskMonitors;
   /** The readings; the host and process adapters where absent. */
   readers?: RestartReaders;
+  /** Cuts a desk at `origin/<branch>` where this machine holds none; {@link deskFromOrigin} where absent. */
+  originDesk?: (input: OriginDeskInput) => Promise<OriginDesk>;
 }
 
 /**
@@ -119,9 +122,11 @@ const markerFile = (worktree: string): string => {
  *
  * Refuses `no-pulse` where there is no fleet reading, `pulse-partial` where an
  * unfinished scan and the last finished one both miss the branch,
- * `unknown-branch` where a finished reading does not list it, and `no-worktree` where it lists no
- * worktree on this machine. A named worktree stands in for the first two. Otherwise
- * {@link continueOnDesk} holds the desk's continue lock, and under it this
+ * and `unknown-branch` where a finished reading does not list it. A named
+ * worktree stands in for the first two. Where no worktree on this machine holds
+ * the branch, {@link deskFromOrigin} cuts one at `origin/<branch>` or refuses
+ * with the reason `originResume` names, and the new manifest records the
+ * slice's base. Then {@link continueOnDesk} holds the desk's continue lock, and under it this
  * reads the pull request, the worker and the live loop, asks `restartWorker`,
  * and starts a new worker only on its decision.
  *
@@ -139,11 +144,21 @@ export const restartBranch = async (input: RestartBranchInput): Promise<DeskCont
   const found =
     (reading.kind === 'listed' ? branchFromPulse(reading.pulse, input.branch) : null) ??
     { worktree: '', plan: '', wave: '', worker: 'elsewhere', pid: '' };
-  const worktree = found.worktree || input.worktree || '';
-  if (!worktree) {
-    return { kind: 'refused', status: 404, reason: 'no-worktree', detail: 'this machine holds no worktree for that branch' };
-  }
   const { opts, branch } = input;
+  let worktree = found.worktree || input.worktree || '';
+  let base: string | undefined;
+  if (!worktree) {
+    const cut = await (input.originDesk ?? deskFromOrigin)({
+      opts,
+      branch,
+      caller: input.caller,
+      offline: input.offline === true,
+      readCfg: input.readCfg,
+    });
+    if (cut.kind !== 'cut') return cut;
+    worktree = cut.worktree;
+    base = cut.base;
+  }
   const readers = input.readers ?? adapterReaders(opts, input.offline);
   const restart = async (): Promise<RestartVerdict> => {
     const pr = await readers.pr(branch);
@@ -171,6 +186,7 @@ export const restartBranch = async (input: RestartBranchInput): Promise<DeskCont
     main: input.pulse?.main ?? '',
     previousPid: found.pid,
     answer: RESTART_ANSWER,
+    base,
     monitors: input.monitors,
     restart,
   });

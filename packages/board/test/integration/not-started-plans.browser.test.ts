@@ -371,7 +371,7 @@ describe('NOT STARTED renders one row per plan', () => {
       const siblings = section(page).locator('[data-slice-list] [data-slice-row]');
       const n = await siblings.count();
       expect(n, 'more than one wave, or this asserts nothing').toBeGreaterThan(1);
-      for (const slot of [0, 1, 2, 3, 4, 5, 6]) {
+      for (const slot of [0, 1, 2, 3, 4, 5, 6, 7]) {
         const first = await siblings.nth(0).locator('[role="gridcell"]').nth(slot).boundingBox();
         for (let i = 1; i < n; i++) {
           const other = await siblings.nth(i).locator('[role="gridcell"]').nth(slot).boundingBox();

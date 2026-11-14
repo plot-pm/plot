@@ -118,6 +118,8 @@ export interface RefsFixture {
    * same reading as zero.
    */
   behind?: Readonly<Record<string, number>>;
+  /** How far the checkout's HEAD sits past each ref; a ref absent from the table is a failed reading. */
+  headAhead?: Readonly<Record<string, number>>;
   /**
    * The fleet's whole state.
    *
@@ -413,6 +415,11 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
       fixture.repoRoot === undefined ? failed<string>() : answered(fixture.repoRoot),
 
     countBehind: async (ref) => answered<number | null>(behind[ref] ?? null),
+
+    countAhead: async (ref) => {
+      const count = fixture.headAhead?.[ref];
+      return count === undefined ? failed<number>() : answered(count);
+    },
 
     showFile: async (ref, path) => {
       const content = files[`${ref}:${path}`];

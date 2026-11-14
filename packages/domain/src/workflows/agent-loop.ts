@@ -470,7 +470,8 @@ const seal = (
  * @param readings - this pass's readings.
  * @param branch - the branch the slice is on.
  * @returns the seal on a pass, a correction while budget is left, and a
- *   `corrections-spent` ending once it is spent.
+ *   `corrections-spent` ending once it is spent. That ending records the
+ *   slice's `resumeId`, so a person's continuation resumes the same session.
  */
 const settled = (readings: AgentLoopReadings, branch: string): Decision<AgentLoopDetail> => {
   const { worktree } = readings;
@@ -522,7 +523,7 @@ const settled = (readings: AgentLoopReadings, branch: string): Decision<AgentLoo
   return end(worktree, branch, 'corrections-spent', 'agent', 'correction budget spent', 0, [
     { kind: 'blocked-marker', worktree, branch, question, author: 'loop' },
     blockedDeclaration(worktree, branch, `${readings.correctionAttempts} corrections spent, checks still failing`),
-  ]);
+  ], readings.resumeId);
 };
 
 /**
@@ -535,7 +536,7 @@ const settled = (readings: AgentLoopReadings, branch: string): Decision<AgentLoo
  * @param readings - this pass's readings.
  * @param branch - the branch the slice is on.
  * @returns an `agent-resume` write with its `correction-count`, or the
- *   `corrections-spent` ending.
+ *   `corrections-spent` ending, which records the slice's `resumeId`.
  */
 const mergeConflictCorrectionEnding = (readings: AgentLoopReadings, branch: string): Decision<AgentLoopDetail> => {
   const { worktree } = readings;
@@ -566,7 +567,7 @@ const mergeConflictCorrectionEnding = (readings: AgentLoopReadings, branch: stri
   return end(worktree, branch, 'corrections-spent', 'agent', 'correction budget spent, PR still conflicting', 0, [
     { kind: 'blocked-marker', worktree, branch, question, author: 'loop' },
     blockedDeclaration(worktree, branch, `${readings.correctionAttempts} corrections spent, PR still conflicting`),
-  ]);
+  ], readings.resumeId);
 };
 
 /**

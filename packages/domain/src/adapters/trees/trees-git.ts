@@ -560,6 +560,23 @@ export const treesGit = (
       }
     },
 
+    addTracking: async (path, branch) => {
+      const remote = `origin/${branch}`;
+      const local = await runProcess('git', ['rev-parse', '-q', '--verify', `refs/heads/${branch}`], inRepo);
+      if (local.code !== 0) {
+        const created = await runProcess('git', ['worktree', 'add', '-q', '--track', '-b', branch, path, remote], inRepo);
+        return created.code === 0 ? answered(undefined) : failed<void>();
+      }
+      const added = await runProcess('git', ['worktree', 'add', '-q', path, branch], inRepo);
+      if (added.code !== 0) return failed<void>();
+      const forward = await runProcess('git', ['-C', path, 'merge', '-q', '--ff-only', remote], inRepo);
+      const tracked =
+        forward.code === 0 ? await runProcess('git', ['-C', path, 'branch', '-q', `--set-upstream-to=${remote}`], inRepo) : forward;
+      if (tracked.code === 0) return answered(undefined);
+      await runProcess('git', ['worktree', 'remove', '--force', path], inRepo);
+      return failed<void>();
+    },
+
     resetBranch: async (path, branch, start) => {
       const run = await runProcess(
         'git',

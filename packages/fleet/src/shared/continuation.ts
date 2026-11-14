@@ -170,6 +170,16 @@ export type ContinueRefusal =
   | 'blocked-marker'
   /** The caller runs unattended; neither `continue` nor `restart` proceeds for one. */
   | 'unattended'
+  /** `restart`: origin's ref for the branch could not be fetched or listed, or the plans could not be read. */
+  | 'origin-unreadable'
+  /** `restart`: no approved plan's slice names the branch, or origin carries no claim marker for it. */
+  | 'not-claimed'
+  /** `restart`: origin carries the branch's claim and no work. */
+  | 'no-work'
+  /** `restart`: a live agent's manifest names the branch. */
+  | 'held-by-agent'
+  /** `restart`: the local branch holds commits that origin lacks. */
+  | 'local-unpushed'
   /**
    * The caller named the question it means to answer, and the desk's current
    * marker asks a different one.
@@ -433,6 +443,11 @@ export interface DeskContinuationInput {
   previousPid: string;
   /** The answer the new run reads. */
   answer: string;
+  /**
+   * The slice's base branch without `origin/`, recorded as the manifest's
+   * `base` where this start writes a new manifest; absent or `''` records none.
+   */
+  base?: string;
   /**
    * The `askedAt` of the question this answer targets, where the caller
    * named one.
@@ -1164,6 +1179,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
         // absent would read as `0` forever and this path would never count
         // against `Slice max runs`.
         sliceRuns: 1,
+        base: input.base,
       });
       if (written === null) {
         fs.closeSync(out);

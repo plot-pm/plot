@@ -10,7 +10,7 @@ license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 0.9.0
+  version: 0.9.1
 compatibility: >-
   Designed for Claude Code and Cursor. Requires git 2.42 or later, bash, curl, and the Node
   major the repository pins in `.nvmrc`. Git-host and CI CLIs are optional —

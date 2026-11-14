@@ -27,6 +27,7 @@ import {
 import type { BoundedRun, BoundedRunResult, PortResult, Pr, Refs, Trees } from '@plot-pm/domain';
 import type { Reexec } from '@plot-pm/domain/ports/reexec';
 import { MEMORY_CEILING_BYTES } from '@plot-pm/domain/rules/loop-restart';
+import { TOKEN_FD, TOKEN_ON_PATH_ENV } from '@plot-pm/domain/rules/worker-liveness';
 import {
   BUNDLE_RELATIVE_PATH,
   checkRestart,
@@ -298,6 +299,18 @@ describe('checkRestart — a restart onto the main checkout', () => {
     expect(r.calls[0]?.args[2]).toBe(m.bundlePath);
     expect(r.calls[0]?.env).toMatchObject({ PLOT_WAIT_STARTED: '', PLOT_HOP_FROM: '' });
     expect(deps.lines.filter((l) => l.startsWith('once:'))).toEqual([]);
+  });
+
+  it('tells the new process that the token crossed on its path where the loop holds it close-on-exec, and only then', async () => {
+    const m = mainCheckout();
+    const pinned = await pin(m);
+    const envOf = async (tokenFd: number | null | undefined): Promise<NodeJS.ProcessEnv | undefined> => {
+      const r = replaces({ ok: true, value: undefined as never });
+      await checkRestart({ trees: m.trees(), boundedRun: selfChecks().boundedRun, reexec: r.reexec }, restartOf(m, pinned, { tokenFd }), 'first', NO_CARRY);
+      return r.calls[0]?.env;
+    };
+    expect(await envOf(21)).toMatchObject({ [TOKEN_ON_PATH_ENV]: '1' });
+    for (const kept of [TOKEN_FD, null, undefined]) expect(await envOf(kept)).not.toHaveProperty(TOKEN_ON_PATH_ENV);
   });
 
   it('logs a replace that failed and does not try that content again (#1324 L2)', async () => {

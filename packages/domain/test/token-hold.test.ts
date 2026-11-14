@@ -1,4 +1,4 @@
-import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs';
+import { closeSync, fstatSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -38,5 +38,14 @@ describe('a harness start holds the token it is handed', () => {
     expect(await read(fd)).toBe('held');
     expect(await read(null)).toBe('none');
     closeSync(fd);
+  });
+
+  it('boundedRun answers failed for a holdFd that is not open, and starts nothing', async () => {
+    const fd = 999;
+    expect(() => fstatSync(fd)).toThrow();
+    const out = join(dir, 'dead.out');
+    const result = await boundedRunProcess(processes).run('bash', ['-c', 'printf ran'], { cwd: dir, boundSeconds: 0, outFile: out, holdFd: fd });
+    expect(result).toEqual({ ok: false, why: 'failed' });
+    expect(readFileSync(out, 'utf8')).toBe('');
   });
 });

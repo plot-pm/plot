@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** desk-probes-and-liveness
 - **Issue:** #3170
@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-09, jwloka, plan-PR #3308 merged
 - **Delivered:** 2026-11-10
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
@@ -95,15 +96,15 @@ Each step that reaches a file goes through an existing port or a new `WorkerReco
 
 ### Bundle
 
-- `feature/node-worker-wrapper-bundle` — `worker-wrapper.ts` and the `plot-worker-wrapper.mjs` bundle; `workerEnding` in `rules/worker-ending.ts`; the `WorkerRecords` port and file adapter; the record-parity contract test against the `sh` wrapper; the agent-tree test on Linux and macOS; D1 measured on the merge base <!-- builds: plot-worker-wrapper.mjs, the worker wrapper as a node bundle -->
+- `feature/node-worker-wrapper-bundle` — `worker-wrapper.ts` and the `plot-worker-wrapper.mjs` bundle; `workerEnding` in `rules/worker-ending.ts`; the `WorkerRecords` port and file adapter; the record-parity contract test against the `sh` wrapper; the agent-tree test on Linux and macOS; D1 measured on the merge base <!-- builds: plot-worker-wrapper.mjs, the worker wrapper as a node bundle --> → #3325
 
 ### Dispatch
 
-- `feature/node-worker-wrapper-dispatch` — `worker-start.ts` and `plot-worker-start.mjs` start the wrapper through `detachedNode`; `start_worker` calls it in place of the inline `sh -c` and `awk`; the Node major check; census row D1 recorded and held; `manifest-stamp-parity.test.ts` deleted; a row in `skills/plot/scripts/README.md`; a changeset <!-- builds: plot-worker-start.mjs, a detached start of the worker wrapper through the Detached port -->
+- `feature/node-worker-wrapper-dispatch` — `worker-start.ts` and `plot-worker-start.mjs` start the wrapper through `detachedNode`; `start_worker` calls it in place of the inline `sh -c` and `awk`; the Node major check; census row D1 recorded and held; `manifest-stamp-parity.test.ts` deleted; a row in `skills/plot/scripts/README.md`; a changeset <!-- builds: plot-worker-start.mjs, a detached start of the worker wrapper through the Detached port --> → #3335
 
 ### Continue
 
-- `feature/node-worker-wrapper-continue` — `/api/continue`, restart and the fresh-session tick start the same wrapper; `reporterShell` removed; a changeset for `@plot-pm/board` <!-- builds: one worker wrapper for dispatch, continue and restart -->
+- `feature/node-worker-wrapper-continue` — `/api/continue`, restart and the fresh-session tick start the same wrapper; `reporterShell` removed; a changeset for `@plot-pm/board` <!-- builds: one worker wrapper for dispatch, continue and restart --> → #3356
 
 ## Notes
 

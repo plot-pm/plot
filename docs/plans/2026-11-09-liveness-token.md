@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** desk-probes-and-liveness
 - **Issue:** #3170
@@ -14,6 +14,7 @@
 - **Rounds:** 2
 - **Approved:** 2026-11-09, jwloka, plan-PR #3308 merged
 - **Delivered:** 2026-11-10
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
@@ -120,15 +121,15 @@ This plan depends on `node-worker-wrapper` (all three slices), because the token
 
 ### Worker token
 
-- `feature/liveness-token-worker` — the wrapper makes `.plot-worker.token.fifo` and hands fd 3 to the agent; a `LivenessToken` port and FIFO adapter in `packages/domain/src/adapters/liveness-token/`; `workerLiveness` in `rules/worker-liveness.ts`; `readWorkerReadings` reads the token before the start time; the loop passes fd 3 to the harness; the `orphaned` walk on a trigger; the network-filesystem refusal in the desk-root check; "liveness by start time" on the board; the pid-reuse and killed-wrapper tests <!-- builds: workerLiveness, worker liveness from an inherited FIFO token -->
+- `feature/liveness-token-worker` — the wrapper makes `.plot-worker.token.fifo` and hands fd 3 to the agent; a `LivenessToken` port and FIFO adapter in `packages/domain/src/adapters/liveness-token/`; `workerLiveness` in `rules/worker-liveness.ts`; `readWorkerReadings` reads the token before the start time; the loop passes fd 3 to the harness; the `orphaned` walk on a trigger; the network-filesystem refusal in the desk-root check; "liveness by start time" on the board; the pid-reuse and killed-wrapper tests <!-- builds: workerLiveness, worker liveness from an inherited FIFO token --> → #3361
 
 ### Locks
 
-- `feature/liveness-token-locks` — `psLiveness` in `pr-reader.ts` becomes `process.kill(pid, 0)`; the implement lock and the continue lock stay on `ps` <!-- builds: a ps-free reader follower check -->
+- `feature/liveness-token-locks` — `psLiveness` in `pr-reader.ts` becomes `process.kill(pid, 0)`; the implement lock and the continue lock stay on `ps` <!-- builds: a ps-free reader follower check --> → #3364
 
 ### Monitor in fleetd
 
-- `feature/liveness-token-monitor` — `agentFinding` in `rules/agent-finding.ts`; fleetd writes the findings, and the final pass with one host `pr-state` per agent end; the node wrapper runs the final pass when no fleetd heartbeat is live; the wrapper stops starting `plot-agent-monitor.sh`; the script, `deskMonitorsShell.start` and the README row go; census P1 retired and P6 added in the census README; a changeset <!-- builds: agentFinding, the AgentMonitor's findings computed in fleetd -->
+- `feature/liveness-token-monitor` — `agentFinding` in `rules/agent-finding.ts`; fleetd writes the findings, and the final pass with one host `pr-state` per agent end; the node wrapper runs the final pass when no fleetd heartbeat is live; the wrapper stops starting `plot-agent-monitor.sh`; the script, `deskMonitorsShell.start` and the README row go; census P1 retired and P6 added in the census README; a changeset <!-- builds: agentFinding, the AgentMonitor's findings computed in fleetd --> → #3365
 
 ## Notes
 

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** infra
 - **Sprint:** desk-probes-and-liveness
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-09, jwloka, plan-PR #3308 merged
 - **Delivered:** 2026-11-09
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
@@ -100,11 +101,11 @@ In `ci.yml`, the step "Fetch the default branch the shell count reads" (`:1587-1
 
 ### Gate base
 
-- `infra/sprint-prs-gate-base` — the optional base argument for `check-shell-lines.sh pr`, `check-decision-count.sh pr` and `check-sprint-members.sh`, the third argument to `check-no-bundle-diff.sh` in CI, the fetch of `origin/$GITHUB_BASE_REF`, and the fixture rows <!-- builds: the merge-base gates read the pull request's base -->
+- `infra/sprint-prs-gate-base` — the optional base argument for `check-shell-lines.sh pr`, `check-decision-count.sh pr` and `check-sprint-members.sh`, the third argument to `check-no-bundle-diff.sh` in CI, the fetch of `origin/$GITHUB_BASE_REF`, and the fixture rows <!-- builds: the merge-base gates read the pull request's base --> → #3312
 
 ### Trigger
 
-- `infra/sprint-prs-run-ci` — `on.pull_request.branches: [main, 'sprint/**']`, the comment at `ci.yml:142-143`, and the trigger and group rows in `release-pr-ci.test.mjs`; merges after `infra/ci-cancels-superseded-runs` <!-- builds: CI runs on pull requests into sprint branches -->
+- `infra/sprint-prs-run-ci` — `on.pull_request.branches: [main, 'sprint/**']`, the comment at `ci.yml:142-143`, and the trigger and group rows in `release-pr-ci.test.mjs`; merges after `infra/ci-cancels-superseded-runs` <!-- builds: CI runs on pull requests into sprint branches --> → #3313
 
 ## Notes
 

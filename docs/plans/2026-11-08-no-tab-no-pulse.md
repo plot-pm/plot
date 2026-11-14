@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** nothing-runs
 - **Issue:** #3170
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-08, Jan Wloka, plan-PR #3238 merged
 - **Delivered:** 2026-11-08
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
@@ -80,15 +81,15 @@ This plan depends on `process-census-gate`. It turns two of that plan's `it.fail
 
 ### Server pulse
 
-- `feature/no-tab-no-pulse-server` — `pulseWanted` in `packages/domain/src/rules/board-watch.ts`; `onClients` in `channel-events.ts`; `watchFleet` and the cold-read path in `fleet.ts`; the wiring in `index.ts`; census S1 flipped to `it`; a changeset for `@plot-pm/board` <!-- builds: pulseWanted, a domain rule for when the board pulse runs -->
+- `feature/no-tab-no-pulse-server` — `pulseWanted` in `packages/domain/src/rules/board-watch.ts`; `onClients` in `channel-events.ts`; `watchFleet` and the cold-read path in `fleet.ts`; the wiring in `index.ts`; census S1 flipped to `it`; a changeset for `@plot-pm/board` <!-- builds: pulseWanted, a domain rule for when the board pulse runs --> → #3251
 
 ### Hidden page
 
-- `feature/no-tab-no-pulse-page` — the visibility rule in `event-listener.ts` (stream, Web Lock, relay), the visible-only intervals in `App.tsx`, jsdom rows, census S2 flipped to `it`; a changeset for `@plot-pm/board` <!-- builds: a visibility-driven shared EventSource in event-listener.ts -->
+- `feature/no-tab-no-pulse-page` — the visibility rule in `event-listener.ts` (stream, Web Lock, relay), the visible-only intervals in `App.tsx`, jsdom rows, census S2 flipped to `it`; a changeset for `@plot-pm/board` <!-- builds: a visibility-driven shared EventSource in event-listener.ts --> → #3252
 
 ### PR reader
 
-- `feature/no-tab-no-pulse-reader` — a cold read starts no `plot-pr-reader.mjs`; the board starts the reader only while a client is attached and the reader ends within one beat after the last client detaches; census S1 and S2 flipped to `it` once they read 0; a changeset for `@plot-pm/board` <!-- builds: a PR reader that runs only while a client is attached -->
+- `feature/no-tab-no-pulse-reader` — a cold read starts no `plot-pr-reader.mjs`; the board starts the reader only while a client is attached and the reader ends within one beat after the last client detaches; census S1 and S2 flipped to `it` once they read 0; a changeset for `@plot-pm/board` <!-- builds: a PR reader that runs only while a client is attached --> → #3260
 
 ## Notes
 

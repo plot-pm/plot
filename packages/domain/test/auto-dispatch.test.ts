@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { firstBrieflessBranch, skippedClaimedBranches, planAutoDispatch, startableBranches, liveAgentCount, liveAgentBranches, freeAgentCount, pruneInFlight, freeAgentLabels, mergedBranches, planSlug, dispatchCandidates, machineDefers, machineIsClear, skippedPlans, sharedInFlightBlocks, type AutoDispatchPlan, type AutoDispatchAgent, type AutoDispatchControls } from '../src/index.js';
 import { measureMachine, ceilingFor, HEADROOM_THRESHOLDS, type Machine as MachineEntity } from '../src/index.js';
 import { FleetReadingSchema, type FleetReading } from '../src/entities/fleet.js';
-import { dispatchReading } from '../src/rules/auto-dispatch.js';
+import { dispatchReading, dispatchReadingFor } from '../src/rules/auto-dispatch.js';
 import { sliceHold } from '../src/rules/verdict.js';
 type AgentEntry = AutoDispatchAgent & { checkout?: string; [k: string]: unknown };
 
@@ -1788,5 +1788,97 @@ describe('dispatchReading — what a pulse says about starting a plan', () => {
     const reading = dispatchReading(read('approved', slices), 'p');
     const hold = sliceHold('eligible', slices[0]!.branches.map((b) => ({ branch: b.branch, state: b.state as never, startability: null })));
     expect(reading.kind === 'held').toBe(hold !== null);
+  });
+});
+
+describe('dispatchReadingFor — a dispatch that names its branch', () => {
+  type S = 'open' | 'wip' | 'merged' | 'claimed' | 'deferred' | 'waiting' | 'blocked' | 'unknown';
+  const slice = (name: string, branches: Array<[string, S, string[]?, boolean?]>, verdict = 'eligible') => ({
+    name,
+    verdict,
+    branches: branches.map(([branch, state, waits_on, refHeld]) => ({
+      branch, state, waits_on: waits_on ?? [], held: false, deferred: state === 'deferred', claimed: '', ref_held: refHeld ?? false,
+    })),
+  });
+  const read = (phase: string, slices: Array<ReturnType<typeof slice>>, slug = 'p') =>
+    FleetReadingSchema.parse({
+      main: 'main', head: 'abc1234',
+      plans: [{ file: `2026-11-02-${slug}.md`, phase, slices }],
+      summary: { plans: 1, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+    });
+  const wave4 = read('approved', [
+    slice('wave 3', [['feature/bitbucket-read', 'merged']], 'complete'),
+    slice('wave 4', [['feature/bitbucket-cutover', 'open'], ['feature/jira-cutover', 'open']]),
+    slice('wave 5', [['feature/cleanup', 'open']], 'blocked'),
+  ]);
+  const refusal = (reason: string, branch: string, detail: string) => ({ kind: 'branch-refused', reason, branch, detail });
+
+  it('answers the named branch where its slice is eligible and nothing holds it', () => {
+    expect(dispatchReadingFor(wave4, 'p', 'feature/jira-cutover')).toEqual({ kind: 'branch', branch: 'feature/jira-cutover' });
+    expect(dispatchReadingFor(wave4, 'p', 'feature/bitbucket-cutover')).toEqual({ kind: 'branch', branch: 'feature/bitbucket-cutover' });
+  });
+
+  it('answers exactly dispatchReading where no branch is named', () => {
+    expect(dispatchReadingFor(wave4, 'p')).toEqual(dispatchReading(wave4, 'p'));
+    expect(dispatchReadingFor(wave4, 'p')).toEqual({ kind: 'branch', branch: 'feature/bitbucket-cutover' });
+    expect(dispatchReadingFor(null, 'p')).toEqual({ kind: 'no-reading' });
+  });
+
+  it('refuses a branch that no slice of the plan names', () => {
+    expect(dispatchReadingFor(wave4, 'p', 'feature/elsewhere')).toEqual(
+      refusal('branch-not-in-plan', 'feature/elsewhere', 'feature/elsewhere is not a branch of plan p'),
+    );
+  });
+
+  it('refuses a named branch where the pulse holds no reading of the plan', () => {
+    const detail = 'the pulse holds no dispatchable reading of plan p';
+    expect(dispatchReadingFor(null, 'p', 'feature/jira-cutover')).toEqual(refusal('no-pulse-reading', 'feature/jira-cutover', detail));
+    expect(dispatchReadingFor(read('delivered', []), 'p', 'feature/jira-cutover')).toEqual(refusal('no-pulse-reading', 'feature/jira-cutover', detail));
+  });
+
+  it('refuses a branch whose slice is not eligible, naming the verdict', () => {
+    expect(dispatchReadingFor(wave4, 'p', 'feature/cleanup')).toEqual(
+      refusal('branch-not-startable', 'feature/cleanup', 'feature/cleanup is not startable: its slice "wave 5" is blocked'),
+    );
+  });
+
+  it('refuses a held, claimed, merged, deferred or ref-held branch, naming the reason', () => {
+    const r = read('approved', [slice('w', [
+      ['a', 'waiting', ['x']],
+      ['b', 'blocked', ['y', 'z']],
+      ['c', 'claimed'],
+      ['m', 'merged'],
+      ['d', 'deferred'],
+      ['o', 'open', [], true],
+      ['k', 'wip'],
+      ['u', 'unknown'],
+    ])]);
+    const detail = (b: string) => (dispatchReadingFor(r, 'p', b) as { detail: string }).detail;
+    expect(detail('a')).toBe('a is not startable: it is held on x');
+    expect(detail('b')).toBe('b is not startable: it is held on y and z');
+    expect(detail('c')).toBe('c is not startable: it is claimed');
+    expect(detail('m')).toBe('m is not startable: it is merged');
+    expect(detail('d')).toBe('d is not startable: it is deferred');
+    expect(detail('o')).toBe('o is not startable: its claim ref already exists');
+    expect(detail('k')).toBe('k is not startable: its claim ref already exists');
+    expect(detail('u')).toBe('u is not startable: the host could not say whether it merged');
+    for (const b of ['a', 'b', 'c', 'm', 'd', 'o', 'k', 'u']) {
+      expect(dispatchReadingFor(r, 'p', b)).toMatchObject({ kind: 'branch-refused', reason: 'branch-not-startable', branch: b });
+    }
+  });
+
+  it('names an unnamed prerequisite where a held branch lists none', () => {
+    const r = read('approved', [slice('w', [['a', 'waiting', []], ['b', 'blocked', ['y']]])]);
+    expect(dispatchReadingFor(r, 'p', 'a')).toEqual(
+      refusal('branch-not-startable', 'a', 'a is not startable: it is held on an unnamed prerequisite'),
+    );
+    expect(dispatchReadingFor(r, 'p', 'b')).toEqual(refusal('branch-not-startable', 'b', 'b is not startable: it is held on y'));
+  });
+
+  it('names a branch only where startableBranches would offer it', () => {
+    for (const b of ['feature/bitbucket-cutover', 'feature/jira-cutover', 'feature/cleanup', 'feature/bitbucket-read']) {
+      const named = dispatchReadingFor(wave4, 'p', b).kind === 'branch';
+      expect(named).toBe(startableBranches(wave4, 'p', new Set()).includes(b));
+    }
   });
 });

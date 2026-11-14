@@ -3,8 +3,10 @@
 //
 //   node plot-plan-for-branch.mjs <branch>
 //
-// Prints `<absolute plan file>\t<slice name>` and exits 0, or exits 1 with
-// nothing printed when no plan in `Plan directory` names the branch.
+// Prints `<absolute plan file>\t<slice name>\t<base>` and exits 0, or exits 1
+// with nothing printed when no plan in `Plan directory` names the branch.
+// `<base>` is the branch the slice is cut from (`planBaseFor`), empty for the
+// default branch.
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
@@ -12,7 +14,7 @@ import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { findPlanForBranch } from './plan-lookup.js';
+import { findPlanForBranch, planBaseFor } from './plan-lookup.js';
 
 /**
  * Prints the plan that names `branch` in the repository holding `cwd`.
@@ -29,14 +31,17 @@ export const run = async (
   scriptDir: string,
   write: (s: string) => void = (s) => process.stdout.write(s),
 ): Promise<number> => {
-  const probe = await refsGit({ repoRoot: cwd, scriptDir }).repoRoot();
+  const refs = refsGit({ repoRoot: cwd, scriptDir });
+  const probe = await refs.repoRoot();
   if (!probe.ok) return 1;
   const store = planStoreShell({ repoRoot: probe.value, scriptDir });
   const read = await store.config('Plan directory', 'docs/plans/');
   const planDir = read.ok && read.value.trim() !== '' ? read.value.trim() : 'docs/plans/';
   const found = await findPlanForBranch(store, planDir, branch);
   if (found === undefined) return 1;
-  write(`${path.resolve(probe.value, found.file)}\t${found.sliceName}\n`);
+  const relative = path.relative(probe.value, path.resolve(probe.value, found.file));
+  const base = await planBaseFor(refs, store, relative);
+  write(`${path.resolve(probe.value, found.file)}\t${found.sliceName}\t${base}\n`);
   return 0;
 };
 

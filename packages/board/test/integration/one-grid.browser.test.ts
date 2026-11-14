@@ -175,13 +175,14 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // the track COUNT, and the FIVE genuinely-fixed tracks, both checked below.
       const tracks = templates.map((t) => ({ kind: t.kind, cols: t.cols.split(' ') }));
       for (const t of tracks) {
-        expect(t.cols, `${t.kind} lays out on seven tracks`).toHaveLength(7);
+        expect(t.cols, `${t.kind} lays out on eight tracks`).toHaveLength(8);
       }
       // And the fixed tracks agree EXACTLY — every track but the two flexible
       // ones (column 3 the name, column 4 the links). This is the pixel-level
       // agreement the assertion above was reaching for, asked of the columns
       // that carry it.
-      const FLEXIBLE_COLS = new Set([2, 3]);
+      // Column 7 (BY) sizes to who acts, like the name, so it joins the per-row tracks.
+      const FLEXIBLE_COLS = new Set([2, 3, 6]);
       const fixed = new Set(
         tracks.map((t) => t.cols.filter((_, i) => !FLEXIBLE_COLS.has(i)).join(' ')));
       expect([...fixed], `kinds: ${tracks.map((t) => t.kind).join()}`).toHaveLength(1);

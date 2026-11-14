@@ -1,6 +1,6 @@
 import type { DeskManifest } from './desk-manifest.js';
 import type { DeskLoop } from './desk-loop-alive.js';
-import type { EndingReading } from '../entities/ending.js';
+import type { EndingReading, EndingReason } from '../entities/ending.js';
 import { endingAsksPersonOutright } from './ending-action.js';
 
 /** A pid the route must stop before it resolves the manifest. */
@@ -20,13 +20,16 @@ export interface StopFirst {
  * the answer.
  *
  * This rule adds the desk's ending record as a FALLBACK, read only when the
- * manifest names nobody: a `blocked` OR `holding-work` ending for the asked
- * branch, with an unanswered marker still in the tree, is a desk whose own
- * record says it is waiting for exactly this. `holding-work` reaches here the
- * same way `blocked` does — a take-up or a post-run pass that found unlanded
- * work and no marker ends `holding-work` with no manifest left to answer, but
- * the marker a person is answering can still be sitting on the desk from an
- * earlier pass. The fallback never substitutes for the manifest when one
+ * manifest names nobody: an ending {@link endingTakesAnAnswer} names, for the
+ * asked branch, with an unanswered marker still in the tree, is a desk whose
+ * own record says it is waiting for exactly this. `holding-work` reaches here
+ * the same way `blocked` does — a take-up or a post-run pass that found
+ * unlanded work and no marker ends `holding-work` with no manifest left to
+ * answer, but the marker a person is answering can still be sitting on the
+ * desk from an earlier pass. `corrections-spent` writes its own marker
+ * (`author: loop`) and removes its manifest, and `turn-limit` can end a run
+ * before the agent deletes the marker it was answering, so both reach here
+ * too. The fallback never substitutes for the manifest when one
  * exists, and it never fires for `several` — two manifests on one desk stay an
  * estate defect, not a case the ending record resolves.
  *
@@ -97,6 +100,25 @@ export interface ContinueTargetReading {
 }
 
 /**
+ * Whether an ending reason leaves a desk that a person's answer may continue
+ * when no manifest names it.
+ *
+ * Reads only the reason. {@link continueTarget} also asks for the marker and
+ * the branch. This predicate does not change what `endingAction` answers for
+ * the supervisor: `corrections-spent` and `turn-limit` still answer
+ * `start-fresh` there.
+ *
+ * @param reason - the desk's ending reason.
+ * @returns true for `holding-work`, `corrections-spent`, `turn-limit` and
+ *   every {@link NEEDS_PERSON_ENDINGS} reason; false for every other reason.
+ */
+export const endingTakesAnAnswer = (reason: EndingReason): boolean =>
+  reason === 'holding-work' ||
+  reason === 'corrections-spent' ||
+  reason === 'turn-limit' ||
+  endingAsksPersonOutright(reason);
+
+/**
  * Where an answer for `branch` goes, and what blocks it.
  *
  * Checked in this order, matching `continueOnDesk`'s own and for the reason it
@@ -120,11 +142,11 @@ export interface ContinueTargetReading {
  * 3. **The manifest answers.** `named` continues by stamping it. `several`
  *    refuses — two manifests on one desk is an estate defect the ending record
  *    does not resolve. `unnamed` falls to the ending record.
- * 4. **The fallback.** Only for `unnamed`: an ending with `holding-work` or
- *    any {@link NEEDS_PERSON_ENDINGS} reason for THIS branch continues by
- *    writing a manifest. Anything else — a different branch, a different
- *    reason, or no ending at all — is `no-manifest`, the same refusal
- *    `unnamed` always gave.
+ * 4. **The fallback.** Only for `unnamed`: an ending whose reason
+ *    {@link endingTakesAnAnswer} names, for THIS branch, continues by writing
+ *    a manifest. Anything else — a different branch, a different reason, or
+ *    no ending at all — is `no-manifest`, the same refusal `unnamed` always
+ *    gave.
  *
  * ABSENT IS NOT A FALLBACK. An ending the caller could not read
  * (`read: 'unreadable'`) or never wrote (`read: 'absent'`) answers
@@ -152,7 +174,7 @@ export const continueTarget = (reading: ContinueTargetReading): ContinueTarget =
   const { ending } = reading;
   if (
     ending.read === 'ended' &&
-    (ending.ending.reason === 'holding-work' || endingAsksPersonOutright(ending.ending.reason)) &&
+    endingTakesAnAnswer(ending.ending.reason) &&
     ending.ending.branch === reading.branch
   ) {
     return { kind: 'continue', manifest: 'write', ...(stop ? { stop } : {}) };

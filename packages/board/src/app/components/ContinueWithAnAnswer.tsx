@@ -74,6 +74,16 @@ export function refusalWord(reason: ContinueRefusal): string {
       return 'The worker left a question in its tree — answer it with Continue with an answer.';
     case 'unattended':
       return 'An unattended caller restarts nothing — ask a person to restart this branch.';
+    case 'origin-unreadable':
+      return 'The branch could not be read on origin, or its plan could not be read — fetch, then restart again.';
+    case 'not-claimed':
+      return 'No approved plan names this branch with a claim on origin — dispatch the slice instead of restarting it.';
+    case 'no-work':
+      return 'Origin holds the claim and no work for this branch — release the claim or dispatch the slice.';
+    case 'held-by-agent':
+      return 'A live agent on this machine is assigned this branch — let it take the branch up, or stop it first.';
+    case 'local-unpushed':
+      return 'The local branch holds commits that origin lacks — push them or remove the branch, then restart.';
     case 'question-moved':
       // Pinned the way `merge` pins to a head — the desk moved on to a new
       // question while this answer was in flight.

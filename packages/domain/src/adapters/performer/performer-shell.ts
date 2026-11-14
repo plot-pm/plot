@@ -3,14 +3,12 @@ import { join } from 'node:path';
 
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import type { Performer } from '../../ports/performer.js';
+import { manifestDir } from '../agents/agents-fs.js';
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
 /** The script that owns desk creation, the manifest and the monitors. */
 const DISPATCH = 'plot-dispatch.sh';
-
-/** Where the agent manifests live, relative to the repository root. */
-const MANIFEST_DIR = '.plot/agents';
 
 /**
  * How long one start may take before it is abandoned, in milliseconds.
@@ -43,11 +41,18 @@ const START_TIMEOUT_MS = 60_000;
  * worker — which is what makes *every worker is born monitored* a gate rather
  * than a rule. A second spawner here would be a second path with none of that.
  *
+ * **`assignSlice` WRITES INTO THE `Agent registry` DIRECTORY**, the one
+ * `plot-dispatch.sh` writes manifests into and the agent's loop polls, never a
+ * path joined to the repository. A missing manifest answers `unaskable` with
+ * the path it looked at, so the caller can name the cause.
+ *
  * @param context - the repository and where its helper scripts live.
+ * @param options - `manifestDir`, the registry directory already resolved;
+ *   absent, it is read from the `Agent registry` key on each assignment.
  * @returns a performer that starts free agents.
  */
-export const performerShell = (context: ShellContext): Performer => ({
-  assignSlice: async (session, branch, slug): Promise<PortResult<boolean>> => {
+export const performerShell = (context: ShellContext, options: { manifestDir?: string } = {}): Performer => ({
+  assignSlice: async (session, branch, slug, base = ''): Promise<PortResult<boolean>> => {
     // A FILE WRITE, NOT A SPAWN, AND THEREFORE NOT A SCRIPT. Every other
     // member of this port shells out because the process table is the script's
     // to touch; a manifest is a JSON file this package already reads, and
@@ -57,8 +62,8 @@ export const performerShell = (context: ShellContext): Performer => ({
     // THE AGENT'S LOOP IS THE READER AND IT POLLS. `wait_for_work` re-reads
     // this file, so recording the branch IS the hand-over — nothing is
     // signalled and no process is touched.
-    const file = join(context.repoRoot, MANIFEST_DIR, `${session}.json`);
-    if (!existsSync(file)) return failed();
+    const file = join(await manifestDir(context, options.manifestDir), `${session}.json`);
+    if (!existsSync(file)) return unaskable<boolean>(`no manifest at ${file}`);
     try {
       const manifest = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
       // THE REFUSAL IS A READING TAKEN NOW, not the one the tick took. Between
@@ -68,6 +73,10 @@ export const performerShell = (context: ShellContext): Performer => ({
       if (typeof manifest.branch === 'string' && manifest.branch !== '') return answered(false);
       manifest.branch = branch;
       manifest.slug = slug;
+      // AN EMPTY BASE REMOVES THE FIELD, so a default-branch slice never reads
+      // the base an earlier sprint slice left in the manifest.
+      if (base !== '') manifest.base = base;
+      else delete manifest.base;
       writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
       return answered(true);
     } catch {

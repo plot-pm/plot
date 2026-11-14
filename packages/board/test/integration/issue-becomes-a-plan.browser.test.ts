@@ -345,7 +345,7 @@ describe('the issue row has one action, and it creates a Draft', () => {
       const cells = issueRow(page, 228).locator('[role="gridcell"]');
       // STILL SEVEN — the action did not grow a cell, it moved into the one that
       // was already there. The menu component owns the seventh track.
-      await expect.poll(() => cells.count()).toBe(7);
+      await expect.poll(() => cells.count()).toBe(8);
       // Track 4 (0-indexed 3) is still the empty branch column.
       // NO BRANCH IS INVENTED, and slot 4 is where the plan slug goes.
       //
@@ -360,10 +360,10 @@ describe('the issue row has one action, and it creates a Draft', () => {
       // THE AGE COLUMN RENDERS ALONE — the reported defect. Track 6 (0-indexed
       // 5) held `1d`/`Create plan` overlapping when the button sat one track
       // over and overflowed left; now it holds only the age.
-      await expect.poll(() => cells.nth(5).textContent()).toBe('2h');
-      // Track 7 (0-indexed 6) is the menu, and it holds the glyph — not the
+      await expect.poll(() => issueRow(page, 228).locator('[data-row-cell="age"]').textContent()).toBe('2h');
+      // The DO column is the menu, and it holds the glyph — not the
       // words. The action is one click in, not spilling across the age.
-      const menuCell = cells.nth(6);
+      const menuCell = issueRow(page, 228).locator('[data-row-cell="do"]');
       await expect.poll(() => menuCell.locator('[data-issue-actions="228"]').count()).toBe(1);
       await expect.poll(() => menuCell.textContent()).not.toContain('Create plan');
     } finally {

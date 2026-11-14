@@ -167,6 +167,7 @@ export const assign = (
     worktree: assignment.worktree,
     branch: assignment.branch,
     slug: assignment.slug,
+    base: assignment.base,
   }));
 
   const held = [...match.held, ...bounded];
