@@ -22,6 +22,8 @@ export interface BaseCandidate {
 export interface LocalChecksBaseReadings {
   /** The `--base` argument, or `null` when none was given. */
   readonly flag: string | null;
+  /** The full object id of the commit the `--base` argument resolves to, or `null` where it resolves to none or none was given. */
+  readonly flagObject: string | null;
   /** The `base` field of the desk manifest whose worktree is this checkout; `''` or `null` where none records one. */
   readonly manifestBase: string | null;
   /** The default branch's name, such as `main`. */
@@ -34,6 +36,15 @@ export interface LocalChecksBaseReadings {
 
 /** Why a base was chosen. */
 export type LocalChecksBaseReason = 'flag' | 'manifest' | 'nearest' | 'unread';
+
+/** The `--base` argument named no branch `origin` holds and no commit. */
+export interface LocalChecksBaseRefusal {
+  /** The argument as given. */
+  readonly refused: string;
+  readonly reason: 'refused';
+}
+
+const ORIGIN_PREFIX = 'origin/';
 
 /** The chosen base. */
 export interface LocalChecksBase {
@@ -61,7 +72,9 @@ export const baseCandidateBranches = (defaultBranch: string, remoteBranches: rea
 /**
  * The base branch for the changed-file reading, in this order. Asks no host.
  *
- * 1. The `--base` argument, as given.
+ * 1. The `--base` argument: a branch `origin` holds, given as `<branch>` or
+ *    `origin/<branch>`; else the commit it resolves to (`flagObject`); else a
+ *    refusal.
  * 2. The desk manifest's `base`, where `origin` still holds that branch.
  * 3. The candidate HEAD sits the fewest commits past. A tie goes to the
  *    default branch, then to the first sprint branch in name order.
@@ -69,11 +82,17 @@ export const baseCandidateBranches = (defaultBranch: string, remoteBranches: rea
  *
  * @param readings - the argument, the manifest's base, the branches `origin`
  *   holds and the count against each candidate.
- * @returns the base, the reason and the count that decided.
+ * @returns the base, the reason and the count that decided, or a refusal for
+ *   a `--base` argument that names no branch `origin` holds and no commit.
  */
-export const localChecksBase = (readings: LocalChecksBaseReadings): LocalChecksBase => {
+export const localChecksBase = (readings: LocalChecksBaseReadings): LocalChecksBase | LocalChecksBaseRefusal => {
   const flag = readings.flag?.trim() ?? '';
-  if (flag !== '') return { base: flag, reason: 'flag', ahead: null };
+  if (flag !== '') {
+    const branch = flag.startsWith(ORIGIN_PREFIX) && !readings.remoteBranches.includes(flag) ? flag.slice(ORIGIN_PREFIX.length) : flag;
+    if (readings.remoteBranches.includes(branch)) return { base: branch, reason: 'flag', ahead: null };
+    const object = readings.flagObject?.trim() ?? '';
+    return object === '' ? { refused: flag, reason: 'refused' } : { base: object, reason: 'flag', ahead: null };
+  }
   const recorded = readings.manifestBase?.trim() ?? '';
   if (recorded !== '' && readings.remoteBranches.includes(recorded)) return { base: recorded, reason: 'manifest', ahead: null };
   let best: { readonly branch: string; readonly ahead: number } | null = null;
@@ -116,3 +135,12 @@ export const baseLine = (chosen: LocalChecksBase, candidates: readonly BaseCandi
     }
   }
 };
+
+/**
+ * The error line for a refused `--base` argument.
+ *
+ * @param flag - the argument as given.
+ * @returns one line naming the argument and the forms `--base` accepts.
+ */
+export const baseRefusal = (flag: string): string =>
+  `plot-local-checks: --base ${flag} names no branch origin holds and no commit; give <branch>, origin/<branch> or a commit id\n`;
