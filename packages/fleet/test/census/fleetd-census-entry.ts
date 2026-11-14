@@ -13,13 +13,16 @@
 //   safety-net
 //          run one completed pass that moves the clock by at least the
 //          safety-net interval, so the full read it holds is a safety-net
-//          read; it prints `census: pass <n> done` as `pass` does. The tick runs
-//          in a pass only when a trigger or a deadline started it
+//          read; it prints `census: pass <n> done` as `pass` does
 //   stop   end the loop; prints `census: stopped <code>` and exits with it
 //
 // A pass is done once no direct child, no in-process HTTP request and no scan
 // that fleetd's bridge (`.plot/state/last-pulse.json`) marks `running` has been
 // in flight for 300 ms; a `running` mark holds a pass for at most 120 s.
+//
+// fleetd's `sleep` waits on the manual clock, so a product that ticks on
+// `--interval` (60 s) ticks once in each pass, and a product that waits on
+// triggers ticks where a trigger or a deadline starts the tick.
 //
 // `CENSUS_CLOCK=system` runs fleetd on the system clock and real sleeps
 // instead, for a scenario that needs a fleetd running beside the board; then
@@ -248,6 +251,8 @@ const requested = new Promise<void>((resolve) => {
   wakeStop = resolve;
 });
 const stop = Object.assign(() => stopped, { requested });
+/** fleetd's `sleep` on the manual clock: it ends when a pass moves the clock past `ms`. */
+const sleep = clock === undefined ? undefined : (ms: number): Promise<void> => new Promise<void>((resolve) => void clock.timeout(ms, resolve));
 
 /** fleetd's bridge, which `fleetScan` marks `running` while a scan runs. */
 const bridgeOf = (): BridgeReading => {
@@ -312,7 +317,7 @@ const daemon = run(
     if (s.includes('plot-fleetd: supervising')) markStarted();
     process.stdout.write(s);
   },
-  undefined,
+  sleep,
   stop,
   (s: string) => process.stderr.write(s),
   repoRoot,
