@@ -227,7 +227,7 @@ export const closedPrNotice = (closedPrs: readonly number[]): string => {
 /**
  * The title of a slice's PR: the plan title, a colon, and the wave heading.
  *
- * A wave heading alone often names no change: plans number their waves, and
+ * A wave heading alone often names no change: plans number their slice headings, and
  * sprint `triggers-and-connectors` (2026-11-11 to 2026-11-14) opened five PRs
  * of two plans titled `Wave 1`. The plan title names the change and the wave
  * heading names the slice. Both parts are trimmed. The wave heading stands
