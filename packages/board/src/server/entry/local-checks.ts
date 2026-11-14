@@ -5,7 +5,15 @@ import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { boundedRunProcess } from '@plot-pm/domain/adapters/bounded-run/bounded-run-process';
 import { processesShell } from '@plot-pm/domain/adapters/processes/processes-shell';
 import { manifestBaseOf } from '@plot-pm/domain/adapters/agents/agents-fs';
-import { baseCandidateBranches, baseLine, localChecksBase, type BaseCandidate, type LocalChecksBase } from '@plot-pm/domain/rules/local-checks-base';
+import {
+  baseCandidateBranches,
+  baseLine,
+  baseRefusal,
+  localChecksBase,
+  type BaseCandidate,
+  type LocalChecksBase,
+  type LocalChecksBaseRefusal,
+} from '@plot-pm/domain/rules/local-checks-base';
 import { failedCheck, printedCommands } from '@plot-pm/domain/rules/local-checks-run';
 import {
   DEFAULT_LOCAL_CHECKS_LIMIT,
@@ -49,7 +57,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * `#` lines, then a `summary:` line. Exit 0 always; 2 outside a git repository.
  *
  * The changes are read against the branch's base, which `localChecksBase`
- * chooses: the `--base <branch>` argument; else the `base` the desk manifest
+ * chooses: the `--base` argument, as `<branch>` or `origin/<branch>` where
+ * `origin` holds the branch, else as the commit it resolves to, and exit 2
+ * naming the accepted forms where it resolves to none; else the `base` the desk manifest
  * records, where `origin` holds it; else whichever of `origin/<default>` and
  * every `origin/sprint/*` HEAD sits the fewest commits past, a tie going to
  * the default branch. The first output line names the base and the reason.
@@ -228,7 +238,12 @@ export const run = async (
   const refs = refsGit(context);
   const scripts = scriptsShell(context);
 
-  const chosen = listed === null ? await resolveBase(refs, context, base) : null;
+  const resolved = listed === null ? await resolveBase(refs, context, base) : null;
+  if (resolved !== null && 'refused' in resolved.base) {
+    warn(baseRefusal(resolved.base.refused));
+    return EXIT.usage;
+  }
+  const chosen = resolved === null || 'refused' in resolved.base ? null : { base: resolved.base, candidates: resolved.candidates };
   const against = chosen?.base.base;
 
   const [committed, working, rawChecks, rawLimit, rawSuites, rawPlans, rawSprints] = await Promise.all([
@@ -291,20 +306,25 @@ export const run = async (
  * @param refs - the git adapter.
  * @param context - the repository root and the script directory, for the registry.
  * @param flag - the `--base` argument, or `null`.
- * @returns the chosen base and the counts it compared.
+ * @returns the chosen base, or the refusal of the `--base` argument, and the counts it compared.
  */
 const resolveBase = async (
   refs: ReturnType<typeof refsGit>,
   context: { repoRoot: string; scriptDir: string },
   flag: string | null,
-): Promise<{ base: LocalChecksBase; candidates: readonly BaseCandidate[] }> => {
-  const main = await refs.defaultBranch();
+): Promise<{ base: LocalChecksBase | LocalChecksBaseRefusal; candidates: readonly BaseCandidate[] }> => {
+  const [main, remote] = await Promise.all([refs.defaultBranch(), refs.listBranches(true)]);
   const defaultBranch = main.ok ? main.value : 'main';
-  if (flag !== null) {
-    return { base: localChecksBase({ flag, manifestBase: null, defaultBranch, remoteBranches: [], candidates: [] }), candidates: [] };
-  }
-  const [remote, recorded] = await Promise.all([refs.listBranches(true), manifestBaseOf(context, context.repoRoot)]);
   const remoteBranches = remote.ok ? remote.value : [];
+  if (flag !== null) {
+    // `^{commit}` peels a tag and refuses a tree, so the answer is always a commit's full id.
+    const object = await refs.resolve(`${flag.trim()}^{commit}`);
+    return {
+      base: localChecksBase({ flag, flagObject: object.ok ? object.value : null, manifestBase: null, defaultBranch, remoteBranches, candidates: [] }),
+      candidates: [],
+    };
+  }
+  const recorded = await manifestBaseOf(context, context.repoRoot);
   const manifestBase = recorded.ok ? recorded.value : null;
   const held = manifestBase !== null && manifestBase !== '' && remoteBranches.includes(manifestBase);
   const candidates: BaseCandidate[] = held
@@ -315,7 +335,7 @@ const resolveBase = async (
           return { branch, ahead: ahead.ok ? ahead.value : null };
         }),
       );
-  return { base: localChecksBase({ flag: null, manifestBase, defaultBranch, remoteBranches, candidates }), candidates };
+  return { base: localChecksBase({ flag: null, flagObject: null, manifestBase, defaultBranch, remoteBranches, candidates }), candidates };
 };
 
 /**

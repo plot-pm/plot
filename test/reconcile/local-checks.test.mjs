@@ -445,6 +445,43 @@ test('a branch off a sprint branch that no plan names is read against that sprin
   }
 });
 
+test('--base reads origin/<branch> and an abbreviated commit id as the same base as <branch>', () => {
+  const repo = sprintSandbox();
+  try {
+    const git = (...args) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
+    const sha = git('rev-parse', 'origin/sprint/s1').trim();
+    const prefixed = runIn(repo, '--base', 'origin/sprint/s1');
+    assert.equal(prefixed.status, 0, prefixed.stderr);
+    assert.equal(prefixed.stderr, '');
+    assert.equal(prefixed.stdout.split('\n')[0], '# base: origin/sprint/s1 (the --base argument)');
+    assert.match(prefixed.stdout, /tool\.test\.mjs/, prefixed.stdout);
+    assert.doesNotMatch(prefixed.stdout, /own\.test\.mjs/, prefixed.stdout);
+    const short = runIn(repo, '--base', sha.slice(0, 9));
+    assert.equal(short.status, 0, short.stderr);
+    assert.equal(short.stderr, '');
+    assert.equal(short.stdout.split('\n')[0], `# base: ${sha} (the --base argument)`);
+    assert.match(short.stdout, /tool\.test\.mjs/, short.stdout);
+    assert.doesNotMatch(short.stdout, /own\.test\.mjs/, short.stdout);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('--base that names no branch origin holds and no commit exits 2 and names the accepted forms', () => {
+  const repo = sandbox();
+  try {
+    const res = runIn(repo, '--base', 'origin/sprint/gone');
+    assert.equal(res.status, 2, res.stdout + res.stderr);
+    assert.equal(res.stdout, '');
+    assert.equal(
+      res.stderr,
+      'plot-local-checks: --base origin/sprint/gone names no branch origin holds and no commit; give <branch>, origin/<branch> or a commit id\n',
+    );
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test('the desk manifest\'s base decides over the counts', () => {
   const repo = sandbox();
   const registry = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-local-checks-registry-'));

@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { baseCandidateBranches, baseLine, localChecksBase, type LocalChecksBaseReadings } from '../src/rules/local-checks-base.js';
+import { baseCandidateBranches, baseLine, baseRefusal, localChecksBase, type LocalChecksBaseReadings } from '../src/rules/local-checks-base.js';
 
 const held = ['main', 'sprint/triggers-and-connectors', 'sprint/nothing-runs', 'bug/x'];
 
 const readings = (over: Partial<LocalChecksBaseReadings>): LocalChecksBaseReadings => ({
   flag: null,
+  flagObject: null,
   manifestBase: null,
   defaultBranch: 'main',
   remoteBranches: held,
@@ -24,6 +25,24 @@ describe('localChecksBase', () => {
       readings({ flag: 'main', manifestBase: 'sprint/nothing-runs', candidates: [{ branch: 'sprint/nothing-runs', ahead: 0 }] }),
     );
     expect(chosen).toEqual({ base: 'main', reason: 'flag', ahead: null });
+  });
+
+  it('reads an origin/-prefixed --base as the branch origin holds', () => {
+    expect(localChecksBase(readings({ flag: 'origin/sprint/triggers-and-connectors', flagObject: 'b'.repeat(40) }))).toEqual({
+      base: 'sprint/triggers-and-connectors',
+      reason: 'flag',
+      ahead: null,
+    });
+  });
+
+  it('reads a --base that names no branch origin holds as the commit it resolves to', () => {
+    const sha = 'c'.repeat(40);
+    expect(localChecksBase(readings({ flag: 'c0ffee1', flagObject: sha }))).toEqual({ base: sha, reason: 'flag', ahead: null });
+  });
+
+  it('refuses a --base that names no branch origin holds and resolves to no commit', () => {
+    expect(localChecksBase(readings({ flag: 'origin/sprint/gone', flagObject: null }))).toEqual({ refused: 'origin/sprint/gone', reason: 'refused' });
+    expect(localChecksBase(readings({ flag: 'd'.repeat(40), flagObject: null }))).toEqual({ refused: 'd'.repeat(40), reason: 'refused' });
   });
 
   it('takes the manifest base where origin holds it, over the counts', () => {
@@ -75,7 +94,7 @@ describe('localChecksBase', () => {
         ],
       }),
     );
-    expect(chosen.base).toBe('sprint/nothing-runs');
+    expect(chosen).toEqual({ base: 'sprint/nothing-runs', reason: 'nearest', ahead: 1 });
   });
 
   it('skips an unread count rather than reading it as zero', () => {
@@ -134,5 +153,13 @@ describe('baseLine', () => {
   it('prints an object id as given', () => {
     const sha = 'a'.repeat(40);
     expect(baseLine({ base: sha, reason: 'flag', ahead: null }, [])).toBe(`# base: ${sha} (the --base argument)`);
+  });
+});
+
+describe('baseRefusal', () => {
+  it('names the argument and the three forms --base accepts', () => {
+    expect(baseRefusal('origin/sprint/gone')).toBe(
+      'plot-local-checks: --base origin/sprint/gone names no branch origin holds and no commit; give <branch>, origin/<branch> or a commit id\n',
+    );
   });
 });
