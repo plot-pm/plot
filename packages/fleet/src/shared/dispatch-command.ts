@@ -6,6 +6,8 @@ import {
   type NamedBranchRefusal,
 } from '@plot-pm/domain/rules/auto-dispatch';
 import type { FleetReading } from '@plot-pm/domain';
+import type { Refs } from '@plot-pm/domain/ports/refs';
+import { originPlanHome } from './origin-desk.js';
 import { DISPATCH_SCRIPT, dispatchLogPath, scriptsOf, type ActOptions } from './action-log.js';
 import { recordActionReceipt } from './action-receipt.js';
 import { migrateAgentLogs } from './agent-log.js';
@@ -84,7 +86,30 @@ export interface DispatchInput {
   readCfg?: BoardConfigReader;
   /** What the pulse says about starting the plan at `branch`; see {@link dispatchReadingFor}. */
   startReading: (slug: string, branch?: string) => DispatchReadingFor;
+  /**
+   * The plan's sprint branch, which the implement prompt names as `--branch`;
+   * `''` or absent for the default branch. The caller resolves it with
+   * {@link dispatchHome} before the call.
+   */
+  home?: string;
 }
+
+/**
+ * The sprint branch a dispatched plan lives on: `originPlanHome` for the
+ * branch the implement would brief, else for the slug.
+ *
+ * @param refs - the ref reader.
+ * @param context - where the scripts live and which repository to parse in.
+ * @param slug - the plan slug.
+ * @param reading - what the pulse says about starting the plan.
+ * @returns the sprint branch without `origin/`; `''` for the default branch.
+ */
+export const dispatchHome = (
+  refs: Refs,
+  context: { repoRoot: string; scriptDir: string },
+  slug: string,
+  reading: DispatchReadingFor,
+): Promise<string> => originPlanHome(refs, context, slug, briefBranchOf(reading));
 
 /**
  * What the pulse says about starting `slug`, at `branch` where one is named.
@@ -204,6 +229,9 @@ export const startDispatch = (input: DispatchInput): DispatchStart => {
     },
     readCfg,
     briefBranchOf(reading),
+    {},
+    false,
+    input.home ?? '',
   );
   if ('failure' in started) {
     return started.failure.running
