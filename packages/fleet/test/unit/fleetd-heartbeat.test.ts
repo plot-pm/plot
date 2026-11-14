@@ -627,14 +627,20 @@ describe('the heartbeat vouches for the bridge fleetd wrote', () => {
     const bridgeAt = Date.now() - 20 * 60_000;
     const bridge = trackBridgeWrites(fleetStateFile({ repoRoot: dir }));
     await bridge.state.write(emptyPulse(bridgeAt));
+    const heartbeat = fleetdHeartbeatFile({ repoRoot: dir });
     startFleetdHeartbeat(
       clockManual(beatClockAt),
-      fleetdHeartbeatFile({ repoRoot: dir }),
+      heartbeat,
       { pid: 1, startedAt: beatClockAt - 1_000, supervised: 'none', generation: () => 0, bridgeAt: bridge.bridgeAt, passes: () => ({}) },
       () => undefined,
     );
-    await settle(20);
-    return bridgeAt;
+    // THE FIRST BEAT IS A FILE WRITE: wait until it reads back, not for a count of event-loop turns.
+    for (let waited = 0; waited < 5_000; waited += 5) {
+      const beat = await heartbeat.read();
+      if (beat.ok && beat.value !== null) return bridgeAt;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    throw new Error('the first heartbeat never landed within 5 s');
   };
 
   it('accepts a 20 minute old bridge while fleetd beats', async () => {
