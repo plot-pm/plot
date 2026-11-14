@@ -32,7 +32,7 @@ It also closes the follow-up issues that sprint `desk-probes-and-liveness` filed
 
 ### Should Have
 
-- [ ] [#3368](https://github.com/plot-pm/plot/issues/3368) `plot-ask merge` reads in-progress re-run checks as pending
+- [x] [#3368](https://github.com/plot-pm/plot/issues/3368) `plot-ask merge` reads in-progress re-run checks as pending
 - [x] [#3369](https://github.com/plot-pm/plot/issues/3369) fleetd's channel binds a short socket path for a long repository root
 - [x] [#3382](https://github.com/plot-pm/plot/issues/3382) The state-sync PR gate reads `unknown` on a failed read
 - [x] [#3383](https://github.com/plot-pm/plot/issues/3383) `openSyncPr` finds the sync PR beyond the first 100 open PRs
