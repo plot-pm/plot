@@ -77,28 +77,41 @@ read_declared_bundles() { # <root> <fail-fn>
 
 # EVERY BUNDLE THE BUILD WRITES, not only the ones it compiles itself.
 #
-#   read_shipped_bundles <root> <fail-fn>
+#   read_shipped_bundles <root> <fail-fn> [HEAD|worktree]
 #
-# Prints "board/<name>.mjs" per `const shipped<Name>` path to
-# skills/plot/scripts/board/<name>.mjs that build.mjs copies to with
-# `fs.copyFileSync(<artifact>, shipped<Name>)`, one per line. A declaration
-# may wrap its `path.join(` arguments over several lines. A shipped path that
-# no copy writes is not printed. <fail-fn> is called as above.
+# Prints "board/<name>.mjs" per `const shipped<Name>` declaration at the start
+# of a line whose path is skills/plot/scripts/board/<name>.mjs, one per line,
+# sorted. A declaration may wrap its `path.join(` arguments over several
+# lines. The third argument names the build.mjs to read: `HEAD` (the default)
+# reads it at HEAD in <root>, and `worktree` reads the file on disk.
+# <fail-fn> is called as above; a caller that prints its own message passes
+# `:` and tests the return code.
+#
+# THE ONE READER OF THE GENERATED SET. `check-helper-table.sh`,
+# `check-bundle-attributes.sh`, `check-no-bundle-diff.sh` and
+# `main-bundles.sh` all read it. Each held a one-line `grep` until 2026-11-14,
+# and that grep missed `shippedRestartStoppedCommand`, which wraps over four
+# lines: 79 of the 80 bundles at 20c7e04cc, so that bundle was never
+# published by main's build commit, never refused in a PR diff, and never
+# marked `-merge`.
 #
 # `read_declared_bundles` prints only a bundle whose esbuild call sits in
-# build.mjs, because `check-decision-count.sh` needs its entry path. A bundle
-# that `@plot-pm/fleet` compiles and build.mjs only copies has no such call.
-# Measured on `main` at 20c7e04cc: build.mjs writes 80 bundles, and 13 of them
-# (`plot-fleetd.mjs`, `plot-worker-loop.mjs`, `plot-dispatch-command.mjs`, …)
-# have no esbuild call there that the parser above reads.
-# `check-helper-table.sh` reads this function, so the PR that adds such a
-# bundle needs its row before main's build commit adds the file.
-read_shipped_bundles() { # <root> <fail-fn>
-  local root=$1 fail_fn=$2 build=packages/board/build.mjs text out
-  text=$(git -C "$root" show "HEAD:$build" 2>/dev/null) || {
-    "$fail_fn" "$build is absent at HEAD, so no declared bundle can be read as evidence."
-    return 1
-  }
+# build.mjs, because `check-decision-count.sh` needs its entry path. Measured
+# at 20c7e04cc, 13 of the 80 bundles have no such call that it reads: 12 that
+# `@plot-pm/fleet` compiles and build.mjs only copies, and the wrapped one.
+read_shipped_bundles() { # <root> <fail-fn> [HEAD|worktree]
+  local root=$1 fail_fn=$2 source=${3:-HEAD} build=packages/board/build.mjs text out
+  if [ "$source" = worktree ]; then
+    text=$(cat "$root/$build" 2>/dev/null) || {
+      "$fail_fn" "$build is missing, so no declared bundle can be read as evidence."
+      return 1
+    }
+  else
+    text=$(git -C "$root" show "HEAD:$build" 2>/dev/null) || {
+      "$fail_fn" "$build is absent at HEAD, so no declared bundle can be read as evidence."
+      return 1
+    }
+  fi
   out=$(printf '%s\n' "$text" | awk -v q="'" '
     function quoted(s) { sub("^[^" q "]*" q, "", s); sub(q ".*$", "", s); return s }
     function decl(s,   name, p) {
@@ -110,7 +123,6 @@ read_shipped_bundles() { # <root> <fail-fn>
     BEGIN {
       open_re = "^const shipped[A-Za-z]* = path\\.join\\("
       path_re = q "\\.\\./\\.\\./skills/plot/scripts/board/[^" q "]+\\.mjs" q
-      copy_re = "^[ \t]*fs\\.copyFileSync\\([A-Za-z]+, *[A-Za-z]+\\);"
       pending = ""
     }
     # A wrapped declaration joins its lines up to the one that closes it.
@@ -123,15 +135,10 @@ read_shipped_bundles() { # <root> <fail-fn>
       if ($0 ~ /\);/) decl($0); else pending = $0
       next
     }
-    $0 ~ copy_re {
-      c = $0; sub(/^[^(]*\(/, "", c); sub(/\).*$/, "", c); split(c, cp, / *, */)
-      copied[cp[2]] = 1
-      next
-    }
-    END { for (s in shipped) if (s in copied) printf "board/%s\n", shipped[s] }
+    END { for (s in shipped) printf "board/%s\n", shipped[s] }
   ' | sort -u)
   if [ -z "$out" ]; then
-    "$fail_fn" "$build at HEAD declares no bundle this gate can parse, so the declarations cannot serve as evidence. Fix the parser in lib-declared-bundles.sh, not the build."
+    "$fail_fn" "$build declares no bundle this gate can parse, so the declarations cannot serve as evidence. Fix the parser in lib-declared-bundles.sh, not the build."
     return 1
   fi
   printf '%s\n' "$out"

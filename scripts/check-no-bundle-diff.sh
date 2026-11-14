@@ -19,8 +19,9 @@
 # `const shippedX = path.join(here, '../../<path>')`; that declaration is what
 # an author writes when adding a bundle, and a second list in this script would
 # be a second place to forget — the defect `check-bundle-attributes.sh` was
-# written for, wearing a different hat. The same `grep`/`sed` derivation is
-# reused here verbatim so the two gates can never name different sets.
+# written for, wearing a different hat. Both gates read the set through
+# `read_shipped_bundles` in `lib-declared-bundles.sh`, so they can never name
+# different sets.
 #
 # THE SET IS NEVER THE DIRECTORY. `skills/plot/scripts/board/` holds 36 files;
 # 34 are generated and 2 — `README.md` and `plot-monitor.mjs` — are written by
@@ -56,6 +57,9 @@
 
 set -uo pipefail
 
+# shellcheck source=scripts/lib-declared-bundles.sh
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib-declared-bundles.sh"
+
 # The tree to check. Defaults to this script's repo, which is what CI runs. An
 # explicit root exists so the gate can be pointed at a fixture and its own
 # refusal proven. See test/reconcile/no-bundle-diff-gate.test.mjs.
@@ -76,8 +80,7 @@ if [ ! -f "$BUILD" ]; then
   exit 2
 fi
 
-generated=$(grep -aoE "shipped[A-Za-z]* = path\.join\([^)]*'[^']*'\)" "$BUILD" \
-  | sed -E "s|.*'\.\./\.\./([^']*)'.*|\1|" | sort -u)
+generated=$(read_shipped_bundles . : worktree | sed 's|^|skills/plot/scripts/|')
 
 if [ -z "$generated" ]; then
   echo "::error::no shipped bundles found in $BUILD; the derivation is blind."

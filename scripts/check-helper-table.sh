@@ -48,8 +48,8 @@
 # ones, counted once. Measured 2026-10-21: #2235 and #2243 each added a bundle
 # with no row, passed here, and failed `validate` on main after the build.
 # `build.mjs` is read by `read_shipped_bundles` in `lib-declared-bundles.sh`:
-# every `shipped*` path the build copies to, including a bundle that
-# `@plot-pm/fleet` compiles and build.mjs only copies. Measured 2026-11-14 at
+# every `shipped*` declaration, including a bundle that `@plot-pm/fleet`
+# compiles and build.mjs only copies, and one that wraps over several lines. Measured 2026-11-14 at
 # 20c7e04cc: the esbuild-call parser `check-decision-count.sh` uses read 67 of
 # the 80 bundles the build writes, so a PR adding one of the other 13 kinds
 # passed here and main's build commit added it with no row.

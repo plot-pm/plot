@@ -153,12 +153,3 @@ test('a shipped declaration wrapped over several lines, with no row, fails namin
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, /board\/plot-wrapped\.mjs/);
 }, { build: WRAPPED_BUILD, rows: ['a.sh', 'board/plot-new.mjs'] }));
-
-test('a shipped declaration that the build never copies does not count', withFixture((work) => {
-  const r = run(work);
-  assert.equal(r.status, 0, r.out);
-  assert.match(r.out, /0 of 2 shipped scripts lack a row/);
-}, {
-  build: `${BUILD_TEXT}const shippedUnused = path.join(here, '../../skills/plot/scripts/board/plot-unused.mjs');\n`,
-  rows: ['a.sh', 'board/plot-new.mjs'],
-}));

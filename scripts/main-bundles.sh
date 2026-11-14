@@ -9,7 +9,8 @@
 #                                    on the build commit itself, where it fails
 #   main-bundles.sh release [root]   build; a stale bundle refuses the tag
 #
-# THE GENERATED SET IS `build.mjs`'s `shipped*` DECLARATIONS, the derivation
+# THE GENERATED SET IS `build.mjs`'s `shipped*` DECLARATIONS, read by
+# `read_shipped_bundles` in `lib-declared-bundles.sh`, the reader
 # `check-bundle-attributes.sh` uses. Paths are staged one by one: the board
 # directory also holds `README.md` and `plot-monitor.mjs`, written by hand, and
 # a directory-wide `git add` would commit them.
@@ -41,6 +42,9 @@
 # BUILD_CMD (default `pnpm run build:board`) is the build; a fixture replaces it.
 set -uo pipefail
 
+# shellcheck source=scripts/lib-declared-bundles.sh
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib-declared-bundles.sh"
+
 mode="${1:-}"
 case "$mode" in
   publish|pr|main|release) ;;
@@ -58,8 +62,7 @@ if [ ! -f "$BUILD" ]; then
   exit 2
 fi
 
-generated=$(grep -aoE "shipped[A-Za-z]* = path\.join\([^)]*'[^']*'\)" "$BUILD" \
-  | sed -E "s|.*'\.\./\.\./([^']*)'.*|\1|" | sort -u)
+generated=$(read_shipped_bundles . : worktree | sed 's|^|skills/plot/scripts/|')
 if [ -z "$generated" ]; then
   echo "::error::no shipped bundles found in $BUILD; the derivation is blind."
   exit 2

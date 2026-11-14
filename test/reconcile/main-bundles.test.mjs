@@ -175,3 +175,29 @@ test('a build whose declarations cannot be found exits 2', () => {
     cleanup(root);
   }
 });
+
+test('a bundle declared over several lines is built, committed and pushed', () => {
+  // `shippedRestartStoppedCommand` wraps its `path.join(` over several lines
+  // in build.mjs. A one-line grep never saw that bundle, so publish never
+  // staged it.
+  const { root, remote, work } = fixture();
+  const wrapped = 'skills/plot/scripts/board/plot-wrapped-command.mjs';
+  try {
+    const buildFile = path.join(work, 'packages/board/build.mjs');
+    writeFileSync(
+      buildFile,
+      `${readFileSync(buildFile, 'utf8')}const shippedWrapped = path.join(\n  here,\n  '../../${wrapped}',\n);\n`,
+    );
+    writeFileSync(path.join(work, wrapped), 'v1\n');
+    git(work, 'add', '-A');
+    git(work, 'commit', '-q', '-m', 'declare a wrapped bundle');
+    git(work, 'push', '-q', 'origin', 'HEAD:refs/heads/main');
+
+    const r = run('publish', work, `printf 'v2\\n' > ${wrapped}`);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.equal(git(remote, 'log', '-1', '--format=%s', 'main'), 'plot: build the board artifact');
+    assert.equal(git(remote, 'diff', '--name-only', 'main~1', 'main'), wrapped);
+  } finally {
+    cleanup(root);
+  }
+});
