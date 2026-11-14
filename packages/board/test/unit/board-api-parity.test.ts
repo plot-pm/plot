@@ -138,7 +138,7 @@ const parityRepo = (): string => {
   ));
   write(repo, 'docs/plans/2026-10-09-broken.md', 'not a plan at all\n');
   write(repo, 'docs/sprints/active/2026-W45-the-sprint.md', '# Sprint: The sprint\n\n## Status\n\n- **State:** Active\n\n### Must Have\n\n- [ ] [approved-one]\n- [x] a bare item\n');
-  write(repo, 'docs/stories/the-story/STORY-the-story.md', '---\ntitle: The story\nstatus: active\nissue: "#7"\n---\n\n# The story\n');
+  write(repo, 'docs/stories/the-story/STORY-the-story.md', '---\ntitle: The story\nstatus: active\nissue: "#7"\n---\n\n# The story\n\n## Plans\n\n| Plan | State |\n|------|-------|\n| approved-one | Approved |\n| not-yet-written | Draft |\n');
   write(repo, 'docs/stories/the-story/DESIGN-the-story.md', '# Design\n');
   write(repo, 'docs/stories/archived/old/STORY-old.md', '---\ntitle: Old\nstatus: done\n---\n');
   git(repo, 'add', '-A');
@@ -266,6 +266,18 @@ describe('/api/board renders the same board from the snapshot as from its own re
     expect(cards.find((c) => c.slug === 'local-only')?.notPushed).toBe(true);
     expect((served.stories as { slug: string; designDocs: string[] }[]).map((s) => [s.slug, s.designDocs])).toEqual([['the-story', []]]);
     expect((served.archivedStories as { slug: string }[]).map((s) => s.slug)).toEqual(['old']);
+  }, 120_000);
+
+  it('counts the plans a story\'s plan table lists that have no plan file, as the board that reads the files does', async () => {
+    const repoRoot = parityRepo();
+    const scriptsDir = scriptsWithSilentHost();
+    const opts = optsFor(repoRoot, scriptsDir);
+    const snapshot = await servedSnapshotOf(repoRoot, scriptsDir);
+    const { own, served } = await bothPaths(opts, snapshot);
+    const workOf = (payload: Record<string, unknown>): unknown =>
+      (payload.stories as { slug: string; facts?: { progress: { work: unknown } } }[]).find((s) => s.slug === 'the-story')?.facts?.progress.work;
+    expect(workOf(own)).toMatchObject({ unit: 'plans', total: 2 });
+    expect(workOf(served)).toEqual(workOf(own));
   }, 120_000);
 
   it('with issues served from the index: the ticket lane reads the snapshot and starts nothing', async () => {

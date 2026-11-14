@@ -17,6 +17,7 @@ const STATES: Readonly<Record<string, readonly string[]>> = {
   open: ['open'],
   merged: ['merged'],
   all: ['open', 'merged', 'declined'],
+  settled: ['merged', 'declined'],
 };
 
 /**

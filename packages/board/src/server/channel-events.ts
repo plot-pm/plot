@@ -20,8 +20,11 @@ export const RECONNECT_START_MS = 2_000;
 export const RECONNECT_CAP_MS = 30_000;
 
 export interface EventHubOptions {
-  /** The channel's socket path. */
-  address: string;
+  /**
+   * The channel's socket path, or `null` where no path may be connected to:
+   * the hub then subscribes to nothing and every stream stays silent.
+   */
+  address: string | null;
   /** Records a transition (connected, lost); called once per transition, not per attempt. */
   log?: (line: string) => void;
   /** Milliseconds clock; defaults to `Date.now`. */
@@ -63,6 +66,13 @@ export interface EventHub {
   /** Stop the subscription and end every stream. */
   close(): void;
 }
+
+/** The snapshot reader of a hub with no socket path: it holds nothing and reads `absent`. */
+const absentReader: Pick<ReturnType<typeof subscribeSnapshot>, 'held' | 'link' | 'close'> = {
+  held: () => undefined,
+  link: () => ({ state: 'absent' }),
+  close: () => undefined,
+};
 
 /**
  * Subscribe once and serve every attached response from that subscription.
@@ -145,12 +155,13 @@ export const startEventHub = (options: EventHubOptions): EventHub => {
     trailing.unref?.();
   };
 
+  const address = options.address;
   const connect = (): void => {
     timer = undefined;
-    if (stopped) return;
+    if (stopped || address === null) return;
     try {
       subscription = subscribe(
-        { address: options.address, subscriber: 'board', purpose: { kind: 'everything' } },
+        { address, subscriber: 'board', purpose: { kind: 'everything' } },
         onMessage,
         (reason) => {
           subscription = undefined;
@@ -179,8 +190,8 @@ export const startEventHub = (options: EventHubOptions): EventHub => {
   let reported = '';
   // The copy the page last heard about, as `epoch:generation`.
   let announced = '';
-  const reader = subscribeSnapshot(
-    options.address,
+  const reader = address === null ? absentReader : subscribeSnapshot(
+    address,
     (next, held) => {
       if (next.state !== 'mismatch') {
         reported = '';

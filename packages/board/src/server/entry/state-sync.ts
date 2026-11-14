@@ -11,6 +11,7 @@ import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { StateSyncRecord } from '@plot-pm/domain/ports/state-sync-record';
 import type { Trees } from '@plot-pm/domain/ports/trees';
 import type { StateWriteTarget } from '@plot-pm/domain/rules/write-target';
+import { NO_STATE_BRANCH } from '@plot-pm/domain/rules/write-target';
 import type { SyncCaller } from '@plot-pm/domain/rules/state-sync';
 import { fleetLiveAt, forwardSyncAt, syncPrAt, type StateSyncSource } from '@plot-pm/domain/workflows/state-sync';
 import { realpathSync } from 'node:fs';
@@ -50,16 +51,13 @@ import { pushUnderLock, Refused, stateTargetOf, type LadderContext, type Printer
 
 const USAGE = 'usage: plot-state-sync.mjs --forward | --pr [--caller fleetd|command]';
 
-/** The exit code both modes answer where no `State branch` key is declared. */
-export const NO_STATE_BRANCH = 4;
-
 /** The ports one run reaches the world through. */
 export interface StateSyncDeps {
   readonly repoRoot: string;
   readonly ctx: LadderContext;
   readonly trees: Trees;
   readonly refs: Refs;
-  readonly host: Pick<Host, 'prList' | 'prCreate' | 'prComment' | 'backend'>;
+  readonly host: Pick<Host, 'prListing' | 'prState' | 'prCreate' | 'prComment' | 'backend'>;
   readonly record: StateSyncRecord;
   readonly lock: Pick<ReaderLock, 'heartbeats'>;
   readonly now: () => number;

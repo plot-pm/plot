@@ -317,7 +317,7 @@ export const jiraAnswer = (jiraDir: string, path: string, authorization: string)
 };
 
 /** One request the stub API server answered. */
-export type StubApiRequest = { method: string; path: string; authorization: string; body: string };
+export type StubApiRequest = { method: string; path: string; query: string; authorization: string; body: string };
 
 /** The local HTTP server that answers the in-process GitHub client in the census sandbox. */
 export type StubApi = {
@@ -372,7 +372,8 @@ export const startStubApi = async (fixtures: string, token: string): Promise<Stu
       const method = req.method ?? 'GET';
       const path = (req.url ?? '/').split('?')[0] ?? '/';
       const authorization = String(req.headers.authorization ?? '');
-      seen.push({ method, path, authorization, body: Buffer.concat(chunks).toString('utf8') });
+      const query = (req.url ?? '').split('?').slice(1).join('?');
+      seen.push({ method, path, query, authorization, body: Buffer.concat(chunks).toString('utf8') });
       if (path.startsWith(`${BITBUCKET_ROUTE}/`)) return answerBitbucket(join(fixtures, '..', 'bb'), req.url ?? '', authorization, token, res);
       if (path.startsWith('/rest/api/')) {
         const jira = jiraAnswer(join(dirname(fixtures), 'jira'), path, authorization);

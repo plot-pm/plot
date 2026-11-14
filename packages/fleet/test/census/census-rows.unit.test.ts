@@ -46,9 +46,9 @@ afterEach(() => {
 });
 
 describe('the census rows', () => {
-  it('holds every row of the plan but the retired P1, D1 of the worker wrapper plan, S7 of the board API plan, P5 of the GitHub reads plan, P6 of the liveness token plan and P7, P8, P9 and S8 of the triggers plan and P11 of the connectors plan', () => {
-    expect(Object.keys(CENSUS_ROWS).filter((id) => id !== 'D1' && id !== 'S7' && id !== 'P5' && id !== 'P6' && id !== 'P7' && id !== 'P8' && id !== 'P9' && id !== 'P11' && id !== 'S8').sort()).toEqual([...planRows().keys()].sort());
-    expect(Object.keys(CENSUS_ROWS).sort()).toEqual(['D1', 'P11', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'P9', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8']);
+  it('holds every row of the plan but the retired P1, D1 of the worker wrapper plan, S7 of the board API plan, P5 of the GitHub reads plan, P6 of the liveness token plan and P7, P8, P9 and S8 of the triggers plan and P10 and P11 of the connectors plan', () => {
+    expect(Object.keys(CENSUS_ROWS).filter((id) => id !== 'D1' && id !== 'S7' && id !== 'P5' && id !== 'P6' && id !== 'P7' && id !== 'P8' && id !== 'P9' && id !== 'P10' && id !== 'P11' && id !== 'S8').sort()).toEqual([...planRows().keys()].sort());
+    expect(Object.keys(CENSUS_ROWS).sort()).toEqual(['D1', 'P10', 'P11', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'P9', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8']);
     expect(readFileSync(WRAPPER_PLAN, 'utf8')).toContain(`\`D1: ${CENSUS_ROWS.D1.claim}\``);
   });
 
@@ -81,6 +81,12 @@ describe('the census rows', () => {
     expect(readFileSync(TRIGGERS_PLAN, 'utf8').replace(/`/g, '')).toContain(`| P9 | ${CENSUS_ROWS.P9.claim} | zero | Quiet beats |`);
     expect(CENSUS_ROWS.P9).toMatchObject({ target: 'zero', greenBy: { plan: 'triggers-replace-the-tick', slice: 'Quiet beats' }, green: true });
     expect(rowTitle(CENSUS_ROWS.P9)).toMatch(/turned green by plan triggers-replace-the-tick, slice Quiet beats/);
+  });
+
+  it('holds P10 as the Bitbucket reads plan words it, a zero row turned green by its Bitbucket cutover slice', () => {
+    expect(readFileSync(CONNECTORS_PLAN, 'utf8').replace(/`/g, '')).toContain(`P10: ${CENSUS_ROWS.P10.claim}`);
+    expect(CENSUS_ROWS.P10).toMatchObject({ target: 'zero', greenBy: { plan: 'bitbucket-and-jira-read-in-process', slice: 'Bitbucket cutover' }, green: true });
+    expect(rowTitle(CENSUS_ROWS.P10)).toMatch(/turned green by plan bitbucket-and-jira-read-in-process, slice Bitbucket cutover/);
   });
 
   it('holds P11 as the connectors plan words it, a zero row turned green by its Jira cutover slice', () => {

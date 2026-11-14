@@ -39,6 +39,7 @@ import {
   deskFingerprint,
   readWatchLayout,
   startChannel,
+  bindableChannelAddress,
   fleetdStartFile,
   fleetdHeartbeatFile,
   writeProbeShell,
@@ -2510,21 +2511,22 @@ export const startNothingDoneReleases = async (
   }
 };
 
-/** The channel's socket, beside the other per-checkout state under `.plot/`. */
-export const CHANNEL_SOCKET = '.plot/fleet.sock';
-
 /**
- * Opens the channel on `.plot/fleet.sock`, or reports why it did not.
+ * Opens the channel on the checkout's socket path, or reports why it did not.
  *
+ * The path is `<repoRoot>/.plot/fleet.sock` where it fits a unix socket path,
+ * else a short path in a per-user directory (`rules/channel-address.ts`).
  * A start that rejects costs the channel and nothing else: the daemon warns
  * once and runs without it. `startChannel` rejects when a live process holds
  * the path, which it leaves to that process, and when the bind fails, such as
- * for a socket path past the platform's limit.
+ * for a socket path past the platform's limit. A per-user directory that is a
+ * symbolic link, another user's, or open to others refuses the start the same way.
  *
- * @param repoRoot - the checkout the socket lives in.
+ * @param repoRoot - the checkout the socket belongs to.
  * @param warn - where the failure is reported.
  * @param start - opens the channel; the real transport unless a test gives one.
  * @param snapshot - the daemon's snapshot, served to a `snapshot` subscriber; the channel refuses that purpose where absent.
+ * @param locate - names the socket path and makes its directory; `bindableChannelAddress` unless a test gives one.
  * @returns the running channel, or `null` where it could not be opened.
  */
 export const startFleetChannel = async (
@@ -2532,9 +2534,10 @@ export const startFleetChannel = async (
   warn: (s: string) => void,
   start: typeof startChannel = startChannel,
   snapshot?: () => RepoSnapshot,
+  locate: (root: string) => string = bindableChannelAddress,
 ): Promise<RunningChannel | null> => {
   try {
-    return await start({ address: join(repoRoot, CHANNEL_SOCKET), ...(snapshot === undefined ? {} : { snapshot }) });
+    return await start({ address: locate(repoRoot), ...(snapshot === undefined ? {} : { snapshot }) });
   } catch (err) {
     warn(
       `plot-fleetd: the channel could not start, running without it: ${err instanceof Error ? err.message : String(err)}\n`,
@@ -2853,7 +2856,7 @@ export const sweepTempIfDue = async (
 
 /**
  * Runs the supervisor: one tick under `--once`, otherwise the loop with its
- * scan clock and its channel on `<repoRoot>/.plot/fleet.sock`.
+ * scan clock and its channel on the checkout's socket path (`bindableChannelAddress`).
  *
  * @param argv - the command-line arguments.
  * @param here - the directory of the running bundle; the scripts resolve from it.

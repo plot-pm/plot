@@ -17,7 +17,8 @@ import {
   SYNC_PR_MARKER,
   aheadSinceTreeEqual,
   forwardSync,
-  isSyncPr,
+  isSyncHead,
+  standingConflictFiles,
   syncPrBody,
   syncPrDecision,
   syncPrTitle,
@@ -38,7 +39,7 @@ export interface StateSyncSource {
 
 /** The ports one sync read or act needs. */
 export interface StateSyncPorts {
-  readonly host: Pick<Host, 'prList' | 'prCreate' | 'prComment'>;
+  readonly host: Pick<Host, 'prListing' | 'prState' | 'prCreate' | 'prComment'>;
   readonly refs: Pick<Refs, 'commitSubjects' | 'firstParentCommits' | 'changedFiles' | 'showFile' | 'fileExistsSync' | 'resolve'>;
   /** The last refresh this machine posted; a refresh the host took is recorded here. */
   readonly record: Pick<StateSyncRecord, 'refreshed' | 'noteRefresh'>;
@@ -81,16 +82,42 @@ export const commitsAhead = async (
   return aheadSinceTreeEqual(line.value, [tree.value, ...landed.value.map((commit) => commit.tree)]);
 };
 
+/** How many open PRs {@link openSyncPr} asks the host for, by the state branch's head. */
+export const SYNC_PR_LIMIT = 100;
+
+const HEADS = 'refs/heads/';
+
 /**
  * Finds the open sync pull request.
  *
- * @returns its number; null where the host answered with none; `'unknown'`
- *   where the ask failed.
+ * Asks the host for the open PRs whose head is the state branch, then takes
+ * the first one whose base is the default branch. A row that names no base
+ * is read again through `prState`, which names it.
+ *
+ * @param host - the host port.
+ * @param source - the state target and the default branch.
+ * @returns its number; null where the host answered whole with none, or the
+ *   state ref is not a branch; `'unknown'` where the listing did not answer in
+ *   full, a base lookup failed, or the listing filled {@link SYNC_PR_LIMIT}
+ *   rows with no sync PR among them.
  */
-export const openSyncPr = async (host: Pick<Host, 'prList'>, source: StateSyncSource): Promise<number | null | 'unknown'> => {
-  const listed = await host.prList('open', 100);
-  if (!listed.ok) return 'unknown';
-  return listed.value.find((pr) => pr.state === 'OPEN' && isSyncPr(pr, source.target, source.defaultBranch))?.number ?? null;
+export const openSyncPr = async (host: Pick<Host, 'prListing' | 'prState'>, source: StateSyncSource): Promise<number | null | 'unknown'> => {
+  if (!source.target.isBranch) return null;
+  const head = source.target.pushRef.slice(HEADS.length);
+  const listed = await host.prListing({ state: 'open', branches: [head], limit: SYNC_PR_LIMIT });
+  if (listed.answer !== 'answered') return 'unknown';
+  for (const row of listed.rows) {
+    const number = row.number;
+    if (typeof number !== 'number' || row.state !== 'OPEN' || !isSyncHead(String(row.head), source.target)) continue;
+    let base = typeof row.base === 'string' ? row.base : '';
+    if (base === '') {
+      const looked = await host.prState(number);
+      if (!looked.ok) return 'unknown';
+      base = looked.value?.base ?? '';
+    }
+    if (base === source.defaultBranch) return number;
+  }
+  return listed.rows.length < SYNC_PR_LIMIT ? null : 'unknown';
 };
 
 const isDelivered = (text: string): boolean => statusStateOf(text).toLowerCase().startsWith('delivered');
@@ -204,6 +231,29 @@ export const forwardSyncAt = async (
   const defaultTip = def.ok && def.value !== '' ? def.value : 'unknown';
   const stateTip = state.ok && state.value !== '' ? state.value : 'unknown';
   return { decision: forwardSync({ behind, defaultTip, stateTip, lockHeld: world.lockHeld, refused: world.refused }), defaultTip, stateTip };
+};
+
+const tipAt = async (refs: Pick<Refs, 'resolve'>, ref: string): Promise<string> => {
+  const read = await refs.resolve(ref);
+  return read.ok && read.value !== '' ? read.value : 'unknown';
+};
+
+/**
+ * Reads the two current tips and answers the files of a recorded conflict that still stands.
+ *
+ * @param refs - the refs port; the tips are the fetched tracking refs.
+ * @param target - the state target.
+ * @param known - the recorded conflict; null for none.
+ * @returns the files from {@link standingConflictFiles}; empty where a tip could not be read.
+ */
+export const standingConflictAt = async (
+  refs: Pick<Refs, 'resolve'>,
+  target: StateWriteTarget,
+  known: ForwardRefusal | null,
+): Promise<readonly string[]> => {
+  if (known === null) return [];
+  const [defaultTip, stateTip] = await Promise.all([tipAt(refs, target.defaultRef), tipAt(refs, target.trackRef)]);
+  return standingConflictFiles(known, defaultTip, stateTip);
 };
 
 /**

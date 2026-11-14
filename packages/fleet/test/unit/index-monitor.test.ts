@@ -1,3 +1,4 @@
+import { existsSync, rmdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import type { DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
@@ -198,5 +199,44 @@ describe('startFleetChannel', () => {
       return {} as never;
     });
     expect(address).toBe('/repo/.plot/fleet.sock');
+  });
+
+  it('binds a short per-user path for a root whose checkout path passes the limit', async () => {
+    const root = `/${'r'.repeat(100)}`;
+    const dir = `/tmp/plot-${process.getuid?.() ?? 0}`;
+    const made = !existsSync(dir);
+    let address = '';
+    try {
+      await startFleetChannel(root, () => {}, async (o) => {
+        address = o.address;
+        return {} as never;
+      });
+    } finally {
+      if (made) rmdirSync(dir);
+    }
+    expect(address).toMatch(new RegExp(`^${dir}/[0-9a-f]{16}\\.sock$`));
+    expect(Buffer.byteLength(address)).toBeLessThanOrEqual(103);
+  });
+
+  it('warns and runs without the channel when the socket directory is refused', async () => {
+    const warnings: string[] = [];
+    let started = false;
+    const channel = await startFleetChannel(
+      `/${'r'.repeat(100)}`,
+      (s) => warnings.push(s),
+      async () => {
+        started = true;
+        return {} as never;
+      },
+      undefined,
+      () => {
+        throw new Error('refusing the channel directory /tmp/plot-501: uid 502 owns it, not uid 501');
+      },
+    );
+    expect(channel).toBeNull();
+    expect(started).toBe(false);
+    expect(warnings).toEqual([
+      'plot-fleetd: the channel could not start, running without it: refusing the channel directory /tmp/plot-501: uid 502 owns it, not uid 501\n',
+    ]);
   });
 });

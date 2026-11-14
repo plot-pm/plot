@@ -1,4 +1,4 @@
-import { scriptsFor, readConfigAsync, type BuildBoardOptions } from '../board.js';
+import { scriptsFor, readConfigAsync, configFor, type BuildBoardOptions } from '../board.js';
 import { realEstate } from '../estate.js';
 import { checkNamesOf, checksWaitMsOf } from '@plot-pm/domain/rules/default-branch';
 import { buildShell } from '@plot-pm/domain/adapters/build/build-resolve';
@@ -34,7 +34,10 @@ export const mergePortsFor = async (
   const remote = refsRemoteGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
   const trees = treesGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
   const refs = { ...estate.refs, remoteSha: remote.remoteSha };
-  const stateSync = await stateSyncGateFor((key, fallback) => readConfigAsync(opts, key, fallback), { refs, trees, repoRoot: opts.repoRoot });
+  const stateSync = await stateSyncGateFor(async (key, fallback) => {
+    const answer = await configFor(opts).config(key, fallback);
+    return answer.ok ? { ok: true, value: answer.value.trim() || fallback } : answer;
+  }, { refs, trees, repoRoot: opts.repoRoot });
   return {
     ...(stateSync ? { stateSync } : {}),
     host: estate.host,

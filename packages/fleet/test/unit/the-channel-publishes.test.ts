@@ -4,11 +4,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { clockManual } from '@plot-pm/domain/adapters/clock/clock-system';
 import { subscribeSnapshot } from '@plot-pm/domain/adapters/channel/channel-client';
+import { channelAddressFor } from '@plot-pm/domain/adapters/channel/channel-address';
 import { connect } from 'node:net';
 import { decode } from '@plot-pm/domain/entities/channel-message';
 import { SNAPSHOT_PROTOCOL } from '@plot-pm/domain/entities/subscription';
 
-import { CHANNEL_SOCKET, run, startFleetChannel } from '../../src/server/entry/registryd-main.js';
+import { run, startFleetChannel } from '../../src/server/entry/registryd-main.js';
 import { fleetDivisors } from '../../src/shared/fleet-clock.js';
 import { createSnapshotHolder } from '../../src/shared/snapshot-fill.js';
 import { buildSandbox, type Sandbox } from '../census/sandbox.js';
@@ -68,7 +69,7 @@ describe('fleetd publishes its snapshot on the channel', () => {
       { snapshot, clock, probeAppKeys: () => undefined },
     );
     await until(() => sleeps >= 1, 60_000);
-    const socket = connect(join(box.repo, CHANNEL_SOCKET));
+    const socket = connect(channelAddressFor(box.repo));
     let buffer = '';
     socket.setEncoding('utf8');
     socket.on('connect', () => socket.write(`${JSON.stringify({ subscriber: 'measure', purpose: { kind: 'snapshot', protocol: SNAPSHOT_PROTOCOL } })}\n`));
@@ -88,7 +89,7 @@ describe('fleetd publishes its snapshot on the channel', () => {
         }
       }
     });
-    const reader = subscribeSnapshot(join(box.repo, CHANNEL_SOCKET), () => undefined, { reconnectStartMs: 50 });
+    const reader = subscribeSnapshot(channelAddressFor(box.repo), () => undefined, { reconnectStartMs: 50 });
     await until(() => reader.link().state === 'current', 10_000);
     for (pass = 1; pass <= 3; pass += 1) {
       const target = sleeps + 1;

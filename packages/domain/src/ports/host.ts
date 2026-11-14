@@ -101,7 +101,7 @@ export interface HostRefusal {
 }
 
 /** A state a {@link PrListingQuery} asks the host for. */
-export type PrListingState = 'open' | 'all' | 'merged';
+export type PrListingState = 'open' | 'all' | 'merged' | 'settled';
 
 /** What one {@link Host.prListing} call asks the host for. */
 export interface PrListingQuery {

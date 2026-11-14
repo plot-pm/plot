@@ -1,10 +1,8 @@
 import { stateSyncDue, stateSyncStamp } from '@plot-pm/domain';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
+import { NO_STATE_BRANCH } from '@plot-pm/domain/rules/write-target';
 import { readRefSnapshot } from '@plot-pm/domain/workflows/plan-walk-cache';
-
-/** The exit code `plot-state-sync.mjs` answers where no `State branch` key is declared. */
-export const NO_STATE_BRANCH = 4;
 
 /** The wall-clock bound of one sync run, in ms. */
 const RUN_BOUND_MS = 120_000;

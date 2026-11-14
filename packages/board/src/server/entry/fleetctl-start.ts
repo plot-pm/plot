@@ -1,6 +1,7 @@
 import {
   agentDecision,
   reloadCommand,
+  reloadFailedReport,
   restartPlan,
   restartReport,
   startProbeRefusal,
@@ -22,6 +23,7 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * node plot-fleetctl-start.mjs reload <label> <platform> <unit>
  * ps axww -o pid=,ppid=,uid=,args= | node plot-fleetctl-start.mjs candidates <scan-script>
  * launchctl kickstart -k gui/501/com.plot-pm.fleetd
+ * node plot-fleetctl-start.mjs reload-failed <label> <exit-code> <reload-cmd> <read-cmd>
  * node plot-fleetctl-start.mjs restarted <label> <old-pid> <new-pid> <commit> <wait> <read-cmd>
  * ```
  *
@@ -53,6 +55,9 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * lines on stdout, with `<scan-script>` the fleet scan script's file name; it
  * exits 0. Both streams are read and written as latin1, so
  * a byte that is not valid UTF-8 reaches the shell as it was in the snapshot.
+ *
+ * `reload-failed` prints the reload's failure, naming its exit code and its
+ * command, on stderr and exits 1.
  *
  * `restarted` prints the report on stdout and exits 0 when a new pid differs
  * from the old one, and prints the failure on stderr and exits 1 otherwise.
@@ -102,7 +107,7 @@ const prStateOf = (json: string): string | undefined => {
 };
 
 /** The number of arguments each verb takes after the verb itself. */
-const ARITY: Readonly<Record<string, number>> = { probe: 6, restart: 6, agents: 11, reload: 3, candidates: 1, restarted: 6 };
+const ARITY: Readonly<Record<string, number>> = { probe: 6, restart: 6, agents: 11, reload: 3, candidates: 1, 'reload-failed': 4, restarted: 6 };
 
 /**
  * Answers one verb.
@@ -126,7 +131,7 @@ export const run = (
   const [verb, ...args] = argv;
   const arity = verb === undefined ? undefined : ARITY[verb];
   if (arity === undefined || args.length < arity) {
-    writeErr(`plot-fleetctl-start: expected one of probe, restart, agents, reload, candidates, restarted with its arguments, got '${argv.join(' ')}'\n`);
+    writeErr(`plot-fleetctl-start: expected one of probe, restart, agents, reload, candidates, reload-failed, restarted with its arguments, got '${argv.join(' ')}'\n`);
     return 2;
   }
   const a = (i: number): string => args[i] ?? '';
@@ -196,6 +201,9 @@ export const run = (
       write(`${words.join(' ')}\n`);
       return 0;
     }
+    case 'reload-failed':
+      writeErr(`${reloadFailedReport({ label: a(0), exitCode: a(1), command: a(2), readCmd: a(3) })}\n`);
+      return 1;
     default: {
       const report = restartReport({
         label: a(0),

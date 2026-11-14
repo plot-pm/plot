@@ -26,6 +26,8 @@ export type SandboxOptions = FixtureSize & {
   productRoot?: string;
   /** The directory the sandbox's root is made in; `tmpdir()` by default. A test that binds `.plot/fleet.sock` passes `SOCKET_TEMP_ROOT`. */
   tempRoot?: string;
+  /** The `CI` key of a Bitbucket fixture; the key is absent where this is. */
+  ci?: string;
 };
 
 /** One desk: a worktree on a slice branch, with a stub worker's pid in `.plot-worker.pid`. */
@@ -64,7 +66,7 @@ export const sliceBranches = (size: FixtureSize): string[] =>
 
 const PLAN_SLUG = '2026-01-01-census-fixture';
 
-const configFor = (host: CensusHost): string =>
+const configFor = (host: CensusHost, ci?: string): string =>
   [
     '# Census fixture',
     '',
@@ -78,7 +80,7 @@ const configFor = (host: CensusHost): string =>
     `- **Git host:** ${host}`,
     ...(host === 'github'
       ? ['- **CI:** github-actions', '- **Default branch checks:** CI']
-      : ['- **Tracker:** jira https://jira.census.invalid']),
+      : ['- **Tracker:** jira https://jira.census.invalid', ...(ci === undefined ? [] : [`- **CI:** ${ci}`, ...(ci === 'jenkins' ? ['- **Jenkins instance:** census'] : [])])]),
     '- **Auto-review:** false',
     '- **Auto-verify:** false',
     '- **Auto-design:** false',
@@ -269,7 +271,7 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
     git(repo, 'remote', 'add', 'origin', origin);
     const branches = sliceBranches(size);
     mkdirSync(join(repo, 'docs/plans/active'), { recursive: true });
-    writeFileSync(join(repo, 'CLAUDE.md'), configFor(size.host));
+    writeFileSync(join(repo, 'CLAUDE.md'), configFor(size.host, options.ci));
     writeFileSync(join(repo, '.gitignore'), '.plot/state/\n.plot/agents/\n.plot/fleet.sock\n.plot-worker*\n.worktrees/\n');
     writeFileSync(join(repo, `docs/plans/${PLAN_SLUG}.md`), planFor(branches));
     symlinkSync(`../${PLAN_SLUG}.md`, join(repo, `docs/plans/active/${PLAN_SLUG}.md`));
@@ -285,6 +287,17 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
       shas.set(branch, mainSha);
     }
     git(repo, 'fetch', '--quiet', 'origin');
+    // A BITBUCKET ORIGIN THE IN-PROCESS CLIENT CAN READ: `remoteSlug` accepts
+    // only a host URL, and a local path gives the client no slug, so every read
+    // would fall to the shell. The remote names the workspace and repository
+    // over ssh; `GIT_SSH_COMMAND` answers that transport from the local bare
+    // repository, so fetches reach no network; pushes keep the local path.
+    if (size.host === 'bitbucket') {
+      writeStub(bin, 'census-ssh', `#!/bin/sh\nfor last; do :; done\nexec "\${last%% *}" '${origin}'\n`);
+      env['GIT_SSH_COMMAND'] = join(bin, 'census-ssh');
+      git(repo, 'remote', 'set-url', '--push', 'origin', origin);
+      git(repo, 'remote', 'set-url', 'origin', 'ssh://git@bitbucket.org/census/fixture.git');
+    }
 
     const answer = (cli: 'gh' | 'bb', key: string, body: unknown): void => {
       writeFileSync(join(fixtures, cli, `${key}.json`), `${typeof body === 'string' ? body : JSON.stringify(body)}\n`);

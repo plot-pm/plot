@@ -3,6 +3,7 @@ import {
   agentDecision,
   reloadCommand,
   restartPlan,
+  reloadFailedReport,
   restartReport,
   startProbeRefusal,
   type AgentsPassDesk,
@@ -112,6 +113,14 @@ describe('reloadCommand', () => {
 
   it('names nothing without an init system', () => {
     expect(reloadCommand({ label: 'x', platform: 'none', unit: 'x', uid: 0 })).toBeUndefined();
+  });
+});
+
+describe('reloadFailedReport', () => {
+  it('names the reload command and its exit code, not a missing pid', () => {
+    expect(reloadFailedReport({ label: 'com.plot-pm.fleetd', exitCode: '113', command: 'launchctl kickstart -k gui/501/com.plot-pm.fleetd', readCmd: 'launchctl print gui/501/com.plot-pm.fleetd' })).toBe(
+      "plot-fleetctl: the reload of 'com.plot-pm.fleetd' failed with exit 113: launchctl kickstart -k gui/501/com.plot-pm.fleetd\n  Read it: launchctl print gui/501/com.plot-pm.fleetd",
+    );
   });
 });
 
