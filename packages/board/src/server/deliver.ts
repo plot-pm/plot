@@ -16,6 +16,8 @@ import { markBoardRun, readRunState, startBoardRun } from './board-run.js';
 import { recordActionReceipt } from './action-receipt.js';
 import { pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
+import { bodyBranch } from '@plot-pm/fleet/shared/dispatch-command';
+import { planSlug } from '@plot-pm/domain/rules/auto-dispatch';
 import { PlanMetaSchema } from '../contract/schema.js';
 import {
   IDEA_COMMAND_KEY,
@@ -113,6 +115,8 @@ export type DeliverRefusal =
   | 'no-deliver-command'
   /** The plan could not be found or its slices could not be read. */
   | 'plan-unreadable'
+  /** The request names a `branch` this clone holds no `origin/<branch>` ref for. */
+  | 'branch-not-on-origin'
   /**
    * The plan has an open (not merged, not deferred) branch, or no landed work at
    * all — so it is not deliverable. #350 kept this gate: `/plot-deliver` refuses
@@ -234,12 +238,25 @@ const phaseAtRef = async (
     .relative(fs.realpathSync(opts.repoRoot), fs.realpathSync(file))
     .split(path.sep)
     .join('/');
-  const blob = await refsFor(opts).showFile(readRef, relPath);
+  return phaseOfBlob(opts, readRef, relPath);
+};
+
+/**
+ * The plan's phase in the file `relPath` at `ref`, or `null` when it cannot be
+ * read there: a missing ref or file, a git error, or a phase the parser rejects.
+ *
+ * @param opts - where to read, and optionally what to read through.
+ * @param ref - the revision to read at.
+ * @param relPath - the plan file, relative to the repository root, `/`-separated.
+ * @returns the lowercased phase, or `null`.
+ */
+const phaseOfBlob = async (opts: BuildBoardOptions, ref: string, relPath: string): Promise<string | null> => {
+  const blob = await refsFor(opts).showFile(ref, relPath);
   if (!blob.ok || !blob.value) return null;
   let stageDir: string | null = null;
   try {
     stageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-deliver-phase-'));
-    const staged = path.join(stageDir, path.basename(file));
+    const staged = path.join(stageDir, path.posix.basename(relPath));
     fs.writeFileSync(staged, blob.value, 'utf8');
     const answer = scriptsFor(opts).planMetaSync([staged], { maxBuffer: 8 * 1024 * 1024 });
     if (!answer.ok) return null;
@@ -279,12 +296,16 @@ const phaseAtRef = async (
  *    delivery, so this waits for the host or the PR index to confirm it.
  *  - `deliverable` — Development phase, every non-deferred branch merged. The
  *    exact card `buildBoard` moves into Testing and marks `deliverable`.
+ *  - `branch-not-on-origin` — only with a `branch`: this clone holds no
+ *    `origin/<branch>` ref.
  *
  * Read through `plot-plan-meta.sh`, the one parser that owns the plan format,
  * and against the SAME pulse the board renders from (`pulseFor`) — never
  * inferred, so this route and the card it gates agree by construction. Its own
  * pulse read rather than one threaded in, so a caller need not hold the cache;
  * `pulseFor` is memoised, so the read is a lookup, not a scan.
+ *
+ * With a `branch`, see {@link deliverabilityOnBranch}.
  */
 export type Deliverability =
   | { verdict: 'not-found' }
@@ -292,9 +313,56 @@ export type Deliverability =
   | { verdict: 'not-merged' }
   | { verdict: 'scan-incomplete' }
   | { verdict: 'merge-unconfirmed' }
-  | { verdict: 'deliverable' };
+  | { verdict: 'branch-not-on-origin' }
+  | { verdict: 'deliverable'; file?: string };
 
-export async function deliverability(opts: BuildBoardOptions, slug: string): Promise<Deliverability> {
+/**
+ * The plan file whose slug is `slug` on `origin/<branch>`, relative to the
+ * repository root, or `null` where that tree holds none.
+ *
+ * @param opts - where to read, and optionally what to read through.
+ * @param slug - the plan slug.
+ * @param branch - the branch, without `origin/`.
+ * @returns the file, or `null`.
+ */
+const planOnBranch = async (opts: BuildBoardOptions, slug: string, branch: string): Promise<string | null> => {
+  const planDir = readConfig(opts, 'Plan directory', 'docs/plans/').replace(/\/+$/, '');
+  const listed = await refsFor(opts).listBlobs(`origin/${branch}`, planDir);
+  if (!listed.ok) return null;
+  const hit = listed.value.find(
+    (blob) => (blob.mode === '100644' || blob.mode === '100755') && path.posix.dirname(blob.path) === planDir && planSlug(blob.path) === slug,
+  );
+  return hit?.path ?? null;
+};
+
+/**
+ * Whether a plan that lives on `branch` is deliverable there.
+ *
+ * The plan file and its phase are read at `origin/<branch>`. The pulse reads
+ * plans on the default branch only, so it holds no reading of a plan that only
+ * a sprint branch carries, and this answers no merge measurement: the merge
+ * check is `plot-deliver.mjs --branch`'s own `branches-unmerged` refusal, which
+ * asks the host for every slice before anything is written.
+ *
+ * @param opts - where to read, and optionally what to read through.
+ * @param slug - the plan slug.
+ * @param branch - the branch the delivery is recorded on, without `origin/`.
+ * @returns `branch-not-on-origin`, `not-found`, `already-delivered`, or
+ *   `deliverable` with the plan file relative to the repository root.
+ */
+export const deliverabilityOnBranch = async (opts: BuildBoardOptions, slug: string, branch: string): Promise<Deliverability> => {
+  const held = await refsFor(opts).resolve(`refs/remotes/origin/${branch}`);
+  if (!held.ok || held.value.trim() === '') return { verdict: 'branch-not-on-origin' };
+  const file = await planOnBranch(opts, slug, branch);
+  if (file === null) return { verdict: 'not-found' };
+  const phase = await phaseOfBlob(opts, `origin/${branch}`, file);
+  if (phase === null) return { verdict: 'not-found' };
+  if (phase === 'delivered' || phase === 'released') return { verdict: 'already-delivered' };
+  return { verdict: 'deliverable', file };
+};
+
+export async function deliverability(opts: BuildBoardOptions, slug: string, branch?: string): Promise<Deliverability> {
+  if (branch !== undefined) return deliverabilityOnBranch(opts, slug, branch);
   const file = resolvePlanBySlug(opts, slug);
   if (!file) return { verdict: 'not-found' };
   let meta;
@@ -383,20 +451,36 @@ export async function deliverability(opts: BuildBoardOptions, slug: string): Pro
  *
  * The plan is passed by PATH so the agent opens the real file, and the slug is
  * passed to `/plot-deliver` as its `$ARGUMENTS` so it acts on this plan.
+ *
+ * With a `branch`, `planFile` is the `origin/<branch>:<file>` spelling
+ * `git show` reads, `$ARGUMENTS` carries `--branch <branch>`, and the prompt
+ * names the `plot-deliver.sh --branch` call that records the delivery there.
  */
-export function composeDeliverPrompt(input: { slug: string; planFile: string }): string {
-  const { slug, planFile } = input;
+export function composeDeliverPrompt(input: { slug: string; planFile: string; branch?: string }): string {
+  const { slug, planFile, branch } = input;
   const parts: string[] = [];
 
-  parts.push(
-    `/plot-deliver ${slug}`,
-    '',
-    `Read the plan at ${planFile}. The board has MEASURED this plan complete —`,
-    'every non-deferred branch has merged — and bumped its card into Testing. That',
-    'measurement is not the decision: delivering flips the phase and records it,',
-    'and this is a person asking you to make that decision now.',
-    '',
-  );
+  if (branch === undefined) {
+    parts.push(
+      `/plot-deliver ${slug}`,
+      '',
+      `Read the plan at ${planFile}. The board has MEASURED this plan complete —`,
+      'every non-deferred branch has merged — and bumped its card into Testing. That',
+      'measurement is not the decision: delivering flips the phase and records it,',
+      'and this is a person asking you to make that decision now.',
+      '',
+    );
+  } else {
+    parts.push(
+      `/plot-deliver --branch ${branch} ${slug}`,
+      '',
+      `The plan lives on ${branch}: read it with \`git show ${planFile}\`. Record the delivery`,
+      `there with \`../plot/scripts/plot-deliver.sh --branch ${branch} ${slug}\`, never on the`,
+      'default branch. The board holds no measurement of this plan; this is a person',
+      'asking you to make the delivery decision now.',
+      '',
+    );
+  }
 
   parts.push(
     '## What this must do',
@@ -461,8 +545,8 @@ export function deliverStatus(opts: BuildBoardOptions, slug: string): DeliverSta
 export interface DeliverDeps {
   /** The configured `Idea command`. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
-  /** The plan's deliverability, or a refusal reason. */
-  check?: (opts: BuildBoardOptions, slug: string) => Promise<Deliverability>;
+  /** The plan's deliverability, or a refusal reason; `branch` is the request's, where it names one. */
+  check?: (opts: BuildBoardOptions, slug: string, branch?: string) => Promise<Deliverability>;
 }
 
 /**
@@ -484,6 +568,13 @@ export interface DeliverDeps {
  * | `plan-unreadable` | a plan whose slices cannot be read cannot be delivered; guessing would spawn an agent against an unknown plan |
  * | `not-deliverable` | #350's gate: a plan with an open branch is not deliverable, and this must not weaken it |
  * | `already-delivered` | the decision was already made; re-making it is not what the button does |
+ * | malformed `branch` | the value reaches `plot-deliver.sh --branch`; a non-name or a flag is a caller bug |
+ * | `branch-not-on-origin` | a delivery recorded on a branch needs that branch on origin, as `plot-deliver.mjs --branch` requires |
+ *
+ * An optional `branch` names the integration branch the delivery is recorded
+ * on, as `plot-deliver.mjs --branch` takes it. The plan and its phase are then
+ * read at `origin/<branch>` ({@link deliverabilityOnBranch}), and the prompt
+ * hands the branch to `/plot-deliver`.
  */
 export async function handleDeliver(
   req: http.IncomingMessage,
@@ -527,6 +618,14 @@ export async function handleDeliver(
     json(400, { error: 'slug must be a plan slug' });
     return;
   }
+  // `BRANCH_RE` refuses an empty name and a leading `-`, the two names
+  // `plot-deliver.mjs --branch` refuses, and every name that is not a ref.
+  const named = bodyBranch(body);
+  if (named === null) {
+    json(400, { error: 'branch must be a branch name' });
+    return;
+  }
+  const { branch } = named;
 
   // ASKED BEFORE ANYTHING IS READ OR WRITTEN. A repo with no runner cannot act
   // on this click at all, and finding that out after resolving a plan would
@@ -547,7 +646,16 @@ export async function handleDeliver(
   // from — never inferred — because delivering a plan whose work is not done is
   // exactly the gate #350 kept, and offering it on such a plan would spawn an
   // agent to refuse. The four verdicts map to three refusals and the happy path.
-  const state = await readCheck(opts, slug);
+  const state = await readCheck(opts, slug, branch);
+  if (state.verdict === 'branch-not-on-origin') {
+    refuse(
+      409,
+      'branch-not-on-origin',
+      slug,
+      `branch \`${branch}\` does not exist on origin in this clone — nothing was written; check the name with \`git branch -r --list origin/${branch}\``,
+    );
+    return;
+  }
   if (state.verdict === 'not-found') {
     refuse(
       409,
@@ -600,7 +708,9 @@ export async function handleDeliver(
     return;
   }
 
-  const planFile = resolvePlanBySlug(opts, slug);
+  // With a branch, the file was read at `origin/<branch>` and is named the way
+  // `git show` reads it; there is no working-tree file to resolve.
+  const planFile = branch === undefined ? resolvePlanBySlug(opts, slug) : state.file === undefined ? null : `origin/${branch}:${state.file}`;
   // `readCheck` reported `deliverable`, so the plan resolved a moment ago; a null
   // here means it vanished between the two reads. Refuse rather than compose a
   // prompt that names no file.
@@ -614,7 +724,7 @@ export async function handleDeliver(
     return;
   }
 
-  const prompt = composeDeliverPrompt({ slug, planFile });
+  const prompt = composeDeliverPrompt(branch === undefined ? { slug, planFile } : { slug, planFile, branch });
 
   const promptPath = deliverPromptPath(opts.repoRoot, slug);
   try {
@@ -679,5 +789,5 @@ export async function handleDeliver(
     detached: { alsoState: [] },
   });
 
-  json(202, { ok: true, slug, prompt: promptPath, log });
+  json(202, { ok: true, slug, ...(branch === undefined ? {} : { branch }), prompt: promptPath, log });
 }

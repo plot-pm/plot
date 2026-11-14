@@ -40,6 +40,8 @@ registry model the claim belongs to the agent that takes the slice up,
 not to the step that prepares it. Without the flag, step 3 runs as
 before.
 
+**`--branch <name>`** names the integration branch the plan lives on, such as `sprint/<sprint>`. The board's Implement route adds it where only `origin/<name>` holds the plan file and `origin/<default branch>` does not (`originPlanHome`). With it, step 1 reads the plan from `origin/<name>` (`git fetch origin <name>`, then `git show origin/<name>:<plan file>`), and step 4 passes `--branch <name>` to `plot-brief-book.mjs`.
+
 ## Model Guidance
 
 | Steps | Min. Tier | Notes |
@@ -243,7 +245,7 @@ write into), then call:
 node ../plot/scripts/board/plot-brief-book.mjs [--branch <name>] <slug> <branch> <scratch-brief-file>
 ```
 
-**Pass `--branch <name>` when the plan lives on an integration branch.** A sprint plan merged into `sprint/<sprint>` is absent from `origin/<default branch>` until the sprint merges, and the call refuses `no plan in docs/plans/ names branch` there. With `--branch sprint/<sprint>`, the call cuts its worktree from `origin/sprint/<sprint>` and books on that branch. Read the plan's location from where its file exists: on `origin/<name>` and not on `origin/<default branch>`.
+**Pass `--branch <name>` when the plan lives on an integration branch.** A sprint plan merged into `sprint/<sprint>` is absent from `origin/<default branch>` until the sprint merges, and the call refuses `no plan in docs/plans/ names branch` there. With `--branch sprint/<sprint>`, the call cuts its worktree from `origin/sprint/<sprint>` and books on that branch. Where `$ARGUMENTS` carries `--branch <name>`, pass that name. Otherwise read the plan's location from where its file exists: on `origin/<name>` and not on `origin/<default branch>`.
 
 This books both the brief **and** step 5's `Started:` record in one call,
 in one disposable worktree cut from a freshly fetched `origin/<default
