@@ -1,3 +1,4 @@
+import type { PortResult } from '../port-result.js';
 import type { DefaultBranchReading, SettledReading } from '../entities/default-branch.js';
 import type { Pr } from '../entities/pr.js';
 import type { BuildPort } from '../ports/build.js';
@@ -507,7 +508,9 @@ export const mergeAt = async (
   const reviewed = review.ok && review.value.state === 'success';
   const reachesConversation = lookup.ok && lookup.value !== null && lookup.value.state === 'OPEN'
     && !lookup.value.draft && lookup.value.checks === 'green' && reviewed;
-  const conversation = reachesConversation ? await ports.host.prConversation(pr) : null;
+  const conversation: PortResult<PrConversationReading> = reachesConversation
+    ? await ports.host.prConversation(pr)
+    : { ok: false, why: 'unaskable' };
   // Read last, so the red commit's runs are asked immediately before the merge.
   const repair = settledReading !== null && settledReading.settled?.state === 'red'
     ? await readRepair(ports, settledReading.branch, settledReading.settled, pr)
@@ -527,7 +530,7 @@ export const mergeAt = async (
       defaultBranchTip: tipSha,
       review: review.ok ? review.value : 'unaskable',
       reviewWriter: writer.ok ? writer.value : 'unaskable',
-      conversation: conversation !== null && conversation.ok ? conversation.value : 'unaskable',
+      conversation: conversation.ok ? conversation.value : 'unaskable',
       ...(repair ? { repair } : {}),
     },
     {
@@ -546,8 +549,8 @@ export const mergeAt = async (
       return { merged: false, reason: outcome.reason, detail: outcome.detail };
     }
     // The record fleetd keeps compares against the newest time the read saw.
-    const at = conversation !== null && conversation.ok ? humanCommentOpen(conversation.value)?.conversationAt : undefined;
-    return { merged: false, reason: outcome.reason, detail: outcome.detail, ...(at === undefined ? {} : { conversationAt: at }) };
+    const open = conversation.ok ? humanCommentOpen(conversation.value) : null;
+    return { merged: false, reason: outcome.reason, detail: outcome.detail, ...(open === null ? {} : { conversationAt: open.conversationAt }) };
   }
   const write = outcome.writes[0];
   /* v8 ignore next 3 -- merge()'s one decide('merge', ...) call always writes kind: 'pr-merge' and pr.headSha, never undefined */

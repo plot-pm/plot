@@ -1,5 +1,6 @@
 import { scriptsFor, readConfigAsync, configFor, type BuildBoardOptions } from '../board.js';
 import { realEstate } from '../estate.js';
+import { hostReadsFor } from '@plot-pm/domain/adapters';
 import { checkNamesOf, checksWaitMsOf } from '@plot-pm/domain/rules/default-branch';
 import { buildShell } from '@plot-pm/domain/adapters/build/build-resolve';
 import { repairRecordFile } from '@plot-pm/domain/adapters/repair-record/repair-record-file';
@@ -31,6 +32,14 @@ export const mergePortsFor = async (
   caller: Caller = callerOf({ unattended: process.env.PLOT_UNATTENDED === '1' }),
 ): Promise<MergePorts> => {
   const estate = realEstate(opts);
+  // The conversation read is in-process only, so the host is the composed one:
+  // on the shell transport (no credential, or `PLOT_HOST_TRANSPORT=shell`) it
+  // is the shell host, and the merge refuses `human-comment-unread`.
+  const backend = await estate.host.backend();
+  const host = (await hostReadsFor(
+    { repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir },
+    { backend: backend.ok ? backend.value : null, ci: await readConfigAsync(opts, 'CI', '') },
+  )).host;
   const remote = refsRemoteGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
   const trees = treesGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
   const refs = { ...estate.refs, remoteSha: remote.remoteSha };
@@ -40,7 +49,7 @@ export const mergePortsFor = async (
   }, { refs, trees, repoRoot: opts.repoRoot });
   return {
     ...(stateSync ? { stateSync } : {}),
-    host: estate.host,
+    host,
     scripts: scriptsFor(opts),
     defaultBranch: estate.defaultBranch,
     refs,

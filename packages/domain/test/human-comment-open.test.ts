@@ -85,4 +85,21 @@ describe('humanCommentOpen', () => {
     const out = humanCommentOpen(convo(row({}), row({ login: 'jan', type: 'Bot', time: at(55), body: '<!-- plot-x -->' })));
     expect(out?.conversationAt).toBe('2026-11-09T14:55:00.000Z');
   });
+
+  it('words the detail inputs: a deleted account, a tie, and an unparseable newest time', () => {
+    const out = humanCommentOpen(convo(row({ login: '', time: 'x' }), row({ login: '', time: 'y', body: 'b' })));
+    expect(out).toMatchObject({ login: '', others: 1, conversationAt: '' });
+  });
+
+  it('sorts equal times by arrival order and an unparseable time before a parseable one', () => {
+    const first = row({ body: 'first' });
+    const second = row({ body: 'second' });
+    expect(humanCommentOpen(convo(first, second))?.firstLine).toBe('first');
+    expect(humanCommentOpen(convo(row({ time: at(10), body: 'dated' }), row({ time: 'x', body: 'undated' })))?.firstLine).toBe('undated');
+    expect(humanCommentOpen(convo(row({ time: 'x', body: 'undated' }), row({ time: at(10), body: 'dated' })))?.firstLine).toBe('undated');
+  });
+
+  it('opens a comment by login when the PR author is unknown', () => {
+    expect(humanCommentOpen({ prAuthor: '', rows: [row({ login: '' })] })).not.toBeNull();
+  });
 });

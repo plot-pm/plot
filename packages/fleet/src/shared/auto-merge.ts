@@ -19,6 +19,7 @@ import {
   repairRecordFile,
   type MergerAppReader,
 } from '@plot-pm/domain/adapters';
+import { hostForReads } from '@plot-pm/domain/adapters/host/process-host-reads';
 import { refsRemoteGit } from '@plot-pm/domain/adapters/refs/refs-remote-git';
 import { sprintScopeRef } from '@plot-pm/domain/adapters/sprint-scope-ref';
 import { liveReviewRuns } from '@plot-pm/domain/adapters/review-start/review-start-node';
@@ -26,7 +27,7 @@ import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { RunLogLine } from '@plot-pm/domain/ports/run-log';
 import type { RepairMergeReading } from '@plot-pm/domain/rules/repair-pr';
 import { readRepair, mergeAt } from '@plot-pm/domain/workflows/merge';
-import { hostOf, refsOf, runLogOf, scriptsOf, type ActOptions } from './action-log.js';
+import { refsOf, runLogOf, scriptsOf, type ActOptions } from './action-log.js';
 import { readAutoReview } from './auto-review.js';
 import { readConfig } from './config-reader.js';
 import { pidAlive } from './fleet-run.js';
@@ -283,8 +284,10 @@ export const runAutoMergePass = async (
   mergerApp: MergerAppReader = mergerAppHeld(),
   conversationHolds?: ConversationHolds,
 ): Promise<MergeTickResult | null> => {
-  const host = hostOf(opts);
   const context = { repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir };
+  // The conversation read is in-process only: the host this process composed
+  // at start answers it, and the shell host answers `unaskable`.
+  const host = opts.hostAdapter ?? hostForReads(context);
   const backend = await host.backend();
   if (!backend.ok) return null;
   const store = await prIndexFile({ cwd: opts.repoRoot }).read(backend.value);

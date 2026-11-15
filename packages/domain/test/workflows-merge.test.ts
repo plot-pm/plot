@@ -863,6 +863,17 @@ describe('merge — an unanswered human comment', () => {
     expect(refusalOf(readings({ conversation: 'unaskable' }))).toBe('human-comment-unread');
   });
 
+  it('names a deleted account, one other and several others', () => {
+    const gone = { ...ask, login: '' };
+    const detail = (rows: typeof ask[]) => {
+      const out = merge(readings({ conversation: { prAuthor: 'jan', rows } }), { pr: 42, sha: HEAD, ...CLOCK });
+      return out.outcome === 'refused' ? out.detail : '';
+    };
+    expect(detail([gone])).toContain('a deleted account');
+    expect(detail([gone, { ...gone, id: 3, time: '2026-11-09T14:40:00Z' }])).toContain(' and 1 other.');
+    expect(detail([gone, { ...gone, id: 3, time: '2026-11-09T14:40:00Z' }, { ...gone, id: 4, time: '2026-11-09T14:41:00Z' }])).toContain(' and 2 others.');
+  });
+
   it('reports a failing review before the question', () => {
     expect(refusalOf(readings({ review: review({ state: 'failure' }), conversation: { prAuthor: 'jan', rows: [ask] } }))).toBe('review-not-passed');
   });
@@ -875,18 +886,18 @@ describe('merge — an unanswered human comment', () => {
 describe('mergeAt — the conversation read', () => {
   const NOW = Date.parse('2026-10-11T12:00:00Z');
   const ask = { kind: 'issue', id: 1, login: 'max', type: 'User', time: '2026-11-09T14:32:00Z', body: 'why not CC-0?' };
-  const build = (conversation: unknown, over: { draft?: boolean; checks?: string; reviewState?: string } = {}) => {
+  const build = (conversation: unknown, over: { draft?: boolean; checks?: string; reviewState?: string; state?: string; noPr?: boolean; reviewFailed?: boolean } = {}) => {
     const calls: string[][] = [];
     const read: number[] = [];
     const p = {
       host: {
         backend: async () => ({ ok: true, value: 'github' }),
-        prState: async () => ({ ok: true, value: {
-          number: 7, repo: '', head: 'feature/x', base: 'main', state: 'OPEN', mergedAt: null, mergeCommit: '',
+        prState: async () => ({ ok: true, value: over.noPr ? null : {
+          number: 7, repo: '', head: 'feature/x', base: 'main', state: over.state ?? 'OPEN', mergedAt: null, mergeCommit: '',
           draft: over.draft ?? false, mergeable: 'mergeable', review: '', checks: over.checks ?? 'green', failingChecks: [],
           url: '', author: '', headSha: HEAD, checksSha: HEAD,
         } }),
-        prReview: async () => ({ ok: true, value: { sha: HEAD, state: over.reviewState ?? 'success', description: '', time: '', bypass: false } }),
+        prReview: async () => over.reviewFailed ? { ok: false, why: 'failed' } : ({ ok: true, value: { sha: HEAD, state: over.reviewState ?? 'success', description: '', time: '', bypass: false } }),
         reviewWriter: async () => ({ ok: true, value: '' }),
         prConversation: async (n: number) => { read.push(n); return conversation; },
       },
@@ -921,8 +932,8 @@ describe('mergeAt — the conversation read', () => {
     expect(calls).toEqual([['pr-merge', '7', '--match-head', HEAD]]);
   });
 
-  it('reads no conversation for a draft, a red PR or an unreviewed PR', async () => {
-    for (const over of [{ draft: true }, { checks: 'failing' }, { reviewState: 'pending' }]) {
+  it('reads no conversation for a draft, a red PR, an unreviewed PR or a merged PR, a missing PR or an unread review', async () => {
+    for (const over of [{ draft: true }, { checks: 'failing' }, { reviewState: 'pending' }, { state: 'MERGED' }, { noPr: true }, { reviewFailed: true }]) {
       const { p, read } = build({ ok: true, value: { prAuthor: 'jan', rows: [] } }, over);
       expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: false });
       expect(read).toEqual([]);

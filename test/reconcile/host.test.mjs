@@ -4,7 +4,8 @@
 // argument mapping + output normalization per backend, fully offline.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { createServer } from 'node:http';
 import { generateKeyPairSync } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, existsSync, rmSync, cpSync, readdirSync, symlinkSync } from 'node:fs';
@@ -3773,29 +3774,54 @@ test('host: pr-state bitbucket with --with-checks reads the same bound checks as
 
 // --- the merge controller asks pr-state for checks ---------------------------
 
-test('host: plot-ask merge on bitbucket under jenkins reads the bound green check and merges', () => {
+test('host: plot-ask merge on bitbucket under jenkins reads the bound green check and merges', async () => {
   // `mergeAt` refuses unless `checks` reads `green`, and `pr-state` reads
   // Bitbucket checks only under `--with-checks`. Without the flag from the
   // `Host.prState` adapter every Bitbucket + Jenkins merge refused
-  // `checks-not-green` (#2619).
-  const env = { ...process.env, PLOT_HOST: '', PLOT_BB_SKIP_CAP_CHECK: '1', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
-  delete env.JENKINS_INSTANCE;
-  delete env.PLOT_SCRIPTS_DIR;
-  const hostStubs = makeStubs({ bbJson: JSON.stringify(BB_SHORT_PR), bbReviewSha: BB_SHORT });
-  const jen = makeJenStub({
-    jobsJson: JEN_JOBS,
-    apiAnswers: jenkinsApiAnswersForBranches(['feature/red'], { body: jenkinsBuildsFor(JENKINS_FULL, 'SUCCESS') }),
+  // `checks-not-green` (#2619). The merge also reads the PR's conversation,
+  // which is in-process only: a credential and a stand-in API answer it, and
+  // the child runs async because the stand-in lives in this process.
+  const requests = [];
+  const server = createServer((req, res) => {
+    requests.push(req.url);
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(/\/comments/.test(req.url) ? '{"values":[]}' : '{"author":{"nickname":"jan"},"participants":[]}');
   });
-  env.PATH = `${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
-  const ask = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'board', 'plot-ask.mjs');
-  const res = spawnSync('node', [ask, 'merge', '5', BB_SHORT],
-    { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
-  assert.notEqual(res.stdout.trim(), '', res.stderr);
-  const out = JSON.parse(res.stdout.trim().split('\n').pop());
-  assert.equal(out.merged, true, `the bound check is green, so the merge goes through:\n${res.stdout}\n${res.stderr}`);
-  assert.equal(res.status, 0, res.stderr);
-  assert.deepEqual(argvOf(hostStubs.bbArgv).slice(0, 3), ['pr', 'merge', '5']);
-  assert.ok(apiCalls(jen.callsFile).length > 0, 'the merge path asked Jenkins for the head');
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const env = {
+      ...process.env, PLOT_HOST: '', PLOT_BB_SKIP_CAP_CHECK: '1', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok',
+      BB_EMAIL: 'a@example.test', BB_TOKEN: 'tok', BITBUCKET_API_BASE: `http://127.0.0.1:${server.address().port}`,
+    };
+    delete env.JENKINS_INSTANCE;
+    delete env.PLOT_SCRIPTS_DIR;
+    const hostStubs = makeStubs({ bbJson: JSON.stringify(BB_SHORT_PR), bbReviewSha: BB_SHORT });
+    const jen = makeJenStub({
+      jobsJson: JEN_JOBS,
+      apiAnswers: jenkinsApiAnswersForBranches(['feature/red'], { body: jenkinsBuildsFor(JENKINS_FULL, 'SUCCESS') }),
+    });
+    env.PATH = `${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+    const ask = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'board', 'plot-ask.mjs');
+    const cwd = makeJenkinsRepo({ gitHost: 'bitbucket' });
+    execFileSync('git', ['remote', 'add', 'origin', 'git@bitbucket.org:myws/myrepo.git'], { cwd });
+    const res = await new Promise((resolve) => {
+      const child = spawn('node', [ask, 'merge', '5', BB_SHORT], { cwd, env });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (d) => { stdout += d; });
+      child.stderr.on('data', (d) => { stderr += d; });
+      child.on('close', (status) => resolve({ status, stdout, stderr }));
+    });
+    assert.notEqual(res.stdout.trim(), '', res.stderr);
+    const out = JSON.parse(res.stdout.trim().split('\n').pop());
+    assert.equal(out.merged, true, `the bound check is green, so the merge goes through:\n${res.stdout}\n${res.stderr}`);
+    assert.equal(res.status, 0, res.stderr);
+    assert.deepEqual(argvOf(hostStubs.bbArgv).slice(0, 3), ['pr', 'merge', '5']);
+    assert.ok(apiCalls(jen.callsFile).length > 0, 'the merge path asked Jenkins for the head');
+    assert.ok(requests.some((u) => /\/comments/.test(u)), `the merge read the PR comments: ${JSON.stringify(requests)}`);
+  } finally {
+    server.close();
+  }
 });
 
 // --- the merge re-read never asks Jenkins, and head-moved still fires correctly ---
