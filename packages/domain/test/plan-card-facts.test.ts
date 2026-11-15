@@ -3,6 +3,7 @@ import { CardFactsSchema } from '../src/entities/card-facts.js';
 import { cardControls, type CardControlsReadings } from '../src/rules/card-controls.js';
 import {
   planCardFacts,
+  supersedeAction,
   withActionAvailability,
   type PlanCardFactsReadings,
 } from '../src/rules/plan-card-facts.js';
@@ -193,9 +194,12 @@ describe('planCardFacts: progress', () => {
   });
 });
 
+/** The Supersede secondary an Approved plan shows. */
+const SUPERSEDE = { action: 'supersede', enabled: true, reason: null } as const;
+
 describe('planCardFacts: next', () => {
   it('a ready plan with an eligible slice offers Start work as its primary', () => {
-    expect(facts().next).toEqual({ primary: { action: 'start-work', enabled: true, reason: null }, secondary: [] });
+    expect(facts().next).toEqual({ primary: { action: 'start-work', enabled: true, reason: null }, secondary: [SUPERSEDE] });
   });
 
   it('with no fleet scan yet, Start work is disabled with awaiting-fleet-scan', () => {
@@ -224,7 +228,7 @@ describe('planCardFacts: next', () => {
 
   it('an in-progress plan keeps Start work, as a secondary, while a slice is eligible', () => {
     const f = facts({ status: 'in-progress', controls: controls({ status: 'in-progress', started: true }) });
-    expect(f.next).toEqual({ primary: null, secondary: [{ action: 'start-work', enabled: true, reason: null }] });
+    expect(f.next).toEqual({ primary: null, secondary: [{ action: 'start-work', enabled: true, reason: null }, SUPERSEDE] });
   });
 
   it('an in-progress plan with nothing eligible omits the disabled secondary', () => {
@@ -232,7 +236,7 @@ describe('planCardFacts: next', () => {
       status: 'in-progress', controls: controls({ status: 'in-progress', started: true }),
       slices: { total: 2, complete: 0, eligible: 0, waitsOn: [] },
     });
-    expect(f.next).toEqual({ primary: null, secondary: [] });
+    expect(f.next).toEqual({ primary: null, secondary: [SUPERSEDE] });
   });
 
   it('an in-progress plan with no fleet scan yet keeps Start work as a disabled secondary', () => {
@@ -242,7 +246,7 @@ describe('planCardFacts: next', () => {
     });
     expect(f.next).toEqual({
       primary: null,
-      secondary: [{ action: 'start-work', enabled: false, reason: { kind: 'awaiting-fleet-scan' } }],
+      secondary: [{ action: 'start-work', enabled: false, reason: { kind: 'awaiting-fleet-scan' } }, SUPERSEDE],
     });
   });
 
@@ -250,7 +254,7 @@ describe('planCardFacts: next', () => {
     const f = facts({ status: 'draft', controls: controls({ state: 'draft', status: 'draft' }) });
     expect(f.next).toEqual({
       primary: { action: 'approve', enabled: true, reason: null },
-      secondary: [{ action: 'interrogate', enabled: true, reason: null }],
+      secondary: [{ action: 'interrogate', enabled: true, reason: null }, SUPERSEDE],
     });
   });
 
@@ -270,7 +274,7 @@ describe('planCardFacts: next', () => {
       enabled: false,
       reason: { kind: 'awaits-spike', spike: { kind: 'slice', plan: 'x', branch: 'feature/spike', pr: 7 } },
     });
-    expect(f.next.secondary).toEqual([{ action: 'interrogate', enabled: true, reason: null }]);
+    expect(f.next.secondary).toEqual([{ action: 'interrogate', enabled: true, reason: null }, SUPERSEDE]);
   });
 
   it('a merged spike with no Spike approved: record offers Approve spike, and Confirm slices as a secondary', () => {
@@ -289,7 +293,7 @@ describe('planCardFacts: next', () => {
 
   it('a deliverable plan offers Deliver as its primary', () => {
     const f = facts({ status: 'deliverable', controls: controls({ status: 'deliverable' }), deliverable: true });
-    expect(f.next).toEqual({ primary: { action: 'deliver', enabled: true, reason: null }, secondary: [] });
+    expect(f.next).toEqual({ primary: { action: 'deliver', enabled: true, reason: null }, secondary: [SUPERSEDE] });
   });
 
   it('reason is non-null exactly when enabled is false, across every projection here', () => {
@@ -316,6 +320,7 @@ describe('withActionAvailability', () => {
     const draft = facts({ status: 'draft', controls: controls({ state: 'draft', status: 'draft' }) });
     expect(withActionAvailability(draft, { interrogate: false }).next.secondary).toEqual([
       { action: 'interrogate', enabled: false, reason: { kind: 'action-unavailable', action: 'interrogate' } },
+      SUPERSEDE,
     ]);
   });
 
@@ -324,9 +329,9 @@ describe('withActionAvailability', () => {
       status: 'in-progress', controls: controls({ status: 'in-progress', started: true }),
       slices: { total: 2, complete: 0, eligible: 0, waitsOn: [] },
     });
-    expect(blocked.next.secondary).toEqual([]);
-    expect(withActionAvailability(blocked, { 'start-work': false }).next.secondary).toEqual([]);
-    expect(withActionAvailability(blocked, { 'start-work': true }).next.secondary).toEqual([]);
+    expect(blocked.next.secondary).toEqual([SUPERSEDE]);
+    expect(withActionAvailability(blocked, { 'start-work': false }).next.secondary).toEqual([SUPERSEDE]);
+    expect(withActionAvailability(blocked, { 'start-work': true }).next.secondary).toEqual([SUPERSEDE]);
   });
 
   it('keeps an already-disabled primary\'s own reason', () => {
@@ -355,5 +360,32 @@ describe('planCardFacts: the remaining arms', () => {
   it('a spike line on a plan not under review carries no rounds', () => {
     const f = facts({ rounds: 3, controls: { ...controls(), roundsBadge: false, spikeState: 'spike-merged' } });
     expect(f.progress.design).toEqual({ rounds: null, spike: 'spike-merged' });
+  });
+});
+
+describe('supersedeAction', () => {
+  it('is enabled for a Draft, Design or Approved plan', () => {
+    for (const state of ['draft', 'Design', 'approved']) expect(supersedeAction(state)).toEqual(SUPERSEDE);
+  });
+
+  it('is disabled with the plan-state reason for every other state, naming it', () => {
+    for (const state of ['delivered', 'released', 'rejected', 'superseded'] as const) {
+      expect(supersedeAction(state)).toEqual({ action: 'supersede', enabled: false, reason: { kind: 'plan-state', state } });
+    }
+  });
+
+  it('is disabled with a null state where the state is unreadable', () => {
+    expect(supersedeAction('')).toEqual({ action: 'supersede', enabled: false, reason: { kind: 'plan-state', state: null } });
+  });
+
+  it('stays on a Delivered plan card, disabled', () => {
+    const f = facts({ state: 'delivered', status: 'delivered', controls: controls({ state: 'delivered', status: 'delivered' }) });
+    expect(f.next.secondary).toContainEqual({ action: 'supersede', enabled: false, reason: { kind: 'plan-state', state: 'delivered' } });
+  });
+
+  it('is marked action-unavailable where the board will not run it', () => {
+    expect(withActionAvailability(facts(), { supersede: false }).next.secondary).toContainEqual({
+      action: 'supersede', enabled: false, reason: { kind: 'action-unavailable', action: 'supersede' },
+    });
   });
 });

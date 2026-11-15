@@ -87,7 +87,7 @@ export type Known<T> = { value: T } | { unknown: UnknownReach };
 export const ActionKindSchema = z.enum([
   'create-plan', 'create-story', 'add-plan',
   'needs-design', 'interrogate', 'approve', 'approve-spike', 'confirm-slices',
-  'start-work', 'deliver',
+  'start-work', 'deliver', 'supersede',
 ]);
 export type ActionKind = z.infer<typeof ActionKindSchema>;
 
@@ -120,6 +120,8 @@ export const ReasonSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('awaiting-fleet-scan') }),
   z.object({ kind: z.literal('nothing-eligible'), waitsOn: z.array(RefSchema) }),
   z.object({ kind: z.literal('awaits-spike'), spike: RefSchema }),
+  /** The plan's state does not allow the action; `state` is `null` where the state could not be read. */
+  z.object({ kind: z.literal('plan-state'), state: PlanStateSchema.nullable() }),
   z.object({ kind: z.literal('linked-from-many-stories'), stories: z.array(RefSchema) }),
   z.object({
     kind: z.literal('lineage-unknown'), relation: LineageRelationSchema, reach: UnknownReachSchema,

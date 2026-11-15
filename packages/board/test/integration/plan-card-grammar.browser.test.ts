@@ -153,7 +153,7 @@ describe('a plan card renders the card grammar', () => {
     try {
       await page.locator('#plan-grammar [data-card-title]').focus();
       const focused: string[] = [];
-      for (let i = 0; i < 4; i += 1) {
+      for (let i = 0; i < 5; i += 1) {
         focused.push(await page.evaluate(() => {
           const el = document.activeElement as HTMLElement | null;
           if (!el) return '';
@@ -163,7 +163,7 @@ describe('a plan card renders the card grammar', () => {
         }));
         await page.keyboard.press('Tab');
       }
-      expect(focused).toEqual(['title', 'action:primary:Approve', 'action:secondary:Interrogate', 'expander:prs']);
+      expect(focused).toEqual(['title', 'action:primary:Approve', 'action:secondary:Interrogate', 'action:secondary:Supersede', 'expander:prs']);
     } finally {
       await page.close();
     }

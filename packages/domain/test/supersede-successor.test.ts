@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { successorPreconditions } from '../src/rules/supersede-successor.js';
+import { successorCandidates, successorEntry, successorPreconditions, supersessionRefusalReason } from '../src/rules/supersede-successor.js';
 import { supersede, type TransitionPlan } from '../src/transitions/plan.js';
 
 const plan: TransitionPlan = {
@@ -43,5 +43,39 @@ describe('successorPreconditions', () => {
       outcome: 'refused',
       reason: 'successor-missing',
     });
+  });
+});
+
+describe('supersessionRefusalReason', () => {
+  it('names the unmet successor reading', () => {
+    const readings = successorPreconditions({ slug: 'old', by: 'nowhere', successorFile: '' });
+    const decided = supersede(plan, { on: '2026-11-15', by: 'nowhere', preconditions: readings });
+    expect(decided.outcome === 'refused' && supersessionRefusalReason(decided, readings)).toBe('successor-not-found');
+  });
+
+  it('keeps the domain reason for a state refusal', () => {
+    const readings = successorPreconditions({ slug: 'old', by: 'new', successorFile: 'docs/plans/new.md' });
+    const decided = supersede({ ...plan, phase: 'delivered' }, { on: '2026-11-15', by: 'new', preconditions: readings });
+    expect(decided.outcome === 'refused' && supersessionRefusalReason(decided, readings)).toBe('state-terminal');
+  });
+});
+
+describe('successorCandidates', () => {
+  it('offers every other plan once, sorted', () => {
+    expect(successorCandidates('old', ['zeta', 'old', 'alpha', 'zeta'])).toEqual(['alpha', 'zeta']);
+  });
+});
+
+describe('successorEntry', () => {
+  it('is ready for another slug, trimmed', () => {
+    expect(successorEntry('old', ' new ')).toEqual({ by: 'new', ready: true, reason: null });
+  });
+
+  it('is not ready while empty, naming the missing successor', () => {
+    expect(successorEntry('old', '  ')).toEqual({ by: '', ready: false, reason: 'name the successor plan first' });
+  });
+
+  it('is not ready for the plan itself', () => {
+    expect(successorEntry('old', 'old')).toEqual({ by: 'old', ready: false, reason: 'a plan cannot supersede itself' });
   });
 });
