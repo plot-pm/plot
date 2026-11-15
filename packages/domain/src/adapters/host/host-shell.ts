@@ -5,7 +5,7 @@ import {
   type LimitReading,
 } from '../../entities/limit.js';
 import type { Checks, Mergeability, Pr, PrState, ReviewVerdict } from '../../entities/pr.js';
-import { answered, failed, type PortResult } from '../../port-result.js';
+import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import type {
   CommitStatusWrite,
   Host,
@@ -653,16 +653,10 @@ export const hostShell = (context: ShellContext, answers: FixedAnswers = process
       return resultOf(run, asText);
     },
 
-    // `none` IS THE SCRIPT'S WORD FOR AN ANSWERED EMPTY LIST, and empty stdout
-    // is no answer: a 403 exits 3 and `record` carries it as `failed`, while a
-    // script that exited 0 and printed nothing is refused here rather than read
-    // as a branch holding no restriction.
-    branchRestrictions: async (branch: string): Promise<PortResult<readonly string[]>> => {
-      const read = await ask(['default-branch-protection', branch], asLines);
-      if (!read.ok) return read;
-      if (read.value.length === 0) return failed();
-      return answered(read.value.filter((word) => word !== 'none'));
-    },
+    // THE SHELL HAS NO PROTECTION OP. The read is in-process (`host-protection.ts`),
+    // and a host composed without it cannot be asked: `unaskable`, never an
+    // empty list.
+    branchRestrictions: async (): Promise<PortResult<readonly string[]>> => unaskable(),
 
     lastRefusal: (): HostRefusal | null => refusal,
   };

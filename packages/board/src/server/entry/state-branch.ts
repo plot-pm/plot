@@ -1,4 +1,4 @@
-import { hostShell, type ShellContext } from '@plot-pm/domain/adapters';
+import { hostReadsFor, hostShell, scriptsShell, type ShellContext } from '@plot-pm/domain/adapters';
 import type { Host } from '@plot-pm/domain/ports/host';
 import { proposeStateBranch } from '@plot-pm/domain/rules/state-branch';
 import { realpathSync } from 'node:fs';
@@ -60,5 +60,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
     repoRoot: process.cwd(),
     scriptDir: process.env.PLOT_SCRIPTS_DIR ?? path.resolve(here, '..'),
   };
-  void endEntry(await run(process.argv.slice(2), hostShell(context)));
+  // THE PROTECTION READ IS IN-PROCESS: the shell has no op for it, so only the
+  // composed reads answer it, and a repository that keeps the shell reads
+  // `unaskable`, which the rule says as `unverified`.
+  const shell = hostShell(context);
+  const backend = await shell.backend();
+  const ci = await scriptsShell(context).config('CI', '');
+  const host = backend.ok ? (await hostReadsFor(context, { backend: backend.value, ci: ci.ok ? ci.value : '' }, { shell })).host : shell;
+  void endEntry(await run(process.argv.slice(2), host));
 }
