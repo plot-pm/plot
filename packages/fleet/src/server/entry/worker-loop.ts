@@ -1368,7 +1368,8 @@ export interface LoopDeps {
   /**
    * The checkout the prompt file and the charters resolve under: for a desk,
    * the main checkout {@link promptRootOf} answers, so a desk on an older
-   * branch runs the main checkout's prompt.
+   * branch runs the main checkout's prompt. Where the prompt file is absent
+   * there, the `command` runner runs the desk's own copy.
    */
   readonly repoRoot: string;
   /** The desk, used where the manifest names none. */
@@ -1630,15 +1631,25 @@ const runPrompt = async (
   resume: { readonly resumeId: string; readonly text: string; readonly continuation: boolean } | null,
 ): Promise<RunOutcome> => {
   const sdk = deps.runner === 'sdk' ? deps.sdk : undefined;
-  const resolved = (deps.resolvePrompt ?? promptAnswer)(deps.repoRoot, deps.agent).split('\t');
-  const [verb, named, why] = resolved;
-  const file = verb === 'refused' || !named ? '' : join(deps.repoRoot, named);
+  const resolveUnder = (root: string) => {
+    const [verb, named, why] = (deps.resolvePrompt ?? promptAnswer)(root, deps.agent).split('\t');
+    return { verb, why, file: verb === 'refused' || !named ? '' : join(root, named) };
+  };
+  const exists = deps.promptExists ?? existsSync;
+  const main = resolveUnder(deps.repoRoot);
+  // THE DESK'S OWN PROMPT RUNS WHERE THE MAIN CHECKOUT HOLDS NONE: a prompt
+  // `plot-install-prompt.sh` wrote inside the desk is the only one there is.
+  const desk =
+    sdk === undefined && main.verb !== 'refused' && main.file !== '' && !exists(main.file) && worktree !== deps.repoRoot
+      ? resolveUnder(worktree)
+      : undefined;
+  const { verb, why, file } = desk !== undefined && desk.verb !== 'refused' && desk.file !== '' && exists(desk.file) ? desk : main;
   // A REFUSED CHARTER REFUSES ON EITHER RUNNER; only the `command` runner
   // needs the prompt file the resolution names.
   const refusal =
     verb === 'refused' || (file === '' && sdk === undefined)
       ? (why ?? 'no prompt')
-      : sdk === undefined && !(deps.promptExists ?? existsSync)(file)
+      : sdk === undefined && !exists(file)
         ? `the prompt file ${file} is absent; run plot-install-prompt.sh to write .plot/worker-prompt.sh`
         : undefined;
   if (refusal !== undefined) {

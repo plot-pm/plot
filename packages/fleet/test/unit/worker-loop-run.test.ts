@@ -415,6 +415,23 @@ describe('runWorkerLoop — a prompt', () => {
     expect(r.runs[0].env?.PLOT_CORRECTION_FILE).toBe(path.join(r.wt, 'PLOT-CORRECTION.md'));
   });
 
+  it("runs the desk's own prompt where the main checkout holds none", async () => {
+    const asked: string[] = [];
+    const deskPrompt = (r: { wt: string }) => path.join(r.wt, '.plot', 'worker-prompt.sh');
+    const r = rig(ASSIGNED, [{ during: () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: q\n') }], {
+      resolvePrompt: (root) => {
+        asked.push(root);
+        return 'declared\t.plot/worker-prompt.sh\tx';
+      },
+      promptExists: (file) => file === deskPrompt(r),
+    });
+    await runWorkerLoop(r.deps);
+    expect(asked).toEqual([r.dir, r.wt]);
+    expect(r.runs).toHaveLength(1);
+    expect(r.runs[0].args.at(-1)).toBe(deskPrompt(r));
+    expect(r.logs.filter((l) => l.includes('refusing to launch'))).toEqual([]);
+  });
+
   describe('a slice carries its own charter', () => {
     /** Writes a real charter file at the rig's `.plot/charters/<name>.json`. */
     const writeCharter = (r: { dir: string }, name: string, fields: Record<string, unknown> = {}) => {
