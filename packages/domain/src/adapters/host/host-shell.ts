@@ -659,6 +659,11 @@ export const hostShell = (context: ShellContext, answers: FixedAnswers = process
       return resultOf(run, asText);
     },
 
+    // THE SHELL HAS NO PROTECTION OP. The read is in-process (`host-protection.ts`),
+    // and a host composed without it cannot be asked: `unaskable`, never an
+    // empty list.
+    branchRestrictions: async (): Promise<PortResult<readonly string[]>> => unaskable(),
+
     lastRefusal: (): HostRefusal | null => refusal,
   };
 };

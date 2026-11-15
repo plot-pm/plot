@@ -77,6 +77,13 @@ export interface HostFixture {
    * a failed read, so a test can prove an unreadable conversation is named.
    */
   conversations?: Readonly<Record<number, PrConversationReading>>;
+  /**
+   * What `branchRestrictions` answers: the restriction words, `[]` for a branch
+   * holding none. Absent reads as a failed read, as an unlisted review does.
+   */
+  restrictions?: readonly string[];
+  /** Makes `branchRestrictions` answer `unaskable`. */
+  restrictionsUnaskable?: boolean;
   /** What `reviewWriter` answers: the trusted bot login, `''` (the default) for unchecked. */
   reviewWriter?: string;
   /** Makes `reviewWriter` answer `unaskable`. */
@@ -236,6 +243,11 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
     prConversation: async (number: number): Promise<PortResult<PrConversationReading>> => {
       const reading = fixture.conversations?.[number];
       return reading === undefined ? failed() : answered(reading);
+    },
+
+    branchRestrictions: async (): Promise<PortResult<readonly string[]>> => {
+      if (fixture.restrictionsUnaskable === true) return unaskable();
+      return fixture.restrictions === undefined ? failed() : answered(fixture.restrictions);
     },
 
     reviewWriter: async (): Promise<PortResult<string>> => {

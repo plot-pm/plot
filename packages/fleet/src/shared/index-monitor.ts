@@ -37,6 +37,29 @@ export const sliceBranchesOf = async (
   return records.ok ? new Set(records.value.flatMap((plan) => plan.branches)) : null;
 };
 
+/**
+ * Builds a slice-branch read that parses the plans only where their commit moved.
+ *
+ * @param tip - the commit the plans are read at, or `null` where it cannot be
+ *   read; it must start no process.
+ * @param read - the full read, such as {@link sliceBranchesOf} over the plan store.
+ * @returns the read. It answers the held branches where `tip` names the commit
+ *   of the last read that answered, and calls `read` otherwise.
+ */
+export const sliceBranchesAtTip = (
+  tip: () => Promise<string | null>,
+  read: () => Promise<ReadonlySet<string> | null>,
+): (() => Promise<ReadonlySet<string> | null>) => {
+  let held: { sha: string; branches: ReadonlySet<string> } | null = null;
+  return async () => {
+    const sha = await tip();
+    if (sha !== null && held?.sha === sha) return held.branches;
+    const branches = await read();
+    held = sha !== null && branches !== null ? { sha, branches } : null;
+    return branches;
+  };
+};
+
 const line = (verb: 'publish' | 'clear', f: Finding): string =>
   `plot-fleetd: index-monitor ${verb} ${f.monitor} ${f.branch}: ${f.finding} (${f.evidence})\n`;
 

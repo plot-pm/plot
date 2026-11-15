@@ -40,6 +40,7 @@ report*:
 | `skills/plot/scripts/plot-board-probe.sh` | Facts only — *can the board run here?* Node version, the major `.nvmrc` pins, repo shape, artifact location, config presence, plan count, CI signals, CLI auth states. Decides nothing. |
 | `skills/plot/scripts/plot-detect-repo.sh` | Facts only — *what is this repo?* Inferred git host, the ticket prefix and its count, how many subjects match each commit notation, how many German words the hub docs carry. Decides nothing. |
 | `skills/plot/scripts/board/plot-propose-stack.mjs` | The thresholds — *what do those readings propose?* `proposeStack` in `@plot-pm/domain`, shipped as its own bundle. It decides and reaches nothing. |
+| `skills/plot/scripts/board/plot-state-branch.mjs` | *What does adoption say about the `State branch` key?* One host question (`Host.branchRestrictions`) judged by `proposeStateBranch` in `@plot-pm/domain`. Offers and proposes; it writes nothing and runs no host write. |
 | `skills/plot/scripts/plot-board-verify.sh` | The resource guarantee. Starts the board on an OS-assigned port, fetches `/api/board`, reaps the server via `trap` on every exit path. |
 | `skills/plot-board-setup/SKILL.md` | Judgment. Which artifact to recommend, whether Jenkins keys are warranted, which tracker/CI to propose vs ask for, what an empty board means, whose board is on port 7777, what to tell the user. |
 
