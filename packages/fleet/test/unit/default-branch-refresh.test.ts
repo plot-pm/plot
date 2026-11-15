@@ -12,6 +12,7 @@ import { ANCESTOR_ASKS_MAX, defaultBranchAgeMs, defaultBranchRed } from '@plot-p
 import {
   REASK_MS,
   refreshDefaultBranch,
+  refreshOnChange,
   type DefaultBranchWorld,
 } from '../../src/shared/default-branch-refresh.js';
 
@@ -793,5 +794,84 @@ describe('refreshDefaultBranch — the walk past a pending head', () => {
     await refreshDefaultBranch(r.world);
     expect(r.asked()).toEqual(['h']);
     expect(r.stored()?.settled).toEqual({ sha: 'h', state: 'green' });
+  });
+});
+
+describe('refreshOnChange — reads the tip only where it may have moved', () => {
+  const counted = (r: Rig): { world: DefaultBranchWorld; tips: () => number } => {
+    let tips = 0;
+    const world: DefaultBranchWorld = {
+      ...r.world,
+      refs: {
+        ...r.world.refs,
+        remoteSha: async (branch) => {
+          tips += 1;
+          return r.world.refs.remoteSha(branch);
+        },
+      },
+    };
+    return { world, tips: () => tips };
+  };
+
+  it('reads no tip on a beat whose key did not change and whose reading is not due', async () => {
+    const r = rig();
+    r.runs('a1', [run('ci', 'success')]);
+    const c = counted(r);
+    const refresh = refreshOnChange(c.world, async () => 'k1');
+    expect(await refresh()).toBe('asked');
+    r.clock(60_000);
+    expect(await refresh()).toBe('skipped');
+    expect(c.tips()).toBe(1);
+  });
+
+  it('reads the tip again when the key changes', async () => {
+    const r = rig();
+    r.runs('a1', [run('ci', 'success')]);
+    r.runs('a2', [run('ci', 'success')]);
+    const c = counted(r);
+    let key = 'k1';
+    const refresh = refreshOnChange(c.world, async () => key);
+    await refresh();
+    key = 'k2';
+    r.tip('a2');
+    expect(await refresh()).toBe('asked');
+    expect(c.tips()).toBe(2);
+    expect(r.stored()).toMatchObject({ headSha: 'a2' });
+  });
+
+  it('reads the tip again when the held reading is due, whatever the key', async () => {
+    const r = rig();
+    r.runs('a1', [run('ci', 'success')]);
+    const c = counted(r);
+    const refresh = refreshOnChange(c.world, async () => 'k1');
+    await refresh();
+    r.clock(WAIT / 2);
+    expect(await refresh()).toBe('asked');
+    expect(c.tips()).toBe(2);
+  });
+
+  it('reads the tip on every beat where the key is unknown', async () => {
+    const r = rig();
+    r.runs('a1', [run('ci', 'success')]);
+    const c = counted(r);
+    const refresh = refreshOnChange(c.world, async () => null);
+    await refresh();
+    await refresh();
+    expect(c.tips()).toBe(2);
+  });
+
+  it('keeps no key after an unreadable tip, so the next beat reads again', async () => {
+    const r = rig();
+    r.runs('a1', [run('ci', 'success')]);
+    const c = counted(r);
+    const refresh = refreshOnChange(c.world, async () => 'k1');
+    await refresh();
+    r.clock(WAIT / 2);
+    r.tip(null);
+    expect(await refresh()).toBe('unreadable');
+    r.tip('a1');
+    r.clock(WAIT / 2 + 60_000);
+    await refresh();
+    expect(c.tips()).toBe(3);
   });
 });

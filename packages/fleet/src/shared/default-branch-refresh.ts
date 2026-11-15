@@ -45,6 +45,19 @@ export const REASK_MS = 5 * 60 * 1000;
 export const reaskIntervalMs = (checksWaitMs: number, pastWait: boolean): number =>
   pastWait ? checksWaitMs / 2 : Math.min(REASK_MS, checksWaitMs / 2);
 
+/**
+ * Whether a held reading's runs are due to be asked again.
+ *
+ * @param previous - the held reading.
+ * @param now - the current time, in milliseconds.
+ * @param checksWaitMs - the `Checks wait` bound, in milliseconds.
+ * @returns `true` where {@link reaskIntervalMs} has passed since the reading's `at`.
+ */
+export const reaskDue = (previous: DefaultBranchReading, now: number, checksWaitMs: number): boolean => {
+  const pastWait = previous.head === 'green' || now - Date.parse(previous.headSince) >= checksWaitMs;
+  return now - Date.parse(previous.at) >= reaskIntervalMs(checksWaitMs, pastWait);
+};
+
 /** What one refresh is read and written through. */
 export interface DefaultBranchWorld {
   /** The default branch's name. */
@@ -275,12 +288,9 @@ export const refreshDefaultBranch = async (
   const now = world.now();
 
   const unchanged = previous !== null && previous.headSha === sha;
-  if (unchanged) {
-    const pastWait = previous.head === 'green' || now - Date.parse(previous.headSince) >= world.checksWaitMs;
-    if (now - Date.parse(previous.at) < reaskIntervalMs(world.checksWaitMs, pastWait)) {
-      world.record?.('defaultBranch', readOf(previous, now));
-      return 'skipped';
-    }
+  if (unchanged && !reaskDue(previous, now, world.checksWaitMs)) {
+    world.record?.('defaultBranch', readOf(previous, now));
+    return 'skipped';
   }
 
   const asked = await world.slot(() => world.build.runsForSha(branch, sha));
@@ -349,4 +359,44 @@ export const refreshDefaultBranch = async (
   world.record?.('defaultBranch', readOf(reading, now));
   await world.store.write(reading);
   return 'asked';
+};
+
+/**
+ * Builds a default-branch refresh that reads the remote tip only where the tip may have moved.
+ *
+ * `moved` answers a key that changes whenever the default branch's remote tip
+ * may have moved, or `null` where it cannot say. A call returns `'skipped'`
+ * and reads no tip where the key equals the key of the last refresh that read
+ * the tip, the held reading names the default branch, and the held reading is
+ * not due ({@link reaskDue}). Every other call runs
+ * {@link refreshDefaultBranch}. A refresh that ends `'unreadable'` keeps no
+ * key, so the next call reads the tip again.
+ *
+ * @param world - the reads and the file.
+ * @param moved - the key for the default branch; it must start no process.
+ * @param warn - passed to {@link refreshDefaultBranch}.
+ * @returns one refresh per call.
+ */
+export const refreshOnChange = (
+  world: DefaultBranchWorld,
+  moved: (branch: string) => Promise<string | null>,
+  warn: (line: string) => void = () => undefined,
+): (() => Promise<DefaultBranchOutcome>) => {
+  let readKey: string | null = null;
+  return async () => {
+    const branch = await world.branch();
+    const key = branch === null ? null : await moved(branch);
+    if (key !== null && key === readKey) {
+      const stored = await world.store.read();
+      const previous = stored.ok && stored.value?.branch === branch ? stored.value : null;
+      const now = world.now();
+      if (previous !== null && !reaskDue(previous, now, world.checksWaitMs)) {
+        world.record?.('defaultBranch', readOf(previous, now));
+        return 'skipped';
+      }
+    }
+    const outcome = await refreshDefaultBranch(world, warn);
+    readKey = outcome === 'unreadable' ? null : key;
+    return outcome;
+  };
 };
