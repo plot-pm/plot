@@ -758,22 +758,7 @@ export const worldForRepo = (
       if (lines.size === 0) return [];
       const readings: TreeReading[] = [];
       for (const tree of listed.value) {
-        // THE DIRT IS ASKED OF A TREE THAT IS THERE. A prunable entry has no
-        // directory to read, so `git status` in it answers about whatever the
-        // path now holds — and its disposition is `prune` whatever the count.
-        const dirty = await dirtyCountOf(trees, tree.path, tree.prunable);
-        readings.push({
-          path: tree.path,
-          branch: tree.branch,
-          isMain: tree.isMain,
-          prunable: tree.prunable,
-          // A DETACHED TREE NAMES NO BRANCH, so no plan can name it. The empty
-          // string is the reading rather than a lookup that would match the
-          // plan line of whatever branch sorts first.
-          planNamed: tree.branch !== '' && lines.has(tree.branch),
-          plan: lines.get(tree.branch)?.plan ?? '',
-          dirtyCount: dirty,
-        });
+        readings.push(await treeReadingOf(tree, lines, (path, prunable) => dirtyCountOf(trees, path, prunable)));
       }
       return readings;
     },
@@ -1657,6 +1642,39 @@ const dirtyCountOf = async (
   if (prunable) return 0;
   const answer = await trees.dirtyPaths(path);
   return answer.ok ? answer.value.length : 1;
+};
+
+/**
+ * One worktree as the tick's unclaimed-tree finding reads it.
+ *
+ * A tree that is the main checkout or holds a branch a plan names carries a
+ * `dirtyCount` of 0 and is not asked: `isUnclaimedTree` excludes both before
+ * any rule reads the count. Every other tree is asked through `dirtOf`; a
+ * prunable one answers 0 there because its directory is gone.
+ *
+ * @param tree - the entry as `git worktree list` reported it.
+ * @param lines - the plan lines this tick read, keyed by branch.
+ * @param dirtOf - counts a tree's uncommitted paths.
+ * @returns the tree reading, without `registered`.
+ */
+export const treeReadingOf = async (
+  tree: { path: string; branch: string; isMain: boolean; prunable: boolean },
+  lines: ReadonlyMap<string, { plan: string }>,
+  dirtOf: (path: string, prunable: boolean) => Promise<number>,
+): Promise<TreeReading> => {
+  // A DETACHED TREE NAMES NO BRANCH, so no plan can name it. The empty string
+  // is the reading rather than a lookup that would match the plan line of
+  // whatever branch sorts first.
+  const planNamed = tree.branch !== '' && lines.has(tree.branch);
+  return {
+    path: tree.path,
+    branch: tree.branch,
+    isMain: tree.isMain,
+    prunable: tree.prunable,
+    planNamed,
+    plan: lines.get(tree.branch)?.plan ?? '',
+    dirtyCount: tree.isMain || planNamed ? 0 : await dirtOf(tree.path, tree.prunable),
+  };
 };
 
 /**
