@@ -73,6 +73,7 @@ const portsFor = (said: 'answered' | 'failed') => {
         value: { sha: head(n), state: 'success', description: '', time: '', bypass: false },
       }),
       reviewWriter: async () => ({ ok: true, value: '' }),
+      prConversation: async () => ({ ok: true, value: { prAuthor: 'author', rows: [] } }),
     },
     scripts: {
       hostSaid: async (args: string[]) => {

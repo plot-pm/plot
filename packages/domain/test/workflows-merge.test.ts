@@ -60,6 +60,7 @@ const readings = (over: Partial<MergeReadings> = {}): MergeReadings => ({
   defaultBranch: reading('green'),
   defaultBranchTip: OTHER,
   review: review(),
+  conversation: { prAuthor: 'author', rows: [] },
   caller: 'person',
   ...over,
 });
@@ -400,6 +401,7 @@ describe('mergeAt — the workflow wired to its ports', () => {
           : { ok: true, value: lookup }),
         prReview: async () => ({ ok: true, value: { sha: lookup === 'unaskable' ? '' : (lookup?.headSha ?? ''), state: 'success', description: '', time: '', bypass: false } }),
         reviewWriter: async () => ({ ok: true, value: '' }),
+        prConversation: async () => ({ ok: true, value: { prAuthor: 'author', rows: [] } }),
       },
       scripts: {
         hostSaid: async (args: string[]) => {
@@ -721,6 +723,7 @@ describe('mergeAt — the repair PR on a red default branch', () => {
         prState: async () => ({ ok: true, value: lookup }),
         prReview: async () => ({ ok: true, value: { sha: head, state: 'success', description: '', time: '', bypass: false } }),
         reviewWriter: async () => ({ ok: true, value: '' }),
+        prConversation: async () => ({ ok: true, value: { prAuthor: 'author', rows: [] } }),
       },
       scripts: { hostSaid: async (args: string[]) => { calls.push(args); return { answer: 'answered', said: '' }; } },
       defaultBranch: { read: async () => ({ ok: true, value: red }) },

@@ -2,7 +2,7 @@ import type { DefaultBranchReading, SettledReading } from '../entities/default-b
 import type { Pr } from '../entities/pr.js';
 import type { BuildPort } from '../ports/build.js';
 import type { DefaultBranchStore } from '../ports/default-branch.js';
-import type { Host, PrReviewReading } from '../ports/host.js';
+import type { Host, PrConversationReading, PrReviewReading } from '../ports/host.js';
 import { checkedReview, reviewPasses } from '../rules/checked-review.js';
 import type { Refs } from '../ports/refs.js';
 import type { RepairRecordStore } from '../ports/repair-record.js';
@@ -18,6 +18,7 @@ import {
   type RepairMergeRefusal,
   type RepairRole,
 } from '../rules/repair-pr.js';
+import { humanCommentOpen } from '../rules/human-comment-open.js';
 import { mergeChecksVerdict } from '../rules/merge-checks.js';
 import { sameCommit } from '../rules/same-commit.js';
 import { isSyncPr, mayBeSyncPr, syncPathVerdict, type UnreadSyncGate } from '../rules/state-sync.js';
@@ -44,6 +45,8 @@ export type MergeRefusal =
   | 'review-not-passed'
   | 'review-foreign-writer'
   | 'review-writer-unread'
+  | 'human-comment-open'
+  | 'human-comment-unread'
   | 'release-pr'
   | 'sync-path-outside-set'
   | 'sync-diff-unread'
@@ -82,6 +85,11 @@ export interface MergeReadings {
    * Absent reads as `''`.
    */
   readonly reviewWriter?: string | 'unaskable';
+  /**
+   * The PR's whole conversation, re-asked through the host and never read from
+   * the PR index. `'unaskable'` where the read failed or was not asked.
+   */
+  readonly conversation: PrConversationReading | 'unaskable';
   /**
    * The repair record, its episode and the red commit's runs asked again,
    * read only where the default branch is settled red. Absent reads as no
@@ -229,7 +237,12 @@ const short = (sha: string | undefined): string =>
  * on the pinned head (`pr.headSha`); a different sha, `absent`, `failure`,
  * `pending` and a failed read all refuse.
  *
- * @param readings - the host's PR answer, the default-branch reading and tip, and the review reading.
+ * `human-comment-open` guards the PR's conversation, read by
+ * {@link humanCommentOpen}: a person's comment with no later answer refuses,
+ * and a conversation that could not be read refuses `human-comment-unread`.
+ * Both sit after `review-not-passed` and before the default-branch checks.
+ *
+ * @param readings - the host's PR answer, the default-branch reading and tip, the review reading and the conversation.
  * @param input - the PR, the head commit the caller read, the clock and the `Checks wait` bound.
  * @returns a decision with one `pr-merge` write pinned to the host's head in
  *   the host's own form (`pr.headSha`, which names the caller's commit), or the
@@ -287,6 +300,14 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
   const passes = reviewPasses(judged, pr.headSha, { plain: 'review-not-passed' });
   if (!passes.pass) {
     return no(passes.reason, `${passes.seen} for PR #${input.pr}. Merge when review reads 'success' on this head.`);
+  }
+  if (readings.conversation === 'unaskable') {
+    return no('human-comment-unread', `the conversation of PR #${input.pr} could not be read. An unread conversation is not an empty one; nothing was merged.`);
+  }
+  const open = humanCommentOpen(readings.conversation);
+  if (open !== null) {
+    const rest = open.others === 0 ? '' : ` and ${open.others} other${open.others === 1 ? '' : 's'}`;
+    return no('human-comment-open', `PR #${input.pr} has a comment by ${open.login === '' ? 'a deleted account' : open.login} at ${open.time} that nobody answered: "${open.firstLine}"${rest}. Reply to it or approve the PR, then ask again; nothing was merged.`);
   }
   const defaultBranch = readings.defaultBranch;
   let admitted: RepairRole | undefined;
@@ -416,7 +437,13 @@ export const readRepair = async (
 /** What `plot-ask.mjs merge` (and fleetd) print or hold, as one JSON line. */
 export type MergeResult =
   | { merged: true; pr: number; sha: string; defaultBranchRead: boolean; unpinned: boolean }
-  | { merged: false; reason: MergeRefusal | 'host-refused'; detail: string };
+  | {
+      merged: false;
+      reason: MergeRefusal | 'host-refused';
+      detail: string;
+      /** The newest conversation time read; set by `human-comment-open`, and `''` where none parsed. */
+      conversationAt?: string;
+    };
 
 /**
  * Merges a PR at the head commit the caller read, or refuses.
@@ -474,6 +501,13 @@ export const mergeAt = async (
     ports.host.prReview(pr),
     ports.host.reviewWriter(),
   ]);
+  // Read only where merge() can reach the conversation check: a draft, red or
+  // unreviewed PR refuses earlier and must not cost three REST pages. A skipped
+  // read is 'unaskable', so a check reached without a read still refuses.
+  const reviewed = review.ok && review.value.state === 'success';
+  const reachesConversation = lookup.ok && lookup.value !== null && lookup.value.state === 'OPEN'
+    && !lookup.value.draft && lookup.value.checks === 'green' && reviewed;
+  const conversation = reachesConversation ? await ports.host.prConversation(pr) : null;
   // Read last, so the red commit's runs are asked immediately before the merge.
   const repair = settledReading !== null && settledReading.settled?.state === 'red'
     ? await readRepair(ports, settledReading.branch, settledReading.settled, pr)
@@ -493,6 +527,7 @@ export const mergeAt = async (
       defaultBranchTip: tipSha,
       review: review.ok ? review.value : 'unaskable',
       reviewWriter: writer.ok ? writer.value : 'unaskable',
+      conversation: conversation !== null && conversation.ok ? conversation.value : 'unaskable',
       ...(repair ? { repair } : {}),
     },
     {
@@ -507,7 +542,12 @@ export const mergeAt = async (
     },
   );
   if (outcome.outcome === 'refused') {
-    return { merged: false, reason: outcome.reason, detail: outcome.detail };
+    if (outcome.reason !== 'human-comment-open' && outcome.reason !== 'human-comment-unread') {
+      return { merged: false, reason: outcome.reason, detail: outcome.detail };
+    }
+    // The record fleetd keeps compares against the newest time the read saw.
+    const at = conversation !== null && conversation.ok ? humanCommentOpen(conversation.value)?.conversationAt : undefined;
+    return { merged: false, reason: outcome.reason, detail: outcome.detail, ...(at === undefined ? {} : { conversationAt: at }) };
   }
   const write = outcome.writes[0];
   /* v8 ignore next 3 -- merge()'s one decide('merge', ...) call always writes kind: 'pr-merge' and pr.headSha, never undefined */

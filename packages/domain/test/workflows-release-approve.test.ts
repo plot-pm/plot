@@ -218,6 +218,7 @@ describe('releaseApproveAt — the workflow wired to its ports', () => {
         prState: async () => { reads.push('prState'); return { ok: true, value: lookup }; },
         prReview: async () => { reads.push('prReview'); return { ok: true, value: reviewed }; },
         reviewWriter: async () => ({ ok: true, value: '' }),
+        prConversation: async () => ({ ok: true, value: { prAuthor: 'author', rows: [] } }),
       },
       scripts: { hostSaid: async (args: string[]) => { calls.push(args); return { answer: 'answered', said: '' }; } },
       defaultBranch: { read: async () => ({ ok: true, value: null }) },
