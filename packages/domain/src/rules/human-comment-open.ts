@@ -49,7 +49,8 @@ const answers = (later: PrConversationRow, comment: PrConversationRow): boolean 
   return spoken(later) && later.login !== comment.login;
 };
 
-const firstLineOf = (body: string): string => body.split('\n').map((l) => l.trim()).find((l) => l !== '') ?? '';
+/** The first line of a body that holds text: the trimmed body begins with one. */
+const firstLineOf = (body: string): string => body.trim().replace(/\r?\n[\s\S]*$/, '').trim();
 
 /**
  * Finds the human comments of a PR that nobody has answered.
