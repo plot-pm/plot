@@ -64,6 +64,7 @@ skills/plot/scripts/board/plot-restart-stopped-command.mjs -merge
 skills/plot/scripts/board/plot-loose-delete-command.mjs -merge
 skills/plot/scripts/board/plot-approve.mjs -merge
 skills/plot/scripts/board/plot-needs-design.mjs -merge
+skills/plot/scripts/board/plot-supersede.mjs -merge
 skills/plot/scripts/board/plot-released-labels.mjs -merge
 skills/plot/scripts/board/plot-finding-tickets.mjs -merge
 skills/plot/scripts/board/plot-deliver.mjs -merge
@@ -97,6 +98,7 @@ skills/plot/scripts/board/plot-panel.mjs -merge
 skills/plot/scripts/board/plot-prompt.mjs -merge
 skills/plot/scripts/board/plot-prompt-exit.mjs -merge
 skills/plot/scripts/board/plot-propose-stack.mjs -merge
+skills/plot/scripts/board/plot-state-branch.mjs -merge
 skills/plot/scripts/board/plot-pr-index-lookup.mjs -merge
 skills/plot/scripts/board/plot-pr-reader.mjs -merge
 skills/plot/scripts/board/plot-pr-state.mjs -merge

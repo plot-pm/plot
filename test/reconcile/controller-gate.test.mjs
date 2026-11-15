@@ -968,6 +968,21 @@ test('controller gate: a POST to /api/loose-delete is refused, names the bundle,
   assert.doesNotMatch(r.stderr, /unowned-action/, 'no receipt bypasses this refusal');
 });
 
+// --- needs-design and supersede: a person's moves; the HTTP route refuses an agent, the bundle refuses unattended ---
+
+for (const [route, bundle, body] of [
+  ['needs-design', /plot-needs-design\.mjs <slug>/, '{"slug":"p"}'],
+  ['supersede', /plot-supersede\.mjs --by <successor> <slug>/, '{"slug":"p","by":"q"}'],
+]) {
+  test(`controller gate: a POST to /api/${route} is refused, names the bundle, and offers no receipt escape`, () => {
+    const r = run(repo(), `curl -X POST http://localhost:4000/api/${route} -d '${body}'`);
+    assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
+    assert.match(r.stderr, new RegExp(`POST /api/${route}`));
+    assert.match(r.stderr, bundle);
+    assert.doesNotMatch(r.stderr, /unowned-action/, 'no receipt bypasses this refusal');
+  });
+}
+
 test('controller gate: a GET on /api/loose-delete is a read and is allowed', () => {
   assert.equal(run(repo(), 'curl http://localhost:4000/api/loose-delete').status, 0);
 });

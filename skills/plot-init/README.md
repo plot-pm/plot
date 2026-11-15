@@ -33,6 +33,10 @@ into a twenty-question interrogation nobody finishes.
 Exactly one thing is always asked: the **Definition of Done**. The probe finds
 candidate scripts; only a human knows which of them gates a merge.
 
+## The state branch is asked of the host, not guessed
+
+Adoption asks the host one question about the default branch — does it restrict pushes or require a merge check — through `board/plot-state-branch.mjs`, and proposes `State branch: plot/state` only on a yes. The judgement is `proposeStateBranch`'s in `@plot-pm/domain`; the skill words the proposal. A 403, a missing adapter and an empty answer all read `unverified` and propose nothing: an unanswered ask is never `unrestricted`. The delete restriction on the state branch is offered, never applied, and `plot/` is never added to `Branch prefixes`.
+
 ## Deliberately conservative detection
 
 Every field is a proposal, so a wrong guess costs one correction — but a guess

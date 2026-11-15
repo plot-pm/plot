@@ -53,3 +53,28 @@ export const passWindows = (last: number, count: number): [string, string][] =>
     const n = last - count + 1 + i;
     return [`pass-${n - 1}`, `pass-${n}`];
   });
+
+/**
+ * Whether fleetd's bridge records a scan that started at or after `sinceMs`
+ * and has ended.
+ *
+ * `fleetScan` stamps `attempt.startedAt` from fleetd's `Date.now()` when the
+ * scan starts and writes `outcome: 'ok'` or `'failed'` when it ends.
+ *
+ * @param bridge - the bridge as read.
+ * @param sinceMs - the earliest start that counts, on the clock fleetd's
+ *   `Date.now()` reads.
+ * @returns `true` where the attempt started at or after `sinceMs` and its
+ *   outcome is not `running`; `false` for an absent or unparseable bridge, a
+ *   bridge with no attempt, an older attempt and a running one.
+ */
+export const scanEndedSince = (bridge: BridgeReading, sinceMs: number): boolean => {
+  if (bridge.text === null) return false;
+  let attempt: { startedAt?: unknown; outcome?: unknown } | undefined;
+  try {
+    attempt = (JSON.parse(bridge.text) as { attempt?: { startedAt?: unknown; outcome?: unknown } } | null)?.attempt;
+  } catch {
+    return false;
+  }
+  return typeof attempt?.startedAt === 'number' && attempt.startedAt >= sinceMs && typeof attempt.outcome === 'string' && attempt.outcome !== 'running';
+};

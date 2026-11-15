@@ -77,10 +77,12 @@ export type EpisodeReading = 'open' | 'closed' | 'unaskable';
 /**
  * Reads whether a repair record's episode is still open.
  *
- * Open means all of: the record's state is not `done` or `exhausted`, the
- * default-branch reading names the record's branch, its settled commit is
- * `red`, and the settled commit's first-parent line holds the record's
- * `firstRedSha`. The line is evidence handed to this rule; the rule decides.
+ * Open means all of: the record's state is not `done`, the default-branch
+ * reading names the record's branch, its settled commit is `red`, and the
+ * settled commit's first-parent line holds the record's `firstRedSha`. An
+ * `exhausted` record is open here: fleetd's own repairs are spent, and a
+ * person's repair PR is the one way left to end the episode. The line is
+ * evidence handed to this rule; the rule decides.
  *
  * @param record - the repair record.
  * @param branch - the default branch the reading names.
@@ -95,7 +97,7 @@ export const repairEpisode = (
   settled: SettledReading | undefined,
   line: readonly string[] | 'unaskable',
 ): EpisodeReading => {
-  if (record.state === 'done' || record.state === 'exhausted') return 'closed';
+  if (record.state === 'done') return 'closed';
   if (record.branch !== branch || settled === undefined || settled.state !== 'red') return 'closed';
   if (line === 'unaskable') return 'unaskable';
   return line.includes(record.firstRedSha) ? 'open' : 'closed';

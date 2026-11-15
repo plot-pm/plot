@@ -13,6 +13,8 @@ import { bitbucketPrListing, type BitbucketPrListing } from './bitbucket-pr-list
 import { githubApi, type GithubApi, type GithubApiOptions } from './github-api.js';
 import { githubPrListing, type GithubPrListing } from './github-pr-listing.js';
 import { hostShell, prOf } from './host-shell.js';
+import { bitbucketPrConversation, githubPrConversation, hostWithConversation } from './pr-conversation.js';
+import { bitbucketProtection, githubProtection, type HostProtection } from './host-protection.js';
 import { recordHostReads } from './process-host-reads.js';
 
 /** The backends whose reads the in-process client answers. */
@@ -98,15 +100,22 @@ export interface ListingSplit {
  * @param split - which reads stay on the shell.
  * @returns the composed `Host`.
  */
-export const hostWithListing = (shell: Host, listing: GithubPrListing | BitbucketPrListing, split: ListingSplit = {}): Host => {
+export const hostWithListing = (
+  shell: Host,
+  listing: GithubPrListing | BitbucketPrListing,
+  split: ListingSplit = {},
+  protection: HostProtection | null = null,
+): Host => {
   const states = split.states ?? LISTED_STATES;
   let listed = false;
+  let protectedRead = false;
   const composed: Record<string, unknown> = {};
   for (const [name, member] of Object.entries(shell)) {
     composed[name] =
       typeof member === 'function'
         ? (...args: unknown[]): unknown => {
             listed = false;
+            protectedRead = false;
             return (member as (...a: unknown[]) => unknown)(...args);
           }
         : member;
@@ -116,18 +125,22 @@ export const hostWithListing = (shell: Host, listing: GithubPrListing | Bitbucke
     prListing: (query) => {
       if (split.richOnShell === true && (query.rich === true || query.richOpen === true)) {
         listed = false;
+        protectedRead = false;
         return shell.prListing(query);
       }
       listed = true;
+      protectedRead = false;
       return listing.prListing(query);
     },
     prList: async (state, limit, since, rich) => {
       const asked = states[state];
       if (asked === undefined || (split.richOnShell === true && rich === true)) {
         listed = false;
+        protectedRead = false;
         return shell.prList(state, limit, since, rich);
       }
       listed = true;
+      protectedRead = false;
       const read = await listing.prListing({
         state: asked,
         ...(limit === undefined ? {} : { limit }),
@@ -137,7 +150,17 @@ export const hostWithListing = (shell: Host, listing: GithubPrListing | Bitbucke
       if (read.answer === 'answered' || read.answer === 'partial') return answered(read.rows.map((row) => prOf(row as Parameters<typeof prOf>[0])));
       return read.answer === 'unaskable' ? unaskable(read.refusal?.said) : failed();
     },
-    lastRefusal: (): HostRefusal | null => (listed ? listing.lastRefusal() : shell.lastRefusal()),
+    ...(protection === null
+      ? {}
+      : {
+          branchRestrictions: async (branch: string) => {
+            listed = false;
+            protectedRead = true;
+            return protection.branchRestrictions(branch);
+          },
+        }),
+    lastRefusal: (): HostRefusal | null =>
+      protectedRead && protection !== null ? protection.lastRefusal() : listed ? listing.lastRefusal() : shell.lastRefusal(),
   };
 };
 
@@ -184,7 +207,10 @@ export const hostReadsFor = async (
     const picked = hostTransportOf({ ...reading, tokenSource: source, noCredential: BITBUCKET_NO_CREDENTIAL });
     if (picked.transport === 'shell') return { choice: picked, api: null, host: shell };
     const richOnShell = SHELL_RICH_CI.includes(basis.ci.trim().toLowerCase());
-    const host = hostWithListing(shell, bitbucketPrListing(bitbucket, refsGit(context)), { states: BITBUCKET_LISTED_STATES, richOnShell });
+    const host = hostWithConversation(
+      hostWithListing(shell, bitbucketPrListing(bitbucket, refsGit(context)), { states: BITBUCKET_LISTED_STATES, richOnShell }, bitbucketProtection(bitbucket)),
+      bitbucketPrConversation(bitbucket),
+    );
     recordHostReads(context.repoRoot, host);
     const reason = richOnShell ? `${picked.reason}; CI is jenkins, so the rich open read stays on the shell` : picked.reason;
     return { choice: { ...picked, reason }, api: null, host };
@@ -192,7 +218,7 @@ export const hostReadsFor = async (
   const api = (options.client ?? githubApi)({ origin: await originOf(), env, observe: (observed) => shell.observe(observed) });
   const choice = hostTransportOf({ ...reading, tokenSource: await api.tokenSource() });
   if (choice.transport === 'shell') return { choice, api: null, host: shell };
-  const host = hostWithListing(shell, githubPrListing(api));
+  const host = hostWithConversation(hostWithListing(shell, githubPrListing(api), {}, githubProtection(api)), githubPrConversation(api));
   recordHostReads(context.repoRoot, host);
   return { choice, api, host };
 };

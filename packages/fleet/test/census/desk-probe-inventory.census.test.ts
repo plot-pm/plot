@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -45,11 +46,16 @@ afterAll(() => {
 describe('the desk-probe inventory: fleetd on github, 3 desks, 5 open PRs', () => {
   let box: Sandbox;
   let idle: ProbeCall[] = [];
+  let shimmed = 0;
 
   beforeAll(async () => {
     box = await buildSandbox({ host: 'github', desks: 3, openPrs: 5 });
     const log = join(box.root, 'probe-calls.tsv');
     writeProbeShims(join(box.root, 'bin'), log, ['ps', 'dirname']);
+    // ONE CALL THROUGH THE SHIM proves it logs, so an idle pass that logs no
+    // call reads as one that started none rather than as a broken shim.
+    execFileSync(join(box.root, 'bin', 'ps'), ['-o', 'pid=', '-p', String(process.pid)]);
+    shimmed = probeLogLines(log);
     const traced: Sandbox = { ...box, env: { ...box.env, CENSUS_SPAWN_CALLER: '1' } };
     const fleetd = startFleetd(entry as FleetdEntry, traced, { trace: false, spawnLog: spawnLogOf(box) });
     try {
@@ -89,8 +95,8 @@ describe('the desk-probe inventory: fleetd on github, 3 desks, 5 open PRs', () =
     await box?.remove();
   });
 
-  it('records the calls of the idle passes', () => {
-    expect(idle.length).toBeGreaterThan(0);
+  it('logs a call made through its shim, so an idle pass with none was measured', () => {
+    expect(shimmed).toBe(1);
   });
 
   it('starts no sourcing of plot-worker-state.sh from the processes adapter', () => {

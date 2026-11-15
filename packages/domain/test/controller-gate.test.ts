@@ -223,6 +223,8 @@ describe('mayRunController', () => {
     'curl -X POST http://localhost:4000/api/release-approve',
     'curl -X POST http://localhost:4000/api/restart',
     'curl -X POST http://localhost:4000/api/loose-delete',
+    'curl -X POST http://localhost:4000/api/needs-design',
+    'curl -X POST http://localhost:4000/api/supersede',
   ])('passes %s', (command) => expect(mayRunController(command)).toBe(true));
 
   it.each(['ls -la', 'git commit -m x', 'pnpm test', 'curl http://localhost:4000/api/dispatch'])('skips %s', (command) =>
@@ -244,6 +246,8 @@ describe('controllerInvocation reads plot-ask.mjs and the gated HTTP routes', ()
     ['release-approve', 'curl -X POST http://localhost:4000/api/release-approve'],
     ['restart', 'curl -X POST http://localhost:4000/api/restart'],
     ['loose-delete', 'curl -X POST http://localhost:4000/api/loose-delete'],
+    ['needs-design', 'curl -X POST http://localhost:4000/api/needs-design'],
+    ['supersede', 'curl -X POST http://localhost:4000/api/supersede'],
   ])('answers %s for a POST to its route', (action, command) => expect(controllerInvocation(command)).toBe(action));
 
   it('answers restart for --request POST', () => {
@@ -335,6 +339,8 @@ describe('controllerHttpAction', () => {
     ['release-approve', 'curl -X POST http://localhost:4000/api/release-approve'],
     ['restart', 'curl -X POST http://localhost:4000/api/restart'],
     ['loose-delete', 'curl -X POST http://localhost:4000/api/loose-delete'],
+    ['needs-design', 'curl -X POST http://localhost:4000/api/needs-design'],
+    ['supersede', 'curl -X POST http://localhost:4000/api/supersede'],
   ])('answers %s for a POST to its route', (action, command) => expect(controllerHttpAction(command)).toBe(action));
 
   it('answers null for the plot-ask.mjs script call, which is not an HTTP request', () => {
@@ -368,6 +374,20 @@ describe('finalControllerRefusal', () => {
     const text = finalControllerRefusal('restart', dir);
     expect(text).toContain('POST /api/restart');
     expect(text).toContain(`node ${dir}/board/plot-restart-command.mjs <branch>`);
+    expect(text).not.toContain('plot-state-receipt.sh');
+  });
+
+  it('names the board button and the needs-design bundle for needs-design, with no receipt bypass', () => {
+    const text = finalControllerRefusal('needs-design', dir);
+    expect(text).toContain('POST /api/needs-design');
+    expect(text).toContain(`node ${dir}/board/plot-needs-design.mjs <slug>`);
+    expect(text).not.toContain('plot-state-receipt.sh');
+  });
+
+  it('names the board button and the supersede bundle for supersede, with no receipt bypass', () => {
+    const text = finalControllerRefusal('supersede', dir);
+    expect(text).toContain('POST /api/supersede');
+    expect(text).toContain(`node ${dir}/board/plot-supersede.mjs --by <successor> <slug>`);
     expect(text).not.toContain('plot-state-receipt.sh');
   });
 
