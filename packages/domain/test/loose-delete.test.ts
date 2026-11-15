@@ -64,6 +64,23 @@ describe('looseDelete', () => {
     }
   });
 
+  it('deletes a claimed branch whose work ended in a PR the host closed unmerged', () => {
+    const closed = { ok: true, value: { number: 3054, state: 'CLOSED' } } as never;
+    expect(looseDelete({ ...base(), commits: { ok: true, value: [claim, work] }, pr: closed })).toEqual({ kind: 'delete', tip: TIP });
+  });
+
+  it('still refuses a claimed branch whose closed PR left only the claim', () => {
+    const closed = { ok: true, value: { number: 3054, state: 'CLOSED' } } as never;
+    expect(looseDelete({ ...base(), commits: { ok: true, value: [claim] }, pr: closed })).toMatchObject({ reason: 'claimed' });
+  });
+
+  it('still refuses a claimed branch with work and no closed PR, or a merge the host cannot rule out', () => {
+    const closed = { ok: true, value: { number: 3054, state: 'CLOSED' } } as never;
+    const withWork = { commits: { ok: true, value: [claim, work] } } as const;
+    expect(looseDelete({ ...base(), ...withWork })).toMatchObject({ reason: 'claimed' });
+    expect(looseDelete({ ...base(), ...withWork, pr: closed, merged: { ok: true, value: 'unknown' } })).toMatchObject({ reason: 'claimed' });
+  });
+
   it('refuses a named branch before it asks whether a desk holds it', () => {
     const named = { kind: 'named', file: 'docs/plans/p.md', phase: 'approved', deferred: false, base: '' } as never;
     expect(looseDelete({ ...base(), plan: named, desk: { ok: true, value: true } })).toMatchObject({ reason: 'named' });
