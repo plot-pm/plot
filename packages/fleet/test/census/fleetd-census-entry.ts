@@ -18,7 +18,9 @@
 //
 // A pass is done once no direct child, no in-process HTTP request and no scan
 // that fleetd's bridge (`.plot/state/last-pulse.json`) marks `running` has been
-// in flight for 300 ms; a `running` mark holds a pass for at most 120 s.
+// in flight for 300 ms of the real clock; a `running` mark holds a pass for at
+// most 120 s. A safety-net pass first waits, for at most 120 s, until the bridge
+// records a scan that started on its last beat and ended.
 //
 // fleetd's `sleep` waits on the manual clock, so a product that ticks on
 // `--interval` (60 s) ticks once in each pass, and a product that waits on
@@ -44,7 +46,7 @@ import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import type { ChildProcess } from 'node:child_process';
 
-import { scanBusy, type BridgeReading } from './census-settle.js';
+import { scanBusy, scanEndedSince, type BridgeReading } from './census-settle.js';
 
 /** The image a mark starts; the census filters it out by its first argument. */
 export const MARK_IMAGE = '/usr/bin/true';
@@ -65,7 +67,8 @@ const say = (line: string): void => {
 const cp = createRequire(import.meta.url)('node:child_process') as typeof import('node:child_process');
 const spawnLog = process.env['CENSUS_SPAWN_LOG'] ?? '';
 let inFlight = 0;
-let lastSettled = Date.now();
+/** The last settle, in ms of `performance.now()`: a pass moves the patched `Date` by minutes. */
+let lastSettled = performance.now();
 
 const track = (child: ChildProcess | undefined, file: string, args: readonly unknown[]): void => {
   if (spawnLog !== '') {
@@ -84,7 +87,7 @@ const track = (child: ChildProcess | undefined, file: string, args: readonly unk
       appendFileSync(spawnLog, `${JSON.stringify({ at: Math.round(performance.now()), ms: Math.round(performance.now() - startedAt), ended: file, args: args.filter((a) => typeof a === 'string').slice(0, 3) })}\n`);
     }
     inFlight -= 1;
-    lastSettled = Date.now();
+    lastSettled = performance.now();
   };
   child.once('close', settle);
   child.once('error', settle);
@@ -184,7 +187,7 @@ httpModule.request = ((...given: unknown[]) => {
     if (done) return;
     done = true;
     inFlight -= 1;
-    lastSettled = Date.now();
+    lastSettled = performance.now();
   });
   return req;
 }) as typeof httpModule.request;
@@ -272,7 +275,24 @@ const bridgeOf = (): BridgeReading => {
 const quiet = async (): Promise<void> => {
   for (;;) {
     await new Promise((r) => setTimeout(r, 50));
-    if (inFlight === 0 && Date.now() - lastSettled >= QUIET_MS && !scanBusy(bridgeOf(), RealDate.now(), QUIET_MS, SCAN_BOUND_MS)) return;
+    if (inFlight === 0 && performance.now() - lastSettled >= QUIET_MS && !scanBusy(bridgeOf(), RealDate.now(), QUIET_MS, SCAN_BOUND_MS)) return;
+  }
+};
+
+// THE SAFETY NET'S READ STARTS ON THE LAST BEAT, AND THE PASS WAITS FOR IT TO END.
+// Between the beat and the read's `running` mark the read starts no child, so
+// `quiet` alone can settle first. A pass that settled then would place its mark
+// before the read, count the read in the next pass, and move the clock before
+// the read stamps its end, so the next pass finds the safety net not yet due.
+const scanEnded = async (sinceMs: number): Promise<void> => {
+  const from = performance.now();
+  for (;;) {
+    if (scanEndedSince(bridgeOf(), sinceMs)) return;
+    if (performance.now() - from >= SCAN_BOUND_MS) {
+      say(`no scan ended within ${SCAN_BOUND_MS} ms of the last beat`);
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 50));
   }
 };
 
@@ -297,11 +317,13 @@ const pass = async (beats: number = beatsPerPass): Promise<void> => {
   // A manual clock fires every beat of one `advance` before a scan can settle, so a
   // scan that starts on a trigger decides once per advance. A pass longer than a
   // census pass stops one beat short, settles, and fires the last beat, where the
-  // safety net is due.
+  // safety net is due; the pass then waits for the read that beat started.
   if (beats > beatsPerPass) {
     clock?.advance(beats - 1);
     await quiet();
+    const lastBeatAt = Date.now();
     clock?.advance(1);
+    await scanEnded(lastBeatAt);
   } else clock?.advance(beats);
   await quiet();
   mark(`pass-${passes}`);
