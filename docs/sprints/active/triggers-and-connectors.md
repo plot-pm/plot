@@ -1,1 +1,0 @@
-../2026-W47-triggers-and-connectors.md

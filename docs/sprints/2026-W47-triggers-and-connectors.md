@@ -4,7 +4,8 @@
 
 ## Status
 
-- **State:** Active
+- **State:** Closed
+- **Actual End:** 2026-11-15
 - **Start:** 2026-11-11
 - **End:** 2026-11-17
 - **Release:** 2.36.0
@@ -49,7 +50,14 @@ It also closes the follow-up issues that sprint `desk-probes-and-liveness` filed
 
 ## Retrospective
 
-<!-- Filled during /plot-sprint close: What went well / What could improve / Action items -->
+### Metrics
+
+- **Must-haves completed:** 2/2
+- **Should-haves completed:** 6/6
+- **Could-haves completed:** 0/0
+- **Deferred items:** 0
+- **Scope changes during sprint:** 0
+- **Duration:** planned 7 days, actual 5 days
 
 ## Notes
 
