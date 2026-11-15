@@ -86,7 +86,7 @@ does the same for `.plot/worker-prompt.sh`, the file `plot-worker-loop.sh`
 sources on every prompt of every agent. `/plot-init` writes it once through
 `scripts/plot-install-prompt.sh`, which never overwrites an existing file, and
 nothing reads the template again after adoption — the loop always sources
-`.plot/worker-prompt.sh` itself. Set the key when a project wants different
+`.plot/worker-prompt.sh` itself. A desk's loop sources the main checkout's copy, and reads a declared agent's charter from the main checkout too; it falls back to the desk's own copy, with one log line, only where git cannot name the main checkout. Set the key when a project wants different
 starting wording for the prompts it generates.
 
 ## Model Guidance

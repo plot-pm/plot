@@ -1365,7 +1365,12 @@ export interface LoopDeps {
   readonly ports: WorkerLoopPorts;
   readonly idle: IdleDeps;
   readonly manifestFile: string;
-  /** The repository root the prompt resolves under. */
+  /**
+   * The checkout the prompt file and the charters resolve under: for a desk,
+   * the main checkout {@link promptRootOf} answers, so a desk on an older
+   * branch runs the main checkout's prompt. Where the prompt file is absent
+   * there, the `command` runner runs the desk's own copy.
+   */
   readonly repoRoot: string;
   /** The desk, used where the manifest names none. */
   readonly worktree: string;
@@ -1626,15 +1631,25 @@ const runPrompt = async (
   resume: { readonly resumeId: string; readonly text: string; readonly continuation: boolean } | null,
 ): Promise<RunOutcome> => {
   const sdk = deps.runner === 'sdk' ? deps.sdk : undefined;
-  const resolved = (deps.resolvePrompt ?? promptAnswer)(deps.repoRoot, deps.agent).split('\t');
-  const [verb, named, why] = resolved;
-  const file = verb === 'refused' || !named ? '' : join(deps.repoRoot, named);
+  const resolveUnder = (root: string) => {
+    const [verb, named, why] = (deps.resolvePrompt ?? promptAnswer)(root, deps.agent).split('\t');
+    return { verb, why, file: verb === 'refused' || !named ? '' : join(root, named) };
+  };
+  const exists = deps.promptExists ?? existsSync;
+  const main = resolveUnder(deps.repoRoot);
+  // THE DESK'S OWN PROMPT RUNS WHERE THE MAIN CHECKOUT HOLDS NONE: a prompt
+  // `plot-install-prompt.sh` wrote inside the desk is the only one there is.
+  const desk =
+    sdk === undefined && main.verb !== 'refused' && main.file !== '' && !exists(main.file) && worktree !== deps.repoRoot
+      ? resolveUnder(worktree)
+      : undefined;
+  const { verb, why, file } = desk !== undefined && desk.verb !== 'refused' && desk.file !== '' && exists(desk.file) ? desk : main;
   // A REFUSED CHARTER REFUSES ON EITHER RUNNER; only the `command` runner
   // needs the prompt file the resolution names.
   const refusal =
     verb === 'refused' || (file === '' && sdk === undefined)
       ? (why ?? 'no prompt')
-      : sdk === undefined && !(deps.promptExists ?? existsSync)(file)
+      : sdk === undefined && !exists(file)
         ? `the prompt file ${file} is absent; run plot-install-prompt.sh to write .plot/worker-prompt.sh`
         : undefined;
   if (refusal !== undefined) {
@@ -2644,6 +2659,30 @@ export const recordPassFile = (worktree: string, at: number): void => {
 };
 
 /**
+ * The checkout the prompt file and the charters resolve under.
+ *
+ * @param env - the process environment; a non-empty `PLOT_REPO_ROOT` answers first.
+ * @param trees - the port that reads the main checkout's root.
+ * @param worktree - the desk.
+ * @param log - receives one line where the main checkout cannot be read.
+ * @returns `PLOT_REPO_ROOT`, else the main checkout of `worktree`, else
+ *   `worktree` itself where git cannot name the main checkout.
+ */
+export const promptRootOf = async (
+  env: NodeJS.ProcessEnv,
+  trees: Pick<Trees, 'mainRoot'>,
+  worktree: string,
+  log: (line: string) => void,
+): Promise<string> => {
+  const fixed = env.PLOT_REPO_ROOT ?? '';
+  if (fixed !== '') return fixed;
+  const main = await trees.mainRoot(worktree);
+  if (main.ok) return main.value;
+  log(`plot-worker-loop: the main checkout of ${worktree} cannot be read; the prompt and the charters resolve from the desk's own copy`);
+  return worktree;
+};
+
+/**
  * Starts the loop from its environment, as `plot-worker-loop.sh` hands it over.
  *
  * @param env - the process environment.
@@ -2657,7 +2696,7 @@ export const main = async (
   target: StopTarget = process,
 ): Promise<number> => {
   const worktree = env.PLOT_WORKTREE ?? process.cwd();
-  const repoRoot = env.PLOT_REPO_ROOT ?? worktree;
+  const deskRoot = env.PLOT_REPO_ROOT ?? worktree;
   for (const key of ['Agent max spend', 'Slice max spend'] as const) {
     const raw = configKey(worktree, key);
     if (dollarsOrUnset(raw).kind === 'unreadable') {
@@ -2704,6 +2743,7 @@ export const main = async (
   const found = await restartDeps(ports.trees, scriptDir, env, stderrLog);
   const restart = found === undefined ? undefined : { ...found, tokenFd };
   const now = offsetClock(env);
+  const repoRoot = await promptRootOf(env, ports.trees, worktree, stderrLog);
   const runner = await runnerDeps({
     tokenFd,
     env,
@@ -2719,7 +2759,7 @@ export const main = async (
     now,
     log: stderrLog,
   });
-  const planDir = resolve(repoRoot, configKey(worktree, 'Plan directory') ?? 'docs/plans/');
+  const planDir = resolve(deskRoot, configKey(worktree, 'Plan directory') ?? 'docs/plans/');
   const code = await runWorkerLoop({
     ...runner,
     ports,
@@ -2731,7 +2771,7 @@ export const main = async (
     // builds above — `main`'s own tests cannot drive that without starting a
     // real process. `sliceAgentOf` and `runnerDeps` are exercised directly.
     /* v8 ignore start */
-    sliceAgent: (branch) => sliceAgentOf(repoRoot, scriptDir, planDir, branch),
+    sliceAgent: (branch) => sliceAgentOf(deskRoot, scriptDir, planDir, branch),
     runnerFor: (agent) =>
       runnerDeps({
         tokenFd,

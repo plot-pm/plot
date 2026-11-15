@@ -61,6 +61,7 @@ import {
   shippedConfig,
   stampManifestLoopJs,
   onStop,
+  promptRootOf,
   type StopTarget,
   writeHop,
   workerLoopPorts,
@@ -139,11 +140,11 @@ const rig = (
   };
 
   const deskCalls = deskFixtureCalls();
-  const runs: { command: string; args: readonly string[]; env?: Readonly<Record<string, string>>; holdFd?: number }[] = [];
+  const runs: { command: string; args: readonly string[]; cwd?: string; env?: Readonly<Record<string, string>>; holdFd?: number }[] = [];
   let call = 0;
   const boundedRun: BoundedRun = {
     run: async (command, args, options) => {
-      runs.push({ command, args, env: options.env, ...(options.holdFd === undefined ? {} : { holdFd: options.holdFd }) });
+      runs.push({ command, args, cwd: options.cwd, env: options.env, ...(options.holdFd === undefined ? {} : { holdFd: options.holdFd }) });
       const script = scripts[call] ?? {};
       call += 1;
       await script.during?.();
@@ -395,6 +396,40 @@ describe('runWorkerLoop — a prompt', () => {
     expect(await runWorkerLoop(r.deps)).toBe(1);
     expect(r.runs).toHaveLength(0);
     expect(r.logs.join('\n')).toContain(`the prompt file ${path.join(r.dir, '.plot', 'worker-prompt.sh')} is absent`);
+  });
+
+  it('resolves the prompt from the main checkout and keeps the worktree and the correction file in the desk', async () => {
+    const asked: string[] = [];
+    const r = rig(ASSIGNED, [{ during: () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: q\n') }], {
+      resolvePrompt: (root) => {
+        asked.push(root);
+        return 'declared\t.plot/worker-prompt.sh\tx';
+      },
+    });
+    await runWorkerLoop(r.deps);
+    expect(asked).toEqual([r.dir]);
+    expect(r.runs).toHaveLength(1);
+    expect(r.runs[0].args.at(-1)).toBe(path.join(r.dir, '.plot', 'worker-prompt.sh'));
+    expect(r.runs[0].cwd).toBe(r.wt);
+    expect(r.runs[0].env?.PLOT_WORKTREE).toBe(r.wt);
+    expect(r.runs[0].env?.PLOT_CORRECTION_FILE).toBe(path.join(r.wt, 'PLOT-CORRECTION.md'));
+  });
+
+  it("runs the desk's own prompt where the main checkout holds none", async () => {
+    const asked: string[] = [];
+    const deskPrompt = (r: { wt: string }) => path.join(r.wt, '.plot', 'worker-prompt.sh');
+    const r = rig(ASSIGNED, [{ during: () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: q\n') }], {
+      resolvePrompt: (root) => {
+        asked.push(root);
+        return 'declared\t.plot/worker-prompt.sh\tx';
+      },
+      promptExists: (file) => file === deskPrompt(r),
+    });
+    await runWorkerLoop(r.deps);
+    expect(asked).toEqual([r.dir, r.wt]);
+    expect(r.runs).toHaveLength(1);
+    expect(r.runs[0].args.at(-1)).toBe(deskPrompt(r));
+    expect(r.logs.filter((l) => l.includes('refusing to launch'))).toEqual([]);
   });
 
   describe('a slice carries its own charter', () => {
@@ -2321,5 +2356,31 @@ describe('runWorkerLoop on the command runner — a continuation resumes the blo
     await runWorkerLoop(r.deps);
 
     expect(r.deskCalls.appendedCorrections).toEqual([{ worktree: r.wt, correction: continuationEntry('use fetch') }]);
+  });
+});
+
+describe('promptRootOf', () => {
+  const trees = (answer: Awaited<ReturnType<Trees['mainRoot']>>): Pick<Trees, 'mainRoot'> => ({ mainRoot: async () => answer });
+
+  it('answers the main checkout of a desk, and logs nothing', async () => {
+    const logs: string[] = [];
+    expect(await promptRootOf({}, trees({ ok: true, value: '/repo' }), '/repo/.worktrees/desk-1', (l) => logs.push(l))).toBe('/repo');
+    expect(logs).toEqual([]);
+  });
+
+  it('answers PLOT_REPO_ROOT where it is set, without asking git', async () => {
+    const asked: string[] = [];
+    const port: Pick<Trees, 'mainRoot'> = { mainRoot: async (p) => (asked.push(p), { ok: true, value: '/other' }) };
+    expect(await promptRootOf({ PLOT_REPO_ROOT: '/fixed' }, port, '/repo/.worktrees/desk-1', () => undefined)).toBe('/fixed');
+    expect(asked).toEqual([]);
+  });
+
+  it("falls back to the desk's own copy with one line where the main checkout cannot be read", async () => {
+    const logs: string[] = [];
+    const desk = '/repo/.worktrees/desk-1';
+    expect(await promptRootOf({ PLOT_REPO_ROOT: '' }, trees({ ok: false, why: 'failed' }), desk, (l) => logs.push(l))).toBe(desk);
+    expect(logs).toEqual([
+      `plot-worker-loop: the main checkout of ${desk} cannot be read; the prompt and the charters resolve from the desk's own copy`,
+    ]);
   });
 });
