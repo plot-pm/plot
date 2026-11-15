@@ -350,7 +350,7 @@ offers the same value where the key is absent:
 The command runs inside the worktree with `PLOT_BRANCH`, `PLOT_WORKTREE` and
 `PLOT_SESSION_ID` set, detached, with output to `.plot-worker.log`. The loop
 runs the project's `.plot/worker-prompt.sh` once per slice, and that file holds
-the harness call; `plot-install-prompt.sh` writes one from the shipped
+the harness call. The loop reads that file and the agent charters from the main checkout, not from the desk's branch, so a prompt change on the default branch reaches a desk cut earlier on its next prompt; `plot-install-prompt.sh` writes one from the shipped
 template. The bare name resolves because `plot-dispatch.sh` puts its own
 directory first on `PATH` for the command it launches, so a plugin install and a
 checkout both run the loop shipped beside the script.
