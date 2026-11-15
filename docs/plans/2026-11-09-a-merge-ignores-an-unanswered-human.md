@@ -55,7 +55,7 @@ The rule "read human PR comments before merging" exists only as a master agent's
 
 ### Wave 1
 
-- `bug/the-host-reads-a-pr-conversation` — `Host.prConversation(pr)` returns the PR author's login and every issue comment, inline comment and review of a PR with author, account type, time, body and review state, over REST with all pages; `plot-host.sh pr-conversation <n>` is its shell op, and the Bitbucket arm reads comments and approvals over Bitbucket's REST API, measured read-only against ewz-kus-portal (the slice opens its PR only once that read-only measurement passes; until then the arm answers `unaskable`) <!-- builds: prConversation, a host read of a PR's comments and reviews -->
+- `bug/the-host-reads-a-pr-conversation` — `Host.prConversation(pr)` returns the PR author's login and every issue comment, inline comment and review of a PR with author, account type, time, body and review state, over REST with all pages; `plot-host.sh pr-conversation <n>` is its shell op, and the Bitbucket arm reads comments and approvals over Bitbucket's REST API, measured read-only against ewz-kus-portal (the slice opens its PR only once that read-only measurement passes; until then the arm answers `unaskable`) <!-- builds: prConversation, a host read of a PR's comments and reviews --> → #3455
 
 ### Wave 2
 

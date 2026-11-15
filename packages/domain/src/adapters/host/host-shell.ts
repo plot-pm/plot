@@ -5,7 +5,7 @@ import {
   type LimitReading,
 } from '../../entities/limit.js';
 import type { Checks, Mergeability, Pr, PrState, ReviewVerdict } from '../../entities/pr.js';
-import { answered, failed, type PortResult } from '../../port-result.js';
+import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import type {
   CommitStatusWrite,
   Host,
@@ -18,6 +18,7 @@ import type {
   PrListingQuery,
   PrListingRow,
   PrLookup,
+  PrConversationReading,
   PrReviewReading,
 } from '../../ports/host.js';
 import {
@@ -643,6 +644,11 @@ export const hostShell = (context: ShellContext, answers: FixedAnswers = process
     prReview: (number) =>
       ask(['pr-review', String(number)], (stdout) => asJson<PrReviewReading>(stdout)),
 
+    // The shell has no conversation read: `hostReadsFor` composes the
+    // in-process one, and a process on the shell transport asks nothing.
+    prConversation: async (): Promise<PortResult<PrConversationReading>> =>
+      unaskable('the conversation read is in-process only and needs a host credential'),
+
     // BITBUCKET KEEPS NO WRITER, so it answers `''` without reading config:
     // `checkedReview` reads that as unchecked. `plot-review-writer.mjs` reads
     // `Review app` from `origin/<default>` and never from the working tree.
@@ -652,6 +658,11 @@ export const hostShell = (context: ShellContext, answers: FixedAnswers = process
       const run = await runScripted('node', [scriptPath(context, 'plot-review-writer.mjs')], inRepo);
       return resultOf(run, asText);
     },
+
+    // THE SHELL HAS NO PROTECTION OP. The read is in-process (`host-protection.ts`),
+    // and a host composed without it cannot be asked: `unaskable`, never an
+    // empty list.
+    branchRestrictions: async (): Promise<PortResult<readonly string[]>> => unaskable(),
 
     lastRefusal: (): HostRefusal | null => refusal,
   };

@@ -82,6 +82,33 @@ test('template: carries the invocation and no session decision of its own', () =
     'the bash 3.2 safe expansion is what reaches claude');
 });
 
+// THE NEWEST ENTRY IS NOT THE FIRST ONE. `PLOT-CORRECTION.md` only grows, so a
+// person's answer sits below every earlier finding. Measured 2026-11-15: an
+// agent read the first 40 lines, found only an old restart entry and stayed
+// blocked. The prompt names the answer's heading only when the loop passes one.
+const promptText = (file, heading) => {
+  const fake = path.join(tmp, 'fake-harness');
+  fs.writeFileSync(fake, '#!/usr/bin/env bash\nprintf \'%s\\n\' "$@"\n', { mode: 0o755 });
+  const env = { ...process.env, PLOT_HARNESS: fake, PLOT_BRANCH: 'feature/x', PLOT_SESSION_ID: '' };
+  delete env.PLOT_CONTINUATION_HEADING;
+  if (heading !== undefined) env.PLOT_CONTINUATION_HEADING = heading;
+  return execFileSync('/bin/bash', [file], { env, encoding: 'utf8' });
+};
+
+for (const [name, file] of [['template', template], ['this repository\'s installed prompt', path.join(repoRoot, '.plot', 'worker-prompt.sh')]]) {
+  test(`${name}: names the continuation answer's heading only when the loop passes one`, () => {
+    const heading = '## Continuation answer 0123456789ab';
+    const answered = promptText(file, heading);
+    assert.match(answered, /read the whole file before anything else/);
+    assert.match(answered, /the last entry is the newest/);
+    assert.ok(answered.includes(`The entry under the heading "${heading}" is the answer of a person to your PLOT-BLOCKED.md question, and it supersedes every earlier entry`));
+    for (const unanswered of [promptText(file, ''), promptText(file, undefined)]) {
+      assert.match(unanswered, /the last entry is the newest/);
+      assert.ok(!unanswered.includes('The entry under the heading'), 'no heading sentence without a continuation');
+    }
+  });
+}
+
 test('template: does not ship this estate\'s own instructions', () => {
   // "Do not hardcode this repo's prompt as the template" — ours carries
   // project-specific instruction (CLAUDE.md rules, pnpm gates, board
