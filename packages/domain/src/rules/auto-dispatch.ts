@@ -666,6 +666,69 @@ export const dispatchReading = (pulse: FleetReading | null, slug: string): Dispa
   return eligible > 0 ? { kind: 'held', held } : { kind: 'no-branch' };
 };
 
+/** Why a dispatch that names its branch refuses it: see {@link dispatchReadingFor}. */
+export type NamedBranchRefusal = 'no-pulse-reading' | 'branch-not-in-plan' | 'branch-not-startable';
+
+/** What a pulse says about starting a plan, refusals of a named branch included. */
+export type DispatchReadingFor =
+  | DispatchReading
+  | { kind: 'branch-refused'; reason: NamedBranchRefusal; branch: string; detail: string };
+
+/** A list of names as prose: `a`, `a and b`, `a, b and c`. */
+const joinNames = (names: string[]): string =>
+  names.length <= 1 ? (names[0] ?? 'an unnamed prerequisite') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+
+/** Why a branch of an eligible slice is not startable, or `null` where it is. */
+const branchHold = (b: Branch): string | null => {
+  switch (b.state) {
+    case 'waiting':
+    case 'blocked':
+      return `it is held on ${joinNames(b.waits_on)}`;
+    case 'claimed':
+    case 'merged':
+    case 'deferred':
+      return `it is ${b.state}`;
+    case 'unknown':
+      return 'the host could not say whether it merged';
+    default:
+      return refBlocksClaim(b) ? 'its claim ref already exists' : null;
+  }
+};
+
+/**
+ * What a pulse says about starting `slug`, optionally at one named branch.
+ *
+ * Without `branch` the answer is {@link dispatchReading}'s. With `branch` the
+ * answer is `branch` carrying that name where the branch belongs to an eligible
+ * slice of the plan and no hold applies (exactly where {@link startableBranches}
+ * offers it, since `branchHold` covers every state it excludes). Otherwise it is
+ * `branch-refused`: `no-pulse-reading` where the pulse holds no dispatchable
+ * reading of the plan, `branch-not-in-plan` where no slice of the plan names the
+ * branch, and `branch-not-startable` with the reason (the slice's verdict, the
+ * prerequisites it is held on, or its state) in `detail`.
+ *
+ * @param pulse - a fleet reading, or `null` where there is none.
+ * @param slug - the plan slug.
+ * @param branch - the branch the caller names, or `undefined`.
+ * @returns the reading.
+ */
+export const dispatchReadingFor = (
+  pulse: FleetReading | null,
+  slug: string,
+  branch?: string,
+): DispatchReadingFor => {
+  if (branch === undefined) return dispatchReading(pulse, slug);
+  const refuse = (reason: NamedBranchRefusal, detail: string): DispatchReadingFor => ({ kind: 'branch-refused', reason, branch, detail });
+  const plan = pulse?.plans.find((p) => dispatchPhase(p.phase) && planSlug(p.file) === slug);
+  if (pulse === null || plan === undefined) return refuse('no-pulse-reading', `the pulse holds no dispatchable reading of plan ${slug}`);
+  const slice = plan.slices.find((s) => s.branches.some((b) => b.branch === branch));
+  const found = slice?.branches.find((b) => b.branch === branch);
+  if (slice === undefined || found === undefined) return refuse('branch-not-in-plan', `${branch} is not a branch of plan ${slug}`);
+  const why = slice.verdict === 'eligible' ? branchHold(found) : `its slice "${slice.name}" is ${slice.verdict}`;
+  if (why !== null) return refuse('branch-not-startable', `${branch} is not startable: ${why}`);
+  return { kind: 'branch', branch };
+};
+
 /**
  * The branches auto-dispatch DECLINED to start because their own ref already
  * blocks a claim — `ref_held` is true. See {@link refBlocksClaim}.

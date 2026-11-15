@@ -5,11 +5,11 @@ description: >-
   detached worker per branch, each claimed atomically. The writing half of
   the fleet. Use on /plot-dispatch.
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 0.21.0
+  version: 0.23.0
 compatibility: >-
   Designed for Claude Code and Cursor. Requires git with worktree support and
   python3. Starting workers needs a `Worker command` in Plot Config, which
@@ -34,8 +34,8 @@ agents, several branches, real tokens. Monitoring is automatable; committing to
 parallel work is a decision. This command therefore never runs itself, and
 `--dry-run` exists so the decision can be taken with the facts in hand.
 
-**Input:** `$ARGUMENTS` = `[--dry-run] [--no-start] [--max N] [--allow-local]
-[--allow-waiting] <slug>`,
+**Input:** `$ARGUMENTS` = `[--dry-run] [--no-start] [--max N] [--branch <branch>]
+[--allow-local] [--allow-waiting] <slug>`,
 or `--start [N]` to bring free agents into existence,
 or `--status` / `--stop <branch>` / `--restart <branch>` to inspect, stop or
 replace a worker, or `--release <branch>` to return an abandoned claim to the
@@ -238,8 +238,10 @@ Skip this step when the key already holds anything at all — a command or
 ### 4. Fan Out
 
 ```bash
-../plot/scripts/plot-dispatch.sh [--max N] <slug>
+../plot/scripts/plot-dispatch.sh [--max N] [--branch <branch>] <slug>
 ```
+
+`--branch <branch>` hands over that one branch of the plan and leaves every other eligible branch in the queue. A branch the scan does not offer as eligible is not handed over, and the footer reads `dispatched=0`. The master agent's controller takes the same choice: `plot-dispatch-command.mjs <slug> --branch <branch>` briefs and hands over that branch, and refuses `no-pulse-reading`, `branch-not-in-plan` or `branch-not-startable` (with the reason: the prerequisites it is held on, claimed, merged, deferred, a claim ref, or its slice's verdict) where the pulse does not show it startable.
 
 Per branch the script: creates `../plot-wt-<suffix>`, **claims the branch by
 pushing its ref**, and starts a detached worker. A push that would overwrite an
@@ -606,6 +608,8 @@ uncommitted work — that is what `stalled` means, and a measured stall here lef
 324 finished lines on the floor — so nothing is cleaned, reset or stashed. The
 new worker starts through the continuation engine, so it gets a manifest and
 the fleet can see it: a restart the fleet cannot see has not succeeded.
+
+**A branch with no worktree on this machine resumes from origin.** Where `origin/<branch>` carries a `plot: claim <branch>` commit and work beyond it, an approved plan's slice names the branch, and the host reports no PR other than an open draft, the restart cuts `<Worktree root>/desk-<8 hex>` on the branch tracking `origin/<branch>` and starts the agent there; the manifest records the slice's `base` for a sprint plan, so the PR targets the sprint branch. It refuses `no-worktree` (origin holds no ref), `origin-unreadable`, `not-claimed`, `no-work` (only the claim), `held-by-agent` (a live agent's manifest names the branch), `local-unpushed` (the local branch holds commits origin lacks), `pr-unanswerable` (including `--offline`) and `reached-review`, each before any desk is cut.
 
 ## Migrating existing worktrees into the configured root
 

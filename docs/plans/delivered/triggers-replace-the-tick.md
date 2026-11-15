@@ -1,0 +1,1 @@
+../2026-11-10-triggers-replace-the-tick.md

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** the-board-reads-the-channel
 - **Issue:** #3170
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-08, Jan Wloka, plan-PR #3278 merged
 - **Delivered:** 2026-11-09
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
@@ -79,23 +80,23 @@ This plan depends on `the-channel-carries-readings` (the board receives `RepoSna
 
 ### View from snapshot
 
-- `feature/board-reads-the-channel-view` — `boardSource` in `packages/domain/src/rules/board-watch.ts`; `fleetViewFrom` in `packages/domain/src/workflows/board-view.ts`; the readings the board still reads alone added to `RepoSnapshot` and filled by fleetd; a parity corpus test <!-- builds: fleetViewFrom, the board's fleet view derived from a RepoSnapshot -->
+- `feature/board-reads-the-channel-view` — `boardSource` in `packages/domain/src/rules/board-watch.ts`; `fleetViewFrom` in `packages/domain/src/workflows/board-view.ts`; the readings the board still reads alone added to `RepoSnapshot` and filled by fleetd; a parity corpus test <!-- builds: fleetViewFrom, the board's fleet view derived from a RepoSnapshot --> → #3289
 
 ### Serve from snapshot
 
-- `feature/board-reads-the-channel-serve` — `refresh` and `GET /api/board` serve from the held snapshot when `boardSource` answers `snapshot` and fall back on `own`; a delta sends one SSE event; spawn-spy board tests; a changeset for `@plot-pm/board` <!-- builds: a board server that serves from the channel snapshot and spawns nothing while fleetd lives -->
+- `feature/board-reads-the-channel-serve` — `refresh` and `GET /api/board` serve from the held snapshot when `boardSource` answers `snapshot` and fall back on `own`; a delta sends one SSE event; spawn-spy board tests; a changeset for `@plot-pm/board` <!-- builds: a board server that serves from the channel snapshot and spawns nothing while fleetd lives --> → #3291
 
 ### Census zero
 
-- `feature/board-reads-the-channel-census` — the residual sources S3's log names removed; S3 set `green: true` with `greenBy` this plan and slice in `census-rows.ts`, and `it.fails` changed to `it` in `board.census.test.ts`; a changeset for `@plot-pm/board` <!-- builds: census S3 at zero, a required pass -->
+- `feature/board-reads-the-channel-census` — the residual sources S3's log names removed; S3 set `green: true` with `greenBy` this plan and slice in `census-rows.ts`, and `it.fails` changed to `it` in `board.census.test.ts`; a changeset for `@plot-pm/board` <!-- builds: census S3 at zero, a required pass --> → #3299
 
 ### Vendor gate
 
-- `bug/board-reads-the-channel-vendor-gate` — `branchUrlBase` names `github` and `bitbucket` in `packages/domain/src/rules/branch-url.ts` since #3289, and CI's "The domain names no vendor" gate refuses it on the sprint PR (#3277, run 42578481530); move the host knowledge behind an adapter, as #3232 did for tracker keys <!-- builds: branchUrlBase outside the domain's rules -->
+- `bug/board-reads-the-channel-vendor-gate` — `branchUrlBase` names `github` and `bitbucket` in `packages/domain/src/rules/branch-url.ts` since #3289, and CI's "The domain names no vendor" gate refuses it on the sprint PR (#3277, run 42578481530); move the host knowledge behind an adapter, as #3232 did for tracker keys <!-- builds: branchUrlBase outside the domain's rules --> → #3301
 
 ### Main merge
 
-- `bug/board-reads-the-channel-main-merge` — the sprint PR's CI (run 42589744654) fails three fleet tests after `main` merged in: the snapshot's `config` reading drops the `State branch` key `main` added, and two heartbeat `run` tests time out waiting for a beat under coverage <!-- builds: a config reading that carries every Plot Config key, and heartbeat run tests that wait on the beat itself -->
+- `bug/board-reads-the-channel-main-merge` — the sprint PR's CI (run 42589744654) fails three fleet tests after `main` merged in: the snapshot's `config` reading drops the `State branch` key `main` added, and two heartbeat `run` tests time out waiting for a beat under coverage <!-- builds: a config reading that carries every Plot Config key, and heartbeat run tests that wait on the beat itself --> → #3303
 
 ## Notes
 

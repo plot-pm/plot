@@ -57,6 +57,33 @@ export interface Clock {
   schedule(intervalMs: number, onTick: () => void): Cancel;
 
   /**
+   * Reads a monotonic time.
+   *
+   * Milliseconds from an origin the caller never sees. The reading never goes
+   * backwards and does not move when the wall clock is set, and a process
+   * suspended by a sleeping machine does not see it advance by the sleep. The
+   * difference between two readings is elapsed time, and compared with the
+   * difference between two `now` readings it shows a wake or a wall-clock jump.
+   *
+   * @returns monotonic milliseconds from an arbitrary origin.
+   */
+  monotonic(): PortResult<number>;
+
+  /**
+   * Calls `onFire` once, after `delayMs`, unless cancelled first.
+   *
+   * The timer is unreffed like {@link Clock.schedule}: it never keeps a process
+   * alive. It counts monotonic time, so a machine that sleeps through the delay
+   * fires it late; a caller that waits on a wall-clock deadline re-checks the
+   * wall clock when it fires, and on a wake that `clockDrift` reads.
+   *
+   * @param delayMs - the delay, in milliseconds.
+   * @param onFire - what to run once.
+   * @returns a function that cancels the timer.
+   */
+  timeout(delayMs: number, onFire: () => void): Cancel;
+
+  /**
    * Reads the local timezone offset, in minutes east of UTC.
    *
    * A transition record is dated in local time, so the offset is a reading

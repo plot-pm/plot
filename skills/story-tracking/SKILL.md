@@ -2,11 +2,11 @@
 name: story-tracking
 description: "Use when user says \"continue on\", \"work on\", \"create story\", \"new story\", \"resume\", or references a JIRA ticket for multi-session work. NOT for Storybook UI component stories."
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: "2.0.0"
+  version: "2.1.0"
   source: "Adopted from quatico-solutions/agent-skills"
 compatibility: Designed for Claude Code and Cursor. Requires git.
 ---

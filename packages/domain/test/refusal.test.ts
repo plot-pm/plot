@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   localSpenders,
   refusalKind,
+  refusalKindOf,
   refusalReport,
   resetApplies,
 } from '../src/rules/refusal.js';
@@ -174,5 +175,31 @@ describe('refusalReport — what the banner is told about one refusal', () => {
 
   it('answers null where nothing failed', () => {
     expect(refusalReport(null, { perHour: 180 }, INTERVAL, GITHUB)).toBeNull();
+  });
+});
+
+describe('a refused credential', () => {
+  it('reads auth off a 401 and a signed-out CLI, never outage', () => {
+    expect(refusalKind('HTTP 401: Bad credentials (https://api.github.com/graphql)')).toBe('auth');
+    expect(refusalKind('gh: authentication required')).toBe('auth');
+    expect(refusalKind('HTTP 503')).toBe('outage');
+  });
+
+  it('keeps a limit word ahead of the credential words', () => {
+    expect(refusalKind('API rate limit exceeded; HTTP 401')).toBe('quota');
+  });
+});
+
+describe('refusalKindOf', () => {
+  it('takes the connector kind where it names a limit or a credential', () => {
+    expect(refusalKindOf('throttled', 'whatever')).toBe('quota');
+    expect(refusalKindOf('secondary', 'whatever')).toBe('secondary');
+    expect(refusalKindOf('auth', 'whatever')).toBe('auth');
+  });
+
+  it('reads a failed refusal by its words', () => {
+    expect(refusalKindOf('failed', 'You have exceeded a secondary rate limit')).toBe('secondary');
+    expect(refusalKindOf('failed', 'HTTP 503')).toBe('outage');
+    expect(refusalKindOf('failed', '')).toBe('outage');
   });
 });

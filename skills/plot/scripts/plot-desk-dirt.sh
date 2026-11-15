@@ -8,7 +8,7 @@
 # FOUR READERS, not three. `plot_worker_dirty_filter` (`plot-worker-state.sh`)
 # decides `stalled`, `desk_is_resettable`, and the `--restart`/`--release`
 # refusals; `desk_dirt` below serves the reaper and reconcile §21;
-# `bashCleanliness` (`packages/board/src/server/registry.ts`) serves the
+# `deskCleanliness` (`packages/fleet/src/shared/registry.ts`) serves the
 # board's drop rule; and the raw porcelain reads in `plot-dispatch.sh` and
 # `plot-fleetctl.sh`. All four must read one desk the same way: a desk the
 # reaper removes and section 21 keeps for `uncommitted-changes` is two answers
@@ -74,10 +74,17 @@
 # caller reads that marker separately.
 
 # bundle_paths <worktree> — the generated board bundle paths, one per line,
-# derived from that worktree's own `packages/board/build.mjs`. The SAME
-# `shipped[A-Za-z]* = path.join(...)` reading `check-bundle-attributes.sh`,
-# `scripts/main-bundles.sh` and `scripts/check-no-bundle-diff.sh` already
-# share, so a fifth derivation can never name a different set.
+# derived from that worktree's own `packages/board/build.mjs`: each
+# `shipped<Name> = path.join(…, '../../<path>')` declaration yields `<path>`.
+# The file is read as ONE line, so a declaration whose `path.join(` arguments
+# wrap over several lines counts too, with or without a trailing comma.
+# `shippedRestartStoppedCommand` wraps over four lines, and the one-line grep
+# this replaced read 79 of 80 declarations at b7808d7af (2026-11-14).
+#
+# DECLARED DUPLICATE of `bundlePathsOf` (`packages/domain/src/rules/
+# desk-dirt-filter.ts`), which reads the same pattern over the same one-line
+# text. `packages/fleet/test/unit/desk-clean-parity.test.ts` holds the two to
+# one answer.
 #
 # PRINTS NOTHING ON ANY FAILURE — no worktree, no build file, no declaration
 # found — so a desk this cannot read is excused from nothing rather than
@@ -87,7 +94,7 @@ bundle_paths() { # $1=worktree
   [ -n "$wt" ] && [ -d "$wt" ] || return 0
   build="$wt/packages/board/build.mjs"
   [ -f "$build" ] || return 0
-  grep -aoE "shipped[A-Za-z]* = path\.join\([^)]*'[^']*'\)" "$build" 2>/dev/null \
+  tr '\n' ' ' <"$build" 2>/dev/null | grep -aoE "shipped[A-Za-z]* = path\.join\([^)]*'[^']*'[[:space:],]*\)" \
     | sed -E "s|.*'\.\./\.\./([^']*)'.*|\1|" \
     | sort -u || true
 }
@@ -128,7 +135,7 @@ exclude_bundle_paths() { # $1=worktree, stdin=porcelain lines
 desk_dirt() {
   git -C "$1" status --porcelain 2>/dev/null \
     | grep -v 'tiny-garden/\.plot/state' \
-    | grep -vxFf <(printf '%s\n' '?? PLOT-CORRECTION.md' '?? .plot-worker.continue.md' '?? .plot-worker.pid.startedAt' '?? .plot-worker.pid' '?? .plot-worker.wrapper.pid' '?? .plot-worker.exit' '?? .plot-worker.log' '?? .plot-worker.freewait' '?? .plot-worker.ending.json' '?? .plot-worker.envelope.json' '?? .plot-worker.monitor.worker.jsonl' '?? .plot-worker.monitor.agent.jsonl' '?? .plot-worker.monitor.build.jsonl') \
+    | grep -vxFf <(printf '%s\n' '?? PLOT-CORRECTION.md' '?? .plot-worker.continue.md' '?? .plot-worker.pid.startedAt' '?? .plot-worker.pid' '?? .plot-worker.wrapper.pid' '?? .plot-worker.exit' '?? .plot-worker.log' '?? .plot-worker.freewait' '?? .plot-worker.ending.json' '?? .plot-worker.envelope.json' '?? .plot-worker.monitor.worker.jsonl' '?? .plot-worker.monitor.agent.jsonl' '?? .plot-worker.monitor.build.jsonl' '?? .plot-worker.pass') \
     | exclude_bundle_paths "$1" \
     || true
 }

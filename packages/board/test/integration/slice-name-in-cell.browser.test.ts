@@ -98,7 +98,7 @@ describe('the wave name stays in its cell', () => {
       over: { fleet: fleet() },
       viewport: { width, height: 1400 },
     });
-    await page.getByText('Not started').first().waitFor({ timeout: 15_000 });
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 15_000 });
     await expandAgentFolds(page);
     return page;
   }

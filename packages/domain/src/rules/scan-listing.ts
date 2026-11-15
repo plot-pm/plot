@@ -1,4 +1,4 @@
-import { extractHostNotices } from './pr-status.js';
+import type { PrListingCompleteness, PrListingRow } from '../ports/host.js';
 import { sinceWatermark } from './known-pr.js';
 import { refusalKind } from './refusal.js';
 
@@ -78,29 +78,20 @@ const newestUpdatedAt = (rows: readonly ScanListingRow[]): string | null =>
   }, null);
 
 /**
- * Reads `plot-host.sh pr-list` stdout — one compact JSON object per line —
- * into {@link ScanListingRow}s.
+ * Reads listed PR rows into {@link ScanListingRow}s.
  *
  * Reads `head`, `state` and `updatedAt` from every row. Reads `checks` and
  * `draft` only from a row that carries a `checks` string, which is the
  * `--rich` shape; a plain row gets neither, exactly as
  * `plot-fleet-scan.sh`'s `prefill_pr_states` fills `-` for both.
  *
- * @param stdout - the call's stdout.
- * @returns the rows, or null where a line is not JSON or a row carries no
- *   non-empty `head` or `state` string.
+ * @param listed - the rows as the host listed them.
+ * @returns the rows, or null where a row carries no non-empty `head` or
+ *   `state` string.
  */
-export const parseScanListingRows = (stdout: string): ScanListingRow[] | null => {
+export const scanListingRowsOf = (listed: readonly PrListingRow[]): ScanListingRow[] | null => {
   const rows: ScanListingRow[] = [];
-  for (const line of stdout.split('\n')) {
-    if (line.trim() === '') continue;
-    let pr: Record<string, unknown>;
-    try {
-      pr = JSON.parse(line) as Record<string, unknown>;
-    } catch {
-      return null;
-    }
-    if (pr === null || typeof pr !== 'object') return null;
+  for (const pr of listed) {
     const { head, state, updatedAt, checks, draft } = pr;
     if (typeof head !== 'string' || head === '') return null;
     if (typeof state !== 'string' || state === '') return null;
@@ -112,6 +103,30 @@ export const parseScanListingRows = (stdout: string): ScanListingRow[] | null =>
     rows.push(row);
   }
   return rows;
+};
+
+/**
+ * Reads `plot-host.sh pr-list` stdout — one compact JSON object per line —
+ * into {@link ScanListingRow}s, as {@link scanListingRowsOf} reads each row.
+ *
+ * @param stdout - the call's stdout.
+ * @returns the rows, or null where a line is not a JSON object or a row
+ *   carries no non-empty `head` or `state` string.
+ */
+export const parseScanListingRows = (stdout: string): ScanListingRow[] | null => {
+  const listed: PrListingRow[] = [];
+  for (const line of stdout.split('\n')) {
+    if (line.trim() === '') continue;
+    let pr: unknown;
+    try {
+      pr = JSON.parse(line);
+    } catch {
+      return null;
+    }
+    if (pr === null || typeof pr !== 'object') return null;
+    listed.push(pr as PrListingRow);
+  }
+  return scanListingRowsOf(listed);
 };
 
 /**
@@ -231,8 +246,8 @@ export interface ScanListingAnswer {
   verdict: 'ok' | 'partial' | 'failed';
   /** The rows the call returned; empty where the call failed. */
   rows: readonly ScanListingRow[];
-  /** The call's raw stderr, for the whole-page claim to be read from. */
-  stderr: string | null;
+  /** Whether the host claimed the asked state's page whole. */
+  complete: PrListingCompleteness;
 }
 
 /** Why a fold refused to produce a listing. */
@@ -249,14 +264,12 @@ export type ScanListingFold =
   | { ok: false; refusal: ScanListingRefusal };
 
 /**
- * Whether an answer is a whole page: an `ok` answer whose stderr claims its
- * page whole, or an `ok` answer with no rows, for which `plot-host.sh`'s
+ * Whether an answer is a whole page: an `ok` answer whose state reads `whole`,
+ * or an `ok` answer with no rows, for which `plot-host.sh`'s
  * `pr_list_report_truncation` owes no claim.
  */
 const wholePage = (answer: ScanListingAnswer): boolean =>
-  answer.verdict === 'ok' && (answer.rows.length === 0
-    || extractHostNotices(answer.stderr).notices.some((notice) =>
-      /sweep complete|page complete|window complete/.test(notice.text)));
+  answer.verdict === 'ok' && (answer.rows.length === 0 || answer.complete === 'whole');
 
 /**
  * Folds a full-read-or-delta-read pair of host responses over a carried
@@ -272,8 +285,8 @@ const wholePage = (answer: ScanListingAnswer): boolean =>
  * caught any change to it, so its absence is doubt, not confirmation it is
  * still open.
  *
- * A page is whole where its stderr claims it whole, or where it answered `ok`
- * with no rows. A full read whose two pages both hold no rows is refused: an
+ * A page is whole where its completeness word reads `whole`, or where it
+ * answered `ok` with no rows. A full read whose two pages both hold no rows is refused: an
  * empty answer is not evidence of a repository with no pull requests.
  *
  * `complete` is true for a full read, where both pages are whole, and for a
@@ -339,6 +352,8 @@ export interface PulseListingCall {
   said: string;
   /** The refusal the host named on a failed call, where it named one. */
   kind?: 'throttled' | 'secondary';
+  /** Whether the host claimed the asked state's page whole. */
+  complete: PrListingCompleteness;
 }
 
 /** The scan's own listing: the rows it holds, as a carried listing reads them, and how the host answered. */
@@ -385,10 +400,6 @@ const pulseRows = (stdout: string): ScanListingRow[] =>
     return rows === null ? [] : rows;
   });
 
-/** Whether a call's stderr claims its page whole: `plot-host.sh`'s sweep or page-complete sentence. */
-const claimsWhole = (said: string): boolean =>
-  /pr-list sweep complete/.test(said) || /pr-list state=\S+ page complete /.test(said);
-
 /**
  * Folds the scan's own two `pr-list` calls into one listing: `--state open
  * --rich`, then `--state settled`, the second asked only where the first
@@ -401,7 +412,7 @@ const claimsWhole = (said: string): boolean =>
  * OPEN, then MERGED, then any other state, the first of a rank where two tie.
  *
  * THE LISTING IS COMPLETE only where the open call answered in full and either
- * both calls' stderr claims its page whole, or, with no claim, the settled
+ * both calls' pages read `whole`, or, with no claim, the settled
  * payload holds at least one row and each payload holds fewer rows than
  * `limit`. A page at its limit with no claim may be truncated, so it licenses
  * nothing.
@@ -427,7 +438,7 @@ export const foldPulseListing = (open: PulseListingCall, settled: PulseListingCa
     if (held === undefined || rank(row.state) < rank(held.state)) kept.set(row.head, row);
   }
   const complete = verdicts[0] === 'ok'
-    && ((claimsWhole(open.said) && claimsWhole(settled.said))
+    && ((open.complete === 'whole' && settled.complete === 'whole')
       || (settledRows.length > 0 && settledRows.length < limit && openRows.length < limit));
   return { verdict: worst, listing: readCarriedPrStates(renderScanListing([...kept.values()], complete)!), said: '' };
 };

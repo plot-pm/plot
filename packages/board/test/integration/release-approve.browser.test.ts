@@ -51,11 +51,11 @@ describe('the release row approves itself', () => {
           route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ registered: true, credentialId: 'cred' }) }),
       },
     });
-    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     return page;
   };
 
-  it('shows the button on a ready release row and hides it where the review names another head', async () => {
+  it('enables the button on a ready release row and disables it with a reason where the review names another head', async () => {
     const ready = await open(HEAD);
     try {
       const button = ready.getByRole('button', { name: 'Approve release' });
@@ -67,8 +67,10 @@ describe('the release row approves itself', () => {
     }
     const stale = await open(OTHER);
     try {
-      await stale.locator('[data-kind]').first().waitFor({ timeout: 10_000 });
-      expect(await stale.getByRole('button', { name: 'Approve release' }).count()).toBe(0);
+      const button = stale.getByRole('button', { name: 'Approve release' });
+      await expect.poll(() => button.count(), { timeout: 10_000 }).toBe(1);
+      expect(await button.isEnabled()).toBe(false);
+      expect(await stale.locator('[data-testid="release-approve-reason"]').textContent()).toMatch(/older head/);
     } finally {
       await stale.close();
     }

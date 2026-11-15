@@ -65,6 +65,25 @@ test('bundle_paths: derives the set from build.mjs, one path per line', () => {
   assert.equal(r.stdout.trim(), 'skills/plot/scripts/board/board-server.mjs');
 });
 
+// `shippedRestartStoppedCommand` in `packages/board/build.mjs` wraps its
+// `path.join(` arguments over four lines; a one-line grep missed it.
+test('bundle_paths: reads a declaration whose path.join wraps over several lines', () => {
+  const dir = repo();
+  writeFileSync(path.join(dir, 'packages', 'board', 'build.mjs'), BUILD + [
+    'const shippedRestartStoppedCommand = path.join(',
+    '  here,',
+    "  '../../skills/plot/scripts/board/plot-restart-stopped-command.mjs',",
+    ');',
+    '',
+  ].join('\n'));
+  const r = call('bundle_paths', dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(r.stdout.trim().split('\n'), [
+    'skills/plot/scripts/board/board-server.mjs',
+    'skills/plot/scripts/board/plot-restart-stopped-command.mjs',
+  ]);
+});
+
 test('bundle_paths: prints nothing when build.mjs is missing', () => {
   const dir = scratch();
   const r = call('bundle_paths', dir);
@@ -167,6 +186,7 @@ const WORKER_FILES = [
   '.plot-worker.monitor.worker.jsonl',
   '.plot-worker.monitor.agent.jsonl',
   '.plot-worker.monitor.build.jsonl',
+  '.plot-worker.pass',
 ];
 
 for (const name of WORKER_FILES) {
@@ -183,11 +203,20 @@ for (const name of WORKER_FILES) {
   });
 }
 
+test('desk_dirt: a liveness token FIFO is no git status line, so it needs no exclusion', () => {
+  const dir = repo();
+  execFileSync('mkfifo', [path.join(dir, '.plot-worker.token.fifo'), path.join(dir, '.plot-worker.token.fifo.4242.tmp')]);
+  assert.equal(execFileSync('git', ['-C', dir, 'status', '--porcelain'], { encoding: 'utf8' }), '');
+  const r = call('desk_dirt', dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), '');
+});
+
 test('desk_dirt: the full file set of a dead worker reads clean', () => {
   const dir = repo();
   for (const name of ['.plot-worker.ending.json', '.plot-worker.envelope.json', '.plot-worker.exit',
     '.plot-worker.monitor.worker.jsonl', '.plot-worker.monitor.agent.jsonl', '.plot-worker.continue.md',
-    '.plot-worker.pid']) {
+    '.plot-worker.pid', '.plot-worker.pass']) {
     writeFileSync(path.join(dir, name), 'x\n');
   }
   const r = call('desk_dirt', dir);

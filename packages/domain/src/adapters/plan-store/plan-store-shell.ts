@@ -9,6 +9,7 @@ import type {
   PlanStore,
 } from '../../ports/plan-store.js';
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
+import { parsedPlans } from '../../rules/parsed-plans.js';
 import { asJsonLines, asText, runProcess, runScript, resultOf } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
@@ -44,6 +45,10 @@ export interface RawPlan {
   released_raw?: string;
   started_raw?: string[];
   unread_branch_items?: RawUnreadBranchItem[];
+  issues?: (number | string)[];
+  design_raw?: string;
+  verified_raw?: string;
+  rounds?: number;
   error?: string;
 }
 
@@ -173,6 +178,11 @@ export const planOf = (raw: RawPlan, rejectedRaw = ''): PlanRecord => ({
   startedRaw: raw.started_raw ?? [],
   rejectedRaw,
   unreadBranchItems: (raw.unread_branch_items ?? []).map(unreadBranchItemOf),
+  issues: (raw.issues ?? []).map(String),
+  designRaw: raw.design_raw ?? '',
+  verifiedRaw: raw.verified_raw ?? '',
+  ...(typeof raw.rounds === 'number' ? { rounds: raw.rounds } : {}),
+  ...(raw.error === undefined ? {} : { error: raw.error }),
 });
 
 /**
@@ -238,10 +248,10 @@ export const planStoreShell = (context: ShellContext): PlanStore => {
       [meta, ...(configured.ok ? prefixArgs(configured.value) : []), ...files],
       { cwd: context.repoRoot },
     );
+    // A line carrying `error` is kept as a record with its `file` and `error`,
+    // and `parsedPlans` drops it from what this port answers.
     const parsed = resultOf(run, (stdout) =>
-      asJsonLines<RawPlan>(stdout)
-        .filter((raw) => raw.error === undefined)
-        .map((raw) => ({ file: raw.file ?? '', plan: planOf(raw) })),
+      parsedPlans(asJsonLines<RawPlan>(stdout).map((raw) => planOf(raw))).map((plan) => ({ file: plan.file, plan })),
     );
     if (!parsed.ok) return parsed;
     // THE `Rejected:` LINE, read from each file's own text rather than the

@@ -7,10 +7,12 @@ import { type Fleet } from '../../src/contract/schema.js';
 /**
  * A green draft slice PR with no live Agent, seen in a browser.
  *
- * The section and the sentence are decided by `awaitsMarkReady` and asserted in
+ * The sentence is decided by `awaitsMarkReady` and asserted in
  * `packages/domain/test/pr-row.test.ts` and
  * `test/unit/a-green-draft-slice-waits-on-you.test.ts`. This file states the row
- * and asserts the last step only: the Waiting on you section shows it.
+ * and asserts the last step only: the Delivery tab shows it. `placeDelivery` has
+ * no You case for marking a draft ready, so its open green PR places it under
+ * Work items › At a gate.
  */
 describe('the board shows a green draft slice PR waiting to be marked ready', () => {
   let cat: Catalogue;
@@ -36,18 +38,16 @@ describe('the board shows a green draft slice PR waiting to be marked ready', ()
       tab: 'agents',
       over: { fleet: buildFleet({ ...rest, rows }) as Fleet },
     });
-    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;
   };
 
-  it('lists the draft in Waiting on you with the action mark ready', async () => {
+  it('lists the draft under Work items › At a gate with the action mark ready', async () => {
     const page = await open();
     try {
-      const waiting = page.locator('section').filter({
-        has: page.getByRole('heading', { level: 2, name: /Waiting on you/ }),
-      });
-      await expect.poll(() => waiting.getByText('bug/green-draft').count()).toBeGreaterThan(0);
+      const atGate = page.locator('[data-group="at-a-gate"]');
+      await expect.poll(() => atGate.getByText('bug/green-draft').count()).toBeGreaterThan(0);
       const li = page.locator('[role="row"]').filter({ has: page.locator('[data-branch="bug/green-draft"]') }).last();
       await expect.poll(() => li.textContent()).toContain('mark ready');
     } finally {

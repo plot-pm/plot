@@ -58,6 +58,7 @@ describe('finishRelease against a real remote', () => {
     mkdirSync(hooks);
     git(root, 'init', '-q', '--bare', '-b', 'main', origin);
     git(root, 'init', '-q', '-b', 'main', repo);
+    git(repo, 'config', 'user.email', 't@t');
     git(repo, 'config', 'core.hooksPath', hooks);
     mkdirSync(path.join(repo, 'docs/plans/active'), { recursive: true });
     mkdirSync(path.join(repo, 'docs/plans/delivered'), { recursive: true });

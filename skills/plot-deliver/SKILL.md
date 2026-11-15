@@ -4,11 +4,11 @@ description: >-
   Verify all implementation is done, then deliver the plan.
   Part of the Plot workflow. Use on /plot-deliver.
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 1.13.2
+  version: 1.14.1
 compatibility: Designed for Claude Code and Cursor. Requires git. Host operations (PRs, default branch) go through plot-host.sh (GitHub or Bitbucket).
 ---
 
@@ -18,7 +18,7 @@ Verify all implementation is done, then deliver the plan. This workflow can be r
 
 For docs/infra work, this is the end — live when merged. For features/bugs, `/plot-release` follows when the team is ready to cut a versioned release.
 
-**Input:** `$ARGUMENTS` is the `<slug>` of a plan on main.
+**Input:** `$ARGUMENTS` is the `<slug>` of a plan on main, or `--branch <name> <slug>` for a plan that lives on the integration branch `<name>`. With `--branch`, read the plan with `git show origin/<name>:<plan file>` in step 2, and record the delivery with `plot-deliver.sh --branch <name> <slug>` (see *A sprint with an integration branch* below).
 
 Example: `/plot-deliver sse-backpressure`
 
@@ -455,7 +455,9 @@ or re-run the delivery once the push works.
 ../plot/scripts/plot-deliver.sh --branch <integration-branch> <slug>
 ```
 
-With `--branch <name>`, the script fetches `origin/<name>` and reads the plan, the index directories and the sprint file from that copy. The Approved-phase check reads the same copy. The booking worktree is cut from `origin/<name>`, and the commit is pushed to `<name>` with the same retry loop. The default branch receives the delivery when the sprint PR merges. A branch that origin does not hold refuses by name before anything is written. `--dry-run --branch <name>` prints `step: would record the delivery on <name>`. The slice check is unchanged: a slice PR merged into the integration branch carries `mergedAt`, so it reads as merged. After the push, the issue status and plan-state writes run as on the default branch, so the plan's issues read *delivered* while the default branch still holds the plan as Approved. `--release` does not take `--branch` and refuses the combination by name. `POST /api/deliver` does not take a branch.
+With `--branch <name>`, the script fetches `origin/<name>` and reads the plan, the index directories and the sprint file from that copy. The Approved-phase check reads the same copy. The booking worktree is cut from `origin/<name>`, and the commit is pushed to `<name>` with the same retry loop. The default branch receives the delivery when the sprint PR merges. A branch that origin does not hold refuses by name before anything is written. `--dry-run --branch <name>` prints `step: would record the delivery on <name>`. The slice check is unchanged: a slice PR merged into the integration branch carries `mergedAt`, so it reads as merged. After the push, the issue status and plan-state writes run as on the default branch, so the plan's issues read *delivered* while the default branch still holds the plan as Approved. `--release` does not take `--branch` and refuses the combination by name.
+
+`POST /api/deliver {"slug":"<slug>","branch":"<name>"}` takes the same branch. The route refuses a name that is not a ref name or starts with `-` (400), a branch with no `origin/<name>` ref in the clone (`branch-not-on-origin`), a slug with no plan file on `origin/<name>` (`plan-unreadable`), and a plan already Delivered or Released there (`already-delivered`). It reads no pulse for such a plan, because the pulse reads plans on the default branch only. The agent it starts runs `/plot-deliver --branch <name> <slug>`, and the merge check is `plot-deliver.sh`'s own.
 
 The `tracker=` field reports the issue status write:
 

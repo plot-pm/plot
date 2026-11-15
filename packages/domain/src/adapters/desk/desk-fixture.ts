@@ -16,6 +16,8 @@ export interface DeskFixtureCalls {
   moves: { from: string; to: string }[];
   findings: { worktree: string; finding: DeskFinding }[];
   buildFindings: { worktree: string; finding: BuildFinding }[];
+  agentFindings: { worktree: string; finding: Finding }[];
+  logLines: { worktree: string; line: string }[];
 }
 
 /** What a fixture `Desk` answers from, and what it records having been asked. */
@@ -46,6 +48,8 @@ export const deskFixtureCalls = (): DeskFixtureCalls => ({
   moves: [],
   findings: [],
   buildFindings: [],
+  agentFindings: [],
+  logLines: [],
 });
 
 /**
@@ -127,6 +131,16 @@ export const deskFixture = (fixture: DeskFixture = {}): Desk => {
 
     publishBuildFinding: async (worktree, finding): Promise<PortResult<void>> => {
       calls.buildFindings?.push({ worktree, finding });
+      return answered(undefined);
+    },
+
+    publishAgentFinding: async (worktree, finding): Promise<PortResult<void>> => {
+      calls.agentFindings?.push({ worktree, finding });
+      return answered(undefined);
+    },
+
+    appendLog: async (worktree, line): Promise<PortResult<void>> => {
+      calls.logLines?.push({ worktree, line });
       return answered(undefined);
     },
 

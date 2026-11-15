@@ -31,7 +31,7 @@ on:
 # CONCURRENCY IS PER JOB, on `release` and `board-release-candidate` only. A
 # group holds at most one pending entry: a newer pending run cancels the older
 # pending one. A workflow-level group would hold the queue for as long as
-# `relay-validate` waits, up to 55 min, and a feature merge in that window would
+# `relay-validate` waits, up to 65 min, and a feature merge in that window would
 # cancel a pending changeset-free run, which tags and publishes. A job-level
 # group holds the queue only while the `release` job runs.
 
@@ -213,9 +213,9 @@ jobs:
   #
   # BOUNDS. The run appears a few seconds after `gh workflow run` returns, so the
   # lookup polls for 120 s. The longest `needs` path to `validate` in `ci.yml` is
-  # `select` (10 min) → `checks` (25 min) → `validate` (5 min) = 40 min, so the
-  # wait for the job is 50 min (`WAIT_SECONDS`), 10 min of it for the queue,
-  # and the job's limit is 55 min. A contract test in `test/reconcile/` computes
+  # `select` (10 min) → `gates` (4 min) → `board-integration` (37 min) →
+  # `validate` (5 min) = 56 min, so the wait for the job is 61 min
+  # (`WAIT_SECONDS`), 5 min of it for the queue, and the job's limit is 65 min. A contract test in `test/reconcile/` computes
   # the path from `ci.yml` and fails when the wait no longer covers it.
   #
   # NO CONCURRENCY GROUP. The wait holds no group, so no release run waits
@@ -238,7 +238,7 @@ jobs:
     needs: [release, dispatch-ci]
     if: ${{ needs.release.outputs.pr_number }}
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 65
     permissions:
       actions: read
       statuses: write
@@ -293,7 +293,7 @@ jobs:
 
           # `--paginate` with `--jq` prints one line per matching job across
           # every page. `filter=latest` reads the latest attempt only.
-          WAIT_SECONDS=3000
+          WAIT_SECONDS=3660
           DEADLINE=$((SECONDS + WAIT_SECONDS))
           while :; do
             JOBS=$(api --paginate "repos/$REPO/actions/runs/$RUN_ID/jobs?filter=latest&per_page=100" \

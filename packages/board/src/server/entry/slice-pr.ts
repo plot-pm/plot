@@ -143,6 +143,7 @@ export const readingsFrom = (value: unknown): SlicePrReadings => {
     base: stringOr(given.base),
     planSlug: stringOr(given.planSlug),
     planFile: stringOr(given.planFile),
+    planTitle: stringOr(given.planTitle),
     sliceName: stringOr(given.sliceName),
     briefFile: stringOr(given.briefFile),
     prs: prsFrom(given.prs),

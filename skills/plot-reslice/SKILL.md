@@ -7,7 +7,7 @@ description: >-
   then rewrite only that plan's `## Slices` section. Proposes; a person
   confirms. Part of the Plot workflow. Use on /plot-reslice.
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
@@ -119,7 +119,7 @@ names. So read each branch in the wave before proposing anything:
 
   ```bash
   ../plot/scripts/plot-host.sh pr-state <branch>
-  ../plot/scripts/plot-host.sh pr-body <pr-number>
+  ../plot/scripts/plot-host.sh pr-body <pr-number>   # no flag: prints the body
   ```
 
 - **Its conflicts.** Two branches that touch the same files are a

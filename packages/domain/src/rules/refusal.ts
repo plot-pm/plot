@@ -10,6 +10,8 @@ import type { SpendRate } from './budget-record.js';
  * `secondary`  too many requests at once. It recovers in seconds, carries no
  *              reset, and the reaction is to retry shortly and lower
  *              concurrency.
+ * `auth`       the host refused the credential. A wait does not repair a token,
+ *              so the reaction is no retry time and a person signing in.
  * `outage`     anything else. A refusal that names no limit is not one.
  *
  * THE TWO LIMITS ARE DIFFERENT CEILINGS, and the repo has measured both.
@@ -23,7 +25,7 @@ import type { SpendRate } from './budget-record.js';
  * to guess in: an unrecognised message is `outage`, never the more specific
  * name, because a wrong reaction to a refusal is worse than no reaction.
  */
-export type RefusalKind = 'quota' | 'secondary' | 'outage';
+export type RefusalKind = 'quota' | 'secondary' | 'auth' | 'outage';
 
 /**
  * The wordings a secondary limit announces itself by.
@@ -46,6 +48,12 @@ const SECONDARY_PATTERNS = [
 const QUOTA_PATTERNS = [/rate limit/i, /ratelimit/i] as const;
 
 /**
+ * The wordings a refused or missing credential announces itself by: `gh`'s
+ * `401` answer and its signed-out CLI. Read after both limits.
+ */
+const AUTH_PATTERNS = [/\bHTTP 401\b/, /bad credentials/i, /authentication required/i] as const;
+
+/**
  * Classifies a host's refusal by the message it refused with.
  *
  * READ OFF THE WORDING, because that is all a shelled-out `gh` or `bb` hands
@@ -60,7 +68,26 @@ export const refusalKind = (message: string | null): RefusalKind | null => {
   if (!message) return null;
   if (SECONDARY_PATTERNS.some((pattern) => pattern.test(message))) return 'secondary';
   if (QUOTA_PATTERNS.some((pattern) => pattern.test(message))) return 'quota';
+  if (AUTH_PATTERNS.some((pattern) => pattern.test(message))) return 'auth';
   return 'outage';
+};
+
+/**
+ * Classifies a connector's typed refusal.
+ *
+ * The connector's kind decides where it names a limit or a credential; a
+ * `failed` refusal is classified by its words, as {@link refusalKind} reads a
+ * shell's stderr.
+ *
+ * @param kind - the connector's refusal kind.
+ * @param said - what the connector said, verbatim.
+ * @returns which limit was hit.
+ */
+export const refusalKindOf = (kind: 'throttled' | 'secondary' | 'auth' | 'failed', said: string): RefusalKind => {
+  if (kind === 'throttled') return 'quota';
+  if (kind === 'secondary') return 'secondary';
+  if (kind === 'auth') return 'auth';
+  return refusalKind(said) ?? 'outage';
 };
 
 /**

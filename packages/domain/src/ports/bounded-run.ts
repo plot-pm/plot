@@ -68,6 +68,8 @@ export interface BoundedRunOptions {
   outFile: string;
   /** Called with the command's pid once it has started. */
   onStarted?: (pid: number) => void;
+  /** A descriptor the command receives as fd 3, such as the desk's liveness token; absent passes none. */
+  holdFd?: number;
 }
 
 /** What one bounded run produced. */

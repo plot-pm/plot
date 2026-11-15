@@ -141,7 +141,7 @@ describe('a folded plan folds its branches PR states onto its head', () => {
       over: { fleet: fleet() },
       viewport: { width: 1400, height: 1400 },
     });
-    await page.getByText('Waiting on you').first().waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section]').first().waitFor({ timeout: 10_000 });
     return page;
   }
 
@@ -185,6 +185,8 @@ describe('a folded plan folds its branches PR states onto its head', () => {
   it('PLAN-GROUP PATH: a green plan says only its phase', async () => {
     const page = await open();
     try {
+      // A plan in Testing is delivered: its head sits under Release delivery, folded by default.
+      await page.locator('[data-group-toggle="release-delivery"]').click();
       await expect.poll(() =>
         planRow(page, 'all-green').locator('[data-phase]').getAttribute('data-phase'))
         .toBe('Testing');
@@ -215,17 +217,22 @@ describe('a folded plan folds its branches PR states onto its head', () => {
     }
   });
 
-  it('planHeads PATH: conflicts wins over failing on a plan carrying both', async () => {
+  it('planHeads PATH: a plan split across two groups folds each group\'s own slices onto that group\'s head', async () => {
+    // `conflict-wins` has one slice with a conflicting PR (no agent works on it: You > Unblock) and one with a
+    // failing PR (Work items > At a gate). The rule places each slice alone, so the plan shows a head in each
+    // group and each head folds only the slices it heads.
     const page = await open();
     try {
-      const toggle = page.locator('[data-slice-toggle="conflict-wins"]');
-      if (await toggle.getAttribute('aria-expanded') === 'true') await toggle.click();
-      await expect.poll(() => fold(page, 'conflict-wins').getAttribute('data-plan-pr-fold'))
-        .toBe('conflicts');
-      expect(await fold(page, 'conflict-wins').textContent()).toContain('conflicts');
-      // One conflict, one failure — the winning state has a count of one, so no
-      // parenthesis.
-      expect(await fold(page, 'conflict-wins').getAttribute('data-plan-pr-count')).toBeNull();
+      const unblock = page.locator('[data-group="unblock"]');
+      const gate = page.locator('[data-group="at-a-gate"]');
+      for (const [grp, state] of [[unblock, 'conflicts'], [gate, 'failing']] as const) {
+        const toggle = grp.locator('[data-slice-toggle="conflict-wins"]');
+        await toggle.waitFor({ timeout: 10_000 });
+        if (await toggle.getAttribute('aria-expanded') === 'true') await toggle.click();
+        const fold = grp.locator('li[data-plan-row="conflict-wins"] [data-plan-pr-fold]');
+        await expect.poll(() => fold.getAttribute('data-plan-pr-fold')).toBe(state);
+        expect(await fold.getAttribute('data-plan-pr-count')).toBeNull();
+      }
     } finally {
       await page.close();
     }
@@ -258,17 +265,15 @@ describe('a folded plan folds its branches PR states onto its head', () => {
   it('planHeads PATH: the fold STAYS when the group is expanded', async () => {
     const page = await open();
     try {
-      // A long group scrolls its head off screen either way, so the fact must
-      // not vanish on expand — the rule the change mark's own docstring names as
-      // the shape it should have had.
-      const toggle = page.locator('[data-slice-toggle="conflict-wins"]');
+      const unblock = page.locator('[data-group="unblock"]');
+      const toggle = unblock.locator('[data-slice-toggle="conflict-wins"]');
+      await toggle.waitFor({ timeout: 10_000 });
       if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
       await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('true');
-      // Branches are on screen now — and the head still carries the fold.
       await expect.poll(() =>
-        page.locator('[data-branch="feature/cw-conflict"]').count()).toBeGreaterThan(0);
-      expect(await fold(page, 'conflict-wins').getAttribute('data-plan-pr-fold'))
-        .toBe('conflicts');
+        unblock.locator('[data-branch="feature/cw-conflict"]').count()).toBeGreaterThan(0);
+      expect(await unblock.locator('li[data-plan-row="conflict-wins"] [data-plan-pr-fold]')
+        .getAttribute('data-plan-pr-fold')).toBe('conflicts');
     } finally {
       await page.close();
     }

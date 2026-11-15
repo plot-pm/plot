@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { writeTarget, type StateWriteTarget } from '../src/rules/write-target.js';
 import {
+  aheadSinceTreeEqual,
   forwardSync,
   isSyncHead,
   isSyncPr,
+  mayBeSyncPr,
+  standingConflictFiles,
   syncPathSet,
   syncPathVerdict,
   SYNC_PR_MARKER,
@@ -101,6 +104,37 @@ describe('isSyncPr', () => {
   });
   it('never matches for a non-branch ref', () => {
     expect(isSyncPr({ head: 'plot/state', base: 'main' }, target('refs/plot/state'), 'main')).toBe(false);
+  });
+});
+
+describe('mayBeSyncPr', () => {
+  it('names only the state branch head where the key was read and the default branch was not', () => {
+    const gate = { unread: 'default-branch', target: target('plot/state'), defaultBranch: 'unknown' } as const;
+    expect(mayBeSyncPr({ head: 'plot/state', base: 'develop' }, gate)).toBe(true);
+    expect(mayBeSyncPr({ head: 'feature/x', base: 'main' }, gate)).toBe(false);
+  });
+  it('names every PR into the default branch where the key was not read', () => {
+    const gate = { unread: 'state-branch-key', target: 'unknown', defaultBranch: 'main' } as const;
+    expect(mayBeSyncPr({ head: 'feature/x', base: 'main' }, gate)).toBe(true);
+    expect(mayBeSyncPr({ head: 'feature/x', base: '' }, gate)).toBe(true);
+    expect(mayBeSyncPr({ head: 'feature/x', base: 'sprint/s' }, gate)).toBe(false);
+  });
+  it('names every PR where neither the key nor the default branch was read', () => {
+    const gate = { unread: 'state-branch-key', target: 'unknown', defaultBranch: 'unknown' } as const;
+    expect(mayBeSyncPr({ head: 'feature/x', base: 'sprint/s' }, gate)).toBe(true);
+  });
+});
+
+describe('standingConflictFiles', () => {
+  const known = { defaultTip: 'd1', stateTip: 's1', files: ['docs/plans/a.md'] };
+  it('names the files while both recorded tips are the current ones', () => {
+    expect(standingConflictFiles(known, 'd1', 's1')).toEqual(['docs/plans/a.md']);
+  });
+  it('names none where either tip moved or is unread, or nothing is recorded', () => {
+    expect(standingConflictFiles(known, 'd2', 's1')).toEqual([]);
+    expect(standingConflictFiles(known, 'd1', 's2')).toEqual([]);
+    expect(standingConflictFiles(known, 'unknown', 'unknown')).toEqual([]);
+    expect(standingConflictFiles(null, 'd1', 's1')).toEqual([]);
   });
 });
 
@@ -211,5 +245,34 @@ describe('syncPrBody', () => {
   });
   it('carries the marker the host finds the comment by', () => {
     expect(syncPrBody(3, 'plot/state', 'main').split('\n')[0]).toBe(`<!-- ${SYNC_PR_MARKER} -->`);
+  });
+});
+
+describe('aheadSinceTreeEqual', () => {
+  const record = (tree: string) => ({ tree, forward: false });
+  const forward = (tree: string) => ({ tree, forward: true });
+  it('reads 0 where the tip tree equals the default tree', () => {
+    expect(aheadSinceTreeEqual([record('D'), record('b'), record('a')], ['D'])).toBe(0);
+  });
+  it('counts the commits added after a squash-merge', () => {
+    expect(aheadSinceTreeEqual([record('n2'), record('n1'), record('D'), record('a')], ['D'])).toBe(2);
+  });
+  it('counts every commit where none is tree-equal', () => {
+    expect(aheadSinceTreeEqual([record('c'), record('b'), record('a')], ['D'])).toBe(3);
+    expect(aheadSinceTreeEqual([], ['D'])).toBe(0);
+  });
+  it('does not count a forward merge, at the tip or in the middle', () => {
+    expect(aheadSinceTreeEqual([forward('D'), record('a')], ['D'])).toBe(0);
+    expect(aheadSinceTreeEqual([record('r3'), forward('F'), record('r2'), record('r1')], ['D'])).toBe(3);
+  });
+  it('stops at the squash tree after the default branch moves past the squash', () => {
+    // S squashes r1 and r2, F1 forwards S, r3 and r4 follow, X lands on the default branch, F2 forwards X.
+    const line = [forward('T_X+r'), record('r4'), record('r3'), forward('T_S'), record('r2'), record('r1')];
+    expect(aheadSinceTreeEqual(line, ['T_X', 'T_X', 'T_S'])).toBe(2);
+    expect(aheadSinceTreeEqual(line.slice(1), ['T_X', 'T_X', 'T_S'])).toBe(2);
+    expect(aheadSinceTreeEqual(line, ['T_X'])).toBe(4);
+  });
+  it('finds no tree-equal commit for an empty default tree id', () => {
+    expect(aheadSinceTreeEqual([record(''), record('a')], [''])).toBe(2);
   });
 });

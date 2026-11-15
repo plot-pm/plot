@@ -139,6 +139,40 @@ describe('mergeTick', () => {
   });
 });
 
+describe('mergeTick reads the Merger app key again before a merge', () => {
+  const recheckTick = (recheck: () => { read: 'usable' } | { read: 'invalid'; reason: string }, over: Record<string, unknown> = {}) => {
+    const { ports, calls } = portsFor('answered');
+    let rechecked = 0;
+    const out = mergeTick([row(3)], readings({ backend: 'github', mergerApp: { read: 'usable' }, ...over }), ports, new Map(), '/nowhere', () => false, undefined, new Set(), () => {
+      rechecked += 1;
+      return recheck();
+    });
+    return { out, calls, rechecked: () => rechecked };
+  };
+
+  it('merges once the fresh reading still merges as the App', async () => {
+    const run = recheckTick(() => ({ read: 'usable' }));
+    expect((await run.out).merged).toMatchObject({ pr: 3, result: { merged: true } });
+    expect(run.rechecked()).toBe(1);
+  });
+
+  it('merges nothing where the fresh reading no longer merges as the App', async () => {
+    const run = recheckTick(() => ({ read: 'invalid', reason: 'key gone' }));
+    expect((await run.out).merged).toBeUndefined();
+    expect(run.calls).toEqual([]);
+    expect(run.rechecked()).toBe(1);
+  });
+
+  it('reads no key again where no merge is picked, or the merge is not as the App', async () => {
+    const held = recheckTick(() => ({ read: 'usable' }), { mergerApp: { read: 'absent' } });
+    await held.out;
+    expect(held.rechecked()).toBe(0);
+    const host = recheckTick(() => ({ read: 'usable' }), { backend: 'bitbucket', mergerApp: undefined });
+    await host.out;
+    expect(host.rechecked()).toBe(0);
+  });
+});
+
 describe('mergeTick action-log records', () => {
   const opts = () => ({ repoRoot: '/nowhere', scriptsDir: '/nowhere', runLog: runLogFixture() });
 

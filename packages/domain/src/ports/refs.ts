@@ -171,6 +171,23 @@ export interface CommitSubject {
   parentTree: string | null;
 }
 
+/**
+ * One commit on a range's first-parent line, as {@link Refs.firstParentCommits}
+ * reports it.
+ */
+export interface FirstParentCommit {
+  /** The full object name. */
+  sha: string;
+  /** The commit's tree id. */
+  tree: string;
+  /**
+   * Whether the commit is a merge whose second parent lies outside the range,
+   * on the range's excluded side. Such a merge carries the excluded side's
+   * content and no commit of the range's own.
+   */
+  forward: boolean;
+}
+
 /** One merge commit, as a merges walk reports it. */
 export interface MergeCommit {
   /** The full object name. */
@@ -531,6 +548,17 @@ export interface Refs {
   countBehind(ref: string): Promise<PortResult<number | null>>;
 
   /**
+   * How many commits the checkout's HEAD holds that a ref does not.
+   *
+   * `git rev-list --count <ref>..HEAD`, which equals the count from the
+   * merge base of the two to HEAD.
+   *
+   * @param ref - the revision to measure from, such as `origin/main`.
+   * @returns the count; a failed result where either revision cannot be read.
+   */
+  countAhead(ref: string): Promise<PortResult<number>>;
+
+  /**
    * Reads a file's content at a ref, without checking it out.
    *
    * A phase read from `origin/<main>` is the gate `plot-phase-gate.sh` applies,
@@ -696,6 +724,16 @@ export interface Refs {
    *   does not exist.
    */
   commitSubjects(range: string): Promise<PortResult<readonly CommitSubject[]>>;
+
+  /**
+   * Reads the first-parent line of a range, each commit with its tree.
+   *
+   * @param range - `<excluded>..<tip>`.
+   * @returns the tip's first-parent commits inside the range, newest first;
+   *   empty for a range with none. A failed result where git could not read
+   *   the range.
+   */
+  firstParentCommits(range: string): Promise<PortResult<readonly FirstParentCommit[]>>;
 
   /**
    * The commit that first added each file under a directory, on one ref.

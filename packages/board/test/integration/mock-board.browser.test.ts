@@ -82,8 +82,8 @@ describe('the mock board serves named states', () => {
       // DONE is folded by default, so the wave row is not in the DOM until the
       // section is opened. Asserting before this is how a correct fixture reads
       // as a missing one.
-      await page.getByText('Done').first().waitFor({ timeout: 15_000 });
-      const doneToggle = page.locator('[data-group-toggle]').filter({ hasText: 'Done' });
+      await page.locator('[data-delivery-section="release-delivery"]').waitFor({ timeout: 15_000 });
+      const doneToggle = page.locator('[data-group-toggle="release-delivery"]');
       if ((await doneToggle.getAttribute('aria-expanded')) === 'false') await doneToggle.click();
 
       const sliceRow = page.locator('[data-slice-row="Complete"]');
@@ -104,8 +104,8 @@ describe('the mock board serves named states', () => {
     const base = await cat.open('a-done-wave', { tab: 'agents' });
     let baseStatus: string | null;
     try {
-      await base.getByText('Done').first().waitFor({ timeout: 15_000 });
-      const t = base.locator('[data-group-toggle]').filter({ hasText: 'Done' });
+      await base.locator('[data-delivery-section="release-delivery"]').waitFor({ timeout: 15_000 });
+      const t = base.locator('[data-group-toggle="release-delivery"]');
       if ((await t.getAttribute('aria-expanded')) === 'false') await t.click();
       baseStatus = await base.locator('[data-slice-row="Complete"] [data-tuple-status]')
         .textContent();
@@ -142,8 +142,8 @@ describe('the mock board serves named states', () => {
       },
     });
     try {
-      await page.getByText('Done').first().waitFor({ timeout: 15_000 });
-      const t = page.locator('[data-group-toggle]').filter({ hasText: 'Done' });
+      await page.locator('[data-delivery-section="release-delivery"]').waitFor({ timeout: 15_000 });
+      const t = page.locator('[data-group-toggle="release-delivery"]');
       if ((await t.getAttribute('aria-expanded')) === 'false') await t.click();
 
       const sliceRow = page.locator('[data-slice-row="Complete"]');

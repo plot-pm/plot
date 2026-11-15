@@ -19,6 +19,7 @@
 import { GLYPH_PATH } from './glyphs.js';
 import { isAgentFree, planIndexOf, planRefOfRow, planReference, releaseStageViewOf, supervisionCauseWord, type PlanIndex } from '@plot-pm/domain';
 import type { PlanRef } from '@plot-pm/domain';
+import { withLivenessBasis } from '@plot-pm/domain/rules/worker-liveness';
 import type { AgentEntry, AgentRow, IssueRow, RowKind, SliceVerdict } from '../../contract/schema.js';
 
 /** The index a caller with no cards or drafts in reach passes — resolves nothing, by design. */
@@ -860,10 +861,11 @@ export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null, index: Pl
       // and would otherwise be the one row kind that drops the cause — and the
       // agent row is where an operator looks first. `base.status` is already
       // qualified, so the fallback needs nothing.
-      status: statusWithCause(
-        workerStatus(row.worker, row.worker_activity),
-        row.supervisionCause,
-      ) || base.status,
+      // A desk with no liveness token says so beside its status (`withLivenessBasis`).
+      status: withLivenessBasis(
+        statusWithCause(workerStatus(row.worker, row.worker_activity), row.supervisionCause) || base.status,
+        row.worker_basis,
+      ),
       name: agent?.session
         ? { what: 'ticket', label: shortSessionId(agent.session), href: '' }
         : branchLink(row),

@@ -4,12 +4,13 @@ import { openCatalogue, scenario, row as buildRow, fleet as buildFleet, type Cat
 import { type Fleet } from '../../src/contract/schema.js';
 
 /**
- * The row shows the group and note the server produced for a desk with a
- * question. The placement itself is unit tested in `test/unit/fleet.test.ts`.
- * The catalogue serves a stated fleet, so this test checks rendering only and
- * does not fail on a server that places the row elsewhere.
+ * A row whose desk holds a question renders under You › Unblock with the note
+ * the server produced. The mapper reads the row's `question` as a blocked
+ * marker, and `placeDelivery` is unit tested in
+ * `packages/domain/test/delivery-placement.test.ts`; this test checks
+ * rendering only.
  */
-describe('a question moves its row into WAITING ON YOU, with its age', () => {
+describe('a question moves its row into You › Unblock, with its age', () => {
   let cat: Catalogue;
 
   beforeAll(async () => {
@@ -53,26 +54,24 @@ describe('a question moves its row into WAITING ON YOU, with its age', () => {
       tab: 'agents',
       over: { fleet: buildFleet({ ...envelope(), rows }) as Fleet },
     });
-    // The HEADING, not any text reading "waiting on you" — the row's own note
-    // says exactly that, so a bare text match is ambiguous between the two.
-    await page.getByRole('heading', { level: 2, name: /Waiting on you/ }).waitFor({ timeout: 10_000 });
+    // The section HEADING, not any text reading "waiting on you" — the row's
+    // own note says exactly that, so a bare text match is ambiguous.
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     return page;
   };
 
   const rowFor = (page: Page, branch: string) =>
     page.locator('[role="row"]').filter({ has: page.locator(`[data-branch="${branch}"]`) }).last();
 
-  const group = (page: Page, label: string) =>
-    page.locator('section').filter({
-      has: page.getByRole('heading', { level: 2, name: new RegExp(label) }),
-    });
+  const group = (page: Page, key: string) => page.locator(`[data-group="${key}"]`);
+  const section = (page: Page, key: string) => page.locator(`[data-section="${key}"]`);
 
-  it('lands the row in WAITING ON YOU, not WORKING', async () => {
+  it('lands the row in You › Unblock, not under Work items', async () => {
     const page = await open();
     try {
-      await expect.poll(() => group(page, 'Waiting on you').locator('[data-branch="feature/asking"]').count())
+      await expect.poll(() => group(page, 'unblock').locator('[data-branch="feature/asking"]').count())
         .toBe(1);
-      await expect.poll(() => group(page, '^Working').locator('[data-branch="feature/asking"]').count())
+      await expect.poll(() => section(page, 'work-items').locator('[data-branch="feature/asking"]').count())
         .toBe(0);
     } finally {
       await page.close();

@@ -20,9 +20,12 @@ import {
   dispatchCommandArtifact,
   continueCommandArtifact,
   restartCommandArtifact,
+  looseDeleteCommandArtifact,
   restartStoppedCommandArtifact,
   deskLoopArtifact,
   prReaderArtifact,
+  workerWrapperArtifact,
+  workerStartArtifact,
 } from '../fleet/build.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -105,7 +108,9 @@ export const BOARD_ARTIFACT_PATHS: readonly string[] = [
 // It reads its own source rather than a list of the `shippedX` bindings. That
 // is deliberate and is what makes the derivation total: a binding this file
 // forgot to append to such a list would be invisible, which is the same defect
-// one level down. The regex is the one the other reader uses, so a build that
+// one level down. The regex reads the same declarations as
+// `read_shipped_bundles` in `scripts/lib-declared-bundles.sh`, including one
+// whose `path.join(` arguments wrap over several lines, so a build that
 // changes shape breaks both together rather than silently blinding one — and
 // finding nothing is a hard failure here for that reason.
 const generatedBundles = path.join(here, 'src/contract/bundles.generated.ts');
@@ -113,7 +118,7 @@ const generatedBundles = path.join(here, 'src/contract/bundles.generated.ts');
   const source = fs.readFileSync(path.join(here, 'build.mjs'), 'utf8');
   const emitted = [
     ...new Set(
-      [...source.matchAll(/shipped[A-Za-z]* = path\.join\([^)]*'\.\.\/\.\.\/([^']*)'\)/g)]
+      [...source.matchAll(/shipped[A-Za-z]* = path\.join\(\s*here,\s*'\.\.\/\.\.\/([^']*)',?\s*\)/g)]
         .map((m) => m[1]),
     ),
   ].sort();
@@ -268,6 +273,26 @@ await esbuild.build({
 fs.copyFileSync(oldLabelArtifact, shippedOldLabel);
 fs.chmodSync(shippedOldLabel, 0o755);
 
+// The shared `--start`/`--restart` arm's harness and init-system probes, and
+// `--restart`'s plan, reload command and report, reachable from plot-fleetctl.sh.
+const fleetctlStartArtifact = path.join(here, 'dist/plot-fleetctl-start.mjs');
+const shippedFleetctlStart = path.join(here, '../../skills/plot/scripts/board/plot-fleetctl-start.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/fleetctl-start.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: fleetctlStartArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(fleetctlStartArtifact, shippedFleetctlStart);
+fs.chmodSync(shippedFleetctlStart, 0o755);
+
 // One PR's state through `Host.prState`, reachable from plot-impl-status.sh. A
 // cross-repo `owner/repo#N` reference resolves the host it lives on in the host
 // adapter (`rules/cross-repo-probe.ts`), so the shell keeps no copy of the probe.
@@ -363,6 +388,7 @@ fs.chmodSync(shippedPrompt, 0o755);
 const shippedDispatchCommand = path.join(here, '../../skills/plot/scripts/board/plot-dispatch-command.mjs');
 const shippedContinueCommand = path.join(here, '../../skills/plot/scripts/board/plot-continue-command.mjs');
 const shippedRestartCommand = path.join(here, '../../skills/plot/scripts/board/plot-restart-command.mjs');
+const shippedLooseDeleteCommand = path.join(here, '../../skills/plot/scripts/board/plot-loose-delete-command.mjs');
 const shippedRestartStoppedCommand = path.join(
   here,
   '../../skills/plot/scripts/board/plot-restart-stopped-command.mjs',
@@ -374,6 +400,8 @@ fs.copyFileSync(continueCommandArtifact, shippedContinueCommand);
 fs.chmodSync(shippedContinueCommand, 0o755);
 fs.copyFileSync(restartCommandArtifact, shippedRestartCommand);
 fs.chmodSync(shippedRestartCommand, 0o755);
+fs.copyFileSync(looseDeleteCommandArtifact, shippedLooseDeleteCommand);
+fs.chmodSync(shippedLooseDeleteCommand, 0o755);
 fs.copyFileSync(restartStoppedCommandArtifact, shippedRestartStoppedCommand);
 fs.chmodSync(shippedRestartStoppedCommand, 0o755);
 
@@ -395,6 +423,20 @@ const shippedPrReader = path.join(here, '../../skills/plot/scripts/board/plot-pr
 
 fs.copyFileSync(prReaderArtifact, shippedPrReader);
 fs.chmodSync(shippedPrReader, 0o755);
+
+// The wrapper one agent launch runs under. It writes the desk's pid, exit and
+// WorkerMonitor records, and is started detached, so it is vendored beside the
+// scripts that launch agents rather than reached through plot-ask.mjs.
+const shippedWorkerWrapper = path.join(here, '../../skills/plot/scripts/board/plot-worker-wrapper.mjs');
+
+fs.copyFileSync(workerWrapperArtifact, shippedWorkerWrapper);
+fs.chmodSync(shippedWorkerWrapper, 0o755);
+
+// The detached start of that wrapper, which `start_worker` calls once per launch.
+const shippedWorkerStart = path.join(here, '../../skills/plot/scripts/board/plot-worker-start.mjs');
+
+fs.copyFileSync(workerStartArtifact, shippedWorkerStart);
+fs.chmodSync(shippedWorkerStart, 0o755);
 
 // The task state, reachable from the classifier that answers it.
 //
@@ -1510,6 +1552,26 @@ await esbuild.build({
 fs.copyFileSync(bitbucketSlugArtifact, shippedBitbucketSlug);
 fs.chmodSync(shippedBitbucketSlug, 0o755);
 
+// plot-ci-reuse.mjs — which CI jobs a pull request run reuses, for `ci.yml`'s
+// `select` job: `ciReuse` and `reuseDiff` through the narrow import path.
+const ciReuseArtifact = path.join(here, 'dist/plot-ci-reuse.mjs');
+const shippedCiReuse = path.join(here, '../../skills/plot/scripts/board/plot-ci-reuse.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/ci-reuse.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: ciReuseArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(ciReuseArtifact, shippedCiReuse);
+fs.chmodSync(shippedCiReuse, 0o755);
+
 // Whether `plot-host.sh`'s Bitbucket row-limit walk reads another page —
 // `walkStep` asked once per page read, so the stop rule lives only in the
 // domain.
@@ -1908,18 +1970,6 @@ fs.chmodSync(shippedGate, 0o755);
 // A list nobody is prompted to update is one that falls behind, so a gate
 // derives this from the server sources and fails on any difference.
 const vendoredScripts = [
-  'plot-agent-monitor.sh',
-  // Sourced BY plot-agent-monitor.sh as a `$script_dir` sibling — it is "the ONE
-  // answer to is this monitor's subject still there?", and it is what ends a
-  // monitor with its agent. It was on NO list, measured 2026-09-06, so the npm
-  // layout has shipped without it: `plot_monitor_wait` is then undefined and the
-  // `while` driving the monitor's loop fails on the first call, so the monitor
-  // starts, takes one pass and exits — leaving a worker that reads as monitored
-  // and is watched by nothing after its first second. A second monitor,
-  // `plot-build-monitor.sh`, sourced this too until `the-shell-loop-goes`
-  // removed the process entirely; a third, `plot-worker-monitor.sh`, sourced
-  // this too until `bug/the-loop-reports-idle` removed it the same way.
-  'plot-monitor-subject.sh',
   'plot-approve.sh',
   // Sourced BY plot-host.sh as a `$here` sibling — the same shape as
   // `plot-pr-merged.sh` below, and the same failure. Missing, the source

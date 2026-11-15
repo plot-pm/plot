@@ -5,11 +5,11 @@ description: >-
   merged-but-not-delivered plans, and stale branches. Read-only; prints
   remediating commands, the human decides what to run. Use on /plot-reconcile.
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 1.5.0
+  version: 1.6.0
 compatibility: >-
   Designed for Claude Code. Requires git and jq; gh (GitHub) or bb (Bitbucket)
   CLI adds open-PR precision — without one the sweep degrades to git

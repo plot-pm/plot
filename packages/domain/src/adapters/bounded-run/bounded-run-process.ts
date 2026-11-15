@@ -21,7 +21,7 @@ import type { Processes } from '../../ports/processes.js';
  * @param processes - where to read descendants from.
  * @param pid - the root to end.
  */
-export const killTree = async (processes: Processes, pid: number): Promise<void> => {
+export const killTree = async (processes: Pick<Processes, 'childrenOf'>, pid: number): Promise<void> => {
   const kids = await processes.childrenOf(pid);
   try {
     process.kill(pid, 'SIGKILL');
@@ -133,7 +133,7 @@ const ensureListeners = (): void => {
  *   adapter performs on its own bound.
  * @returns a `BoundedRun` backed by a real child process.
  */
-export const boundedRunProcess = (processes: Processes): BoundedRun => ({
+export const boundedRunProcess = (processes: Pick<Processes, 'childrenOf'>): BoundedRun => ({
   run: (command, args, options: BoundedRunOptions): Promise<PortResult<BoundedRunResult>> =>
     new Promise((resolve) => {
       let out: number;
@@ -147,11 +147,20 @@ export const boundedRunProcess = (processes: Processes): BoundedRun => ({
       const startedAt = Date.now();
       // NO `detached`. The child stays in THIS process's group, which is the
       // whole contract — see the port's doc comment.
-      const child = spawn(command, [...args], {
-        cwd: options.cwd,
-        env: options.env ? { ...process.env, ...options.env } : process.env,
-        stdio: ['ignore', out, out],
-      });
+      // A DESCRIPTOR THE CHILD CANNOT RECEIVE (`EBADF`) makes `spawn` throw
+      // before any child exists; it answers `failed`, as `ENOENT` does.
+      let child: ReturnType<typeof spawn>;
+      try {
+        child = spawn(command, [...args], {
+          cwd: options.cwd,
+          env: options.env ? { ...process.env, ...options.env } : process.env,
+          stdio: options.holdFd === undefined ? ['ignore', out, out] : ['ignore', out, out, options.holdFd],
+        });
+      } catch {
+        closeSync(out);
+        resolve(failed<BoundedRunResult>());
+        return;
+      }
 
       // A THROWING CALLBACK MUST NOT ABANDON A STARTED CHILD: the listeners
       // below are what end and record it.

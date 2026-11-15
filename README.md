@@ -250,4 +250,4 @@ Long-running work spanning several plans. Stories carry the intent and the decis
 
 ## License
 
-MIT
+[CC0 1.0 Universal](LICENSE): dedicated to the public domain.

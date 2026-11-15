@@ -6,11 +6,11 @@ description: >-
   starts separately with /plot-implement. Part of the Plot workflow.
   Use on /plot-approve.
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 2.11.0
+  version: 2.11.1
 compatibility: Designed for Claude Code and Cursor. Requires git. Host operations go through plot-host.sh (GitHub or Bitbucket).
 ---
 

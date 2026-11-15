@@ -191,6 +191,7 @@ describe('release-approve and the HTTP routes refuse with no receipt escape', ()
     ['release', 'curl -X POST http://localhost:4000/api/release'],
     ['release-approve route', 'curl -X POST http://localhost:4000/api/release-approve'],
     ['restart', 'curl -X POST http://localhost:4000/api/restart'],
+    ['loose-delete', 'curl -X POST http://localhost:4000/api/loose-delete'],
     // The same POST written the other ways an agent writes it. Each of these
     // passed the gate while only the bare `-X POST` form was read.
     ['a quoted URL', 'curl -X POST "http://localhost:4000/api/release"'],
@@ -277,6 +278,7 @@ describe('release-approve and the HTTP routes refuse with no receipt escape', ()
   it.each([
     ['GET on the release route', 'curl http://localhost:4000/api/release'],
     ['explicit GET on restart', 'curl -X GET http://localhost:4000/api/restart'],
+    ['explicit GET on loose-delete', 'curl -X GET http://localhost:4000/api/loose-delete'],
     ['POST to a different route', 'curl -X POST http://localhost:4000/api/dispatch'],
     // A quoted GET, and the per-plan poll `skills/plot-release/SKILL.md:487`
     // tells the agent to run while a release finishes.

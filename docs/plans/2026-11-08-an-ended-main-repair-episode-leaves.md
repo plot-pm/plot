@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** ship-2-32-0
 - **Issue:** #3235
@@ -16,6 +16,7 @@
 - **Started:** 2026-11-08, Jan Wloka, `bug/an-ended-repair-episode-releases-its-claim`
 - **Started:** 2026-11-08, Jan Wloka, `bug/the-board-names-a-claim-only-branch`
 - **Delivered:** 2026-11-08
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 

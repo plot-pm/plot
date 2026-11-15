@@ -5,11 +5,11 @@ description: >-
   Plot Config from that, create the plan/story skeleton, and offer optional
   extensions only where the repo shows it needs them. Use on /plot-init.
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 0.9.0
+  version: 0.9.1
 compatibility: >-
   Designed for Claude Code and Cursor. Requires git; python3 improves
   detection. Works in an empty repo and in one with existing planning

@@ -205,7 +205,9 @@ report() { # <label> <before-rev> <before-desc>
 mode=${1:-}
 case "$mode" in
   pr)
-    ref=$(default_ref)
+    # An optional second argument names the branch the pull request targets;
+    # with none, the default branch, as before.
+    ref=${2:-$(default_ref)}
     git rev-parse -q --verify "$ref^{commit}" >/dev/null || fail "$ref is absent, so there is no base to compare with. Run: git fetch --no-tags origin main:refs/remotes/origin/main"
     base=$(git merge-base HEAD "$ref") || fail "no merge base between HEAD and $ref"
     [ -n "$base" ] || fail "no merge base between HEAD and $ref"
@@ -224,5 +226,5 @@ case "$mode" in
     fi
     report push "$before" "push start $(git rev-parse --short "$before")" "$(git log --format=%h -n 1 HEAD) and the commits since $(git rev-parse --short "$before")"
     ;;
-  *) fail "usage: check-decision-count.sh pr | push <before-sha>" ;;
+  *) fail "usage: check-decision-count.sh pr [<base ref>] | push <before-sha>" ;;
 esac

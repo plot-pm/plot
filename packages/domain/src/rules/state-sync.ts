@@ -115,12 +115,54 @@ export const isSyncPr = (pr: SyncPrShape, target: StateWriteTarget, defaultBranc
 export const isSyncHead = (head: string, target: StateWriteTarget): boolean =>
   target.isBranch && `refs/heads/${head}` === target.pushRef;
 
+/**
+ * A sync PR path gate that could not be built, because a read it needs failed.
+ *
+ * It holds what was read, so {@link mayBeSyncPr} can still clear a PR that
+ * plainly does not run from the state branch.
+ */
+export interface UnreadSyncGate {
+  /** The read that failed: the `State branch` key, or the default branch's name. */
+  readonly unread: 'state-branch-key' | 'default-branch';
+  /** The resolved state target; `'unknown'` where the key was not read. */
+  readonly target: StateWriteTarget | 'unknown';
+  /** The default branch's short name; `'unknown'` where it was not read. */
+  readonly defaultBranch: string;
+}
+
+/**
+ * Whether a pull request could be a sync pull request while the gate is unread.
+ *
+ * @param pr - the pull request's head and base branch names; `''` where the host named none.
+ * @param gate - what the gate read.
+ * @returns where the key was read, true only for a head that is the state
+ *   branch; where the key was not read, true for a base that is the default
+ *   branch or unnamed, and true for every PR where the default branch was not
+ *   read either.
+ */
+export const mayBeSyncPr = (pr: SyncPrShape, gate: UnreadSyncGate): boolean => {
+  if (gate.target !== 'unknown') return isSyncHead(pr.head, gate.target);
+  return gate.defaultBranch === 'unknown' || pr.base === '' || pr.base === gate.defaultBranch;
+};
+
 /** A forward-merge conflict a tick met, keyed by the two tips it merged. */
 export interface ForwardRefusal {
   readonly defaultTip: string;
   readonly stateTip: string;
   readonly files: readonly string[];
 }
+
+/**
+ * The files of a recorded forward-merge conflict that still stands.
+ *
+ * @param known - the recorded conflict; null for none.
+ * @param defaultTip - the default branch's current tip; `'unknown'` where unread.
+ * @param stateTip - the state ref's current tip; `'unknown'` where unread.
+ * @returns the recorded files where both recorded tips equal the current ones;
+ *   empty otherwise, so a moved or unread tip shows no conflict.
+ */
+export const standingConflictFiles = (known: ForwardRefusal | null, defaultTip: string, stateTip: string): readonly string[] =>
+  known !== null && defaultTip !== 'unknown' && known.defaultTip === defaultTip && known.stateTip === stateTip ? known.files : [];
 
 /** What fleetd read before it decides on a forward merge. */
 export interface ForwardSyncReading {
@@ -161,10 +203,8 @@ export const forwardSync = (reading: ForwardSyncReading): ForwardSyncDecision =>
     return { kind: 'idle', reason: 'unread' };
   }
   if (reading.behind === 0) return { kind: 'idle', reason: 'in-sync' };
-  const known = reading.refused;
-  if (known !== null && known.defaultTip === reading.defaultTip && known.stateTip === reading.stateTip) {
-    return { kind: 'refused', files: known.files };
-  }
+  const standing = standingConflictFiles(reading.refused, reading.defaultTip, reading.stateTip);
+  if (standing.length > 0) return { kind: 'refused', files: standing };
   if (reading.lockHeld !== false) return { kind: 'wait', reason: 'writer-holds-lock' };
   return { kind: 'merge' };
 };
@@ -253,6 +293,34 @@ export const syncPrDecision = (reading: SyncPrReading): SyncPrDecision => {
  */
 export const syncedByTrees = (stateTree: string, defaultTree: string): boolean =>
   stateTree !== '' && stateTree === defaultTree;
+
+/**
+ * Counts the commits a state branch holds that the default branch does not yet hold in content.
+ *
+ * Walks the first-parent line newest first and stops at the first commit whose
+ * tree equals the tree of a default-branch commit: a squash-merge rewrites the
+ * commits and keeps the tree, so nothing at or below that commit is pending.
+ * The default branch moves on after a squash, so the walk compares against
+ * every default-branch tree since the state branch forked, not only the tip's.
+ * A forward merge carries default-branch content and no record, so it does not
+ * count.
+ *
+ * @param line - the state branch's first-parent commits beyond the merge base, newest first.
+ * @param defaultTrees - the tree ids of the default branch's first-parent commits since the state branch forked, the tip's included; an empty id matches no commit.
+ * @returns the number of non-forward commits above the first tree-equal commit; every non-forward commit of `line` where none is tree-equal.
+ */
+export const aheadSinceTreeEqual = (
+  line: readonly { readonly tree: string; readonly forward: boolean }[],
+  defaultTrees: readonly string[],
+): number => {
+  const landed = new Set(defaultTrees.filter((tree) => tree !== ''));
+  let count = 0;
+  for (const commit of line) {
+    if (landed.has(commit.tree)) return count;
+    if (!commit.forward) count += 1;
+  }
+  return count;
+};
 
 /** The title of a sync pull request. */
 export const syncPrTitle = (stateBranch: string, defaultBranch: string): string =>

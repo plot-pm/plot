@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** card-alignment
 - **Review:** pr
@@ -17,6 +17,7 @@
 - **Started:** 2026-11-07, Jan Wloka, `feature/one-card-grammar-stories`
 - **Started:** 2026-11-07, Jan Wloka, `feature/one-card-grammar-tickets`
 - **Delivered:** 2026-11-07
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 

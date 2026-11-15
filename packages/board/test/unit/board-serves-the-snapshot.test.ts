@@ -99,6 +99,9 @@ const record = (title: string): PlanEntry => ({
   startedRaw: [],
   rejectedRaw: '',
   unreadBranchItems: [],
+  issues: [],
+  designRaw: '',
+  verifiedRaw: '',
 });
 
 const header: WalkHeader = {
@@ -161,7 +164,13 @@ const snapshotTitled = (title: string, generation: number): RepoSnapshot => {
       desks: read([{ path: '/repo', branch: 'main', detached: false, isMain: true, clean: false, agentSession: null, prunable: false }]),
       deskFiles: read({}),
       workers: read({}),
-      plans: read({ ref: 'origin/main', records: [record(title)] }),
+      plans: read({
+        ref: 'origin/main',
+        resolved: MAIN,
+        records: [record(title)],
+        authors: { state: 'read', value: {} },
+        delivered: { state: 'read', value: {} },
+      }),
       prs: read([{ number: 7, head: 'feature/x', state: 'OPEN', draft: false, checks: 'green', review: '', url: 'u7' }]),
       walk: read(walkValueOf(estate, branchStageOf(title), { mainSha: MAIN, desks: [] }, new Map(), header)),
       branchDates: read([{ branch: 'feature/x', committedAt: Math.floor(Date.now() / 1000) - 600 }]),
@@ -254,10 +263,9 @@ describe('the board serves from fleetd snapshot', () => {
     await fleet.refresh(served, entry);
     expect(entry.viewSource).toBe('snapshot');
     await adapters.fleetdHeartbeatFile({ repoRoot: dir }).write(heartbeat(Date.now() - 600_000));
-    counted.calls.length = 0;
     await fleet.refresh(served, entry);
     expect(entry.viewSource).toBe('own');
-    expect(counted.calls.length).toBeGreaterThan(0);
+    // The own scan reads the fixture's refs from files, so it may start no process.
   });
 
   it('reads for itself with no tab attached, whatever the channel holds', async () => {
@@ -351,6 +359,63 @@ describe('the PR beat on snapshot, with an issue index to serve', () => {
     expect(entry.issueAnswer).toBe('answered');
     expect(entry.issues?.map((issue) => issue.number)).toEqual(['4']);
     expect(entry.waiting).not.toBeNull();
+  });
+});
+
+describe('the PR schedule on snapshot', () => {
+  // The snapshot carries fleetd's PR rows and when they were read, not when the
+  // next read is due. That schedule is the reader's published state, so the
+  // board measures `prOverdueSeconds` against it rather than against the
+  // `prNextAt` of its own first beat.
+  const state = (prNextAt: number) => ({
+    v: 1 as const,
+    prError: null,
+    prNextAt,
+    prNextIsBackoff: false,
+    prFullReadFailedAt: null,
+    at: prNextAt - 300_000,
+  });
+
+  it('takes the reader\'s published prNextAt on every PR beat', async () => {
+    const { dir, opts } = await fixture();
+    // OWN INDEX HOME: a suite run under `owned-run.sh` shares one
+    // `PLOT_PR_INDEX_HOME`, where another test's reader state would answer.
+    vi.stubEnv('PLOT_PR_INDEX_HOME', path.join(dir, 'pr-index'));
+    const held = { epoch: 'e1', snapshot: snapshotTitled('X', 1) };
+    const served = { ...opts, channelSnapshot: () => current(held) };
+    const lock = adapters.readerLockFile({ cwd: dir });
+    const entry = fleet.freshCacheEntry();
+    entry.clients = 1;
+    entry.backend = 'github';
+    // The board's own first beat, hours ago.
+    entry.prNextAt = Date.now() - 5 * 3_600_000;
+    entry.prNextScheduled = true;
+    const next = Date.now() + 240_000;
+    expect((await lock.writeReaderState('github', state(next))).ok).toBe(true);
+    await fleet.maybeRefreshPrs(served, entry);
+    expect(entry.prNextAt).toBe(next);
+    expect(entry.prNextScheduled).toBe(true);
+    expect(fleet.prOverdueSecondsFor(entry, Date.now())).toBe(0);
+    // The next publish moves it again.
+    const later = next + 480_000;
+    await lock.writeReaderState('github', state(later));
+    await fleet.maybeRefreshPrs(served, entry);
+    expect(entry.prNextAt).toBe(later);
+  });
+
+  it('reads the schedule as unknown where the reader published none', async () => {
+    const { dir, opts } = await fixture();
+    vi.stubEnv('PLOT_PR_INDEX_HOME', path.join(dir, 'pr-index'));
+    const held = { epoch: 'e1', snapshot: snapshotTitled('X', 1) };
+    const served = { ...opts, channelSnapshot: () => current(held) };
+    const entry = fleet.freshCacheEntry();
+    entry.clients = 1;
+    entry.backend = 'github';
+    entry.prNextAt = Date.now() - 5 * 3_600_000;
+    entry.prNextScheduled = true;
+    await fleet.maybeRefreshPrs(served, entry);
+    expect(entry.prNextScheduled).toBe(false);
+    expect(fleet.prOverdueSecondsFor(entry, Date.now())).toBeNull();
   });
 });
 

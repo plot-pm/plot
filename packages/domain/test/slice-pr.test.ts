@@ -12,6 +12,7 @@ const readings = (over: Partial<SlicePrReadings> = {}): SlicePrReadings => ({
   base: 'main',
   planSlug: 'the-master-agent-uses-the-controllers',
   planFile: 'docs/plans/2026-09-08-the-master-agent-uses-the-controllers.md',
+  planTitle: 'The master agent uses the controllers',
   sliceName: "A slice's PR is opened by the fleet, not by hand",
   briefFile: '.plot/briefs/a-pr-is-opened-by-a-controller.md',
   prs: [],
@@ -21,15 +22,50 @@ const readings = (over: Partial<SlicePrReadings> = {}): SlicePrReadings => ({
 });
 
 describe('openSlicePr', () => {
-  it('takes its title from the wave the plan names the branch under', () => {
+  it('takes its title from the plan title and the wave the plan names the branch under', () => {
     const result = openSlicePr(readings(), { draft: false });
 
     expect(result.outcome).toBe('decided');
     if (isSlicePrRefusal(result)) return;
-    expect(result.title).toBe("A slice's PR is opened by the fleet, not by hand");
+    expect(result.title).toBe("The master agent uses the controllers: A slice's PR is opened by the fleet, not by hand");
     expect(result.head).toBe('feature/a-pr-is-opened-by-a-controller');
     expect(result.base).toBe('main');
     expect(result.draft).toBe(false);
+  });
+
+  describe('the title', () => {
+    const title = (over: Partial<SlicePrReadings>): string => {
+      const result = openSlicePr(readings(over), { draft: false });
+      if (isSlicePrRefusal(result)) throw new Error('expected a decision');
+      return result.title;
+    };
+
+    it('names the plan before a numbered wave heading, which names no change', () => {
+      // Sprint `triggers-and-connectors`, 2026-11-11 to 2026-11-14: five PRs of
+      // two plans opened as `Wave 1` — #3395, #3396 and #3399 of one, #3397 and
+      // #3398 of the other.
+      expect(
+        title({ planTitle: 'Triggers replace the tick', sliceName: 'Wave 1' }),
+      ).toBe('Triggers replace the tick: Wave 1');
+    });
+
+    it('takes the wave heading alone where the plan has no title', () => {
+      expect(title({ planTitle: '', sliceName: 'Wave 1' })).toBe('Wave 1');
+    });
+
+    it('takes the wave heading alone where it repeats the plan title', () => {
+      expect(title({ planTitle: 'Loose ends', sliceName: 'Loose ends' })).toBe('Loose ends');
+    });
+
+    it('trims the surrounding whitespace of both parts', () => {
+      expect(title({ planTitle: '  Triggers replace the tick \n', sliceName: ' Tick ' })).toBe(
+        'Triggers replace the tick: Tick',
+      );
+    });
+
+    it('is the same answer for the same readings', () => {
+      expect(title({})).toBe(title({}));
+    });
   });
 
   it('opens as a draft where the caller asked for one', () => {

@@ -48,7 +48,8 @@ export interface LoopWritePorts {
   agents: Agents;
   desk: Desk;
   refs: Refs;
-  processes: Processes;
+  /** The questions about one pid; the loop reads no desk's worker state. */
+  processes: Omit<Processes, 'workerState' | 'table'>;
   boundedRun: BoundedRun;
   /** Where a refused take-up records its branch, for the queue's `refused` hold. */
   refusedSlices: RefusedSliceRecord;
@@ -215,6 +216,7 @@ const landOne = async (
         detail: write.detail,
         ...(write.refusedAssignment !== undefined ? { refusedAssignment: write.refusedAssignment } : {}),
         ...(write.resumeId !== undefined ? { resumeId: write.resumeId } : {}),
+        ...(write.idle !== undefined ? { idle: write.idle } : {}),
       });
 
     case 'worker-finding':

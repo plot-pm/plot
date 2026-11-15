@@ -1,6 +1,7 @@
 // THROUGH THE NARROW PATH, not the package root, for the reason
 // `agent-settings.ts` gives: the root import bundles every entity and rule.
-import { deskRoot, deskRootPlacement } from '@plot-pm/domain/rules/desk-root';
+import { deskRoot, deskRootPlacement, deskRootRefusal } from '@plot-pm/domain/rules/desk-root';
+import { filesystemTypeOf } from '@plot-pm/domain/adapters/desk/desk-filesystem';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
@@ -16,10 +17,14 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * plot-desk-root.mjs --exclude-line <repo-root> [configured]
  * # exit 0  — the repo-relative exclude line, or nothing when outside the repo
  * # exit 2  — the repository root is missing
+ * # exit 3  — the desk root lies on a network filesystem; stderr names the type
  * ```
  *
- * Both readings arrive as arguments from the shell that took them, so this
- * entry reaches no filesystem and runs no git. The repository root is the MAIN
+ * Both readings arrive as arguments from the shell that took them. The one
+ * filesystem read is the desk root's filesystem type, once per call: a root on
+ * `nfs`, `smbfs`, `cifs`, `afpfs` or `webdav` is refused, because a liveness
+ * token there cannot answer for a holder on another host.
+ * `PLOT_DESK_FS_TYPE` stands in for the read. It runs no git. The repository root is the MAIN
  * checkout: inside a desk, `--show-toplevel` answers that desk, and a default
  * of `.worktrees` would then resolve beneath it.
  *
@@ -39,6 +44,8 @@ export const EXIT = {
   ok: 0,
   /** The caller named no repository root. */
   usage: 2,
+  /** The desk root lies on a network filesystem. */
+  refused: 3,
 } as const;
 
 /**
@@ -47,18 +54,28 @@ export const EXIT = {
  * @param args - `--exclude-line` optionally, then the repository root and the
  *   configured `Worktree root`.
  * @param write - where the answer goes.
+ * @param fsType - reads the filesystem type of a path.
+ * @param warn - where a refusal goes.
  * @returns the process exit code.
  */
 export const run = (
   args: readonly string[],
   write: (s: string) => void = (s) => process.stdout.write(s),
+  fsType: (path: string) => string | null = (path) => process.env.PLOT_DESK_FS_TYPE || filesystemTypeOf(path),
+  warn: (s: string) => void = (s) => process.stderr.write(s),
 ): number => {
   const wantsExclude = args[0] === '--exclude-line';
   const [repoRoot = '', configured = ''] = wantsExclude ? args.slice(1) : args;
   if (repoRoot.trim() === '') return EXIT.usage;
   const reading = { configured, repoRoot };
   if (!wantsExclude) {
-    write(`${deskRoot(reading)}\n`);
+    const root = deskRoot(reading);
+    const refusal = deskRootRefusal(root, fsType(root));
+    if (refusal !== null) {
+      warn(`${refusal}\n`);
+      return EXIT.refused;
+    }
+    write(`${root}\n`);
     return EXIT.ok;
   }
   const placement = deskRootPlacement(reading);

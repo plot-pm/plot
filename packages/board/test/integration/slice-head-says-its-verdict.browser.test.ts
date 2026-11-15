@@ -105,7 +105,7 @@ describe('a folded multi-branch wave head renders its verdict, not a claim', () 
       over: { fleet: fleet() },
       viewport: { width: 1400, height: 1200 },
     });
-    await page.getByText('Waiting on you').first().waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     // NO fold-expanding: the subject is what the head says while FOLDED.
     return page;
   }

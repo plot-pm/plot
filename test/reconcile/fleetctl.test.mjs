@@ -154,7 +154,7 @@ function sandbox(
 
   const dst = path.join(root, 'skills', 'plot', 'scripts');
   fs.mkdirSync(path.join(dst, 'board'), { recursive: true });
-  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh', 'plot-desk-root.sh', 'board/plot-desk-root.mjs', 'board/plot-old-label.mjs', 'board/plot-restart-stopped-command.mjs']) {
+  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh', 'plot-desk-root.sh', 'plot-desk-dirt.sh', 'board/plot-desk-root.mjs', 'board/plot-old-label.mjs', 'board/plot-fleetctl-start.mjs', 'board/plot-restart-stopped-command.mjs']) {
     const src = path.join(scripts, f);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dst, f));
   }
@@ -310,14 +310,14 @@ test('fleetctl: no verb is a refusal, not a default', () => {
   const { root, ctl, guardBin } = sandbox('noverb');
   const r = run(ctl, [], root, guardBin);
   assert.equal(r.status, 1);
-  assert.match(r.out, /one of --status, --once, --start, --stop/);
+  assert.match(r.out, /one of --status, --once, --start, --restart, --stop/);
 });
 
 test('fleetctl: an unknown argument is named rather than ignored', () => {
   const { root, ctl, guardBin } = sandbox('unknown');
-  const r = run(ctl, ['--restart'], root, guardBin);
+  const r = run(ctl, ['--restart', '3'], root, guardBin);
   assert.equal(r.status, 1);
-  assert.match(r.out, /unknown argument '--restart'/);
+  assert.match(r.out, /unknown argument '3'/);
 });
 
 test('fleetctl: --wait takes a number', () => {
@@ -412,6 +412,84 @@ test('--status names the fleet root when there are no worktrees', () => {
   const { root, ctl, guardBin } = sandbox('statusempty');
   const r = run(ctl, ['--status'], root, guardBin);
   assert.match(r.out, /no fleet worktrees under/);
+});
+
+// ── --status prints the board's state of each desk beside the shell's ────────
+
+/** A stand-in `plot-ask.mjs` answering `desk-states` from a basename → state map, and recording its calls. */
+const stubDeskStates = (root, states) => {
+  const log = path.join(root, 'ask-calls.log');
+  fs.writeFileSync(path.join(root, 'skills', 'plot', 'scripts', 'board', 'plot-ask.mjs'), [
+    "import fs from 'node:fs';",
+    "import path from 'node:path';",
+    `fs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(' ') + '\\n');`,
+    `const states = ${JSON.stringify(states)};`,
+    "if (process.argv[2] === 'desk-states') for (const d of process.argv.slice(3)) process.stdout.write(`${d}\\t${states[path.basename(d)] ?? 'unknown'}\\n`);",
+  ].join('\n'));
+  return log;
+};
+
+test('--status prints the board state beside the shell state of each desk, and differs where they disagree', () => {
+  const { root, ctl, guardBin } = sandbox('status-board');
+  const agree = path.join(root, '.worktrees', 'desk-agree');
+  const differ = path.join(root, '.worktrees', 'desk-differ');
+  git(root, 'worktree', 'add', '-q', '-b', 'desk-agree', agree);
+  git(root, 'worktree', 'add', '-q', '-b', 'desk-differ', differ);
+  const log = stubDeskStates(root, { 'desk-agree': 'none', 'desk-differ': 'running' });
+  try {
+    const r = run(ctl, ['--status'], root, guardBin);
+    assert.match(r.out, /^  desk-agree  none  board: none$/m, r.out);
+    assert.match(r.out, /^  desk-differ  none  board: running \(differs\)$/m, r.out);
+    const calls = fs.readFileSync(log, 'utf8').trim().split('\n');
+    assert.equal(calls.length, 1, 'the bundle is asked once per command, not once per desk');
+    assert.match(calls[0], /^desk-states .*desk-agree .*desk-differ$/);
+  } finally {
+    fs.rmSync(agree, { recursive: true, force: true });
+    fs.rmSync(differ, { recursive: true, force: true });
+  }
+});
+
+test('--status prints no board state where the bundle is missing', () => {
+  const { root, ctl, guardBin } = sandbox('status-noboard');
+  const desk = path.join(root, '.worktrees', 'desk-a');
+  git(root, 'worktree', 'add', '-q', '-b', 'desk-a', desk);
+  try {
+    const r = run(ctl, ['--status'], root, guardBin);
+    assert.match(r.out, /^  desk-a  none$/m, r.out);
+  } finally {
+    fs.rmSync(desk, { recursive: true, force: true });
+  }
+});
+
+test('--status names a usage-limit wait only for a numeric reset that lies ahead', () => {
+  const { root, ctl, guardBin } = sandbox('status-limited');
+  const shapes = [
+    ['desk-ahead', `${Math.floor(Date.now() / 1000) + 3600}\t2099-01-01T00:00:00Z\n`, true],
+    ['desk-past', `${Math.floor(Date.now() / 1000) - 3600}\t2000-01-01T00:00:00Z\n`, false],
+    ['desk-junk', 'soon\t2099-01-01T00:00:00Z\n', false],
+    ['desk-empty', '\t2099-01-01T00:00:00Z\n', false],
+  ];
+  const sleepers = [];
+  const desks = [];
+  try {
+    for (const [name, limited] of shapes) {
+      const desk = path.join(root, '.worktrees', name);
+      git(root, 'worktree', 'add', '-q', '-b', name, desk);
+      desks.push(desk);
+      const sleeper = record(execFileSync('bash', ['-c', 'sleep 30 >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' }).trim());
+      sleepers.push(sleeper);
+      fs.writeFileSync(path.join(desk, '.plot-worker.pid'), `${sleeper}\n`);
+      fs.writeFileSync(path.join(desk, '.plot-worker.limited'), limited);
+    }
+    const r = run(ctl, ['--status'], root, guardBin);
+    for (const [name, , waits] of shapes) {
+      const line = r.out.split('\n').find((l) => l.startsWith(`  ${name}  running`)) ?? '';
+      assert.equal(/waiting on a usage limit until 2099-01-01T00:00:00Z/.test(line), waits, `${name}: ${r.out}`);
+    }
+  } finally {
+    for (const sleeper of sleepers) signalOwn(sleeper, 'SIGTERM', { command: 'lsof -a -p' });
+    for (const desk of desks) fs.rmSync(desk, { recursive: true, force: true });
+  }
 });
 
 // ── --stop orchestrates the one stop rule, and takes the supervisor last ──────
@@ -683,12 +761,12 @@ test('--once --dry-run and --status --dry-run refuse and name the mode', () => {
   const onceBox = sandbox('oncedryrun');
   const onceResult = run(onceBox.ctl, ['--once', '--dry-run'], onceBox.root, onceBox.guardBin);
   assert.equal(onceResult.status, 1, onceResult.out);
-  assert.match(onceResult.out, /--dry-run works with --start only, not --once/);
+  assert.match(onceResult.out, /--dry-run works with --start and --restart only, not --once/);
 
   const statusBox = sandbox('statusdryrun');
   const statusResult = run(statusBox.ctl, ['--status', '--dry-run'], statusBox.root, statusBox.guardBin);
   assert.equal(statusResult.status, 1, statusResult.out);
-  assert.match(statusResult.out, /--dry-run works with --start only, not --status/);
+  assert.match(statusResult.out, /--dry-run works with --start and --restart only, not --status/);
 });
 
 // ── Two different mode flags refuse; the same flag twice is one mode ──────────
@@ -785,6 +863,8 @@ test('-h exits 0 and prints --wait and --dry-run', () => {
   assert.equal(r.status, 0, r.out);
   assert.match(r.out, /--wait S/);
   assert.match(r.out, /--dry-run {3}with --start/);
+  assert.match(r.out, /with --restart: report the unit/);
+  assert.match(r.out, /--restart {3}load the current fleetd bundle/);
   assert.match(r.out, /every other mode refuses it and exits 1/);
 });
 
@@ -2534,7 +2614,7 @@ function consumerSandbox(label, { nvmrc = process.versions.node.split('.')[0], r
   const plugin = path.join(box, 'plugin-cache', 'plot', '9.9.9');
   const dst = path.join(plugin, 'skills', 'plot', 'scripts');
   fs.mkdirSync(path.join(dst, 'board'), { recursive: true });
-  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh', 'plot-desk-root.sh', 'board/plot-desk-root.mjs', 'board/plot-old-label.mjs', 'board/plot-restart-stopped-command.mjs']) {
+  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh', 'plot-desk-root.sh', 'plot-desk-dirt.sh', 'board/plot-desk-root.mjs', 'board/plot-old-label.mjs', 'board/plot-fleetctl-start.mjs', 'board/plot-restart-stopped-command.mjs']) {
     const src = path.join(scripts, f);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dst, f));
   }
@@ -3761,4 +3841,349 @@ test('--status from a linked worktree outside a symlinked desk root is still ref
   const r = run(ctl, ['--status'], fs.realpathSync(foreign), guardBin);
   assert.equal(r.status, 3, r.out);
   assert.match(r.out, /not part of the estate at/);
+});
+
+// ── --restart: reload the supervisor, signal no agent ────────────────────────
+//
+// A `launchctl` that logs every call and answers `print` from a counter file:
+// the pid before the first `kickstart` and the pid after it, or the same pid
+// forever with `stuck`. `workdir` names this checkout so `--start`'s label
+// check passes.
+
+const stubRestartLaunchctl = (box, root, fleetLabel, { loaded = true, stuck = false, kickExit = 0 } = {}) => {
+  const bin = path.join(box, 'restart-bin');
+  fs.mkdirSync(bin, { recursive: true });
+  const log = path.join(box, 'launchctl.log');
+  const kicked = path.join(box, 'kicked');
+  const write = (name, body) => {
+    const p = path.join(bin, name);
+    fs.writeFileSync(p, `#!/bin/sh\n${body}\n`);
+    fs.chmodSync(p, 0o755);
+  };
+  write('uname', '[ "$1" = "-s" ] && echo Darwin || exec /usr/bin/uname "$@"');
+  write('launchctl', [
+    `echo "$*" >> '${log}'`,
+    loaded ? `[ "$1" = print ] && [ "$2" != "gui/${process.getuid()}/${fleetLabel}" ] && exit 113` : '[ "$1" = print ] && exit 113',
+    `[ "$1" = kickstart ] && [ ${kickExit} != 0 ] && exit ${kickExit}`,
+    `[ "$1" = kickstart ] && touch '${kicked}'`,
+    'if [ "$1" = print ]; then',
+    `  if [ -f '${kicked}' ] && [ ${stuck ? 0 : 1} = 1 ]; then pid=5555; else pid=4242; fi`,
+    `  printf '\\tworking directory = ${root}\\n\\tpid = %s\\n' "$pid"`,
+    'fi',
+    'exit 0',
+  ].join('\n'));
+  return { bin, calls: () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n') : []) };
+};
+
+const restartEnv = (box, bin, fleetLabel, extra = {}) => ({
+  HOME: fakeHome(box, { unit: true, label: fleetLabel }),
+  PLOT_FLEET_LABEL: fleetLabel,
+  PATH: withHarness(box, bin, process.env.PATH),
+  ...extra,
+});
+
+const standIn = () => Number(execFileSync('bash', ['-c', 'sleep 60 >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' }).trim());
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+test('--restart kickstarts the supervisor, reports both pids and the commit, and every agent survives', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('restart-ok');
+  git(root, 'commit', '-q', '--allow-empty', '-m', 'seed');
+  const commit = git(root, 'rev-parse', '--short', 'HEAD').trim();
+  const marker = armedMarker(root);
+  const before = fs.statSync(marker);
+  const content = fs.readFileSync(marker, 'utf8');
+  const calls = stubDispatch(root);
+  const { bin, calls: launchctl } = stubRestartLaunchctl(box, root, fleetLabel);
+  const freeLoop = standIn();
+  const busyAgent = standIn();
+  try {
+    const r = run(ctl, ['--restart', '--wait', '10'], root, guardBin, restartEnv(box, bin, fleetLabel));
+    assert.equal(r.status, 0, r.out);
+    assert.match(r.out, /old pid: 4242/);
+    assert.match(r.out, /new pid: 5555/);
+    assert.ok(r.out.includes(`bundle commit: ${commit}`), r.out);
+    assert.equal(alive(freeLoop), true, 'the free loop was signalled');
+    assert.equal(alive(busyAgent), true, 'the busy agent was signalled');
+    const verbs = launchctl().filter((l) => !l.startsWith('print'));
+    assert.deepEqual(verbs, [`kickstart -k gui/${process.getuid()}/${fleetLabel}`]);
+    assert.equal(fs.readFileSync(marker, 'utf8'), content, 'the start marker was rewritten');
+    assert.equal(fs.statSync(marker).mtimeMs, before.mtimeMs, 'the start marker was touched');
+    assert.equal(fs.existsSync(calls), false, 'plot-dispatch.sh ran');
+  } finally {
+    for (const pid of [freeLoop, busyAgent]) try { process.kill(pid); } catch { /* already gone */ }
+  }
+});
+
+test('--restart exits 1 naming the unit when the pid never changes', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('restart-stuck');
+  const { bin } = stubRestartLaunchctl(box, root, fleetLabel, { stuck: true });
+  const r = run(ctl, ['--restart', '--wait', '1'], root, guardBin, restartEnv(box, bin, fleetLabel));
+  assert.equal(r.status, 1, r.out);
+  assert.ok(r.out.includes(`'${fleetLabel}' reported no new pid within 1s`), r.out);
+});
+
+test('--restart names a failed reload and its exit code, and polls no pid', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('restart-reloadfail');
+  const { bin } = stubRestartLaunchctl(box, root, fleetLabel, { kickExit: 37 });
+  const r = run(ctl, ['--restart', '--wait', '10'], root, guardBin, restartEnv(box, bin, fleetLabel));
+  assert.equal(r.status, 1, r.out);
+  assert.ok(r.out.includes(`the reload of '${fleetLabel}' failed with exit 37: launchctl kickstart -k gui/${process.getuid()}/${fleetLabel}`), r.out);
+  assert.doesNotMatch(r.out, /reported no new pid/);
+});
+
+test('--restart with no loaded unit refuses, names /plot-fleet --start, and kickstarts nothing', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('restart-unloaded');
+  const { bin, calls } = stubRestartLaunchctl(box, root, fleetLabel, { loaded: false });
+  const r = run(ctl, ['--restart'], root, guardBin, restartEnv(box, bin, fleetLabel));
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /\/plot-fleet --start/);
+  assert.equal(calls().some((l) => l.startsWith('kickstart')), false);
+});
+
+test("--start's refusals reach --restart: the node pin, another checkout's label and an unwritable probe", () => {
+  const wrong = sandbox('restart-wrongnode', { nvmrc: '99' });
+  const w = stubRestartLaunchctl(wrong.box, wrong.root, wrong.fleetLabel);
+  const r1 = run(wrong.ctl, ['--restart'], wrong.root, wrong.guardBin, restartEnv(wrong.box, w.bin, wrong.fleetLabel));
+  assert.equal(r1.status, 1, r1.out);
+  assert.match(r1.out, /node on PATH is .*, Plot pins 99/);
+  assert.equal(w.calls().some((l) => l.startsWith('kickstart')), false);
+
+  const other = sandbox('restart-other');
+  const o = stubRestartLaunchctl(other.box, fs.realpathSync(scratch('plot-fleetctl-restart-elsewhere-')), other.fleetLabel);
+  const r2 = run(other.ctl, ['--restart'], other.root, other.guardBin, restartEnv(other.box, o.bin, other.fleetLabel));
+  assert.equal(r2.status, 1, r2.out);
+  assert.match(r2.out, /serves ANOTHER checkout/);
+  assert.equal(o.calls().some((l) => l.startsWith('kickstart')), false);
+
+  const probe = sandbox('restart-probe', { writeProbe: 'refuse' });
+  const p = stubRestartLaunchctl(probe.box, probe.root, probe.fleetLabel);
+  const r3 = run(probe.ctl, ['--restart'], probe.root, probe.guardBin, restartEnv(probe.box, p.bin, probe.fleetLabel));
+  assert.equal(r3.status, 1, r3.out);
+  assert.match(r3.out, /refused every write/);
+  assert.equal(p.calls().some((l) => l.startsWith('kickstart')), false);
+});
+
+test('--restart --dry-run prints the unit, the pid and the commit, and reloads nothing', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('restart-dry');
+  const { bin, calls } = stubRestartLaunchctl(box, root, fleetLabel);
+  const r = run(ctl, ['--restart', '--dry-run'], root, guardBin, restartEnv(box, bin, fleetLabel));
+  assert.equal(r.status, 0, r.out);
+  assert.ok(r.out.includes(`would reload ${fleetLabel}`), r.out);
+  assert.match(r.out, /supervisor pid: 4242/);
+  assert.match(r.out, /bundle commit: /);
+  assert.equal(calls().some((l) => l.startsWith('kickstart')), false);
+});
+
+test('--stop --dry-run, --once --dry-run and --status --dry-run still refuse', () => {
+  for (const mode of ['--stop', '--once', '--status']) {
+    const { root, ctl, guardBin } = sandbox(`restart-dry-refuse${mode}`);
+    const r = run(ctl, [mode, '--dry-run'], root, guardBin);
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.out, /--dry-run works with --start and --restart only/);
+  }
+});
+
+test('--restart --start refuses as two different modes', () => {
+  const { root, ctl, guardBin } = sandbox('restart-conflict');
+  const r = run(ctl, ['--restart', '--start'], root, guardBin);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /--restart and --start are different modes/);
+});
+
+test('--restart succeeds under PLOT_UNATTENDED=1', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('restart-unattended');
+  const { bin } = stubRestartLaunchctl(box, root, fleetLabel);
+  const r = run(ctl, ['--restart', '--wait', '10'], root, guardBin, restartEnv(box, bin, fleetLabel, { PLOT_UNATTENDED: '1' }));
+  assert.equal(r.status, 0, r.out);
+});
+
+// ── --restart --agents: stop each free loop, name every agent kept ───────────
+//
+// A desk is a worktree under `.worktrees/` holding a worker pid. `plot-host.sh`
+// and `plot-dispatch.sh` are stubs: the host answers `pr-state` from one JSON
+// file per branch (no file = the call fails), and dispatch's `--stop` kills the
+// pid the desk records, which is all the real one does that these tests see.
+
+const agentsDesk = (root, name, { branch = '', pid, start = 'current', dirty = false, blocked = false } = {}) => {
+  const desk = path.join(root, '.worktrees', name);
+  if (branch) git(root, 'worktree', 'add', '-q', '-b', branch, desk);
+  else git(root, 'worktree', 'add', '-q', '--detach', desk);
+  fs.writeFileSync(path.join(desk, '.plot-worker.pid'), `${pid}\n`);
+  const lstart = start === 'current'
+    ? execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8' }).trim()
+    : 'Mon Jan  1 00:00:00 2001';
+  fs.writeFileSync(path.join(desk, '.plot-worker.pid.startedAt'), `${lstart}\n`);
+  if (dirty) fs.writeFileSync(path.join(desk, 'unfinished.txt'), 'work\n');
+  if (blocked) fs.writeFileSync(path.join(desk, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: a question\n');
+  return desk;
+};
+
+const agentsStubs = (root, prs = {}) => {
+  const scripts = path.join(root, 'skills', 'plot', 'scripts');
+  const answers = path.join(root, 'pr-answers');
+  fs.mkdirSync(answers, { recursive: true });
+  for (const [branch, state] of Object.entries(prs)) {
+    fs.writeFileSync(path.join(answers, branch.replace(/\//g, '-')), JSON.stringify({ number: 7, state, draft: false, url: '', mergeable: '' }));
+  }
+  const host = path.join(scripts, 'plot-host.sh');
+  fs.writeFileSync(host, `#!/usr/bin/env bash\n[ "$1" = pr-state ] || exit 1\nf="${answers}/$(printf '%s' "$2" | tr '/' '-')"\n[ -f "$f" ] && cat "$f" || exit 1\n`);
+  fs.chmodSync(host, 0o755);
+  const log = path.join(root, 'calls.log');
+  const dispatch = path.join(scripts, 'plot-dispatch.sh');
+  fs.writeFileSync(dispatch, `#!/usr/bin/env bash\necho "dispatch $*" >> "${log}"\nbr="$2"\nwt="${root}/.worktrees/$(printf '%s' "$br" | tr '/' '-')"\n[ "$1" = --stop ] && kill "$(tr -d ' \\n' < "$wt/.plot-worker.pid")"\nexit 0\n`);
+  fs.chmodSync(dispatch, 0o755);
+  return { calls: () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n') : []) };
+};
+
+const settle = () => execFileSync('sleep', ['1']);
+
+test('--restart --agents stops free loops through the right door and keeps every other agent, naming why', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('agents-mixed');
+  git(root, 'commit', '-q', '--allow-empty', '-m', 'seed');
+  const { bin } = stubRestartLaunchctl(box, root, fleetLabel);
+  const pids = { detached: standIn(), merged: standIn(), open: standIn(), holds: standIn(), blocked: standIn(), dirty: standIn(), noPr: standIn() };
+  try {
+    agentsDesk(root, 'free-detached', { pid: pids.detached });
+    agentsDesk(root, 'feature-merged', { branch: 'feature/merged', pid: pids.merged });
+    agentsDesk(root, 'feature-open', { branch: 'feature/open', pid: pids.open });
+    agentsDesk(root, 'feature-holds', { branch: 'feature/holds', pid: pids.holds });
+    agentsDesk(root, 'busy-blocked', { pid: pids.blocked, blocked: true });
+    agentsDesk(root, 'busy-dirty', { pid: pids.dirty, dirty: true });
+    agentsDesk(root, 'feature-nopr', { branch: 'feature/nopr', pid: pids.noPr });
+    const { calls } = agentsStubs(root, { 'feature/merged': 'MERGED', 'feature/open': 'OPEN', 'feature/holds': 'CLOSED', 'feature/nopr': 'NONE' });
+    const r = run(ctl, ['--restart', '--agents', '--wait', '5'], root, guardBin, restartEnv(box, bin, fleetLabel));
+    assert.equal(r.status, 0, r.out);
+    settle();
+    assert.equal(alive(pids.detached), false, `the free detached loop survived:\n${r.out}`);
+    assert.equal(alive(pids.merged), false, `the free branch loop survived:\n${r.out}`);
+    for (const k of ['open', 'holds', 'blocked', 'dirty', 'noPr']) assert.equal(alive(pids[k]), true, `${k} was signalled:\n${r.out}`);
+    assert.deepEqual(calls(), ['dispatch --stop feature/merged'], 'only the branch desk goes through the dispatcher');
+    assert.match(r.out, /feature\/open .*kept — .*open PR/);
+    assert.match(r.out, /feature\/holds .*kept — holds feature\/holds/);
+    assert.match(r.out, /busy-blocked .*kept — .*PLOT-BLOCKED marker/);
+    assert.match(r.out, /busy-dirty .*kept — .*uncommitted files \(1\)/);
+    assert.match(r.out, /free-detached .*free loop/);
+  } finally {
+    for (const pid of Object.values(pids)) try { process.kill(pid); } catch { /* already gone */ }
+  }
+});
+
+test('--restart --agents never signals a recycled pid and says so', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('agents-recycled');
+  const { bin } = stubRestartLaunchctl(box, root, fleetLabel);
+  const stranger = standIn();
+  try {
+    agentsDesk(root, 'recycled', { pid: stranger, start: 'stale' });
+    agentsStubs(root);
+    const r = run(ctl, ['--restart', '--agents', '--wait', '5'], root, guardBin, restartEnv(box, bin, fleetLabel));
+    assert.equal(r.status, 0, r.out);
+    settle();
+    assert.equal(alive(stranger), true, `the recycled pid was signalled:\n${r.out}`);
+    assert.match(r.out, /recycled .*refused — .*belongs to another process/);
+  } finally {
+    try { process.kill(stranger); } catch { /* already gone */ }
+  }
+});
+
+test('--restart --agents keeps an agent whose PR cannot be read, and one with no recorded start', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('agents-unreadable');
+  const { bin } = stubRestartLaunchctl(box, root, fleetLabel);
+  const noPrAnswer = standIn();
+  const noStart = standIn();
+  try {
+    agentsDesk(root, 'feature-silent', { branch: 'feature/silent', pid: noPrAnswer });
+    const bare = agentsDesk(root, 'no-start', { pid: noStart });
+    fs.rmSync(path.join(bare, '.plot-worker.pid.startedAt'));
+    agentsStubs(root);
+    const r = run(ctl, ['--restart', '--agents', '--wait', '5'], root, guardBin, restartEnv(box, bin, fleetLabel));
+    assert.equal(r.status, 0, r.out);
+    settle();
+    assert.equal(alive(noPrAnswer), true, r.out);
+    assert.equal(alive(noStart), true, r.out);
+    assert.match(r.out, /feature\/silent .*kept — .*PR unreadable/);
+    assert.match(r.out, /no-start .*kept — process start unreadable/);
+  } finally {
+    for (const pid of [noPrAnswer, noStart]) try { process.kill(pid); } catch { /* already gone */ }
+  }
+});
+
+test('--restart without --agents stops no agent, free or not', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('agents-plain');
+  const { bin } = stubRestartLaunchctl(box, root, fleetLabel);
+  const free = standIn();
+  try {
+    agentsDesk(root, 'free-detached', { pid: free });
+    const { calls } = agentsStubs(root);
+    const r = run(ctl, ['--restart', '--wait', '5'], root, guardBin, restartEnv(box, bin, fleetLabel));
+    assert.equal(r.status, 0, r.out);
+    assert.equal(alive(free), true, r.out);
+    assert.deepEqual(calls(), []);
+    assert.match(r.out, /agents untouched/);
+  } finally {
+    try { process.kill(free); } catch { /* already gone */ }
+  }
+});
+
+test('--restart --agents stops nothing when the reload fails', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('agents-stuck');
+  const { bin } = stubRestartLaunchctl(box, root, fleetLabel, { stuck: true });
+  const free = standIn();
+  try {
+    agentsDesk(root, 'free-detached', { pid: free });
+    agentsStubs(root);
+    const r = run(ctl, ['--restart', '--agents', '--wait', '1'], root, guardBin, restartEnv(box, bin, fleetLabel));
+    assert.equal(r.status, 1, r.out);
+    settle();
+    assert.equal(alive(free), true, r.out);
+  } finally {
+    try { process.kill(free); } catch { /* already gone */ }
+  }
+});
+
+test('--restart --agents refuses an unattended caller before the reload and before any signal', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('agents-unattended');
+  const { bin, calls: launchctl } = stubRestartLaunchctl(box, root, fleetLabel);
+  const free = standIn();
+  try {
+    agentsDesk(root, 'free-detached', { pid: free });
+    agentsStubs(root);
+    const r = run(ctl, ['--restart', '--agents'], root, guardBin, restartEnv(box, bin, fleetLabel, { PLOT_UNATTENDED: '1' }));
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.out, /unattended/);
+    assert.equal(launchctl().some((l) => l.startsWith('kickstart')), false, 'the supervisor was reloaded');
+    assert.equal(alive(free), true, r.out);
+  } finally {
+    try { process.kill(free); } catch { /* already gone */ }
+  }
+});
+
+test('--restart --agents --dry-run says what it would stop and keep, and signals and reloads nothing', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('agents-dry');
+  const { bin, calls: launchctl } = stubRestartLaunchctl(box, root, fleetLabel);
+  const free = standIn();
+  const busy = standIn();
+  try {
+    agentsDesk(root, 'free-detached', { pid: free });
+    agentsDesk(root, 'busy-dirty', { pid: busy, dirty: true });
+    const { calls } = agentsStubs(root);
+    const r = run(ctl, ['--restart', '--agents', '--dry-run'], root, guardBin, restartEnv(box, bin, fleetLabel));
+    assert.equal(r.status, 0, r.out);
+    assert.match(r.out, /free-detached .*would stop/);
+    assert.match(r.out, /busy-dirty .*would keep — .*uncommitted files/);
+    assert.equal(alive(free), true, r.out);
+    assert.equal(alive(busy), true, r.out);
+    assert.deepEqual(calls(), []);
+    assert.equal(launchctl().some((l) => l.startsWith('kickstart')), false);
+  } finally {
+    for (const pid of [free, busy]) try { process.kill(pid); } catch { /* already gone */ }
+  }
+});
+
+test('--agents refuses every mode but --restart', () => {
+  for (const mode of ['--stop', '--once', '--status', '--start']) {
+    const { root, ctl, guardBin } = sandbox(`agents-refuse${mode}`);
+    const r = run(ctl, [mode, '--agents'], root, guardBin);
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.out, /--agents works with --restart only/);
+  }
 });

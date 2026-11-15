@@ -38,6 +38,16 @@ const checksUnanswered = (branch: string): EndingReading => ({
   ending: { reason: 'checks-unanswered', actor: 'agent', branch, detail: '', refusedAssignment: '', resumeId: '' },
 });
 
+const correctionsSpent = (branch: string): EndingReading => ({
+  read: 'ended',
+  ending: { reason: 'corrections-spent', actor: 'agent', branch, detail: '', refusedAssignment: '', resumeId: '' },
+});
+
+const turnLimit = (branch: string): EndingReading => ({
+  read: 'ended',
+  ending: { reason: 'turn-limit', actor: 'agent', branch, detail: '', refusedAssignment: '', resumeId: '' },
+});
+
 const reading = (overrides: Partial<ContinueTargetReading>): ContinueTargetReading => ({
   branch: 'feature/x',
   manifest: UNNAMED,
@@ -102,6 +112,31 @@ describe('continueTarget', () => {
   it('continues by writing a manifest when unnamed but the ending reads checks-unanswered for this branch, marker present', () => {
     const r = reading({ manifest: UNNAMED, ending: checksUnanswered('feature/x'), question: true });
     expect(continueTarget(r)).toEqual({ kind: 'continue', manifest: 'write' });
+  });
+
+  it('continues by writing a manifest when unnamed but the ending reads corrections-spent for this branch, marker present', () => {
+    const r = reading({ manifest: UNNAMED, ending: correctionsSpent('feature/x'), question: true });
+    expect(continueTarget(r)).toEqual({ kind: 'continue', manifest: 'write' });
+  });
+
+  it('refuses no-question when the ending reads corrections-spent for this branch but no marker is in the tree', () => {
+    const r = reading({ manifest: UNNAMED, ending: correctionsSpent('feature/x'), question: false });
+    expect(continueTarget(r)).toEqual({ kind: 'refused', reason: 'no-question' });
+  });
+
+  it('refuses no-manifest when the ending reads corrections-spent for a different branch', () => {
+    const r = reading({ manifest: UNNAMED, ending: correctionsSpent('bug/other-branch') });
+    expect(continueTarget(r)).toEqual({ kind: 'refused', reason: 'no-manifest' });
+  });
+
+  it('continues by writing a manifest when unnamed but the ending reads turn-limit for this branch, marker present', () => {
+    const r = reading({ manifest: UNNAMED, ending: turnLimit('feature/x'), question: true });
+    expect(continueTarget(r)).toEqual({ kind: 'continue', manifest: 'write' });
+  });
+
+  it('refuses no-question when the ending reads turn-limit for this branch but no marker is in the tree', () => {
+    const r = reading({ manifest: UNNAMED, ending: turnLimit('feature/x'), question: false });
+    expect(continueTarget(r)).toEqual({ kind: 'refused', reason: 'no-question' });
   });
 
   it('refuses no-manifest when unnamed and there is no usable ending', () => {

@@ -2,6 +2,7 @@ import {
   FLEETD_HEARTBEAT_VERSION,
   FLEETD_HEARTBEAT_MS,
   type FleetdHeartbeat,
+  type FleetdHostTransport,
   type FleetdLoop,
   type FleetdSupervised,
 } from '@plot-pm/domain';
@@ -46,6 +47,21 @@ export interface FleetdHeartbeatSource {
    * and that has not yet passed reports null; a loop it does not run is absent.
    */
   passes: () => Partial<Record<FleetdLoop, number | null>>;
+  /** How this process reads the git host; absent where it publishes none. */
+  hostTransport?: FleetdHostTransport;
+  /** How this process reads the Jira tracker; absent where the declared tracker is not Jira. */
+  trackerTransport?: FleetdHostTransport;
+  /**
+   * The watch set's counts, read on every beat. Absent where this process arms no
+   * watches; the heartbeat then reports `0`, `0` and `null`.
+   */
+  observer?: () => { watchesWanted: number; watchesArmed: number; lastEventAt: number | null };
+  /**
+   * The safety net's last read and its missed-change count, read on every beat.
+   * Absent where this process runs no safety net; the heartbeat then reports
+   * `lastSafetyNetAt: null` and no count.
+   */
+  safetyNet?: () => { lastSafetyNetAt: number | null; missedChanges: number };
 }
 
 /**
@@ -78,6 +94,8 @@ export const startFleetdHeartbeat = (
     const passes = source.passes();
     const loops: FleetdHeartbeat['loops'] = {};
     for (const loop of Object.keys(passes) as FleetdLoop[]) loops[loop] = { lastPassAt: passes[loop] ?? null };
+    const observed = source.observer?.() ?? { watchesWanted: 0, watchesArmed: 0, lastEventAt: null };
+    const net = source.safetyNet?.();
     return {
       version: FLEETD_HEARTBEAT_VERSION,
       pid: source.pid,
@@ -86,10 +104,13 @@ export const startFleetdHeartbeat = (
       generation: source.generation(),
       bridgeAt: source.bridgeAt(),
       supervised: source.supervised,
-      watchesWanted: 0,
-      watchesArmed: 0,
-      lastEventAt: null,
-      lastSafetyNetAt: null,
+      watchesWanted: observed.watchesWanted,
+      watchesArmed: observed.watchesArmed,
+      lastEventAt: observed.lastEventAt,
+      lastSafetyNetAt: net?.lastSafetyNetAt ?? null,
+      ...(net === undefined ? {} : { missedChanges: net.missedChanges }),
+      ...(source.hostTransport === undefined ? {} : { hostTransport: source.hostTransport }),
+      ...(source.trackerTransport === undefined ? {} : { trackerTransport: source.trackerTransport }),
       loops,
     };
   };

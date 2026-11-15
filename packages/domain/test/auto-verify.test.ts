@@ -288,6 +288,7 @@ describe('scaleUp counts a launched-but-unregistered agent (#2409)', () => {
   const slice = (branch: string): QueuedSlice => ({
     branch,
     slug: 'ship-it',
+    base: '',
     briefPresent: true,
     claimable: true,
     unnamed: false,

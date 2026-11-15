@@ -34,8 +34,8 @@ function fleet(rows: AgentRow[]): Fleet {
     generatedAt: new Date().toISOString(),
     ageSeconds: 1, readRef: 'abc', readRefAge: 1, localHead: 'abc',
     ready: true, error: null, shrink: null, rows,
-    // WORKING renders from the registry since
-    // `the-working-section-shows-every-worker`, so the worker row this suite
+    // Fleet › Working renders from the registry since
+    // `the-working-section-shows-every-worker`, so the agent row this suite
     // opens its log from appears only where an agent names the branch.
     agents: rows
       .filter((r) => r.group === 'working')
@@ -98,7 +98,9 @@ describe('the worker log panel: offered by a WORKING row, four outcomes, four an
    * about a race this helper would otherwise lose intermittently.
    */
   async function openPanel(page: Page) {
-    await page.locator('[data-row-actions]').first().click();
+    // The AGENT's row, in Fleet. The branch's own row under Work items carries
+    // a menu too, and it comes first in the document.
+    await page.locator('[data-section="fleet"] [data-row-actions]').first().click();
     await page.locator('[data-worker-log-open]').first().click();
     await page.locator('[data-worker-log]').waitFor({ timeout: 5_000 });
     await expect

@@ -344,7 +344,7 @@ describe('a row is a tuple — what a rendered page settles', () => {
       expect(name, `${kind} name`).toBeGreaterThanOrEqual(1);
       // Six gridcells, whatever the kind — the geometry that made a ticket wear
       // a branch's tracks is what one grid ends.
-      expect(await r.locator('[role="gridcell"]').count(), `${kind} cells`).toBe(7);
+      expect(await r.locator('[role="gridcell"]').count(), `${kind} cells`).toBe(8);
     }
   });
 

@@ -420,7 +420,7 @@ describe('the activity mark glows, and travels without arriving', () => {
     const tracks = await rowFor(page, 'feature/writing')
       .evaluate((el) => getComputedStyle(el).gridTemplateColumns);
     // SEVEN since the marks earned a track of their own at the front.
-      expect(tracks.split(' ')).toHaveLength(7);
+      expect(tracks.split(' ')).toHaveLength(8);
   });
 
   it('is ONE bar carrying ONE dot, with nothing beside it', async () => {
@@ -811,7 +811,7 @@ describe('the activity mark aligns to the row\'s first line', () => {
       over: { fleet: fleet(ROWS) },
       viewport: { width: 1400, height: 900 },
     });
-    await page.getByText('Waiting on you').first().waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section]').first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;
   }

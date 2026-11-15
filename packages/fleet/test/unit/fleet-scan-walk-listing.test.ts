@@ -6,6 +6,7 @@ import type { PlanStore } from '@plot-pm/domain/ports/plan-store';
 import type { HostAnswer, Scripts } from '@plot-pm/domain/ports/scripts';
 
 import { emptyWalk, withWalkRefs } from './walk-fake.js';
+import { saidListingWorld } from './listing-over-said.js';
 import { freshScanState, REFRESH_MS, scanOnce, type ScanOptions, type ScanWorld } from '../../src/shared/fleet-scan.js';
 
 /**
@@ -58,7 +59,7 @@ const oneBranchWorld = (host: Host, hostSaid: Scripts['hostSaid']): ScanWorld =>
       }),
     ]),
   } as unknown as PlanStore;
-  return {
+  return saidListingWorld({
     repoRoot: '/repo',
     scripts: {
       hostSaid,
@@ -72,7 +73,7 @@ const oneBranchWorld = (host: Host, hostSaid: Scripts['hostSaid']): ScanWorld =>
     } as never),
     backend: async () => 'github',
     walk: emptyWalk({ host, plans: () => plans }),
-  };
+  } as ScanWorld);
 };
 
 const branchOf = (reading: Awaited<ReturnType<typeof scanOnce>>['reading']) =>

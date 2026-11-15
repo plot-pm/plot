@@ -158,11 +158,8 @@ async function lineFor(page: Page, branch: string) {
     // list item in a grouped fold and the row itself elsewhere, so the search
     // walks up to the first ancestor holding a note or a status rather than
     // assuming which wrapper this render used.
-    let row: HTMLElement | null = el as HTMLElement;
-    while (row && !row.querySelector('[data-row-note],[data-tuple-status]')) {
-      row = row.parentElement;
-    }
-    const host = row ?? (el as HTMLElement);
+    // The row is the list item: the note sits in the same cell as the branch, the status in the next one.
+    const host = (el as HTMLElement).closest('li') ?? (el as HTMLElement);
     return {
       note: (host.querySelector('[data-row-note]') as HTMLElement | null)?.innerText.trim() ?? null,
       status: (host.querySelector('[data-tuple-status]') as HTMLElement | null)?.innerText.trim() ?? null,

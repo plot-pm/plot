@@ -10,7 +10,7 @@ import {
   type ClaimReleasePrReading,
   type PortResult,
 } from '@plot-pm/domain';
-import { agentsFs, processesShell, refsGit, hostShell, claimReleaseShell } from '@plot-pm/domain/adapters';
+import { agentsFs, processesFiles, refsGit, hostShell, claimReleaseShell } from '@plot-pm/domain/adapters';
 
 /**
  * The host-call counter a reading adds to — the same shape
@@ -54,7 +54,7 @@ async function liveHolders(
   context: { repoRoot: string; scriptDir: string },
 ): Promise<readonly string[]> {
   const agents = agentsFs(context);
-  const processes = processesShell(context);
+  const processes = processesFiles(context);
   const declared = await agents.declared();
   if (!isAnswered(declared)) return [];
   const holders: string[] = [];

@@ -95,26 +95,29 @@ describe('the board filters to my work', () => {
         }),
       },
     });
-    await page.getByText('Waiting on you').first().waitFor({ timeout: 15_000 });
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 15_000 });
     await reveal(page);
     return page;
   }
 
   /**
-   * Open the section and every fold inside it.
+   * Open every folded section and group, and every fold inside them.
    *
-   * The FOLD is not this test's subject, and the fixture deliberately sits in a
-   * section that starts open — but `COLLAPSED_BY_DEFAULT` is a preference that
-   * has moved before, and a filter test that silently measured a folded section
-   * would report the filter hiding rows the fold had taken.
+   * The FOLD is not this test's subject, and the fixture's four rows form one
+   * slice, which sits in a group that starts open — but `COLLAPSED_BY_DEFAULT`
+   * is a preference that has moved before, and a filter test that silently
+   * measured a folded group would report the filter hiding rows the fold had
+   * taken. Every toggle is opened, not one by key, because the placement rule
+   * and not this fixture decides which group holds the slice.
    */
-  async function reveal(page: Page): Promise<void> {
-    const toggle = page.locator('[data-group-toggle="waiting-on-you"]');
-    if (await toggle.count() > 0 && (await toggle.getAttribute('aria-expanded')) === 'false') {
-      await toggle.click();
+  const reveal = async (page: Page): Promise<void> => {
+    const toggles = page.locator('[data-group-toggle]');
+    for (let i = 0; i < (await toggles.count()); i += 1) {
+      const toggle = toggles.nth(i);
+      if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
     }
     await expandAgentFolds(page);
-  }
+  };
 
   /** Which branches are on screen, by the attribute every row carries. */
   const branches = async (page: Page): Promise<string[]> =>
@@ -235,7 +238,7 @@ describe('the board filters to my work', () => {
       expect(page.url()).toBe(url);
 
       await page.reload();
-      await page.getByText('Waiting on you').first().waitFor({ timeout: 15_000 });
+      await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 15_000 });
       await reveal(page);
       await expect.poll(() => chipOn(page)).toBe(true);
       // AND IT IS STILL FILTERING after the reload — a checkbox that came back
@@ -268,7 +271,7 @@ describe('the board filters to my work', () => {
         });
       });
       await page.reload();
-      await page.getByText('Waiting on you').first().waitFor({ timeout: 15_000 });
+      await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 15_000 });
       await reveal(page);
 
       await expect.poll(() => chipOn(page)).toBe(false);
@@ -304,7 +307,7 @@ describe('the board filters to my work', () => {
       },
     });
     try {
-      await page.getByText('Waiting on you').first().waitFor({ timeout: 15_000 });
+      await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 15_000 });
       await reveal(page);
 
       // THE CHIP EXISTS, before the board has answered — `AgentList` is
@@ -526,7 +529,7 @@ describe('the plans tab filters to my work', () => {
     try {
       await page.locator('[data-mine-toggle]').check();
       await page.getByRole('button', { name: 'Delivery' }).click();
-      await page.getByText('Waiting on you').first().waitFor({ timeout: 15_000 });
+      await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 15_000 });
       // THE AGENTS TAB READS THE SAME PREFERENCE through its own control — the
       // `Mine` chip, not a checkbox — so this crosses from `App.tsx`'s toggle to
       // `DeliveryFilters`'s button without asserting either one's markup is the
@@ -545,15 +548,16 @@ describe('the plans tab filters to my work', () => {
 });
 
 /**
- * WAITING ON YOU SAYS WHAT IT HIDES — `the-delivery-tab-filters-by-sprint-and-owner`.
+ * THE TICKET BLOCK SAYS WHAT IT HIDES — `the-delivery-tab-filters-by-sprint-and-owner`.
  *
- * The server decides which tickets the section shows (`waiting`), and the page
+ * The ticket block renders in `Tickets and plan runs`, outside the placement
+ * rule. The server decides which tickets the block shows (`waiting`), and the page
  * renders the domain's sentences for it. The fixture is the plan's own: 127
  * unplanned tickets, none assigned to the reader but one that is older than
  * the 50 newest, so `issues` holds 50 unassigned rows and `waiting.tickets`
  * holds the one that is mine.
  */
-describe('waiting on you says what it hides', () => {
+describe('the ticket block says what it hides', () => {
   let cat: Catalogue;
 
   beforeAll(async () => {
@@ -591,11 +595,9 @@ describe('waiting on you says what it hides', () => {
         }),
       },
     });
-    await page.getByText('Waiting on you').first().waitFor({ timeout: 15_000 });
-    const toggle = page.locator('[data-group-toggle="waiting-on-you"]');
-    if (await toggle.count() > 0 && (await toggle.getAttribute('aria-expanded')) === 'false') {
-      await toggle.click();
-    }
+    // The tickets render in `Tickets and plan runs`, after the five sections.
+    // That section has no fold, so nothing needs opening.
+    await page.locator('section[data-outside-rule]').waitFor({ timeout: 15_000 });
     return page;
   };
 

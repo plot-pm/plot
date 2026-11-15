@@ -30,12 +30,15 @@ export type BoardRun = {
   stop: () => Promise<SessionEnd>;
 };
 
-/** The pids `ps` lists below `root` now, found by parent pid. */
+/** The object reader's process, which lives as long as the board and never counts as activity. */
+const OBJECT_READER = /\bgit cat-file --batch-command\b/;
+
+/** The pids `ps` lists below `root` now, found by parent pid; the object reader is left out. */
 export const descendantsOf = (root: number, listing: string): number[] => {
   const children = new Map<number, number[]>();
   for (const line of listing.split('\n')) {
-    const m = /^\s*(\d+)\s+(\d+)\s*$/.exec(line);
-    if (m === null) continue;
+    const m = /^\s*(\d+)\s+(\d+)(?:\s+(.*))?$/.exec(line);
+    if (m === null || OBJECT_READER.test(m[3] ?? '')) continue;
     const [pid, ppid] = [Number(m[1]), Number(m[2])];
     children.set(ppid, [...(children.get(ppid) ?? []), pid]);
   }
@@ -53,7 +56,7 @@ export const descendantsOf = (root: number, listing: string): number[] => {
 const POLL_MS = 100;
 
 const listProcesses = (): string =>
-  spawnSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8' }).stdout ?? '';
+  spawnSync('ps', ['-A', '-o', 'pid=,ppid=,args='], { encoding: 'utf8' }).stdout ?? '';
 
 const waitQuiet = async (root: number, quietMs: number, timeoutMs: number): Promise<boolean> => {
   const until = Date.now() + timeoutMs;

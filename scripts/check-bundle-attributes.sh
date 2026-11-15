@@ -31,6 +31,9 @@
 
 set -uo pipefail
 
+# shellcheck source=scripts/lib-declared-bundles.sh
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib-declared-bundles.sh"
+
 # The tree to check. Defaults to this script's repo, which is what CI runs. An
 # explicit root exists so the gate can be pointed at a fixture and its own
 # refusal proven — a gate nothing tests is a gate that passes because nobody
@@ -47,13 +50,9 @@ for required in "$BUILD" "$ATTRIBUTES"; do
   fi
 done
 
-# The emitted set, read from the build's own declarations. `-a` because a
-# generated-output check must never be blinded by a NUL byte the way six gates
-# already were here — `build.mjs` is source today, and the banner and vendoring
-# blocks it carries are exactly where one would arrive.
-emitted=$(grep -aoE "shipped[A-Za-z]* = path\.join\([^)]*'[^']*'\)" "$BUILD" \
-  | sed -E "s|.*'\.\./\.\./([^']*)'.*|\1|" \
-  | sort -u)
+# The emitted set, read from the build's own declarations on disk by the one
+# shared reader, which also reads a declaration wrapped over several lines.
+emitted=$(read_shipped_bundles . : worktree | sed 's|^|skills/plot/scripts/|')
 
 if [ -z "$emitted" ]; then
   echo "::error::no shipped bundles found in $BUILD."

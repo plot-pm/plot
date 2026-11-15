@@ -4,6 +4,7 @@ import {
   BranchStateSchema,
   WorkerStateSchema,
   WorkerActivitySchema,
+  LivenessBasisSchema,
   PlanSchema,
   FindingSchema,
   FleetReadingSchema,
@@ -1636,7 +1637,7 @@ export type Board = z.infer<typeof BoardSchema>;
  * | kind | has a row today | data on the row |
  * |---|---|---|
  * | `ticket` | yes (`IssueRowView`) | yes |
- * | `plan` | yes (`PlanRow`) | yes |
+ * | `plan` | yes (the plan row) | yes |
  * | `branch` | yes (`Row`) | yes |
  * | `pr` | a CELL inside a branch row, not a row | yes — 67 of 80 live rows |
  * | `release` | an unmarked branch row | yes, undistinguished |
@@ -3320,6 +3321,19 @@ export const AgentRowSchema = z.object({
    */
   worker: WorkerStateSchema.default('elsewhere'),
   /**
+   * A fleetd fixer runs on this row's open PR now: `.plot/state/fixer-attempts/<pr>.json`
+   * carries an `inFlight` mark. Read on the render clock for a planless open PR only —
+   * the one row the loose-end rule asks — and absent everywhere else. Absent is not
+   * false: a row whose record nobody read says nothing about a fixer.
+   */
+  fixerInFlight: z.boolean().optional(),
+  /**
+   * A worktree on this machine holds this row's branch. Read from the worktree
+   * listing for a planless row only — the rows the loose-end rule asks — and absent
+   * everywhere else and where the listing failed. Absent is not false.
+   */
+  desk: z.boolean().optional(),
+  /**
    * Whether a `running` worker's child is doing work — `BranchSchema.
    * worker_activity`, forwarded onto the row unchanged.
    *
@@ -3332,6 +3346,12 @@ export const AgentRowSchema = z.object({
    * once, and this carries that verdict outward.
    */
   worker_activity: WorkerActivitySchema.default(''),
+  /**
+   * What the worker reading's liveness rests on — `BranchSchema.worker_basis`,
+   * forwarded onto the row unchanged. `start-time` is a desk with no liveness
+   * token, and the row's status names it. Defaults to "".
+   */
+  worker_basis: LivenessBasisSchema.default(''),
   /**
    * What this desk's `PLOT-BLOCKED*` marker asks and when it was written:
    * `firstLine` is the marker's first line, "" when the content did not read,
@@ -3731,6 +3751,14 @@ export const IssueRowSchema = z.object({
    * otherwise, `null` where nobody is assigned.
    */
   owner: z.string().nullable().default(null),
+  /**
+   * The release versions the tracker planned the ticket for, from the issue
+   * index. OPTIONAL and never defaulted: absent means the row was never asked
+   * for them, `[]` means it was asked and named none.
+   */
+  releases: z.array(z.string()).optional(),
+  /** `true` where a plan names the ticket — the same join `waitingTickets` makes; absent otherwise. */
+  planned: z.literal(true).optional(),
 });
 export type IssueRow = z.infer<typeof IssueRowSchema>;
 
@@ -4226,11 +4254,25 @@ export type SprintCounts = z.infer<typeof SprintCountsSchema>;
  * carries a list and the control renders one row each — picking the newest
  * would silently hide a commitment.
  */
+/** One row's `releases` — present where the tracker was asked, absent where it was not. */
+const ReleaseRowSchema = z.object({ releases: z.array(z.string()).optional() });
+
+/** The wire shape of the domain's `ReleaseTicketReading`. */
+export const ReleaseTicketsSchema = z.object({
+  open: z.array(ReleaseRowSchema),
+  closed: z.array(ReleaseRowSchema).nullable(),
+  closedComplete: z.boolean(),
+  closedSince: z.string().nullable(),
+});
+export type ReleaseTickets = z.infer<typeof ReleaseTicketsSchema>;
+
 export const FleetSprintSchema = z.object({
   slug: z.string(),
   title: z.string(),
   /** The sprint's `- **Release:** x.y.z`, or "" — see {@link SprintCardSchema}. */
   release: z.string().default(''),
+  /** The sprint's `- **Start:** YYYY-MM-DD`, or "" — the Delivery tab's release line compares it with the closed window. */
+  start: z.string().default(''),
   counts: SprintCountsSchema,
   /**
    * Where the sprint sits against its dates, and the label the row prints —
@@ -4713,6 +4755,13 @@ export const FleetShape = z.object({
    */
   issueAbsence: z.string().nullable().default(null),
   /**
+   * The `Auto-review` key of `## Plot Config`, as the server read it. Absent
+   * where the key is missing or an older server sends nothing; never defaulted.
+   */
+  autoReview: z.boolean().optional(),
+  /** The `Correction budget` key, absent on the same terms as `autoReview`. */
+  correctionBudget: z.number().optional(),
+  /**
    * How old the rows in `issues` are, where they came from `issues.json`
    * rather than a live read — the fleet's own `at` on the index, not the
    * moment this board read the file. Null where the rows are fresh (a live
@@ -4731,6 +4780,16 @@ export const FleetShape = z.object({
    * notice — rather than as a server that answered and found nothing.
    */
   waiting: FleetWaitingSchema.nullable().optional(),
+  /**
+   * The issue index as the Delivery tab's release line reads it: each open and
+   * closed row's `releases` and nothing else, so the domain's
+   * `releaseTicketWording` counts on the client without a second read.
+   *
+   * `null` where `issues.json` holds no usable rows (no read yet, source
+   * `nobody`); `closed` is null where no closed read has answered. Optional so
+   * an older server renders the line with slice counts only.
+   */
+  releaseTickets: ReleaseTicketsSchema.nullable().optional(),
   /**
    * The two fleet controls, SHARED across every board reading this repo.
    *
@@ -4764,6 +4823,14 @@ export const FleetShape = z.object({
        * force rather than silently disabling it.
        */
       machineOverride: z.boolean().optional(),
+      /**
+       * The three automatic-step switches beside auto-dispatch. Optional for
+       * the reason `machineOverride` is: the client casts this payload, and an
+       * absent switch reads as off.
+       */
+      autoReview: z.boolean().optional(),
+      autoVerify: z.boolean().optional(),
+      autoDesign: z.boolean().optional(),
       /**
        * How many workers are in WORKING — the registry size, one derivation
        * read twice.

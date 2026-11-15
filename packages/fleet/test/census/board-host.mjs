@@ -6,11 +6,15 @@
 // stdout: `census: board <pid> <port>` once the board listens;
 //         `census: marked <label>` after each mark; `census: stopped <code>`.
 // stdin:  `mark <label>` starts `/usr/bin/true census-mark <label>`;
-//         `stop` lists the board's descendants by pid, sends SIGTERM to the
-//         board's process group and to each descendant, waits until the board
-//         and every listed descendant have exited (SIGKILL after 10 s), and
-//         exits. A descendant in its own process group, such as the PR reader
-//         the board starts detached, outlives a signal to the board's group.
+//         `stop` sends SIGSTOP to the board's group and to each descendant
+//         until a listing finds no unstopped one, sends SIGKILL to every
+//         stopped group and pid, waits until each has exited, and exits.
+//         A stopped process starts nothing, so the last listing holds every
+//         process the board started. A descendant in its own process group,
+//         such as a `runProcess` child or the PR reader the board starts
+//         detached, outlives a signal to the board's group and is reparented
+//         to pid 1 once its parent exits, where no listing by parent pid finds
+//         it.
 import { spawn, spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
 
@@ -96,39 +100,24 @@ const awaitGone = (pids, ms) =>
   });
 
 const stop = async () => {
-  const descendants = new Set();
-  const terminate = () => {
-    for (const pid of descendantsOf(board.pid)) {
-      if (descendants.has(pid)) continue;
-      descendants.add(pid);
-      signalPid(pid, 'SIGTERM');
+  // FREEZE FIRST, THEN LIST: a listing of a running tree misses a child
+  // started after it, and that child outlives the board in a group of its own.
+  const frozen = new Set();
+  signalPid(board.pid, 'SIGSTOP');
+  for (;;) {
+    const found = descendantsOf(board.pid).filter((pid) => !frozen.has(pid));
+    if (found.length === 0) break;
+    for (const pid of found) {
+      frozen.add(pid);
+      signalPid(pid, 'SIGSTOP');
     }
-  };
-  terminate();
-  signal('SIGTERM');
-  const timer = setTimeout(() => signal('SIGKILL'), 10_000);
-  // A child the board starts while it shuts down is listed on the next read.
-  let done = false;
-  const code = await new Promise((resolve) => {
-    void exited.then((c) => {
-      done = true;
-      resolve(c);
-    });
-    const poll = () => {
-      if (done) return;
-      terminate();
-      setTimeout(poll, 50);
-    };
-    poll();
-  });
-  clearTimeout(timer);
-  // WHAT THE BOARD LEFT IN ITS GROUP: a script still running gets the same end.
-  signal('SIGKILL');
-  const left = await awaitGone([...descendants], 10_000);
-  for (const pid of left) signalPid(pid, 'SIGKILL');
-  await awaitGone(left, 10_000);
+  }
+  signalPid(board.pid, 'SIGKILL');
+  for (const pid of frozen) signalPid(pid, 'SIGKILL');
+  const code = await exited;
+  const left = await awaitGone([...frozen], 10_000);
   say(`stopped ${code}`);
-  process.exit(0);
+  process.exit(left.length === 0 ? 0 : 1);
 };
 
 let queue = Promise.resolve();

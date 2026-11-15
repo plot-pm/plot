@@ -207,6 +207,20 @@ export const boundRefusal = (
 };
 
 /**
+ * Whether the machine's headroom can change what `supervise` decides for an agent.
+ *
+ * Runs {@link supervise} with a `clear` headroom: the verdict is `correct` only
+ * where every bound but the headroom allows a relaunch, and `no-headroom` is the
+ * only refusal the machine can cause. Any other verdict (`leave`, `reap`,
+ * `needs-a-person`, a `defer` for no progress) holds for every headroom.
+ *
+ * @param readings - what was measured of the agent, headroom excluded.
+ * @returns true when a `tight`, `starved` or `unmeasured` headroom would turn a relaunch into a `defer`.
+ */
+export const needsHeadroom = (readings: Omit<SupervisionReadings, 'headroom'>): boolean =>
+  supervise({ ...readings, headroom: 'clear' }).verdict === 'correct';
+
+/**
  * What to tell an agent that left no believable declaration.
  *
  * Written in the gates' own register — a sentence naming what is missing and

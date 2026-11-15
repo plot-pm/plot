@@ -7,48 +7,6 @@ import { type SliceGroup, groupBySlice } from './slices.js';
 import { isStartable, isUnbegun } from './row-identity.js';
 
 /**
- * Groups in fixed order, each labelled by what it asks OF YOU rather than by
- * what the branch is. "wip" is a git fact; "nothing to do but look" is the
- * answer a person came here for.
- *
- * Every group renders even when empty. A group that vanishes is
- * indistinguishable from a group that is empty — and for `waiting-on-machine`,
- * which needs PR data this step does not have, silence would read as "nothing
- * is waiting on CI": a claim this step cannot make.
- *
- * Actionable before diagnostic: `not-started` precedes `quiet`, because work a
- * person can pick up right now outranks work they must go investigate. This
- * order must stay identical to `GROUP_ORDER` in `fleet.ts`, which sorts the
- * rows — a disagreement between the two would sort rows into a sequence the
- * sections then render in a different one.
- */
-export const GROUPS: { key: WaitingGroup; icon: string; label: string; hint: string }[] = [
-  { key: 'waiting-on-you', icon: '⚠', label: 'Waiting on you', hint: 'review, merge, decide' },
-  { key: 'working', icon: '🤖', label: 'Working', hint: 'nothing to do — just look' },
-  // *a machine is working* rather than *CI will finish*. The section lists
-  // PROCESSES and CI is only one kind: a worker running in a local worktree is a
-  // machine working too, and it is observable in this very checkout. The old
-  // hint named the one source the section was filled from and would now be
-  // wrong about an empty section for the other reason — no local run either.
-  //
-  // It also drops a FORECAST. *CI will finish* predicts an outcome nothing here
-  // measures; *a machine is working* is what was observed, and the section's own
-  // rule. `HOST_CANNOT_REPORT_HINT` still withdraws even this where the host
-  // cannot be asked at all.
-  { key: 'waiting-on-machine', icon: '⏳', label: 'Waiting on a machine', hint: 'nothing — a machine is working' },
-  // *approved* rather than only *nobody has taken it*: the section is filtered
-  // on the plan's phase first, so every row in it is one an agent may actually
-  // take. The old hint described the branch and let three unclaimable kinds of
-  // row in behind it.
-  { key: 'not-started', icon: '📋', label: 'Not started', hint: 'approved — nobody has taken it' },
-  { key: 'quiet', icon: '💤', label: 'Quiet', hint: 'still thinking, or dead?' },
-  // `delivered` for the same reason the row's status word changed: it is Plot's
-  // term for the transition (Draft → Approved → **Delivered** → Released) and
-  // `/plot-deliver` performs it. `merged` names what git did to a ref.
-  { key: 'done', icon: '✅', label: 'Done', hint: 'delivered' },
-];
-
-/**
  * The one section a SLICE belongs in — a function of the slice, never of a single
  * branch.
  *

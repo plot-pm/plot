@@ -205,8 +205,10 @@ describe('the wave leaves the kind alone', () => {
       // path is a SECOND site with its own copy of the attribute, and the test
       // below binds it — measured 2026-09-03 by renaming the SliceRow site
       // alone: this assertion stayed green and that one went red.
+      // The kinds that only link to a slice (agent, pr, build) are rows of their own, not slice rows.
+      const LINKING = ['agent', 'pr', 'build'];
       await expect.poll(() => countSliceRows(page), { timeout: 10_000 })
-        .toBe(RowKindSchema.options.length);
+        .toBe(RowKindSchema.options.filter((k) => !LINKING.includes(k)).length);
     } finally {
       await page.close();
     }

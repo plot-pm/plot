@@ -5,7 +5,7 @@ import { DRAFT_PLAN_NOTE, type AgentRow, type Fleet } from '../../src/contract/s
 
 /**
  * A Draft plan with named slices renders as ONE plan row over its slices in
- * Waiting on you. The grouping shape is decided and unit-tested in
+ * You › Input to the fleet. The grouping shape is decided and unit-tested in
  * `planGroupShape`; this test proves the page draws it.
  */
 const SLUG = 'a-draft-with-slices';
@@ -39,7 +39,7 @@ const fleet = (): Fleet => {
   } as unknown as Fleet;
 };
 
-describe('a Draft plan\'s slices nest under its plan row in Waiting on you', () => {
+describe('a Draft plan\'s slices nest under its plan row in Input to the fleet', () => {
   let cat: Catalogue;
 
   beforeAll(async () => {
@@ -57,7 +57,7 @@ describe('a Draft plan\'s slices nest under its plan row in Waiting on you', () 
       viewport: { width: 1400, height: 1200 },
     });
     try {
-      const section = page.locator('ul[role="grid"][aria-label^="Waiting on you"]');
+      const section = page.locator('ul[role="grid"][aria-label^="Input to the fleet"]');
       await expect
         .poll(() => section.locator(`li[data-plan-row="${SLUG}"]`).count(), { timeout: 10_000 })
         .toBe(1);

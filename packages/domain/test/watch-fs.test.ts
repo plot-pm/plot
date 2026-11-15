@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -24,10 +24,26 @@ const git = (cwd: string, ...args: string[]): void => {
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, stdio: 'ignore' });
 };
 
-const until = async (ok: () => boolean, ms = 5000): Promise<void> => {
+const until = async (ok: () => boolean, ms = 4000): Promise<void> => {
   const end = Date.now() + ms;
   while (!ok() && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
 };
+
+// fs.watch on a directory returns before the platform watch is live (macOS
+// starts its FSEvents stream asynchronously), and a change made in that gap is
+// never delivered. Writing `name` into `dir` until an event names it proves the
+// watch is live before a test makes the change it asserts on.
+const live = async (dir: string, events: WatchEvent[], name = '.live', ms = 4000): Promise<void> => {
+  const end = Date.now() + ms;
+  let n = 0;
+  while (!events.some((e) => e.name === name) && Date.now() < end) {
+    writeFileSync(join(dir, name), String(n++));
+    await until(() => events.some((e) => e.name === name), 100);
+  }
+  expect(events.some((e) => e.name === name)).toBe(true);
+};
+
+const TEST_MS = 15_000;
 
 describe('watchFs', () => {
   it('delivers an event for refs/heads/ on each of two commits', async () => {
@@ -38,6 +54,8 @@ describe('watchFs', () => {
     const events: WatchEvent[] = [];
     const handle = watchFs().arm(dir, { recursive: false }, (e) => events.push(e));
     expect(handle.degraded).toBe(false);
+    await live(dir, events);
+    events.length = 0;
 
     git(repo, 'commit', '-q', '--allow-empty', '-m', 'second');
     await until(() => events.length >= 1);
@@ -49,7 +67,7 @@ describe('watchFs', () => {
     await until(() => events.length > afterFirst);
     expect(events.length).toBeGreaterThan(afterFirst);
     handle.close();
-  });
+  }, TEST_MS);
 
   it('reports degraded for a missing directory and throws nothing', () => {
     const repo = tmp();
@@ -58,10 +76,12 @@ describe('watchFs', () => {
     expect(() => handle.close()).not.toThrow();
   });
 
-  it('keeps delivering after a rename event re-arms the watch', async () => {
+  it('keeps delivering after a rename event inside the directory', async () => {
     const repo = tmp();
     const events: WatchEvent[] = [];
     const handle = watchFs().arm(repo, { recursive: false }, (e) => events.push(e));
+    await live(repo, events);
+    events.length = 0;
     writeFileSync(join(repo, 'a'), '1');
     await until(() => events.some((e) => e.kind === 'rename'));
     expect(events.every((e) => e.dir === repo)).toBe(true);
@@ -71,7 +91,22 @@ describe('watchFs', () => {
     expect(events.length).toBeGreaterThan(seen);
     expect(events.some((e) => e.name === 'b')).toBe(true);
     handle.close();
-  });
+  }, TEST_MS);
+
+  it('re-arms and keeps delivering when the directory is replaced by rename', async () => {
+    const repo = tmp();
+    const dir = join(repo, 'd');
+    mkdirSync(dir);
+    const events: WatchEvent[] = [];
+    const handle = watchFs().arm(dir, { recursive: false }, (e) => events.push(e));
+    await live(dir, events);
+
+    renameSync(dir, join(repo, 'd.old'));
+    mkdirSync(dir);
+    await live(dir, events, 'after');
+    expect(handle.degraded).toBe(false);
+    handle.close();
+  }, TEST_MS);
 
   it('delivers nothing after close and reports degraded when the directory vanishes', async () => {
     const repo = tmp();
@@ -84,9 +119,12 @@ describe('watchFs', () => {
     await new Promise((r) => setTimeout(r, 150));
     expect(events).toEqual([]);
 
-    const second = watchFs().arm(dir, { recursive: false }, () => {});
+    const seen: WatchEvent[] = [];
+    const second = watchFs().arm(dir, { recursive: false }, (e) => seen.push(e));
+    await live(dir, seen);
     rmSync(dir, { recursive: true });
-    await until(() => second.degraded, 1000);
+    await until(() => second.degraded);
+    expect(second.degraded).toBe(true);
     second.close();
-  });
+  }, TEST_MS);
 });

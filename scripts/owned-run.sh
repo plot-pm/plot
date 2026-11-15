@@ -140,6 +140,22 @@ if [ -z "${NODE_COMPILE_CACHE:-}" ]; then
   export NODE_COMPILE_CACHE="$root/home/.node-compile-cache"
 fi
 
+# GIT NEVER GUESSES A COMMITTER EMAIL INSIDE THE RUN. The private `HOME` has no
+# `~/.gitconfig`, so a commit in a fixture repository that sets no `user.email`
+# takes git's guess: `<user>@<canonical hostname>`. On a Linux runner whose
+# hostname has no dot, git asks the resolver for the canonical name, and when
+# that answer carries no domain git refuses the commit ("unable to auto-detect
+# email address"). Measured 2026-11-10, run 42748609647 attempt 1: 21 tests in
+# 3 board files failed that way with "could not commit the release/approval",
+# and the re-run of the same commit passed. `user.useConfigOnly` makes git
+# refuse every such commit on every machine, so a fixture that sets no email
+# fails at once instead of on one runner's resolver. Appended to the caller's
+# own `GIT_CONFIG_COUNT` entries, which keep their indices.
+git_config_index="${GIT_CONFIG_COUNT:-0}"
+export "GIT_CONFIG_KEY_${git_config_index}=user.useConfigOnly"
+export "GIT_CONFIG_VALUE_${git_config_index}=true"
+export GIT_CONFIG_COUNT=$((git_config_index + 1))
+
 cleanup() {
   # `${root:?}` refuses an empty expansion, so a cleanup reached with `root`
   # unset can never become `rm -rf /`. The path is the exact name `mktemp`

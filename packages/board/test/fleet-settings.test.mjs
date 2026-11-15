@@ -216,3 +216,38 @@ describe('POST /api/fleet-controls: refuses a cross-origin write', () => {
     assert.equal(fs.existsSync(controlsFile(tmp)), false);
   });
 });
+
+describe('POST /api/fleet-controls: the three automatic-step switches', () => {
+  let tmp, server;
+
+  before(async () => {
+    tmp = makeRepo({ plans: [] });
+    server = await startServer(tmp);
+  });
+  beforeEach(() => {
+    fs.rmSync(controlsFile(tmp), { force: true });
+  });
+  after(async () => {
+    await server?.stop();
+    if (tmp) rmTree(tmp);
+  });
+
+  for (const key of ['autoReview', 'autoVerify', 'autoDesign']) {
+    it(`${key} writes through the controller and leaves the other switches alone`, async () => {
+      const res = await postControls(server.port, { [key]: true });
+      assert.equal(res.status, 200);
+      const body = JSON.parse(res.body);
+      assert.equal(body[key], true);
+      for (const other of ['autoDispatch', 'autoReview', 'autoVerify', 'autoDesign'].filter((k) => k !== key)) {
+        assert.equal(body[other], false, `${other} keeps its value`);
+      }
+      assert.equal(JSON.parse(fs.readFileSync(controlsFile(tmp), 'utf8'))[key], true);
+    });
+
+    it(`${key} refuses a value that is not a boolean and writes nothing`, async () => {
+      const res = await postControls(server.port, { [key]: 'yes' });
+      assert.equal(res.status, 400);
+      assert.equal(fs.existsSync(controlsFile(tmp)), false);
+    });
+  }
+});

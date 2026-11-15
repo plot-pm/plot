@@ -74,6 +74,62 @@ const censusCalls = (lines) => {
   return calls;
 };
 
+const BASE_GATES = ['check-shell-lines.sh pr', 'check-decision-count.sh pr', 'check-sprint-members.sh'];
+
+// The bundle gate reads `origin/main` on every pull request: a branch carries
+// `main`'s build, and the commit hook compares with the same base.
+const BUNDLE_GATE = 'check-no-bundle-diff.sh';
+
+/** One line per merge-base gate call in `ci` that names `origin/main`, or lacks the pull request's base. */
+const gateBaseRefusals = (ci) => {
+  const out = [];
+  const calls = ci.split('\n').filter((l) => !/^\s*#/.test(l) && l.includes('./scripts/check-'));
+  for (const gate of BASE_GATES) {
+    const mine = calls.filter((l) => l.includes(`./scripts/${gate}`));
+    if (mine.length === 0) out.push(`${gate}: no call in ci.yml`);
+    if (mine.some((l) => l.includes('origin/main'))) out.push(`${gate}: a call passes origin/main instead of the pull request's base`);
+    if (!mine.some((l) => l.includes('origin/$GITHUB_BASE_REF'))) out.push(`${gate}: no call passes origin/$GITHUB_BASE_REF`);
+  }
+  const bundle = calls.filter((l) => l.includes(`./scripts/${BUNDLE_GATE}`));
+  if (bundle.length === 0) out.push(`${BUNDLE_GATE}: no call in ci.yml`);
+  if (bundle.some((l) => l.includes('$GITHUB_BASE_REF'))) out.push(`${BUNDLE_GATE}: a call passes the pull request's base instead of origin/main`);
+  return out;
+};
+
+/** The steps of a job's lines, each as one text from its `      - ` line to the next. */
+const stepsOf = (lines) => {
+  const from = lines.indexOf('    steps:');
+  return from === -1 ? [] : lines.slice(from + 1).join('\n').split(/\n(?= {6}- )/);
+};
+
+/** One line per way `ci`'s `ci-inputs` record breaks the record contract. */
+const recordRefusals = (ci) => {
+  const select = jobLines(ci, 'select');
+  if (!select) return ['select: the job is missing'];
+  const steps = stepsOf(select);
+  const out = [];
+  const record = steps.find((s) => /^ {8}id: record$/m.test(s));
+  const upload = steps.find((s) => /^ {10}name: \$\{\{ steps\.record\.outputs\.name \}\}$/m.test(s));
+  if (!record) out.push('select: no step records the inputs (id: record)');
+  if (!upload) out.push('select: no step uploads the ci-inputs record');
+  for (const [what, step] of [['record', record], ['upload', upload]]) {
+    if (!step) continue;
+    const cond = /^ {8}if: (.*)$/m.exec(step)?.[1] ?? '';
+    if (!cond.includes("github.event_name == 'pull_request'") || cond.includes('||')) {
+      out.push(`select: the ${what} step does not run on pull_request only`);
+    }
+    if (!/^ {8}continue-on-error: true$/m.test(step)) out.push(`select: the ${what} step lacks continue-on-error: true`);
+  }
+  if (record && !/echo "name=ci-inputs-\$base-\$head"/.test(record)) {
+    out.push('select: the record is not named ci-inputs-<HEAD^1>-<HEAD^2>');
+  }
+  if (upload) {
+    if (!/uses: actions\/upload-artifact@[0-9a-f]{40} /.test(upload)) out.push('select: the ci-inputs upload is not pinned by a full commit SHA');
+    if (!/^ {10}retention-days: 7$/m.test(upload)) out.push('select: the ci-inputs upload does not keep the record 7 days');
+  }
+  return out;
+};
+
 /** One line per way `ci` breaks the tier contract. */
 export const tierRefusals = (ci) => {
   const out = [];
@@ -146,6 +202,8 @@ export const tierRefusals = (ci) => {
       out.push(`${name}: the timeout-minutes cap has no comment in the five lines above it`);
     }
   }
+  out.push(...gateBaseRefusals(ci));
+  out.push(...recordRefusals(ci));
   const gates = jobLines(ci, 'gates');
   const cap = gates?.find((l) => /^ {4}timeout-minutes: \d+$/.test(l));
   if (cap && Number(cap.split(':')[1]) > GATES_CAP_MINUTES) {
@@ -161,6 +219,27 @@ const mutate = (name, from, to) => {
   assert.notEqual(changed, block, `${name}: fixture text moved: ${from}`);
   return CI.replace(block, changed);
 };
+
+for (const [gate, from] of [
+  ['check-shell-lines.sh pr', './scripts/check-shell-lines.sh pr "origin/$GITHUB_BASE_REF"'],
+  ['check-decision-count.sh pr', './scripts/check-decision-count.sh pr "origin/$GITHUB_BASE_REF"'],
+  ['check-sprint-members.sh', './scripts/check-sprint-members.sh "origin/$GITHUB_BASE_REF"'],
+]) {
+  test(`${gate}: a copy that passes origin/main is refused`, () => {
+    const copy = CI.replace(from, from.replace('origin/$GITHUB_BASE_REF', 'origin/main'));
+    assert.notEqual(copy, CI, `fixture text moved: ${from}`);
+    const bad = tierRefusals(copy);
+    assert.ok(bad.some((l) => l.startsWith(`${gate}: a call passes origin/main`)), bad.join('\n'));
+  });
+}
+
+test('check-no-bundle-diff.sh: a copy that passes origin/$GITHUB_BASE_REF is refused', () => {
+  const from = './scripts/check-no-bundle-diff.sh\n';
+  const copy = CI.replace(from, './scripts/check-no-bundle-diff.sh . HEAD "origin/$GITHUB_BASE_REF"\n');
+  assert.notEqual(copy, CI, `fixture text moved: ${from}`);
+  const bad = tierRefusals(copy);
+  assert.ok(bad.some((l) => l.startsWith('check-no-bundle-diff.sh: a call passes the pull request\'s base')), bad.join('\n'));
+});
 
 test('ci.yml holds the tier contract', () => {
   assert.deepEqual(tierRefusals(CI), []);
@@ -292,3 +371,24 @@ test('gates holds the static steps and no test suite', () => {
     assert.ok(!block.includes(`- name: ${step}`), `gates must not hold ${step}`);
   }
 });
+
+// ── select records what each pull request run tested ────────────────────────
+// Part of docs/plans/2026-11-09-ci-reuses-green-runs.md.
+
+test('select records ci-inputs-<HEAD^1>-<HEAD^2> on pull_request, pinned, kept 7 days', () => {
+  assert.deepEqual(recordRefusals(CI), []);
+});
+
+for (const [what, from, to, refusal] of [
+  ['an unpinned upload', /actions\/upload-artifact@[0-9a-f]{40} # v7\.0\.1\n( {8}with:\n {10}name: \$\{\{ steps\.record)/, 'actions/upload-artifact@v7\n$1', 'select: the ci-inputs upload is not pinned by a full commit SHA'],
+  ['an upload on push too', "if: ${{ github.event_name == 'pull_request' && steps.record.outcome == 'success' }}", "if: ${{ steps.record.outcome == 'success' }}", 'select: the upload step does not run on pull_request only'],
+  ['a record step on push too', "        id: record\n        if: ${{ github.event_name == 'pull_request' }}", "        id: record\n        if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}", 'select: the record step does not run on pull_request only'],
+  ['a record step without continue-on-error', "        id: record\n        if: ${{ github.event_name == 'pull_request' }}\n        continue-on-error: true\n", "        id: record\n        if: ${{ github.event_name == 'pull_request' }}\n", 'select: the record step lacks continue-on-error: true'],
+  ['a 90-day record', /(name: \$\{\{ steps\.record\.outputs\.name \}\}[\s\S]*?)retention-days: 7/, '$1retention-days: 90', 'select: the ci-inputs upload does not keep the record 7 days'],
+  ['a record named by the head alone', 'echo "name=ci-inputs-$base-$head"', 'echo "name=ci-inputs-$head"', 'select: the record is not named ci-inputs-<HEAD^1>-<HEAD^2>'],
+]) {
+  test(`select: a copy with ${what} is refused`, () => {
+    const copy = mutate('select', from, to);
+    assert.ok(tierRefusals(copy).includes(refusal), tierRefusals(copy).join('\n'));
+  });
+}

@@ -1,5 +1,5 @@
 import type { PortResult } from '../port-result.js';
-import type { EndingActor, EndingReason } from '../entities/ending.js';
+import type { EndingActor, EndingReason, IdleInputs } from '../entities/ending.js';
 import type { Finding } from '../entities/finding.js';
 
 /** One record `writeEnding` lands, keyed by the fields `write_ending` carries. */
@@ -16,6 +16,8 @@ export interface EndingRecord {
   refusedAssignment?: string;
   /** The handle the loop was resuming or about to resume when it ended; absent where none is recorded. */
   resumeId?: string;
+  /** What the idle watch read at the check that ended a `quiet` worker; absent for every other ending. */
+  idle?: IdleInputs;
 }
 
 /** One finding `publishFinding` appends, in the fields `FindingSchema` requires beside the ones the adapter fills. */
@@ -270,6 +272,24 @@ export interface Desk {
    *   rather than reading an unreadable desk as a clean one.
    */
   readFindings(worktree: string): Promise<PortResult<readonly Finding[]>>;
+
+  /**
+   * Appends one line, as given, to the desk's AgentMonitor log, `.plot-worker.monitor.agent.jsonl`.
+   *
+   * @param worktree - the desk, absolute.
+   * @param finding - the whole line, as `agentFindingLine` builds it.
+   * @returns `failed` where the line could not be appended.
+   */
+  publishAgentFinding(worktree: string, finding: Finding): Promise<PortResult<void>>;
+
+  /**
+   * Appends one line to the desk log, `.plot-worker.log`.
+   *
+   * @param worktree - the desk, absolute.
+   * @param line - the line, without its newline.
+   * @returns `failed` where the line could not be appended.
+   */
+  appendLog(worktree: string, line: string): Promise<PortResult<void>>;
 }
 
 /** One finding `publishBuildFinding` appends, in the fields `FindingSchema` requires beside the ones the adapter fills. */

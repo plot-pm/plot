@@ -7,11 +7,11 @@ description: >-
   Prepares and records — never implements. Part of the Plot workflow.
   Use on /plot-implement.
 globs: []
-license: MIT
+license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 1.10.1
+  version: 1.10.2
 compatibility: Designed for Claude Code and Cursor. Requires git. Host operations go through plot-host.sh (GitHub or Bitbucket).
 ---
 
@@ -39,6 +39,8 @@ Implement routes ask for (`composeImplementPrompt`), because under the
 registry model the claim belongs to the agent that takes the slice up,
 not to the step that prepares it. Without the flag, step 3 runs as
 before.
+
+**`--branch <name>`** names the integration branch the plan lives on, such as `sprint/<sprint>`. The board's Implement route adds it where only `origin/<name>` holds the plan file and `origin/<default branch>` does not (`originPlanHome`). With it, step 1 reads the plan from `origin/<name>` (`git fetch origin <name>`, then `git show origin/<name>:<plan file>`), and step 4 passes `--branch <name>` to `plot-brief-book.mjs`.
 
 ## Model Guidance
 
@@ -240,12 +242,15 @@ directory — never a path under the checkout, which this step must not
 write into), then call:
 
 ```bash
-node ../plot/scripts/board/plot-brief-book.mjs <slug> <branch> <scratch-brief-file>
+node ../plot/scripts/board/plot-brief-book.mjs [--branch <name>] <slug> <branch> <scratch-brief-file>
 ```
+
+**Pass `--branch <name>` when the plan lives on an integration branch.** A sprint plan merged into `sprint/<sprint>` is absent from `origin/<default branch>` until the sprint merges, and the call refuses `no plan in docs/plans/ names branch` there. With `--branch sprint/<sprint>`, the call cuts its worktree from `origin/sprint/<sprint>` and books on that branch. Where `$ARGUMENTS` carries `--branch <name>`, pass that name. Otherwise read the plan's location from where its file exists: on `origin/<name>` and not on `origin/<default branch>`.
 
 This books both the brief **and** step 5's `Started:` record in one call,
 in one disposable worktree cut from a freshly fetched `origin/<default
-branch>`: write, commit, push, remove the worktree. The main checkout is
+branch>`, or from `origin/<name>` with `--branch`: write, commit, push,
+remove the worktree. The main checkout is
 never opened, so running this under a stale or dirty operator checkout
 changes nothing about its outcome — `git status --porcelain`, `HEAD` and
 the checked-out branch on that checkout are exactly as this call found

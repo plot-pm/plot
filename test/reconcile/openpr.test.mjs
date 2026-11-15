@@ -65,7 +65,7 @@ function calls() {
   return fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '';
 }
 
-/** The argv of the `pr create` call, as JSON the stub recorded. */
+/** The fields of the REST create call, as `--key value` flags the stub recorded. */
 function created() {
   const file = path.join(stubDir, 'created.json');
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
@@ -110,10 +110,19 @@ if (argv[0] === 'pr' && argv[1] === 'list') {
     isDraft: false, statusCheckRollup: [], mergeable: 'MERGEABLE',
     mergeStateStatus: 'CLEAN', reviewDecision: null, url: 'https://example.invalid/pr/' + p.number,
   }))));
-} else if (argv[0] === 'pr' && argv[1] === 'create') {
-  // Record the whole argv: what a slice PR SAYS is the property under test.
-  fs.writeFileSync(${JSON.stringify(path.join(stubDir, 'created.json'))}, JSON.stringify(argv));
-  process.stdout.write('https://example.invalid/pr/900');
+} else if (argv[0] === 'api' && argv[1] === '-X' && argv[2] === 'POST' && argv[3].endsWith('/pulls')) {
+  // The REST create: \`-f key=value\` fields. They are recorded as the
+  // \`--key value\` flags a slice PR asks for, and \`draft=true\` as \`--draft\`,
+  // because what a slice PR SAYS is the property under test.
+  const said = [];
+  for (let i = 4; i < argv.length; i++) {
+    if (argv[i] !== '-f' && argv[i] !== '-F') continue;
+    const [key, ...rest] = argv[++i].split('=');
+    const value = rest.join('=');
+    if (key === 'draft') { if (value === 'true') said.push('--draft'); } else said.push('--' + key, value);
+  }
+  fs.writeFileSync(${JSON.stringify(path.join(stubDir, 'created.json'))}, JSON.stringify(said));
+  process.stdout.write(JSON.stringify({ html_url: 'https://example.invalid/pr/900' }));
 } else if (argv[0] === 'repo' && argv[1] === 'view') {
   process.stdout.write('main');
 } else {
@@ -175,14 +184,14 @@ beforeEach(() => {
 
 // --- the title and body -----------------------------------------------------
 
-test('open-pr: the title is the wave heading, never the last commit subject', () => {
+test('open-pr: the title is the plan title and the wave heading, never the last commit subject', () => {
   makeRepo();
   run([]);
 
   const argv = created();
   assert.ok(argv, `nothing was opened:\n${calls()}`);
   const title = argv[argv.indexOf('--title') + 1];
-  assert.equal(title, 'The slice that opens its own PR');
+  assert.equal(title, 'A plan with waves: The slice that opens its own PR');
   // The branch's only commit says `plot: build the board artifact`, which is
   // what a title taken from git would have read.
   assert.doesNotMatch(title, /board artifact/);
@@ -216,7 +225,7 @@ test('open-pr: each branch gets its own wave heading', () => {
   run([]);
 
   const argv = created();
-  assert.equal(argv[argv.indexOf('--title') + 1], 'A second slice, named differently');
+  assert.equal(argv[argv.indexOf('--title') + 1], 'A plan with waves: A second slice, named differently');
 });
 
 test('open-pr: --draft opens a draft, and the default does not', () => {
@@ -236,7 +245,7 @@ test('open-pr: --dry-run opens nothing and prints the decision', () => {
   assert.equal(created(), null, `--dry-run must open nothing:\n${calls()}`);
   const decided = JSON.parse(out);
   assert.equal(decided.outcome, 'decided');
-  assert.equal(decided.title, 'The slice that opens its own PR');
+  assert.equal(decided.title, 'A plan with waves: The slice that opens its own PR');
 });
 
 // --- what the branch carries ------------------------------------------------
@@ -349,6 +358,42 @@ test('open-pr: a closed PR on another branch is not this branch\'s row', () => {
   assert.doesNotMatch(err, /closed unmerged/, err);
 });
 
+// --- the base -----------------------------------------------------------------
+
+test('open-pr: a slice on the default branch targets the default branch', () => {
+  makeRepo();
+  run([]);
+  const argv = created();
+  assert.equal(argv[argv.indexOf('--base') + 1], 'main');
+});
+
+test('open-pr: a slice whose plan only a sprint branch holds targets that sprint branch', () => {
+  // The plan moves off `main` onto `sprint/s`, and the slice is cut from
+  // `origin/sprint/s`, as fleetd cuts it.
+  makeRepo({ branch: '' });
+  git(repo, 'checkout', '-q', '-b', 'sprint/s');
+  const planPath = path.join(repo, 'docs', 'plans', '2026-09-09-a-plan-with-waves.md');
+  fs.writeFileSync(planPath, PLAN.replace('- **Type:** feature', '- **Type:** feature\n- **Sprint:** s'));
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'sprint plan');
+  git(repo, 'push', '-q', 'origin', 'sprint/s');
+  git(repo, 'checkout', '-q', 'main');
+  git(repo, 'rm', '-q', planPath);
+  git(repo, 'commit', '-qm', 'the plan lives on the sprint branch');
+  git(repo, 'push', '-q', 'origin', 'main');
+  git(repo, 'checkout', '-q', '-b', 'feature/alpha', 'origin/sprint/s');
+  fs.mkdirSync(path.join(repo, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'src', 'alpha.ts'), 'export const a = 1;\n');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'alpha');
+  run([]);
+
+  const argv = created();
+  assert.ok(argv, `nothing was opened:\n${calls()}`);
+  assert.equal(argv[argv.indexOf('--base') + 1], 'sprint/s');
+  assert.equal(argv[argv.indexOf('--title') + 1], 'A plan with waves: The slice that opens its own PR');
+});
+
 test('open-pr: refuses a branch holding no commit its base does not', () => {
   makeRepo({ files: {} });
   const { err } = run([], { expectFail: true });
@@ -382,5 +427,6 @@ test('open-pr: reaches the host only through the adapter', () => {
   const source = fs.readFileSync(openPr, 'utf8');
   const code = source.split('\n').filter((l) => !l.trimStart().startsWith('#')).join('\n');
   assert.doesNotMatch(code, /\bgh\s+pr\b/, 'the script must not call gh directly');
-  assert.match(calls(), /gh pr create/, 'and the adapter must have made the call');
+  assert.match(calls(), /gh api -X POST repos\/\S+\/pulls/, 'and the adapter must have made the call, over REST');
+  assert.doesNotMatch(calls(), /gh pr create/, '`gh pr create` spends GraphQL and must never run');
 });

@@ -16,7 +16,8 @@ import {
   release,
   type TransitionPlan,
 } from '@plot-pm/domain/transitions/plan';
-import { releasePr, releaseTag, type ReleasePrRow } from '@plot-pm/domain/rules/release-tag';
+import { releasePr, releaseTag, type ReleasePrRow, type ReleaseTagPrRow } from '@plot-pm/domain/rules/release-tag';
+import { carriedRelease } from './release-chain-walk.js';
 import { branchClaims, DEFAULT_BRANCH_PREFIXES, parseBranchPrefixes } from '@plot-pm/domain/rules/cross-repo-reference';
 import { normalizeVersion } from '@plot-pm/domain/entities/version';
 import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
@@ -25,6 +26,7 @@ import { sprintOfPlan, type SprintFile } from '@plot-pm/domain/rules/sprint-memb
 import { indexSymlinkPlacement } from '@plot-pm/domain/rules/index-symlink';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
 import { trackerReportOf } from '@plot-pm/domain/rules/issue-status';
+import { NO_STATE_BRANCH } from '@plot-pm/domain/rules/write-target';
 import { deliverabilityOf, type DeliverabilityPorts } from '../controllers/deliverability.js';
 import { tellTrackerAbout } from './release-tracker.js';
 import {
@@ -215,9 +217,6 @@ const resolveMain = async (repoRoot: string, scripts: Scripts): Promise<string> 
   const hostedTrimmed = hosted.ok ? hosted.value.trim() : '';
   return hostedTrimmed !== '' ? hostedTrimmed : 'main';
 };
-
-/** The exit code `plot-state-sync.mjs` answers where no `State branch` key is declared. */
-const NO_STATE_BRANCH = 4;
 
 /**
  * Where a delivery's booking worktree goes, and the booking branch it holds.
@@ -621,7 +620,7 @@ const runDeliver = async (
     // the PR to the default branch. The entry yields to a live fleet heartbeat,
     // and exit 4 means no key is declared, which prints nothing. A failed or
     // unread pass is reported and the delivery stands.
-    const sync = await ctx.scripts.awaited('plot-state-sync.mjs', ['--pr', '--caller', 'command']);
+    const sync = await ctx.scripts.awaited('board/plot-state-sync.mjs', ['--pr', '--caller', 'command']);
     if (sync.code !== NO_STATE_BRANCH) {
       const said = sync.stdout.trim().split('\n').filter((l) => l !== '').pop() ?? '';
       if (sync.code === 0) write(`  state-sync: ${said}\n`);
@@ -955,7 +954,9 @@ export const runRelease = async (
         const prState = await ctx.host.prState(number);
         const mergeCommit = prState.ok && prState.value !== null ? prState.value.mergeCommit : '';
         const mergedAt = prState.ok && prState.value !== null ? prState.value.mergedAt ?? '' : '';
-        return { number, mergeCommit, mergedAt };
+        const base = prState.ok && prState.value !== null ? prState.value.base : '';
+        const head = prState.ok && prState.value !== null ? prState.value.head : '';
+        return { number, mergeCommit, mergedAt, base, head };
       }),
     );
 
@@ -964,13 +965,16 @@ export const runRelease = async (
       throw new Refused(`plan '${args.slug}''s last PR (#${noCommit.number}) carries no mergeCommit — it may not have merged, or the host could not answer.\n  Nothing was written. Verify #${noCommit.number} merged, then re-run.`);
     }
 
-    const prRows = await Promise.all(
-      prs.map(async (pr) => {
-        const tagsResult = await ctx.refs.tagsContaining(pr.mergeCommit);
-        const containingTags = tagsResult.ok ? tagsResult.value : [];
-        return { ...pr, containingTags };
-      }),
-    );
+    // A PR whose own merge commit no tag contains, merged into another
+    // branch, takes the merge commit that carried it onto the default branch.
+    const prRows: (ReleaseTagPrRow & { readonly base: string; readonly head: string })[] = [];
+    for (const pr of prs) {
+      const tagsResult = await ctx.refs.tagsContaining(pr.mergeCommit);
+      const containingTags = tagsResult.ok ? tagsResult.value : [];
+      const carried = containingTags.length === 0 ? await carriedRelease(pr, main, ctx, warn) : null;
+      if (carried !== null) write(`step: PR #${pr.number} merged into '${pr.base}'; ${carried.mergeCommit} carried it onto '${main}'\n`);
+      prRows.push(carried === null ? { ...pr, containingTags } : { ...pr, containingTags: carried.containingTags, carrier: carried.mergeCommit });
+    }
 
     const resolved = releaseTag({ prs: prRows, wantedVersion: args.releaseVersion });
     if (resolved.outcome === 'refused') {
@@ -984,7 +988,8 @@ export const runRelease = async (
     tag = resolved.tag;
     tagDate = tagDateResult.value;
     const lastPr = prRows.reduce((latest, pr) => (pr.mergedAt > latest.mergedAt ? pr : latest));
-    write(`step: plan ${planFile} — phase=${plan.phase} PR #${lastPr.number} merged ${lastPr.mergeCommit}, shipped in ${tag} (${tagDate})\n`);
+    const carriedBy = lastPr.carrier === undefined ? '' : `, carried by ${lastPr.carrier}`;
+    write(`step: plan ${planFile} — phase=${plan.phase} PR #${lastPr.number} merged ${lastPr.mergeCommit}${carriedBy}, shipped in ${tag} (${tagDate})\n`);
   }
 
   const who = args.who || process.env.PLOT_DELIVER_WHO || (await gitUserName(ctx.repoRoot));

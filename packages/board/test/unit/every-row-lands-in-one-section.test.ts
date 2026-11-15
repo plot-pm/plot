@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { rowsFromPulse } from '../../src/server/fleet.js';
 import type { PrRecord } from '../../src/server/fleet.js';
-import type { AgentRow, FleetReading } from '../../src/contract/schema.js';
-import { GROUPS, rowsBySection } from '../../src/app/lib/agent-rows/sections.js';
+import { WaitingGroupSchema, type AgentRow, type FleetReading } from '../../src/contract/schema.js';
+import { rowsBySection } from '../../src/app/lib/agent-rows/sections.js';
 import { claimedWithoutWorkerRows } from '../../src/app/lib/agent-rows/working-agents.js';
 
 // EVERY BRANCH ROW IS DRAWN IN ONE SECTION.
@@ -48,8 +48,8 @@ const build = (): AgentRow[] => rowsFromPulse(
 );
 
 /** The sections whose drawers select `row`, WORKING's claimed drawer included. */
-const drawnIn = (row: AgentRow, all: AgentRow[]): string[] => GROUPS
-  .map(({ key }) => key)
+const drawnIn = (row: AgentRow, all: AgentRow[]): string[] => WaitingGroupSchema.options
+  .map((key) => key)
   .filter((key) => (key === 'working'
     ? claimedWithoutWorkerRows(all).includes(row)
     : all.some((r) => r === row && r.group === key)));

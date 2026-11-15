@@ -25,10 +25,6 @@
 #                                 answer — that ref is a clone-time cache and a
 #                                 default branch moved since then never updates
 #                                 it. Prints "" where neither can answer.
-#   default-branch-protection <b> print the restriction kinds on branch <b>, one
-#                                 per line, or `none` where the host answered
-#                                 and found none. No output with exit 3 is no
-#                                 answer (a 403 reads this way), never `none`.
 #   account                       print the signed-in host user, read from the
 #                                 CLI's config file (no API request).
 #                                 `PLOT_BUDGET_ACCOUNT` overrides it. Exit 3
@@ -137,8 +133,10 @@
 #                                 time — `commit-status` writes that status
 #                                 through `plot-bitbucket-commit-status.mjs`.
 #                                 EXIT 3 is the question failing.
-#   pr-create --title T [--body B] [--base BR] [--head BR] [--draft]
-#                                 create a PR, print its URL
+#   pr-create --title T [--body B | --body-file F] [--base BR] [--head BR] [--draft]
+#                                 create a PR, print its URL. GitHub
+#                                 creates it over REST (`POST pulls`), which
+#                                 spends `core` and never GraphQL.
 #   pr-merge <number> [--squash] [--delete-branch] --match-head <sha>
 #                                 merge the PR. --match-head is
 #                                 mandatory on every backend. bitbucket
@@ -533,17 +531,12 @@
 #                                 The transition id is LOOKED UP, never guessed:
 #                                 ids are per workflow and per issue, so a
 #                                 hardcoded one writes to the wrong column.
-#   pr-body <number> --body B     replace the PR description
-#   rate-limit                    both GitHub budgets from `gh api rate_limit`.
-#                                 SUPERSEDED BY `limit`, and kept only because
-#                                 its callers have not moved: that endpoint was
-#                                 measured 2026-09-01 reporting graphql
-#                                 5000/5000 used=0 while a real call's header
-#                                 read Remaining 1236, Used 3764, and reproduced
-#                                 2026-09-02 against a header's 2732. NOTHING
-#                                 ROUTES ON IT any more — `gh_route` reads the
-#                                 budget record, which is written from response
-#                                 headers. Prefer `limit`.
+#   pr-body <number> [--body B | --body-file F]
+#                                 with no flag, print the PR description;
+#                                 with one, replace it. GitHub replaces
+#                                 it over REST (`PATCH pulls/<n>`), which
+#                                 spends `core` and never GraphQL. --body-file
+#                                 reads the body from a file, on both ops.
 #   limit                         what is this connector's limit, and how well
 #                                 does it know it? One JSON line per metered
 #                                 bucket: {"connector","bucket","limit",
@@ -731,7 +724,9 @@ MERGEABLE_OF='def mergeable_of: if .mergeable == "CONFLICTING" or .mergeable == 
 
 # THE ONE PROJECTION of a GraphQL-shaped PR into `pr-state`'s printed line, read by
 # the GraphQL arm and by `rest_pr_state`, so the two transports print one shape.
-PR_STATE_OF='{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // ""),head:(.headRefName // ""),headSha:(.headRefOid // ""),base:(.baseRefName // ""),checks:checks_of,ciChecks:ci_checks_of,checksSha:(.headRefOid // ""),mergeable:mergeable_of,mergedAt:(.mergedAt // "")}'
+# `checkRuns` carries every rollup item unfolded, so the merge controller can
+# require a named check (`Merge checks`) that the folded `checks` word cannot see.
+PR_STATE_OF='{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // ""),head:(.headRefName // ""),headSha:(.headRefOid // ""),base:(.baseRefName // ""),checks:checks_of,ciChecks:ci_checks_of,checkRuns:[.statusCheckRollup[]? | {name:(.name // .context // ""),status:(.status // .state // ""),conclusion:(.conclusion // ""),at:(.startedAt // "")}],checksSha:(.headRefOid // ""),mergeable:mergeable_of,mergedAt:(.mergedAt // "")}'
 
 # Exit 5 — the host refused to answer FOR NOW. A rate limit, primary or
 # secondary: nothing is broken, nothing needs fixing, and the same question
@@ -2448,9 +2443,9 @@ graphql_budget_spent() {
 #   pr-state          both transports. The only op with a REST fallback
 #                     written, so the only one where the budget can change the
 #                     answer.
-#   rate-limit|limit  REST-only BY NATURE rather than by omission. Both are
+#   limit             REST-only BY NATURE rather than by omission. It is
 #                     reached through `gh api`, which is REST's transport.
-#                     `limit` spends a GraphQL call to read its own headers —
+#                     It spends a GraphQL call to read its own headers —
 #                     the call it makes is GraphQL, the route to it is not.
 #   *                 GraphQL-only. Ten ops, and this is where "every op
 #                     consults the router" is honest rather than decorative:
@@ -2486,7 +2481,7 @@ graphql_budget_spent() {
 gh_route() { # $1=op → graphql|rest
   case "${1:-}" in
     # REST-only: no GraphQL route exists to choose, so nothing is consulted.
-    rate-limit|limit)
+    limit|pr-create|pr-body)
       printf 'rest\n'
       ;;
     # Both transports implemented — the one op where the reasons apply.
@@ -2552,13 +2547,27 @@ rest_pr_state() { # $1=owner/repo $2=PR number or branch; returns 3 when the bra
   else pr="$(gh_api_harvest "repos/$1/pulls?head=${1%%/*}:$2&state=all&per_page=1")" || return 1; pr="$(jq -ce '.[0]' <<<"$pr")" || return 3; fi
   sha="$(jq -r '.head.sha // ""' <<<"$pr")"
   ck="$(gh_api_harvest "repos/$1/commits/$sha/check-runs?per_page=100")" && st="$(gh_api_harvest "repos/$1/commits/$sha/status?per_page=100")" || return 2
-  jq -cs "$CHECKS_OF$MERGEABLE_OF"'.[0] as $p | (.[1].check_runs // []) as $c | (.[2].statuses // []) as $s | (($p.merged == true) or ($p.merged_at != null)) as $m | {number: $p.number, state: (if $m then "MERGED" else ($p.state // "" | ascii_upcase) end), isDraft: ($p.draft // false), url: ($p.html_url // ""), mergeCommit: (if $m then {oid: ($p.merge_commit_sha // "")} else null end), headRefName: ($p.head.ref // ""), headRefOid: ($p.head.sha // ""), baseRefName: ($p.base.ref // ""), mergedAt: ($p.merged_at // ""), mergeable: (if $p.mergeable == true then "MERGEABLE" elif $p.mergeable == false then "CONFLICTING" else "UNKNOWN" end), mergeStateStatus: (($p.mergeable_state // "") | ascii_upcase), statusCheckRollup: ([$c[] | {name, status: ((.status // "") | ascii_upcase), conclusion: ((.conclusion // "") | ascii_upcase)}] + [$s[] | {context, state: ((.state // "") | ascii_upcase)}] + (if ((.[1].total_count // 0) > ($c | length)) or ((.[2].total_count // 0) > ($s | length)) then [{status: "QUEUED"}] else [] end))} |'"$PR_STATE_OF" <<<"$pr$ck$st"
+  jq -cs "$CHECKS_OF$MERGEABLE_OF"'.[0] as $p | (.[1].check_runs // []) as $c | (.[2].statuses // []) as $s | (($p.merged == true) or ($p.merged_at != null)) as $m | {number: $p.number, state: (if $m then "MERGED" else ($p.state // "" | ascii_upcase) end), isDraft: ($p.draft // false), url: ($p.html_url // ""), mergeCommit: (if $m then {oid: ($p.merge_commit_sha // "")} else null end), headRefName: ($p.head.ref // ""), headRefOid: ($p.head.sha // ""), baseRefName: ($p.base.ref // ""), mergedAt: ($p.merged_at // ""), mergeable: (if $p.mergeable == true then "MERGEABLE" elif $p.mergeable == false then "CONFLICTING" else "UNKNOWN" end), mergeStateStatus: (($p.mergeable_state // "") | ascii_upcase), statusCheckRollup: ([$c[] | {name, status: ((.status // "") | ascii_upcase), conclusion: ((.conclusion // "") | ascii_upcase), startedAt: (.started_at // "")}] + [$s[] | {context, state: ((.state // "") | ascii_upcase), startedAt: (.created_at // "")}] + (if ((.[1].total_count // 0) > ($c | length)) or ((.[2].total_count // 0) > ($s | length)) then [{status: "QUEUED"}] else [] end))} |'"$PR_STATE_OF" <<<"$pr$ck$st"
 }
 
 # `owner/repo` from the `origin` URL, with no host call. An `ssh://` URL may carry
 # a port after the host, and an scp-style remote splits host and path at its first
 # colon. Prints nothing and exits 1 where the URL names no `owner/repo`.
 gh_origin_slug() { git config --get remote.origin.url | sed -E 's#\.git/?$##; s#^.*[:/]([^/:]+/[^/:]+)$#\1#' | grep -E '^[^/]+/[^/]+$'; }
+# THE PR TEXT FLAGS of `pr-create` and `pr-body`, parsed in one place. `--body-file`
+# reads the body from a file, so a long body never rides on the command line: on
+# 2026-11-14 a hook refused a long inline `--body` for agents in isolated worktrees.
+pr_text_args() { # $1=op, then its flags → sets title, body, base, head, draft
+  local op="$1"; shift; title=""; body=""; base=""; head=""; draft=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --title|--body|--base|--head) printf -v "${1#--}" '%s' "${2:?}"; shift 2 ;;
+      --body-file) body="$(cat -- "${2:?}" 2>/dev/null)" || die "$op: cannot read $2"; shift 2 ;;
+      --draft) draft=1; shift ;;
+      *) die "$op: unknown arg $1" ;;
+    esac
+  done
+}
 
 # `gh` as the merger identity where a Merger app token was minted, as the
 # signed-in one where none was. The token goes into `GH_TOKEN` only.
@@ -4033,22 +4042,6 @@ case "$op" in
     printf '%s\n' "$_acct"
     ;;
 
-  default-branch-protection)
-    # THE KINDS THAT RESTRICT THE DEFAULT BRANCH, one per line; `none` where the
-    # host answered and found no restriction. NO STDOUT IS NO ANSWER: a 403 (the
-    # Bitbucket CLI token lacks the scope) exits 3 and prints nothing, and the
-    # caller reads that as unverified, never as `none`. GitHub folds its
-    # protection into one word, `protected`; deciding which Bitbucket kinds
-    # count is `rules/state-branch.ts`'s.
-    _db="${1:?default-branch-protection needs the default branch}"
-    if [ "$be" = "github" ]; then
-      gh api "repos/{owner}/{repo}/branches/$_db" --jq 'if .protected then "protected" else "none" end' || die3 "default-branch-protection: the read failed"
-    else
-      _rs="$(_bb_paged_walk "/repositories/{ws}/{repo}/branch-restrictions?pagelen=100" "bitbucket branch-restrictions" "a restriction on a later page would be missed" "")" || die3 "default-branch-protection: the read failed"
-      jq -r --arg b "$_db" '[.[] | select(.pattern == $b or (.branch_match_kind == "branching_model" and .branch_type == "production")) | .kind] | unique | if length == 0 then "none" else .[] end' <<<"$_rs"
-    fi
-    ;;
-
   pr-state)
     ref="${1:?pr-state needs a PR number or branch}"; shift || true
     repo_args=(); repo_slug=""; with_checks=0
@@ -4404,23 +4397,20 @@ case "$op" in
       || die3 "pr-review: the read failed" ;;
 
   pr-create)
-    title=""; body=""; base=""; head=""; draft=0
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        --title) title="${2:?}"; shift 2 ;;
-        --body)  body="${2:?}";  shift 2 ;;
-        --base)  base="${2:?}";  shift 2 ;;
-        --head)  head="${2:?}";  shift 2 ;;
-        --draft) draft=1; shift ;;
-        *) die "pr-create: unknown arg $1" ;;
-      esac
-    done
+    pr_text_args pr-create "$@"
     [ -n "$title" ] || die "pr-create needs --title"
-    args=(pr create --title "$title" --body "$body")
-    [ -n "$base" ] && args+=(--base "$base")
-    [ -n "$head" ] && args+=(--head "$head")
-    [ "$draft" = 1 ] && args+=(--draft)
-    if [ "$be" = "github" ]; then gh "${args[@]}"; else bb "${args[@]}"; fi
+    # GITHUB OPENS THE PR OVER REST, `POST repos/<origin slug>/pulls`, and prints
+    # its `html_url` as `gh pr create` printed its URL. `gh pr create` spends
+    # GraphQL: on 2026-11-13 it failed three times at 0 of 5000 GraphQL while
+    # REST held more than 4600 of 5000. The owner/repo is the origin remote's,
+    # as `pr-merge` reads it, never `gh`'s default repo. REST needs a base and a
+    # head where `gh pr create` filled them in: a missing `--head` is the
+    # current branch, and a missing `--base` is this script's `default-branch`.
+    # `pipefail` makes a failed POST the op's exit code, with `gh`'s own words.
+    if [ "$be" = "github" ]; then
+      slug="$(gh_origin_slug)" && head="${head:-$(git symbolic-ref --short HEAD)}" && base="${base:-$(bash "$here/plot-host.sh" default-branch)}" || die3 "pr-create: no owner/repo on origin or no head branch; nothing was opened"
+      gh_api_harvest -X POST "repos/$slug/pulls" -f title="$title" -f head="$head" -f base="$base" -f body="$body" -F draft="$([ -n "$draft" ] && echo true || echo false)" | jq -r '.html_url'
+    else bb pr create --title "$title" --body "$body" ${base:+--base "$base"} ${head:+--head "$head"} ${draft:+--draft}; fi
     ;;
 
   pr-merge)
@@ -5789,66 +5779,25 @@ case "$op" in
     printf '%s' "$body" | jq -c '.[] | {name, released: (.released // false), releaseDate: (.releaseDate // null)}' || exit 3 ;;
 
   pr-body)
-    num="${1:?pr-body needs a PR number}"; shift; body=""
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        --body) body="${2:?}"; shift 2 ;;
-        *) die "pr-body: unknown arg $1" ;;
-      esac
-    done
-    [ -n "$body" ] || die "pr-body needs --body"
-    "$cli" pr edit "$num" --body "$body"
-    ;;
-
-  rate-limit)
-    # Report the remaining API budget, per API. GitHub has TWO separate budgets
-    # (GraphQL and REST/core), and exhausting one says nothing about the other.
-    # Bitbucket has a single budget and no way to query it, so it reports unknown.
-    #
-    # Output: JSON object with the remaining budget per API:
-    #   {"graphql":{"remaining":N,"limit":N,"reset":N},"core":{"remaining":N,"limit":N,"reset":N}}
-    #   where N is a number, or each field is "unknown" when the host cannot answer.
-    #
-    # `reset` is epoch seconds — when the budget resets. A caller that wants
-    # "time until reset" computes it from now.
-    #
-    # The call itself is FREE — `gh api rate_limit` consumes neither bucket.
-    # Measured 2026-08-27: three consecutive readings, all `used=0`.
-    #
-    # This op REPORTS; it does not decide. A caller that wants to fall back when
-    # one budget is spent reads this, compares remaining to zero, and acts.
-    if [ "$be" = "github" ]; then
-      if out="$(gh api rate_limit 2>"$HOST_ERR")"; then
-        rm -f "$HOST_ERR"
-        # The payload has `resources.graphql` and `resources.core`, each with
-        # `remaining`, `limit`, and `reset`. Extract the two we care about.
-        jq -c '{
-          graphql: {
-            remaining: .resources.graphql.remaining,
-            limit: .resources.graphql.limit,
-            reset: .resources.graphql.reset
-          },
-          core: {
-            remaining: .resources.core.remaining,
-            limit: .resources.core.limit,
-            reset: .resources.core.reset
-          }
-        }' <<<"$out"
-      else
-        host_err
-        # The host could not be asked. Report unknown rather than failing outright,
-        # because this is informational — a caller that cannot read the budget
-        # should proceed with the default path, not error out.
-        echo '{"graphql":{"remaining":"unknown","limit":"unknown","reset":"unknown"},"core":{"remaining":"unknown","limit":"unknown","reset":"unknown"}}'
-        echo "plot-host: rate-limit query failed: $err" >&2
-      fi
-    else
-      # Bitbucket has no budget reporting. `unknown` is not `zero` — a host that
-      # cannot answer the budget question must report unknown, because zero means
-      # *spent*, and a caller that reads "cannot ask" as "exhausted" will take
-      # the expensive fallback path forever.
-      echo '{"graphql":{"remaining":"unknown","limit":"unknown","reset":"unknown"},"core":{"remaining":"unknown","limit":"unknown","reset":"unknown"}}'
+    num="${1:?pr-body needs a PR number}"; shift
+    # WITH NO FLAG IT READS: it prints the PR's body, "" where it has none.
+    # GitHub reads `GET pulls/<n>` over REST; Bitbucket reads `description`.
+    if [ $# -eq 0 ]; then
+      if [ "$be" = "github" ]; then gh_api_harvest "repos/$(gh_origin_slug)/pulls/$num" | jq -r '.body // ""'
+      else bb_require_json; bb pr view "$num" --json | jq -r '.description // ""'; fi
+      exit
     fi
+    pr_text_args pr-body "$@"
+    [ -z "$title$base$head$draft" ] || die "pr-body takes only --body or --body-file"
+    [ -n "$body" ] || die "pr-body needs --body or --body-file"
+    # GITHUB REPLACES THE BODY OVER REST, `PATCH repos/<origin slug>/pulls/<n>`,
+    # and prints its `html_url` as `gh pr edit` printed the URL. `gh pr edit`
+    # spends GraphQL: on 2026-11-14 it failed twice with "GraphQL: API rate limit
+    # already exceeded" while REST held budget. `pr-create` takes the same route.
+    if [ "$be" = "github" ]; then
+      slug="$(gh_origin_slug)" || die3 "pr-body: no owner/repo on origin; nothing was written"
+      gh_api_harvest -X PATCH "repos/$slug/pulls/$num" -f body="$body" | jq -r '.html_url'
+    else bb pr edit "$num" --body "$body"; fi
     ;;
 
   limit)
@@ -6079,6 +6028,6 @@ case "$op" in
     gh_edit_or_post_comment "$cid" pr "$num" "${2:?pr-comment needs a body}" || gh_fail; rm -f "$HOST_ERR" ;;
 
   *)
-    die "unknown op '$op' (backend|default-branch|default-branch-protection|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-comment-read|issue-close|version-list|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status|pr-comment)"
+    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-comment-read|issue-close|version-list|pr-body|pr-review|limit|ci-limit|spend-rate|commit-status|pr-comment)"
     ;;
 esac

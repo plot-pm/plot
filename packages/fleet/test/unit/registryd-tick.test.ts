@@ -238,7 +238,7 @@ describe('the tick holds nothing between calls', () => {
 });
 
 describe('the machine is asked once per tick, not once per agent', () => {
-  it('takes one headroom sample however many agents there are', async () => {
+  it('takes one headroom sample however many agents would relaunch', async () => {
     let asked = 0;
     await tick({
       registry: async () => [
@@ -247,6 +247,7 @@ describe('the machine is asked once per tick, not once per agent', () => {
         manifest({ branch: 'feature/c', worktree: '/estate/c' }),
       ],
       world: world({
+        deskFile: () => null,
         headroom: async () => {
           asked += 1;
           return 'clear';
@@ -254,6 +255,57 @@ describe('the machine is asked once per tick, not once per agent', () => {
       }),
     });
     expect(asked).toBe(1);
+  });
+
+  it('does not ask the machine when no verdict would relaunch', async () => {
+    // A TICK THAT STARTS NOTHING MEASURES NOTHING. Five forks per tick bought
+    // an answer that a `reap`, a `leave` and a `needs-a-person` never read.
+    let asked = 0;
+    const countingWorld = (over: Partial<SupervisorWorld>) =>
+      world({
+        headroom: async () => {
+          asked += 1;
+          return 'clear';
+        },
+        ...over,
+      });
+    await tick({
+      registry: async () => [manifest({ branch: 'feature/a', worktree: '/estate/a' })],
+      world: countingWorld({}),
+    });
+    await tick({
+      registry: async () => [manifest({ branch: 'feature/a', worktree: '/estate/a' })],
+      world: countingWorld({ workerAlive: async () => true }),
+    });
+    await tick({
+      registry: async () => [manifest({ branch: 'feature/a', worktree: '/estate/a', attempts: 2 })],
+      world: countingWorld({ deskFile: () => null }),
+    });
+    await tick({ registry: async () => [], world: countingWorld({}) });
+    expect(asked).toBe(0);
+  });
+
+  it('asks the machine once for a relaunch verdict, whatever else the tick holds', async () => {
+    let asked = 0;
+    const report = await tick({
+      registry: async () => [
+        manifest({ branch: 'feature/a', worktree: '/estate/a' }),
+        manifest({ branch: 'feature/b', worktree: '/estate/b' }),
+      ],
+      world: world({
+        deskFile: (worktree) =>
+          worktree === '/estate/a'
+            ? null
+            : JSON.stringify({ branch: 'feature/b', status: 'ok', artifacts: [], pr: 692, summary: 'x' }),
+        headroom: async () => {
+          asked += 1;
+          return 'starved';
+        },
+      }),
+    });
+    expect(asked).toBe(1);
+    expect(report.decision.detail.deferred).toEqual(['feature/a']);
+    expect(report.decision.detail.reaping).toEqual(['feature/b']);
   });
 
   it('gives every agent in one tick the same headroom', async () => {
@@ -569,6 +621,7 @@ describe('a tick that cannot complete', () => {
         manifest({ branch: 'feature/b', worktree: '/estate/b' }),
       ],
       world: world({
+        deskFile: () => null,
         headroom: async () => {
           throw new Error('sysctl unavailable');
         },
@@ -816,11 +869,61 @@ describe('a tick starts agents when queued > running', () => {
     const report = await tick({
       registry: async () => [],
       world: world(),
-      queue: queueWorld({ plans: async () => [] }),
-      fleet: cap(3),
+      queue: queueWorld(),
+      fleet: cap(0),
       now: () => 0,
     });
     expect(tickLine(report)).toContain('started=0');
+  });
+
+  it('does not ask for the cap when the queue holds no startable slice', async () => {
+    // A TICK THAT STARTS NOTHING MEASURES NOTHING. The cap carries the
+    // machine's five forks, and with no slice waiting for an agent the answer
+    // is always zero starts. The line omits `started=` as for a tick nobody
+    // asked to scale.
+    let asked = 0;
+    const report = await tick({
+      registry: async () => [],
+      world: world(),
+      queue: queueWorld({ plans: async () => [] }),
+      fleet: async () => {
+        asked += 1;
+        return cap(3)();
+      },
+      now: () => 0,
+    });
+    expect(asked).toBe(0);
+    expect(report.handOver?.detail.scaling).toBeNull();
+    expect(tickLine(report)).not.toContain('started=');
+  });
+
+  it('asks for the cap once when the queue holds a startable slice', async () => {
+    let asked = 0;
+    const report = await tick({
+      registry: async () => [],
+      world: world(),
+      queue: queueWorld(),
+      fleet: async () => {
+        asked += 1;
+        return cap(3)();
+      },
+    });
+    expect(asked).toBe(1);
+    expect(report.handOver?.writes.filter((w) => w.kind === 'worker-start')).toHaveLength(3);
+  });
+
+  it('does not ask for the cap when every queued slice is held on something else', async () => {
+    let asked = 0;
+    await tick({
+      registry: async () => [],
+      world: world(),
+      queue: queueWorld({ briefPresent: async () => false }),
+      fleet: async () => {
+        asked += 1;
+        return cap(3)();
+      },
+    });
+    expect(asked).toBe(0);
   });
 
   it('offers nothing for a branch the host says merged, and starts nobody to take it', async () => {
@@ -1221,6 +1324,39 @@ describe('the tick escalates a desk\'s aged question, for every verdict includin
     });
     const notify = report.decision.writes.filter((w) => w.kind === 'notify');
     expect(notify).toEqual([expect.objectContaining({ rung: 'notified-3' })]);
+  });
+
+  it('reports the next rung, 1 ms past its age, as the tick deadline', async () => {
+    const marker: MarkerReading = { firstLine: 'which adapter?', askedAt: askedMinutesAgo(16) };
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({ workerAlive: async () => true }),
+      escalation: escalation({ marker: async () => marker, now: () => NOW }),
+      now: () => NOW,
+    });
+    expect(report.deadline).toEqual({ at: NOW - 16 * 60_000 + 3_600_000 + 1, rule: 'question-escalation' });
+  });
+
+  it('reports no rung deadline for a question fleetd is already answering', async () => {
+    const marker: MarkerReading = { firstLine: 'which adapter?', askedAt: askedMinutesAgo(16) };
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({ workerAlive: async () => true }),
+      escalation: escalation({ marker: async () => marker, recordedOutcome: async () => 'started', now: () => NOW }),
+      now: () => NOW,
+    });
+    expect(report.deadline).toBeNull();
+  });
+
+  it('reports each agent\'s `Worker bound` from its start as the tick deadline', async () => {
+    const startedAt = Date.parse('2026-09-04T10:00:00Z');
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({ workerAlive: async () => true }),
+      workerBoundMs: async () => 8 * 3_600_000,
+      now: () => startedAt + 3_600_000,
+    });
+    expect(report.deadline).toEqual({ at: startedAt + 8 * 3_600_000, rule: 'worker-bound' });
   });
 
   it('writes nothing where `Question escalation` is `none`, whatever the age', async () => {

@@ -163,7 +163,7 @@ describe('the row says what it knows', () => {
       },
       viewport: { width, height: 1400 },
     });
-    await page.getByText('Not started').first().waitFor({ timeout: 15_000 });
+    await page.locator('[data-delivery-section]').first().waitFor({ timeout: 15_000 });
     await expandAgentFolds(page);
     return page;
   }
@@ -385,7 +385,7 @@ describe('the row says what it knows', () => {
   it('closes the plan group after its last branch, with the issue rows outside it', async () => {
     const page = await open();
     try {
-      const section = grid(page, 'Waiting on you');
+      const section = grid(page, 'At a gate');
       const group = section.locator('li[data-plan-group="fix-leaky-hose"]');
       await expect.poll(() => group.count()).toBe(1);
       // THE EDGE IS DRAWN, on all four sides. A group whose only boundary was
@@ -433,7 +433,8 @@ describe('the row says what it knows', () => {
       // not buy: #227 and #228 belong to no plan, and the layout must place
       // them where nothing claims they do.
       for (const number of [227, 228]) {
-        const link = section.locator(`[data-issue-link][href$="/${number}"]`);
+        // The issue rows render under Tickets and plan runs, outside every plan group.
+        const link = page.locator('section[data-outside-rule]').locator(`[data-issue-link][href$="/${number}"]`);
         await expect.poll(() => link.count()).toBe(1);
         await expect.poll(() =>
           group.locator(`[data-issue-link][href$="/${number}"]`).count()).toBe(0);
@@ -448,7 +449,7 @@ describe('the row says what it knows', () => {
     try {
       // The consequence the plan names: a heading reading `(5)` above seven
       // lines makes the reader arbitrate between the number and the layout.
-      const section = grid(page, 'Waiting on you');
+      const section = grid(page, 'Input to the fleet');
       const group = section.locator('li[data-plan-group="zucchini-glut"]');
       await expect.poll(() => group.count()).toBe(1);
       const inside = await group.locator('li[data-agent-row]').count();
@@ -476,7 +477,7 @@ describe('the row says what it knows', () => {
       // never has, because a Draft branch has nothing to start. So the plan
       // whose whole state was *waiting for a person to approve it* offered that
       // person nothing to click.
-      const planRow = grid(page, 'Not started').locator('li[data-plan-row="plant-tomatoes"]');
+      const planRow = grid(page, 'Input to the fleet').locator('li[data-plan-row="plant-tomatoes"]');
       await expect.poll(() => planRow.count()).toBe(1);
       const menu = planRow.locator('[data-plan-actions="plant-tomatoes"]');
       await expect.poll(() => menu.count(), { timeout: 10_000 }).toBe(1);
@@ -499,7 +500,7 @@ describe('the row says what it knows', () => {
       // refuses every other phase, so a row offering it would be inviting a
       // refusal.
       for (const plan of ['strawberry-netting']) {
-        const planRow = grid(page, 'Not started').locator(`li[data-plan-row="${plan}"]`);
+        const planRow = grid(page, 'Input to the fleet').locator(`li[data-plan-row="${plan}"]`);
         await expect.poll(() => planRow.count()).toBe(1);
         await expect.poll(() => planRow.locator('[data-plan-actions]').count()).toBe(0);
       }
@@ -516,7 +517,7 @@ describe('the row says what it knows', () => {
       // menu) and a plan past Draft (without one) must land theirs at one x, or
       // the column the track exists to hold has moved.
       const clockRight = async (plan: string) => {
-        const cells = grid(page, 'Not started')
+        const cells = grid(page, 'Input to the fleet')
           .locator(`li[data-plan-row="${plan}"] [role="gridcell"]`);
         const box = await cells.nth(3).boundingBox();
         return Math.round(box?.x ?? -1);
@@ -540,7 +541,8 @@ describe('the row says what it knows', () => {
       // dropped the text after the colon. So `deferred` and `no commits` sat
       // side by side as two unrelated facts, when the first is the reason for
       // the second.
-      const branchRow = grid(page, 'Waiting on you').locator('li[data-agent-row]')
+      // A deferred slice with no PR waits in Work items › Queued.
+      const branchRow = grid(page, 'Input to the fleet').locator('li[data-agent-row]')
         .filter({ has: page.locator('[data-branch="feature/give-them-away"]') });
       await expect.poll(() => branchRow.count()).toBe(1);
       await expect.poll(() => branchRow.locator('[data-deferred]').count()).toBe(1);
@@ -606,7 +608,8 @@ describe('the row says what it knows', () => {
       // The bare `<!-- deferred -->`. The badge is the state and must survive on
       // its own; a sentence invented to fill the space would be the same defect
       // from the other side.
-      const branchRow = grid(page, 'Waiting on you').locator('li[data-agent-row]')
+      // In Work items › Queued, as the row above.
+      const branchRow = grid(page, 'Input to the fleet').locator('li[data-agent-row]')
         .filter({ has: page.locator('[data-branch="feature/pickle-the-rest"]') });
       await expect.poll(() => branchRow.count()).toBe(1);
       await expect.poll(() => branchRow.locator('[data-deferred]').textContent())

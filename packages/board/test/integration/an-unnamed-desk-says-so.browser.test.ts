@@ -60,6 +60,10 @@ describe('a desk no manifest names (real browser renders the shipped artifact)',
       },
     });
     await page.getByText('Working').first().waitFor({ timeout: 10_000 });
+    // A desk holding no branch acts on no item, so it lands in Fleet › Free
+    // agents, which starts collapsed.
+    const free = page.locator('[data-group-toggle="free"]');
+    if (await free.count() > 0 && (await free.getAttribute('aria-expanded')) === 'false') await free.click();
     return page;
   }
 

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** the-board-reads-the-channel
 - **Issue:** #3170
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-08, Jan Wloka, plan-PR #3278 merged
 - **Delivered:** 2026-11-09
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
@@ -76,11 +77,11 @@ This plan depends on `the-snapshot-entity`: it sends `RepoSnapshot` and its `gen
 
 ### Contract
 
-- `feature/the-channel-carries-readings-contract` — the `snapshot` purpose and `SNAPSHOT_PROTOCOL` in `entities/subscription.ts` and `rules/channel.ts`; the `snapshot` and `delta` messages in `entities/channel-message.ts`; `applySnapshotMessage` in `rules/snapshot-sync.ts`; recorded protocol-1 fixtures <!-- builds: SNAPSHOT_PROTOCOL, a versioned snapshot-and-delta channel contract -->
+- `feature/the-channel-carries-readings-contract` — the `snapshot` purpose and `SNAPSHOT_PROTOCOL` in `entities/subscription.ts` and `rules/channel.ts`; the `snapshot` and `delta` messages in `entities/channel-message.ts`; `applySnapshotMessage` in `rules/snapshot-sync.ts`; recorded protocol-1 fixtures <!-- builds: SNAPSHOT_PROTOCOL, a versioned snapshot-and-delta channel contract --> → #3283
 
 ### Fleetd publishes
 
-- `feature/the-channel-carries-readings-publish` — fleetd serves the snapshot purpose from its snapshot; `subscribeSnapshot` in `adapters/channel/channel-client.ts`; the board hub holds the copy and reports `current`, `resyncing`, `mismatch` or `absent` on `/api/fleet`; socket tests for both version directions; a changeset for `@plot-pm/board` <!-- builds: subscribeSnapshot, a channel reader that resynchronises on a gap and reports a version mismatch -->
+- `feature/the-channel-carries-readings-publish` — fleetd serves the snapshot purpose from its snapshot; `subscribeSnapshot` in `adapters/channel/channel-client.ts`; the board hub holds the copy and reports `current`, `resyncing`, `mismatch` or `absent` on `/api/fleet`; socket tests for both version directions; a changeset for `@plot-pm/board` <!-- builds: subscribeSnapshot, a channel reader that resynchronises on a gap and reports a version mismatch --> → #3288
 
 ## Notes
 

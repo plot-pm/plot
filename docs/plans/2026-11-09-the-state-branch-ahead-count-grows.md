@@ -4,13 +4,16 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Released
 - **Type:** bug
 - **Sprint:** ship-2-32-0
 - **Issue:** #3314
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-09, Jan Wloka, plan-PR #3315 merged
+- **Started:** 2026-11-09, Jan Wloka, `bug/the-state-branch-ahead-count-grows`
+- **Delivered:** 2026-11-09
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
@@ -30,7 +33,9 @@ Source: review of PR #3292 (`feature/state-branch-sync`), MEDIUM 1, on head 3a01
 
 **Decision (Jan Wloka, 2026-11-09): the count is the number of commits on the state branch since the last commit whose tree equals the default branch's tree.** The alternative, counting changed record files, was not chosen.
 
-- The rule takes the state branch's first-parent commit list, newest first, each with its tree id, and the default branch's tree id. It returns the index of the first commit whose tree equals the default tree. That index is the count.
+**Amended 2026-11-09 (Jan Wloka), after the review of PR #3333:** the default branch's tree alone resets the count only until the default branch takes one more merge, because no state commit then carries the new tree. So the rule compares each state commit with the tree of every commit on the default branch's first-parent line since the state branch forked, not only with its current tip. The squash commit of the last sync PR is on that line and stays on it however far the default branch moves.
+
+- The rule takes the state branch's first-parent commit list, newest first, each with its tree id, and the tree ids of the default branch's first-parent commits since the fork point. It returns the index of the first commit whose tree equals one of those trees. That index is the count.
 - A tip whose tree equals the default tree returns 0.
 - With no tree-equal commit, the count is the commits between the merge base and the tip, as today (`<defaultRef>..<trackRef>`).
 - The rule lives in `packages/domain/src/rules/` as a pure function over those readings. The workflow reads the tree ids through the `Refs` port; a port method for "tree id of a commit" is added if none exists. No adapter code changes the rule.
@@ -49,7 +54,7 @@ Source: review of PR #3292 (`feature/state-branch-sync`), MEDIUM 1, on head 3a01
 
 ### Count rule
 
-- `bug/the-state-branch-ahead-count-grows` — one ahead-count rule in `packages/domain`, read by the lag line, the sync PR body, `syncPrDecision` and `recordsAhead`. Tests: a state branch squash-merged into the default branch and given two new commits reports 2 ahead; a state branch whose tip tree equals the default tree reports 0; a state branch with no tree-equal commit reports the merge-base count. <!-- builds: aheadSinceTreeEqual, the one ahead-count rule for the state branch -->
+- `bug/the-state-branch-ahead-count-grows` — one ahead-count rule in `packages/domain`, read by the lag line, the sync PR body, `syncPrDecision` and `recordsAhead`. Tests: a state branch squash-merged into the default branch and given two new commits reports 2 ahead; a state branch whose tip tree equals the default tree reports 0; a state branch with no tree-equal commit reports the merge-base count. <!-- builds: aheadSinceTreeEqual, the one ahead-count rule for the state branch --> → #3333
 
 ## Notes
 
