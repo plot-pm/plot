@@ -1005,7 +1005,10 @@ export const controllerGateOf = (readings: ControllerReadings): Gate => ({
     if (named) {
       if (controllerInvocation(stripped) === 'release-approve') return finalControllerRefusal('release-approve', scriptDir);
       const httpAction = controllerHttpAction(stripped);
-      if (httpAction === 'release' || httpAction === 'restart' || httpAction === 'loose-delete') return finalControllerRefusal(httpAction, scriptDir);
+      if (
+        httpAction === 'release' || httpAction === 'restart' || httpAction === 'loose-delete'
+        || httpAction === 'needs-design' || httpAction === 'supersede'
+      ) return finalControllerRefusal(httpAction, scriptDir);
     }
 
     const atDesk = process.env.PLOT_UNATTENDED === '1' && readings.desk(cwd);
@@ -1043,7 +1046,7 @@ export const controllerGateOf = (readings: ControllerReadings): Gate => ({
 
     const action = controllerInvocation(stripped);
     const refusals = unpinnedMerges(stripped).map((program) => unpinnedMergeRefusal(scriptDir, program));
-    if (action === 'loose-delete') {
+    if (action === 'loose-delete' || action === 'needs-design' || action === 'supersede') {
       refusals.unshift(finalControllerRefusal(action, scriptDir));
     } else if (action !== null) {
       if (!existsSync(join(root.value, '.plot', 'state'))) {
