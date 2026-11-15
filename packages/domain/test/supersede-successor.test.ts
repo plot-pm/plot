@@ -58,6 +58,15 @@ describe('supersessionRefusalReason', () => {
     const decided = supersede({ ...plan, phase: 'delivered' }, { on: '2026-11-15', by: 'new', preconditions: readings });
     expect(decided.outcome === 'refused' && supersessionRefusalReason(decided, readings)).toBe('state-terminal');
   });
+
+  it('keeps precondition-unmet where the unmet reading is not a successor one', () => {
+    const readings = [
+      ...successorPreconditions({ slug: 'old', by: 'new', successorFile: 'docs/plans/new.md' }),
+      { name: 'tree-clean', met: false, detail: 'the tree is dirty' },
+    ];
+    const decided = supersede(plan, { on: '2026-11-15', by: 'new', preconditions: readings });
+    expect(decided.outcome === 'refused' && supersessionRefusalReason(decided, readings)).toBe('precondition-unmet');
+  });
 });
 
 describe('successorCandidates', () => {
