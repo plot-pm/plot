@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { bitbucketPrState, bitbucketReview } from '../src/rules/bitbucket-pr-reading.js';
+import { bitbucketConversation, bitbucketPrState, bitbucketReview } from '../src/rules/bitbucket-pr-reading.js';
 
 const pr = (over: Record<string, unknown> = {}) => ({
   id: 7,
@@ -162,5 +162,29 @@ describe('bitbucketReview', () => {
 
   it('reports a comment starting review-bypass:', () => {
     expect(bitbucketReview('s', [], [{ content: { raw: 'ok' } }, { content: { raw: 'review-bypass: stuck' } }]).bypass).toBe(true);
+  });
+});
+
+describe('bitbucketConversation', () => {
+  const pr = { author: { nickname: 'andreas' }, participants: [
+    { user: { nickname: 'markus', type: 'user' }, approved: true, participated_on: 't-approve' },
+    { user: { nickname: 'lena', type: 'user' }, approved: false },
+  ] };
+
+  it('reads an inline comment, a plain comment and an approval, filtering none', () => {
+    expect(bitbucketConversation(pr, [
+      { id: 1, user: { nickname: 'markus', type: 'user' }, created_on: 't1', content: { raw: 'why?' }, inline: { path: 'a' } },
+      { id: 2, user: { nickname: 'ci', type: 'app_user' }, created_on: 't2', content: { raw: '' } },
+    ])).toEqual({ prAuthor: 'andreas', rows: [
+      { kind: 'inline', id: 1, login: 'markus', type: 'User', time: 't1', body: 'why?' },
+      { kind: 'issue', id: 2, login: 'ci', type: 'Bot', time: 't2', body: '' },
+      { kind: 'review', id: 0, login: 'markus', type: 'User', time: 't-approve', body: '', state: 'APPROVED' },
+    ] });
+  });
+
+  it('reads a missing user and an unknown type as empty strings', () => {
+    expect(bitbucketConversation({}, [{ id: 3, user: null, created_on: 't' }])).toEqual({
+      prAuthor: '', rows: [{ kind: 'issue', id: 3, login: '', type: '', time: 't', body: '' }],
+    });
   });
 });

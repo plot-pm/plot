@@ -116,7 +116,47 @@ test('an edited comment keeps its created_at', () => {
   assert.equal(JSON.parse(r.stdout).rows[0].time, 'first');
 });
 
-test('Bitbucket exits 4 until its read is measured', () => {
-  const r = run(ghStub({}), { backend: 'bitbucket' });
-  assert.equal(r.status, 4);
+/** A `bb` answering the PR and its comment pages; page 1 links to a second page this stub also serves. */
+const bbStub = ({ pr, pages = [[]], failOn = null }) => {
+  const dir = tmp('pr-conversation-bb');
+  const next = '/repositories/{ws}/{repo}/pullrequests/7/comments-page-2';
+  const arms = pages.map((values, i) => {
+    const link = i + 1 === pages.length ? '' : `,"next":"https://api.bitbucket.org/2.0${next}"`;
+    return `  ${i === 0 ? '*"/pullrequests/7/comments"*' : `*"${next}"*`}) printf '{"values":%s${link}}' ${JSON.stringify(JSON.stringify(values))} ;;`;
+  }).reverse().join('\n');
+  fs.writeFileSync(path.join(dir, 'bb'), `#!/usr/bin/env bash
+case "$*" in
+  *--version*) echo "bb version 1.9.0" ;;
+  *${failOn ?? 'NEVER-MATCHES'}*) echo "HTTP 502" >&2; exit 1 ;;
+${arms}
+  *"/pullrequests/7") printf '%s' ${JSON.stringify(JSON.stringify(pr))} ;;
+  *) exit 9 ;;
+esac
+`);
+  fs.chmodSync(path.join(dir, 'bb'), 0o755);
+  return dir;
+};
+
+const bbPr = { author: { nickname: 'Andreas', type: 'user' }, participants: [
+  { user: { nickname: 'Markus', type: 'user' }, approved: true, participated_on: '2026-10-27T13:05:55Z' },
+  { user: { nickname: 'Lena', type: 'user' }, approved: false, participated_on: null },
+] };
+
+test('Bitbucket reads every comment page and the approvals', () => {
+  const r = run(bbStub({ pr: bbPr, pages: [
+    [{ id: 1, user: { nickname: 'Markus', type: 'user' }, created_on: 'c1', updated_on: 'later', content: { raw: 'q' }, inline: { path: 'a.ts' } }],
+    [{ id: 2, user: { nickname: 'Bot', type: 'app_user' }, created_on: 'c2', content: { raw: 'ci' } }],
+  ] }), { backend: 'bitbucket' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout), { prAuthor: 'Andreas', rows: [
+    { kind: 'inline', id: 1, login: 'Markus', type: 'User', time: 'c1', body: 'q' },
+    { kind: 'issue', id: 2, login: 'Bot', type: 'Bot', time: 'c2', body: 'ci' },
+    { kind: 'review', id: 0, login: 'Markus', type: 'User', time: '2026-10-27T13:05:55Z', body: '', state: 'APPROVED' },
+  ] });
+});
+
+test('a failing Bitbucket page exits 3 and prints no rows', () => {
+  const r = run(bbStub({ pr: bbPr, pages: [[{ id: 1, content: { raw: 'q' } }], []], failOn: 'comments-page-2' }), { backend: 'bitbucket' });
+  assert.equal(r.status, 3);
+  assert.equal(r.stdout, '');
 });

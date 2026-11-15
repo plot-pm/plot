@@ -6,7 +6,7 @@ import {
   type JenkinsShaRun,
   type PrRowHead,
 } from '@plot-pm/domain/rules/jenkins-pr-checks';
-import { bitbucketPrState, bitbucketReview } from '@plot-pm/domain/rules/bitbucket-pr-reading';
+import { bitbucketConversation, bitbucketPrState, bitbucketReview } from '@plot-pm/domain/rules/bitbucket-pr-reading';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
@@ -33,6 +33,14 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * printf '<pr json|null>\n<colours json|null>\n<bound json|null>\n' | plot-jenkins-pr-checks.mjs state
  * printf '<sha>\n<statuses json>\n<comments json>\n' | plot-jenkins-pr-checks.mjs review
  * ```
+ *
+ * A third folds a Bitbucket pull request's conversation (`pr-conversation`):
+ *
+ * ```
+ * printf '<pr json>\n<comments json>\n' | plot-jenkins-pr-checks.mjs conversation
+ * ```
+ *
+ * `<comments json>` is `{"values": [...]}`, as `review` reads its comments.
  *
  * `state` reads the row as named for a sha lookup where `rowsToBind` names it
  * from `colours` alone — the same answer `rows` gave the shell for this one
@@ -78,8 +86,8 @@ export const run = (
   warn: (s: string) => void = (s) => process.stderr.write(s),
 ): number => {
   const verb = argv[0];
-  if (verb !== 'rows' && verb !== 'bind' && verb !== 'state' && verb !== 'review') {
-    warn('plot-jenkins-pr-checks: usage: plot-jenkins-pr-checks.mjs <rows|bind|state|review> < readings\n');
+  if (verb !== 'rows' && verb !== 'bind' && verb !== 'state' && verb !== 'review' && verb !== 'conversation') {
+    warn('plot-jenkins-pr-checks: usage: plot-jenkins-pr-checks.mjs <rows|bind|state|review|conversation> < readings\n');
     return EXIT.usage;
   }
   const lines = stdin.split('\n');
@@ -97,6 +105,11 @@ export const run = (
   if (verb === 'review') {
     const [statuses, comments] = [1, 2].map((i) => (parseLine(lines[i] ?? '') as { values?: never[] } | null)?.values ?? []);
     write(`${JSON.stringify(bitbucketReview(lines[0] ?? '', statuses, comments))}\n`);
+    return EXIT.ok;
+  }
+  if (verb === 'conversation') {
+    const comments = (parseLine(lines[1] ?? '') as { values?: never[] } | null)?.values ?? [];
+    write(`${JSON.stringify(bitbucketConversation((parseLine(lines[0] ?? '') ?? {}) as never, comments))}\n`);
     return EXIT.ok;
   }
   if (verb === 'rows') {

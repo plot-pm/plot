@@ -141,9 +141,9 @@
 #                                 are `""` where the account is deleted; `time` is
 #                                 `created_at`, and `submitted_at` for a review, `""`
 #                                 while PENDING; a review adds `state`). Nothing is
-#                                 filtered. GitHub, REST only, every page. EXIT 3 is
-#                                 any read failing, never an empty list; EXIT 4 on
-#                                 Bitbucket, whose read is unmeasured.
+#                                 filtered. REST only, every page. Bitbucket types `user`/`app_user`
+#                                 read `User`/`Bot`, and an approval is a `review`
+#                                 row. EXIT 3 is any read failing, never an empty list.
 #   pr-create --title T [--body B] [--base BR] [--head BR] [--draft]
 #                                 create a PR, print its URL
 #   pr-merge <number> [--squash] [--delete-branch] --match-head <sha>
@@ -4395,10 +4395,15 @@ case "$op" in
       || die3 "pr-review: the read failed" ;;
 
   pr-conversation)
-    # BITBUCKET IS UNMEASURED: exit 4 until its comment, approval-time and `user.type` reads are measured.
-    [ "$be" = "github" ] || { echo "plot-host: pr-conversation — the bitbucket read is unmeasured" >&2; exit 4; }
+    n="${1:?pr-conversation needs a PR number}"
+    # BITBUCKET: the PR (author, participants and their approval times) and every comment page through `_bb_paged_walk`, folded by `plot-jenkins-pr-checks.mjs conversation`. Measured 2026-11-09 on ewz-kus-portal: `participants[].participated_on` carries an approval's time, `user.type` reads `user`, `pagelen` caps at 100.
+    if [ "$be" != "github" ]; then
+      pr="/repositories/{ws}/{repo}/pullrequests/$n"
+      out="$(bb api "$pr")" && cm="$(_bb_paged_walk "$pr/comments?pagelen=100" "bitbucket pr-conversation" "a comment recorded only on a later page would be missed" "" | jq -c '{values: .}')" \
+        && printf '%s\n%s\n' "$(jq -c . <<<"$out")" "$cm" | node "$here/board/plot-jenkins-pr-checks.mjs" conversation || die3 "pr-conversation: the read failed"
+      exit 0; fi
     # REST ONLY, every page, and a failed page is a failed read (exit 3), never `[]`. The pages reach `jq` through `--slurpfile`, not `--argjson` (the 128 KB argv cap). Fields are projected and nothing is filtered: who counts as a person is the domain's.
-    n="${1:?pr-conversation needs a PR number}"; ep="repos/{owner}/{repo}"
+    ep="repos/{owner}/{repo}"
     out="$(gh_api_harvest "$ep/pulls/$n")" && au="$(jq -r '.user.login // ""' <<<"$out")" && ic="$(gh api --paginate "$ep/issues/$n/comments?per_page=100")" \
       && pc="$(gh api --paginate "$ep/pulls/$n/comments?per_page=100")" && rv="$(gh api --paginate "$ep/pulls/$n/reviews?per_page=100")" \
       && jq -nc --arg au "$au" --slurpfile i <(printf '%s' "$ic") --slurpfile c <(printf '%s' "$pc") --slurpfile r <(printf '%s' "$rv") 'def row($k): {kind: $k, id: .id, login: (.user.login // ""), type: (.user.type // ""), time: (.created_at // ""), body: (.body // "")}; {prAuthor: $au, rows: ([$i[][] | row("issue")] + [$c[][] | row("inline")] + [$r[][] | row("review") + {time: (.submitted_at // ""), state}])}' \
