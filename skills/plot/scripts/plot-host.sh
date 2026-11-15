@@ -133,7 +133,7 @@
 #                                 time — `commit-status` writes that status
 #                                 through `plot-bitbucket-commit-status.mjs`.
 #                                 EXIT 3 is the question failing.
-#   pr-create --title T [--body B] [--base BR] [--head BR] [--draft]
+#   pr-create --title T [--body B | --body-file F] [--base BR] [--head BR] [--draft]
 #                                 create a PR, print its URL. GitHub
 #                                 creates it over REST (`POST pulls`), which
 #                                 spends `core` and never GraphQL.
@@ -531,7 +531,11 @@
 #                                 The transition id is LOOKED UP, never guessed:
 #                                 ids are per workflow and per issue, so a
 #                                 hardcoded one writes to the wrong column.
-#   pr-body <number> --body B     replace the PR description
+#   pr-body <number> (--body B | --body-file F)
+#                                 replace the PR description. GitHub replaces
+#                                 it over REST (`PATCH pulls/<n>`), which
+#                                 spends `core` and never GraphQL. --body-file
+#                                 reads the body from a file, on both ops.
 #   rate-limit                    both GitHub budgets from `gh api rate_limit`.
 #                                 SUPERSEDED BY `limit`, and kept only because
 #                                 its callers have not moved: that endpoint was
@@ -2484,7 +2488,7 @@ graphql_budget_spent() {
 gh_route() { # $1=op → graphql|rest
   case "${1:-}" in
     # REST-only: no GraphQL route exists to choose, so nothing is consulted.
-    rate-limit|limit|pr-create)
+    rate-limit|limit|pr-create|pr-body)
       printf 'rest\n'
       ;;
     # Both transports implemented — the one op where the reasons apply.
@@ -2557,6 +2561,20 @@ rest_pr_state() { # $1=owner/repo $2=PR number or branch; returns 3 when the bra
 # a port after the host, and an scp-style remote splits host and path at its first
 # colon. Prints nothing and exits 1 where the URL names no `owner/repo`.
 gh_origin_slug() { git config --get remote.origin.url | sed -E 's#\.git/?$##; s#^.*[:/]([^/:]+/[^/:]+)$#\1#' | grep -E '^[^/]+/[^/]+$'; }
+# THE PR TEXT FLAGS of `pr-create` and `pr-body`, parsed in one place. `--body-file`
+# reads the body from a file, so a long body never rides on the command line: on
+# 2026-11-14 a hook refused a long inline `--body` for agents in isolated worktrees.
+pr_text_args() { # $1=op, then its flags → sets title, body, base, head, draft
+  local op="$1"; shift; title=""; body=""; base=""; head=""; draft=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --title|--body|--base|--head) printf -v "${1#--}" '%s' "${2:?}"; shift 2 ;;
+      --body-file) body="$(cat -- "${2:?}" 2>/dev/null)" || die "$op: cannot read $2"; shift 2 ;;
+      --draft) draft=1; shift ;;
+      *) die "$op: unknown arg $1" ;;
+    esac
+  done
+}
 
 # `gh` as the merger identity where a Merger app token was minted, as the
 # signed-in one where none was. The token goes into `GH_TOKEN` only.
@@ -4386,17 +4404,7 @@ case "$op" in
       || die3 "pr-review: the read failed" ;;
 
   pr-create)
-    title=""; body=""; base=""; head=""; draft=""
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        --title) title="${2:?}"; shift 2 ;;
-        --body)  body="${2:?}";  shift 2 ;;
-        --base)  base="${2:?}";  shift 2 ;;
-        --head)  head="${2:?}";  shift 2 ;;
-        --draft) draft=1; shift ;;
-        *) die "pr-create: unknown arg $1" ;;
-      esac
-    done
+    pr_text_args pr-create "$@"
     [ -n "$title" ] || die "pr-create needs --title"
     # GITHUB OPENS THE PR OVER REST, `POST repos/<origin slug>/pulls`, and prints
     # its `html_url` as `gh pr create` printed its URL. `gh pr create` spends
@@ -5778,15 +5786,17 @@ case "$op" in
     printf '%s' "$body" | jq -c '.[] | {name, released: (.released // false), releaseDate: (.releaseDate // null)}' || exit 3 ;;
 
   pr-body)
-    num="${1:?pr-body needs a PR number}"; shift; body=""
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        --body) body="${2:?}"; shift 2 ;;
-        *) die "pr-body: unknown arg $1" ;;
-      esac
-    done
-    [ -n "$body" ] || die "pr-body needs --body"
-    "$cli" pr edit "$num" --body "$body"
+    num="${1:?pr-body needs a PR number}"; shift; pr_text_args pr-body "$@"
+    [ -z "$title$base$head$draft" ] || die "pr-body takes only --body or --body-file"
+    [ -n "$body" ] || die "pr-body needs --body or --body-file"
+    # GITHUB REPLACES THE BODY OVER REST, `PATCH repos/<origin slug>/pulls/<n>`,
+    # and prints its `html_url` as `gh pr edit` printed the URL. `gh pr edit`
+    # spends GraphQL: on 2026-11-14 it failed twice with "GraphQL: API rate limit
+    # already exceeded" while REST held budget. `pr-create` takes the same route.
+    if [ "$be" = "github" ]; then
+      slug="$(gh_origin_slug)" || die3 "pr-body: no owner/repo on origin; nothing was written"
+      gh_api_harvest -X PATCH "repos/$slug/pulls/$num" -f body="$body" | jq -r '.html_url'
+    else bb pr edit "$num" --body "$body"; fi
     ;;
 
   rate-limit)

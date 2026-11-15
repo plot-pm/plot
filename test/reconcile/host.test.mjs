@@ -1225,10 +1225,58 @@ test('host: bb pr-state by branch resolves via pr-list filter (hit and miss)', (
   assert.equal(miss.state, 'NONE');
 });
 
-test('host: pr-body github maps to gh pr edit --body', () => {
+// `gh pr edit` spends GraphQL. On 2026-11-14 `pr-body` failed twice with
+// "GraphQL: API rate limit already exceeded" while REST held budget, so the
+// GitHub arm replaces the body with `PATCH pulls/<n>`, as `pr-create` posts.
+test('host: pr-body github replaces the body over REST and prints its html_url', () => {
+  const stubs = makeStubs({ ghJson: '{"number":4,"html_url":"https://github.com/o/r/pull/4"}' });
+  const out = run(['pr-body', '4', '--body', 'new `text`\nline two'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(out, 'https://github.com/o/r/pull/4\n');
+  assert.deepEqual(argvOf(stubs.ghArgv),
+    ['api', '-X', 'PATCH', `repos/${originSlug}/pulls/4`, '-f', 'body=new `text`', 'line two', '--include']);
+  assert.ok(!argvOf(stubs.ghArgv).includes('edit'), '`gh pr edit` is GraphQL and must never run');
+});
+
+test('host: pr-body github exits non-zero with the host\'s words when the PATCH fails', () => {
+  const stubs = makeStubs({ ghFail: 'gh: Not Found (HTTP 404)' });
+  const res = runAllowFail(['pr-body', '4', '--body', 'B'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.notEqual(res.code, 0);
+  assert.equal(res.stdout, '');
+  assert.match(res.stderr, /Not Found/);
+});
+
+test('host: pr-body bitbucket maps to bb pr edit --body', () => {
   const stubs = makeStubs();
-  run(['pr-body', '4', '--body', 'new text'], { env: { PLOT_HOST: 'github' }, stubs });
-  assert.deepEqual(argvOf(stubs.ghArgv), ['pr', 'edit', '4', '--body', 'new text']);
+  run(['pr-body', '4', '--body', 'new text'], { env: { PLOT_HOST: 'bitbucket' }, stubs });
+  assert.deepEqual(argvOf(stubs.bbArgv), ['pr', 'edit', '4', '--body', 'new text']);
+});
+
+// A long inline `--body` was refused by a hook for agents in isolated
+// worktrees, so both body-writing ops read the body from a file as well.
+test('host: pr-body and pr-create read --body-file as the body', () => {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-body-file-')));
+  const file = path.join(dir, 'body.md');
+  writeFileSync(file, 'from `file`\nline two\n');
+  const bodyStubs = makeStubs({ ghJson: '{"html_url":"https://github.com/o/r/pull/4"}' });
+  run(['pr-body', '4', '--body-file', file], { env: { PLOT_HOST: 'github' }, stubs: bodyStubs });
+  assert.ok(argvOf(bodyStubs.ghArgv).includes('body=from `file`'), argvOf(bodyStubs.ghArgv).join(' '));
+  const createStubs = makeStubs({ ghJson: '{"html_url":"https://github.com/o/r/pull/5"}' });
+  run(['pr-create', '--title', 'T', '--body-file', file, '--base', 'main', '--head', 'feature/x'],
+    { env: { PLOT_HOST: 'github' }, stubs: createStubs });
+  assert.ok(argvOf(createStubs.ghArgv).includes('body=from `file`'), argvOf(createStubs.ghArgv).join(' '));
+  const bbStubs = makeStubs();
+  run(['pr-body', '4', '--body-file', file], { env: { PLOT_HOST: 'bitbucket' }, stubs: bbStubs });
+  assert.deepEqual(argvOf(bbStubs.bbArgv), ['pr', 'edit', '4', '--body', 'from `file`', 'line two']);
+});
+
+test('host: an unreadable --body-file refuses and calls no host', () => {
+  for (const args of [['pr-body', '4'], ['pr-create', '--title', 'T', '--base', 'main', '--head', 'feature/x']]) {
+    const stubs = makeStubs({ ghJson: '{"html_url":"x"}' });
+    const res = runAllowFail([...args, '--body-file', '/nonexistent/plot-body.md'], { env: { PLOT_HOST: 'github' }, stubs });
+    assert.notEqual(res.code, 0, args[0]);
+    assert.match(res.stderr, /cannot read \/nonexistent\/plot-body\.md/, args[0]);
+    assert.ok(!existsSync(stubs.ghArgv), `${args[0]} called the host`);
+  }
 });
 
 // `bb pr update --ready` does not exist on any shipped bb version (#3089);
