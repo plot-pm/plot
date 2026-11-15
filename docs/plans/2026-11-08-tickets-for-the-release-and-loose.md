@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** ship-2-32-0
 - **Issue:** #3246
@@ -19,6 +19,7 @@
 - **Started:** 2026-11-10, Jan Wloka, `feature/the-release-line-counts-tickets`
 - **Started:** 2026-11-11, Jan Wloka, `feature/loose-ends-show-under-unblock`
 - **Delivered:** 2026-11-13
+- **Released:** 2026-11-15, v2.33.0
 
 ## Changelog
 

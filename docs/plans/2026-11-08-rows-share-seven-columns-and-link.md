@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** ship-2-32-0
 - **Issue:** #3245
@@ -13,6 +13,7 @@
 - **Approved:** 2026-11-08, Jan Wloka, plan-PR #3249 merged
 - **Started:** 2026-11-10, Jan Wloka, `feature/rows-share-seven-columns-and-link`
 - **Delivered:** 2026-11-12
+- **Released:** 2026-11-15, v2.33.0
 
 ## Changelog
 

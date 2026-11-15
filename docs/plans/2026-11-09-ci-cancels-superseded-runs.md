@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** infra
 - **Story:** nothing-changed-nothing-runs
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Approved:** 2026-11-11, jwloka, plan-PR #3305 merged
 - **Started:** 2026-11-11, Jan Wloka, `infra/ci-cancels-superseded-runs`
 - **Delivered:** 2026-11-12
+- **Released:** 2026-11-15, v2.33.0
 
 ## Changelog
 
