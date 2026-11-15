@@ -6,7 +6,7 @@ import type { Finding, MonitorName } from '@plot-pm/domain/entities/finding';
 import type { PrIndex, PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import { startFleetChannel } from '../../src/server/entry/registryd-main.js';
 import type { PlanRecord } from '@plot-pm/domain/ports/plan-store';
-import { runIndexMonitor, sliceBranchesOf, type IndexMonitorWorld } from '../../src/shared/index-monitor.js';
+import { runIndexMonitor, sliceBranchesAtTip, sliceBranchesOf, type IndexMonitorWorld } from '../../src/shared/index-monitor.js';
 
 const NOW = '2026-10-10T12:00:00Z';
 
@@ -175,6 +175,45 @@ describe('sliceBranchesOf', () => {
       readPlans: async () => ({ ok: false, why: 'failed' }),
     });
     expect([unlisted, unread]).toEqual([null, null]);
+  });
+});
+
+describe('sliceBranchesAtTip', () => {
+  const rigged = (answers: (ReadonlySet<string> | null)[]) => {
+    let reads = 0;
+    let tip: string | null = 'c1';
+    const read = sliceBranchesAtTip(async () => tip, async () => answers[Math.min(reads++, answers.length - 1)]);
+    return { read, reads: () => reads, tip: (sha: string | null) => { tip = sha; } };
+  };
+
+  it('parses the plans once while their commit stays the same', async () => {
+    const r = rigged([new Set(['feature/a'])]);
+    await r.read();
+    expect(await r.read()).toEqual(new Set(['feature/a']));
+    expect(r.reads()).toBe(1);
+  });
+
+  it('parses the plans again when their commit moves', async () => {
+    const r = rigged([new Set(['feature/a']), new Set(['feature/b'])]);
+    await r.read();
+    r.tip('c2');
+    expect(await r.read()).toEqual(new Set(['feature/b']));
+    expect(r.reads()).toBe(2);
+  });
+
+  it('parses on every call where the commit cannot be read', async () => {
+    const r = rigged([new Set(['feature/a'])]);
+    r.tip(null);
+    await r.read();
+    await r.read();
+    expect(r.reads()).toBe(2);
+  });
+
+  it('holds no answer from a read that failed', async () => {
+    const r = rigged([null, new Set(['feature/a'])]);
+    expect(await r.read()).toBeNull();
+    expect(await r.read()).toEqual(new Set(['feature/a']));
+    expect(r.reads()).toBe(2);
   });
 });
 

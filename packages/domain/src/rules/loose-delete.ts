@@ -59,13 +59,29 @@ export type LooseDeleteDecision =
 const refuse = (reason: LooseDeleteRefusal, detail: string): LooseDeleteDecision => ({ kind: 'refuse', reason, detail });
 
 /**
+ * Whether a claimed branch's work ended in a PR the host closed unmerged.
+ *
+ * @param readings - what the controller read.
+ * @returns `true` where the branch holds a commit that is not an empty claim,
+ *   the host's PR for it is `CLOSED`, and the host merged no PR for it.
+ */
+const closedWork = (readings: LooseDeleteReadings): boolean =>
+  readings.commits.ok
+  && readings.commits.value.some((commit) => !isEmptyClaim(commit))
+  && readings.pr.ok
+  && readings.pr.value?.state === 'CLOSED'
+  && readings.merged.ok
+  && readings.merged.value === 'not-merged';
+
+/**
  * Decides whether a loose branch's remote ref may be deleted.
  *
  * Refuses, in this order: an unattended caller; the default branch, a
  * `sprint/` integration branch and a `changeset-release/` branch (`protected`);
  * a branch a plan's slice names (`named`); a branch a desk on this machine or a
  * registry manifest holds (`held`); a branch carrying a claim marker, which
- * `release-claim` gives up instead (`claimed`); a host that cannot be asked
+ * `release-claim` gives up instead (`claimed`), unless the branch also holds
+ * work whose PR the host closed unmerged; a host that cannot be asked
  * about the PR or the merge; an open PR; a merged PR; a local branch with a
  * commit `origin/<branch>` lacks; a branch with no remote ref; and a remote tip
  * that differs from the one this clone holds. Every reading that did not
@@ -92,7 +108,7 @@ export const looseDelete = (readings: LooseDeleteReadings): LooseDeleteDecision 
     return refuse('held', `the registry manifest of ${readings.manifests.value.join(', ')} names ${branch}`);
   }
   if (!readings.commits.ok) return refuse('unaskable', 'git cannot list the commits the branch holds');
-  if (readings.commits.value.some(isEmptyClaim)) {
+  if (readings.commits.value.some(isEmptyClaim) && !closedWork(readings)) {
     return refuse('claimed', `${branch} carries a claim marker; release-claim gives up the claim and the ref`);
   }
   if (!readings.pr.ok) return refuse('unaskable', 'the host cannot say whether a PR exists for the branch');

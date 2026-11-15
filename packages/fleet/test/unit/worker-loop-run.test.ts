@@ -307,6 +307,7 @@ describe('runWorkerLoop — a prompt', () => {
     expect(r.runs[0].command).toBe('env');
     expect(r.runs[0].args.slice(0, 5)).toEqual(['-u', 'PLOT_REPO_ROOT', '-u', 'PLOT_AGENT_SETTINGS', 'bash']);
     expect(r.runs[0].env?.PLOT_SESSION_FLAG).toBe('--session-id');
+    expect(r.runs[0].env?.PLOT_CONTINUATION_HEADING).toBe('');
     expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('blocked');
   });
 
@@ -352,6 +353,7 @@ describe('runWorkerLoop — a prompt', () => {
     expect(r.deskCalls.appendedCorrections).toHaveLength(1);
     expect(r.deskCalls.appendedCorrections[0]?.correction).toContain(TERMINATED);
     expect(r.deskCalls.corrections).toHaveLength(0);
+    expect(r.runs[1].env?.PLOT_CONTINUATION_HEADING).toBe('');
     expect(r.logs).toContain(`plot-worker-loop: the turn on ${BRANCH} ended with its background work dropped; resuming the session once`);
     expect(r.deskCalls.blockedMarkers.at(-1)?.text).toContain(TERMINATED);
     expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('blocked');
@@ -1020,6 +1022,7 @@ describe('runWorkerLoop — after the prompt', () => {
     expect(r.deskCalls.corrections[0]?.text).toMatch(/^the run at u for \S* concluded failure$/);
     expect(r.calls.corrections.map((c) => c.correctionAttempts)).toEqual([1]);
     expect(r.runs).toHaveLength(2);
+    expect(r.runs.map((run) => run.env?.PLOT_CONTINUATION_HEADING)).toEqual(['', '']);
     const runLog = r.ports.runLog as RunLogFixture;
     expect(runLog.lines).toHaveLength(1);
     expect(runLog.lines[0]).toMatchObject({ step: 'correction', outcome: 'moved' });
@@ -2189,6 +2192,7 @@ describe('runWorkerLoop on the command runner — a continuation resumes the blo
       PLOT_SESSION_FLAG: '--resume',
       PLOT_SESSION_ID: 'h-1',
       PLOT_CORRECTION_FILE: path.join(r.wt, 'PLOT-CORRECTION.md'),
+      PLOT_CONTINUATION_HEADING: continuationEntry('use fetch').split('\n')[0],
     });
     expect(fs.existsSync(file)).toBe(false);
   });
@@ -2280,6 +2284,7 @@ describe('runWorkerLoop on the command runner — a continuation resumes the blo
     ]);
     expect(atSecondStart).toHaveLength(1);
     expect(atSecondStart[0]).toContain('use undici instead');
+    expect(r.runs[0].env?.PLOT_CONTINUATION_HEADING).toBe(continuationEntry('use undici instead').split('\n')[0]);
   });
 
   it('does not re-append an identical second answer in the same slice — correctionHasContinuation de-dups by heading', async () => {

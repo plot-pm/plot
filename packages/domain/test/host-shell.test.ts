@@ -438,6 +438,14 @@ describe('reviewWriter', () => {
   });
 });
 
+describe('prConversation', () => {
+  it('answers unaskable: the conversation read is in-process only', async () => {
+    const answer = await hostShell(hostThat('exit 0')).prConversation(7);
+    expect(answer.ok).toBe(false);
+    expect(answer).toMatchObject({ why: 'unaskable' });
+  });
+});
+
 describe('prReview statuses', () => {
   it('passes the statuses the script reports through to the reading', async () => {
     const reading = {
