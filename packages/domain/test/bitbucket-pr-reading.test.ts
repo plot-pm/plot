@@ -166,6 +166,16 @@ describe('bitbucketReview', () => {
 });
 
 describe('bitbucketConversation', () => {
+  it('reads a missing field as an empty value, never a refusal', () => {
+    expect(bitbucketConversation({}, [{}])).toEqual({
+      prAuthor: '',
+      rows: [{ kind: 'issue', id: 0, login: '', type: '', time: '', body: '' }],
+    });
+    expect(bitbucketConversation({ participants: [{ approved: true }] }, []).rows).toEqual([
+      { kind: 'review', id: 0, login: '', type: '', time: '', body: '', state: 'APPROVED' },
+    ]);
+  });
+
   const pr = { author: { nickname: 'andreas' }, participants: [
     { user: { nickname: 'markus', type: 'user' }, approved: true, participated_on: 't-approve' },
     { user: { nickname: 'lena', type: 'user' }, approved: false },
