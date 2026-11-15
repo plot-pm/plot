@@ -13,6 +13,7 @@ import { bitbucketPrListing, type BitbucketPrListing } from './bitbucket-pr-list
 import { githubApi, type GithubApi, type GithubApiOptions } from './github-api.js';
 import { githubPrListing, type GithubPrListing } from './github-pr-listing.js';
 import { hostShell, prOf } from './host-shell.js';
+import { bitbucketPrConversation, githubPrConversation, hostWithConversation } from './pr-conversation.js';
 import { bitbucketProtection, githubProtection, type HostProtection } from './host-protection.js';
 import { recordHostReads } from './process-host-reads.js';
 
@@ -206,7 +207,10 @@ export const hostReadsFor = async (
     const picked = hostTransportOf({ ...reading, tokenSource: source, noCredential: BITBUCKET_NO_CREDENTIAL });
     if (picked.transport === 'shell') return { choice: picked, api: null, host: shell };
     const richOnShell = SHELL_RICH_CI.includes(basis.ci.trim().toLowerCase());
-    const host = hostWithListing(shell, bitbucketPrListing(bitbucket, refsGit(context)), { states: BITBUCKET_LISTED_STATES, richOnShell }, bitbucketProtection(bitbucket));
+    const host = hostWithConversation(
+      hostWithListing(shell, bitbucketPrListing(bitbucket, refsGit(context)), { states: BITBUCKET_LISTED_STATES, richOnShell }, bitbucketProtection(bitbucket)),
+      bitbucketPrConversation(bitbucket),
+    );
     recordHostReads(context.repoRoot, host);
     const reason = richOnShell ? `${picked.reason}; CI is jenkins, so the rich open read stays on the shell` : picked.reason;
     return { choice: { ...picked, reason }, api: null, host };
@@ -214,7 +218,7 @@ export const hostReadsFor = async (
   const api = (options.client ?? githubApi)({ origin: await originOf(), env, observe: (observed) => shell.observe(observed) });
   const choice = hostTransportOf({ ...reading, tokenSource: await api.tokenSource() });
   if (choice.transport === 'shell') return { choice, api: null, host: shell };
-  const host = hostWithListing(shell, githubPrListing(api), {}, githubProtection(api));
+  const host = hostWithConversation(hostWithListing(shell, githubPrListing(api), {}, githubProtection(api)), githubPrConversation(api));
   recordHostReads(context.repoRoot, host);
   return { choice, api, host };
 };

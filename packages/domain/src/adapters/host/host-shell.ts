@@ -18,6 +18,7 @@ import type {
   PrListingQuery,
   PrListingRow,
   PrLookup,
+  PrConversationReading,
   PrReviewReading,
 } from '../../ports/host.js';
 import {
@@ -642,6 +643,11 @@ export const hostShell = (context: ShellContext, answers: FixedAnswers = process
 
     prReview: (number) =>
       ask(['pr-review', String(number)], (stdout) => asJson<PrReviewReading>(stdout)),
+
+    // The shell has no conversation read: `hostReadsFor` composes the
+    // in-process one, and a process on the shell transport asks nothing.
+    prConversation: async (): Promise<PortResult<PrConversationReading>> =>
+      unaskable('the conversation read is in-process only and needs a host credential'),
 
     // BITBUCKET KEEPS NO WRITER, so it answers `''` without reading config:
     // `checkedReview` reads that as unchecked. `plot-review-writer.mjs` reads
