@@ -33,6 +33,7 @@ import {
   unblockWorldForRepo,
   unblockPortsFor,
   worldForRepo,
+  treeReadingOf,
   writersFor,
   writeSupervisionReport,
 } from '../../src/server/entry/registryd-main.js';
@@ -3539,5 +3540,26 @@ describe('unblockWorldForRepo — an unread answer record', () => {
     } finally {
       rmSync(repoRoot, { recursive: true, force: true });
     }
+  });
+});
+
+describe('a tick asks the dirt only of a tree nothing claims', () => {
+  const lines = new Map([['feature/planned', { plan: '2026-11-15-a-plan' }]]);
+  const counting = () => {
+    const asked: string[] = [];
+    return { asked, dirtOf: async (path: string) => (asked.push(path), 3) };
+  };
+  const tree = (path: string, branch: string, isMain = false) => ({ path, branch, isMain, prunable: false });
+
+  it('skips the main checkout and a plan-named tree, and asks an unplanned one', async () => {
+    const { asked, dirtOf } = counting();
+    const main = await treeReadingOf(tree('/r', 'main', true), lines, dirtOf);
+    const planned = await treeReadingOf(tree('/r/.worktrees/a', 'feature/planned'), lines, dirtOf);
+    const loose = await treeReadingOf(tree('/r/.worktrees/b', 'feature/loose'), lines, dirtOf);
+    const detached = await treeReadingOf(tree('/r/.worktrees/c', ''), lines, dirtOf);
+    expect(asked).toEqual(['/r/.worktrees/b', '/r/.worktrees/c']);
+    expect([main.dirtyCount, planned.dirtyCount, loose.dirtyCount, detached.dirtyCount]).toEqual([0, 0, 3, 3]);
+    expect(planned).toMatchObject({ planNamed: true, plan: '2026-11-15-a-plan' });
+    expect(loose).toMatchObject({ planNamed: false, plan: '' });
   });
 });

@@ -18,6 +18,11 @@ import type { TickReport } from '../../src/server/entry/registryd.js';
 
 const RUN_LOG_HOME_ENV = 'PLOT_RUN_LOG_HOME';
 
+/** An `askMerged` for a reader that judges no desk; a call fails the test. */
+const notAsked = async (branch: string): Promise<never> => {
+  throw new Error(`askMerged called for ${branch}`);
+};
+
 const dirs: string[] = [];
 const repo = (): string => {
   const dir = mkdtempSync(join(tmpdir(), 'plot-idle-notify-'));
@@ -111,7 +116,7 @@ describe('notifyIdleSlices — applies the tick\'s idle-notify writes, once each
     const notifier: Notifier = { notify: async () => ({ ok: true }) };
     const clockStart = '2026-10-01T00:00:00.000Z';
     await notifyIdleSlices(idleTick('feature/x', clockStart), root, async () => notifier, async () => 'plan-a', () => {}, () => {});
-    const recorded = await idleWorldForRepo(root, '/nonexistent', Date.now(), async () => []).recordedEpisodes();
+    const recorded = await idleWorldForRepo(root, '/nonexistent', Date.now(), async () => [], notAsked).recordedEpisodes();
     expect(recorded.has(idleEpisodeKey('feature/x', clockStart))).toBe(true);
     delete process.env[RUN_LOG_HOME_ENV];
   });
@@ -199,7 +204,7 @@ describe('idleWorldForRepo', () => {
       join(root, 'run-log.tsv'),
       ['plan-a', 'feature/x', '', '', 'notified', 'sent', clockStart].join('\t') + '\n',
     );
-    const reader = idleWorldForRepo(root, '/nonexistent', Date.now(), async () => []);
+    const reader = idleWorldForRepo(root, '/nonexistent', Date.now(), async () => [], notAsked);
     const recorded = await reader.recordedEpisodes();
     expect(recorded.has(idleEpisodeKey('feature/x', clockStart))).toBe(true);
     delete process.env[RUN_LOG_HOME_ENV];
@@ -218,7 +223,7 @@ describe('idleWorldForRepo', () => {
     });
     expect(verdict.isNew).toBe(true);
     await notifyIdleSlices(idleTick('feature/x', verdict.episodeStart), root, async () => notifier, async () => 'plan-a', () => {}, () => {});
-    const recorded = await idleWorldForRepo(root, '/nonexistent', Date.now(), async () => []).recordedEpisodes();
+    const recorded = await idleWorldForRepo(root, '/nonexistent', Date.now(), async () => [], notAsked).recordedEpisodes();
     expect(recorded.has(idleEpisodeKey('feature/x', verdict.episodeStart))).toBe(true);
     delete process.env[RUN_LOG_HOME_ENV];
   });

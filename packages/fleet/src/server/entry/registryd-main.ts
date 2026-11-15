@@ -758,22 +758,7 @@ export const worldForRepo = (
       if (lines.size === 0) return [];
       const readings: TreeReading[] = [];
       for (const tree of listed.value) {
-        // THE DIRT IS ASKED OF A TREE THAT IS THERE. A prunable entry has no
-        // directory to read, so `git status` in it answers about whatever the
-        // path now holds — and its disposition is `prune` whatever the count.
-        const dirty = await dirtyCountOf(trees, tree.path, tree.prunable);
-        readings.push({
-          path: tree.path,
-          branch: tree.branch,
-          isMain: tree.isMain,
-          prunable: tree.prunable,
-          // A DETACHED TREE NAMES NO BRANCH, so no plan can name it. The empty
-          // string is the reading rather than a lookup that would match the
-          // plan line of whatever branch sorts first.
-          planNamed: tree.branch !== '' && lines.has(tree.branch),
-          plan: lines.get(tree.branch)?.plan ?? '',
-          dirtyCount: dirty,
-        });
+        readings.push(await treeReadingOf(tree, lines, (path, prunable) => dirtyCountOf(trees, path, prunable)));
       }
       return readings;
     },
@@ -1320,8 +1305,10 @@ export const escalationWorldForRepo = (
  * @param fleetdStartedAt - when the current fleetd process started, epoch milliseconds.
  * @param desksNow - every desk to judge this tick; read fresh on every call,
  *   like {@link escalationDesks} is re-derived every tick rather than held.
- * @param askMerged - asks the host whether a branch merged; defaults to
- *   asking with no memo, matching {@link escalationWorldForRepo}'s own default.
+ * @param askMerged - asks whether a branch merged. The daemon passes the
+ *   tick's merge memo, which answers a branch the PR index settles as merged
+ *   with no host call. It has no default, because `desksNow` names every
+ *   worktree with a branch and each unmemoized ask starts a `pr-merged` process.
  * @param tally - the host-call counter this pass increments.
  * @returns the reader the tick's idle pass reads through.
  */
@@ -1330,8 +1317,7 @@ export const idleWorldForRepo = (
   scriptsDir: string,
   fleetdStartedAt: number,
   desksNow: () => Promise<readonly { worktree: string; branch: string }[]>,
-  askMerged: (branch: string) => ReturnType<Host['prMerged']> = (branch) =>
-    hostShell({ repoRoot, scriptDir: scriptsDir }).prMerged(branch),
+  askMerged: (branch: string) => ReturnType<Host['prMerged']>,
   tally: HostTally = { calls: 0 },
 ): SliceIdleReader => ({
   readings: async (): Promise<readonly SliceIdleReading[]> => {
@@ -1656,6 +1642,39 @@ const dirtyCountOf = async (
   if (prunable) return 0;
   const answer = await trees.dirtyPaths(path);
   return answer.ok ? answer.value.length : 1;
+};
+
+/**
+ * One worktree as the tick's unclaimed-tree finding reads it.
+ *
+ * A tree that is the main checkout or holds a branch a plan names carries a
+ * `dirtyCount` of 0 and is not asked: `isUnclaimedTree` excludes both before
+ * any rule reads the count. Every other tree is asked through `dirtOf`; a
+ * prunable one answers 0 there because its directory is gone.
+ *
+ * @param tree - the entry as `git worktree list` reported it.
+ * @param lines - the plan lines this tick read, keyed by branch.
+ * @param dirtOf - counts a tree's uncommitted paths.
+ * @returns the tree reading, without `registered`.
+ */
+export const treeReadingOf = async (
+  tree: { path: string; branch: string; isMain: boolean; prunable: boolean },
+  lines: ReadonlyMap<string, { plan: string }>,
+  dirtOf: (path: string, prunable: boolean) => Promise<number>,
+): Promise<TreeReading> => {
+  // A DETACHED TREE NAMES NO BRANCH, so no plan can name it. The empty string
+  // is the reading rather than a lookup that would match the plan line of
+  // whatever branch sorts first.
+  const planNamed = tree.branch !== '' && lines.has(tree.branch);
+  return {
+    path: tree.path,
+    branch: tree.branch,
+    isMain: tree.isMain,
+    prunable: tree.prunable,
+    planNamed,
+    plan: lines.get(tree.branch)?.plan ?? '',
+    dirtyCount: tree.isMain || planNamed ? 0 : await dirtOf(tree.path, tree.prunable),
+  };
 };
 
 /**
@@ -3172,13 +3191,20 @@ export const run = async (
   const idleHeld: { slices: readonly SliceIdleReading[] } = { slices: [] };
   const idleBase = args.once
     ? undefined
-    : idleWorldForRepo(repoRoot, scriptsDir, fleetdStartedAt, async () => {
-        const listed = await idleTrees.list();
-        if (!listed.ok) return [];
-        return listed.value
-          .filter((tree) => !tree.isMain && tree.branch !== '')
-          .map((tree) => ({ worktree: tree.path, branch: tree.branch }));
-      });
+    : idleWorldForRepo(
+        repoRoot,
+        scriptsDir,
+        fleetdStartedAt,
+        async () => {
+          const listed = await idleTrees.list();
+          if (!listed.ok) return [];
+          return listed.value
+            .filter((tree) => !tree.isMain && tree.branch !== '')
+            .map((tree) => ({ worktree: tree.path, branch: tree.branch }));
+        },
+        (branch) => merges.ask(branch),
+        tally,
+      );
   // THE SLICES THE LAST IDLE PASS JUDGED, kept so the wait can name when the first of them goes idle.
   const idle: SliceIdleReader | undefined =
     idleBase === undefined
