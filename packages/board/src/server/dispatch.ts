@@ -5,7 +5,8 @@ import { readConfig, scriptsFor } from './board.js';
 import { readTail, type LogMissReason } from './worker-log.js';
 import { pulseFor } from './fleet.js';
 import { localCapability } from './controllers/caller.js';
-import { bodyBranch, startReadingFromPulse, startDispatch } from '@plot-pm/fleet/shared/dispatch-command';
+import { bodyBranch, dispatchHome, startReadingFromPulse, startDispatch } from '@plot-pm/fleet/shared/dispatch-command';
+import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import type { DispatchReadingFor } from '@plot-pm/domain/rules/auto-dispatch';
 
 /**
@@ -351,13 +352,19 @@ export async function handleDispatch(
   // the `Implement command` check, the second-click refusal, the implement run
   // and — only after it exits 0 — the receipt and `plot-dispatch.sh`. This route
   // keeps the HTTP half: the origin gate, the body, the status mapping.
+  const startReading = (s: string, b?: string): DispatchReadingFor =>
+    (deps.startReading ?? ((o, planSlug, br) => startReadingFromPulse(pulseFor(o), planSlug, br)))(opts, s, b);
+  // The plan's sprint branch, read before the synchronous start: the implement
+  // prompt names it as `--branch`, as `/api/implement`'s does.
+  const context = { repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir };
+  const home = await dispatchHome(opts.refs ?? refsGit(context), context, slug, startReading(slug, named.branch));
   const started = startDispatch({
     opts: { ...opts, scripts: scriptsFor(opts) },
     slug,
     branch: named.branch,
     readCfg,
-    startReading: (s, b) =>
-      (deps.startReading ?? ((o, planSlug, br) => startReadingFromPulse(pulseFor(o), planSlug, br)))(opts, s, b),
+    startReading,
+    home,
   });
   if (started.kind === 'refused') {
     const { status, kind: _kind, ...refusal } = started;

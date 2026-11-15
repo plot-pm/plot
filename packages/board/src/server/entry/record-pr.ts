@@ -1,9 +1,15 @@
 // `plot-record-pr.sh`'s mechanical half: append a slice's PR number to its
 // line in the plan that names it, and write, commit and push that edit in ONE
-// disposable worktree cut from `origin/<default>`. The main checkout is never
-// opened, so the bytes on disk and the bytes in the commit are the same bytes.
+// disposable worktree cut from `origin/<default>`, or from the sprint branch
+// that holds the plan. The main checkout is never opened, so the bytes on disk
+// and the bytes in the commit are the same bytes.
 //
-//   node plot-record-pr.mjs <branch> <pr-number>
+//   node plot-record-pr.mjs [--branch <name>] <branch> <pr-number>
+//
+// --branch <name> cuts the worktree from `origin/<name>` and pushes there, as
+// `plot-brief-book.mjs --branch` does. Without it, the plan's base in the
+// caller's tree decides (`planBaseFor`): a plan that only a sprint branch holds
+// is recorded on that sprint branch.
 //
 // Exit 0 recorded, 1 refused, 2 usage.
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
@@ -11,6 +17,7 @@ import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-s
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import type { PlanStore } from '@plot-pm/domain';
+import type { Refs } from '@plot-pm/domain/ports/refs';
 import { deskRoot, deskRootPlacement } from '@plot-pm/domain/rules/desk-root';
 import { annotateSlicePr } from '@plot-pm/domain/rules/slice-pr-annotation';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
@@ -19,9 +26,9 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { commitAndPush, cutBooking, Refused, type LadderContext, type Printer } from './ladder.js';
-import { findPlanForBranch } from './plan-lookup.js';
+import { findPlanForBranch, planBaseFor } from './plan-lookup.js';
 
-const USAGE = 'usage: plot-record-pr.sh <branch> <pr-number>';
+const USAGE = 'usage: plot-record-pr.sh [--branch <name>] <branch> <pr-number>';
 
 /** The ports and paths this entry needs. */
 export interface RecordPrContext extends LadderContext {
@@ -29,25 +36,51 @@ export interface RecordPrContext extends LadderContext {
   planStoreAt: (root: string) => PlanStore;
   /** Names the booking worktree apart from a concurrent run's. */
   pid: number;
+  /** The ref reader `planBaseFor` asks where the plan file is held. */
+  refs: Pick<Refs, 'defaultBranch' | 'fileExistsSync' | 'branchTips' | 'contains'>;
 }
 
-/** The two arguments, validated. */
+/** The arguments, validated. */
 export interface RecordPrArgs {
   branch: string;
   pr: string;
+  /** The branch to record on, from `--branch`; absent reads the plan's base. */
+  target?: string;
 }
 
 /**
- * Validates `<branch> <pr-number>`.
+ * Validates `[--branch <name>] <branch> <pr-number>`.
  *
  * @param argv - the arguments after the script name.
  * @returns the arguments, or the usage sentence to print.
  */
 export const parseRecordPrArgs = (argv: readonly string[]): RecordPrArgs | string => {
-  const [branch = '', pr = ''] = argv;
+  let rest = argv;
+  let target: string | undefined;
+  if (rest[0] === '--branch') {
+    target = rest[1] ?? '';
+    if (target === '' || target.startsWith('-')) return USAGE;
+    rest = rest.slice(2);
+  }
+  const [branch = '', pr = ''] = rest;
   if (branch === '' || pr === '') return USAGE;
   if (!/^[0-9]+$/.test(pr)) return `<pr-number> must be numeric, got '${pr}'`;
-  return { branch, pr };
+  return target === undefined ? { branch, pr } : { branch, pr, target };
+};
+
+/**
+ * The sprint branch the plan naming `branch` lives on, read in the caller's
+ * tree: `planBaseFor` over the plan file `findPlanForBranch` finds there.
+ *
+ * @returns the branch without `origin/`; `''` for the default branch, and where
+ *   the caller's tree holds no plan naming `branch`.
+ */
+const planHome = async (ctx: RecordPrContext, branch: string): Promise<string> => {
+  const store = ctx.planStoreAt(ctx.repoRoot);
+  const planDir = await configured(store, 'Plan directory', 'docs/plans/');
+  const found = await findPlanForBranch(store, planDir, branch);
+  if (found === undefined) return '';
+  return planBaseFor(ctx.refs, store, path.relative(ctx.repoRoot, path.resolve(ctx.repoRoot, found.file)));
 };
 
 /** Reads one config key in `root`, falling back where the read fails or is empty. */
@@ -94,15 +127,19 @@ const annotate = async (store: PlanStore, ctx: RecordPrContext, tmpwt: string, r
 };
 
 /**
- * Records `args.pr` on `args.branch`'s line and pushes it to the default branch.
+ * Records `args.pr` on `args.branch`'s line and pushes it to the branch the
+ * plan lives on: `args.target` where `--branch` names one, else the plan's
+ * sprint branch where only a sprint branch holds it, else the default branch.
  *
  * @param ctx - the ports, rooted at the caller's repository.
- * @param args - the validated branch and PR number.
+ * @param args - the validated branch, PR number and optional target.
  * @param write - where step lines and the push report go.
  * @returns the process exit code; a refusal is thrown as {@link Refused}.
  */
 export const recordPr = async (ctx: RecordPrContext, args: RecordPrArgs, write: Printer): Promise<number> => {
-  const main = await resolveMain(ctx);
+  const home = args.target ?? (await planHome(ctx, args.branch));
+  const named = home !== '';
+  const main = named ? home : await resolveMain(ctx);
   await ctx.trees.fetch(ctx.repoRoot, main);
 
   const mainRootRead = await ctx.trees.mainRoot(ctx.repoRoot);
@@ -115,10 +152,12 @@ export const recordPr = async (ctx: RecordPrContext, args: RecordPrArgs, write: 
   const bookbr = `plot/record-pr-${slugPart}`;
   const tmpwt = path.join(deskRoot(deskReading), `.plot-record-pr-${slugPart}.${ctx.pid}`);
 
-  const added = await cutBooking(ctx, tmpwt, bookbr, main, 'add');
+  // A named branch is cut and pushed as given: the `State branch` route
+  // belongs to the default branch only, as in `plot-brief-book.mjs`.
+  const added = named ? await ctx.trees.addBranch(tmpwt, bookbr, `origin/${main}`) : await cutBooking(ctx, tmpwt, bookbr, main, 'add');
   if (!added.ok) throw new Refused(`could not prepare a booking worktree at ${tmpwt}`);
   try {
-    // Read inside the booking worktree, so the search sees origin/<default>'s
+    // Read inside the booking worktree, so the search sees origin/<main>'s
     // plan directory and nothing a dirty main checkout holds.
     const store = ctx.planStoreAt(tmpwt);
     const planDir = await configured(store, 'Plan directory', 'docs/plans/');
@@ -140,6 +179,9 @@ export const recordPr = async (ctx: RecordPrContext, args: RecordPrArgs, write: 
       `nothing to commit — ${rel} may already carry PR #${args.pr}`,
       reapply,
       write,
+      undefined,
+      undefined,
+      named ? 'named' : 'default',
     );
     if ('rejected' in landed) throw new Refused(`the PR record for ${args.branch} could not reach ${main}; re-run this once the push works`);
     if (landed.pushed === 'nothing-to-commit') return 1;
@@ -185,6 +227,7 @@ export const run = async (
     trees: treesGit(context),
     planStoreAt: (root) => planStoreShell({ repoRoot: root, scriptDir }),
     pid: process.pid,
+    refs: refsGit(context),
   };
 
   try {

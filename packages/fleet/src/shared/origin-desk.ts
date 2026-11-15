@@ -11,6 +11,7 @@ import { planStoreRef } from '@plot-pm/domain/adapters/plan-store/plan-store-ref
 import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
 import { hostShell } from '@plot-pm/domain/adapters';
 import { planForBranch, plansMentioning } from '@plot-pm/domain/rules/plan-for-branch';
+import { planSlug } from '@plot-pm/domain/rules/auto-dispatch';
 import { chooseSprintPlans, sliceBaseRef, SPRINT_BRANCH_PREFIX, type BasedPlan } from '@plot-pm/domain/rules/slice-base';
 import { deskRoot, deskRootPlacement } from '@plot-pm/domain/rules/desk-root';
 import {
@@ -92,6 +93,46 @@ const namedPlan = (record: PlanRecord, branch: string, base: string): OriginPlan
   base,
 });
 
+/** Reads the plans one ref holds that a lookup selects. */
+type PlansOn = (ref: string, planDir: string) => Promise<PortResult<readonly PlanRecord[]>>;
+
+/** What {@link originPlanBy} found: the chosen plan with its base, `none`, or `unreadable`. */
+type OriginPlanChoice = { kind: 'chosen'; plan: BasedPlan } | { kind: 'none' } | { kind: 'unreadable' };
+
+/**
+ * The plan `plansOn` selects, read on `origin/<default>` first and then on
+ * each `origin/sprint/*` tip the default branch does not contain.
+ * `chooseSprintPlans` picks the sprint branch where several hold the plan.
+ */
+const originPlanBy = async (
+  refs: Refs,
+  context: { repoRoot: string; scriptDir: string },
+  plansOn: PlansOn,
+): Promise<OriginPlanChoice> => {
+  const main = await refs.defaultBranch();
+  if (!main.ok || main.value === '') return { kind: 'unreadable' };
+  const configured = await planStoreShell(context).config('Plan directory', 'docs/plans/');
+  const planDir = configured.ok && configured.value.trim() !== '' ? configured.value.trim() : 'docs/plans/';
+  const onMain = await plansOn(`origin/${main.value}`, planDir);
+  if (!onMain.ok) return { kind: 'unreadable' };
+  if (onMain.value.length > 0) return { kind: 'chosen', plan: { record: onMain.value[0]!, base: '' } };
+  const tips = await refs.branchTips([`refs/remotes/origin/${SPRINT_BRANCH_PREFIX}*`]);
+  if (!tips.ok) return { kind: 'unreadable' };
+  const candidates: BasedPlan[] = [];
+  for (const tip of [...tips.value].sort((a, b) => (a.branch < b.branch ? -1 : 1))) {
+    // plot-ancestry: prefilter — a contained tip only SKIPS reading its plans,
+    // the rule `sprintPlansOf` applies: every file it holds is in the default
+    // branch's history, which was already read; an unknown answer reads it.
+    const contained = await refs.contains(tip.sha, `origin/${main.value}`);
+    if (contained.ok && contained.value === 'yes') continue;
+    const records = await plansOn(`origin/${tip.branch}`, planDir);
+    if (!records.ok) return { kind: 'unreadable' };
+    for (const record of records.value) candidates.push({ record, base: tip.branch });
+  }
+  const chosen = chooseSprintPlans(candidates)[0];
+  return chosen === undefined ? { kind: 'none' } : { kind: 'chosen', plan: chosen };
+};
+
 /**
  * The plan whose slice names `branch`, read on `origin/<default>` first and
  * then on each `origin/sprint/*` tip the default branch does not contain.
@@ -106,28 +147,53 @@ export const originPlanFor = async (
   context: { repoRoot: string; scriptDir: string },
   branch: string,
 ): Promise<OriginPlanReading> => {
-  const main = await refs.defaultBranch();
-  if (!main.ok || main.value === '') return { kind: 'unreadable' };
-  const configured = await planStoreShell(context).config('Plan directory', 'docs/plans/');
-  const planDir = configured.ok && configured.value.trim() !== '' ? configured.value.trim() : 'docs/plans/';
-  const onMain = await plansNaming(refs, context, `origin/${main.value}`, planDir, branch);
-  if (!onMain.ok) return { kind: 'unreadable' };
-  if (onMain.value.length > 0) return namedPlan(onMain.value[0]!, branch, '');
-  const tips = await refs.branchTips([`refs/remotes/origin/${SPRINT_BRANCH_PREFIX}*`]);
-  if (!tips.ok) return { kind: 'unreadable' };
-  const candidates: BasedPlan[] = [];
-  for (const tip of [...tips.value].sort((a, b) => (a.branch < b.branch ? -1 : 1))) {
-    // plot-ancestry: prefilter — a contained tip only SKIPS reading its plans,
-    // the rule `sprintPlansOf` applies: every file it holds is in the default
-    // branch's history, which was already read; an unknown answer reads it.
-    const contained = await refs.contains(tip.sha, `origin/${main.value}`);
-    if (contained.ok && contained.value === 'yes') continue;
-    const records = await plansNaming(refs, context, `origin/${tip.branch}`, planDir, branch);
-    if (!records.ok) return { kind: 'unreadable' };
-    for (const record of records.value) candidates.push({ record, base: tip.branch });
-  }
-  const chosen = chooseSprintPlans(candidates)[0];
-  return chosen === undefined ? { kind: 'none' } : namedPlan(chosen.record, branch, chosen.base);
+  const found = await originPlanBy(refs, context, (ref, planDir) => plansNaming(refs, context, ref, planDir, branch));
+  return found.kind === 'chosen' ? namedPlan(found.plan.record, branch, found.plan.base) : found;
+};
+
+/** Plan files under `planDir` on `ref` whose slug is `slug`. */
+const plansSlugged = async (
+  refs: Refs,
+  context: { repoRoot: string; scriptDir: string },
+  ref: string,
+  planDir: string,
+  slug: string,
+): Promise<PortResult<readonly PlanRecord[]>> => {
+  const listing = await refs.listBlobs(ref, planDir);
+  if (!listing.ok) return failed<readonly PlanRecord[]>();
+  const files = listing.value
+    .filter((blob) => (blob.mode === '100644' || blob.mode === '100755') && blob.path.endsWith('.md') && planSlug(blob.path) === slug)
+    .map((blob) => blob.path);
+  if (files.length === 0) return answered<readonly PlanRecord[]>([]);
+  const records = await planStoreRef(refs, context, ref, planDir).readPlans(files);
+  if (!records.ok) return failed<readonly PlanRecord[]>();
+  return answered(records.value.filter((record) => record.error === undefined));
+};
+
+/**
+ * The branch a plan lives on: the base of its slices, read as
+ * {@link originPlanFor} reads it.
+ *
+ * With `branch`, the plan is the one whose slice names that branch. Without,
+ * it is the plan file whose slug is `slug`.
+ *
+ * @param refs - the ref reader.
+ * @param context - where the scripts live and which repository to parse in.
+ * @param slug - the plan slug.
+ * @param branch - a branch of the plan, or `null`.
+ * @returns the sprint branch without `origin/`; `''` for the default branch,
+ *   where no plan is found, and where a listing fails.
+ */
+export const originPlanHome = async (
+  refs: Refs,
+  context: { repoRoot: string; scriptDir: string },
+  slug: string,
+  branch: string | null,
+): Promise<string> => {
+  const found = await originPlanBy(refs, context, (ref, planDir) =>
+    branch === null ? plansSlugged(refs, context, ref, planDir, slug) : plansNaming(refs, context, ref, planDir, branch),
+  );
+  return found.kind === 'chosen' ? found.plan.base : '';
 };
 
 /** The sessions of manifests naming `branch` whose `pid` or `wrapperPid` is alive. */

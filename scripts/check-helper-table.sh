@@ -47,8 +47,12 @@
 # `board/<name>.mjs` names `packages/board/build.mjs` declares join the tracked
 # ones, counted once. Measured 2026-10-21: #2235 and #2243 each added a bundle
 # with no row, passed here, and failed `validate` on main after the build.
-# `build.mjs` is read by `lib-declared-bundles.sh`, the parser
-# `check-decision-count.sh` uses.
+# `build.mjs` is read by `read_shipped_bundles` in `lib-declared-bundles.sh`:
+# every `shipped*` declaration, including a bundle that `@plot-pm/fleet`
+# compiles and build.mjs only copies, and one that wraps over several lines. Measured 2026-11-14 at
+# 20c7e04cc: the esbuild-call parser `check-decision-count.sh` uses read 67 of
+# the 80 bundles the build writes, so a PR adding one of the other 13 kinds
+# passed here and main's build commit added it with no row.
 #
 # Usage: check-helper-table.sh [repo-root]   (default: this repository)
 set -euo pipefail
@@ -117,8 +121,9 @@ fi
 # --- (c) the ratchet: a shipped script with no row --------------------------
 #
 # BASELINE, measured by this script's own rule at the commit that introduced
-# it. Lower it when rows are written; never raise it.
-BASELINE="${PLOT_HELPER_ROW_BASELINE:-18}"
+# it. Lower it when rows are written; never raise it. 0 since 2026-11-14, when
+# the last 18 bundles got their rows.
+BASELINE="${PLOT_HELPER_ROW_BASELINE:-0}"
 
 rows_tmp="$(mktemp "${TMPDIR:-/tmp}/plot-helper-rows.XXXXXX")"
 files_tmp="$(mktemp "${TMPDIR:-/tmp}/plot-helper-files.XXXXXX")"
@@ -136,11 +141,11 @@ sed -n 's/^|[[:space:]]*`\([^`]*\)`.*/\1/p' "$readme" | sort -u > "$rows_tmp"
 #
 # TWO DIFFERENT TREES, on purpose and not yet closed. `git ls-files` below
 # reads the INDEX — a staged-but-uncommitted new `.sh` or `board/*.mjs` file
-# is counted. `read_declared_bundles` reads `build.mjs` at HEAD, so a staged
+# is counted. `read_shipped_bundles` reads `build.mjs` at HEAD, so a staged
 # edit that adds or removes a declared bundle is not. The asymmetry only
 # matters between staging a change and committing it; by the time a PR is
 # reviewed, index and HEAD agree.
-declared="$(read_declared_bundles "$root" fail_unreadable)" || exit 1
+declared="$(read_shipped_bundles "$root" fail_unreadable)" || exit 1
 {
   {
     git -C "$root" ls-files 'skills/plot/scripts/*.sh'

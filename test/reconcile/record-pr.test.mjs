@@ -149,6 +149,61 @@ test('plot-record-pr.sh: refuses when no plan names the given branch', () => {
   }, /no plan in .* names branch/);
 });
 
+/** An estate whose plan only `origin/sprint/<sprint>` holds, and a desk cut from that sprint branch. */
+const makeSprintEstate = (label, branch, sprint) => {
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `plot-recordpr-${label}-`)));
+  temps.push(tmp);
+  const origin = path.join(tmp, 'origin.git');
+  const main = path.join(tmp, 'main-checkout');
+  git(tmp, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(tmp, 'clone', '-q', origin, main);
+  git(main, 'config', 'user.email', 'test@example.invalid');
+  git(main, 'config', 'user.name', 'Plot Test');
+  git(main, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(main, 'docs', 'plans'), { recursive: true });
+  fs.writeFileSync(path.join(main, 'docs', 'plans', '.keep'), '');
+  git(main, 'add', '-A');
+  git(main, 'commit', '-qm', 'init');
+  git(main, 'push', '-q', 'origin', 'main');
+  git(main, 'remote', 'set-head', 'origin', 'main');
+  const sprintBranch = `sprint/${sprint}`;
+  git(main, 'checkout', '-q', '-b', sprintBranch);
+  fs.writeFileSync(path.join(main, 'docs', 'plans', PLAN_NAME), PLAN_BODY(branch).replace('Status: Approved', `Status: Approved\nSprint: ${sprint}`));
+  git(main, 'add', '-A');
+  git(main, 'commit', '-qm', 'plan on the sprint branch');
+  git(main, 'push', '-q', 'origin', sprintBranch);
+  git(main, 'checkout', '-q', 'main');
+  git(main, 'fetch', '-q', 'origin');
+
+  const desk = path.join(tmp, 'desks', branch.replace(/\//g, '-'));
+  git(main, 'worktree', 'add', '-q', '-b', branch, desk, `origin/${sprintBranch}`);
+  return { tmp, origin, main, desk, sprintBranch };
+};
+
+test('plot-record-pr.sh: a plan only a sprint branch holds is recorded on that sprint branch', () => {
+  const branch = 'bug/record-pr-sprint';
+  const { main, desk, sprintBranch } = makeSprintEstate('sprint', branch, 'two-weeks');
+
+  const out = execFileSync('bash', [recordPr, branch, '77'], { cwd: desk, encoding: 'utf8', env: childEnv() });
+  assert.match(out, /push: clean/);
+
+  git(main, 'fetch', '-q', 'origin');
+  const onSprint = git(main, 'show', `origin/${sprintBranch}:docs/plans/${PLAN_NAME}`);
+  assert.match(onSprint, new RegExp('`' + branch + '` — do the thing → #77'));
+  assert.equal(git(main, 'ls-tree', '--name-only', 'origin/main', 'docs/plans/').trim(), 'docs/plans/.keep');
+});
+
+test('plot-record-pr.sh: --branch names the branch the plan is recorded on', () => {
+  const branch = 'bug/record-pr-named';
+  const { main, sprintBranch } = makeSprintEstate('named', branch, 'named-one');
+
+  const out = execFileSync('bash', [recordPr, '--branch', sprintBranch, branch, '78'], { cwd: main, encoding: 'utf8', env: childEnv() });
+  assert.match(out, /push: clean/);
+
+  git(main, 'fetch', '-q', 'origin');
+  assert.match(git(main, 'show', `origin/${sprintBranch}:docs/plans/${PLAN_NAME}`), /do the thing → #78/);
+});
+
 test('plot-record-pr.sh: a launcher that execs its bundle and decides nothing', () => {
   const text = fs.readFileSync(recordPr, 'utf8');
   assert.match(text, /bundle="\$script_dir\/board\/plot-record-pr\.mjs"/, 'the launcher must resolve board/plot-record-pr.mjs');

@@ -108,7 +108,9 @@ export const BOARD_ARTIFACT_PATHS: readonly string[] = [
 // It reads its own source rather than a list of the `shippedX` bindings. That
 // is deliberate and is what makes the derivation total: a binding this file
 // forgot to append to such a list would be invisible, which is the same defect
-// one level down. The regex is the one the other reader uses, so a build that
+// one level down. The regex reads the same declarations as
+// `read_shipped_bundles` in `scripts/lib-declared-bundles.sh`, including one
+// whose `path.join(` arguments wrap over several lines, so a build that
 // changes shape breaks both together rather than silently blinding one — and
 // finding nothing is a hard failure here for that reason.
 const generatedBundles = path.join(here, 'src/contract/bundles.generated.ts');
@@ -116,7 +118,7 @@ const generatedBundles = path.join(here, 'src/contract/bundles.generated.ts');
   const source = fs.readFileSync(path.join(here, 'build.mjs'), 'utf8');
   const emitted = [
     ...new Set(
-      [...source.matchAll(/shipped[A-Za-z]* = path\.join\([^)]*'\.\.\/\.\.\/([^']*)'\)/g)]
+      [...source.matchAll(/shipped[A-Za-z]* = path\.join\(\s*here,\s*'\.\.\/\.\.\/([^']*)',?\s*\)/g)]
         .map((m) => m[1]),
     ),
   ].sort();

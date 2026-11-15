@@ -11,6 +11,7 @@ import { implementLogPath, implementStatePath } from '../../shared/implement-run
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import {
   BRANCH_RE,
+  dispatchHome,
   SLUG_RE,
   startReadingFromPulse,
   startDispatch,
@@ -149,12 +150,18 @@ export const run = async (
   }
   const repoRoot = probe.value;
   const readPulse = deps.pulse ?? bridgedPulse;
+  const startReading = (s: string, b?: string) => startReadingFromPulse(readPulse(repoRoot), s, b);
+  // The plan's sprint branch, read before the synchronous start: the implement
+  // prompt names it as `--branch`.
+  const context = { repoRoot, scriptDir };
+  const home = await dispatchHome(refsGit(context), context, slug, startReading(slug, args.branch));
   const started = startDispatch({
     opts: { repoRoot, scriptsDir: scriptDir, scripts: deps.scripts },
     slug,
     branch: args.branch,
     readCfg: deps.readCfg,
-    startReading: (s, b) => startReadingFromPulse(readPulse(repoRoot), s, b),
+    startReading,
+    home,
   });
   if (started.kind === 'refused') {
     warn(`plot-dispatch-command: ${started.reason}: ${started.detail}\n`);

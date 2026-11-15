@@ -184,14 +184,14 @@ beforeEach(() => {
 
 // --- the title and body -----------------------------------------------------
 
-test('open-pr: the title is the wave heading, never the last commit subject', () => {
+test('open-pr: the title is the plan title and the wave heading, never the last commit subject', () => {
   makeRepo();
   run([]);
 
   const argv = created();
   assert.ok(argv, `nothing was opened:\n${calls()}`);
   const title = argv[argv.indexOf('--title') + 1];
-  assert.equal(title, 'The slice that opens its own PR');
+  assert.equal(title, 'A plan with waves: The slice that opens its own PR');
   // The branch's only commit says `plot: build the board artifact`, which is
   // what a title taken from git would have read.
   assert.doesNotMatch(title, /board artifact/);
@@ -225,7 +225,7 @@ test('open-pr: each branch gets its own wave heading', () => {
   run([]);
 
   const argv = created();
-  assert.equal(argv[argv.indexOf('--title') + 1], 'A second slice, named differently');
+  assert.equal(argv[argv.indexOf('--title') + 1], 'A plan with waves: A second slice, named differently');
 });
 
 test('open-pr: --draft opens a draft, and the default does not', () => {
@@ -245,7 +245,7 @@ test('open-pr: --dry-run opens nothing and prints the decision', () => {
   assert.equal(created(), null, `--dry-run must open nothing:\n${calls()}`);
   const decided = JSON.parse(out);
   assert.equal(decided.outcome, 'decided');
-  assert.equal(decided.title, 'The slice that opens its own PR');
+  assert.equal(decided.title, 'A plan with waves: The slice that opens its own PR');
 });
 
 // --- what the branch carries ------------------------------------------------
@@ -391,7 +391,7 @@ test('open-pr: a slice whose plan only a sprint branch holds targets that sprint
   const argv = created();
   assert.ok(argv, `nothing was opened:\n${calls()}`);
   assert.equal(argv[argv.indexOf('--base') + 1], 'sprint/s');
-  assert.equal(argv[argv.indexOf('--title') + 1], 'The slice that opens its own PR');
+  assert.equal(argv[argv.indexOf('--title') + 1], 'A plan with waves: The slice that opens its own PR');
 });
 
 test('open-pr: refuses a branch holding no commit its base does not', () => {
