@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { between, treeOf } from './census-session.js';
-import { CENSUS_ROWS, recordCount, rowIt, rowTitle } from './census-rows.js';
+import { CENSUS_ROWS, recordCount, rowTitle } from './census-rows.js';
 import type { CensusFixture } from './census-report.js';
 import { buildFleetdEntry, type FleetdEntry } from './fleetd-entry-build.js';
 import { startFleetd } from './fleetd-driver.js';
@@ -276,7 +276,7 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
     expect(treeOf(census, between(census.execs, null, 'pass-1'), root).length).toBeGreaterThan(0);
   });
 
-  rowIt(CENSUS_ROWS.S4, fixture)(rowTitle(CENSUS_ROWS.S4, fixture), () => {
+  it(rowTitle(CENSUS_ROWS.S4, fixture), () => {
     const { mean, each, execs } = perPass(() => true);
     recordCount(CENSUS_ROWS.S4, fixture, mean, execs);
     expect(each).toEqual([0, 0]);

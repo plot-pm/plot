@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { CENSUS_ROWS, recordCount, rowIt, rowTitle, topCommands, type CensusRow } from './census-rows.js';
+import { CENSUS_ROWS, recordCount, rowTitle, topCommands, type CensusRow } from './census-rows.js';
 import type { ExecRecord } from './strace-execs.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -149,25 +149,11 @@ describe('the census rows', () => {
   it('writes every zero row as it.fails until it turns green, and every green or measured row as it', () => {
     const source = censusSources();
     for (const row of Object.values(CENSUS_ROWS)) {
-      if (row.target === 'zero' && 'greenOn' in row) {
-        expect(source, row.id).toContain(`rowIt(CENSUS_ROWS.${row.id}, fixture)(rowTitle(CENSUS_ROWS.${row.id}`);
-        expect(source, row.id).not.toMatch(new RegExp(`\\bit(\\.fails)?\\(rowTitle\\(CENSUS_ROWS\\.${row.id}\\b`));
-        continue;
-      }
       const call = row.target === 'zero' && !isGreen(row) ? 'it.fails(' : 'it(';
       const other = call === 'it(' ? 'it.fails(' : 'it(';
       expect(source, row.id).not.toContain(`${other}rowTitle(CENSUS_ROWS.${row.id}`);
       expect(source, row.id).toContain(`${call}rowTitle(CENSUS_ROWS.${row.id}`);
     }
-  });
-
-  it('names a host-green zero row green on that host and expected to fail on the others', () => {
-    const github = { host: 'github', desks: 0, openPrs: 5 } as const;
-    const bitbucket = { host: 'bitbucket', desks: 3, openPrs: 5 } as const;
-    expect(rowTitle(CENSUS_ROWS.S4, github)).toMatch(/\(green on github; expected to fail elsewhere until Phase 8, plan triggers-replace-the-tick\)$/);
-    expect(rowTitle(CENSUS_ROWS.S4, bitbucket)).toMatch(/\(expected to fail until Phase 8, plan triggers-replace-the-tick\)$/);
-    expect(rowIt(CENSUS_ROWS.S4, github)).toBe(it);
-    expect(rowIt(CENSUS_ROWS.S4, bitbucket)).not.toBe(it);
   });
 
   it('prints a count beside its fixture size and top commands, and records nothing with no report path', () => {

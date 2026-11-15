@@ -64,8 +64,8 @@ export interface DefaultBranchWorld {
   branch(): Promise<string | null>;
   /** The remote tip reader and the local first-parent walk. */
   refs: Pick<Refs, 'remoteSha' | 'firstParentLine'>;
-  /** The CI connector: `runsForSha` only. */
-  build: Pick<BuildPort, 'runsForSha'>;
+  /** The CI connector: `system` and `runsForSha`. */
+  build: Pick<BuildPort, 'system' | 'runsForSha'>;
   /** The reading's file. Fleetd is its only writer. */
   store: DefaultBranchStore;
   /**
@@ -256,7 +256,9 @@ export type DefaultBranchOutcome = 'skipped' | 'asked' | 'unreadable';
  * settled part, and keeps the previous `askedAt`: `askedAt` is when a host last
  * answered, so a red reading the host stopped confirming ages out after
  * `Checks wait`. `at` records every ask, answered or not. An unaskable CI
- * writes nothing.
+ * writes nothing. Where the repository declares no CI system
+ * (`build.system()` answers `''`), the refresh reads no tip and asks no CI: it
+ * writes nothing and ends `'unreadable'`, as an unaskable CI does.
  *
  * @param world - the reads and the file.
  * @param warn - receives a one-line reason for each declared check name that
@@ -272,6 +274,12 @@ export const refreshDefaultBranch = async (
   if (branch === null) {
     warn('plot-fleetd: default-branch read skipped — the default branch could not be read');
     world.record?.('defaultBranch', failedOf('the default branch could not be read', world.now()));
+    return 'unreadable';
+  }
+
+  if (world.build.system() === '') {
+    warn('plot-fleetd: default-branch read skipped — no CI system is declared');
+    world.record?.('defaultBranch', failedOf('no CI system is declared', world.now()));
     return 'unreadable';
   }
 
