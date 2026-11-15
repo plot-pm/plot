@@ -83,7 +83,7 @@ Measured on this repository, 2026-11-08 and 2026-11-09 (issue #3317):
 
 ### REST reads
 
-- `bug/pr-and-issue-reads-still-use` — REST bodies for `pr-list`, `pr-merged`, `issue-view`, `issue-list` and `default-branch` in `skills/plot/scripts/plot-host.sh`, contract rows in `test/reconcile/host.test.mjs`; a changeset for `plot` <!-- builds: REST routes for plot-host.sh pr-list, pr-merged, issue-view, issue-list and default-branch -->
+- `bug/pr-and-issue-reads-still-use` — REST bodies for `pr-list`, `pr-merged`, `issue-view`, `issue-list` and `default-branch` in `skills/plot/scripts/plot-host.sh`, contract rows in `test/reconcile/host.test.mjs`; a changeset for `plot` <!-- builds: REST routes for plot-host.sh pr-list, pr-merged, issue-view, issue-list and default-branch --> <!-- deferred: 2026-11-15, superseded by plan github-reads-in-process, which removes these reads from the shell; the branch stays as a reference and is not merged -->
 
 ## Notes
 
