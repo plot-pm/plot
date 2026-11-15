@@ -155,7 +155,7 @@ Decisions, numbered. Max Albrecht decided D1 to D16 on 2026-11-07. Jan Wloka dec
 
 ### Setup
 
-- `feature/state-branch-setup` — `plot-init` and `plot-board-setup` probe the default branch's protection and propose the `State branch` key (D11), say what a non-branch value gives up (D16), and offer the delete restriction on the state branch (D10) <!-- builds: the State branch proposal in plot-init and plot-board-setup -->
+- `feature/state-branch-setup` — `plot-init` and `plot-board-setup` probe the default branch's protection and propose the `State branch` key (D11), say what a non-branch value gives up (D16), and offer the delete restriction on the state branch (D10) <!-- builds: the State branch proposal in plot-init and plot-board-setup --> → #3457
 
 ## Notes
 
