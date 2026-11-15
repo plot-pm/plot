@@ -1320,8 +1320,10 @@ export const escalationWorldForRepo = (
  * @param fleetdStartedAt - when the current fleetd process started, epoch milliseconds.
  * @param desksNow - every desk to judge this tick; read fresh on every call,
  *   like {@link escalationDesks} is re-derived every tick rather than held.
- * @param askMerged - asks the host whether a branch merged; defaults to
- *   asking with no memo, matching {@link escalationWorldForRepo}'s own default.
+ * @param askMerged - asks whether a branch merged. The daemon passes the
+ *   tick's merge memo, which answers a branch the PR index settles as merged
+ *   with no host call. It has no default, because `desksNow` names every
+ *   worktree with a branch and each unmemoized ask starts a `pr-merged` process.
  * @param tally - the host-call counter this pass increments.
  * @returns the reader the tick's idle pass reads through.
  */
@@ -1330,8 +1332,7 @@ export const idleWorldForRepo = (
   scriptsDir: string,
   fleetdStartedAt: number,
   desksNow: () => Promise<readonly { worktree: string; branch: string }[]>,
-  askMerged: (branch: string) => ReturnType<Host['prMerged']> = (branch) =>
-    hostShell({ repoRoot, scriptDir: scriptsDir }).prMerged(branch),
+  askMerged: (branch: string) => ReturnType<Host['prMerged']>,
   tally: HostTally = { calls: 0 },
 ): SliceIdleReader => ({
   readings: async (): Promise<readonly SliceIdleReading[]> => {
@@ -3172,13 +3173,20 @@ export const run = async (
   const idleHeld: { slices: readonly SliceIdleReading[] } = { slices: [] };
   const idleBase = args.once
     ? undefined
-    : idleWorldForRepo(repoRoot, scriptsDir, fleetdStartedAt, async () => {
-        const listed = await idleTrees.list();
-        if (!listed.ok) return [];
-        return listed.value
-          .filter((tree) => !tree.isMain && tree.branch !== '')
-          .map((tree) => ({ worktree: tree.path, branch: tree.branch }));
-      });
+    : idleWorldForRepo(
+        repoRoot,
+        scriptsDir,
+        fleetdStartedAt,
+        async () => {
+          const listed = await idleTrees.list();
+          if (!listed.ok) return [];
+          return listed.value
+            .filter((tree) => !tree.isMain && tree.branch !== '')
+            .map((tree) => ({ worktree: tree.path, branch: tree.branch }));
+        },
+        (branch) => merges.ask(branch),
+        tally,
+      );
   // THE SLICES THE LAST IDLE PASS JUDGED, kept so the wait can name when the first of them goes idle.
   const idle: SliceIdleReader | undefined =
     idleBase === undefined
