@@ -531,8 +531,9 @@
 #                                 The transition id is LOOKED UP, never guessed:
 #                                 ids are per workflow and per issue, so a
 #                                 hardcoded one writes to the wrong column.
-#   pr-body <number> (--body B | --body-file F)
-#                                 replace the PR description. GitHub replaces
+#   pr-body <number> [--body B | --body-file F]
+#                                 with no flag, print the PR description;
+#                                 with one, replace it. GitHub replaces
 #                                 it over REST (`PATCH pulls/<n>`), which
 #                                 spends `core` and never GraphQL. --body-file
 #                                 reads the body from a file, on both ops.
@@ -5786,7 +5787,15 @@ case "$op" in
     printf '%s' "$body" | jq -c '.[] | {name, released: (.released // false), releaseDate: (.releaseDate // null)}' || exit 3 ;;
 
   pr-body)
-    num="${1:?pr-body needs a PR number}"; shift; pr_text_args pr-body "$@"
+    num="${1:?pr-body needs a PR number}"; shift
+    # WITH NO FLAG IT READS: it prints the PR's body, "" where it has none.
+    # GitHub reads `GET pulls/<n>` over REST; Bitbucket reads `description`.
+    if [ $# -eq 0 ]; then
+      if [ "$be" = "github" ]; then gh_api_harvest "repos/$(gh_origin_slug)/pulls/$num" | jq -r '.body // ""'
+      else bb_require_json; bb pr view "$num" --json | jq -r '.description // ""'; fi
+      exit
+    fi
+    pr_text_args pr-body "$@"
     [ -z "$title$base$head$draft" ] || die "pr-body takes only --body or --body-file"
     [ -n "$body" ] || die "pr-body needs --body or --body-file"
     # GITHUB REPLACES THE BODY OVER REST, `PATCH repos/<origin slug>/pulls/<n>`,

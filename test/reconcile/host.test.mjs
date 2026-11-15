@@ -1251,6 +1251,24 @@ test('host: pr-body bitbucket maps to bb pr edit --body', () => {
   assert.deepEqual(argvOf(stubs.bbArgv), ['pr', 'edit', '4', '--body', 'new text']);
 });
 
+test('host: pr-body with no flag prints the body, over REST on github and from description on bitbucket', () => {
+  const gh = makeStubs({ ghJson: '{"number":4,"body":"why `this` branch\\nline two"}' });
+  assert.equal(run(['pr-body', '4'], { env: { PLOT_HOST: 'github' }, stubs: gh }), 'why `this` branch\nline two\n');
+  assert.deepEqual(argvOf(gh.ghArgv), ['api', `repos/${originSlug}/pulls/4`, '--include']);
+  const empty = makeStubs({ ghJson: '{"number":4,"body":null}' });
+  assert.equal(run(['pr-body', '4'], { env: { PLOT_HOST: 'github' }, stubs: empty }), '\n');
+  const bb = makeStubs({ bbJson: '{"id":4,"description":"bb text"}' });
+  assert.equal(run(['pr-body', '4'], { env: { PLOT_HOST: 'bitbucket' }, stubs: bb }), 'bb text\n');
+  assert.deepEqual(argvOf(bb.bbArgv), ['pr', 'view', '4', '--json']);
+});
+
+test('host: pr-body read exits non-zero with the host\'s words when the GET fails', () => {
+  const stubs = makeStubs({ ghFail: 'gh: Not Found (HTTP 404)' });
+  const res = runAllowFail(['pr-body', '4'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.notEqual(res.code, 0);
+  assert.match(res.stderr, /Not Found/);
+});
+
 // A long inline `--body` was refused by a hook for agents in isolated
 // worktrees, so both body-writing ops read the body from a file as well.
 test('host: pr-body and pr-create read --body-file as the body', () => {
