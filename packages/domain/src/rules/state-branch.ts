@@ -105,14 +105,12 @@ export const proposeStateBranch = (
   defaultBranch: string,
   restrictions: readonly string[] | null,
 ): StateBranchProposal => {
-  const value = key.trim();
-  if (value !== '') {
-    const target = writeTarget(value, defaultBranch);
-    if (target.kind === 'invalid') return { state: 'invalid', key: value, reason: target.reason };
-    if (target.kind === 'none') return { state: 'unverified' };
+  const target = writeTarget(key, defaultBranch);
+  if (target.kind === 'invalid') return { state: 'invalid', key: key.trim(), reason: target.reason };
+  if (target.kind === 'state') {
     return {
       state: 'declared',
-      key: value,
+      key: key.trim(),
       isBranch: target.isBranch,
       warning: target.isBranch ? null : { givesUp: GIVES_UP, recommended: RECOMMENDED_REF },
       offerDelete: target.isBranch,
