@@ -5,7 +5,7 @@ import {
   type LimitReading,
 } from '../../entities/limit.js';
 import type { Checks, Mergeability, Pr, PrState, ReviewVerdict } from '../../entities/pr.js';
-import { answered, failed, type PortResult } from '../../port-result.js';
+import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import type {
   CommitStatusWrite,
   Host,
@@ -652,6 +652,11 @@ export const hostShell = (context: ShellContext, answers: FixedAnswers = process
       const run = await runScripted('node', [scriptPath(context, 'plot-review-writer.mjs')], inRepo);
       return resultOf(run, asText);
     },
+
+    // THE SHELL HAS NO PROTECTION OP. The read is in-process (`host-protection.ts`),
+    // and a host composed without it cannot be asked: `unaskable`, never an
+    // empty list.
+    branchRestrictions: async (): Promise<PortResult<readonly string[]>> => unaskable(),
 
     lastRefusal: (): HostRefusal | null => refusal,
   };
