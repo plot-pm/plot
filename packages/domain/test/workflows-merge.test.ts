@@ -841,3 +841,91 @@ describe('merge — the sync PR path gate', () => {
     expect(out).toMatchObject({ outcome: 'refused', reason: 'sync-gate-unread' });
   });
 });
+
+describe('merge — an unanswered human comment', () => {
+  const ask = { kind: 'issue' as const, id: 1, login: 'max', type: 'User', time: '2026-11-09T14:32:00Z', body: 'why not CC-0?' };
+  const reply = { ...ask, id: 2, login: 'jan', time: '2026-11-09T15:00:00Z', body: 'because MIT' };
+
+  it('refuses an unanswered comment and names it', () => {
+    const out = merge(readings({ conversation: { prAuthor: 'jan', rows: [ask] } }), { pr: 42, sha: HEAD, ...CLOCK });
+    expect(out.outcome).toBe('refused');
+    if (out.outcome !== 'refused') return;
+    expect(out.reason).toBe('human-comment-open');
+    expect(out.detail).toContain('max');
+    expect(out.detail).toContain('why not CC-0?');
+  });
+
+  it('merges once another person replied', () => {
+    expect(refusalOf(readings({ conversation: { prAuthor: 'jan', rows: [ask, reply] } }))).toBe('decided');
+  });
+
+  it('refuses an unread conversation', () => {
+    expect(refusalOf(readings({ conversation: 'unaskable' }))).toBe('human-comment-unread');
+  });
+
+  it('reports a failing review before the question', () => {
+    expect(refusalOf(readings({ review: review({ state: 'failure' }), conversation: { prAuthor: 'jan', rows: [ask] } }))).toBe('review-not-passed');
+  });
+
+  it('reports the question before a red default branch', () => {
+    expect(refusalOf(readings({ defaultBranch: reading('red'), conversation: { prAuthor: 'jan', rows: [ask] } }))).toBe('human-comment-open');
+  });
+});
+
+describe('mergeAt — the conversation read', () => {
+  const NOW = Date.parse('2026-10-11T12:00:00Z');
+  const ask = { kind: 'issue', id: 1, login: 'max', type: 'User', time: '2026-11-09T14:32:00Z', body: 'why not CC-0?' };
+  const build = (conversation: unknown, over: { draft?: boolean; checks?: string; reviewState?: string } = {}) => {
+    const calls: string[][] = [];
+    const read: number[] = [];
+    const p = {
+      host: {
+        backend: async () => ({ ok: true, value: 'github' }),
+        prState: async () => ({ ok: true, value: {
+          number: 7, repo: '', head: 'feature/x', base: 'main', state: 'OPEN', mergedAt: null, mergeCommit: '',
+          draft: over.draft ?? false, mergeable: 'mergeable', review: '', checks: over.checks ?? 'green', failingChecks: [],
+          url: '', author: '', headSha: HEAD, checksSha: HEAD,
+        } }),
+        prReview: async () => ({ ok: true, value: { sha: HEAD, state: over.reviewState ?? 'success', description: '', time: '', bypass: false } }),
+        reviewWriter: async () => ({ ok: true, value: '' }),
+        prConversation: async (n: number) => { read.push(n); return conversation; },
+      },
+      scripts: { hostSaid: async (args: string[]) => { calls.push(args); return { answer: 'answered', said: '' }; } },
+      defaultBranch: { read: async () => ({ ok: true, value: null }) },
+      refs: { remoteSha: async () => ({ ok: true, value: 'unknown' }) },
+      checksWaitMs: 3_600_000,
+      now: () => NOW,
+      caller: 'person',
+    } as unknown as MergePorts;
+    return { p, calls, read };
+  };
+
+  it('refuses human-comment-open, carries conversationAt and makes no merge call', async () => {
+    const { p, calls } = build({ ok: true, value: { prAuthor: 'jan', rows: [ask] } });
+    expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: false, reason: 'human-comment-open', conversationAt: '2026-11-09T14:32:00.000Z' });
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses human-comment-unread on a failed and on an unaskable read, with no merge call', async () => {
+    for (const answer of [{ ok: false, why: 'failed' }, { ok: false, why: 'unaskable' }]) {
+      const { p, calls } = build(answer);
+      expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: false, reason: 'human-comment-unread' });
+      expect(calls).toEqual([]);
+    }
+  });
+
+  it('merges a PR whose comment was answered', async () => {
+    const reply = { ...ask, id: 2, login: 'jan', time: '2026-11-09T15:00:00Z' };
+    const { p, calls } = build({ ok: true, value: { prAuthor: 'jan', rows: [ask, reply] } });
+    expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: true });
+    expect(calls).toEqual([['pr-merge', '7', '--match-head', HEAD]]);
+  });
+
+  it('reads no conversation for a draft, a red PR or an unreviewed PR', async () => {
+    for (const over of [{ draft: true }, { checks: 'failing' }, { reviewState: 'pending' }]) {
+      const { p, read } = build({ ok: true, value: { prAuthor: 'jan', rows: [] } }, over);
+      expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: false });
+      expect(read).toEqual([]);
+    }
+  });
+});
