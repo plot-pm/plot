@@ -32,6 +32,7 @@ import { tellTrackerAbout } from './release-tracker.js';
 import {
   commitAndPush, cutBooking,
   localDate,
+  moveIndexLink,
   realPlanPath,
   recordStateReceipt,
   Refused,
@@ -39,7 +40,7 @@ import {
   unlinkSyncSafe,
   type Printer,
 } from './ladder.js';
-import { existsSync, lstatSync, mkdirSync, realpathSync, symlinkSync } from 'node:fs';
+import { realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -397,21 +398,7 @@ export const bookDelivery = async (
 
   // Move the index symlink.
   const placement = indexSymlinkPlacement({ activeDir, deliveredDir, slug, planBasename: path.basename(rel) });
-  const deliveredLinkAbs = path.join(wt, placement.deliveredLink);
-  mkdirSync(path.dirname(deliveredLinkAbs), { recursive: true });
-  let index: string;
-  if (existsSync(deliveredLinkAbs) || isSymlinkTo(deliveredLinkAbs)) {
-    index = 'already';
-    await runGit(['-C', wt, 'rm', '-q', '--ignore-unmatch', placement.activeLink]);
-  } else {
-    try {
-      symlinkSync(placement.target, deliveredLinkAbs);
-      await runGit(['-C', wt, 'rm', '-q', '--ignore-unmatch', placement.activeLink]);
-      index = 'moved';
-    } catch {
-      index = 'skipped';
-    }
-  }
+  const index = await moveIndexLink(ports.trees, wt, placement);
 
   // Tick the sprint item.
   const ticked = await tickSprint(ports.planStore, wt, sprintDir, slug);
@@ -639,15 +626,6 @@ const runDeliver = async (
       return 1;
     }
     throw err;
-  }
-};
-
-/** Whether a path is a symlink, without following it. */
-const isSymlinkTo = (p: string): boolean => {
-  try {
-    return lstatSync(p).isSymbolicLink();
-  } catch {
-    return false;
   }
 };
 

@@ -6,11 +6,12 @@
 // duplicate of the pair `state-receipt.corpus.test.ts` already keeps in sync
 // against the shell.
 import { createHash } from 'node:crypto';
-import { mkdirSync, readlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readlinkSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import type { Scripts, Trees } from '@plot-pm/domain';
 import { cutRef, writeTarget, type StateWriteTarget } from '@plot-pm/domain/rules/write-target';
+import type { IndexSymlinkPlacement } from '@plot-pm/domain/rules/index-symlink';
 
 /** Prints to stdout, matching the scripts' unprefixed `step:`/`summary:` lines. */
 export type Printer = (s: string) => void;
@@ -336,7 +337,7 @@ export const commitAndPush = async (
   main: string,
   who: string,
   message: string,
-  noun: 'approval' | 'delivery' | 'release' | 'verification' | 'design move' | 'PR record' | 'brief booking',
+  noun: 'approval' | 'delivery' | 'release' | 'verification' | 'design move' | 'PR record' | 'brief booking' | 'supersession',
   nothingMessage: string,
   reapply: (tmpwt: string) => Promise<void>,
   write: Printer,
@@ -457,4 +458,49 @@ export const unlinkSyncSafe = (file: string): void => {
   } catch {
     // Already gone — nothing this run should fail on.
   }
+};
+
+/** Whether a path is a symlink, without following it. */
+const isSymlink = (p: string): boolean => {
+  try {
+    return lstatSync(p).isSymbolicLink();
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Moves a plan's index link from the active index to the delivered index in
+ * the booking worktree `wt`, and stages both link paths.
+ *
+ * Creates the delivered link where it is absent and removes the active link.
+ * Where the delivered link cannot be created, the active link stays.
+ *
+ * @param trees - the trees port that stages the links.
+ * @param wt - the booking worktree, absolute.
+ * @param placement - the link paths and target `indexSymlinkPlacement` computed.
+ * @returns `moved` where this call created the delivered link, `already` where
+ *   it was present, and `skipped` where it could not be created.
+ */
+export const moveIndexLink = async (
+  trees: Trees,
+  wt: string,
+  placement: IndexSymlinkPlacement,
+): Promise<'moved' | 'already' | 'skipped'> => {
+  const deliveredAbs = path.join(wt, placement.deliveredLink);
+  mkdirSync(path.dirname(deliveredAbs), { recursive: true });
+  const present = existsSync(deliveredAbs) || isSymlink(deliveredAbs);
+  if (!present) {
+    try {
+      symlinkSync(placement.target, deliveredAbs);
+    } catch {
+      return 'skipped';
+    }
+  }
+  const activeAbs = path.join(wt, placement.activeLink);
+  if (existsSync(activeAbs) || isSymlink(activeAbs)) unlinkSyncSafe(activeAbs);
+  // A path git never tracked and that is absent fails to stage; that leaves nothing to record.
+  await trees.stage(wt, [placement.activeLink]);
+  await trees.stage(wt, [placement.deliveredLink]);
+  return present ? 'already' : 'moved';
 };
