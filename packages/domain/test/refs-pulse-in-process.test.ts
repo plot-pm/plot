@@ -67,6 +67,8 @@ describe('Refs.pulse runs the plan walk in process', () => {
     const pulse = await refsGit(context).pulse();
 
     expect(started.filter((call) => call.includes('plot-fleet-scan.sh'))).toEqual([]);
+    // One pulse per open PR runs on every idle pass: a fetch here is a fetch per PR.
+    expect(started.filter((call) => call.split(' ').includes('fetch'))).toEqual([]);
     expect(pulse.ok, JSON.stringify(pulse)).toBe(true);
   });
 });

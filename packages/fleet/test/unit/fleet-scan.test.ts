@@ -292,6 +292,24 @@ describe('the listing base is LISTING_REFRESH_MS', () => {
     // The stub's spend-rate is unaskable, so the interval is the unstretched base.
     expect(state.listingIntervalMs).toBe(LISTING_REFRESH_MS * scanListingCost('github', 0, null));
   });
+
+  it('reads the spend through the world\'s reader and asks no plot-host.sh spend-rate', async () => {
+    const state = freshScanState();
+    const base = worldWith(noShell);
+    const asked: string[] = [];
+    const hostSaid: Scripts['hostSaid'] = async (args, options) => {
+      asked.push(args[0] ?? '');
+      return base.scripts.hostSaid(args, options);
+    };
+    let reads = 0;
+    const spend = async () => {
+      reads += 1;
+      return null;
+    };
+    await scanOnce({ ...base, scripts: { ...base.scripts, hostSaid } as Scripts, spend }, state, OPTIONS);
+    expect(reads).toBe(1);
+    expect(asked).not.toContain('spend-rate');
+  });
 });
 
 describe('scanListingCost on GitHub', () => {

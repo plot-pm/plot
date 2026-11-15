@@ -923,6 +923,17 @@ describe('readQueue — launchedUnregistered counts a `--start` the registry has
     expect(readings.launchedUnregistered).toBe(1);
   });
 
+  it('names the moment a launch with no pid leaves its grace as the pass deadline', async () => {
+    const entries = [
+      manifest({ session: 's1', branch: '', pid: '', startedAt: '2026-10-23T11:59:50Z', state: 'none' }),
+    ];
+    const readings = await readQueue(
+      entries,
+      world({ now: () => Date.parse('2026-10-23T12:00:00Z'), launchGraceMs: () => 30_000 }),
+    );
+    expect(readings.deadline).toEqual({ at: Date.parse('2026-10-23T12:00:20Z'), rule: 'launch-grace' });
+  });
+
   it('counts a launch with no recorded pid yet, inside the grace', async () => {
     const entries = [
       manifest({ session: 's1', branch: '', pid: '', startedAt: '2026-10-23T11:59:50Z', state: 'none' }),
@@ -1338,6 +1349,11 @@ describe('deadClaims names a dead claim from the same per-branch read orphanedCl
     now: () => PAST_BOUND,
     defaultBranch: async () => 'main',
     ...over,
+  });
+
+  it('names the moment 1 ms past the claim age bound as the pass deadline, and none once it passed', async () => {
+    expect((await readQueue([], world({ now: () => CLAIMED_AT }))).deadline).toEqual({ at: PAST_BOUND, rule: 'claim-stale' });
+    expect((await readQueue([], world())).deadline).toBeNull();
   });
 
   it('does not name a claim pushed this instant — its agent may still be starting', async () => {

@@ -9,6 +9,8 @@ export type FleetdRun = {
   session: Session;
   /** Runs one completed pass and resolves once the entry reports it done. */
   pass: () => Promise<number>;
+  /** Runs one completed pass that spans the safety-net interval, and resolves once the entry reports it done. */
+  safetyNet: () => Promise<number>;
   /** Stops fleetd and returns the session's end, census included when traced. */
   stop: () => Promise<SessionEnd>;
 };
@@ -89,15 +91,17 @@ export const startFleetd = (
       : { command: process.execPath, args, cwd: box.repo, env, trace: options.trace },
   );
   let passes = 0;
+  const run = async (command: 'pass' | 'safety-net'): Promise<number> => {
+    passes += 1;
+    const n = passes;
+    session.send(command);
+    await session.waitFor(new RegExp(`^census: pass ${n} done$`), 180_000);
+    return n;
+  };
   return {
     session,
-    pass: async () => {
-      passes += 1;
-      const n = passes;
-      session.send('pass');
-      await session.waitFor(new RegExp(`^census: pass ${n} done$`), 180_000);
-      return n;
-    },
+    pass: () => run('pass'),
+    safetyNet: () => run('safety-net'),
     stop: async () => {
       session.send('stop');
       const end = await session.end(60_000);

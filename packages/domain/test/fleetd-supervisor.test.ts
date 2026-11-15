@@ -45,8 +45,8 @@ describe('supervisorSource', () => {
     expect(supervisorSource(heartbeat({ supervised: 'none' }), T0)).toEqual({ source: 'script' });
   });
 
-  it('asks the script while a live heartbeat reports a tick that stopped passing', () => {
-    const wedged = heartbeat({ beatAt: T0 + 700_000, loops: { tick: { lastPassAt: T0 } } });
+  it('asks the script while a live heartbeat reports a pr-reader that stopped passing', () => {
+    const wedged = heartbeat({ beatAt: T0 + 700_000, loops: { 'pr-reader': { lastPassAt: T0 } } });
     expect(supervisorSource(wedged, T0 + 700_000)).toEqual({ source: 'script' });
   });
 

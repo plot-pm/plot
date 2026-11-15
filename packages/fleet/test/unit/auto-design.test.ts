@@ -37,7 +37,7 @@ const SPEC_EMPTY = 'Design:abc1234\n\n# P\n\n## Spec\n\n## Status\n\n- **State:*
 const SPEC_WRITTEN = 'Design:abc1234\n\n# P\n\n## Spec\n\nSome decided text.\n\n## Status\n\n- **State:** Design\n';
 
 const pulse = { plans: [{ file: 'docs/plans/x-alpha.md', phase: 'design', tracer: false }] } as unknown as FleetReading;
-const readings = { headroom: 'clear' as const, machineOverride: false, held: [], verifying: new Set<string>() };
+const readings = { headroom: async () => 'clear' as const, machineOverride: false, held: [], verifying: new Set<string>() };
 const candidate: DesignCandidate = { slug: 'alpha', state: 'design', text: SPEC_EMPTY, planFile: 'docs/plans/x-alpha.md' };
 
 interface WorldOptions {
@@ -727,7 +727,7 @@ describe('runAutoDesignPass: host reads', () => {
       { state: { failures: { alpha: { count: 3, lastAt: 1, reading: 'abc1234' } } }, now: 1_000_000_000 },
       { state: { failedAt: [1, 2, 3] }, now: 1000 },
       { state: { failures: { alpha: { count: 1, lastAt: 900, reading: 'abc1234' } } }, now: 1000 },
-      { state: {}, readings: { ...readings, headroom: 'starved' as never }, now: 1000 },
+      { state: {}, readings: { ...readings, headroom: async () => 'starved' as const }, now: 1000 },
       { state: {}, readings: { ...readings, held: [{ hold: 'no-free-agent' } as never] }, now: 1000 },
     ];
     for (const c of cases) {

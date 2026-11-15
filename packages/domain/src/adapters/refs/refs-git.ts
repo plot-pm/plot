@@ -411,8 +411,10 @@ export const stagedEntriesOf = (stdout: string): readonly StagedEntry[] =>
  * Walks the plans in process and returns the fleet's pulse.
  *
  * Runs the estate, branch, desk and assembly stages that `plot-scan-walk.mjs`
- * runs, after one `git fetch --prune` of the default branch and the branch
- * heads. A failed fetch is carried in the reading as `fetch_failed`.
+ * runs, over the remote-tracking refs as the last scan fetched them. It starts
+ * no `git fetch`: a caller that runs once per open PR (the sprint scope of an
+ * auto-review, auto-merge or fixer step) would otherwise fetch once per PR on
+ * every idle pass. The reading carries `fetch_failed: false`.
  *
  * @param context - where the scripts and the repository are.
  * @param refs - the ref reader the stages read through.
@@ -437,7 +439,6 @@ const walkPulse = async (context: ShellContext, refs: Refs) => {
     mainBranch = found.ok && found.value !== '' ? found.value : 'main';
   }
   const trees = treesGit(context);
-  const fetched = await trees.fetch(context.repoRoot, ['--prune', mainBranch, '+refs/heads/*:refs/remotes/origin/*']);
   const short = async (ref: string): Promise<string> => {
     const sha = await runScript('git', ['rev-parse', '--short', ref], asText, { cwd: context.repoRoot });
     return sha.ok && sha.value.trim() !== '' ? sha.value.trim() : 'unknown';
@@ -468,8 +469,8 @@ const walkPulse = async (context: ShellContext, refs: Refs) => {
       main: mainBranch,
       readRef,
       localHead,
-      fetchFailed: !fetched.ok,
-      fetchError: fetched.ok ? '' : 'git fetch failed',
+      fetchFailed: false,
+      fetchError: '',
       planDir,
       host: branches.ok ? branches.value.hostReach : 'failed',
       mergeDetect: 'unaskable',

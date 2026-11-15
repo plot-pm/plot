@@ -97,7 +97,7 @@ describe('the plan-card readings', () => {
   const story = {
     slug: 's', title: 'S', status: 'active', declaredStatus: 'active', issue: '#3170', author: 'jwloka',
     created: '2026-11-01', updated: '2026-11-02', objective: 'o', design: 'd', path: 'docs/stories/s/STORY-s.md',
-    designDocs: ['DESIGN-a.md'], hasOpenPoints: true, hasSessionLog: false,
+    designDocs: ['DESIGN-a.md'], hasOpenPoints: true, hasSessionLog: false, tablePlans: ['a-plan'],
   };
   const withReadings = (): RepoSnapshot => {
     const snapshot = fullSnapshot();

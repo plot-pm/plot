@@ -1,8 +1,8 @@
 import type { FleetdHeartbeat, FleetdLoop } from '../entities/fleetd-heartbeat.js';
 import { missedBeatsTolerance } from './channel.js';
 
-/** How often fleetd writes its heartbeat, in milliseconds; the channel's own beat. */
-export const FLEETD_HEARTBEAT_MS = 10_000;
+/** How often fleetd writes its heartbeat, in milliseconds: the fleet's 5 s beat. */
+export const FLEETD_HEARTBEAT_MS = 5_000;
 
 /** Whether fleetd's heartbeat reads as alive, late or missing. */
 export type FleetdLiveness = 'live' | 'stale' | 'absent';
@@ -35,7 +35,7 @@ export const FLEETD_LOOP_BOUND_MS: Readonly<Record<FleetdLoop, number>> = {
 export const fleetdLiveness = (heartbeat: FleetdHeartbeat | null, now: number): FleetdLiveness => {
   if (heartbeat === null) return 'absent';
   const age = now - heartbeat.beatAt;
-  return age >= 0 && age <= missedBeatsTolerance(FLEETD_HEARTBEAT_MS) ? 'live' : 'stale';
+  return age >= 0 && age <= missedBeatsTolerance(2 * FLEETD_HEARTBEAT_MS) ? 'live' : 'stale';
 };
 
 /**
@@ -75,8 +75,16 @@ export const fleetdReadsPrs = (heartbeat: FleetdHeartbeat | null, now: number): 
 export const fleetdReadsIssues = (heartbeat: FleetdHeartbeat | null, now: number): boolean =>
   heartbeat !== null && fleetdLiveness(heartbeat, now) === 'live' && !lateLoops(heartbeat, now).includes('issue-reader');
 
+/** The loops whose lateness is the heartbeat's age: a quiet fleetd runs no pass for them. */
+const BY_BEAT: readonly FleetdLoop[] = ['tick', 'scan'];
+
 /**
  * Names the loops that are late.
+ *
+ * `scan` and `tick` are late when `beatAt` is at least the loop's bound old, not
+ * when the last finished pass is: a scan that starts only on a trigger leaves
+ * no pass on a quiet repository. `pr-reader` and `issue-reader` are late when
+ * their last pass is older than the bound.
  *
  * @param heartbeat - the heartbeat read.
  * @param now - the current time, epoch milliseconds.
@@ -86,7 +94,8 @@ export const lateLoops = (heartbeat: FleetdHeartbeat, now: number): FleetdLoop[]
   (Object.keys(FLEETD_LOOP_BOUND_MS) as FleetdLoop[]).filter((loop) => {
     const pass = heartbeat.loops[loop];
     if (pass === undefined) return false;
-    return now - (pass.lastPassAt ?? heartbeat.startedAt) > FLEETD_LOOP_BOUND_MS[loop];
+    const since = BY_BEAT.includes(loop) ? heartbeat.beatAt : (pass.lastPassAt ?? heartbeat.startedAt);
+    return now - since >= FLEETD_LOOP_BOUND_MS[loop];
   });
 
 /**

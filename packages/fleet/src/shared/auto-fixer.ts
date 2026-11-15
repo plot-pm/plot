@@ -17,7 +17,7 @@ import type { FixerAttemptsRecord, FixerFinding, FixerInFlight } from '@plot-pm/
 import type { FixerAttemptsStore } from '@plot-pm/domain/ports/fixer-attempts';
 import { fixerReadingOf, FIXER_BOUND_SECONDS } from '@plot-pm/domain/rules/fixer-attempts';
 import { fixerAdmission, fixerRanToBound, runningFixers } from '@plot-pm/domain/rules/fixer-concurrency';
-import type { SlotRefusalInput } from '@plot-pm/domain/rules/fleet-run';
+import { askWithHeadroom, type MachineSlot } from './machine-reading.js';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
 import type { RunLogLine } from '@plot-pm/domain/ports/run-log';
@@ -78,7 +78,7 @@ export interface FixerTickWorld {
 /** The readings one tick hands {@link fixerTick} besides the PR's own. */
 export type FixerTickReadings = Omit<SlicePrNextReadings, 'row' | 'desk' | 'correctionsSpentExhausted' | 'fixer'> & {
   /** The queue and machine readings a start takes its slot from; `null` reads as `queue-unread`. */
-  readonly slot: SlotRefusalInput | null;
+  readonly slot: MachineSlot | null;
 };
 
 /** Why a fixer start was refused, beyond a `PortResult`'s own `'failed'`/`'unaskable'`. */
@@ -387,12 +387,16 @@ export const fixerTick = async (
       continue;
     }
     const index = attempts === 'none' ? 0 : attempts.attempts.length;
-    const admission = fixerAdmission({
-      running: await runningElsewhere(world, opts, rows, row.number),
-      held: readings.slot?.held ?? null,
-      headroom: readings.slot?.headroom ?? 'unmeasured',
-      machineOverride: readings.slot?.machineOverride ?? false,
-    });
+    const running = await runningElsewhere(world, opts, rows, row.number);
+    const slot = readings.slot;
+    const admission =
+      slot === null
+        ? fixerAdmission({ running, held: null, headroom: 'unmeasured', machineOverride: false })
+        : await askWithHeadroom(
+            slot,
+            (headroom) => fixerAdmission({ running, held: slot.held, headroom, machineOverride: slot.machineOverride }),
+            (answer) => answer.admit,
+          );
     const started: FixerStartOutcome = admission.admit
       ? await startFixer(world, opts, row, step, index, readings.now, logged)
       : { started: false, why: admission.why };
@@ -705,7 +709,7 @@ export const runAutoFixerPass = async (
   now: number = Date.now(),
   world: FixerTickWorld = defaultFixerTickWorld,
   read: (opts: ActOptions, now: number) => Promise<FixerPassReading | null> = readFixerPass,
-  slot?: SlotRefusalInput | null,
+  slot?: MachineSlot | null,
 ): Promise<FixerTickResult[] | null> => {
   const reading = await read(opts, now);
   if (reading === null) return null;

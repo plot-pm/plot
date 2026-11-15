@@ -51,6 +51,20 @@ describe('hostTransportOf', () => {
     });
   });
 
+  it("picks the shell with the client's own reason where it names one and no credential resolves", () => {
+    const bitbucket = { ...github, backend: 'bitbucket', inProcessBackends: ['github', 'bitbucket'], noCredential: 'no credentials: BB_EMAIL unset' };
+    expect(hostTransportOf({ ...bitbucket, tokenSource: null })).toEqual({
+      transport: 'shell',
+      reason: 'no credentials: BB_EMAIL unset',
+      tokenSource: null,
+    });
+    expect(hostTransportOf({ ...bitbucket, tokenSource: 'main checkout .env' })).toEqual({
+      transport: 'in-process',
+      reason: 'the git host is bitbucket',
+      tokenSource: 'main checkout .env',
+    });
+  });
+
   it('picks the shell for github with CI: jenkins whatever the token', () => {
     const choice = hostTransportOf({ ...github, ci: 'jenkins', tokenSource: 'gh auth token' });
     expect(choice.transport).toBe('shell');

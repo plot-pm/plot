@@ -1,22 +1,21 @@
 import { execFile } from 'node:child_process';
-import http from 'node:http';
-import https from 'node:https';
 
-import { budgetFile } from '../budget/budget-file.js';
-import { slotsFile } from '../slots/slots-file.js';
-import type { BudgetEntry } from '../../entities/budget.js';
-import { decodeEntry } from '../../entities/budget.js';
-import type { LimitReading } from '../../entities/limit.js';
 import type { BudgetRecord } from '../../ports/budget.js';
 import type { HostRefusal, LimitObservation } from '../../ports/host.js';
 import type { Slots } from '../../ports/slots.js';
-import { boundFromLimit, SLOT_POLL_MS, SLOT_WAIT_MAX_MS } from '../../rules/concurrency.js';
+import {
+  connectorHttps,
+  headerNumber,
+  REQUEST_BOUND_MS,
+  type ConnectorCall,
+  type ConnectorReply,
+  type Sent,
+} from './connector-https.js';
 
 /** The environment variable that overrides the API base URL, as on Actions and for GitHub Enterprise Server. */
 export const GITHUB_API_URL_ENV = 'GITHUB_API_URL';
 
-/** How long one request may take before it answers `failed`, in milliseconds. */
-export const REQUEST_BOUND_MS = 30_000;
+export { REQUEST_BOUND_MS };
 
 /** The connector word every ledger entry this client writes carries. */
 export const GITHUB_CONNECTOR = 'github';
@@ -48,14 +47,7 @@ export interface GithubRequest {
 }
 
 /** What GitHub answered. */
-export interface GithubReply {
-  /** The HTTP status. */
-  readonly status: number;
-  /** The response headers, names in lower case. */
-  readonly headers: Readonly<Record<string, string>>;
-  /** The parsed JSON body, or the raw text where it is not JSON. */
-  readonly body: unknown;
-}
+export type GithubReply = ConnectorReply;
 
 /** The answer to one {@link GithubApi.request}. */
 export type GithubAnswer =
@@ -154,15 +146,6 @@ const ghAuthTokenOf =
       });
     });
 
-/** The proxy variables Node's agent reads, upper and lower case. */
-const PROXY_VARS = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'NO_PROXY', 'no_proxy'] as const;
-
-/** A number from a header, or null. */
-const headerNumber = (value: string | undefined): number | null => {
-  if (value === undefined || !/^-?\d+$/.test(value.trim())) return null;
-  return Number(value.trim());
-};
-
 /** GitHub's `message`, or the text of a body that carries none. */
 const messageOf = (body: unknown): string => {
   if (typeof body === 'object' && body !== null && typeof (body as { message?: unknown }).message === 'string') {
@@ -180,19 +163,6 @@ const graphqlRateLimited = (body: unknown): string | null => {
   const message = (hit as { message?: unknown }).message;
   return typeof message === 'string' ? message : 'API rate limit exceeded';
 };
-
-/** The limit reading a ledger entry records. */
-const readingOf = (entry: BudgetEntry): LimitReading => ({
-  connector: entry.key.connector,
-  bucket: entry.key.bucket,
-  limit: entry.limit,
-  remaining: entry.remaining,
-  resetAt: entry.resetAt,
-  basis: entry.basis,
-});
-
-/** The outcome of one transport attempt: a reply, or why none came. */
-type Sent = { reply: GithubReply } | { error: string; timedOut: boolean };
 
 /**
  * Builds the one in-process GitHub HTTPS client.
@@ -220,26 +190,20 @@ export const githubApi = (options: GithubApiOptions): GithubApi => {
   const origin = githubOrigin(options.origin);
   const { base, graphql } = apiUrlsFor(origin.host, env);
   const ghAuthToken = options.ghAuthToken ?? ghAuthTokenOf(env);
-  const budget = options.budget ?? budgetFile({ env, rotate: true });
-  const slots = options.slots ?? slotsFile({ env });
   const now = options.now ?? Date.now;
-  const boundMs = options.boundMs ?? REQUEST_BOUND_MS;
-  const pollMs = options.pollMs ?? SLOT_POLL_MS;
-  const waitMaxMs = options.waitMaxMs ?? SLOT_WAIT_MAX_MS;
-
-  const proxyEnv: Record<string, string> = {};
-  for (const name of PROXY_VARS) {
-    const value = env[name];
-    if (value !== undefined && value !== '') proxyEnv[name] = value;
-  }
-  const agents = {
-    'https:': new https.Agent({ proxyEnv }),
-    'http:': new http.Agent({ proxyEnv }),
-  };
+  const transport = connectorHttps({
+    env,
+    ...(options.budget === undefined ? {} : { budget: options.budget }),
+    ...(options.slots === undefined ? {} : { slots: options.slots }),
+    now,
+    ...(options.boundMs === undefined ? {} : { boundMs: options.boundMs }),
+    ...(options.pollMs === undefined ? {} : { pollMs: options.pollMs }),
+    ...(options.waitMaxMs === undefined ? {} : { waitMaxMs: options.waitMaxMs }),
+  });
+  const boundMs = transport.boundMs;
 
   let token: { value: string; source: TokenSource } | null = null;
   let login: { token: string; account: Promise<string> } | null = null;
-  const bounds = new Map<string, number | null>();
 
   const resolveToken = async (): Promise<{ value: string; source: TokenSource } | null> => {
     if (token !== null) return token;
@@ -253,145 +217,50 @@ export const githubApi = (options: GithubApiOptions): GithubApi => {
 
   const urlFor = (path: string): URL => new URL(path === '/graphql' ? graphql : `${base}${path}`);
 
-  const send = (request: GithubRequest, secret: string): Promise<Sent> =>
-    new Promise((resolve) => {
-      const url = urlFor(request.path);
-      const payload = request.body === undefined ? undefined : JSON.stringify(request.body);
-      const transport = url.protocol === 'http:' ? http : https;
-      let settled = false;
-      const finish = (sent: Sent): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(sent);
-      };
-      const req = transport.request(
-        url,
-        {
-          method: request.method,
-          agent: url.protocol === 'http:' ? agents['http:'] : agents['https:'],
-          headers: {
-            Authorization: `Bearer ${secret}`,
-            Accept: 'application/vnd.github+json',
-            'User-Agent': 'plot',
-            'X-GitHub-Api-Version': '2022-11-28',
-            ...(payload === undefined ? {} : { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }),
-          },
-        },
-        (res) => {
-          const chunks: Buffer[] = [];
-          res.on('data', (chunk: Buffer) => chunks.push(chunk));
-          res.on('error', (error) => finish({ error: error.message, timedOut: false }));
-          res.on('end', () => {
-            const text = Buffer.concat(chunks).toString('utf8');
-            let body: unknown = text;
-            try {
-              body = text === '' ? null : JSON.parse(text);
-            } catch {
-              body = text;
-            }
-            const headers: Record<string, string> = {};
-            for (const [name, value] of Object.entries(res.headers)) {
-              if (value !== undefined) headers[name.toLowerCase()] = Array.isArray(value) ? value.join(', ') : value;
-            }
-            finish({ reply: { status: res.statusCode ?? 0, headers, body } });
-          });
-        },
-      );
-      const timer = setTimeout(() => {
-        finish({ error: 'timeout', timedOut: true });
-        req.destroy();
-      }, boundMs);
-      req.on('error', (error) => finish({ error: error.message, timedOut: false }));
-      if (payload !== undefined) req.write(payload);
-      req.end();
-    });
-
-  const charge = async (request: GithubRequest, account: string, reply: GithubReply | null): Promise<void> => {
-    const headers = reply?.headers ?? {};
-    const limit = headerNumber(headers['x-ratelimit-limit']);
-    const reset = headerNumber(headers['x-ratelimit-reset']);
-    const entry: BudgetEntry = {
-      key: {
-        connector: GITHUB_CONNECTOR,
-        account,
+  const callOf = (request: GithubRequest, secret: string, account: string): ConnectorCall => ({
+    url: urlFor(request.path),
+    method: request.method,
+    headers: {
+      Authorization: `Bearer ${secret}`,
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'plot',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    ...(request.body === undefined ? {} : { body: request.body }),
+    connector: GITHUB_CONNECTOR,
+    account,
+    spend: (reply) => {
+      const headers = reply?.headers ?? {};
+      const limit = headerNumber(headers['x-ratelimit-limit']);
+      const reset = headerNumber(headers['x-ratelimit-reset']);
+      return {
         bucket: headers['x-ratelimit-resource'] ?? (request.path === '/graphql' ? 'graphql' : 'core'),
-      },
-      at: now(),
-      spent: 1,
-      limit,
-      remaining: limit === null ? null : headerNumber(headers['x-ratelimit-remaining']),
-      resetAt: reset === null ? null : reset * 1000,
-      basis: limit === null ? 'unknown' : 'actual',
-    };
-    if (limit !== null) bounds.set(account, boundFromLimit(readingOf(entry)));
-    await budget.append(entry);
-  };
-
-  const boundFor = async (account: string): Promise<number | null> => {
-    if (bounds.has(account)) return bounds.get(account) ?? null;
-    const lines = await budget.lines();
-    let bound: number | null = null;
-    if (lines.ok) {
-      const latest = lines.value
-        .map(decodeEntry)
-        .filter((e): e is BudgetEntry => e !== null && e.key.connector === GITHUB_CONNECTOR && e.key.account === account)
-        .filter((e) => e.basis !== 'unknown')
-        .sort((a, b) => b.at - a.at)[0];
-      if (latest !== undefined) bound = boundFromLimit(readingOf(latest));
-    }
-    bounds.set(account, bound);
-    return bound;
-  };
-
-  // ONE ACQUIRE AT A TIME IN THIS PROCESS. `slotsFile` names its scratch claim
-  // by pid and millisecond, so two acquires from one process in one
-  // millisecond would share it and both fail.
-  let acquiring: Promise<unknown> = Promise.resolve();
-  const acquireOne = (account: string, bound: number): ReturnType<Slots['acquire']> => {
-    const next = acquiring.then(() => slots.acquire(account, bound));
-    acquiring = next.catch(() => undefined);
-    return next;
-  };
-
-  const takeSlot = async (account: string): Promise<number | null> => {
-    const bound = await boundFor(account);
-    if (bound === null) return null;
-    const started = now();
-    for (;;) {
-      const asked = await acquireOne(account, bound);
-      if (!asked.ok) return null;
-      if (asked.value !== null) return asked.value;
-      if (now() - started >= waitMaxMs) return null;
-      await new Promise((resolve) => setTimeout(resolve, pollMs));
-    }
-  };
+        limit,
+        remaining: limit === null ? null : headerNumber(headers['x-ratelimit-remaining']),
+        resetAt: reset === null ? null : reset * 1000,
+        basis: limit === null ? 'unknown' : 'actual',
+      };
+    },
+  });
 
   const accountFor = (secret: string): Promise<string> => {
     if (login !== null && login.token === secret) return login.account;
     const request: GithubRequest = { method: 'GET', path: '/user', label: 'user' };
     const account = (async (): Promise<string> => {
-      const sent = await send(request, secret);
+      const sent = await transport.send(callOf(request, secret, UNKNOWN_ACCOUNT));
       const reply = 'reply' in sent ? sent.reply : null;
       const named = reply !== null && reply.status === 200 ? (reply.body as { login?: unknown } | null)?.login : undefined;
       const name = typeof named === 'string' && named !== '' ? named : UNKNOWN_ACCOUNT;
-      await charge(request, name, reply);
+      await transport.charge(callOf(request, secret, name), reply);
       return name;
     })();
     login = { token: secret, account };
     return account;
   };
 
-  const attempt = async (request: GithubRequest, secret: string): Promise<{ sent: Sent; account: string }> => {
+  const attempt = async (request: GithubRequest, secret: string): Promise<{ sent: Sent }> => {
     const account = await accountFor(secret);
-    const slot = await takeSlot(account);
-    try {
-      const sent = await send(request, secret);
-      await charge(request, account, 'reply' in sent ? sent.reply : null);
-      return { sent, account };
-    } finally {
-      if (slot !== null) await slots.release(account, slot);
-    }
+    return { sent: await transport.exchange(callOf(request, secret, account)) };
   };
 
   const authFix = (source: TokenSource): string =>

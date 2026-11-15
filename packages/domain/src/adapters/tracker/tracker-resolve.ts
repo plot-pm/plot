@@ -9,7 +9,7 @@ import { trackerReads } from './tracker-shell.js';
 import type { GithubApi } from '../host/github-api.js';
 import { githubInProcessReads, githubIssueComment, trackerGithub } from './tracker-github.js';
 import { githubIssueClose, githubIssueLabel, githubPlanStateWrite } from './tracker-plan-state.js';
-import { trackerJira } from './tracker-jira.js';
+import { trackerJira, type JiraInProcess } from './tracker-jira.js';
 import { trackerNone } from './tracker-none.js';
 import { TRACKER_LISTERS } from './tracker-listers.js';
 
@@ -39,13 +39,14 @@ const TRACKER_KEY = 'Tracker';
  * @param declared - the `Tracker` key's value, scheme first.
  * @param context - where the scripts and the repository are.
  * @param api - the in-process GitHub client; given, `github-issues` reads in-process.
+ * @param jira - the in-process Jira reads; given, `jira` reads in-process.
  * @returns the connector that scheme names.
  */
-export const trackerFor = (declared: string, context: ShellContext, api?: GithubApi): Tracker => {
+export const trackerFor = (declared: string, context: ShellContext, api?: GithubApi, jira?: JiraInProcess): Tracker => {
   const [scheme = '', baseUrl = ''] = declared.trim().split(/\s+/);
   switch (scheme.toLowerCase()) {
     case 'jira':
-      return trackerJira(context, baseUrl.replace(/\/+$/, ''));
+      return trackerJira(context, baseUrl.replace(/\/+$/, ''), jira);
     case 'github-issues':
       return trackerGithub(context, api);
     default:
@@ -164,6 +165,7 @@ export const trackerGitHost = (gitHost: string, context: ShellContext, api?: Git
  * @param gitHost - the repository's git host backend word.
  * @param context - where the scripts and the repository are.
  * @param api - the in-process GitHub client; absent, every read runs the script.
+ * @param jira - the in-process Jira reads; absent, every Jira read runs the script.
  * @returns the connector that answers this repository's issues.
  */
 export const trackerOfSource = (
@@ -172,10 +174,11 @@ export const trackerOfSource = (
   gitHost: string,
   context: ShellContext,
   api?: GithubApi,
+  jira?: JiraInProcess,
 ): Tracker => {
   switch (source.ask) {
     case 'tracker':
-      return trackerFor(declared, context, api);
+      return trackerFor(declared, context, api, jira);
     case 'git-host':
       return trackerGitHost(gitHost, context, api);
     case 'nobody':

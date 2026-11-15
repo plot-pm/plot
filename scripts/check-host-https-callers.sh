@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
 # The gate that keeps one place opening an HTTPS connection to a git host.
 #
-# `packages/domain/src/adapters/host/` holds the in-process GitHub client
-# (`github-api.ts`). It reads the token, charges the shared budget ledger, takes
+# `packages/domain/src/adapters/host/` holds the in-process GitHub and
+# Bitbucket clients (`github-api.ts`, `bitbucket-api.ts`). Each reads its credential, charges the shared budget ledger, takes
 # a host slot, honours the proxy variables and bounds each request. A second
 # caller of the host API does none of that, so this gate refuses one.
 #
-# It refuses five patterns in code lines:
+# It refuses seven patterns in code lines:
 #
 #   node:https            Node's HTTPS client
 #   undici                the library behind Node's fetch
 #   api.github.com        the GitHub API host
 #   GITHUB_API_URL        the variable that names it
+#   api.bitbucket.org     the Bitbucket API host
+#   BITBUCKET_API_BASE    the variable that names it
 #   fetch(                a global fetch call: no `.` or word character before it
 #
 # Where it looks: `packages/*/src`, outside `packages/domain/src/adapters/host/`,
@@ -38,7 +40,7 @@ set -uo pipefail
 
 cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 
-PATTERN='node:https|undici|api\.github\.com|GITHUB_API_URL|(^|[^.[:alnum:]_])fetch\('
+PATTERN='node:https|undici|api\.github\.com|GITHUB_API_URL|api\.bitbucket\.org|BITBUCKET_API_BASE|(^|[^.[:alnum:]_])fetch\('
 
 ALLOWED_PREFIXES='packages/domain/src/adapters/host/
 packages/board/src/app/'
@@ -101,8 +103,8 @@ echo "host HTTPS call sites in exempted paths: $exempt"
 if [ -n "$violations" ]; then
   echo "::error::a file outside packages/domain/src/adapters/host/ reaches a git host over HTTPS."
   echo
-  echo "The in-process GitHub client, packages/domain/src/adapters/host/github-api.ts,"
-  echo "is the one place that opens a connection to the host API. It reads the token,"
+  echo "The in-process clients in packages/domain/src/adapters/host/ (github-api.ts,"
+  echo "bitbucket-api.ts) are the one place that open a connection to the host API. Each reads its credential,"
   echo "charges the shared budget ledger, takes a host slot, honours HTTPS_PROXY and"
   echo "NO_PROXY, and bounds each request at 30 s. Ask through it, or through the"
   echo "Host port, instead."

@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { buildFleetdEntry, type FleetdEntry } from './fleetd-entry-build.js';
@@ -17,6 +18,13 @@ import { buildSandbox, type Sandbox } from './sandbox.js';
 const CAT_FILE_E_PER_PASS = 0;
 
 type Spawn = { file?: string; args?: string[]; signal0?: number; sync?: boolean };
+
+/** The safety net's stamp in the sandbox's `fleetd.json`, or `undefined` where the file holds none. */
+const lastSafetyNetAtOf = (box: Sandbox): number | null | undefined => {
+  const path = join(box.repo, '.plot', 'state', 'fleetd.json');
+  if (!existsSync(path)) return undefined;
+  return (JSON.parse(readFileSync(path, 'utf8')) as { lastSafetyNetAt?: number | null }).lastSafetyNetAt;
+};
 
 const spawnsOf = (box: Sandbox): Spawn[] =>
   existsSync(spawnLogOf(box))
@@ -40,6 +48,8 @@ describe.each(['github'] as const)('the fleetd census entry on a %s fixture', (h
   let box: Sandbox;
   let spawns: Spawn[] = [];
   let stdout = '';
+  let beforeNet: number | null | undefined;
+  let afterNet: number | null | undefined;
 
   beforeAll(async () => {
     box = await buildSandbox({ host, desks: 3, openPrs: 5 });
@@ -47,8 +57,11 @@ describe.each(['github'] as const)('the fleetd census entry on a %s fixture', (h
     try {
       expect(await fleetd.pass()).toBe(1);
       expect(await fleetd.pass()).toBe(2);
+      beforeNet = lastSafetyNetAtOf(box);
+      expect(await fleetd.safetyNet()).toBe(3);
     } finally {
       stdout = (await fleetd.stop()).stdout;
+      afterNet = lastSafetyNetAtOf(box);
       spawns = spawnsOf(box);
     }
   }, 300_000);
@@ -63,6 +76,12 @@ describe.each(['github'] as const)('the fleetd census entry on a %s fixture', (h
     expect(stdout).toMatch(/^plot-fleetd: supervising /m);
   });
 
+  it('runs a safety-net read on the safety-net command, after the one at start', () => {
+    expect(beforeNet).toEqual(expect.any(Number));
+    expect(afterNet).toBeGreaterThanOrEqual((beforeNet ?? 0) + 600_000);
+    expect(stdout).toMatch(/^census: pass 3 done$/m);
+  });
+
   it('asks kill(pid, 0) for each desk with a live worker pid, so P2 reading 0 means the question was asked without bash', () => {
     const asked = new Set(spawns.flatMap((s) => (s.signal0 === undefined ? [] : [s.signal0])));
     const killZero = spawns.filter((s) => s.file === 'bash' && s.args?.[0] === '-c' && /^kill -0 \d+/.test(s.args[1] ?? ''));
@@ -75,7 +94,7 @@ describe.each(['github'] as const)('the fleetd census entry on a %s fixture', (h
     const git = spawns.filter((s) => s.file === 'git').map((s) => (s.args ?? []).filter((a) => !a.startsWith('--git-dir')));
     const named = (first: string, second?: string): number =>
       git.filter((args) => args[0] === first && (second === undefined || args[1] === second)).length;
-    const perPass = (n: number): number => n / 2;
+    const perPass = (n: number): number => n / 3;
 
     expect(named('ls-tree')).toBe(0);
     expect(named('cat-file', '--batch')).toBe(0);

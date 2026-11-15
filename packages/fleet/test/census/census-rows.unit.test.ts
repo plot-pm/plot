@@ -10,6 +10,8 @@ const PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-08-process-ce
 const WRAPPER_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-09-node-worker-wrapper.md', import.meta.url));
 const BOARD_API_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-09-board-api-starts-nothing.md', import.meta.url));
 const LIVENESS_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-09-liveness-token.md', import.meta.url));
+const TRIGGERS_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-10-triggers-replace-the-tick.md', import.meta.url));
+const CONNECTORS_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-10-bitbucket-and-jira-read-in-process.md', import.meta.url));
 const GITHUB_READS_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-09-github-reads-in-process.md', import.meta.url));
 
 /** The rows of the census plan that a later plan retired. */
@@ -44,9 +46,9 @@ afterEach(() => {
 });
 
 describe('the census rows', () => {
-  it('holds every row of the plan but the retired P1, D1 of the worker wrapper plan, S7 of the board API plan, P5 of the GitHub reads plan and P6 of the liveness token plan', () => {
-    expect(Object.keys(CENSUS_ROWS).filter((id) => id !== 'D1' && id !== 'S7' && id !== 'P5' && id !== 'P6').sort()).toEqual([...planRows().keys()].sort());
-    expect(Object.keys(CENSUS_ROWS).sort()).toEqual(['D1', 'P2', 'P3', 'P4', 'P5', 'P6', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7']);
+  it('holds every row of the plan but the retired P1, D1 of the worker wrapper plan, S7 of the board API plan, P5 of the GitHub reads plan, P6 of the liveness token plan and P7, P8, P9 and S8 of the triggers plan and P10 and P11 of the connectors plan', () => {
+    expect(Object.keys(CENSUS_ROWS).filter((id) => id !== 'D1' && id !== 'S7' && id !== 'P5' && id !== 'P6' && id !== 'P7' && id !== 'P8' && id !== 'P9' && id !== 'P10' && id !== 'P11' && id !== 'S8').sort()).toEqual([...planRows().keys()].sort());
+    expect(Object.keys(CENSUS_ROWS).sort()).toEqual(['D1', 'P10', 'P11', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'P9', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8']);
     expect(readFileSync(WRAPPER_PLAN, 'utf8')).toContain(`\`D1: ${CENSUS_ROWS.D1.claim}\``);
   });
 
@@ -55,6 +57,42 @@ describe('the census rows', () => {
     expect(readFileSync(LIVENESS_PLAN, 'utf8')).toContain('P1 is retired in the same slice that deletes the script');
     expect(CENSUS_ROWS.P6).toMatchObject({ target: 'zero', greenBy: { plan: 'liveness-token', slice: 'Monitor in fleetd' }, green: true });
     expect(rowTitle(CENSUS_ROWS.P6)).toMatch(/turned green by plan liveness-token, slice Monitor in fleetd/);
+  });
+
+  it('holds S8 as the triggers plan words it, a measured row held within 10 % + 2', () => {
+    expect(readFileSync(TRIGGERS_PLAN, 'utf8')).toContain(`| S8 | ${CENSUS_ROWS.S8.claim} | measured, 10 % + 2 | Safety net |`);
+    expect(CENSUS_ROWS.S8).toMatchObject({ target: 'measured', tolerance: { ratio: 0.1, plus: 2 } });
+    expect(rowTitle(CENSUS_ROWS.S8)).toMatch(/measured, held within 10 % \+ 2/);
+  });
+
+  it('holds P7 as the triggers plan words it, a zero row turned green by its Fleet size slice', () => {
+    expect(readFileSync(TRIGGERS_PLAN, 'utf8').replace(/`/g, '')).toContain(`| P7 | ${CENSUS_ROWS.P7.claim} | zero | Fleet size |`);
+    expect(CENSUS_ROWS.P7).toMatchObject({ target: 'zero', greenBy: { plan: 'triggers-replace-the-tick', slice: 'Fleet size' }, green: true });
+    expect(rowTitle(CENSUS_ROWS.P7)).toMatch(/turned green by plan triggers-replace-the-tick, slice Fleet size/);
+  });
+
+  it('holds P8 as the triggers plan words it, a zero row turned green by its Scan on trigger slice', () => {
+    expect(readFileSync(TRIGGERS_PLAN, 'utf8').replace(/`/g, '')).toContain(`| P8 | ${CENSUS_ROWS.P8.claim} | zero | Scan on trigger |`);
+    expect(CENSUS_ROWS.P8).toMatchObject({ target: 'zero', greenBy: { plan: 'triggers-replace-the-tick', slice: 'Scan on trigger' }, green: true });
+    expect(rowTitle(CENSUS_ROWS.P8)).toMatch(/turned green by plan triggers-replace-the-tick, slice Scan on trigger/);
+  });
+
+  it('holds P9 as the triggers plan words it, a zero row turned green by its Quiet beats slice', () => {
+    expect(readFileSync(TRIGGERS_PLAN, 'utf8').replace(/`/g, '')).toContain(`| P9 | ${CENSUS_ROWS.P9.claim} | zero | Quiet beats |`);
+    expect(CENSUS_ROWS.P9).toMatchObject({ target: 'zero', greenBy: { plan: 'triggers-replace-the-tick', slice: 'Quiet beats' }, green: true });
+    expect(rowTitle(CENSUS_ROWS.P9)).toMatch(/turned green by plan triggers-replace-the-tick, slice Quiet beats/);
+  });
+
+  it('holds P10 as the Bitbucket reads plan words it, a zero row turned green by its Bitbucket cutover slice', () => {
+    expect(readFileSync(CONNECTORS_PLAN, 'utf8').replace(/`/g, '')).toContain(`P10: ${CENSUS_ROWS.P10.claim}`);
+    expect(CENSUS_ROWS.P10).toMatchObject({ target: 'zero', greenBy: { plan: 'bitbucket-and-jira-read-in-process', slice: 'Bitbucket cutover' }, green: true });
+    expect(rowTitle(CENSUS_ROWS.P10)).toMatch(/turned green by plan bitbucket-and-jira-read-in-process, slice Bitbucket cutover/);
+  });
+
+  it('holds P11 as the connectors plan words it, a zero row turned green by its Jira cutover slice', () => {
+    expect(readFileSync(CONNECTORS_PLAN, 'utf8')).toContain(`\`P11: ${CENSUS_ROWS.P11.claim}\``);
+    expect(CENSUS_ROWS.P11).toMatchObject({ target: 'zero', greenBy: { plan: 'bitbucket-and-jira-read-in-process', slice: 'Jira cutover' }, green: true });
+    expect(rowTitle(CENSUS_ROWS.P11)).toMatch(/turned green by plan bitbucket-and-jira-read-in-process, slice Jira cutover/);
   });
 
   it('holds P5 as the GitHub reads plan words it, a zero row turned green by its Cutover slice', () => {

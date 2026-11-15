@@ -72,7 +72,8 @@ const fixture = (key: string, over: Partial<StateSyncDeps> = {}, prs: unknown[] 
     refs: refsGit(context),
     host: {
       backend: async () => ({ ok: true, value: 'github' }),
-      prList: async () => ({ ok: true, value: prs as never }),
+      prListing: async () => ({ answer: 'answered', rows: prs as never, complete: { open: 'possibly-truncated' }, refusal: null }),
+      prState: async () => ({ ok: true, value: null }),
       prCreate: async (req) => {
         created.push(req.head);
         return { ok: true, value: 'https://host/pr/1' };

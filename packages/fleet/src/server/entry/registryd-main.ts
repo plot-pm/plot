@@ -35,17 +35,27 @@ import {
   agentsFs,
   fleetStateFile,
   clockSystem,
+  watchFs,
+  deskFingerprint,
+  readWatchLayout,
   startChannel,
+  bindableChannelAddress,
   fleetdStartFile,
   fleetdHeartbeatFile,
   writeProbeShell,
   appKeyShell,
+  budgetAccount,
+  budgetFile,
   installObjectsReader,
   type RunningChannel,
   hostReadsFor,
+  trackerReadsFor,
   type HostReads,
+  type TrackerReads,
 } from '@plot-pm/domain/adapters';
+import { indexChange, type PrIndexRow, type ScanPlan } from '@plot-pm/domain';
 import { hostTransportLine } from '@plot-pm/domain/rules/host-transport';
+import { trackerTransportLine } from '@plot-pm/domain/rules/tracker-transport';
 import { probeAppKeysAtStart } from '@plot-pm/domain/workflows/app-key-start-probe';
 import { removeStageDirsOnExit } from '@plot-pm/domain/adapters/stage-dirs';
 import { unpushedAfterMerge } from '@plot-pm/domain/workflows/unpushed-after-merge';
@@ -55,13 +65,19 @@ import type { WriteProbe } from '@plot-pm/domain/ports/write-probe';
 import { writeProbeNeeded, writeProbeOutcome } from '@plot-pm/domain/rules/write-probe';
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
 import type { Clock } from '@plot-pm/domain/ports/clock';
+import type { Watch } from '@plot-pm/domain/ports/watch';
+import { processAnswers } from '@plot-pm/domain/adapters/git-dirs/git-dirs';
+import { readRefSnapshot } from '@plot-pm/domain/workflows/plan-walk-cache';
+import { startWatchSet, type RunningWatchSet } from '../../shared/watch-set.js';
+import { startSafetyNet } from '../../shared/safety-net.js';
+import { tickWake } from '../../shared/tick-wake.js';
 import type { SliceRefusal, RefusedSliceRecord } from '@plot-pm/domain/ports/refused-slices';
 import type { NotifyWrite, IdleNotifyWrite, UnblockWrite } from '@plot-pm/domain/workflows/decision';
 import {
   parseQuestionEscalation,
   DEFAULT_QUESTION_ESCALATION,
 } from '@plot-pm/domain/rules/question-escalation';
-import { parseSliceIdleAfter, DEFAULT_SLICE_IDLE_AFTER, idleEpisodeKey } from '@plot-pm/domain/rules/slice-idle';
+import { parseSliceIdleAfter, DEFAULT_SLICE_IDLE_AFTER, idleEpisodeKey, sliceIdle } from '@plot-pm/domain/rules/slice-idle';
 import type { SliceIdleReading } from '@plot-pm/domain/rules/slice-idle';
 import type { TempSweep } from '@plot-pm/domain/ports/temp-sweep';
 import { tempSweepDue } from '@plot-pm/domain/rules/temp-sweep';
@@ -69,6 +85,7 @@ import { headroomFor } from '@plot-pm/domain/entities/machine';
 import type { FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { Host, MergedAnswer, PrListingRow } from '@plot-pm/domain/ports/host';
+import { earliestDeadline, ISSUE_REFRESH_MS, nextDeadline, PR_READ_BEAT_MS, settledRed, type NextDeadline } from '@plot-pm/domain';
 import type { FleetdLoop, HeldSlice, PortResult } from '@plot-pm/domain';
 import { answered, failed } from '@plot-pm/domain';
 import { agentFindingsOver } from '../../shared/agent-findings.js';
@@ -106,12 +123,12 @@ import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 
 import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../../shared/registry.js';
 import { fleetPrs, fleetScan, startFleetClock } from '../../shared/fleet-clock.js';
-import { stateSyncTick } from '../../shared/state-sync-tick.js';
+import { stateSyncStampOf, stateSyncTick } from '../../shared/state-sync-tick.js';
 import { escalationPostWorldFor, postEscalation } from '../../shared/escalation-post.js';
 import { fleetAutoWrites } from '../../shared/auto-writes.js';
 import { verifyingCount } from '../../shared/auto-verify.js';
 import { specRunningCount } from '../../shared/auto-design.js';
-import { boundSecondsOfKey, pidAlive } from '../../shared/fleet-run.js';
+import { boundSecondsOf, boundSecondsOfKey, pidAlive } from '../../shared/fleet-run.js';
 import { readAutoReview } from '../../shared/auto-review.js';
 import { releaseLine, releaseTick } from '../../shared/release-tick.js';
 import { repairStartWorldOf } from '../../shared/repair-start-world.js';
@@ -128,6 +145,7 @@ import { refreshDefaultBranch } from '../../shared/default-branch-refresh.js';
 import { createSnapshotHolder, failUnread, readOf, registryEntryOf, type RecordReading, type SnapshotHolder } from '../../shared/snapshot-fill.js';
 import type { RegistryEntry, RepoSnapshot } from '@plot-pm/domain/entities/snapshot';
 import { freshScanState, planDirectory } from '../../shared/fleet-scan.js';
+import { budgetSpendReader, type SpendReader } from '../../shared/spend-reader.js';
 import { readFleetSettings } from '../../shared/fleet-settings-store.js';
 import { readConfigAsync } from '../../shared/config-reader.js';
 import { markerReading, markerText } from '../../shared/worker-question.js';
@@ -515,15 +533,40 @@ export const accountRate = async (scripts: Pick<Scripts, 'hostSaid'>): Promise<n
  * @param scripts - the adapter that runs `plot-host.sh`.
  * @param loops - each loop's own call count and interval — the tick, the
  *   scan, the PR reader, and the issue reader, each on its own cadence.
+ * @param spend - reads the account's spend in process; absent, `plot-host.sh spend-rate` is asked.
  * @returns the account's rate and each loop's own rate at its own calls.
  */
 export const spendForTick = async (
   scripts: Pick<Scripts, 'hostSaid'>,
   loops: readonly LoopSpend[],
+  spend?: SpendReader,
 ): Promise<TickSpend> => ({
-  accountPerHour: await accountRate(scripts),
+  accountPerHour: spend === undefined ? await accountRate(scripts) : ((await spend())?.perHour ?? null),
   perLoop: loopSpendPerHour(loops),
 });
+
+/** The host calls each loop made since its tally was last reset. */
+export interface LoopCalls {
+  tick: number;
+  scan: number;
+  prReader: number;
+  issueReader: number;
+}
+
+/**
+ * Each loop's calls with the window they accrued over.
+ *
+ * @param calls - the calls each loop made since its tally was last reset.
+ * @param tickWindowMs - the time since the tick's tally was last reset.
+ * @param backgroundWindowMs - the time since the last spend reading, for the three background loops.
+ * @returns one {@link LoopSpend} per loop: `tick`, `scan`, `pr-reader`, `issue-reader`.
+ */
+export const loopSpends = (calls: LoopCalls, tickWindowMs: number, backgroundWindowMs: number): readonly LoopSpend[] => [
+  { name: 'tick', calls: calls.tick, intervalMs: tickWindowMs },
+  { name: 'scan', calls: calls.scan, intervalMs: backgroundWindowMs },
+  { name: 'pr-reader', calls: calls.prReader, intervalMs: backgroundWindowMs },
+  { name: 'issue-reader', calls: calls.issueReader, intervalMs: backgroundWindowMs },
+];
 
 /**
  * The host's merge answer for a branch, asked at most once per tick.
@@ -1324,6 +1367,27 @@ export const idleWorldForRepo = (
     );
   },
 });
+
+/**
+ * The earliest wall time an open, unblocked slice goes idle.
+ *
+ * @param slices - the slices the last idle pass judged.
+ * @param fleetdStartedAt - when this fleetd process started, epoch milliseconds.
+ * @param boundMs - the `Slice idle after` bound; `null` disables the rule.
+ * @param now - the wall clock, epoch milliseconds.
+ * @returns the deadline, or `null` where no slice can go idle later.
+ */
+export const sliceIdleDeadline = (
+  slices: readonly SliceIdleReading[],
+  fleetdStartedAt: number,
+  boundMs: number | null,
+  now: number,
+): NextDeadline | null => {
+  if (boundMs === null || slices.length === 0) return null;
+  const verdicts = sliceIdle({ slices, fleetdStartedAt, boundMs, recordedEpisodes: new Set(), now: () => now });
+  const since = slices.flatMap((slice, i) => (slice.blocked ? [] : [Date.parse(verdicts[i]!.clockStart)])).filter((at) => !Number.isNaN(at));
+  return nextDeadline({ sliceIdleSince: since }, { sliceIdleMs: boundMs }, now);
+};
 
 /** The `## Plot Config` key naming the most `started` answer rows a desk may ever reach. */
 export const CORRECTION_BUDGET_KEY = 'Correction budget';
@@ -2591,21 +2655,22 @@ export const startNothingDoneReleases = async (
   }
 };
 
-/** The channel's socket, beside the other per-checkout state under `.plot/`. */
-export const CHANNEL_SOCKET = '.plot/fleet.sock';
-
 /**
- * Opens the channel on `.plot/fleet.sock`, or reports why it did not.
+ * Opens the channel on the checkout's socket path, or reports why it did not.
  *
+ * The path is `<repoRoot>/.plot/fleet.sock` where it fits a unix socket path,
+ * else a short path in a per-user directory (`rules/channel-address.ts`).
  * A start that rejects costs the channel and nothing else: the daemon warns
  * once and runs without it. `startChannel` rejects when a live process holds
  * the path, which it leaves to that process, and when the bind fails, such as
- * for a socket path past the platform's limit.
+ * for a socket path past the platform's limit. A per-user directory that is a
+ * symbolic link, another user's, or open to others refuses the start the same way.
  *
- * @param repoRoot - the checkout the socket lives in.
+ * @param repoRoot - the checkout the socket belongs to.
  * @param warn - where the failure is reported.
  * @param start - opens the channel; the real transport unless a test gives one.
  * @param snapshot - the daemon's snapshot, served to a `snapshot` subscriber; the channel refuses that purpose where absent.
+ * @param locate - names the socket path and makes its directory; `bindableChannelAddress` unless a test gives one.
  * @returns the running channel, or `null` where it could not be opened.
  */
 export const startFleetChannel = async (
@@ -2613,9 +2678,10 @@ export const startFleetChannel = async (
   warn: (s: string) => void,
   start: typeof startChannel = startChannel,
   snapshot?: () => RepoSnapshot,
+  locate: (root: string) => string = bindableChannelAddress,
 ): Promise<RunningChannel | null> => {
   try {
-    return await start({ address: join(repoRoot, CHANNEL_SOCKET), ...(snapshot === undefined ? {} : { snapshot }) });
+    return await start({ address: locate(repoRoot), ...(snapshot === undefined ? {} : { snapshot }) });
   } catch (err) {
     warn(
       `plot-fleetd: the channel could not start, running without it: ${err instanceof Error ? err.message : String(err)}\n`,
@@ -2753,8 +2819,12 @@ export interface RunSeams {
   tick?: typeof tick;
   /** The fleet clock's beat source; the system clock by default. */
   clock?: Clock;
+  /** Arms the directories fleetd watches; `watchFs` by default. */
+  watch?: Watch;
   /** Opens the channel transport; `startChannel` by default. */
   openChannel?: typeof startChannel;
+  /** The earliest deadline the tick's wait ends on; the idle pass's slices by default. */
+  tickDeadline?: () => Promise<NextDeadline | null>;
   /** Builds the monitor and the relay over an opened channel. */
   overChannel?: (channel: RunningChannel) => Pick<ChannelSlot, 'indexMonitor' | 'deskRelay'>;
   /** The scan the clock runs on every beat. */
@@ -2767,6 +2837,8 @@ export interface RunSeams {
   readIssues?: () => Promise<void>;
   /** The composed GitHub reads; tests only, so no test resolves a real token. */
   hostReads?: HostReads;
+  /** The composed Jira reads; tests only, so no test resolves a real credential. */
+  trackerReads?: TrackerReads;
   /** Replaces the drain of the tracker writes Plot made; tests only. */
   readIssueWrites?: () => Promise<void>;
   /** Replaces the state-sync pass; tests only. */
@@ -2783,6 +2855,45 @@ export interface RunSeams {
   /** The App key probe at start; reads every declared key through the adapter by default. */
   probeAppKeys?: (repoRoot: string, scriptsDir: string, write: (line: string) => void) => void;
 }
+
+/**
+ * Arms fleetd's watch set over the repository's refs, desks, registry and `CLAUDE.md`.
+ *
+ * @param repoRoot - the main checkout.
+ * @param registryDir - the `Agent registry` directory.
+ * @param scriptsDir - where the helper scripts live.
+ * @param watch - arms one directory.
+ * @param clock - stamps `lastEventAt`.
+ * @returns the running set, or `null` where git names no common directory.
+ */
+const armWatchSet = async (
+  repoRoot: string,
+  registryDir: string,
+  scriptsDir: string,
+  watch: Watch,
+  clock: Clock,
+): Promise<RunningWatchSet | null> => {
+  const common = await processAnswers.absoluteCommonDir(repoRoot, repoRoot);
+  const commonDir = common.code === 0 ? common.stdout.trim() : '';
+  if (commonDir === '') return null;
+  const refs = refsGit({ repoRoot, scriptDir: scriptsDir });
+  const set = startWatchSet({
+    watch,
+    layout: () => readWatchLayout({ repoRoot, commonDir, registryDir }),
+    exists: existsSync,
+    now: () => {
+      const at = clock.now();
+      return at.ok ? at.value : Date.now();
+    },
+    refsDigest: async () => {
+      const snapshot = await readRefSnapshot(refs);
+      return snapshot.ok ? snapshot.value.digest : null;
+    },
+    deskFingerprint,
+  });
+  await set.sync();
+  return set;
+};
 
 /**
  * Reads each declared App key once through the adapter and writes one line per
@@ -2891,7 +3002,7 @@ export const sweepTempIfDue = async (
 
 /**
  * Runs the supervisor: one tick under `--once`, otherwise the loop with its
- * scan clock and its channel on `<repoRoot>/.plot/fleet.sock`.
+ * scan clock and its channel on the checkout's socket path (`bindableChannelAddress`).
  *
  * @param argv - the command-line arguments.
  * @param here - the directory of the running bundle; the scripts resolve from it.
@@ -3002,6 +3113,19 @@ export const run = async (
     ));
   warn(`plot-fleetd: ${hostTransportLine(hostReads.choice)}\n`);
   const readsApi = hostReads.api ?? undefined;
+  // THE TRACKER'S TRANSPORT IS CHOSEN ONCE, AT START, under the same switch as
+  // the git host's: the idle issue pass reads Jira in-process with credentials
+  // and through `plot-host.sh` otherwise. The line names the reason and the
+  // credential source, never the credential.
+  const declaredTracker = await readConfigAsync({ repoRoot, scriptsDir }, 'Tracker', '');
+  const trackerReads =
+    seams.trackerReads ??
+    trackerReadsFor(
+      { repoRoot, scriptDir: scriptsDir },
+      declaredTracker,
+      await readConfigAsync({ repoRoot, scriptsDir }, 'Ticket prefixes', ''),
+    );
+  if (trackerReads.choice !== null) warn(`plot-fleetd: ${trackerTransportLine(trackerReads.choice)}\n`);
   // ONE MEMO FOR BOTH WORLDS. `tick` reads the supervisor world first, and its
   // `beginTick` clears the memo, so the queue read that follows shares the
   // tick's answers and the next tick asks again.
@@ -3045,7 +3169,8 @@ export const run = async (
   // own comment on `idleNotifyWrites`'s call site says why): the idle pass
   // judges open slice PRs, a population the registry does not enumerate.
   const idleTrees = treesGit({ repoRoot, scriptDir: scriptsDir });
-  const idle = args.once
+  const idleHeld: { slices: readonly SliceIdleReading[] } = { slices: [] };
+  const idleBase = args.once
     ? undefined
     : idleWorldForRepo(repoRoot, scriptsDir, fleetdStartedAt, async () => {
         const listed = await idleTrees.list();
@@ -3054,6 +3179,18 @@ export const run = async (
           .filter((tree) => !tree.isMain && tree.branch !== '')
           .map((tree) => ({ worktree: tree.path, branch: tree.branch }));
       });
+  // THE SLICES THE LAST IDLE PASS JUDGED, kept so the wait can name when the first of them goes idle.
+  const idle: SliceIdleReader | undefined =
+    idleBase === undefined
+      ? undefined
+      : {
+          ...idleBase,
+          readings: async () => {
+            const read = await idleBase.readings();
+            idleHeld.slices = read;
+            return read;
+          },
+        };
   // READ WHEN A TICK HOLDS A `notify` WRITE, so a `Notify command` added
   // while the daemon runs takes effect at the next escalation.
   const notifier =
@@ -3150,9 +3287,10 @@ export const run = async (
   const issueStore = issueIndexFile({ cwd: repoRoot });
   const issueWorld = {
     context: { repoRoot, scriptDir: scriptsDir },
-    declaredTracker: await readConfigAsync({ repoRoot, scriptsDir }, 'Tracker', ''),
+    declaredTracker,
     gitHost: probedHost ?? 'github',
     api: readsApi,
+    ...(trackerReads.jira === null ? {} : { jira: trackerReads.jira }),
     issueStore,
     record: recordSnapshot,
     issueWrites: issueWriteSpoolOver(issueStore),
@@ -3168,11 +3306,20 @@ export const run = async (
     warn,
   );
   const prReaderLock = readerLockFile({ cwd: repoRoot });
+  // THE SPEND IS READ IN PROCESS, through the `Budget` port: the record and
+  // `hosts.yml` are files, so the scan, the PR reader and the tick line start
+  // no `plot-host.sh spend-rate`.
+  const spend = budgetSpendReader(budgetFile(), budgetAccount({ repoRoot }), async () => {
+    const answer = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
+    return answer.ok ? answer.value : null;
+  });
   const readPrs = fleetPrs(
     {
       scripts,
+      spend,
       host: hostReads.host,
-      hostClaimsSlot: hostReads.api !== null,
+      // Both transports claim their own slot per request: `plot-host.sh` in its `gh`/`bb` wrappers.
+      hostClaimsSlot: true,
       store: prIndexFile({ cwd: repoRoot }),
       issueGate: issueGateOf(issueStore),
       record: recordSnapshot,
@@ -3256,16 +3403,41 @@ export const run = async (
   const bridge = trackBridgeWrites(fleetStateFile({ repoRoot }));
   // A scan passes only when it landed a bridge: `fleetScan` contains its own failures and
   // returns, so a failing scan would otherwise read as a loop that keeps up.
-  const scanPassed = (scan: () => Promise<void>): (() => Promise<void>) => async () => {
+  const scanPassed = (scan: (plan: ScanPlan) => Promise<void>): ((plan: ScanPlan) => Promise<boolean>) => async (plan) => {
     const before = bridge.writes();
-    await scan();
-    if (bridge.writes() > before) passes.scan = Date.now();
+    await scan(plan);
+    const landed = bridge.writes() > before;
+    if (landed) passes.scan = Date.now();
+    return landed;
   };
   const fleetLabel =
     process.env.PLOT_FLEET_LABEL ||
     (args.once ? '' : await readConfigAsync({ repoRoot, scriptsDir }, 'Fleet label', 'com.plot-pm.fleetd')) ||
     'com.plot-pm.fleetd';
-  const stopHeartbeat: () => Promise<void> = args.once
+  // THE WATCH SET ARMS ONLY FOR THE LOOP, and only where git names a common
+  // directory: a root that is no repository watches nothing and reports 0 of 0.
+  // THE TICK WAITS ON A TRIGGER, NOT ON A CADENCE: a scan that drained a non-empty pending set,
+  // a wake, and the next deadline end the wait. A registry, desk-files or worker-gone change enters
+  // the pending set, so the scan on the next beat drains it and starts the tick once, over readings
+  // that already hold the change.
+  const wake = tickWake(seams.clock ?? clockSystem(), sleep);
+  const watchSet: RunningWatchSet | null = args.once
+    ? null
+    : await armWatchSet(repoRoot, registryDir, scriptsDir, seams.watch ?? watchFs(), seams.clock ?? clockSystem());
+  // EVERY SCAN IS A FULL READ, SO THE SAFETY NET COMPARES AFTER EVERY ONE: one
+  // line per reading that changed while no trigger named it.
+  const safetyNet = startSafetyNet({
+    held: snapshot.current,
+    record: recordSnapshot,
+    now: () => {
+      const at = (seams.clock ?? clockSystem()).now();
+      return at.ok ? at.value : Date.now();
+    },
+    write,
+    drained: wake.trigger,
+    beat: wake.recheck,
+  });
+  const stopWatchHeartbeat: () => Promise<void> = args.once
     ? async () => undefined
     : startFleetdHeartbeat(
         seams.clock ?? clockSystem(),
@@ -3278,9 +3450,20 @@ export const run = async (
           bridgeAt: bridge.bridgeAt,
           generation: seams.snapshotGeneration ?? (() => snapshot.current().generation),
           hostTransport: hostReads.choice,
+          ...(trackerReads.choice === null ? {} : { trackerTransport: trackerReads.choice }),
+          observer: () => ({
+            watchesWanted: watchSet?.wanted() ?? 0,
+            watchesArmed: watchSet?.armed() ?? 0,
+            lastEventAt: watchSet?.lastEventAt() ?? null,
+          }),
+          safetyNet: () => ({ lastSafetyNetAt: safetyNet.lastAt(), missedChanges: safetyNet.missed() }),
         },
         warn,
       );
+  const stopHeartbeat = async (): Promise<void> => {
+    watchSet?.stop();
+    await stopWatchHeartbeat();
+  };
   const overChannel =
     seams.overChannel ??
     ((channel: RunningChannel) => ({
@@ -3304,19 +3487,39 @@ export const run = async (
           () => warn('plot-fleetd: channel bound\n'),
           stop,
         );
+  // A PR BEAT THAT MOVED A REF OR A CI ANSWER names it to the watch set: the index rows
+  // before and after the beat decide, so an idle beat raises nothing.
+  /** The stored index's rows, or `null` where no store is held: a first read has nothing to compare against. */
+  const indexRows = async (): Promise<readonly PrIndexRow[] | null> => {
+    const backend = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
+    if (!backend.ok) return null;
+    const held = await prIndexFile({ cwd: repoRoot }).read(backend.value);
+    return held.ok && held.value !== null ? held.value.rows : null;
+  };
+  const raisingPrs = (read: () => Promise<void>): (() => Promise<void>) => async () => {
+    if (watchSet === null) return read();
+    const before = await indexRows();
+    await read();
+    const moved = indexChange(before, await indexRows());
+    if (moved.remote) watchSet.raise({ kind: 'remote' });
+    else if (moved.prs) watchSet.raise({ kind: 'host-answer', reading: 'prs' });
+  };
   const scanClock = args.once
     ? null
     : startFleetClock(seams.clock ?? clockSystem(), {
-        scan: seams.scan ? passed('scan', seams.scan) : scanPassed(fleetScan(
+        scan: safetyNet.scan(watchSet, seams.scan ? async () => { await passed('scan', seams.scan!)(); return true; } : scanPassed(fleetScan(
           {
             repoRoot,
             scripts,
-            record: recordSnapshot,
+            record: safetyNet.record,
+            // A LISTING THAT MOVED A REF names `remote` to the watch set.
+            raise: (change) => watchSet?.raise(change),
             refs: refsGit({ repoRoot, scriptDir: scriptsDir }),
             backend: async () => {
               const answer = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
               return answer.ok ? answer.value : 'github';
             },
+            spend,
             // THE AGENTMONITOR'S FINDINGS, from the walk's own readings; one
             // host `pr-state` per agent end.
             findings: agentFindingsOver({ repoRoot, scriptDir: scriptsDir }, warn),
@@ -3370,11 +3573,22 @@ export const run = async (
             () => queueHolds.held,
             stop,
           ),
-        )),
-        prs: passed('pr-reader', prsBeat({ readPrs: seams.readPrs ?? readPrs, readDefaultBranch }, slot, retryBind)),
+        ))),
+        prs: passed('pr-reader', prsBeat({ readPrs: raisingPrs(seams.readPrs ?? readPrs), readDefaultBranch }, slot, retryBind)),
         issues: passed('issue-reader', seams.readIssues ?? readIssues),
         issueWrites: seams.readIssueWrites ?? fleetIssueWrites(issueWorld, issueState, warn),
-        stateSync: seams.stateSync ?? stateSyncTick(scripts, warn),
+        // STATE SYNC FOLLOWS THE REFS: a beat whose state and default-branch
+        // tips have not moved since the last settled run starts no process.
+        stateSync: seams.stateSync ?? stateSyncTick(
+          scripts,
+          warn,
+          stateSyncStampOf(refsGit({ repoRoot, scriptDir: scriptsDir }), () => readConfigAsync({ repoRoot, scriptsDir }, 'State branch', '')),
+        ),
+        woke: (drift) => {
+          write(`plot-fleetd: clock moved ${Math.round(drift.driftMs / 1000)}s against the monotonic clock; full read\n`);
+          safetyNet.woke();
+          wake.trigger();
+        },
       }, warn);
   const runTick = seams.tick ?? tick;
   // THE WAIT BETWEEN TICKS ENDS ON A STOP. A stop read before the wait skips
@@ -3382,15 +3596,71 @@ export const run = async (
   // SIGTERM ends the daemon within the current tick rather than after the
   // interval.
   const requested = stop.requested ?? new Promise<void>(() => undefined);
-  const pause = async (): Promise<void> => {
+  // A TICK THAT THREW OR DID NOT COMPLETE IS RETRIED: the wait after it ends `--interval` later at the latest.
+  const pause = async (last: TickReport | null): Promise<void> => {
     if (stop()) return;
-    await Promise.race([sleep(args.intervalMs), requested]);
+    const clock = seams.clock ?? clockSystem();
+    const failed = last === null || last.incomplete !== '';
+    const deadline = await tickDeadlineOf(last);
+    const at = clock.now();
+    const retryAt = failed ? (at.ok ? at.value : Date.now()) + args.intervalMs : null;
+    const ends = [deadline?.at ?? null, retryAt].filter((when): when is number => when !== null);
+    await wake.wait({
+      deadlineAt: ends.length === 0 ? null : Math.min(...ends),
+      // A WATCH THAT IS ABSENT OR DEGRADED LEAVES THE CADENCE: `--interval` ends the wait,
+      // read again on every scan beat, so a watch that degrades during the wait counts too.
+      degraded: () => watchSet === null || watchSet.armed() < watchSet.wanted(),
+      intervalMs: args.intervalMs,
+      requested,
+    });
+  };
+
+  // THE DEADLINES THE TICK OWNS: the tick's own (a question's next rung, a worker's
+  // `Worker bound`, an unheld claim's age, a launch's grace), a slice going idle, and a red
+  // default-branch hold that ends `Checks wait` after the last answer. The PR, issue and
+  // default-branch reads run on their own beats, so their deadlines never start a tick.
+  const tickDeadlineOf = async (last: TickReport | null): Promise<NextDeadline | null> => {
+    if (seams.tickDeadline !== undefined) return seams.tickDeadline();
+    const boundMs = idle === undefined ? null : await idle.boundMs();
+    const clock = (seams.clock ?? clockSystem()).now();
+    const now = clock.ok ? clock.value : Date.now();
+    const held = await defaultBranchFile(repoRoot).read();
+    const reading = held.ok ? held.value : null;
+    const redAskedAt = reading !== null && settledRed(reading) ? Date.parse(reading.askedAt) : Number.NaN;
+    return earliestDeadline([
+      last?.deadline,
+      sliceIdleDeadline(idleHeld.slices, fleetdStartedAt, boundMs, now),
+      Number.isNaN(redAskedAt) ? null : nextDeadline({ defaultBranchRedAskedAt: redAskedAt }, { checksWaitMs: await checksWaitMs() }, now),
+    ]);
+  };
+
+  // THE EARLIEST DEADLINE FLEETD HOLDS READINGS FOR: the tick's own, and the PR and
+  // issue reads' next beats and the default-branch re-ask.
+  const nextDeadlineOf = async (last: TickReport): Promise<NextDeadline | null> => {
+    const held = await defaultBranchFile(repoRoot).read();
+    const askedAt = held.ok && held.value !== null ? Date.parse(held.value.askedAt) : Number.NaN;
+    return earliestDeadline([
+      await tickDeadlineOf(last),
+      nextDeadline(
+        {
+          defaultBranchAskedAt: Number.isNaN(askedAt) ? null : askedAt,
+          issueReadAt: issueState.issueNextAt > 0 ? issueState.issueNextAt - ISSUE_REFRESH_MS : null,
+          prReadAt: prState.prAt,
+        },
+        { checksWaitMs: await checksWaitMs(), issueRefreshMs: ISSUE_REFRESH_MS, prBeatMs: PR_READ_BEAT_MS },
+        Date.now(),
+      ),
+    ]);
   };
 
   write(`plot-fleetd: supervising ${registryDir}\n`);
 
   let lastReadAt = Date.now();
+  // THE TICK'S CALLS ACCRUE FROM THE LAST RESET, so its rate is priced over that window: ticks are irregular.
+  let tickWindowAt = Date.now();
   for (;;) {
+    // TRIGGERS NAMED BEFORE THIS TICK are read by it; one that arrives during it ends the next wait at once.
+    wake.clear();
     if (stop()) {
       // THE CLOCK'S RUNS END BEFORE THE DAEMON DOES. `stop()` cancels the next
       // beat only; a scan already started still runs its automatic writes, and
@@ -3458,6 +3728,11 @@ export const run = async (
         // ABSENT UNDER `--once`, same as `idle`: a one-shot tick answers no
         // desk's own question.
         unblock,
+        // THE BOUND A STRAY-HOLDER DESK IS JUDGED BY, `PLOT_WORKER_BOUND` first, as the desk reading takes it.
+        workerBoundMs: async () => {
+          const given = process.env.PLOT_WORKER_BOUND ?? '';
+          return (/^\d+$/.test(given) ? Number(given) : boundSecondsOf({ repoRoot, scriptsDir }, 28_800)) * 1000;
+        },
       });
     } catch (err) {
       // STDERR, AND THE ERROR'S OWN TEXT. `registryd.err` being empty on both
@@ -3471,8 +3746,8 @@ export const run = async (
       if (args.once) return 1;
       // NOTHING IS REPORTED FOR THIS TICK, and that is deliberate: a tick that
       // threw halfway decided nothing, and the contract says the decision is
-      // empty rather than truncated. The interval is still waited, so a
-      // failure that repeats cannot spin.
+      // empty rather than truncated. The next wait ends `--interval` later at
+      // the latest, so the tick is retried and a failure that repeats cannot spin.
       //
       // THE RELAY RUNS ON THIS PATH TOO: reading the desks' monitor logs needs
       // no host call, so a failing tick does not stop desk findings reaching
@@ -3484,7 +3759,8 @@ export const run = async (
       // other three loops run on their own clocks and are read (and reset)
       // only at the completion path below, so a throw here leaves them alone.
       tally.calls = 0;
-      await pause();
+      tickWindowAt = Date.now();
+      await pause(null);
       continue;
     }
 
@@ -3505,12 +3781,15 @@ export const run = async (
     if (report.incomplete === '') {
       report = {
         ...report,
-        spend: await spendForTick(scripts, [
-          { name: 'tick', calls: tally.calls, intervalMs: args.intervalMs },
-          { name: 'scan', calls: scanState.calls, intervalMs: backgroundWindowMs },
-          { name: 'pr-reader', calls: prState.calls, intervalMs: backgroundWindowMs },
-          { name: 'issue-reader', calls: issueState.calls, intervalMs: backgroundWindowMs },
-        ]),
+        spend: await spendForTick(
+          scripts,
+          loopSpends(
+            { tick: tally.calls, scan: scanState.calls, prReader: prState.calls, issueReader: issueState.calls },
+            Math.max(1, Date.now() - tickWindowAt),
+            backgroundWindowMs,
+          ),
+          spend,
+        ),
       };
       lastReadAt = Date.now();
     }
@@ -3524,7 +3803,9 @@ export const run = async (
     // scan, PR reader and issue reader tallies are reset the same way and for
     // the same reason — each runs on its own clock and keeps accruing calls
     // between ticks, so only the reading that just printed them may zero them.
+    if (report.incomplete === '') report = { ...report, nextDeadline: await nextDeadlineOf(report) };
     tally.calls = 0;
+    tickWindowAt = Date.now();
     scanState.calls = 0;
     prState.calls = 0;
     issueState.calls = 0;
@@ -3728,7 +4009,7 @@ export const run = async (
       failUnread(snapshot, 'not read: --once runs the tick alone');
       return code;
     }
-    await pause();
+    await pause(report);
   }
 };
 

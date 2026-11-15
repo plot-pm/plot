@@ -45,6 +45,13 @@ describe('plot-fleetctl-start.mjs', () => {
     expect(ask(['reload', 'L', 'launchd', 'plot-fleetd'], 501).out).toBe('launchctl kickstart -k gui/501/L\n');
   });
 
+  it('reload-failed names the exit code and the command on stderr and exits 1', () => {
+    const r = ask(['reload-failed', 'L', '113', 'launchctl kickstart -k gui/501/L', 'read']);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("the reload of 'L' failed with exit 113: launchctl kickstart -k gui/501/L");
+    expect(ask(['reload-failed', 'L', '113']).code).toBe(2);
+  });
+
   it('restarted exits 0 on a new pid and 1 on the same pid', () => {
     expect(ask(['restarted', 'L', '1', '2', 'abc', '30', 'read']).code).toBe(0);
     expect(ask(['restarted', 'L', '1', '1', 'abc', '30', 'read']).code).toBe(1);

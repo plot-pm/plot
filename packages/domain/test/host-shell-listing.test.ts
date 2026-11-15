@@ -74,6 +74,33 @@ describe('Host.prListing over plot-host.sh', () => {
     expect(listing.refusal).toEqual({ kind: 'auth', said });
   });
 
+  it('a 401 from bb answers the refusal kind auth', async () => {
+    for (const said of ['error: HTTP 401 — unauthorized', 'bb: 401 Unauthorized']) {
+      const listing = await hostShell(hostThat(`echo "${said}" >&2; exit 3`)).prListing({ state: 'open', rich: true });
+      expect(listing.refusal).toEqual({ kind: 'auth', said });
+    }
+  });
+
+  it('a sweep with no complete notice answers possibly-truncated, and a sweep complete notice answers whole', async () => {
+    const silent = await hostShell(hostThat(`echo '${ROW}'`)).prListing({ state: 'all', branches: ['feature/a'] });
+    expect(silent.complete).toEqual({ all: 'possibly-truncated' });
+    const claimed = await hostShell(
+      hostThat(`echo '${ROW}'; echo 'plot-host: bitbucket pr-list sweep complete (1 rows across 1 branch) — every tracked branch was asked' >&2`),
+    ).prListing({ state: 'all', branches: ['feature/a'] });
+    expect(claimed.complete).toEqual({ all: 'whole' });
+  });
+
+  it('a window that read short answers possibly-truncated, and a window complete notice answers whole', async () => {
+    const short = await hostShell(
+      hostThat(`echo '${ROW}'; echo 'plot-host: bitbucket pr-list state=all possibly truncated (1 rows, window short of size)' >&2`),
+    ).prListing({ state: 'all', since: '2026-11-01T00:00:00Z' });
+    expect(short.complete).toEqual({ all: 'possibly-truncated' });
+    const whole = await hostShell(
+      hostThat(`echo '${ROW}'; echo 'plot-host: bitbucket pr-list state=all window complete (1 rows) — this window holds every pull request' >&2`),
+    ).prListing({ state: 'all', since: '2026-11-01T00:00:00Z' });
+    expect(whole.complete).toEqual({ all: 'whole' });
+  });
+
   it('a spent quota (exit 5) answers throttled', async () => {
     const listing = await hostShell(hostThat('echo "API rate limit exceeded" >&2; exit 5')).prListing({ state: 'open' });
     expect(listing.refusal?.kind).toBe('throttled');
@@ -112,12 +139,20 @@ describe('prListingArgs', () => {
     expect(prListingArgs({ state: 'open', rich: true })).toEqual(['pr-list', '--rich', '--state', 'open']);
     expect(prListingArgs({ state: 'all', rich: true, richOpen: true, boundShas: {} })).toEqual(['pr-list', '--rich-open', '--state', 'all']);
   });
+
+  it('asks one --branch per branch of a sweep, and none for an empty list', () => {
+    expect(prListingArgs({ state: 'open', rich: true, branches: ['a', 'b/c'] })).toEqual([
+      'pr-list', '--rich', '--state', 'open', '--branch', 'a', '--branch', 'b/c',
+    ]);
+    expect(prListingArgs({ state: 'all', branches: [] })).toEqual(['pr-list', '--state', 'all']);
+  });
 });
 
 describe('refusalKindOfRun', () => {
   it('reads auth only off a failed exit that names a 401', () => {
     expect(refusalKindOfRun(3, 'HTTP 401: Bad credentials')).toBe('auth');
     expect(refusalKindOfRun(1, 'Bad credentials')).toBe('auth');
+    expect(refusalKindOfRun(3, 'error: HTTP 401 — unauthorized')).toBe('auth');
     expect(refusalKindOfRun(3, 'HTTP 503')).toBe('failed');
     expect(refusalKindOfRun(7, 'HTTP 401')).toBe('failed');
     expect(refusalKindOfRun(5, 'HTTP 401')).toBe('throttled');

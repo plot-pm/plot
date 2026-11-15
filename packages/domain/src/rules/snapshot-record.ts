@@ -6,7 +6,15 @@ export interface Recorded {
   changed: readonly ReadingKey[];
 }
 
-const sameValue = (a: unknown, b: unknown): boolean => {
+/**
+ * Compares two values by content: primitives by `Object.is`, arrays and plain
+ * objects key by key, at any depth.
+ *
+ * @param a - one value.
+ * @param b - the other.
+ * @returns whether both hold the same content.
+ */
+export const sameValue = (a: unknown, b: unknown): boolean => {
   if (Object.is(a, b)) return true;
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
   if (Array.isArray(a) !== Array.isArray(b)) return false;

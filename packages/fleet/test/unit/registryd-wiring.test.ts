@@ -604,6 +604,8 @@ describe('run — the PR reader\'s failure reaches the bridge', () => {
       repo,
       {
         clock,
+        // A degraded watch leaves the tick on `--interval`, which this test's sleep drives.
+        watch: { arm: () => ({ degraded: true, close: () => undefined }) },
         tick: async () => completedTick(),
         readDefaultBranch: async () => undefined,
         openChannel: (async () => ({ stop: async () => undefined })) as never,

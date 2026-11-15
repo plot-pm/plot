@@ -123,3 +123,55 @@ export const githubListingPages = (rows: number): number =>
  * @returns `githubListingPages(rows) - 1`.
  */
 export const githubExtraPages = (rows: number): number => githubListingPages(rows) - 1;
+
+/**
+ * Whether a branch sweep may claim every tracked branch was asked and each
+ * answered: `plot-host.sh`'s `pr_sweep_report`.
+ *
+ * A sweep asks each branch once per state, and a branch's absence is proved
+ * only where every state answered. A call that asked no branch makes no sweep
+ * claim, and a state that failed withholds it.
+ *
+ * @param sweep.branches - how many branches the call asked; 0 for a listing that is no sweep.
+ * @param sweep.statesAnswered - how many states answered in full.
+ * @param sweep.statesAsked - how many states the call asked.
+ * @returns true where the claim holds.
+ */
+export const sweepComplete = (sweep: { branches: number; statesAnswered: number; statesAsked: number }): boolean =>
+  sweep.branches > 0 && sweep.statesAnswered === sweep.statesAsked;
+
+/** What a listing claimed about each state it read: the input of {@link listingWords}. */
+export interface ListingClaims {
+  /** The states a page or a window claimed whole. */
+  readonly claimed: ReadonlySet<string>;
+  /** The states a page reported possibly truncated. */
+  readonly doubted: ReadonlySet<string>;
+  /** Whether the call made the sweep claim of {@link sweepComplete}. */
+  readonly sweep: boolean;
+}
+
+/**
+ * Folds a listing's claims into one completeness word per state.
+ *
+ * A state a claim names is `whole` where it is claimed and not doubted. The
+ * asked state is `whole` where the sweep claim holds, or where no claim names
+ * it, at least one claim names another state, and every named state is
+ * `whole`. Every other state, and the asked state of a call with no claim, is
+ * `possibly-truncated`.
+ *
+ * @param claims - what the listing claimed.
+ * @param asked - the state word the call asked for.
+ * @returns the word per state; the asked state is always present.
+ */
+export const listingWords = (claims: ListingClaims, asked: string): Record<string, 'whole' | 'possibly-truncated'> => {
+  const words: Record<string, 'whole' | 'possibly-truncated'> = {};
+  for (const state of [...claims.claimed, ...claims.doubted]) {
+    words[state] = claims.claimed.has(state) && !claims.doubted.has(state) ? 'whole' : 'possibly-truncated';
+  }
+  const reported = Object.values(words);
+  if (claims.sweep) words[asked] = 'whole';
+  else if (words[asked] === undefined) {
+    words[asked] = reported.length > 0 && reported.every((word) => word === 'whole') ? 'whole' : 'possibly-truncated';
+  }
+  return words;
+};

@@ -62,6 +62,7 @@ interface RawPr {
   headSha?: string;
   checksSha?: string;
   ciChecks?: string;
+  checkRuns?: { name?: string; status?: string; conclusion?: string; at?: string }[];
 }
 
 /** One limit reading as `plot-host.sh` reports it, before it is read as the entity. */
@@ -126,6 +127,7 @@ export const prOf = (raw: RawPr): Pr => ({
   ...(raw.headSha ? { headSha: raw.headSha } : {}),
   ...(raw.checksSha ? { checksSha: raw.checksSha } : {}),
   ...(raw.ciChecks ? { ciChecks: oneOf<Checks>(raw.ciChecks, CHECKS, 'unknown') } : {}),
+  ...(raw.checkRuns ? { checkRuns: raw.checkRuns.map((run) => ({ name: run.name ?? '', status: run.status ?? '', conclusion: run.conclusion ?? '', at: run.at ?? '' })) } : {}),
 });
 
 /** Milliseconds in a second — the script reports `reset` in epoch SECONDS. */
@@ -200,8 +202,11 @@ export const refusalKindOfExit = (code: number): HostRefusal['kind'] => {
   return 'failed';
 };
 
-/** `gh`'s words for a credential GitHub refused with a `401`. */
-const AUTH_REFUSED = /\bHTTP 401\b|\bBad credentials\b/i;
+/**
+ * The words of a credential a host refused with a `401`: `gh`'s `HTTP 401` and
+ * `Bad credentials`, and `bb`'s `error: HTTP 401 — …` or `401 Unauthorized`.
+ */
+const AUTH_REFUSED = /\bHTTP 401\b|\bBad credentials\b|\b401 Unauthorized\b/i;
 
 /**
  * Which refusal one `plot-host.sh` run names, from its exit code and its words.
@@ -232,6 +237,7 @@ export const prListingArgs = (query: PrListingQuery): string[] => [
   query.state,
   ...(query.limit === undefined ? [] : ['--limit', String(query.limit)]),
   ...(query.since === undefined ? [] : ['--since', query.since]),
+  ...(query.branches ?? []).flatMap((branch) => ['--branch', branch]),
   ...(query.boundShas === undefined || Object.keys(query.boundShas).length === 0
     ? []
     : ['--bound-shas', JSON.stringify(query.boundShas)]),
