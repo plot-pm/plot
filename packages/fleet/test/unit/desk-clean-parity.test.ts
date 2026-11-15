@@ -1,17 +1,24 @@
 // The registry's cleanliness reading against the inline bash program it
 // replaces. `INLINE_PROGRAM` is that program as `registry.ts` ran it until
-// `desk-probes-in-domain`'s Registry slice, kept here verbatim so the
-// comparison runs after the program left the source.
+// `desk-probes-in-domain`'s Registry slice, kept here so the comparison runs
+// after the program left the source. Its bundle set is the one change: the
+// program asks the shipped `bundle_paths` (`plot-desk-dirt.sh`), the shell
+// twin of `bundlePathsOf`, rather than a frozen copy of a one-line grep that
+// missed a declaration wrapped over several lines.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { deskCleanliness } from '../../src/shared/registry.js';
 import { removeTree } from '../rm-tree.mjs';
 
+const DESK_DIRT_LIB = fileURLToPath(new URL('../../../../skills/plot/scripts/plot-desk-dirt.sh', import.meta.url));
+
 const INLINE_PROGRAM = `
+    . ${JSON.stringify(DESK_DIRT_LIB)}
     PLOT_WORKER_RECORD='\\.plot-worker\\.'
     PLOT_EDITOR_LEFTOVER='\\.(tmp[0-9]*|swp|orig|rej|bak)$'
     PLOT_TOOL_SCRATCH='(^|/)\\.(playwright-mcp|plot/agents|plot/state|omc/state)(/|$)'
@@ -22,13 +29,7 @@ const INLINE_PROGRAM = `
       fi
       # Check uncommitted changes (with exclusions)
       status=$(git -C "$wt" status --porcelain 2>/dev/null || echo "")
-      build="$wt/packages/board/build.mjs"
-      if [ -f "$build" ]; then
-        bundles=$(grep -aoE "shipped[A-Za-z]* = path\\.join\\([^)]*'[^']*'\\)" "$build" 2>/dev/null \\
-          | sed -E "s|.*'\\.\\./\\.\\./([^']*)'.*|\\1|" | sort -u)
-      else
-        bundles=""
-      fi
+      bundles=$(bundle_paths "$wt")
       if [ -n "$bundles" ]; then
         status=$(printf '%s\\n' "$status" | while IFS= read -r line; do
           [ -n "\$line" ] || continue
@@ -93,6 +94,11 @@ const desk = (name: string, arrange: (wt: string, git: (...a: string[]) => void)
   return wt;
 };
 
+/** `shippedRestartStoppedCommand` in `packages/board/build.mjs` wraps its `path.join(` over four lines. */
+const WRAPPED =
+  "const shippedWrapped = path.join(\n  here,\n  '../../skills/plot/scripts/board/plot-wrapped.mjs',\n);\n";
+const WRAPPED_BUNDLE = path.join('skills', 'plot', 'scripts', 'board', 'plot-wrapped.mjs');
+
 /** Twenty desks, one shape each. */
 const shapes: Array<[string, (wt: string, git: (...a: string[]) => void) => void]> = [
   ['clean', () => {}],
@@ -154,6 +160,13 @@ const shapes: Array<[string, (wt: string, git: (...a: string[]) => void) => void
     );
     fs.writeFileSync(path.join(wt, 'docs', 'a.md'), 'rebuilt\n');
   }],
+  ['rebuilt-wrapped-bundle', (wt, git) => {
+    fs.appendFileSync(path.join(wt, 'packages', 'board', 'build.mjs'), WRAPPED);
+    fs.writeFileSync(path.join(wt, WRAPPED_BUNDLE), 'original\n');
+    git('add', '-A');
+    git('commit', '-qm', 'wrapped');
+    fs.writeFileSync(path.join(wt, WRAPPED_BUNDLE), 'rebuilt\n');
+  }],
 ];
 
 let worktrees: string[] = [];
@@ -161,7 +174,7 @@ let worktrees: string[] = [];
 beforeAll(() => {
   box = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-desk-clean-parity-'));
   worktrees = shapes.map(([name, arrange]) => desk(name, arrange));
-  // The twentieth: a path that is not a directory.
+  // The twenty-first: a path that is not a directory.
   worktrees.push(path.join(box, 'gone'));
 });
 
@@ -170,8 +183,8 @@ afterAll(() => {
 });
 
 describe('deskCleanliness equals the inline program it replaces', () => {
-  it('answers what the inline program answers on 20 constructed worktrees', async () => {
-    expect(worktrees).toHaveLength(20);
+  it('answers what the inline program answers on 21 constructed worktrees', async () => {
+    expect(worktrees).toHaveLength(21);
     const inline = inlineCleanliness(worktrees);
     const rule = await deskCleanliness(worktrees);
     const disagreements = worktrees
@@ -180,5 +193,11 @@ describe('deskCleanliness equals the inline program it replaces', () => {
     expect(disagreements).toEqual([]);
     // Both answers are not one constant: the corpus holds both readings.
     expect(new Set(rule)).toEqual(new Set([true, false]));
+  });
+
+  it('excuses a rebuilt bundle whose declaration wraps over several lines, on both sides', async () => {
+    const wt = worktrees.find((one) => path.basename(one) === 'rebuilt-wrapped-bundle')!;
+    expect(inlineCleanliness([wt])).toEqual([true]);
+    expect(await deskCleanliness([wt])).toEqual([true]);
   });
 });
