@@ -108,8 +108,13 @@ describe('repairEpisode', () => {
     expect(repairEpisode(record(), 'main', settled, [BUNDLE, GREEN])).toBe('closed');
   });
 
-  it.each(['done', 'exhausted'] as const)('is closed for a %s record', (state) => {
-    expect(repairEpisode(record({ state }), 'main', settled, [BUNDLE, RED])).toBe('closed');
+  it('is closed for a done record', () => {
+    expect(repairEpisode(record({ state: 'done' }), 'main', settled, [BUNDLE, RED])).toBe('closed');
+  });
+
+  it("stays open for an exhausted record while main is red on its first red commit, so a person's repair PR is the way out", () => {
+    expect(repairEpisode(record({ state: 'exhausted' }), 'main', settled, [BUNDLE, RED])).toBe('open');
+    expect(repairEpisode(record({ state: 'exhausted' }), 'main', settled, [BUNDLE, GREEN])).toBe('closed');
   });
 
   it('is closed for another branch, a green settled commit, or none', () => {

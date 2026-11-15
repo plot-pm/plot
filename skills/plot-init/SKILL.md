@@ -40,6 +40,7 @@ and changes nothing.
 | 2. Propose and confirm | Mid | Turning signals into a proposal is judgment. The thresholds and the default-branch comparison are `proposeStack`'s, and reading its answers is transcription |
 | 3. Write config and skeleton | Small | Two script calls: `plot-write-config.sh` owns the config section and the `.gitignore` line, `plot-install-prompt.sh` owns the worker prompt. Composing the answers file from step 2 is transcription; every decision inside the write is `composeAdoption`'s |
 | 3b. Provide role files | Small | One script call: `plot-adopt.mjs roles` writes the absent role definitions and reports a differing copy `stale`. Every decision is `composeRoleFiles`'s; no question is asked |
+| 2b. State branch | Mid | One script call, JSON out. Wording the proposal and the delete offer is judgment; every decision — restricted, unverified, non-branch warning — is `proposeStateBranch`'s, and an unverified answer is never read as unrestricted |
 | 4. Offer extensions | Mid | Deciding what the repo actually needs |
 | 5. Verify and summarise | Small | Read back what landed |
 
@@ -338,6 +339,41 @@ repository outright.
 > default branch is a fact about a shared repository, and a `Main branch` key
 > written with nobody present changes where every later command looks for plans:
 > `PLOT-UNASKED: Which branch is the default — the host says develop, this clone says main? — refused — no Main branch key written; run 'git remote set-head origin -a' to refresh the clone, or add the key`
+
+#### The state branch
+
+**Where the default branch restricts pushes or requires a merge check, propose `State branch: plot/state` — and where it holds neither, say nothing.** The lifecycle writes (`State:` lines, claims, briefs) push at the default branch unless a `State branch` key names another ref. A protected default branch refuses those pushes; a state branch is the ref they can go to. Ask the host, and let the rule judge:
+
+```
+node ../plot/scripts/board/plot-state-branch.mjs --default <default branch> [--key <State branch value>]
+```
+
+Pass `--key` only where the Plot Config already carries one. **Do not read a restriction word yourself** — `proposeStateBranch` in `packages/domain/src/rules/state-branch.ts` owns the judgement, and a word list written into this file is a second answer to a question the rule settles. The output is one JSON object, and `state` is one of five:
+
+- `restricted` — say what the host reported and propose the key:
+
+  > The default branch `main` is protected (`protected`) → propose `State branch: plot/state`, so lifecycle writes go to a ref the restriction does not cover. Then offer the delete restriction below.
+
+- `unrestricted` — print nothing. There is no question and no gap.
+
+- `unverified` — the host was **not asked or did not answer**: a 403, no adapter, or an empty answer. Propose no key, and say so once:
+
+  > The host's branch restrictions went unverified; no `State branch` key is proposed.
+
+  **Silence here would read as "unrestricted"**, which is the direction this command refuses everywhere: *report that we cannot tell, never that it is fine.*
+
+- `declared` — the key is already set, so there is no proposal. Where `warning` is not null, the value names a ref outside `refs/heads/`: say what `warning.givesUp` lists and recommend `warning.recommended`. Where `offerDelete` is true, make the delete offer below.
+
+- `invalid` — the key is not a usable ref name: print `reason` and propose nothing.
+
+**The delete-restriction offer is an offer and never an action.** Name the host's own setting — on GitHub, a branch protection or ruleset for `plot/state` that leaves *Allow deletions* off; on Bitbucket, a branch restriction of kind `delete` on `plot/state` — and say that a person adds it in the host's settings. This command runs no write against the host and adds no restriction.
+
+**`plot/` is never added to `Branch prefixes`.** The state branch is not a work branch, and a prefix entry would make Plot list it as one.
+
+**A repository with no restriction and no key runs exactly as before.** The fleet is not required for any of this.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** propose nothing, write no key and run no question tool. A state branch changes where every later lifecycle write lands:
+> `PLOT-UNASKED: Which branch takes lifecycle writes — the default branch is protected? — refused — no State branch key written; add 'State branch: plot/state' to Plot Config to route them to plot/state`
 
 #### The CI system
 
