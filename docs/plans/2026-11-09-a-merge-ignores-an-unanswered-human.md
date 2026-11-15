@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-09, Jan Wloka, plan-PR #3328 merged
 - **Started:** 2026-11-09, Jan Wloka, `bug/the-host-reads-a-pr-conversation`
+- **Started:** 2026-11-15, Jan Wloka, `bug/a-merge-refuses-an-unanswered-human-comment`
 
 ## Changelog
 
