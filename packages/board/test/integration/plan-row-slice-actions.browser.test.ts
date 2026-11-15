@@ -129,7 +129,7 @@ describe('the plan row carries the sole wave’s actions', () => {
       tab: 'agents',
       viewport: { width: 1400, height: 1200 },
     });
-    await page.getByText('Not started').first().waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;
   }

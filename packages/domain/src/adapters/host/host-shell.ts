@@ -5,7 +5,7 @@ import {
   type LimitReading,
 } from '../../entities/limit.js';
 import type { Checks, Mergeability, Pr, PrState, ReviewVerdict } from '../../entities/pr.js';
-import { answered, failed, type PortResult } from '../../port-result.js';
+import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import type {
   CommitStatusWrite,
   Host,
@@ -14,6 +14,9 @@ import type {
   LimitObservation,
   MergedAnswer,
   MergeDest,
+  PrListing,
+  PrListingQuery,
+  PrListingRow,
   PrLookup,
   PrConversationReading,
   PrReviewReading,
@@ -37,6 +40,7 @@ import {
   type ScriptRun,
 } from '../run-script.js';
 import { processAnswers, scriptRunner, type FixedAnswers } from '../git-dirs/git-dirs.js';
+import { listingCompleteness } from './listing-notices.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
 /** One PR as `plot-host.sh` reports it, before it is read as the entity. */
@@ -59,6 +63,7 @@ interface RawPr {
   headSha?: string;
   checksSha?: string;
   ciChecks?: string;
+  checkRuns?: { name?: string; status?: string; conclusion?: string; at?: string }[];
 }
 
 /** One limit reading as `plot-host.sh` reports it, before it is read as the entity. */
@@ -99,7 +104,13 @@ const oneOf = <T extends string>(value: string | undefined, allowed: readonly st
  * @param raw - the host adapter's JSON object.
  * @returns the PR, with every unstated field at its cannot-verify value.
  */
-const prOf = (raw: RawPr): Pr => ({
+/**
+ * One `plot-host.sh pr-list` row, or a listing row of the same shape, as a {@link Pr}.
+ *
+ * @param raw - the row.
+ * @returns the pull request.
+ */
+export const prOf = (raw: RawPr): Pr => ({
   number: raw.number ?? 0,
   repo: raw.repo ?? '',
   head: raw.head ?? '',
@@ -117,6 +128,7 @@ const prOf = (raw: RawPr): Pr => ({
   ...(raw.headSha ? { headSha: raw.headSha } : {}),
   ...(raw.checksSha ? { checksSha: raw.checksSha } : {}),
   ...(raw.ciChecks ? { ciChecks: oneOf<Checks>(raw.ciChecks, CHECKS, 'unknown') } : {}),
+  ...(raw.checkRuns ? { checkRuns: raw.checkRuns.map((run) => ({ name: run.name ?? '', status: run.status ?? '', conclusion: run.conclusion ?? '', at: run.at ?? '' })) } : {}),
 });
 
 /** Milliseconds in a second — the script reports `reset` in epoch SECONDS. */
@@ -192,6 +204,104 @@ export const refusalKindOfExit = (code: number): HostRefusal['kind'] => {
 };
 
 /**
+ * The words of a credential a host refused with a `401`: `gh`'s `HTTP 401` and
+ * `Bad credentials`, and `bb`'s `error: HTTP 401 — …` or `401 Unauthorized`.
+ */
+const AUTH_REFUSED = /\bHTTP 401\b|\bBad credentials\b|\b401 Unauthorized\b/i;
+
+/**
+ * Which refusal one `plot-host.sh` run names, from its exit code and its words.
+ *
+ * Exits 5 and 6 name a spent quota and a burst; every other non-zero exit is
+ * `auth` where the words name a `401` and `failed` otherwise.
+ *
+ * @param code - the script's exit code.
+ * @param said - what the script said on the failed run.
+ * @returns the refusal kind.
+ */
+export const refusalKindOfRun = (code: number, said: string): HostRefusal['kind'] => {
+  const kind = refusalKindOfExit(code);
+  if (kind !== 'failed' || code === EXIT_PARTIAL) return kind;
+  return AUTH_REFUSED.test(said) ? 'auth' : 'failed';
+};
+
+/**
+ * The `plot-host.sh` arguments one listing query asks with.
+ *
+ * @param query - the listing query.
+ * @returns the arguments, starting with `pr-list`.
+ */
+export const prListingArgs = (query: PrListingQuery): string[] => [
+  'pr-list',
+  ...(query.richOpen === true ? ['--rich-open'] : query.rich === true ? ['--rich'] : []),
+  '--state',
+  query.state,
+  ...(query.limit === undefined ? [] : ['--limit', String(query.limit)]),
+  ...(query.since === undefined ? [] : ['--since', query.since]),
+  ...(query.branches ?? []).flatMap((branch) => ['--branch', branch]),
+  ...(query.boundShas === undefined || Object.keys(query.boundShas).length === 0
+    ? []
+    : ['--bound-shas', JSON.stringify(query.boundShas)]),
+];
+
+/**
+ * Parses `pr-list` stdout, one JSON object per line.
+ *
+ * @returns the rows, or null where a line is not a JSON object.
+ */
+const listingRowsOf = (stdout: string): PrListingRow[] | null => {
+  const rows: PrListingRow[] = [];
+  for (const line of stdout.split('\n')) {
+    if (line.trim() === '') continue;
+    let row: unknown;
+    try {
+      row = JSON.parse(line);
+    } catch {
+      return null;
+    }
+    if (row === null || typeof row !== 'object' || Array.isArray(row)) return null;
+    rows.push(row as PrListingRow);
+  }
+  return rows;
+};
+
+/**
+ * Reads one `plot-host.sh pr-list` run as a {@link PrListing}.
+ *
+ * Exit 0 is `answered`, exit 7 `partial` with its rows kept, exit 4
+ * `unaskable`, and every other exit `failed` with no rows. The completeness
+ * words come from the run's stderr notices ({@link listingCompleteness}). A
+ * line of stdout that is not a JSON object fails the call.
+ *
+ * @param query - the query the run answered.
+ * @param run - the run's exit code and streams.
+ * @returns the listing; `refusal` is null only on exit 0.
+ */
+export const prListingOfRun = (query: PrListingQuery, run: ScriptRun): PrListing => {
+  const unclaimed = { [query.state]: 'possibly-truncated' as const };
+  const said = run.stderr.trim() || run.stdout.trim() || `plot-host.sh exited ${run.code}`;
+  if (run.code === EXIT_UNASKABLE) {
+    return { answer: 'unaskable', rows: [], complete: unclaimed, refusal: { kind: 'failed', said } };
+  }
+  if (run.code !== EXIT_OK && run.code !== EXIT_PARTIAL) {
+    return { answer: 'failed', rows: [], complete: unclaimed, refusal: { kind: refusalKindOfRun(run.code, said), said } };
+  }
+  const rows = listingRowsOf(run.stdout);
+  if (rows === null) {
+    return {
+      answer: 'failed',
+      rows: [],
+      complete: unclaimed,
+      refusal: { kind: 'failed', said: 'pr-list printed a line that is not a PR row' },
+    };
+  }
+  if (run.code === EXIT_PARTIAL) {
+    return { answer: 'partial', rows, complete: listingCompleteness(said, query.state), refusal: { kind: 'failed', said } };
+  }
+  return { answer: 'answered', rows, complete: listingCompleteness(run.stderr, query.state), refusal: null };
+};
+
+/**
  * Reads the git host through `plot-host.sh`, the one place that speaks to a
  * host CLI.
  *
@@ -249,7 +359,7 @@ export const hostShell = (context: ShellContext, answers: FixedAnswers = process
       refusal = null;
     } else {
       const said = run.stderr.trim() || run.stdout.trim() || `plot-host.sh exited ${run.code}`;
-      refusal = { kind: refusalKindOfExit(run.code), said };
+      refusal = { kind: refusalKindOfRun(run.code, said), said };
     }
     if (run.code === EXIT_PARTIAL) {
       try {
@@ -430,8 +540,8 @@ export const hostShell = (context: ShellContext, answers: FixedAnswers = process
     prCreate: async (request): Promise<PortResult<string>> => {
       // THE BODY GOES THROUGH ARGV, not a heredoc or a temp file. It is
       // markdown holding backticks and newlines, and `plot-host.sh` passes
-      // `--body` straight to `gh`/`bb` — so quoting is the shell's problem only
-      // if a shell is involved, and `runProcess` spawns without one.
+      // `--body` straight to `gh api`/`bb` — so quoting is the shell's problem
+      // only if a shell is involved, and `runProcess` spawns without one.
       const args = [
         host,
         'pr-create',
@@ -445,7 +555,8 @@ export const hostShell = (context: ShellContext, answers: FixedAnswers = process
       if (request.base !== undefined && request.base !== '') args.push('--base', request.base);
       if (request.draft) args.push('--draft');
       const run = await runScripted('bash', args, inRepo);
-      // The URL is what `gh pr create` prints and the only thing it prints. A
+      // The URL is the only thing `pr-create` prints: the REST answer's
+      // `html_url` on GitHub, the CLI's own line on Bitbucket. A
       // host that opened one and said nothing about where answers `''` — the
       // PR exists either way, and a caller that treated silence as failure
       // would ask for a second one.
@@ -464,6 +575,12 @@ export const hostShell = (context: ShellContext, answers: FixedAnswers = process
         ],
         (stdout) => asJsonLines<RawPr>(stdout).map(prOf),
       ),
+
+    prListing: async (query): Promise<PrListing> => {
+      const listing = prListingOfRun(query, await runScripted('bash', [host, ...prListingArgs(query)], inRepo));
+      refusal = listing.refusal;
+      return listing;
+    },
 
     limit: async (): Promise<PortResult<readonly LimitReading[]>> => {
       // THE GIT HOST'S BUCKETS, AND ONLY THOSE. CI used to be asked here in the
@@ -527,8 +644,10 @@ export const hostShell = (context: ShellContext, answers: FixedAnswers = process
     prReview: (number) =>
       ask(['pr-review', String(number)], (stdout) => asJson<PrReviewReading>(stdout)),
 
-    prConversation: (number) =>
-      ask(['pr-conversation', String(number)], (stdout) => asJson<PrConversationReading>(stdout)),
+    // The shell has no conversation read: `hostReadsFor` composes the
+    // in-process one, and a process on the shell transport asks nothing.
+    prConversation: async (): Promise<PortResult<PrConversationReading>> =>
+      unaskable('the conversation read is in-process only and needs a host credential'),
 
     // BITBUCKET KEEPS NO WRITER, so it answers `''` without reading config:
     // `checkedReview` reads that as unchecked. `plot-review-writer.mjs` reads

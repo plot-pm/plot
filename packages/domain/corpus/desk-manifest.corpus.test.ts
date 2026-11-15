@@ -407,7 +407,7 @@ const physical = (p: string): string =>
 /**
  * A FOURTH COMPARISON, ADDED FOR `the-monitor-follows-the-hop`: does
  * `watchedDesk` agree with `plot_watched_desk` (`plot-monitor-subject.sh`),
- * the shell twin `plot-agent-monitor.sh` re-reads every pass? The pair exists
+ * the shell twin the AgentMonitor script re-read every pass? The pair exists
  * for the SAME cost reason as the two above: a monitor's pass runs every 30s,
  * so a bundle hop paid on every pass forever is what the shell duplicate
  * avoids.

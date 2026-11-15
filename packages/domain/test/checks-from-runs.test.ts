@@ -180,6 +180,25 @@ describe('checksFromRuns — the loop asking its own CI wait', () => {
     expect(checksFromRuns({ ...base, run: timedOut, waitedSeconds: 3600 })).toBe('timed-out');
   });
 
+  it('never reads a run cancelled 20 minutes in as timed-out once the tip has moved', () => {
+    // A push to the pull request cancels CI on the older head at any age. The
+    // run carries the timeout fingerprint, but the tip check runs first, so
+    // the loop answers tip-moved; and a run for another sha is read as no run.
+    const superseded = {
+      ...concludedRun(PUSHED, 'cancelled'),
+      jobs: [
+        {
+          conclusion: 'cancelled',
+          startedAt: '2026-11-09T10:00:00Z',
+          completedAt: '2026-11-09T10:20:00Z',
+          steps: ['success', 'success', 'cancelled', 'skipped', 'success'],
+        },
+      ],
+    };
+    expect(checksFromRuns({ ...base, run: superseded, tip: 'other' })).toBe('tip-moved');
+    expect(checksFromRuns({ ...base, run: { ...superseded, sha: OTHER } })).toBe('wait');
+  });
+
   it('does not settle a not-acquired run even though it shares the cancelled conclusion', () => {
     // The naive patch this test is written to catch: treating every
     // `cancelled` run as settled would also settle a host-outage run

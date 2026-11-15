@@ -1,6 +1,7 @@
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
+import { NO_STATE_BRANCH } from '@plot-pm/domain/rules/write-target';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -36,9 +37,6 @@ import { cutBooking, pushTargetOf, pushUnderLock, Refused, stateTargetOf, type L
  */
 
 const USAGE = 'usage: plot-state-cut.mjs <worktree> <branch> <default-branch> | --land [<default-branch>]';
-
-/** The exit code `--land` answers where no `State branch` key is declared. */
-export const NO_STATE_BRANCH = 4;
 
 /**
  * Merges the state tip and the default branch into HEAD and pushes HEAD at the state ref.

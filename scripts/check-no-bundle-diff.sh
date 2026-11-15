@@ -19,8 +19,9 @@
 # `const shippedX = path.join(here, '../../<path>')`; that declaration is what
 # an author writes when adding a bundle, and a second list in this script would
 # be a second place to forget — the defect `check-bundle-attributes.sh` was
-# written for, wearing a different hat. The same `grep`/`sed` derivation is
-# reused here verbatim so the two gates can never name different sets.
+# written for, wearing a different hat. Both gates read the set through
+# `read_shipped_bundles` in `lib-declared-bundles.sh`, so they can never name
+# different sets.
 #
 # THE SET IS NEVER THE DIRECTORY. `skills/plot/scripts/board/` holds 36 files;
 # 34 are generated and 2 — `README.md` and `plot-monitor.mjs` — are written by
@@ -40,6 +41,13 @@
 # `git merge-base origin/main HEAD <each MERGE_HEAD>`, so it allows a commit
 # exactly when this script reads the path clean.
 #
+# THE BASE IS `origin/main` FOR A PR INTO ANY BRANCH, A SPRINT BRANCH INCLUDED.
+# Only `main` builds bundles, so a sprint branch carries `main`'s build at the
+# last `main` commit it took. A merge of `main` into a sprint carries `main`'s
+# newer bundles: against the sprint tip they read as the PR's change, against
+# `origin/main` they read clean, and the commit hook allows only those copies.
+# CI therefore calls this script with no base argument.
+#
 # THE REFUSAL PRINTS THE EXACT REPAIR: one `git checkout <merge-base> --
 # <path>` per changed generated path that the merge base holds, and `git rm`
 # for one the merge base lacks (a path born on this branch, which a checkout
@@ -48,6 +56,9 @@
 # files this gate must not touch.
 
 set -uo pipefail
+
+# shellcheck source=scripts/lib-declared-bundles.sh
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib-declared-bundles.sh"
 
 # The tree to check. Defaults to this script's repo, which is what CI runs. An
 # explicit root exists so the gate can be pointed at a fixture and its own
@@ -69,8 +80,7 @@ if [ ! -f "$BUILD" ]; then
   exit 2
 fi
 
-generated=$(grep -aoE "shipped[A-Za-z]* = path\.join\([^)]*'[^']*'\)" "$BUILD" \
-  | sed -E "s|.*'\.\./\.\./([^']*)'.*|\1|" | sort -u)
+generated=$(read_shipped_bundles . : worktree | sed 's|^|skills/plot/scripts/|')
 
 if [ -z "$generated" ]; then
   echo "::error::no shipped bundles found in $BUILD; the derivation is blind."

@@ -4,13 +4,16 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Released
 - **Type:** feature
 - **Sprint:** ship-2-32-0
 - **Issue:** #3245
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-08, Jan Wloka, plan-PR #3249 merged
+- **Started:** 2026-11-10, Jan Wloka, `feature/rows-share-seven-columns-and-link`
+- **Delivered:** 2026-11-12
+- **Released:** 2026-11-15, v2.33.0
 
 ## Changelog
 
@@ -53,9 +56,10 @@ Depends on plan 1 (Placement), which decides the section of every work item and 
 
 ### Row forms
 
-- `feature/rows-share-seven-columns-and-link` <!-- waits: feature/delivery-tab-sections --> — domain row forms and link targets for work-item and agent rows, the seven-column rendering with the details popover, the auto switches in the Fleet header, and removal of the replaced row code from `rows.tsx`
+- `feature/rows-share-seven-columns-and-link` <!-- waits: feature/delivery-tab-sections --> — domain row forms and link targets for work-item and agent rows, the seven-column rendering with the details popover, the auto switches in the Fleet header, and removal of the replaced row code from `rows.tsx` → #3393
 
 ## Notes
 
 - Created from tracker issue #3245 by `/plot-idea`; stops at Draft. The slice list above is one slice and may be split by `/plot-reslice` or at design review, since the design names five parts (forms, columns and links, popover, switches, removal).
 - Sibling plans from the same design: 1. Placement, 3. Tickets and loose ends.
+- Ruling, 2026-11-12, Jan Wloka: the seven-column row carries everything the plan, slice and branch rows did. Its DO column holds the row menu (Approve, Dispatch, Deliver, Reslice, Implement, Start work, with a refused entry staying focusable and saying why); each group shows a plan head over its slices with the slice fold; the row keeps the change marks, the stuck-state words, the status words of a slice being built and the dispatcher-log button. The rulings of 2026-11-10 in `docs/plans/2026-11-08-every-work-item-and-agent-shows.md` stand, and browser tests that assert those behaviours keep their subject and move to the new DOM.

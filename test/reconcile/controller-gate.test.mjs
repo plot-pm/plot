@@ -957,3 +957,17 @@ test('controller gate: a hand-written plot/review status is refused from a linke
     }
   }
 });
+
+// --- loose-delete: an HTTP-only action with a board-free bundle and no receipt escape ---
+
+test('controller gate: a POST to /api/loose-delete is refused, names the bundle, and offers no receipt escape', () => {
+  const r = run(repo(), 'curl -X POST http://localhost:4000/api/loose-delete -d \'{"branch":"feature/x"}\'');
+  assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /POST \/api\/loose-delete/);
+  assert.match(r.stderr, /plot-loose-delete-command\.mjs <branch>/);
+  assert.doesNotMatch(r.stderr, /unowned-action/, 'no receipt bypasses this refusal');
+});
+
+test('controller gate: a GET on /api/loose-delete is a read and is allowed', () => {
+  assert.equal(run(repo(), 'curl http://localhost:4000/api/loose-delete').status, 0);
+});

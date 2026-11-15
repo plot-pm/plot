@@ -17,7 +17,7 @@ import { removeTree as rmTree } from '../rm-tree.mjs';
 // and its start replaces a dead worker under the desk's continue lock.
 
 const scriptDir = path.resolve(__dirname, '../../../../skills/plot/scripts');
-const monitors = { start: () => ({ ok: true, value: { agentMonitorPid: '' } }), stop: () => ({ ok: true }) } as never;
+const monitors = { stop: () => ({ ok: true }) } as never;
 const deadWorker: RestartReaders = {
   pr: async () => ({ reachedReview: false, number: 0, state: '' }),
   worker: async () => ({ state: 'failed', pid: '', exitCode: '143', activity: 'idle' }),
@@ -86,14 +86,27 @@ describe('restartBranch', () => {
     expect(r).toMatchObject({ kind: 'refused', status: 409, reason: 'unattended' });
   });
 
-  it('reads the desk from the last finished pulse, so an empty worktree there refuses no-worktree', async () => {
-    const r = await restartBranch({ opts, pulse: pulseOf('feature/other', '/w/other'), pulseComplete: false, lastCompletePulse: pulseOf('no-desk', ''), branch: 'no-desk', caller: 'person' });
+  it('reads the desk from the last finished pulse, so an empty worktree there asks origin for the desk', async () => {
+    const asked: string[] = [];
+    const r = await restartBranch({
+      opts,
+      pulse: pulseOf('feature/other', '/w/other'),
+      pulseComplete: false,
+      lastCompletePulse: pulseOf('no-desk', ''),
+      branch: 'no-desk',
+      caller: 'person',
+      originDesk: async (input) => {
+        asked.push(input.branch);
+        return { kind: 'refused', status: 404, reason: 'no-worktree', detail: 'origin holds no ref' };
+      },
+    });
+    expect(asked).toEqual(['no-desk']);
     expect(r).toMatchObject({ kind: 'refused', status: 404, reason: 'no-worktree' });
   });
 
-  it('refuses no-worktree with 404 where the pulse lists the branch with no desk', async () => {
+  it('refuses origin-unreadable where the pulse lists the branch with no desk and the repository cannot be read', async () => {
     const r = await restartBranch({ opts, pulse: pulseOf('feature/no-desk', ''), branch: 'feature/no-desk', caller: 'person' });
-    expect(r).toMatchObject({ kind: 'refused', status: 404, reason: 'no-worktree' });
+    expect(r).toMatchObject({ kind: 'refused', status: 409, reason: 'origin-unreadable' });
   });
 });
 

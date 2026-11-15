@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** the-board-reads-the-channel
 - **Issue:** #3170
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-08, Jan Wloka, plan-PR #3278 merged
 - **Delivered:** 2026-11-09
+- **Released:** 2026-11-11, v2.32.0
 
 ## Changelog
 
@@ -92,15 +93,15 @@ Two arrow-function rules sit beside it:
 
 ### Entity
 
-- `feature/the-snapshot-entity-entity` — `RepoSnapshotSchema` in `packages/domain/src/entities/snapshot.ts`, `recordReading` in `rules/snapshot-record.ts`, `staleReadings` in `rules/snapshot-stale.ts`, unit rows for each <!-- builds: RepoSnapshot, a domain entity of readings with a generation -->
+- `feature/the-snapshot-entity-entity` — `RepoSnapshotSchema` in `packages/domain/src/entities/snapshot.ts`, `recordReading` in `rules/snapshot-record.ts`, `staleReadings` in `rules/snapshot-stale.ts`, unit rows for each <!-- builds: RepoSnapshot, a domain entity of readings with a generation --> → #3279
 
 ### Watch port
 
-- `feature/the-snapshot-entity-watch` — the `Watch` port in `packages/domain/src/ports/watch.ts` and the `watchFs` adapter in `packages/domain/src/adapters/watch/watch-fs.ts`: directories only, re-arm on `rename`, `degraded` on a failed arm; adapter tests in a temporary repository <!-- builds: Watch, a domain-owned file-watch port with an fs.watch directory adapter -->
+- `feature/the-snapshot-entity-watch` — the `Watch` port in `packages/domain/src/ports/watch.ts` and the `watchFs` adapter in `packages/domain/src/adapters/watch/watch-fs.ts`: directories only, re-arm on `rename`, `degraded` on a failed arm; adapter tests in a temporary repository <!-- builds: Watch, a domain-owned file-watch port with an fs.watch directory adapter --> → #3282
 
 ### Fleetd fills
 
-- `feature/the-snapshot-entity-fill` — one snapshot in `registryd-main.ts`; the scan, PR reader, issue reader, default-branch beat and tick record their existing readings through `recordReading`; a `--once` test over the census fixture; a changeset <!-- builds: fleetd's in-memory RepoSnapshot filled by the existing tick -->
+- `feature/the-snapshot-entity-fill` — one snapshot in `registryd-main.ts`; the scan, PR reader, issue reader, default-branch beat and tick record their existing readings through `recordReading`; a `--once` test over the census fixture; a changeset <!-- builds: fleetd's in-memory RepoSnapshot filled by the existing tick --> → #3285
 
 ## Notes
 

@@ -1,0 +1,14 @@
+{
+  "blocked": [
+    "{\"monitor\":\"AgentMonitor\",\"branch\":\"feature/blocked\",\"worktree\":\"<desk>\",\"finding\":\"owes an answer\",\"since\":\"<time>\",\"evidence\":\"a PLOT-BLOCKED.md marker is in the tree at <desk>; the agent stopped and a person has not answered\",\"measuredAt\":\"<time>\"}"
+  ],
+  "dirty": [
+    "{\"monitor\":\"AgentMonitor\",\"branch\":\"feature/dirty\",\"worktree\":\"<desk>\",\"finding\":\"holds unlanded work\",\"since\":\"<time>\",\"evidence\":\"1 uncommitted file(s) at <desk>, the first being work.txt; the work exists only on this desk\",\"measuredAt\":\"<time>\"}"
+  ],
+  "review": [
+    "{\"monitor\":\"AgentMonitor\",\"branch\":\"feature/review\",\"worktree\":\"<desk>\",\"finding\":\"owes a review\",\"since\":\"<time>\",\"evidence\":\"the branch carries commits, the tree is clean and no PR exists; finished work is invisible\",\"measuredAt\":\"<time>\"}"
+  ],
+  "gate": [
+    "{\"monitor\":\"AgentMonitor\",\"branch\":\"feature/gate\",\"worktree\":\"<desk>\",\"finding\":\"owes a gate\",\"since\":\"<time>\",\"evidence\":\"the branch has a PR but adds no .changeset/*.md; it would land red on the changeset gate\",\"measuredAt\":\"<time>\"}"
+  ]
+}

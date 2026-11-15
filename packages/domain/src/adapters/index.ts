@@ -28,6 +28,8 @@ export {
 } from './plan-store/plan-store-fixture.js';
 
 export { hostShell } from './host/host-shell.js';
+export { hostReadsFor, hostWithListing, IN_PROCESS_BACKENDS, SHELL_CI, SHELL_RICH_CI, shellCiOf, type HostReads, type HostReadsBasis, type HostReadsOptions } from './host/host-reads.js';
+export type { GithubApi } from './host/github-api.js';
 export { BITBUCKET_PAGE_LENGTHS, BITBUCKET_REQUEST_PAGELEN, listingPagingFor, walkToLimit } from './host/listing-paging.js';
 export { hostFixture, type HostFixture } from './host/host-fixture.js';
 
@@ -37,6 +39,8 @@ export { hostFixture, type HostFixture } from './host/host-fixture.js';
 // default configuration, a repository whose plans ARE the tracker.
 export { trackerGithub } from './tracker/tracker-github.js';
 export { trackerJira } from './tracker/tracker-jira.js';
+export { trackerReadsFor, type TrackerReads, type TrackerReadsOptions } from './tracker/tracker-transport.js';
+export type { JiraInProcess } from './tracker/tracker-jira.js';
 export { trackerNone } from './tracker/tracker-none.js';
 export {
   HOST_ISSUE_LISTERS,
@@ -77,6 +81,7 @@ export {
 } from './agent-run/agent-run-fixture.js';
 
 export { budgetFile, BUDGET_HOME_ENV, type BudgetFileOptions } from './budget/budget-file.js';
+export { budgetAccount, type BudgetAccountOptions } from './budget/budget-account.js';
 
 export {
   sliceSpendFile,
@@ -185,6 +190,10 @@ export { passkeyFile, passkeyPath } from './passkey/passkey-file.js';
 // written by `plot-fleetctl.sh --stop` and cleared by `--start`.
 export { fleetStoppedFile, fleetStoppedPath } from './fleet-stopped/fleet-stopped-file.js';
 
+// THE WORKER WRAPPER'S RECORDS. The desk files `plot-worker-wrapper.mjs`
+// writes about the agent it starts, and the agent start itself.
+export { agentStartShell, workerRecordsFile } from './worker-records/worker-records-file.js';
+
 // THE FLEET BRIDGE'S FILE ADAPTER. One file per repository under
 // `.plot/state/last-pulse.json`, written by `plot-fleetd` on the scan's
 // success path and read by the board — the same shape `pulse-bridge.ts`
@@ -232,6 +241,17 @@ export { gateContractFile, type GateContractFileOptions } from './gate-contract/
 export { tempSweepShell, TEMP_SWEEP_MARKER } from './temp-sweep/temp-sweep-shell.js';
 
 export { refsGit } from './refs/refs-git.js';
+export { refFilesFs, type RefFiles } from './refs/ref-files-fs.js';
+// THE OBJECT READER. fleetd and the board server install one per repository at
+// start; `refsGit` reads blobs and trees through it where one is held.
+export {
+  installObjectsReader,
+  objectReaders,
+  processObjects,
+  type InstallObjectsOptions,
+  type ObjectReaders,
+  type ObjectsInstall,
+} from './refs/object-readers.js';
 export { refsRemoteGit, type RunCommand } from './refs/refs-remote-git.js';
 export { refsFixture, type RefsFixture } from './refs/refs-fixture.js';
 
@@ -257,6 +277,12 @@ export { transcriptFs, type TranscriptFsOptions } from './transcript/transcript-
 export { transcriptFixture, type TranscriptFixture } from './transcript/transcript-fixture.js';
 
 export {
+  bindableChannelAddress,
+  channelAddressFor,
+  type ChannelAddressOptions,
+} from './channel/channel-address.js';
+
+export {
   startChannel,
   type ChannelOptions,
   type RunningChannel,
@@ -275,6 +301,7 @@ export {
 export { clockSystem, clockFixed, clockManual } from './clock/clock-system.js';
 
 export { watchFs } from './watch/watch-fs.js';
+export { deskFingerprint, readWatchLayout, type WatchLayoutPaths } from './watch/watch-layout-fs.js';
 
 export {
   machineSystem,
@@ -282,7 +309,9 @@ export {
   type MachineSystemOptions,
 } from './machine/machine-system.js';
 
-export { processesShell, parseEtime } from './processes/processes-shell.js';
+export { processesShell, parseEtime, type ProcessProbes } from './processes/processes-shell.js';
+export { processesFiles, readWorkerReadings, readingsLine, processReadingOf } from './processes/processes-files.js';
+export { processesTable, parseTable } from './processes/processes-table.js';
 
 // THE PRODUCTION PERFORMER, beside the sandbox one and never replacing it.
 // `perform-fs.ts` skips `worker-start`; this reaches the process table, and the
@@ -293,6 +322,7 @@ export { performerShell } from './performer/performer-shell.js';
 export { deskMonitorsShell } from './desk-monitors/desk-monitors-shell.js';
 
 export { mergerAppShell } from './merger-app/merger-app-shell.js';
+export { mergerAppHeld, mergerKeyStamp, type MergerAppReader } from './merger-app/merger-app-held.js';
 export { appKeyShell } from './merger-app/app-key-shell.js';
 
 export { claimReleaseShell } from './claim-release/claim-release-shell.js';

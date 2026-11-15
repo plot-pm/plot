@@ -5,8 +5,9 @@ import { readConfig, scriptsFor } from './board.js';
 import { readTail, type LogMissReason } from './worker-log.js';
 import { pulseFor } from './fleet.js';
 import { localCapability } from './controllers/caller.js';
-import { startReadingFromPulse, startDispatch } from '@plot-pm/fleet/shared/dispatch-command';
-import type { DispatchReading } from '@plot-pm/domain/rules/auto-dispatch';
+import { bodyBranch, dispatchHome, startReadingFromPulse, startDispatch } from '@plot-pm/fleet/shared/dispatch-command';
+import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
+import type { DispatchReadingFor } from '@plot-pm/domain/rules/auto-dispatch';
 
 /**
  * The board's ONE state-changing route.
@@ -228,7 +229,7 @@ export interface DispatchDeps {
   /** Read a Plot Config key, or return the fallback. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
   /** What to do about starting a plan; `startReadingFromPulse` over the board's pulse where absent. */
-  startReading?: (opts: BuildBoardOptions, slug: string) => DispatchReading;
+  startReading?: (opts: BuildBoardOptions, slug: string, branch?: string) => DispatchReadingFor;
 }
 
 /**
@@ -341,16 +342,29 @@ export async function handleDispatch(
     json(400, { error: 'slug must be a plan slug' });
     return;
   }
+  const named = bodyBranch(body);
+  if (named === null) {
+    json(400, { error: 'branch must be a branch name' });
+    return;
+  }
 
   // THE BRIEF GATE LIVES IN `startDispatch`, shared with the dispatch command:
   // the `Implement command` check, the second-click refusal, the implement run
   // and — only after it exits 0 — the receipt and `plot-dispatch.sh`. This route
   // keeps the HTTP half: the origin gate, the body, the status mapping.
+  const startReading = (s: string, b?: string): DispatchReadingFor =>
+    (deps.startReading ?? ((o, planSlug, br) => startReadingFromPulse(pulseFor(o), planSlug, br)))(opts, s, b);
+  // The plan's sprint branch, read before the synchronous start: the implement
+  // prompt names it as `--branch`, as `/api/implement`'s does.
+  const context = { repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir };
+  const home = await dispatchHome(opts.refs ?? refsGit(context), context, slug, startReading(slug, named.branch));
   const started = startDispatch({
     opts: { ...opts, scripts: scriptsFor(opts) },
     slug,
+    branch: named.branch,
     readCfg,
-    startReading: (s) => (deps.startReading ?? ((o, planSlug) => startReadingFromPulse(pulseFor(o), planSlug)))(opts, s),
+    startReading,
+    home,
   });
   if (started.kind === 'refused') {
     const { status, kind: _kind, ...refusal } = started;

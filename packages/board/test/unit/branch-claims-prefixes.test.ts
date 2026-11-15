@@ -87,6 +87,7 @@ describe('plot-deliver --release', () => {
     const repo = path.join(root, 'repo');
     git(root, 'init', '-q', '--bare', '-b', 'main', origin);
     git(root, 'init', '-q', '-b', 'main', repo);
+    git(repo, 'config', 'user.email', 't@t');
     mkdirSync(path.join(repo, 'docs/plans'), { recursive: true });
     writeFileSync(path.join(repo, 'CLAUDE.md'), `# R\n\n## Plot Config\n\n${config}`);
     writeFileSync(path.join(repo, 'docs/plans/2026-10-01-solo.md'), slices(claim));
@@ -134,4 +135,63 @@ describe('plot-deliver --release', () => {
     expect(configured.code, configured.out).toBe(0);
     await expect(release('', claim)).rejects.toThrow(/names no/);
   }, 120_000);
+
+  it('books a PR merged into a rewritten sprint branch by the merge that carried it', async () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'plot-claim-prefixes-')));
+    roots.push(root);
+    const repo = path.join(root, 'repo');
+    git(root, 'init', '-q', '-b', 'main', repo);
+    mkdirSync(path.join(repo, 'docs/plans'), { recursive: true });
+    writeFileSync(path.join(repo, 'CLAUDE.md'), '# R\n\n## Plot Config\n\n');
+    writeFileSync(path.join(repo, 'docs/plans/2026-10-01-solo.md'), slices('- `feature/tickets` — the work → #217'));
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', 'init');
+    git(repo, 'remote', 'add', 'origin', repo);
+    git(repo, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+    git(repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+    const subject = 'Merge pull request #217 from plot-pm/feature/tickets';
+    // The PR's own merge, on the sprint branch before its rewrite.
+    git(repo, 'checkout', '-q', '-b', 'feature/tickets');
+    git(repo, 'commit', '-q', '--allow-empty', '-m', 'the work');
+    git(repo, 'checkout', '-q', '-b', 'old-sprint', 'main');
+    git(repo, 'merge', '-q', '--no-ff', '-m', subject, 'feature/tickets');
+    const ownMerge = git(repo, 'rev-parse', 'HEAD').trim();
+    // The rewritten sprint branch: the same merge subject on another commit.
+    git(repo, 'checkout', '-q', 'main');
+    git(repo, 'commit', '-q', '--allow-empty', '-m', 'main moves');
+    git(repo, 'checkout', '-q', '-b', 'sprint/x');
+    git(repo, 'checkout', '-q', '-b', 'feature/tickets-again', 'main');
+    git(repo, 'commit', '-q', '--allow-empty', '-m', 'the work, rewritten');
+    git(repo, 'checkout', '-q', 'sprint/x');
+    git(repo, 'merge', '-q', '--no-ff', '-m', subject, 'feature/tickets-again');
+    git(repo, 'checkout', '-q', 'main');
+    git(repo, 'merge', '-q', '--no-ff', '-m', 'Merge pull request #300 from plot-pm/sprint/x', 'sprint/x');
+    const carrier = git(repo, 'rev-parse', 'HEAD').trim();
+    git(repo, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+    git(repo, 'tag', 'v2.0.0', carrier);
+    const context = { repoRoot: repo, scriptDir: SCRIPT_DIR };
+    const ctx: Context = {
+      repoRoot: repo,
+      scriptDir: SCRIPT_DIR,
+      refs: refsGit(context),
+      host: {
+        prState: async () => answered({ mergeCommit: ownMerge, mergedAt: '2026-10-01T00:00:00Z', base: 'sprint/x', head: 'feature/tickets' }),
+        prMergeDests: async (branch: string) =>
+          answered(branch === 'sprint/x' ? [{ number: 300, base: 'main', mergeCommit: carrier, mergedAt: '2026-10-02T00:00:00Z' }] : []),
+        lastRefusal: () => null,
+        backend: async () => answered('github'),
+      } as unknown as Host,
+      planStore: planStoreShell(context),
+      scripts: scriptsShell(context),
+      trees: treesGit(context),
+      prIndex: {} as unknown as PrIndexStore,
+    };
+    const out: string[] = [];
+    const args: Args = { dryRun: true, who: 'jw', releaseVersion: 'v2.0.0', slug: 'solo' };
+    const code = await runRelease(ctx, args, 'docs/plans/2026-10-01-solo.md', (s) => out.push(s), (s) => out.push(s));
+    const text = out.join('');
+    expect(code, text).toBe(0);
+    expect(text).toContain(`PR #217 merged ${ownMerge}, carried by ${carrier}, shipped in v2.0.0`);
+  }, 60_000);
 });
+

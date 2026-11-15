@@ -6,6 +6,7 @@ import {
   type BudgetEntry,
   type BudgetKey,
 } from '../entities/budget.js';
+import type { LimitBasis } from '../entities/limit.js';
 
 /**
  * How long a window lasts where the connector states no reset.
@@ -403,3 +404,60 @@ export const bucketVerdict = (
   key: BudgetKey,
   now: number,
 ): 'spendable' | 'spent' | 'unknown' => spendRate(lines, key, now).verdict;
+
+/** What one connector-and-account pair has spent, read as one window over every bucket. */
+export interface ConnectorSpend {
+  /** How many calls the window holds, summed over every bucket. */
+  spent: number;
+  /** Milliseconds from the oldest live line to `now`; 0 where the window holds none. */
+  spanMs: number;
+  /** The implied calls per hour, or null where the window holds no span. */
+  perHour: number | null;
+  /** The newest live reading's limit, or null where no live line carries a reading. */
+  limit: number | null;
+  /** The newest live reading's remaining calls, or null where no live line carries a reading. */
+  remaining: number | null;
+  /** The newest live reading's reset, epoch milliseconds, or null where no live line carries a reading. */
+  resetAt: number | null;
+  /** The newest live reading's basis; `unknown` where no live line carries a reading. */
+  basis: LimitBasis;
+}
+
+/**
+ * Reads one connector-and-account pair's spend over ONE window that spans
+ * every bucket, as `plot-host.sh spend-rate` answers with no `--bucket`.
+ *
+ * The window starts at the latest reset any bucket stated that has passed, or
+ * {@link FALLBACK_WINDOW_MS} back where none has. `limit`, `remaining`,
+ * `resetAt` and `basis` come from the newest live line whose basis is not
+ * `unknown`. A line that cannot be decoded is skipped.
+ * `corpus/spend-rate.corpus.test.ts` holds this rule to the shell's answer.
+ *
+ * @param lines - the record's raw lines, in file order.
+ * @param connector - the connector's own name.
+ * @param account - the account the lines are keyed by.
+ * @param now - epoch milliseconds.
+ * @returns the spend, the span, the rate and the newest reading.
+ */
+export const connectorSpend = (
+  lines: readonly string[],
+  connector: string,
+  account: string,
+  now: number,
+): ConnectorSpend => {
+  const mine: BudgetEntry[] = [];
+  for (const line of lines) {
+    const entry = line.trim() === '' ? null : decodeEntry(line);
+    if (entry !== null && entry.key.connector === connector && entry.key.account === account) mine.push(entry);
+  }
+  const from = windowStart(mine, now);
+  const read: RecordRead = { live: mine.filter((entry) => withinWindow(entry, from)), dead: [], unreadable: 0 };
+  const reading = latest(read);
+  return {
+    ...windowSpend(read, now),
+    limit: reading?.limit ?? null,
+    remaining: reading?.remaining ?? null,
+    resetAt: reading?.resetAt ?? null,
+    basis: reading?.basis ?? 'unknown',
+  };
+};

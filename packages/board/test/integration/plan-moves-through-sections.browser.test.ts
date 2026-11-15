@@ -7,8 +7,8 @@ import { ELIGIBLE_NOTE, DRAFT_PLAN_NOTE, type AgentRow, type Board, type Card, t
 import { withFacts } from '../fixtures/card-facts.js';
 
 /**
- * THE WHOLE OPERATOR PATH, WALKED ONCE — approve a plan, and it appears in NOT
- * STARTED where Start work takes it.
+ * THE WHOLE OPERATOR PATH, WALKED ONCE — approve a plan, and it appears under
+ * Work items › Queued where Start work takes it.
  *
  * Every existing test covers one LEG of this path and none walks it:
  * `approve.browser.test.ts` proves the card's Approve arms and posts,
@@ -29,18 +29,20 @@ import { withFacts } from '../fixtures/card-facts.js';
  * over its whole input space in `test/unit/fleet.test.ts`. So the walk asserts
  * the RENDERED path the operator sees: the board a stub answers with holds both
  * ends of the journey at once — a Draft plan still offering Approve and kept out
- * of NOT STARTED, and an approved plan sitting in NOT STARTED offering the Start
- * work that dispatches it.
+ * of Queued, and an approved plan sitting in Queued offering the Start work that
+ * dispatches it.
  *
  * Three assertions exist because a naive implementation passes without them,
- * each named from the plan's `## Done when`:
- *   - the approved plan reaches NOT STARTED SPECIFICALLY, not merely a row
+ * each named from the plan's `## Done when`. NOT STARTED is the Delivery tab's
+ * Work items › Queued group since `delivery-tab-sections`:
+ *   - the approved plan reaches Queued SPECIFICALLY, not merely a row
  *     somewhere — wave 1's admission fix is what that proves;
  *   - Start work DISPATCHES (a POST to `/api/dispatch`), not merely renders — a
  *     disabled-but-present control passes a presence check;
- *   - the Draft plan's shelved branch is ABSENT from NOT STARTED — the section
- *     means *approved — nobody has taken it*, and only a negative assertion
- *     catches the old `'draft'` allowlist returning.
+ *   - the Draft plan's shelved branch is ABSENT from Queued — the group means
+ *     *nobody has taken it* for approved work, a Draft plan's branch belongs
+ *     under You › Input to the fleet, and only a negative assertion catches a
+ *     Draft branch being queued.
  *
  * `/api/fleet` and `/api/board` are stubbed at the network boundary, the way the
  * sibling suites do it. Route callbacks are SYNCHRONOUS: the board polls on a
@@ -54,7 +56,7 @@ const GH = 'https://github.com/tiny/garden';
 /** The plan the operator approves — Draft, so its card offers Approve. */
 const DRAFT_SLUG = 'still-a-draft';
 const DRAFT_FILE = 'p-still-a-draft.md';
-/** The plan already approved — in NOT STARTED, offering Start work. */
+/** The plan already approved — in Queued, offering Start work. */
 const APPROVED_SLUG = 'approved-and-waiting';
 const APPROVED_FILE = 'p-approved-and-waiting.md';
 
@@ -63,6 +65,9 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   wave: 'w', state: 'open', phase: 'Design', group: 'not-started', ageMinutes: null,
   waitingOn: 'click', note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
   localDirty: false, localLocked: false, stuck: null, verdict: 'eligible',
+  // No PLOT-BLOCKED marker. The schema defaults this to null, and the Delivery
+  // tab reads an absent value as a marker.
+  question: null,
   ...over,
 });
 
@@ -104,23 +109,24 @@ function card(slug: string, file: string, phase: Card['phase']) {
  * The pulse the operator's board shows AFTER one plan is approved and before
  * anyone has taken it — the two ends of the path held at once.
  *
- *   - `approved-and-waiting`: one eligible, unbegun wave in NOT STARTED. This is
+ *   - `approved-and-waiting`: one eligible, unbegun wave under Queued. This is
  *     where an approval lands, and the row Start work acts on.
  *   - `still-a-draft`: a shelved (`deferred`) branch of a plan still under
- *     review. `classify` routes it to WAITING ON YOU — the act it waits on is
- *     the approval, which lives on the plan head — so it must NOT appear in NOT
- *     STARTED. This is the row the old `'draft'` allowlist wrongly admitted.
+ *     review. The act it waits on is the approval, so it belongs under You and
+ *     must NOT appear under Queued. This is the row the old `'draft'`
+ *     allowlist wrongly admitted.
  */
 function fleet(over: Partial<Fleet> = {}): Fleet {
   const rows: AgentRow[] = [
-    // The approved plan's unbegun wave — in NOT STARTED, eligible, startable.
+    // The approved plan's unbegun wave — queued, eligible, startable. The
+    // branch row's menu offers Start work on `startability: 'start-work'`.
     row({
       plan: APPROVED_SLUG, planFile: APPROVED_FILE,
       branch: 'feature/approved-w1', wave: 'Sown', waitingDays: 3,
-      group: 'not-started', state: 'open', waitingOn: 'click',
-      note: ELIGIBLE_NOTE, verdict: 'eligible',
+      group: 'not-started', state: 'open', phase: 'Development', waitingOn: 'click',
+      note: ELIGIBLE_NOTE, verdict: 'eligible', startability: 'start-work',
     }),
-    // The Draft plan's shelved branch — WAITING ON YOU, never NOT STARTED.
+    // The Draft plan's shelved branch — under You, never Queued.
     row({
       plan: DRAFT_SLUG, planFile: DRAFT_FILE,
       branch: 'feature/draft-shelved', wave: 'Set aside', state: 'deferred',
@@ -167,15 +173,15 @@ describe('a plan moves through the sections — approve it, and Start work takes
   /** The Discovery tab — where the card's Approve lives. */
   const openBoard = (): Promise<Page> => openTab();
 
-  /** The Agents tab — where the fleet's rows and NOT STARTED live. */
+  /** The Agents tab — where the fleet's rows and Work items › Queued live. */
   async function openAgents(): Promise<Page> {
     const page = await openTab('agents');
-    await page.getByText('Not started').first().waitFor({ timeout: 10_000 });
+    await page.locator('section[data-section="work-items"]').waitFor({ timeout: 10_000 });
     return page;
   }
 
-  const notStarted = (page: Page) =>
-    page.locator('ul[role="grid"][aria-label^="Not started"]');
+  const queued = (page: Page) =>
+    page.locator('ul[role="grid"][aria-label^="Queued"]');
   const cardFor = (page: Page, title: string) => page.locator('article', { hasText: title });
 
   it('offers Approve on the Draft plan card — the operator\'s first act', async () => {
@@ -193,51 +199,51 @@ describe('a plan moves through the sections — approve it, and Start work takes
     }
   });
 
-  it('shows the approved plan in NOT STARTED — the section its approval lands in', async () => {
-    // LEG 2, AND WAVE 1'S ADMISSION FIX. The plan must reach NOT STARTED
+  it('shows the approved plan in Queued — the group its approval lands in', async () => {
+    // LEG 2, AND WAVE 1'S ADMISSION FIX. The plan must reach Queued
     // SPECIFICALLY — a test that only counts rows somewhere passes with the old
-    // routing intact. The section is located by its own accessible name, and the
-    // plan is found by its `data-plan-row`.
+    // routing intact. The group is located by its grid's accessible name, and
+    // the plan by its slice's branch row: the Delivery tab renders no plan head.
     const page = await openAgents();
     try {
       await expect
-        .poll(() => notStarted(page).locator(`li[data-plan-row="${APPROVED_SLUG}"]`).count(), { timeout: 10_000 })
+        .poll(() => queued(page).locator(`li[data-plan-row="${APPROVED_SLUG}"]`).count(), { timeout: 10_000 })
         .toBe(1);
     } finally {
       await page.close();
     }
   });
 
-  it('keeps the Draft plan\'s shelved branch OUT of NOT STARTED', async () => {
-    // THE NEGATIVE JUNCTION, and the only assertion that catches the old
-    // `'draft'` allowlist returning. NOT STARTED means *approved — nobody has
-    // taken it*; a Draft plan's shelved branch waits on the approval, so it
-    // belongs in WAITING ON YOU. It must be reachable SOMEWHERE (grouping moves
-    // a row, never loses it) and it must not be HERE.
+  it('keeps the Draft plan\'s shelved branch OUT of Queued', async () => {
+    // THE NEGATIVE JUNCTION, and the only assertion that catches a Draft
+    // branch being queued. Queued means *approved — nobody has taken it*; a
+    // Draft plan's shelved branch waits on the approval, so it belongs under
+    // You. It must be reachable SOMEWHERE (grouping moves a row, never loses
+    // it) and it must not be HERE.
     const page = await openAgents();
     try {
       // Present on the board — this is an absence, not an empty page.
       await expect
         .poll(() => page.locator('[data-branch="feature/draft-shelved"]').count(), { timeout: 10_000 })
         .toBeGreaterThan(0);
-      // …but nowhere inside NOT STARTED, folded or not. Open every fold first, so
+      // …but nowhere inside Queued, folded or not. Open every fold first, so
       // this is not passing merely because the branch sits behind a shut one.
       await expandAgentFolds(page);
-      expect(await notStarted(page).locator('[data-branch="feature/draft-shelved"]').count()).toBe(0);
-      expect(await notStarted(page).locator(`li[data-plan-row="${DRAFT_SLUG}"]`).count()).toBe(0);
+      expect(await queued(page).locator('[data-branch="feature/draft-shelved"]').count()).toBe(0);
+      expect(await queued(page).locator(`li[data-plan-row="${DRAFT_SLUG}"]`).count()).toBe(0);
     } finally {
       await page.close();
     }
   });
 
-  it('offers Start work in NOT STARTED, and the click DISPATCHES', async () => {
+  it('offers Start work in Queued, and the click DISPATCHES', async () => {
     // LEG 3, THE END OF THE PATH. Start work must DISPATCH, not merely render: a
     // disabled-but-present control passes a presence check. The dispatch is
     // stubbed at the network boundary — nothing creates a worktree or pushes a
     // claim — and what is asserted is that the POST to `/api/dispatch` is made.
     //
-    // The wave row's `⋯` opens the menu; `StartWorkButton` posts on the click —
-    // it goes to `starting…` and the pulse, not a second click, confirms.
+    // The branch row's `⋯` opens the menu; `StartWorkButton` posts on the
+    // click — it goes to `starting…` and the pulse, not a second click, confirms.
     const page = await openAgents();
     let dispatched: string | null = null;
     // Record the POST, then fulfil it like a real 202 so the button settles.
@@ -253,7 +259,7 @@ describe('a plan moves through the sections — approve it, and Start work takes
       await expandAgentFolds(page);
       // The eligible wave's menu — `SliceActions` renders `data-slice-actions` for
       // an eligible wave once a card and a dispatch verdict exist.
-      const menuButton = notStarted(page).locator('[data-slice-actions="Sown"]');
+      const menuButton = queued(page).locator('[data-slice-actions="Sown"]');
       await menuButton.waitFor({ timeout: 10_000 });
       await menuButton.click();
 
@@ -280,7 +286,7 @@ describe('a plan moves through the sections — approve it, and Start work takes
       route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ slug: APPROVED_SLUG }) }));
     try {
       await expandAgentFolds(page);
-      const menuButton = notStarted(page).locator('[data-slice-actions="Sown"]');
+      const menuButton = queued(page).locator('[data-slice-actions="Sown"]');
       await menuButton.waitFor({ timeout: 10_000 });
       await menuButton.click();
       const start = page.getByRole('button', { name: 'Start work' });

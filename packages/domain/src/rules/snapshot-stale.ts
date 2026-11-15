@@ -31,7 +31,8 @@ export interface StaleReading {
  *
  * @param change - what a trigger reported.
  * @returns the readings to read again. A remote change names `refs`, read
- *   through one fetch, and the readings taken from the refs. Every change the
+ *   through one fetch, and the readings taken from the refs. A refs change
+ *   names `plans` too, because the walk reads plans from `origin/<main>`. Every change the
  *   plan walk reads also names `walk`. A deadline names none: the rule that
  *   owns the deadline runs over the readings already held. The safety net
  *   names every key.
@@ -42,11 +43,15 @@ export const staleReadings = (change: SnapshotChange): readonly StaleReading[] =
     case 'remote':
       return [
         { key: 'refs' },
+        { key: 'plans' },
         { key: 'walk' },
         { key: 'branchDates' },
         { key: 'ideaPlans' },
         { key: 'releaseVersions' },
         { key: 'unmerged' },
+        { key: 'branchPlans' },
+        { key: 'sprints' },
+        { key: 'stories' },
       ];
     case 'desk-git':
       return [{ key: 'desks', desk: change.desk }, { key: 'walk' }];

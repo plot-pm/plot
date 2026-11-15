@@ -11,11 +11,11 @@ import type { AgentRow, Fleet } from '../../src/contract/schema.js';
  * `test/unit/a-handed-slice-reads-as-taken.test.ts` — five guards, each
  * mutation-tested. This suite serves a payload in which the row ALREADY carries
  * `group: 'working'` and the note, so a bug in that rule cannot reach it. What
- * only a page can settle is where the sentence lands: the moved row is not drawn
- * itself, because WORKING renders registry agents through `RegistryRow`, and the
- * note has to arrive in the agent's own row by the join.
+ * only a page can settle is where the sentence lands: Fleet › Working renders
+ * registry agents through `RegistryRow`, and the note has to arrive in the
+ * agent's own row by the join.
  *
- * It asserts the session nowhere. The session already renders in WORKING today,
+ * It asserts the session nowhere. The session already renders in Fleet today,
  * so such an assertion would pass against an unchanged board — which is why the
  * note names the state and not the agent.
  */
@@ -40,10 +40,10 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
 } as unknown as AgentRow);
 
 /**
- * The payload: one handed row in WORKING, one untouched row in NOT STARTED.
+ * The payload: one handed row an agent holds, one untouched row nobody holds.
  *
- * The second row is what makes the absence assertion mean anything. NOT STARTED
- * must still render — a section that is empty because the fixture gave it
+ * The second row is what makes the absence assertion mean anything. Work items
+ * › Queued must still render — a section that is empty because the fixture gave it
  * nothing would pass the "no row for the branch" claim vacuously, which is the
  * trap `sprint-switch.browser.test.ts` records for `[data-agent-row]`.
  */
@@ -59,9 +59,8 @@ const fleet = (): Fleet => {
   return {
     generatedAt: new Date().toISOString(),
     ageSeconds: 1, ready: true, error: null, rows,
-    // THE REGISTRY ENTRY THAT CAUSED THE MOVE. WORKING draws agents, not branch
-    // rows, so without this entry the handed row renders nowhere at all and the
-    // note has no row to land in.
+    // THE REGISTRY ENTRY THAT CAUSED THE MOVE. Fleet draws agents, not branch
+    // rows, so without this entry the note has no agent row to land in.
     agents: [{
       session: '334b3492', branch: BRANCH, worktree: '', command: '', startedAt: '',
       pid: '4242', previousPid: '', relaunches: 0, state: 'running' as const,
@@ -89,8 +88,7 @@ describe('a handed slice reads as taken, in the agent\'s own row', () => {
   });
 
   it('the agent\'s row carries the hand-over note', async () => {
-    // The note reaches the AGENT's row by the join, because the moved branch row
-    // is not drawn in WORKING.
+    // The note reaches the AGENT's row in Fleet by the join.
     const notes = page.locator('[data-agent-row] [data-row-note]');
     await expect.poll(async () => {
       await expandAgentFolds(page);
@@ -98,24 +96,23 @@ describe('a handed slice reads as taken, in the agent\'s own row', () => {
     }, { timeout: 20_000 }).toContain(HANDED);
   });
 
-  it('NOT STARTED holds no row for the handed branch', async () => {
-    // THE SECTION IS AN ELEMENT, not an attribute on the row. Rows carry no
-    // `data-group`, so a `[data-branch][data-group="not-started"]` selector
-    // matches nothing and the claim would pass against an unfixed board —
+  it('Queued holds no row for the handed branch', async () => {
+    // THE GROUP IS AN ELEMENT, not an attribute on the row. Rows carry no
+    // `data-group`, so a `[data-branch][data-group="queued"]` selector matches
+    // nothing and the claim would pass against an unfixed board —
     // `sprint-switch.browser.test.ts` records the same trap for
-    // `[data-agent-row]`. So the section is located by its own heading button
-    // and the row is looked for inside it.
-    const notStarted = page.locator('section', {
-      has: page.locator('[data-group-toggle="not-started"]'),
-    });
+    // `[data-agent-row]`. So the row is looked for inside the group's own
+    // `<div data-group="queued">`. Queued is the group of what nobody has
+    // taken, which is the claim a handed slice must not meet.
+    const queued = page.locator('[data-section="work-items"] [data-group="queued"]');
 
-    // The OTHER branch proves the section rendered and unfolded at all: an
-    // empty or missing NOT STARTED would satisfy the claim below for free.
+    // The OTHER branch proves the group rendered and unfolded at all: an
+    // empty or missing Queued would satisfy the claim below for free.
     await expect.poll(async () => {
       await expandAgentFolds(page);
-      return notStarted.locator(`[data-branch="${OTHER}"]`).count();
+      return queued.locator(`[data-branch="${OTHER}"]`).count();
     }, { timeout: 20_000 }).toBeGreaterThan(0);
 
-    expect(await notStarted.locator(`[data-branch="${BRANCH}"]`).count()).toBe(0);
+    expect(await queued.locator(`[data-branch="${BRANCH}"]`).count()).toBe(0);
   });
 });

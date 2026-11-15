@@ -64,6 +64,10 @@ describe('the descendants of a board', () => {
   it('lists nothing for a board with no child', () => {
     expect(descendantsOf(13, '  10     1\n  13     1\n')).toEqual([]);
   });
+
+  it('leaves out the object reader, which lives as long as the board', () => {
+    expect(descendantsOf(10, '  11    10 git cat-file --batch-command --buffer -z\n  12    10 git ls-tree -r x\n')).toEqual([12]);
+  });
 });
 
 // A stand-in board that starts one child in its own process group, as the

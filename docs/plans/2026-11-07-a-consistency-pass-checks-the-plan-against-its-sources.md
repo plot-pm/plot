@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Approved:** 2026-11-07, Jan Wloka, plan-PR #3220 merged
 - **Started:** 2026-11-07, Jan Wloka, `feature/a-consistency-pass-trial`
 - **Started:** 2026-11-08, Jan Wloka, `feature/a-consistency-pass-in-the-skill`
 - **Sprint:** ship-2-32-0
 - **Delivered:** 2026-11-08
+- **Released:** 2026-11-11, v2.32.0
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** pr

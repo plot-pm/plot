@@ -21,37 +21,56 @@ export interface ReleasePrReading extends ReviewReading {
 
 /** The release PR's approval button. */
 export interface ReleaseApprovable {
-  /** `hidden` shows no button, `disabled` shows it with `reason`, `enabled` shows it live. */
-  state: 'hidden' | 'disabled' | 'enabled';
+  /** `disabled` shows the button with `reason`, `enabled` shows it live. The button is never hidden. */
+  state: 'disabled' | 'enabled';
   /** The wording for a `disabled` button; empty otherwise. */
   reason: string;
 }
 
+const short = (sha: string): string => sha.slice(0, 9);
+
+const ciReason = (pr: ReleasePrReading, head: string): string | null => {
+  if (pr.ciChecks === undefined || pr.checksSha !== head) return `CI has not reported on ${short(head)}`;
+  if (ciCounted(pr.ciChecks)) return null;
+  if (pr.ciChecks === 'pending') return `CI is still running on ${short(head)}`;
+  if (pr.ciChecks === 'failing') return `CI is failing on ${short(head)}`;
+  return `CI reports no counted check on ${short(head)}`;
+};
+
+const reviewReason = (pr: ReleasePrReading, head: string): string | null => {
+  const review = trustedReview(pr);
+  if (review === undefined || review === 'absent') return `No review on ${short(head)} yet`;
+  if (pr.plotReviewSha !== undefined && pr.plotReviewSha !== head) {
+    return `The review names an older head; no review on ${short(head)} yet`;
+  }
+  if (review === 'success') return pr.plotReviewSha === head ? null : `No review on ${short(head)} yet`;
+  if (review === 'pending') return `The review is still running on ${short(head)}`;
+  if (review === 'unchecked') return `The review on ${short(head)} is not yet judged`;
+  return `The review failed on ${short(head)}`;
+};
+
 /**
- * Decides whether the release PR's row offers "Approve release".
+ * Decides whether the release PR's "Approve release" button is enabled, and why not.
  *
  * The answer is a convenience over the board's own reading. The server re-reads the head and
  * `plot/review` before it merges and refuses `head-moved`, `review-missing` and `checks-missing`.
  *
  * @param pr - the release PR's reading, or `null` where the row carries none.
  * @param held - the server's registration answer, or `null` while it is unread or unreachable.
- * @returns `hidden` unless the PR is open, has a `head` with a trusted `success` review naming that head,
- * and has CI counted on that head; absent fields count as not ready. Among ready PRs, `enabled` where a
- * passkey is registered, `disabled` with {@link APPROVE_REGISTER_FIRST} where `registered` is false and
- * `disabled` with {@link APPROVE_PENDING} where `held` is `null`.
+ * @returns `enabled` where the PR is open, has a `head` with CI counted and a trusted `success` review
+ * on that head, and a passkey is registered. Otherwise `disabled` with the first unmet criterion, in this
+ * order: no reading, not open, no head, CI, review, then {@link APPROVE_PENDING} where `held` is `null`
+ * and {@link APPROVE_REGISTER_FIRST} where `registered` is false.
  */
 export const releaseApprovable = (pr: ReleasePrReading | null, held: PasskeyRegistration | null): ReleaseApprovable => {
-  const head = pr?.headSha;
-  const ready =
-    pr !== null &&
-    head !== undefined &&
-    pr.open &&
-    trustedReview(pr) === 'success' &&
-    pr.plotReviewSha === head &&
-    ciCounted(pr.ciChecks) &&
-    pr.checksSha === head;
-  if (!ready) return { state: 'hidden', reason: '' };
-  if (held === null) return { state: 'disabled', reason: APPROVE_PENDING };
-  if (!held.registered) return { state: 'disabled', reason: APPROVE_REGISTER_FIRST };
+  const no = (reason: string): ReleaseApprovable => ({ state: 'disabled', reason });
+  if (pr === null) return no('The board has not read the release PR yet');
+  if (!pr.open) return no('The release PR is not open');
+  const head = pr.headSha;
+  if (head === undefined) return no("The board has not read the release PR's head yet");
+  const unmet = ciReason(pr, head) ?? reviewReason(pr, head);
+  if (unmet !== null) return no(unmet);
+  if (held === null) return no(APPROVE_PENDING);
+  if (!held.registered) return no(APPROVE_REGISTER_FIRST);
   return { state: 'enabled', reason: '' };
 };

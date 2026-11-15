@@ -172,8 +172,12 @@ describe('boardSourceOf', () => {
     expect(boardSourceOf(facts({ heartbeat: null }))).toBe('own');
   });
 
+  it('answers snapshot for a quiet scan loop under a fresh beat', () => {
+    expect(boardSourceOf(facts({ heartbeat: heartbeat(NOW, { scan: { lastPassAt: NOW - 86_400_000 } }) }))).toBe('snapshot');
+  });
+
   it('answers own for a late loop', () => {
-    expect(boardSourceOf(facts({ heartbeat: heartbeat(NOW, { scan: { lastPassAt: NOW - 86_400_000 } }) }))).toBe('own');
+    expect(boardSourceOf(facts({ heartbeat: heartbeat(NOW, { 'pr-reader': { lastPassAt: NOW - 86_400_000 } }) }))).toBe('own');
   });
 
   it('answers own with no hub', () => {

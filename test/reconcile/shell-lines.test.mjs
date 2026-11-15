@@ -325,3 +325,39 @@ test('--per-file total equals the count the gate compares', withFixture(({ work 
   const listed = perFile.split('\n').filter((l) => /^\s+\d+ skills\//.test(l)).reduce((s, l) => s + Number(l.trim().split(/\s+/)[0]), 0);
   assert.equal(listed, Number(gate[1]));
 }));
+
+/** `feature` cut from `sprint`, which grew a.sh by 20 lines over main; origin/sprint holds that tip. */
+const cutFromSprint = (work) => {
+  git(work, 'checkout', '-q', '-b', 'sprint');
+  write(work, A, 30);
+  commit(work, 'sprint grows');
+  git(work, 'push', '-q', 'origin', 'HEAD:refs/heads/sprint');
+  git(work, 'fetch', '-q', '--no-tags', 'origin', 'sprint:refs/remotes/origin/sprint');
+  git(work, 'checkout', '-q', '-b', 'feature');
+};
+
+test('pr <base>: a branch cut from a feature branch counts only its own lines', withFixture(({ work }) => {
+  cutFromSprint(work);
+  write(work, B, 4);
+  commit(work, 'shrink on the slice');
+  const r = run(work, ['pr', 'origin/sprint']);
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /refs\/remotes\/origin\/sprint|origin\/sprint|merge base/);
+}));
+
+test('pr <base>: the slice\'s own growth over its base is counted and refused', withFixture(({ work }) => {
+  cutFromSprint(work);
+  write(work, B, 8);
+  commit(work, 'slice grows');
+  const r = run(work, ['pr', 'origin/sprint']);
+  assert.notEqual(r.status, 0);
+  assert.match(r.out, /3 lines over/);
+  assert.match(r.out, /git fetch --no-tags origin sprint'/);
+}));
+
+test('pr: with no base argument the same branch is compared with the default branch', withFixture(({ work }) => {
+  cutFromSprint(work);
+  const r = run(work, ['pr']);
+  assert.notEqual(r.status, 0);
+  assert.match(r.out, /20 lines over/);
+}));

@@ -6,7 +6,7 @@
  * reachable from a plain call with no repository, no host and no process.
  */
 
-import type { EndingActor, EndingReason } from '../entities/ending.js';
+import type { EndingActor, EndingReason, IdleInputs } from '../entities/ending.js';
 
 /**
  * Who is asking a workflow to act.
@@ -343,8 +343,9 @@ export interface ChecksWrite {
  * the agent is being told, not in how loudly, so a `correction` field here would
  * describe an agent nobody had a correction for.
  *
- * The brief is deliberately absent. It is read from `origin/<main>` at the path
- * the branch names, by both the gate that refused the hand-over and the agent
+ * The brief is deliberately absent. It is read from the slice's base ref
+ * (`origin/<base>`, or `origin/<main>` where `base` is empty) at the path the
+ * branch names, by both the gate that refused the hand-over and the agent
  * that takes it — carrying its text in the write would be a third copy that can
  * disagree with the ref.
  */
@@ -358,6 +359,8 @@ export interface AgentAssignWrite {
   readonly branch: string;
   /** That branch's plan slug, so the agent's own scope follows the work. */
   readonly slug: string;
+  /** The branch the slice is cut from, without `origin/`; `''` for the default branch. */
+  readonly base: string;
 }
 
 /**
@@ -631,6 +634,8 @@ export interface LoopEndWrite {
    * Absent for every ending but `unstarted`.
    */
   readonly resumeId?: string;
+  /** What the idle watch read at the check that ended the loop; present only on `quiet`. */
+  readonly idle?: IdleInputs;
 }
 
 /**

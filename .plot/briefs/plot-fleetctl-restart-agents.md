@@ -1,0 +1,74 @@
+## Implementation brief — plot-fleetctl-sh-restart-reloads-the (wave 2: Free loops)
+
+- **Plan (canonical):** docs/plans/2026-11-09-plot-fleetctl-sh-restart-reloads-the.md on main
+- **Approved:** 2026-11-09, Jan Wloka, plan-PR #3330 merged
+- **Branch:** `feature/plot-fleetctl-restart-agents` (base: `main`)
+- **Ends as:** one PR to `main`
+- **Review of the code:** PR review through the declared channel (`Review: pr`)
+
+This wave waits on `feature/plot-fleetctl-restart` (#3340). It merged 2026-11-10 (`308dbcd31` is on `origin/main`), so the wave is eligible. Cut the branch from a freshly fetched `origin/main`: a checkout that has not pulled since 2026-11-09 does not contain the arm this slice extends. Nothing waits on this branch.
+
+### What to build
+
+`plot-fleetctl.sh --restart --agents` does what `--restart` does, then also stops each free loop and names every agent it keeps and why. A free loop is a live agent with no slice handed over, no open PR, no `PLOT-BLOCKED` marker and no uncommitted work in its desk. A desk with a branch is stopped through the dispatcher's `--stop <branch>`. A detached desk (no branch) is stopped by its recorded pid, after the pid and its start time are checked.
+
+The failure it fixes, measured 2026-11-09 at about 16:00 (#3329): three agents read `running`, all free loops quiet for about 1 h 45 min. `--stop` stopped one and left two detached desks (pids 4219 and 1006) with "plot-dispatch --stop takes a branch and refuses to guess". A watcher waited 3 hours for a gap with no running agent and never found one, because free loops count as running. The Restart wave gave the operator a reload that keeps every agent; this wave gives the operator the other half: free the slots the idle loops hold, without `--stop`'s all-or-nothing unload. The plan is canonical; this is orientation.
+
+Find every site by content, not by line number (`restarted`, `reload`, `desk_running`, `exclude_bundle_paths`, `plot_pid_is_current`, `refuses to guess`, `--dry-run works with`). Line numbers drift.
+
+### Settled decisions — do not re-derive
+
+**Decisions the plan settles:**
+
+- **The free-loop rule is a domain rule, and an existing rule already answers half of it.** `isAgentFree` and `whyNotFree` (`packages/domain/src/rules/free.ts`) answer "alive, and holding no slice" (state `running`, and either no branch or a landed one). They know nothing of a PR, a `PLOT-BLOCKED` marker or uncommitted work, so no existing reading answers all four conditions; checked 2026-11-10 against `rules/free.ts`, `rules/fleetctl-start.ts` and `loop-restart.ts`. Add `freeLoop(readings)` beside them and have it call `isAgentFree` for the first condition. Do not restate that condition. Its reason string comes from `whyNotFree` for the first condition and names the added fact (`open PR`, `PLOT-BLOCKED marker`, `uncommitted files`) otherwise, the way `whyNotFree` asks `isAgentFree` first so the word and its explanation cannot describe different agents.
+- **One stop rule stays.** A desk with a branch goes through the dispatcher's `--stop <branch>`. Only a detached desk takes the pid path, because the dispatcher's `--stop` takes a branch and refuses to guess. Do not signal a desk that has a branch yourself. That would be the second, laxer stop rule the `--stop` arm already refuses to be.
+- **A recycled pid is never signalled.** Check the pid with `plot_pid_is_current <pid> <startedAt> <pidStartedAt>` (`plot-worker-state.sh`), which compares the pid's own `ps -o lstart` against the start the manifest recorded. A mismatch means the number belongs to another process. Report it as refused and keep going. `kill` by pid alone is the bug this rule exists to prevent.
+- **Every `--start` probe and refusal still applies.** The Restart wave made `--restart` share `--start`'s arm. This slice adds to that arm and copies nothing.
+- **`--restart --agents` refuses under `PLOT_UNATTENDED=1`; `--restart` alone does not.** The plan says it refuses "as `--stop` does". The script has no unattended check today. The `--stop` rule lives in `SKILL.md` as prose, which is a rule and not a gate. Do not repeat that: make the refusal part of the domain decision (add `agents` and `unattended` to the restart reading, as `restartPlan` takes `dryRun`), so the script refuses before it reloads or signals anything. Do not add a check to `--stop`; that is out of scope.
+- **`--dry-run` applies.** `--restart --agents --dry-run` prints which unit would reload and, per agent, `would stop` or `would keep` with the reason. It signals, reloads and writes nothing. `--agents` is valid with `--restart` only: `--start --agents`, `--stop --agents`, `--status --agents` and `--once --agents` refuse before acting, with wording that names the mode, the way the `--dry-run` final-mode check does.
+
+**Choices of this brief, not of the plan.** Each is reversible; if you change one, say so in the PR.
+
+- **Order: reload first, then stop.** The probes run, then the reload, then the report from `restartReport`, then the agent pass. A reload that fails (pid unchanged after `--wait`, exit 1) then stops nothing. The Restart wave ends the arm with `exec node … restarted …`. That `exec` must become a plain call for `--agents`, because the script has to continue after the report. Keep `exec` for plain `--restart`. If the report says not ok, exit 1 before the agent pass.
+- **Take the readings after the reload, and re-read each agent immediately before signalling it.** The new supervisor may hand a free loop a slice between the reload and the stop. A reading taken before the reload would stop that agent. Per agent: read, decide with `freeLoop`, signal at once.
+- **Absent is not free.** A PR that cannot be read, a desk whose dirt cannot be read and a manifest with no recorded start all keep the agent, and the reason says `unreadable`. The rule takes `undefined` for an unread fact and answers kept. This is the invariant this repo breaks first: an empty answer read as "no PR" refused four merged plans on 2026-08-27.
+- **A merged PR is `isAgentFree`'s landed case, not a "PR".** The PR condition means an open PR on the desk's branch. A branch whose slice landed and whose desk is clean is free. If you find that reading wrong in practice, report it; do not widen the rule silently.
+- **Write no stop record.** `--stop` writes the list `--start` restarts through `plot-restart-stopped-command.mjs --record`. A free loop holds no slice to resume, so `--agents` does not feed that list. Before you rely on this, read what `--record` and the restart controller do with an empty list and with a branch-less desk, and report if the reading differs.
+- **Shell stays a collector.** The shell reads, per desk, the state row, branch, marker, dirt and PR, and passes them as tab-separated lines to one subcommand of `plot-fleetctl-start.mjs` (the Restart wave's bundle, built from `packages/board/src/server/entry/fleetctl-start.ts`). The subcommand prints one `stop` or `keep` line per desk with the reason. The shell loop only acts on those lines. This is *A Shell Script Asks The Domain*: the decision runs once per operator command, so the bundle's 39 ms is the right cost, and no duplicated rule is declared.
+
+**Rules carried over:** read `launchctl`'s exit code, not the emptiness of its output. Reuse `supervisor_loaded` and `supervisor_pid`; never hand-read `launchctl print`. A rebuilt generated bundle alone is not "uncommitted work": reuse `exclude_bundle_paths` as the `--stop` arm does, so a desk that locally rebuilt a board bundle still reads clean. Do not call `plot_worker_state` for a decision the rule makes; it supplies the process reading and nothing more. Do not edit `plot-worker-state.sh`; the fleet scan sources it.
+
+### Done when
+
+The plan's `## Slices` line for this branch is the specification: `--restart --agents` stops free loops, stops detached desks by checked pid, and names each agent kept and why. Contract tests: it stops the free loop and keeps the busy agent, the agent with an open PR and the agent with a `PLOT-BLOCKED` marker; a recycled pid is refused and never signalled. `/plot-fleet` documents both flags.
+
+Lift these assertions, each of which a naive implementation passes without:
+
+1. **Survival and death are asserted on pids, after the run.** Start stand-in loops in the sandbox: one free, one busy (a branch and a handed-over slice), one with an open PR, one with a `PLOT-BLOCKED` marker, one with an uncommitted file. Run `--restart --agents`. Assert the free loop's pid no longer answers `kill -0` and every other pid still does. An exit-code-only test passes for an implementation that stops everything.
+2. **A recycled pid is not signalled.** Record a start time in the manifest that differs from the stand-in's real `ps -o lstart`. Assert `kill -0` still answers, the output names the pid as refused, and the exit code does not hide it. Catches `kill` by pid alone.
+3. **A desk with a branch goes through the dispatcher stub.** Reuse `stubDispatch` and assert `calls.log` holds `--stop <branch>` for that desk and no `kill` reached its pid. A detached desk is the opposite: no `--stop` call for it. Catches a second stop rule.
+4. **An unreadable fact keeps the agent.** Make the PR read and the dirt read fail for one desk; assert the agent survives and the output says `unreadable`. Catches "absent is false".
+5. **The reload still keeps its guarantees.** Plain `--restart` still signals no agent (the Restart wave's survival case stays green and unchanged), and the stub `launchctl` log still holds `kickstart -k` and no `bootout`, `bootstrap` or `enable` when `--agents` is given.
+6. **A failed reload stops nothing.** Stub `print` answers the same pid after the kickstart; with `--agents`, assert exit 1 and that the free loop's pid still answers. Catches the wrong order.
+7. **Unattended.** `--restart --agents` with `PLOT_UNATTENDED=1` exits 1, the stub log holds no `kickstart`, and no pid is signalled; `--restart` alone with it set still succeeds. `run()` clears `PLOT_UNATTENDED` by default (a worker's env leaks into sandbox tests), so set it explicitly in these cases.
+8. **`--dry-run` with `--agents`** lists each agent as `would stop` or `would keep` with its reason, and no pid is signalled and the log holds no `kickstart`. `--agents` with any mode but `--restart` refuses before acting.
+9. **Output names every kept agent and its reason**, one line each, taken from the rule's reason string. Assert the text for each of the four reasons.
+10. **Domain unit tests for `freeLoop`:** each of the four conditions alone flips the answer (a table, one row per condition), an `undefined` PR or dirt reading answers kept, and a landed slice with a clean desk is free. Add the entry's subcommand to `packages/board/test/unit/fleetctl-start-entry.test.ts` with the same table at the tab-separated boundary. Catches a rule that is correct and a boundary that mis-parses a field.
+
+Plus the repo's gates. Run `node skills/plot/scripts/board/plot-local-checks.mjs` before each push and run what it prints. The suites in `CI suites` run in CI, and a failure there comes back as a correction. Run no full suite and no `test:e2e`. Also `./scripts/check-bash32-syntax.sh`, `./scripts/check-changeset-packages.sh`, `./scripts/check-helper-table.sh` (the `plot-fleetctl.sh` row in `skills/plot/scripts/README.md` names `--start`, `--restart` and `--stop`; add `--agents`) and `./scripts/check-no-bundle-diff.sh`. Do not commit a rebuilt `skills/plot/scripts/board/*.mjs` bundle: `main` builds its own, and the gate refuses yours. Run `pnpm build:board` to test locally, then restore the generated paths before you push.
+
+`scripts/check-shell-lines.sh` refuses a pull request whose shell under `skills/` is longer than at its merge base. This slice touches `plot-fleetctl.sh`, so its growth is paid for in the same change: remove shell elsewhere, or write the rule in the domain and ask it through a bundle. The gate counts commands, not lines; joining statements with `;` or `&&`, or folding `fi` or `done` onto the line before, is not a payment. The gate stores no number and has no override. The Restart wave measured 36 commands over the merge base before it moved its decision into the domain, so expect the same here: the loop that reads five facts per desk is the new shell, and the decision in the bundle is what keeps it small. Measure with `./scripts/check-shell-lines.sh --per-file` before and after, and keep the net at or below 0. Do not touch `pinned_major()`: `fleetctl.test.mjs` sources the script and calls it.
+
+Docs: `skills/plot-fleet/SKILL.md` gets an `--agents` row in the command table, a paragraph in the `--restart` section that names the free-loop rule, the two stop paths, the checked pid and the kept-and-why output, and a guardrail change. The Model Guidance guardrail currently reads that `--restart` stops no agent and is allowed unattended; it now says `--restart` alone is allowed and `--restart --agents` is not. The `--dry-run` row and the usage block at the top of `plot-fleetctl.sh` name `--agents`. Write the free-loop definition once, in the section, and link to it from the table. Changeset `.changeset/plot-fleetctl-restart-agents.md`, package `'plot': minor`, and `plot-fleet: minor` in the `bumps:` block. Description first, the `plan:` line and `bumps:` block last.
+
+### Bookkeeping
+
+Open the PR with `skills/plot/scripts/plot-open-pr.sh` (`--draft` while the work moves). Never `gh pr create`. When the PR exists, append `→ #<number>` to this branch's line in the plan's `## Slices`. Push the first real commit as soon as it exists. New functions you write are arrows, in the domain and in tests.
+
+### Scope guard
+
+This branch owns: `skills/plot/scripts/plot-fleetctl.sh`, `test/reconcile/fleetctl.test.mjs`, `packages/domain/src/rules/free.ts` and its test (`freeLoop`), the restart reading in `packages/domain/src/rules/fleetctl-start.ts` and its test, `packages/board/src/server/entry/fleetctl-start.ts` and `packages/board/test/unit/fleetctl-start-entry.test.ts`, `skills/plot-fleet/SKILL.md`, the `plot-fleetctl.sh` row in `skills/plot/scripts/README.md`, one changeset. No board UI change (`Board impact: none`). Read-only for you: `plot-worker-state.sh` and the dispatcher. The `--stop` arm keeps its text and behaviour; its "refuses to guess" wording describes `--stop` and stays.
+
+Other branches in flight: checked 2026-11-10 against `gh pr list --state open --json files`, and no open PR touches `plot-fleetctl.sh`, `skills/plot-fleet/`, `fleetctl-start` or `rules/free.ts`. The sibling slice `feature/plot-fleetctl-restart` (#3340) is merged. Run the same check once before you start and report a collision rather than resolving it.
+
+If you find something the plan did not anticipate, report it rather than improvising outside scope.

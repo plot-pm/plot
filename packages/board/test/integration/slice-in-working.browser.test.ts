@@ -80,6 +80,11 @@ function fleet(): Fleet {
   return {
     generatedAt: new Date().toISOString(),
     ageSeconds: 1, ready: true, error: null, rows,
+    // The Working group lists the agents; the running worker on the working branch is one.
+    agents: [{
+      session: 'named-worker', branch: WORKING_BRANCH, worktree: '/wt/plot-wt-named', command: '',
+      startedAt: '', pid: '45678', previousPid: '', relaunches: 0, state: 'running',
+    }],
     issues: [], issueAnswer: 'answered', issueError: null,
     summary: { plans: 2, waves: 2, branches: rows.length, claimed: 1, eligible: 1, blocked: 0, deferred: 0 },
     stuck: { stuck: 0, artifact: 0, conflict: 0, unpushed: 0, ci: 0 },

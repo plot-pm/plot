@@ -10,7 +10,7 @@ import { approvalDateOf, branchAgesOf, fleetViewFrom, registryViewFrom, snapshot
 import type { BranchStageReadings } from '../src/workflows/plan-walk-branches.js';
 import type { DeskStageReadings } from '../src/workflows/plan-walk-desks.js';
 import type { Estate } from '../src/workflows/plan-walk-estate.js';
-import { fullSnapshot } from './fixtures/snapshot.js';
+import { fullSnapshot, plansOf } from './fixtures/snapshot.js';
 
 const MAIN = 'a'.repeat(40);
 const TIP = 'b'.repeat(40);
@@ -40,6 +40,9 @@ const record = (over: Partial<PlanEntry> = {}): PlanEntry => ({
   startedRaw: [],
   rejectedRaw: '',
   unreadBranchItems: [],
+  issues: [],
+  designRaw: '',
+  verifiedRaw: '',
   ...over,
 });
 
@@ -129,7 +132,7 @@ const snapshotOf = (walk: WalkValue = walkValueOf(estate, branchStage, deskStage
     generation: 3,
     readings: {
       ...base.readings,
-      plans: read({ ref: 'origin/main', records: [record()] }),
+      plans: read(plansOf([record()])),
       deskFiles: read({ [WORKTREE]: { question: '', markers: [], pid: '42', exit: null } }),
       workers: read({ [WORKTREE]: { state: 'running' as const, pid: '42', exitCode: '', activity: 'working' as const } }),
       walk: read(walk),
@@ -181,7 +184,7 @@ describe('fleetViewFrom', () => {
 
   it('leaves out a plan with no dated approval and a plan the pulse does not list', () => {
     const snapshot = snapshotOf();
-    snapshot.readings.plans = read({ ref: 'origin/main', records: [record({ approvedRaw: '' })] });
+    snapshot.readings.plans = read(plansOf([record({ approvedRaw: '' })]));
     expect(fleetViewFrom(snapshot, 0, HOST_BRANCH_URL_SCHEMES).approvedAt).toEqual(new Map());
   });
 
@@ -234,7 +237,7 @@ describe('fleetViewFrom', () => {
 
   it('answers an unknown pulse where the plans reading holds another number of records than the walk read', () => {
     const snapshot = snapshotOf();
-    snapshot.readings.plans = read({ ref: 'origin/main', records: [] });
+    snapshot.readings.plans = read(plansOf([]));
     expect(fleetViewFrom(snapshot, 0, HOST_BRANCH_URL_SCHEMES).pulse).toBe('unknown');
   });
 

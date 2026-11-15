@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PlanStore, PortResult } from '@plot-pm/domain';
-import { findPlanForBranch } from '../../src/server/entry/plan-lookup.js';
+import { findPlanForBranch, planBaseFor } from '../../src/server/entry/plan-lookup.js';
 
 const answered = <T>(value: T): PortResult<T> => ({ ok: true, value });
 
@@ -40,5 +40,30 @@ describe('findPlanForBranch', () => {
   it('answers undefined when a plan mentions the branch but no slice names it', async () => {
     const store = storeOver({ 'docs/plans/a.md': 'Mentions bug/foo in prose.\n' }, []);
     expect(await findPlanForBranch(store, 'docs/plans/', 'bug/foo')).toBeUndefined();
+  });
+});
+
+describe('planBaseFor', () => {
+  const FILE = 'docs/plans/p.md';
+  /** Refs where `held` names the refs holding the plan file and `contained` the tips main contains. */
+  const refsOver = (held: readonly string[], tips: readonly string[], contained: readonly string[] = []) => ({
+    defaultBranch: async () => answered('main'),
+    fileExistsSync: (ref: string) => answered(held.includes(ref)),
+    branchTips: async () => answered(tips.map((branch) => ({ branch, sha: `sha-${branch}` }))),
+    contains: async (sha: string) => answered(contained.some((b) => `sha-${b}` === sha) ? ('yes' as const) : ('no' as const)),
+  });
+  const storeWith = (sprint: string) =>
+    ({ readPlans: async () => answered([{ file: FILE, sprint }]) }) as unknown as PlanStore;
+
+  it('answers the default branch for a plan origin/main holds', async () => {
+    expect(await planBaseFor(refsOver(['origin/main', 'origin/sprint/s'], ['sprint/s']), storeWith('s'), FILE)).toBe('');
+  });
+
+  it('answers the sprint branch that alone holds the plan', async () => {
+    expect(await planBaseFor(refsOver(['origin/sprint/s'], ['sprint/a', 'sprint/s']), storeWith('s'), FILE)).toBe('sprint/s');
+  });
+
+  it('skips a sprint branch main already contains', async () => {
+    expect(await planBaseFor(refsOver(['origin/sprint/old'], ['sprint/old'], ['sprint/old']), storeWith('old'), FILE)).toBe('');
   });
 });

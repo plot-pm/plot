@@ -274,9 +274,13 @@ export const startChannel = async (options: ChannelOptions): Promise<RunningChan
   }
   if (holder === 'stale') removeSocket(address);
   await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
+    const failed = (err: NodeJS.ErrnoException): void => {
+      clearInterval(beat);
+      reject(bindError(address, err));
+    };
+    server.once('error', failed);
     server.listen(address, () => {
-      server.removeListener('error', reject);
+      server.removeListener('error', failed);
       resolve();
     });
   });
@@ -378,6 +382,28 @@ const probe = (address: string): Promise<'live' | 'stale' | 'unknown'> =>
       resolve(NOBODY_LISTENS.has(String(err.code)) ? 'stale' : 'unknown');
     });
   });
+
+/** The bind errors a unix socket path past the platform's `sun_path` limit produces. */
+const PATH_TOO_LONG: ReadonlySet<string> = new Set(['EINVAL', 'ENAMETOOLONG']);
+
+/**
+ * Names a bind failure, and the path's length where the failure is one a
+ * too-long socket path produces.
+ *
+ * @param address - the socket path the bind was given.
+ * @param err - the error `listen` emitted.
+ * @returns `err` unchanged, or an error that states the path's byte length and
+ *   the 104-byte limit macOS sets, with `code` kept.
+ */
+export const bindError = (address: string, err: NodeJS.ErrnoException): Error => {
+  if (!PATH_TOO_LONG.has(String(err.code))) return err;
+  const named: NodeJS.ErrnoException = new Error(
+    `cannot bind the channel socket ${address}: the path is ${Buffer.byteLength(address)} bytes, ` +
+      `and a unix socket path holds at most 104 bytes on macOS (${String(err.code)})`,
+  );
+  named.code = err.code;
+  return named;
+};
 
 /** Removes a socket file nobody listens on; a missing file is not an error. */
 const removeSocket = (address: string): void => {

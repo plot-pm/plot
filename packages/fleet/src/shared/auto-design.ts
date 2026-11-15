@@ -25,7 +25,9 @@ import type { Refs, CommitSubject } from '@plot-pm/domain/ports/refs';
 import type { Trees } from '@plot-pm/domain/ports/trees';
 import type { Host, PrLookup } from '@plot-pm/domain/ports/host';
 import type { BoardRunRecord } from '@plot-pm/domain/rules/board-run-end';
+import { askWithHeadroom } from './machine-reading.js';
 import { readConfig } from './config-reader.js';
+import { readSwitch } from './fleet-settings-store.js';
 import { usableCommand } from './usable-command.js';
 import { designLogPath, designPromptPath } from './agent-log.js';
 import type { ActOptions } from './action-log.js';
@@ -149,7 +151,8 @@ export interface DesignPassWorld {
 
 /** What the daemon reads once per pass and hands the spec pass. */
 export interface DesignPassReadings {
-  readonly headroom: Headroom;
+  /** Measures the machine and answers its headroom; asked only for a start that the headroom can refuse. */
+  readonly headroom: () => Promise<Headroom>;
   readonly machineOverride: boolean;
   /** The slices the queue's last pass held, or `null` where no pass has been read. */
   readonly held: readonly HeldSlice[] | null;
@@ -509,7 +512,7 @@ export const runAutoDesignPass = async (
   world: DesignPassWorld = defaultWorld,
 ): Promise<string[]> => {
   const command = usableCommand(readConfig(opts, DESIGN_COMMAND_KEY, ''));
-  const autoDesign = readConfig(opts, AUTO_DESIGN_KEY, '') === 'true';
+  const autoDesign = readSwitch(opts, 'autoDesign');
   foldRestartMarks(opts.repoRoot, now);
 
   const before = readDesignState(opts.repoRoot);
@@ -599,18 +602,22 @@ export const runAutoDesignPass = async (
       const prRetry = failures[plan.slug]?.reading === designCommit;
       const answer = designWork({ state: plan.state, text: plan.text, specRef: specRef.claim, prRetry });
       const store: DesignStore = { failures, failedAt, lastSuccessAt, declined, answeredPr, restart, orphans };
-      const startAnswer = specStart({
-        autoDesign,
-        command: command !== '',
-        slug: plan.slug,
-        designCommit,
-        going: new Set([...going, ...readings.verifying]),
-        store,
-        held: readings.held,
-        headroom: readings.headroom,
-        machineOverride: readings.machineOverride,
-        now,
-      });
+      const startAnswer = await askWithHeadroom(
+        readings,
+        (headroom) => specStart({
+          autoDesign,
+          command: command !== '',
+          slug: plan.slug,
+          designCommit,
+          going: new Set([...going, ...readings.verifying]),
+          store,
+          held: readings.held,
+          headroom,
+          machineOverride: readings.machineOverride,
+          now,
+        }),
+        (answer) => answer.start || answer.reason === 'ask-host',
+      );
       if (startAnswer.start) continue; // unreachable per specStart's own contract; kept so the branch is exhaustive
       const askHost = startAnswer.reason === 'ask-host';
 

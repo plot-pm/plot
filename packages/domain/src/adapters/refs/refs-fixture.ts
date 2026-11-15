@@ -9,6 +9,7 @@ import type {
   CommitSubject,
   Containment,
   FileChange,
+  FirstParentCommit,
   MergeCommit,
   MergeStatus,
   RefScope,
@@ -117,6 +118,8 @@ export interface RefsFixture {
    * same reading as zero.
    */
   behind?: Readonly<Record<string, number>>;
+  /** How far the checkout's HEAD sits past each ref; a ref absent from the table is a failed reading. */
+  headAhead?: Readonly<Record<string, number>>;
   /**
    * The fleet's whole state.
    *
@@ -150,6 +153,8 @@ export interface RefsFixture {
   remotes?: Readonly<Record<string, string>>;
   /** `<dir>\0<range>` to the commits that range holds, newest first. */
   commits?: Readonly<Record<string, readonly CommitLine[]>>;
+  /** Range to its first-parent line, newest first — {@link Refs.firstParentCommits}. */
+  firstParentCommitLists?: Readonly<Record<string, readonly FirstParentCommit[]>>;
   /** Range to the commit subjects it holds, newest first — {@link Refs.commitSubjects}. */
   commitSubjects?: Readonly<Record<string, readonly CommitSubject[]>>;
   /** Each file's repository-relative path to the commit that first added it. */
@@ -164,7 +169,7 @@ export interface RefsFixture {
    */
   ancestry?: Readonly<Record<string, Containment>>;
   /** The operations that fail on this estate, by port member name. */
-  failing?: readonly ('planAdditions' | 'planAuthors' | 'mergeSubjects' | 'contains' | 'containsMany' | 'commitSubjects')[];
+  failing?: readonly ('planAdditions' | 'planAuthors' | 'mergeSubjects' | 'contains' | 'containsMany' | 'commitSubjects' | 'firstParentCommits')[];
   /**
    * The branches whose `remoteHead` call fails, answering `unknown`.
    *
@@ -258,6 +263,7 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
   const remotes = fixture.remotes ?? {};
   const commits = fixture.commits ?? {};
   const commitSubjects = fixture.commitSubjects ?? {};
+  const firstParentCommitLists = fixture.firstParentCommitLists ?? {};
   const additions = fixture.additions ?? {};
   const authors = fixture.authors ?? {};
   const merges = fixture.merges ?? [];
@@ -410,6 +416,11 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
 
     countBehind: async (ref) => answered<number | null>(behind[ref] ?? null),
 
+    countAhead: async (ref) => {
+      const count = fixture.headAhead?.[ref];
+      return count === undefined ? failed<number>() : answered(count);
+    },
+
     showFile: async (ref, path) => {
       const content = files[`${ref}:${path}`];
       return content === undefined ? failed<string>() : answered(content);
@@ -467,6 +478,11 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
       failing.has('commitSubjects')
         ? failed<readonly CommitSubject[]>()
         : answered<readonly CommitSubject[]>(commitSubjects[range] ?? []),
+
+    firstParentCommits: async (range) =>
+      failing.has('firstParentCommits')
+        ? failed<readonly FirstParentCommit[]>()
+        : answered<readonly FirstParentCommit[]>(firstParentCommitLists[range] ?? []),
 
     planAdditions: async (_ref, dir) => {
       if (failing.has('planAdditions')) return failed<ReadonlyMap<string, string>>();

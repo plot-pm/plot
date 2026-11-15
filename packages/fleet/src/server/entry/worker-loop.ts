@@ -1,5 +1,5 @@
 import { readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { existsSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { closeSync, constants as fsConstants, existsSync, fstatSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants, homedir, tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -11,8 +11,9 @@ import {
   claudeOnPath,
   DEFAULT_READ_ONLY_DENY,
   settingsFilesOf,
-  spawnAttached,
+  spawnAttachedHolding,
 } from '@plot-pm/domain/adapters/agent-run/agent-run-sdk';
+import { PASS_FILE, TOKEN_FD, TOKEN_FD_ENV, TOKEN_FILENAME, TOKEN_ON_PATH_ENV } from '@plot-pm/domain/rules/worker-liveness';
 
 import {
   agentsFs,
@@ -43,6 +44,7 @@ import {
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
 import { promptExit } from '@plot-pm/domain/rules/prompt-exit';
 import { backgroundGateEnv } from '@plot-pm/domain/rules/agent-run-env';
+import { sliceBaseRef } from '@plot-pm/domain/rules/slice-base';
 import { spawnContractEnv } from '@plot-pm/domain/rules/spawn-contract';
 import { restartAnswer, type LoopRestartReadings } from '@plot-pm/domain/rules/loop-restart';
 import { DEFAULT_SLICE_MAX_RUNS } from '@plot-pm/domain/rules/run-limit';
@@ -51,6 +53,10 @@ import { failedCheck, printedCommands } from '@plot-pm/domain/rules/local-checks
 import { runnerChoice } from '@plot-pm/domain/rules/runner-choice';
 import { parsePromptFile, promptCandidates, renderPrompt } from '@plot-pm/domain/rules/worker-prompt-text';
 import { idleNow, type DeskReading } from '@plot-pm/domain/rules/sample';
+import { activityVeto, cpuDeltaCentis, logActivity, type LogStat } from '@plot-pm/domain/rules/log-activity';
+import type { ProcessRow } from '@plot-pm/domain/rules/pid-current';
+import type { IdleInputs } from '@plot-pm/domain/entities/ending';
+import { processesTable, type TableRead } from '@plot-pm/domain/adapters/processes/processes-table';
 import { loopRegistration, type LoopRegistration } from '@plot-pm/domain/rules/desk-manifest';
 import {
   agentLoop,
@@ -224,7 +230,7 @@ export const workerLoopPorts = async (
   context: ShellContext,
   manifestDir?: string,
 ): Promise<WorkerLoopPorts> => {
-  const processes: Processes = processesShell(context);
+  const processes: Omit<Processes, 'workerState' | 'table'> = processesShell(context);
   const trees: Trees = treesGit(context);
   const refs: Refs = { ...refsGit(context), ...refsRemoteGit(context) };
   const agents: Agents = agentsFs(context, { manifestDir });
@@ -336,6 +342,8 @@ export interface RestartDeps {
   readonly logOnce: (line: string) => void;
   readonly log: (line: string) => void;
   readonly env: NodeJS.ProcessEnv;
+  /** The descriptor this process holds the liveness token on; `null` or absent where it holds none. */
+  readonly tokenFd?: number | null;
 }
 
 /**
@@ -398,7 +406,9 @@ const selfCheckFailure = (check: Awaited<ReturnType<BoundedRun['run']>>): string
  * {@link SELF_CHECK_ATTEMPTS} times, or whose replace failed, is not tried
  * again, and the rejection is logged once. A restart replaces the process
  * through `reexec` with the same arguments, the candidate bundle,
- * `PLOT_WAIT_STARTED` and `PLOT_HOP_FROM`.
+ * `PLOT_WAIT_STARTED` and `PLOT_HOP_FROM`. Where this process holds the token
+ * on a descriptor other than fd 3, which `execve` closes, the restart also
+ * carries {@link TOKEN_ON_PATH_ENV}.
  *
  * @param ports - the loop's `trees`, `boundedRun` and `reexec`.
  * @param deps - the pinned checkout, the running bundle and the platform readings.
@@ -452,6 +462,7 @@ export const checkRestart = async (
       ...deps.env,
       PLOT_WAIT_STARTED: carry.waitStartedAt === null ? '' : String(carry.waitStartedAt),
       PLOT_HOP_FROM: carry.hopFrom,
+      ...(typeof deps.tokenFd === 'number' && deps.tokenFd !== TOKEN_FD ? { [TOKEN_ON_PATH_ENV]: '1' } : {}),
     },
   );
   if (!replaced.ok) {
@@ -465,6 +476,8 @@ export interface ManifestFields {
   session: string;
   worktree: string;
   branch: string;
+  /** The branch the assigned slice is cut from, without `origin/`; `''` for the default branch. */
+  base: string;
   attempts: number;
   correctionAttempts: number;
   resumeId: string;
@@ -477,6 +490,7 @@ const EMPTY_MANIFEST: ManifestFields = {
   session: '',
   worktree: '',
   branch: '',
+  base: '',
   attempts: 0,
   correctionAttempts: 0,
   resumeId: '',
@@ -545,6 +559,7 @@ export const readManifestFields = async (manifestFile: string): Promise<Manifest
       session: typeof o.session === 'string' ? o.session : '',
       worktree: typeof o.worktree === 'string' ? o.worktree : '',
       branch: typeof o.branch === 'string' ? o.branch : '',
+      base: typeof o.base === 'string' ? o.base : '',
       attempts: typeof o.attempts === 'number' && Number.isInteger(o.attempts) ? o.attempts : 0,
       correctionAttempts:
         typeof o.correctionAttempts === 'number' && Number.isInteger(o.correctionAttempts)
@@ -860,7 +875,9 @@ export const readPass = async (
     registration: 'registered',
     claim: null,
     takeUpRefused: null,
-    base: config.base,
+    // A SPRINT SLICE IS CUT FROM ITS SPRINT BRANCH: the supervisor records the
+    // slice's base in the manifest at hand-over.
+    base: sliceBaseRef(manifest.base, config.base),
     continuation: null,
     running: prompt.running,
     exit: prompt.exit,
@@ -1234,7 +1251,38 @@ export interface IdleDeps {
   readonly windowSeconds: number;
   readonly intervalMs: number;
   readonly transcript: { spoken(worktree: string, handle: string): Promise<{ ok: boolean; value?: boolean }> };
+  /** Reads the whole process table with one `ps`; asked only on a check whose log did not move. */
+  readonly table: () => Promise<TableRead>;
 }
+
+/** What one idle check hands the next: the log reading and the last process table read. */
+export interface IdleHold {
+  readonly log: LogStat | null;
+  readonly table: readonly ProcessRow[] | null;
+}
+
+/** The hold before the first idle check of a prompt. */
+export const NO_IDLE_HOLD: IdleHold = { log: null, table: null };
+
+/** One idle check: the verdict, what it read, and what the next check compares against. */
+export interface IdleCheck {
+  readonly verdict: ReturnType<typeof idleNow>;
+  readonly inputs: IdleInputs;
+  readonly hold: IdleHold;
+}
+
+/** The desk file the loop's own output goes to, which the idle watch reads first. */
+const WORKER_LOG = '.plot-worker.log';
+
+/** The worker log's size and mtime, or `null` where it cannot be read. */
+const readLogStat = (worktree: string): LogStat | null => {
+  try {
+    const stat = statSync(join(worktree, WORKER_LOG));
+    return { bytes: stat.size, mtimeMs: stat.mtimeMs };
+  } catch {
+    return null;
+  }
+};
 
 /**
  * One idle-watch reading of the running prompt, judged by {@link idleNow}.
@@ -1245,13 +1293,21 @@ export interface IdleDeps {
  * `plot_worker_idle_watch_pass`. A reading that cannot be taken withholds
  * `idle`.
  *
+ * Activity is read from `.plot-worker.log` first, against the hold's log
+ * reading (`logActivity`). Only where the log did not move does the check read
+ * the process table, with one `ps`, and compare the prompt's subtree CPU time
+ * with the hold's table (`cpuDeltaCentis`). A moving log, a growing subtree, or
+ * a CPU delta that cannot be measured withholds `idle` (`activityVeto`).
+ *
  * @param ports - where the readings come from.
  * @param idle - the watch's own settings.
  * @param worktree - the desk the prompt runs in.
  * @param handle - the session handle the prompt writes its conversation under.
  * @param ranSeconds - how long the prompt has run.
  * @param nowSeconds - now, epoch seconds.
- * @returns `idle`, or the verdict `idleNow` gave for any other case.
+ * @param hold - what the check before read; {@link NO_IDLE_HOLD} for the first.
+ * @returns the verdict `idleNow` gave, the activity inputs it read, and the
+ *   hold for the next check.
  */
 export const idleVerdict = async (
   ports: WorkerLoopPorts,
@@ -1260,7 +1316,8 @@ export const idleVerdict = async (
   handle: string,
   ranSeconds: number,
   nowSeconds: number,
-): Promise<ReturnType<typeof idleNow>> => {
+  hold: IdleHold = NO_IDLE_HOLD,
+): Promise<IdleCheck> => {
   const children = await ports.processes.childrenOf(idle.selfPid);
   const pid = children.ok ? children.value[0] : undefined;
   const alive = pid === undefined ? null : await ports.processes.isAlive(pid);
@@ -1270,18 +1327,37 @@ export const idleVerdict = async (
   if (reset !== null) silence = Math.min(silence, Math.max(0, nowSeconds - reset));
   silence = Math.min(silence, ranSeconds);
   const spoken = await idle.transcript.spoken(worktree, handle);
-  const activity = pid === undefined ? null : await ports.processes.activity(pid);
+  const logNow = readLogStat(worktree);
+  const log = logActivity(hold.log, logNow);
+  let table = hold.table;
+  let cpuRead = false;
+  let cpuDelta: number | null = null;
+  if (log !== 'working' && pid !== undefined) {
+    cpuRead = true;
+    const fresh = await idle.table();
+    if (fresh.ok) {
+      cpuDelta = cpuDeltaCentis(hold.table, fresh.rows, pid);
+      table = fresh.rows;
+    }
+  }
+  const inputs: IdleInputs = {
+    logBytes: logNow?.bytes ?? null,
+    logMtimeMs: logNow?.mtimeMs ?? null,
+    log,
+    cpuRead,
+    cpuDeltaCentis: cpuDelta,
+  };
   const treeQuiet = await ports.trees.quietSeconds(worktree);
   const commits = await ports.trees.hasCommits(worktree);
   const reading: DeskReading = {
     pid: pid !== undefined && alive !== null && alive.ok && alive.value ? 'alive' : 'dead',
     spoken: spoken.ok && spoken.value === true,
     silenceSeconds: silence,
-    childOnCore: activity !== null && activity.ok && activity.value === 'working',
+    childOnCore: activityVeto(inputs),
     treeQuietSeconds: treeQuiet.ok && treeQuiet.value !== null ? treeQuiet.value : 0,
     commits: commits.ok ? commits.value : 'unanswerable',
   };
-  return idleNow(reading, idle.windowSeconds);
+  return { verdict: idleNow(reading, idle.windowSeconds), inputs, hold: { log: logNow, table } };
 };
 
 /** Everything {@link runWorkerLoop} needs, injected so a test drives it without a process. */
@@ -1312,6 +1388,10 @@ export interface LoopDeps {
   readonly now: () => number;
   readonly sleep: (ms: number) => Promise<void>;
   readonly log: (line: string) => void;
+  /** The liveness token's descriptor the command runner's harness receives as fd 3; `null` or absent passes none. */
+  readonly tokenFd?: number | null;
+  /** Rewrites the desk's pass record at the start of every pass; absent writes none. */
+  readonly recordPass?: (worktree: string, at: number) => void;
   /** Resolves which prompt file runs: `<resolution>\t<prompt>\t<detail>`. */
   readonly resolvePrompt?: (repoRoot: string, agent: string) => string;
   /** Whether the resolved prompt file exists; defaults to `existsSync`. */
@@ -1397,8 +1477,9 @@ export const loopWritesOf = (writes: readonly Write[], runsChecks = false): read
 /**
  * Runs the local checks a `checks` hand-back asks for: the commands
  * `plot-local-checks.mjs` prints, each through `boundedRun`, in order, until
- * one fails. The lister reads the worktree's branch against `sprint/<slug>`
- * where its plan names a sprint, so a sprint slice runs its own checks.
+ * one fails. The lister reads the worktree's branch against its base — the
+ * manifest's `base`, else the nearest of the default branch and the sprint
+ * branches — so a sprint slice runs its own checks.
  *
  * Only the lister's standard output names commands: its standard error goes
  * to a file of its own, so a warning is never read as a command. That file
@@ -1476,7 +1557,7 @@ const FRESH: Held = {
 
 /** How one run ended, for {@link runWorkerLoop}. */
 type RunOutcome =
-  | { ended: 'idle' }
+  | { ended: 'idle'; inputs: IdleInputs }
   | { ended: 'bound' }
   | {
       ended: 'exit';
@@ -1583,6 +1664,9 @@ const runPrompt = async (
     PLOT_SESSION_FLAG: spoken.ok && spoken.value === true ? '--resume' : '--session-id',
     PLOT_SESSION_ID: handle,
     PLOT_CORRECTION_FILE: join(worktree, 'PLOT-CORRECTION.md'),
+    // THE ANSWER NAMES ITS OWN ENTRY: `PLOT-CORRECTION.md` only grows, so the
+    // prompt names the heading a person's answer sits under; empty otherwise.
+    PLOT_CONTINUATION_HEADING: resume !== null && resume.continuation ? continuationHeading(resume.text) : '',
     ...backgroundGateEnv(),
     ...spawnContractEnv(),
   };
@@ -1594,12 +1678,14 @@ const runPrompt = async (
   let ended = false;
   // RESOLVES ONLY WHEN THE WORKER IS IDLE: a watcher whose prompt already ended
   // never answers, so the race below has exactly two outcomes.
-  const watcher = (async (): Promise<'idle'> => {
+  const watcher = (async (): Promise<IdleInputs> => {
+    let hold = NO_IDLE_HOLD;
     while (!ended) {
       await deps.sleep(deps.idle.intervalMs);
       const seconds = Math.floor((deps.now() - startedAt) / 1000);
-      const verdict = await idleVerdict(deps.ports, deps.idle, worktree, handle, seconds, Math.floor(deps.now() / 1000));
-      if (verdict === 'idle' && deps.monitorEndsWorker) return 'idle';
+      const check = await idleVerdict(deps.ports, deps.idle, worktree, handle, seconds, Math.floor(deps.now() / 1000), hold);
+      hold = check.hold;
+      if (check.verdict === 'idle' && deps.monitorEndsWorker) return check.inputs;
     }
     return new Promise<never>(() => undefined);
   })();
@@ -1638,10 +1724,10 @@ const runPrompt = async (
       logFile: deps.outFile,
     };
     const sdkRun = sdk.agentRun({ afterWait: held.afterWait, commitsSinceWait }).run(request);
-    const raced = await Promise.race([sdkRun.then((r) => ({ run: r })), watcher.then(() => ({ idle: true }))]);
+    const raced = await Promise.race([sdkRun.then((r) => ({ run: r })), watcher.then((inputs) => ({ idle: inputs }))]);
     if ('idle' in raced) {
       await consumeContinuation(resume, worktree);
-      return { ended: 'idle' };
+      return { ended: 'idle', inputs: raced.idle };
     }
     ended = true;
     if (!raced.run.ok) return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, permissionDenials: 'unanswerable', finalText: '', handBack: null, sessionId: handle };
@@ -1669,7 +1755,7 @@ const runPrompt = async (
   // (#1382, #1383): the per-answer heading skips that repeat and appends every
   // different answer in the same slice.
   if (resume !== null && resume.continuation) {
-    const heading = continuationHeading(resume.text);
+    const heading = env.PLOT_CONTINUATION_HEADING;
     if (!(await correctionHasContinuation(worktree, heading))) {
       await deps.ports.desk.appendCorrection(worktree, `${heading}\n\n${resume.text}`);
     }
@@ -1680,12 +1766,13 @@ const runPrompt = async (
     env,
     boundSeconds: deps.config.boundSeconds,
     outFile: deps.outFile,
+    ...(deps.tokenFd === undefined || deps.tokenFd === null ? {} : { holdFd: deps.tokenFd }),
   });
 
-  const first = await Promise.race([run.then((r) => ({ run: r })), watcher.then(() => ({ idle: true }))]);
+  const first = await Promise.race([run.then((r) => ({ run: r })), watcher.then((inputs) => ({ idle: inputs }))]);
   if ('idle' in first) {
     await consumeContinuation(resume, worktree);
-    return { ended: 'idle' };
+    return { ended: 'idle', inputs: first.idle };
   }
   const result = first.run;
   ended = true;
@@ -1761,6 +1848,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       localChecks: held.localChecks,
       droppedOn: held.droppedOn,
     };
+    deps.recordPass?.(deps.worktree, deps.now());
     const readings = await readPass(deps.ports, deps.manifestFile, prompt, deps.config, clock, deps.log);
     const decision = agentLoop(readings);
     if (readings.assignedBranch !== '') {
@@ -1831,7 +1919,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
     const refused = takeUpRefusalOf(applied);
     if (refused !== null) {
       const branch = readings.assignedBranch;
-      const claim = refused === 'push' ? await readClaimAnswer(deps.ports, branch, deps.config.base, readings.session) : null;
+      const claim = refused === 'push' ? await readClaimAnswer(deps.ports, branch, readings.base, readings.session) : null;
       deps.log(takeUpLine(refused, claim, branch, worktree));
       const cleared = agentLoop({ ...readings, takeUpRefused: refused, claim });
       await performLoopWrites(loopWritesOf(cleared.writes, deps.sdk !== undefined), deps.ports, worktree);
@@ -1957,11 +2045,13 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
         ? { resumeId: resume.resumeId, text: resume.correction, continuation: readings.continuation !== null }
         : null,
     );
+    // THE HARNESS ENDED: a reader that carried a `live` walk walks again.
+    deps.recordPass?.(deps.worktree, deps.now());
     previousBranch = readings.assignedBranch;
     hopFrom = '';
     clock.since = null;
     if (ran.ended === 'idle') {
-      const idleReadings = { ...readings, running: { verdict: 'idle' as const, transcriptReadable: true }, exit: null };
+      const idleReadings = { ...readings, running: { verdict: 'idle' as const, transcriptReadable: true, idle: ran.inputs }, exit: null };
       const idleDecision = agentLoop(idleReadings);
       await performLoopWrites(idleDecision.writes as readonly LoopWrite[], deps.ports, worktree);
       return 124;
@@ -2155,6 +2245,8 @@ export interface RunnerInput {
   readonly checksOutFile: string;
   readonly now: () => number;
   readonly log: (line: string) => void;
+  /** The liveness token's descriptor the harness receives as fd 3; `null` or absent passes none. */
+  readonly tokenFd?: number | null;
 }
 
 /**
@@ -2224,7 +2316,7 @@ export const runnerDeps = async (input: RunnerInput): Promise<{ runner: 'command
           agentSettings,
           agentSettingsPath: input.agentSettings,
           pathToClaudeCodeExecutable,
-          spawnClaudeCodeProcess: spawnAttached,
+          spawnClaudeCodeProcess: spawnAttachedHolding(input.tokenFd ?? null),
           processes: input.ports.processes,
           now: () => Math.floor(input.now() / 1000),
           afterWait: context.afterWait,
@@ -2472,6 +2564,85 @@ export const selfCheck = async (
   }
 };
 
+/** A FIFO's identity: its device and inode. */
+/**
+ * The device and inode of a named FIFO, or `null` for anything else. macOS
+ * reports a kqueue descriptor as a FIFO with device 0 and inode 0, so a FIFO
+ * with no inode is not a named one.
+ */
+const fifoIdentity = (stat: { isFIFO: () => boolean; dev: number; ino: number } | null): string | null =>
+  stat !== null && stat.isFIFO() && stat.ino !== 0 ? `${stat.dev}:${stat.ino}` : null;
+
+/** `fstat` of a descriptor, or `null` where it is not open. */
+const fdStat = (fd: number) => {
+  try {
+    return fstatSync(fd);
+  } catch {
+    return null;
+  }
+};
+
+/** `stat` of a path, or `null` where it does not exist. */
+const pathStat = (path: string) => {
+  try {
+    return statSync(path);
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * The liveness token's descriptor for the harness, where the wrapper handed
+ * one: `PLOT_WORKER_TOKEN_FD` names fd 3.
+ *
+ * The inherited fd 3 carries no close-on-exec flag, so every child the loop
+ * starts would inherit it where the platform's spawn does not close it. The
+ * loop therefore opens the desk's token path again, which Node opens
+ * close-on-exec, and closes fd 3 once the new descriptor names the same FIFO.
+ * Only the harness, which names the descriptor in its `stdio`, receives it.
+ * A loop restarted through `execve` with {@link TOKEN_ON_PATH_ENV} set opens
+ * the path and leaves fd 3, which then holds a descriptor of its own Node,
+ * untouched. Where the path names another FIFO or none, the inherited fd 3
+ * stays.
+ *
+ * @param env - the process environment.
+ * @param worktree - the desk the token lies in.
+ * @param inherited - the descriptor the wrapper's token arrived on; {@link TOKEN_FD}.
+ * @returns the descriptor to hand the harness, or `null` where no token was handed.
+ */
+export const acquireToken = (env: NodeJS.ProcessEnv, worktree: string, inherited: number = TOKEN_FD): number | null => {
+  if (env[TOKEN_FD_ENV] !== String(TOKEN_FD)) return null;
+  const path = join(worktree, TOKEN_FILENAME);
+  const held = env[TOKEN_ON_PATH_ENV] === '1' ? null : fifoIdentity(fdStat(inherited));
+  const named = fifoIdentity(pathStat(path));
+  if (named === null || (held !== null && held !== named)) return held === null ? null : inherited;
+  let fresh: number;
+  try {
+    fresh = openSync(path, fsConstants.O_RDWR);
+  } catch {
+    return held === null ? null : inherited;
+  }
+  if (held !== null) closeSync(inherited);
+  return fresh;
+};
+
+/**
+ * Rewrites the desk's pass record, `.plot-worker.pass`, with the time. The
+ * loop calls it at the start of every pass and when a prompt returns; a
+ * reader takes a change of its modification time as a trigger for its
+ * `orphaned` walk.
+ *
+ * @param worktree - the desk.
+ * @param at - the pass time, epoch milliseconds.
+ */
+export const recordPassFile = (worktree: string, at: number): void => {
+  try {
+    writeFileSync(join(worktree, PASS_FILE), `${new Date(at).toISOString()}\n`);
+  } catch {
+    /* a desk that cannot take the record walks its process table on the next token change */
+  }
+};
+
 /**
  * Starts the loop from its environment, as `plot-worker-loop.sh` hands it over.
  *
@@ -2525,12 +2696,16 @@ export const main = async (
     const hop = hopFrom === '' ? '' : ` and the hop from ${hopFrom}`;
     stderrLog(`plot-worker-loop: restarted as pid ${process.pid} on ${join(scriptDir, 'board', 'plot-worker-loop.mjs')}, keeping ${wait}${hop}`);
   }
+  const tokenFd = acquireToken(env, worktree);
   // The carried state reaches no prompt and no check this process starts.
   delete env.PLOT_WAIT_STARTED;
   delete env.PLOT_HOP_FROM;
-  const restart = await restartDeps(ports.trees, scriptDir, env, stderrLog);
+  delete env[TOKEN_ON_PATH_ENV];
+  const found = await restartDeps(ports.trees, scriptDir, env, stderrLog);
+  const restart = found === undefined ? undefined : { ...found, tokenFd };
   const now = offsetClock(env);
   const runner = await runnerDeps({
+    tokenFd,
     env,
     scriptDir,
     repoRoot,
@@ -2559,6 +2734,7 @@ export const main = async (
     sliceAgent: (branch) => sliceAgentOf(repoRoot, scriptDir, planDir, branch),
     runnerFor: (agent) =>
       runnerDeps({
+        tokenFd,
         env,
         scriptDir,
         repoRoot,
@@ -2578,6 +2754,7 @@ export const main = async (
       windowSeconds: count(env.PLOT_MONITOR_QUIET_SECONDS, IDLE_WINDOW_SECONDS),
       intervalMs: positive(env.PLOT_MONITOR_INTERVAL, 30) * 1000,
       transcript,
+      table: processesTable().read,
     },
     manifestFile,
     repoRoot,
@@ -2605,6 +2782,8 @@ export const main = async (
     now,
     sleep: systemSleep,
     log: stderrLog,
+    tokenFd,
+    recordPass: recordPassFile,
   });
   await leave();
   return code;

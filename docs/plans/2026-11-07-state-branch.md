@@ -159,6 +159,7 @@ Decisions, numbered. Max Albrecht decided D1 to D16 on 2026-11-07. Jan Wloka dec
 
 ## Notes
 
+- 2026-11-09, Jan Wloka: the Setup slice (`feature/state-branch-setup`, pushed at af77f992f, no PR) grows `plot-host.sh` by 12 commands with a `default-branch-protection` op, which `scripts/check-shell-lines.sh pr` refuses. It waits for the in-process GitHub adapter of plan `github-reads-in-process` (Seam slice PR #3338) and is rebuilt there as an adapter read.
 - 2026-11-07: created with `/plot-idea` from a hand-off. Decisions by Max Albrecht: Type feature, Review pr, Impl own branches, Design yes, every write moves to the state branch, the deploy motivation, and the design decides the merge-back moment.
 - 2026-11-07: deliverable search. `State branch`, `plot-push-state`, `stateRef`: nothing in the estate. `planRef`: `PlanRef` exists in `packages/domain/src/rules/plan-reference.ts:139` with another meaning, so the read rule takes a different name. Title similarity: no active plan overlaps.
 - Related: `docs/plans/2026-08-16-push-main-bypass.md` (the `push=` vocabulary), `docs/plans/2026-10-15-a-lifecycle-micro-pr-merged-past.md` (retry replaced the micro-PR), `docs/plans/2026-10-16-bitbucket-parity-and-app-identities.md` and #1825 (the App identities are opt-in), #1835 (open).

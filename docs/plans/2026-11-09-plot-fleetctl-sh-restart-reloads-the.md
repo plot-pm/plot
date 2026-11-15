@@ -4,12 +4,15 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Released
 - **Type:** feature
 - **Approved:** 2026-11-09, Jan Wloka, plan-PR #3330 merged
 - **Sprint:** ship-2-32-0
 - **Issue:** #3329
 - **Started:** 2026-11-09, Jan Wloka, `feature/plot-fleetctl-restart`
+- **Started:** 2026-11-10, Jan Wloka, `feature/plot-fleetctl-restart-agents`
+- **Delivered:** 2026-11-10
+- **Released:** 2026-11-11, v2.32.0
 - **Story:** <!-- optional -->
 - **Review:** pr
 - **Impl:** own branches
@@ -58,8 +61,9 @@ Layering: the free-loop decision is a rule about agent state, so it belongs in t
 
 ### Free loops
 
-- `feature/plot-fleetctl-restart-agents` — `--restart --agents` stops free loops, detached desks by checked pid, and names each agent kept and why. Contract tests: stops the free loop and keeps the busy agent, the agent with an open PR and the agent with a `PLOT-BLOCKED` marker; a recycled pid is refused and never signalled. `/plot-fleet` documents both flags.
+- `feature/plot-fleetctl-restart-agents` — `--restart --agents` stops free loops, detached desks by checked pid, and names each agent kept and why. Contract tests: stops the free loop and keeps the busy agent, the agent with an open PR and the agent with a `PLOT-BLOCKED` marker; a recycled pid is refused and never signalled. `/plot-fleet` documents both flags. → #3373
 
 ## Notes
 
 - Source: issue #3329. The plan links one way; nothing is written to the tracker.
+- 2026-11-09, Restart slice: `check-shell-lines.sh pr` refused #3340 at 36 commands over the merge base, and in-scope trimming yields about 15. The slice writes the restart decision (which unit is loaded, whether the `--start` probes refuse, the report of old pid, new pid and bundle commit) as a rule in `packages/domain/src/rules` with a unit test, and asks it through a bundle under `skills/plot/scripts/board/`. `plot-fleetctl.sh --restart` only calls the bundle and runs the reload it names. The shell diff ends at or below the merge base. The gate has no exemption, and removing unrelated shell is out of scope.

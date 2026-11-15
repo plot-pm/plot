@@ -1,4 +1,4 @@
-import { useState, type MouseEvent } from 'react';
+import { useState, type MouseEvent, type ReactNode } from 'react';
 import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
 import type { DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
 import { planIndexOf, planReference, planRefOfIssue, type PlanIndex } from '@plot-pm/domain';
@@ -459,11 +459,12 @@ export function HeaderRow() {
           naming one kind's case for all of them. */}
       <span role="columnheader">Marks</span>
       <span role="columnheader">Kind</span>
-      <span role="columnheader">Name</span>
-      <span role="columnheader">Related</span>
+      <span role="columnheader">Item</span>
+      <span role="columnheader">Where</span>
       <span role="columnheader">Status</span>
+      <span role="columnheader">Do</span>
+      <span role="columnheader">By</span>
       <span role="columnheader">Age</span>
-      <span role="columnheader">Actions</span>
     </li>
   );
 }
@@ -518,7 +519,13 @@ export function PlanRow({
   dispatch,
   onStarting,
   planIndex,
+  by,
+  details,
 }: {
+  /** The BY cell: who acts on the item. */
+  by?: ReactNode;
+  /** The details popover's lines. */
+  details?: readonly string[];
   group: PlanGroup;
   /**
    * The fleet's server-derived slices — the list the head's count reads instead
@@ -676,6 +683,8 @@ export function PlanRow({
   const planOwnRow = group.rows.find((r) => r.kind === 'plan');
   return (
     <TupleRowView
+      by={by}
+      details={details}
       tuple={(() => {
         const t = tupleFromPlan({
           plan: group.plan,
@@ -1005,10 +1014,18 @@ export function SliceRow({
   onOpenPlan,
   onRevealBranch,
   planHeaded = false,
+  menuCard,
+  menuDispatch,
   slices,
   onExpandSection,
   planIndex,
+  by,
+  details,
 }: {
+  /** The BY cell: who acts on the item. */
+  by?: ReactNode;
+  /** The details popover's lines. */
+  details?: readonly string[];
   group: SliceGroup;
   /** The plan this slice slices — for the row's test hook, not for a link. */
   plan: string;
@@ -1094,6 +1111,9 @@ export function SliceRow({
    * that name and wrapped to double height.
    */
   planHeaded?: boolean;
+  /** The plan's card and the dispatch binding for the sole branch's menu, which a started slice keeps although its slice row offers no Start work. */
+  menuCard?: Card | null;
+  menuDispatch?: DispatchInfo;
   /** The board's plan index — see `AgentListProps.planIndex`. */
   planIndex?: PlanIndex;
 }) {
@@ -1172,6 +1192,8 @@ export function SliceRow({
         || reading.note;
   return (
     <TupleRowView
+      by={by}
+      details={details}
       tuple={tupleFromSlice({
         name: group.wave,
         plan,
@@ -1264,6 +1286,8 @@ export function SliceRow({
       }, planIndex)}
       rowAttr={{
         'data-slice-row': group.wave || UNNAMED_SLICE,
+        // A slice of one branch is the only row that branch gets, so it is an agent row too.
+        ...(soleRow ? { 'data-agent-row': '' } : {}),
         // A SPIKE says so as an attribute too, so a test asserts the KIND of slice
         // rather than the colour of a glyph.
         ...(isSpikeSlice(group.wave) ? { 'data-slice-spike': '' } : {}),
@@ -1495,8 +1519,8 @@ export function SliceRow({
           {soleRow ? (
             <BranchMenu
               row={soleRow}
-              card={card ?? null}
-              dispatch={dispatch}
+              card={menuCard ?? card ?? null}
+              dispatch={menuDispatch ?? dispatch}
               implement={implement}
               pulse={pulse}
               onStarting={onStarting}
@@ -1538,6 +1562,7 @@ export function SliceRow({
             </button>
           ) : null}
           {active ? <ActivityMark pace="fast" inTrack /> : null}
+          {soleRow && isUnpushed(soleRow) ? <UnpushedMark ahead={soleRow.localAhead} inTrack /> : null}
         </>
       }
     />
@@ -1725,7 +1750,13 @@ export function Row({
   onRevealBranch,
   highlighted = false,
   planIndex,
+  by,
+  details,
 }: {
+  /** The BY cell: who acts on the item. */
+  by?: ReactNode;
+  /** The details popover's lines. */
+  details?: readonly string[];
   row: AgentRow;
   /**
    * The sprint filter is on and passed this row without a membership test —
@@ -2001,6 +2032,8 @@ export function Row({
 
   return (
     <TupleRowView
+      by={by}
+      details={details}
       tuple={tuple}
       onOpenPlan={onOpenPlan}
       // AN AGENT'S NAME OPENS THE PANEL, which is what the name is FOR: the
@@ -2426,7 +2459,13 @@ export function RegistryRow({
   onRevealBranch,
   highlighted = false,
   planIndex,
+  by,
+  details,
 }: {
+  /** The BY cell: who acts on the item. */
+  by?: ReactNode;
+  /** The details popover's lines. */
+  details?: readonly string[];
   /** The agent registry entry — the source of truth for a WORKING row. */
   agent: AgentEntry;
   /**
@@ -2609,11 +2648,15 @@ export function RegistryRow({
     ? noteWithoutPr(row.note, row.pr)
     : !identityWasDeclared(agent)
       ? unnamedDeskLabel({ checkout: agent.checkout ?? '', live: isLiveState(agent.state) })
-      : '';
+      : !isLiveState(agent.state)
+        ? 'stopped — no ending was read, so why it stopped is unknown'
+        : '';
 
   return (
     <>
       <TupleRowView
+        by={by}
+        details={details}
         tuple={tuple}
         onOpenPlan={onOpenPlan}
         // THE NAME OPENS THE PANEL — the session has no address, so the name is
@@ -2648,8 +2691,6 @@ export function RegistryRow({
           // tagged with the first plan left every other plan's blocker
           // unreachable. Reported from a screenshot 2026-10-28: four of six
           // blocked-by marks in NOT STARTED jumped nowhere.
-          ...(row?.wave ? { 'data-slice-row': row.wave } : {}),
-          ...(row?.wave && row?.plan ? { 'data-slice-plan': row.plan } : {}),
           // FREE IS RENDERED AS AN ATTRIBUTE, NOT AS THE STATUS WORD. The two
           // are different questions — *what is it doing?* and *can it take
           // work?* — and a `running` agent between slices answers `running` and

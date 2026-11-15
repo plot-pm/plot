@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Plot helper: the ONE answer to "is this monitor's subject still there?"
 #
-# SOURCED, NOT RUN, by `plot-agent-monitor.sh`. The same shape as
+# SOURCED, NOT RUN. The same shape as
 # `plot-worker-state.sh` and `plot-pr-merged.sh` — and the same reason.
 # `plot-worker-state.sh` carried five of its six states in duplicate until
 # 2026-08-18, and the copies had already drifted on the sixth. A monitor
@@ -117,7 +117,7 @@ plot_monitor_subject() {
   # Measured on CI 2026-08-31: 14 monitors at PPID 1, aged 11-13 minutes, each
   # holding a `sleep 1`, after every test in the reconcile suite had PASSED.
   # A test's fixture is removed at teardown, so its pid file vanishes BEFORE the
-  # agent does; `plot_monitor_wait` then never sees `gone` and loops forever,
+  # agent does; the monitor's wait then never saw `gone` and looped forever,
   # holding node's event loop open until the job ceiling kills it. That is the
   # whole of the reconcile-suite hang, and it is why this is a two-case answer
   # rather than one.
@@ -152,64 +152,6 @@ plot_monitor_subject() {
   else
     printf 'gone'
   fi
-}
-
-# Sleep up to `$1` seconds, but stop early the moment the subject at `$2` is
-# gone. Returns 0 to publish another pass, 1 to leave.
-#
-# ═══════════════════════════════════════════════════════════════════════════
-# WHY THE WAIT IS SPLIT WHEN THE PUBLISHING IS NOT
-# ═══════════════════════════════════════════════════════════════════════════
-#
-# THE TWO CADENCES MUST STAY APART. The plan is explicit: the WorkerMonitor
-# samples the process table every 30 s because a CPU delta is meaningless
-# sampled further apart, and the AgentMonitor asks the host every 300 s because
-# this repo has already measured what host questions on a fast loop cost. *"One
-# subject wants tight sampling of a cheap fact; the other occasional sampling of
-# an expensive one. Merging them would force one of those two to be wrong."*
-#
-# SO ONLY THE WAIT IS SPLIT, NEVER THE PASS. Publishing still happens on the
-# monitor's own interval, unchanged — nothing here makes the AgentMonitor ask
-# the host more often, and its 300 s stays 300 s. What is split is the IDLE TIME
-# between passes, into short naps with a `kill -0` between them.
-#
-# WITHOUT THIS, THE UPPER BOUND IS THE INTERVAL. An AgentMonitor checking only
-# after its full sleep would outlive an agent that finished in ten seconds by
-# nearly five minutes. Bounded, technically — and still an orphan on every
-# dispatch, on an estate where dispatches are frequent. The measurement that
-# opened this slice counted 34 orphans; a five-minute window would have counted
-# plenty too.
-#
-# THE PROBE IS FREE, WHICH IS WHY IT MAY BE FREQUENT. `kill -0` sends no signal
-# and asks no host — it is a single syscall against the process table, the same
-# question `plot-worker-state.sh` asks. The expensive half of an AgentMonitor
-# pass is the host round trip, and that is in the PASS, not here.
-#
-# THE NAP IS THE GRANULARITY, and one second is chosen against the WorkerMonitor
-# rather than in the abstract: a monitor may not outlive its agent by more than
-# the tighter of the two cadences, or the fast monitor's exit would be slower
-# than its own sampling. `PLOT_MONITOR_INTERVAL=1` naps once.
-#
-# THE NAP STARTS NO PROCESS. It is `read -t 1` on descriptor 9, a FIFO beside
-# the pid file that the first call makes, opens read-write and unlinks. Nothing
-# writes to it, so every read waits its whole second: two starts (`mkfifo`,
-# `rm`) for the monitor's life instead of one `sleep` per second. bash 3.2's
-# `read -t` takes whole seconds and returns 1 on a timeout, bash 4 and later
-# above 128, so the status of a nap is ignored. A FIFO that cannot be made or
-# opened leaves `plot_monitor_nap=sleep`, and each nap starts `sleep 1`.
-plot_monitor_wait() { # $1 = seconds to wait, $2 = pid file
-  local remaining="${1:-0}" pid_file="${2:-}" fifo="${2%/*}/.plot-worker.monitor.nap"
-  if [ -z "${plot_monitor_nap:-}" ]; then
-    plot_monitor_nap=sleep
-    mkfifo "$fifo" 2>/dev/null && exec 9<>"$fifo" && plot_monitor_nap='read -u 9 -t'
-    rm -f "$fifo" 2>/dev/null
-  fi
-  while [ "$remaining" -gt 0 ]; do
-    $plot_monitor_nap 1
-    remaining=$((remaining - 1))
-    [ "$(plot_monitor_subject "$pid_file")" = gone ] && return 1
-  done
-  return 0
 }
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -6,6 +6,7 @@ import {
   blockingBranches,
   indexMergedHeads,
   indexOpenHeads,
+  indexSettledMergedHeads,
   knownPrFor,
   landedSource,
   mergedSetWindowFor,
@@ -214,3 +215,20 @@ describe('VIEWS_PER_PASS', () => {
     expect(VIEWS_PER_PASS).toBe(5);
   });
 });
+
+describe('indexSettledMergedHeads', () => {
+  it('names a merged, non-draft head with no open row', () => {
+    const rows = [row(1, 'feature/a', 'MERGED'), row(2, 'feature/b', 'MERGED', true), row(3, 'feature/c', 'OPEN')];
+    expect([...indexSettledMergedHeads(rows)]).toEqual(['feature/a']);
+  });
+
+  it('leaves out a merged head that also has an open row', () => {
+    const rows = [row(1, 'feature/a', 'MERGED'), row(2, 'feature/a', 'OPEN')];
+    expect([...indexSettledMergedHeads(rows)]).toEqual([]);
+  });
+
+  it('answers the empty set for no rows', () => {
+    expect([...indexSettledMergedHeads([])]).toEqual([]);
+  });
+});
+

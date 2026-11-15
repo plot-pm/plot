@@ -204,8 +204,17 @@ test('conflicts: the scan writes NOTHING', () => {
   // merge-tree --write-tree computes in memory: no working tree, no index, no
   // checkout. The conflict is FORESEEN, not present — so the repository must be
   // byte-for-byte identical afterwards, on the very branches that conflict.
+  //
+  // A plain `git status` refreshes the index's stat cache and rewrites
+  // `.git/index` whenever a tracked file's mtime differs from the cached one or
+  // is racily clean, so the snapshot itself moved the `index` field once in CI
+  // (PR #3430, 2026-11-14). The snapshot reads with `--no-optional-locks`, and
+  // the stat cache is made stale first: a scan step that refreshes the index
+  // then rewrites it on every run, and this test fails on every run.
+  const stale = new Date(Date.now() + 5000);
+  for (const rel of ['src/app.ts', ARTIFACT]) fs.utimesSync(path.join(repo, rel), stale, stale);
   const snapshot = () => ({
-    status: git(repo, 'status', '--porcelain'),
+    status: git(repo, '--no-optional-locks', 'status', '--porcelain'),
     head: git(repo, 'rev-parse', 'HEAD'),
     refs: git(repo, 'for-each-ref', '--format=%(refname) %(objectname)'),
     branch: git(repo, 'rev-parse', '--abbrev-ref', 'HEAD'),

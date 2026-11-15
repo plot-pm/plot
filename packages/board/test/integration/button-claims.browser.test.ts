@@ -349,7 +349,7 @@ describe('the Status entry — the dispatcher log gets a durable home', () => {
   }
 
   const rowFor = (page: Page, branch: string) =>
-    page.locator('li[data-agent-row]').filter({ has: page.locator(`[data-branch="${branch}"]`) });
+    page.locator('li[data-agent-row]').filter({ has: page.locator(`[data-branch="${branch}"]`) }).first();
 
   it('is present whenever a dispatcher log exists, and opens the log', async () => {
     const page = await openAgents({

@@ -1,0 +1,290 @@
+{
+ "query": {
+  "state": "all",
+  "branches": [
+   "feature/change-5",
+   "feature/change-2",
+   "feature/ünïcode-17"
+  ]
+ },
+ "args": [
+  "--state",
+  "all",
+  "--branch",
+  "feature/change-5",
+  "--branch",
+  "feature/change-2",
+  "--branch",
+  "feature/ünïcode-17"
+ ],
+ "calls": [
+  {
+   "argv": [
+    "api",
+    "/repositories/{ws}/{repo}/pullrequests?q=state=%22OPEN%22%20AND%20source.branch.name=%22feature%2Fchange-5%22&pagelen=50"
+   ],
+   "stdout": "{\"pagelen\":50,\"page\":1,\"size\":1,\"values\":[{\"type\":\"pullrequest\",\"id\":5,\"title\":\"Change 5\",\"state\":\"OPEN\",\"draft\":false,\"updated_on\":\"2026-10-01T05:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/5\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-5\"},\"commit\":{\"hash\":\"171560751715feac17169ce317173b1a1717d951\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}}]}"
+  },
+  {
+   "argv": [
+    "api",
+    "/repositories/{ws}/{repo}/pullrequests?q=state=%22OPEN%22%20AND%20source.branch.name=%22feature%2Fchange-2%22&pagelen=50"
+   ],
+   "stdout": "{\"pagelen\":50,\"page\":1,\"size\":1,\"values\":[{\"type\":\"pullrequest\",\"id\":2,\"title\":\"Change 2\",\"state\":\"OPEN\",\"updated_on\":\"2026-10-01T02:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/2\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-2\"},\"commit\":{\"hash\":\"3c6ef3623c6f91993c702fd03c70ce073c716c3e\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}}]}"
+  },
+  {
+   "argv": [
+    "api",
+    "/repositories/{ws}/{repo}/pullrequests?q=state=%22OPEN%22%20AND%20source.branch.name=%22feature%2F%C3%BCn%C3%AFcode-17%22&pagelen=50"
+   ],
+   "stdout": "{\"pagelen\":50,\"page\":1,\"size\":0,\"values\":[]}"
+  },
+  {
+   "argv": [
+    "api",
+    "/repositories/{ws}/{repo}/pullrequests?q=state=%22MERGED%22%20AND%20source.branch.name=%22feature%2Fchange-5%22&pagelen=50"
+   ],
+   "stdout": "{\"pagelen\":50,\"page\":1,\"size\":1,\"values\":[{\"type\":\"pullrequest\",\"id\":400,\"title\":\"Change 400\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-17T16:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/400\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-5\"},\"commit\":{\"hash\":\"36ae249036aec2c736af60fe36afff3536b09d6c\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}}]}"
+  },
+  {
+   "argv": [
+    "api",
+    "/repositories/{ws}/{repo}/pullrequests?q=state=%22MERGED%22%20AND%20source.branch.name=%22feature%2Fchange-2%22&pagelen=50"
+   ],
+   "stdout": "{\"pagelen\":50,\"page\":1,\"size\":0,\"values\":[]}"
+  },
+  {
+   "argv": [
+    "api",
+    "/repositories/{ws}/{repo}/pullrequests?q=state=%22MERGED%22%20AND%20source.branch.name=%22feature%2F%C3%BCn%C3%AFcode-17%22&pagelen=50"
+   ],
+   "stdout": "{\"pagelen\":50,\"page\":1,\"size\":0,\"values\":[]}"
+  },
+  {
+   "argv": [
+    "api",
+    "/repositories/{ws}/{repo}/pullrequests?q=state=%22DECLINED%22%20AND%20source.branch.name=%22feature%2Fchange-5%22&pagelen=50"
+   ],
+   "stdout": "{\"pagelen\":50,\"page\":1,\"size\":1,\"values\":[{\"type\":\"pullrequest\",\"id\":401,\"title\":\"Change 401\",\"state\":\"DECLINED\",\"updated_on\":\"2026-10-17T17:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/401\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-5\"},\"commit\":{\"hash\":\"d4e59e41d4e63c78d4e6daafd4e778e6d4e8171d\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}}]}"
+  },
+  {
+   "argv": [
+    "api",
+    "/repositories/{ws}/{repo}/pullrequests?q=state=%22DECLINED%22%20AND%20source.branch.name=%22feature%2Fchange-2%22&pagelen=50"
+   ],
+   "stdout": "{\"pagelen\":50,\"page\":1,\"size\":0,\"values\":[]}"
+  },
+  {
+   "argv": [
+    "api",
+    "/repositories/{ws}/{repo}/pullrequests?q=state=%22DECLINED%22%20AND%20source.branch.name=%22feature%2F%C3%BCn%C3%AFcode-17%22&pagelen=50"
+   ],
+   "stdout": "{\"pagelen\":50,\"page\":1,\"size\":0,\"values\":[]}"
+  }
+ ],
+ "exchanges": [
+  {
+   "path": "/repositories/{ws}/{repo}/pullrequests?q=state=%22OPEN%22%20AND%20source.branch.name=%22feature%2Fchange-5%22&pagelen=50",
+   "response": {
+    "pagelen": 50,
+    "page": 1,
+    "size": 1,
+    "values": [
+     {
+      "type": "pullrequest",
+      "id": 5,
+      "title": "Change 5",
+      "state": "OPEN",
+      "draft": false,
+      "updated_on": "2026-10-01T05:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/5"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-5"
+       },
+       "commit": {
+        "hash": "171560751715feac17169ce317173b1a1717d951"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "path": "/repositories/{ws}/{repo}/pullrequests?q=state=%22OPEN%22%20AND%20source.branch.name=%22feature%2Fchange-2%22&pagelen=50",
+   "response": {
+    "pagelen": 50,
+    "page": 1,
+    "size": 1,
+    "values": [
+     {
+      "type": "pullrequest",
+      "id": 2,
+      "title": "Change 2",
+      "state": "OPEN",
+      "updated_on": "2026-10-01T02:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/2"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-2"
+       },
+       "commit": {
+        "hash": "3c6ef3623c6f91993c702fd03c70ce073c716c3e"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "path": "/repositories/{ws}/{repo}/pullrequests?q=state=%22OPEN%22%20AND%20source.branch.name=%22feature%2F%C3%BCn%C3%AFcode-17%22&pagelen=50",
+   "response": {
+    "pagelen": 50,
+    "page": 1,
+    "size": 0,
+    "values": []
+   }
+  },
+  {
+   "path": "/repositories/{ws}/{repo}/pullrequests?q=state=%22MERGED%22%20AND%20source.branch.name=%22feature%2Fchange-5%22&pagelen=50",
+   "response": {
+    "pagelen": 50,
+    "page": 1,
+    "size": 1,
+    "values": [
+     {
+      "type": "pullrequest",
+      "id": 400,
+      "title": "Change 400",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-17T16:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/400"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-5"
+       },
+       "commit": {
+        "hash": "36ae249036aec2c736af60fe36afff3536b09d6c"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "path": "/repositories/{ws}/{repo}/pullrequests?q=state=%22MERGED%22%20AND%20source.branch.name=%22feature%2Fchange-2%22&pagelen=50",
+   "response": {
+    "pagelen": 50,
+    "page": 1,
+    "size": 0,
+    "values": []
+   }
+  },
+  {
+   "path": "/repositories/{ws}/{repo}/pullrequests?q=state=%22MERGED%22%20AND%20source.branch.name=%22feature%2F%C3%BCn%C3%AFcode-17%22&pagelen=50",
+   "response": {
+    "pagelen": 50,
+    "page": 1,
+    "size": 0,
+    "values": []
+   }
+  },
+  {
+   "path": "/repositories/{ws}/{repo}/pullrequests?q=state=%22DECLINED%22%20AND%20source.branch.name=%22feature%2Fchange-5%22&pagelen=50",
+   "response": {
+    "pagelen": 50,
+    "page": 1,
+    "size": 1,
+    "values": [
+     {
+      "type": "pullrequest",
+      "id": 401,
+      "title": "Change 401",
+      "state": "DECLINED",
+      "updated_on": "2026-10-17T17:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/401"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-5"
+       },
+       "commit": {
+        "hash": "d4e59e41d4e63c78d4e6daafd4e778e6d4e8171d"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "path": "/repositories/{ws}/{repo}/pullrequests?q=state=%22DECLINED%22%20AND%20source.branch.name=%22feature%2Fchange-2%22&pagelen=50",
+   "response": {
+    "pagelen": 50,
+    "page": 1,
+    "size": 0,
+    "values": []
+   }
+  },
+  {
+   "path": "/repositories/{ws}/{repo}/pullrequests?q=state=%22DECLINED%22%20AND%20source.branch.name=%22feature%2F%C3%BCn%C3%AFcode-17%22&pagelen=50",
+   "response": {
+    "pagelen": 50,
+    "page": 1,
+    "size": 0,
+    "values": []
+   }
+  }
+ ]
+}

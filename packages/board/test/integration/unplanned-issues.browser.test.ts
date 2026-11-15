@@ -68,7 +68,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
   } as Fleet;
 }
 
-describe('an unplanned issue appears in WAITING ON YOU', () => {
+describe('an unplanned issue appears in the ticket list', () => {
   // THE STATE IS SERVED, NOT SPAWNED AND STUBBED.
   //
   // This file started `board-server.mjs` over the tiny-garden fixture only to
@@ -91,24 +91,25 @@ describe('an unplanned issue appears in WAITING ON YOU', () => {
       over: { fleet: payload },
       viewport: { width: 1400, height: 1200 },
     });
-    await page.getByText('Waiting on you').first().waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;
   }
 
-  const section = (page: Page) => page.locator('ul[role="grid"][aria-label^="Waiting on you"]');
+  // Tickets render in the Delivery tab's trailing list outside the placement rule.
+  const section = (page: Page) => page.locator('ul[role="grid"][aria-label="Tickets and plan runs"]');
   const issueRow = (page: Page, n: string | number) =>
     section(page).locator(`li[data-issue-row="${n}"]`);
 
-  it('shows an issue no plan references, beside the branch rows', async () => {
+  it('shows an issue no plan references, and leaves the branch rows in place', async () => {
     const page = await open();
     try {
       await expect.poll(() => issueRow(page, 228).count()).toBe(1);
       await expect.poll(() => issueRow(page, 227).count()).toBe(1);
-      // The branch row is untouched — issues are added to the section, not
-      // substituted for it.
+      // The branch row is untouched — issues are added to the tab, not
+      // substituted for it. Its open green PR places it under Work items › At a gate.
       await expect.poll(() =>
-        section(page).locator('[data-branch="feature/needs-review"]').count()).toBe(1);
+        page.locator('[data-group="at-a-gate"] [data-branch="feature/needs-review"]').count()).toBe(1);
     } finally {
       await page.close();
     }
@@ -406,37 +407,4 @@ describe('an unplanned issue appears in WAITING ON YOU', () => {
   });
 
 
-  it('names its tickets as tickets in the section tally', async () => {
-    // One plan over its single slice, plus two tickets. It read `(3)`: the
-    // tickets were added to the plan and slice figures alike, which kept the two
-    // equal so the single-number branch fired, and a heading reading `(3)` above
-    // three lines said nothing about two of them being tickets.
-    const page = await open();
-    try {
-      await expect.poll(async () =>
-        (await page.getByRole('button', { name: /Waiting on you/ }).first().textContent()))
-        .toContain('(1 plan · 2 tickets)');
-      // THE INVARIANT, against the render rather than against the function: the
-      // top-level lines a reader sees equal `plans + branches + tickets +
-      // agents`. Counted from the rendered rows, because a unit test has only
-      // `sectionTally`'s own figures to compare with and would be comparing the
-      // function with itself.
-      const heading = page.getByRole('button', { name: /Waiting on you/ }).first();
-      // One plan group and two ticket rows — the `sr-only` legend is not a row,
-      // and neither is the `Assigned to you · N` sub-header `ticket-rows-
-      // show-type-and-owner` added above the ticket block: it names the
-      // block, it is not one of the rows the tally counts.
-      const rendered = await section(page)
-        .locator('> li:not(.sr-only):not([data-waiting-heading])')
-        .count();
-      const label = (await heading.textContent()) ?? '';
-      const figures = [...label.matchAll(/(\d+) (?:plan|branch|branche|ticket|stopped agent)/g)]
-        .map((m) => Number(m[1]));
-      expect(figures).toEqual([1, 2]);
-      expect(figures.reduce((a, b) => a + b, 0)).toBe(rendered);
-      expect(rendered).toBe(3);
-    } finally {
-      await page.close();
-    }
-  });
 });

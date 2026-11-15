@@ -19,9 +19,12 @@ export const promptArtifact = path.join(here, 'dist/plot-prompt.mjs');
 export const dispatchCommandArtifact = path.join(here, 'dist/plot-dispatch-command.mjs');
 export const continueCommandArtifact = path.join(here, 'dist/plot-continue-command.mjs');
 export const restartCommandArtifact = path.join(here, 'dist/plot-restart-command.mjs');
+export const looseDeleteCommandArtifact = path.join(here, 'dist/plot-loose-delete-command.mjs');
 export const restartStoppedCommandArtifact = path.join(here, 'dist/plot-restart-stopped-command.mjs');
 export const deskLoopArtifact = path.join(here, 'dist/plot-desk-loop.mjs');
 export const prReaderArtifact = path.join(here, 'dist/plot-pr-reader.mjs');
+export const workerWrapperArtifact = path.join(here, 'dist/plot-worker-wrapper.mjs');
+export const workerStartArtifact = path.join(here, 'dist/plot-worker-start.mjs');
 
 const SHARED_OPTIONS = {
   bundle: true,
@@ -107,6 +110,11 @@ export const buildFleetBundles = async () => {
   });
   await esbuild.build({
     ...SHARED_OPTIONS,
+    entryPoints: [path.join(here, 'src/server/entry/loose-delete-command.ts')],
+    outfile: looseDeleteCommandArtifact,
+  });
+  await esbuild.build({
+    ...SHARED_OPTIONS,
     entryPoints: [path.join(here, 'src/server/entry/restart-stopped-command.ts')],
     outfile: restartStoppedCommandArtifact,
   });
@@ -126,10 +134,26 @@ export const buildFleetBundles = async () => {
     entryPoints: [path.join(here, 'src/server/entry/pr-reader.ts')],
     outfile: prReaderArtifact,
   });
+
+  // The wrapper one agent launch runs under: it starts the `Worker command`,
+  // outlives it, and writes the desk's pid, exit and WorkerMonitor records.
+  await esbuild.build({
+    ...SHARED_OPTIONS,
+    entryPoints: [path.join(here, 'src/server/entry/worker-wrapper.ts')],
+    outfile: workerWrapperArtifact,
+  });
+
+  // The detached start of that wrapper: it checks the Node major against
+  // `.nvmrc`, starts the wrapper through the `Detached` port, and exits.
+  await esbuild.build({
+    ...SHARED_OPTIONS,
+    entryPoints: [path.join(here, 'src/server/entry/worker-start.ts')],
+    outfile: workerStartArtifact,
+  });
 };
 
 // Runs when invoked as `node build.mjs`, and not when imported.
 if (import.meta.url === `file://${process.argv[1]}`) {
   await buildFleetBundles();
-  console.log('Built plot-fleetd.mjs, plot-worker-loop.mjs, plot-fleet-size.mjs, plot-prompt.mjs, plot-dispatch-command.mjs, plot-continue-command.mjs, plot-restart-command.mjs, plot-restart-stopped-command.mjs, plot-desk-loop.mjs, plot-pr-reader.mjs → dist/');
+  console.log('Built plot-fleetd.mjs, plot-worker-loop.mjs, plot-fleet-size.mjs, plot-prompt.mjs, plot-dispatch-command.mjs, plot-continue-command.mjs, plot-restart-command.mjs, plot-loose-delete-command.mjs, plot-restart-stopped-command.mjs, plot-desk-loop.mjs, plot-pr-reader.mjs, plot-worker-wrapper.mjs, plot-worker-start.mjs → dist/');
 }

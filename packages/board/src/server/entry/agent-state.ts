@@ -93,17 +93,18 @@ const asLiveness = (word: string): PidLiveness => {
  *
  * @param line one desk's readings
  * @returns what was measured of the desk
- * @throws when the line is not seven tab-separated fields, or the liveness
+ * @throws when the line is not eight tab-separated fields, or the liveness
  *   field is a word this parser does not know
  */
 export const readingsFrom = (line: string): AgentStateReadings => {
   const fields = line.split('\t');
-  if (fields.length !== 7) {
+  if (fields.length !== 8) {
     throw new Error(
-      `expected 7 tab-separated fields, got ${fields.length} in '${line}'`,
+      `expected 8 tab-separated fields, got ${fields.length} in '${line}'`,
     );
   }
-  const [here, pid, liveness, exit, blocked, dirty, aheadText] = fields as [
+  const [here, pid, liveness, exit, blocked, dirty, aheadText, freeWait] = fields as [
+    string,
     string,
     string,
     string,
@@ -133,6 +134,9 @@ export const readingsFrom = (line: string): AgentStateReadings => {
       dirty: dirty === '1',
       unpushed,
     },
+    // `free_wait` is 1 only beside a recorded `startedAt`, as `plot_worker_state` reads it.
+    waitsFree: freeWait === '1',
+    startedAtRecorded: freeWait === '1',
   };
 };
 

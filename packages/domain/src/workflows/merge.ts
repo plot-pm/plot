@@ -18,8 +18,9 @@ import {
   type RepairMergeRefusal,
   type RepairRole,
 } from '../rules/repair-pr.js';
+import { mergeChecksVerdict } from '../rules/merge-checks.js';
 import { sameCommit } from '../rules/same-commit.js';
-import { isSyncPr, syncPathVerdict } from '../rules/state-sync.js';
+import { isSyncPr, mayBeSyncPr, syncPathVerdict, type UnreadSyncGate } from '../rules/state-sync.js';
 import type { StateWriteTarget } from '../rules/write-target.js';
 import { RELEASE_BRANCH } from '../rules/release-branch.js';
 import { type Caller, type Outcome, decide, refuse } from './decision.js';
@@ -46,6 +47,7 @@ export type MergeRefusal =
   | 'release-pr'
   | 'sync-path-outside-set'
   | 'sync-diff-unread'
+  | 'sync-gate-unread'
   | Exclude<RepairMergeRefusal, 'unaskable'>;
 
 /** What `merge` reads. Every reading is the host's, taken fresh for this call. */
@@ -89,9 +91,10 @@ export interface MergeReadings {
   /**
    * The changed paths of a sync PR and the set they must lie in. Present only
    * where the PR runs from the state branch to the default branch; absent for
-   * every other PR and for a repository with no state key.
+   * every other PR and for a repository with no state key. `'unknown'` where
+   * the gate is unread and the PR could be a sync PR.
    */
-  readonly sync?: { readonly files: readonly string[] | 'unknown'; readonly set: readonly string[] };
+  readonly sync?: { readonly files: readonly string[] | 'unknown'; readonly set: readonly string[] } | 'unknown';
 }
 
 /** What the caller asks for. */
@@ -125,6 +128,12 @@ export interface MergeInput {
    * holding nothing on a missing reading. fleetd sets this.
    */
   readonly requireReading?: boolean;
+  /**
+   * The check names (`Merge checks`) that must each have a completed `SUCCESS`
+   * on the head, read from `pr.checkRuns` through {@link mergeChecksVerdict}.
+   * Absent or empty requires none.
+   */
+  readonly mergeChecks?: readonly string[];
 }
 
 /** What a passing merge decides, beyond its write. */
@@ -208,6 +217,12 @@ const short = (sha: string | undefined): string =>
  * `default-branch-red`. `default-branch-stale` and `default-branch-unsettled`
  * refuse an admitted PR as they refuse every PR.
  *
+ * `checks-not-green` also guards each name in `input.mergeChecks`: a named
+ * check with no item in `pr.checkRuns`, or with a queued or running item,
+ * reads `pending`, and one that completed without `SUCCESS` reads `failing`.
+ * A rollup reads green over the items it holds, so a job that has no check run
+ * on the head yet is invisible to it.
+ *
  * `review-not-passed` guards the `plot/review` status, re-asked through the
  * host and never folded from the checks rollup — a rollup can read green with
  * `plot/review` absent. It refuses unless `readings.review` answers `success`
@@ -244,6 +259,9 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
   if (!sameCommit(pr.headSha, input.sha, input.minHexLen)) {
     return no('head-moved', `the head of PR #${input.pr} is ${short(pr.headSha)}; the caller read ${short(input.sha)}. Re-read the checks for the new head.`);
   }
+  if (readings.sync === 'unknown') {
+    return no('sync-gate-unread', `the state branch key or the default branch could not be read, and PR #${input.pr} could be a sync PR. An unread gate is not an open one; nothing was merged.`);
+  }
   if (readings.sync !== undefined) {
     const verdict = syncPathVerdict(readings.sync.files, readings.sync.set);
     if (!verdict.ok) {
@@ -258,6 +276,10 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
   }
   if (pr.checksSha === undefined || pr.checksSha === '' || pr.checksSha !== pr.headSha) {
     return no('checks-unbound', `the green checks of PR #${input.pr} name ${short(pr.checksSha)}, not the head ${short(pr.headSha)}. A green that names no matching commit proves nothing about this head.`);
+  }
+  const named = mergeChecksVerdict(pr.checkRuns, input.mergeChecks ?? []);
+  if (named.read !== 'green') {
+    return no('checks-not-green', `the check '${named.name}' of PR #${input.pr} reads '${named.read}' at ${short(pr.headSha)}: ${named.seen}. Merge when every merge check completed with success on this head.`);
   }
   const review = readings.review;
   const writer = readings.reviewWriter ?? '';
@@ -354,17 +376,20 @@ export interface MergePorts {
   build?: Pick<BuildPort, 'runsForSha'>;
   /** The workflow names `Default branch checks` declares; empty folds every run. */
   checks?: readonly string[];
+  /** See {@link MergeInput.mergeChecks}. Absent requires none. */
+  mergeChecks?: readonly string[];
   /**
    * The state branch's sync PR gate. Absent where no state key is declared, so
    * `mergeAt` behaves as before. `diff(sha)` returns the paths the PR changes
-   * at the pinned head, or `'unknown'`.
+   * at the pinned head, or `'unknown'`. An {@link UnreadSyncGate} where the key
+   * or the default branch could not be read.
    */
   stateSync?: {
     target: StateWriteTarget;
     pathSet: readonly string[];
     defaultBranch: string;
     diff: (sha: string) => Promise<readonly string[] | 'unknown'>;
-  };
+  } | UnreadSyncGate;
 }
 
 /**
@@ -455,8 +480,9 @@ export const mergeAt = async (
     : undefined;
   const lookedPr = lookup.ok ? lookup.value : null;
   const gate = ports.stateSync;
-  const sync = gate !== undefined && lookedPr !== null && isSyncPr(lookedPr, gate.target, gate.defaultBranch)
-    ? { files: await gate.diff(sha), set: gate.pathSet }
+  const sync = gate === undefined || lookedPr === null ? undefined
+    : 'unread' in gate ? (mayBeSyncPr(lookedPr, gate) ? 'unknown' as const : undefined)
+    : isSyncPr(lookedPr, gate.target, gate.defaultBranch) ? { files: await gate.diff(sha), set: gate.pathSet }
     : undefined;
   const outcome = merge(
     {
@@ -477,6 +503,7 @@ export const mergeAt = async (
       minHexLen: minHexLenFor(backend.ok ? backend.value : ''),
       requireReading: ports.requireReading,
       viaReleaseApprove,
+      mergeChecks: ports.mergeChecks,
     },
   );
   if (outcome.outcome === 'refused') {

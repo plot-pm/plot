@@ -7,6 +7,7 @@ import type { HostAnswer, Scripts } from '@plot-pm/domain/ports/scripts';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 
 import { emptyWalk, withWalkRefs } from './walk-fake.js';
+import { saidListingWorld } from './listing-over-said.js';
 import { freshScanState, scanOnce, type ScanOptions, type ScanWorld } from '../../src/shared/fleet-scan.js';
 
 /**
@@ -57,7 +58,7 @@ const worldOf = (
   backend: 'github' | 'bitbucket',
   stream: Scripts['stream'],
   hostSaid: Scripts['hostSaid'] = async () => ({ answer: 'unaskable', said: 'no host stub in this world' }),
-): ScanWorld => ({
+): ScanWorld => saidListingWorld({
   repoRoot: '/repo',
   scripts: {
     stream,
@@ -68,7 +69,7 @@ const worldOf = (
   refs: refsFakeW,
   backend: async () => backend,
   walk: emptyWalk(),
-});
+} as ScanWorld);
 
 const OPTIONS: ScanOptions = { record: false };
 

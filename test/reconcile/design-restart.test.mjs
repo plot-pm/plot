@@ -84,7 +84,7 @@ const pushSpecBranch = (repo, { written = false } = {}) => {
   git(repo, 'branch', '-qD', BRANCH);
 };
 
-/** A `gh` stub answering `pr view`/`pr list`/`pr create` for one fixed PR state. */
+/** A `gh` stub answering `pr view`/`pr list` and the REST `POST pulls` create for one fixed PR state. */
 const makeGhStub = ({
   prView = null, // null | { number, state, isDraft, url, mergeCommit }
   mergedAt = null, // null | an ISO string, for `pr list --head ... --json mergedAt`
@@ -108,8 +108,8 @@ if [ "$1" = pr ] && [ "$2" = view ]; then
   ${viewBody}
 elif [ "$1" = pr ] && [ "$2" = list ]; then
   ${listBody}
-elif [ "$1" = pr ] && [ "$2" = create ]; then
-  printf '%s' '${createUrl}'
+elif [ "$1" = api ] && [ "$2" = -X ] && [ "$3" = POST ] && [[ "$4" == */pulls ]]; then
+  printf '%s' '{"html_url":"${createUrl}"}'
 elif [ "$1" = repo ] && [ "$2" = view ]; then
   printf 'main'
 else

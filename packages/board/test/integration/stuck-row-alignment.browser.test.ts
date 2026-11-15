@@ -107,7 +107,7 @@ describe('the stuck line begins where the row does', () => {
       over: { fleet: fleet() },
       viewport: { width: 1400, height: 900 },
     });
-    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;
   }

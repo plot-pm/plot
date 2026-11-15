@@ -230,19 +230,38 @@ describe('the scan writes its own bridge', () => {
     // its temp registry stays, and goes with the sandbox in `afterAll`.
     const killedTmp = path.join(tmp, 'killed-tmp');
     fs.mkdirSync(killedTmp, { recursive: true });
-    const child = spawn('bash', [SCAN, '--offline', '--stream'], {
-      cwd: repo, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, TMPDIR: killedTmp },
+    // The scan cannot reach its rename: its temp file `last-pulse.json.<pid>.tmp`
+    // is a FIFO with no reader, so `writeFileSync` blocks in `open`. A
+    // launcher holds the scan on stdin until the FIFO exists; `exec` keeps the
+    // pid from launcher to `node`, which names the temp file by its own pid.
+    const child = spawn('bash', ['-c', 'read -r _ && exec bash "$0" "$@"', SCAN, '--offline', '--stream'], {
+      cwd: repo, stdio: ['pipe', 'pipe', 'ignore'], env: { ...process.env, TMPDIR: killedTmp },
     });
-    // Killed while it is still deriving: the scan spawns git per branch, so a
-    // short wait lands inside the walk rather than before it starts.
-    await new Promise((r) => setTimeout(r, 150));
+    const exited = new Promise<number | null>((r) => child.on('exit', (code) => r(code)));
+    const fifo = `${bridgeFile(repo)}.${child.pid}.tmp`;
+    execFileSync('mkfifo', [fifo]);
+    // Killed once the walk has printed its first plan, which it does before
+    // the bridge write.
+    const walking = new Promise<boolean>((r) => {
+      let out = '';
+      child.stdout!.on('data', (chunk: Buffer) => {
+        out += chunk.toString('utf8');
+        if (out.includes('{"kind":"plan"')) r(true);
+      });
+      void exited.then(() => r(false));
+    });
+    child.stdin!.end('\n');
+    expect(await walking, 'the scan exited before it printed a plan').toBe(true);
     child.kill('SIGKILL');
-    await new Promise((r) => child.on('exit', r));
+    await exited;
 
     expect(fs.readFileSync(bridgeFile(repo), 'utf8')).toBe(good);
-    // And nothing was left half-written beside it.
+    // And nothing was left half-written beside it: the one temp entry is the
+    // FIFO this test made, never replaced by a file.
     const strays = fs.readdirSync(path.join(repo, '.plot/state')).filter((n) => n.includes('.tmp'));
-    expect(strays).toEqual([]);
+    expect(strays).toEqual([path.basename(fifo)]);
+    expect(fs.lstatSync(fifo).isFIFO()).toBe(true);
+    fs.rmSync(fifo);
   });
 
   it('still reports when it cannot write', () => {

@@ -20,9 +20,11 @@ import {
   knownPrFor,
   landedSource,
 } from '@plot-pm/domain/rules/known-pr';
-import { claimTip, orphanedClaims, type ClaimReading } from '@plot-pm/domain/rules/claim';
+import { claimTip, orphanedClaims, ORPHANED_CLAIM_AGE_MS, type ClaimReading } from '@plot-pm/domain/rules/claim';
+import { nextDeadline } from '@plot-pm/domain/rules/next-deadline';
 import { deadClaims, type DeadClaimReading } from '@plot-pm/domain/rules/dead-claim';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
+import { sliceBaseRef, type BasedPlan } from '@plot-pm/domain/rules/slice-base';
 import type { PlanRecord, PlanRecordSlice, PortResult } from '@plot-pm/domain';
 import type { SliceRefusal } from '@plot-pm/domain/ports/refused-slices';
 import type { CommitSubject, RemoteHeadAnswer } from '@plot-pm/domain/ports/refs';
@@ -67,12 +69,23 @@ export interface QueueWorld {
    * machine's own processes.
    */
   alive(pid: string): boolean;
-  /** Every plan on the estate, as the plan store parses them. */
+  /** Every plan on the default branch, as the plan store parses them. */
   plans(): Promise<readonly PlanRecord[]>;
+  /**
+   * The plans only a sprint branch holds, each with that branch as its base,
+   * as `sprintPlanReads` and `chooseSprintPlans` select them. Absent for none.
+   */
+  sprintPlans?(): Promise<readonly BasedPlan[]>;
   /** The remote branches that exist — a ref IS a claim. */
   claimedBranches(): Promise<ReadonlySet<string>>;
-  /** Whether a usable brief sits on the ref the agent will read. */
-  briefPresent(branch: string): Promise<boolean>;
+  /**
+   * Whether a usable brief sits on the ref the agent will read.
+   *
+   * @param branch - the slice's branch.
+   * @param base - the slice's base branch without `origin/`; `''` for the
+   *   default branch. The ref read is `sliceBaseRef(base, origin/<default>)`.
+   */
+  briefPresent(branch: string, base: string): Promise<boolean>;
   /** Whether the branch this agent holds has landed. */
   sliceHasMerged(branch: string): Promise<boolean>;
   /**
@@ -183,7 +196,8 @@ export interface QueueWorld {
    * per-branch host call; this bound is what keeps the git-side reading from
    * repeating it.
    *
-   * @param range - `origin/<default>..origin/<branch>`.
+   * @param range - `<base ref>..origin/<branch>`, where the base ref is
+   *   `origin/<default>` or a sprint plan's `origin/<sprint branch>`.
    */
   commitSubjects(range: string): Promise<PortResult<readonly CommitSubject[]>>;
   /** The tick's own clock reading, epoch milliseconds — a parameter so a test can pin it. */
@@ -228,7 +242,7 @@ export interface MergedListing {
    * only `mergedBranches` knows which read path bought a whole answer, and the
    * tick line is the only other reader.
    */
-  kind: 'throttled' | 'secondary' | 'failed' | 'delta' | null;
+  kind: 'throttled' | 'secondary' | 'auth' | 'failed' | 'delta' | null;
   /**
    * Whether the listing request itself failed, as against answering with a
    * refusal left behind.
@@ -259,6 +273,8 @@ export type { QueuedBranch };
  * @param claimed - the remote branches that exist.
  * @param merged - the branches the merged listing (and its fallback) named.
  * @param listingWhole - whether the merged listing answered in full.
+ * @param base - the branch the plan was read from, without `origin/`; `''`
+ *   for the default branch.
  * @returns one entry per branch this plan has queued, in plan order.
  */
 export const queueOfPlan = (
@@ -266,7 +282,8 @@ export const queueOfPlan = (
   claimed: ReadonlySet<string>,
   merged: ReadonlySet<string> = new Set<string>(),
   listingWhole = true,
-): readonly QueuedBranch[] => planQueue(plan, claimed, merged, listingWhole);
+  base = '',
+): readonly QueuedBranch[] => planQueue(plan, claimed, merged, listingWhole, base);
 
 /**
  * Reads the queue and the fleet, for one matching pass.
@@ -303,7 +320,15 @@ export const readQueue = async (
   entries: readonly AgentEntry[],
   world: QueueWorld,
 ): Promise<QueueReadings> => {
-  const [plans, claimed] = await Promise.all([world.plans(), world.claimedBranches()]);
+  const [mainPlans, sprintPlans, claimed] = await Promise.all([
+    world.plans(),
+    world.sprintPlans ? world.sprintPlans() : Promise.resolve([] as readonly BasedPlan[]),
+    world.claimedBranches(),
+  ]);
+  // A SPRINT-ONLY PLAN IS QUEUED FROM ITS OWN BRANCH. Its slices carry that
+  // branch as their base, so the brief gate and the desk read it there.
+  const based: readonly BasedPlan[] = [...mainPlans.map((record) => ({ record, base: '' })), ...sprintPlans];
+  const plans = based.map((each) => each.record);
 
   // WHICH REFLESS BRANCHES ALREADY MERGED, ASKED IN ONE CALL FOR THE WHOLE PASS.
   //
@@ -364,7 +389,7 @@ export const readQueue = async (
   });
 
   const slices: QueuedSlice[] = [];
-  for (const plan of plans) {
+  for (const { record: plan, base } of based) {
     // A FINISHED PLAN QUEUES NOTHING. Phase is one fact about the whole plan, so
     // the plan is skipped before any of its branches is read: no brief, no
     // landing, no entry for `whyNotReady` to hold on `waits` or `not-claimable`.
@@ -382,8 +407,9 @@ export const readQueue = async (
       claimed,
       new Set([...merged, ...provenFor(plan)]),
       listing.whole,
+      base,
     )) {
-      const briefPresent = entry.claimable ? await world.briefPresent(entry.branch) : false;
+      const briefPresent = entry.claimable ? await world.briefPresent(entry.branch, entry.base) : false;
       const landed: LandedAnswer =
         // A BRANCH THE NUMBER LOOKUP ALREADY ANSWERED IS NOT ASKED AGAIN. Every
         // other branch goes to the per-branch question, as it did before the
@@ -429,7 +455,15 @@ export const readQueue = async (
     });
   }
 
-  const { orphaned, dead } = await claimReadingsOf(plans, merged, assigned, world);
+  const { orphaned, dead, claimedAt } = await claimReadingsOf(based, merged, assigned, world);
+  const launchGraceMs = world.launchGraceMs ? world.launchGraceMs() : DEFAULT_LAUNCH_GRACE_MS;
+  const launchPidBoundMs = world.pidLivenessBoundMs ? world.pidLivenessBoundMs() : DEFAULT_PID_LIVENESS_BOUND_MS;
+  const launched = entries.map((entry, at): LaunchedEntry => ({ state: states[at], pid: entry.pid, startedAt: entry.startedAt }));
+  const launchStarts = (withPid: boolean): readonly number[] =>
+    launched
+      .filter((entry) => entry.state === 'none' && (entry.pid !== '') === withPid && (!withPid || world.alive(entry.pid)))
+      .map((entry) => Date.parse(entry.startedAt))
+      .filter((at) => Number.isFinite(at));
 
   // THE LISTING'S STATE TRAVELS WITH THE SLICES IT EXPLAINS. Every `unknown`
   // landing and every slice held behind one came from this answer, and the tick
@@ -443,11 +477,10 @@ export const readQueue = async (
     defaultBranchRed: world.defaultBranchRed ? await world.defaultBranchRed() : false,
     verifying: world.verifying ? world.verifying() : 0,
     specRunning: world.specRunning ? world.specRunning() : 0,
-    launchedUnregistered: launchedUnregisteredCount(
-      entries.map((entry, at): LaunchedEntry => ({ state: states[at], pid: entry.pid, startedAt: entry.startedAt })),
-      world.launchGraceMs ? world.launchGraceMs() : DEFAULT_LAUNCH_GRACE_MS,
-      world.pidLivenessBoundMs ? world.pidLivenessBoundMs() : DEFAULT_PID_LIVENESS_BOUND_MS,
-      world.alive,
+    launchedUnregistered: launchedUnregisteredCount(launched, launchGraceMs, launchPidBoundMs, world.alive, world.now()),
+    deadline: nextDeadline(
+      { claimedAt, launchedAt: launchStarts(false), launchedPidAt: launchStarts(true) },
+      { claimStaleMs: ORPHANED_CLAIM_AGE_MS, launchGraceMs, launchPidBoundMs },
       world.now(),
     ),
   };
@@ -471,24 +504,27 @@ export const readQueue = async (
  * `deadClaims` answers in `claimAnswer`'s vocabulary; `orphanedClaims` is the
  * list the tick prints.
  *
- * @param plans - every plan on the estate.
+ * The range is read against each plan's own base, `sliceBaseRef`, so a sprint
+ * slice's claim is read against its sprint branch.
+ *
+ * @param plans - every plan on the estate, each with its base.
  * @param merged - the branches the merged listing (and its fallback) named.
  * @param assigned - branch to agent id, from a live manifest.
  * @param world - what to read the estate through.
  * @returns the branches each rule names, in plan order.
  */
 const claimReadingsOf = async (
-  plans: readonly PlanRecord[],
+  plans: readonly BasedPlan[],
   merged: ReadonlySet<string>,
   assigned: ReadonlyMap<string, string>,
   world: QueueWorld,
-): Promise<{ orphaned: readonly string[]; dead: readonly string[] }> => {
-  const base = await world.defaultBranch();
+): Promise<{ orphaned: readonly string[]; dead: readonly string[]; claimedAt: readonly number[] }> => {
+  const defaultRef = `origin/${await world.defaultBranch()}`;
   const tickStartedAt = world.now();
   const readings: ClaimReading[] = [];
   const deadCandidates: DeadClaimReading[] = [];
   const seen = new Set<string>();
-  for (const plan of plans) {
+  for (const { record: plan, base } of plans) {
     for (const slice of plan.slices as readonly PlanRecordSlice[]) {
       for (const line of slice.branches) {
         if (line.deferred || merged.has(line.branch) || seen.has(line.branch)) continue;
@@ -499,7 +535,7 @@ const claimReadingsOf = async (
         // `claimTip` never reads it where `ref` already answers.
         const commits =
           ref === 'present'
-            ? await world.commitSubjects(`origin/${base}..origin/${line.branch}`)
+            ? await world.commitSubjects(`${sliceBaseRef(base, defaultRef)}..origin/${line.branch}`)
             : ({ ok: false, why: 'unaskable' } as PortResult<readonly CommitSubject[]>);
         const claim = claimTip(ref, commits);
         const newest = commits.ok ? commits.value[0] : undefined;
@@ -521,6 +557,7 @@ const claimReadingsOf = async (
   return {
     orphaned: orphanedClaims(readings, tickStartedAt),
     dead: deadClaims(deadCandidates, tickStartedAt),
+    claimedAt: readings.filter((reading) => reading.assignedTo === '' && reading.newestClaimAt > 0).map((reading) => reading.newestClaimAt),
   };
 };
 

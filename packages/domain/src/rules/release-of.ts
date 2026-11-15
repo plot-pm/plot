@@ -12,5 +12,5 @@ import type { IssueIndexRow } from '../entities/issue-index.js';
  * @param version - the release version's name.
  * @returns true where one of the row's releases is the version.
  */
-export const releaseOf = (row: IssueIndexRow, version: string): boolean =>
+export const releaseOf = (row: Pick<IssueIndexRow, 'releases'>, version: string): boolean =>
   row.releases?.includes(version) ?? false;

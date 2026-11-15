@@ -1,16 +1,18 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { connect } from 'node:net';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { bindableChannelAddress } from '../src/adapters/channel/channel-address.js';
 import { startChannel, type RunningChannel } from '../src/adapters/channel/channel-socket.js';
 import type { Finding } from '../src/entities/finding.js';
 
 /**
  * The mod's follower against a real channel socket. `follow.mjs` is a declared
- * duplicate of `channel-client.ts`, and this is the test that holds the pair.
+ * duplicate of `channel-client.ts` and of `channel-address.ts`, and this is the
+ * test that holds both pairs.
  */
 
 const FOLLOWER = resolve(__dirname, '../../../mods/plot-follow/bin/follow.mjs');
@@ -155,6 +157,31 @@ describe('the follower', () => {
     await until(() => later.lines.length >= 1);
     expect(JSON.parse(later.lines[0]).claimed).toEqual([true]);
     expect(readdirSync(leases)).toContain('fresh');
+  });
+
+  it('finds the short per-user socket of a root whose checkout path passes the limit', async () => {
+    const root = join(repoRoot(), 'a'.repeat(60), 'b'.repeat(40));
+    mkdirSync(join(root, '.plot'), { recursive: true });
+    expect(Buffer.byteLength(join(root, '.plot', 'fleet.sock'))).toBeGreaterThan(104);
+    // The per-user directory is shared with a running fleetd; remove it only where this test made it.
+    const dir = `/tmp/plot-${process.getuid?.() ?? 0}`;
+    const made = !existsSync(dir);
+    try {
+      const address = bindableChannelAddress(root);
+      expect(address.startsWith(`${dir}/`)).toBe(true);
+      channel = await startChannel({ address });
+      const out = run(root);
+      await until(() => out.lines.length >= 1);
+      expect(JSON.parse(out.lines[0]).type).toBe('welcome');
+      await channel.stop();
+      channel = undefined;
+      await until(() => out.code !== undefined);
+      expect(out.code).toBe(0);
+    } finally {
+      await channel?.stop();
+      channel = undefined;
+      if (made) rmdirSync(dir);
+    }
   });
 
   it('exits 2 with a reason on stderr when no channel is listening', async () => {

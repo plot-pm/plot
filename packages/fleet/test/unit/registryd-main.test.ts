@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, existsSync, r
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
-import { refusedSlicesFixture, runLogFixture, answerRecordFile, ANSWER_RECORD_HOME_ENV } from '@plot-pm/domain/adapters';
+import { refusedSlicesFixture, runLogFixture, answerRecordFile, ANSWER_RECORD_HOME_ENV, channelAddressFor } from '@plot-pm/domain/adapters';
 import type { AgentRun, AgentRunEnd, AgentRunRequest, AgentRunResult } from '@plot-pm/domain/ports/agent-run';
 import { UNBLOCKER_BOUND_SECONDS } from '@plot-pm/domain/rules/unblocker-due';
 import { QUESTION_MAX } from '../../src/shared/worker-question.js';
@@ -18,6 +18,7 @@ import {
   startNothingDoneReleases,
   freshAgentDeskReads,
   mergeMemoOver,
+  settledMergedHeadsFrom,
   escalationWorldForRepo,
   notifierFor,
   notifyEscalations,
@@ -25,7 +26,6 @@ import {
   readRegistry,
   reportTick,
   run,
-  CHANNEL_SOCKET,
   probeBeforeStarting,
   settleOnce,
   spendForTick,
@@ -33,6 +33,7 @@ import {
   unblockWorldForRepo,
   unblockPortsFor,
   worldForRepo,
+  treeReadingOf,
   writersFor,
   writeSupervisionReport,
 } from '../../src/server/entry/registryd-main.js';
@@ -52,6 +53,7 @@ import { TICK_INTERVAL_MS, applyUnblockDecisions, tick, type TickReport } from '
 import { readTick, worldFrom, type SupervisorWorld } from '../../src/shared/supervisor.js';
 import type { AgentEntry } from '../../src/shared/registry.js';
 import type { UnblockWrite } from '@plot-pm/domain/workflows/decision';
+import { SOCKET_TEMP_ROOT } from '../socket-root.js';
 
 const manifest = (over: Record<string, unknown> = {}) =>
   JSON.stringify({
@@ -948,11 +950,11 @@ describe('starting agents is the one write this daemon performs', () => {
       outcome: 'decided',
       workflow: 'assign',
       writes: [
-        { kind: 'agent-assign', session: 'sess-1', worktree: '/estate/a', branch: 'feature/a', slug: 'a-plan' },
+        { kind: 'agent-assign', session: 'sess-1', worktree: '/estate/a', branch: 'feature/a', slug: 'a-plan', base: '' },
         { kind: 'worker-start', branch: '', worktree: '/estate/free' },
       ],
       detail: {
-        assignments: [{ session: 'sess-1', worktree: '/estate/a', branch: 'feature/a', slug: 'a-plan' }],
+        assignments: [{ session: 'sess-1', worktree: '/estate/a', branch: 'feature/a', slug: 'a-plan', base: '' }],
         held: [],
         idle: [],
         scaling: null,
@@ -977,6 +979,23 @@ describe('starting agents is the one write this daemon performs', () => {
     expect(assigned).toEqual(['sess-1:feature/a']);
   });
 
+  it('hands a sprint slice\'s base to the manifest write', async () => {
+    const bases: string[] = [];
+    const performer: Performer = {
+      startFreeAgent: async () => answered(1),
+      assignSlice: async (_session, branch, _slug, base) => {
+        bases.push(`${branch}:${base ?? ''}`);
+        return answered(true);
+      },
+    };
+    const report = withAssign();
+    const writes = report.handOver!.writes.map((write) =>
+      write.kind === 'agent-assign' ? { ...write, base: 'sprint/s' } : write,
+    );
+    await startAgents({ ...report, handOver: { ...report.handOver!, writes } }, performer, handOverReady, () => {}, () => {});
+    expect(bases).toEqual(['feature/a:sprint/s']);
+  });
+
   it('reports a hand-over the agent had since outgrown, and does not count it', async () => {
     // AN AGENT MAY HAVE TAKEN WORK BETWEEN THE READING AND THE WRITE. Silence
     // here would report a hand-over that never happened.
@@ -988,6 +1007,30 @@ describe('starting agents is the one write this daemon performs', () => {
 
     await startAgents(withAssign(), performer, handOverReady, (s) => out.push(s), (s) => out.push(s));
     expect(out.join('')).toContain('feature/a');
+  });
+
+  it('names the agent and the missing manifest when a hand-over cannot be written', async () => {
+    // MEASURED 2026-11-12: `infra/ci-cancels-superseded-runs could not be handed
+    // over` seven times, with no cause, while the write looked in the wrong registry.
+    const performer: Performer = {
+      startFreeAgent: async () => answered(1),
+      assignSlice: async () => unaskable<boolean>('no manifest at /registry/sess-1.json'),
+    };
+    const err: string[] = [];
+    await startAgents(withAssign(), performer, handOverReady, () => {}, (s) => err.push(s));
+    expect(err.join('')).toContain(
+      'feature/a could not be handed over to sess-1: no manifest at /registry/sess-1.json; the next tick re-derives the queue',
+    );
+  });
+
+  it('names an unreadable or unwritable manifest when a hand-over fails', async () => {
+    const performer: Performer = {
+      startFreeAgent: async () => answered(1),
+      assignSlice: async () => failed<boolean>(),
+    };
+    const err: string[] = [];
+    await startAgents(withAssign(), performer, handOverReady, () => {}, (s) => err.push(s));
+    expect(err.join('')).toContain('feature/a could not be handed over to sess-1: its manifest could not be read or written');
   });
 
   it('starts one agent per `worker-start` write and reports the count', async () => {
@@ -1302,9 +1345,9 @@ describe('run — a failed tick must not end the daemon', () => {
 
   it('binds under the repo root it is given, never under PLOT_REPO_ROOT', async () => {
     const dir = sandbox();
-    const operator = mkdtempSync(join(tmpdir(), 'plot-registryd-op-'));
+    const operator = mkdtempSync(join(SOCKET_TEMP_ROOT, 'plot-registryd-op-'));
     mkdirSync(join(operator, '.plot'));
-    const address = join(operator, CHANNEL_SOCKET);
+    const address = channelAddressFor(operator);
     const listener = createServer((socket) => socket.end());
     await new Promise<void>((resolve) => listener.listen(address, resolve));
     const before = process.env.PLOT_REPO_ROOT;
@@ -1661,7 +1704,7 @@ describe('run — a failed tick must not end the daemon', () => {
  * above) equals 60 times the calls counted since the previous reading.
  */
 describe('acceptance — the step asks the host once per nothing-done desk with no commit beyond its claim, out of every leftover desk', () => {
-  it('makes M host calls for M of N desks, and reports 60 x M on the following tick', async () => {
+  it('makes M host calls for M of N desks, and reports them on the following tick over the window they accrued in', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'plot-registryd-acceptance-'));
     try {
       // A REAL GIT TREE PER DESK: `commitBeyondClaim` reads real git, never
@@ -1741,6 +1784,7 @@ describe('acceptance — the step asks the host once per nothing-done desk with 
       };
       let ticks = 0;
       const lines: string[] = [];
+      const before = Date.now();
       const code = await run(
         ['--start-agents'],
         dir,
@@ -1759,12 +1803,16 @@ describe('acceptance — the step asks the host once per nothing-done desk with 
       expect(code).toBe(0);
       expect(ticks).toBe(2);
       const mineLines = lines.filter((l) => l.includes('tick=')).map((l) => /tick=(\d+)\/hr/.exec(l)?.[1]);
+      const elapsedMs = Date.now() - before;
       // Tick 1 reports `0` (nothing ran before it); tick 2 reports what tick
       // 1's own nothing-done step added. The stub's `pr-state` does not
       // answer, so each of the M = 2 desks costs its `prOpen` call plus the
-      // one `pr-state` call of its local-evidence release: 4 calls, 60 x 4
-      // = 240/hr.
-      expect(mineLines).toEqual(['0', '240']);
+      // one `pr-state` call of its local-evidence release: 4 calls, priced
+      // over the window since the tick's calls were last counted, which is
+      // shorter than the whole run.
+      expect(mineLines).toHaveLength(2);
+      expect(mineLines[0]).toBe('0');
+      expect(Number(mineLines[1])).toBeGreaterThanOrEqual(Math.floor((4 * 3_600_000) / elapsedMs));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -2052,6 +2100,49 @@ describe('a tick asks the host about a branch once', () => {
       queue: queueWorldForRepo(root, root, { calls: 0 }, merges),
     };
   };
+
+  it('answers a branch the index settles as merged with no host call, and asks the host for every other', async () => {
+    const host = countingHost(() => answered('not-merged'));
+    const memo = mergeMemoOver(host, async () => new Set(['feature/done']));
+    expect(await memo.ask('feature/done')).toEqual(answered('merged'));
+    expect(await memo.ask('feature/busy')).toEqual(answered('not-merged'));
+    expect(host.asked).toEqual(['feature/busy']);
+  });
+
+  it('reads the settled heads from the store the backend word keys, and none where the backend is unread', async () => {
+    const rows = [
+      { number: 1, head: 'feature/done', state: 'MERGED', draft: false },
+      { number: 2, head: 'feature/reopened', state: 'MERGED', draft: false },
+      { number: 3, head: 'feature/reopened', state: 'OPEN', draft: false },
+    ];
+    const index = { read: async (backend: string) => answered(backend === 'github' ? { rows } : null) } as unknown as PrIndexStore;
+    expect([...(await settledMergedHeadsFrom({ backend: async () => answered('github') }, index)())]).toEqual(['feature/done']);
+    expect([...(await settledMergedHeadsFrom({ backend: async () => failed() }, index)())]).toEqual([]);
+  });
+
+  it('asks the host for every branch where the index read fails', async () => {
+    const host = countingHost(() => answered('merged'));
+    const memo = mergeMemoOver(host, async () => {
+      throw new Error('unreadable');
+    });
+    await memo.ask('feature/done');
+    expect(host.asked).toEqual(['feature/done']);
+  });
+
+  it('reads the index once per tick and again after clear', async () => {
+    const host = countingHost(() => answered('not-merged'));
+    let reads = 0;
+    const memo = mergeMemoOver(host, async () => {
+      reads += 1;
+      return new Set(['feature/done']);
+    });
+    await Promise.all([memo.ask('feature/done'), memo.ask('feature/other')]);
+    expect(reads).toBe(1);
+    memo.clear();
+    await memo.ask('feature/done');
+    expect(reads).toBe(2);
+    expect(host.asked).toEqual(['feature/other']);
+  });
 
   it('asks once for a branch the supervisor and the queue both read', async () => {
     const host = countingHost(() => answered('not-merged'));
@@ -3163,11 +3254,28 @@ describe('unblockWorldForRepo and unblockPortsFor — the production wiring', ()
       '#!/usr/bin/env bash\nif [ "$2" = "Worker command" ]; then echo true; else echo "$3"; fi\n',
     );
     chmodSync(join(scriptsDir, 'plot-config.sh'), 0o755);
-    // `processesShell.workerState` sources this file and calls `plot_worker_state`
-    // (`processes-shell.ts:168`) — a real `waiting` answer, not a stubbed port,
-    // is what proves `unblockWorldForRepo`'s `deskDead` reads production code.
-    writeFileSync(join(scriptsDir, 'plot-worker-state.sh'), 'plot_worker_state() {\n  printf "waiting\\t\\t\\t\\n"\n}\n');
     return { repoRoot, scriptsDir };
+  };
+
+  /**
+   * Waits until the detached worker wrapper started on `desk` has made its last
+   * two writes: one line in `.plot-worker.monitor.worker.jsonl`, then the exit
+   * code in `.plot-worker.exit`.
+   *
+   * @param desk the worktree the wrapper writes to.
+   * @param boundMs how long to wait before failing.
+   * @throws when the wrapper has not finished within `boundMs`, naming the desk and the bound.
+   */
+  const reporterFinished = async (desk: string, boundMs = 10_000): Promise<void> => {
+    const findings = join(desk, '.plot-worker.monitor.worker.jsonl');
+    const exit = join(desk, '.plot-worker.exit');
+    const deadline = Date.now() + boundMs;
+    const filled = (file: string): boolean => existsSync(file) && readFileSync(file, 'utf8').trim() !== '';
+    const done = (): boolean => filled(findings) && filled(exit);
+    while (!done()) {
+      if (Date.now() >= deadline) throw new Error(`the wrapper on ${desk} did not finish within ${boundMs} ms`);
+      await new Promise((r) => setTimeout(r, 25));
+    }
   };
 
   it('unblockWorldForRepo reads a real marker and answerCap through real config', async () => {
@@ -3196,14 +3304,19 @@ describe('unblockWorldForRepo and unblockPortsFor — the production wiring', ()
       dirs.push(manifestDir);
       writeFileSync(join(manifestDir, 'sess.json'), JSON.stringify({ session: 'sess', branch: 'feature/waiting', worktree: repoRoot, pid: '424242' }));
 
-      const unblock = unblockWorldForRepo(repoRoot, scriptsDir);
+      // The desk reads `waiting` through a stubbed worker-state reader: the
+      // world asks with `hasPr` set, and a real desk's task state reads
+      // `finished` whenever a PR is named.
+      const waiting = { workerState: async () => ({ ok: true as const, value: { state: 'waiting' as const, pid: '', exitCode: '', activity: '' as const } }) };
+      const unblock = unblockWorldForRepo(repoRoot, scriptsDir, () => false, waiting);
       expect(unblock).toBeDefined();
 
       let runCalls = 0;
       const ports = unblockPortsFor({
         repoRoot,
         scriptsDir,
-        boardOpts: { repoRoot, scriptsDir, manifestDir } as unknown as { repoRoot: string; scriptsDir: string },
+        // `workerStart`: the shipped start `pnpm build:board` builds, since the fixture's scripts directory holds no bundle.
+        boardOpts: { repoRoot, scriptsDir, manifestDir, workerStart: join(import.meta.dirname, '../../../../skills/plot/scripts/board/plot-worker-start.mjs') } as unknown as { repoRoot: string; scriptsDir: string },
         // THE ROLE RUN ITSELF IS STUBBED: proving `unblockWorldForRepo`'s and
         // `unblockPortsFor`'s own wiring does not require a real `.claude/agents`
         // definition or a real `claude` binary on PATH — `unblockOutcome`'s
@@ -3256,6 +3369,10 @@ describe('unblockWorldForRepo and unblockPortsFor — the production wiring', ()
       expect(runCalls).toBe(1);
       expect(applied).toHaveLength(1);
       expect(applied[0]!.outcome, applied[0]?.detail).toBe('started');
+      // THE STARTED WORKER'S REPORTER IS DETACHED AND OUTLIVES THIS CALL by
+      // design; it appends to the desk after `true` exits, so it must finish
+      // before `afterAll` removes the desk.
+      await reporterFinished(repoRoot);
     },
   );
 });
@@ -3423,5 +3540,26 @@ describe('unblockWorldForRepo — an unread answer record', () => {
     } finally {
       rmSync(repoRoot, { recursive: true, force: true });
     }
+  });
+});
+
+describe('a tick asks the dirt only of a tree nothing claims', () => {
+  const lines = new Map([['feature/planned', { plan: '2026-11-15-a-plan' }]]);
+  const counting = () => {
+    const asked: string[] = [];
+    return { asked, dirtOf: async (path: string) => (asked.push(path), 3) };
+  };
+  const tree = (path: string, branch: string, isMain = false) => ({ path, branch, isMain, prunable: false });
+
+  it('skips the main checkout and a plan-named tree, and asks an unplanned one', async () => {
+    const { asked, dirtOf } = counting();
+    const main = await treeReadingOf(tree('/r', 'main', true), lines, dirtOf);
+    const planned = await treeReadingOf(tree('/r/.worktrees/a', 'feature/planned'), lines, dirtOf);
+    const loose = await treeReadingOf(tree('/r/.worktrees/b', 'feature/loose'), lines, dirtOf);
+    const detached = await treeReadingOf(tree('/r/.worktrees/c', ''), lines, dirtOf);
+    expect(asked).toEqual(['/r/.worktrees/b', '/r/.worktrees/c']);
+    expect([main.dirtyCount, planned.dirtyCount, loose.dirtyCount, detached.dirtyCount]).toEqual([0, 0, 3, 3]);
+    expect(planned).toMatchObject({ planNamed: true, plan: '2026-11-15-a-plan' });
+    expect(loose).toMatchObject({ planNamed: false, plan: '' });
   });
 });

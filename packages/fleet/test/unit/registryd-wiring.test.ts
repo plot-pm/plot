@@ -26,6 +26,7 @@ import { startFleetClock } from '../../src/shared/fleet-clock.js';
 
 import type { RunningChannel } from '../../src/shared/channel-socket.js';
 import { removeTree } from '../rm-tree.mjs';
+import { SOCKET_TEMP_ROOT } from '../socket-root.js';
 
 const emptySlot = (): ChannelSlot => ({ channel: null, indexMonitor: null, deskRelay: null });
 const fakeChannel = (): RunningChannel => ({ stop: async () => undefined }) as unknown as RunningChannel;
@@ -147,7 +148,7 @@ describe('indexMonitorOver and deskRelayOver — the "has gone over" case (#1526
   });
 
   it('indexMonitorOver clears a published "default branch red" once the reading settles green', async () => {
-    dir = mkdtempSync(join(tmpdir(), 'registryd-index-monitor-over-'));
+    dir = mkdtempSync(join(SOCKET_TEMP_ROOT, 'registryd-index-monitor-over-'));
     execFileSync('git', ['init', '--quiet'], { cwd: dir });
     mkdirSync(join(dir, 'docs', 'plans'), { recursive: true });
     channel = await startChannel({ address: join(dir, 'c.sock') });
@@ -178,7 +179,7 @@ describe('indexMonitorOver and deskRelayOver — the "has gone over" case (#1526
   });
 
   it('deskRelayOver clears a published desk finding once the desk log no longer holds it', async () => {
-    dir = mkdtempSync(join(tmpdir(), 'registryd-desk-relay-over-'));
+    dir = mkdtempSync(join(SOCKET_TEMP_ROOT, 'registryd-desk-relay-over-'));
     execFileSync('git', ['init', '--quiet'], { cwd: dir });
     execFileSync('git', ['checkout', '-b', 'feature/one', '--quiet'], { cwd: dir });
     writeFileSync(join(dir, 'README.md'), 'x');
@@ -603,6 +604,8 @@ describe('run — the PR reader\'s failure reaches the bridge', () => {
       repo,
       {
         clock,
+        // A degraded watch leaves the tick on `--interval`, which this test's sleep drives.
+        watch: { arm: () => ({ degraded: true, close: () => undefined }) },
         tick: async () => completedTick(),
         readDefaultBranch: async () => undefined,
         openChannel: (async () => ({ stop: async () => undefined })) as never,

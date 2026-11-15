@@ -6,6 +6,7 @@ import { sliceReadingsOf } from './slice-readings.js';
 import type { SliceRefusal } from '../ports/refused-slices.js';
 import type { PlanRecord, PlanRecordSlice } from '../ports/plan-store.js';
 import { planIdOf } from '../entities/plan.js';
+import type { NextDeadline } from './next-deadline.js';
 
 /**
  * One slice waiting to be handed to an agent.
@@ -25,6 +26,12 @@ export interface QueuedSlice {
   branch: string;
   /** The plan slug the slice belongs to, for the agent's own scope. */
   slug: string;
+  /**
+   * The branch the slice is cut from and its brief is read on, without
+   * `origin/`; `''` for the default branch. A plan that only a sprint branch
+   * holds has that branch as its base (`rules/slice-base.ts`).
+   */
+  base: string;
   /**
    * Whether a usable brief exists on the ref the agent will read.
    *
@@ -193,7 +200,7 @@ export interface MergedSetState {
    * second field would let a caller print `whole` while silently never
    * learning which read paid for it.
    */
-  kind: 'throttled' | 'secondary' | 'failed' | 'delta' | null;
+  kind: 'throttled' | 'secondary' | 'auth' | 'failed' | 'delta' | null;
 }
 
 /** What the registry read when it asked whether it could hand anything over. */
@@ -266,6 +273,13 @@ export interface QueueReadings {
    * read the default branch, which holds nothing.
    */
   defaultBranchRed?: boolean;
+  /**
+   * The earliest wall time an age this pass compared changes its answer: an
+   * unheld claim passing `ORPHANED_CLAIM_AGE_MS`, a launch leaving its grace or
+   * its pid bound. A report and not a matching input: {@link matchQueue} never
+   * reads it. Absent means nobody asked; `null` means none is held.
+   */
+  deadline?: NextDeadline | null;
 }
 
 /**
@@ -340,6 +354,8 @@ export interface Assignment {
   branch: string;
   /** That branch's plan slug. */
   slug: string;
+  /** The branch the slice is cut from, without `origin/`; `''` for the default branch. */
+  base: string;
 }
 
 /** Why a queued slice was not handed to anybody this pass. */
@@ -789,6 +805,7 @@ export const matchQueue = (readings: QueueReadings): QueueMatch => {
       worktree: agent.worktree,
       branch: slice.branch,
       slug: slice.slug,
+      base: slice.base,
     });
   }
 
@@ -911,6 +928,8 @@ export type QueuedBranch = Omit<
  * @param merged - the branches the merged listing (and its fallback) named.
  * @param listingWhole - whether the merged listing answered in full, for a
  *   `waits:` prerequisite the merged set does not name.
+ * @param base - the branch the plan was read from, without `origin/`; `''`
+ *   for the default branch. Every entry carries it.
  * @returns one entry per branch this plan has queued, in plan order, missing
  *   the fields only a caller with the brief and the landing readings can
  *   supply.
@@ -920,6 +939,7 @@ export const planQueue = (
   claimed: ReadonlySet<string>,
   merged: ReadonlySet<string>,
   listingWhole: boolean,
+  base: string = '',
 ): readonly QueuedBranch[] => {
   const slug = planIdOf(plan.file);
 
@@ -970,6 +990,7 @@ export const planQueue = (
       queued.push({
         branch: line.branch,
         slug,
+        base,
         claimable,
         unnamed: unnamed.has(line.branch),
         slice: index,

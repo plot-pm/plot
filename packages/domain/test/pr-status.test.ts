@@ -334,7 +334,7 @@ describe('prStatus — the composed decision', () => {
     expect(status.spenders).toBeNull();
   });
 
-  it('error row: no data and missing credentials reads outage with no backoff', () => {
+  it('error row: no data and missing credentials reads auth with no backoff', () => {
     const status = prStatus({
       error: 'gh: authentication required',
       ageSeconds: null,
@@ -343,7 +343,7 @@ describe('prStatus — the composed decision', () => {
       intervalSeconds: INTERVAL_S,
     });
     expect(status.level).toBe('error');
-    expect(status.kind).toBe('outage');
+    expect(status.kind).toBe('auth');
     expect(status.backoffInSeconds).toBeNull();
   });
 
@@ -361,7 +361,7 @@ describe('prStatus — the composed decision', () => {
       intervalSeconds: INTERVAL_S,
     });
     expect(status.level).toBe('error');
-    expect(status.kind).toBe('outage');
+    expect(status.kind).toBe('auth');
   });
 
   it('error row: no data at all, no refusal either', () => {

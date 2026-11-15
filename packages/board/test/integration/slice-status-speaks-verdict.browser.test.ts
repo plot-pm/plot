@@ -52,9 +52,9 @@ describe('a wave row speaks its own verdict in the status slot', () => {
     // must show `2 complete`, not `2 delivered`. That state is the catalogue's
     // `a-done-wave`, and this file's inline fixture is what it was built from.
     const page = await cat.open('a-done-wave', { tab: 'agents' });
-    await page.getByText('Done').first().waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="release-delivery"]').waitFor({ timeout: 10_000 });
     // DONE is folded by default — unfold it to see the wave rows.
-    const doneToggle = page.locator('[data-group-toggle]').filter({ hasText: 'Done' });
+    const doneToggle = page.locator('[data-group-toggle="release-delivery"]');
     if ((await doneToggle.getAttribute('aria-expanded')) === 'false') {
       await doneToggle.click();
     }

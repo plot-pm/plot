@@ -110,9 +110,17 @@ export const readImplementBranch = (repoRoot: string, slug: string): string | nu
  * claimed, the queue drops the slice, and the agent later handed it reads its
  * own slice as double-assigned. The claim belongs to the agent, which pushes it
  * at take-up (`plot-worker-loop.sh`).
+ *
+ * `--branch <home>` names the sprint branch a plan lives on where only that
+ * branch holds the plan file (`originPlanHome`). The skill then reads the plan
+ * on `origin/<home>` and passes the flag to `plot-brief-book.mjs`.
+ *
+ * @param slug - the plan slug.
+ * @param home - the plan's sprint branch without `origin/`; `''` for the default branch.
+ * @returns the prompt.
  */
-export const composeImplementPrompt = (slug: string): string =>
-  `Run /plot-implement ${slug} --brief-only and follow it.`;
+export const composeImplementPrompt = (slug: string, home = ''): string =>
+  `Run /plot-implement ${slug} --brief-only${home === '' ? '' : ` --branch ${home}`} and follow it.`;
 
 /**
  * How long a `/plot-implement` child may run before it is killed.
@@ -582,6 +590,8 @@ export interface ImplementStartFailure {
  *   with its own `running <pid>` state, and passed to the run as `PLOT_BRIEF_BRANCH`.
  * @param lockDeps - the implement lock's test seams.
  * @param detached - `true` to start a `command` run that outlives this process.
+ * @param home - the plan's sprint branch, which the prompt names as `--branch`;
+ *   `''` for the default branch.
  * @returns the log path, or a failure where the lock or the log could not be written.
  */
 export const startImplement = (
@@ -593,6 +603,7 @@ export const startImplement = (
   branch: string | null = null,
   lockDeps: ImplementLockDeps = {},
   detached = false,
+  home = '',
 ): { log: string } | { failure: ImplementStartFailure } => {
   const log = implementLogPath(opts.repoRoot, slug);
   const statePath = implementStatePath(opts.repoRoot, slug);
@@ -657,7 +668,7 @@ export const startImplement = (
       // already refused an unusable one.
       readCfg: (o, key, fallback) => (key === IMPLEMENT_COMMAND_KEY ? command : readCfg(o, key, fallback)),
       tree: opts.repoRoot,
-      prompt: composeImplementPrompt(slug),
+      prompt: composeImplementPrompt(slug, home),
       env: {
         // THE DECLARATION, not a switch — the same one `idea.ts` sets. On drift
         // `/plot-implement` step 2 stops and reports rather than asking.

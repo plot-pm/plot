@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { readConfigAsync, type ConfigReadOptions } from './config-reader.js';
+import { readConfig, readConfigAsync, type ConfigReadOptions } from './config-reader.js';
 
 /**
  * THE TWO FLEET SETTINGS AND THEIR SHARED STATE.
@@ -65,6 +65,10 @@ export const PARALLEL_AGENTS_KEY = 'Parallel agents';
  * §7 forbids, so this key is what makes the whole gate legal.
  */
 export const MACHINE_OVERRIDE_KEY = 'Machine override';
+/** The three automatic-step switches beside auto-dispatch; each defaults OFF like it. */
+export const AUTO_REVIEW_SWITCH_KEY = 'Auto-review';
+export const AUTO_VERIFY_SWITCH_KEY = 'Auto-verify';
+export const AUTO_DESIGN_SWITCH_KEY = 'Auto-design';
 const AUTO_DISPATCH_DEFAULT = false;
 const PARALLEL_AGENTS_DEFAULT = 3;
 /**
@@ -95,7 +99,22 @@ export interface FleetSettings {
    * *now anyway*. See {@link MACHINE_OVERRIDE_KEY}.
    */
   machineOverride: boolean;
+  /** Whether the fleet starts reviews by itself: the `Auto-review` switch. */
+  autoReview: boolean;
+  /** Whether the fleet starts verification by itself: the `Auto-verify` switch. */
+  autoVerify: boolean;
+  /** Whether the fleet starts design runs by itself: the `Auto-design` switch. */
+  autoDesign: boolean;
 }
+
+/** The boolean switches of {@link FleetSettings} and the config key that seeds each. */
+export const SWITCH_KEYS = {
+  autoDispatch: AUTO_DISPATCH_KEY,
+  autoReview: AUTO_REVIEW_SWITCH_KEY,
+  autoVerify: AUTO_VERIFY_SWITCH_KEY,
+  autoDesign: AUTO_DESIGN_SWITCH_KEY,
+} as const;
+export type SwitchName = keyof typeof SWITCH_KEYS;
 
 /**
  * Where the file lives: beside the pulse, under `.plot/state/`.
@@ -127,11 +146,14 @@ export async function defaultFleetSettings(opts: ConfigReadOptions): Promise<Fle
   // `sample` on a wedged board caught exactly this shape under the request
   // handler. Concurrent rather than sequential because the three keys are
   // independent; the parse below is unchanged.
-  const [rawSwitch, rawCap, rawOverride] = (
+  const [rawSwitch, rawCap, rawOverride, rawReview, rawVerify, rawDesign] = (
     await Promise.all([
       readConfigAsync(opts, AUTO_DISPATCH_KEY, String(AUTO_DISPATCH_DEFAULT)),
       readConfigAsync(opts, PARALLEL_AGENTS_KEY, String(PARALLEL_AGENTS_DEFAULT)),
       readConfigAsync(opts, MACHINE_OVERRIDE_KEY, String(MACHINE_OVERRIDE_DEFAULT)),
+      readConfigAsync(opts, AUTO_REVIEW_SWITCH_KEY, ''),
+      readConfigAsync(opts, AUTO_VERIFY_SWITCH_KEY, ''),
+      readConfigAsync(opts, AUTO_DESIGN_SWITCH_KEY, ''),
     ])
   ).map((raw) => raw.trim());
   const parsedCap = Number.parseInt(rawCap, 10);
@@ -144,6 +166,9 @@ export async function defaultFleetSettings(opts: ConfigReadOptions): Promise<Fle
     // The same exact-literal rule the switch uses: a typo or an empty value
     // reads as OFF, so a malformed config cannot silently disable the gate.
     machineOverride: rawOverride === 'true',
+    autoReview: rawReview === 'true',
+    autoVerify: rawVerify === 'true',
+    autoDesign: rawDesign === 'true',
   };
 }
 
@@ -168,8 +193,34 @@ function coerce(raw: unknown, fallback: FleetSettings): FleetSettings {
   // rather than reading as an override nobody asked for.
   const machineOverride =
     typeof obj.machineOverride === 'boolean' ? obj.machineOverride : fallback.machineOverride;
-  return { autoDispatch, parallelAgents, machineOverride };
+  const flag = (key: 'autoReview' | 'autoVerify' | 'autoDesign'): boolean =>
+    typeof obj[key] === 'boolean' ? (obj[key] as boolean) : fallback[key];
+  return {
+    autoDispatch, parallelAgents, machineOverride,
+    autoReview: flag('autoReview'), autoVerify: flag('autoVerify'), autoDesign: flag('autoDesign'),
+  };
 }
+
+/**
+ * One switch, read synchronously: the state file's boolean where the file holds
+ * one, else the `## Plot Config` key. Any value but the literal `true` is off.
+ *
+ * @param opts - the repository and scripts directory to read through.
+ * @param name - which switch.
+ * @returns whether the switch is on.
+ */
+export const readSwitch = (opts: ConfigReadOptions, name: SwitchName): boolean => {
+  try {
+    const raw: unknown = JSON.parse(fs.readFileSync(fleetSettingsPath(opts.repoRoot), 'utf8'));
+    if (typeof raw === 'object' && raw !== null) {
+      const v = (raw as Record<string, unknown>)[name];
+      if (typeof v === 'boolean') return v;
+    }
+  } catch {
+    // no file, or one that does not parse: the config answers
+  }
+  return readConfig(opts, SWITCH_KEYS[name], '').trim() === 'true';
+};
 
 /**
  * The current settings: the file if it holds a well-shaped answer, else the
@@ -224,6 +275,9 @@ export function writeFleetSettings(repoRoot: string, controls: FleetSettings): v
     autoDispatch: controls.autoDispatch,
     parallelAgents: Math.max(MIN_PARALLEL_AGENTS, Math.trunc(controls.parallelAgents)),
     machineOverride: controls.machineOverride,
+    autoReview: controls.autoReview,
+    autoVerify: controls.autoVerify,
+    autoDesign: controls.autoDesign,
   };
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;

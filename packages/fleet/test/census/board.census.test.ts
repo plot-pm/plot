@@ -13,7 +13,7 @@ import { buildSandbox, type Sandbox } from './sandbox.js';
 import { censusGate, findStrace } from './strace-run.js';
 import type { ExecRecord, StraceCensus } from './strace-execs.js';
 
-// The board over a wall-clock window (S1, S2, S3, and P3 for the board). The
+// The board over a wall-clock window (S1, S2, S3, S7, and P3 for the board). The
 // board's pulse takes no injected clock (`startPulse(clockSystem(), …)`), so
 // each scenario counts the board's tree between two marks and reports it per
 // minute. `PLOT_CENSUS_WINDOW_MS` sets the window; 60 s by default.
@@ -48,7 +48,7 @@ type Window = { census: StraceCensus; board: number; execs: ExecRecord[] };
 const measureBoard = async (
   box: Sandbox,
   before: (board: BoardRun) => Promise<() => Promise<void>>,
-  options: { quiet: boolean },
+  options: { quiet: boolean; during?: (board: BoardRun) => () => Promise<void> },
 ): Promise<Window> => {
   const board = await startBoard(box, { trace: true });
   let census: StraceCensus | null = null;
@@ -61,7 +61,9 @@ const measureBoard = async (
     }
     await wait(SETTLE_MS);
     await board.mark('w0');
+    const endDuring = options.during?.(board);
     await wait(WINDOW_MS);
+    await endDuring?.();
     await board.mark('w1');
   } finally {
     await after();
@@ -182,5 +184,68 @@ describe.skipIf(gate.kind !== 'run')('an idle board with one visible page and fl
     const direct = window.execs.filter((e) => e.ppid === window.board && isFixedAnswer(e));
     recordCount({ ...CENSUS_ROWS.P3, id: 'P3-board', unit: 'execve per minute' }, fixture, perMinute(direct.length), direct);
     expect(direct).toHaveLength(0);
+  });
+});
+
+/** The page's poll interval, `POLL_MS` in `packages/board/src/app/App.tsx`. */
+const POLL_MS = 30_000;
+
+/**
+ * Sends one `GET /api/board` now and one every `POLL_MS`, as a visible page
+ * does, recording each answer's status; the returned stop waits for the
+ * request in flight.
+ */
+const pollBoard = (board: BoardRun, statuses: number[]): (() => Promise<void>) => {
+  let inFlight: Promise<void> = Promise.resolve();
+  const once = (): void => {
+    inFlight = inFlight.then(async () => {
+      statuses.push(await board.read().catch(() => 0));
+    });
+  };
+  once();
+  const timer = setInterval(once, POLL_MS);
+  return async () => {
+    clearInterval(timer);
+    await inFlight;
+  };
+};
+
+describe.skipIf(gate.kind !== 'run')('an idle board with one visible page that polls /api/board, and fleetd running (S7)', () => {
+  const fixture: CensusFixture = { host: 'github', desks: 0, openPrs: 5 };
+  let box: Sandbox;
+  let entry: FleetdEntry;
+  let fleetd: FleetdRun | undefined;
+  let window: Window;
+  const statuses: number[] = [];
+
+  beforeAll(async () => {
+    box = await buildSandbox(fixture);
+    entry = await buildFleetdEntry();
+    // S3's window, with the page's poll inside it: fleetd untraced under
+    // systemd, one SSE client attached, one GET /api/board at the window's
+    // start and one every 30 s.
+    fleetd = startFleetd(entry, box, { trace: false, clock: 'system', supervisor: 'systemd' });
+    await fleetd.session.waitFor(/^plot-fleetd: supervising /, 60_000);
+    window = await measureBoard(box, async (board) => {
+      const page = await board.attach();
+      return () => page.detach();
+    }, { quiet: false, during: (board) => pollBoard(board, statuses) });
+  }, 300_000);
+
+  afterAll(async () => {
+    await fleetd?.stop();
+    entry?.remove();
+    await box?.remove();
+  });
+
+  it('answers 200 to every read inside the window', () => {
+    expect(statuses.length).toBeGreaterThanOrEqual(Math.max(1, Math.floor(WINDOW_MS / POLL_MS)));
+    expect(statuses.every((status) => status === 200)).toBe(true);
+  });
+
+  it(rowTitle(CENSUS_ROWS.S7, fixture), () => {
+    recordCount(CENSUS_ROWS.S7, fixture, perMinute(window.execs.length), window.execs);
+    // Each start as its argv, so a failure names the command and not only its count.
+    expect(window.execs.map((e) => e.argv.join(' '))).toEqual([]);
   });
 });

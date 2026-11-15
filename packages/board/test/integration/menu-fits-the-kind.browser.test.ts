@@ -11,7 +11,7 @@ import { type AgentRow, type Fleet, type Board, type Stuck } from '../../src/con
  * items a kind offers (`menuState`, `openTarget`, `runLinkLabel`,
  * `storyRefusal`). This owns the half a page states:
  *
- *   - EVERY row in WAITING ON YOU has a `⋯` menu — the motivating defect was
+ *   - EVERY row of the slice has a `⋯` menu — the motivating defect was
  *     two rows of three with none.
  *   - a PR whose checks fail offers *Show failure* inside that menu.
  *   - a bare branch offers *Open*; a PR offers *Review*.
@@ -39,7 +39,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
 });
 
 /**
- * A WAITING ON YOU section with one row of each kind that used to render no
+ * One slice with one row of each kind that used to render no
  * menu — a plain PR awaiting review, and a bare branch — plus a failing PR.
  */
 function fleet(over: Partial<Fleet> = {}): Fleet {
@@ -107,7 +107,7 @@ describe('the menu fits the kind, and every row has one', () => {
       tab: 'agents',
       viewport: { width: 1400, height: 1200 },
     });
-    await page.getByText('Waiting on you').first().waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;
   }

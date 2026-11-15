@@ -1,7 +1,7 @@
 // Contract test for skills/plot/scripts/board/plot-local-checks.mjs — the
 // checks a branch's change needs, run as an agent runs it: in a repository,
-// with the config in its CLAUDE.md, the branch against its default branch and
-// the working tree both read.
+// with the config in its CLAUDE.md, the branch against its base and the
+// working tree both read.
 //
 // This is the second slice of
 // docs/plans/2026-10-02-an-agent-runs-the-tests-its-change-touches.md.
@@ -102,6 +102,7 @@ test('the bundle prints the selected tests, the glob check, and the report for a
     const real = fs.realpathSync(repo);
     const lines = res.stdout.trim().split('\n');
     assert.deepEqual(lines, [
+      '# base: origin/main (nearest: HEAD is 1 commit past it)',
       `node --test ${real}/test/tool.test.mjs`,
       'echo typecheck',
       '# CI runs these: src/wide.sh is named by 3 test files',
@@ -191,7 +192,7 @@ test('a worktree reached through a symlinked directory prints the real path, and
     const res = runIn(pair.link);
     assert.equal(res.status, 0, res.stderr);
     const real = fs.realpathSync(pair.target);
-    const line = res.stdout.trim().split('\n')[0];
+    const line = res.stdout.trim().split('\n')[1];
     assert.equal(line, `${vitestBin} related --run ${real}/src/a.mjs`);
     assert.notEqual(real, pair.link, 'the fixture must actually differ by symlink, or this proves nothing');
 
@@ -237,7 +238,7 @@ test('a root reported through a symlink is printed as its real path, and the com
     assert.equal(res.status, 0, res.stderr);
     const real = fs.realpathSync(pair.target);
     assert.notEqual(real, pair.link, 'the fixture must differ by symlink, or this proves nothing');
-    const line = res.stdout.trim().split('\n')[0];
+    const line = res.stdout.trim().split('\n')[1];
     assert.equal(line, `${vitestBin} related --run ${real}/src/a.mjs`);
   } finally {
     fs.rmSync(shim, { recursive: true, force: true });
@@ -251,7 +252,7 @@ test('the non-symlinked case still prints the path as given, unchanged by the sy
     const res = runIn(repo);
     assert.equal(res.status, 0, res.stderr);
     const real = fs.realpathSync(repo);
-    const line = res.stdout.trim().split('\n')[0];
+    const line = res.stdout.trim().split('\n')[1];
     assert.equal(line, `node --test ${real}/test/tool.test.mjs`);
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
@@ -424,6 +425,78 @@ test('a slice branch off its sprint branch prints only the slice\'s tests; --bas
     assert.match(wide.stdout, /own\.test\.mjs/, wide.stdout);
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('a branch off a sprint branch that no plan names is read against that sprint branch, and the first line says so', () => {
+  const repo = sprintSandbox();
+  try {
+    const git = (...args) => execFileSync('git', ['-C', repo, ...args], { stdio: 'ignore' });
+    git('checkout', '-q', '-B', 'bug/y', 'origin/sprint/s1');
+    fs.writeFileSync(path.join(repo, 'src', 'tool.sh'), 'echo fix\n');
+    git('commit', '-q', '-am', 'fix');
+    const res = runIn(repo);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(res.stdout.split('\n')[0], '# base: origin/sprint/s1 (nearest: HEAD is 1 commit past it; main 2)');
+    assert.match(res.stdout, /tool\.test\.mjs/, res.stdout);
+    assert.doesNotMatch(res.stdout, /own\.test\.mjs/, res.stdout);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('--base reads origin/<branch> and an abbreviated commit id as the same base as <branch>', () => {
+  const repo = sprintSandbox();
+  try {
+    const git = (...args) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
+    const sha = git('rev-parse', 'origin/sprint/s1').trim();
+    const prefixed = runIn(repo, '--base', 'origin/sprint/s1');
+    assert.equal(prefixed.status, 0, prefixed.stderr);
+    assert.equal(prefixed.stderr, '');
+    assert.equal(prefixed.stdout.split('\n')[0], '# base: origin/sprint/s1 (the --base argument)');
+    assert.match(prefixed.stdout, /tool\.test\.mjs/, prefixed.stdout);
+    assert.doesNotMatch(prefixed.stdout, /own\.test\.mjs/, prefixed.stdout);
+    const short = runIn(repo, '--base', sha.slice(0, 9));
+    assert.equal(short.status, 0, short.stderr);
+    assert.equal(short.stderr, '');
+    assert.equal(short.stdout.split('\n')[0], `# base: ${sha} (the --base argument)`);
+    assert.match(short.stdout, /tool\.test\.mjs/, short.stdout);
+    assert.doesNotMatch(short.stdout, /own\.test\.mjs/, short.stdout);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('--base that names no branch origin holds and no commit exits 2 and names the accepted forms', () => {
+  const repo = sandbox();
+  try {
+    const res = runIn(repo, '--base', 'origin/sprint/gone');
+    assert.equal(res.status, 2, res.stdout + res.stderr);
+    assert.equal(res.stdout, '');
+    assert.equal(
+      res.stderr,
+      'plot-local-checks: --base origin/sprint/gone names no branch origin holds and no commit; give <branch>, origin/<branch> or a commit id\n',
+    );
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('the desk manifest\'s base decides over the counts', () => {
+  const repo = sandbox();
+  const registry = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-local-checks-registry-'));
+  try {
+    const git = (...args) => execFileSync('git', ['-C', repo, ...args], { stdio: 'ignore' });
+    git('branch', 'sprint/s2', 'main');
+    git('fetch', '-q', 'origin');
+    fs.appendFileSync(path.join(repo, 'CLAUDE.md'), `- **Agent registry:** ${registry}\n`);
+    fs.writeFileSync(path.join(registry, 'a.json'), JSON.stringify({ session: 'a', worktree: repo, base: 'sprint/s2' }));
+    const res = runIn(repo);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(res.stdout.split('\n')[0], '# base: origin/sprint/s2 (the desk manifest records it)');
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(registry, { recursive: true, force: true });
   }
 });
 

@@ -11,6 +11,7 @@ import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import { fleetPrs, type PrLock } from '../../src/shared/fleet-clock.js';
 import { freshPrState, memoryOverlay, type PrWorld } from '../../src/shared/pr-refresh.js';
 import { removeTree as rmTree } from '../rm-tree.mjs';
+import { withSaidListing } from './listing-over-said.js';
 
 const freshLock = (lock: ReaderLock = readerLockFixture()): PrLock => ({ lock });
 
@@ -38,11 +39,10 @@ afterEach(() => {
   rmTree(home);
 });
 
-const world = (calls: string[][], answer: () => { answer: string; stdout: string; said?: string }): PrWorld => ({
-  scripts: scriptsFake(calls, answer),
-  host: hostFake,
-  store: prIndexFile({ cwd: home }),
-});
+const world = (calls: string[][], answer: () => { answer: string; stdout: string; said?: string }): PrWorld => {
+  const scripts = scriptsFake(calls, answer);
+  return { scripts, host: withSaidListing(hostFake, scripts.hostSaid), store: prIndexFile({ cwd: home }) };
+};
 
 describe('the fleet writes the PR index', () => {
   it('folds the host answer into the store', async () => {
@@ -149,7 +149,7 @@ describe('the PR pass elects a reader', () => {
         return { answer: 'answered', stdout: JSON.stringify(ROW) };
       },
     } as unknown as Scripts;
-    const w: PrWorld = { scripts, host: hostFake, store: prIndexFile({ cwd: home }) };
+    const w: PrWorld = { scripts, host: withSaidListing(hostFake, scripts.hostSaid), store: prIndexFile({ cwd: home }) };
     await fleetPrs(w, state, { lock }, () => undefined)();
     expect(state.prs?.get('feature/a')?.number).toBe(7);
     const onDisk = await prIndexFile({ cwd: home }).read('github');

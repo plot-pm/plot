@@ -11,6 +11,7 @@ import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import { fleetScan, startFleetClock } from '../../src/shared/fleet-clock.js';
 import { freshScanState, REFRESH_MS, type ScanWorld } from '../../src/shared/fleet-scan.js';
 import { emptyWalk, withWalkRefs } from './walk-fake.js';
+import { saidListingWorld } from './listing-over-said.js';
 import { removeTree as rmTree } from '../rm-tree.mjs';
 
 const ok = <T>(value: T) => ({ ok: true as const, value });
@@ -36,13 +37,13 @@ afterEach(() => {
   rmTree(repo);
 });
 
-const worldOver = (refs: Refs = refsFake): ScanWorld => ({
+const worldOver = (refs: Refs = refsFake): ScanWorld => saidListingWorld({
   repoRoot: repo,
   scripts: scriptsFake(),
   refs,
   backend: async () => 'github',
   walk: emptyWalk(),
-});
+} as ScanWorld);
 
 /** Refs whose branch tips cannot be read, so the estate stage — and the beat — fails. */
 const brokenRefs = withWalkRefs({ branchTips: async () => ({ ok: false as const }) } as unknown as Partial<Refs>);

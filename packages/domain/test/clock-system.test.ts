@@ -208,3 +208,66 @@ describe('a manual clock is driven by hand', () => {
     expect(clockManual(0).timezoneOffsetMinutes()).toEqual({ ok: true, value: 0 });
   });
 });
+
+describe('the monotonic reading and the one-shot timer', () => {
+  it('reads a monotonic time that never goes backwards, and a fixed clock reads 0', async () => {
+    const clock = clockSystem();
+    const first = clock.monotonic();
+    await Promise.resolve();
+    const second = clock.monotonic();
+    if (!first.ok || !second.ok) throw new Error('the system clock did not answer');
+    expect(second.value).toBeGreaterThanOrEqual(first.value);
+    expect(clockFixed(5).monotonic()).toEqual({ ok: true, value: 0 });
+  });
+
+  it('fires a system timeout once, and a cancelled one never', async () => {
+    const clock = clockSystem();
+    let fired = 0;
+    clock.timeout(5, () => (fired += 1));
+    const cancel = clock.timeout(5, () => (fired += 10));
+    cancel();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(fired).toBe(1);
+  });
+
+  it('accepts a fixed clock timeout and never fires it', () => {
+    let fired = 0;
+    clockFixed(0).timeout(1, () => (fired += 1))();
+    expect(fired).toBe(0);
+  });
+
+  it('advances monotonic with now on clockManual and fires a due timeout once', () => {
+    const clock = clockManual(1000);
+    clock.schedule(5000, () => undefined);
+    let fired = 0;
+    clock.timeout(12_000, () => (fired += 1));
+    clock.advance(2);
+    expect(fired).toBe(0);
+    clock.advance(1);
+    expect(fired).toBe(1);
+    clock.advance(3);
+    expect(fired).toBe(1);
+    expect(clock.monotonic()).toEqual({ ok: true, value: 30_000 });
+    expect(clock.now()).toEqual({ ok: true, value: 31_000 });
+  });
+
+  it('cancels a manual timeout, twice without harm, and a jump moves the wall clock only', () => {
+    const clock = clockManual(0);
+    clock.schedule(1000, () => undefined);
+    let fired = 0;
+    const cancel = clock.timeout(1000, () => (fired += 1));
+    cancel();
+    cancel();
+    clock.advance(2);
+    expect(fired).toBe(0);
+    clock.jump(60_000);
+    expect(clock.now()).toEqual({ ok: true, value: 62_000 });
+    expect(clock.monotonic()).toEqual({ ok: true, value: 2000 });
+  });
+
+  it('advances nothing when no schedule is live', () => {
+    const clock = clockManual(0);
+    clock.advance(3);
+    expect(clock.monotonic()).toEqual({ ok: true, value: 0 });
+  });
+});

@@ -306,7 +306,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
     });
     await page.goto(tab === 'agents' ? `${baseURL}?tab=agents` : baseURL);
     // Wait for real content, so there is a payload to degrade FROM.
-    if (tab === 'agents') await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    if (tab === 'agents') await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     else await page.getByText(CARD).waitFor({ timeout: 10_000 });
     // AFTER the branch, not inside it: a line inserted between `if` and `else`
     // is a parse error, and this file carried one — the whole suite failed to
@@ -318,7 +318,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       await page.getByRole('button', { name: 'Planning' }).click();
       await page.getByText(CARD).waitFor({ timeout: 10_000 });
       await page.getByRole('button', { name: 'Delivery' }).click();
-      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     }
     return { page, set: (m: Mode) => { mode = m; } };
@@ -411,10 +411,11 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       await overlay(page).waitFor({ timeout: 10_000 });
 
       const branch = page.getByText('feature/beans-a', { exact: true });
-      expect(await branch.count()).toBe(1);
+      // The agent row under Fleet and the branch under its slice row both name the branch.
+      expect(await branch.count()).toBeGreaterThan(0);
       // Present is not the same as legible: a payload dimmed to invisibility
       // would pass a count. The element must still have a rendered box.
-      const box = await branch.boundingBox();
+      const box = await branch.first().boundingBox();
       expect(box?.width ?? 0).toBeGreaterThan(0);
       expect(box?.height ?? 0).toBeGreaterThan(0);
       // And the text itself is not blanked or replaced. `beans-a` is a WORKING
@@ -423,8 +424,9 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       // running worker reads `running`; `a-state-is-a-word-not-a-sentence`
       // withdrew the old `someone is on it`, so the status is scoped to the row
       // rather than matched as free text.
-      const beansRow = page.locator('li').filter({ has: page.getByText('feature/beans-a', { exact: true }) });
-      await expect.poll(() => beansRow.first().textContent()).toContain('running');
+      // The agent row under Fleet is the last row naming the branch, and it states the worker running.
+      const beansRow = page.locator('li[data-agent-row]').filter({ has: page.getByText('feature/beans-a', { exact: true }) });
+      await expect.poll(() => beansRow.last().textContent()).toContain('running');
       expect(await page.getByText('someone is on it').count()).toBe(0);
     } finally {
       await page.close();

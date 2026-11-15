@@ -273,6 +273,7 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
     add: async () => answered(undefined),
 
     addBranch: async () => answered(undefined),
+    addTracking: async () => answered(undefined),
 
     resetBranch: async (path): Promise<PortResult<void>> =>
       (fixture.resetBranchRefusedAt ?? []).includes(path) ? failed<void>() : answered(undefined),

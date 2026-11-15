@@ -47,6 +47,22 @@ const FINDINGS_FILE = '.plot-worker.monitor.worker.jsonl';
 /** The desk's BuildMonitor log: the file `plot-build-monitor.sh` used to write and `findings.ts` reads. */
 const BUILD_FINDINGS_FILE = '.plot-worker.monitor.build.jsonl';
 
+/** The desk's AgentMonitor log, which fleetd and the worker wrapper write. */
+const AGENT_FINDINGS_FILE = '.plot-worker.monitor.agent.jsonl';
+
+/** The desk log. */
+const DESK_LOG_FILE = '.plot-worker.log';
+
+/** Appends `text` to a file; `failed` where the append throws. */
+const appendTo = (file: string, text: string): PortResult<void> => {
+  try {
+    appendFileSync(file, text);
+    return answered(undefined);
+  } catch {
+    return failed<void>();
+  }
+};
+
 /**
  * The last {@link MAX_LOG_BYTES} of a log, or `''` where it is absent and
  * `undefined` where it exists and cannot be read.
@@ -296,6 +312,11 @@ export const deskFs = (trees: Trees): Desk => {
       }
       return answered(undefined);
     },
+
+    publishAgentFinding: async (worktree, { monitor, branch, worktree: named, finding, since, evidence, measuredAt }) =>
+      appendTo(join(worktree, AGENT_FINDINGS_FILE), `${JSON.stringify({ monitor, branch, worktree: named, finding, since, evidence, measuredAt })}\n`),
+
+    appendLog: async (worktree, line) => appendTo(join(worktree, DESK_LOG_FILE), `${line}\n`),
 
     readFindings: async (worktree): Promise<PortResult<readonly Finding[]>> => {
       const found: Finding[] = [];

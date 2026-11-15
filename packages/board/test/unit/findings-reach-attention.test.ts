@@ -45,7 +45,7 @@ afterAll(() => {
  * Write one finding into a desk's monitor log, exactly as the monitor scripts
  * do: one JSON object per line, appended.
  *
- * `plot-agent-monitor.sh:186` composes this line; the fields here are its
+ * `agentFindingLine` (`rules/agent-finding.ts`) composes this line; the fields here are its
  * seven, in its order. A test that built the object differently would prove the
  * board can read a shape nothing writes.
  */

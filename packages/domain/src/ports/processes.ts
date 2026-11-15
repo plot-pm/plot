@@ -1,5 +1,22 @@
 import type { PortResult } from '../port-result.js';
 import type { WorkerState, WorkerActivity } from '../entities/fleet.js';
+import type { ProcessRow } from '../rules/pid-current.js';
+
+export type { ProcessRow } from '../rules/pid-current.js';
+
+/**
+ * What a caller already read of a desk in the same pass, so the worker-state
+ * reader does not read it again.
+ */
+export interface KnownDeskReadings {
+  /** Whether the dirt filter found uncommitted work; absent where the caller did not read it. */
+  dirty?: boolean;
+  /**
+   * `true` where `HEAD` holds no commit outside every remote, so no commit is
+   * ahead of the upstream; absent where the caller did not read it.
+   */
+  allPushed?: boolean;
+}
 
 /**
  * One reading of an agent's desk and the process on it.
@@ -24,6 +41,8 @@ export interface ProcessReading {
   exitCode: string;
   /** Whether a running worker's descendants are burning CPU. */
   activity: WorkerActivity;
+  /** What the state's liveness rests on: the desk's token, or the start time; absent where the reader does not say. */
+  basis?: 'token' | 'start-time';
 }
 
 /**
@@ -48,9 +67,18 @@ export interface Processes {
    *
    * @param worktree - the worktree's absolute path.
    * @param hasPr - whether the branch already has a PR; refines `finished`.
-   * @returns what the process table and the desk together report.
+   * @param known - what the caller already read of the desk in this pass.
+   * @returns what the process table and the desk together report; a failure
+   *   where the process table could not be read.
    */
-  workerState(worktree: string, hasPr: boolean): Promise<PortResult<ProcessReading>>;
+  workerState(worktree: string, hasPr: boolean, known?: KnownDeskReadings): Promise<PortResult<ProcessReading>>;
+
+  /**
+   * Reads the whole process table: one row per process.
+   *
+   * @returns the rows; a failure where `ps` exits non-zero.
+   */
+  table(): Promise<PortResult<readonly ProcessRow[]>>;
 
   /**
    * When a process started, as epoch milliseconds.

@@ -467,6 +467,13 @@ describe('agentLoop — row 5: prompt running, idleNow answers idle', () => {
     expect(end?.reason).toBe('quiet');
     expect(end?.actor).toBe('monitor');
     expect(end?.exitCode).toBe(124);
+    expect(end && 'idle' in end).toBe(false);
+  });
+
+  it('carries the idle check inputs into the ending write', () => {
+    const idle = { logBytes: 40, logMtimeMs: 1_000, log: 'idle' as const, cpuRead: true, cpuDeltaCentis: 0 };
+    const end = endWrite(agentLoop({ ...readings, running: { ...readings.running!, idle } }).writes);
+    expect(end?.idle).toEqual(idle);
   });
 
   it('supervise answers correct — a live-looking manifest, no declaration, gates fail on a dirty desk', () => {
@@ -1059,6 +1066,23 @@ describe("agentLoop — row 12a': the PR conflicts with its base at wait entry",
     expect(endWrite(result.writes)).toBeUndefined();
   });
 
+  it('records the spent session as the conflicting ending\'s resumeId', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks: null,
+      mergeable: 'conflicting',
+      correctionAttempts: 2,
+      correctionBudget: 2,
+      resumeId: 'resume-spent',
+      pr: 1249,
+    });
+    expect(endWrite(result.writes)).toMatchObject({ reason: 'corrections-spent', resumeId: 'resume-spent' });
+  });
+
   it('ends corrections-spent, exit 0, with a marker naming the PR, once the budget is spent', () => {
     const result = agentLoop({
       ...freeLoop,
@@ -1317,6 +1341,23 @@ describe('agentLoop — row 14: checks fail, correction budget left', () => {
 });
 
 describe('agentLoop — row 15: checks fail, budget spent', () => {
+  it('records the spent session as the ending\'s resumeId, so a person\'s continuation resumes it', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks: 'settled',
+      checksPassed: false,
+      correctionAttempts: 2,
+      correctionBudget: 2,
+      resumeId: 'resume-spent',
+      pr: 1249,
+    });
+    expect(endWrite(result.writes)).toMatchObject({ reason: 'corrections-spent', resumeId: 'resume-spent' });
+  });
+
   it('ends corrections-spent, exit 0, with a marker naming the PR and corrections', () => {
     const result = agentLoop({
       ...freeLoop,

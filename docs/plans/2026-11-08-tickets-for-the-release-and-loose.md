@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Released
 - **Type:** feature
 - **Sprint:** ship-2-32-0
 - **Issue:** #3246
@@ -14,6 +14,12 @@
 - **Approved:** 2026-11-08, Jan Wloka, plan-PR #3250 merged
 - **Started:** 2026-11-08, Jan Wloka, `feature/people-carry-a-tracker-identity`
 - **Started:** 2026-11-08, Jan Wloka, `feature/the-issue-index-reads-assignee-and-release`
+- **Started:** 2026-11-10, Jan Wloka, `feature/tickets-reach-input-to-the-fleet`
+- **Started:** 2026-11-10, Jan Wloka, `feature/sprint-work-records-the-ticket-it-opened`
+- **Started:** 2026-11-10, Jan Wloka, `feature/the-release-line-counts-tickets`
+- **Started:** 2026-11-11, Jan Wloka, `feature/loose-ends-show-under-unblock`
+- **Delivered:** 2026-11-13
+- **Released:** 2026-11-15, v2.33.0
 
 ## Changelog
 
@@ -69,13 +75,13 @@ Every rendered state is a domain property (CLAUDE.md, "Every rendered state is a
 
 ### Tickets on the board
 
-- `feature/tickets-reach-input-to-the-fleet` <!-- waits: feature/delivery-tab-sections --> — the rule lists my unplanned tickets, and the Sprint filter narrows them to the target release
-- `feature/sprint-work-records-the-ticket-it-opened` <!-- waits: feature/delivery-tab-sections --> — the board records "opened by sprint" where sprint work opens a ticket, and the row shows the mark
-- `feature/the-release-line-counts-tickets` <!-- waits: feature/delivery-tab-sections --> — closed, planned and untriaged ticket counts on the release line
+- `feature/tickets-reach-input-to-the-fleet` <!-- waits: feature/delivery-tab-sections --> — the rule lists my unplanned tickets, and the Sprint filter narrows them to the target release → #3392
+- `feature/sprint-work-records-the-ticket-it-opened` <!-- waits: feature/delivery-tab-sections --> — the board records "opened by sprint" where sprint work opens a ticket, and the row shows the mark → #3390
+- `feature/the-release-line-counts-tickets` <!-- waits: feature/delivery-tab-sections --> — closed, planned and untriaged ticket counts on the release line → #3391
 
 ### Loose ends
 
-- `feature/loose-ends-show-under-unblock` <!-- waits: feature/delivery-tab-sections --> — a PR or branch that no plan names and nobody works on shows under **You › Unblock** with its actions <!-- builds: release and delete controllers for a loose PR or branch -->
+- `feature/loose-ends-show-under-unblock` <!-- waits: feature/delivery-tab-sections --> — a PR or branch that no plan names and nobody works on shows under **You › Unblock** with its actions <!-- builds: release and delete controllers for a loose PR or branch --> → #3420
 
 ## Notes
 

@@ -22,6 +22,7 @@ import {
   type DesignStatus as DesignStatusPayload,
   type FleetReading,
   type FleetSprint,
+  type ReleaseTickets,
   type IssueAnswer,
   type IssueRow,
   type MachineProcess,
@@ -38,9 +39,9 @@ import {
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
 import { listRecordBlobs } from '@plot-pm/domain/workflows/record-listing';
-import { blobIdOfBytes, parsePlanMetaFiles, planSlug, heldRefsFor, workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
+import { blobIdOfBytes, parsePlanMetaFiles, planMetaOf, planSlug, heldRefsFor, workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
 import type { RefState, Refs } from '@plot-pm/domain/ports/refs';
-import type { BuildPort } from '@plot-pm/domain';
+import type { BuildPort, ReaderState } from '@plot-pm/domain';
 import type { DetachedProcess } from '@plot-pm/domain/ports/detached';
 import { electReader, HEARTBEAT_STALE_MS, type ReaderClaim, type ReaderVerdict } from '@plot-pm/domain/rules/reader-election';
 import { PR_READ_BEAT_MS } from '@plot-pm/domain/rules/pr-status';
@@ -96,7 +97,11 @@ import {
 // names. `slotsFile` is seamed by `PLOT_BUDGET_HOME`, which is how a test moves
 // it, exactly as `budgetFile` is.
 import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
-import { fleetdHeartbeatFile, agentsFs, planStoreRef, planStoreShell, processesShell, issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
+import { fixerAttemptsFile } from '@plot-pm/domain/adapters/fixer-attempts/fixer-attempts-file';
+import { fixerInFlight } from '@plot-pm/domain/rules/fixer-attempts';
+import type { PortResult } from '@plot-pm/domain';
+import type { Worktree } from '@plot-pm/domain/entities/worktree';
+import { fleetdHeartbeatFile, agentsFs, refsGit, shellContext, treesGit, planStoreRef, planStoreShell, processesFiles, issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { CarriedListing } from '@plot-pm/domain/rules/scan-listing';
 import { fleetOwnsScan, ownedBridgeNote } from '@plot-pm/domain/rules/scan-owner';
@@ -105,6 +110,7 @@ import type { HeldSnapshot } from '@plot-pm/domain/rules/snapshot-sync';
 import { PR_INDEX_VERSION, type PrIndex } from '@plot-pm/domain/entities/pr-index';
 import { HOST_BRANCH_URL_SCHEMES } from '@plot-pm/domain/adapters/host/host-branch-urls';
 import { fleetViewFrom, registryViewFrom, snapshotViewNote } from '@plot-pm/domain/workflows/board-view';
+import { boardInputsFrom, type BoardInputs } from '@plot-pm/domain/workflows/board-inputs';
 import { fleetdLiveness, fleetdReadsIssues, fleetdReadsPrs, lateLoopNote, lateLoops } from '@plot-pm/domain/rules/fleetd-live';
 import { isChainedHeading } from '@plot-pm/domain/rules/slice-chain';
 import {
@@ -152,7 +158,7 @@ import {
   NO_SUPERVISION_REPORT,
   type SupervisionReportReadings,
 } from './supervision-report-reading.js';
-import { readAgentRegistryWithInfo, bashCleanliness, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type ReadRegistryOptions } from '@plot-pm/fleet/shared/registry';
+import { readAgentRegistryWithInfo, deskCleanliness, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type ReadRegistryOptions } from '@plot-pm/fleet/shared/registry';
 import { readVerifyStatus, type VerifyStatus } from '@plot-pm/fleet/shared/auto-verify';
 import { readDesignStatus, type DesignStatus } from '@plot-pm/fleet/shared/auto-design';
 import type { RegistryInfo } from '@plot-pm/fleet/shared/registry';
@@ -1035,14 +1041,11 @@ export function estateReport(m: EstateMeasurement): string {
  */
 async function measureEstate(opts: BuildBoardOptions): Promise<EstateMeasurement | null> {
   try {
-    const wtOut = await run('git', ['worktree', 'list', '--porcelain'], opts.repoRoot);
-    const worktrees = wtOut.split('\n').filter((l) => l.startsWith('worktree ')).length;
-
-    const brOut = await run('git',
-      ['for-each-ref', '--format=%(refname)', 'refs/remotes/origin'], opts.repoRoot);
-    const branches = brOut.split('\n').filter((l) => l.trim() !== '').length;
-
-    return { worktrees, branches };
+    const context = shellContext(opts.repoRoot);
+    const trees = await treesGit(context).list();
+    const remote = await refsGit(context).refState('remote');
+    if (!trees.ok || !remote.ok) return null;
+    return { worktrees: trees.value.length, branches: remote.value.length };
   } catch {
     return null;
   }
@@ -1384,7 +1387,7 @@ async function claimOnlyBranches(
  * the honest fallback rather than an invented tag: the same rule the board
  * applies to a missing URL.
  */
-async function releaseVersions(opts: BuildBoardOptions): Promise<Map<string, string>> {
+export const releaseVersions = async (opts: BuildBoardOptions): Promise<Map<string, string>> => {
   const found = new Map<string, string>();
   // THE REFS, not the plans — and the first version of this read the plans,
   // which is why it found nothing on the live board while the mock looked right.
@@ -1403,12 +1406,13 @@ async function releaseVersions(opts: BuildBoardOptions): Promise<Map<string, str
   const branches = refs.split('\n')
     .map((l) => l.trim().replace(/^origin\//, ''))
     .filter(Boolean);
+  const reader = refsFor(opts);
   for (const branch of branches) {
-    // `?? ''` because `run` rejects on a missing ref, and a release branch that
-    // vanished between the ref listing and this read is a race rather than a
-    // defect — it reads as *no version*, which is what the row then says.
-    const raw = await run('git', ['show', `origin/${branch}:package.json`], opts.repoRoot)
-      .catch(() => '');
+    // A release branch that vanished between the ref listing and this read is
+    // a race rather than a defect — it reads as *no version*, which is what
+    // the row then says. `showFile` reads through the board's object reader.
+    const shown = await reader.showFile(`origin/${branch}`, 'package.json');
+    const raw = shown.ok ? shown.value : '';
     if (!raw) continue;
     try {
       const version = (JSON.parse(raw) as { version?: unknown }).version;
@@ -1419,7 +1423,7 @@ async function releaseVersions(opts: BuildBoardOptions): Promise<Map<string, str
     }
   }
   return found;
-}
+};
 
 
 
@@ -1807,7 +1811,20 @@ async function ticketPlansOf(
   refEntries?: readonly RefState[],
 ): Promise<Map<string, TicketPlan[]> | null> {
   const metas = await planMetasAtDefault(opts, entry, refEntries);
-  if (metas === null) return null;
+  return metas === null ? null : ticketPlansOver(entry, metas);
+}
+
+/**
+ * The plans that name each ticket, from plan records the caller read.
+ *
+ * @param entry - the cache entry holding the pulses.
+ * @param metas - the plans at the default branch and the open draft plans.
+ * @returns the plans per issue key.
+ */
+const ticketPlansOver = (
+  entry: Pick<CacheEntry, 'pulse' | 'lastComplete'>,
+  metas: readonly PlanMeta[],
+): Map<string, TicketPlan[]> => {
   const byIssue = new Map<string, TicketPlan[]>();
   for (const meta of metas) {
     const issues = meta.issues;
@@ -1832,7 +1849,7 @@ async function ticketPlansOf(
     }
   }
   return byIssue;
-}
+};
 
 /**
  * The `/api/fleet` plan index — every plan at the default branch, keyed by
@@ -1898,7 +1915,10 @@ async function draftPlanFiles(
     const raw = await draftPlanText(refs, branch, planDir, file);
     if (!raw) continue;
     dir ??= makeStageDir('plot-draft-plans-');
-    const target = path.join(dir, `${files.length}-${path.basename(file)}`);
+    // One subdirectory per plan keeps the real basename, which `ticketPlansOf`
+    // cuts the slug from.
+    const target = path.join(dir, String(files.length), path.basename(file));
+    fs.mkdirSync(path.dirname(target));
     fs.writeFileSync(target, raw);
     files.push(target);
   }
@@ -1956,7 +1976,11 @@ export interface TicketLaneData {
 export async function ticketLaneData(opts: BuildBoardOptions): Promise<TicketLaneData | null> {
   const entry = ensureCache(opts);
   if (entry.issueSets === null) return null;
-  const plans = await ticketPlansOf(opts, entry);
+  // ON `snapshot`, THE PLANS COME FROM fleetd'S READINGS: the default-branch
+  // plans and the branch plans whose branch has an open PR. No ref listing,
+  // no blob read and no parse.
+  const served = await boardInputsToServe(opts);
+  const plans = served === null ? await ticketPlansOf(opts, entry) : ticketPlansOver(entry, ticketMetasFrom(served.inputs, entry));
   const declared = await scriptsFor(opts).config('Tracker', '');
   const source = issueSource({
     declared: declared.ok ? declared.value : '',
@@ -1972,6 +1996,24 @@ export async function ticketLaneData(opts: BuildBoardOptions): Promise<TicketLan
     categoryStated: entry.issueConnector === 'jira',
   };
 }
+
+/**
+ * The `releases` of the open and closed rows the issue index holds, for the release line.
+ *
+ * @param sets - the cache's issue sets.
+ * @returns null where no open rows were read; `closed` is null where no closed read has answered.
+ */
+export const releaseTicketsOf = (sets: IssueSets | null): ReleaseTickets | null => {
+  if (sets === null || sets.rows === undefined) return null;
+  const pick = (rows: readonly IssueIndexRow[]) => rows.map((r) => (r.releases === undefined ? {} : { releases: r.releases }));
+  const closed = sets.closed?.rows;
+  return {
+    open: pick(sets.rows),
+    closed: closed === undefined ? null : pick(closed),
+    closedComplete: sets.closed?.complete === true,
+    closedSince: sets.closed?.since ?? null,
+  };
+};
 
 /** What `GET /api/issues/closed` answers. */
 export interface IssuesClosedReading {
@@ -2212,6 +2254,8 @@ const waitingOf = async (
       assignees: [...t.assignees],
       type: t.type,
       owner: t.owner,
+      ...(t.releases === undefined ? {} : { releases: [...t.releases] }),
+      ...(t.planned === true ? { planned: true as const } : {}),
     })),
     shown: result.shown,
     hidden: result.hidden,
@@ -2776,11 +2820,25 @@ const readPrsFromStore = async (opts: BuildBoardOptions, entry: CacheEntry, key:
     entry.prAt = Number.isNaN(at) ? startedAt : at;
     await refreshRuns(opts, entry, maps.prs, await buildPortFor(opts));
   }
-  if (published.ok && published.value !== null) {
-    entry.prError = published.value.prError;
-    entry.prNextAt = published.value.prNextAt;
-    entry.prNextIsBackoff = published.value.prNextIsBackoff;
-    entry.prFullReadFailedAt = published.value.prFullReadFailedAt;
+  adoptPublishedSchedule(entry, published.ok ? published.value : null, startedAt);
+};
+
+/**
+ * Copies the PR reader's published cadence into the cache entry.
+ *
+ * @param entry - the board's cache entry.
+ * @param published - the state the reader lock holds for this connector, or
+ *   null where none was published or it could not be read.
+ * @param startedAt - when this tick started, epoch ms; with no published
+ *   state, the next read is paced one ordinary interval from it and the
+ *   schedule reads as unknown (`prNextScheduled` false).
+ */
+const adoptPublishedSchedule = (entry: CacheEntry, published: ReaderState | null, startedAt: number): void => {
+  if (published !== null) {
+    entry.prError = published.prError;
+    entry.prNextAt = published.prNextAt;
+    entry.prNextIsBackoff = published.prNextIsBackoff;
+    entry.prFullReadFailedAt = published.prFullReadFailedAt;
     entry.prNextScheduled = true;
   } else {
     entry.prNextAt = startedAt + PR_REFRESH_MS;
@@ -2897,6 +2955,15 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
     const refs = held.snapshot.readings.refs;
     try {
       await readIssuesFromStore(opts, entry, refs.state === 'read' ? refs.value.entries : undefined);
+      // THE SCHEDULE COMES FROM THE READER, NOT THE SNAPSHOT: the snapshot
+      // carries the PR rows and when they were read, not when the next read is
+      // due, so `prOverdueSeconds` measures against the reader's published
+      // `prNextAt`.
+      const key = await readerLockKey(opts, entry);
+      if (key !== '') {
+        const published = await readerLockFor(opts).readerState(key);
+        adoptPublishedSchedule(entry, published.ok ? published.value : null, Date.now());
+      }
     } finally {
       entry.prRunning = false;
     }
@@ -2997,6 +3064,39 @@ export const snapshotToServe = (
   const source = boardSourceOf({ clients: entry.clients, heartbeat, link: channel?.link, now });
   return source === 'snapshot' && channel?.held !== undefined ? channel.held : null;
 };
+
+/**
+ * The board's plan-card inputs from fleetd's snapshot, where the board serves
+ * from it and the snapshot holds every reading the cards read.
+ *
+ * @param opts - the board's options; `channelSnapshot` is the hub's copy.
+ * @returns the inputs and the key of the snapshot they came from, or null
+ *   where the board reads for itself.
+ */
+export const boardInputsToServe = async (
+  opts: BuildBoardOptions,
+): Promise<{ key: string; inputs: BoardInputs } | null> => {
+  if (opts.channelSnapshot === undefined) return null;
+  const held = snapshotToServe(opts, ensureCache(opts), await fleetdHeartbeatFor(opts), Date.now());
+  if (held === null) return null;
+  const answer = boardInputsFrom(held.snapshot);
+  return 'inputs' in answer ? { key: `snapshot ${held.epoch} ${held.snapshot.generation}`, inputs: answer.inputs } : null;
+};
+
+/**
+ * The plans a ticket lane links, from the snapshot's inputs: every plan at the
+ * default branch, and each branch plan whose branch has an open PR.
+ *
+ * @param inputs - the inputs `boardInputsFrom` answered.
+ * @param entry - the cache entry holding the open PRs by branch.
+ * @returns the plan records, each `file` its repository-relative path.
+ */
+const ticketMetasFrom = (inputs: BoardInputs, entry: Pick<CacheEntry, 'prs'>): PlanMeta[] => [
+  ...inputs.plans.map((plan) => planMetaOf(plan)),
+  ...inputs.branchPlans
+    .filter(({ branch }) => entry.prs?.has(branch) === true)
+    .map(({ path: planPath, record }) => planMetaOf(record, planPath)),
+];
 
 /**
  * Installs the view `fleetViewFrom` derives from a held snapshot into the cache
@@ -3199,7 +3299,7 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // the snapshot finds the answer already held and runs no `plot-config.sh`.
     const registryResult = await readAgentRegistryWithInfo(opts.repoRoot, undefined, {
       scriptsDir: opts.scriptsDir,
-      cleanliness: bashCleanliness,
+      cleanliness: deskCleanliness,
       manifestDir: await manifestDirFor(opts),
     });
     entry.agents = registryResult.entries;
@@ -3320,7 +3420,7 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
             worktree: planStoreShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
             trees: treesFor(opts),
             agents: agentsFs({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
-            processes: processesShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+            processes: processesFiles({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
           } },
         entry,
         {
@@ -6322,16 +6422,13 @@ export const minutesSince = (iso: string, now: number): number | null => {
 };
 
 /**
- * Actionable before diagnostic.
+ * The order the served rows keep: by their `group` field, then by age.
  *
- * `not-started` sits ABOVE `quiet` because the two ask different things of a
- * reader with a spare ten minutes: not-started is work they can pick up right
- * now, while quiet asks them to go investigate something that may already be
- * dead. Sorted this way the list stays workable top to bottom — the ordering
- * principle these groups have always had — rather than putting an errand before
- * an opportunity.
+ * Private to the server. The Delivery tab orders by `DELIVERY_LAYOUT` and does
+ * not read this; the sort stays so the order of `rows` in the payload does not
+ * change for any other consumer.
  */
-export const GROUP_ORDER: WaitingGroup[] = [
+const SERVED_GROUP_ORDER: WaitingGroup[] = [
   'waiting-on-you', 'working', 'waiting-on-machine', 'not-started', 'quiet', 'done',
 ];
 
@@ -6506,10 +6603,50 @@ export { doubleClaimedBranches };
  * NEW WORDING, deliberately: `handed to agent` and `not taken up` occur nowhere
  * else in this package. It names the STATE and not the session, because the
  * moved row is not drawn itself — WORKING renders registry agents through
- * `RegistryRow`, and the note appears beside a link that already shows the
+ * the agent row, and the note appears beside a link that already shows the
  * agent's session.
  */
 const HANDED_NOTE = 'handed over — not taken up yet';
+
+/**
+ * Marks each planless open-PR row with whether a fleetd fixer runs on it now.
+ *
+ * Reads `.plot/state/fixer-attempts/<pr>.json` for those rows alone — the rows the
+ * loose-end rule asks — and leaves every other row untouched. A failed read leaves
+ * the field absent, so the rule reads the row as unplaced rather than as loose.
+ *
+ * @param rows - the derived rows.
+ * @param repoRoot - the repository the records live under.
+ * @returns the rows, with `fixerInFlight` set on each planless open-PR row whose record was read.
+ */
+export const withFixerInFlight = async (rows: readonly AgentRow[], repoRoot: string): Promise<AgentRow[]> => {
+  const store = fixerAttemptsFile(repoRoot);
+  return Promise.all(
+    rows.map(async (row) => {
+      if (row.plan !== '' || row.pr === null || row.state === 'merged' || row.pr.state === 'closed' || row.pr.open === false) return row;
+      const read = await store.read(row.pr.number);
+      return read.ok ? { ...row, fixerInFlight: fixerInFlight(read.value) } : row;
+    }),
+  );
+};
+
+/**
+ * Marks each planless row with whether a worktree on this machine holds its branch.
+ *
+ * A planless row is built from the PR map or the refs, and no worktree is visited
+ * for it, so the loose-end rule has no desk reading without this one. A failed
+ * listing leaves the field absent, and the rule then reads the row as unplaced
+ * rather than as loose.
+ *
+ * @param rows - the derived rows.
+ * @param trees - this machine's worktree listing.
+ * @returns the rows, with `desk` set on each planless row where the listing answered.
+ */
+export const withDesks = (rows: readonly AgentRow[], trees: PortResult<readonly Worktree[]>): AgentRow[] => {
+  if (!trees.ok) return [...rows];
+  const desks = new Set(trees.value.filter((tree) => tree.branch !== '').map((tree) => tree.branch));
+  return rows.map((row) => (row.plan !== '' || row.wave !== '' ? row : { ...row, desk: desks.has(row.branch) }));
+};
 
 /**
  * Every row rewritten to read the hand-over the registry has already recorded.
@@ -7404,6 +7541,8 @@ export function rowsFromPulse(
           // CPU once, and this carries that verdict outward rather than measuring
           // liveness a second time on this side. Empty except beside `running`.
           worker_activity: b.worker_activity,
+          // THE LIVENESS BASIS, forwarded as `worker` is: the scan read the token once.
+          worker_basis: b.worker_basis ?? '',
           // THE PROCESSES, BESIDE THE AGENT — never instead of it. `worker`
           // above says which agent holds this branch; this says which processes
           // are running for it, and the WAITING ON A MACHINE section lists
@@ -7662,6 +7801,7 @@ export function rowsFromPulse(
       // No worktree was visited, so no CPU was sampled and the activity cue
       // answers nothing — "" for the same reason `worker` is `elsewhere` above.
       worker_activity: '',
+      worker_basis: '',
       // A PLANLESS branch is not in the pulse, so no conflict set was ever
       // computed for it and `conflictsKnown` is false — which is *not looked
       // at*, never *clean*. The one state reachable from PR data alone is
@@ -7959,6 +8099,7 @@ export function rowsFromPulse(
       // facts move it to WORKING through the same path every other row uses.
       worker: 'elsewhere',
       worker_activity: '',
+      worker_basis: '',
       // NOTHING THE HOST SAID AND NOTHING THE SCAN COMPUTED. No conflict set
       // exists for a branch outside the pulse, and no open PR supplies checks —
       // so `stuckState` is given a `wip` branch with nothing wrong that anyone
@@ -8013,8 +8154,8 @@ export function rowsFromPulse(
     // carries one of the six groups. `null` exists only on the WIRE, applied by
     // `sectionUnderFailure` after this function has returned — so a row reaching
     // here without a group would be a defect, not an unplaced row.
-    const g = GROUP_ORDER.indexOf(a.group as WaitingGroup)
-      - GROUP_ORDER.indexOf(b.group as WaitingGroup);
+    const g = SERVED_GROUP_ORDER.indexOf(a.group as WaitingGroup)
+      - SERVED_GROUP_ORDER.indexOf(b.group as WaitingGroup);
     if (g !== 0) return g;
     return compareWithinGroup(a, b);
   });
@@ -8177,6 +8318,7 @@ export async function activeSprints(
       slug: sprint.slug,
       title: sprint.title,
       release: sprint.release,
+      start: sprint.start,
       counts,
       timebox: timeboxStanding(readings),
       timeboxLabel: timeboxLabel(readings),
@@ -8380,6 +8522,8 @@ export async function buildFleet(
       fleetPlanIndexOf(opts, entry),
     ]);
   const { map: phaseMap } = declaredPhaseMap(phasesValue);
+  const correctionBudgetValue = await readConfigAsync(opts, 'Correction budget', '');
+  const correctionBudgetNumber = Number(correctionBudgetValue);
   // Each open PR's branch tip, read from the local remote-tracking refs the scan
   // already fetched: zero host calls. A failed read attaches no tip, and the
   // rows then answer exactly as they did before.
@@ -8388,7 +8532,7 @@ export async function buildFleet(
   // the result rather than threaded into `rowsFromPulse`, because `entry.agents`
   // is in scope HERE (`refresh` fills it, and the sections and the live count
   // below read it) while that function takes the scan's readings only.
-  const rows = entry.pulse
+  const pulseRows = entry.pulse
     ? withHandOver(rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, prsWithTips,
       entry.branchUrlBase, entry.approvedAt, now, entry.ideaPlans, entry.versions,
       entry.runs,
@@ -8422,6 +8566,7 @@ export async function buildFleet(
       // `ownedFromRow` can answer whose a no-PR row is. See `PlanOwnerFields`.
       fieldsBySlug, entry.claimOnly), entry.agents)
     : [];
+  const rows = withDesks(await withFixerInFlight(pulseRows, opts.repoRoot), await treesFor(opts).list());
 
   // THE SECTIONS, REMEMBERED OR CARRIED FORWARD — the whole of this fix, in the
   // one place that has both the derived rows and the scan's outcome.
@@ -8569,6 +8714,8 @@ export async function buildFleet(
     // `null` only where the read failed or the source is `nobody` — the same
     // cases `issues` holds its last good value or `[]` for.
     waiting: entry.waiting,
+    // The index's `releases`, for the Delivery tab's release line: no second read.
+    releaseTickets: releaseTicketsOf(entry.issueSets),
     // Beside `rows`, never derived from them: a row is a branch that mentions an
     // agent, this is an agent that mentions a branch. A running worker appears
     // in both and is not duplicated — the entities differ.
@@ -8603,6 +8750,10 @@ export async function buildFleet(
     viewSource: entry.viewSource ?? undefined,
     issueError: entry.issueError,
     issueAbsence: entry.issueAbsence,
+    autoReview: settings.autoReview,
+    ...(correctionBudgetValue === '' || !Number.isFinite(correctionBudgetNumber)
+      ? {}
+      : { correctionBudget: correctionBudgetNumber }),
     // Set only where `entry.issues` came from `issues.json` rather than a live
     // read — null means the rows are either fresh or not aged at all (an
     // `unsupported` source, or no read has happened yet).

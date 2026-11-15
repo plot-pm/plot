@@ -144,10 +144,17 @@ test('a live pid whose worker-state reading fails keeps the desk', () => {
   sleepers.push(sleeper);
   const branch = 'feature/state-unreadable';
   const { wt, head } = desk(repo, branch, String(sleeper.pid));
-  const scripts = scriptsWith(tmp, 'plot-worker-state.sh', 'plot_worker_state() { return 1; }');
+  // A WRAPPER RECORD MAKES THE DESK NEED THE TABLE: its `orphaned` walk reads
+  // it. A live pid with no recorded start and no wrapper answers without it.
+  fs.writeFileSync(path.join(wt, '.plot-worker.wrapper.pid'), String(sleeper.pid));
   const bin = stubGh(tmp, merged(branch, head));
+  // The worker-state reader reads one process table per pass; a `ps` that
+  // fails that read fails the reading for every desk that needs it.
+  const realPs = execFileSync('/bin/sh', ['-c', 'command -v ps'], { encoding: 'utf8' }).trim();
+  fs.writeFileSync(path.join(bin, 'ps'), `#!/bin/sh\ncase "$*" in *-A*) exit 1 ;; esac\nexec ${JSON.stringify(realPs)} "$@"\n`);
+  fs.chmodSync(path.join(bin, 'ps'), 0o755);
 
-  const out = runReap(repo, bin, scripts, '--yes');
+  const out = runReap(repo, bin, scriptsSrc, '--yes');
 
   assert.match(lineFor(out, branch), /^keep\s.*worker alive \(pid unknown\)/, out);
   assert.ok(fs.existsSync(wt), 'the desk was not removed');

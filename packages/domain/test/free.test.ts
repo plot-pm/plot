@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isAgentFree, whyNotFree, isFree, type AgentReading } from '../src/index.js';
+import { isAgentFree, whyNotFree, isFree, freeLoop, whyNotFreeLoop, type AgentReading, type FreeLoopReading } from '../src/index.js';
 
 /**
  * `free` — the question the eight process states deliberately do not answer.
@@ -107,5 +107,43 @@ describe('isFree — the entity delegates rather than re-deriving', () => {
     for (const c of cases) {
       expect(isFree({ state: c.state, branch: c.branch }, c.sliceHasMerged)).toBe(isAgentFree(c));
     }
+  });
+});
+
+describe('freeLoop', () => {
+  const loop = (over: Partial<FreeLoopReading> = {}): FreeLoopReading => ({
+    state: 'running', branch: '', sliceHasMerged: false, openPr: false, blocked: false, dirtyFiles: 0, ...over,
+  });
+
+  it('holds a clean running loop with no slice free', () => {
+    expect(freeLoop(loop())).toBe(true);
+    expect(whyNotFreeLoop(loop())).toBe('');
+  });
+
+  it('holds a clean loop on a merged slice free', () => {
+    expect(freeLoop(loop({ branch: 'feature/a', sliceHasMerged: true }))).toBe(true);
+  });
+
+  it.each([
+    ['a slice handed over', { branch: 'feature/a' }, 'holds feature/a'],
+    ['an open PR', { openPr: true }, 'open PR'],
+    ['a PLOT-BLOCKED marker', { blocked: true }, 'PLOT-BLOCKED marker'],
+    ['uncommitted files', { dirtyFiles: 3 }, 'uncommitted files (3)'],
+    ['a process that is not running', { state: 'waiting' }, 'blocked on a person'],
+  ] as [string, Partial<FreeLoopReading>, string][])('keeps a loop with %s and says why', (_n, over, why) => {
+    expect(freeLoop(loop(over))).toBe(false);
+    expect(whyNotFreeLoop(loop(over))).toContain(why);
+  });
+
+  it('keeps a loop whose PR or dirt could not be read, and says unreadable', () => {
+    expect(freeLoop(loop({ openPr: undefined }))).toBe(false);
+    expect(whyNotFreeLoop(loop({ openPr: undefined }))).toBe('PR unreadable');
+    expect(freeLoop(loop({ dirtyFiles: undefined }))).toBe(false);
+    expect(whyNotFreeLoop(loop({ dirtyFiles: undefined }))).toBe('uncommitted files unreadable');
+  });
+
+  it('joins every reason in a fixed order', () => {
+    expect(whyNotFreeLoop(loop({ branch: 'b', openPr: true, blocked: true, dirtyFiles: 2 })))
+      .toBe('holds b; open PR; PLOT-BLOCKED marker; uncommitted files (2)');
   });
 });

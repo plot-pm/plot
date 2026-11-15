@@ -461,7 +461,7 @@ test('host: pr-state github maps gh --json and normalizes', () => {
   const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(out, {
     number: 7, state: 'OPEN', draft: true, url: 'https://example.test/pr/7', mergeCommit: '',
-    head: '', headSha: '', base: 'main', checks: 'none', ciChecks: 'none', checksSha: '', mergeable: 'unknown', mergedAt: '',
+    head: '', headSha: '', base: 'main', checks: 'none', ciChecks: 'none', checkRuns: [], checksSha: '', mergeable: 'unknown', mergedAt: '',
   });
   assert.deepEqual(argvOf(stubs.ghArgv),
     ['pr', 'view', '7', '--json', 'number,state,isDraft,url,mergeCommit,headRefName,headRefOid,baseRefName,statusCheckRollup,mergeable,mergeStateStatus,mergedAt']);
@@ -534,6 +534,34 @@ test('host: pr-state github names the head and the checks read for it', () => {
       + '"statusCheckRollup":[{"conclusion":"SUCCESS"}]}',
   });
   assert.equal(JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs: green })).checks, 'green');
+});
+
+// The merge controller requires each `Merge checks` name to have a completed
+// success on the head, which the folded word cannot say: a job with no check
+// run yet is absent from the rollup, and the rest of it still reads green.
+test('host: pr-state reports every rollup item as a check run, on both GitHub transports', () => {
+  const sha = 'a'.repeat(40);
+  const graphql = makeStubs({
+    ghJson: `{"number":7,"state":"OPEN","isDraft":false,"url":"u","headRefOid":"${sha}",`
+      + '"statusCheckRollup":[{"name":"build","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"x","startedAt":"2026-11-07T07:41:02Z"},{"context":"plot/review","state":"SUCCESS"}]}',
+  });
+  const out = JSON.parse(run(['pr-state', '7', '--with-checks'], { env: { PLOT_HOST: 'github' }, stubs: graphql }));
+  assert.equal(out.checks, 'green', 'a rollup with no validate item still reads green');
+  assert.deepEqual(out.checkRuns, [
+    { name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS', at: '2026-11-07T07:41:02Z' },
+    { name: 'plot/review', status: 'SUCCESS', conclusion: '', at: '' },
+  ]);
+  const rest = makeStubsRateAware({
+    graphqlRemaining: 0,
+    coreRemaining: 4997,
+    restJson: JSON.stringify({ number: 7, state: 'open', draft: false, html_url: 'u', merged: false, head: { ref: 'f', sha }, base: { ref: 'main' } }),
+    checkRunsJson: JSON.stringify({ total_count: 1, check_runs: [{ name: 'validate', status: 'in_progress', conclusion: null, started_at: '2026-11-07T07:41:02Z' }] }),
+    statusJson: JSON.stringify({ total_count: 1, statuses: [{ context: 'validate', state: 'success', created_at: '2026-11-07T07:41:05Z' }] }),
+  });
+  assert.deepEqual(JSON.parse(run(['pr-state', '7', '--with-checks'], { env: { PLOT_HOST: 'github' }, stubs: rest })).checkRuns, [
+    { name: 'validate', status: 'IN_PROGRESS', conclusion: '', at: '2026-11-07T07:41:02Z' },
+    { name: 'validate', status: 'SUCCESS', conclusion: '', at: '2026-11-07T07:41:05Z' },
+  ]);
 });
 
 test("host: pr-state reports the rollup's checks without plot/review", () => {
@@ -995,7 +1023,7 @@ test('host: pr-state bitbucket does not infer mergeable from state or merge_comm
 // The keys a merge reads — the head and the checks read for it — are
 // carried only where the host names a head. Bitbucket cannot pin a merge, so its
 // arm leaves them out and a reader takes absent as not known.
-const MERGE_KEYS = new Set(['headSha', 'checks', 'checksSha', 'ciChecks']);
+const MERGE_KEYS = new Set(['headSha', 'checks', 'checksSha', 'ciChecks', 'checkRuns']);
 const keysOf = (json) => Object.keys(JSON.parse(json)).filter((k) => !MERGE_KEYS.has(k)).sort();
 
 test('host: pr-state returns the same key set on both backends — merged PR', () => {
@@ -1041,12 +1069,61 @@ test('host: pr-state bitbucket numeric miss carries mergeCommit too', () => {
   });
 });
 
-test('host: pr-create github maps flags in order', () => {
-  const stubs = makeStubs();
-  run(['pr-create', '--title', 'T', '--body', 'B', '--base', 'main', '--draft'],
+// `gh pr create` spends GraphQL. On 2026-11-13 it failed three times at 0 of
+// 5000 GraphQL while REST held more than 4600 of 5000, so the GitHub arm opens
+// the PR with `POST pulls` and prints its `html_url`, the line every caller
+// reads. The owner/repo is the origin remote's, never `{owner}/{repo}`.
+const originSlug = execFileSync(realGit, ['config', '--get', 'remote.origin.url'], { encoding: 'utf8' })
+  .trim().replace(/\.git\/?$/, '').replace(/^.*[:/]([^/:]+\/[^/:]+)$/, '$1');
+
+test('host: pr-create github opens the PR over REST with every field and prints its html_url', () => {
+  const stubs = makeStubs({ ghJson: '{"number":42,"html_url":"https://github.com/o/r/pull/42"}' });
+  const out = run(['pr-create', '--title', 'T', '--body', 'B `x`\nline two', '--base', 'main', '--head', 'feature/x'],
     { env: { PLOT_HOST: 'github' }, stubs });
-  assert.deepEqual(argvOf(stubs.ghArgv),
-    ['pr', 'create', '--title', 'T', '--body', 'B', '--base', 'main', '--draft']);
+  assert.equal(out, 'https://github.com/o/r/pull/42\n', 'the URL is the whole of stdout, as `gh pr create` printed it');
+  assert.deepEqual(argvOf(stubs.ghArgv), [
+    'api', '-X', 'POST', `repos/${originSlug}/pulls`,
+    '-f', 'title=T', '-f', 'head=feature/x', '-f', 'base=main', '-f', 'body=B `x`', 'line two', '-F', 'draft=false',
+    '--include',
+  ]);
+  assert.ok(!argvOf(stubs.ghArgv).includes('pr'), '`gh pr create` is GraphQL and must never run');
+});
+
+test('host: pr-create github sends --draft as the boolean draft=true', () => {
+  const stubs = makeStubs({ ghJson: '{"html_url":"https://github.com/o/r/pull/43"}' });
+  const out = run(['pr-create', '--title', 'T', '--body', 'B', '--base', 'main', '--head', 'feature/x', '--draft'],
+    { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(out.trim(), 'https://github.com/o/r/pull/43');
+  const argv = argvOf(stubs.ghArgv);
+  assert.equal(argv[argv.indexOf('-F') + 1], 'draft=true');
+});
+
+test('host: pr-create github fills a missing --base from default-branch and a missing --head from the current branch', () => {
+  const stubs = makeStubs({ ghJson: '{"html_url":"https://github.com/o/r/pull/44"}' });
+  const repo = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-create-')));
+  execFileSync(realGit, ['init', '-q', '-b', 'feature/here', repo]);
+  execFileSync(realGit, ['-C', repo, 'remote', 'add', 'origin', 'git@github.com:acme/widgets.git']);
+  writeFileSync(path.join(stubs.dir, 'gh'),
+    `#!/usr/bin/env bash\nif [ "$1" = repo ]; then echo trunk; exit 0; fi\nprintf '%s\\n' "$@" > "${stubs.ghArgv}"\n` +
+    `printf '%s' '{"html_url":"https://github.com/o/r/pull/44"}'\n`);
+  const res = spawnSync('bash', [adapter, 'pr-create', '--title', 'T', '--body', 'B'], {
+    cwd: repo, encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, ...budgetEnvFor(stubs), PLOT_HOST: 'github' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const argv = argvOf(stubs.ghArgv);
+  assert.equal(argv[3], 'repos/acme/widgets/pulls', 'the origin remote names the repository');
+  assert.ok(argv.includes('head=feature/here'), argv.join(' '));
+  assert.ok(argv.includes('base=trunk'), argv.join(' '));
+});
+
+test('host: pr-create github exits non-zero with the host\'s words and prints no URL when the POST fails', () => {
+  const stubs = makeStubs({ ghFail: 'gh: Validation Failed: A pull request already exists for o:feature/x. (HTTP 422)' });
+  const res = runAllowFail(['pr-create', '--title', 'T', '--body', 'B', '--base', 'main', '--head', 'feature/x'],
+    { env: { PLOT_HOST: 'github' }, stubs });
+  assert.notEqual(res.code, 0);
+  assert.equal(res.stdout, '', 'a failed create prints no URL');
+  assert.match(res.stderr, /A pull request already exists/);
 });
 
 test('host: pr-create bitbucket uses bb with same surface', () => {
@@ -1176,10 +1253,76 @@ test('host: bb pr-state by branch resolves via pr-list filter (hit and miss)', (
   assert.equal(miss.state, 'NONE');
 });
 
-test('host: pr-body github maps to gh pr edit --body', () => {
+// `gh pr edit` spends GraphQL. On 2026-11-14 `pr-body` failed twice with
+// "GraphQL: API rate limit already exceeded" while REST held budget, so the
+// GitHub arm replaces the body with `PATCH pulls/<n>`, as `pr-create` posts.
+test('host: pr-body github replaces the body over REST and prints its html_url', () => {
+  const stubs = makeStubs({ ghJson: '{"number":4,"html_url":"https://github.com/o/r/pull/4"}' });
+  const out = run(['pr-body', '4', '--body', 'new `text`\nline two'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(out, 'https://github.com/o/r/pull/4\n');
+  assert.deepEqual(argvOf(stubs.ghArgv),
+    ['api', '-X', 'PATCH', `repos/${originSlug}/pulls/4`, '-f', 'body=new `text`', 'line two', '--include']);
+  assert.ok(!argvOf(stubs.ghArgv).includes('edit'), '`gh pr edit` is GraphQL and must never run');
+});
+
+test('host: pr-body github exits non-zero with the host\'s words when the PATCH fails', () => {
+  const stubs = makeStubs({ ghFail: 'gh: Not Found (HTTP 404)' });
+  const res = runAllowFail(['pr-body', '4', '--body', 'B'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.notEqual(res.code, 0);
+  assert.equal(res.stdout, '');
+  assert.match(res.stderr, /Not Found/);
+});
+
+test('host: pr-body bitbucket maps to bb pr edit --body', () => {
   const stubs = makeStubs();
-  run(['pr-body', '4', '--body', 'new text'], { env: { PLOT_HOST: 'github' }, stubs });
-  assert.deepEqual(argvOf(stubs.ghArgv), ['pr', 'edit', '4', '--body', 'new text']);
+  run(['pr-body', '4', '--body', 'new text'], { env: { PLOT_HOST: 'bitbucket' }, stubs });
+  assert.deepEqual(argvOf(stubs.bbArgv), ['pr', 'edit', '4', '--body', 'new text']);
+});
+
+test('host: pr-body with no flag prints the body, over REST on github and from description on bitbucket', () => {
+  const gh = makeStubs({ ghJson: '{"number":4,"body":"why `this` branch\\nline two"}' });
+  assert.equal(run(['pr-body', '4'], { env: { PLOT_HOST: 'github' }, stubs: gh }), 'why `this` branch\nline two\n');
+  assert.deepEqual(argvOf(gh.ghArgv), ['api', `repos/${originSlug}/pulls/4`, '--include']);
+  const empty = makeStubs({ ghJson: '{"number":4,"body":null}' });
+  assert.equal(run(['pr-body', '4'], { env: { PLOT_HOST: 'github' }, stubs: empty }), '\n');
+  const bb = makeStubs({ bbJson: '{"id":4,"description":"bb text"}' });
+  assert.equal(run(['pr-body', '4'], { env: { PLOT_HOST: 'bitbucket' }, stubs: bb }), 'bb text\n');
+  assert.deepEqual(argvOf(bb.bbArgv), ['pr', 'view', '4', '--json']);
+});
+
+test('host: pr-body read exits non-zero with the host\'s words when the GET fails', () => {
+  const stubs = makeStubs({ ghFail: 'gh: Not Found (HTTP 404)' });
+  const res = runAllowFail(['pr-body', '4'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.notEqual(res.code, 0);
+  assert.match(res.stderr, /Not Found/);
+});
+
+// A long inline `--body` was refused by a hook for agents in isolated
+// worktrees, so both body-writing ops read the body from a file as well.
+test('host: pr-body and pr-create read --body-file as the body', () => {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-body-file-')));
+  const file = path.join(dir, 'body.md');
+  writeFileSync(file, 'from `file`\nline two\n');
+  const bodyStubs = makeStubs({ ghJson: '{"html_url":"https://github.com/o/r/pull/4"}' });
+  run(['pr-body', '4', '--body-file', file], { env: { PLOT_HOST: 'github' }, stubs: bodyStubs });
+  assert.ok(argvOf(bodyStubs.ghArgv).includes('body=from `file`'), argvOf(bodyStubs.ghArgv).join(' '));
+  const createStubs = makeStubs({ ghJson: '{"html_url":"https://github.com/o/r/pull/5"}' });
+  run(['pr-create', '--title', 'T', '--body-file', file, '--base', 'main', '--head', 'feature/x'],
+    { env: { PLOT_HOST: 'github' }, stubs: createStubs });
+  assert.ok(argvOf(createStubs.ghArgv).includes('body=from `file`'), argvOf(createStubs.ghArgv).join(' '));
+  const bbStubs = makeStubs();
+  run(['pr-body', '4', '--body-file', file], { env: { PLOT_HOST: 'bitbucket' }, stubs: bbStubs });
+  assert.deepEqual(argvOf(bbStubs.bbArgv), ['pr', 'edit', '4', '--body', 'from `file`', 'line two']);
+});
+
+test('host: an unreadable --body-file refuses and calls no host', () => {
+  for (const args of [['pr-body', '4'], ['pr-create', '--title', 'T', '--base', 'main', '--head', 'feature/x']]) {
+    const stubs = makeStubs({ ghJson: '{"html_url":"x"}' });
+    const res = runAllowFail([...args, '--body-file', '/nonexistent/plot-body.md'], { env: { PLOT_HOST: 'github' }, stubs });
+    assert.notEqual(res.code, 0, args[0]);
+    assert.match(res.stderr, /cannot read \/nonexistent\/plot-body\.md/, args[0]);
+    assert.ok(!existsSync(stubs.ghArgv), `${args[0]} called the host`);
+  }
 });
 
 // `bb pr update --ready` does not exist on any shipped bb version (#3089);
@@ -6607,79 +6750,6 @@ test('host: --rich reports truncation too and keeps the rich rows clean', () => 
   assert.ok(lines.every((r) => r.checks === 'unknown'), 'rich rows still normalize');
 });
 
-// ── rate-limit ──────────────────────────────────────────────────────────────
-//
-// GITHUB HAS TWO BUDGETS AND ONE ERROR MESSAGE. GraphQL and REST/core are
-// metered separately — measured 4503/5000 and 4997/5000 in the same instant on
-// 2026-08-27 — so exhausting one says nothing about the other. Before this op
-// a rate-limited caller could not tell that a second path was available, and
-// `gh pr create` failing on GraphQL while `gh api repos/.../pulls` succeeded
-// was a real, repeated experience in this repo.
-//
-// The op REPORTS and does not decide. The fallback that acts on it is a later
-// wave, so these tests pin the reporting contract only.
-
-test('host: rate-limit github reports both budgets separately', () => {
-  const stubs = makeStubs({
-    ghJson: JSON.stringify({
-      resources: {
-        graphql: { remaining: 12, limit: 5000, reset: 1787858250 },
-        core: { remaining: 4997, limit: 5000, reset: 1787858165 },
-      },
-    }),
-  });
-  const out = JSON.parse(run(['rate-limit'], { env: { PLOT_HOST: 'github' }, stubs }));
-  // The point of the op: a spent GraphQL budget WITH REST still available is
-  // reported as exactly that, rather than as one undifferentiated "limited".
-  assert.equal(out.graphql.remaining, 12);
-  assert.equal(out.core.remaining, 4997);
-  assert.equal(out.graphql.limit, 5000);
-  assert.equal(out.graphql.reset, 1787858250);
-  assert.deepEqual(argvOf(stubs.ghArgv), ['api', 'rate_limit']);
-});
-
-test('host: rate-limit reads both budgets spent differently from one spent', () => {
-  const stubs = makeStubs({
-    ghJson: JSON.stringify({
-      resources: {
-        graphql: { remaining: 0, limit: 5000, reset: 1787858250 },
-        core: { remaining: 0, limit: 5000, reset: 1787858165 },
-      },
-    }),
-  });
-  const out = JSON.parse(run(['rate-limit'], { env: { PLOT_HOST: 'github' }, stubs }));
-  assert.equal(out.graphql.remaining, 0);
-  assert.equal(out.core.remaining, 0);
-  // Both zero is a DIFFERENT state from one zero: there is no path left to fall
-  // back to. A caller must be able to tell them apart, which it can only do if
-  // the two numbers are reported independently rather than reduced to a flag.
-});
-
-// UNKNOWN IS NOT ZERO, and this is the assertion that keeps it that way.
-// Zero means SPENT. A caller that reads "the host could not be asked" as
-// "exhausted" takes the expensive fallback path forever — so a host that cannot
-// answer must say so in a word that is not a number.
-test('host: a host that cannot answer reports unknown, never zero', () => {
-  const stubs = makeStubs({ ghFail: 'error connecting to api.github.com: 503 Service Unavailable' });
-  const res = runAllowFail(['rate-limit'], { env: { PLOT_HOST: 'github' }, stubs });
-  const out = JSON.parse(res.stdout);
-  assert.equal(out.graphql.remaining, 'unknown');
-  assert.equal(out.core.remaining, 'unknown');
-  assert.notEqual(out.graphql.remaining, 0, 'unknown must not be reported as a spent budget');
-  assert.match(res.stderr, /503/, "the host's own words reach the caller");
-});
-
-// Bitbucket has ONE budget and no way to query it. The op must still answer —
-// this is informational, and a caller that cannot read the budget proceeds on
-// the default path rather than erroring out.
-test('host: rate-limit bitbucket reports unknown and asks nothing', () => {
-  const stubs = makeStubs();
-  const out = JSON.parse(run(['rate-limit'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
-  assert.equal(out.graphql.remaining, 'unknown');
-  assert.equal(out.core.remaining, 'unknown');
-  assert.equal(argvOf(stubs.bbArgv), null, 'bb reports no rate information — do not ask it');
-});
-
 // ── the REST fallback ───────────────────────────────────────────────────────
 //
 // GITHUB METERS GRAPHQL AND REST SEPARATELY, so a spent GraphQL bucket leaves a
@@ -6720,7 +6790,7 @@ test('host: pr-state falls back to REST when the GraphQL budget is spent', () =>
   const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(out, {
     number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', head: 'feature/x', headSha: sha, base: 'main',
-    checks: 'green', ciChecks: 'green', checksSha: sha, mergeable: 'mergeable', mergedAt: '',
+    checks: 'green', ciChecks: 'green', checkRuns: [{ name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS', at: '' }], checksSha: sha, mergeable: 'mergeable', mergedAt: '',
   });
   const calls = callsOf(stubs.callsFile);
   assert.ok(
@@ -7752,7 +7822,7 @@ test('host: the harvested body reaches the caller unchanged', () => {
     stubs,
   });
   assert.deepEqual(JSON.parse(out), {
-    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', head: '', headSha: '', base: 'main', checks: 'none', checksSha: '', ciChecks: 'none',
+    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', head: '', headSha: '', base: 'main', checks: 'none', checksSha: '', ciChecks: 'none', checkRuns: [],
     mergeable: 'unknown', mergedAt: '',
   });
   assert.doesNotMatch(out, /X-Ratelimit|HTTP\//i, 'no header may reach a caller’s parse');

@@ -436,6 +436,11 @@ export function prStatusEntry(
         ' — the two groups above that depend on it may be incomplete.'
       );
     }
+    if (status.kind === 'auth') {
+      // A REFUSED CREDENTIAL IS NEVER AN OUTAGE: a wait does not repair it, and
+      // the cause carries the connector's own fix.
+      return `${levelWord}: sign in — the host refused the credential (${status.cause})${ageSuffix}.`;
+    }
     if (status.kind === 'outage') {
       // `status.cause` already has `plot-host`'s own notices removed — the
       // measured defect this wave fixes. Keep it in full: it names the

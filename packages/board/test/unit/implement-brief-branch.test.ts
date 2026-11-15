@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import type { FleetReading } from '@plot-pm/domain';
-import type { DispatchReading } from '@plot-pm/domain/rules/auto-dispatch';
+import type { DispatchReadingFor } from '@plot-pm/domain/rules/auto-dispatch';
 import { rmTree } from '../helpers.mjs';
 
 // The route's DEFAULT brief-branch resolver: the fleet's `startReadingFromPulse`
@@ -13,12 +13,12 @@ import { rmTree } from '../helpers.mjs';
 // the arguments the route passes, which a passing typecheck does not prove.
 
 const pulse = { main: 'main', plans: [] } as unknown as FleetReading;
-const startReadingFromPulse = vi.fn((_pulse: FleetReading | null, _slug: string): DispatchReading => ({ kind: 'branch', branch: 'feature/the-chosen-slice' }));
+const startReadingFromPulse = vi.fn((_pulse: FleetReading | null, _slug: string, _branch?: string): DispatchReadingFor => ({ kind: 'branch', branch: 'feature/the-chosen-slice' }));
 
 vi.mock('../../src/server/fleet.js', () => ({ pulseFor: () => pulse }));
 vi.mock('@plot-pm/fleet/shared/dispatch-command', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@plot-pm/fleet/shared/dispatch-command')>()),
-  startReadingFromPulse: (p: FleetReading | null, s: string) => startReadingFromPulse(p, s),
+  startReadingFromPulse: (p: FleetReading | null, s: string, b?: string) => startReadingFromPulse(p, s, b),
 }));
 
 const SLUG = 'a-plan-with-a-brief-branch';
@@ -49,7 +49,7 @@ describe('handleImplement without an injected resolver', () => {
       config: (_o, key, fallback) => (key === IMPLEMENT_COMMAND_KEY ? 'true' : fallback),
     });
     expect(status).toBe(202);
-    expect(startReadingFromPulse).toHaveBeenCalledWith(pulse, SLUG);
+    expect(startReadingFromPulse).toHaveBeenCalledWith(pulse, SLUG, undefined);
     expect(fs.readFileSync(implementBranchRecordPath(repoRoot, SLUG), 'utf8')).toBe('feature/the-chosen-slice');
   });
 });

@@ -188,7 +188,7 @@ describe('the board while a live fleet is mid-scan on a stale bridge', () => {
     expect(entry.scanNote).toContain('scan exceeded 90 s');
   });
 
-  it('scans itself, and says why, while a live fleet\'s scan loop is late', async () => {
+  it('leaves the scan to a live fleet whose scan loop has run no pass for 200 s', async () => {
     const { dir, opts, spawned } = await fixture(true);
     const now = Date.now();
     await writeFleetdHeartbeat(dir, 0, { loops: { scan: { lastPassAt: now - 200_000 } } });
@@ -198,8 +198,8 @@ describe('the board while a live fleet is mid-scan on a stale bridge', () => {
     });
     const entry = freshCacheEntry();
     await refresh(opts, entry);
-    expect(spawned()).toHaveLength(1);
-    expect(entry.scanNote).toContain('scan loop has not completed a pass in time');
+    expect(spawned()).toHaveLength(0);
+    expect(entry.scanNote ?? '').not.toContain('scan loop has not completed a pass in time');
   });
 });
 

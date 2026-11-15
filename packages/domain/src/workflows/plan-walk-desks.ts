@@ -89,15 +89,19 @@ export const readDeskReadings = async (
 
   const read = await Promise.all(
     [...wanted].map(async ([branch, { worktree, hasPr }]): Promise<DeskReading | null> => {
-      const [desk, process, locked, unpushed, quiet, dirty, logQuiet] = await Promise.all([
+      const [desk, locked, unpushed, quiet, dirty, logQuiet] = await Promise.all([
         agents.desk(worktree),
-        processes.workerState(worktree, hasPr),
         trees.locked(worktree),
         trees.unpushedCommits(worktree, []),
         trees.quietSeconds(worktree),
         trees.dirtyPaths(worktree),
         trees.logQuietSeconds === undefined ? Promise.resolve(answered<number | null>(null)) : trees.logQuietSeconds(worktree),
       ]);
+      // The pass's own dirt and unpushed reads go to the worker-state reader, so the desk is read once.
+      const process = await processes.workerState(worktree, hasPr, {
+        ...(dirty.ok ? { dirty: dirty.value.length > 0 } : {}),
+        ...(unpushed.ok && unpushed.value.length === 0 ? { allPushed: true } : {}),
+      });
       if (!desk.ok || !process.ok || !locked.ok || !quiet.ok) return null;
       // The worker log is evidence of work as well: the quieter of the two readings loses.
       const log = logQuiet.ok ? logQuiet.value : null;

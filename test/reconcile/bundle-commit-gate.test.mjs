@@ -254,6 +254,23 @@ test('bundle-commit gate and CI agree: a plain commit of a newer origin/main cop
   assert.equal(ciClean, false);
 });
 
+test('bundle-commit gate and CI agree: a merge of main into a sprint takes main\'s copy, and CI reads origin/main', () => {
+  const { dir, sh } = repo();
+  sh('git checkout -q -b sprint');
+  writeFileSync(path.join(dir, 'sprint-work.txt'), 'a slice landed\n');
+  sh('git add -A && git commit -qm "a slice lands on the sprint"');
+  sh('git update-ref refs/remotes/origin/sprint HEAD');
+  advanceMain(sh, dir, 'main copy\n');
+  sh('git checkout -q -b sync && git merge --no-commit --no-ff origin/main');
+  const ciAt = (base) => spawnSync('bash', [checkScript, dir, 'HEAD', base], { encoding: 'utf8' });
+  const { gateAllows } = verdicts(dir, sh);
+  assert.equal(gateAllows, true, 'main\'s copy equals the merge base with origin/main');
+  assert.equal(ciAt('origin/main').status, 0, 'CI with no base argument reads the merge clean');
+  const atSprint = ciAt('origin/sprint');
+  assert.notEqual(atSprint.status, 0, 'against the sprint tip, main\'s rebuilt bundle reads as the PR\'s change');
+  assert.match(atSprint.stdout + atSprint.stderr, /board-server\.mjs/);
+});
+
 test('bundle-commit gate and CI agree: a mode-only change is refused', () => {
   const { dir, sh } = repo();
   sh(`git update-index --chmod=+x ${BUNDLE}`);

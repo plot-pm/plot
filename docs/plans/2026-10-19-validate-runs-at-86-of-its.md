@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** infra
 - **Issue:** #2121
 - **Review:** pr
@@ -13,6 +13,7 @@
 - **Started:** 2026-10-19, Jan Wloka, `infra/validate-step-budget`
 - **Started:** 2026-10-20, Jan Wloka, `infra/a-timeout-reads-as-a-timeout`
 - **Delivered:** 2026-10-20
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 

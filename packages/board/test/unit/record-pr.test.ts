@@ -38,10 +38,19 @@ const storeOver = (files: Map<string, string>): PlanStore =>
       ),
   }) as unknown as PlanStore;
 
+/** A ref reader where `origin/main` holds the plan file, or where only `origin/<sprint>` holds it. */
+const refsOver = (sprint: string | null): RecordPrContext['refs'] => ({
+  defaultBranch: async () => answered('main'),
+  fileExistsSync: (ref: string) => answered(sprint === null ? ref === 'origin/main' : ref === `origin/${sprint}`),
+  branchTips: async () => answered(sprint === null ? [] : [{ branch: sprint, sha: 'abc' }]),
+  contains: async () => answered('no' as const),
+}) as unknown as RecordPrContext['refs'];
+
 /** A context whose trees record each call, and whose push lands clean. */
-const contextOver = (files: Map<string, string>, calls: string[]): RecordPrContext => ({
+const contextOver = (files: Map<string, string>, calls: string[], sprint: string | null = null): RecordPrContext => ({
   repoRoot: '/repo',
   pid: 42,
+  refs: refsOver(sprint),
   planStoreAt: () => storeOver(files),
   retryWait: async () => {},
   lock: freeLock,
@@ -89,6 +98,15 @@ describe('parseRecordPrArgs', () => {
   it('refuses a PR number that is not all digits', () => {
     expect(parseRecordPrArgs(['bug/foo', '#42'])).toBe("<pr-number> must be numeric, got '#42'");
   });
+
+  it('reads --branch as the branch to record on', () => {
+    expect(parseRecordPrArgs(['--branch', 'sprint/x', 'bug/foo', '42'])).toEqual({ branch: 'bug/foo', pr: '42', target: 'sprint/x' });
+  });
+
+  it('answers the usage line for --branch with no name', () => {
+    expect(parseRecordPrArgs(['--branch', '--', 'bug/foo', '42'])).toMatch(/^usage: /);
+    expect(parseRecordPrArgs(['--branch'])).toMatch(/^usage: /);
+  });
 });
 
 describe('recordPr', () => {
@@ -109,6 +127,27 @@ describe('recordPr', () => {
       `removeWithBranch ${TMPWT} plot/record-pr-foo`,
     ]);
     expect(out.join('')).toMatch(/push: clean/);
+  });
+
+  it('records on the sprint branch where only that sprint branch holds the plan', async () => {
+    const files = new Map([[PLAN, PLAN_TEXT]]);
+    const calls: string[] = [];
+
+    const code = await recordPr(contextOver(files, calls, 'sprint/x'), { branch: 'bug/foo', pr: '42' }, () => {});
+
+    expect(code).toBe(0);
+    expect(calls[0]).toBe(`addBranch ${TMPWT} plot/record-pr-foo origin/sprint/x`);
+    expect(calls).toContain('plot-push-main.sh plot/record-pr-foo sprint/x');
+  });
+
+  it('cuts the booking from the --branch target and pushes it there', async () => {
+    const files = new Map([[PLAN, PLAN_TEXT]]);
+    const calls: string[] = [];
+
+    await recordPr(contextOver(files, calls), { branch: 'bug/foo', pr: '42', target: 'sprint/y' }, () => {});
+
+    expect(calls[0]).toBe(`addBranch ${TMPWT} plot/record-pr-foo origin/sprint/y`);
+    expect(calls).toContain('plot-push-main.sh plot/record-pr-foo sprint/y');
   });
 
   it('refuses a branch no plan names, and still removes the booking worktree', async () => {

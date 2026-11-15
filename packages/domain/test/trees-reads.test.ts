@@ -60,9 +60,10 @@ const trees = (): Trees => treesGit({ repoRoot: repo, scriptDir: path.join(repo,
 /**
  * This repository's OWN `skills/plot/scripts`, not a stub in the fixture repo.
  *
- * `dirtyPaths` sources `plot_worker_dirty` rather than reimplementing its three
- * exclusions, so the thing under test IS that shell function — a stub would
- * assert only that the adapter can call a file it wrote itself.
+ * The adapter reads `plot-desk-dirt.sh` and `plot-worker-state.sh` from it for
+ * the readings that still source a script; `dirtyPaths` applies
+ * `deskDirtFilter`, which `desk-dirt-filter.corpus.test.ts` holds against
+ * `plot_worker_dirty`.
  */
 const scriptDir = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -235,15 +236,14 @@ describe('treesGit: the desks this machine holds', () => {
 
   it('excludes a TRACKED scratch path, which `markers` cannot see at all', async () => {
     // Why this is not `markers` with a different prefix, in the one shape that
-    // separates them. `markers` runs `ls -1 <path> | grep "^<prefix>"` over the
-    // worktree ROOT: it lists no dotfiles and descends into nothing, so it
+    // separates them. `markers` lists the worktree ROOT by name prefix, as
+    // `ls -1 <path> | grep "^<prefix>"` did: it lists no dotfiles and descends into nothing, so it
     // answers `[]` here. `PLOT_TOOL_SCRATCH` matches the nested path.
     //
     // TRACKED, and that is the whole setup. `git status --porcelain` collapses
     // an untracked directory to `.plot/`, which the pattern does not match —
-    // recorded as `plot-worker-state.sh:252`'s behaviour rather than fixed
-    // here, since the shell is the one implementation and three callers share
-    // it.
+    // `deskDirtFilter` copies that behaviour from `plot_worker_dirty_filter`,
+    // and the corpus test holds the pair.
     const scratch = path.join(linked, '.plot', 'state');
     fs.mkdirSync(scratch, { recursive: true });
     fs.writeFileSync(path.join(scratch, 'run.json'), '{}\n');

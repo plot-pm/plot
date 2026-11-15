@@ -19,6 +19,10 @@ import {
   type RunLogFixture,
 } from '@plot-pm/domain/adapters';
 import type { BoundedRun, Pr, Trees } from '@plot-pm/domain';
+import { processesTable, type TableRead } from '@plot-pm/domain/adapters/processes/processes-table';
+import { runProcess } from '@plot-pm/domain/adapters/run-script';
+import type { ProcessRunner } from '@plot-pm/domain/adapters/git-dirs/git-dirs';
+import type { ProcessRow } from '@plot-pm/domain/rules/pid-current';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -61,6 +65,7 @@ import {
   writeHop,
   workerLoopPorts,
   type IdleDeps,
+  type IdleHold,
   type LoopDeps,
   type RestartDeps,
   type WorkerLoopPorts,
@@ -84,6 +89,12 @@ interface Script {
 
 /** Every directory a rig made, removed by its exact name after each test. */
 const made: string[] = [];
+
+/** A process table whose prompt subtree (pid 100, the rig's child) burns no CPU. */
+const stillTable = async (): Promise<TableRead> => ({
+  ok: true,
+  rows: [{ pid: 100, ppid: 1, startedAt: 0, cpuCentis: 5, comm: 'claude' }],
+});
 
 const rig = (
   manifest: Record<string, unknown> | null,
@@ -128,11 +139,11 @@ const rig = (
   };
 
   const deskCalls = deskFixtureCalls();
-  const runs: { command: string; args: readonly string[]; env?: Readonly<Record<string, string>> }[] = [];
+  const runs: { command: string; args: readonly string[]; env?: Readonly<Record<string, string>>; holdFd?: number }[] = [];
   let call = 0;
   const boundedRun: BoundedRun = {
     run: async (command, args, options) => {
-      runs.push({ command, args, env: options.env });
+      runs.push({ command, args, env: options.env, ...(options.holdFd === undefined ? {} : { holdFd: options.holdFd }) });
       const script = scripts[call] ?? {};
       call += 1;
       await script.during?.();
@@ -182,6 +193,7 @@ const rig = (
       windowSeconds: 900,
       intervalMs: 1_000_000,
       transcript: transcriptFixture({ spoken: [`${wt}\th-idle`] }),
+      table: stillTable,
     },
     manifestFile,
     repoRoot: dir,
@@ -295,7 +307,27 @@ describe('runWorkerLoop — a prompt', () => {
     expect(r.runs[0].command).toBe('env');
     expect(r.runs[0].args.slice(0, 5)).toEqual(['-u', 'PLOT_REPO_ROOT', '-u', 'PLOT_AGENT_SETTINGS', 'bash']);
     expect(r.runs[0].env?.PLOT_SESSION_FLAG).toBe('--session-id');
+    expect(r.runs[0].env?.PLOT_CONTINUATION_HEADING).toBe('');
     expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('blocked');
+  });
+
+  it('hands the harness the liveness token on fd 3, and records each pass', async () => {
+    const passes: string[] = [];
+    const r = rig(ASSIGNED, [
+      { during: () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which one?\n') },
+    ], { tokenFd: 3, recordPass: (worktree) => passes.push(worktree) });
+    await runWorkerLoop(r.deps);
+    expect(r.runs[0]?.holdFd).toBe(3);
+    expect(passes.length).toBeGreaterThan(0);
+    expect(new Set(passes)).toEqual(new Set([r.wt]));
+  });
+
+  it('hands the harness no descriptor where the wrapper gave no token', async () => {
+    const r = rig(ASSIGNED, [
+      { during: () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which one?\n') },
+    ], { tokenFd: null });
+    await runWorkerLoop(r.deps);
+    expect(r.runs[0]?.holdFd).toBeUndefined();
   });
 
   it('passes --resume when the conversation has already written', async () => {
@@ -321,6 +353,7 @@ describe('runWorkerLoop — a prompt', () => {
     expect(r.deskCalls.appendedCorrections).toHaveLength(1);
     expect(r.deskCalls.appendedCorrections[0]?.correction).toContain(TERMINATED);
     expect(r.deskCalls.corrections).toHaveLength(0);
+    expect(r.runs[1].env?.PLOT_CONTINUATION_HEADING).toBe('');
     expect(r.logs).toContain(`plot-worker-loop: the turn on ${BRANCH} ended with its background work dropped; resuming the session once`);
     expect(r.deskCalls.blockedMarkers.at(-1)?.text).toContain(TERMINATED);
     expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('blocked');
@@ -556,6 +589,21 @@ describe('runWorkerLoop — a prompt', () => {
     };
     await runWorkerLoop(r.deps);
     expect(r.runs.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it.each([
+    ['a default-branch slice', {}, 'origin/main'],
+    ['a sprint slice', { base: 'sprint/s' }, 'origin/sprint/s'],
+  ] as const)('cuts %s from its own base at take-up', async (_name, extra, expected) => {
+    const r = rig({ ...ASSIGNED, ...extra }, [], { config: { ...rigConfig(), waitBudgetSeconds: 100 } });
+    const bases: string[] = [];
+    const trees: Trees = {
+      ...r.ports.trees,
+      resetOnto: async (_path, _branch, base) => (bases.push(base), { ok: false, why: 'failed' }),
+    };
+    r.deps = { ...r.deps, ports: { ...r.ports, trees } };
+    await runWorkerLoop(r.deps);
+    expect(bases).toEqual([expected]);
   });
 
   it('clears the assignment and goes free when the desk reset is refused, running no prompt', async () => {
@@ -974,6 +1022,7 @@ describe('runWorkerLoop — after the prompt', () => {
     expect(r.deskCalls.corrections[0]?.text).toMatch(/^the run at u for \S* concluded failure$/);
     expect(r.calls.corrections.map((c) => c.correctionAttempts)).toEqual([1]);
     expect(r.runs).toHaveLength(2);
+    expect(r.runs.map((run) => run.env?.PLOT_CONTINUATION_HEADING)).toEqual(['', '']);
     const runLog = r.ports.runLog as RunLogFixture;
     expect(runLog.lines).toHaveLength(1);
     expect(runLog.lines[0]).toMatchObject({ step: 'correction', outcome: 'moved' });
@@ -1377,6 +1426,18 @@ describe('runWorkerLoop — the idle watch', () => {
     expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('quiet');
   });
 
+  it('writes the verdict inputs of the idle check into the quiet ending', async () => {
+    const r = rig({ ...ASSIGNED, resumeId: 'h-idle' }, [{ hang: true }]);
+    r.deps = { ...r.deps, ports: { ...r.ports, trees: treesFixture({ quiet: { [r.wt]: 5000 }, commits: { [r.wt]: 'yes' } }) } };
+    fs.writeFileSync(path.join(r.wt, '.plot-worker.log'), 'line\n');
+    const stat = fs.statSync(path.join(r.wt, '.plot-worker.log'));
+    expect(await runWorkerLoop(r.deps)).toBe(124);
+    expect(r.deskCalls.endings.at(-1)?.record).toMatchObject({
+      reason: 'quiet',
+      idle: { logBytes: 5, logMtimeMs: stat.mtimeMs, log: 'idle', cpuRead: true, cpuDeltaCentis: 0 },
+    });
+  });
+
   it('keeps the prompt while the watch stays silent, and does not end it when the monitor may not', async () => {
     const r = rig(ASSIGNED, [
       {
@@ -1401,33 +1462,62 @@ describe('runWorkerLoop — the idle watch', () => {
 
 describe('idleVerdict', () => {
   const ports = (over: Partial<WorkerLoopPorts> = {}): WorkerLoopPorts => rig(null, [], {}, over).ports;
-  const idle = (spoken = true): IdleDeps => ({
+  const rows = (cpuCentis: number): ProcessRow[] => [
+    { pid: 100, ppid: 1, startedAt: 0, cpuCentis: 2, comm: 'node' },
+    { pid: 101, ppid: 100, startedAt: 0, cpuCentis, comm: 'claude' },
+  ];
+  const tableOf = (cpuCentis: number) => async (): Promise<TableRead> => ({ ok: true, rows: rows(cpuCentis) });
+  const idle = (spoken = true, table: IdleDeps['table'] = tableOf(5)): IdleDeps => ({
     selfPid: 1,
     windowSeconds: 900,
     intervalMs: 1000,
     transcript: { spoken: async () => ({ ok: true, value: spoken }) },
+    table,
   });
+  /** A hold whose table matches {@link tableOf}(5), so a still subtree reads a zero delta. */
+  const held: IdleHold = { log: null, table: rows(5) };
   const T = (hasCommits: 'yes' | 'no' | 'unanswerable'): Trees =>
     treesFixture({ quiet: { '/wt': 5000 }, commits: { '/wt': hasCommits } });
+  const verdict = async (...args: Parameters<typeof idleVerdict>) => (await idleVerdict(...args)).verdict;
 
   it('answers idle when every reading says the prompt stopped', async () => {
-    expect(await idleVerdict(ports({ trees: T('yes') }), idle(), '/wt', 'h', 5000, 10_000)).toBe('idle');
+    expect(await verdict(ports({ trees: T('yes') }), idle(), '/wt', 'h', 5000, 10_000, held)).toBe('idle');
+  });
+
+  it('withholds idle on the first check, which has no table to compare against', async () => {
+    const check = await idleVerdict(ports({ trees: T('yes') }), idle(), '/wt', 'h', 5000, 10_000);
+    expect(check.verdict).toBe('silent');
+    expect(check.inputs).toEqual({ logBytes: null, logMtimeMs: null, log: '', cpuRead: true, cpuDeltaCentis: null });
+    expect(check.hold.table).toEqual(rows(5));
   });
 
   it('is silent when the conversation has not written', async () => {
-    expect(await idleVerdict(ports({ trees: T('yes') }), idle(false), '/wt', 'h', 5000, 10_000)).toBe('silent');
+    expect(await verdict(ports({ trees: T('yes') }), idle(false), '/wt', 'h', 5000, 10_000, held)).toBe('silent');
   });
 
-  it('is silent when a child is on a core', async () => {
-    const p = ports({ trees: T('yes') });
-    p.processes = { ...p.processes, activity: async () => ({ ok: true, value: 'working' }) };
-    expect(await idleVerdict(p, idle(), '/wt', 'h', 5000, 10_000)).toBe('silent');
+  it('does not end the prompt on a still log while the subtree CPU time moves', async () => {
+    const r = rig(null, []);
+    const log = path.join(r.wt, '.plot-worker.log');
+    fs.writeFileSync(log, 'line\n');
+    const p = { ...r.ports, trees: treesFixture({ quiet: { [r.wt]: 5000 }, commits: { [r.wt]: 'yes' } }) };
+    const first = await idleVerdict(p, idle(true, tableOf(5)), r.wt, 'h', 5000, 10_000);
+    const check = await idleVerdict(p, idle(true, tableOf(9)), r.wt, 'h', 5000, 10_000, first.hold);
+    expect(check.inputs).toMatchObject({ log: 'idle', cpuRead: true, cpuDeltaCentis: 4 });
+    expect(check.verdict).toBe('silent');
+  });
+
+  it('withholds idle where the process table cannot be read', async () => {
+    const failing = async (): Promise<TableRead> => ({ ok: false, code: 1 });
+    const check = await idleVerdict(ports({ trees: T('yes') }), idle(true, failing), '/wt', 'h', 5000, 10_000, held);
+    expect(check.verdict).toBe('silent');
+    expect(check.inputs.cpuDeltaCentis).toBeNull();
+    expect(check.hold.table).toEqual(held.table);
   });
 
   it('is silent without commits, and when the prompt has run less than the window', async () => {
-    expect(await idleVerdict(ports({ trees: T('no') }), idle(), '/wt', 'h', 5000, 10_000)).toBe('silent');
-    expect(await idleVerdict(ports({ trees: T('unanswerable') }), idle(), '/wt', 'h', 5000, 10_000)).toBe('silent');
-    expect(await idleVerdict(ports({ trees: T('yes') }), idle(), '/wt', 'h', 10, 10_000)).toBe('silent');
+    expect(await verdict(ports({ trees: T('no') }), idle(), '/wt', 'h', 5000, 10_000, held)).toBe('silent');
+    expect(await verdict(ports({ trees: T('unanswerable') }), idle(), '/wt', 'h', 5000, 10_000, held)).toBe('silent');
+    expect(await verdict(ports({ trees: T('yes') }), idle(), '/wt', 'h', 10, 10_000, held)).toBe('silent');
   });
 
   it('withholds idle where nothing can be read', async () => {
@@ -1440,26 +1530,65 @@ describe('idleVerdict', () => {
       childrenOf: async () => ({ ok: false, why: 'failed' }),
     };
     const bad: IdleDeps = { ...idle(), transcript: { spoken: async () => ({ ok: false }) } };
-    expect(await idleVerdict(p, bad, '/wt', 'h', 5000, 10_000)).toBe('silent');
+    expect(await verdict(p, bad, '/wt', 'h', 5000, 10_000, held)).toBe('silent');
   });
 
-  it('is silent when no child exists, a dead pid, or an unreadable activity', async () => {
+  it('is silent when no child exists, or for a dead pid', async () => {
     const none = ports({ trees: T('yes') });
     none.processes = { ...none.processes, childrenOf: async () => ({ ok: true, value: [] }) };
-    expect(await idleVerdict(none, idle(), '/wt', 'h', 5000, 10_000)).toBe('silent');
+    const noChild = await idleVerdict(none, idle(), '/wt', 'h', 5000, 10_000, held);
+    expect(noChild.verdict).toBe('silent');
+    expect(noChild.inputs.cpuRead).toBe(false);
     const dead = ports({ trees: T('yes') });
-    dead.processes = { ...dead.processes, isAlive: async () => ({ ok: true, value: false }), activity: async () => ({ ok: false, why: 'failed' }) };
-    expect(await idleVerdict(dead, idle(), '/wt', 'h', 5000, 10_000)).toBe('silent');
+    dead.processes = { ...dead.processes, isAlive: async () => ({ ok: true, value: false }) };
+    expect(await verdict(dead, idle(), '/wt', 'h', 5000, 10_000, held)).toBe('silent');
     const failedAlive = ports({ trees: T('yes') });
     failedAlive.processes = { ...failedAlive.processes, isAlive: async () => ({ ok: false, why: 'failed' }) };
-    expect(await idleVerdict(failedAlive, idle(), '/wt', 'h', 5000, 10_000)).toBe('silent');
+    expect(await verdict(failedAlive, idle(), '/wt', 'h', 5000, 10_000, held)).toBe('silent');
   });
 
   it('clamps silence by the reset of a usage-limit wait', async () => {
     const r = rig(null, []);
     fs.writeFileSync(path.join(r.wt, '.plot-worker.limited'), '9990\tiso\tline\n');
     const p = { ...r.ports, trees: treesFixture({ quiet: { [r.wt]: 5000 }, commits: { [r.wt]: 'yes' } }) };
-    expect(await idleVerdict(p, idle(), r.wt, 'h', 5000, 10_000)).toBe('silent');
+    expect(await verdict(p, idle(), r.wt, 'h', 5000, 10_000, held)).toBe('silent');
+  });
+
+  describe('spawn-spy: the log leads and ps runs only on a still log', () => {
+    const spy = () => {
+      const started: string[] = [];
+      const run: ProcessRunner = async (command, args, options) => {
+        started.push(command);
+        return runProcess(command, args, options);
+      };
+      return { started, table: processesTable(run).read };
+    };
+
+    it('starts no ps on a check whose log moved, and answers working', async () => {
+      const r = rig(null, []);
+      const log = path.join(r.wt, '.plot-worker.log');
+      fs.writeFileSync(log, 'one\n');
+      const s = spy();
+      const p = { ...r.ports, trees: treesFixture({ quiet: { [r.wt]: 5000 }, commits: { [r.wt]: 'yes' } }) };
+      const before = { log: { bytes: fs.statSync(log).size, mtimeMs: fs.statSync(log).mtimeMs }, table: null };
+      fs.appendFileSync(log, 'two\n');
+      const check = await idleVerdict(p, idle(true, s.table), r.wt, 'h', 5000, 10_000, before);
+      expect(s.started).toEqual([]);
+      expect(check.inputs).toMatchObject({ log: 'working', cpuRead: false, logBytes: 8 });
+      expect(check.verdict).toBe('silent');
+    });
+
+    it('starts exactly one ps on a check whose log is still', async () => {
+      const r = rig(null, []);
+      const log = path.join(r.wt, '.plot-worker.log');
+      fs.writeFileSync(log, 'one\n');
+      const s = spy();
+      const p = { ...r.ports, trees: treesFixture({ quiet: { [r.wt]: 5000 }, commits: { [r.wt]: 'yes' } }) };
+      const before = { log: { bytes: fs.statSync(log).size, mtimeMs: fs.statSync(log).mtimeMs }, table: null };
+      const check = await idleVerdict(p, idle(true, s.table), r.wt, 'h', 5000, 10_000, before);
+      expect(s.started).toEqual(['ps']);
+      expect(check.inputs).toMatchObject({ log: 'idle', cpuRead: true });
+    });
   });
 });
 
@@ -1768,9 +1897,11 @@ describe('manifest and marker readers', () => {
     fs.writeFileSync(f, '{not json');
     expect((await readManifestFields(f)).session).toBe('');
     fs.writeFileSync(f, JSON.stringify({ session: 1, worktree: 2, branch: 3, attempts: 1.5, correctionAttempts: 'x', resumeId: 4 }));
-    expect(await readManifestFields(f)).toEqual({ session: '', worktree: '', branch: '', attempts: 0, correctionAttempts: 0, resumeId: '', sliceRuns: 0 });
+    expect(await readManifestFields(f)).toEqual({ session: '', worktree: '', branch: '', base: '', attempts: 0, correctionAttempts: 0, resumeId: '', sliceRuns: 0 });
     fs.writeFileSync(f, JSON.stringify({ session: 's', worktree: 'w', branch: 'b', attempts: 2, correctionAttempts: 1, resumeId: 'h' }));
-    expect(await readManifestFields(f)).toEqual({ session: 's', worktree: 'w', branch: 'b', attempts: 2, correctionAttempts: 1, resumeId: 'h', sliceRuns: 0 });
+    expect(await readManifestFields(f)).toEqual({ session: 's', worktree: 'w', branch: 'b', base: '', attempts: 2, correctionAttempts: 1, resumeId: 'h', sliceRuns: 0 });
+    fs.writeFileSync(f, JSON.stringify({ session: 's', worktree: 'w', branch: 'b', base: 'sprint/s' }));
+    expect((await readManifestFields(f)).base).toBe('sprint/s');
   });
 
   it('stamps loop: js, and leaves an absent, empty-path or non-object manifest alone', async () => {
@@ -2061,6 +2192,7 @@ describe('runWorkerLoop on the command runner — a continuation resumes the blo
       PLOT_SESSION_FLAG: '--resume',
       PLOT_SESSION_ID: 'h-1',
       PLOT_CORRECTION_FILE: path.join(r.wt, 'PLOT-CORRECTION.md'),
+      PLOT_CONTINUATION_HEADING: continuationEntry('use fetch').split('\n')[0],
     });
     expect(fs.existsSync(file)).toBe(false);
   });
@@ -2152,6 +2284,7 @@ describe('runWorkerLoop on the command runner — a continuation resumes the blo
     ]);
     expect(atSecondStart).toHaveLength(1);
     expect(atSecondStart[0]).toContain('use undici instead');
+    expect(r.runs[0].env?.PLOT_CONTINUATION_HEADING).toBe(continuationEntry('use undici instead').split('\n')[0]);
   });
 
   it('does not re-append an identical second answer in the same slice — correctionHasContinuation de-dups by heading', async () => {

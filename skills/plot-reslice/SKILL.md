@@ -119,7 +119,7 @@ names. So read each branch in the wave before proposing anything:
 
   ```bash
   ../plot/scripts/plot-host.sh pr-state <branch>
-  ../plot/scripts/plot-host.sh pr-body <pr-number>
+  ../plot/scripts/plot-host.sh pr-body <pr-number>   # no flag: prints the body
   ```
 
 - **Its conflicts.** Two branches that touch the same files are a

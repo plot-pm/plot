@@ -154,14 +154,14 @@ const patternsFor = (
  * @param owner - the owner to match without case, or `null` to accept any.
  * @returns a pattern anchored to both ends of the line.
  */
-const patternFor = (form: string, branch: string, owner: string | null): RegExp => {
+const patternFor = (form: string, branch: string, owner: string | null, number: number | null = null): RegExp => {
   const body = literal(form)
     .split(literal(BRANCH))
     .join(literal(branch))
     // A digit run. A subject whose number is not digits is a different
     // sentence, and a host does not write one.
     .split(literal(NUMBER))
-    .join('\\d+')
+    .join(number === null ? '\\d+' : String(number))
     // THE OWNER MAY NOT REACH ACROSS A SEPARATOR. `[^/]+` for an unknown
     // owner, so `acme/extra/bug/flaky` does not match with the owner read as
     // `acme/extra` and the branch as `flaky` — the segment is one path
@@ -174,6 +174,38 @@ const patternFor = (form: string, branch: string, owner: string | null): RegExp 
   // a form holds one line: a subject differing from a branch only by case is a
   // shape no host writes, where an owner differing by case is measured.
   return new RegExp(`^${body}$`, owner === null ? '' : 'i');
+};
+
+/** What {@link carriesMergeOf} reads. */
+export interface CarriesMergeInput {
+  /** The subject lines of the commits one merge brought. */
+  readonly subjects: readonly string[];
+  /** The PR whose merge subject to look for. */
+  readonly number: number;
+  /** That PR's head branch. */
+  readonly branch: string;
+  /** The subject templates this host writes, as {@link MergeSubjectInput.forms}. */
+  readonly forms: readonly string[];
+  /** The repository's own account, lowercased, or `null` to accept any. */
+  readonly owner: string | null;
+}
+
+/**
+ * Whether one of the subjects is the host's merge subject for one PR.
+ *
+ * POSITIVE EVIDENCE ONLY, as {@link mergedBySubject}. A form must name both
+ * `<branch>` and `<number>`: a subject naming only the branch can belong to
+ * another PR from the same branch.
+ *
+ * @param input - the subjects, the PR's number and head branch, the host's forms and the owner.
+ * @returns `true` where a subject is a whole-line match for the PR; `false`
+ *   otherwise, and for a host whose forms name no number.
+ */
+export const carriesMergeOf = (input: CarriesMergeInput): boolean => {
+  const patterns = input.forms
+    .filter((form) => form.includes(BRANCH) && form.includes(NUMBER))
+    .map((form) => patternFor(form, input.branch, input.owner, input.number));
+  return input.subjects.some((subject) => patterns.some((pattern) => pattern.test(subject)));
 };
 
 /**

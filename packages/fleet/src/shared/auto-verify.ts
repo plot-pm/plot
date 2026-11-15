@@ -4,6 +4,7 @@ import path from 'node:path';
 import {
   autoVerify,
   settleVerifyRuns,
+  slotRefusal,
   verificationRow,
   verifyHalted,
   verifyStart,
@@ -24,6 +25,7 @@ import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import type { BoardRunRecord } from '@plot-pm/domain/rules/board-run-end';
 import { readConfig } from './config-reader.js';
+import { readSwitch } from './fleet-settings-store.js';
 import { usableCommand } from './usable-command.js';
 import { scriptsOf, verifyLogPath, type ActOptions } from './action-log.js';
 import { startBoardRun } from './board-run.js';
@@ -99,7 +101,8 @@ export interface VerifyPassWorld {
 
 /** What the daemon reads once per pass and hands the verify pass. */
 export interface VerifyPassReadings {
-  readonly headroom: Headroom;
+  /** Measures the machine and answers its headroom; asked only where an unverified plan's start can depend on it. */
+  readonly headroom: () => Promise<Headroom>;
   readonly machineOverride: boolean;
   /** The slices the queue's last pass held, or `null` where no pass has been read. */
   readonly held: readonly HeldSlice[] | null;
@@ -389,7 +392,7 @@ export const runAutoVerifyPass = async (
   world: VerifyPassWorld = defaultWorld,
 ): Promise<string[]> => {
   const verifyCommand = usableCommand(readConfig(opts, VERIFY_COMMAND_KEY, ''));
-  const on = autoVerify({ autoVerify: readConfig(opts, AUTO_VERIFY_KEY, '') === 'true', verifyCommand });
+  const on = autoVerify({ autoVerify: readSwitch(opts, 'autoVerify'), verifyCommand });
   const before = readVerifyState(opts.repoRoot);
   if (before === null) {
     console.log('auto-verify: cannot read the verify state; starting nothing this pass');
@@ -406,6 +409,15 @@ export const runAutoVerifyPass = async (
     return [];
   }
 
+  // THE MACHINE IS READ ONLY WHERE IT CAN REFUSE A START: an unverified plan,
+  // no earlier slot refusal, and no `Machine override`. The rule runs inside a
+  // synchronous state update, so the reading is taken before it.
+  const headroom: Headroom =
+    !readings.machineOverride &&
+    slotRefusal({ held: readings.held, headroom: 'unmeasured', machineOverride: false }) === null &&
+    [...candidates.plans.values()].some((plan) => !plan.verified)
+      ? await readings.headroom()
+      : 'unmeasured';
   const pick: { slug: string | null } = { slug: null };
   const ended: string[] = [];
   const written = updateVerifyState(opts.repoRoot, (current) => {
@@ -440,7 +452,7 @@ export const runAutoVerifyPass = async (
         slug: plan.slug,
         tracer: plan.tracer,
         deliveryCommit: plan.deliveryCommit,
-        headroom: readings.headroom,
+        headroom,
         machineOverride: readings.machineOverride,
         held: readings.held,
         going,

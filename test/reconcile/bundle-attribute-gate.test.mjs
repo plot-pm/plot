@@ -81,6 +81,23 @@ test('bundle gate: refuses a new output that was never marked', () => {
   rmTree(dir);
 });
 
+test('bundle gate: refuses an unmarked output whose declaration wraps over several lines', () => {
+  // `shippedRestartStoppedCommand` is declared this way in build.mjs, and a
+  // one-line grep never asked whether it was marked. It was not.
+  const dir = treeWith(ALL, ALL_MARKED);
+  const build = path.join(dir, 'packages', 'board', 'build.mjs');
+  writeFileSync(
+    build,
+    `${readFileSync(build, 'utf8')}const shippedWrapped = path.join(\n  here,\n  '../../skills/plot/scripts/board/plot-wrapped-command.mjs',\n);\n`,
+  );
+
+  const got = run(dir);
+  assert.equal(got.status, 1, `an unmarked wrapped bundle must fail:\n${got.stdout}`);
+  assert.match(got.stdout, /plot-wrapped-command\.mjs/, `and the failure must name it:\n${got.stdout}`);
+
+  rmTree(dir);
+});
+
 test('bundle gate: passes when every output is marked', () => {
   const dir = treeWith(ALL, ALL_MARKED);
 
@@ -167,9 +184,13 @@ test('build.mjs and the board contract name the same bundle set', () => {
   // 1. THE SOURCE. The same derivation `scripts/check-bundle-attributes.sh`
   //    runs, so a third spelling of it cannot appear here either.
   const build = readFileSync(path.join(root, 'packages', 'board', 'build.mjs'), 'utf8');
-  const emitted = [...build.matchAll(/shipped[A-Za-z]* = path\.join\([^)]*'\.\.\/\.\.\/([^']*)'\)/g)]
+  //    A declaration may wrap its `path.join(` arguments over several lines,
+  //    as `shippedRestartStoppedCommand` does.
+  const emitted = [...build.matchAll(/shipped[A-Za-z]* = path\.join\(\s*here,\s*'\.\.\/\.\.\/([^']*)',?\s*\)/g)]
     .map((m) => m[1]).sort();
   assert.ok(emitted.length > 0, 'the derivation found no bundles — the build changed shape');
+  assert.ok(emitted.includes('skills/plot/scripts/board/plot-restart-stopped-command.mjs'),
+    'the derivation must read the wrapped shippedRestartStoppedCommand declaration');
 
   // 2. THE CONTRACT DERIVES rather than lists, and what it derived must equal
   //    the source exactly. Equality in BOTH directions: a missing entry reads a

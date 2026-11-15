@@ -15,6 +15,7 @@ import {
 } from '../../src/shared/pr-refresh.js';
 import { PR_REFRESH_MS } from '../../src/shared/fleet-scan.js';
 import { removeTree as rmTree } from '../rm-tree.mjs';
+import { withSaidListing } from './listing-over-said.js';
 
 // The PR pass reads the issue gate (D28): the spike's Acceptance items 3 and 4,
 // and review finding H1 of PR #1647.
@@ -47,7 +48,7 @@ const scripts = {
   },
 } as unknown as Scripts;
 
-const host = { backend: async () => ({ ok: true, value: 'github' }) } as unknown as Host;
+const host = withSaidListing({ backend: async () => ({ ok: true, value: 'github' }) } as unknown as Host, (args) => scripts.hostSaid(args));
 
 /** A PR store that holds nothing and accepts every write. */
 const store: PrIndexStore = {
@@ -153,5 +154,20 @@ describe('the PR pass never gates on the account limit', () => {
     const ms = prRefreshMsFor('github', record, PR_REFRESH_MS);
     expect(ms).toBeLessThanOrEqual(8 * PR_REFRESH_MS);
     expect(ms).toBe(prRefreshMsFor('github', { perHour: 5_000 }, PR_REFRESH_MS));
+  });
+});
+
+describe('the PR pass reads the spend through the world\'s reader', () => {
+  it('takes the account and the rate from the reader and asks no plot-host.sh spend-rate', async () => {
+    const entry = freshPrState();
+    entry.backend = 'github';
+    await refreshPrs(
+      { scripts, host, store, spend: async () => ({ perHour: 90, resetAt: null, limit: 5000, basis: 'actual', account: 'reader-account' }) },
+      entry,
+    );
+    expect(entry.prAccount).toBe('reader-account');
+    expect(entry.prSpendPerHour).toBe(90);
+    expect(entry.prLimit).toBe(5000);
+    expect(asked).not.toContain('spend-rate');
   });
 });

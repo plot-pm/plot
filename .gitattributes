@@ -60,6 +60,8 @@ skills/plot/scripts/board/plot-claim-answer.mjs -merge
 skills/plot/scripts/board/plot-checkout-yield.mjs -merge
 skills/plot/scripts/board/plot-continue-command.mjs -merge
 skills/plot/scripts/board/plot-restart-command.mjs -merge
+skills/plot/scripts/board/plot-restart-stopped-command.mjs -merge
+skills/plot/scripts/board/plot-loose-delete-command.mjs -merge
 skills/plot/scripts/board/plot-approve.mjs -merge
 skills/plot/scripts/board/plot-needs-design.mjs -merge
 skills/plot/scripts/board/plot-released-labels.mjs -merge
@@ -72,6 +74,7 @@ skills/plot/scripts/board/plot-desk-root.mjs -merge
 skills/plot/scripts/board/plot-empty-claim.mjs -merge
 skills/plot/scripts/board/plot-fleet-size.mjs -merge
 skills/plot/scripts/board/plot-fleetd.mjs -merge
+skills/plot/scripts/board/plot-fleetctl-start.mjs -merge
 skills/plot/scripts/board/plot-issue-source.mjs -merge
 skills/plot/scripts/board/plot-issue-status.mjs -merge
 skills/plot/scripts/board/plot-plan-for-branch.mjs -merge
@@ -84,6 +87,7 @@ skills/plot/scripts/board/plot-merge-subject.mjs -merge
 skills/plot/scripts/board/plot-scan-walk.mjs -merge
 skills/plot/scripts/board/plot-release-chain.mjs -merge
 skills/plot/scripts/board/plot-bitbucket-slug.mjs -merge
+skills/plot/scripts/board/plot-ci-reuse.mjs -merge
 skills/plot/scripts/board/plot-listing-walk.mjs -merge
 skills/plot/scripts/board/plot-listing-pages.mjs -merge
 skills/plot/scripts/board/plot-bitbucket-mergeable.mjs -merge
@@ -123,4 +127,6 @@ skills/plot/scripts/board/plot-verify.mjs -merge
 skills/plot/scripts/board/plot-review.mjs -merge
 skills/plot/scripts/board/plot-design.mjs -merge
 skills/plot/scripts/board/plot-worker-loop.mjs -merge
+skills/plot/scripts/board/plot-worker-start.mjs -merge
+skills/plot/scripts/board/plot-worker-wrapper.mjs -merge
 skills/plot/scripts/board/plot-write-probe.mjs -merge

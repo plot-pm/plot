@@ -17,9 +17,9 @@ import { type AgentEntry, type Fleet } from '../../src/contract/schema.js';
  * `endedDeskPlacement`) and unit-tested there; these tests state the input the
  * rule produced and read the screen:
  *
- * - a `quiet` row appears under Quiet and not under Waiting on you (#1758);
- * - a stopped agent whose desk owes nothing is absent from Waiting on you,
- *   while the same agent without the ending reading stays (#1743).
+ * - a `quiet` row appears under Work items › Queued and not under You (#1758);
+ * - a stopped agent whose desk owes nothing is absent from You and lands
+ *   under Fleet › Free agents (#1743).
  */
 const BRANCH = 'bug/done-slice';
 const deskRoots: string[] = [];
@@ -72,18 +72,19 @@ describe('row placement (real browser renders the shipped artifact)', () => {
     return rest;
   };
 
-  const group = (page: Page, label: string) =>
-    page.locator('section').filter({
-      has: page.getByRole('heading', { level: 2, name: new RegExp(label) }),
-    });
-
+  /** A Delivery tab section by its `DELIVERY_LAYOUT` key. */
+  const inSection = (page: Page, key: string) => page.locator(`section[data-section="${key}"]`);
+  /** A group inside a section by its `DELIVERY_LAYOUT` key. */
+  const inGroup = (page: Page, key: string) => page.locator(`[data-group="${key}"]`);
   const open = async (over: Partial<Fleet>): Promise<Page> => {
     const page = await cat.open('ten-rows-one-kind-each', {
       tab: 'agents',
       over: { fleet: buildFleet({ ...envelope(), ...over }) as Fleet },
     });
-    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
-    const toggle = page.locator('[data-group-toggle="quiet"]');
+    await inSection(page, 'you').waitFor({ timeout: 10_000 });
+    // Free agents is the one group collapsed by default; a stopped agent that
+    // holds no item lands there.
+    const toggle = page.locator('[data-group-toggle="free"]');
     if (await toggle.count()) {
       if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
     }
@@ -91,7 +92,7 @@ describe('row placement (real browser renders the shipped artifact)', () => {
     return page;
   };
 
-  it('shows a quiet-kind row under Quiet, including an abandoned one', async () => {
+  it('shows a quiet-kind row under Queued, including an abandoned one', async () => {
     const page = await open({
       rows: [
         buildRow({
@@ -106,11 +107,12 @@ describe('row placement (real browser renders the shipped artifact)', () => {
       ],
     });
     try {
-      await expect.poll(() => group(page, 'Quiet').locator('[data-branch="feature/nobody-here"]').count()).toBe(1);
-      expect(await group(page, 'Waiting on you').locator('[data-branch="feature/nobody-here"]').count()).toBe(0);
-      // Operator decision B (2026-11-03) moved abandoned into QUIET too.
-      expect(await group(page, 'Quiet').locator('[data-branch="feature/left-behind"]').count()).toBe(1);
-      expect(await group(page, 'Waiting on you').locator('[data-branch="feature/left-behind"]').count()).toBe(0);
+      // No agent acts on either slice, so the placement rule queues both.
+      await expect.poll(() => inGroup(page, 'queued').locator('[data-branch="feature/nobody-here"]').count()).toBe(1);
+      expect(await inSection(page, 'you').locator('[data-branch="feature/nobody-here"]').count()).toBe(0);
+      // An abandoned row is placed by the same rule.
+      expect(await inGroup(page, 'queued').locator('[data-branch="feature/left-behind"]').count()).toBe(1);
+      expect(await inSection(page, 'you').locator('[data-branch="feature/left-behind"]').count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -122,16 +124,19 @@ describe('row placement (real browser renders the shipped artifact)', () => {
     relaunches: 0, state: 'stalled', ...over,
   });
 
-  it('keeps a stopped agent in Waiting on you when no ending was read', async () => {
+  it('shows a stopped agent in Fleet as stopped and names what is unknown when no ending was read', async () => {
     const page = await open({ rows: [], agents: [stopped()] });
     try {
-      await expect.poll(() => group(page, 'Waiting on you').locator('[data-agent-row]').count()).toBe(1);
+      // The rule places an agent in Fleet only, never under You; with no ending read the row says so.
+      await expect.poll(() => inSection(page, 'fleet').locator('[data-agent-row]').count()).toBe(1);
+      expect(await inSection(page, 'you').locator('[data-agent-row]').count()).toBe(0);
+      expect(await inSection(page, 'fleet').locator('[data-agent-row]').textContent()).toContain('no ending was read');
     } finally {
       await page.close();
     }
   });
 
-  it('removes a stopped agent whose desk owes nothing from Waiting on you', async () => {
+  it('removes a stopped agent whose desk owes nothing from You', async () => {
     const page = await open({
       rows: [],
       agents: [
@@ -145,14 +150,14 @@ describe('row placement (real browser renders the shipped artifact)', () => {
       ],
     });
     try {
-      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
-      expect(await group(page, 'Waiting on you').locator('[data-agent-row]').count()).toBe(0);
+      await inSection(page, 'you').waitFor({ timeout: 10_000 });
+      expect(await inSection(page, 'you').locator('[data-agent-row]').count()).toBe(0);
     } finally {
       await page.close();
     }
   });
 
-  it('lands a released free desk\'s note under Quiet, built via withEndedDesks over a real desk fixture', async () => {
+  it('lands a released free desk\'s note under Free agents, built via withEndedDesks over a real desk fixture', async () => {
     const mergedRow = buildRow({ branch: BRANCH, state: 'merged', group: 'done', worker: 'failed' });
     const [withEnding] = withEndedDesks(
       [stopped({ checkout: BRANCH, worktree: await freeWaitDesk() })],
@@ -160,9 +165,9 @@ describe('row placement (real browser renders the shipped artifact)', () => {
     );
     const page = await open({ rows: [], agents: [withEnding!] });
     try {
-      await expect.poll(() => group(page, 'Quiet').locator('[data-agent-row]').count()).toBe(1);
-      expect(await group(page, 'Waiting on you').locator('[data-agent-row]').count()).toBe(0);
-      expect(await group(page, 'Quiet').textContent()).toContain(
+      await expect.poll(() => inGroup(page, 'free').locator('[data-agent-row]').count()).toBe(1);
+      expect(await inSection(page, 'you').locator('[data-agent-row]').count()).toBe(0);
+      expect(await inGroup(page, 'free').textContent()).toContain(
         'ended at the wait bound with no slice offered — reaped on the next pass',
       );
     } finally {

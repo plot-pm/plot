@@ -22,7 +22,7 @@ describe('a delivery asks for the sync PR as the command caller', () => {
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
   });
 
-  /** Delivers one plan through a copied script set whose `plot-state-sync.mjs` records its arguments and exits as `stub` says. */
+  /** Delivers one plan through a copied script set whose `board/plot-state-sync.mjs` records its arguments and exits as `stub` says. */
   const deliver = async (stubBody: string): Promise<{ code: number; out: string; err: string; calls: string[] }> => {
     const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'plot-deliver-sync-')));
     roots.push(root);
@@ -34,7 +34,9 @@ describe('a delivery asks for the sync PR as the command caller', () => {
       writeFileSync(file, '#!/usr/bin/env bash\necho "summary: tracker=none"\n');
       chmodSync(file, 0o755);
     }
-    const sync = path.join(scripts, 'plot-state-sync.mjs');
+    // Where `build.mjs` ships the bundle: `skills/plot/scripts/board/`.
+    const sync = path.join(scripts, 'board', 'plot-state-sync.mjs');
+    mkdirSync(path.dirname(sync), { recursive: true });
     rmSync(sync, { force: true });
     writeFileSync(sync, `import { appendFileSync } from 'node:fs';\nappendFileSync('${marker}', process.argv.slice(2).join(' ') + '\\n');\n${stubBody}\n`);
 

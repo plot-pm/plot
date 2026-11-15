@@ -319,6 +319,20 @@ describe('fleetReading', () => {
     expect(desk).toMatchObject({ local_ahead: 0, changed_at: null, worker: 'finished', worker_exit: '0', worker_activity: '' });
   });
 
+  it('names the liveness basis on a running worker only: a finished one and a branch with no desk carry none', () => {
+    const estate = estateOf(planOf('p.md', 'approved', [[{ branch: 'feature/a' }, { branch: 'feature/b' }, { branch: 'feature/c' }]]));
+    const branches = branchesOf(['p.md', 'feature/a', open()], ['p.md', 'feature/b', open()], ['p.md', 'feature/c', open()]);
+    const running = deskOn('feature/a', { process: { state: 'running', pid: '42', exitCode: '', activity: 'busy', basis: 'start-time' } as never });
+    const finished = deskOn('feature/b', { process: { state: 'finished', pid: '43', exitCode: '0', activity: '', basis: 'start-time' } as never });
+    const doc = fleetReading(assembled(estate, branches, { mainSha: 'm1', desks: [running, finished] }), header) as any;
+    const [a, b, c] = doc.plans[0].waves[0].branches;
+    expect(a.worker_basis).toBe('start-time');
+    expect(b.worker_basis).toBe('');
+    expect(c).toMatchObject({ worker: 'elsewhere', worker_basis: '' });
+    const unsaid = deskOn('feature/a');
+    expect((fleetReading(assembled(estate, branches, { mainSha: 'm1', desks: [unsaid] }), header) as any).plans[0].waves[0].branches[0].worker_basis).toBe('');
+  });
+
   it('marks a branch merged on its subject alone, and not one the host confirmed', () => {
     const estate = estateOf(planOf('p.md', 'approved', [[{ branch: 'feature/s' }, { branch: 'feature/h' }]]));
     const branches = branchesOf(

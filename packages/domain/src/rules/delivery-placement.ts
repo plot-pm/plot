@@ -1,4 +1,5 @@
 import type { Ownership } from './ownership.js';
+import { releaseOf } from './release-of.js';
 
 /**
  * The sections of the Delivery tab, top to bottom, and the groups inside the
@@ -31,7 +32,7 @@ export type DeliveryMine = 'off' | 'mine' | 'strict';
 /** How far a slice, PR or branch has come. */
 export type ItemStage = 'queued' | 'building' | 'pr';
 
-export type ItemKind = 'plan' | 'slice' | 'pr' | 'branch' | 'release';
+export type ItemKind = 'plan' | 'slice' | 'pr' | 'branch' | 'release' | 'ticket';
 
 /** The facts of one open PR. `unread` is a reading nobody took, never `false`. */
 export interface PrReading {
@@ -67,6 +68,25 @@ export interface WorkItemReading {
   heldBy?: Exclude<DeliveryGate, 'person' | 'ci' | 'review'>;
   /** The slice an earlier slice must finish first. */
   waitsOn?: string;
+  /** A ticket that a plan names: the plan places it, so no section of its own holds it. */
+  planned?: boolean;
+  /** A ticket's planned release versions: `[]` where the tracker was asked and named none, absent where it was not asked. */
+  releases?: readonly string[];
+  /** What was measured to decide whether a PR or branch is loose; absent where nobody asked. */
+  loose?: LooseReading;
+}
+
+/**
+ * The facts that decide whether a PR or a branch is loose: no plan names it and
+ * nobody works on it. Each is absent where nobody read it, never `false`.
+ */
+export interface LooseReading {
+  /** A plan names the item, whatever its state. */
+  named?: boolean;
+  /** A desk on this machine, a registry manifest or a running worker holds the branch. A claim commit alone is not a hold. */
+  held?: boolean;
+  /** A fleetd fixer runs on the item's open PR now. Read for a `pr` only. */
+  fixing?: boolean;
 }
 
 export type AgentRole = 'loop' | 'fixer' | 'reviewer' | 'approver' | 'idea' | 'brief';
@@ -94,6 +114,11 @@ export interface DeliveryInput {
   autoReview: boolean;
   /** The `Correction budget` config key. */
   correctionBudget: number;
+  /**
+   * The target releases of the selected sprints; absent where the Sprint filter is off.
+   * Where present, a ticket places only if one of its `releases` is named here.
+   */
+  releases?: readonly string[];
 }
 
 /** Why an item sits under You. */
@@ -107,7 +132,9 @@ export type YouReason =
   | 'blocked-marker'
   | 'fleet-stuck'
   | 'merge-conflict'
-  | 'agent-died';
+  | 'agent-died'
+  | 'loose'
+  | 'ticket-assigned';
 
 export type ItemPlacement =
   | { id: string; kind: ItemKind; section: 'you'; group: YouGroup; reason: YouReason; agents: string[] }
@@ -124,11 +151,15 @@ export interface AgentPlacement {
   blockedOn: DeliveryGate | null;
 }
 
-/** A subject no section holds, with the reason. */
+/**
+ * A subject no section holds, with the reason: `delivered` has left the fleet's
+ * hands, `unread` lacks a reading, `planned` shows through its plan, and
+ * `filtered` lies outside the Mine mode or the Sprint filter.
+ */
 export interface Unplaced {
   id: string;
   subject: 'item' | 'agent';
-  reason: 'delivered' | 'unread';
+  reason: 'delivered' | 'unread' | 'planned' | 'filtered';
 }
 
 export interface DeliveryPlacement {
@@ -138,6 +169,25 @@ export interface DeliveryPlacement {
 }
 
 type YouCase = { group: YouGroup; reason: YouReason };
+
+/**
+ * Whether a PR or a branch is loose, from the readings taken of it.
+ *
+ * Loose means no plan names the item, no desk or manifest holds it, and, for a
+ * PR, no fixer runs on it. A delivered item has left the fleet and is never
+ * loose. An item with no `loose` reading was never asked and is `not-loose`;
+ * one with a reading that lacks a fact the decision needs is `unread`, because
+ * an absent fact is not a false one.
+ */
+const looseOf = (item: WorkItemReading): 'loose' | 'not-loose' | 'unread' => {
+  if (item.kind !== 'pr' && item.kind !== 'branch') return 'not-loose';
+  const facts = item.loose;
+  if (facts === undefined || item.delivered === true) return 'not-loose';
+  if (facts.named === true || facts.held === true || facts.fixing === true) return 'not-loose';
+  if (facts.named === undefined || facts.held === undefined) return 'unread';
+  if (item.kind === 'pr' && facts.fixing === undefined) return 'unread';
+  return 'loose';
+};
 
 const mineAllows = (mode: DeliveryMine, ownership: Ownership): boolean =>
   mode === 'off' || (mode === 'strict' ? ownership === 'mine' : ownership !== 'theirs');
@@ -149,6 +199,7 @@ const youCase = (
   live: number,
   stopped: number,
 ): YouCase | null => {
+  if (item.kind === 'ticket') return item.ownership === 'mine' ? { group: 'input-to-the-fleet', reason: 'ticket-assigned' } : null;
   if (item.phase === 'draft' || item.phase === 'design') return { group: 'input-to-the-fleet', reason: 'draft-plan' };
   if (item.approvalOwed === 'plan') return { group: 'input-to-the-fleet', reason: 'plan-approval' };
   if (item.approvalOwed === 'spike') return { group: 'input-to-the-fleet', reason: 'spike-approval' };
@@ -167,11 +218,13 @@ const youCase = (
     }
   }
   if (item.stage === 'building' && live === 0 && stopped > 0) return { group: 'unblock', reason: 'agent-died' };
+  if (looseOf(item) === 'loose') return { group: 'unblock', reason: 'loose' };
   return null;
 };
 
 /** The Work items group of an item no person must act on first, or `null` where a needed reading is absent. */
 const workGroup = (item: WorkItemReading, live: number): WorkItemGroup | null => {
+  if (item.kind === 'ticket') return 'queued';
   if (item.phase === 'draft' || item.phase === 'design') return 'queued';
   if (item.approvalOwed !== undefined) return 'queued';
   if (item.heldBy !== undefined) return 'at-a-gate';
@@ -185,6 +238,25 @@ const workGroup = (item: WorkItemReading, live: number): WorkItemGroup | null =>
     default:
       return null;
   }
+};
+
+/**
+ * Why a ticket sits in no section, or `null` where it places.
+ *
+ * A planned ticket shows through its plan, and a closed one (`delivered`) has
+ * left the fleet. With the Sprint filter on, a ticket whose `releases` were never
+ * read is `unread`, and one whose `releases` name no target is `filtered`.
+ */
+const ticketUnplaced = (item: WorkItemReading, input: DeliveryInput): Unplaced['reason'] | null => {
+  if (item.planned === true) return 'planned';
+  if (item.delivered === true) return 'delivered';
+  if (!mineAllows(input.mine, item.ownership)) return 'filtered';
+  const targets = input.releases;
+  if (targets === undefined) return null;
+  const releases = item.releases;
+  if (releases === undefined) return 'unread';
+  const row = { number: item.id, title: '', url: '', releases: [...releases] };
+  return targets.some((version) => releaseOf(row, version)) ? null : 'filtered';
 };
 
 const agentGroup = (agent: AgentPlacementReading): FleetGroup | null => {
@@ -201,6 +273,16 @@ const agentGroup = (agent: AgentPlacementReading): FleetGroup | null => {
  * otherwise. An agent goes to Fleet. Each placement names the other side of the
  * link: an item lists the agents acting on it, and an agent carries the id of
  * its item. An agent blocks on any gate, not only on a person.
+ *
+ * A ticket assigned to the reader goes to You › Input to the fleet, and any
+ * other ticket to Work items › Queued, unless a plan names it, it is closed, or
+ * the Mine mode or the Sprint filter (`input.releases`) excludes it; each of
+ * those appears in `unplaced`.
+ *
+ * A PR or branch that no plan names, no desk or manifest holds and no fixer
+ * works on is loose and goes to You › Unblock with the reason `loose`. One whose
+ * loose reading lacks a fact, and that meets no other You case, is `unread` and
+ * never loose. A `release` item is never loose.
  *
  * A subject whose needed reading is absent, and a delivered item, appear in
  * `unplaced` with the reason; nothing defaults to Work items. The rule stores
@@ -239,7 +321,19 @@ export const placeDelivery = (readings: DeliveryReadings, input: DeliveryInput):
     const stopped = acting.filter((a) => a.process === 'stopped').length;
     const names = acting.map((a) => a.id).sort();
 
+    if (item.kind === 'ticket') {
+      const why = ticketUnplaced(item, input);
+      if (why !== null) {
+        unplaced.push({ id: item.id, subject: 'item', reason: why });
+        continue;
+      }
+    }
+
     const you = youCase(item, input, live, stopped);
+    if (you === null && looseOf(item) === 'unread') {
+      unplaced.push({ id: item.id, subject: 'item', reason: 'unread' });
+      continue;
+    }
     if (you !== null && mineAllows(input.mine, item.ownership)) {
       items.push({ id: item.id, kind: item.kind, section: 'you', ...you, agents: names });
       continue;

@@ -1,0 +1,3798 @@
+{
+ "query": {
+  "state": "merged",
+  "limit": 120
+ },
+ "args": [
+  "--state",
+  "merged",
+  "--limit",
+  "120"
+ ],
+ "calls": [
+  {
+   "argv": [
+    "api",
+    "/repositories/{ws}/{repo}/pullrequests?state=MERGED&pagelen=50"
+   ],
+   "stdout": "{\"pagelen\":50,\"page\":1,\"size\":131,\"values\":[{\"type\":\"pullrequest\",\"id\":400,\"title\":\"Change 400\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-17T16:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/400\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-5\"},\"commit\":{\"hash\":\"36ae249036aec2c736af60fe36afff3536b09d6c\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":229,\"title\":\"Change 229\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-10T13:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/229\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-229\"},\"commit\":{\"hash\":\"879fdb5587a0798c87a117c387a1b5fa87a25431\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":228,\"title\":\"Change 228\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-10T12:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/228\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-228\"},\"commit\":null},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":227,\"title\":\"Change 227\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-10T11:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/227\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-227\"},\"commit\":{\"hash\":\"4b30e7f34b31862a4b3224614b32c2984b3360cf\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":226,\"title\":\"Change 226\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-10T10:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/226\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-226\"},\"commit\":{\"hash\":\"acf96e42acfa0c79acfaaab0acfb48e7acfbe71e\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":225,\"title\":\"Change 225 \\\"quoted\\\" & <tagged>\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-10T09:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/225\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-225\"},\"commit\":{\"hash\":\"ec1f491ec292c8ec330ffec3cf36ec46d6dec50b\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":224,\"title\":\"Change 224\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-10T08:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/224\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-224\"},\"commit\":{\"hash\":\"708a7ae0708b1917708bb74e708c5585708cf3bc\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":223,\"title\":\"Change 223\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-10T07:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/223\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-223\"},\"commit\":{\"hash\":\"d253012fd2539f66d2543d9dd254dbd4d2557a0b\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":222,\"title\":\"Change 222\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-10T06:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/222\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-222\"},\"commit\":{\"hash\":\"341b877e341c25b5341cc3ec341d6223341e005a\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":221,\"title\":\"Change 221\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-10T05:00:00.123+00:00\",\"links\":{},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/ünïcode-221\"},\"commit\":{\"hash\":\"95e40dcd95e4ac0495e54a3b95e5e87295e686a9\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":220,\"title\":\"Change 220\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-10T04:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/220\"}},\"author\":null,\"source\":{\"branch\":{\"name\":\"feature/change-220\"},\"commit\":{\"hash\":\"f7ac941cf7ad3253f7add08af7ae6ec1f7af0cf8\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":219,\"title\":\"Change 219\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-10T03:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/219\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-219\"},\"commit\":{\"hash\":\"59751a6b5975b8a2597656d95976f51059779347\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":218,\"title\":\"Change 218\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-10T02:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/218\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-218\"},\"commit\":{\"hash\":\"bb3da0babb3e3ef1bb3edd28bb3f7b5fbb401996\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":217,\"title\":\"Change 217\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-10T01:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/217\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-217\"},\"commit\":{\"hash\":\"1d0627091d06c5401d0763771d0801ae1d089fe5\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":216,\"title\":\"Change 216 \\\"quoted\\\" & <tagged>\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-10T00:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/216\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-216\"},\"commit\":{\"hash\":\"7ecead587ecf4b8f7ecfe9c67ed087fd7ed12634\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":215,\"title\":\"Change 215\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-09T23:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/215\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-215\"},\"commit\":{\"hash\":\"e09733a7e097d1dee0987015e0990e4ce099ac83\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":214,\"title\":\"Change 214\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-09T22:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/214\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-214\"},\"commit\":{\"hash\":\"425fb9f64260582d4260f6644261949b426232d2\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":213,\"title\":\"Change 213\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-09T21:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/213\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-213\"},\"commit\":{\"hash\":\"a4284045a428de7ca4297cb3a42a1aeaa42ab921\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":212,\"title\":\"Change 212\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-09T20:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/212\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-212\"},\"commit\":{\"hash\":\"5f0c6945f164cb5f203025f2a1395f33f705f3dd\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":211,\"title\":\"Change 211\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-09T19:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/211\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-211\"},\"commit\":{\"hash\":\"67b94ce367b9eb1a67ba895167bb278867bbc5bf\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":210,\"title\":\"Change 210\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-09T18:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/210\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-210\"},\"commit\":{\"hash\":\"c981d332c9827169c9830fa0c983add7c9844c0e\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":209,\"title\":\"Change 209\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-09T17:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/209\"}},\"author\":null,\"source\":{\"branch\":{\"name\":\"feature/change-209\"},\"commit\":null},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":208,\"title\":\"Change 208\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-09T16:00:00.123+00:00\",\"links\":{},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-208\"},\"commit\":{\"hash\":\"8d12dfd08d137e078d141c3e8d14ba758d1558ac\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":207,\"title\":\"Change 207 \\\"quoted\\\" & <tagged>\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-09T15:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/207\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-207\"},\"commit\":{\"hash\":\"eedb661feedc0456eedca28deedd40c4eedddefb\"}},\"destination\":{\"branch\":null}},{\"type\":\"pullrequest\",\"id\":206,\"title\":\"Change 206\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-09T14:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/206\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-206\"},\"commit\":{\"hash\":\"50a3ec6e50a48aa550a528dc50a5c71350a6654a\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":205,\"title\":\"Change 205\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-09T13:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/205\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-205\"},\"commit\":{\"hash\":\"b26c72bdb26d10f4b26daf2bb26e4d62b26eeb99\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":204,\"title\":\"Change 204\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-09T12:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/204\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/ünïcode-204\"},\"commit\":{\"hash\":\"1434f90c143597431436357a1436d3b1143771e8\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":203,\"title\":\"Change 203\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-09T11:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/203\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-203\"},\"commit\":{\"hash\":\"75fd7f5b75fe1d9275febbc975ff5a0075fff837\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":202,\"title\":\"Change 202\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-09T10:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/202\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-202\"},\"commit\":{\"hash\":\"d7c605aad7c6a3e1d7c74218d7c7e04fd7c87e86\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":201,\"title\":\"Change 201\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-09T09:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/201\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-201\"},\"commit\":{\"hash\":\"398e8bf9398f2a30398fc8673990669e399104d5\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":200,\"title\":\"Change 200\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-09T08:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/200\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-200\"},\"commit\":{\"hash\":\"9b5712489b57b07f9b584eb69b58eced9b598b24\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":199,\"title\":\"Change 199\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-09T07:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/199\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-199\"},\"commit\":{\"hash\":\"fd1f9897fd2036cefd20d505fd21733cfd221173\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":198,\"title\":\"Change 198 \\\"quoted\\\" & <tagged>\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-09T06:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/198\"}},\"author\":null,\"source\":{\"branch\":{\"name\":\"feature/change-198\"},\"commit\":{\"hash\":\"5ee81ee65ee8bd1d5ee95b545ee9f98b5eea97c2\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":197,\"title\":\"Change 197\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-09T05:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/197\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-197\"},\"commit\":{\"hash\":\"c0b0a535c0b1436cc0b1e1a3c0b27fdac0b31e11\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":196,\"title\":\"Change 196\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-09T04:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/196\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-196\"},\"commit\":{\"hash\":\"22792b842279c9bb227a67f2227b0629227ba460\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":195,\"title\":\"Change 195\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-09T03:00:00.123+00:00\",\"links\":{},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-195\"},\"commit\":{\"hash\":\"8441b1d38442500a8442ee4184438c7884442aaf\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":194,\"title\":\"Change 194\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-09T02:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/194\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-194\"},\"commit\":{\"hash\":\"e60a3822e60ad659e60b7490e60c12c7e60cb0fe\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":193,\"title\":\"Change 193\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-09T01:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/193\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-193\"},\"commit\":{\"hash\":\"47d2be7147d35ca847d3fadf47d4991647d5374d\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":192,\"title\":\"Change 192\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-09T00:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/192\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-192\"},\"commit\":{\"hash\":\"a99b44c0a99be2f7a99c812ea99d1f65a99dbd9c\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":191,\"title\":\"Change 191\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-08T23:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/191\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-191\"},\"commit\":{\"hash\":\"b63cb0fb646946b65077db65a5b4b6643ebb66e2\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":190,\"title\":\"Change 190\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-08T22:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/190\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-190\"},\"commit\":null},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":189,\"title\":\"Change 189 \\\"quoted\\\" & <tagged>\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-08T21:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/189\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-189\"},\"commit\":{\"hash\":\"cef4d7adcef575e4cef6141bcef6b252cef75089\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":188,\"title\":\"Change 188\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-08T20:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/188\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-188\"},\"commit\":{\"hash\":\"30bd5dfc30bdfc3330be9a6a30bf38a130bfd6d8\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":187,\"title\":\"Change 187\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-08T19:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/187\"}},\"author\":null,\"source\":{\"branch\":{\"name\":\"feature/ünïcode-187\"},\"commit\":{\"hash\":\"9285e44b92868282928720b99287bef092885d27\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":186,\"title\":\"Change 186\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-08T18:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/186\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-186\"},\"commit\":{\"hash\":\"f44e6a9af44f08d1f44fa708f450453ff450e376\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":185,\"title\":\"Change 185\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-08T17:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/185\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-185\"},\"commit\":{\"hash\":\"5616f0e956178f2056182d575618cb8e561969c5\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":184,\"title\":\"Change 184\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-08T16:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/184\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-184\"},\"commit\":{\"hash\":\"b7df7738b7e0156fb7e0b3a6b7e151ddb7e1f014\"}},\"destination\":{\"branch\":null}},{\"type\":\"pullrequest\",\"id\":183,\"title\":\"Change 183\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-08T15:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/183\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-183\"},\"commit\":{\"hash\":\"19a7fd8719a89bbe19a939f519a9d82c19aa7663\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":182,\"title\":\"Change 182\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-08T14:00:00.123+00:00\",\"links\":{},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-182\"},\"commit\":{\"hash\":\"7b7083d67b71220d7b71c0447b725e7b7b72fcb2\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":181,\"title\":\"Change 181\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-08T13:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/181\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-181\"},\"commit\":{\"hash\":\"dd390a25dd39a85cdd3a4693dd3ae4cadd3b8301\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}}],\"next\":\"https://api.bitbucket.org/2.0/repositories/plot-fixture/listing/pullrequests?state=MERGED&pagelen=50&page=2\"}"
+  },
+  {
+   "argv": [
+    "api",
+    "/repositories/plot-fixture/listing/pullrequests?state=MERGED&pagelen=50&page=2"
+   ],
+   "stdout": "{\"pagelen\":50,\"page\":2,\"size\":131,\"values\":[{\"type\":\"pullrequest\",\"id\":180,\"title\":\"Change 180 \\\"quoted\\\" & <tagged>\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-08T12:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/180\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-180\"},\"commit\":{\"hash\":\"3f0190743f022eab3f02cce23f036b193f040950\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":179,\"title\":\"Change 179\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-08T11:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/179\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-179\"},\"commit\":{\"hash\":\"a0ca16c3a0cab4faa0cb5331a0cbf168a0cc8f9f\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":178,\"title\":\"Change 178\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-08T10:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/178\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-178\"},\"commit\":{\"hash\":\"2929d122933b49293d98029477b729515ee295b4\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":177,\"title\":\"Change 177\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-08T09:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/177\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-177\"},\"commit\":{\"hash\":\"645b2361645bc198645c5fcf645cfe06645d9c3d\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":176,\"title\":\"Change 176\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-08T08:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/176\"}},\"author\":null,\"source\":{\"branch\":{\"name\":\"feature/change-176\"},\"commit\":{\"hash\":\"c623a9b0c62447e7c624e61ec6258455c626228c\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":175,\"title\":\"Change 175\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-08T07:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/175\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-175\"},\"commit\":{\"hash\":\"27ec2fff27ecce3627ed6c6d27ee0aa427eea8db\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":174,\"title\":\"Change 174\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-08T06:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/174\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-174\"},\"commit\":{\"hash\":\"89b4b64e89b5548589b5f2bc89b690f389b72f2a\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":173,\"title\":\"Change 173\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-08T05:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/173\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-173\"},\"commit\":{\"hash\":\"eb7d3c9deb7ddad4eb7e790beb7f1742eb7fb579\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":172,\"title\":\"Change 172\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-08T04:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/172\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-172\"},\"commit\":{\"hash\":\"4d45c2ec4d4661234d46ff5a4d479d914d483bc8\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":171,\"title\":\"Change 171 \\\"quoted\\\" & <tagged>\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-08T03:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/171\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-171\"},\"commit\":null},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":170,\"title\":\"Change 170\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-08T02:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/170\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/ünïcode-170\"},\"commit\":{\"hash\":\"10d6cf8a10d76dc110d80bf810d8aa2f10d94866\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":169,\"title\":\"Change 169\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-08T01:00:00.123+00:00\",\"links\":{},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-169\"},\"commit\":{\"hash\":\"729f55d9729ff41072a0924772a1307e72a1ceb5\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":168,\"title\":\"Change 168\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-08T00:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/168\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-168\"},\"commit\":{\"hash\":\"d467dc28d4687a5fd4691896d469b6cdd46a5504\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":167,\"title\":\"Change 167\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-07T23:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/167\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-167\"},\"commit\":{\"hash\":\"36306277363100ae36319ee536323d1c3632db53\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":166,\"title\":\"Change 166\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-07T22:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/166\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-166\"},\"commit\":{\"hash\":\"97f8e8c697f986fd97fa253497fac36b97fb61a2\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":165,\"title\":\"Change 165\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-07T21:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/165\"}},\"author\":null,\"source\":{\"branch\":{\"name\":\"feature/change-165\"},\"commit\":{\"hash\":\"f9c16f15f9c20d4cf9c2ab83f9c349baf9c3e7f1\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":164,\"title\":\"Change 164\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-07T20:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/164\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-164\"},\"commit\":{\"hash\":\"5b89f5645b8a939b5b8b31d25b8bd0095b8c6e40\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":163,\"title\":\"Change 163\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-07T19:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/163\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-163\"},\"commit\":{\"hash\":\"bd527bb3bd5319eabd53b821bd545658bd54f48f\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":162,\"title\":\"Change 162 \\\"quoted\\\" & <tagged>\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-07T18:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/162\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-162\"},\"commit\":{\"hash\":\"1f1b02021f1ba0391f1c3e701f1cdca71f1d7ade\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":161,\"title\":\"Change 161\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-07T17:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/161\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-161\"},\"commit\":{\"hash\":\"80e3885180e4268880e4c4bf80e562f680e6012d\"}},\"destination\":{\"branch\":null}},{\"type\":\"pullrequest\",\"id\":160,\"title\":\"Change 160\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-07T16:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/160\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-160\"},\"commit\":{\"hash\":\"e2ac0ea0e2acacd7e2ad4b0ee2ade945e2ae877c\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":159,\"title\":\"Change 159\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-07T15:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/159\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-159\"},\"commit\":{\"hash\":\"447494ef447533264475d15d44766f9444770dcb\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":158,\"title\":\"Change 158\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-07T14:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/158\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-158\"},\"commit\":{\"hash\":\"a63d1b3ea63db975a63e57aca63ef5e3a63f941a\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":157,\"title\":\"Change 157\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-07T13:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/157\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-157\"},\"commit\":{\"hash\":\"805a18d8063fc4806ddfb8077c328081a69808b8\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":156,\"title\":\"Change 156\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-07T12:00:00.123+00:00\",\"links\":{},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-156\"},\"commit\":{\"hash\":\"69ce27dc69cec61369cf644a69d0028169d0a0b8\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":155,\"title\":\"Change 155\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-07T11:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/155\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-155\"},\"commit\":{\"hash\":\"cb96ae2bcb974c62cb97ea99cb9888d0cb992707\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":154,\"title\":\"Change 154\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-07T10:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/154\"}},\"author\":null,\"source\":{\"branch\":{\"name\":\"feature/change-154\"},\"commit\":{\"hash\":\"2d5f347a2d5fd2b12d6070e82d610f1f2d61ad56\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":153,\"title\":\"Change 153 \\\"quoted\\\" & <tagged>\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-07T09:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/153\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/ünïcode-153\"},\"commit\":{\"hash\":\"8f27bac98f2859008f28f7378f29956e8f2a33a5\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":152,\"title\":\"Change 152\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-07T08:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/152\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-152\"},\"commit\":null},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":151,\"title\":\"Change 151\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-07T07:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/151\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-151\"},\"commit\":{\"hash\":\"52b8c76752b9659e52ba03d552baa20c52bb4043\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":150,\"title\":\"Change 150\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-07T06:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/150\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-150\"},\"commit\":{\"hash\":\"b4814db6b481ebedb4828a24b483285bb483c692\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":149,\"title\":\"Change 149\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-07T05:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/149\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-149\"},\"commit\":{\"hash\":\"1649d405164a723c164b1073164baeaa164c4ce1\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":148,\"title\":\"Change 148\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-07T04:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/148\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-148\"},\"commit\":{\"hash\":\"78125a547812f88b781396c2781434f97814d330\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":147,\"title\":\"Change 147\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-07T03:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/147\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-147\"},\"commit\":{\"hash\":\"d9dae0a3d9db7edad9dc1d11d9dcbb48d9dd597f\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":146,\"title\":\"Change 146\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-07T02:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/146\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-146\"},\"commit\":{\"hash\":\"3ba366f23ba405293ba4a3603ba541973ba5dfce\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":145,\"title\":\"Change 145\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-07T01:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/145\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-145\"},\"commit\":{\"hash\":\"9d6bed419d6c8b789d6d29af9d6dc7e69d6e661d\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":144,\"title\":\"Change 144 \\\"quoted\\\" & <tagged>\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-07T00:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/144\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-144\"},\"commit\":{\"hash\":\"ff347390ff3511c7ff35affeff364e35ff36ec6c\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":143,\"title\":\"Change 143\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-06T23:00:00.123+00:00\",\"links\":{},\"author\":null,\"source\":{\"branch\":{\"name\":\"feature/change-143\"},\"commit\":{\"hash\":\"60fcf9df60fd981660fe364d60fed48460ff72bb\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":142,\"title\":\"Change 142\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-06T22:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/142\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-142\"},\"commit\":{\"hash\":\"c2c5802ec2c61e65c2c6bc9cc2c75ad3c2c7f90a\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":141,\"title\":\"Change 141\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-06T21:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/141\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-141\"},\"commit\":{\"hash\":\"248e067d248ea4b4248f42eb248fe12224907f59\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":140,\"title\":\"Change 140\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-06T20:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/140\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-140\"},\"commit\":{\"hash\":\"86568ccc86572b038657c93a86586771865905a8\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":139,\"title\":\"Change 139\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-06T19:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/139\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-139\"},\"commit\":{\"hash\":\"e81f131be81fb152e8204f89e820edc0e8218bf7\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":138,\"title\":\"Change 138\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-06T18:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/138\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-138\"},\"commit\":{\"hash\":\"49e7996a49e837a149e8d5d849e9740f49ea1246\"}},\"destination\":{\"branch\":null}},{\"type\":\"pullrequest\",\"id\":137,\"title\":\"Change 137\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-06T17:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/137\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-137\"},\"commit\":{\"hash\":\"abb01fb9abb0bdf0abb15c27abb1fa5eabb29895\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":136,\"title\":\"Change 136\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-06T16:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/136\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/ünïcode-136\"},\"commit\":{\"hash\":\"d78a608d79443fd79e276d7a80add7b1ee4d7bbd\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":135,\"title\":\"Change 135 \\\"quoted\\\" & <tagged>\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-06T15:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/135\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-135\"},\"commit\":{\"hash\":\"6f412c576f41ca8e6f4268c56f4306fc6f43a533\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":134,\"title\":\"Change 134\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-06T14:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/134\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-134\"},\"commit\":{\"hash\":\"d109b2a6d10a50ddd10aef14d10b8d4bd10c2b82\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":133,\"title\":\"Change 133\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-06T13:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/133\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-133\"},\"commit\":null},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":132,\"title\":\"Change 132\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-06T12:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/132\"}},\"author\":null,\"source\":{\"branch\":{\"name\":\"feature/change-132\"},\"commit\":{\"hash\":\"949abf44949b5d7b949bfbb2949c99e9949d3820\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":131,\"title\":\"Change 131\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-06T11:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/131\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-131\"},\"commit\":{\"hash\":\"f6634593f663e3caf6648201f6652038f665be6f\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}}],\"next\":\"https://api.bitbucket.org/2.0/repositories/plot-fixture/listing/pullrequests?state=MERGED&pagelen=50&page=3\"}"
+  },
+  {
+   "argv": [
+    "api",
+    "/repositories/plot-fixture/listing/pullrequests?state=MERGED&pagelen=50&page=3"
+   ],
+   "stdout": "{\"pagelen\":50,\"page\":3,\"size\":131,\"values\":[{\"type\":\"pullrequest\",\"id\":130,\"title\":\"Change 130\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-06T10:00:00.123+00:00\",\"links\":{},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-130\"},\"commit\":{\"hash\":\"582bcbe2582c6a19582d0850582da687582e44be\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":129,\"title\":\"Change 129\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-06T09:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/129\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-129\"},\"commit\":{\"hash\":\"b9f45231b9f4f068b9f58e9fb9f62cd6b9f6cb0d\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":128,\"title\":\"Change 128\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-06T08:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/128\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-128\"},\"commit\":{\"hash\":\"1bbcd8801bbd76b71bbe14ee1bbeb3251bbf515c\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":127,\"title\":\"Change 127\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-06T07:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/127\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-127\"},\"commit\":{\"hash\":\"7d855ecf7d85fd067d869b3d7d8739747d87d7ab\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":126,\"title\":\"Change 126 \\\"quoted\\\" & <tagged>\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-06T06:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/126\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-126\"},\"commit\":{\"hash\":\"df4de51edf4e8355df4f218cdf4fbfc3df505dfa\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":125,\"title\":\"Change 125\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-06T05:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/125\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-125\"},\"commit\":{\"hash\":\"41166b6d411709a44117a7db411846124118e449\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":124,\"title\":\"Change 124\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-06T04:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/124\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-124\"},\"commit\":{\"hash\":\"a2def1bca2df8ff3a2e02e2aa2e0cc61a2e16a98\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":123,\"title\":\"Change 123\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-06T03:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/123\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-123\"},\"commit\":{\"hash\":\"4a7780b4a816424a8b4794a952b04a9f0e74aa8f\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":122,\"title\":\"Change 122\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-06T02:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/122\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-122\"},\"commit\":{\"hash\":\"666ffe5a66709c9166713ac86671d8ff66727736\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":121,\"title\":\"Change 121\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-06T01:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/121\"}},\"author\":null,\"source\":{\"branch\":{\"name\":\"feature/change-121\"},\"commit\":{\"hash\":\"c83884a9c83922e0c839c117c83a5f4ec83afd85\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":120,\"title\":\"Change 120\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-06T00:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/120\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-120\"},\"commit\":{\"hash\":\"2a010af82a01a92f2a0247662a02e59d2a0383d4\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":119,\"title\":\"Change 119\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-05T23:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/119\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/ünïcode-119\"},\"commit\":{\"hash\":\"8bc991478bca2f7e8bcacdb58bcb6bec8bcc0a23\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":118,\"title\":\"Change 118\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-05T22:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/118\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-118\"},\"commit\":{\"hash\":\"ed921796ed92b5cded935404ed93f23bed949072\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":117,\"title\":\"Change 117 \\\"quoted\\\" & <tagged>\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-05T21:00:00.123+00:00\",\"links\":{},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-117\"},\"commit\":{\"hash\":\"4f5a9de54f5b3c1c4f5bda534f5c788a4f5d16c1\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":116,\"title\":\"Change 116\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-05T20:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/116\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-116\"},\"commit\":{\"hash\":\"b1232434b123c26bb12460a2b124fed9b1259d10\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":115,\"title\":\"Change 115\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-05T19:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/115\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-115\"},\"commit\":{\"hash\":\"12ebaa8312ec48ba12ece6f112ed852812ee235f\"}},\"destination\":{\"branch\":null}},{\"type\":\"pullrequest\",\"id\":114,\"title\":\"Change 114\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-05T18:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/114\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-114\"},\"commit\":null},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":113,\"title\":\"Change 113\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-05T17:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/113\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-113\"},\"commit\":{\"hash\":\"d67cb721d67d5558d67df38fd67e91c6d67f2ffd\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":112,\"title\":\"Change 112\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-05T16:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/112\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-112\"},\"commit\":{\"hash\":\"38453d703845dba7384679de384718153847b64c\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":111,\"title\":\"Change 111\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-05T15:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/111\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-111\"},\"commit\":{\"hash\":\"9a0dc3bf9a0e61f69a0f002d9a0f9e649a103c9b\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":110,\"title\":\"Change 110\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-05T14:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/110\"}},\"author\":null,\"source\":{\"branch\":{\"name\":\"feature/change-110\"},\"commit\":{\"hash\":\"fbd64a0efbd6e845fbd7867cfbd824b3fbd8c2ea\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":109,\"title\":\"Change 109\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-05T13:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/109\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-109\"},\"commit\":{\"hash\":\"5d9ed05d5d9f6e945da00ccb5da0ab025da14939\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":108,\"title\":\"Change 108 \\\"quoted\\\" & <tagged>\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-05T12:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/108\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-108\"},\"commit\":{\"hash\":\"bf6756acbf67f4e3bf68931abf693151bf69cf88\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":107,\"title\":\"Change 107\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-05T11:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/107\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-107\"},\"commit\":{\"hash\":\"212fdcfb21307b32213119692131b7a0213255d7\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":106,\"title\":\"Change 106\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-05T10:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/106\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/change-106\"},\"commit\":{\"hash\":\"82f8634a82f9018182f99fb882fa3def82fadc26\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":105,\"title\":\"Change 105\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-05T09:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/105\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-105\"},\"commit\":{\"hash\":\"e4c0e999e4c187d0e4c22607e4c2c43ee4c36275\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":104,\"title\":\"Change 104\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-05T08:00:00.123+00:00\",\"links\":{},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-104\"},\"commit\":{\"hash\":\"46896fe8468a0e1f468aac56468b4a8d468be8c4\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":103,\"title\":\"Change 103\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-05T07:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/103\"}},\"author\":{\"nickname\":\"dev3\",\"display_name\":\"Dev 3\"},\"source\":{\"branch\":{\"name\":\"feature/change-103\"},\"commit\":{\"hash\":\"a851f637a852946ea85332a5a853d0dca8546f13\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":102,\"title\":\"Change 102\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-05T06:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/102\"}},\"author\":{\"nickname\":\"dev2\",\"display_name\":\"Dev 2\"},\"source\":{\"branch\":{\"name\":\"feature/ünïcode-102\"},\"commit\":{\"hash\":\"a1a7c86a1b1abda1bb8f4a1c572ba1cf562a1d93\"}},\"destination\":{\"branch\":{\"name\":\"develop\"}}},{\"type\":\"pullrequest\",\"id\":101,\"title\":\"Change 101\",\"state\":\"MERGED\",\"updated_on\":\"2026-10-05T05:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/101\"}},\"author\":{\"nickname\":\"dev1\",\"display_name\":\"Dev 1\"},\"source\":{\"branch\":{\"name\":\"feature/change-101\"},\"commit\":{\"hash\":\"6be302d56be3a10c6be43f436be4dd7a6be57bb1\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}},{\"type\":\"pullrequest\",\"id\":100,\"title\":\"Change 100\",\"state\":\"MERGED\",\"draft\":false,\"updated_on\":\"2026-10-05T04:00:00.123+00:00\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/plot-fixture/listing/pull-requests/100\"}},\"author\":{\"nickname\":\"dev0\",\"display_name\":\"Dev 0\"},\"source\":{\"branch\":{\"name\":\"feature/change-100\"},\"commit\":{\"hash\":\"cdab8924cdac275bcdacc592cdad63c9cdae0200\"}},\"destination\":{\"branch\":{\"name\":\"main\"}}}]}"
+  }
+ ],
+ "exchanges": [
+  {
+   "path": "/repositories/{ws}/{repo}/pullrequests?state=MERGED&pagelen=50",
+   "response": {
+    "pagelen": 50,
+    "page": 1,
+    "size": 131,
+    "values": [
+     {
+      "type": "pullrequest",
+      "id": 400,
+      "title": "Change 400",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-17T16:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/400"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-5"
+       },
+       "commit": {
+        "hash": "36ae249036aec2c736af60fe36afff3536b09d6c"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 229,
+      "title": "Change 229",
+      "state": "MERGED",
+      "updated_on": "2026-10-10T13:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/229"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-229"
+       },
+       "commit": {
+        "hash": "879fdb5587a0798c87a117c387a1b5fa87a25431"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 228,
+      "title": "Change 228",
+      "state": "MERGED",
+      "updated_on": "2026-10-10T12:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/228"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-228"
+       },
+       "commit": null
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 227,
+      "title": "Change 227",
+      "state": "MERGED",
+      "updated_on": "2026-10-10T11:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/227"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-227"
+       },
+       "commit": {
+        "hash": "4b30e7f34b31862a4b3224614b32c2984b3360cf"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 226,
+      "title": "Change 226",
+      "state": "MERGED",
+      "updated_on": "2026-10-10T10:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/226"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-226"
+       },
+       "commit": {
+        "hash": "acf96e42acfa0c79acfaaab0acfb48e7acfbe71e"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 225,
+      "title": "Change 225 \"quoted\" & <tagged>",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-10T09:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/225"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-225"
+       },
+       "commit": {
+        "hash": "ec1f491ec292c8ec330ffec3cf36ec46d6dec50b"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 224,
+      "title": "Change 224",
+      "state": "MERGED",
+      "updated_on": "2026-10-10T08:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/224"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-224"
+       },
+       "commit": {
+        "hash": "708a7ae0708b1917708bb74e708c5585708cf3bc"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 223,
+      "title": "Change 223",
+      "state": "MERGED",
+      "updated_on": "2026-10-10T07:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/223"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-223"
+       },
+       "commit": {
+        "hash": "d253012fd2539f66d2543d9dd254dbd4d2557a0b"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 222,
+      "title": "Change 222",
+      "state": "MERGED",
+      "updated_on": "2026-10-10T06:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/222"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-222"
+       },
+       "commit": {
+        "hash": "341b877e341c25b5341cc3ec341d6223341e005a"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 221,
+      "title": "Change 221",
+      "state": "MERGED",
+      "updated_on": "2026-10-10T05:00:00.123+00:00",
+      "links": {},
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/ünïcode-221"
+       },
+       "commit": {
+        "hash": "95e40dcd95e4ac0495e54a3b95e5e87295e686a9"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 220,
+      "title": "Change 220",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-10T04:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/220"
+       }
+      },
+      "author": null,
+      "source": {
+       "branch": {
+        "name": "feature/change-220"
+       },
+       "commit": {
+        "hash": "f7ac941cf7ad3253f7add08af7ae6ec1f7af0cf8"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 219,
+      "title": "Change 219",
+      "state": "MERGED",
+      "updated_on": "2026-10-10T03:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/219"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-219"
+       },
+       "commit": {
+        "hash": "59751a6b5975b8a2597656d95976f51059779347"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 218,
+      "title": "Change 218",
+      "state": "MERGED",
+      "updated_on": "2026-10-10T02:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/218"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-218"
+       },
+       "commit": {
+        "hash": "bb3da0babb3e3ef1bb3edd28bb3f7b5fbb401996"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 217,
+      "title": "Change 217",
+      "state": "MERGED",
+      "updated_on": "2026-10-10T01:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/217"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-217"
+       },
+       "commit": {
+        "hash": "1d0627091d06c5401d0763771d0801ae1d089fe5"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 216,
+      "title": "Change 216 \"quoted\" & <tagged>",
+      "state": "MERGED",
+      "updated_on": "2026-10-10T00:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/216"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-216"
+       },
+       "commit": {
+        "hash": "7ecead587ecf4b8f7ecfe9c67ed087fd7ed12634"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 215,
+      "title": "Change 215",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-09T23:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/215"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-215"
+       },
+       "commit": {
+        "hash": "e09733a7e097d1dee0987015e0990e4ce099ac83"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 214,
+      "title": "Change 214",
+      "state": "MERGED",
+      "updated_on": "2026-10-09T22:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/214"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-214"
+       },
+       "commit": {
+        "hash": "425fb9f64260582d4260f6644261949b426232d2"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 213,
+      "title": "Change 213",
+      "state": "MERGED",
+      "updated_on": "2026-10-09T21:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/213"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-213"
+       },
+       "commit": {
+        "hash": "a4284045a428de7ca4297cb3a42a1aeaa42ab921"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 212,
+      "title": "Change 212",
+      "state": "MERGED",
+      "updated_on": "2026-10-09T20:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/212"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-212"
+       },
+       "commit": {
+        "hash": "5f0c6945f164cb5f203025f2a1395f33f705f3dd"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 211,
+      "title": "Change 211",
+      "state": "MERGED",
+      "updated_on": "2026-10-09T19:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/211"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-211"
+       },
+       "commit": {
+        "hash": "67b94ce367b9eb1a67ba895167bb278867bbc5bf"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 210,
+      "title": "Change 210",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-09T18:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/210"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-210"
+       },
+       "commit": {
+        "hash": "c981d332c9827169c9830fa0c983add7c9844c0e"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 209,
+      "title": "Change 209",
+      "state": "MERGED",
+      "updated_on": "2026-10-09T17:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/209"
+       }
+      },
+      "author": null,
+      "source": {
+       "branch": {
+        "name": "feature/change-209"
+       },
+       "commit": null
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 208,
+      "title": "Change 208",
+      "state": "MERGED",
+      "updated_on": "2026-10-09T16:00:00.123+00:00",
+      "links": {},
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-208"
+       },
+       "commit": {
+        "hash": "8d12dfd08d137e078d141c3e8d14ba758d1558ac"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 207,
+      "title": "Change 207 \"quoted\" & <tagged>",
+      "state": "MERGED",
+      "updated_on": "2026-10-09T15:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/207"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-207"
+       },
+       "commit": {
+        "hash": "eedb661feedc0456eedca28deedd40c4eedddefb"
+       }
+      },
+      "destination": {
+       "branch": null
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 206,
+      "title": "Change 206",
+      "state": "MERGED",
+      "updated_on": "2026-10-09T14:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/206"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-206"
+       },
+       "commit": {
+        "hash": "50a3ec6e50a48aa550a528dc50a5c71350a6654a"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 205,
+      "title": "Change 205",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-09T13:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/205"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-205"
+       },
+       "commit": {
+        "hash": "b26c72bdb26d10f4b26daf2bb26e4d62b26eeb99"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 204,
+      "title": "Change 204",
+      "state": "MERGED",
+      "updated_on": "2026-10-09T12:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/204"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/ünïcode-204"
+       },
+       "commit": {
+        "hash": "1434f90c143597431436357a1436d3b1143771e8"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 203,
+      "title": "Change 203",
+      "state": "MERGED",
+      "updated_on": "2026-10-09T11:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/203"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-203"
+       },
+       "commit": {
+        "hash": "75fd7f5b75fe1d9275febbc975ff5a0075fff837"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 202,
+      "title": "Change 202",
+      "state": "MERGED",
+      "updated_on": "2026-10-09T10:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/202"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-202"
+       },
+       "commit": {
+        "hash": "d7c605aad7c6a3e1d7c74218d7c7e04fd7c87e86"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 201,
+      "title": "Change 201",
+      "state": "MERGED",
+      "updated_on": "2026-10-09T09:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/201"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-201"
+       },
+       "commit": {
+        "hash": "398e8bf9398f2a30398fc8673990669e399104d5"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 200,
+      "title": "Change 200",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-09T08:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/200"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-200"
+       },
+       "commit": {
+        "hash": "9b5712489b57b07f9b584eb69b58eced9b598b24"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 199,
+      "title": "Change 199",
+      "state": "MERGED",
+      "updated_on": "2026-10-09T07:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/199"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-199"
+       },
+       "commit": {
+        "hash": "fd1f9897fd2036cefd20d505fd21733cfd221173"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 198,
+      "title": "Change 198 \"quoted\" & <tagged>",
+      "state": "MERGED",
+      "updated_on": "2026-10-09T06:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/198"
+       }
+      },
+      "author": null,
+      "source": {
+       "branch": {
+        "name": "feature/change-198"
+       },
+       "commit": {
+        "hash": "5ee81ee65ee8bd1d5ee95b545ee9f98b5eea97c2"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 197,
+      "title": "Change 197",
+      "state": "MERGED",
+      "updated_on": "2026-10-09T05:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/197"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-197"
+       },
+       "commit": {
+        "hash": "c0b0a535c0b1436cc0b1e1a3c0b27fdac0b31e11"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 196,
+      "title": "Change 196",
+      "state": "MERGED",
+      "updated_on": "2026-10-09T04:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/196"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-196"
+       },
+       "commit": {
+        "hash": "22792b842279c9bb227a67f2227b0629227ba460"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 195,
+      "title": "Change 195",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-09T03:00:00.123+00:00",
+      "links": {},
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-195"
+       },
+       "commit": {
+        "hash": "8441b1d38442500a8442ee4184438c7884442aaf"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 194,
+      "title": "Change 194",
+      "state": "MERGED",
+      "updated_on": "2026-10-09T02:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/194"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-194"
+       },
+       "commit": {
+        "hash": "e60a3822e60ad659e60b7490e60c12c7e60cb0fe"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 193,
+      "title": "Change 193",
+      "state": "MERGED",
+      "updated_on": "2026-10-09T01:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/193"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-193"
+       },
+       "commit": {
+        "hash": "47d2be7147d35ca847d3fadf47d4991647d5374d"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 192,
+      "title": "Change 192",
+      "state": "MERGED",
+      "updated_on": "2026-10-09T00:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/192"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-192"
+       },
+       "commit": {
+        "hash": "a99b44c0a99be2f7a99c812ea99d1f65a99dbd9c"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 191,
+      "title": "Change 191",
+      "state": "MERGED",
+      "updated_on": "2026-10-08T23:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/191"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-191"
+       },
+       "commit": {
+        "hash": "b63cb0fb646946b65077db65a5b4b6643ebb66e2"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 190,
+      "title": "Change 190",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-08T22:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/190"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-190"
+       },
+       "commit": null
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 189,
+      "title": "Change 189 \"quoted\" & <tagged>",
+      "state": "MERGED",
+      "updated_on": "2026-10-08T21:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/189"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-189"
+       },
+       "commit": {
+        "hash": "cef4d7adcef575e4cef6141bcef6b252cef75089"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 188,
+      "title": "Change 188",
+      "state": "MERGED",
+      "updated_on": "2026-10-08T20:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/188"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-188"
+       },
+       "commit": {
+        "hash": "30bd5dfc30bdfc3330be9a6a30bf38a130bfd6d8"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 187,
+      "title": "Change 187",
+      "state": "MERGED",
+      "updated_on": "2026-10-08T19:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/187"
+       }
+      },
+      "author": null,
+      "source": {
+       "branch": {
+        "name": "feature/ünïcode-187"
+       },
+       "commit": {
+        "hash": "9285e44b92868282928720b99287bef092885d27"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 186,
+      "title": "Change 186",
+      "state": "MERGED",
+      "updated_on": "2026-10-08T18:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/186"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-186"
+       },
+       "commit": {
+        "hash": "f44e6a9af44f08d1f44fa708f450453ff450e376"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 185,
+      "title": "Change 185",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-08T17:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/185"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-185"
+       },
+       "commit": {
+        "hash": "5616f0e956178f2056182d575618cb8e561969c5"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 184,
+      "title": "Change 184",
+      "state": "MERGED",
+      "updated_on": "2026-10-08T16:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/184"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-184"
+       },
+       "commit": {
+        "hash": "b7df7738b7e0156fb7e0b3a6b7e151ddb7e1f014"
+       }
+      },
+      "destination": {
+       "branch": null
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 183,
+      "title": "Change 183",
+      "state": "MERGED",
+      "updated_on": "2026-10-08T15:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/183"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-183"
+       },
+       "commit": {
+        "hash": "19a7fd8719a89bbe19a939f519a9d82c19aa7663"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 182,
+      "title": "Change 182",
+      "state": "MERGED",
+      "updated_on": "2026-10-08T14:00:00.123+00:00",
+      "links": {},
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-182"
+       },
+       "commit": {
+        "hash": "7b7083d67b71220d7b71c0447b725e7b7b72fcb2"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 181,
+      "title": "Change 181",
+      "state": "MERGED",
+      "updated_on": "2026-10-08T13:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/181"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-181"
+       },
+       "commit": {
+        "hash": "dd390a25dd39a85cdd3a4693dd3ae4cadd3b8301"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     }
+    ],
+    "next": "https://api.bitbucket.org/2.0/repositories/plot-fixture/listing/pullrequests?state=MERGED&pagelen=50&page=2"
+   }
+  },
+  {
+   "path": "/repositories/{ws}/{repo}/pullrequests?state=MERGED&pagelen=50&page=2",
+   "response": {
+    "pagelen": 50,
+    "page": 2,
+    "size": 131,
+    "values": [
+     {
+      "type": "pullrequest",
+      "id": 180,
+      "title": "Change 180 \"quoted\" & <tagged>",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-08T12:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/180"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-180"
+       },
+       "commit": {
+        "hash": "3f0190743f022eab3f02cce23f036b193f040950"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 179,
+      "title": "Change 179",
+      "state": "MERGED",
+      "updated_on": "2026-10-08T11:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/179"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-179"
+       },
+       "commit": {
+        "hash": "a0ca16c3a0cab4faa0cb5331a0cbf168a0cc8f9f"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 178,
+      "title": "Change 178",
+      "state": "MERGED",
+      "updated_on": "2026-10-08T10:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/178"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-178"
+       },
+       "commit": {
+        "hash": "2929d122933b49293d98029477b729515ee295b4"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 177,
+      "title": "Change 177",
+      "state": "MERGED",
+      "updated_on": "2026-10-08T09:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/177"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-177"
+       },
+       "commit": {
+        "hash": "645b2361645bc198645c5fcf645cfe06645d9c3d"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 176,
+      "title": "Change 176",
+      "state": "MERGED",
+      "updated_on": "2026-10-08T08:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/176"
+       }
+      },
+      "author": null,
+      "source": {
+       "branch": {
+        "name": "feature/change-176"
+       },
+       "commit": {
+        "hash": "c623a9b0c62447e7c624e61ec6258455c626228c"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 175,
+      "title": "Change 175",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-08T07:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/175"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-175"
+       },
+       "commit": {
+        "hash": "27ec2fff27ecce3627ed6c6d27ee0aa427eea8db"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 174,
+      "title": "Change 174",
+      "state": "MERGED",
+      "updated_on": "2026-10-08T06:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/174"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-174"
+       },
+       "commit": {
+        "hash": "89b4b64e89b5548589b5f2bc89b690f389b72f2a"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 173,
+      "title": "Change 173",
+      "state": "MERGED",
+      "updated_on": "2026-10-08T05:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/173"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-173"
+       },
+       "commit": {
+        "hash": "eb7d3c9deb7ddad4eb7e790beb7f1742eb7fb579"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 172,
+      "title": "Change 172",
+      "state": "MERGED",
+      "updated_on": "2026-10-08T04:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/172"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-172"
+       },
+       "commit": {
+        "hash": "4d45c2ec4d4661234d46ff5a4d479d914d483bc8"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 171,
+      "title": "Change 171 \"quoted\" & <tagged>",
+      "state": "MERGED",
+      "updated_on": "2026-10-08T03:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/171"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-171"
+       },
+       "commit": null
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 170,
+      "title": "Change 170",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-08T02:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/170"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/ünïcode-170"
+       },
+       "commit": {
+        "hash": "10d6cf8a10d76dc110d80bf810d8aa2f10d94866"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 169,
+      "title": "Change 169",
+      "state": "MERGED",
+      "updated_on": "2026-10-08T01:00:00.123+00:00",
+      "links": {},
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-169"
+       },
+       "commit": {
+        "hash": "729f55d9729ff41072a0924772a1307e72a1ceb5"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 168,
+      "title": "Change 168",
+      "state": "MERGED",
+      "updated_on": "2026-10-08T00:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/168"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-168"
+       },
+       "commit": {
+        "hash": "d467dc28d4687a5fd4691896d469b6cdd46a5504"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 167,
+      "title": "Change 167",
+      "state": "MERGED",
+      "updated_on": "2026-10-07T23:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/167"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-167"
+       },
+       "commit": {
+        "hash": "36306277363100ae36319ee536323d1c3632db53"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 166,
+      "title": "Change 166",
+      "state": "MERGED",
+      "updated_on": "2026-10-07T22:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/166"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-166"
+       },
+       "commit": {
+        "hash": "97f8e8c697f986fd97fa253497fac36b97fb61a2"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 165,
+      "title": "Change 165",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-07T21:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/165"
+       }
+      },
+      "author": null,
+      "source": {
+       "branch": {
+        "name": "feature/change-165"
+       },
+       "commit": {
+        "hash": "f9c16f15f9c20d4cf9c2ab83f9c349baf9c3e7f1"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 164,
+      "title": "Change 164",
+      "state": "MERGED",
+      "updated_on": "2026-10-07T20:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/164"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-164"
+       },
+       "commit": {
+        "hash": "5b89f5645b8a939b5b8b31d25b8bd0095b8c6e40"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 163,
+      "title": "Change 163",
+      "state": "MERGED",
+      "updated_on": "2026-10-07T19:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/163"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-163"
+       },
+       "commit": {
+        "hash": "bd527bb3bd5319eabd53b821bd545658bd54f48f"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 162,
+      "title": "Change 162 \"quoted\" & <tagged>",
+      "state": "MERGED",
+      "updated_on": "2026-10-07T18:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/162"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-162"
+       },
+       "commit": {
+        "hash": "1f1b02021f1ba0391f1c3e701f1cdca71f1d7ade"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 161,
+      "title": "Change 161",
+      "state": "MERGED",
+      "updated_on": "2026-10-07T17:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/161"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-161"
+       },
+       "commit": {
+        "hash": "80e3885180e4268880e4c4bf80e562f680e6012d"
+       }
+      },
+      "destination": {
+       "branch": null
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 160,
+      "title": "Change 160",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-07T16:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/160"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-160"
+       },
+       "commit": {
+        "hash": "e2ac0ea0e2acacd7e2ad4b0ee2ade945e2ae877c"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 159,
+      "title": "Change 159",
+      "state": "MERGED",
+      "updated_on": "2026-10-07T15:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/159"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-159"
+       },
+       "commit": {
+        "hash": "447494ef447533264475d15d44766f9444770dcb"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 158,
+      "title": "Change 158",
+      "state": "MERGED",
+      "updated_on": "2026-10-07T14:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/158"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-158"
+       },
+       "commit": {
+        "hash": "a63d1b3ea63db975a63e57aca63ef5e3a63f941a"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 157,
+      "title": "Change 157",
+      "state": "MERGED",
+      "updated_on": "2026-10-07T13:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/157"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-157"
+       },
+       "commit": {
+        "hash": "805a18d8063fc4806ddfb8077c328081a69808b8"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 156,
+      "title": "Change 156",
+      "state": "MERGED",
+      "updated_on": "2026-10-07T12:00:00.123+00:00",
+      "links": {},
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-156"
+       },
+       "commit": {
+        "hash": "69ce27dc69cec61369cf644a69d0028169d0a0b8"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 155,
+      "title": "Change 155",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-07T11:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/155"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-155"
+       },
+       "commit": {
+        "hash": "cb96ae2bcb974c62cb97ea99cb9888d0cb992707"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 154,
+      "title": "Change 154",
+      "state": "MERGED",
+      "updated_on": "2026-10-07T10:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/154"
+       }
+      },
+      "author": null,
+      "source": {
+       "branch": {
+        "name": "feature/change-154"
+       },
+       "commit": {
+        "hash": "2d5f347a2d5fd2b12d6070e82d610f1f2d61ad56"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 153,
+      "title": "Change 153 \"quoted\" & <tagged>",
+      "state": "MERGED",
+      "updated_on": "2026-10-07T09:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/153"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/ünïcode-153"
+       },
+       "commit": {
+        "hash": "8f27bac98f2859008f28f7378f29956e8f2a33a5"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 152,
+      "title": "Change 152",
+      "state": "MERGED",
+      "updated_on": "2026-10-07T08:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/152"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-152"
+       },
+       "commit": null
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 151,
+      "title": "Change 151",
+      "state": "MERGED",
+      "updated_on": "2026-10-07T07:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/151"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-151"
+       },
+       "commit": {
+        "hash": "52b8c76752b9659e52ba03d552baa20c52bb4043"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 150,
+      "title": "Change 150",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-07T06:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/150"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-150"
+       },
+       "commit": {
+        "hash": "b4814db6b481ebedb4828a24b483285bb483c692"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 149,
+      "title": "Change 149",
+      "state": "MERGED",
+      "updated_on": "2026-10-07T05:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/149"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-149"
+       },
+       "commit": {
+        "hash": "1649d405164a723c164b1073164baeaa164c4ce1"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 148,
+      "title": "Change 148",
+      "state": "MERGED",
+      "updated_on": "2026-10-07T04:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/148"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-148"
+       },
+       "commit": {
+        "hash": "78125a547812f88b781396c2781434f97814d330"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 147,
+      "title": "Change 147",
+      "state": "MERGED",
+      "updated_on": "2026-10-07T03:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/147"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-147"
+       },
+       "commit": {
+        "hash": "d9dae0a3d9db7edad9dc1d11d9dcbb48d9dd597f"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 146,
+      "title": "Change 146",
+      "state": "MERGED",
+      "updated_on": "2026-10-07T02:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/146"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-146"
+       },
+       "commit": {
+        "hash": "3ba366f23ba405293ba4a3603ba541973ba5dfce"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 145,
+      "title": "Change 145",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-07T01:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/145"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-145"
+       },
+       "commit": {
+        "hash": "9d6bed419d6c8b789d6d29af9d6dc7e69d6e661d"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 144,
+      "title": "Change 144 \"quoted\" & <tagged>",
+      "state": "MERGED",
+      "updated_on": "2026-10-07T00:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/144"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-144"
+       },
+       "commit": {
+        "hash": "ff347390ff3511c7ff35affeff364e35ff36ec6c"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 143,
+      "title": "Change 143",
+      "state": "MERGED",
+      "updated_on": "2026-10-06T23:00:00.123+00:00",
+      "links": {},
+      "author": null,
+      "source": {
+       "branch": {
+        "name": "feature/change-143"
+       },
+       "commit": {
+        "hash": "60fcf9df60fd981660fe364d60fed48460ff72bb"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 142,
+      "title": "Change 142",
+      "state": "MERGED",
+      "updated_on": "2026-10-06T22:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/142"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-142"
+       },
+       "commit": {
+        "hash": "c2c5802ec2c61e65c2c6bc9cc2c75ad3c2c7f90a"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 141,
+      "title": "Change 141",
+      "state": "MERGED",
+      "updated_on": "2026-10-06T21:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/141"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-141"
+       },
+       "commit": {
+        "hash": "248e067d248ea4b4248f42eb248fe12224907f59"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 140,
+      "title": "Change 140",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-06T20:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/140"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-140"
+       },
+       "commit": {
+        "hash": "86568ccc86572b038657c93a86586771865905a8"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 139,
+      "title": "Change 139",
+      "state": "MERGED",
+      "updated_on": "2026-10-06T19:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/139"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-139"
+       },
+       "commit": {
+        "hash": "e81f131be81fb152e8204f89e820edc0e8218bf7"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 138,
+      "title": "Change 138",
+      "state": "MERGED",
+      "updated_on": "2026-10-06T18:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/138"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-138"
+       },
+       "commit": {
+        "hash": "49e7996a49e837a149e8d5d849e9740f49ea1246"
+       }
+      },
+      "destination": {
+       "branch": null
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 137,
+      "title": "Change 137",
+      "state": "MERGED",
+      "updated_on": "2026-10-06T17:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/137"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-137"
+       },
+       "commit": {
+        "hash": "abb01fb9abb0bdf0abb15c27abb1fa5eabb29895"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 136,
+      "title": "Change 136",
+      "state": "MERGED",
+      "updated_on": "2026-10-06T16:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/136"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/ünïcode-136"
+       },
+       "commit": {
+        "hash": "d78a608d79443fd79e276d7a80add7b1ee4d7bbd"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 135,
+      "title": "Change 135 \"quoted\" & <tagged>",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-06T15:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/135"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-135"
+       },
+       "commit": {
+        "hash": "6f412c576f41ca8e6f4268c56f4306fc6f43a533"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 134,
+      "title": "Change 134",
+      "state": "MERGED",
+      "updated_on": "2026-10-06T14:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/134"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-134"
+       },
+       "commit": {
+        "hash": "d109b2a6d10a50ddd10aef14d10b8d4bd10c2b82"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 133,
+      "title": "Change 133",
+      "state": "MERGED",
+      "updated_on": "2026-10-06T13:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/133"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-133"
+       },
+       "commit": null
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 132,
+      "title": "Change 132",
+      "state": "MERGED",
+      "updated_on": "2026-10-06T12:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/132"
+       }
+      },
+      "author": null,
+      "source": {
+       "branch": {
+        "name": "feature/change-132"
+       },
+       "commit": {
+        "hash": "949abf44949b5d7b949bfbb2949c99e9949d3820"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 131,
+      "title": "Change 131",
+      "state": "MERGED",
+      "updated_on": "2026-10-06T11:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/131"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-131"
+       },
+       "commit": {
+        "hash": "f6634593f663e3caf6648201f6652038f665be6f"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     }
+    ],
+    "next": "https://api.bitbucket.org/2.0/repositories/plot-fixture/listing/pullrequests?state=MERGED&pagelen=50&page=3"
+   }
+  },
+  {
+   "path": "/repositories/{ws}/{repo}/pullrequests?state=MERGED&pagelen=50&page=3",
+   "response": {
+    "pagelen": 50,
+    "page": 3,
+    "size": 131,
+    "values": [
+     {
+      "type": "pullrequest",
+      "id": 130,
+      "title": "Change 130",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-06T10:00:00.123+00:00",
+      "links": {},
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-130"
+       },
+       "commit": {
+        "hash": "582bcbe2582c6a19582d0850582da687582e44be"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 129,
+      "title": "Change 129",
+      "state": "MERGED",
+      "updated_on": "2026-10-06T09:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/129"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-129"
+       },
+       "commit": {
+        "hash": "b9f45231b9f4f068b9f58e9fb9f62cd6b9f6cb0d"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 128,
+      "title": "Change 128",
+      "state": "MERGED",
+      "updated_on": "2026-10-06T08:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/128"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-128"
+       },
+       "commit": {
+        "hash": "1bbcd8801bbd76b71bbe14ee1bbeb3251bbf515c"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 127,
+      "title": "Change 127",
+      "state": "MERGED",
+      "updated_on": "2026-10-06T07:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/127"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-127"
+       },
+       "commit": {
+        "hash": "7d855ecf7d85fd067d869b3d7d8739747d87d7ab"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 126,
+      "title": "Change 126 \"quoted\" & <tagged>",
+      "state": "MERGED",
+      "updated_on": "2026-10-06T06:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/126"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-126"
+       },
+       "commit": {
+        "hash": "df4de51edf4e8355df4f218cdf4fbfc3df505dfa"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 125,
+      "title": "Change 125",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-06T05:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/125"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-125"
+       },
+       "commit": {
+        "hash": "41166b6d411709a44117a7db411846124118e449"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 124,
+      "title": "Change 124",
+      "state": "MERGED",
+      "updated_on": "2026-10-06T04:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/124"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-124"
+       },
+       "commit": {
+        "hash": "a2def1bca2df8ff3a2e02e2aa2e0cc61a2e16a98"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 123,
+      "title": "Change 123",
+      "state": "MERGED",
+      "updated_on": "2026-10-06T03:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/123"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-123"
+       },
+       "commit": {
+        "hash": "4a7780b4a816424a8b4794a952b04a9f0e74aa8f"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 122,
+      "title": "Change 122",
+      "state": "MERGED",
+      "updated_on": "2026-10-06T02:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/122"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-122"
+       },
+       "commit": {
+        "hash": "666ffe5a66709c9166713ac86671d8ff66727736"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 121,
+      "title": "Change 121",
+      "state": "MERGED",
+      "updated_on": "2026-10-06T01:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/121"
+       }
+      },
+      "author": null,
+      "source": {
+       "branch": {
+        "name": "feature/change-121"
+       },
+       "commit": {
+        "hash": "c83884a9c83922e0c839c117c83a5f4ec83afd85"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 120,
+      "title": "Change 120",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-06T00:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/120"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-120"
+       },
+       "commit": {
+        "hash": "2a010af82a01a92f2a0247662a02e59d2a0383d4"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 119,
+      "title": "Change 119",
+      "state": "MERGED",
+      "updated_on": "2026-10-05T23:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/119"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/ünïcode-119"
+       },
+       "commit": {
+        "hash": "8bc991478bca2f7e8bcacdb58bcb6bec8bcc0a23"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 118,
+      "title": "Change 118",
+      "state": "MERGED",
+      "updated_on": "2026-10-05T22:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/118"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-118"
+       },
+       "commit": {
+        "hash": "ed921796ed92b5cded935404ed93f23bed949072"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 117,
+      "title": "Change 117 \"quoted\" & <tagged>",
+      "state": "MERGED",
+      "updated_on": "2026-10-05T21:00:00.123+00:00",
+      "links": {},
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-117"
+       },
+       "commit": {
+        "hash": "4f5a9de54f5b3c1c4f5bda534f5c788a4f5d16c1"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 116,
+      "title": "Change 116",
+      "state": "MERGED",
+      "updated_on": "2026-10-05T20:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/116"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-116"
+       },
+       "commit": {
+        "hash": "b1232434b123c26bb12460a2b124fed9b1259d10"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 115,
+      "title": "Change 115",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-05T19:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/115"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-115"
+       },
+       "commit": {
+        "hash": "12ebaa8312ec48ba12ece6f112ed852812ee235f"
+       }
+      },
+      "destination": {
+       "branch": null
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 114,
+      "title": "Change 114",
+      "state": "MERGED",
+      "updated_on": "2026-10-05T18:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/114"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-114"
+       },
+       "commit": null
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 113,
+      "title": "Change 113",
+      "state": "MERGED",
+      "updated_on": "2026-10-05T17:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/113"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-113"
+       },
+       "commit": {
+        "hash": "d67cb721d67d5558d67df38fd67e91c6d67f2ffd"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 112,
+      "title": "Change 112",
+      "state": "MERGED",
+      "updated_on": "2026-10-05T16:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/112"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-112"
+       },
+       "commit": {
+        "hash": "38453d703845dba7384679de384718153847b64c"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 111,
+      "title": "Change 111",
+      "state": "MERGED",
+      "updated_on": "2026-10-05T15:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/111"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-111"
+       },
+       "commit": {
+        "hash": "9a0dc3bf9a0e61f69a0f002d9a0f9e649a103c9b"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 110,
+      "title": "Change 110",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-05T14:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/110"
+       }
+      },
+      "author": null,
+      "source": {
+       "branch": {
+        "name": "feature/change-110"
+       },
+       "commit": {
+        "hash": "fbd64a0efbd6e845fbd7867cfbd824b3fbd8c2ea"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 109,
+      "title": "Change 109",
+      "state": "MERGED",
+      "updated_on": "2026-10-05T13:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/109"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-109"
+       },
+       "commit": {
+        "hash": "5d9ed05d5d9f6e945da00ccb5da0ab025da14939"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 108,
+      "title": "Change 108 \"quoted\" & <tagged>",
+      "state": "MERGED",
+      "updated_on": "2026-10-05T12:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/108"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-108"
+       },
+       "commit": {
+        "hash": "bf6756acbf67f4e3bf68931abf693151bf69cf88"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 107,
+      "title": "Change 107",
+      "state": "MERGED",
+      "updated_on": "2026-10-05T11:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/107"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-107"
+       },
+       "commit": {
+        "hash": "212fdcfb21307b32213119692131b7a0213255d7"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 106,
+      "title": "Change 106",
+      "state": "MERGED",
+      "updated_on": "2026-10-05T10:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/106"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-106"
+       },
+       "commit": {
+        "hash": "82f8634a82f9018182f99fb882fa3def82fadc26"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 105,
+      "title": "Change 105",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-05T09:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/105"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-105"
+       },
+       "commit": {
+        "hash": "e4c0e999e4c187d0e4c22607e4c2c43ee4c36275"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 104,
+      "title": "Change 104",
+      "state": "MERGED",
+      "updated_on": "2026-10-05T08:00:00.123+00:00",
+      "links": {},
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-104"
+       },
+       "commit": {
+        "hash": "46896fe8468a0e1f468aac56468b4a8d468be8c4"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 103,
+      "title": "Change 103",
+      "state": "MERGED",
+      "updated_on": "2026-10-05T07:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/103"
+       }
+      },
+      "author": {
+       "nickname": "dev3",
+       "display_name": "Dev 3"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-103"
+       },
+       "commit": {
+        "hash": "a851f637a852946ea85332a5a853d0dca8546f13"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 102,
+      "title": "Change 102",
+      "state": "MERGED",
+      "updated_on": "2026-10-05T06:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/102"
+       }
+      },
+      "author": {
+       "nickname": "dev2",
+       "display_name": "Dev 2"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/ünïcode-102"
+       },
+       "commit": {
+        "hash": "a1a7c86a1b1abda1bb8f4a1c572ba1cf562a1d93"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "develop"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 101,
+      "title": "Change 101",
+      "state": "MERGED",
+      "updated_on": "2026-10-05T05:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/101"
+       }
+      },
+      "author": {
+       "nickname": "dev1",
+       "display_name": "Dev 1"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-101"
+       },
+       "commit": {
+        "hash": "6be302d56be3a10c6be43f436be4dd7a6be57bb1"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     },
+     {
+      "type": "pullrequest",
+      "id": 100,
+      "title": "Change 100",
+      "state": "MERGED",
+      "draft": false,
+      "updated_on": "2026-10-05T04:00:00.123+00:00",
+      "links": {
+       "html": {
+        "href": "https://bitbucket.org/plot-fixture/listing/pull-requests/100"
+       }
+      },
+      "author": {
+       "nickname": "dev0",
+       "display_name": "Dev 0"
+      },
+      "source": {
+       "branch": {
+        "name": "feature/change-100"
+       },
+       "commit": {
+        "hash": "cdab8924cdac275bcdacc592cdad63c9cdae0200"
+       }
+      },
+      "destination": {
+       "branch": {
+        "name": "main"
+       }
+      }
+     }
+    ]
+   }
+  }
+ ]
+}

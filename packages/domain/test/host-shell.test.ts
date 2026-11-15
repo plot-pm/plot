@@ -281,6 +281,18 @@ describe('a host that answers', () => {
     expect(await host.prState(7)).toMatchObject({ ok: true, value: { checks: 'unknown' } });
   });
 
+  it('reads the rollup items pr-state reports as the PR\'s check runs, and leaves them absent where none are reported', async () => {
+    const host = hostShell(hostThat(
+      'printf \'{"number":7,"state":"OPEN","checks":"green","checkRuns":[{"name":"build","status":"COMPLETED","conclusion":"SUCCESS","at":"2026-11-07T07:41:02Z"},{"name":"validate"}]}\'',
+    ));
+    expect(await host.prState(7, { withChecks: true })).toMatchObject({ ok: true, value: { checkRuns: [
+      { name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS', at: '2026-11-07T07:41:02Z' },
+      { name: 'validate', status: '', conclusion: '', at: '' },
+    ] } });
+    const none = await hostShell(hostThat('printf \'{"number":7,"state":"OPEN","checks":"unknown"}\'')).prState(7);
+    expect(none.ok && none.value !== null && 'checkRuns' in none.value).toBe(false);
+  });
+
   it('answers the merged question with each of its three words', async () => {
     for (const word of ['merged', 'not-merged', 'unknown'] as const) {
       const answer = await hostShell(hostThat(`echo ${word}`)).prMerged('some/branch');
@@ -427,16 +439,10 @@ describe('reviewWriter', () => {
 });
 
 describe('prConversation', () => {
-  it('asks pr-conversation and parses the reading', async () => {
-    const reading = { prAuthor: 'jwloka', rows: [{ kind: 'issue', id: 1, login: 'eins78', type: 'User', time: '2026-11-09T14:32:00Z', body: 'why?' }] };
-    expect(
-      await hostShell(hostThat(`[ "$1 $2" = "pr-conversation 7" ] || exit 1; echo '${JSON.stringify(reading)}'`)).prConversation(7),
-    ).toEqual({ ok: true, value: reading });
-  });
-
-  it('maps a failing exit to failed and exit 4 to unaskable', async () => {
-    expect(await hostShell(hostThat('exit 3')).prConversation(7)).toEqual({ ok: false, why: 'failed' });
-    expect(await hostShell(hostThat('exit 4')).prConversation(7)).toEqual({ ok: false, why: 'unaskable' });
+  it('answers unaskable: the conversation read is in-process only', async () => {
+    const answer = await hostShell(hostThat('exit 0')).prConversation(7);
+    expect(answer.ok).toBe(false);
+    expect(answer).toMatchObject({ why: 'unaskable' });
   });
 });
 
@@ -994,11 +1000,23 @@ describe('the exit code this adapter reads is the one the script spends', () => 
     return { repoRoot: root, path: `${bin}:${process.env.PATH ?? ''}` };
   };
 
-  /** Runs the real `plot-host.sh pr-list --state all` in that repository. */
+  /**
+   * Runs the real `plot-host.sh pr-list --state all` in that repository.
+   *
+   * The budget record and its concurrency slots live in the repository's own
+   * `budget` directory, under a fixed account. The operator's record bounds a
+   * Bitbucket account to one slot, so every `bb` call would otherwise wait
+   * behind the machine's real agents.
+   */
   const prListAll = (repo: { repoRoot: string; path: string }) =>
     spawnSync('bash', [join(realScriptDir, 'plot-host.sh'), 'pr-list', '--state', 'all'], {
       cwd: repo.repoRoot,
-      env: { ...process.env, PATH: repo.path },
+      env: {
+        ...process.env,
+        PATH: repo.path,
+        PLOT_BUDGET_HOME: join(repo.repoRoot, 'budget'),
+        PLOT_BUDGET_ACCOUNT: 'acme-reader',
+      },
       encoding: 'utf8',
     });
 

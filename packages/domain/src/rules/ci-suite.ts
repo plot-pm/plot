@@ -226,6 +226,7 @@ export const ciSuiteRefusal = (command: string, suites: readonly string[]): CiSu
  * | `curl -X POST http://localhost:4000/api/release` | `'release'` |
  * | `curl -X POST http://localhost:4000/api/release-approve` | `'release-approve'` |
  * | `curl -X POST http://localhost:4000/api/restart` | `'restart'` |
+ * | `curl -X POST http://localhost:4000/api/loose-delete` | `'loose-delete'` |
  * | `curl http://localhost:4000/api/release` | `null` — GET, the default method |
  * | `curl -X POST http://localhost:4000/api/dispatch` | `null` — a different route |
  * | `grep release-approve docs/plans/*.md` | `null` — a read |
@@ -337,7 +338,7 @@ const APPROVE_MJS = 'plot-approve.mjs';
 const ASK_MJS = 'plot-ask.mjs';
 
 /** The lifecycle actions a gated script call can be. */
-export type GatedAction = 'dispatch' | 'approve' | 'deliver' | 'release' | 'release-approve' | 'restart';
+export type GatedAction = 'dispatch' | 'approve' | 'deliver' | 'release' | 'release-approve' | 'restart' | 'loose-delete';
 
 /** The scripts a command may run, and the action each bare call is. */
 const GATED: Record<string, 'dispatch' | 'approve' | 'deliver'> = {
@@ -455,6 +456,7 @@ const ROUTE_ACTION: ReadonlyArray<readonly [string, GatedAction]> = [
   ['/api/release-approve', 'release-approve'],
   ['/api/release', 'release'],
   ['/api/restart', 'restart'],
+  ['/api/loose-delete', 'loose-delete'],
 ];
 
 /** The quote characters a URL or a method may be wrapped in, dropped before either is read. */

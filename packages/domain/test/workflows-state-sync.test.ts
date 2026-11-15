@@ -2,11 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { writeTarget, type StateWriteTarget } from '../src/rules/write-target.js';
 import { answered, failed, type PortResult } from '../src/port-result.js';
 import {
+  commitsAhead,
   commitsBetween,
   deliveredPending,
   fleetLiveAt,
   forwardSyncAt,
   openSyncPr,
+  standingConflictAt,
+  SYNC_PR_LIMIT,
   syncPrAt,
   type StateSyncPorts,
   type StateSyncSource,
@@ -22,10 +25,22 @@ const plan = (state: string): string => `# P\n\n## Status\n\nState: ${state}\n`;
 const lines = (n: number) => Array.from({ length: n }, (_, i) => ({ sha: `c${i}`, subject: `s${i}` }));
 
 interface World {
-  prs?: readonly { number: number; head: string; base: string; state: string }[] | 'fail';
+  /** The open PR rows the host lists; a row with no `base` is one the host listed without it. */
+  prs?: readonly { number: unknown; head: string; base?: string; state: string }[] | 'fail';
+  /** How the listing answered where it did not fail; `answered` by default. */
+  listing?: 'partial' | 'unaskable';
+  /** False for a host that ignores `branches` and lists every open PR. */
+  narrows?: boolean;
+  /** The base `prState` names per PR number; `'fail'` for a failed lookup, null for no PR. */
+  bases?: Readonly<Record<number, string | null | 'fail'>>;
+  /** The listing queries the host received. */
+  asked?: unknown[];
   changed?: readonly string[] | 'fail';
   files?: Readonly<Record<string, string>>;
   ahead?: number | 'fail';
+  line?: readonly { tree: string; forward: boolean }[] | 'fail';
+  /** The default branch's first-parent trees since the state line forked. */
+  landed?: readonly string[] | 'fail';
   behind?: number | 'fail';
   created?: string[];
   comments?: { pr: number; marker?: string; body?: string }[];
@@ -38,7 +53,17 @@ const portsOf = (world: World): StateSyncPorts => {
   const files = world.files ?? {};
   return {
     host: {
-      prList: async () => (world.prs === 'fail' ? failed() : answered((world.prs ?? []) as never)),
+      prListing: async (query) => {
+        world.asked?.push(query);
+        if (world.prs === 'fail') return { answer: 'failed', rows: [], complete: { open: 'possibly-truncated' }, refusal: { kind: 'failed', said: 'x' } };
+        const rows = (world.prs ?? []).filter((row) => world.narrows === false || (query.branches ?? []).includes(row.head)).slice(0, query.limit);
+        return { answer: world.listing ?? 'answered', rows, complete: { open: 'possibly-truncated' }, refusal: null };
+      },
+      prState: async (ref) => {
+        const base = world.bases?.[ref as number];
+        if (base === 'fail') return failed();
+        return answered(base === null || base === undefined ? null : ({ number: ref, base } as never));
+      },
       prCreate: async (req) => {
         world.created?.push(req.head);
         if (world.fail?.includes('create')) return failed();
@@ -58,9 +83,18 @@ const portsOf = (world: World): StateSyncPorts => {
       },
     },
     refs: {
-      commitSubjects: async (range: string) => {
-        const n = range === `${target.defaultRef}..${target.trackRef}` ? world.ahead : world.behind;
+      commitSubjects: async () => {
+        const n = world.behind;
         return n === 'fail' ? failed() : answered(lines(n ?? 0) as never);
+      },
+      firstParentCommits: async (range: string) => {
+        if (range.includes('^..')) {
+          const landed = world.landed ?? [];
+          return landed === 'fail' ? failed() : answered(landed.map((tree, i) => ({ sha: `m${i}`, tree, forward: false })));
+        }
+        if (world.line !== undefined) return world.line === 'fail' ? failed() : answered(world.line.map((c, i) => ({ sha: `l${i}`, ...c })));
+        const n = world.ahead;
+        return n === 'fail' ? failed() : answered(Array.from({ length: n ?? 0 }, (_, i) => ({ sha: `l${i}`, tree: `t${i}`, forward: false })));
       },
       changedFiles: async () => (world.changed === 'fail' ? failed() : answered([...(world.changed ?? [])])),
       showFile: async (ref: string, path: string) => {
@@ -69,7 +103,7 @@ const portsOf = (world: World): StateSyncPorts => {
         return text === undefined ? failed() : answered(text);
       },
       fileExistsSync: (ref: string, path: string) => (world.fail?.includes('exists') ? failed() : answered(files[`${ref}:${path}`] !== undefined)),
-      resolve: async (ref: string) => (world.fail?.includes('resolve') ? failed() : answered(ref === target.defaultRef ? 'd1' : 's1')),
+      resolve: async (ref: string) => (world.fail?.includes('resolve') ? failed() : answered(ref.endsWith('^{tree}') ? 'D' : ref === target.defaultRef ? 'd1' : 's1')),
     },
   };
 };
@@ -177,6 +211,40 @@ describe('the readings', () => {
     expect(await commitsBetween(portsOf({ behind: 'fail' }).refs, 'a', 'b')).toBeNull();
   });
 
+  it('counts commits ahead since the last tree-equal commit and reads a failure as null', async () => {
+    const refs = (world: World) => portsOf(world).refs;
+    const squashed = [{ tree: 'n2', forward: false }, { tree: 'n1', forward: false }, { tree: 'D', forward: false }, { tree: 'o', forward: false }];
+    expect(await commitsAhead(refs({ line: squashed }), 'd', 's')).toBe(2);
+    expect(await commitsAhead(refs({ line: [{ tree: 'D', forward: false }, { tree: 'o', forward: false }] }), 'd', 's')).toBe(0);
+    expect(await commitsAhead(refs({ ahead: 3 }), 'd', 's')).toBe(3);
+    expect(await commitsAhead(refs({ ahead: 0 }), 'd', 's')).toBe(0);
+    expect(await commitsAhead(refs({ line: 'fail' }), 'd', 's')).toBeNull();
+    expect(await commitsAhead(refs({ ahead: 2, fail: ['resolve'] }), 'd', 's')).toBeNull();
+  });
+
+  it('stops at the squash tree after the default branch moves past the squash', async () => {
+    const record = (tree: string) => ({ tree, forward: false });
+    const line = [{ tree: 'X+r', forward: true }, record('n2'), record('n1'), { tree: 'S', forward: true }, record('o')];
+    expect(await commitsAhead(portsOf({ line, landed: ['X', 'S'] }).refs, 'd', 's')).toBe(2);
+    expect(await commitsAhead(portsOf({ line, landed: 'fail' }).refs, 'd', 's')).toBeNull();
+  });
+
+  it('does not count a forward merge', async () => {
+    const forward = { tree: 'F', forward: true };
+    const record = (tree: string) => ({ tree, forward: false });
+    expect(await commitsAhead(portsOf({ line: [record('r3'), forward, record('r2'), record('r1')] }).refs, 'd', 's')).toBe(3);
+    expect(await commitsAhead(portsOf({ line: [{ tree: 'D', forward: true }, record('r1')] }).refs, 'd', 's')).toBe(0);
+  });
+
+  it('feeds the sync pull request the count since the last tree-equal commit', async () => {
+    const comments: { pr: number; marker?: string; body?: string }[] = [];
+    const line = [{ tree: 'n2', forward: false }, { tree: 'n1', forward: false }, { tree: 'D', forward: false }, { tree: 'o', forward: false }];
+    const world: World = { ...delivered(), line, prs: [{ number: 5, head: 'plot/state', base: 'main', state: 'OPEN' }], refreshed: { pr: 5, ahead: 4 }, comments };
+    const result = await syncPrAt(portsOf(world), source(), 'fleetd', false);
+    expect(result).toEqual({ done: 'refreshed', pr: 5 });
+    expect(world.refreshed).toEqual({ pr: 5, ahead: 2 });
+  });
+
   it('names an open sync PR by its ends and not its title', async () => {
     const prs = [
       { number: 1, head: 'other', base: 'main', state: 'OPEN' },
@@ -186,6 +254,60 @@ describe('the readings', () => {
     expect(await openSyncPr(portsOf({ prs }).host, source())).toBe(3);
     expect(await openSyncPr(portsOf({ prs: [] }).host, source())).toBeNull();
     expect(await openSyncPr(portsOf({ prs: 'fail' }).host, source())).toBe('unknown');
+  });
+
+  it('asks the host for the open PRs whose head is the state branch', async () => {
+    const asked: unknown[] = [];
+    await openSyncPr(portsOf({ prs: [], asked }).host, source());
+    expect(asked).toEqual([{ state: 'open', branches: ['plot/state'], limit: SYNC_PR_LIMIT }]);
+  });
+
+  it('finds the sync PR among more open PRs than one page holds', async () => {
+    const others = Array.from({ length: 150 }, (_, i) => ({ number: i + 10, head: `feature/f${i}`, base: 'main', state: 'OPEN' }));
+    const prs = [...others, { number: 3, head: 'plot/state', base: 'main', state: 'OPEN' }];
+    expect(await openSyncPr(portsOf({ prs }).host, source())).toBe(3);
+  });
+
+  it('reads the base from the PR itself where the listing names none', async () => {
+    const prs = [{ number: 4, head: 'plot/state', state: 'OPEN' }, { number: 3, head: 'plot/state', state: 'OPEN' }];
+    expect(await openSyncPr(portsOf({ prs, bases: { 4: 'develop', 3: 'main' } }).host, source())).toBe(3);
+    expect(await openSyncPr(portsOf({ prs, bases: { 4: null, 3: 'fail' } }).host, source())).toBe('unknown');
+    expect(await openSyncPr(portsOf({ prs, bases: {} }).host, source())).toBeNull();
+  });
+
+  it('skips a row with no PR number, and a row the host lists as not open', async () => {
+    expect(await openSyncPr(portsOf({ prs: [{ number: 'x', head: 'plot/state', base: 'main', state: 'OPEN' }] }).host, source())).toBeNull();
+    expect(await openSyncPr(portsOf({ prs: [{ number: 5, head: 'plot/state', base: 'main', state: 'CLOSED' }] }).host, source())).toBeNull();
+  });
+
+  it('reads a partial or unaskable listing as unknown, never as no PR', async () => {
+    expect(await openSyncPr(portsOf({ prs: [], listing: 'partial' }).host, source())).toBe('unknown');
+    expect(await openSyncPr(portsOf({ prs: [], listing: 'unaskable' }).host, source())).toBe('unknown');
+  });
+
+  it('reads a full page with no sync PR as unknown, where the host did not narrow by head', async () => {
+    const prs = Array.from({ length: SYNC_PR_LIMIT + 5 }, (_, i) => ({ number: i + 10, head: `feature/f${i}`, base: 'main', state: 'OPEN' }));
+    expect(await openSyncPr(portsOf({ prs, narrows: false }).host, source())).toBe('unknown');
+    expect(await openSyncPr(portsOf({ prs: prs.slice(0, 5), narrows: false }).host, source())).toBeNull();
+  });
+
+  it('answers no PR for a state ref that is not a branch, and asks nothing', async () => {
+    const asked: unknown[] = [];
+    expect(await openSyncPr(portsOf({ prs: [], asked }).host, source('refs/plot/state'))).toBeNull();
+    expect(asked).toEqual([]);
+  });
+});
+
+describe('standingConflictAt', () => {
+  const t = stateTarget('plot/state');
+  it('names the recorded files while both tips are the ones the record met', async () => {
+    const known = { defaultTip: 'd1', stateTip: 's1', files: ['docs/plans/a.md'] };
+    expect(await standingConflictAt(portsOf({}).refs, t, known)).toEqual(['docs/plans/a.md']);
+    expect(await standingConflictAt(portsOf({}).refs, t, { ...known, defaultTip: 'd0' })).toEqual([]);
+  });
+  it('names none where nothing is recorded or a tip could not be read', async () => {
+    expect(await standingConflictAt(portsOf({}).refs, t, null)).toEqual([]);
+    expect(await standingConflictAt(portsOf({ fail: ['resolve'] }).refs, t, { defaultTip: 'd1', stateTip: 's1', files: ['x'] })).toEqual([]);
   });
 });
 

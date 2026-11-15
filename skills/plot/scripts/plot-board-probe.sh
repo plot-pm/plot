@@ -27,6 +27,9 @@
 #                   whole estate, and disagreed with `plot-fleetctl.sh`, which
 #                   reads `.nvmrc` and refuses a mismatched major. One answer
 #                   where there were three.
+#   git             `git --version` output. fleetd and the board server
+#                   refuse a git older than 2.42 at start; this field reports
+#                   the version and compares nothing.
 #   bash            always true if this ran, but reported for completeness
 #   git_root        `git rev-parse --show-toplevel`
 #   cwd_is_root     true when CWD *is* the repo root. The board requires
@@ -504,7 +507,7 @@ fi
 
 cat <<JSON
 {
-  "node": "$(j "$node_ver")",
+  "node": "$(j "$node_ver")", "git": "$(j "$(git --version 2>/dev/null)")",
   "node_floor": $node_floor,
   "bash": true,
   "git_root": "$(j "$git_root")",

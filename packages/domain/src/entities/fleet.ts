@@ -156,6 +156,12 @@ export type WorkerState = z.infer<typeof WorkerStateSchema>;
 export const WorkerActivitySchema = z.enum(['working', 'idle', '']);
 export type WorkerActivity = z.infer<typeof WorkerActivitySchema>;
 
+// plot-state: reading — what the liveness of one desk read rested on: the desk's
+//                       token, or the start time for a desk with none. Re-read
+//                       every scan; a desk moves to `token` on its next launch.
+export const LivenessBasisSchema = z.enum(['token', 'start-time', '']);
+export type LivenessBasis = z.infer<typeof LivenessBasisSchema>;
+
 /**
  * A branch a plan names, and everything a scan measured about it.
  *
@@ -532,6 +538,12 @@ export const BranchSchema = z.object({
    * dead one. Defaults to "" so a pulse from an older scan still validates.
    */
   worker_activity: WorkerActivitySchema.default(''),
+  /**
+   * What the worker reading's liveness rests on: `token` for a desk whose
+   * liveness token answered, `start-time` for a desk with none, `""` where no
+   * desk was read. Absent in a pulse from an older scan, which reads as "".
+   */
+  worker_basis: LivenessBasisSchema.optional(),
   /**
    * The files that would collide merging this branch into the default branch.
    *

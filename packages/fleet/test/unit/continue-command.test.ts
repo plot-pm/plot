@@ -182,7 +182,7 @@ describe('the continue entry on a desk holding PLOT-BLOCKED', () => {
     git(desk, 'checkout', '-qb', branch);
     fs.writeFileSync(path.join(desk, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which adapter?');
     fs.writeFileSync(path.join(desk, '.plot-worker.pid'), '424242');
-    fs.writeFileSync(path.join(manifests, 'sess.json'), JSON.stringify({ session: 'sess', branch, worktree: desk, pid: '424242' }));
+    fs.writeFileSync(path.join(manifests, 'sess.json'), `${JSON.stringify({ session: 'sess', branch, worktree: desk, pid: '424242', startedAt: '' }, null, 2)}\n`);
     fs.mkdirSync(path.join(repo, '.plot'), { recursive: true });
     fs.writeFileSync(path.join(repo, 'CLAUDE.md'), `## Plot Config\n\n- **Worker command:** true\n- **Agent registry:** ${manifests}\n`);
     const reading = FleetReadingSchema.parse({
@@ -209,7 +209,7 @@ describe('the continue entry on a desk holding PLOT-BLOCKED', () => {
     // carry PLOT_UNATTENDED=1 (an unattended worker's own environment).
     const code = await run([branch, 'use the shell adapter'], repo, path.resolve(__dirname, '../../../../skills/plot/scripts'), {
       caller: 'person',
-      monitors: { start: () => ({ ok: true, value: { agentMonitorPid: '' } }), stop: () => ({ ok: true }) } as never,
+      monitors: { stop: () => ({ ok: true }) } as never,
     }, (s) => out.push(s), (s) => warned.push(s));
     expect(warned.join('')).toBe('');
     expect(code).toBe(0);
@@ -238,7 +238,7 @@ describe('the continue entry on a desk holding PLOT-BLOCKED', () => {
     git(desk, 'checkout', '-qb', branch);
     fs.writeFileSync(path.join(desk, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which adapter?');
     fs.writeFileSync(path.join(desk, '.plot-worker.pid'), '424242');
-    fs.writeFileSync(path.join(manifests, 'sess.json'), JSON.stringify({ session: 'sess', branch, worktree: desk, pid: '424242' }));
+    fs.writeFileSync(path.join(manifests, 'sess.json'), `${JSON.stringify({ session: 'sess', branch, worktree: desk, pid: '424242', startedAt: '' }, null, 2)}\n`);
     fs.mkdirSync(path.join(repo, '.plot'), { recursive: true });
     fs.writeFileSync(path.join(repo, 'CLAUDE.md'), `## Plot Config\n\n- **Worker command:** true\n- **Agent registry:** ${manifests}\n`);
     const reading = FleetReadingSchema.parse({
@@ -268,7 +268,7 @@ describe('the continue entry on a desk holding PLOT-BLOCKED', () => {
     try {
       code = await run(['--who', 'jwloka', branch, 'use the shell adapter'], repo, path.resolve(__dirname, '../../../../skills/plot/scripts'), {
         caller: 'person',
-        monitors: { start: () => ({ ok: true, value: { agentMonitorPid: '' } }), stop: () => ({ ok: true }) } as never,
+        monitors: { stop: () => ({ ok: true }) } as never,
       }, (s) => out.push(s), (s) => warned.push(s));
     } finally {
       if (previousRecordHome === undefined) delete process.env[ANSWER_RECORD_HOME_ENV];

@@ -34,17 +34,15 @@ describe('tiny-garden: the board shows the spec run (real browser renders the sh
     const page = await cat.open('ten-rows-one-kind-each', {
       tab: 'agents', over: { fleet: payload },
     });
-    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+    await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;
   }
 
-  const group = (page: Page, label: string) =>
-    page.locator('section').filter({
-      has: page.getByRole('heading', { level: 2, name: new RegExp(label) }),
-    });
+  /** The plan-level runs sit under Tickets and plan runs, outside the placement rule. */
+  const planRuns = (page: Page) => page.locator('section[data-outside-rule]');
 
-  it('shows a going spec run in Working and a failed one in Waiting on you, with its restart command', async () => {
+  it('shows a going spec run and a failed one under Tickets and plan runs, with its restart command', async () => {
     const page = await openAgents(fleet({
       design: {
         halted: false,
@@ -65,16 +63,13 @@ describe('tiny-garden: the board shows the spec run (real browser renders the sh
       },
     }));
     try {
-      const working = group(page, 'Working');
-      const runningRow = working.locator('[data-plan-level-row="beans"]');
+      const runningRow = planRuns(page).locator('[data-plan-level-row="beans"]');
       await expect.poll(() => runningRow.count()).toBe(1);
       expect(await runningRow.locator('[data-plan-level-reason]').textContent())
         .toBe('spec run running');
       expect(await runningRow.locator('[data-plan-level-restart]').count()).toBe(0);
 
-      const waiting = group(page, 'Waiting on you');
-      expect(await waiting.locator('[data-plan-level-row="beans"]').count()).toBe(0);
-      const failedRow = waiting.locator('[data-plan-level-row="plant-tomatoes"]');
+      const failedRow = planRuns(page).locator('[data-plan-level-row="plant-tomatoes"]');
       await expect.poll(() => failedRow.count()).toBe(1);
       expect(await failedRow.locator('[data-plan-level-restart]').textContent())
         .toBe('plot-design.mjs restart plant-tomatoes');
