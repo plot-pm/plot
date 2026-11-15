@@ -1664,6 +1664,9 @@ const runPrompt = async (
     PLOT_SESSION_FLAG: spoken.ok && spoken.value === true ? '--resume' : '--session-id',
     PLOT_SESSION_ID: handle,
     PLOT_CORRECTION_FILE: join(worktree, 'PLOT-CORRECTION.md'),
+    // THE ANSWER NAMES ITS OWN ENTRY: `PLOT-CORRECTION.md` only grows, so the
+    // prompt names the heading a person's answer sits under; empty otherwise.
+    PLOT_CONTINUATION_HEADING: resume !== null && resume.continuation ? continuationHeading(resume.text) : '',
     ...backgroundGateEnv(),
     ...spawnContractEnv(),
   };
@@ -1752,7 +1755,7 @@ const runPrompt = async (
   // (#1382, #1383): the per-answer heading skips that repeat and appends every
   // different answer in the same slice.
   if (resume !== null && resume.continuation) {
-    const heading = continuationHeading(resume.text);
+    const heading = env.PLOT_CONTINUATION_HEADING;
     if (!(await correctionHasContinuation(worktree, heading))) {
       await deps.ports.desk.appendCorrection(worktree, `${heading}\n\n${resume.text}`);
     }
