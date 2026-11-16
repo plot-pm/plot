@@ -105,6 +105,75 @@ if [ -f "$file" ]; then emit "$file"; else printf '{"issues":[],"isLast":true,"t
 printf '200'
 `;
 
+/** The path prefix of the Jenkins route; the sandbox sets `JEN_URL` to the server URL plus it. */
+export const JENKINS_ROUTE = '/jenkins';
+
+/** The path prefix of the realm route; the sandbox sets `JEN_REALM_URL` to the server URL plus it. */
+export const REALM_ROUTE = '/realm';
+
+/** The access token the stub realm issues and the Jenkins route accepts. */
+export const CENSUS_JENKINS_TOKEN = 'census-jenkins-access';
+
+/** The access token the sandbox's expired blob holds; the Jenkins route refuses it. */
+export const CENSUS_JENKINS_STALE = 'census-jenkins-stale';
+
+/** The refresh token the sandbox's expired blob holds. */
+export const CENSUS_JENKINS_REFRESH = 'census-jenkins-refresh';
+
+/**
+ * The file a Jenkins request reads under `$CENSUS_FIXTURES/jenkins/`: the path
+ * below {@link JENKINS_ROUTE}, query stripped, `/` replaced by `_`.
+ */
+export const jenkinsKey = (path: string): string => `${path.split('?')[0] ?? ''}`.replaceAll('/', '_');
+
+/**
+ * Answers one request on the Jenkins route from the answer files.
+ *
+ * A request whose `Authorization` is not `Bearer` over {@link CENSUS_JENKINS_TOKEN}
+ * answers `401`. A missing file answers `404`.
+ */
+const answerJenkins = (dir: string, path: string, authorization: string, res: ServerResponse): void => {
+  const headers = { 'Content-Type': 'application/json' };
+  if (authorization !== `Bearer ${CENSUS_JENKINS_TOKEN}`) {
+    res.writeHead(401, headers);
+    res.end('{}');
+    return;
+  }
+  const file = join(dir, `${jenkinsKey(path.slice(JENKINS_ROUTE.length))}.json`);
+  if (!existsSync(file)) {
+    res.writeHead(404, headers);
+    res.end('{}');
+    return;
+  }
+  res.writeHead(200, headers);
+  res.end(readFileSync(file));
+};
+
+/**
+ * Builds the stub `jen` over the same answer files as the Jenkins route, printing
+ * the shapes recorded from `jen` 0.4.0 (`packages/domain/corpus/fixtures/jenkins-reads/jen-outputs.json`):
+ * `jen api <path>` prints the answer file raw; `jen job view <job> --json` and
+ * `jen job list <job> --json` print `view<job>` and `list<job>` answers, where
+ * `/` in the job is `_`; `jen auth status` prints the five status lines.
+ *
+ * @returns the script text.
+ */
+export const jenStub = (): string => `${STUB_HEADER}${EMIT}
+dir="\${CENSUS_FIXTURES:?}/jenkins"
+[ -z "\${CENSUS_STUB_LOG:-}" ] || printf 'jen %s\\n' "$*" >> "$CENSUS_STUB_LOG"
+[ "\${1:-}" != -I ] || shift 2
+case "\${1:-} \${2:-}" in
+  "auth status")
+    printf 'Keycloak:      signed in\\nInstance:      census (%s)\\nSecret store:  file\\nJenkins token: environment, user census\\nJenkins auth:  OK — Census\\n' "\${JEN_URL:-}"
+    exit 0 ;;
+  "job view") file="$dir/view_\${3//\//_}.json" ;;
+  "job list") file="$dir/list_\${3//\//_}.json" ;;
+  "api "*) p="\${2%%\\?*}"; file="$dir/\${p//\//_}.json" ;;
+  *) exit 2 ;;
+esac
+if [ -f "$file" ]; then emit "$file"; else printf 'null\\n'; fi
+`;
+
 /** One stub `gh` answer file, parsed; null where it is absent. */
 const ghFile = (fixtures: string, key: string): unknown => {
   const file = join(fixtures, `${key}.json`);
@@ -374,6 +443,18 @@ export const startStubApi = async (fixtures: string, token: string): Promise<Stu
       const authorization = String(req.headers.authorization ?? '');
       const query = (req.url ?? '').split('?').slice(1).join('?');
       seen.push({ method, path, query, authorization, body: Buffer.concat(chunks).toString('utf8') });
+      if (path.startsWith(`${JENKINS_ROUTE}/`)) return answerJenkins(join(dirname(fixtures), 'jenkins'), req.url ?? '', authorization, res);
+      if (method === 'POST' && path === `${REALM_ROUTE}/protocol/openid-connect/token`) {
+        const form = new URLSearchParams(Buffer.concat(chunks).toString('utf8'));
+        const ok = form.get('grant_type') === 'refresh_token' && form.get('refresh_token') === CENSUS_JENKINS_REFRESH;
+        res.writeHead(ok ? 200 : 400, { 'Content-Type': 'application/json' });
+        res.end(
+          ok
+            ? JSON.stringify({ access_token: CENSUS_JENKINS_TOKEN, refresh_token: CENSUS_JENKINS_REFRESH, expires_in: 300, token_type: 'Bearer' })
+            : '{"error":"invalid_grant"}',
+        );
+        return;
+      }
       if (path.startsWith(`${BITBUCKET_ROUTE}/`)) return answerBitbucket(join(fixtures, '..', 'bb'), req.url ?? '', authorization, token, res);
       if (path.startsWith('/rest/api/')) {
         const jira = jiraAnswer(join(dirname(fixtures), 'jira'), path, authorization);

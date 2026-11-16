@@ -37,6 +37,15 @@ const FIXTURES: CensusFixture[] = [
   { host: 'github', desks: 0, openPrs: 5 },
   { host: 'github', desks: 3, openPrs: 5 },
   { host: 'bitbucket', desks: 3, openPrs: 5 },
+  // The Jenkins fixture records the rows the shell still answers (P12 turns the
+  // shell's `jen` calls into a zero in the Cutover slice) and gates only S8.
+  {
+    host: 'bitbucket',
+    desks: 3,
+    openPrs: 5,
+    ci: 'jenkins',
+    recordOnly: ['S4', 'P2', 'P3', 'P4', 'P7', 'P8', 'P10', 'P11'],
+  },
 ];
 
 const basename = (path: string): string => path.split('/').pop() ?? path;
@@ -81,6 +90,16 @@ const isJiraRead = (e: ExecRecord): boolean =>
     (e.argv.includes('issue-list') ||
       e.argv.includes('ticket-projects') ||
       (e.argv.includes('spend-rate') && e.argv.includes('jira'))));
+
+/**
+ * A Jenkins read P12 counts: a `jen` process, or `plot-host.sh` asked for
+ * `pr-list`, `runs`, `run-for-sha`, `runs-for-sha` or `pr-state`.
+ */
+const isJenkinsRead = (e: ExecRecord): boolean =>
+  basename(e.path) === 'jen' ||
+  (basename(e.path) === 'bash' &&
+    e.argv.some((a) => a.endsWith('/plot-host.sh')) &&
+    ['pr-list', 'runs', 'run-for-sha', 'runs-for-sha', 'pr-state'].some((verb) => e.argv.includes(verb)));
 
 const isKillZero = (e: ExecRecord): boolean =>
   basename(e.path) === 'bash' && e.argv[1] === '-c' && /^kill -0 \d+/.test(e.argv[2] ?? '');
@@ -252,6 +271,11 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
     await box?.remove();
   });
 
+  /** A row listed in the fixture's `recordOnly` records its count and asserts nothing. */
+  const holds = (id: string, check: () => void): void => {
+    if (!(fixture.recordOnly ?? []).includes(id)) check();
+  };
+
   const perPass = (pick: (e: ExecRecord) => boolean): { mean: number; each: number[]; execs: ExecRecord[] } => {
     const each = IDLE_PASSES.map((l) => (idle.get(l) ?? []).filter(pick).length);
     const execs = IDLE_PASSES.flatMap((l) => (idle.get(l) ?? []).filter(pick));
@@ -279,33 +303,33 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
   it(rowTitle(CENSUS_ROWS.S4, fixture), () => {
     const { mean, each, execs } = perPass(() => true);
     recordCount(CENSUS_ROWS.S4, fixture, mean, execs);
-    expect(each).toEqual([0, 0]);
+    holds('S4', () => expect(each).toEqual([0, 0]));
   });
 
   if (fixture.desks > 0) {
     it(rowTitle(CENSUS_ROWS.P2, fixture), () => {
       const { mean, each, execs } = perPass(isKillZero);
       recordCount(CENSUS_ROWS.P2, fixture, mean, execs);
-      expect(each).toEqual([0, 0]);
+      holds('P2', () => expect(each).toEqual([0, 0]));
     });
   }
 
   it(rowTitle(CENSUS_ROWS.P3, fixture), () => {
     const { mean, each, execs } = perPass((e) => e.ppid === root && (isFixedAnswer(e) || isBackendAsk(e)));
     recordCount(CENSUS_ROWS.P3, fixture, mean, execs);
-    expect(each).toEqual([0, 0]);
+    holds('P3', () => expect(each).toEqual([0, 0]));
   });
 
   it(rowTitle(CENSUS_ROWS.P4, fixture), () => {
     const { mean, each, execs } = perPass(isFixedAnswer);
     recordCount(CENSUS_ROWS.P4, fixture, mean, execs);
-    expect(each).toEqual([0, 0]);
+    holds('P4', () => expect(each).toEqual([0, 0]));
   });
 
   it(rowTitle(CENSUS_ROWS.P7, fixture), () => {
     const { mean, each, execs } = perPass(isGitDirProbe);
     recordCount(CENSUS_ROWS.P7, fixture, mean, execs);
-    expect(each).toEqual([0, 0]);
+    holds('P7', () => expect(each).toEqual([0, 0]));
   });
 
   it(rowTitle(CENSUS_ROWS.P8, fixture), () => {
@@ -313,7 +337,7 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
     recordCount(CENSUS_ROWS.P8, fixture, mean, execs);
     const parentOf = (e: ExecRecord): string => census.execs.find((p) => p.pid === e.ppid)?.argv.join(' ') ?? 'unknown';
     const started = execs.map((e) => `${e.argv.join(' ')} <- ${parentOf(e)}`).join('\n');
-    expect(each, started).toEqual([0, 0]);
+    holds('P8', () => expect(each, started).toEqual([0, 0]));
   });
 
   if (fixture.host === 'github') {
@@ -342,23 +366,31 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
       const { mean, each, execs } = perPass(isBitbucketRead);
       recordCount(CENSUS_ROWS.P10, fixture, mean, execs);
       console.log(`process census P10 ${fixture.desks} desks: in-process requests per idle pass ${requests.join(', ')}; shell bb api calls ${baseline.join(', ')}`);
-      expect(each).toEqual([0, 0]);
-      expect(requests).toHaveLength(2);
-      expect(baseline).toHaveLength(2);
+      holds('P10', () => expect(each).toEqual([0, 0]));
+      holds('P10', () => expect(requests).toHaveLength(2));
+      holds('P10', () => expect(baseline).toHaveLength(2));
       const sum = (ns: readonly number[]): number => ns.reduce((a, b) => a + b, 0);
-      expect(sum(requests)).toBeLessThanOrEqual(sum(baseline));
+      holds('P10', () => expect(sum(requests)).toBeLessThanOrEqual(sum(baseline)));
     });
+
+    if (fixture.ci === 'jenkins') {
+      it.fails(rowTitle(CENSUS_ROWS.P12, fixture), () => {
+        const { mean, each, execs } = perPass(isJenkinsRead);
+        recordCount(CENSUS_ROWS.P12, fixture, mean, execs);
+        expect(each).toEqual([0, 0]);
+      });
+    }
 
     it(rowTitle(CENSUS_ROWS.P11, fixture), () => {
       const { mean, each, execs } = perPass(isJiraRead);
       recordCount(CENSUS_ROWS.P11, fixture, mean, execs);
       console.log(`process census P11: in-process Jira requests per idle pass ${jiraRequestsPerPass.join(', ')}; shell curl calls ${jiraBaseline.join(', ')}`);
-      expect(each).toEqual([0, 0]);
-      expect(jiraRequestsPerPass).toHaveLength(2);
-      expect(jiraBaseline).toHaveLength(2);
+      holds('P11', () => expect(each).toEqual([0, 0]));
+      holds('P11', () => expect(jiraRequestsPerPass).toHaveLength(2));
+      holds('P11', () => expect(jiraBaseline).toHaveLength(2));
       // OVER BOTH IDLE PASSES, as P5 is: a periodic read falls in either pass.
       const sum = (ns: readonly number[]): number => ns.reduce((a, b) => a + b, 0);
-      expect(sum(jiraRequestsPerPass)).toBeLessThanOrEqual(sum(jiraBaseline));
+      holds('P11', () => expect(sum(jiraRequestsPerPass)).toBeLessThanOrEqual(sum(jiraBaseline)));
     });
   }
 

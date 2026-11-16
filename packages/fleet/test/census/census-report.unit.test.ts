@@ -9,6 +9,7 @@ import {
   commandCounts,
   commandKey,
   compareCensus,
+  entryKey,
   type CensusEntry,
   grownCommands,
   NOISE_TOLERANCE,
@@ -185,5 +186,19 @@ describe('compareCensus', () => {
     const head = Object.fromEntries(['a', 'b', 'c', 'd', 'e', 'f'].map((k, i) => [k, i + 1]));
     expect(grownCommands({}, head).map((c) => c.key)).toEqual(['f', 'e', 'd', 'c', 'b']);
     expect(grownCommands({ a: 5 }, { a: 5 })).toEqual([]);
+  });
+});
+
+describe('entryKey', () => {
+  it('gives two fixtures that differ only in ci two keys, and leaves a fixture with no ci as it was', () => {
+    const plain = { id: 'S8', fixture: { host: 'bitbucket', desks: 3, openPrs: 5 } } as const;
+    const jenkins = { id: 'S8', fixture: { ...plain.fixture, ci: 'jenkins' } } as const;
+    expect(entryKey(plain)).toBe('S8 bitbucket desks=3 prs=5');
+    expect(entryKey(jenkins)).toBe('S8 bitbucket ci=jenkins desks=3 prs=5');
+  });
+
+  it('ignores recordOnly, which names rows and not a fixture size', () => {
+    const base = { id: 'S4', fixture: { host: 'bitbucket', desks: 3, openPrs: 5, ci: 'jenkins' } } as const;
+    expect(entryKey({ ...base, fixture: { ...base.fixture, recordOnly: ['S4'] } })).toBe(entryKey(base));
   });
 });

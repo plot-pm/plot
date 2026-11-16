@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { bitbucketApi } from '@plot-pm/domain/adapters/host/bitbucket-api';
@@ -10,7 +10,14 @@ import { githubPrListing } from '@plot-pm/domain/adapters/host/github-pr-listing
 import { githubRuns } from '@plot-pm/domain/adapters/host/github-runs';
 import { jiraApi } from '@plot-pm/domain/adapters/tracker/jira-api';
 
-import { buildSandbox, CENSUS_TOKEN, describeSize, type Sandbox } from './sandbox.js';
+import {
+  buildSandbox,
+  CENSUS_JENKINS_INSTANCE,
+  CENSUS_TOKEN,
+  describeSize,
+  JENKINS_ENV_VARS,
+  type Sandbox,
+} from './sandbox.js';
 
 const open: Sandbox[] = [];
 
@@ -195,5 +202,66 @@ describe('the census sandbox', () => {
     await box.remove();
 
     expect(existsSync(box.root)).toBe(false);
+  });
+});
+
+const jen = (box: Sandbox, ...args: string[]): string =>
+  execFileSync('jen', args, { cwd: box.repo, env: box.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+
+const JENKINS = { host: 'bitbucket', desks: 3, openPrs: 5, ci: 'jenkins' } as const;
+
+describe('the Jenkins census sandbox', () => {
+  it('states ci in its fixture size', () => {
+    expect(describeSize(JENKINS)).toBe('host=bitbucket ci=jenkins desks=3 open-prs=5');
+  });
+
+  it('pins the Jenkins environment and drops every variable that would hide a missing store', async () => {
+    const before = Object.fromEntries(JENKINS_ENV_VARS.map((k) => [k, process.env[k]]));
+    JENKINS_ENV_VARS.forEach((k) => (process.env[k] = 'leaked'));
+    try {
+      const box = await sandbox(JENKINS);
+      for (const key of JENKINS_ENV_VARS) expect(box.env[key]).toBeUndefined();
+      expect(box.env['JEN_URL']).toMatch(/\/jenkins$/);
+      expect(box.env['JEN_REALM_URL']).toMatch(/\/realm$/);
+      expect(box.env['XDG_CONFIG_HOME']).toBeDefined();
+      expect(box.env['JEN_CONFIG_DIR']).toBeDefined();
+      const blob = join(String(box.env['XDG_CONFIG_HOME']), 'jen', 'keycloak-token.secret');
+      expect(JSON.parse(readFileSync(blob, 'utf8'))).toMatchObject({ expires_at: 1 });
+    } finally {
+      JENKINS_ENV_VARS.forEach((k) => (before[k] === undefined ? delete process.env[k] : (process.env[k] = before[k])));
+    }
+  });
+
+  it('leaves the Jenkins environment out of a fixture with no ci', async () => {
+    const box = await sandbox({ host: 'bitbucket', desks: 0, openPrs: 1 });
+    for (const key of ['JEN_URL', 'JEN_REALM_URL', 'JEN_CONFIG_DIR']) expect(box.env[key]).toBeUndefined();
+  });
+
+  it('answers each run with the first PR built and green, and the others not built', async () => {
+    const box = await sandbox(JENKINS);
+    const job = (n: number): string => `/job/team/job/portal/job/feature%2Fcensus-slice-${n}/api/json?tree=builds[number]`;
+    const first = JSON.parse(jen(box, '-I', CENSUS_JENKINS_INSTANCE, 'api', job(1))) as { builds: { result: string; actions: { lastBuiltRevision?: { SHA1: string } }[] }[] };
+    expect(first.builds[0]?.result).toBe('SUCCESS');
+    expect(first.builds[0]?.actions[1]?.lastBuiltRevision?.SHA1).toMatch(/^[0-9a-f]{40}$/);
+    expect(JSON.parse(jen(box, '-I', CENSUS_JENKINS_INSTANCE, 'api', job(2)))).toEqual({ _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', builds: [] });
+  });
+
+  it('prints null for a path it holds no answer for, as the recorded jen does', async () => {
+    const box = await sandbox(JENKINS);
+    expect(jen(box, 'api', '/job/none/api/json').trim()).toBe('null');
+  });
+
+  it('prints the shapes the recorded jen prints', async () => {
+    const box = await sandbox(JENKINS);
+    const recorded = JSON.parse(
+      readFileSync(resolve(__dirname, '../../../domain/corpus/fixtures/jenkins-reads/jen-outputs.json'), 'utf8'),
+    ) as { cases: { name: string; stdout: string }[] };
+    const out = (name: string): string => recorded.cases.find((c) => c.name === name)?.stdout ?? '';
+    const labels = (text: string): string[] => text.split('\n').map((l) => l.split(':')[0] ?? '').filter((l) => /^[A-Z][A-Za-z ]+$/.test(l));
+    expect(labels(jen(box, 'auth', 'status'))).toEqual(labels(out('auth-ok')));
+    const keys = (text: string): string[] => Object.keys(JSON.parse(text) as object).sort();
+    expect(keys(jen(box, 'job', 'view', 'team/portal', '--json'))).toEqual(keys(out('view-multibranch')));
+    const row = (text: string): string[] => Object.keys((JSON.parse(text) as object[])[0] ?? {}).sort();
+    expect(row(jen(box, 'job', 'list', 'team/portal', '--json'))).toEqual(row(out('list-multibranch')));
   });
 });
