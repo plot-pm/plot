@@ -11,6 +11,7 @@ export interface GhPullRequest {
   readonly title?: unknown;
   readonly state?: unknown;
   readonly headRefName?: unknown;
+  readonly baseRefName?: unknown;
   readonly isDraft?: unknown;
   readonly url?: unknown;
   readonly updatedAt?: unknown;
@@ -37,14 +38,15 @@ const asciiDowncase = (text: string): string => text.replace(/[A-Z]/g, (c) => c.
  * arm, a declared duplicate held by `corpus/github-pr-listing.corpus.test.ts`.
  *
  * @param pr - the pull request as `gh` exports it.
- * @returns `number`, `title`, `state`, `head`, `draft`, `url`, `updatedAt`,
- *   `headSha`, `mergedAt` and `author`; the last four `''` where absent.
+ * @returns `number`, `title`, `state`, `head`, `base`, `draft`, `url`,
+ *   `updatedAt`, `headSha`, `mergedAt` and `author`; `base` and the last four `''` where absent.
  */
 export const githubPlainRow = (pr: GhPullRequest): GithubPrRow => ({
   number: field(pr.number),
   title: field(pr.title),
   state: field(pr.state),
   head: field(pr.headRefName),
+  base: jqOr(pr.baseRefName, ''),
   draft: field(pr.isDraft),
   url: field(pr.url),
   updatedAt: jqOr(pr.updatedAt, ''),

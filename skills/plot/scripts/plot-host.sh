@@ -4743,7 +4743,7 @@ case "$op" in
           #   $jentry == null   → the branch has no Jenkins job; `none`.
           #   otherwise         → the joined colour's `checks`, job named on fail.
           _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} ${head_args[@]+"${head_args[@]}"} \
-            --json number,title,state,headRefName,isDraft,mergeable,mergeStateStatus,reviewDecision,url,updatedAt,author,headRefOid,mergedAt)" || exit $?
+            --json number,title,state,headRefName,baseRefName,isDraft,mergeable,mergeStateStatus,reviewDecision,url,updatedAt,author,headRefOid,mergedAt)" || exit $?
           pr_list_report_truncation github "$limit" "$state" \
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
           # GAPS 3/4/10: `jmap` names no commit, so a push between builds would
@@ -4774,7 +4774,7 @@ case "$op" in
               # own field rather than collapsing into the same `checks` word
               # (`bitbucket-jenkins-a-pr-list-row`).
               {
-                number:.number, title:.title, state:.state, head:.headRefName,
+                number:.number, title:.title, state:.state, head:.headRefName, base:(.baseRefName // ""),
                 draft:.isDraft,
                 checks:(if $jstatus != "ok" then "unknown" elif $eff == null then (if $ambiguous then "unknown" else "none" end) else $eff.checks end),
                 mergeable:mergeable_of,
@@ -4788,12 +4788,12 @@ case "$op" in
         else
           # GitHub without Jenkins (or Jenkins not configured): use GitHub rollup
           _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} ${head_args[@]+"${head_args[@]}"} \
-            --json number,title,state,headRefName,isDraft,statusCheckRollup,mergeable,mergeStateStatus,reviewDecision,url,updatedAt,author,headRefOid,mergedAt)" || exit $?
+            --json number,title,state,headRefName,baseRefName,isDraft,statusCheckRollup,mergeable,mergeStateStatus,reviewDecision,url,updatedAt,author,headRefOid,mergedAt)" || exit $?
           pr_list_report_truncation github "$limit" "$state" \
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
           printf '%s' "$_gh_raw" \
             | jq -c "$CHECKS_OF$MERGEABLE_OF"'.[] | {
-                number:.number, title:.title, state:.state, head:.headRefName,
+                number:.number, title:.title, state:.state, head:.headRefName, base:(.baseRefName // ""),
                 draft:.isDraft,
                 checks:checks_of, mergeable:mergeable_of,
                 review:(.reviewDecision // ""),
@@ -4819,11 +4819,11 @@ case "$op" in
         # the store unable to narrow and the daily full read would never fall
         # due against anything but a cold window.
         _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} ${head_args[@]+"${head_args[@]}"} \
-          --json number,title,state,headRefName,isDraft,url,updatedAt,author,headRefOid,mergedAt)" || exit $?
+          --json number,title,state,headRefName,baseRefName,isDraft,url,updatedAt,author,headRefOid,mergedAt)" || exit $?
         pr_list_report_truncation github "$limit" "$state" \
           "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
         printf '%s' "$_gh_raw" \
-          | jq -c '.[] | {number:.number,title:.title,state:.state,head:.headRefName,draft:.isDraft,url:.url,updatedAt:(.updatedAt // ""),headSha:(.headRefOid // ""),mergedAt:(.mergedAt // ""),author:(.author.login // "")}'
+          | jq -c '.[] | {number:.number,title:.title,state:.state,head:.headRefName,base:(.baseRefName // ""),draft:.isDraft,url:.url,updatedAt:(.updatedAt // ""),headSha:(.headRefOid // ""),mergedAt:(.mergedAt // ""),author:(.author.login // "")}'
       fi
     else
       # `headSha` IS `.source.commit.hash`, which the pullrequests endpoint
