@@ -1107,6 +1107,7 @@ export const storeRow = (
   if (Array.isArray(pr.failing_checks)) row.failing_checks = pr.failing_checks;
   if (typeof pr.updatedAt === 'string' && pr.updatedAt !== '') row.updatedAt = pr.updatedAt;
   if (typeof pr.author === 'string' && pr.author !== '') row.author = pr.author;
+  if (typeof pr.base === 'string' && pr.base !== '') row.base = pr.base;
   if (reading.checksSha !== undefined) row.checksSha = reading.checksSha;
   if (reading.failing_checks !== undefined) row.failing_checks = reading.failing_checks;
   if (pr.checksLookup === 'skipped' || pr.checksLookup === 'broken') row.checksLookup = pr.checksLookup;

@@ -10,13 +10,13 @@ export const GH_QUERIES_FROM = 'gh version 2.103.3 (2026-10-26)';
 /** The rows `gh pr list` returns where no `--limit` is given. */
 export const GH_DEFAULT_LIMIT = 30;
 
-/** `gh`'s fragment for `--json number,title,state,headRefName,isDraft,url,updatedAt,author,headRefOid,mergedAt`. */
+/** `gh`'s fragment for `--json number,title,state,headRefName,baseRefName,isDraft,url,updatedAt,author,headRefOid,mergedAt`. */
 const PLAIN_FRAGMENT =
-  'fragment pr on PullRequest{number,title,state,headRefName,isDraft,url,updatedAt,author{login,...on User{id,name}},headRefOid,mergedAt}';
+  'fragment pr on PullRequest{number,title,state,headRefName,baseRefName,isDraft,url,updatedAt,author{login,...on User{id,name}},headRefOid,mergedAt}';
 
 /** `gh`'s fragment for the rich field list `plot-host.sh` asks. */
 const RICH_FRAGMENT =
-  'fragment pr on PullRequest{number,title,state,headRefName,isDraft,statusCheckRollup: commits(last: 1) {nodes {commit {statusCheckRollup {contexts(first:100) {nodes {__typename...on StatusContext {context,state,targetUrl,createdAt,description},...on CheckRun {name,checkSuite{workflowRun{workflow{name}}},status,conclusion,startedAt,completedAt,detailsUrl}},pageInfo{hasNextPage,endCursor}}}}}},mergeable,mergeStateStatus,reviewDecision,url,updatedAt,author{login,...on User{id,name}},headRefOid,mergedAt}';
+  'fragment pr on PullRequest{number,title,state,headRefName,baseRefName,isDraft,statusCheckRollup: commits(last: 1) {nodes {commit {statusCheckRollup {contexts(first:100) {nodes {__typename...on StatusContext {context,state,targetUrl,createdAt,description},...on CheckRun {name,checkSuite{workflowRun{workflow{name}}},status,conclusion,startedAt,completedAt,detailsUrl}},pageInfo{hasNextPage,endCursor}}}}}},mergeable,mergeStateStatus,reviewDecision,url,updatedAt,author{login,...on User{id,name}},headRefOid,mergedAt}';
 
 /** `gh`'s repository listing query, after the fragment. */
 const LIST_QUERY =
@@ -99,6 +99,7 @@ export const exportedPullRequest = (node: unknown): GhPullRequest => {
     title: pr.title,
     state: pr.state,
     headRefName: pr.headRefName,
+    baseRefName: pr.baseRefName,
     isDraft: pr.isDraft,
     url: pr.url,
     updatedAt: pr.updatedAt,
