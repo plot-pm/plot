@@ -821,11 +821,9 @@ claim_age_days() { # $1=branch → integer days
 # `branchGivenUpBy` (the reaper's rule) through `board/plot-given-up.mjs`: once
 # per reconcile pass. Absent is not false — no bundle, no node, no plans or a
 # failing bundle leave it empty, and every branch keeps its other classification.
-GIVEN_UP=""
-if [ -n "$plan_json" ] && [ -f "$script_dir/board/plot-given-up.mjs" ] && command -v node >/dev/null 2>&1; then
-  GIVEN_UP=$(printf '%s\n' "$plan_json" | node "$script_dir/board/plot-given-up.mjs" "$ACTIVE_DIR" 2>/dev/null) || GIVEN_UP=""
-fi
-given_up_row() { printf '%s\n' "$GIVEN_UP" | awk -F'\t' -v b="$1" '$1 == b { print; exit }'; }   # $1=branch → its row
+GIVEN_UP=$(printf '%s\n' "$plan_json" | node "$script_dir/board/plot-given-up.mjs" "$ACTIVE_DIR" 2>/dev/null) || GIVEN_UP=""
+# $1=branch → "kept by <plan file> (deferred <date>)" when the plans gave it up, else nothing
+given_up_row() { printf '%s\n' "$GIVEN_UP" | awk -F'\t' -v b="$1" '$1 == b { n = split($2, p, "/"); print "kept by " p[n] " (deferred " $3 ")"; exit }'; }
 
 # Is this branch an ANCESTOR of some open PR's head — work in flight on a
 # stack, rather than work nobody picked up? Echoes the PR number of the first
@@ -1391,10 +1389,7 @@ while IFS= read -r b; do
       # `merged_pr_heads` lines shaped exactly `<pr_number> <branch>`.
       merged_pr_heads=$(printf '%s\n%s %s\n' "$merged_pr_heads" "$pr_num" "$b" | grep .); n_stale=$((n_stale + 1)); continue
     fi
-    if gu=$(given_up_row "$b") && [ -n "$gu" ]; then
-      IFS=$'\t' read -r _ gu_plan gu_date <<< "$gu"
-      kept_out+="  origin/$b — kept by ${gu_plan##*/} (deferred $gu_date) → not stale\n"; continue
-    fi
+    gu=$(given_up_row "$b"); [ -z "$gu" ] || { kept_out+="  origin/$b — $gu → not stale\n"; continue; }
     stale_out+="  origin/$b — ahead of $MAIN, no open PR → orphan (needs judgment)\n"
     stale_out+="    inspect: git log --oneline origin/$MAIN..origin/$b\n"
   fi
@@ -1418,13 +1413,7 @@ else
   # Printed rather than silent: the section stays honest about what it examined
   # and rejected. A scan that quietly drops findings is what this plan was
   # written to fix — "silence reads as health".
-  for _k in contained kept; do
-    case "$_k" in
-      contained) _t="contained in an open PR (work in flight, not stale)"; _o="$contained_out" ;;
-      *) _t="kept by a deferred or moved slice (a plan keeps this ref; not stale)"; _o="$kept_out" ;;
-    esac
-    [ -n "$_o" ] && { echo; echo "  -- $_t --"; printf '%b' "$_o"; }
-  done
+  printf '%b' "${contained_out:+\n  -- contained in an open PR (work in flight, not stale) --\n$contained_out}${kept_out:+\n  -- kept by a deferred or moved slice (a plan keeps this ref; not stale) --\n$kept_out}"
 fi
 echo
 
