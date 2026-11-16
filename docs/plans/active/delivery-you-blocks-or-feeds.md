@@ -1,0 +1,1 @@
+../2026-11-16-delivery-you-blocks-or-feeds.md
