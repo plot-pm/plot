@@ -36,6 +36,7 @@ import {
 import { handleRelease, releaseStatus } from './release.js';
 import { handleNeedsDesign } from './needs-design.js';
 import { handleSupersede } from './supersede.js';
+import { handleStoryStatus } from './story-status.js';
 import { handleIdea, ideaStatus, readIssue } from './idea.js';
 import { handleStory, storyStatus } from './story.js';
 import { handleStoryPlan, storyPlanStatus, STORY_SLUG_RE } from './story-plan.js';
@@ -294,6 +295,10 @@ async function handleRequest(
     // Superseded by its successor. In-process and awaited: the answer carries
     // the booking's summary or the refusal's reason.
     { path: '/api/supersede', verb: 'superseding', handle: handleSupersede },
+    // POST /api/story-status — a story's front-matter status moves. In-process
+    // and awaited, like /api/supersede: the answer carries the booking's
+    // summary or the refusal's reason.
+    { path: '/api/story-status', verb: 'moving a story', handle: handleStoryStatus },
     // POST /api/release — cut a Delivered plan's `Released:` record.
     //
     // The same class of route as /api/approve, and the same binding: it runs

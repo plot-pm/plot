@@ -9,7 +9,7 @@ import { isReadSegment, programWords, withoutComments, withoutQuotes, wordBasena
 import { blankSpans, readShell, type ShellCommand, type ShellWord } from './shell-reading.js';
 
 /** The actions a controller owns. */
-export type ControllerAction = 'dispatch' | 'approve' | 'deliver' | 'release' | 'release-approve' | 'restart' | 'loose-delete' | 'needs-design' | 'supersede';
+export type ControllerAction = 'dispatch' | 'approve' | 'deliver' | 'release' | 'release-approve' | 'restart' | 'loose-delete' | 'needs-design' | 'supersede' | 'story-status';
 
 /**
  * Blanks the body of every single-quoted heredoc (`<<'EOF'` or `<<-'EOF'`),
@@ -204,7 +204,7 @@ export const withoutMessageSinks = (command: string): string => {
 };
 
 /** The board routes `mayRunController` watches for, so a bare `curl .../api/restart` is not filtered out before `controllerInvocation` can read its method. */
-const API_ROUTES = ['/api/release', '/api/release-approve', '/api/restart', '/api/loose-delete', '/api/needs-design', '/api/supersede'];
+const API_ROUTES = ['/api/release', '/api/release-approve', '/api/restart', '/api/loose-delete', '/api/needs-design', '/api/supersede', '/api/story-status'];
 
 /**
  * Whether a command could name a controller-owned script, call `plot-ask`, hit
@@ -325,6 +325,7 @@ const ENDPOINT: Record<ControllerAction, string> = {
   'loose-delete': 'POST /api/loose-delete {"branch":"<branch>"}',
   'needs-design': 'POST /api/needs-design {"slug":"<slug>"}',
   supersede: 'POST /api/supersede {"slug":"<slug>","by":"<successor>"}',
+  'story-status': 'POST /api/story-status {"slug":"<slug>","status":"<status>"}',
 };
 
 /** The request body of the spike mode of `approve`. */
@@ -346,14 +347,14 @@ export const carriesSpikeFlag = (command: string): boolean =>
  * `--who`/`--release` modes the gate itself reads as a run, so the text does
  * not send the reader to them.
  *
- * @param action - the action the command runs; `loose-delete`, `needs-design`
- *   and `supersede` have no receipt escape and take {@link finalControllerRefusal} instead.
+ * @param action - the action the command runs; `loose-delete`, `needs-design`,
+ *   `supersede` and `story-status` have no receipt escape and take {@link finalControllerRefusal} instead.
  * @param scriptDir - the absolute directory holding the plot scripts.
  * @param spike - whether the command line carries `--spike`; an `approve`
  *   refusal then names the request body that carries `"spike":true`.
  * @returns the text for stderr.
  */
-export const controllerRefusal = (action: Exclude<ControllerAction, 'loose-delete' | 'needs-design' | 'supersede'>, scriptDir: string, spike = false): string => {
+export const controllerRefusal = (action: Exclude<ControllerAction, 'loose-delete' | 'needs-design' | 'supersede' | 'story-status'>, scriptDir: string, spike = false): string => {
   const owner = action === 'release' ? 'deliver' : action === 'restart' ? 'dispatch' : action;
   const named = action === 'release-approve' ? 'plot-ask.mjs release-approve' : `plot-${owner}.sh`;
   const lines = [`plot-controller-gate: ${named} is a controller-owned action.`, '', '  Call the controller instead:'];
@@ -386,12 +387,12 @@ export const controllerRefusal = (action: Exclude<ControllerAction, 'loose-delet
 };
 
 /** Actions refused with no receipt escape: a release approval, and the HTTP routes whose board-free bundle is the master agent's route. */
-export type FinalAction = 'release-approve' | 'release' | 'restart' | 'loose-delete' | 'needs-design' | 'supersede';
+export type FinalAction = 'release-approve' | 'release' | 'restart' | 'loose-delete' | 'needs-design' | 'supersede' | 'story-status';
 
 /**
  * The refusal for `plot-ask.mjs release-approve`, or an HTTP POST to
  * `/api/release`, `/api/release-approve`, `/api/restart`, `/api/loose-delete`,
- * `/api/needs-design` or `/api/supersede`. Unlike
+ * `/api/needs-design`, `/api/supersede` or `/api/story-status`. Unlike
  * {@link controllerRefusal}, this names only the person's route — the
  * board's button for `release`/`restart`, `plot-ask.mjs release-approve`'s
  * own bundle for `release-approve` — and offers no receipt bypass: a receipt
@@ -421,7 +422,9 @@ export const finalControllerRefusal = (action: FinalAction, scriptDir: string): 
           ? `node ${shellQuote(`${scriptDir}/board/plot-needs-design.mjs`)} <slug>`
           : action === 'supersede'
             ? `node ${shellQuote(`${scriptDir}/board/plot-supersede.mjs`)} --by <successor> <slug>`
-            : `node ${shellQuote(`${scriptDir}/board/plot-restart-command.mjs`)} <branch>`;
+            : action === 'story-status'
+              ? `node ${shellQuote(`${scriptDir}/board/plot-story-status.mjs`)} <slug> <status>`
+              : `node ${shellQuote(`${scriptDir}/board/plot-restart-command.mjs`)} <branch>`;
   return [
     `plot-controller-gate: ${ENDPOINT[action]} is a controller-owned action.`,
     '',

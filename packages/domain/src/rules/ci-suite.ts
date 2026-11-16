@@ -338,7 +338,7 @@ const APPROVE_MJS = 'plot-approve.mjs';
 const ASK_MJS = 'plot-ask.mjs';
 
 /** The lifecycle actions a gated script call can be. */
-export type GatedAction = 'dispatch' | 'approve' | 'deliver' | 'release' | 'release-approve' | 'restart' | 'loose-delete' | 'needs-design' | 'supersede';
+export type GatedAction = 'dispatch' | 'approve' | 'deliver' | 'release' | 'release-approve' | 'restart' | 'loose-delete' | 'needs-design' | 'supersede' | 'story-status';
 
 /** The scripts a command may run, and the action each bare call is. */
 const GATED: Record<string, 'dispatch' | 'approve' | 'deliver'> = {
@@ -459,6 +459,7 @@ const ROUTE_ACTION: ReadonlyArray<readonly [string, GatedAction]> = [
   ['/api/loose-delete', 'loose-delete'],
   ['/api/needs-design', 'needs-design'],
   ['/api/supersede', 'supersede'],
+  ['/api/story-status', 'story-status'],
 ];
 
 /** The quote characters a URL or a method may be wrapped in, dropped before either is read. */

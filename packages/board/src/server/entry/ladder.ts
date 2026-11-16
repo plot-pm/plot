@@ -337,7 +337,7 @@ export const commitAndPush = async (
   main: string,
   who: string,
   message: string,
-  noun: 'approval' | 'delivery' | 'release' | 'verification' | 'design move' | 'PR record' | 'brief booking' | 'supersession',
+  noun: 'approval' | 'delivery' | 'release' | 'verification' | 'design move' | 'PR record' | 'brief booking' | 'supersession' | 'story status',
   nothingMessage: string,
   reapply: (tmpwt: string) => Promise<void>,
   write: Printer,
