@@ -81,7 +81,7 @@ const portsFor = (said: 'answered' | 'failed') => {
       },
     },
     defaultBranch: { read: async () => ({ ok: true, value: reading() }) },
-    refs: { remoteSha: async () => ({ ok: true, value: { sha: TIP } }) },
+    refs: { remoteSha: async () => ({ ok: true, value: { sha: TIP } }), defaultBranch: async () => ({ ok: true, value: 'main' }) },
     checksWaitMs: WAIT,
     now: () => NOW,
     requireReading: true,
@@ -123,6 +123,38 @@ describe('mergeTick', () => {
     const refused: MergeRefusals = new Map([[3, 'f'.repeat(40)]]);
     await tick([row(3)], {}, ports, refused);
     expect(calls.map((c) => c[1])).toEqual(['3']);
+  });
+
+  describe('the merge decision reads the PR base', () => {
+    const RED = reading({ head: 'red', settled: { sha: TIP, state: 'red' } });
+    /** Ports whose own default-branch read is red, while the tick's selection read green. */
+    const redAtMerge = (base: string) => {
+      const { ports, calls } = portsFor('answered');
+      const p = ports as unknown as { host: { prState: (n: number) => Promise<{ ok: true; value: Record<string, unknown> }> } };
+      const prState = p.host.prState;
+      return {
+        calls,
+        ports: {
+          ...ports,
+          host: { ...ports.host, prState: async (n: number) => { const out = await prState(n); return { ...out, value: { ...out.value, base } }; } },
+          defaultBranch: { read: async () => ({ ok: true, value: RED }) },
+        } as unknown as MergePorts,
+      };
+    };
+
+    it('never merges a PR into the default branch past a red reading the merge reads', async () => {
+      const { ports, calls } = redAtMerge('main');
+      const out = await tick([row(3)], {}, ports);
+      expect(calls).toEqual([]);
+      expect(out.merged).toMatchObject({ pr: 3, result: { merged: false, reason: 'default-branch-red' } });
+    });
+
+    it('merges a PR into a sprint branch whatever the default branch reads at merge time', async () => {
+      const { ports, calls } = redAtMerge('sprint/idle-and-supersede');
+      const out = await tick([row(3)], {}, ports);
+      expect(calls).toEqual([['pr-merge', '3', '--match-head', head(3)]]);
+      expect(out.merged).toMatchObject({ pr: 3, result: { merged: true } });
+    });
   });
 
   it('merges nothing where Merger app is missing on GitHub', async () => {
@@ -251,6 +283,7 @@ describe('mergeTick on a red default branch', () => {
       defaultBranch: { read: async () => ({ ok: true, value: red }) },
       refs: {
         remoteSha: async () => ({ ok: true, value: { sha: TIP } }),
+        defaultBranch: async () => ({ ok: true, value: 'main' }),
         firstParentLine: async () => ({ ok: true, value: [TIP, FIRST_RED, LAST_GREEN] }),
       },
       repair: { read: async () => ({ ok: true, value: record }) },

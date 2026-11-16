@@ -72,6 +72,13 @@ export interface MergeReadings {
    */
   readonly defaultBranchTip: string | 'unaskable';
   /**
+   * The repository's default branch name, read through `Refs.defaultBranch`;
+   * `'unaskable'` where the read failed. Absent reads as `'unaskable'`. The
+   * default-branch holds apply unless this names a branch and the PR's `base`
+   * names a different one (see {@link holdsApply}).
+   */
+  readonly defaultBranchName?: string | 'unaskable';
+  /**
    * The `plot/review` state on the pinned head, re-asked through the host and
    * never folded from the checks rollup. `'unaskable'` where the read failed.
    */
@@ -169,6 +176,21 @@ const unknownHeadBound = (
   return !Number.isNaN(since) && now - since > checksWaitMs;
 };
 
+/**
+ * Whether the default-branch holds apply to a PR's merge.
+ *
+ * A merge into another branch does not move the default branch, so its
+ * reading says nothing about that merge. The holds apply where the PR's base
+ * is the default branch, and also where either name is unknown: an empty
+ * `base` or an unread default-branch name never lifts a hold.
+ *
+ * @param base - the PR's base branch as the host names it, or `''`.
+ * @param defaultName - the default branch name, `'unaskable'`, or absent.
+ * @returns false only where both names are known and differ.
+ */
+export const holdsApply = (base: string, defaultName: string | 'unaskable' | undefined): boolean =>
+  base === '' || defaultName === undefined || defaultName === 'unaskable' || defaultName === '' || base === defaultName;
+
 const short = (sha: string | undefined): string =>
   sha === undefined || sha === '' ? 'none' : sha.slice(0, 12);
 
@@ -187,6 +209,13 @@ const short = (sha: string | undefined): string =>
  * not parse, refuses as `default-branch-stale`: a merge cannot be undone, so a
  * reading no host confirmed within the bound permits nothing, whether it reads
  * red or green.
+ *
+ * The default-branch refusals — `unaskable` for a failed default-branch or tip
+ * read, `default-branch-unread`, `default-branch-stale`, `default-branch-red`
+ * with its repair admission, and `default-branch-unsettled` — apply only where
+ * {@link holdsApply} answers true for `pr.base` and
+ * `readings.defaultBranchName`. A PR into another branch skips them all, and
+ * every other refusal still applies to it.
  *
  * `checks-unbound` guards a rollup that names a commit other than the head.
  * A PR's `checksSha` and `headSha` both name commits on the same ref; when an
@@ -288,37 +317,39 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
   if (!passes.pass) {
     return no(passes.reason, `${passes.seen} for PR #${input.pr}. Merge when review reads 'success' on this head.`);
   }
-  const defaultBranch = readings.defaultBranch;
   let admitted: RepairRole | undefined;
-  if (defaultBranch === 'unaskable') {
-    return no('unaskable', `the default branch's reading could not be read for PR #${input.pr}. A failed read is not an absent reading; nothing was merged.`);
-  }
-  if (defaultBranch === null) {
-    if (input.requireReading) {
-      return no('default-branch-unread', `no default-branch reading exists for PR #${input.pr}, and this caller requires one. Nothing was merged.`);
+  if (holdsApply(pr.base, readings.defaultBranchName)) {
+    const defaultBranch = readings.defaultBranch;
+    if (defaultBranch === 'unaskable') {
+      return no('unaskable', `the default branch's reading could not be read for PR #${input.pr}. A failed read is not an absent reading; nothing was merged.`);
     }
-  } else {
-    const age = defaultBranchAgeMs(defaultBranch, input.now);
-    if (age === null || age > input.checksWaitMs) {
-      const seen = age === null ? `has an askedAt that does not parse ('${defaultBranch.askedAt}')` : `is ${Math.floor(age / 1000)} s old`;
-      return no('default-branch-stale', `the reading of ${defaultBranch.branch} ${seen}; Checks wait is ${Math.floor(input.checksWaitMs / 1000)} s. A merge needs a reading a host confirmed within that bound; nothing was merged.`);
-    }
-    if (defaultBranch.settled?.state === 'red') {
-      const verdict = repairMergeVerdict(readings.repair ?? { record: null, episode: 'closed', redRuns: 'unaskable' }, { number: input.pr, head: pr.head });
-      if (verdict.verdict === 'not-named') {
-        return no('default-branch-red', `${defaultBranch.branch} is red on ${short(defaultBranch.settled.sha)}. A merge now stacks a change on an unproven base.`);
+    if (defaultBranch === null) {
+      if (input.requireReading) {
+        return no('default-branch-unread', `no default-branch reading exists for PR #${input.pr}, and this caller requires one. Nothing was merged.`);
       }
-      if (verdict.verdict === 'refused') return no(verdict.reason, verdict.detail);
-      admitted = verdict.role;
-    }
-    if (defaultBranch.settled !== undefined) {
-      const tip = readings.defaultBranchTip;
-      if (tip === 'unaskable') {
-        return no('unaskable', `the default branch's remote tip could not be read for PR #${input.pr}. A failed read is not an absent reading; nothing was merged.`);
+    } else {
+      const age = defaultBranchAgeMs(defaultBranch, input.now);
+      if (age === null || age > input.checksWaitMs) {
+        const seen = age === null ? `has an askedAt that does not parse ('${defaultBranch.askedAt}')` : `is ${Math.floor(age / 1000)} s old`;
+        return no('default-branch-stale', `the reading of ${defaultBranch.branch} ${seen}; Checks wait is ${Math.floor(input.checksWaitMs / 1000)} s. A merge needs a reading a host confirmed within that bound; nothing was merged.`);
       }
-      const bounded = unknownHeadBound(readings.caller, defaultBranch, tip, input.now, input.checksWaitMs);
-      if (!bounded && (tip !== defaultBranch.headSha || defaultBranch.settled.sha !== tip)) {
-        return no('default-branch-unsettled', `${defaultBranch.branch}'s tip is now ${short(tip)}, but the reading names head ${short(defaultBranch.headSha)} and settled ${short(defaultBranch.settled.sha)}. A merge needs a reading of the settled tip.`);
+      if (defaultBranch.settled?.state === 'red') {
+        const verdict = repairMergeVerdict(readings.repair ?? { record: null, episode: 'closed', redRuns: 'unaskable' }, { number: input.pr, head: pr.head });
+        if (verdict.verdict === 'not-named') {
+          return no('default-branch-red', `${defaultBranch.branch} is red on ${short(defaultBranch.settled.sha)}. A merge now stacks a change on an unproven base.`);
+        }
+        if (verdict.verdict === 'refused') return no(verdict.reason, verdict.detail);
+        admitted = verdict.role;
+      }
+      if (defaultBranch.settled !== undefined) {
+        const tip = readings.defaultBranchTip;
+        if (tip === 'unaskable') {
+          return no('unaskable', `the default branch's remote tip could not be read for PR #${input.pr}. A failed read is not an absent reading; nothing was merged.`);
+        }
+        const bounded = unknownHeadBound(readings.caller, defaultBranch, tip, input.now, input.checksWaitMs);
+        if (!bounded && (tip !== defaultBranch.headSha || defaultBranch.settled.sha !== tip)) {
+          return no('default-branch-unsettled', `${defaultBranch.branch}'s tip is now ${short(tip)}, but the reading names head ${short(defaultBranch.headSha)} and settled ${short(defaultBranch.settled.sha)}. A merge needs a reading of the settled tip.`);
+        }
       }
     }
   }
@@ -428,12 +459,21 @@ export type MergeResult =
  * pass the merge goes through `plot-host.sh pr-merge --match-head <sha>`, so a
  * push between the reading and the merge fails at the host; a host that cannot
  * pin merges with no pin flag. A refusal ends the action; nothing retries
- * without the pin. The default-branch reading and the tip are read before any
- * PR call: where the tip differs from the settled commit on a fresh, non-red
- * reading — and the person's `unknown`-head bound does not apply — it refuses
- * `default-branch-unsettled` with no `prState` and no `prReview` call. A
- * default-branch read or tip read that fails refuses as
- * `unaskable`; an absent reading holds nothing unless `ports.requireReading`.
+ * without the pin.
+ *
+ * The reads run in this order: the default-branch reading, the default
+ * branch's tip (only where the reading has a settled commit), `prState`, the
+ * default branch's name through `Refs.defaultBranch` (only where the PR names a
+ * base), then the backend, `prReview` and the review writer, and the repair
+ * record last. The default-branch holds apply only where {@link holdsApply}
+ * answers true for the PR's base and that name; a failed `prState` or an empty
+ * base keeps them. For such a PR, where the tip differs from the settled
+ * commit on a fresh, non-red reading — and the person's `unknown`-head bound
+ * does not apply — it refuses `default-branch-unsettled` after the one
+ * `prState` call and with no `prReview` call. A default-branch read or tip
+ * read that fails refuses as `unaskable`; an absent reading holds nothing
+ * unless `ports.requireReading`. A PR into another branch skips every
+ * default-branch hold and reads no repair record.
  * On a settled red reading it reads the repair record last; where the record
  * names the PR it walks the settled commit's first-parent line and asks the
  * settled commit's runs again through `ports.build`, folding the declared
@@ -457,25 +497,29 @@ export const mergeAt = async (
   const settledReading = reading.ok && reading.value !== null && reading.value.settled !== undefined ? reading.value : null;
   const tip = settledReading !== null ? await ports.refs.remoteSha(settledReading.branch) : null;
   const tipSha = tip === null ? 'unaskable' : tip.ok && tip.value !== 'unknown' ? tip.value.sha : 'unaskable';
-  if (settledReading !== null && tipSha !== 'unaskable' && ports.caller !== 'unattended' && settledReading.settled?.state !== 'red') {
+  const lookup = await ports.host.prState(pr, { withChecks: true });
+  const base = lookup.ok && lookup.value !== null ? lookup.value.base : '';
+  const named = base === '' ? null : await ports.refs.defaultBranch();
+  const defaultBranchName = named === null ? 'unaskable' : named.ok ? named.value : 'unaskable';
+  const holds = holdsApply(base, defaultBranchName);
+  if (holds && settledReading !== null && tipSha !== 'unaskable' && ports.caller !== 'unattended' && settledReading.settled?.state !== 'red') {
     const age = defaultBranchAgeMs(settledReading, ports.now());
     if (age !== null && age <= ports.checksWaitMs && tipSha !== settledReading.settled?.sha
       && !unknownHeadBound(ports.caller, settledReading, tipSha, ports.now(), ports.checksWaitMs)) {
       return {
         merged: false,
         reason: 'default-branch-unsettled',
-        detail: `${settledReading.branch}'s tip is now ${short(tipSha)}, but the reading settled ${short(settledReading.settled?.sha)}. No PR was asked; a merge needs a reading of the settled tip.`,
+        detail: `${settledReading.branch}'s tip is now ${short(tipSha)}, but the reading settled ${short(settledReading.settled?.sha)}. No review was asked; a merge needs a reading of the settled tip.`,
       };
     }
   }
-  const lookup = await ports.host.prState(pr, { withChecks: true });
   const backend = await ports.host.backend();
   const [review, writer] = await Promise.all([
     ports.host.prReview(pr),
     ports.host.reviewWriter(),
   ]);
   // Read last, so the red commit's runs are asked immediately before the merge.
-  const repair = settledReading !== null && settledReading.settled?.state === 'red'
+  const repair = holds && settledReading !== null && settledReading.settled?.state === 'red'
     ? await readRepair(ports, settledReading.branch, settledReading.settled, pr)
     : undefined;
   const lookedPr = lookup.ok ? lookup.value : null;
@@ -491,6 +535,7 @@ export const mergeAt = async (
       pr: lookup.ok ? lookup.value : 'unaskable',
       defaultBranch: reading.ok ? reading.value : 'unaskable',
       defaultBranchTip: tipSha,
+      defaultBranchName,
       review: review.ok ? review.value : 'unaskable',
       reviewWriter: writer.ok ? writer.value : 'unaskable',
       ...(repair ? { repair } : {}),
