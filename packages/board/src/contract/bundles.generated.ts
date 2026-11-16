@@ -65,6 +65,7 @@ export const BOARD_ARTIFACT_PATHS: readonly string[] = [
   'skills/plot/scripts/board/plot-fleetctl-start.mjs',
   'skills/plot/scripts/board/plot-fleetd.mjs',
   'skills/plot/scripts/board/plot-gate.mjs',
+  'skills/plot/scripts/board/plot-given-up.mjs',
   'skills/plot/scripts/board/plot-issue-source.mjs',
   'skills/plot/scripts/board/plot-issue-status.mjs',
   'skills/plot/scripts/board/plot-jenkins-pr-checks.mjs',

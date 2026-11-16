@@ -104,6 +104,7 @@ skills/plot/scripts/board/plot-pr-index-lookup.mjs -merge
 skills/plot/scripts/board/plot-pr-reader.mjs -merge
 skills/plot/scripts/board/plot-pr-state.mjs -merge
 skills/plot/scripts/board/plot-gate.mjs -merge
+skills/plot/scripts/board/plot-given-up.mjs -merge
 skills/plot/scripts/board/plot-reap.mjs -merge
 skills/plot/scripts/board/plot-reconcile.mjs -merge
 skills/plot/scripts/board/plot-record-pr.mjs -merge

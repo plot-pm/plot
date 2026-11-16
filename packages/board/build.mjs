@@ -728,6 +728,27 @@ await esbuild.build({
 fs.copyFileSync(sliceChainArtifact, shippedSliceChain);
 fs.chmodSync(shippedSliceChain, 0o755);
 
+// Section 3 of plot-reconcile-scan.sh asks this bundle which branches the
+// plans gave up. It holds no copy of the decision — it answers through
+// branchGivenUpBy, the rule the reaper asks.
+const givenUpArtifact = path.join(here, 'dist/plot-given-up.mjs');
+const shippedGivenUp = path.join(here, '../../skills/plot/scripts/board/plot-given-up.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/given-up.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: givenUpArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(givenUpArtifact, shippedGivenUp);
+fs.chmodSync(shippedGivenUp, 0o755);
+
 // THE DELTA, RENDERED WHERE THE RULE IS NOT. `pulseDelta` is a domain rule with
 // its own tests; this artifact parses two readings, calls it, and composes
 // sentences. Bundled for the same reason the ones above are: `plot-ask.mjs`
