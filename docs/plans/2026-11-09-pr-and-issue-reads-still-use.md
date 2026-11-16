@@ -4,7 +4,8 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Approved
+- **Rejected:** 2026-11-16, delivered with its only slice deferred; github-reads-in-process supersedes it
 - **Type:** bug
 - **Approved:** 2026-11-09, Jan Wloka, plan-PR #3318 merged
 - **Sprint:** 
