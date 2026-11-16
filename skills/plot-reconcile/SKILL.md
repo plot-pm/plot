@@ -84,7 +84,7 @@ It reads `origin/*` refs, the configured plan directory and the repository's wor
 
 1. **Phase↔symlink drift** — a plan whose phase disagrees with which index dir (`active/` vs `delivered/`) its symlink lives in. The `Delivered` + still-in-`active/` case is the classic half-delivery failure mode. A plan linked in BOTH directories is drift too: the phase names which link is stale.
 2. **Merged-but-not-delivered** — a plan still `Approved` whose impl branch (resolved from the `## Slices` `→ #NNN` links) is already merged to the main branch. Candidate `/plot-deliver`.
-3. **Stale branches** — remote branches under a configured prefix with no open PR: merged into the main branch → deletion candidates; ahead of it → orphans needing judgment, unless the branch is *contained in an open PR* (see below). The main branch and `release/*` are never listed.
+3. **Stale branches** — remote branches under a configured prefix with no open PR: merged into the main branch → deletion candidates; ahead of it → orphans needing judgment, unless the branch is *contained in an open PR* or *kept by a deferred or moved slice* (see below). The main branch and `release/*` are never listed.
 ### Contained in an open PR (inside section 3)
 
 A branch that is an **ancestor of some open PR's head** is work in flight on a
@@ -111,6 +111,14 @@ Containment is only asked for *unmerged* branches. A merged branch is an
 ancestor of the main branch, and therefore of every open PR branched from it —
 asking earlier would swallow the whole deletion-candidate class.
 
+### Kept by a deferred slice (inside section 3)
+
+A branch that carries work, has no open PR and was given up by the plans is not an orphan: a plan keeps the ref on purpose. The scan lists it under `-- kept by a deferred or moved slice (a plan keeps this ref; not stale) --` as `origin/<branch> — kept by <plan file> (deferred <date>) → not stale`, prints no `fix:` command and does not count it in `stale=`. The date is the leading `YYYY-MM-DD` of the annotation's reason, or `undated`.
+
+The rule is `branchGivenUpBy` in `packages/domain/src/rules/branch-given-up.ts`, the one `plot-reap.sh` asks, reached through `board/plot-given-up.mjs` once per scan. A plan that marks the branch `deferred:` or `moved:` gives it up unless a plan in the Active index also names it without the marker. Delivered and released plans count.
+
+The check sits last in the unmerged arm. An open PR, an empty claim, a merge, containment in an open PR and the Bitbucket merge ask each decide first, so a merged deferred branch stays a deletion candidate. Where the bundle or `node` is missing, the answer is empty and every branch keeps its other classification.
+
 ### Claims (inside section 3)
 
 A branch whose only commits beyond main are **empty `plot: claim …` markers**
@@ -119,7 +127,7 @@ identical artifact, and git cannot tell them apart:
 
 | Plan says | Meaning | Report |
 |---|---|---|
-| `deferred:` / `moved:` on that branch | the worker gave it up deliberately | **abandoned claim** — deletion candidate, with the command |
+| `deferred:` / `moved:` on that branch, in any plan under the plan directory (a live line in an Active-index plan overrides it) | the worker gave it up deliberately | **abandoned claim** — deletion candidate, with the command |
 | a bare `claimed:`, or nothing | the worker may be thinking, or may be dead | **needs judgment** — no deletion command offered |
 
 Reading the plan annotation here is the one deliberate exception to "git is the
