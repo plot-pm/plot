@@ -11,6 +11,7 @@
 - **Story:** delivery-tab-reads-at-a-glance
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -61,7 +62,18 @@ Approach A of the design: evolve the current tab in place.
 
 ### Open Questions
 
-- [ ] Where the reader is not in `People`, which handle does **My sprint** compare against the sprint's Owner: the git user name, or no handle (toggle disabled)?
+- [ ] Where the reader is not in `People`, which handle does **My sprint** compare against the sprint's Owner: the git user name, the host user the board already uses (`Reader.hostUser`), or no handle (toggle disabled)? The board's `readerIsKnown` and `MineMode` arms are the precedent. Slice `feature/delivery-my-sprint-scope` depends on the answer.
+- [ ] The story file `docs/stories/delivery-tab-reads-at-a-glance/STORY-delivery-tab-reads-at-a-glance.md` and issue #3468 do not exist on this branch; the Status `Story:` line and the Motivation link point at them. (misleads)
+- [ ] Slices 2 to 4 carry no `<!-- waits: -->` marker. `feature/delivery-tab-header-cards` needs `feature/delivery-section-header` and `feature/sprint-owner-field`; `feature/delivery-my-sprint-scope` needs the owner field and the cards slice. (misleads)
+- [ ] The design disables **My sprint** when no sprint is Active; this plan disables it when the reader owns no Active sprint. Which rule holds, and what happens to the per-sprint chips and the `?sprint=` selection that `chip-row.ts` carries today? No existing sprint file has `Owner:`, so the toggle is disabled for everyone until someone backfills; who does it? (misleads)
+- [ ] The rename keeps or changes `data-chip="This sprint"`, which 4 browser test files and 3 unit tests select (`DeliveryFilters.tsx:63`). Count these in the scope slice. (misleads)
+- [ ] The header-cards slice holds the to-do list, triage line, release card, sprint card, fleet card and release-row removal. Split it, or state why one PR holds them. (misleads)
+- [ ] Plan 2 (`delivery-you-blocks-or-feeds`) and this plan both define the to-do markers; neither declares the order. State which slice replaces today's You-group reading, and which plan owns the slice-state classification shared with `delivery-release-progress-per-plan`. (misleads)
+- [ ] One **Approve release** button per `Release:` value needs a rule that maps a value to a release PR; `ReleaseApprove.tsx` binds one PR and head sha. (misleads)
+- [ ] The sprint card needs an end date, but `FleetSprintSchema` (`schema.ts`) has no `end` field. Add it to the Sprint owner slice. (misleads)
+- [ ] "Checked against `People`" sits in the sprint parser, which lives in `packages/domain` and cannot read `People`. Name where the check runs and what a handle outside `People` does: refuse the file, drop the Owner, or warn. (misleads)
+- [ ] The fleet card and the Fleet section header (plan 5) both show the fleet switches; name the shared component (`FleetControls.tsx`). The scope slice is not sequenced against plans 2 and 3, which rework You and Work items. (misleads)
+- [ ] The Board impact line says to rebuild the board artifact with each slice; `check-no-bundle-diff.sh` refuses a committed bundle. Say that the rebuild is a local test only. (cosmetic)
 
 ### Left to the Builder
 
@@ -90,3 +102,22 @@ Approach A of the design: evolve the current tab in place.
 
 - Created by `/plot-idea` in one batch with plans 2 to 6 of the same design. Type `feature` came from the brief; the design question was answered with the default, no, so the plan starts in Draft.
 - Deliverable search for "sprint Owner field", "section header", "to-do list", "My sprint", "fleet card" and "release card" found no artifact of that name in the estate.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "engine": "panel",
+  "panel": ".plot/panels/delivery-tab-header-and-my-sprint/panel.md",
+  "questionHistory": [],
+  "deferredItems": [
+    {"q": "Which handle does My sprint compare for a reader not in People?", "category": "domain", "context": "Sprint owner"}
+  ],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "domain": true,
+    "ux": {"happyPath": false, "edgeCases": false, "errors": false, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": false
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
