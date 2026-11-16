@@ -4694,9 +4694,11 @@ case "$op" in
       # ONE CALL FOR ALL THREE ARMS, and the arm decides only the fields and the
       # projection. The plain fields always travel; `--rich` adds the verdicts,
       # and the rollup only where CI is not Jenkins (the Jenkins arm discards it).
+      # THE FIELD ORDER IS THE QUERY `gh` SENDS, and the corpus pins it
+      # (`github-pr-listing.ts`'s fragments), so each arm keeps its own order.
       # `gh_pr_list_routed` asks GraphQL or REST; a rich call is GraphQL always.
       _json=number,title,state,headRefName,isDraft,url,updatedAt,author,headRefOid,mergedAt
-      [ "$rich" = 1 ] && _json="$_json,mergeable,mergeStateStatus,reviewDecision$([ "$ci" = jenkins ] || echo ,statusCheckRollup)"
+      [ "$rich" = 1 ] && _json="number,title,state,headRefName,isDraft,$([ "$ci" = jenkins ] || echo statusCheckRollup,)mergeable,mergeStateStatus,reviewDecision,url,updatedAt,author,headRefOid,mergedAt"
       _gh_raw="$(pr_list_call gh_pr_list_routed gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} ${head_args[@]+"${head_args[@]}"} \
         --json "$_json")" || exit $?
       pr_list_report_truncation github "$limit" "$state" \
