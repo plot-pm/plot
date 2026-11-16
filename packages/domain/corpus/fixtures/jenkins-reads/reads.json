@@ -1,0 +1,3011 @@
+{
+  "jen": "jen 0.4.0",
+  "scenarios": [
+    {
+      "name": "map-multibranch",
+      "kind": "map",
+      "job": "team/portal",
+      "routes": {
+        "/me/api/json": {
+          "body": {
+            "fullName": "Fixture User",
+            "id": "fixture"
+          }
+        },
+        "/job/team/job/portal/api/json": {
+          "body": {
+            "_class": "org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject",
+            "jobs": [
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+                "name": "main",
+                "color": "blue"
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+                "name": "feature%2Fa",
+                "color": "red_anime"
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+                "name": "bug%2Ffoo%20bar",
+                "color": "yellow"
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+                "name": "x%C3%BC",
+                "color": "blue"
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+                "name": "old",
+                "color": "disabled"
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+                "name": "fresh",
+                "color": "notbuilt"
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+                "name": "broken",
+                "color": "red"
+              }
+            ]
+          }
+        }
+      },
+      "ops": [
+        {
+          "op": "map",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "auth",
+                "status"
+              ],
+              "stdout": "Keycloak:      signed in\nInstance:      jenkins.example.org (http://127.0.0.1:{{PORT}}/jenkins)\nSecret store:  keychain\nJenkins token: environment, user fixture\nJenkins auth:  OK — Fixture User\n",
+              "stderr": "",
+              "code": 0
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "job",
+                "view",
+                "team/portal",
+                "--json"
+              ],
+              "stdout": "{\n  \"_class\": \"org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject\",\n  \"jobs\": [\n    {\n      \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n      \"name\": \"main\",\n      \"color\": \"blue\"\n    },\n    {\n      \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n      \"name\": \"feature%2Fa\",\n      \"color\": \"red_anime\"\n    },\n    {\n      \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n      \"name\": \"bug%2Ffoo%20bar\",\n      \"color\": \"yellow\"\n    },\n    {\n      \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n      \"name\": \"x%C3%BC\",\n      \"color\": \"blue\"\n    },\n    {\n      \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n      \"name\": \"old\",\n      \"color\": \"disabled\"\n    },\n    {\n      \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n      \"name\": \"fresh\",\n      \"color\": \"notbuilt\"\n    },\n    {\n      \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n      \"name\": \"broken\",\n      \"color\": \"red\"\n    }\n  ]\n}\n",
+              "stderr": "",
+              "code": 0
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "job",
+                "list",
+                "team/portal",
+                "--json"
+              ],
+              "stdout": "[\n  {\n    \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n    \"name\": \"main\",\n    \"color\": \"blue\"\n  },\n  {\n    \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n    \"name\": \"feature%2Fa\",\n    \"color\": \"red_anime\"\n  },\n  {\n    \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n    \"name\": \"bug%2Ffoo%20bar\",\n    \"color\": \"yellow\"\n  },\n  {\n    \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n    \"name\": \"x%C3%BC\",\n    \"color\": \"blue\"\n  },\n  {\n    \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n    \"name\": \"old\",\n    \"color\": \"disabled\"\n  },\n  {\n    \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n    \"name\": \"fresh\",\n    \"color\": \"notbuilt\"\n  },\n  {\n    \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n    \"name\": \"broken\",\n    \"color\": \"red\"\n  }\n]\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/me/api/json",
+            "/job/team/job/portal/api/json?tree=name,fullName,url,_class,color,description,healthReport[description,score],lastBuild[number,result,timestamp,duration,displayName]",
+            "/job/team/job/portal/api/json?tree=jobs[name,_class,color]"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "map-multibranch-empty",
+      "kind": "map",
+      "job": "team/portal",
+      "routes": {
+        "/me/api/json": {
+          "body": {
+            "fullName": "Fixture User",
+            "id": "fixture"
+          }
+        },
+        "/job/team/job/portal/api/json": {
+          "body": {
+            "_class": "org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject",
+            "jobs": []
+          }
+        }
+      },
+      "ops": [
+        {
+          "op": "map",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "auth",
+                "status"
+              ],
+              "stdout": "Keycloak:      signed in\nInstance:      jenkins.example.org (http://127.0.0.1:{{PORT}}/jenkins)\nSecret store:  keychain\nJenkins token: environment, user fixture\nJenkins auth:  OK — Fixture User\n",
+              "stderr": "",
+              "code": 0
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "job",
+                "view",
+                "team/portal",
+                "--json"
+              ],
+              "stdout": "{\n  \"_class\": \"org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject\",\n  \"jobs\": []\n}\n",
+              "stderr": "",
+              "code": 0
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "job",
+                "list",
+                "team/portal",
+                "--json"
+              ],
+              "stdout": "[]\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/me/api/json",
+            "/job/team/job/portal/api/json?tree=name,fullName,url,_class,color,description,healthReport[description,score],lastBuild[number,result,timestamp,duration,displayName]",
+            "/job/team/job/portal/api/json?tree=jobs[name,_class,color]"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "map-root",
+      "kind": "map",
+      "job": "",
+      "routes": {
+        "/me/api/json": {
+          "body": {
+            "fullName": "Fixture User",
+            "id": "fixture"
+          }
+        },
+        "/api/json": {
+          "body": {
+            "jobs": [
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+                "name": "main",
+                "color": "blue"
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+                "name": "feature%2Fa",
+                "color": "red_anime"
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+                "name": "bug%2Ffoo%20bar",
+                "color": "yellow"
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+                "name": "x%C3%BC",
+                "color": "blue"
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+                "name": "old",
+                "color": "disabled"
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+                "name": "fresh",
+                "color": "notbuilt"
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+                "name": "broken",
+                "color": "red"
+              }
+            ]
+          }
+        }
+      },
+      "ops": [
+        {
+          "op": "map",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "auth",
+                "status"
+              ],
+              "stdout": "Keycloak:      signed in\nInstance:      jenkins.example.org (http://127.0.0.1:{{PORT}}/jenkins)\nSecret store:  keychain\nJenkins token: environment, user fixture\nJenkins auth:  OK — Fixture User\n",
+              "stderr": "",
+              "code": 0
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "job",
+                "list",
+                "--json"
+              ],
+              "stdout": "[\n  {\n    \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n    \"name\": \"main\",\n    \"color\": \"blue\"\n  },\n  {\n    \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n    \"name\": \"feature%2Fa\",\n    \"color\": \"red_anime\"\n  },\n  {\n    \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n    \"name\": \"bug%2Ffoo%20bar\",\n    \"color\": \"yellow\"\n  },\n  {\n    \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n    \"name\": \"x%C3%BC\",\n    \"color\": \"blue\"\n  },\n  {\n    \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n    \"name\": \"old\",\n    \"color\": \"disabled\"\n  },\n  {\n    \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n    \"name\": \"fresh\",\n    \"color\": \"notbuilt\"\n  },\n  {\n    \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n    \"name\": \"broken\",\n    \"color\": \"red\"\n  }\n]\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/me/api/json",
+            "/api/json?tree=jobs[name,_class,color]"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "map-plain",
+      "kind": "map",
+      "job": "team/deploy",
+      "routes": {
+        "/me/api/json": {
+          "body": {
+            "fullName": "Fixture User",
+            "id": "fixture"
+          }
+        },
+        "/job/team/job/deploy/api/json": {
+          "body": {
+            "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+            "name": "deploy",
+            "color": "blue_anime"
+          }
+        }
+      },
+      "ops": [
+        {
+          "op": "map",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "auth",
+                "status"
+              ],
+              "stdout": "Keycloak:      signed in\nInstance:      jenkins.example.org (http://127.0.0.1:{{PORT}}/jenkins)\nSecret store:  keychain\nJenkins token: environment, user fixture\nJenkins auth:  OK — Fixture User\n",
+              "stderr": "",
+              "code": 0
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "job",
+                "view",
+                "team/deploy",
+                "--json"
+              ],
+              "stdout": "{\n  \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n  \"name\": \"deploy\",\n  \"color\": \"blue_anime\"\n}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/me/api/json",
+            "/job/team/job/deploy/api/json?tree=name,fullName,url,_class,color,description,healthReport[description,score],lastBuild[number,result,timestamp,duration,displayName]"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "map-freestyle",
+      "kind": "map",
+      "job": "team/legacy",
+      "routes": {
+        "/me/api/json": {
+          "body": {
+            "fullName": "Fixture User",
+            "id": "fixture"
+          }
+        },
+        "/job/team/job/legacy/api/json": {
+          "body": {
+            "_class": "hudson.model.FreeStyleProject",
+            "name": "legacy",
+            "color": "blue"
+          }
+        }
+      },
+      "ops": [
+        {
+          "op": "map",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "auth",
+                "status"
+              ],
+              "stdout": "Keycloak:      signed in\nInstance:      jenkins.example.org (http://127.0.0.1:{{PORT}}/jenkins)\nSecret store:  keychain\nJenkins token: environment, user fixture\nJenkins auth:  OK — Fixture User\n",
+              "stderr": "",
+              "code": 0
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "job",
+                "view",
+                "team/legacy",
+                "--json"
+              ],
+              "stdout": "{\n  \"_class\": \"hudson.model.FreeStyleProject\",\n  \"name\": \"legacy\",\n  \"color\": \"blue\"\n}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/me/api/json",
+            "/job/team/job/legacy/api/json?tree=name,fullName,url,_class,color,description,healthReport[description,score],lastBuild[number,result,timestamp,duration,displayName]"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "map-unreachable",
+      "kind": "map",
+      "job": "team/portal",
+      "routes": {},
+      "ops": [
+        {
+          "op": "map",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "auth",
+                "status"
+              ],
+              "stdout": "Keycloak:      signed in\nInstance:      jenkins.example.org (http://127.0.0.1:{{PORT}}/jenkins)\nSecret store:  keychain\nJenkins token: environment, user fixture\nJenkins auth:  NOT reachable\n",
+              "stderr": "",
+              "code": 1
+            }
+          ],
+          "requests": [
+            "/me/api/json"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "map-transport-failure",
+      "kind": "map",
+      "job": "team/portal",
+      "routes": {
+        "/me/api/json": {
+          "destroy": true
+        },
+        "/job/team/job/portal/api/json": {
+          "destroy": true
+        }
+      },
+      "ops": [
+        {
+          "op": "map",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "auth",
+                "status"
+              ],
+              "stdout": "Keycloak:      signed in\nInstance:      jenkins.example.org (http://127.0.0.1:{{PORT}}/jenkins)\nSecret store:  keychain\nJenkins token: environment, user fixture\nJenkins auth:  NOT reachable\n",
+              "stderr": "",
+              "code": 1
+            }
+          ],
+          "requests": [
+            "/me/api/json"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "map-html",
+      "kind": "map",
+      "job": "team/portal",
+      "routes": {
+        "/me/api/json": {
+          "body": {
+            "fullName": "Fixture User",
+            "id": "fixture"
+          }
+        },
+        "/job/team/job/portal/api/json": {
+          "status": 200,
+          "text": "<html><body>Sign in</body></html>"
+        }
+      },
+      "ops": [
+        {
+          "op": "map",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "auth",
+                "status"
+              ],
+              "stdout": "Keycloak:      signed in\nInstance:      jenkins.example.org (http://127.0.0.1:{{PORT}}/jenkins)\nSecret store:  keychain\nJenkins token: environment, user fixture\nJenkins auth:  OK — Fixture User\n",
+              "stderr": "",
+              "code": 0
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "job",
+                "view",
+                "team/portal",
+                "--json"
+              ],
+              "stdout": "",
+              "stderr": "jq: parse error: Invalid numeric literal at line 1, column 17\n",
+              "code": 5
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "job",
+                "list",
+                "team/portal",
+                "--json"
+              ],
+              "stdout": "",
+              "stderr": "jq: parse error: Invalid numeric literal at line 1, column 17\n",
+              "code": 5
+            }
+          ],
+          "requests": [
+            "/me/api/json",
+            "/job/team/job/portal/api/json?tree=name,fullName,url,_class,color,description,healthReport[description,score],lastBuild[number,result,timestamp,duration,displayName]",
+            "/job/team/job/portal/api/json?tree=jobs[name,_class,color]"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "map-oauth-redirect",
+      "kind": "map",
+      "job": "team/portal",
+      "routes": {
+        "/me/api/json": {
+          "body": {
+            "fullName": "Fixture User",
+            "id": "fixture"
+          }
+        },
+        "/job/team/job/portal/api/json": {
+          "status": 302,
+          "headers": {
+            "Location": "{{ORIGIN}}/oauth2/start?rd=x"
+          }
+        }
+      },
+      "ops": [
+        {
+          "op": "map",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "auth",
+                "status"
+              ],
+              "stdout": "Keycloak:      signed in\nInstance:      jenkins.example.org (http://127.0.0.1:{{PORT}}/jenkins)\nSecret store:  keychain\nJenkins token: environment, user fixture\nJenkins auth:  OK — Fixture User\n",
+              "stderr": "",
+              "code": 0
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "job",
+                "view",
+                "team/portal",
+                "--json"
+              ],
+              "stdout": "",
+              "stderr": "error: HTTP 302 — redirected to the identity provider; the SSO session expired\n  Run: jen auth login\n",
+              "code": 1
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "job",
+                "list",
+                "team/portal",
+                "--json"
+              ],
+              "stdout": "",
+              "stderr": "error: HTTP 302 — redirected to the identity provider; the SSO session expired\n  Run: jen auth login\n",
+              "code": 1
+            }
+          ],
+          "requests": [
+            "/me/api/json",
+            "/job/team/job/portal/api/json?tree=name,fullName,url,_class,color,description,healthReport[description,score],lastBuild[number,result,timestamp,duration,displayName]",
+            "/job/team/job/portal/api/json?tree=jobs[name,_class,color]"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "map-third-host-redirect",
+      "kind": "map",
+      "job": "team/portal",
+      "routes": {
+        "/me/api/json": {
+          "body": {
+            "fullName": "Fixture User",
+            "id": "fixture"
+          }
+        },
+        "/job/team/job/portal/api/json": {
+          "status": 302,
+          "headers": {
+            "Location": "{{OTHER}}/landing"
+          }
+        }
+      },
+      "ops": [
+        {
+          "op": "map",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "auth",
+                "status"
+              ],
+              "stdout": "Keycloak:      signed in\nInstance:      jenkins.example.org (http://127.0.0.1:{{PORT}}/jenkins)\nSecret store:  keychain\nJenkins token: environment, user fixture\nJenkins auth:  OK — Fixture User\n",
+              "stderr": "",
+              "code": 0
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "job",
+                "view",
+                "team/portal",
+                "--json"
+              ],
+              "stdout": "",
+              "stderr": "error: HTTP 302 — unexpected redirect to http://127.0.0.1:59423/landing\n  That is neither a Jenkins-internal redirect nor the SSO challenge, so jen\n  will not guess which. Check the instance URL and any proxy in front of it.\n",
+              "code": 1
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "job",
+                "list",
+                "team/portal",
+                "--json"
+              ],
+              "stdout": "",
+              "stderr": "error: HTTP 302 — unexpected redirect to http://127.0.0.1:59423/landing\n  That is neither a Jenkins-internal redirect nor the SSO challenge, so jen\n  will not guess which. Check the instance URL and any proxy in front of it.\n",
+              "code": 1
+            }
+          ],
+          "requests": [
+            "/me/api/json",
+            "/job/team/job/portal/api/json?tree=name,fullName,url,_class,color,description,healthReport[description,score],lastBuild[number,result,timestamp,duration,displayName]",
+            "/job/team/job/portal/api/json?tree=jobs[name,_class,color]"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "map-forbidden",
+      "kind": "map",
+      "job": "team/portal",
+      "routes": {
+        "/me/api/json": {
+          "body": {
+            "fullName": "Fixture User",
+            "id": "fixture"
+          }
+        },
+        "/job/team/job/portal/api/json": {
+          "status": 403,
+          "text": "{}"
+        }
+      },
+      "ops": [
+        {
+          "op": "map",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "auth",
+                "status"
+              ],
+              "stdout": "Keycloak:      signed in\nInstance:      jenkins.example.org (http://127.0.0.1:{{PORT}}/jenkins)\nSecret store:  keychain\nJenkins token: environment, user fixture\nJenkins auth:  OK — Fixture User\n",
+              "stderr": "",
+              "code": 0
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "job",
+                "view",
+                "team/portal",
+                "--json"
+              ],
+              "stdout": "",
+              "stderr": "error: HTTP 403 — the bearer cleared the proxy but Jenkins rejected the request\n  A Jenkins API token WAS sent (user fixture, from the environment) and Jenkins\n  rejected it — it is revoked or superseded, or fixture lacks permission here.\n  Create a fresh token and store it:\n    http://127.0.0.1:{{PORT}}/jenkins/user/fixture/security/\n    jen -I jenkins.example.org auth login\n",
+              "code": 1
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "job",
+                "list",
+                "team/portal",
+                "--json"
+              ],
+              "stdout": "",
+              "stderr": "error: HTTP 403 — the bearer cleared the proxy but Jenkins rejected the request\n  A Jenkins API token WAS sent (user fixture, from the environment) and Jenkins\n  rejected it — it is revoked or superseded, or fixture lacks permission here.\n  Create a fresh token and store it:\n    http://127.0.0.1:{{PORT}}/jenkins/user/fixture/security/\n    jen -I jenkins.example.org auth login\n",
+              "code": 1
+            }
+          ],
+          "requests": [
+            "/me/api/json",
+            "/job/team/job/portal/api/json?tree=name,fullName,url,_class,color,description,healthReport[description,score],lastBuild[number,result,timestamp,duration,displayName]",
+            "/job/team/job/portal/api/json?tree=jobs[name,_class,color]"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "runs-by-sha",
+      "kind": "runs",
+      "routes": {
+        "/job/team/job/portal/job/main/api/json": {
+          "body": {
+            "_class": "x",
+            "builds": [
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 5,
+                "result": "SUCCESS",
+                "building": false,
+                "timestamp": 1700000300999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/5/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 4,
+                "result": "FAILURE",
+                "building": false,
+                "timestamp": 1700000240999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/4/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000b",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000b",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 3,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700000180999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/3/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000c",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000c",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 2,
+                "result": "NOT_BUILT",
+                "building": false,
+                "timestamp": 1700000120999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/2/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "ops": [
+        {
+          "op": "runsForSha",
+          "branch": "main",
+          "sha": "000000000000000000000000000000000000000a",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "{\"_class\":\"x\",\"builds\":[{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":5,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700000300999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/5/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":4,\"result\":\"FAILURE\",\"building\":false,\"timestamp\":1700000240999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/4/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000b\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000b\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":3,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700000180999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/3/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000c\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000c\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":2,\"result\":\"NOT_BUILT\",\"building\":false,\"timestamp\":1700000120999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/2/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]}]}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+          ],
+          "otherHits": 0
+        },
+        {
+          "op": "runForSha",
+          "branch": "main",
+          "sha": "000000000000000000000000000000000000000a",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "{\"_class\":\"x\",\"builds\":[{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":5,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700000300999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/5/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":4,\"result\":\"FAILURE\",\"building\":false,\"timestamp\":1700000240999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/4/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000b\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000b\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":3,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700000180999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/3/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000c\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000c\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":2,\"result\":\"NOT_BUILT\",\"building\":false,\"timestamp\":1700000120999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/2/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]}]}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+          ],
+          "otherHits": 0
+        },
+        {
+          "op": "runs",
+          "branch": "main",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D"
+              ],
+              "stdout": "{\"_class\":\"x\",\"builds\":[{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":5,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700000300999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/5/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":4,\"result\":\"FAILURE\",\"building\":false,\"timestamp\":1700000240999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/4/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000b\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000b\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":3,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700000180999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/3/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000c\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000c\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":2,\"result\":\"NOT_BUILT\",\"building\":false,\"timestamp\":1700000120999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/2/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]}]}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "runs-sha-prefix",
+      "kind": "runs",
+      "routes": {
+        "/job/team/job/portal/job/main/api/json": {
+          "body": {
+            "_class": "x",
+            "builds": [
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 2,
+                "result": "SUCCESS",
+                "building": false,
+                "timestamp": 1700000120999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/2/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "ops": [
+        {
+          "op": "runsForSha",
+          "branch": "main",
+          "sha": "0000000",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "{\"_class\":\"x\",\"builds\":[{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":2,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700000120999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/2/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]}]}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+          ],
+          "otherHits": 0
+        },
+        {
+          "op": "runsForSha",
+          "branch": "main",
+          "sha": "000000",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "{\"_class\":\"x\",\"builds\":[{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":2,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700000120999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/2/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]}]}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "runs-running-build",
+      "kind": "runs",
+      "routes": {
+        "/job/team/job/portal/job/main/api/json": {
+          "body": {
+            "_class": "x",
+            "builds": [
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 6,
+                "result": null,
+                "building": true,
+                "timestamp": 1700000360999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/6/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 5,
+                "result": "SUCCESS",
+                "building": false,
+                "timestamp": 1700000300999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/5/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "ops": [
+        {
+          "op": "runsForSha",
+          "branch": "main",
+          "sha": "000000000000000000000000000000000000000a",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "{\"_class\":\"x\",\"builds\":[{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":6,\"result\":null,\"building\":true,\"timestamp\":1700000360999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/6/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":5,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700000300999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/5/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]}]}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+          ],
+          "otherHits": 0
+        },
+        {
+          "op": "runForSha",
+          "branch": "main",
+          "sha": "000000000000000000000000000000000000000a",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "{\"_class\":\"x\",\"builds\":[{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":6,\"result\":null,\"building\":true,\"timestamp\":1700000360999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/6/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":5,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700000300999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/5/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]}]}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+          ],
+          "otherHits": 0
+        },
+        {
+          "op": "runs",
+          "branch": "main",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D"
+              ],
+              "stdout": "{\"_class\":\"x\",\"builds\":[{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":6,\"result\":null,\"building\":true,\"timestamp\":1700000360999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/6/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":5,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700000300999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/5/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]}]}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "runs-not-built",
+      "kind": "runs",
+      "routes": {
+        "/job/team/job/portal/job/main/api/json": {
+          "body": {
+            "_class": "x",
+            "builds": [
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 3,
+                "result": "NOT_BUILT",
+                "building": false,
+                "timestamp": 1700000180999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/3/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 2,
+                "result": "NOT_BUILT",
+                "building": false,
+                "timestamp": 1700000120999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/2/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000b",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000b",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "ops": [
+        {
+          "op": "runsForSha",
+          "branch": "main",
+          "sha": "000000000000000000000000000000000000000a",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "{\"_class\":\"x\",\"builds\":[{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":3,\"result\":\"NOT_BUILT\",\"building\":false,\"timestamp\":1700000180999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/3/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":2,\"result\":\"NOT_BUILT\",\"building\":false,\"timestamp\":1700000120999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/2/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000b\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000b\",\"name\":\"origin/main\"}]}}]}]}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+          ],
+          "otherHits": 0
+        },
+        {
+          "op": "runs",
+          "branch": "main",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D"
+              ],
+              "stdout": "{\"_class\":\"x\",\"builds\":[{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":3,\"result\":\"NOT_BUILT\",\"building\":false,\"timestamp\":1700000180999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/3/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":2,\"result\":\"NOT_BUILT\",\"building\":false,\"timestamp\":1700000120999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/2/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000b\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000b\",\"name\":\"origin/main\"}]}}]}]}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "runs-rebuild-of-one-commit",
+      "kind": "runs",
+      "routes": {
+        "/job/team/job/portal/job/main/api/json": {
+          "body": {
+            "_class": "x",
+            "builds": [
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 43,
+                "result": "SUCCESS",
+                "building": false,
+                "timestamp": 1700002580999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/43/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 42,
+                "result": "FAILURE",
+                "building": false,
+                "timestamp": 1700002520999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/42/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "ops": [
+        {
+          "op": "runsForSha",
+          "branch": "main",
+          "sha": "000000000000000000000000000000000000000a",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "{\"_class\":\"x\",\"builds\":[{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":43,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700002580999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/43/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":42,\"result\":\"FAILURE\",\"building\":false,\"timestamp\":1700002520999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/42/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]}]}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+          ],
+          "otherHits": 0
+        },
+        {
+          "op": "runForSha",
+          "branch": "main",
+          "sha": "000000000000000000000000000000000000000a",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "{\"_class\":\"x\",\"builds\":[{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":43,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700002580999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/43/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":42,\"result\":\"FAILURE\",\"building\":false,\"timestamp\":1700002520999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/42/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]}]}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "runs-record-names-the-commit",
+      "kind": "runs",
+      "routes": {
+        "/job/team/job/portal/job/main/api/json": {
+          "body": {
+            "_class": "x",
+            "builds": [
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 9,
+                "result": "SUCCESS",
+                "building": false,
+                "timestamp": 1700000540999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/9/",
+                "actions": [
+                  {
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000b",
+                      "branch": [
+                        {
+                          "name": "refs/remotes/origin/other"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "name": "refs/heads/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 8,
+                "result": "SUCCESS",
+                "building": false,
+                "timestamp": 1700000480999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/8/",
+                "actions": [
+                  {
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000b",
+                      "branch": []
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 7,
+                "result": "SUCCESS",
+                "building": false,
+                "timestamp": 1700000420999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/7/",
+                "actions": [
+                  {}
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "ops": [
+        {
+          "op": "runsForSha",
+          "branch": "main",
+          "sha": "000000000000000000000000000000000000000b",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "{\"_class\":\"x\",\"builds\":[{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":9,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700000540999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/9/\",\"actions\":[{\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000b\",\"branch\":[{\"name\":\"refs/remotes/origin/other\"}]}},{\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"name\":\"refs/heads/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":8,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700000480999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/8/\",\"actions\":[{\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000b\",\"branch\":[]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":7,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700000420999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/7/\",\"actions\":[{}]}]}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+          ],
+          "otherHits": 0
+        },
+        {
+          "op": "runsForSha",
+          "branch": "main",
+          "sha": "000000000000000000000000000000000000000a",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "{\"_class\":\"x\",\"builds\":[{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":9,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700000540999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/9/\",\"actions\":[{\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000b\",\"branch\":[{\"name\":\"refs/remotes/origin/other\"}]}},{\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"name\":\"refs/heads/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":8,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700000480999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/8/\",\"actions\":[{\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000b\",\"branch\":[]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":7,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700000420999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/7/\",\"actions\":[{}]}]}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "runs-many-aborted",
+      "kind": "runs",
+      "routes": {
+        "/job/team/job/portal/job/main/api/json": {
+          "body": {
+            "_class": "x",
+            "builds": [
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 40,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700002400999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/40/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 39,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700002340999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/39/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 38,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700002280999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/38/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 37,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700002220999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/37/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 36,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700002160999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/36/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 35,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700002100999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/35/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 34,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700002040999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/34/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 33,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700001980999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/33/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 32,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700001920999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/32/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 31,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700001860999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/31/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 30,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700001800999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/30/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 29,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700001740999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/29/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 28,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700001680999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/28/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 27,
+                "result": "SUCCESS",
+                "building": false,
+                "timestamp": 1700001620999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/27/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000b",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000b",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 26,
+                "result": "SUCCESS",
+                "building": false,
+                "timestamp": 1700001560999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/26/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000b",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000b",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 25,
+                "result": "SUCCESS",
+                "building": false,
+                "timestamp": 1700001500999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/25/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000b",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000b",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 24,
+                "result": "SUCCESS",
+                "building": false,
+                "timestamp": 1700001440999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/24/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000b",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000b",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 23,
+                "result": "SUCCESS",
+                "building": false,
+                "timestamp": 1700001380999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/23/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000b",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000b",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 22,
+                "result": "SUCCESS",
+                "building": false,
+                "timestamp": 1700001320999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/22/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000b",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000b",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 21,
+                "result": "SUCCESS",
+                "building": false,
+                "timestamp": 1700001260999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/21/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000b",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000b",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "ops": [
+        {
+          "op": "runs",
+          "branch": "main",
+          "limit": 5,
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,15%7D"
+              ],
+              "stdout": "{\"_class\":\"x\",\"builds\":[{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":40,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700002400999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/40/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":39,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700002340999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/39/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":38,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700002280999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/38/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":37,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700002220999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/37/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":36,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700002160999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/36/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":35,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700002100999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/35/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":34,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700002040999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/34/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":33,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700001980999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/33/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":32,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700001920999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/32/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":31,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700001860999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/31/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":30,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700001800999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/30/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":29,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700001740999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/29/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":28,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700001680999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/28/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":27,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700001620999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/27/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000b\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000b\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":26,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700001560999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/26/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000b\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000b\",\"name\":\"origin/main\"}]}}]}]}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,15%7D"
+          ],
+          "otherHits": 0
+        },
+        {
+          "op": "runs",
+          "branch": "main",
+          "limit": 2,
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,6%7D"
+              ],
+              "stdout": "{\"_class\":\"x\",\"builds\":[{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":40,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700002400999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/40/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":39,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700002340999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/39/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":38,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700002280999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/38/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":37,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700002220999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/37/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":36,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700002160999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/36/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":35,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700002100999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/35/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]}]}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,6%7D"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "runs-abandoned-window",
+      "kind": "runs",
+      "routes": {
+        "/job/team/job/portal/job/main/api/json": {
+          "body": {
+            "_class": "x",
+            "builds": [
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 40,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700002400999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/40/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 39,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700002340999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/39/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 38,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700002280999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/38/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 37,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700002220999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/37/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 36,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700002160999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/36/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 35,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700002100999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/35/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 34,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700002040999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/34/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 33,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700001980999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/33/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 32,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700001920999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/32/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 31,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700001860999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/31/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 30,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700001800999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/30/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 29,
+                "result": "ABORTED",
+                "building": false,
+                "timestamp": 1700001740999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/29/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 20,
+                "result": "SUCCESS",
+                "building": false,
+                "timestamp": 1700001200999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/20/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000b",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000b",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "ops": [
+        {
+          "op": "runs",
+          "branch": "main",
+          "limit": 3,
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,9%7D"
+              ],
+              "stdout": "{\"_class\":\"x\",\"builds\":[{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":40,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700002400999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/40/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":39,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700002340999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/39/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":38,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700002280999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/38/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":37,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700002220999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/37/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":36,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700002160999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/36/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":35,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700002100999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/35/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":34,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700002040999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/34/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":33,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700001980999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/33/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":32,\"result\":\"ABORTED\",\"building\":false,\"timestamp\":1700001920999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/32/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]}]}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,9%7D"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "runs-encoded-branch",
+      "kind": "runs",
+      "routes": {
+        "/job/team/job/portal/job/feature%2Fa/api/json": {
+          "body": {
+            "_class": "x",
+            "builds": [
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 3,
+                "result": "SUCCESS",
+                "building": false,
+                "timestamp": 1700000180999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/3/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/feature/a"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "ops": [
+        {
+          "op": "runsForSha",
+          "branch": "feature/a",
+          "sha": "000000000000000000000000000000000000000a",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/feature%2Fa/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "{\"_class\":\"x\",\"builds\":[{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":3,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700000180999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/3/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/feature/a\"}]}}]}]}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/feature%2Fa/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+          ],
+          "otherHits": 0
+        },
+        {
+          "op": "runs",
+          "branch": "feature/a",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/feature%2Fa/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D"
+              ],
+              "stdout": "{\"_class\":\"x\",\"builds\":[{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":3,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700000180999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/3/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/feature/a\"}]}}]}]}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/feature%2Fa/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "runs-plain-job",
+      "kind": "runs",
+      "routes": {
+        "/job/team/job/portal/job/main/api/json": {
+          "status": 404,
+          "text": "<html>404</html>"
+        },
+        "/job/team/job/portal/api/json": {
+          "body": {
+            "_class": "x",
+            "builds": [
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 5,
+                "result": "SUCCESS",
+                "building": false,
+                "timestamp": 1700000300999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/5/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000a",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000a",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 4,
+                "result": "FAILURE",
+                "building": false,
+                "timestamp": 1700000240999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/4/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000b",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000b",
+                          "name": "origin/other"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "_class": "org.jenkinsci.plugins.workflow.job.WorkflowRun",
+                "number": 3,
+                "result": "SUCCESS",
+                "building": false,
+                "timestamp": 1700000180999,
+                "url": "{{ORIGIN}}/jenkins/job/team/job/portal/job/main/3/",
+                "actions": [
+                  {},
+                  {
+                    "_class": "hudson.plugins.git.util.BuildData",
+                    "lastBuiltRevision": {
+                      "SHA1": "000000000000000000000000000000000000000c",
+                      "branch": [
+                        {
+                          "SHA1": "000000000000000000000000000000000000000c",
+                          "name": "origin/main"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "ops": [
+        {
+          "op": "runs",
+          "branch": "main",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D"
+              ],
+              "stdout": "",
+              "stderr": "error: HTTP 404\n<html>404</html>\n",
+              "code": 1
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D"
+              ],
+              "stdout": "{\"_class\":\"x\",\"builds\":[{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":5,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700000300999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/5/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":4,\"result\":\"FAILURE\",\"building\":false,\"timestamp\":1700000240999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/4/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000b\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000b\",\"name\":\"origin/other\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":3,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700000180999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/3/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000c\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000c\",\"name\":\"origin/main\"}]}}]}]}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D",
+            "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D"
+          ],
+          "otherHits": 0
+        },
+        {
+          "op": "runsForSha",
+          "branch": "main",
+          "sha": "000000000000000000000000000000000000000a",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "",
+              "stderr": "error: HTTP 404\n<html>404</html>\n",
+              "code": 1
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "{\"_class\":\"x\",\"builds\":[{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":5,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700000300999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/5/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":4,\"result\":\"FAILURE\",\"building\":false,\"timestamp\":1700000240999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/4/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000b\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000b\",\"name\":\"origin/other\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":3,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700000180999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/3/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000c\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000c\",\"name\":\"origin/main\"}]}}]}]}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D",
+            "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+          ],
+          "otherHits": 0
+        },
+        {
+          "op": "runs",
+          "branch": "nobody",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/nobody/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D"
+              ],
+              "stdout": "",
+              "stderr": "error: HTTP 404\n<html>not found</html>\n",
+              "code": 1
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D"
+              ],
+              "stdout": "{\"_class\":\"x\",\"builds\":[{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":5,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700000300999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/5/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000a\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000a\",\"name\":\"origin/main\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":4,\"result\":\"FAILURE\",\"building\":false,\"timestamp\":1700000240999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/4/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000b\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000b\",\"name\":\"origin/other\"}]}}]},{\"_class\":\"org.jenkinsci.plugins.workflow.job.WorkflowRun\",\"number\":3,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":1700000180999,\"url\":\"http://127.0.0.1:{{PORT}}/jenkins/job/team/job/portal/job/main/3/\",\"actions\":[{},{\"_class\":\"hudson.plugins.git.util.BuildData\",\"lastBuiltRevision\":{\"SHA1\":\"000000000000000000000000000000000000000c\",\"branch\":[{\"SHA1\":\"000000000000000000000000000000000000000c\",\"name\":\"origin/main\"}]}}]}]}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/nobody/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D",
+            "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "runs-never-indexed-multibranch",
+      "kind": "runs",
+      "routes": {
+        "/job/team/job/portal/job/ghost/api/json": {
+          "status": 404,
+          "text": "<html>404</html>"
+        },
+        "/job/team/job/portal/api/json": {
+          "body": {
+            "_class": "org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject"
+          }
+        }
+      },
+      "ops": [
+        {
+          "op": "runsForSha",
+          "branch": "ghost",
+          "sha": "000000000000000000000000000000000000000a",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/ghost/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "",
+              "stderr": "error: HTTP 404\n<html>404</html>\n",
+              "code": 1
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "{\"_class\":\"org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject\"}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/ghost/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D",
+            "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+          ],
+          "otherHits": 0
+        },
+        {
+          "op": "runs",
+          "branch": "ghost",
+          "shellCode": 0,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/ghost/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D"
+              ],
+              "stdout": "",
+              "stderr": "error: HTTP 404\n<html>404</html>\n",
+              "code": 1
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D"
+              ],
+              "stdout": "{\"_class\":\"org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject\"}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/ghost/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D",
+            "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "runs-branch-answered-no-builds",
+      "kind": "runs",
+      "routes": {
+        "/job/team/job/portal/job/main/api/json": {
+          "body": {
+            "_class": "x"
+          }
+        },
+        "/job/team/job/portal/api/json": {
+          "body": {
+            "_class": "y"
+          }
+        }
+      },
+      "ops": [
+        {
+          "op": "runsForSha",
+          "branch": "main",
+          "sha": "000000000000000000000000000000000000000a",
+          "shellCode": 4,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "{\"_class\":\"x\"}\n",
+              "stderr": "",
+              "code": 0
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "{\"_class\":\"y\"}\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D",
+            "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "runs-transport-failure",
+      "kind": "runs",
+      "routes": {
+        "/job/team/job/portal/job/main/api/json": {
+          "destroy": true
+        },
+        "/job/team/job/portal/api/json": {
+          "destroy": true
+        }
+      },
+      "ops": [
+        {
+          "op": "runsForSha",
+          "branch": "main",
+          "sha": "000000000000000000000000000000000000000a",
+          "shellCode": 4,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "",
+              "stderr": "curl: (52) Empty reply from server\n",
+              "code": 1
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "",
+              "stderr": "curl: (52) Empty reply from server\n",
+              "code": 1
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D",
+            "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+          ],
+          "otherHits": 0
+        },
+        {
+          "op": "runs",
+          "branch": "main",
+          "shellCode": 4,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D"
+              ],
+              "stdout": "",
+              "stderr": "curl: (52) Empty reply from server\n",
+              "code": 1
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D"
+              ],
+              "stdout": "",
+              "stderr": "curl: (52) Empty reply from server\n",
+              "code": 1
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D",
+            "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,30%7D"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "runs-html",
+      "kind": "runs",
+      "routes": {
+        "/job/team/job/portal/job/main/api/json": {
+          "status": 200,
+          "text": "<html><body>Sign in</body></html>"
+        },
+        "/job/team/job/portal/api/json": {
+          "status": 200,
+          "text": "<html><body>Sign in</body></html>"
+        }
+      },
+      "ops": [
+        {
+          "op": "runsForSha",
+          "branch": "main",
+          "sha": "000000000000000000000000000000000000000a",
+          "shellCode": 4,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "<html><body>Sign in</body></html>\n",
+              "stderr": "",
+              "code": 0
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "<html><body>Sign in</body></html>\n",
+              "stderr": "",
+              "code": 0
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D",
+            "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "runs-oauth-redirect",
+      "kind": "runs",
+      "routes": {
+        "/job/team/job/portal/job/main/api/json": {
+          "status": 302,
+          "headers": {
+            "Location": "{{ORIGIN}}/oauth2/start?rd=x"
+          }
+        },
+        "/job/team/job/portal/api/json": {
+          "status": 302,
+          "headers": {
+            "Location": "{{ORIGIN}}/oauth2/start?rd=x"
+          }
+        }
+      },
+      "ops": [
+        {
+          "op": "runsForSha",
+          "branch": "main",
+          "sha": "000000000000000000000000000000000000000a",
+          "shellCode": 4,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "",
+              "stderr": "error: HTTP 302 — redirected to the identity provider; the SSO session expired\n  Run: jen auth login\n",
+              "code": 1
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "",
+              "stderr": "error: HTTP 302 — redirected to the identity provider; the SSO session expired\n  Run: jen auth login\n",
+              "code": 1
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D",
+            "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "runs-third-host-redirect",
+      "kind": "runs",
+      "routes": {
+        "/job/team/job/portal/job/main/api/json": {
+          "status": 302,
+          "headers": {
+            "Location": "{{OTHER}}/landing"
+          }
+        },
+        "/job/team/job/portal/api/json": {
+          "status": 302,
+          "headers": {
+            "Location": "{{OTHER}}/landing"
+          }
+        }
+      },
+      "ops": [
+        {
+          "op": "runsForSha",
+          "branch": "main",
+          "sha": "000000000000000000000000000000000000000a",
+          "shellCode": 4,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "",
+              "stderr": "error: HTTP 302 — unexpected redirect to http://127.0.0.1:59555/landing\n  That is neither a Jenkins-internal redirect nor the SSO challenge, so jen\n  will not guess which. Check the instance URL and any proxy in front of it.\n",
+              "code": 1
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "",
+              "stderr": "error: HTTP 302 — unexpected redirect to http://127.0.0.1:59555/landing\n  That is neither a Jenkins-internal redirect nor the SSO challenge, so jen\n  will not guess which. Check the instance URL and any proxy in front of it.\n",
+              "code": 1
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D",
+            "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+          ],
+          "otherHits": 0
+        }
+      ]
+    },
+    {
+      "name": "runs-forbidden",
+      "kind": "runs",
+      "routes": {
+        "/job/team/job/portal/job/main/api/json": {
+          "status": 403,
+          "text": "{}"
+        },
+        "/job/team/job/portal/api/json": {
+          "status": 403,
+          "text": "{}"
+        }
+      },
+      "ops": [
+        {
+          "op": "runsForSha",
+          "branch": "main",
+          "sha": "000000000000000000000000000000000000000a",
+          "shellCode": 4,
+          "calls": [
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "",
+              "stderr": "error: HTTP 403 — the bearer cleared the proxy but Jenkins rejected the request\n  A Jenkins API token WAS sent (user fixture, from the environment) and Jenkins\n  rejected it — it is revoked or superseded, or fixture lacks permission here.\n  Create a fresh token and store it:\n    http://127.0.0.1:{{PORT}}/jenkins/user/fixture/security/\n    jen -I jenkins.example.org auth login\n",
+              "code": 1
+            },
+            {
+              "argv": [
+                "-I",
+                "jenkins.example.org",
+                "api",
+                "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+              ],
+              "stdout": "",
+              "stderr": "error: HTTP 403 — the bearer cleared the proxy but Jenkins rejected the request\n  A Jenkins API token WAS sent (user fixture, from the environment) and Jenkins\n  rejected it — it is revoked or superseded, or fixture lacks permission here.\n  Create a fresh token and store it:\n    http://127.0.0.1:{{PORT}}/jenkins/user/fixture/security/\n    jen -I jenkins.example.org auth login\n",
+              "code": 1
+            }
+          ],
+          "requests": [
+            "/job/team/job/portal/job/main/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D",
+            "/job/team/job/portal/api/json?tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,60%7D"
+          ],
+          "otherHits": 0
+        }
+      ]
+    }
+  ]
+}
