@@ -167,6 +167,52 @@ describe('mergeTick', () => {
     });
   });
 
+  describe('a sprint PR on a red main', () => {
+    const SPRINT = 'sprint/x';
+    const RED = reading({ head: 'red', settled: { sha: TIP, state: 'red' } });
+    const sprintRed = reading({ branch: SPRINT, head: 'red', settled: { sha: TIP, state: 'red' } });
+    const sprintPorts = (base: DefaultBranchReading | null) => {
+      const { ports, calls } = portsFor('answered');
+      const prState = ports.host.prState;
+      return {
+        calls,
+        ports: {
+          ...ports,
+          host: { ...ports.host, prState: async (n: number) => { const out = await prState(n); return { ...out, value: { ...out.value, base: SPRINT } }; } },
+          defaultBranch: { read: async () => ({ ok: true, value: RED }) },
+          baseBranch: () => ({ read: async () => ({ ok: true, value: base }) }),
+        } as unknown as MergePorts,
+      };
+    };
+    const over = (baseReading: DefaultBranchReading | null) => ({
+      defaultBranch: RED,
+      defaultBranchName: 'main',
+      baseReadings: new Map([[SPRINT, baseReading]]),
+    });
+
+    it('selects the PR and merges it with the base file read', async () => {
+      const { ports, calls } = sprintPorts(null);
+      const out = await tick([row(3, { base: SPRINT })], over(null), ports);
+      expect(calls).toEqual([['pr-merge', '3', '--match-head', head(3)]]);
+      expect(out.merged).toMatchObject({ pr: 3, result: { merged: true } });
+    });
+
+    it('holds the PR on a fresh red base reading and does not call mergeAt', async () => {
+      const { ports, calls } = sprintPorts(sprintRed);
+      const out = await tick([row(3, { base: SPRINT })], over(sprintRed), ports);
+      expect(calls).toEqual([]);
+      expect(out.merged).toBeUndefined();
+      expect(out.steps).toEqual([{ pr: 3, step: { step: 'hold', reason: 'base-branch-red' } }]);
+    });
+
+    it('refuses at merge time where the base turned red after selection', async () => {
+      const { ports, calls } = sprintPorts(sprintRed);
+      const out = await tick([row(3, { base: SPRINT })], over(null), ports);
+      expect(calls).toEqual([]);
+      expect(out.merged).toMatchObject({ pr: 3, result: { merged: false, reason: 'base-branch-red' } });
+    });
+  });
+
   it('merges nothing where Merger app is missing on GitHub', async () => {
     const { ports, calls } = portsFor('answered');
     await tick([row(3)], { backend: 'github', mergerApp: { read: 'absent' } }, ports);

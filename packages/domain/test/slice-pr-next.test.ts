@@ -503,6 +503,57 @@ describe('the merge arm', () => {
     expect(merging({ backend: 'github', mergerApp: { read: 'usable' } })).toMatchObject({ step: 'merge' });
   });
 
+  describe('the base hold', () => {
+    const SPRINT = 'sprint/x';
+    const red = reading({ settled: { sha: TIP, state: 'red' }, head: 'red' });
+    const baseRed = (over: Partial<DefaultBranchReading> = {}): DefaultBranchReading =>
+      reading({ branch: SPRINT, settled: { sha: TIP, state: 'red' }, head: 'red', ...over });
+    const sprintRow = { ...passed, base: SPRINT };
+    const into = (over: Partial<SlicePrNextReadings> = {}) =>
+      merging({ row: sprintRow, defaultBranch: red, defaultBranchName: 'main', ...over });
+
+    it('merges a sprint PR on a red main with no base reading', () => {
+      expect(into()).toEqual({ step: 'merge', head: HEAD });
+    });
+    it('holds a PR into main on a fresh settled red, and a row with no base', () => {
+      expect(into({ row: { ...passed, base: 'main' } })).toEqual({ step: 'hold', reason: 'default-branch-red' });
+      expect(into({ row: passed })).toEqual({ step: 'hold', reason: 'default-branch-red' });
+    });
+    it('keeps the default-branch holds where the default branch name is absent', () => {
+      expect(into({ defaultBranchName: undefined })).toEqual({ step: 'hold', reason: 'default-branch-red' });
+    });
+    it('merges a sprint PR on a stale or unread main reading, and is not merge-in-flight', () => {
+      expect(into({ defaultBranch: null })).toEqual({ step: 'merge', head: HEAD });
+      expect(into({ defaultBranch: reading({ askedAt: '2026-10-30T09:00:00Z' }) })).toEqual({ step: 'merge', head: HEAD });
+      expect(into({ defaultBranch: reading({ headSha: OLD }) })).toEqual({ step: 'merge', head: HEAD });
+    });
+    it('holds base-branch-red on a fresh settled-red base reading', () => {
+      expect(into({ baseReading: baseRed() })).toEqual({ step: 'hold', reason: 'base-branch-red' });
+    });
+    it('holds nothing on a base reading older than Checks wait or naming another branch', () => {
+      expect(into({ baseReading: baseRed({ askedAt: '2026-10-30T09:00:00Z' }) })).toEqual({ step: 'merge', head: HEAD });
+      expect(into({ baseReading: baseRed({ branch: 'sprint/other' }) })).toEqual({ step: 'merge', head: HEAD });
+    });
+    it('still holds conflicting and a missing merger app on the sprint path', () => {
+      expect(into({ row: { ...sprintRow, mergeable: 'CONFLICTING' } })).toEqual({ step: 'hold', reason: 'conflicting' });
+      expect(into({ mergerApp: { read: 'unread' } })).toMatchObject({ step: 'hold' });
+    });
+    it('gives the named repair PR into a sprint branch no admission on a red base', () => {
+      const LAST_GREEN = 'e'.repeat(40);
+      const repairMerge: RepairMergeReading = {
+        record: {
+          v: 1, branch: 'main', state: 'repairing', lastGreenSha: LAST_GREEN, firstRedSha: 'f'.repeat(40),
+          redSince: '2026-10-10T00:00:00Z', candidates: [], rerun: 'asked', preRevertRerun: 'none',
+          repairPr: 7, at: '2026-10-10T00:00:00Z',
+        },
+        episode: 'open',
+        redRuns: 'red',
+      };
+      const r = { ...sprintRow, head: `bug/main-repair-${LAST_GREEN.slice(0, 12)}` };
+      expect(into({ row: r, repairMerge, baseReading: baseRed() })).toEqual({ step: 'hold', reason: 'base-branch-red' });
+    });
+  });
+
   describe('the repair exception', () => {
     const LAST_GREEN = 'e'.repeat(40);
     const REPAIR_BRANCH = `bug/main-repair-${LAST_GREEN.slice(0, 12)}`;

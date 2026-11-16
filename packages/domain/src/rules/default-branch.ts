@@ -289,6 +289,41 @@ export const defaultBranchRed = (
 };
 
 /**
+ * Whether the default-branch holds apply to a PR's merge.
+ *
+ * A merge into another branch does not move the default branch, so its
+ * reading says nothing about that merge. The holds apply where the PR's base
+ * is the default branch, and also where either name is unknown: an empty
+ * `base` or an unread default-branch name never lifts a hold.
+ *
+ * @param base - the PR's base branch as the host names it, or `''`.
+ * @param defaultName - the default branch name, `'unaskable'`, or absent.
+ * @returns false only where both names are known and differ.
+ */
+export const holdsApply = (base: string, defaultName: string | 'unaskable' | undefined): boolean =>
+  base === '' || defaultName === undefined || defaultName === 'unaskable' || defaultName === '' || base === defaultName;
+
+/**
+ * Whether a PR's base branch is red for queueing purposes.
+ *
+ * True where `baseReading` names `base` and {@link defaultBranchRed} holds for
+ * it. A reading of another branch, an absent reading, and one older than
+ * `checksWaitMs` hold nothing.
+ *
+ * @param base - the PR's base branch as the host names it.
+ * @param baseReading - the reading kept for that base, or null where there is none.
+ * @param now - the current time, as epoch milliseconds.
+ * @param checksWaitMs - the `Checks wait` bound, in milliseconds.
+ * @returns true when the base's newest settled commit is red within the bound.
+ */
+export const baseBranchRed = (
+  base: string,
+  baseReading: DefaultBranchReading | null,
+  now: number,
+  checksWaitMs: number,
+): boolean => baseReading !== null && baseReading.branch === base && defaultBranchRed(baseReading, now, checksWaitMs);
+
+/**
  * One thing a board has to report, independent of which panel renders it.
  *
  * Declared here rather than in `StatusPanel.tsx` because the domain cannot

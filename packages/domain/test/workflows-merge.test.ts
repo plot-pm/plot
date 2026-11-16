@@ -989,6 +989,41 @@ describe('merge — the default-branch holds read the PR base', () => {
     expect(decideAt(into(SPRINT, { ...red, caller: 'unattended' }))).toBe('unattended');
   });
 
+  describe('the base holds', () => {
+    const sprintRed = (over: Partial<DefaultBranchReading> = {}): DefaultBranchReading => ({
+      ...(reading('red') as DefaultBranchReading), branch: SPRINT, ...over,
+    });
+    it('refuses base-branch-red for a fresh settled-red base, and names the base', () => {
+      const out = merge(into(SPRINT, { baseReading: sprintRed() }), { pr: 42, sha: HEAD, ...CLOCK });
+      expect(out).toMatchObject({ outcome: 'refused', reason: 'base-branch-red' });
+      expect(out.outcome === 'refused' && out.detail).toContain(`${SPRINT} is red on `);
+    });
+    it('holds nothing for a base reading older than Checks wait, an absent one, or one naming another branch', () => {
+      expect(decideAt(into(SPRINT, { baseReading: sprintRed() }), LATE)).toBe('decided');
+      expect(decideAt(into(SPRINT, { baseReading: null }))).toBe('decided');
+      expect(decideAt(into(SPRINT))).toBe('decided');
+      expect(decideAt(into(SPRINT, { baseReading: sprintRed({ branch: 'sprint/other' }) }))).toBe('decided');
+    });
+    it('refuses unaskable where the base read failed', () => {
+      expect(decideAt(into(SPRINT, { baseReading: 'unaskable' }))).toBe('unaskable');
+    });
+    it('does not read the base reading for a PR into the default branch', () => {
+      expect(decideAt(into('main', { baseReading: sprintRed() }))).toBe('decided');
+    });
+    it('gives the repair PR into a sprint branch no admission on a red base', () => {
+      const repair: RepairMergeReading = {
+        record: {
+          v: 1, branch: 'main', state: 'repairing', lastGreenSha: 'e'.repeat(40), firstRedSha: 'f'.repeat(40),
+          redSince: '2026-10-10T00:00:00Z', candidates: [], rerun: 'asked', preRevertRerun: 'none', repairPr: 42, at: '2026-10-10T00:00:00Z',
+        },
+        episode: 'open',
+        redRuns: 'red',
+      };
+      const r = into(SPRINT, { pr: pr({ head: `bug/main-repair-${'e'.repeat(12)}`, base: SPRINT }), baseReading: sprintRed(), repair });
+      expect(decideAt(r)).toBe('base-branch-red');
+    });
+  });
+
   it('still admits the repair PR into the default branch on a red reading', () => {
     const LAST_GREEN = 'e'.repeat(40);
     const branch = `bug/main-repair-${LAST_GREEN.slice(0, 12)}`;
@@ -1073,6 +1108,39 @@ describe('mergeAt — the default-branch holds read the PR base', () => {
     expect(await mergeAt(p, 9, SHA)).toMatchObject({ merged: false, reason: 'default-branch-unsettled' });
     expect(asked).toEqual(['prState', 'defaultBranch']);
     expect(calls).toEqual([]);
+  });
+
+  describe('the base reading', () => {
+    const baseOf = (state: 'red' | 'green', askedAt: string): DefaultBranchReading => ({ ...readingOf(state, askedAt), branch: SPRINT });
+    const withBase = (read: DefaultBranchReading | null | 'fail') => {
+      const made = ports(SPRINT, readingOf('red', at(60_000)));
+      const opened: string[] = [];
+      (made.p as unknown as { baseBranch: (b: string) => unknown }).baseBranch = (b: string) => {
+        opened.push(b);
+        return { read: async () => (read === 'fail' ? { ok: false, why: 'failed' } : { ok: true, value: read }) };
+      };
+      return { ...made, opened };
+    };
+    it('refuses base-branch-red on a fresh red base reading, and merges nothing', async () => {
+      const { p, calls, opened } = withBase(baseOf('red', at(60_000)));
+      expect(await mergeAt(p, 9, SHA)).toMatchObject({ merged: false, reason: 'base-branch-red' });
+      expect(opened).toEqual([SPRINT]);
+      expect(calls).toEqual([]);
+    });
+    it('merges where the base reading is older than Checks wait or absent', async () => {
+      expect(await mergeAt(withBase(baseOf('red', at(WAIT + 60_000))).p, 9, SHA)).toMatchObject({ merged: true });
+      expect(await mergeAt(withBase(null).p, 9, SHA)).toMatchObject({ merged: true });
+    });
+    it('refuses unaskable on a failed base read', async () => {
+      expect(await mergeAt(withBase('fail').p, 9, SHA)).toMatchObject({ merged: false, reason: 'unaskable' });
+    });
+    it('opens no base file for a PR into the default branch', async () => {
+      const made = ports('main', readingOf('green', at(60_000)));
+      const opened: string[] = [];
+      (made.p as unknown as { baseBranch: (b: string) => unknown }).baseBranch = (b: string) => { opened.push(b); return { read: async () => ({ ok: true, value: null }) }; };
+      await mergeAt(made.p, 9, SHA);
+      expect(opened).toEqual([]);
+    });
   });
 
   it('keeps the holds for a PR into another branch where the default branch name is unread', async () => {

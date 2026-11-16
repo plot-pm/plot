@@ -9,7 +9,7 @@ import type { Refs } from '../ports/refs.js';
 import type { RepairRecordStore } from '../ports/repair-record.js';
 import type { Scripts } from '../ports/scripts.js';
 import { minHexLenFor } from '../adapters/host/min-hex-len.js';
-import { declaredRuns, defaultBranchAgeMs, foldRuns } from '../rules/default-branch.js';
+import { baseBranchRed, declaredRuns, defaultBranchAgeMs, foldRuns, holdsApply } from '../rules/default-branch.js';
 import {
   EPISODE_LINE_DEPTH,
   repairEpisode,
@@ -40,6 +40,7 @@ export type MergeRefusal =
   | 'checks-not-green'
   | 'checks-unbound'
   | 'default-branch-red'
+  | 'base-branch-red'
   | 'default-branch-stale'
   | 'default-branch-unsettled'
   | 'default-branch-unread'
@@ -82,6 +83,12 @@ export interface MergeReadings {
    * names a different one (see {@link holdsApply}).
    */
   readonly defaultBranchName?: string | 'unaskable';
+  /**
+   * The reading kept for the PR's base branch, read only where the default-branch
+   * holds do not apply (see {@link holdsApply}). `'unaskable'` where the read
+   * failed; absent reads as no reading.
+   */
+  readonly baseReading?: DefaultBranchReading | null | 'unaskable';
   /**
    * The `plot/review` state on the pinned head, re-asked through the host and
    * never folded from the checks rollup. `'unaskable'` where the read failed.
@@ -185,20 +192,7 @@ const unknownHeadBound = (
   return !Number.isNaN(since) && now - since > checksWaitMs;
 };
 
-/**
- * Whether the default-branch holds apply to a PR's merge.
- *
- * A merge into another branch does not move the default branch, so its
- * reading says nothing about that merge. The holds apply where the PR's base
- * is the default branch, and also where either name is unknown: an empty
- * `base` or an unread default-branch name never lifts a hold.
- *
- * @param base - the PR's base branch as the host names it, or `''`.
- * @param defaultName - the default branch name, `'unaskable'`, or absent.
- * @returns false only where both names are known and differ.
- */
-export const holdsApply = (base: string, defaultName: string | 'unaskable' | undefined): boolean =>
-  base === '' || defaultName === undefined || defaultName === 'unaskable' || defaultName === '' || base === defaultName;
+export { holdsApply };
 
 const short = (sha: string | undefined): string =>
   sha === undefined || sha === '' ? 'none' : sha.slice(0, 12);
@@ -374,6 +368,14 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
         }
       }
     }
+  } else {
+    const baseReading = readings.baseReading ?? null;
+    if (baseReading === 'unaskable') {
+      return no('unaskable', `the reading of ${pr.base} could not be read for PR #${input.pr}. A failed read is not an absent reading; nothing was merged.`);
+    }
+    if (baseBranchRed(pr.base, baseReading, input.now, input.checksWaitMs)) {
+      return no('base-branch-red', `${pr.base} is red on ${short(baseReading?.settled?.sha)}. A merge now stacks a change on an unproven base.`);
+    }
   }
   return decide('merge', [{ kind: 'pr-merge', pr: input.pr, deleteBranch: false, sha: pr.headSha }], {
     pr: input.pr,
@@ -414,6 +416,8 @@ export interface MergePorts {
   host: Host;
   scripts: Scripts;
   defaultBranch: DefaultBranchStore;
+  /** Opens the reading kept for a PR's base branch; absent reads as no reading. */
+  baseBranch?: (base: string) => DefaultBranchStore;
   refs: Refs;
   /** The `Checks wait` bound, in milliseconds. */
   checksWaitMs: number;
@@ -541,6 +545,7 @@ export const mergeAt = async (
       };
     }
   }
+  const baseRead = !holds && ports.baseBranch !== undefined ? await ports.baseBranch(base).read() : undefined;
   const backend = await ports.host.backend();
   const [review, writer] = await Promise.all([
     ports.host.prReview(pr),
@@ -573,6 +578,7 @@ export const mergeAt = async (
       defaultBranch: reading.ok ? reading.value : 'unaskable',
       defaultBranchTip: tipSha,
       defaultBranchName,
+      ...(baseRead === undefined ? {} : { baseReading: baseRead.ok ? baseRead.value : 'unaskable' as const }),
       review: review.ok ? review.value : 'unaskable',
       reviewWriter: writer.ok ? writer.value : 'unaskable',
       conversation: conversation.ok ? conversation.value : 'unaskable',
