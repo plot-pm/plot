@@ -9,14 +9,15 @@
 //   pass   run one completed pass: move the manual clock by 120 s, so every beat of
 //          the scan, the PR reader, the issue reader and the issue writes comes
 //          due, and end when no direct child has run for `QUIET_MS`; then start
-//          `/usr/bin/true census-mark pass-<n>` and print `census: pass <n> done`
+//          `/usr/bin/true census-mark pass-<n>` and print `census: pass <n> done ticks=<k>`,
+//          where <k> is how many supervision ticks the pass ran
 //   safety-net
 //          run one completed pass that moves the clock by at least the
 //          safety-net interval, so the full read it holds is a safety-net
 //          read; it prints `census: pass <n> done` as `pass` does
 //   stop   end the loop; prints `census: stopped <code>` and exits with it
 //
-// A pass is done once no direct child, no in-process HTTP request and no scan
+// A pass is done once no direct child, no in-process HTTP request, no supervision tick and no scan
 // that fleetd's bridge (`.plot/state/last-pulse.json`) marks `running` has been
 // in flight for 300 ms of the real clock; a `running` mark holds a pass for at
 // most 120 s. A safety-net pass first waits, for at most 120 s, until the bridge
@@ -46,7 +47,7 @@ import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import type { ChildProcess } from 'node:child_process';
 
-import { scanBusy, scanEndedSince, type BridgeReading } from './census-settle.js';
+import { passSettled, scanBusy, scanEndedSince, type BridgeReading } from './census-settle.js';
 
 /** The image a mark starts; the census filters it out by its first argument. */
 export const MARK_IMAGE = '/usr/bin/true';
@@ -226,6 +227,23 @@ if (manual) {
 // The product, loaded after the patches.
 // ---------------------------------------------------------------------------
 const { run } = await import('census-product:fleetd');
+const { tick } = await import('census-product:tick');
+
+/** Supervision ticks run so far; a pass reports the ones it ran. */
+let ticks = 0;
+// A TICK IN FLIGHT HOLDS THE PASS OPEN: `quiet` does not see fleetd's tick, and
+// under `strace -f` the gap between the scan's last child and the tick's first
+// can exceed the quiet window, which would place the pass mark before the tick.
+const trackedTick: typeof tick = async (options) => {
+  inFlight += 1;
+  ticks += 1;
+  try {
+    return await tick(options);
+  } finally {
+    inFlight -= 1;
+    lastSettled = performance.now();
+  }
+};
 const { clockManual } = await import('census-product:clock');
 const { fleetDivisors } = await import('census-product:fleet-clock');
 
@@ -275,7 +293,7 @@ const bridgeOf = (): BridgeReading => {
 const quiet = async (): Promise<void> => {
   for (;;) {
     await new Promise((r) => setTimeout(r, 50));
-    if (inFlight === 0 && performance.now() - lastSettled >= QUIET_MS && !scanBusy(bridgeOf(), RealDate.now(), QUIET_MS, SCAN_BOUND_MS)) return;
+    if (passSettled({ inFlight, sinceSettledMs: performance.now() - lastSettled, scanBusy: scanBusy(bridgeOf(), RealDate.now(), QUIET_MS, SCAN_BOUND_MS), quietMs: QUIET_MS })) return;
   }
 };
 
@@ -301,6 +319,7 @@ const mark = (label: string): void => {
 };
 
 let passes = 0;
+let ticksAtMark = 0;
 const pass = async (beats: number = beatsPerPass): Promise<void> => {
   passes += 1;
   // THE FIRST PASS WAITS FOR THE START: the loop logs `supervising` once the watch set is armed
@@ -327,7 +346,8 @@ const pass = async (beats: number = beatsPerPass): Promise<void> => {
   } else clock?.advance(beats);
   await quiet();
   mark(`pass-${passes}`);
-  say(`pass ${passes} done`);
+  say(`pass ${passes} done ticks=${ticks - ticksAtMark}`);
+  ticksAtMark = ticks;
 };
 
 const repoRoot = process.env['PLOT_REPO_ROOT'] ?? process.cwd();
@@ -343,7 +363,7 @@ const daemon = run(
   stop,
   (s: string) => process.stderr.write(s),
   repoRoot,
-  clock ? { clock } : {},
+  clock ? { clock, tick: trackedTick } : { tick: trackedTick },
 );
 
 let queue = Promise.resolve();

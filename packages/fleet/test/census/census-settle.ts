@@ -78,3 +78,18 @@ export const scanEndedSince = (bridge: BridgeReading, sinceMs: number): boolean 
   }
   return typeof attempt?.startedAt === 'number' && attempt.startedAt >= sinceMs && typeof attempt.outcome === 'string' && attempt.outcome !== 'running';
 };
+
+/**
+ * Whether a normal pass has settled: nothing in flight, the quiet window
+ * passed since the last settle, and no scan running.
+ *
+ * `inFlight` counts direct children, in-process HTTP requests and supervision
+ * ticks, so a tick that has started and not yet returned holds the pass open
+ * across a gap in which it starts no child.
+ *
+ * @param reading - `inFlight`, the count in flight; `sinceSettledMs`, ms since
+ *   the last settle; `scanBusy`, the bridge's reading; `quietMs`, the quiet window.
+ * @returns `true` where `inFlight` is 0, `sinceSettledMs >= quietMs` and the scan is not busy.
+ */
+export const passSettled = (reading: { inFlight: number; sinceSettledMs: number; scanBusy: boolean; quietMs: number }): boolean =>
+  reading.inFlight === 0 && reading.sinceSettledMs >= reading.quietMs && !reading.scanBusy;
