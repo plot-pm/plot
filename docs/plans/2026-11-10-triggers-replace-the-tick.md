@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** triggers-and-connectors
 - **Issue:** #3170
@@ -16,6 +16,7 @@
 - **Started:** 2026-11-12, Jan Wloka, `feature/triggers-replace-the-tick-scan`
 - **Started:** 2026-11-13, Jan Wloka, `feature/triggers-replace-the-tick-tick`
 - **Delivered:** 2026-11-14
+- **Released:** 2026-11-16, v2.34.0
 
 ## Changelog
 

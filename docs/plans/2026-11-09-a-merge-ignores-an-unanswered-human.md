@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** ship-2-32-0
 - **Issue:** #3327
@@ -14,6 +14,7 @@
 - **Started:** 2026-11-09, Jan Wloka, `bug/the-host-reads-a-pr-conversation`
 - **Started:** 2026-11-15, Jan Wloka, `bug/a-merge-refuses-an-unanswered-human-comment`
 - **Delivered:** 2026-11-16
+- **Released:** 2026-11-16, v2.34.0
 
 ## Changelog
 

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** triggers-and-connectors
 - **Issue:** #3170
@@ -17,6 +17,7 @@
 - **Started:** 2026-11-12, Jan Wloka, `feature/bitbucket-and-jira-read-in-process-bitbucket-cutover`
 - **Started:** 2026-11-13, Jan Wloka, `feature/bitbucket-and-jira-read-in-process-jira-cutover`
 - **Delivered:** 2026-11-13
+- **Released:** 2026-11-16, v2.34.0
 
 ## Changelog
 

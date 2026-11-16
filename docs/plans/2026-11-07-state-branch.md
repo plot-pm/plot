@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** ship-2-32-0
 - **Review:** pr
@@ -18,6 +18,7 @@
 - **Started:** 2026-11-08, Jan Wloka, `feature/state-branch-sync`
 - **Started:** 2026-11-09, Jan Wloka, `feature/state-branch-setup`
 - **Delivered:** 2026-11-15
+- **Released:** 2026-11-16, v2.34.0
 
 ## Changelog
 
