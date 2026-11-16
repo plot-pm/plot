@@ -73,7 +73,7 @@ The change has no shell/domain duplicate and no corpus row. It reads no index an
 
 ### Proof
 
-- `bug/an-exhausted-episode-admits-its-repair-pr` — two tests in `packages/domain/test/workflows-merge.test.ts`, one test in `packages/domain/test/slice-pr-next.test.ts`, and a changeset for `plot` (patch, `bumps:` block naming `plot`); one clause in `keepsRepairRecord` (`packages/domain/src/rules/repair-pr.ts`) and one test in `packages/domain/test/repair-pr.test.ts` <!-- builds: keepsRepairRecord keeps an exhausted record that names a person's PR, and tests that an exhausted episode admits its repair PR -->
+- `bug/an-exhausted-episode-admits-its-repair-pr` — two tests in `packages/domain/test/workflows-merge.test.ts`, one test in `packages/domain/test/slice-pr-next.test.ts`, and a changeset for `plot` (patch, `bumps:` block naming `plot`); one clause in `keepsRepairRecord` (`packages/domain/src/rules/repair-pr.ts`) and one test in `packages/domain/test/repair-pr.test.ts` <!-- builds: keepsRepairRecord keeps an exhausted record that names a person's PR, and tests that an exhausted episode admits its repair PR --> → #3476
 
 ## Notes
 
