@@ -7,7 +7,7 @@ tools:
   - Read
   - Grep
   - Glob
-maxTurns: 40
+maxTurns: 80
 isolation: worktree
 ---
 
