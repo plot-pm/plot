@@ -164,7 +164,7 @@ Rows still to meet:
 
 ### Index base
 
-- `bug/red-hold-index-base` — `base` on `PrIndexRowSchema` and in `storeRow`, `PR_INDEX_VERSION` 7, `baseRefName` in the three GitHub `pr-list` arms of `plot-host.sh`, in the in-process listing fragments of `github-pr-listing.ts` and in `rules/github-pr-row.ts`, and the contract, corpus and index rows; the Bitbucket arms already emit `base` <!-- builds: the PR index records each pull request's base branch -->
+- `bug/red-hold-index-base` — `base` on `PrIndexRowSchema` and in `storeRow`, `PR_INDEX_VERSION` 7, `baseRefName` in the three GitHub `pr-list` arms of `plot-host.sh`, in the in-process listing fragments of `github-pr-listing.ts` and in `rules/github-pr-row.ts`, and the contract, corpus and index rows; the Bitbucket arms already emit `base` <!-- builds: the PR index records each pull request's base branch --> → #3479
 
 ### Base hold
 
