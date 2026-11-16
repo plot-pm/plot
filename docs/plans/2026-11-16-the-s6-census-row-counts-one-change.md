@@ -56,10 +56,11 @@ No tolerance changes, and no row is marked as expected to fail.
 
 ### Open Questions
 
-- [ ] **Does the harness wrap the existing tick seam, or does the product report when its loop is parked?**
+- [x] **Does the harness wrap the existing tick seam, or does the product report when its loop is parked?**
   - A: Wrap `RunSeams.tick` in the entry, as above. It needs no product change, and the merge-base product accepts it at once. It does not hold the pass across the short gap between `wake.trigger` and the start of `runTick`, which is in-process work in one loop iteration.
   - B: Add a product seam, `RunSeams.parked?: (parked: boolean) => void`, which `pause` (`registryd-main.ts:3652`, `wake.wait` at `:3660`) calls before and after `wake.wait`. The entry then settles only while fleetd's loop is parked with no trigger pending. It closes every gap, but the merge-base product ignores the seam until the fix is on `main`, so the PR that lands it still measures the base with the old race.
   - **Recommendation: A.** It closes the measured gap with no product change, and it measures both sides alike from the first PR. Take B only if the census logs from step 3 show a leak with A in place.
+  - **Decided 2026-11-16, Jan Wloka: option A.**
 
 ## Done when
 
