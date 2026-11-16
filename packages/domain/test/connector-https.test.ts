@@ -102,6 +102,36 @@ describe('one request through the shared transport', () => {
     expect(api.seen[0]?.body).toBe('{"a":1}');
   });
 
+  it('sends a form body urlencoded, with its length, and leaves the JSON path alone', async () => {
+    const api = await stub((_, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('{"ok":true}');
+    });
+    const { https } = transport();
+    const sent = await https.send(
+      BITBUCKET(api.url, { method: 'POST', form: { grant_type: 'refresh_token', refresh_token: 'a b&c=d' } }),
+    );
+    expect(sent).toMatchObject({ reply: { status: 200, body: { ok: true } } });
+    expect(api.seen[0]?.headers['content-type']).toBe('application/x-www-form-urlencoded');
+    expect(api.seen[0]?.body).toBe('grant_type=refresh_token&refresh_token=a+b%26c%3Dd');
+    expect(api.seen[0]?.headers['content-length']).toBe(String(Buffer.byteLength(api.seen[0]?.body ?? '')));
+  });
+
+  it('follows no redirect: a 302 is the answer, and the Location is not requested', async () => {
+    const other = await stub((_, res) => {
+      res.writeHead(200);
+      res.end('{}');
+    });
+    const api = await stub((_, res) => {
+      res.writeHead(302, { Location: `${other.url}/landed` });
+      res.end();
+    });
+    const { https } = transport();
+    const sent = await https.send(BITBUCKET(api.url));
+    expect(sent).toMatchObject({ reply: { status: 302, headers: { location: `${other.url}/landed` } } });
+    expect(other.seen).toEqual([]);
+  });
+
   it('returns the raw text where the body is not JSON, and null where it is empty', async () => {
     const api = await stub((seen, res) => {
       res.writeHead(200);
