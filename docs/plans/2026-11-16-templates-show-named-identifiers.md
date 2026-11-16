@@ -41,7 +41,7 @@ Adopters have different tastes, so Plot adds no gate, no config key and no lint 
 
 ### Open Points
 
-- [ ] `[question-design-doc-citations]` Should `DESIGN-phases.md` name the decisions it cites as "(D3)", "(D10)" and so on? This plan leaves them: the design doc sits beside the table that defines the codes, so its reader has the legend.
+- [ ] `[question-design-doc-citations]` Should `DESIGN-phases.md` replace its citations "(D3)", "(D10)" and so on with names? This plan leaves them: the design doc sits beside the table that defines the codes, so its reader has the legend.
 
 ## Slices
 
