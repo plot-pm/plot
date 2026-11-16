@@ -796,6 +796,18 @@ describe('mergeAt — the repair PR on a red default branch', () => {
     expect(asked).toEqual([]);
   });
 
+  it('merges the repair PR an exhausted record names', async () => {
+    const { p, calls, head } = ports({ record: record({ state: 'exhausted' }) });
+    expect(await mergeAt(p, 7, head)).toMatchObject({ merged: true, pr: 7, sha: head });
+    expect(calls).toEqual([['pr-merge', '7', '--match-head', head]]);
+  });
+
+  it('refuses default-branch-red for a PR an exhausted record does not name', async () => {
+    const { p, asked, head } = ports({ record: record({ state: 'exhausted', repairPr: 8 }) });
+    expect(await mergeAt(p, 7, head)).toMatchObject({ merged: false, reason: 'default-branch-red' });
+    expect(asked).toEqual([]);
+  });
+
   it('refuses default-branch-red where the record read fails or no record exists', async () => {
     const failed = ports({ record: 'fail' });
     expect(await mergeAt(failed.p, 7, failed.head)).toMatchObject({ merged: false, reason: 'default-branch-red' });

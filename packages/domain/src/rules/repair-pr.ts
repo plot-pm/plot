@@ -194,9 +194,11 @@ export const repairMergeVerdict = (
  * Whether fleetd keeps the record on disk instead of opening a new one.
  *
  * fleetd opens a record at the change from green to red. A record that names
- * the same branch and the same first red SHA, and is not `done` or
- * `exhausted`, is that episode's record already; replacing it would drop the
- * `repairPr` a person recorded on it.
+ * the same branch and the same first red SHA, and is not `done`, is that
+ * episode's record already; replacing it would drop the `repairPr` a person
+ * recorded on it. An `exhausted` record is kept only where it names a
+ * `repairPr` or a `revertPr`; one that names neither is replaced, and fleetd
+ * repairs the episode again.
  *
  * @param existing - the record on disk, or null where none exists.
  * @param branch - the default branch of the new episode.
@@ -208,4 +210,4 @@ export const keepsRepairRecord = (existing: RepairRecord | null, branch: string,
   existing.branch === branch &&
   existing.firstRedSha === firstRedSha &&
   existing.state !== 'done' &&
-  existing.state !== 'exhausted';
+  (existing.state !== 'exhausted' || existing.repairPr !== undefined || existing.revertPr !== undefined);
