@@ -216,6 +216,13 @@ describe('keepsRepairRecord', () => {
     expect(keepsRepairRecord(record({ state: 'done' }), 'main', RED)).toBe(false);
     expect(keepsRepairRecord(record({ state: 'exhausted' }), 'main', RED)).toBe(false);
   });
+
+  it('keeps an exhausted record that names a repair PR', () => {
+    expect(keepsRepairRecord(record({ state: 'exhausted', repairPr: 2942 }), 'main', RED)).toBe(true);
+    expect(keepsRepairRecord(record({ state: 'exhausted', revertPr: 2943, revertedPr: 2937 }), 'main', RED)).toBe(true);
+    expect(keepsRepairRecord(record({ state: 'exhausted', repairPr: 2942 }), 'main', BUNDLE)).toBe(false);
+    expect(keepsRepairRecord(record({ state: 'exhausted' }), 'main', RED)).toBe(false);
+  });
 });
 
 describe('nameRepairPr — a person records the repair PR', () => {

@@ -560,6 +560,11 @@ describe('the merge arm', () => {
       expect(onRed({ scope: { read: 'none', why: 'no-active-sprint' } })).toEqual({ step: 'merge', head: HEAD });
     });
 
+    it('admits the repair PR an exhausted episode names', () => {
+      const record = { ...(repairMerge().record as object), state: 'exhausted' } as RepairMergeReading['record'];
+      expect(onRed({ repairMerge: repairMerge({ record, episode: 'open' }) })).toEqual({ step: 'merge', head: HEAD });
+    });
+
     it('admits the revert PR the open episode names from bug/revert-<pr>', () => {
       const record = { ...(repairMerge().record as object), repairPr: undefined, revertPr: 7, revertedPr: 6 } as RepairMergeReading['record'];
       expect(onRed({ repairMerge: repairMerge({ record }) }, 'bug/revert-6')).toEqual({ step: 'merge', head: HEAD });
