@@ -11,13 +11,13 @@
 - **Story:** delivery-tab-reads-at-a-glance
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
 - The **Work items** header counts items at a gate, being built and queued, and names how long the oldest one waits.
-- An item at a gate shows its CI and review gates as ✓, ⟳ or ✗, each linked to its PR's checks or review (`CI ✗ · review –`).
-- An item being built shows its progress (`4 commits · no PR yet`); a queued item shows what it waits on (`no agent assigned`, or the earlier slice).
+- An item at a gate shows its CI and review gates as ✓, ⟳ or ✗, linked to its PR's checks and review where the host gave a link (`CI ✗ · review –`).
+- An item being built shows its progress (`no PR yet`, or `2 unpushed`); a queued item shows what it waits on (`no agent assigned`, or the earlier slice).
 - The **Where** column shows the PR with its branch beneath it, written in full.
 - The **By** column shows the agent's role chip and name, linked to its Fleet row; a fixer adds its attempt ("1/2").
 
@@ -37,15 +37,15 @@ Depends on plan 1, `delivery-tab-header-and-my-sprint`, for the section-header p
 
 - **Header.** "<n> at a gate · <n> being built · <n> queued · oldest waits <age>", each count linking to its group. "Oldest waits" is the age of the oldest row in the section.
 - **Groups:** At a gate · Being built · Queued.
-- **Columns:** Kind · Item · Where · (group column) · By · Age. The group column is **Gates** for At a gate, **Progress** for Being built and **Waits on** for Queued. One column holds one kind of value.
-- **Gates.** The gate marks exist: `GATE_MARK` and `gateValue` (`delivery-row-form.ts:91, 139`) render ✓ ⟳ ✗ for one gate per row today. The gates slice extends `gateValue` to show CI and review side by side. A review nobody has asked reads `–` and stands for `review: none`; an unread gate yields a `null` cell, as the row form's rule says (`delivery-row-form.ts:221`). A slice PR is a gate here unless plan 2's PR rule places it under You › Blocks delivery (*Calls Made After Review*, "A PR blocks delivery; no PR is an input").
-- **Gate links and the check name.** The PR index carries `ciChecks` as a summary (`green`, `pending`, `failing`, `none`, `unknown`) and no run id or check name, and `ciRun` is never set. The CI mark links to the PR's checks page, and the review mark to the PR's review, both built from the PR URL the payload carries; the gates slice fills `prUrl`, which is `() => null` today, from the PR number and the repository URL the board already holds. The check name ("validate") has no reading. The design forbids a new host read (*Non-goals*), so the cell shows `CI ✗` without the name, and this plan records the check name as a gap.
-- **Progress.** A row being built shows its commit count and its PR state ("4 commits · no PR yet"). The count comes from the pulse's local git reading of the branch (`local_ahead` for a desk on this machine), which is a local read; a branch with no desk here shows no count.
+- **Columns:** Kind · Item · Where · (group column) · By · Age. `ROW_COLUMNS` fixes a `status` column today; the group column takes the place of `status` in Work items, and Release delivery rows keep `ROW_COLUMNS` unchanged. The group column is **Gates** for At a gate, **Progress** for Being built and **Waits on** for Queued. One column holds one kind of value.
+- **Gates.** The gate marks exist: `GATE_MARK` and `gateValue` (`delivery-row-form.ts:91, 139`) render ✓ ⟳ ✗ for one gate per row today. The gates slice extends `gateValue`, which returns one string today (CI when read, else one review mark), to return the CI and review marks as two cells, and updates `itemRowCells` and the tests that select `CI ✓` text. A review nobody has asked reads `–` and stands for `review: none`; an unread gate yields a `null` cell, as the row form's rule says (`delivery-row-form.ts:215-216`). A slice PR is a gate here unless plan 2's PR rule places it under You › Blocks delivery (*Calls Made After Review*, "A PR blocks delivery; no PR is an input").
+- **Gate links and the check name.** The PR index carries `ciChecks` as a summary (`green`, `pending`, `failing`, `none`, `unknown`) and no run id or check name, and `ciRun` is never set. The payload already carries the host's own links on `CardPr` (`schema.ts:292-312`): `url` for the PR and `checksUrl` for its checks page, each empty where the board does not know one. The board builds no PR address from a PR number and a repository, because that arithmetic is wrong on GitHub Enterprise and self-hosted Bitbucket. The CI mark links to `checksUrl` and the review mark to `url`; an empty value renders the mark as plain text. `prUrl` is `() => null` at `AgentList.tsx:1097`, and the gates slice replaces it with a read of those two fields, which needs a new link target beside `pr` and `review` in `delivery-link-targets.ts` for the checks page. The `–` mark for `review: none` carries no link (`gateLinks` emits none for `none`), and Done When says so. The failing check names exist as `failingChecks` on `entities/pr.ts`, but the PR index summary has no name for the gate; the cell shows `CI ✗` without the name unless the builder finds the names already on the row's facts. The design forbids a new host read (*Non-goals*).
+- **Progress.** A row being built shows its PR state ("no PR yet") and, where one is read, a commit count. `local_ahead` (`localAhead`, `schema.ts:2489`) counts only commits the machine holds that the remote does not, and reads 0 for a pushed branch, so it is not "N commits on the branch". The commit count stays out of the first slice until a reading exists that counts a branch's own commits against the default branch; until then Progress shows "no PR yet", "PR open" or the unpushed count named as such ("2 unpushed"). `localAhead` is not part of row identity (`row-identity.ts:418`) and must stay out of any key.
 - **Queued.** After this plan, Queued holds the slices of approved plans that have a branch or a claim and no live agent: `stage: 'building'` with no live agent and no stopped agent, and `stage: 'queued'`. **Waits on** reads "no agent assigned", or the earlier slice the branch's `<!-- waits: -->` marker or its slice order names. Ticket rows leave Queued with plan 6's tickets slice. Another person's Draft or Design plan and another person's approval-owed item stay in Queued as today, with Waits on naming the phase or the approval; see the open question below.
-- **A slice that has not started** (no branch, no agent) is not a row here. Plan 5's `feature/delivery-release-plan-rows` removes those rows, through `isUnbegun` (`row-identity.ts:77`), and gives the eligible ones today's **Start** (`dispatch`) control (`AgentList.tsx:1219`) on their To do line in Release delivery. This plan does not remove them, so Start never disappears.
+- **A slice that has not started** (no branch, no agent) is not a row here. Plan 5's `feature/delivery-release-plan-rows` removes those rows, through `isUnbegun` (`packages/board/src/app/lib/agent-rows/row-identity.ts:77`), and gives the eligible ones today's **Start** (`dispatch`) control (`AgentList.tsx:1219`) on their To do line in Release delivery. This plan does not remove them, so Start never disappears.
 - **The release row** under At a gate keeps its current form until plan 1's `feature/delivery-release-card` removes it.
 - **Item** is the plan § slice, linked. **Where** is the PR, with the branch beneath it, written in full. **By** is the agent's role chip and name, linked to its Fleet row. The role chip and the role readings are plan 4's (`feature/delivery-agent-roles`, which widens `AgentRole` from six roles to eight); this plan adds the chip to the row form in `packages/domain/src/rules/delivery-row-form.ts`.
-- **A fixer's attempt.** A fixer adds "<attempt>/<budget>": its attempt number on the finding kind it fixes, read from `.plot/state/fixer-attempts/<pr>.json` through `rules/fixer-attempts.ts`, against `FIXER_ATTEMPTS_BUDGET` (2, per finding kind). The `Correction budget` key is the desk's correction budget that plan 2's PR rule reads; it is not the fixer's denominator.
+- **A fixer's attempt.** A fixer adds "<attempt>/<budget>": its attempt number on the finding kind it fixes. The payload carries only `fixerInFlight` (`schema.ts:3329`), so the By slice adds a per-PR attempt field that the server fills once per scan, for fixer rows only, from `.plot/state/fixer-attempts/<pr>.json` through `rules/fixer-attempts.ts`, against `FIXER_ATTEMPTS_BUDGET` (2, per finding kind). The `Correction budget` key is the desk's correction budget that plan 2's PR rule reads; it is not the fixer's denominator.
 - **A closed PR or branch no plan names** moves to You › Unblock (plan 2), not Queued.
 - **Scope.** Mine narrows Work items; the **My sprint** scope from plan 1 applies here too (*Calls Made After Review*, "One scope rule for every section").
 - **Domain first.** Every gate state, link target, progress value, waits-on value and header count is a domain property with a unit test.
@@ -54,8 +54,8 @@ Depends on plan 1, `delivery-tab-header-and-my-sprint`, for the section-header p
 
 - Every group in Work items shows its own column under a header, and no column holds two kinds of value.
 - The header counts each group, each count linking to its group, and names the oldest row's age, asserted in a unit test.
-- An item at a gate shows one mark per gate, CI and review, each linked to the PR's checks or review; a review nobody asked reads `–` and an unread gate renders no cell, asserted in a unit test.
-- A row being built shows its commit count where the pulse reads one, and "no PR yet" where it has no PR.
+- An item at a gate shows one mark per gate, CI and review, CI linked to the PR's `checksUrl` and review to its `url`, rendered as plain text where the host gave none; a review nobody asked reads `–` with no link, and an unread review renders no cell, asserted in a unit test.
+- A row being built shows "no PR yet" where it has no PR, and the unpushed commit count where the pulse reads one, named as unpushed.
 - A queued row names what it waits on: "no agent assigned" or the earlier slice.
 - Where shows the PR with the full branch name beneath it.
 - By shows the agent's role chip and name, linked to its Fleet row; a fixer row shows its attempt against `FIXER_ATTEMPTS_BUDGET` on the finding kind it fixes.
@@ -107,9 +107,20 @@ Round 1, panel of four lenses, all `amend` (`.plot/panels/delivery-work-items-sh
 - [x] [Contradiction, Cost] The Board impact line says to rebuild the board artifact with each slice. Resolved: the rebuild is a local test only.
 - [x] [Not verified by any juror] Whether the fixer-attempts record carries a count, whether CI run ids exist, whether fixers are registry entries, and which browser tests select the columns. Resolved: the record holds one attempt entry per start, per finding kind (`entities/fixer-attempts.ts`); no CI run id or check name is on the index (`ciChecks` is a summary); the fixer role reading is plan 4's; the browser tests are the builder's.
 
+Round 2, panel of four lenses, all `amend` (`.plot/panels/delivery-work-items-show-gates/r2-panel.md`).
+
+- [x] [Estate, Cost, Deliverable] The round-1 `prUrl` resolution builds a PR address from a number and a repository, which `schema.ts:292-303` forbids. Resolved: the marks link to `CardPr.checksUrl` and `CardPr.url`, plain text where empty; the checks link needs a new link target.
+- [x] [Estate, Contradiction] `local_ahead` counts unpushed commits, so it is no commit count for a pushed branch. Resolved: Progress shows "no PR yet", "PR open" or the unpushed count named as such; a branch commit count waits for a reading that counts it.
+- [x] [Contradiction] `review –` cannot be "linked" (`gateLinks` emits no link for `none`). Resolved: the `–` mark carries no link, and Done When says so.
+- [x] [Deliverable, Contradiction] `ROW_COLUMNS` fixes a `status` column that the per-group column must reconcile with, and `gateValue` returns one string. Resolved: the group column takes the place of `status` in Work items, and `gateValue` returns two marks.
+- [x] [Cost] The payload carries `fixerInFlight` only, so the fixer's attempt count needs a field. Resolved: the By slice adds a per-PR attempt field, read by the server once per scan for fixer rows.
+- [x] [Estate, Contradiction, Deliverable, Cost] Citation drift: `:221` should be `:215-216`; `isUnbegun` is in the board package. Resolved in the Design section.
+- [ ] [Deliverable, Cost] The gates slice carries six deliverables and sits on the critical path of plans 1 and 5 in four shared files. Not resolved here: a person decides whether to split it into header and groups, gate cells, and Progress with Waits on, before approval.
+- [ ] [Not verified by any juror] How many existing unit and browser tests select `CI ✓` text, and whether `blockedBy` derives from the `<!-- waits: -->` marker.
+
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "engine": "panel",
   "questionHistory": [],
   "deferredItems": [],
