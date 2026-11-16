@@ -222,7 +222,7 @@ describe('releaseApproveAt — the workflow wired to its ports', () => {
       },
       scripts: { hostSaid: async (args: string[]) => { calls.push(args); return { answer: 'answered', said: '' }; } },
       defaultBranch: { read: async () => ({ ok: true, value: null }) },
-      refs: { remoteSha: async () => ({ ok: true, value: 'unknown' }), headChanges: async (sha: string) => { diffed.push(sha); return changes; } },
+      refs: { remoteSha: async () => ({ ok: true, value: 'unknown' }), defaultBranch: async () => ({ ok: true, value: 'main' }), headChanges: async (sha: string) => { diffed.push(sha); return changes; } },
       checksWaitMs: 3_600_000,
       now: () => NOW,
       caller: 'person',

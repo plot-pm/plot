@@ -75,6 +75,7 @@ const rig = (
       firstParentLine: (sha, max) => refsFixture({ firstParentLine: firstParents }).firstParentLine(sha, max),
     },
     build: {
+      system: () => 'github-actions',
       runsForSha: (branch, sha) =>
         buildFixture({
           workflowRuns: { [branch]: byRun },
@@ -395,7 +396,7 @@ describe('refreshDefaultBranch', () => {
 
   it('reads an unaskable CI as unreadable, writes nothing, and names the reason', async () => {
     const r = rig();
-    r.world.build = { runsForSha: async () => ({ ok: false, why: 'unaskable' }) };
+    r.world.build = { system: () => 'github-actions', runsForSha: async () => ({ ok: false, why: 'unaskable' }) };
     const warned: string[] = [];
     expect(await refreshDefaultBranch(r.world, (line) => warned.push(line))).toBe('unreadable');
     expect(r.stored()).toBeNull();
@@ -408,7 +409,37 @@ describe('refreshDefaultBranch', () => {
     await refreshDefaultBranch(r.world);
     const before = r.stored();
     r.clock(REASK_MS + 1);
-    r.world.build = { runsForSha: async () => ({ ok: false, why: 'unaskable' }) };
+    r.world.build = { system: () => 'github-actions', runsForSha: async () => ({ ok: false, why: 'unaskable' }) };
+    expect(await refreshDefaultBranch(r.world)).toBe('unreadable');
+    expect(r.stored()).toEqual(before);
+  });
+
+  it('reads no tip and asks no CI where no CI system is declared, and names the reason', async () => {
+    const r = rig();
+    let tips = 0;
+    r.world.refs = {
+      ...r.world.refs,
+      remoteSha: async () => {
+        tips += 1;
+        return { ok: true, value: { sha: 'a1' } };
+      },
+    };
+    r.world.build = { ...r.world.build, system: () => '' };
+    const warned: string[] = [];
+    expect(await refreshDefaultBranch(r.world, (line) => warned.push(line))).toBe('unreadable');
+    expect(tips).toBe(0);
+    expect(r.calls()).toBe(0);
+    expect(r.stored()).toBeNull();
+    expect(warned).toEqual(['plot-fleetd: default-branch read skipped — no CI system is declared']);
+  });
+
+  it('keeps a held reading where no CI system is declared', async () => {
+    const r = rig();
+    r.runs('a1', [run('ci', 'failure')]);
+    await refreshDefaultBranch(r.world);
+    const before = r.stored();
+    r.clock(REASK_MS + 1);
+    r.world.build = { ...r.world.build, system: () => '' };
     expect(await refreshDefaultBranch(r.world)).toBe('unreadable');
     expect(r.stored()).toEqual(before);
   });
@@ -858,6 +889,17 @@ describe('refreshOnChange — reads the tip only where it may have moved', () =>
     await refresh();
     await refresh();
     expect(c.tips()).toBe(2);
+  });
+
+  it('reads no tip on any beat where no CI system is declared', async () => {
+    const r = rig();
+    const c = counted(r);
+    c.world.build = { ...c.world.build, system: () => '' };
+    const refresh = refreshOnChange(c.world, async () => 'k1');
+    expect(await refresh()).toBe('unreadable');
+    r.clock(WAIT);
+    expect(await refresh()).toBe('unreadable');
+    expect(c.tips()).toBe(0);
   });
 
   it('keeps no key after an unreadable tip, so the next beat reads again', async () => {

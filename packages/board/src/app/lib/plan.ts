@@ -59,6 +59,8 @@ export interface BoardLinks {
   storyOf: (slug: string) => StoryCard | undefined;
   /** The plan card the board holds under a slug. */
   planOf: (slug: string) => Card | undefined;
+  /** Every plan slug the board holds; absent where the caller holds no board. */
+  planSlugs?: readonly string[];
 }
 
 /**
@@ -114,6 +116,7 @@ export const boardLinksOf = (
     branchHref: (branch) => (base === '' || branch === '' ? undefined : `${base}${branch.split('/').map(encodeURIComponent).join('/')}`),
     storyOf: (slug) => stories.get(slug),
     planOf: (slug) => plans.get(slug),
+    planSlugs: [...plans.keys()],
   };
 };
 

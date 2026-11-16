@@ -412,6 +412,7 @@ describe('mergeAt — the workflow wired to its ports', () => {
       defaultBranch: { read: async () => read },
       refs: {
         remoteSha: async () => ({ ok: true, value: read.ok && read.value !== null ? { sha: read.value.headSha } : 'unknown' }),
+        defaultBranch: async () => ({ ok: true, value: 'main' }),
       },
       checksWaitMs: WAIT_MS2,
       now: () => NOW,
@@ -450,18 +451,18 @@ describe('mergeAt — the workflow wired to its ports', () => {
     expect(await mergeAt(other.p, 7, HEAD2)).toMatchObject({ merged: true });
   });
 
-  it('asks the host nothing when the tip differs from the settled SHA', async () => {
+  it('asks the host only for the PR when the tip differs from the settled SHA', async () => {
     const fresh = new Date(NOW - 60_000).toISOString();
     const { p, calls } = ports(prFixture(), 'answered', { ok: true, value: settled('green', fresh) });
-    let asked = 0;
+    const asked: string[] = [];
     const host = p.host as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>;
-    for (const name of ['prState', 'prReview']) {
+    for (const name of ['prState', 'prReview', 'reviewWriter', 'backend']) {
       const real = host[name]!;
-      host[name] = async (...a) => { asked += 1; return real(...a); };
+      host[name] = async (...a) => { asked.push(name); return real(...a); };
     }
     (p.refs as unknown as { remoteSha: () => Promise<unknown> }).remoteSha = async () => ({ ok: true, value: { sha: 'd'.repeat(40) } });
     expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'default-branch-unsettled' });
-    expect(asked).toBe(0);
+    expect(asked).toEqual(['prState']);
     expect(calls).toEqual([]);
   });
 
@@ -729,6 +730,7 @@ describe('mergeAt — the repair PR on a red default branch', () => {
       defaultBranch: { read: async () => ({ ok: true, value: red }) },
       refs: {
         remoteSha: async () => ({ ok: true, value: { sha: BUNDLE } }),
+        defaultBranch: async () => ({ ok: true, value: 'main' }),
         firstParentLine: async (sha: string) => {
           asked.push(`line ${sha}`);
           const line = over.line ?? [BUNDLE, FIRST_RED, LAST_GREEN];
@@ -938,5 +940,158 @@ describe('mergeAt — the conversation read', () => {
       expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: false });
       expect(read).toEqual([]);
     }
+  });
+});
+
+describe('merge — the default-branch holds read the PR base', () => {
+  const SPRINT = 'sprint/idle-and-supersede';
+  const LATE = { now: Date.parse('2026-10-10T01:00:01Z'), checksWaitMs: WAIT_MS, minHexLen: 7 };
+  const into = (base: string, over: Partial<MergeReadings> = {}) =>
+    readings({ pr: pr({ base }), defaultBranchName: 'main', ...over });
+  const decideAt = (r: MergeReadings, clock = CLOCK, requireReading = false) => {
+    const out = merge(r, { pr: 42, sha: HEAD, ...clock, requireReading });
+    return out.outcome === 'refused' ? out.reason : out.outcome;
+  };
+
+  /** Each default-branch hold: its readings, its clock, whether a reading is required, and the refusal it gives. */
+  const holds: readonly [string, Partial<MergeReadings>, typeof CLOCK, boolean, string][] = [
+    ['red', { defaultBranch: reading('red') }, CLOCK, false, 'default-branch-red'],
+    ['stale', { defaultBranch: reading('green') }, LATE, false, 'default-branch-stale'],
+    ['unsettled', { defaultBranchTip: 'c'.repeat(40) }, CLOCK, false, 'default-branch-unsettled'],
+    ['missing, with requireReading', { defaultBranch: null }, CLOCK, true, 'default-branch-unread'],
+    ['unread', { defaultBranch: 'unaskable' }, CLOCK, false, 'unaskable'],
+    ['tip unread', { defaultBranchTip: 'unaskable' }, CLOCK, false, 'unaskable'],
+  ];
+
+  it.each(holds)('merges a PR into another branch on a %s default-branch reading', (_name, over, clock, require) => {
+    expect(decideAt(into(SPRINT, over), clock, require)).toBe('decided');
+  });
+
+  it.each(holds)('refuses a PR into the default branch on a %s default-branch reading', (_name, over, clock, require, reason) => {
+    expect(decideAt(into('main', over), clock, require)).toBe(reason);
+  });
+
+  it('keeps the holds where the base is empty or the default branch name is unread or absent', () => {
+    expect(decideAt(into('', { defaultBranch: reading('red') }))).toBe('default-branch-red');
+    expect(decideAt(into(SPRINT, { defaultBranch: reading('red'), defaultBranchName: 'unaskable' }))).toBe('default-branch-red');
+    expect(decideAt(into(SPRINT, { defaultBranch: reading('red'), defaultBranchName: '' }))).toBe('default-branch-red');
+    expect(decideAt(readings({ pr: pr({ base: SPRINT }), defaultBranch: reading('red') }))).toBe('default-branch-red');
+  });
+
+  it('keeps every other refusal for a PR into another branch', () => {
+    const red = { defaultBranch: reading('red') as DefaultBranchReading };
+    expect(decideAt(into(SPRINT, { ...red, pr: pr({ base: SPRINT, checks: 'failing' }) }))).toBe('checks-not-green');
+    expect(decideAt(into(SPRINT, { ...red, pr: pr({ base: SPRINT, checksSha: OTHER }) }))).toBe('checks-unbound');
+    expect(decideAt(into(SPRINT, { ...red, pr: pr({ base: SPRINT, draft: true }) }))).toBe('draft');
+    expect(decideAt(into(SPRINT, { ...red, pr: pr({ base: SPRINT, headSha: OTHER, checksSha: OTHER }) }))).toBe('head-moved');
+    expect(decideAt(into(SPRINT, { ...red, pr: pr({ base: SPRINT, head: 'changeset-release/main' }) }))).toBe('release-pr');
+    expect(decideAt(into(SPRINT, { ...red, review: review({ state: 'pending' }) }))).toBe('review-not-passed');
+    expect(decideAt(into(SPRINT, { ...red, caller: 'unattended' }))).toBe('unattended');
+  });
+
+  it('still admits the repair PR into the default branch on a red reading', () => {
+    const LAST_GREEN = 'e'.repeat(40);
+    const branch = `bug/main-repair-${LAST_GREEN.slice(0, 12)}`;
+    const repair: RepairMergeReading = {
+      record: {
+        v: 1, branch: 'main', state: 'repairing', lastGreenSha: LAST_GREEN, firstRedSha: 'f'.repeat(40),
+        redSince: '2026-10-10T00:00:00Z', candidates: [], rerun: 'asked', preRevertRerun: 'none', repairPr: 42, at: '2026-10-10T00:00:00Z',
+      },
+      episode: 'open',
+      redRuns: 'red',
+    };
+    const out = merge(into('main', { pr: pr({ head: branch, base: 'main' }), defaultBranch: reading('red'), repair }), { pr: 42, sha: HEAD, ...CLOCK });
+    expect(out.outcome === 'decided' && out.detail.repair).toBe('repair');
+  });
+});
+
+describe('mergeAt — the default-branch holds read the PR base', () => {
+  const SPRINT = 'sprint/idle-and-supersede';
+  const SHA = 'a'.repeat(40);
+  const NOW = Date.parse('2026-10-11T12:00:00Z');
+  const WAIT = 3_600_000;
+  const at = (ageMs: number) => new Date(NOW - ageMs).toISOString();
+  const readingOf = (state: 'red' | 'green', askedAt: string): DefaultBranchReading => ({
+    v: 1, branch: 'main', headSha: 'c'.repeat(40), head: state,
+    settled: { sha: 'c'.repeat(40), state }, failingRuns: [], headSince: askedAt, askedAt, at: askedAt,
+  });
+
+  const ports = (base: string, read: DefaultBranchReading | null, over: { caller?: 'person' | 'fleetd'; tip?: string; name?: string | 'fail' } = {}) => {
+    const calls: string[][] = [];
+    const asked: string[] = [];
+    const lookup: Pr = {
+      number: 9, repo: '', head: 'feature/y', base, state: 'OPEN', mergedAt: null, mergeCommit: '',
+      draft: false, mergeable: 'mergeable', review: '', checks: 'green', failingChecks: [], url: '', author: '', headSha: SHA, checksSha: SHA,
+    };
+    const p = {
+      host: {
+        backend: async () => ({ ok: true, value: 'github' }),
+        prState: async () => { asked.push('prState'); return { ok: true, value: lookup }; },
+        prReview: async () => { asked.push('prReview'); return { ok: true, value: { sha: SHA, state: 'success', description: '', time: '', bypass: false } }; },
+        reviewWriter: async () => ({ ok: true, value: '' }),
+      },
+      scripts: { hostSaid: async (args: string[]) => { calls.push(args); return { answer: 'answered', said: '' }; } },
+      defaultBranch: { read: async () => ({ ok: true, value: read }) },
+      refs: {
+        remoteSha: async () => ({ ok: true, value: { sha: over.tip ?? 'c'.repeat(40) } }),
+        defaultBranch: async () => { asked.push('defaultBranch'); return over.name === 'fail' ? { ok: false, why: 'failed' } : { ok: true, value: over.name ?? 'main' }; },
+        firstParentLine: async () => { asked.push('firstParentLine'); return { ok: true, value: [] }; },
+      },
+      repair: { read: async () => { asked.push('repair'); return { ok: true, value: null }; }, write: async () => ({ ok: true, value: undefined }) },
+      checksWaitMs: WAIT,
+      now: () => NOW,
+      caller: over.caller ?? 'person',
+      ...(over.caller === 'fleetd' ? { requireReading: true } : {}),
+    } as unknown as MergePorts;
+    return { p, calls, asked };
+  };
+
+  /** Each default-branch hold as `mergeAt` reads it: the reading, the tip, and the refusal it gives. */
+  const holds: readonly [string, DefaultBranchReading | null, string | undefined, string][] = [
+    ['red', readingOf('red', at(60_000)), undefined, 'default-branch-red'],
+    ['stale', readingOf('green', at(WAIT + 60_000)), undefined, 'default-branch-stale'],
+    ['unsettled', readingOf('green', at(60_000)), 'd'.repeat(40), 'default-branch-unsettled'],
+  ];
+
+  it.each(holds)('merges a person’s PR into another branch on a %s reading, and reads no repair record', async (_name, read, tip) => {
+    const { p, calls, asked } = ports(SPRINT, read, { ...(tip ? { tip } : {}) });
+    expect(await mergeAt(p, 9, SHA)).toMatchObject({ merged: true, pr: 9, sha: SHA });
+    expect(calls).toEqual([['pr-merge', '9', '--match-head', SHA]]);
+    expect(asked).not.toContain('repair');
+    expect(asked.slice(0, 2)).toEqual(['prState', 'defaultBranch']);
+  });
+
+  it.each(holds)('refuses a person’s PR into the default branch on a %s reading', async (_name, read, tip, reason) => {
+    const { p, calls } = ports('main', read, { ...(tip ? { tip } : {}) });
+    expect(await mergeAt(p, 9, SHA)).toMatchObject({ merged: false, reason });
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses default-branch-unsettled for a default-branch PR after one prState call and no prReview call', async () => {
+    const { p, calls, asked } = ports('main', readingOf('green', at(60_000)), { tip: 'd'.repeat(40) });
+    expect(await mergeAt(p, 9, SHA)).toMatchObject({ merged: false, reason: 'default-branch-unsettled' });
+    expect(asked).toEqual(['prState', 'defaultBranch']);
+    expect(calls).toEqual([]);
+  });
+
+  it('keeps the holds for a PR into another branch where the default branch name is unread', async () => {
+    const { p, calls } = ports(SPRINT, readingOf('red', at(60_000)), { name: 'fail' });
+    expect(await mergeAt(p, 9, SHA)).toMatchObject({ merged: false, reason: 'default-branch-red' });
+    expect(calls).toEqual([]);
+  });
+
+  describe('fleetd, which requires a reading', () => {
+    it.each([...holds, ['missing', null, undefined, 'default-branch-unread'] as const])(
+      'never merges a PR into the default branch past a %s reading', async (_name, read, tip, reason) => {
+        const { p, calls } = ports('main', read, { caller: 'fleetd', ...(tip ? { tip } : {}) });
+        expect(await mergeAt(p, 9, SHA)).toMatchObject({ merged: false, reason });
+        expect(calls).toEqual([]);
+      });
+
+    it('merges a PR into a sprint branch on a missing reading', async () => {
+      const { p, calls } = ports(SPRINT, null, { caller: 'fleetd' });
+      expect(await mergeAt(p, 9, SHA)).toMatchObject({ merged: true });
+      expect(calls).toHaveLength(1);
+    });
   });
 });

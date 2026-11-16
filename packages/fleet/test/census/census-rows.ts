@@ -1,6 +1,4 @@
-import { it } from 'vitest';
-
-import { recordCensus, type CensusFixture, type CensusHost, type CensusTolerance } from './census-report.js';
+import { recordCensus, type CensusFixture, type CensusTolerance } from './census-report.js';
 import type { ExecRecord } from './strace-execs.js';
 
 /** Who turns a zero row into a required pass: a plan, and its slice where the plan names one. */
@@ -8,7 +6,7 @@ export type GreenBy = { plan: string; slice?: string; phase?: string };
 
 /** One row of the plan's scenario table (S1..S7), per-source table (P2..P4, P6), or a launch row (D1). */
 export type CensusRow =
-  | { id: string; claim: string; unit: string; target: 'zero'; greenBy: GreenBy; green?: true; greenOn?: readonly CensusHost[] }
+  | { id: string; claim: string; unit: string; target: 'zero'; greenBy: GreenBy; green?: true }
   | { id: string; claim: string; unit: string; target: 'measured'; tolerance: CensusTolerance };
 
 /**
@@ -20,9 +18,7 @@ export type CensusRow =
  * then P7, P8, P9 and S8 from `docs/plans/2026-11-10-triggers-replace-the-tick.md`,
  * then P10 and P11 from `docs/plans/2026-11-10-bitbucket-and-jira-read-in-process.md`.
  * A zero row is written as `it.fails` until the plan and slice it names turn
- * it green; that slice sets `green: true` and changes the row to `it`. A zero
- * row green on some hosts only names them in `greenOn` and is written through
- * {@link rowIt}, which answers `it` on those hosts and `it.fails` elsewhere.
+ * it green; that slice sets `green: true` and changes the row to `it`.
  */
 export const CENSUS_ROWS = {
   S1: {
@@ -63,7 +59,7 @@ export const CENSUS_ROWS = {
     unit: 'execve per pass',
     target: 'zero',
     greenBy: { plan: 'triggers-replace-the-tick', phase: 'Phase 8' },
-    greenOn: ['github'],
+    green: true,
   },
   S5: {
     id: 'S5',
@@ -191,23 +187,10 @@ export const rowTitle = (row: CensusRow, fixture?: CensusFixture): string => {
   if (row.target === 'zero' && row.green === true) {
     return `${row.id}: ${row.claim}${size} (turned green by ${greenByText(row.greenBy)})`;
   }
-  if (row.target === 'zero' && fixture !== undefined && row.greenOn?.includes(fixture.host) === true) {
-    return `${row.id}: ${row.claim}${size} (green on ${fixture.host}; expected to fail elsewhere until ${greenByText(row.greenBy)})`;
-  }
   return row.target === 'zero'
     ? `${row.id}: ${row.claim}${size} (expected to fail until ${greenByText(row.greenBy)})`
     : `${row.id}: ${row.claim}${size} (measured, held within ${row.tolerance === 'strict' ? 'no growth' : `${row.tolerance.ratio * 100} % + ${row.tolerance.plus}`})`;
 };
-
-/**
- * The test function a zero row with `greenOn` is written with on one fixture.
- *
- * @param row - the row.
- * @param fixture - the fixture the test runs on.
- * @returns `it` where the row is green on the fixture's host, `it.fails` otherwise.
- */
-export const rowIt = (row: CensusRow, fixture: CensusFixture): typeof it | typeof it.fails =>
-  row.target === 'zero' && (row.green === true || row.greenOn?.includes(fixture.host) === true) ? it : it.fails;
 
 /** The census's fixture size as one line: desks, open PRs, host. */
 export const sizeLine = (fixture: CensusFixture): string =>

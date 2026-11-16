@@ -8,6 +8,7 @@ import { useDispatchNotice } from '../lib/dispatch-notice.js';
 import { ApproveButton } from './ApproveButton.js';
 import { InterrogateButton } from './InterrogateButton.js';
 import { DeliverButton } from './DeliverButton.js';
+import { SupersedeButton } from './SupersedeButton.js';
 
 type Card = PlanCardData;
 
@@ -207,6 +208,7 @@ export function PlanCard({
     'confirm-slices': approve?.reason,
     interrogate: interrogate?.reason,
     deliver: deliver?.reason,
+    supersede: approve?.reason,
   };
   // The Testing column emphasises the status panel; every other planning column the footer.
   const where = board === 'plans' && accent === 'Testing' ? 'testing' : board;
@@ -257,6 +259,8 @@ export function PlanCard({
           : null;
       case 'deliver':
         return deliver ? <DeliverButton slug={card.slug} deliver={deliver} onActing={onStarting} /> : null;
+      case 'supersede':
+        return approve ? <SupersedeButton card={card} planSlugs={links?.planSlugs} onActing={onStarting} /> : null;
       default:
         return null;
     }
