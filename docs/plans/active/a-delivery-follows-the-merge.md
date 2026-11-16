@@ -1,0 +1,1 @@
+../2026-11-16-a-delivery-follows-the-merge.md
