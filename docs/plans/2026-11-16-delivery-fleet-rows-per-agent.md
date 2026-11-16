@@ -11,7 +11,7 @@
 - **Story:** delivery-tab-reads-at-a-glance
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -131,9 +131,22 @@ Round 1, panel of four lenses, all `amend` (`.plot/panels/delivery-fleet-rows-pe
 - [x] [Contradiction, Cost, Deliverable] The Board impact line says to rebuild the board artifact with each slice. Resolved: the rebuild is a local test only.
 - [x] [Not verified by any juror] Whether `commits`, `headSha` and `subject` reach agent rows, the bounds of idea runs and approvers, and which browser tests select the columns. Resolved: commit count and subject come from the pulse's local git reading, added by the agent-rows slice; idea and brief have no bound, and the role slice reads the approver's; the browser tests are the builder's.
 
+Round 2, panel of four lenses, all `amend` (`.plot/panels/delivery-fleet-rows-per-agent/r2-panel.md`).
+
+- [ ] [Contradiction, Deliverable] Done When item 2 says each of the eight roles shows its chip; the Approach says a role with no local reading shows no row. Restate it as: each role with a local reading shows its chip, and each role without one is named in Notes.
+- [ ] [Deliverable] Slice `feature/delivery-agent-roles` holds six readings, a block move and a component; slice `feature/delivery-fleet-agent-rows` holds groups, columns, three new readings, the token fold, the bound cache, the Free collapse and a test change. Split them, or let the builder stop at the readings that exist and name the rest as gaps.
+- [ ] [Contradiction, Deliverable] The header counts (working, blocked, free) have no slice and no Done When line. Name the slice that fills plan 1's summary with the Fleet groups.
+- [ ] [Contradiction, Estate] `REVIEW_BOUND_MS` lives in `packages/fleet/src/shared/auto-review.ts` and the domain imports `zod` only. State whether the reviewer bound is an input to the domain's time-left rule or moves into the domain.
+- [ ] [Estate] `agentRowCells` (`delivery-row-form.ts:312`) already builds a seven-cell agent row with the role as its `kind` cell, `DeliveryGate` already holds `ci` and `rate-limit`, `AgentEntry` carries `startedAt` (`schema.ts:4000`) and `lastActivity` (`:4057`), and `ciOf` (`delivery-readings.ts:99-110`) already folds `ciChecks`. Name the function the agent-rows slice replaces, the start-time reading for a loop agent, and that Waits on `ci` reuses `ciOf`.
+- [ ] [Cost] The spend read parses the record on every call (`board.ts:2887-2900`), the `Worker bound` cache names no change signal, and the plan does not say which new readings are already in the payload. Add a Done When line that the spend lines are read once per `/api/fleet` build and no transcript is read on the poll, and name the change signal (one `stat` per poll).
+- [ ] [Contradiction, Deliverable] `feature/delivery-agent-roles` and plan 6's `feature/delivery-tickets-section` edit the "Tickets and plan runs" block with no `waits:` between them. One plan declares the order.
+- [ ] [Contradiction, Deliverable] The Changelog says each row shows its time left and its output tokens; design and verify show "—" for time left, and a running agent shows "—" for tokens. The Waits on list omits the design's "review" gate without naming the gap.
+- [ ] [Estate, Cost] Citation paths: `slice-spend.ts:57-60` names no package, `board.ts:459` reads `:460`, `delivery-readings.ts:303` reads `:304`, and `brief-ask.ts` and `auto-review.ts` name no package.
+- [ ] [Not verified by any juror] A local reading for the reviewer, approver, idea and brief roles. No juror located a file for any of them.
+
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "engine": "panel",
   "questionHistory": [],
   "deferredItems": [],
