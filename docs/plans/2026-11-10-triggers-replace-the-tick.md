@@ -186,22 +186,22 @@ The *Scan on trigger* slice records its S4, S5 and S6 figures in its PR and in t
 
 ### Wave 1
 
-- `feature/triggers-replace-the-tick-fleet-size` — supervision asks `headroom()` only for a relaunch verdict, and the hand-over asks `fleetCapForRepo` only for a startable slice; census row P7 <!-- builds: a machine reading asked on a dispatch decision only -->
-- `feature/triggers-replace-the-tick-deadlines` — `nextDeadline` in `rules/next-deadline.ts`; `clockDrift` in `rules/clock-drift.ts`; the `Clock` port's monotonic reading and one-shot timer in `clockSystem` and `clockManual`; the census entry moves both readings; fleetd logs the next deadline on the tick line and runs a full read on a wake <!-- builds: nextDeadline, the earliest wall time a deadline rule can change its answer -->
-- `feature/triggers-replace-the-tick-watches` — fleetd arms the watch set through `watchFs`; `changeOf` in `rules/snapshot-change.ts`; the pending set; self-caused events by content; the heartbeat's observer fields; the scan still runs on every beat and clears the set <!-- builds: changeOf, a watch event mapped to a snapshot change -->
+- `feature/triggers-replace-the-tick-fleet-size` → #3399 — supervision asks `headroom()` only for a relaunch verdict, and the hand-over asks `fleetCapForRepo` only for a startable slice; census row P7 <!-- builds: a machine reading asked on a dispatch decision only -->
+- `feature/triggers-replace-the-tick-deadlines` → #3395 — `nextDeadline` in `rules/next-deadline.ts`; `clockDrift` in `rules/clock-drift.ts`; the `Clock` port's monotonic reading and one-shot timer in `clockSystem` and `clockManual`; the census entry moves both readings; fleetd logs the next deadline on the tick line and runs a full read on a wake <!-- builds: nextDeadline, the earliest wall time a deadline rule can change its answer -->
+- `feature/triggers-replace-the-tick-watches` → #3396 — fleetd arms the watch set through `watchFs`; `changeOf` in `rules/snapshot-change.ts`; the pending set; self-caused events by content; the heartbeat's observer fields; the scan still runs on every beat and clears the set <!-- builds: changeOf, a watch event mapped to a snapshot change -->
 
 ### Wave 2
 
-- `feature/triggers-replace-the-tick-safety-net` — the 10-minute full read with one fetch and one desk status per desk; `missedChanges` in `rules/missed-changes.ts` runs on every full scan; the log line and `lastSafetyNetAt`; census row S8 and a census command that runs a safety-net pass <!-- builds: missedChanges, the readings a full read found changed with no trigger -->
-- `feature/triggers-replace-the-tick-quiet-beats` — `spend-rate` through the `Budget` port with a corpus row; state sync on a refs change of the state or default branch; the Merger App check once per process and before a merge; census row P9 <!-- builds: a beat that starts no process -->
+- `feature/triggers-replace-the-tick-safety-net` → #3400 — the 10-minute full read with one fetch and one desk status per desk; `missedChanges` in `rules/missed-changes.ts` runs on every full scan; the log line and `lastSafetyNetAt`; census row S8 and a census command that runs a safety-net pass <!-- builds: missedChanges, the readings a full read found changed with no trigger -->
+- `feature/triggers-replace-the-tick-quiet-beats` → #3404 — `spend-rate` through the `Budget` port with a corpus row; state sync on a refs change of the state or default branch; the Merger App check once per process and before a merge; census row P9 <!-- builds: a beat that starts no process -->
 
 ### Wave 3
 
-- `feature/triggers-replace-the-tick-scan` — the scan runs only on a non-empty pending set, a degraded watch or a due safety net, and re-reads only the named readings; the fetch leaves the walk for a `remote` change and the safety net; fleetd writes its heartbeat on every 5 s beat and `lateLoops` reads `scan` and `tick` by the heartbeat's age; census row P8 <!-- builds: a scan started by a trigger -->
+- `feature/triggers-replace-the-tick-scan` → #3419 — the scan runs only on a non-empty pending set, a degraded watch or a due safety net, and re-reads only the named readings; the fetch leaves the walk for a `remote` change and the safety net; fleetd writes its heartbeat on every 5 s beat and `lateLoops` reads `scan` and `tick` by the heartbeat's age; census row P8 <!-- builds: a scan started by a trigger -->
 
 ### Wave 4
 
-- `feature/triggers-replace-the-tick-tick` — the supervision loop waits on a drained scan, a registry, desk-files or worker-gone change, and `nextDeadline`; the census pass ends on quiet instead of `reportTick`; S4 green on the GitHub fixtures; the story's Measures table <!-- builds: a supervision tick started by a trigger or a deadline -->
+- `feature/triggers-replace-the-tick-tick` → #3431 — the supervision loop waits on a drained scan, a registry, desk-files or worker-gone change, and `nextDeadline`; the census pass ends on quiet instead of `reportTick`; S4 green on the GitHub fixtures; the story's Measures table <!-- builds: a supervision tick started by a trigger or a deadline -->
 
 ## Notes
 

@@ -175,23 +175,23 @@ The risk is high and silent, as for GitHub. Three Bitbucket completeness claims 
 
 ### Wave 1
 
-- `feature/bitbucket-and-jira-read-in-process-transport` — `adapters/host/connector-https.ts` with proxy agents, the 30 s bound, slots, the ledger entry and `429` mapping; `githubApi` moved onto it; `rules/env-file.ts` with `env-file.corpus.test.ts` <!-- builds: connectorHttps, the one HTTPS request module every connector client builds on -->
-- `feature/bitbucket-and-jira-read-in-process-bitbucket-seam` — `PrListingQuery.branches`, the shell answer for the sweep and the window in `host-shell.ts`, `readBitbucketListing` on `Host.prListing`, the refusal kind `auth` for `bb` <!-- builds: the typed Bitbucket scan listing through Host.prListing -->
+- `feature/bitbucket-and-jira-read-in-process-transport` → #3397 — `adapters/host/connector-https.ts` with proxy agents, the 30 s bound, slots, the ledger entry and `429` mapping; `githubApi` moved onto it; `rules/env-file.ts` with `env-file.corpus.test.ts` <!-- builds: connectorHttps, the one HTTPS request module every connector client builds on -->
+- `feature/bitbucket-and-jira-read-in-process-bitbucket-seam` → #3398 — `PrListingQuery.branches`, the shell answer for the sweep and the window in `host-shell.ts`, `readBitbucketListing` on `Host.prListing`, the refusal kind `auth` for `bb` <!-- builds: the typed Bitbucket scan listing through Host.prListing -->
 
 ### Wave 2
 
-- `feature/bitbucket-and-jira-read-in-process-bitbucket-client` — `adapters/host/bitbucket-api.ts` with base URL, slug, credentials from the environment and `.env` and their refresh, account, bucket and basis, the stub server's Bitbucket route and the gate pattern <!-- builds: bitbucketApi, the in-process Bitbucket HTTPS client -->
-- `feature/bitbucket-and-jira-read-in-process-jira-client` — `adapters/tracker/jira-api.ts` with base URL, credentials and their refresh, `rules/jira-budget-account.ts` with its corpus row, the `429` mapping and the stub server's Jira route <!-- builds: jiraApi, the in-process Jira HTTPS client -->
+- `feature/bitbucket-and-jira-read-in-process-bitbucket-client` → #3402 — `adapters/host/bitbucket-api.ts` with base URL, slug, credentials from the environment and `.env` and their refresh, account, bucket and basis, the stub server's Bitbucket route and the gate pattern <!-- builds: bitbucketApi, the in-process Bitbucket HTTPS client -->
+- `feature/bitbucket-and-jira-read-in-process-jira-client` → #3401 — `adapters/tracker/jira-api.ts` with base URL, credentials and their refresh, `rules/jira-budget-account.ts` with its corpus row, the `429` mapping and the stub server's Jira route <!-- builds: jiraApi, the in-process Jira HTTPS client -->
 
 ### Wave 3
 
-- `feature/bitbucket-and-jira-read-in-process-bitbucket-prs` — `adapters/host/bitbucket-pr-listing.ts`, `rules/bitbucket-pr-row.ts`, the sweep completeness rule, the recorder, `bitbucket-pr-listing.corpus.test.ts`, the mergeability memo and the per-field change rows <!-- builds: the in-process Bitbucket PR listing, with the corpus against plot-host.sh pr-list -->
-- `feature/bitbucket-and-jira-read-in-process-jira-issues` — the four issue-gate reads of `trackerJira` over `jira-api.ts`, `rules/jira-jql.ts`, `rules/jira-issue-row.ts`, `jira-issue-reads.corpus.test.ts`, and `projectsRead` and `spender()` with no process <!-- builds: in-process Jira issue reads for the issue gate -->
+- `feature/bitbucket-and-jira-read-in-process-bitbucket-prs` → #3413 — `adapters/host/bitbucket-pr-listing.ts`, `rules/bitbucket-pr-row.ts`, the sweep completeness rule, the recorder, `bitbucket-pr-listing.corpus.test.ts`, the mergeability memo and the per-field change rows <!-- builds: the in-process Bitbucket PR listing, with the corpus against plot-host.sh pr-list -->
+- `feature/bitbucket-and-jira-read-in-process-jira-issues` → #3418 — the four issue-gate reads of `trackerJira` over `jira-api.ts`, `rules/jira-jql.ts`, `rules/jira-issue-row.ts`, `jira-issue-reads.corpus.test.ts`, and `projectsRead` and `spender()` with no process <!-- builds: in-process Jira issue reads for the issue gate -->
 
 ### Wave 4
 
-- `feature/bitbucket-and-jira-read-in-process-bitbucket-cutover` — `bitbucket` in `IN_PROCESS_BACKENDS`, the `CI: jenkins` split (plain reads in-process, rich open read on the shell), the start log and status line, census row P10, the S4 measurement and the story's *Measures*; a changeset for `plot` <!-- builds: the Bitbucket transport switch in fleetd's composition root -->
-- `feature/bitbucket-and-jira-read-in-process-jira-cutover` — the in-process Jira tracker in `trackerFor`, the start log and status line, census row P11, the S4 measurement and the story's *Measures*; a changeset for `plot` <!-- builds: the Jira tracker transport switch in fleetd's composition root -->
+- `feature/bitbucket-and-jira-read-in-process-bitbucket-cutover` → #3422 — `bitbucket` in `IN_PROCESS_BACKENDS`, the `CI: jenkins` split (plain reads in-process, rich open read on the shell), the start log and status line, census row P10, the S4 measurement and the story's *Measures*; a changeset for `plot` <!-- builds: the Bitbucket transport switch in fleetd's composition root -->
+- `feature/bitbucket-and-jira-read-in-process-jira-cutover` → #3426 — the in-process Jira tracker in `trackerFor`, the start log and status line, census row P11, the S4 measurement and the story's *Measures*; a changeset for `plot` <!-- builds: the Jira tracker transport switch in fleetd's composition root -->
 
 ## Notes
 
