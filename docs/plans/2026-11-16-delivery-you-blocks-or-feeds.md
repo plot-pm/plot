@@ -11,6 +11,7 @@
 - **Story:** delivery-tab-reads-at-a-glance
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -80,3 +81,33 @@ Depends on plan 1, `delivery-tab-header-and-my-sprint`, for the section-header p
 
 - Created by `/plot-idea` in one batch with plans 1 and 3 to 6 of the same design. Type `feature` came from the brief; the design question was answered with the default, no, so the plan starts in Draft.
 - Deliverable search for "Blocks delivery" and "Input to the fleet" found no artifact of that name in the estate; the existing groups live in `delivery-placement.ts`, which this plan changes.
+
+## Open Points
+
+- [ ] [Domain] Where does the PR rule's "unanswered comment from a person" reading come from? `humanCommentOpen` exists, but `PrReading` carries no conversation and the design forbids new host reads. Options: a PR-index field with a writer, or drop the condition and record the gap.
+- [ ] [Domain] Does a closed PR on a branch a plan's slice names get a Delete? `loose-delete` refuses it as `named`, and `a-deferred-slice-keeps-its-branch` relies on that refusal.
+- [ ] [Technical] Do the two slices run in parallel? Both edit `delivery-placement.ts`, `delivery-row-form.ts`, `delivery-view.ts` and `AgentList.tsx`, and slice 2's Unblock rows need slice 1's groups. Options: slice 2 waits on `feature/delivery-you-groups`, or all placement changes move into slice 1.
+- [ ] [Domain] Which group holds each of the 12 `YouReason` values? `release-approval`, `blocked-marker` and `merge-conflict` are not named, and a folded Review a result would show the release a second time.
+- [ ] [Domain] Does the Auto-review arm keep today's `ci === 'passed'` guard, and what happens to `gateUnpassable` and a failed CI with the budget spent (`fleet-stuck`)?
+- [ ] [Domain] Does "You ignores Mine" mean `ownership === 'mine'` in every mode? No slice and no Done When line owns the change at `delivery-placement.ts:337`.
+- [ ] [UX] Between this plan and plan 6, the reader's unplanned tickets show on no row. Does slice 1 wait on the Tickets section, or do ticket rows stay in You until it ships?
+- [ ] [Technical] What is the source of the open-question chip and first open question? No parser reads a plan's `### Open Questions`. The phase strip's "Handed to fleet" count is also unbuilt.
+- [ ] [Scope] Changelog line 4 and Done When line 4 describe loose-branch Release and Delete, which ship today (`AgentList.tsx:1165-1172`). The new part is the closed PR. Done When has no line for markers, columns, header counts or the Mine change.
+- [ ] [Technical] "Rebuild the board artifact with each slice" conflicts with `check-no-bundle-diff.sh`; the story link at lines 11 and 27 resolves to no file.
+
+<!--
+CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "engine": "panel",
+  "questionHistory": [],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "domain": true,
+    "ux": {"happyPath": false, "edgeCases": false, "errors": false, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": false
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
