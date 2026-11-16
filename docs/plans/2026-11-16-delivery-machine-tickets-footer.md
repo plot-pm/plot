@@ -11,6 +11,7 @@
 - **Story:** delivery-tab-reads-at-a-glance
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -79,3 +80,34 @@ Depends on plan 1, `delivery-tab-header-and-my-sprint`, for the section-header p
 
 - Created by `/plot-idea` in one batch with plans 1 to 5 of the same design. Type `feature` came from the brief; the design question was answered with the default, no, so the plan starts in Draft.
 - Deliverable search for "machine line", "desks not placed" and "Tickets section" found no artifact of that name in the estate.
+
+## Open Points
+
+Panel round 1 (unanimous `amend`: estate, contradiction, deliverable, cost). Moderation: `.plot/panels/delivery-machine-tickets-footer/panel.md`.
+
+- [ ] [Estate] The healthy Machine line needs load, cores, remaining host budget and CI queue, and the board payload carries none of them (`packages/board/src/contract/schema.ts`; no CI-queue reading exists anywhere). Name each missing reading as a gap, or drop the figure; the Machine slice is a payload, schema and producer change. — *panel: estate, contradiction, cost*
+- [ ] [Domain] The dot's verdict is `Headroom` (`packages/domain/src/entities/machine.ts:39-50,121`); load average is context only. "Left to the Builder" invites load thresholds. State that the dot derives from `Headroom`. — *panel: contradiction*
+- [ ] [Open Question 1] `prNextInSeconds`, `prAgeSeconds` and `prIntervalMs` exist (`schema.ts:4551-4590`; null means age only). Move it to Settled; the open part is the footer text when the field is null and no fleetd runs. — *panel: estate, contradiction, deliverable, cost*
+- [ ] [Open Question 2] The `idea` controller exists (`packages/board/src/server/idea.ts`, `CreatePlanButton.tsx`) and answers `unsupported` on Bitbucket. Settle it; the open part is the ticket-as-source input and the Bitbucket state. — *panel: estate, contradiction, deliverable*
+- [ ] [Estate] The Tickets section and the footer exist in part (`AgentList.tsx:1499-1506`, `:1577-1620`; `view.notPlaced` in `delivery-view.ts:183`). Say the slices rework them, and who owns the verify and spec run rows that plan 4 (`delivery-fleet-rows-per-agent.md:92`) also claims. — *panel: estate, contradiction*
+- [ ] [Order] Plan 2 removes ticket rows from You and asks where the count links until this plan ships (`delivery-you-blocks-or-feeds.md:63,93`). Name the cross-plan order. — *panel: estate, contradiction, deliverable, cost*
+- [ ] [Cost] "Rebuild the board artifact with each slice" contradicts `check-no-bundle-diff.sh`; the rebuild is a local test, never committed. — *panel: contradiction, deliverable, cost, estate*
+- [ ] [Deliverable] Name a footer domain fact so "desk paths show only behind details" is testable without a browser; state the test site for the absence of "none — nothing — a machine is working"; assert the `HostAnswer` states (`unasked`, `unreachable`) on the one-line form. — *panel: deliverable, estate, contradiction*
+- [ ] [Deliverable] State whether the three slices are independent after `feature/delivery-section-header`; they edit the same files. — *panel: deliverable, cost*
+- [ ] [Cosmetic] The story file `docs/stories/delivery-tab-reads-at-a-glance/STORY-delivery-tab-reads-at-a-glance.md` is absent at HEAD. The host name in "GitHub 4,210 / 5,000 left" should come from the connector. The Tickets header's unassigned count exists as `waiting.unassigned`. — *panel: contradiction, deliverable, cost*
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "engine": "panel",
+  "questionHistory": [],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": true, "implementation": false},
+    "domain": true,
+    "ux": {"happyPath": false, "edgeCases": false, "errors": false, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": false
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
