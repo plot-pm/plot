@@ -118,7 +118,7 @@ Per slice, in slice order.
 
 ### Section header
 
-- `feature/delivery-section-header` — the domain section summary (name, icon from `glyphs.ts`, counts with their group targets, empty groups hidden) extending `SectionView`, and the section header component with its controls slot, applied to every Delivery section as it stands <!-- builds: a Delivery section summary and its header component -->
+- `feature/delivery-section-header` — the domain section summary (name, icon from `glyphs.ts`, counts with their group targets, empty groups hidden) extending `SectionView`, and the section header component with its controls slot, applied to every Delivery section as it stands <!-- builds: a Delivery section summary and its header component --> → #3484
 
 ### Sprint owner
 
