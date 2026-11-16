@@ -1,0 +1,424 @@
+{
+  "jen": "jen 0.4.0",
+  "urlFor": [
+    {
+      "input": "https://jenkins.example.org",
+      "output": "https://jenkins.example.org"
+    },
+    {
+      "input": "https://jenkins.example.org/",
+      "output": "https://jenkins.example.org"
+    },
+    {
+      "input": "http://127.0.0.1:8080/jenkins",
+      "output": "http://127.0.0.1:8080/jenkins"
+    },
+    {
+      "input": "http://127.0.0.1:8080/jenkins/",
+      "output": "http://127.0.0.1:8080/jenkins"
+    },
+    {
+      "input": "HTTP://UPPER.example.org",
+      "output": "https://HTTP://UPPER.example.org"
+    },
+    {
+      "input": "jenkins.example.org",
+      "output": "https://jenkins.example.org"
+    },
+    {
+      "input": "Jenkins.Example.ORG:8443",
+      "output": "https://Jenkins.Example.ORG:8443"
+    },
+    {
+      "input": "jenkins.example.org/",
+      "output": "https://jenkins.example.org"
+    },
+    {
+      "input": "host.example.org/team/portal",
+      "output": "https://host.example.org/team/portal"
+    },
+    {
+      "input": "apps",
+      "output": "https://apps.pattern.invalid"
+    },
+    {
+      "input": "",
+      "output": "https://.pattern.invalid"
+    }
+  ],
+  "keyFor": [
+    {
+      "input": "https://jenkins.example.org",
+      "output": "jenkins.example.org"
+    },
+    {
+      "input": "https://jenkins.example.org/",
+      "output": "jenkins.example.org"
+    },
+    {
+      "input": "http://127.0.0.1:8080/jenkins",
+      "output": "127.0.0.1:8080"
+    },
+    {
+      "input": "http://127.0.0.1:8080/jenkins/",
+      "output": "127.0.0.1:8080"
+    },
+    {
+      "input": "HTTP://UPPER.example.org",
+      "output": "http:"
+    },
+    {
+      "input": "jenkins.example.org",
+      "output": "jenkins.example.org"
+    },
+    {
+      "input": "Jenkins.Example.ORG:8443",
+      "output": "jenkins.example.org:8443"
+    },
+    {
+      "input": "jenkins.example.org/",
+      "output": "jenkins.example.org"
+    },
+    {
+      "input": "host.example.org/team/portal",
+      "output": "host.example.org"
+    },
+    {
+      "input": "apps",
+      "output": "apps.pattern.invalid"
+    },
+    {
+      "input": "",
+      "output": ".pattern.invalid"
+    }
+  ],
+  "instanceUrl": [
+    {
+      "jenUrl": "http://127.0.0.1:8080/jenkins/",
+      "slug": "apps",
+      "output": "http://127.0.0.1:8080/jenkins"
+    },
+    {
+      "jenUrl": "http://127.0.0.1:8080/jenkins",
+      "slug": "",
+      "output": "http://127.0.0.1:8080/jenkins"
+    },
+    {
+      "jenUrl": "",
+      "slug": "jenkins.example.org",
+      "output": "https://jenkins.example.org"
+    },
+    {
+      "jenUrl": "",
+      "slug": "https://jenkins.example.org/",
+      "output": "https://jenkins.example.org"
+    },
+    {
+      "jenUrl": "",
+      "slug": "apps",
+      "output": "https://apps.pattern.invalid"
+    }
+  ],
+  "urlHost": [
+    {
+      "input": "https://Jenkins.Example.org/job/a",
+      "output": "jenkins.example.org"
+    },
+    {
+      "input": "http://127.0.0.1:8080/jenkins/x?y=1",
+      "output": "127.0.0.1:8080"
+    },
+    {
+      "input": "https://jenkins.example.org?x=1",
+      "output": "jenkins.example.org"
+    },
+    {
+      "input": "https://jenkins.example.org#frag",
+      "output": "jenkins.example.org"
+    },
+    {
+      "input": "/oauth2/start",
+      "output": ""
+    },
+    {
+      "input": "",
+      "output": ""
+    },
+    {
+      "input": "ftp://example.org/x",
+      "output": ""
+    },
+    {
+      "input": "https://id.example.org:8443/realms/r",
+      "output": "id.example.org:8443"
+    }
+  ],
+  "secretFile": [
+    {
+      "key": "keycloak-token",
+      "dir": "/cfg/jen",
+      "output": "/cfg/jen/keycloak-token.secret"
+    },
+    {
+      "key": "jenkins-token:jenkins.example.org",
+      "dir": "/cfg/jen",
+      "output": "/cfg/jen/jenkins-token_jenkins.example.org.secret"
+    },
+    {
+      "key": "jenkins-user:127.0.0.1:8080",
+      "dir": "/cfg/jen",
+      "output": "/cfg/jen/jenkins-user_127.0.0.1_8080.secret"
+    },
+    {
+      "key": "a/b:c",
+      "dir": "/cfg/jen",
+      "output": "/cfg/jen/a_b_c.secret"
+    }
+  ],
+  "saveToken": [
+    {
+      "response": {
+        "access_token": "a",
+        "refresh_token": "r",
+        "expires_in": 300
+      },
+      "now": 1000000,
+      "stored": "{\"access_token\":\"a\",\"refresh_token\":\"r\",\"expires_in\":300,\"expires_at\":1000270}"
+    },
+    {
+      "response": {
+        "access_token": "a",
+        "refresh_token": "r",
+        "expires_in": 60
+      },
+      "now": 1000000,
+      "stored": "{\"access_token\":\"a\",\"refresh_token\":\"r\",\"expires_in\":60,\"expires_at\":1000030}"
+    },
+    {
+      "response": {
+        "access_token": "a",
+        "refresh_token": "r"
+      },
+      "now": 1000000,
+      "stored": "{\"access_token\":\"a\",\"refresh_token\":\"r\",\"expires_at\":1000270}"
+    },
+    {
+      "response": {
+        "access_token": "a",
+        "expires_in": 1800,
+        "scope": "openid profile",
+        "token_type": "Bearer"
+      },
+      "now": 1000000,
+      "stored": "{\"access_token\":\"a\",\"expires_in\":1800,\"scope\":\"openid profile\",\"token_type\":\"Bearer\",\"expires_at\":1001770}"
+    },
+    {
+      "response": {
+        "expires_in": 90,
+        "expires_at": 5,
+        "access_token": "a"
+      },
+      "now": 1000000,
+      "stored": "{\"expires_in\":90,\"expires_at\":1000060,\"access_token\":\"a\"}"
+    }
+  ],
+  "jobPath": [
+    {
+      "input": "",
+      "branch": "",
+      "output": ""
+    },
+    {
+      "input": "/",
+      "branch": "",
+      "output": ""
+    },
+    {
+      "input": "team",
+      "branch": "",
+      "output": "/job/team"
+    },
+    {
+      "input": "team/portal",
+      "branch": "",
+      "output": "/job/team/job/portal"
+    },
+    {
+      "input": "/team/portal/",
+      "branch": "",
+      "output": "/job/team/job/portal"
+    },
+    {
+      "input": "team//portal",
+      "branch": "",
+      "output": "/job/team/job//job/portal"
+    },
+    {
+      "input": "team/portal",
+      "branch": "main",
+      "output": "/job/team/job/portal/job/main"
+    },
+    {
+      "input": "team/portal",
+      "branch": "docs/foo",
+      "output": "/job/team/job/portal/job/docs%2Ffoo"
+    },
+    {
+      "input": "team/portal",
+      "branch": "feature/a b&c=d",
+      "output": "/job/team/job/portal/job/feature%2Fa%20b%26c%3Dd"
+    },
+    {
+      "input": "team/portal",
+      "branch": "bug/ümlaut~ok_-.",
+      "output": "/job/team/job/portal/job/bug%2F%C3%BCmlaut~ok_-."
+    },
+    {
+      "input": "",
+      "branch": "feature/x",
+      "output": "/job/feature%2Fx"
+    },
+    {
+      "input": "team",
+      "branch": "it's (odd)*!",
+      "output": "/job/team/job/it%27s%20%28odd%29%2A%21"
+    }
+  ],
+  "urlencode": [
+    {
+      "input": "plain",
+      "output": "plain\n"
+    },
+    {
+      "input": "a b",
+      "output": "a%20b\n"
+    },
+    {
+      "input": "a/b",
+      "output": "a%2Fb\n"
+    },
+    {
+      "input": "ümlaut",
+      "output": "%C3%BCmlaut\n"
+    },
+    {
+      "input": "it's",
+      "output": "it%27s\n"
+    },
+    {
+      "input": "a~b_c-d.e",
+      "output": "a~b_c-d.e\n"
+    },
+    {
+      "input": "%41",
+      "output": "%2541\n"
+    }
+  ],
+  "checkHttp": [
+    {
+      "status": 302,
+      "location": "https://jenkins.example.org/oauth2/start?rd=x",
+      "realm": "https://id.example.org/realms/r",
+      "instanceKey": "jenkins.example.org",
+      "class": "auth"
+    },
+    {
+      "status": 302,
+      "location": "https://id.example.org/realms/r/protocol/openid-connect/auth",
+      "realm": "https://id.example.org/realms/r",
+      "instanceKey": "jenkins.example.org",
+      "class": "auth"
+    },
+    {
+      "status": 301,
+      "location": "https://jenkins.example.org/jenkins/job/x/",
+      "realm": "https://id.example.org/realms/r",
+      "instanceKey": "jenkins.example.org",
+      "class": "ok"
+    },
+    {
+      "status": 302,
+      "location": "https://jenkins.example.org/job/x/",
+      "realm": "https://id.example.org/realms/r",
+      "instanceKey": "jenkins.example.org",
+      "class": "ok"
+    },
+    {
+      "status": 303,
+      "location": "https://elsewhere.example.net/landing",
+      "realm": "https://id.example.org/realms/r",
+      "instanceKey": "jenkins.example.org",
+      "class": "foreign"
+    },
+    {
+      "status": 302,
+      "location": "",
+      "realm": "https://id.example.org/realms/r",
+      "instanceKey": "jenkins.example.org",
+      "class": "foreign"
+    },
+    {
+      "status": 302,
+      "location": "/relative/path",
+      "realm": "https://id.example.org/realms/r",
+      "instanceKey": "jenkins.example.org",
+      "class": "foreign"
+    },
+    {
+      "status": 307,
+      "location": "https://JENKINS.example.org/x",
+      "realm": "https://id.example.org/realms/r",
+      "instanceKey": "jenkins.example.org",
+      "class": "ok"
+    },
+    {
+      "status": 401,
+      "location": "",
+      "realm": "https://id.example.org/realms/r",
+      "instanceKey": "jenkins.example.org",
+      "class": "auth"
+    },
+    {
+      "status": 403,
+      "location": "",
+      "realm": "https://id.example.org/realms/r",
+      "instanceKey": "jenkins.example.org",
+      "class": "auth"
+    },
+    {
+      "status": 404,
+      "location": "",
+      "realm": "https://id.example.org/realms/r",
+      "instanceKey": "jenkins.example.org",
+      "class": "failed"
+    },
+    {
+      "status": 500,
+      "location": "",
+      "realm": "https://id.example.org/realms/r",
+      "instanceKey": "jenkins.example.org",
+      "class": "failed"
+    },
+    {
+      "status": 200,
+      "location": "",
+      "realm": "https://id.example.org/realms/r",
+      "instanceKey": "jenkins.example.org",
+      "class": "ok"
+    },
+    {
+      "status": 201,
+      "location": "",
+      "realm": "https://id.example.org/realms/r",
+      "instanceKey": "jenkins.example.org",
+      "class": "ok"
+    },
+    {
+      "status": 399,
+      "location": "https://elsewhere.example.net/",
+      "realm": "https://id.example.org/realms/r",
+      "instanceKey": "jenkins.example.org",
+      "class": "foreign"
+    }
+  ]
+}

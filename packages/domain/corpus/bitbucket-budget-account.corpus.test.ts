@@ -10,7 +10,7 @@ import { compareField, describingAs, type Disagreement } from './compare.js';
 
 /**
  * Does `bitbucketBudgetAccount` answer what `plot-host.sh`'s
- * `budget_account bitbucket` answers?
+ * `budget_account ${one.connector ?? 'bitbucket'}` answers?
  *
  * The in-process Bitbucket client and the shell charge one ledger key, the
  * `origin` remote's workspace. Each case sets `remote.origin.url` in a scratch
@@ -28,6 +28,8 @@ interface Case {
   readonly url: string | null;
   /** The value of `PLOT_BUDGET_ACCOUNT`, or undefined where it is unset. */
   readonly override?: string;
+  /** The connector word `budget_account` is asked about; `bitbucket` where absent. */
+  readonly connector?: string;
 }
 
 const CASES: readonly Case[] = [
@@ -44,6 +46,9 @@ const CASES: readonly Case[] = [
   { name: 'the override wins', url: 'git@bitbucket.org:quatico/portal.git', override: 'census' },
   { name: 'an empty override is unset', url: 'git@bitbucket.org:quatico/portal.git', override: '' },
   { name: 'the override with no origin', url: null, override: 'census' },
+  { name: 'jenkins ignores the origin and answers unknown', url: 'git@bitbucket.org:quatico/portal.git', connector: 'jenkins' },
+  { name: 'jenkins takes the override', url: 'git@bitbucket.org:quatico/portal.git', override: 'census', connector: 'jenkins' },
+  { name: 'jenkins reads an empty override as unset', url: null, override: '', connector: 'jenkins' },
 ];
 
 let sandbox = '';
@@ -56,7 +61,7 @@ const shellFunction = (): string => {
   return run.stdout;
 };
 
-/** The shell's `budget_account bitbucket` in a repository whose origin is the case's URL. */
+/** The shell's `budget_account ${one.connector ?? 'bitbucket'}` in a repository whose origin is the case's URL. */
 const shellAccount = (one: Case, index: number, text: string): string => {
   const repo = join(sandbox, `repo-${index}`);
   const init = spawnSync('git', ['init', '-q', repo], { encoding: 'utf8' });
@@ -68,7 +73,7 @@ const shellAccount = (one: Case, index: number, text: string): string => {
   const env: NodeJS.ProcessEnv = { ...process.env };
   delete env['PLOT_BUDGET_ACCOUNT'];
   if (one.override !== undefined) env['PLOT_BUDGET_ACCOUNT'] = one.override;
-  const run = spawnSync('bash', ['-c', `${text}\nbudget_account bitbucket`], { cwd: repo, env, encoding: 'utf8', timeout: 20_000 });
+  const run = spawnSync('bash', ['-c', `${text}\nbudget_account ${one.connector ?? 'bitbucket'}`], { cwd: repo, env, encoding: 'utf8', timeout: 20_000 });
   if (run.error) throw new Error(`budget_account did not finish: ${run.error.message}`);
   return run.stdout.replace(/\n$/, '');
 };
@@ -94,7 +99,7 @@ describe('bitbucketBudgetAccount agrees with plot-host.sh budget_account bitbuck
   it('answers what the shell answers on every recorded remote', () => {
     const found: Disagreement[] = [];
     CASES.forEach((one, i) =>
-      compareField(found, one.name, 'account', bitbucketBudgetAccount(one.url, one.override), shellValues[i] ?? ''),
+      compareField(found, one.name, 'account', bitbucketBudgetAccount(one.connector === 'jenkins' ? null : one.url, one.override), shellValues[i] ?? ''),
     );
     expect(found.map(report)).toEqual([]);
   });

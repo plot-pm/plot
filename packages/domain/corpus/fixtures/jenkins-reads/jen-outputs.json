@@ -1,0 +1,413 @@
+{
+  "jen": "jen 0.4.0",
+  "cases": [
+    {
+      "name": "auth-ok",
+      "argv": [
+        "auth",
+        "status"
+      ],
+      "answers": {
+        "/jenkins/me/api/json": {
+          "fullName": "Fixture User",
+          "id": "fixture"
+        },
+        "/jenkins/job/team/job/portal/api/json": {
+          "_class": "org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject",
+          "name": "portal",
+          "fullName": "team/portal",
+          "url": "/job/team/job/portal/",
+          "color": null,
+          "description": ""
+        },
+        "/jenkins/job/team/job/deploy/api/json": {
+          "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+          "name": "deploy",
+          "fullName": "team/deploy",
+          "url": "/job/team/job/deploy/",
+          "color": "blue",
+          "description": "",
+          "lastBuild": {
+            "number": 7,
+            "result": "SUCCESS",
+            "timestamp": 1,
+            "duration": 2,
+            "displayName": "#7"
+          }
+        },
+        "/jenkins/job/team/job/portal/job/main/api/json": {
+          "_class": "x",
+          "builds": [
+            {
+              "number": 2,
+              "result": "SUCCESS",
+              "building": false,
+              "timestamp": 5,
+              "url": "/b/2/",
+              "actions": [
+                {},
+                {
+                  "lastBuiltRevision": {
+                    "SHA1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "branch": [
+                      {
+                        "name": "origin/main"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "status": 0,
+      "stdout": "Keycloak:      signed in\nInstance:      jenkins.example.org (http://127.0.0.1:PORT/jenkins)\nSecret store:  keychain\nJenkins token: environment, user fixture\nJenkins auth:  OK — Fixture User\n"
+    },
+    {
+      "name": "auth-unreachable",
+      "argv": [
+        "auth",
+        "status"
+      ],
+      "answers": {},
+      "status": 1,
+      "stdout": "Keycloak:      signed in\nInstance:      jenkins.example.org (http://127.0.0.1:PORT/jenkins)\nSecret store:  keychain\nJenkins token: environment, user fixture\nJenkins auth:  NOT reachable\n"
+    },
+    {
+      "name": "view-multibranch",
+      "argv": [
+        "job",
+        "view",
+        "team/portal",
+        "--json"
+      ],
+      "answers": {
+        "/jenkins/me/api/json": {
+          "fullName": "Fixture User",
+          "id": "fixture"
+        },
+        "/jenkins/job/team/job/portal/api/json": {
+          "_class": "org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject",
+          "name": "portal",
+          "fullName": "team/portal",
+          "url": "/job/team/job/portal/",
+          "color": null,
+          "description": ""
+        },
+        "/jenkins/job/team/job/deploy/api/json": {
+          "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+          "name": "deploy",
+          "fullName": "team/deploy",
+          "url": "/job/team/job/deploy/",
+          "color": "blue",
+          "description": "",
+          "lastBuild": {
+            "number": 7,
+            "result": "SUCCESS",
+            "timestamp": 1,
+            "duration": 2,
+            "displayName": "#7"
+          }
+        },
+        "/jenkins/job/team/job/portal/job/main/api/json": {
+          "_class": "x",
+          "builds": [
+            {
+              "number": 2,
+              "result": "SUCCESS",
+              "building": false,
+              "timestamp": 5,
+              "url": "/b/2/",
+              "actions": [
+                {},
+                {
+                  "lastBuiltRevision": {
+                    "SHA1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "branch": [
+                      {
+                        "name": "origin/main"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "status": 0,
+      "stdout": "{\n  \"_class\": \"org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject\",\n  \"name\": \"portal\",\n  \"fullName\": \"team/portal\",\n  \"url\": \"http://stub/job/team/job/portal/\",\n  \"color\": null,\n  \"description\": \"\"\n}\n"
+    },
+    {
+      "name": "view-plain",
+      "argv": [
+        "job",
+        "view",
+        "team/deploy",
+        "--json"
+      ],
+      "answers": {
+        "/jenkins/me/api/json": {
+          "fullName": "Fixture User",
+          "id": "fixture"
+        },
+        "/jenkins/job/team/job/portal/api/json": {
+          "_class": "org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject",
+          "name": "portal",
+          "fullName": "team/portal",
+          "url": "/job/team/job/portal/",
+          "color": null,
+          "description": ""
+        },
+        "/jenkins/job/team/job/deploy/api/json": {
+          "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+          "name": "deploy",
+          "fullName": "team/deploy",
+          "url": "/job/team/job/deploy/",
+          "color": "blue",
+          "description": "",
+          "lastBuild": {
+            "number": 7,
+            "result": "SUCCESS",
+            "timestamp": 1,
+            "duration": 2,
+            "displayName": "#7"
+          }
+        },
+        "/jenkins/job/team/job/portal/job/main/api/json": {
+          "_class": "x",
+          "builds": [
+            {
+              "number": 2,
+              "result": "SUCCESS",
+              "building": false,
+              "timestamp": 5,
+              "url": "/b/2/",
+              "actions": [
+                {},
+                {
+                  "lastBuiltRevision": {
+                    "SHA1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "branch": [
+                      {
+                        "name": "origin/main"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "status": 0,
+      "stdout": "{\n  \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n  \"name\": \"deploy\",\n  \"fullName\": \"team/deploy\",\n  \"url\": \"http://stub/job/team/job/deploy/\",\n  \"color\": \"blue\",\n  \"description\": \"\",\n  \"lastBuild\": {\n    \"number\": 7,\n    \"result\": \"SUCCESS\",\n    \"timestamp\": 1,\n    \"duration\": 2,\n    \"displayName\": \"#7\"\n  }\n}\n"
+    },
+    {
+      "name": "list-multibranch",
+      "argv": [
+        "job",
+        "list",
+        "team/portal",
+        "--json"
+      ],
+      "answers": {
+        "/jenkins/me/api/json": {
+          "fullName": "Fixture User",
+          "id": "fixture"
+        },
+        "/jenkins/job/team/job/portal/api/json": {
+          "_class": "org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject",
+          "jobs": [
+            {
+              "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+              "name": "main",
+              "color": "blue"
+            },
+            {
+              "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+              "name": "feature%2Fa",
+              "color": "red_anime"
+            },
+            {
+              "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+              "name": "old",
+              "color": "disabled"
+            }
+          ]
+        },
+        "/jenkins/job/team/job/deploy/api/json": {
+          "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+          "name": "deploy",
+          "fullName": "team/deploy",
+          "url": "/job/team/job/deploy/",
+          "color": "blue",
+          "description": "",
+          "lastBuild": {
+            "number": 7,
+            "result": "SUCCESS",
+            "timestamp": 1,
+            "duration": 2,
+            "displayName": "#7"
+          }
+        },
+        "/jenkins/job/team/job/portal/job/main/api/json": {
+          "_class": "x",
+          "builds": [
+            {
+              "number": 2,
+              "result": "SUCCESS",
+              "building": false,
+              "timestamp": 5,
+              "url": "/b/2/",
+              "actions": [
+                {},
+                {
+                  "lastBuiltRevision": {
+                    "SHA1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "branch": [
+                      {
+                        "name": "origin/main"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "status": 0,
+      "stdout": "[\n  {\n    \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n    \"name\": \"main\",\n    \"color\": \"blue\"\n  },\n  {\n    \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n    \"name\": \"feature%2Fa\",\n    \"color\": \"red_anime\"\n  },\n  {\n    \"_class\": \"org.jenkinsci.plugins.workflow.job.WorkflowJob\",\n    \"name\": \"old\",\n    \"color\": \"disabled\"\n  }\n]\n"
+    },
+    {
+      "name": "list-plain",
+      "argv": [
+        "job",
+        "list",
+        "team/deploy",
+        "--json"
+      ],
+      "answers": {
+        "/jenkins/me/api/json": {
+          "fullName": "Fixture User",
+          "id": "fixture"
+        },
+        "/jenkins/job/team/job/portal/api/json": {
+          "_class": "org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject",
+          "name": "portal",
+          "fullName": "team/portal",
+          "url": "/job/team/job/portal/",
+          "color": null,
+          "description": ""
+        },
+        "/jenkins/job/team/job/deploy/api/json": {
+          "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+          "name": "deploy",
+          "fullName": "team/deploy",
+          "url": "/job/team/job/deploy/",
+          "color": "blue",
+          "description": "",
+          "lastBuild": {
+            "number": 7,
+            "result": "SUCCESS",
+            "timestamp": 1,
+            "duration": 2,
+            "displayName": "#7"
+          }
+        },
+        "/jenkins/job/team/job/portal/job/main/api/json": {
+          "_class": "x",
+          "builds": [
+            {
+              "number": 2,
+              "result": "SUCCESS",
+              "building": false,
+              "timestamp": 5,
+              "url": "/b/2/",
+              "actions": [
+                {},
+                {
+                  "lastBuiltRevision": {
+                    "SHA1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "branch": [
+                      {
+                        "name": "origin/main"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "status": 0,
+      "stdout": "null\n"
+    },
+    {
+      "name": "api-builds",
+      "argv": [
+        "api",
+        "/job/team/job/portal/job/main/api/json?tree=builds[number]"
+      ],
+      "answers": {
+        "/jenkins/me/api/json": {
+          "fullName": "Fixture User",
+          "id": "fixture"
+        },
+        "/jenkins/job/team/job/portal/api/json": {
+          "_class": "org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject",
+          "name": "portal",
+          "fullName": "team/portal",
+          "url": "/job/team/job/portal/",
+          "color": null,
+          "description": ""
+        },
+        "/jenkins/job/team/job/deploy/api/json": {
+          "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+          "name": "deploy",
+          "fullName": "team/deploy",
+          "url": "/job/team/job/deploy/",
+          "color": "blue",
+          "description": "",
+          "lastBuild": {
+            "number": 7,
+            "result": "SUCCESS",
+            "timestamp": 1,
+            "duration": 2,
+            "displayName": "#7"
+          }
+        },
+        "/jenkins/job/team/job/portal/job/main/api/json": {
+          "_class": "x",
+          "builds": [
+            {
+              "number": 2,
+              "result": "SUCCESS",
+              "building": false,
+              "timestamp": 5,
+              "url": "/b/2/",
+              "actions": [
+                {},
+                {
+                  "lastBuiltRevision": {
+                    "SHA1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "branch": [
+                      {
+                        "name": "origin/main"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "status": 0,
+      "stdout": "{\"_class\":\"x\",\"builds\":[{\"number\":2,\"result\":\"SUCCESS\",\"building\":false,\"timestamp\":5,\"url\":\"http://stub/b/2/\",\"actions\":[{},{\"lastBuiltRevision\":{\"SHA1\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"branch\":[{\"name\":\"origin/main\"}]}}]}]}\n"
+    }
+  ]
+}
