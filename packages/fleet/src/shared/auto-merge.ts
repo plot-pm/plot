@@ -19,6 +19,7 @@ import {
   repairRecordFile,
   type MergerAppReader,
 } from '@plot-pm/domain/adapters';
+import { hostForReads } from '@plot-pm/domain/adapters/host/process-host-reads';
 import { refsRemoteGit } from '@plot-pm/domain/adapters/refs/refs-remote-git';
 import { sprintScopeRef } from '@plot-pm/domain/adapters/sprint-scope-ref';
 import { liveReviewRuns } from '@plot-pm/domain/adapters/review-start/review-start-node';
@@ -26,7 +27,7 @@ import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { RunLogLine } from '@plot-pm/domain/ports/run-log';
 import type { RepairMergeReading } from '@plot-pm/domain/rules/repair-pr';
 import { readRepair, mergeAt } from '@plot-pm/domain/workflows/merge';
-import { hostOf, refsOf, runLogOf, scriptsOf, type ActOptions } from './action-log.js';
+import { refsOf, runLogOf, scriptsOf, type ActOptions } from './action-log.js';
 import { readAutoReview } from './auto-review.js';
 import { readConfig } from './config-reader.js';
 import { pidAlive } from './fleet-run.js';
@@ -44,6 +45,35 @@ export interface MergeTickResult {
 
 /** The (PR, head) pairs whose merge the host refused, for the daemon's life. */
 export type MergeRefusals = Map<number, string>;
+
+/** One PR's conversation hold: the head commit it was refused at and the time its record covers. */
+export interface ConversationHold {
+  readonly head: string;
+  /** The later of the refusal's `conversationAt` and the row's `updatedAt`, as an ISO time. */
+  readonly at: string;
+}
+
+/**
+ * The PRs refused `human-comment-open` or `human-comment-unread`, for the daemon's life.
+ * A PR is skipped while its head and `updatedAt` are unchanged against the hold.
+ */
+export type ConversationHolds = Map<number, ConversationHold>;
+
+/** Whether a hold still covers a row: same head commit, and the row's `updatedAt` is not newer than the hold. */
+const holds = (hold: ConversationHold | undefined, head: string, row: PrIndexRow): boolean => {
+  if (hold === undefined || hold.head !== head) return false;
+  const held = Date.parse(hold.at);
+  const updated = row.updatedAt === undefined ? Number.NaN : Date.parse(row.updatedAt);
+  return !Number.isNaN(held) && !Number.isNaN(updated) && updated <= held;
+};
+
+/** The later of two ISO times; the one that parses where only one does, and the row's where neither does. */
+const laterOf = (a: string | undefined, b: string | undefined): string => {
+  const pa = a === undefined ? Number.NaN : Date.parse(a);
+  const pb = b === undefined ? Number.NaN : Date.parse(b);
+  if (Number.isNaN(pa)) return Number.isNaN(pb) ? '' : new Date(pb).toISOString();
+  return Number.isNaN(pb) || pa >= pb ? new Date(pa).toISOString() : new Date(pb).toISOString();
+};
 
 /**
  * Appends one `merge` record for the one PR a tick tried, naming the identity
@@ -154,6 +184,10 @@ const repairReading = async (
  * @param readings - the readings that do not depend on the row.
  * @param ports - the merge controller's ports.
  * @param refused - the host-refused (PR, head) pairs; the caller keeps it across passes.
+ * @param conversationHolds - the PRs refused `human-comment-open` or
+ *   `human-comment-unread`; the caller keeps it across passes. A held PR is
+ *   skipped, and the next candidate asked in the same pass, until its head
+ *   differs or its row's `updatedAt` is newer than the hold. Absent, nothing is skipped.
  * @param pidAlive - whether a review run's pid is alive.
  * @param opts - where the fleet acts; `undefined` logs nothing (unit tests that pass no `ActOptions`).
  * @param logged - the merge-hold keys already recorded, for the daemon's life.
@@ -172,6 +206,7 @@ export const mergeTick = async (
   opts?: ActOptions,
   logged: Set<string> = new Set(),
   recheck?: () => MergerAppReading,
+  conversationHolds?: ConversationHolds,
 ): Promise<MergeTickResult> => {
   const repairMerge = readings.repairMerge ?? (await repairReading(rows, readings.defaultBranch, ports));
   const live = liveReviewRuns(repoRoot, pidAlive, readings.now);
@@ -194,11 +229,12 @@ export const mergeTick = async (
         .map(({ row, step }) => logMergeHold(opts, row, (step as { reason: string }).reason, logged, readings.now)),
     );
   }
-  const candidates = steps.map(({ pr, step }) =>
-    step.step === 'merge' && refused.get(pr) === step.head
-      ? { pr, step: { step: 'none', why: 'host-refused' } as SlicePrStep }
-      : { pr, step },
-  );
+  const candidates = rowSteps.map(({ row, pr, step }) => {
+    if (step.step !== 'merge') return { pr, step };
+    if (refused.get(pr) === step.head) return { pr, step: { step: 'none', why: 'host-refused' } as SlicePrStep };
+    if (holds(conversationHolds?.get(pr), step.head, row)) return { pr, step: { step: 'none', why: 'human-comment' } as SlicePrStep };
+    return { pr, step };
+  });
   const pick = nextMerge(candidates);
   if (pick === null) return { steps };
   // THE KEY IS READ AGAIN BEFORE A MERGE AS THE APP: the held reading may be
@@ -208,6 +244,10 @@ export const mergeTick = async (
   }
   const result = await mergeAt(ports, pick.pr, pick.head);
   if (!result.merged && result.reason === 'host-refused') refused.set(pick.pr, pick.head);
+  if (!result.merged && (result.reason === 'human-comment-open' || result.reason === 'human-comment-unread')) {
+    const row = rowSteps.find(({ pr }) => pr === pick.pr)?.row;
+    conversationHolds?.set(pick.pr, { head: pick.head, at: laterOf(result.conversationAt, row?.updatedAt) });
+  }
   if (opts !== undefined) {
     const branch = rowSteps.find(({ pr }) => pr === pick.pr)?.row.head ?? pick.head;
     const identity = mergeIdentity(readings.backend, readings.mergerApp).identity === 'app' ? 'app' : 'host';
@@ -226,6 +266,7 @@ export const mergeTick = async (
  *
  * @param opts - where the fleet acts.
  * @param refused - the host-refused pairs, kept by the caller for the daemon's life.
+ * @param conversationHolds - the conversation holds, kept by the caller for the daemon's life.
  * @param now - epoch milliseconds.
  * @param alive - whether a pid is alive.
  * @param logged - the merge-hold keys already recorded, for the daemon's life.
@@ -241,9 +282,12 @@ export const runAutoMergePass = async (
   alive: (pid: number) => boolean = pidAlive,
   logged: Set<string> = new Set(),
   mergerApp: MergerAppReader = mergerAppHeld(),
+  conversationHolds?: ConversationHolds,
 ): Promise<MergeTickResult | null> => {
-  const host = hostOf(opts);
   const context = { repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir };
+  // The conversation read is in-process only: the host this process composed
+  // at start answers it, and the shell host answers `unaskable`.
+  const host = opts.hostAdapter ?? hostForReads(context);
   const backend = await host.backend();
   if (!backend.ok) return null;
   const store = await prIndexFile({ cwd: opts.repoRoot }).read(backend.value);
@@ -304,5 +348,6 @@ export const runAutoMergePass = async (
     opts,
     logged,
     () => mergerApp.fresh(context),
+    conversationHolds,
   );
 };

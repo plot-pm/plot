@@ -4,7 +4,7 @@ import type { MergePorts } from '@plot-pm/domain/workflows/merge';
 import type { DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import { runLogFixture } from '@plot-pm/domain/adapters';
-import { mergeTick, type MergeRefusals } from '../../src/shared/auto-merge.js';
+import { type ConversationHolds, mergeTick, type MergeRefusals } from '../../src/shared/auto-merge.js';
 
 const TIP = 'c'.repeat(40);
 const NOW = Date.parse('2026-10-30T12:00:00Z');
@@ -55,8 +55,9 @@ const readings = (over: Record<string, unknown> = {}) =>
     ...over,
   }) as never;
 
-const portsFor = (said: 'answered' | 'failed') => {
+const portsFor = (said: 'answered' | 'failed', conversations: Record<number, unknown> = {}) => {
   const calls: string[][] = [];
+  const asked: number[] = [];
   const ports = {
     host: {
       backend: async () => ({ ok: true, value: 'github' }),
@@ -73,6 +74,10 @@ const portsFor = (said: 'answered' | 'failed') => {
         value: { sha: head(n), state: 'success', description: '', time: '', bypass: false },
       }),
       reviewWriter: async () => ({ ok: true, value: '' }),
+      prConversation: async (n: number) => {
+        asked.push(n);
+        return { ok: true, value: conversations[n] ?? { prAuthor: 'author', rows: [] } };
+      },
     },
     scripts: {
       hostSaid: async (args: string[]) => {
@@ -81,17 +86,22 @@ const portsFor = (said: 'answered' | 'failed') => {
       },
     },
     defaultBranch: { read: async () => ({ ok: true, value: reading() }) },
-    refs: { remoteSha: async () => ({ ok: true, value: { sha: TIP } }) },
+    refs: { remoteSha: async () => ({ ok: true, value: { sha: TIP } }), defaultBranch: async () => ({ ok: true, value: 'main' }) },
     checksWaitMs: WAIT,
     now: () => NOW,
     requireReading: true,
     caller: 'fleetd',
   } as unknown as MergePorts;
-  return { ports, calls };
+  return { ports, calls, asked };
 };
 
-const tick = (rows: PrIndexRow[], over: Record<string, unknown>, p: MergePorts, refused: MergeRefusals = new Map()) =>
-  mergeTick(rows, readings(over), p, refused, '/nowhere', () => false);
+const tick = (
+  rows: PrIndexRow[],
+  over: Record<string, unknown>,
+  p: MergePorts,
+  refused: MergeRefusals = new Map(),
+  holds?: ConversationHolds,
+) => mergeTick(rows, readings(over), p, refused, '/nowhere', () => false, undefined, undefined, undefined, holds);
 
 describe('mergeTick', () => {
   it('merges exactly one of two mergeable PRs, the lower number', async () => {
@@ -123,6 +133,38 @@ describe('mergeTick', () => {
     const refused: MergeRefusals = new Map([[3, 'f'.repeat(40)]]);
     await tick([row(3)], {}, ports, refused);
     expect(calls.map((c) => c[1])).toEqual(['3']);
+  });
+
+  describe('the merge decision reads the PR base', () => {
+    const RED = reading({ head: 'red', settled: { sha: TIP, state: 'red' } });
+    /** Ports whose own default-branch read is red, while the tick's selection read green. */
+    const redAtMerge = (base: string) => {
+      const { ports, calls } = portsFor('answered');
+      const p = ports as unknown as { host: { prState: (n: number) => Promise<{ ok: true; value: Record<string, unknown> }> } };
+      const prState = p.host.prState;
+      return {
+        calls,
+        ports: {
+          ...ports,
+          host: { ...ports.host, prState: async (n: number) => { const out = await prState(n); return { ...out, value: { ...out.value, base } }; } },
+          defaultBranch: { read: async () => ({ ok: true, value: RED }) },
+        } as unknown as MergePorts,
+      };
+    };
+
+    it('never merges a PR into the default branch past a red reading the merge reads', async () => {
+      const { ports, calls } = redAtMerge('main');
+      const out = await tick([row(3)], {}, ports);
+      expect(calls).toEqual([]);
+      expect(out.merged).toMatchObject({ pr: 3, result: { merged: false, reason: 'default-branch-red' } });
+    });
+
+    it('merges a PR into a sprint branch whatever the default branch reads at merge time', async () => {
+      const { ports, calls } = redAtMerge('sprint/idle-and-supersede');
+      const out = await tick([row(3)], {}, ports);
+      expect(calls).toEqual([['pr-merge', '3', '--match-head', head(3)]]);
+      expect(out.merged).toMatchObject({ pr: 3, result: { merged: true } });
+    });
   });
 
   it('merges nothing where Merger app is missing on GitHub', async () => {
@@ -251,6 +293,7 @@ describe('mergeTick on a red default branch', () => {
       defaultBranch: { read: async () => ({ ok: true, value: red }) },
       refs: {
         remoteSha: async () => ({ ok: true, value: { sha: TIP } }),
+        defaultBranch: async () => ({ ok: true, value: 'main' }),
         firstParentLine: async () => ({ ok: true, value: [TIP, FIRST_RED, LAST_GREEN] }),
       },
       repair: { read: async () => ({ ok: true, value: record }) },
@@ -300,5 +343,61 @@ describe('mergeTick on a red default branch', () => {
     expect(out.steps).toEqual([{ pr: 3, step: { step: 'hold', reason: 'default-branch-red' } }]);
     expect(calls).toEqual([]);
     expect(asked).toEqual([]);
+  });
+});
+
+describe('mergeTick — a PR held for an unanswered human comment', () => {
+  const ASK = { prAuthor: 'author', rows: [{ kind: 'issue', id: 1, login: 'max', type: 'User', time: '2026-10-30T10:00:00Z', body: 'why MIT?' }] };
+  const T0 = '2026-10-30T10:30:00Z';
+  const stamp = (n: number, updatedAt: string, over: Partial<PrIndexRow> = {}) => row(n, { updatedAt, ...over });
+
+  it('skips the held lower PR and merges the next candidate in the same pass', async () => {
+    const { ports, calls } = portsFor('answered', { 3: ASK });
+    const holds: ConversationHolds = new Map();
+    const first = await tick([stamp(3, T0), stamp(5, T0)], {}, ports, new Map(), holds);
+    // The first pass asks PR 3 and is refused; nothing merges until the next pass.
+    expect(first.merged).toMatchObject({ pr: 3, result: { merged: false, reason: 'human-comment-open' } });
+    expect(calls).toEqual([]);
+    const second = await tick([stamp(3, T0), stamp(5, T0)], {}, ports, new Map(), holds);
+    expect(calls).toEqual([['pr-merge', '5', '--match-head', head(5)]]);
+    expect(second.merged).toMatchObject({ pr: 5, result: { merged: true } });
+  });
+
+  it('asks a held PR again only once its updatedAt or head moves', async () => {
+    const { ports, asked } = portsFor('answered', { 3: ASK });
+    const holds: ConversationHolds = new Map();
+    await tick([stamp(3, T0)], {}, ports, new Map(), holds);
+    expect(asked).toEqual([3]);
+    await tick([stamp(3, T0)], {}, ports, new Map(), holds);
+    expect(asked).toEqual([3]);
+    await tick([stamp(3, '2026-10-30T11:00:00Z')], {}, ports, new Map(), holds);
+    expect(asked).toEqual([3, 3]);
+    const moved = stamp(3, '2026-10-30T11:00:00Z', { headSha: head(9), checksSha: head(9), plotReviewSha: head(9), plotReviewCheckedSha: head(9) });
+    await tick([moved], {}, ports, new Map(), holds);
+    expect(asked).toEqual([3, 3, 3]);
+  });
+
+  it('asks once, not every tick, when only a marked Plot comment moved updatedAt', async () => {
+    // Plot's own marked comment is the newest row and moves updatedAt past the human comment's time.
+    const marked = { ...ASK, rows: [...ASK.rows, { kind: 'issue', id: 2, login: 'plot', type: 'User', time: '2026-10-30T11:30:00Z', body: '<!-- plot-review -->' }] };
+    const { ports, asked } = portsFor('answered', { 3: marked });
+    const holds: ConversationHolds = new Map();
+    const updated = '2026-10-30T11:30:05Z';
+    await tick([stamp(3, updated)], {}, ports, new Map(), holds);
+    await tick([stamp(3, updated)], {}, ports, new Map(), holds);
+    await tick([stamp(3, updated)], {}, ports, new Map(), holds);
+    expect(asked).toEqual([3]);
+  });
+
+  it('holds an unread conversation on the row’s own updatedAt', async () => {
+    const { ports, asked } = portsFor('answered');
+    // PR 3 has no entry; make its read fail by overriding the host.
+    (ports.host as unknown as { prConversation: unknown }).prConversation = async (n: number) => { asked.push(n); return { ok: false, why: 'failed' }; };
+    const holds: ConversationHolds = new Map();
+    const out = await tick([stamp(3, T0)], {}, ports, new Map(), holds);
+    expect(out.merged).toMatchObject({ result: { merged: false, reason: 'human-comment-unread' } });
+    await tick([stamp(3, T0)], {}, ports, new Map(), holds);
+    expect(asked).toEqual([3]);
+    expect(holds.get(3)).toEqual({ head: head(3), at: new Date(T0).toISOString() });
   });
 });

@@ -107,6 +107,9 @@ const WRITE_ROUTES = [
   // Needs design moves a Draft plan to Design: it writes `State:` and pushes, so it
   // is gated by the same loopback boundary as /api/approve.
   { path: '/api/needs-design', body: { slug: 'ship-the-widget' } },
+  // Supersede marks a plan Superseded and pushes, so it is gated by the same
+  // loopback boundary as /api/needs-design.
+  { path: '/api/supersede', body: { slug: 'ship-the-widget', by: 'another-plan' } },
   // Release-approve approves a release PR on a verified passkey assertion, and
   // the two passkey routes issue its challenge and register its credential. A
   // passkey binds to `localhost`, so none of the three may answer a request

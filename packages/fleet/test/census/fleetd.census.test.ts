@@ -276,7 +276,7 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
     expect(treeOf(census, between(census.execs, null, 'pass-1'), root).length).toBeGreaterThan(0);
   });
 
-  it.fails(rowTitle(CENSUS_ROWS.S4, fixture), () => {
+  it(rowTitle(CENSUS_ROWS.S4, fixture), () => {
     const { mean, each, execs } = perPass(() => true);
     recordCount(CENSUS_ROWS.S4, fixture, mean, execs);
     expect(each).toEqual([0, 0]);

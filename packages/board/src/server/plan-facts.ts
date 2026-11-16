@@ -143,7 +143,7 @@ export const actionAvailabilityOf = (caps: BoardCapabilities): ActionAvailabilit
     if (info !== undefined) for (const a of actions) out[a] = info.available;
   };
   set(caps.dispatch, 'start-work');
-  set(caps.approve, 'approve', 'approve-spike', 'confirm-slices', 'needs-design');
+  set(caps.approve, 'approve', 'approve-spike', 'confirm-slices', 'needs-design', 'supersede');
   set(caps.interrogate, 'interrogate');
   set(caps.deliver, 'deliver');
   return out;

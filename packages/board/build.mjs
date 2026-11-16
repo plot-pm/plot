@@ -861,6 +861,29 @@ await esbuild.build({
 fs.copyFileSync(proposeStackArtifact, shippedProposeStack);
 fs.chmodSync(shippedProposeStack, 0o755);
 
+// What to say about the `State branch` key, for /plot-init and /plot-board-setup.
+//
+// ONCE PER ADOPTION, like plot-propose-stack.mjs, and its own bundle for the
+// same reason: it asks one host question and judges the answer, and loads
+// nothing of the fleet controller.
+const stateBranchArtifact = path.join(here, 'dist/plot-state-branch.mjs');
+const shippedStateBranch = path.join(here, '../../skills/plot/scripts/board/plot-state-branch.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/state-branch.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: stateBranchArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(stateBranchArtifact, shippedStateBranch);
+fs.chmodSync(shippedStateBranch, 0o755);
+
 // How many agents to start, for plot-dispatch.sh --start.
 //
 // ONCE PER DISPATCH, which docs/shell-and-domain.md puts on the calling side: a
@@ -1826,6 +1849,26 @@ await esbuild.build({
 fs.copyFileSync(needsDesignArtifact, shippedNeedsDesign);
 fs.chmodSync(shippedNeedsDesign, 0o755);
 
+// The supersession of a plan by its successor — the same person-only entry
+// shape as plot-needs-design.mjs above, with no `.sh` launcher.
+const supersedeArtifact = path.join(here, 'dist/plot-supersede.mjs');
+const shippedSupersede = path.join(here, '../../skills/plot/scripts/board/plot-supersede.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/supersede.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: supersedeArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(supersedeArtifact, shippedSupersede);
+fs.chmodSync(shippedSupersede, 0o755);
+
 // The released-label backfill — an operator-command entry like
 // plot-needs-design.mjs above; the reconcile sweep also calls its dry run.
 const releasedLabelsArtifact = path.join(here, 'dist/plot-released-labels.mjs');
@@ -2046,6 +2089,7 @@ const standingKb = (fs.statSync(shippedStanding).size / 1024).toFixed(1);
 const branchStateKb = (fs.statSync(shippedBranchState).size / 1024).toFixed(1);
 const sprintScoreKb = (fs.statSync(shippedSprintScore).size / 1024).toFixed(1);
 const proposeStackKb = (fs.statSync(shippedProposeStack).size / 1024).toFixed(1);
+const stateBranchKb = (fs.statSync(shippedStateBranch).size / 1024).toFixed(1);
 const sprintTransitionKb = (fs.statSync(shippedSprintTransition).size / 1024).toFixed(1);
 const fleetSizeKb = (fs.statSync(shippedFleetSize).size / 1024).toFixed(1);
 const releaseGateKb = (fs.statSync(shippedReleaseGate).size / 1024).toFixed(1);
@@ -2072,6 +2116,7 @@ const approveKb = (fs.statSync(shippedApprove).size / 1024).toFixed(1);
 const findingTicketsKb = (fs.statSync(shippedFindingTickets).size / 1024).toFixed(1);
 const releasedLabelsKb = (fs.statSync(shippedReleasedLabels).size / 1024).toFixed(1);
 const needsDesignKb = (fs.statSync(shippedNeedsDesign).size / 1024).toFixed(1);
+const supersedeKb = (fs.statSync(shippedSupersede).size / 1024).toFixed(1);
 const sprintMemberKb = (fs.statSync(shippedSprintMember).size / 1024).toFixed(1);
 const claimAnswerKb = (fs.statSync(shippedClaimAnswer).size / 1024).toFixed(1);
 const reapKb = (fs.statSync(shippedReap).size / 1024).toFixed(1);
@@ -2100,6 +2145,7 @@ console.log(`Built plot-standing.mjs (${standingKb} KB) → skills/plot/scripts/
 console.log(`Built plot-branch-state.mjs (${branchStateKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-sprint-score.mjs (${sprintScoreKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-propose-stack.mjs (${proposeStackKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-state-branch.mjs (${stateBranchKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-sprint-transition.mjs (${sprintTransitionKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-fleet-size.mjs (${fleetSizeKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-release-gate.mjs (${releaseGateKb} KB) → skills/plot/scripts/board/`);
@@ -2126,6 +2172,7 @@ console.log(`Built plot-approve.mjs (${approveKb} KB) → skills/plot/scripts/bo
 console.log(`Built plot-finding-tickets.mjs (${findingTicketsKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-released-labels.mjs (${releasedLabelsKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-needs-design.mjs (${needsDesignKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-supersede.mjs (${supersedeKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-sprint-member.mjs (${sprintMemberKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-claim-answer.mjs (${claimAnswerKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-reap.mjs (${reapKb} KB) → skills/plot/scripts/board/`);

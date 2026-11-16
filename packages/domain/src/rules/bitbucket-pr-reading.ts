@@ -1,3 +1,4 @@
+import type { PrConversationReading } from '../ports/host.js';
 /** A Bitbucket pull request payload, reduced to the fields `pr-state` reads. */
 export interface BitbucketPr {
   id: number;
@@ -158,3 +159,54 @@ export const bitbucketReview = (
     statuses: named === undefined ? [] : [{ state, description, time, writer: '' }],
   };
 };
+
+/** A Bitbucket user as a comment or participant carries it. */
+interface BitbucketUser {
+  nickname?: string;
+  type?: string;
+}
+
+const ACCOUNT_TYPE: Readonly<Record<string, string>> = { user: 'User', app_user: 'Bot' };
+
+const accountType = (user: BitbucketUser | null | undefined): string => ACCOUNT_TYPE[user?.type ?? ''] ?? '';
+
+/**
+ * The `pr-conversation` reading of a Bitbucket pull request.
+ *
+ * A comment on the diff (one with an `inline` anchor) reads `inline`, any other
+ * comment `issue`; a participant whose `approved` flag is set reads one `review`
+ * row with state `APPROVED`, id `0` (Bitbucket gives an approval none) and the
+ * participant's `participated_on` as its time. A comment's time is `created_on`,
+ * so an edit never moves it. Nothing is filtered, and a missing user reads `''`.
+ *
+ * @param pr - the pull request payload, for its author.
+ * @param comments - every comment of the pull request, all pages.
+ * @returns the author's nickname (`''` where none) and the rows.
+ */
+export const bitbucketConversation = (
+  pr: { author?: BitbucketUser | null; participants?: ReadonlyArray<{ user?: BitbucketUser | null; approved?: boolean; participated_on?: string | null }> },
+  comments: ReadonlyArray<{ id?: number; user?: BitbucketUser | null; created_on?: string; content?: { raw?: string }; inline?: unknown }>,
+): PrConversationReading => ({
+  prAuthor: pr.author?.nickname ?? '',
+  rows: [
+    ...comments.map((c) => ({
+      kind: c.inline ? ('inline' as const) : ('issue' as const),
+      id: c.id ?? 0,
+      login: c.user?.nickname ?? '',
+      type: accountType(c.user),
+      time: c.created_on ?? '',
+      body: c.content?.raw ?? '',
+    })),
+    ...(pr.participants ?? [])
+      .filter((p) => p.approved === true)
+      .map((p) => ({
+        kind: 'review' as const,
+        id: 0,
+        login: p.user?.nickname ?? '',
+        type: accountType(p.user),
+        time: p.participated_on ?? '',
+        body: '',
+        state: 'APPROVED',
+      })),
+  ],
+});

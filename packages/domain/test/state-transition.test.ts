@@ -105,6 +105,12 @@ describe('sprintVerb and owningCommand', () => {
     );
   });
 
+  it('names the supersede bundle for Superseded', () => {
+    expect(owningCommand('plan', 'x', 'Superseded')).toBe(
+      'node skills/plot/scripts/board/plot-supersede.mjs --by <successor-slug> x --who <handle>',
+    );
+  });
+
   it('names the sprint command with its verb', () => {
     expect(owningCommand('sprint', 's', 'Active')).toBe(
       '/plot-sprint s start  (or: bash skills/plot/scripts/plot-sprint-state.sh s Active)',

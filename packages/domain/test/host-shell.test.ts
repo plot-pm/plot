@@ -438,6 +438,14 @@ describe('reviewWriter', () => {
   });
 });
 
+describe('prConversation', () => {
+  it('answers unaskable: the conversation read is in-process only', async () => {
+    const answer = await hostShell(hostThat('exit 0')).prConversation(7);
+    expect(answer.ok).toBe(false);
+    expect(answer).toMatchObject({ why: 'unaskable' });
+  });
+});
+
 describe('prReview statuses', () => {
   it('passes the statuses the script reports through to the reading', async () => {
     const reading = {
@@ -1104,6 +1112,7 @@ describe('prState reads mergeability through the real script', () => {
       const out = merge(
         {
           caller: 'person',
+          conversation: { prAuthor: 'author', rows: [] },
           pr: await readPr(headRefName),
           defaultBranch: {
             v: 1, branch: 'main', headSha: RED, head: 'red', headSince: '2026-11-03T00:00:00Z',

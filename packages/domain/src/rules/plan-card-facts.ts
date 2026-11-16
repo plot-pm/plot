@@ -169,6 +169,26 @@ const startWork = (readings: PlanCardFactsReadings): Action | null => {
   return enabled('start-work');
 };
 
+/** The plan states a supersession can leave. */
+const SUPERSEDABLE: ReadonlySet<string> = new Set(['draft', 'design', 'approved']);
+
+/**
+ * The plan's Supersede action.
+ *
+ * Enabled for a Draft, Design or Approved plan. Disabled for every other state
+ * with the `plan-state` reason, which names the state, or `null` where the
+ * state is not one `PlanStateSchema` holds.
+ *
+ * @param state - the plan's `State:` as the parser reports it.
+ * @returns the action, which a card always shows.
+ */
+export const supersedeAction = (state: string): Action => {
+  const word = state.trim().toLowerCase();
+  if (SUPERSEDABLE.has(word)) return enabled('supersede');
+  const known = PlanStateSchema.safeParse(word);
+  return disabled('supersede', { kind: 'plan-state', state: known.success ? known.data : null });
+};
+
 /**
  * Whether a disabled secondary stays on the card. One the plan's own state
  * disables (`nothing-eligible`) is left out; one the board cannot answer yet
@@ -179,8 +199,10 @@ const keepsSecondary = (action: Action): boolean =>
 
 /**
  * The plan's actions: at most one primary, then the secondaries in the order
- * Start work, Deliver, Interrogate. A secondary the plan's own state disables is
- * left out, and one the board cannot answer yet stays disabled with its reason;
+ * Start work, Deliver, Interrogate, Supersede. A secondary the plan's own state
+ * disables is left out, except Supersede, which every plan card shows, disabled
+ * with its reason outside Draft, Design and Approved. One the board cannot
+ * answer yet stays disabled with its reason;
  * `withActionAvailability` later marks one the board refuses.
  *
  * The primary is the first that holds of: Approve spike; Approve (or Confirm
@@ -209,6 +231,7 @@ const nextOf = (readings: PlanCardFactsReadings): CardFacts['next'] => {
     else secondary.push(enabled('deliver'));
   }
   if (controls.interrogate) secondary.push(enabled('interrogate'));
+  secondary.push(supersedeAction(readings.state));
   return { primary, secondary };
 };
 

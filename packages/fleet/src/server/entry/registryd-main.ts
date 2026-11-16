@@ -138,10 +138,10 @@ import { revertWorldOf } from '../../shared/revert-start-world.js';
 import { releasePortsFor } from '../../shared/release-world.js';
 import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import { runDeskRelay } from '../../shared/desk-relay.js';
-import { runIndexMonitor, sliceBranchesOf } from '../../shared/index-monitor.js';
+import { runIndexMonitor, sliceBranchesAtTip, sliceBranchesOf } from '../../shared/index-monitor.js';
 import { fleetIssues, fleetIssueWrites, freshIssueState, issueGateOf } from '../../shared/issue-refresh.js';
 import { freshPrState, withHostSlot } from '../../shared/pr-refresh.js';
-import { refreshDefaultBranch } from '../../shared/default-branch-refresh.js';
+import { refreshOnChange } from '../../shared/default-branch-refresh.js';
 import { createSnapshotHolder, failUnread, readOf, registryEntryOf, type RecordReading, type SnapshotHolder } from '../../shared/snapshot-fill.js';
 import type { RegistryEntry, RepoSnapshot } from '@plot-pm/domain/entities/snapshot';
 import { freshScanState, planDirectory } from '../../shared/fleet-scan.js';
@@ -2951,6 +2951,15 @@ export const indexMonitorOver = (
   const plans = fleetPlanStore(context, refs);
   const index = prIndexFile({ cwd: context.repoRoot });
   const defaultBranch = defaultBranchFile(context.repoRoot);
+  // THE PLANS ARE PARSED WHERE THEIR COMMIT MOVED: `origin/<default>` is read
+  // from the ref files, so an idle beat starts no `plot-config.sh` and no
+  // `plot-plan-meta.sh`.
+  const sliceBranches = sliceBranchesAtTip(async () => {
+    const base = await refs.defaultBranch();
+    if (!base.ok) return null;
+    const tip = await refs.resolve(`origin/${base.value}`);
+    return tip.ok ? tip.value : null;
+  }, () => sliceBranchesOf(plans));
   return () =>
     runIndexMonitor({
       index: async () => {
@@ -2963,7 +2972,7 @@ export const indexMonitorOver = (
         const held = await defaultBranch.read();
         return held.ok ? held.value : null;
       },
-      sliceBranches: () => sliceBranchesOf(plans),
+      sliceBranches,
       channel,
       now: () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
       log: write,
@@ -3356,8 +3365,9 @@ export const run = async (
   );
   // FLEETD COMPOSES THE LOCAL AND THE REMOTE REFS READER, as `worker-loop.ts`
   // does: `refsGit` answers `remoteSha` as `unaskable`, `refsRemoteGit` reads
-  // `git ls-remote`. It rides the PR reader's beat, so the head is read once per
-  // beat and the runs only when the SHA moved or the re-ask rule is due.
+  // `git ls-remote`. It rides the PR reader's beat: the head is read on a beat
+  // where `tipMoved` changed or the re-ask rule is due, and the runs only when
+  // the SHA moved or the re-ask rule is due.
   const ci = await buildShell({ repoRoot, scriptDir: scriptsDir }, readsApi);
   const defaultBranchWorld = args.once
     ? null
@@ -3400,10 +3410,26 @@ export const run = async (
     lastDefaultBranchWarning = line;
     warn(line);
   };
+  // THE TIP IS READ WHERE IT MAY HAVE MOVED: the key is the local mirror's
+  // `origin/<default>` and the PR index's newest `mergedAt`, both read from
+  // files. A push that neither a fetch nor a merge shows is read when the held
+  // reading is next due.
+  const tipMoved = async (branch: string): Promise<string | null> => {
+    const mirror = await refsGit({ repoRoot, scriptDir: scriptsDir }).resolve(`origin/${branch}`);
+    const backend = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
+    if (!mirror.ok || !backend.ok) return null;
+    const held = await prIndexFile({ cwd: repoRoot }).read(backend.value);
+    if (!held.ok || held.value === null) return null;
+    const merged = held.value.rows.map((row) => row.mergedAt ?? '').sort().at(-1) ?? '';
+    return `${mirror.value} ${merged}`;
+  };
+  const refreshDefault = defaultBranchWorld === null
+    ? null
+    : refreshOnChange(defaultBranchWorld, tipMoved, warnDefaultBranchOnce);
   const readDefaultBranch = seams.readDefaultBranch ?? (async (): Promise<void> => {
-    if (defaultBranchWorld === null) return;
+    if (refreshDefault === null) return;
     try {
-      await refreshDefaultBranch(defaultBranchWorld, warnDefaultBranchOnce);
+      await refreshDefault();
     } catch (e) {
       warn(`plot-fleetd: default-branch read failed: ${e instanceof Error ? e.message : String(e)}`);
     }

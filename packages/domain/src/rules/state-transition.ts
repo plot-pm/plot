@@ -186,6 +186,8 @@ export const owningCommand = (
       return `/plot-approve ${slug}  (or: bash skills/plot/scripts/plot-approve.sh ${slug})`;
     case 'delivered':
       return `/plot-deliver ${slug}  (or: bash skills/plot/scripts/plot-deliver.sh ${slug})`;
+    case 'superseded':
+      return `node skills/plot/scripts/board/plot-supersede.mjs --by <successor-slug> ${slug} --who <handle>`;
     default:
       return `/plot-approve or /plot-deliver — the plan lifecycle is Draft > Design > Approved > Delivered > Released,\n                    and no command writes '${to}'. If the phase itself is wrong, that is a finding to report.`;
   }

@@ -59,6 +59,7 @@ export const CENSUS_ROWS = {
     unit: 'execve per pass',
     target: 'zero',
     greenBy: { plan: 'triggers-replace-the-tick', phase: 'Phase 8' },
+    green: true,
   },
   S5: {
     id: 'S5',

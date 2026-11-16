@@ -219,6 +219,7 @@ const LABEL: Readonly<Record<ActionKind, string>> = {
   'confirm-slices': 'Confirm slices and approve',
   'start-work': 'Start work',
   deliver: 'Deliver',
+  supersede: 'Supersede',
 };
 
 const REACH: Readonly<Record<UnknownReach, string>> = {
@@ -335,6 +336,10 @@ export const reasonWords = (reason: Reason, unavailable: PresentOptions['unavail
         ? 'no branch is eligible to start'
         : `waits on ${reason.waitsOn.map(sliceWords).join(', ')}`;
     case 'awaits-spike': return `waits on its spike ${sliceWords(reason.spike)}`;
+    case 'plan-state':
+      return reason.state === null
+        ? 'the plan\'s state is unreadable'
+        : `a ${PLAN_STATE[reason.state][0]} plan cannot be superseded`;
     case 'linked-from-many-stories': return `linked from ${reason.stories.length} stories`;
     case 'lineage-unknown': return `${reason.relation} unread — ${REACH[reason.reach]}`;
   }
