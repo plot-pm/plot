@@ -1,0 +1,1 @@
+../2026-11-16-templates-show-named-identifiers.md
