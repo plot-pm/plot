@@ -66,6 +66,7 @@ const PR = {
   title: 'Seven',
   state: 'OPEN',
   headRefName: 'feature/seven',
+  baseRefName: 'sprint/card-1',
   isDraft: false,
   url: 'https://github.com/o/r/pull/7',
   updatedAt: '2026-11-01T00:00:00Z',
@@ -77,11 +78,11 @@ const PR = {
 describe('githubPlainRow', () => {
   it('projects the plain fields and reads absent ones as jq does', () => {
     expect(githubPlainRow(PR)).toEqual({
-      number: 7, title: 'Seven', state: 'OPEN', head: 'feature/seven', draft: false, url: PR.url,
+      number: 7, title: 'Seven', state: 'OPEN', head: 'feature/seven', base: 'sprint/card-1', draft: false, url: PR.url,
       updatedAt: '2026-11-01T00:00:00Z', headSha: 'abc', mergedAt: '', author: 'dev',
     });
     expect(githubPlainRow({ author: null })).toEqual({
-      number: null, title: null, state: null, head: null, draft: null, url: null, updatedAt: '', headSha: '', mergedAt: '', author: '',
+      number: null, title: null, state: null, head: null, base: '', draft: null, url: null, updatedAt: '', headSha: '', mergedAt: '', author: '',
     });
   });
 });

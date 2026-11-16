@@ -42,6 +42,7 @@ const graphqlOf = (p) => ({
   title: p.title,
   state: p.merged_at ? 'MERGED' : p.state.toUpperCase(),
   headRefName: p.head.ref,
+  baseRefName: p.base.ref,
   isDraft: p.draft,
   url: p.html_url,
   updatedAt: p.updated_at,
@@ -200,7 +201,7 @@ test('pr-list: a REST row carries MERGED, the draft flag and every plain field',
   assert.equal(out.code, 0, out.stderr);
   const rows = out.stdout.trim().split('\n').map((l) => JSON.parse(l));
   assert.deepEqual(rows.find((r) => r.number === 7), {
-    number: 7, title: 'PR 7', state: 'MERGED', head: 'feature/b7', draft: false, url: 'https://github.com/o/r/pull/7',
+    number: 7, title: 'PR 7', state: 'MERGED', head: 'feature/b7', base: 'main', draft: false, url: 'https://github.com/o/r/pull/7',
     updatedAt: FIXTURE[6].updated_at, headSha: FIXTURE[6].head.sha, mergedAt: FIXTURE[6].merged_at, author: 'user7',
   });
   assert.equal(rows.find((r) => r.number === 2).state, 'CLOSED');

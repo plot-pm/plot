@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -16,6 +16,9 @@ import { buildSandbox, type Sandbox } from './sandbox.js';
 
 /** `git cat-file -e` starts per pass on the GitHub fixture with 3 desks: one per `fileExistsSync` call. */
 const CAT_FILE_E_PER_PASS = 0;
+
+/** How long fleetd's desk watch needs to deliver a commit's trigger; a pass started sooner runs its tick one pass late. */
+const WATCH_LATENCY_MS = 1_500;
 
 type Spawn = { file?: string; args?: string[]; signal0?: number; sync?: boolean };
 
@@ -71,7 +74,7 @@ describe.each(['github'] as const)('the fleetd census entry on a %s fixture', (h
   });
 
   it('completes passes and stops with exit 0', () => {
-    expect(stdout).toMatch(/^census: pass 2 done$/m);
+    expect(stdout).toMatch(/^census: pass 2 done ticks=\d+$/m);
     expect(stdout).toMatch(/^census: stopped 0$/m);
     expect(stdout).toMatch(/^plot-fleetd: supervising /m);
   });
@@ -79,7 +82,7 @@ describe.each(['github'] as const)('the fleetd census entry on a %s fixture', (h
   it('runs a safety-net read on the safety-net command, after the one at start', () => {
     expect(beforeNet).toEqual(expect.any(Number));
     expect(afterNet).toBeGreaterThanOrEqual((beforeNet ?? 0) + 600_000);
-    expect(stdout).toMatch(/^census: pass 3 done$/m);
+    expect(stdout).toMatch(/^census: pass 3 done ticks=\d+$/m);
   });
 
   it('asks kill(pid, 0) for each desk with a live worker pid, so P2 reading 0 means the question was asked without bash', () => {
@@ -114,5 +117,35 @@ describe.each(['github'] as const)('the fleetd census entry on a %s fixture', (h
 
   it('leaves every stub worker alive: fleetd does not end a live desk', () => {
     for (const desk of box.desks) expect(() => process.kill(desk.worker.pid, 0)).not.toThrow();
+  });
+});
+
+describe('the fleetd census entry after a desk commit', () => {
+  let box: Sandbox;
+  let ticks: number | undefined;
+
+  beforeAll(async () => {
+    box = await buildSandbox({ host: 'github', desks: 3, openPrs: 5 });
+    const fleetd = startFleetd(entry, box, { trace: false });
+    try {
+      await fleetd.pass();
+      const desk = box.desks[0];
+      if (desk === undefined) throw new Error('process census: the fixture holds no desk');
+      writeFileSync(join(desk.worktree, 'census.txt'), 'one desk commit\n');
+      box.git(desk.worktree, 'add', 'census.txt');
+      box.git(desk.worktree, 'commit', '--quiet', '-m', 'census: one desk commit');
+      await new Promise((r) => setTimeout(r, WATCH_LATENCY_MS));
+      ticks = fleetd.ticksOf(await fleetd.pass());
+    } finally {
+      await fleetd.stop();
+    }
+  }, 300_000);
+
+  afterAll(async () => {
+    await box?.remove();
+  });
+
+  it('reports at least one supervision tick on the done line of the pass that follows it', () => {
+    expect(ticks).toBeGreaterThanOrEqual(1);
   });
 });

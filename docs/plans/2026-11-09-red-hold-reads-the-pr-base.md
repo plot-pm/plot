@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-16, Jan Wloka, plan-PR #3323 merged
 - **Started:** 2026-11-16, Jan Wloka, `bug/red-hold-index-base`
+- **Started:** 2026-11-16, Jan Wloka, `bug/red-hold-reads-the-pr-base`
 
 ## Changelog
 
@@ -168,7 +169,7 @@ Rows still to meet:
 
 ### Base hold
 
-- `bug/red-hold-reads-the-pr-base` — `holdsApply` over `row.base` in `mergeArm`, `baseBranchRed` in `rules/default-branch.ts`, `baseBranchFile` as a reader, `base-branch-red` in `merge`, `mergeAt` and `mergeArm`, the base reads in `auto-merge.ts`, and the `CLAUDE.md` sentence on fleetd's selection; merges after `bug/red-hold-index-base` <!-- builds: fleetd's merge arm reads the pull request's base branch -->
+- `bug/red-hold-reads-the-pr-base` — `holdsApply` over `row.base` in `mergeArm`, `baseBranchRed` in `rules/default-branch.ts`, `baseBranchFile` as a reader, `base-branch-red` in `merge`, `mergeAt` and `mergeArm`, the base reads in `auto-merge.ts`, and the `CLAUDE.md` sentence on fleetd's selection; merges after `bug/red-hold-index-base` <!-- builds: fleetd's merge arm reads the pull request's base branch --> → #3483
 
 ### Base readings
 

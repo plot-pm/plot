@@ -22,7 +22,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
-import { refsFixture } from '@plot-pm/domain/adapters';
+import { hostFixture, planRecord, planStoreFixture, refsFixture } from '@plot-pm/domain/adapters';
 import {
   composeDeliverPrompt,
   deliverability,
@@ -587,8 +587,27 @@ describe('the Deliver control reads a confirmed landing, not a merge subject', (
     // NOT `deliverable`, and not `not-merged` either: the work is probably in
     // and unconfirmed. NOT `scan-incomplete`: the scan finished, and what it
     // lacks is the host's confirmation of the merge.
+    // The pulse refuses on a merge, so the route re-asks the host; a host that
+    // cannot answer keeps the refusal `merge-unconfirmed`. Fixture ports, so the
+    // test spawns no `plot-host.sh`.
+    const file = path.join(dir, 'docs/plans', `2026-08-21-${SLUG}.md`);
+    const ports = {
+      planStore: planStoreFixture({
+        plans: [planRecord({
+          file,
+          slices: [{ name: 'Implementation', branches: [{ branch: 'feature/one', deferred: false, deferredReason: '', claimed: '', waitsOn: [] }] }],
+        })],
+      }),
+      host: { ...hostFixture(), prMerged: async () => ({ ok: true, value: 'unknown' }) } as never,
+      refs: refsFixture({}),
+      prIndex: {
+        location: async () => ({ ok: true, value: '/dev/null' }),
+        read: async () => ({ ok: true, value: null }),
+        write: async () => ({ ok: true, value: undefined }),
+      },
+    } as never;
     assert.equal(
-      (await deliverability({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG)).verdict,
+      (await deliverability({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG, undefined, ports)).verdict,
       'merge-unconfirmed',
     );
   });

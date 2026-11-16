@@ -9,7 +9,7 @@ import { z } from 'zod';
  * unparseable by construction, which is the fallback the store is required to
  * take.
  */
-export const PR_INDEX_VERSION = 6;
+export const PR_INDEX_VERSION = 7;
 
 /**
  * One PR as the store holds it — exactly what the host answered, and nothing
@@ -35,6 +35,8 @@ export const PrIndexRowSchema = z
     head: z.string(),
     /** OPEN · MERGED · CLOSED · unknown, exactly as the adapter normalized it. */
     state: z.string(),
+    /** The branch the PR merges into. Absent where the host did not answer; never stored as `''`. */
+    base: z.string().optional(),
     draft: z.boolean(),
     /** green · pending · failing · none · unknown. */
     checks: z.string(),

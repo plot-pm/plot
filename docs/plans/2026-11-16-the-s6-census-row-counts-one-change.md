@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** bug-fixes-2-35-0
 - **Issue:** #3471
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-16, Jan Wloka, plan-PR #3475 merged
 - **Started:** 2026-11-16, Jan Wloka, `bug/the-s6-census-row-counts-one-change`
+- **Delivered:** 2026-11-16
 
 ## Changelog
 

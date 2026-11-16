@@ -348,13 +348,22 @@ describe('an unreadable store is nothing to start from', () => {
     //
     // VERSION 6 ADDS `plotReview`, `plotReviewSha`, `plotReviewAt` and
     // `ciChecks`; a v5 file fails the same literal parse for the same reason.
-    expect(PR_INDEX_VERSION).toBe(6);
+    //
+    // VERSION 7 ADDS `base`; a v6 file fails the same literal parse, so every
+    // consumer asks the host and the next PR beat writes a v7 store.
+    expect(PR_INDEX_VERSION).toBe(7);
     expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 5 }))).toBeNull();
-    expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 6 }))).not.toBeNull();
+    expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 6 }))).toBeNull();
+    expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 7 }))).not.toBeNull();
     expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 4 }))).toBeNull();
     expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 1 }))).toBeNull();
     expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 2 }))).toBeNull();
     expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 3 }))).toBeNull();
+  });
+
+  it('round-trips a row with a base', () => {
+    const decoded = decodePrIndex(JSON.stringify(store([row(1, { base: 'sprint/x' })])));
+    expect(decoded?.rows[0]?.base).toBe('sprint/x');
   });
 
   it('keeps a row with no author without the key, and a row with one with it', () => {

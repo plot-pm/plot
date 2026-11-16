@@ -11,6 +11,7 @@ import { productRoot } from './census-report.js';
 /** The product modules the entry imports, by the specifier it imports them under. */
 const PRODUCT_MODULES: Record<string, string> = {
   'census-product:fleetd': 'packages/fleet/src/server/entry/registryd-main.ts',
+  'census-product:tick': 'packages/fleet/src/server/entry/registryd.ts',
   'census-product:clock': 'packages/domain/src/adapters/clock/clock-system.ts',
   'census-product:fleet-clock': 'packages/fleet/src/shared/fleet-clock.ts',
 };

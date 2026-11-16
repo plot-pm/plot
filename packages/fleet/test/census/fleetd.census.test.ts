@@ -168,6 +168,9 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
   let netPass = 0;
   /** How long each safety-net pass took, in ms of the real clock. */
   const netMs: number[] = [];
+  /** Ticks and real ms of the S5 pass, then the S6 pass. */
+  const changeTicks: number[] = [];
+  const changeMs: number[] = [];
   let beforeNet: number | null | undefined;
   let afterNet: number | null | undefined;
 
@@ -190,7 +193,11 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
         writeFileSync(join(desk.worktree, 'census.txt'), 'one desk commit\n');
         box.git(desk.worktree, 'add', 'census.txt');
         box.git(desk.worktree, 'commit', '--quiet', '-m', 'census: one desk commit');
-        await fleetd.pass();
+        // THE WATCH DELIVERS THE COMMIT'S TRIGGER LATE: a pass started at once runs its tick one pass later (measured without strace: 0 ticks, then 1).
+        await new Promise((r) => setTimeout(r, 1_500));
+        const deskPassAt = Date.now();
+        changeTicks.push(fleetd.ticksOf(await fleetd.pass()) ?? 0);
+        changeMs.push(Date.now() - deskPassAt);
         const sha = box.git(box.repo, 'rev-parse', 'HEAD');
         const green = Array.from({ length: fixture.openPrs }, (_, i) =>
           githubPr(i + 1, `feature/census-slice-${i + 1}`, sha, i === 0 ? 'SUCCESS' : 'PENDING', i === 0 ? '2026-01-02T00:00:00Z' : undefined),
@@ -199,7 +206,9 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
         box.answer('gh', 'pr-list-all', green);
         box.answer('gh', 'pr-list-open-head-feature_census-slice-1', [green[0]]);
         box.answer('gh', 'pr-list-all-head-feature_census-slice-1', [green[0]]);
-        await fleetd.pass();
+        const prPassAt = Date.now();
+        changeTicks.push(fleetd.ticksOf(await fleetd.pass()) ?? 0);
+        changeMs.push(Date.now() - prPassAt);
       }
       beforeNet = lastSafetyNetAtOf(box);
       for (let n = 0; n < NET_PASSES; n += 1) {
@@ -366,12 +375,16 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
     it(rowTitle(CENSUS_ROWS.S5, fixture), () => {
       const execs = treeOf(census, between(census.execs, 'pass-3', 'pass-4'), root);
       recordCount(CENSUS_ROWS.S5, fixture, execs.length, execs);
+      console.log(`process census S5 ${fixture.host} ${fixture.desks} desks: ticks ${changeTicks[0]}; ms per pass ${changeMs[0]}`);
+      expect(changeTicks[0]).toBeGreaterThanOrEqual(1);
       expect(execs.length).toBeGreaterThan(0);
     });
 
     it(rowTitle(CENSUS_ROWS.S6, fixture), () => {
       const execs = treeOf(census, between(census.execs, 'pass-4', 'pass-5'), root);
       recordCount(CENSUS_ROWS.S6, fixture, execs.length, execs);
+      console.log(`process census S6 ${fixture.host} ${fixture.desks} desks: ticks ${changeTicks[1]}; ms per pass ${changeMs[1]}`);
+      expect(changeTicks[1]).toBeGreaterThanOrEqual(1);
       expect(execs.length).toBeGreaterThan(0);
     });
   }

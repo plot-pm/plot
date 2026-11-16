@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { passWindows, scanBusy, scanEndedSince } from './census-settle.js';
+import { passSettled, passWindows, scanBusy, scanEndedSince } from './census-settle.js';
 
 const QUIET = 300;
 const BOUND = 120_000;
@@ -81,5 +81,29 @@ describe('scanEndedSince', () => {
     expect(scanEndedSince({ text: null, mtimeMs: null }, SINCE)).toBe(false);
     expect(scanEndedSince({ text: JSON.stringify({ at: 1 }), mtimeMs: NOW }, SINCE)).toBe(false);
     expect(scanEndedSince({ text: '{', mtimeMs: NOW }, SINCE)).toBe(false);
+  });
+});
+
+describe('passSettled', () => {
+  const idle = { inFlight: 0, sinceSettledMs: 400, scanBusy: false, quietMs: QUIET };
+
+  it('settles with nothing in flight, the quiet window passed and no scan busy', () => {
+    expect(passSettled(idle)).toBe(true);
+  });
+
+  it('does not settle while one tick is in flight, though the quiet window passed and no scan is busy', () => {
+    expect(passSettled({ ...idle, inFlight: 1 })).toBe(false);
+  });
+
+  it('does not settle inside the quiet window', () => {
+    expect(passSettled({ ...idle, sinceSettledMs: QUIET - 1 })).toBe(false);
+  });
+
+  it('settles at exactly the quiet window', () => {
+    expect(passSettled({ ...idle, sinceSettledMs: QUIET })).toBe(true);
+  });
+
+  it('does not settle while the scan is busy', () => {
+    expect(passSettled({ ...idle, scanBusy: true })).toBe(false);
   });
 });

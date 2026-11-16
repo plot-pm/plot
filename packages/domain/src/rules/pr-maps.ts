@@ -6,6 +6,8 @@ export interface PrRecord {
   head: string;
   /** OPEN · MERGED · CLOSED, as the adapter normalizes it. */
   state: string;
+  /** The branch the PR merges into; absent where the host gave none, never `''` in the store. */
+  base?: string;
   draft: boolean;
   /** green · pending · failing · none · unknown — see plot-host.sh pr-list --rich. */
   checks: string;
@@ -51,6 +53,7 @@ export interface PrRecord {
 }
 
 const OPTIONAL_FIELDS = [
+  'base',
   'mergeable',
   'failing_checks',
   'updatedAt',

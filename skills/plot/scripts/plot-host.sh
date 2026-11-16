@@ -2564,7 +2564,7 @@ rest_pr_state() { # $1=owner/repo $2=PR number or branch; returns 3 when the bra
 # while REST answered, and every `pr-list` caller failed with exit 5.
 #
 # REST PRINTS THE ARRAY `gh` PRINTS for the plain fields (`number,title,state,
-# headRefName,isDraft,url,updatedAt,author,headRefOid,mergedAt`), so the plain
+# headRefName,baseRefName,isDraft,url,updatedAt,author,headRefOid,mergedAt`), so the plain
 # arm's one projection reads either. It reads the arm's `$state`, `$limit` (`gh`'s 30 when empty), `$since`
 # and one-branch `$head_args`. REST's `state` is `open|closed|all`: `merged` and
 # `closed` are its `closed` split on `merged_at`, as GraphQL splits them. Pages
@@ -2583,7 +2583,7 @@ gh_pr_list_routed() {
     pages="$pages$(gh_api_harvest "repos/$repo/pulls?state=${state/merged/closed}&per_page=100&page=$page${since:+&sort=updated&direction=desc}${head_args[1]:+&head=${repo%%/*}:${head_args[1]}}")" || return
     page="$(jq -s --arg st "$state" --arg s "$since" --argjson n "$n" --argjson p "$page" "$sel"'if (.[-1] | length) == 100 and ([.[][] | select(keep)] | length) < $n and .[-1][-1].updated_at > $s then $p + 1 else 0 end' <<<"$pages")" || return
   done
-  jq -cs --arg st "$state" --arg s "$since" --argjson n "$n" "$sel"'[.[][] | select(keep)] | sort_by(-.number) | .[:$n] | map({number, title, state: (if .merged_at then "MERGED" else (.state | ascii_upcase) end), headRefName: .head.ref, isDraft: (.draft // false), url: .html_url, updatedAt: .updated_at, author: {login: (.user.login // "")}, headRefOid: .head.sha, mergedAt: .merged_at})' <<<"$pages"
+  jq -cs --arg st "$state" --arg s "$since" --argjson n "$n" "$sel"'[.[][] | select(keep)] | sort_by(-.number) | .[:$n] | map({number, title, state: (if .merged_at then "MERGED" else (.state | ascii_upcase) end), headRefName: .head.ref, baseRefName: .base.ref, isDraft: (.draft // false), url: .html_url, updatedAt: .updated_at, author: {login: (.user.login // "")}, headRefOid: .head.sha, mergedAt: .merged_at})' <<<"$pages"
 }
 
 # THE ARGUMENTS OF `pr-merged`, `pr-merge-commit`, `pr-merge-dest` and
@@ -4697,8 +4697,8 @@ case "$op" in
       # THE FIELD ORDER IS THE QUERY `gh` SENDS, and the corpus pins it
       # (`github-pr-listing.ts`'s fragments), so each arm keeps its own order.
       # `gh_pr_list_routed` asks GraphQL or REST; a rich call is GraphQL always.
-      _json=number,title,state,headRefName,isDraft,url,updatedAt,author,headRefOid,mergedAt
-      [ "$rich" = 1 ] && _json="number,title,state,headRefName,isDraft,$([ "$ci" = jenkins ] || echo statusCheckRollup,)mergeable,mergeStateStatus,reviewDecision,url,updatedAt,author,headRefOid,mergedAt"
+      _json=number,title,state,headRefName,baseRefName,isDraft,url,updatedAt,author,headRefOid,mergedAt
+      [ "$rich" = 1 ] && _json="number,title,state,headRefName,baseRefName,isDraft,$([ "$ci" = jenkins ] || echo statusCheckRollup,)mergeable,mergeStateStatus,reviewDecision,url,updatedAt,author,headRefOid,mergedAt"
       _gh_raw="$(pr_list_call gh_pr_list_routed gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} ${head_args[@]+"${head_args[@]}"} \
         --json "$_json")" || exit $?
       pr_list_report_truncation github "$limit" "$state" \
@@ -4813,7 +4813,7 @@ case "$op" in
               # own field rather than collapsing into the same `checks` word
               # (`bitbucket-jenkins-a-pr-list-row`).
               {
-                number:.number, title:.title, state:.state, head:.headRefName,
+                number:.number, title:.title, state:.state, head:.headRefName, base:(.baseRefName // ""),
                 draft:.isDraft,
                 checks:(if $jstatus != "ok" then "unknown" elif $eff == null then (if $ambiguous then "unknown" else "none" end) else $eff.checks end),
                 mergeable:mergeable_of,
@@ -4828,7 +4828,7 @@ case "$op" in
           # GitHub without Jenkins (or Jenkins not configured): use GitHub rollup
           printf '%s' "$_gh_raw" \
             | jq -c "$CHECKS_OF$MERGEABLE_OF"'.[] | {
-                number:.number, title:.title, state:.state, head:.headRefName,
+                number:.number, title:.title, state:.state, head:.headRefName, base:(.baseRefName // ""),
                 draft:.isDraft,
                 checks:checks_of, mergeable:mergeable_of,
                 review:(.reviewDecision // ""),
@@ -4854,7 +4854,7 @@ case "$op" in
         # the store unable to narrow and the daily full read would never fall
         # due against anything but a cold window.
         printf '%s' "$_gh_raw" \
-          | jq -c '.[] | {number:.number,title:.title,state:.state,head:.headRefName,draft:.isDraft,url:.url,updatedAt:(.updatedAt // ""),headSha:(.headRefOid // ""),mergedAt:(.mergedAt // ""),author:(.author.login // "")}'
+          | jq -c '.[] | {number:.number,title:.title,state:.state,head:.headRefName,base:(.baseRefName // ""),draft:.isDraft,url:.url,updatedAt:(.updatedAt // ""),headSha:(.headRefOid // ""),mergedAt:(.mergedAt // ""),author:(.author.login // "")}'
       fi
     else
       # `headSha` IS `.source.commit.hash`, which the pullrequests endpoint
