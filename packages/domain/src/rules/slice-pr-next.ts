@@ -366,8 +366,9 @@ export const mergeArm = (readings: SlicePrNextReadings): SlicePrStep => {
   const trusted = trustedReview(row);
   if (trusted === 'unchecked') return hold('review-writer-unchecked');
   if (trusted !== 'success' || row.plotReviewSha !== row.headSha) return none('not-passed');
-  if (!holdsApply(row.base ?? '', readings.defaultBranchName)) {
-    if (baseBranchRed(row.base ?? '', readings.baseReading ?? null, now, config.checksWaitMs)) return hold('base-branch-red');
+  const base = row.base ?? '';
+  if (!holdsApply(base, readings.defaultBranchName)) {
+    if (baseBranchRed(base, readings.baseReading ?? null, now, config.checksWaitMs)) return hold('base-branch-red');
     if (row.mergeable === 'CONFLICTING') return hold('conflicting');
     const own = mergeIdentity(readings.backend, readings.mergerApp);
     if (own.identity === 'hold') return hold(own.reason);
