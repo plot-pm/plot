@@ -237,6 +237,8 @@ describe('repairStartTick — the fix PR', () => {
 });
 
 describe('repairStartTick — a closed episode', () => {
+  const later = T0 + RERUN_GRACE_MS + 1;
+
   it.each(['done', 'exhausted'] as const)('asks no host, CI or ref where the record reads %s', async (closed) => {
     const r = rig(record({ state: closed, rerun: 'asked', attempt: { branch: BRANCH, outcome: 'ended' } }), later);
     const asked: string[] = [];
