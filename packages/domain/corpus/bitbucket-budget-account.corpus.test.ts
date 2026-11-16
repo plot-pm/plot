@@ -10,7 +10,7 @@ import { compareField, describingAs, type Disagreement } from './compare.js';
 
 /**
  * Does `bitbucketBudgetAccount` answer what `plot-host.sh`'s
- * `budget_account ${one.connector ?? 'bitbucket'}` answers?
+ * `budget_account bitbucket` answers?
  *
  * The in-process Bitbucket client and the shell charge one ledger key, the
  * `origin` remote's workspace. Each case sets `remote.origin.url` in a scratch
@@ -61,7 +61,7 @@ const shellFunction = (): string => {
   return run.stdout;
 };
 
-/** The shell's `budget_account ${one.connector ?? 'bitbucket'}` in a repository whose origin is the case's URL. */
+/** The shell's `budget_account <connector>` in a repository whose origin is the case's URL. */
 const shellAccount = (one: Case, index: number, text: string): string => {
   const repo = join(sandbox, `repo-${index}`);
   const init = spawnSync('git', ['init', '-q', repo], { encoding: 'utf8' });
