@@ -54,6 +54,11 @@ export interface ConnectorCall {
   readonly headers: Readonly<Record<string, string>>;
   /** The JSON body, where the request carries one. */
   readonly body?: unknown;
+  /**
+   * A form body, sent as `application/x-www-form-urlencoded`, for a token
+   * endpoint's grant. It replaces `body`; a call that sets both sends the form.
+   */
+  readonly form?: Readonly<Record<string, string>>;
   /** The connector word the ledger entry carries, such as `github`. */
   readonly connector: string;
   /** The account the ledger entry and the host slot are charged to. */
@@ -171,7 +176,13 @@ export const connectorHttps = (options: ConnectorHttpsOptions = {}): ConnectorHt
 
   const send = (call: ConnectorCall): Promise<Sent> =>
     new Promise((resolve) => {
-      const payload = call.body === undefined ? undefined : JSON.stringify(call.body);
+      const payload =
+        call.form !== undefined
+          ? new URLSearchParams(call.form).toString()
+          : call.body === undefined
+            ? undefined
+            : JSON.stringify(call.body);
+      const contentType = call.form !== undefined ? 'application/x-www-form-urlencoded' : 'application/json';
       const transport = call.url.protocol === 'http:' ? http : https;
       let settled = false;
       const finish = (sent: Sent): void => {
@@ -187,7 +198,7 @@ export const connectorHttps = (options: ConnectorHttpsOptions = {}): ConnectorHt
           agent: call.url.protocol === 'http:' ? agents['http:'] : agents['https:'],
           headers: {
             ...call.headers,
-            ...(payload === undefined ? {} : { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }),
+            ...(payload === undefined ? {} : { 'Content-Type': contentType, 'Content-Length': Buffer.byteLength(payload) }),
           },
         },
         (res) => {

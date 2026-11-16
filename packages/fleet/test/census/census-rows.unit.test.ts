@@ -12,6 +12,7 @@ const BOARD_API_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-09-
 const LIVENESS_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-09-liveness-token.md', import.meta.url));
 const TRIGGERS_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-10-triggers-replace-the-tick.md', import.meta.url));
 const CONNECTORS_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-10-bitbucket-and-jira-read-in-process.md', import.meta.url));
+const JENKINS_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-16-jenkins-reads-in-process.md', import.meta.url));
 const GITHUB_READS_PLAN = fileURLToPath(new URL('../../../../docs/plans/2026-11-09-github-reads-in-process.md', import.meta.url));
 
 /** The rows of the census plan that a later plan retired. */
@@ -47,9 +48,16 @@ afterEach(() => {
 
 describe('the census rows', () => {
   it('holds every row of the plan but the retired P1, D1 of the worker wrapper plan, S7 of the board API plan, P5 of the GitHub reads plan, P6 of the liveness token plan and P7, P8, P9 and S8 of the triggers plan and P10 and P11 of the connectors plan', () => {
-    expect(Object.keys(CENSUS_ROWS).filter((id) => id !== 'D1' && id !== 'S7' && id !== 'P5' && id !== 'P6' && id !== 'P7' && id !== 'P8' && id !== 'P9' && id !== 'P10' && id !== 'P11' && id !== 'S8').sort()).toEqual([...planRows().keys()].sort());
-    expect(Object.keys(CENSUS_ROWS).sort()).toEqual(['D1', 'P10', 'P11', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'P9', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8']);
+    expect(Object.keys(CENSUS_ROWS).filter((id) => id !== 'D1' && id !== 'S7' && id !== 'P5' && id !== 'P6' && id !== 'P7' && id !== 'P8' && id !== 'P9' && id !== 'P10' && id !== 'P11' && id !== 'P12' && id !== 'S8').sort()).toEqual([...planRows().keys()].sort());
+    expect(Object.keys(CENSUS_ROWS).sort()).toEqual(['D1', 'P10', 'P11', 'P12', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'P9', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8']);
     expect(readFileSync(WRAPPER_PLAN, 'utf8')).toContain(`\`D1: ${CENSUS_ROWS.D1.claim}\``);
+  });
+
+  it('holds P12 as the Jenkins plan words it, a zero row not yet green, titled with the slice that turns it', () => {
+    expect(readFileSync(JENKINS_PLAN, 'utf8')).toContain(`\`${CENSUS_ROWS.P12.claim}\``);
+    expect(CENSUS_ROWS.P12).toMatchObject({ target: 'zero', greenBy: { plan: 'jenkins-reads-in-process', slice: 'Cutover' } });
+    expect('green' in CENSUS_ROWS.P12).toBe(false);
+    expect(rowTitle(CENSUS_ROWS.P12)).toMatch(/expected to fail until plan jenkins-reads-in-process, slice Cutover/);
   });
 
   it('holds P6 as the liveness token plan words it, a zero row turned green by its Monitor in fleetd slice', () => {

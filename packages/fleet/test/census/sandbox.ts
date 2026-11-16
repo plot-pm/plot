@@ -5,7 +5,10 @@ import { join } from 'node:path';
 
 import { removeTree } from '../rm-tree.mjs';
 import { productRoot, type CensusFixture, type CensusHost } from './census-report.js';
-import { BITBUCKET_ROUTE, CENSUS_BB_EMAIL, CENSUS_JIRA_EMAIL, CENSUS_JIRA_TOKEN, hostCliStub, jiraCurlStub, startStubApi, type StubApi } from './stub-host.js';
+import {
+  BITBUCKET_ROUTE, CENSUS_BB_EMAIL, CENSUS_JENKINS_REFRESH, CENSUS_JENKINS_STALE, CENSUS_JIRA_EMAIL, CENSUS_JIRA_TOKEN, JENKINS_ROUTE, REALM_ROUTE,
+  hostCliStub, jenkinsKey, jenStub, jiraCurlStub, startStubApi, type StubApi,
+} from './stub-host.js';
 import { startStubWorker, type StubWorker } from './stub-worker.js';
 
 /**
@@ -57,14 +60,74 @@ export type Sandbox = {
 };
 
 /** Prints a fixture size the way every census line states it. */
-export const describeSize = ({ host, desks, openPrs }: FixtureSize): string =>
-  `host=${host} desks=${desks} open-prs=${openPrs}`;
+export const describeSize = ({ host, desks, openPrs, ci }: FixtureSize): string =>
+  `host=${host}${ci === undefined ? '' : ` ci=${ci}`} desks=${desks} open-prs=${openPrs}`;
 
 /** The slice branches of the census plan: one per desk and one per open PR, shared from the first. */
 export const sliceBranches = (size: FixtureSize): string[] =>
   Array.from({ length: Math.max(size.desks, size.openPrs) }, (_, i) => `feature/census-slice-${i + 1}`);
 
 const PLAN_SLUG = '2026-01-01-census-fixture';
+
+/** The multibranch job the Jenkins fixture's builds live in. */
+export const CENSUS_JENKINS_JOB = 'team/portal';
+
+/** The `Jenkins instance` key a Jenkins fixture declares: a slug and the job path, as the shell's sha read needs. */
+export const CENSUS_JENKINS_INSTANCE = `census/${CENSUS_JENKINS_JOB}`;
+
+/** The variables that would hand a Jenkins credential or instance to a process by the environment, and so hide a missing store. */
+export const JENKINS_ENV_VARS = ['JEN_TOKEN', 'JEN_SECRET_BACKEND', 'JENKINS_USER', 'JENKINS_API_TOKEN', 'JENKINS_INSTANCE', 'PLOT_JENKINS_JOB'] as const;
+
+/** One PR branch's Jenkins state: its head and the colour of its job. */
+export type JenkinsBranch = { branch: string; sha: string; color: 'blue' | 'red' | 'notbuilt' };
+
+const jobPath = (job: string): string => job.split('/').map((segment) => `/job/${segment}`).join('');
+
+/**
+ * Writes the Jenkins answers under `<fixtures>/jenkins/`, one file per request
+ * path the in-process client and the stub `jen` read, from the run's head SHAs.
+ *
+ * A `blue` branch has a `SUCCESS` build of its head; a `red` one a `FAILURE`
+ * build; a `notbuilt` one an empty history. The root job lists every branch
+ * with its colour, as `jen job list` prints it.
+ *
+ * @param fixtures - the sandbox's fixtures directory.
+ * @param branches - the PR branches with their head SHAs and colours.
+ */
+export const writeJenkinsAnswers = (fixtures: string, branches: readonly JenkinsBranch[]): void => {
+  const dir = join(fixtures, 'jenkins');
+  mkdirSync(dir, { recursive: true });
+  const put = (path: string, body: unknown): void => {
+    writeFileSync(join(dir, `${jenkinsKey(path)}.json`), `${JSON.stringify(body)}\n`);
+  };
+  const root = jobPath(CENSUS_JENKINS_JOB);
+  const jobs = branches.map((b) => ({ _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name: encodeURIComponent(b.branch), color: b.color }));
+  put(`${root}/api/json`, {
+    _class: 'org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject',
+    name: CENSUS_JENKINS_JOB.split('/').at(-1),
+    fullName: CENSUS_JENKINS_JOB,
+    color: null,
+    jobs,
+  });
+  writeFileSync(join(dir, `view_${CENSUS_JENKINS_JOB.replaceAll('/', '_')}.json`), `${JSON.stringify({ _class: 'org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject', name: 'portal', fullName: CENSUS_JENKINS_JOB, url: 'http://stub/', color: null, description: '' }, null, 2)}\n`);
+  writeFileSync(join(dir, `list_${CENSUS_JENKINS_JOB.replaceAll('/', '_')}.json`), `${JSON.stringify(jobs, null, 2)}\n`);
+  branches.forEach((b, i) => {
+    const builds =
+      b.color === 'notbuilt'
+        ? []
+        : [
+            {
+              number: i + 1,
+              result: b.color === 'blue' ? 'SUCCESS' : 'FAILURE',
+              building: false,
+              timestamp: 1_767_225_600_000 + i,
+              url: `http://stub/job/${CENSUS_JENKINS_JOB}/${i + 1}/`,
+              actions: [{}, { lastBuiltRevision: { SHA1: b.sha, branch: [{ name: `origin/${b.branch}` }] } }],
+            },
+          ];
+    put(`${root}/job/${encodeURIComponent(b.branch)}/api/json`, { _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', builds });
+  });
+};
 
 const configFor = (host: CensusHost, ci?: string): string =>
   [
@@ -80,7 +143,7 @@ const configFor = (host: CensusHost, ci?: string): string =>
     `- **Git host:** ${host}`,
     ...(host === 'github'
       ? ['- **CI:** github-actions', '- **Default branch checks:** CI']
-      : ['- **Tracker:** jira https://jira.census.invalid', ...(ci === undefined ? [] : [`- **CI:** ${ci}`, ...(ci === 'jenkins' ? ['- **Jenkins instance:** census'] : [])])]),
+      : ['- **Tracker:** jira https://jira.census.invalid', ...(ci === undefined ? [] : [`- **CI:** ${ci}`, ...(ci === 'jenkins' ? [`- **Jenkins instance:** ${CENSUS_JENKINS_INSTANCE}`] : [])])]),
     '- **Auto-review:** false',
     '- **Auto-verify:** false',
     '- **Auto-design:** false',
@@ -184,13 +247,14 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
   const desks: Desk[] = [];
   let api: StubApi | null = null;
   try {
-    const size: FixtureSize = { host: options.host, desks: options.desks, openPrs: options.openPrs };
+    const jenkins = options.host === 'bitbucket' && options.ci === 'jenkins';
+    const size: FixtureSize = { host: options.host, desks: options.desks, openPrs: options.openPrs, ...(jenkins ? { ci: 'jenkins' as const } : {}) };
     const scriptsDir = join(options.productRoot ?? productRoot(), 'skills/plot/scripts');
     const home = join(root, 'home');
     const tmp = join(root, 'tmp');
     const bin = join(root, 'bin');
     const fixtures = join(root, 'fixtures');
-    for (const dir of [home, tmp, bin, join(fixtures, 'gh'), join(fixtures, 'bb'), join(fixtures, 'jira')]) {
+    for (const dir of [home, tmp, bin, join(fixtures, 'gh'), join(fixtures, 'bb'), join(fixtures, 'jira'), join(fixtures, 'jenkins')]) {
       mkdirSync(dir, { recursive: true });
     }
     const stubLog = join(root, 'stub.log');
@@ -236,6 +300,10 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
     ]) {
       delete env[key];
     }
+    // THE PINNED JENKINS ENVIRONMENT: the client and the shell read one
+    // instance and one token store, both under the sandbox root. No credential
+    // arrives by the environment, so a read that finds none shows as a refusal.
+    for (const key of JENKINS_ENV_VARS) delete env[key];
     // THE IN-PROCESS CLIENT'S HOST: a local server over the same fixtures as
     // the stub `gh`, so a census row can count the requests a PATH stub
     // cannot see.
@@ -248,6 +316,23 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
       env['BITBUCKET_API_BASE'] = `${api.url}${BITBUCKET_ROUTE}`;
       env['BB_EMAIL'] = CENSUS_BB_EMAIL;
       env['BB_TOKEN'] = CENSUS_TOKEN;
+    }
+    if (jenkins && api !== null) {
+      const xdg = join(root, 'xdg');
+      const store = join(xdg, 'jen');
+      mkdirSync(store, { recursive: true });
+      env['XDG_CONFIG_HOME'] = xdg;
+      env['JEN_CONFIG_DIR'] = store;
+      env['JEN_URL'] = `${api.url}${JENKINS_ROUTE}`;
+      env['JEN_REALM_URL'] = `${api.url}${REALM_ROUTE}`;
+      // A BLOB PAST ITS EXPIRY: the first read refreshes, so the token route is in the count.
+      writeFileSync(
+        join(store, 'keycloak-token.secret'),
+        `${JSON.stringify({ access_token: CENSUS_JENKINS_STALE, refresh_token: CENSUS_JENKINS_REFRESH, expires_at: 1 })}\n`,
+        { mode: 0o600 },
+      );
+    } else {
+      for (const key of ['XDG_CONFIG_HOME', 'JEN_CONFIG_DIR', 'JEN_URL', 'JEN_REALM_URL']) delete env[key];
     }
     // THE IN-PROCESS JIRA CLIENT'S HOST: the Bitbucket fixture's tracker is
     // Jira, and the same server answers its requests from the `curl` stub's
@@ -265,13 +350,14 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
     writeStub(bin, 'gh', hostCliStub('gh'));
     writeStub(bin, 'bb', hostCliStub('bb'));
     if (size.host === 'bitbucket') writeStub(bin, 'curl', jiraCurlStub());
+    if (jenkins) writeStub(bin, 'jen', jenStub());
 
     git(root, 'init', '--bare', '--quiet', origin);
     git(root, 'init', '--quiet', repo);
     git(repo, 'remote', 'add', 'origin', origin);
     const branches = sliceBranches(size);
     mkdirSync(join(repo, 'docs/plans/active'), { recursive: true });
-    writeFileSync(join(repo, 'CLAUDE.md'), configFor(size.host, options.ci));
+    writeFileSync(join(repo, 'CLAUDE.md'), configFor(size.host, jenkins ? 'jenkins' : options.ci));
     writeFileSync(join(repo, '.gitignore'), '.plot/state/\n.plot/agents/\n.plot/fleet.sock\n.plot-worker*\n.worktrees/\n');
     writeFileSync(join(repo, `docs/plans/${PLAN_SLUG}.md`), planFor(branches));
     symlinkSync(`../${PLAN_SLUG}.md`, join(repo, `docs/plans/active/${PLAN_SLUG}.md`));
@@ -345,6 +431,11 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
         });
       });
       answer('bb', 'repo-view', { mainbranch: { name: 'main' }, full_name: 'census/fixture' });
+      // PER-RUN JENKINS ANSWERS, from this run's head SHAs: the first PR branch
+      // is `blue` with a SUCCESS build of its head, the rest are not built.
+      if (jenkins) {
+        writeJenkinsAnswers(fixtures, prBranches.map((b, i) => ({ branch: b, sha: shas.get(b) ?? mainSha, color: i === 0 ? 'blue' : 'notbuilt' })));
+      }
     }
 
     for (const branch of branches.slice(0, size.desks)) {

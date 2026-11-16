@@ -16,7 +16,8 @@ export type CensusRow =
  * then P6 from `docs/plans/2026-11-09-liveness-token.md`, which retires P1,
  * then D1 from `docs/plans/2026-11-09-node-worker-wrapper.md`,
  * then P7, P8, P9 and S8 from `docs/plans/2026-11-10-triggers-replace-the-tick.md`,
- * then P10 and P11 from `docs/plans/2026-11-10-bitbucket-and-jira-read-in-process.md`.
+ * then P10 and P11 from `docs/plans/2026-11-10-bitbucket-and-jira-read-in-process.md`,
+ * then P12 from `docs/plans/2026-11-16-jenkins-reads-in-process.md`.
  * A zero row is written as `it.fails` until the plan and slice it names turn
  * it green; that slice sets `green: true` and changes the row to `it`.
  */
@@ -156,6 +157,13 @@ export const CENSUS_ROWS = {
     greenBy: { plan: 'bitbucket-and-jira-read-in-process', slice: 'Jira cutover' },
     green: true,
   },
+  P12: {
+    id: 'P12',
+    claim: 'an idle fleetd pass on a repository with CI: jenkins starts no jen and no plot-host.sh Jenkins read',
+    unit: 'execve per pass',
+    target: 'zero',
+    greenBy: { plan: 'jenkins-reads-in-process', slice: 'Cutover' },
+  },
   S8: {
     id: 'S8',
     claim: 'a safety-net pass',
@@ -183,7 +191,7 @@ const greenByText = ({ plan, slice, phase }: GreenBy): string =>
  * a green zero row names the plan and slice that turned it green.
  */
 export const rowTitle = (row: CensusRow, fixture?: CensusFixture): string => {
-  const size = fixture === undefined ? '' : ` [${fixture.host}, ${fixture.desks} desks, ${fixture.openPrs} open PRs]`;
+  const size = fixture === undefined ? '' : ` [${fixture.host}${fixture.ci === undefined ? '' : `+${fixture.ci}`}, ${fixture.desks} desks, ${fixture.openPrs} open PRs]`;
   if (row.target === 'zero' && row.green === true) {
     return `${row.id}: ${row.claim}${size} (turned green by ${greenByText(row.greenBy)})`;
   }
@@ -194,7 +202,7 @@ export const rowTitle = (row: CensusRow, fixture?: CensusFixture): string => {
 
 /** The census's fixture size as one line: desks, open PRs, host. */
 export const sizeLine = (fixture: CensusFixture): string =>
-  `host=${fixture.host} desks=${fixture.desks} open-prs=${fixture.openPrs}`;
+  `host=${fixture.host}${fixture.ci === undefined ? '' : ` ci=${fixture.ci}`} desks=${fixture.desks} open-prs=${fixture.openPrs}`;
 
 /** The five commands that started most often, as `name ×n`. */
 export const topCommands = (execs: readonly ExecRecord[]): string => {

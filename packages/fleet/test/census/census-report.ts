@@ -17,7 +17,15 @@ export const CENSUS_PRODUCT_ENV = 'PLOT_CENSUS_PRODUCT';
 export type CensusHost = 'github' | 'bitbucket';
 
 /** The fixture size a count belongs to. */
-export type CensusFixture = { desks: number; openPrs: number; host: CensusHost };
+export type CensusFixture = {
+  desks: number;
+  openPrs: number;
+  host: CensusHost;
+  /** The build system the fixture's CI answers come from; absent reads as the host's own. */
+  ci?: 'jenkins';
+  /** Rows listed here record their count and assert nothing, while the fixture's own rows still gate. */
+  recordOnly?: readonly string[];
+};
 
 /**
  * How far a count may grow past the merge base. `'strict'` allows no growth
@@ -142,7 +150,7 @@ export const readCensusReport = (path: string): CensusEntry[] => {
 
 /** The comparison key: one scenario on one fixture. */
 export const entryKey = ({ id, fixture }: Pick<CensusEntry, 'id' | 'fixture'>): string =>
-  `${id} ${fixture.host} desks=${fixture.desks} prs=${fixture.openPrs}`;
+  `${id} ${fixture.host}${fixture.ci === undefined ? '' : ` ci=${fixture.ci}`} desks=${fixture.desks} prs=${fixture.openPrs}`;
 
 /**
  * The tolerance a `'strict'` row takes when its merge-base count is above 0.
