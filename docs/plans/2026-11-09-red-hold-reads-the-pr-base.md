@@ -6,6 +6,7 @@
 
 - **State:** Draft
 - **Type:** bug
+- **Sprint:** bug-fixes-2-35-0
 - **Issue:** #3322
 - **Review:** pr
 - **Impl:** own branches
