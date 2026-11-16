@@ -117,3 +117,6 @@ packages/domain/coverage/
 # scratch fragments committed by mistake (534b4958c); never tracked again
 part1.txt
 part2.txt
+
+# Brainstorm mockups from the superpowers visual companion
+.superpowers/
