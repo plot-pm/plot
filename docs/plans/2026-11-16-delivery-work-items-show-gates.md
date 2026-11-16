@@ -11,6 +11,7 @@
 - **Story:** delivery-tab-reads-at-a-glance
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -77,3 +78,35 @@ Depends on plan 1, `delivery-tab-header-and-my-sprint`, for the section-header p
 
 - Created by `/plot-idea` in one batch with plans 1, 2 and 4 to 6 of the same design. Type `feature` came from the brief; the design question was answered with the default, no, so the plan starts in Draft.
 - Deliverable search for "gate glyphs" and "agent role chip" found no artifact of that name in the estate.
+
+## Open Points
+
+Round 1, panel of four lenses, all `amend` (`.plot/panels/delivery-work-items-show-gates/panel.md`).
+
+- [ ] [Estate] The gate marks exist: `GATE_MARK` and `gateValue` in `delivery-row-form.ts:91,139` render ✓ ⟳ ✗, and `glyphs.ts` holds kind icons only. State that the gates slice extends `gateValue`, which shows one gate per row today, and move the glyph Open Question to `GATE_MARK`. Correct the Notes line that found no artifact.
+- [ ] [Contradiction] `–` for a review nobody has asked conflicts with the row form's rule that an unread fact yields a `null` cell (`delivery-row-form.ts:221`). Decide: `–` stands for `review: none` and `unread` renders nothing, or the rule changes.
+- [ ] [Estate, Contradiction, Deliverable] The role chip has two owners: this plan's By slice and plan 4's `feature/delivery-fleet-agent-rows`, both in `delivery-row-form.ts`. Name one owner, order the other with a `waits:`, and name who widens `AgentRole` (six roles at `delivery-placement.ts:93`, eight in the design).
+- [ ] [Estate, Deliverable, Cost] Four readings are not in the payload and no plan adds them: the CI run link and check name (`ciRun` never set, `prUrl` is `() => null`), the agent role (every agent reads `loop`), the fixer attempt count (`corrections` unmapped), and a per-slice commit count ("4 commits"). Name which slice adds each, or drop the claim.
+- [ ] [Estate, Cost] The fixer's denominator has two sources: the `Correction budget` key and `FIXER_ATTEMPTS_BUDGET = 2` counted per finding kind (`fixer-attempts.ts:5`). Say which one By shows and which kind of attempt it counts.
+- [ ] [Contradiction] Queued holds tickets, Draft and Design plans and approval-owed items today (`delivery-placement.ts:205-207`), and "waits on the earlier slice" contradicts the not-started exclusion. State what Queued holds after the exclusion and which plan owns that change. Done When says "branch or an agent" where the Approach says "no branch, no agent".
+- [ ] [Estate] Removing not-started slices from Work items removes today's Start (`dispatch`) control (`AgentList.tsx:1219`), and plan 5's opened list names none. State where Start goes, and whether the exclusion reuses `isUnbegun` (`row-identity.ts:77`).
+- [ ] [Contradiction, Cost] No `waits:` on plan 2's PR rule (`feature/delivery-you-groups`) or plan 1's release-row removal. Declare them, or state what At a gate shows until they land. Cost: five slices across plans edit `delivery-row-form.ts` and `AgentList.tsx`.
+- [ ] [Deliverable] Done When checks neither the By slice's role chip and Fleet link, the header counts and "oldest waits", the Progress and Waits on values, nor the Where change (branch beneath the PR, in full). Add an item for each, or cut the Changelog line.
+- [ ] [Contradiction, Cost] The Board impact line says to rebuild the board artifact with each slice, and `check-no-bundle-diff.sh` refuses a committed bundle. Say the rebuild is a local test only.
+- [ ] [Not verified by any juror] Whether `.plot/state/fixer-attempts/<pr>.json` records a count, whether the host listing carries CI run ids for slice PRs, whether fleetd fixers appear as registry entries, and which browser tests select the current columns.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "engine": "panel",
+  "questionHistory": [],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "domain": true,
+    "ux": {"happyPath": false, "edgeCases": false, "errors": false, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": false
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
