@@ -88,7 +88,7 @@ export const shapeOfJob = (view: unknown): CiJobShape => {
  */
 export const plainBuildMap = (view: unknown, job: string): CiBuildMap => {
   const color = (view as { color?: unknown }).color;
-  const name = job.split('/').pop() ?? '';
+  const name = job.slice(job.lastIndexOf('/') + 1);
   return {
     status: 'ok',
     map: { [name]: { color: typeof color === 'string' ? color : null, checks: checksOfColour(color), job } },
