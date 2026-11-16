@@ -57,7 +57,7 @@ Replace the stub in the wiring test (`registryd-main.test.ts:3307-3311`) with a 
 
 ### Read the desk with no PR assumed
 
-- `bug/the-unblocker-reads-a-blocked-desk` — `packages/fleet/src/server/entry/registryd-main.ts` (`unblockWorldForRepo` passes `false` to `workerState`, and its TSDoc names the no-PR read), `packages/fleet/test/unit/registryd-main.test.ts` (two real-desk tests, dead and live agent; the wiring test loses its `waiting` stub), and a changeset for `plot` (patch, `bumps: skills: plot: patch`) <!-- builds: unblockWorldForRepo reads a blocked desk with no PR assumed -->
+- `bug/the-unblocker-reads-a-blocked-desk` — `packages/fleet/src/server/entry/registryd-main.ts` (`unblockWorldForRepo` passes `false` to `workerState`, and its TSDoc names the no-PR read), `packages/fleet/test/unit/registryd-main.test.ts` (two real-desk tests, dead and live agent; the wiring test loses its `waiting` stub), and a changeset for `plot` (patch, `bumps: skills: plot: patch`) <!-- builds: unblockWorldForRepo reads a blocked desk with no PR assumed --> → #3480
 
 ## Notes
 
