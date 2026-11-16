@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** ship-2-32-0
 - **Issue:** #3327
@@ -13,6 +13,7 @@
 - **Approved:** 2026-11-09, Jan Wloka, plan-PR #3328 merged
 - **Started:** 2026-11-09, Jan Wloka, `bug/the-host-reads-a-pr-conversation`
 - **Started:** 2026-11-15, Jan Wloka, `bug/a-merge-refuses-an-unanswered-human-comment`
+- **Delivered:** 2026-11-16
 
 ## Changelog
 
