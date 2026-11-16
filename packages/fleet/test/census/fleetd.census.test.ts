@@ -8,7 +8,7 @@ import type { CensusFixture } from './census-report.js';
 import { buildFleetdEntry, type FleetdEntry } from './fleetd-entry-build.js';
 import { startFleetd } from './fleetd-driver.js';
 import { buildSandbox, githubPr, type Sandbox } from './sandbox.js';
-import { BITBUCKET_ROUTE } from './stub-host.js';
+import { BITBUCKET_ROUTE, JENKINS_ROUTE } from './stub-host.js';
 import { passWindows } from './census-settle.js';
 import { censusGate, findStrace } from './strace-run.js';
 import type { ExecRecord, StraceCensus } from './strace-execs.js';
@@ -37,8 +37,7 @@ const FIXTURES: CensusFixture[] = [
   { host: 'github', desks: 0, openPrs: 5 },
   { host: 'github', desks: 3, openPrs: 5 },
   { host: 'bitbucket', desks: 3, openPrs: 5 },
-  // The Jenkins fixture records the rows the shell still answers (P12 turns the
-  // shell's `jen` calls into a zero in the Cutover slice) and gates only S8.
+  // The Jenkins fixture records the rows the shell still answers and gates only S8.
   {
     host: 'bitbucket',
     desks: 3,
@@ -150,6 +149,9 @@ const isBitbucketRead = (e: ExecRecord): boolean =>
   (basename(e.path) === 'bb' && e.argv[1] === 'api' && !e.argv.some((a) => a.includes('source.branch.name'))) ||
   (basename(e.path) === 'bash' && e.argv.some((a) => a.endsWith('/plot-host.sh')) && e.argv.includes('pr-list'));
 
+/** The in-process Jenkins requests the stub API answered so far: the Jenkins route, token route not included. */
+const jenkinsRequests = (box: Sandbox): number => (box.api?.requests() ?? []).filter((r) => r.path.startsWith(`${JENKINS_ROUTE}/`)).length;
+
 /** The stub `curl` calls in the stub log so far: the shell's Jira REST requests. */
 const curlReadsLogged = (box: Sandbox): number =>
   existsSync(box.stubLog) ? readFileSync(box.stubLog, 'utf8').split('\n').filter((l) => l.startsWith('curl ')).length : 0;
@@ -182,6 +184,8 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
   let baseline: number[] = [];
   /** The in-process Jira requests per idle pass, and the shell's `curl` calls per idle pass on the same fixture. */
   let jiraRequestsPerPass: number[] = [];
+  /** The in-process Jenkins requests per idle pass. */
+  let jenkinsRequestsPerPass: number[] = [];
   let jiraBaseline: number[] = [];
   /** The last safety-net pass's number, and the stamps before the first and after fleetd stopped. */
   let netPass = 0;
@@ -195,14 +199,17 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
     const fleetd = startFleetd(entry as FleetdEntry, box, { trace: true });
     const sampled: number[] = [];
     const jiraSampled: number[] = [];
+    const jenkinsSampled: number[] = [];
     try {
       for (let n = 0; n < 3; n += 1) {
         await fleetd.pass();
         sampled.push(apiReads(box));
         jiraSampled.push(jiraRequests(box));
+        jenkinsSampled.push(jenkinsRequests(box));
       }
       requests = deltas(sampled);
       jiraRequestsPerPass = deltas(jiraSampled);
+      jenkinsRequestsPerPass = deltas(jenkinsSampled);
       if (withChanges) {
         const desk = box.desks[0];
         if (desk === undefined) throw new Error('process census: the fixture holds no desk');
@@ -374,10 +381,16 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
     });
 
     if (fixture.ci === 'jenkins') {
+      // Measured on CI run 43939512746 (33b585c86): the idle passes start 0 Jenkins
+      // reads before the Cutover, so the zero alone does not fail. The row also holds
+      // the plan's lower bound, that the stub's Jenkins route receives requests summed
+      // over both idle passes; it fails until the Cutover reads Jenkins in-process.
       it.fails(rowTitle(CENSUS_ROWS.P12, fixture), () => {
         const { mean, each, execs } = perPass(isJenkinsRead);
         recordCount(CENSUS_ROWS.P12, fixture, mean, execs);
+        console.log(`process census P12: in-process Jenkins requests per idle pass ${jenkinsRequestsPerPass.join(', ')}`);
         expect(each).toEqual([0, 0]);
+        expect(jenkinsRequestsPerPass.reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
       });
     }
 
