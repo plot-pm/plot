@@ -77,7 +77,7 @@ No tolerance changes, and no row is marked as expected to fail.
 
 ### Tick in flight
 
-- `bug/the-s6-census-row-counts-one-change` — `packages/fleet/test/census/fleetd-census-entry.ts` (`trackedTick`, the `ticks=` done line, `quiet()` through `passSettled`), `fleetd-entry-build.ts` (`census-product:tick`), `census-settle.ts` (`passSettled`), `fleetd-driver.ts` (done-line pattern), `fleetd.census.test.ts` (S5 and S6 print `ms` and `ticks`, and assert a tick), tests in `census-settle.unit.test.ts` and `fleetd-entry.unit.test.ts`, and a changeset for `plot` (patch, `bumps:` naming `plot`) <!-- builds: passSettled, a census settle rule that holds a pass while fleetd's tick runs -->
+- `bug/the-s6-census-row-counts-one-change` — `packages/fleet/test/census/fleetd-census-entry.ts` (`trackedTick`, the `ticks=` done line, `quiet()` through `passSettled`), `fleetd-entry-build.ts` (`census-product:tick`), `census-settle.ts` (`passSettled`), `fleetd-driver.ts` (done-line pattern), `fleetd.census.test.ts` (S5 and S6 print `ms` and `ticks`, and assert a tick), tests in `census-settle.unit.test.ts` and `fleetd-entry.unit.test.ts`, and a changeset for `plot` (patch, `bumps:` naming `plot`) <!-- builds: passSettled, a census settle rule that holds a pass while fleetd's tick runs --> → #3481
 
 ## Notes
 
