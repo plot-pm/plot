@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Superseded
 - **Rejected:** 2026-11-16, delivered with its only slice deferred; github-reads-in-process supersedes it
 - **Type:** bug
 - **Approved:** 2026-11-09, Jan Wloka, plan-PR #3318 merged
@@ -14,6 +14,7 @@
 - **Impl:** own branches
 - **Started:** 2026-11-09, Jan Wloka, `bug/pr-and-issue-reads-still-use`
 - **Delivered:** 2026-11-15
+- **Superseded:** 2026-11-16, by `github-reads-in-process`
 
 ## Changelog
 
