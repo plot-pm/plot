@@ -4,7 +4,11 @@ import path from 'node:path';
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
 import { agentLogPath } from './agent-log.js';
-import { hostFor, readConfig, readConfigAsync, treesFor, type BuildBoardOptions } from './board.js';
+import type { Refs, Trees } from '@plot-pm/domain';
+import { isPlanFile, namesPlan } from '@plot-pm/domain/rules/plan-pr';
+import { planSourceOf } from '@plot-pm/domain/rules/plan-source';
+import { hostFor, readConfig, readConfigAsync, refsFor, treesFor, type BuildBoardOptions } from './board.js';
+import { choosePlanPr, unreadPrsLine, type UnreadPr } from './entry/open-prs.js';
 import { markBoardRun, readRunState, startBoardRun, STOPPED_RECORD } from './board-run.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
 import { ideaAvailability, lastLines, usableCommand, type IdeaState } from './idea.js';
@@ -20,14 +24,15 @@ import { PlanMetaSchema } from '../contract/schema.js';
  * slug-keyed status read-back. The guards are imported from `dispatch.ts` and
  * `idea.ts`, not copied.
  *
- * Under `Plan PRs: required` a Draft plan exists only on its `idea/<slug>`
- * branch until that PR merges, so the route asks the `host` port for it
- * first. Found, it runs the command in a detached worktree at the PR head's
- * remote branch; absent — an answered "no open plan PR" — it falls back to
- * `opts.repoRoot` as before. A host that cannot answer refuses
- * `plan-unreadable` naming its reason, never silently falling back. This is
- * the read half only: the worktree stays in place after the run, and this
- * module pushes nothing from it.
+ * Under `Plan PRs: required` a Draft plan exists only on its plan PR until
+ * that PR merges — `idea/<slug>`, or a batch PR on another head — so the route
+ * resolves the plan's source first: the head of the open plan PR that carries
+ * it, then the main checkout, then the default branch as fetched. A PR head
+ * or the default branch runs the command in a detached worktree of that tip,
+ * and the prompt names the branch Phase 7b of `/challenge-the-plan` pushes the
+ * round to. A host that cannot answer refuses `plan-unreadable` naming its
+ * reason, never silently falling back. The worktree stays in place after the
+ * run, and this module pushes nothing from it.
  *
  * The route decides nothing about the plan either. The skill writes five
  * artifacts: the verdict files, `panel.md`, the plan's `Rounds:` increment,
@@ -89,7 +94,13 @@ export type InterrogateRefusal =
   /** The plan is past Design. */
   | 'not-a-draft'
   /** A panel for this plan is still running. */
-  | 'already-running';
+  | 'already-running'
+  /** Git does not hold the head of the plan PR that carries the plan. */
+  | 'pr-head-unheld'
+  /** The plan PR named `idea/<slug>` changes no plan file the slug names. */
+  | 'pr-carries-no-plan'
+  /** Two open PRs carry differing copies of the plan file. */
+  | 'pr-copies-differ';
 
 export interface InterrogateOptions extends BuildBoardOptions {
   /** The interface the server bound to (`HOST`), verbatim. */
@@ -144,39 +155,87 @@ const readPhaseAt = (opts: BuildBoardOptions, root: string, file: string): strin
   }
 };
 
-/** Where the slug's open plan PR was found, or why it was not used. */
+/** Where the slug's plan is read from, or why it cannot be read. */
 export type PlanPrLookup =
-  /** An open PR named `idea/<slug>` exists; the route reads its head. */
-  | { kind: 'found'; head: string }
-  /** The host answered: no open plan PR. Fall back to the main checkout. */
+  /** An open PR carries the plan; the route reads it in a worktree at `at` (default `origin/<head>`). */
+  | { kind: 'found'; head: string; at?: string; number?: number }
+  /** The checkout does not hold the plan and the default branch as fetched does; the route reads it in a worktree of `origin/<branch>`. */
+  | { kind: 'default'; branch: string }
+  /** No open PR carries the plan. The route reads the main checkout. */
   | { kind: 'none' }
-  /** The host could not be asked. Refuse rather than guess. */
-  | { kind: 'refused'; detail: string };
+  /** The plan could not be resolved. `reason` names the refusal; absent means `plan-unreadable`. */
+  | { kind: 'refused'; detail: string; reason?: 'pr-head-unheld' | 'pr-carries-no-plan' | 'pr-copies-differ' };
+
+/** The plan files directly under the plan directory at `ref`, without index symlinks. */
+const planFilesAt = async (refs: Refs, planDir: string, ref: string): Promise<string[]> => {
+  const listed = await refs.listBlobs(ref, planDir);
+  if (!listed.ok) return [];
+  return listed.value.filter((blob) => blob.mode !== '120000' && isPlanFile(planDir, blob.path)).map((blob) => blob.path);
+};
+
+/** The blob id of `file` at `sha`, or `''` where git does not hold it. */
+const blobAt = async (refs: Refs, sha: string, file: string): Promise<string> => {
+  const resolved = await refs.resolve(`${sha}:${file}`);
+  return resolved.ok ? resolved.value : '';
+};
 
 /**
- * Asks the host for the slug's plan PR — `idea/<slug>`, open, and nothing
- * else: the Draft-plan case this wave covers never needs the merged-PR trace
- * `planPrOf` in `plan-pr.ts` performs for a plan already on the default
- * branch, because a Draft plan under `Plan PRs: required` has no other
- * candidate. An open PR whose head is not `idea/<slug>` is not a plan PR.
+ * Resolves where the slug's plan is read from, through the same plan-PR
+ * finder `plot-approve.mjs` and `plot-needs-design.mjs` use (`choosePlanPr`,
+ * which asks `planPrOf`), then `planSourceOf` chooses: the head of the open
+ * plan PR that carries the plan (`idea/<slug>`, or any open PR whose head
+ * changes the plan file, such as a batch PR), then the checkout, then the
+ * default branch as fetched.
  *
- * Reads `host.lastRefusal()` from the SAME instance that made the call —
- * `hostFor` builds a fresh adapter per call, so a second call would not see
- * the first's refusal.
+ * Reads the local mirror only: the `Trees` handed to the finder fetches
+ * nothing, so a PR head git does not hold reads as unread and the request path
+ * stays off the network. A plan the default branch holds skips the merged-PR
+ * trace, which only names the PR a plan already merged through.
  */
-const resolveInterrogatePlanPr = async (opts: BuildBoardOptions, slug: string): Promise<PlanPrLookup> => {
-  const host = hostFor(opts);
-  const branch = `idea/${slug}`;
-  const lookup = await host.prState(branch);
-  if (!lookup.ok) {
-    const said = host.lastRefusal()?.said ?? '';
-    return {
-      kind: 'refused',
-      detail: `the host could not be asked for the PR of '${branch}' (plot-host.sh pr-state refused the call).${said ? ` ${said}` : ''}`,
-    };
+export const resolveInterrogatePlanPr = async (opts: BuildBoardOptions, slug: string): Promise<PlanPrLookup> => {
+  const planDir = readConfig(opts, 'Plan directory', 'docs/plans/');
+  const trees = treesFor(opts);
+  const refs = refsFor(opts);
+  const offline: Trees = { ...trees, fetch: async () => ({ ok: true, value: undefined }) };
+  const ctx = { repoRoot: opts.repoRoot, host: hostFor(opts), refs, trees: offline };
+  const head = await trees.originHead(opts.repoRoot);
+  const main = head.ok && head.value.trim() !== '' ? head.value.trim() : 'main';
+  const onMainFile = (await planFilesAt(refs, planDir, `origin/${main}`)).find((f) => namesPlan(slug, f)) ?? '';
+  let unread: readonly UnreadPr[] = [];
+  let found: Awaited<ReturnType<typeof choosePlanPr>>;
+  try {
+    found = await choosePlanPr(
+      ctx,
+      { slug, planDir, onMain: onMainFile !== '', ...(onMainFile !== '' ? { addition: { sha: '', secondParent: '' } } : {}) },
+      main,
+      onMainFile,
+      (rows) => { unread = rows; },
+      (detail) => new Error(detail),
+    );
+  } catch (err) {
+    const said = ctx.host.lastRefusal()?.said ?? '';
+    return { kind: 'refused', detail: `${err instanceof Error ? err.message : String(err)}${said ? ` ${said}` : ''}` };
   }
-  const pr = lookup.value;
-  if (pr !== null && pr.state === 'OPEN') return { kind: 'found', head: branch };
+  const atHead = found !== undefined && found.outcome === 'found' && found.read.at === 'head' ? found.read : undefined;
+  const answer = planSourceOf({
+    slug,
+    inCheckout: resolvePlanInRoot(opts, opts.repoRoot, slug) !== null,
+    onMainFile,
+    main,
+    pr: found,
+    blob: atHead ? await blobAt(refs, atHead.sha, atHead.file) : '',
+    rivals: found !== undefined && found.outcome === 'found'
+      ? await Promise.all(found.rivals.map(async (rival) => ({ number: rival.number, blob: await blobAt(refs, rival.sha, rival.file) })))
+      : [],
+  });
+  if (answer.outcome === 'refused') {
+    const line = answer.reason === 'plan-not-found' ? unreadPrsLine(unread) : '';
+    const detail = line === '' ? answer.detail : `${answer.detail}; ${line}`;
+    return answer.reason === 'plan-not-found' ? { kind: 'refused', detail } : { kind: 'refused', detail, reason: answer.reason };
+  }
+  const { source } = answer;
+  if (source.at === 'pr-head') return { kind: 'found', head: source.branch, at: source.sha, number: source.number };
+  if (source.at === 'default') return { kind: 'default', branch: source.branch };
   return { kind: 'none' };
 };
 
@@ -188,15 +247,26 @@ const resolveInterrogatePlanPr = async (opts: BuildBoardOptions, slug: string): 
  * interview. Naming `/plot-panel` directly supplies only the subject, and an
  * unattended panel refuses when a parameter is missing.
  *
+ * Where the plan was read from a branch's tip in a detached worktree, the
+ * prompt names that branch, so Phase 7b pushes the round to it.
+ *
  * @param planPath the plan file, relative to the repository root
+ * @param branch the branch the detached worktree was cut from; `''` for the main checkout
  */
-export const composeInterrogatePrompt = (planPath: string): string =>
+export const composeInterrogatePrompt = (planPath: string, branch = ''): string =>
   [
     `/challenge-the-plan ${planPath}`,
     '',
     `Run /challenge-the-plan on the plan at ${planPath}, unattended, and follow`,
     'the skill to its end, including recording the round in the plan. Act on no',
     'verdict: approve nothing, reject nothing, and change no phase.',
+    ...(branch === ''
+      ? []
+      : [
+        '',
+        `This checkout is a detached worktree of \`${branch}\`. Phase 7b pushes the`,
+        `round to \`${branch}\` (also in PLOT_INTERROGATE_BRANCH), and to no other branch.`,
+      ]),
     '',
   ].join('\n');
 
@@ -259,8 +329,8 @@ export const interrogateWorktreePath = (opts: BuildBoardOptions, slug: string): 
   );
 
 /**
- * Prepares a DETACHED worktree at `origin/<head>` at
- * {@link interrogateWorktreePath}.
+ * Prepares a DETACHED worktree at `at` — `origin/<head>` unless the caller
+ * names the plan PR's head sha — at {@link interrogateWorktreePath}.
  *
  * Reads `origin/<head>` from the local mirror and fetches nothing: the fleet
  * scan fetches every `refs/heads/*` on its own timer, and the request path
@@ -282,6 +352,7 @@ export const prepareInterrogateWorktree = async (
   opts: BuildBoardOptions,
   slug: string,
   head: string,
+  at = `origin/${head}`,
 ): Promise<string | null> => {
   const trees = treesFor(opts);
   const tree = interrogateWorktreePath(opts, slug);
@@ -290,7 +361,7 @@ export const prepareInterrogateWorktree = async (
     await trees.removeOnly(tree);
     if (fs.existsSync(tree)) return null;
   }
-  const added = await trees.add(tree, `origin/${head}`);
+  const added = await trees.add(tree, at);
   return added.ok ? tree : null;
 };
 
@@ -302,8 +373,8 @@ export interface InterrogateDeps {
   phase?: (opts: BuildBoardOptions, slug: string) => string | null;
   /** The slug's open plan PR, or why none was used. */
   resolvePlanPr?: (opts: BuildBoardOptions, slug: string) => Promise<PlanPrLookup>;
-  /** Builds the worktree a found plan PR is read and run from. */
-  prepareWorktree?: (opts: BuildBoardOptions, slug: string, head: string) => Promise<string | null>;
+  /** Builds the worktree a found plan PR, or the default branch, is read and run from. */
+  prepareWorktree?: (opts: BuildBoardOptions, slug: string, head: string, at?: string) => Promise<string | null>;
 }
 
 /**
@@ -318,6 +389,9 @@ export interface InterrogateDeps {
  * | 403 | — | the request is cross-origin |
  * | 409 | `no-interrogate-command` | the key is absent or `none` |
  * | 409 | `plan-unreadable` | the plan or its phase cannot be read |
+ * | 409 | `pr-head-unheld` | git does not hold the head of the plan PR |
+ * | 409 | `pr-carries-no-plan` | `idea/<slug>`'s PR changes no plan file of the slug |
+ * | 409 | `pr-copies-differ` | two open PRs carry differing copies of the plan |
  * | 409 | `not-a-draft` | the plan is past Design |
  * | 409 | `already-running` | a panel for this slug is still running |
  *
@@ -391,21 +465,33 @@ export const handleInterrogate = async (
   // read as "no plan PR" and falling back to a stale or missing file.
   const lookup = await resolvePlanPr(opts, slug);
   if (lookup.kind === 'refused') {
-    refuse('plan-unreadable', slug, lookup.detail);
+    refuse(lookup.reason ?? 'plan-unreadable', slug, lookup.detail);
     return;
   }
   let target: InterrogateTarget;
   if (lookup.kind === 'found') {
-    const tree = await prepareWorktree(opts, slug, lookup.head);
+    const at = lookup.at ?? `origin/${lookup.head}`;
+    const tree = await prepareWorktree(opts, slug, lookup.head, at);
     if (tree === null) {
       refuse(
         'plan-unreadable',
         slug,
-        `plan \`${slug}\`'s PR branch '${lookup.head}' could not be checked out into a worktree from \`origin/${lookup.head}\` — if the PR is new, the next fleet scan fetches it; refusing rather than interrogating a plan that could not be read from its own branch`,
+        `plan \`${slug}\`'s PR branch '${lookup.head}' could not be checked out into a worktree from \`${at}\` — if the PR is new, the next fleet scan fetches it; refusing rather than interrogating a plan that could not be read from its own branch`,
       );
       return;
     }
     target = { root: tree, head: lookup.head };
+  } else if (lookup.kind === 'default') {
+    const tree = await prepareWorktree(opts, slug, lookup.branch);
+    if (tree === null) {
+      refuse(
+        'plan-unreadable',
+        slug,
+        `plan \`${slug}\` is on \`origin/${lookup.branch}\` but not in this checkout, and \`origin/${lookup.branch}\` could not be checked out into a worktree — refusing rather than interrogating a plan that could not be read`,
+      );
+      return;
+    }
+    target = { root: tree, head: lookup.branch };
   } else {
     target = { root: opts.repoRoot, head: '' };
   }
@@ -449,7 +535,7 @@ export const handleInterrogate = async (
     return;
   }
 
-  const prompt = composeInterrogatePrompt(path.relative(target.root, planFile));
+  const prompt = composeInterrogatePrompt(path.relative(target.root, planFile), target.head);
   const promptPath = interrogatePromptPath(opts.repoRoot, slug);
   try {
     fs.mkdirSync(path.dirname(promptPath), { recursive: true });
@@ -491,6 +577,7 @@ export const handleInterrogate = async (
       PLOT_UNATTENDED: '1',
       PLOT_INTERROGATE_PROMPT: promptPath,
       PLOT_PLAN_SLUG: slug,
+      ...(target.head === '' ? {} : { PLOT_INTERROGATE_BRANCH: target.head }),
     },
     logFile: log,
     statePath,

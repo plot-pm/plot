@@ -436,10 +436,10 @@ git symbolic-ref -q HEAD >/dev/null 2>&1 && echo attached || echo detached
 - **attached** → an ordinary branch checkout (the `## Plot Config` fallback,
   or a Draft plan already on the default branch). Commit locally as this
   skill always has. Nothing below applies.
-- **detached** → find which remote branch HEAD came from:
+- **detached** → the branch to push to is the one the board named. `POST /api/interrogate` cuts this worktree at the tip of the plan PR that carries the plan (`idea/<slug>` or a batch PR such as `idea/batch-<first-slug>`), or at the default branch when only the default branch holds the plan, and names that branch in the prompt and in `PLOT_INTERROGATE_BRANCH`. Without that variable, find which remote branch HEAD came from, skipping the `origin/HEAD` alias:
 
   ```bash
-  BRANCH=$(git for-each-ref --points-at=HEAD --format='%(refname:short)' refs/remotes/origin/ | sed 's#^origin/##' | head -1)
+  BRANCH=${PLOT_INTERROGATE_BRANCH:-$(git for-each-ref --points-at=HEAD --format='%(refname:lstrip=3)' refs/remotes/origin/ | grep -vx HEAD | head -1)}
   ```
 
   An empty result means HEAD matches no remote branch tip — stop and report
