@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-09, Jan Wloka, plan-PR #3328 merged
 - **Started:** 2026-11-09, Jan Wloka, `bug/the-host-reads-a-pr-conversation`
+- **Started:** 2026-11-15, Jan Wloka, `bug/a-merge-refuses-an-unanswered-human-comment`
 
 ## Changelog
 
@@ -67,3 +68,6 @@ The rule "read human PR comments before merging" exists only as a master agent's
 - 2026-11-09, Jan Wloka: the Bitbucket arm may ship with `user.type` unmeasured for app accounts (no app comment existed on the ewz-kus-portal PRs sampled, PR 3717). An unknown or unmeasured `user.type` counts as a person, the strict side.
 - 2026-11-09: drafted from issue #3327. The master agent's memory entry "Read human PR comments before merging" is the rule this plan turns into a gate.
 - Gate versus rule: the test "can you answer *did I complete this?* without doing the work" fails for the memory entry and passes for a refusal in `mergeAt`.
+- 2026-11-15, strict readings where the plan was silent (wave 2): a tie in `time` between a comment and its candidate answer is not "later", so a merge held on a same-second reply asks for one more reply. A `PENDING` review has `time: ''`, is not a comment and answers nothing, and a time that does not parse answers nothing (a comment whose own time does not parse is answered by nothing). A review in state `APPROVED` opens nothing because it is the answer; `COMMENTED`, `CHANGES_REQUESTED` and a `DISMISSED` review with a non-empty body count as comments, and an empty body on any review is not one.
+- 2026-11-15, a consequence of the answer rule: a reply by a third person (neither the commenter nor the PR author) is itself an unmarked human comment and stays open until somebody else replies or a later `APPROVED` review lands. A reply by the PR author opens nothing, so the common case, the author answering a reviewer, clears the hold.
+- 2026-11-15, `mergeAt` reads the conversation only where `merge()` can reach the check: an open, non-draft PR with green checks and `plot/review` `success`. A skipped read is passed as `'unaskable'`, so a check reached without a read still refuses `human-comment-unread`.

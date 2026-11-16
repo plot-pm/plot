@@ -208,7 +208,7 @@ describe('releaseApproveAt — the workflow wired to its ports', () => {
   const NOW = Date.parse('2026-10-11T12:00:00Z');
 
   /** Ports that answer as given and record every host read and script call. */
-  const ports = (lookup: Pr, reviewed: PrReviewReading = review(), changes: unknown = { ok: true, value: VERSION_STEP }, backend = 'github') => {
+  const ports = (lookup: Pr, reviewed: PrReviewReading = review(), changes: unknown = { ok: true, value: VERSION_STEP }, backend = 'github', conversation: unknown = { ok: true, value: { prAuthor: 'author', rows: [] } }) => {
     const reads: string[] = [];
     const diffed: string[] = [];
     const calls: string[][] = [];
@@ -218,6 +218,7 @@ describe('releaseApproveAt — the workflow wired to its ports', () => {
         prState: async () => { reads.push('prState'); return { ok: true, value: lookup }; },
         prReview: async () => { reads.push('prReview'); return { ok: true, value: reviewed }; },
         reviewWriter: async () => ({ ok: true, value: '' }),
+        prConversation: async () => conversation,
       },
       scripts: { hostSaid: async (args: string[]) => { calls.push(args); return { answer: 'answered', said: '' }; } },
       defaultBranch: { read: async () => ({ ok: true, value: null }) },
@@ -233,6 +234,13 @@ describe('releaseApproveAt — the workflow wired to its ports', () => {
     const { p, calls } = ports(pr());
     expect(await releaseApproveAt(p, 42, HEAD, PROOF)).toEqual({ approved: true, pr: 42, sha: HEAD, alreadyMerged: false });
     expect(calls).toEqual([['pr-merge', '42', '--match-head', HEAD]]);
+  });
+
+  it('refuses a release PR with an unanswered human comment and writes nothing', async () => {
+    const ask = { kind: 'issue', id: 1, login: 'max', type: 'User', time: '2026-11-09T14:32:00Z', body: 'why?' };
+    const { p, calls } = ports(pr(), review(), { ok: true, value: VERSION_STEP }, 'github', { ok: true, value: { prAuthor: 'jan', rows: [ask] } });
+    expect(await releaseApproveAt(p, 42, HEAD, PROOF)).toMatchObject({ approved: false, reason: 'human-comment-open' });
+    expect(calls).toEqual([]);
   });
 
   it('reads the diff at the pinned sha and merges a clean head', async () => {

@@ -60,6 +60,7 @@ const readings = (over: Partial<MergeReadings> = {}): MergeReadings => ({
   defaultBranch: reading('green'),
   defaultBranchTip: OTHER,
   review: review(),
+  conversation: { prAuthor: 'author', rows: [] },
   caller: 'person',
   ...over,
 });
@@ -400,6 +401,7 @@ describe('mergeAt — the workflow wired to its ports', () => {
           : { ok: true, value: lookup }),
         prReview: async () => ({ ok: true, value: { sha: lookup === 'unaskable' ? '' : (lookup?.headSha ?? ''), state: 'success', description: '', time: '', bypass: false } }),
         reviewWriter: async () => ({ ok: true, value: '' }),
+        prConversation: async () => ({ ok: true, value: { prAuthor: 'author', rows: [] } }),
       },
       scripts: {
         hostSaid: async (args: string[]) => {
@@ -722,6 +724,7 @@ describe('mergeAt — the repair PR on a red default branch', () => {
         prState: async () => ({ ok: true, value: lookup }),
         prReview: async () => ({ ok: true, value: { sha: head, state: 'success', description: '', time: '', bypass: false } }),
         reviewWriter: async () => ({ ok: true, value: '' }),
+        prConversation: async () => ({ ok: true, value: { prAuthor: 'author', rows: [] } }),
       },
       scripts: { hostSaid: async (args: string[]) => { calls.push(args); return { answer: 'answered', said: '' }; } },
       defaultBranch: { read: async () => ({ ok: true, value: red }) },
@@ -841,6 +844,105 @@ describe('merge — the sync PR path gate', () => {
   });
 });
 
+describe('merge — an unanswered human comment', () => {
+  const ask = { kind: 'issue' as const, id: 1, login: 'max', type: 'User', time: '2026-11-09T14:32:00Z', body: 'why not CC-0?' };
+  const reply = { ...ask, id: 2, login: 'jan', time: '2026-11-09T15:00:00Z', body: 'because MIT' };
+
+  it('refuses an unanswered comment and names it', () => {
+    const out = merge(readings({ conversation: { prAuthor: 'jan', rows: [ask] } }), { pr: 42, sha: HEAD, ...CLOCK });
+    expect(out.outcome).toBe('refused');
+    if (out.outcome !== 'refused') return;
+    expect(out.reason).toBe('human-comment-open');
+    expect(out.detail).toContain('max');
+    expect(out.detail).toContain('why not CC-0?');
+  });
+
+  it('merges once another person replied', () => {
+    expect(refusalOf(readings({ conversation: { prAuthor: 'jan', rows: [ask, reply] } }))).toBe('decided');
+  });
+
+  it('refuses an unread conversation', () => {
+    expect(refusalOf(readings({ conversation: 'unaskable' }))).toBe('human-comment-unread');
+  });
+
+  it('names a deleted account, one other and several others', () => {
+    const gone = { ...ask, login: '' };
+    const detail = (rows: typeof ask[]) => {
+      const out = merge(readings({ conversation: { prAuthor: 'jan', rows } }), { pr: 42, sha: HEAD, ...CLOCK });
+      return out.outcome === 'refused' ? out.detail : '';
+    };
+    expect(detail([gone])).toContain('a deleted account');
+    expect(detail([gone, { ...gone, id: 3, time: '2026-11-09T14:40:00Z' }])).toContain(' and 1 other.');
+    expect(detail([gone, { ...gone, id: 3, time: '2026-11-09T14:40:00Z' }, { ...gone, id: 4, time: '2026-11-09T14:41:00Z' }])).toContain(' and 2 others.');
+  });
+
+  it('reports a failing review before the question', () => {
+    expect(refusalOf(readings({ review: review({ state: 'failure' }), conversation: { prAuthor: 'jan', rows: [ask] } }))).toBe('review-not-passed');
+  });
+
+  it('reports the question before a red default branch', () => {
+    expect(refusalOf(readings({ defaultBranch: reading('red'), conversation: { prAuthor: 'jan', rows: [ask] } }))).toBe('human-comment-open');
+  });
+});
+
+describe('mergeAt — the conversation read', () => {
+  const NOW = Date.parse('2026-10-11T12:00:00Z');
+  const ask = { kind: 'issue', id: 1, login: 'max', type: 'User', time: '2026-11-09T14:32:00Z', body: 'why not CC-0?' };
+  const build = (conversation: unknown, over: { draft?: boolean; checks?: string; reviewState?: string; state?: string; noPr?: boolean; reviewFailed?: boolean } = {}) => {
+    const calls: string[][] = [];
+    const read: number[] = [];
+    const p = {
+      host: {
+        backend: async () => ({ ok: true, value: 'github' }),
+        prState: async () => ({ ok: true, value: over.noPr ? null : {
+          number: 7, repo: '', head: 'feature/x', base: 'main', state: over.state ?? 'OPEN', mergedAt: null, mergeCommit: '',
+          draft: over.draft ?? false, mergeable: 'mergeable', review: '', checks: over.checks ?? 'green', failingChecks: [],
+          url: '', author: '', headSha: HEAD, checksSha: HEAD,
+        } }),
+        prReview: async () => over.reviewFailed ? { ok: false, why: 'failed' } : ({ ok: true, value: { sha: HEAD, state: over.reviewState ?? 'success', description: '', time: '', bypass: false } }),
+        reviewWriter: async () => ({ ok: true, value: '' }),
+        prConversation: async (n: number) => { read.push(n); return conversation; },
+      },
+      scripts: { hostSaid: async (args: string[]) => { calls.push(args); return { answer: 'answered', said: '' }; } },
+      defaultBranch: { read: async () => ({ ok: true, value: null }) },
+      refs: { remoteSha: async () => ({ ok: true, value: 'unknown' }), defaultBranch: async () => ({ ok: true, value: 'main' }) },
+      checksWaitMs: 3_600_000,
+      now: () => NOW,
+      caller: 'person',
+    } as unknown as MergePorts;
+    return { p, calls, read };
+  };
+
+  it('refuses human-comment-open, carries conversationAt and makes no merge call', async () => {
+    const { p, calls } = build({ ok: true, value: { prAuthor: 'jan', rows: [ask] } });
+    expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: false, reason: 'human-comment-open', conversationAt: '2026-11-09T14:32:00.000Z' });
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses human-comment-unread on a failed and on an unaskable read, with no merge call', async () => {
+    for (const answer of [{ ok: false, why: 'failed' }, { ok: false, why: 'unaskable' }]) {
+      const { p, calls } = build(answer);
+      expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: false, reason: 'human-comment-unread' });
+      expect(calls).toEqual([]);
+    }
+  });
+
+  it('merges a PR whose comment was answered', async () => {
+    const reply = { ...ask, id: 2, login: 'jan', time: '2026-11-09T15:00:00Z' };
+    const { p, calls } = build({ ok: true, value: { prAuthor: 'jan', rows: [ask, reply] } });
+    expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: true });
+    expect(calls).toEqual([['pr-merge', '7', '--match-head', HEAD]]);
+  });
+
+  it('reads no conversation for a draft, a red PR, an unreviewed PR or a merged PR, a missing PR or an unread review', async () => {
+    for (const over of [{ draft: true }, { checks: 'failing' }, { reviewState: 'pending' }, { state: 'MERGED' }, { noPr: true }, { reviewFailed: true }]) {
+      const { p, read } = build({ ok: true, value: { prAuthor: 'jan', rows: [] } }, over);
+      expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: false });
+      expect(read).toEqual([]);
+    }
+  });
+});
+
 describe('merge — the default-branch holds read the PR base', () => {
   const SPRINT = 'sprint/idle-and-supersede';
   const LATE = { now: Date.parse('2026-10-10T01:00:01Z'), checksWaitMs: WAIT_MS, minHexLen: 7 };
@@ -927,6 +1029,7 @@ describe('mergeAt — the default-branch holds read the PR base', () => {
         prState: async () => { asked.push('prState'); return { ok: true, value: lookup }; },
         prReview: async () => { asked.push('prReview'); return { ok: true, value: { sha: SHA, state: 'success', description: '', time: '', bypass: false } }; },
         reviewWriter: async () => ({ ok: true, value: '' }),
+        prConversation: async () => ({ ok: true, value: { prAuthor: '', rows: [] } }),
       },
       scripts: { hostSaid: async (args: string[]) => { calls.push(args); return { answer: 'answered', said: '' }; } },
       defaultBranch: { read: async () => ({ ok: true, value: read }) },

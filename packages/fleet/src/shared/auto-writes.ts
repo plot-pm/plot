@@ -2,7 +2,7 @@ import { runAutoProgressPass } from './auto-progress.js';
 import { dispatchPhase, type FleetReading, type HeldSlice } from '@plot-pm/domain';
 import { mergerAppHeld } from '@plot-pm/domain/adapters';
 
-import { runAutoMergePass } from './auto-merge.js';
+import { type ConversationHolds, runAutoMergePass } from './auto-merge.js';
 import { runAutoFixerPass } from './auto-fixer.js';
 import { runAutoReviewPass } from './auto-review.js';
 import { runAutoTicketPass } from './auto-ticket.js';
@@ -55,6 +55,8 @@ export const fleetAutoWrites = (
   const progressSent = new Map<string, string>();
   // THE (PR, HEAD) PAIRS THE HOST REFUSED TO MERGE, for the daemon's life: a restart asks once more.
   const mergeRefused = new Map<number, string>();
+  // THE PRS REFUSED FOR AN UNANSWERED OR UNREAD COMMENT, for the daemon's life: one record per PR, cleared by a new head or a newer row.
+  const conversationHolds: ConversationHolds = new Map();
   // THE FIXER REFUSALS ALREADY LOGGED, for the daemon's life: one line per PR, head and reason.
   const fixerLogged = new Set<string>();
   // THE REVIEW START REFUSALS ALREADY LOGGED, for the daemon's life: one line per PR, head and reason.
@@ -105,7 +107,7 @@ export const fleetAutoWrites = (
       await runAutoTicketPass(opts, ticketLogged);
       // ONE MERGE PER PASS, after delivery has read the merges already landed.
       // Under `--once` the scan clock does not run, so this never does either.
-      await runAutoMergePass(opts, mergeRefused, undefined, undefined, mergeLogged, mergerApp);
+      await runAutoMergePass(opts, mergeRefused, undefined, undefined, mergeLogged, mergerApp, conversationHolds);
       // VERIFICATION GOES LAST: it takes an agent slot only when the queue
       // held no slice on `no-free-agent`, and dispatch has just had its turn.
       await runAutoVerifyPass(opts, pulse, {
