@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Rounds:** 2
 - **Approved:** 2026-11-16, Jan Wloka, plan-PR #3464 merged
+- **Started:** 2026-11-16, Jan Wloka, `feature/jenkins-reads-in-process-client`
 
 ## Changelog
 
