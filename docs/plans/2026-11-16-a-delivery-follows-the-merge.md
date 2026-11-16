@@ -75,7 +75,7 @@ The change adds no shell/domain duplicate and no corpus row.
 
 ### Host confirmation
 
-- `bug/a-delivery-follows-the-merge` — `confirmedLanding` in `packages/domain/src/rules/deliverable.ts` and its export, `deliverability` and the `not-deliverable` detail in `packages/board/src/server/deliver.ts`, `DeliverDeps.ports`, tests in `packages/domain/test/deliverable.test.ts` and a new `packages/board/test/unit/delivery-follows-the-merge.test.ts`, and a `plot` patch changeset whose `bumps:` block names `plot-deliver: patch` <!-- builds: confirmedLanding, the deliver route's host confirmation -->
+- `bug/a-delivery-follows-the-merge` — `confirmedLanding` in `packages/domain/src/rules/deliverable.ts` and its export, `deliverability` and the `not-deliverable` detail in `packages/board/src/server/deliver.ts`, `DeliverDeps.ports`, tests in `packages/domain/test/deliverable.test.ts` and a new `packages/board/test/unit/delivery-follows-the-merge.test.ts`, and a `plot` patch changeset whose `bumps:` block names `plot-deliver: patch` <!-- builds: confirmedLanding, the deliver route's host confirmation --> → #3477
 
 ## Notes
 
