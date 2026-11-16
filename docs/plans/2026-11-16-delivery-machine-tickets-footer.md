@@ -11,7 +11,7 @@
 - **Story:** delivery-tab-reads-at-a-glance
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -108,9 +108,19 @@ Panel round 1 (unanimous `amend`: estate, contradiction, deliverable, cost). Mod
 - [x] [Deliverable] State whether the three slices are independent after `feature/delivery-section-header`. Resolved: they are not independent and run in heading order, the tickets slice first.
 - [x] [Cosmetic] The story file is absent at HEAD; the host name should come from the connector; the unassigned count exists as `waiting.unassigned`. Resolved: the story is on `main` and the link resolves once this branch merges; the host name comes from the connector; the header reads `waiting.unassigned`.
 
+Challenge round 2, run unattended on 2026-11-16: no person answered, so each item below is open and nothing above changed.
+
+- [ ] [Domain] `Machine.spawnCostMs` is null when unmeasured (`entities/machine.ts`). Which dot and which wording does the one-line form show for an unmeasured machine, and does it differ from `clear`? The Done When asserts `unasked` and `unreachable` but not this state.
+- [ ] [Domain] `Machine.loadAverage` holds three values (1, 5, 15 minutes). Which one does "load 2.1 of 10 cores" show? The domain already carries `loadAverage` and `cores`, so the machine slice adds them to the payload and not to the domain; the plan reads as if the domain lacked them.
+- [ ] [Domain] The Tickets header counts "<n> more unassigned", and the move takes other tickets out of Work items › Queued. State whether unassigned tickets render as rows in the section or only as the count, and which rows "… n more · show" folds.
+- [ ] [UX] The footer shows two freshness dots and the Machine line one. Name the age at which a freshness dot turns amber and red, as for the `Headroom` thresholds.
+- [ ] [UX] The dots carry state by colour alone. Add a text or accessible label for each, and a keyboard path to **details** and to "… n more · show".
+- [ ] [Edge] **Plan it ›** pressed twice, or on a ticket another session already planned, calls `idea` twice. State whether the controller or the button refuses the second call.
+- [ ] [Order] The footer slice waits only on `feature/delivery-tickets-section`, while *Order inside the plan* says a slice is eligible once every earlier slice has merged, which includes the machine line. Make the `waits` marker and the prose agree.
+
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "engine": "panel",
   "questionHistory": [],
   "deferredItems": [],
