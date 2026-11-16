@@ -1,66 +1,70 @@
+Round: 2
+
 # Estate juror: jenkins-reads-in-process
 
 Position: amend
 
-The plan reuses the right pieces (`connectorHttps`, `throttledOf`, `rowsToBind`, `bindChecks`, `jenkinsConclusion`, `newestPerSha`, `rules/env-file.ts`, `rules/host-transport.ts`), and its `plot-host.sh` references hold. Four estate facts break slices as written: `hostReadsFor` has four callers besides fleetd, `connectorHttps` can only send a JSON body, the rules the client copies come from `jen` and not from `plot-host.sh`, and `jen` 0.4.0 ignores `JEN_URL_PATTERN` in the environment. Each one has a named edit below. None of them makes the plan unsound.
+All eleven round-1 estate edits are answered in the plan at `3491292d8`. The plan reuses the right pieces and builds no second transport. One claim is false in a way that makes a slice fail CI: the new `rules/jenkins-*.ts` files cannot import one another, or import `rules/jenkins-pr-checks.ts`, without tripping the gate *The domain names no vendor*. One census cost claim is wrong. Both have a named edit below. Neither makes the plan unsound.
+
+## Round-1 edits, checked
+
+1. Instance-URL facts: answered. `jen:6` is a plain assignment, `jen:28` defaults `JEN_REALM_URL`, `jen:31` defaults `JEN_CONFIG_DIR` through `XDG_CONFIG_HOME`, `jen_url_for` starts at `jen:50`, `jen_instance_url` at `jen:85` (checked with `grep -n '^[a-z_]*() *{'` and `sed -n` on `/opt/homebrew/bin/jen`, 1,819 lines). The Done-when row now tests `JEN_URL` and an `http://127.0.0.1:<port>` value.
+2. No Quatico hosts: answered (*Approach*, second paragraph; Done-when row with the `grep -n 'quatico'` check).
+3. `jen` rules as declared duplicates: answered (*Slice 1*, third bullet), with `record-jenkins-reads.mjs` modelled on `packages/domain/corpus/record-github-issues-runs.mjs`, which exists.
+4. The stub `jen` replays the real `jen`: answered (*Slice 1*, census bullet; Done-when *The census measures Jenkins*).
+5. Form body and the refresh POST's ledger key: answered (form body bullet; *The token endpoint charges its own bucket*).
+6. Every `hostReadsFor` caller: answered (decision 7). The five call sites are true: `registryd-main.ts:3138`, `pr-reader.ts:134` and `:137`, `state-branch.ts:69`, `merge-ports.ts:39` (`grep -rn "hostReadsFor("`). `pr-reader.ts:134` passes `ci: ''` only where `shellReasonOf` already chose the shell, so it needs no client.
+7. GitHub overlay: answered (Cutover bullet and Done-when row).
+8. Inverting `bitbucket-jenkins.census.test.ts`: answered. The case is at `:52-56` and the start line at `:64-67` (read with `sed -n 30,70p`).
+9. `bitbucketBudgetAccount(null, override)`: answered. `rules/bitbucket-budget-account.ts:22` returns the override, else `unknown`.
+10. Guard against a concurrent `jen` refresh: answered (lock, re-read, adopt the newer blob, torn-read retry).
+11. `repair-start.ts` path: answered (`packages/fleet/src/shared/repair-start.ts:106`).
 
 ## 1. Existing deliverables
 
-No slice deliverable exists. Commands: `ls packages/domain/src/adapters/{build,host,tracker}`, `ls packages/domain/corpus`, `grep -n jenkins packages/fleet/test/census/stub-host.ts` (0 hits), and a grep over `docs/plans/*.md` for a Draft, Design or Approved plan that names Jenkins (only this plan). No Jenkins client, no stub Jenkins route and no stub `jen` exist. The `sandbox.ts:265-267` stubs are `gh`, `bb` and `curl`.
+No slice deliverable exists. `packages/domain/src/adapters/build/` holds `build-actions`, `build-fixture`, `build-jenkins`, `build-none`, `build-resolve` and `build-shell`, and no Jenkins client. `rules/` holds `jenkins-pr-checks.ts` and no other Jenkins rule. `packages/fleet/test/census/stub-host.ts` names Jenkins zero times, and `sandbox.ts:265-267` writes stubs `gh`, `bb` and `curl` only. The corpus has no Jenkins recorder or Jenkins corpus test.
 
-The estate does hold parts the plan does not name:
-
-- `rules/bitbucket-budget-account.ts:22`: `bitbucketBudgetAccount(null, override)` already answers `PLOT_BUDGET_ACCOUNT`, else `unknown`. That is the whole of `budget_account ''` (`plot-host.sh:3523-3542`). `corpus/bitbucket-budget-account.corpus.test.ts:52-54` already lifts `budget_account` out of `plot-host.sh` with awk. For Open Question 3, add a row with an empty connector to that corpus, or extract the shared fallback. A third account rule is not needed.
-- `skills/plot/scripts/board/plot-jenkins-pr-checks.mjs` exists, as the plan says.
-- `packages/fleet/test/census/bitbucket-jenkins.census.test.ts` already holds a `CI: jenkins` fixture with a `host reads:` start line (`:64-67`).
+Pieces the plan reuses exist as stated: `connectorHttps` (`connector-https.ts:152`), `throttledOf` (`:119`), `rowsToBind` and `bindChecks` (`rules/jenkins-pr-checks.ts`), `jenkinsConclusion` and `newestPerSha` (`build-jenkins.ts`), `rules/host-transport.ts`, `scripts/check-host-https-callers.sh`, and `jira-api.ts` under `adapters/tracker/`. `connector-https.ts:49` already allows `http:` for a stub server, and `:168` builds an `http.Agent`, so the loopback rule needs no transport change. The plan does not name two pieces that Slice 3's Bitbucket corpus row can extend: `packages/domain/corpus/bitbucket-pr-listing.corpus.test.ts` and `record-bitbucket-pr-listing.mjs`.
 
 ## 2. Factual claims checked
 
-- `plot-host.sh` is 6,033 lines (`wc -l`). These lines name what the plan says (checked with `sed -n`): `:1754`, `:1758`, `:1762-1768`, `:1771-1779`, `:1792`, `:1806`, `:1852`, `:1895-1899`, `:2024`, `:2027`, `:2032-2034`, `:2076`, `:2101`, `:2212-2217`, `:3523`, `:3828`, `:3909`, `:4595`, `:4767`, `:4941`, `:5047`, `:5125`, `:5203`, `:5927`. `jen()` takes `host_slot_take jenkins ''` and writes `budget_record_call jenkins ''`, so the account claim of Open Question 3 is true.
-- Domain and fleet references (checked with `sed -n`): `build-jenkins.ts:22,50,96`, `build-shell.ts:150`, `build-resolve.ts:43-44`, `host-reads.ts:24,31,39,126-130,209`, `jenkins-pr-checks.ts:38,72,109`, `connector-https.ts:119,152`, `pr-status.ts:116`, `fleet-clock.ts:284`, `pr-refresh.ts:1467-1469`, `default-branch-refresh.ts:56,143,299,304`, `release-world.ts:71`, `revert-start.ts:204,345`, `workflows/merge.ts:465`, `worker-loop.ts:240,1072`, `board.ts:696`, `merge-ports.ts:61`, `auto-merge.ts:322`, `registryd-main.ts:3371`. All are correct. `repair-start.ts:106` is correct for `packages/fleet/src/shared/repair-start.ts`; `packages/domain/src/rules/repair-start.ts:106` is a blank line, so the path needs its package.
-- **`JEN_URL_PATTERN` is wrong.** `jen:6` reads `JEN_URL_PATTERN="https://jenkins-ci-{slug}.internal.quatico.dev"`, a plain assignment and not `${JEN_URL_PATTERN:-…}`, so `jen` 0.4.0 ignores the variable in the environment. The override that `jen` honours is `JEN_URL` (`jen:86-88`, `jen_instance_url`), and the plan does not mention it. `jen_url_for` is at `jen:50-60`, not `:47-60` (`:47` is its comment).
-- **`JEN_CONFIG_DIR` is incomplete.** Its default is `${XDG_CONFIG_HOME:-$HOME/.config}/jen` (`jen:31`), not `~/.config/jen`.
-- **Secret keys.** The per-instance keys are `jenkins-user:<host>` and `jenkins-token:<host>`, where `<host>` is `jen_key_for` (`jen:81`): the resolved URL's lowercased host and port (`jen_url_host`, `jen:66`). The file backend stores them as `jenkins-user_<host>.secret`, with `:` and `/` mapped to `_` (`jen_secret_file`, `jen:121`). A legacy key under the raw slug is migrated on read (`jen_migrate_instance_keys`, `jen:230-260`). The plan says only "per-instance secrets `jenkins-user:<host>`".
-- **The job path rule is not named.** `jen job view` and `jen job list` turn `a/b` into `/job/a/job/b`, with the branch percent-encoded through `jq @uri` (`jen_job_path`, `jen:481-498`). `job list --json` prints `.jobs` of `api/json?tree=jobs[name,_class,color]` (`jen:1033-1044`), and `job view` asks `tree=name,fullName,url,_class,color,…,lastBuild[…]` (`jen:1086`).
-- **The transport accepts JSON bodies only.** `connector-https.ts:174` runs `JSON.stringify(call.body)`, and `:190` sets `Content-Type: application/json`. The Keycloak token endpoint takes `application/x-www-form-urlencoded`.
+Checked with `sed -n` and `grep -n` in this checkout:
 
-## 3. Done when rows
+- `plot-host.sh` has 6,033 lines. `:1754-1758`, `:1762-1779`, `:1990-2006`, `:2074-2077`, `:3069-3072` and `:3095-3098` (Bitbucket and Jira `.env` only), `:3909` (`jen()` with `host_slot_take jenkins ''`), `:4941-4961` (`_bb_jen_bind`, `$jmap`) and `:5925-5928` (`limit` 60, `predicted`) name what the plan says.
+- `host-reads.ts:24` (`SHELL_CI`), `:31` (`SHELL_RICH_CI`), `:39` (`shellCiOf`), `:126-130` (the rich split) and `:209` are correct.
+- `connector-https.ts:174` (`JSON.stringify`) and `:190` (`Content-Type: application/json`) are correct.
+- `census-report.ts:20` (`CensusFixture` with no `ci`), `:144-145` (`entryKey`) and the last-key rule in `compareCensus` (`:183-187`) are correct.
+- `ci.yml:887-892` (20 minutes, 830 s), `:1665-1672` (the vendor gate) and `:2850` (`validate`'s `needs:` without the census job) are correct.
+- `registryd-main.ts:3371` is `buildShell({ repoRoot, scriptDir }, readsApi)`. fleetd reaches `buildFor` through `buildShell` (`build-resolve.ts:57-67`), so the Jenkins client must pass through `buildShell` as well. The plan names only `buildFor`.
+- Wrong: the shell's Jenkins account is `budget_account jenkins`, not `budget_account ''`. `jen()` calls `host_slot_take jenkins ''` and `budget_record_call jenkins ''`, and both resolve `budget_account "${2:-$1}"` (`plot-host.sh:3863`, `budget_record_call` at `:3654`), so `$2=''` falls back to `jenkins`. The answer is the same (`PLOT_BUDGET_ACCOUNT`, else `unknown`, because `jenkins` matches no arm), but the corpus row must call it with `jenkins` to lift the shell's real call.
+- Wrong: *The census cost* says the Jenkins fixture "adds one traced run and no extra untraced run". `fleetd.census.test.ts:154` is `describe.each(FIXTURES)`, and the shell baseline at `:228` calls `buildSandbox(fixture)` inside each fixture's block, so a fourth fixture adds one traced run and one untraced shell run. The 950 s estimate counts only the traced run.
 
-Most rows name a check that fails before the change and passes after it. These rows do not:
+## 3. Done-when rows
 
-- *The instance URL resolves as `jen` resolves it*: the "with `JEN_URL_PATTERN`" half compares against a `jen` that ignores the variable. If the rule honours the variable, the row fails for the wrong reason. If the rule ignores it too, the row passes before the change. The row also needs `jen` installed, and no file under `.github/workflows/` names `jen`, so the row cannot run in CI.
-- *Both transports read the same Jenkins answers*: the shell side reads through a stub `jen` that serves "the same recordings". `jen`'s own handling of a `3xx` to `/oauth2/`, an HTML body and a `4xx` (`jen_check_http`, `jen:348`; the `.jobs` projection) would then come from the stub and not from `jen`. The row can pass while the client disagrees with the real `jen`.
-- *An idle pass starts no process* (P12 green) is sound. The existing assertion `reads the rich open pull requests through the shell` (`bitbucket-jenkins.census.test.ts:51-55`, `bbOpenReads(box) > 0`) fails after the cutover, and the plan does not say that the cutover inverts it.
-- Open Question 4 has no row. No row asserts that the GitHub listing overlays Jenkins colours after `SHELL_CI` is emptied.
+Each row names a check that fails before the change and passes after it. Two notes:
 
-## 4. Missing or wrong, slice by slice
+- *Plot names no organisation's Jenkins or realm host* greps for `quatico` but no row runs the vendor gate on the new `rules/` files. The gate runs in CI on every PR, so it holds without a row; see required edit 1 for why it will fail.
+- *The Jenkins transport is visible* asks `/plot-fleet --status` to print the Jenkins transport. Today no status output prints the git-host or Jira transport: `hostTransportLine` has callers in `registryd-main.ts` and `pr-reader.ts` only, both start-log lines. The row builds a new status surface for one connector. That is not a defect, but the slice must build it, not extend it.
 
-- **Cutover: `SHELL_RICH_CI` and `SHELL_CI` are module constants that every `hostReadsFor` caller reads.** The callers are `registryd-main.ts:3138` (fleetd), `pr-reader.ts:134,137` (the board's PR reader, which writes the PR index when no fleetd runs), `board/.../state-branch.ts:69` and `board/.../merge-ports.ts:39`. If the constants are emptied and only fleetd builds a Jenkins client, those callers read rich PRs in-process with no overlay. On a Bitbucket or GitHub repository with `CI: jenkins` and no fleetd, the board's reader then writes rows that carry no Jenkins checks into `.plot/state/index/`. The merge-path host loses the overlay too, which contradicts *What stays*. The plan's *Callers in packages* lists the `buildShell` callers and none of the `hostReadsFor` callers.
-- **Client: the refresh grant cannot go through `connectorHttps` as it is.** A form body or a raw body with its own content type is a change to `connector-https.ts`. The plan says the client imports no `node:https`, so that change belongs in Slice 1. The plan also does not say which ledger key, if any, the Keycloak POST charges: the realm is not the Jenkins instance.
-- **Client: the copied `jen` rules are undeclared duplicates.** The plan declares duplicates of `plot-host.sh` only. The client also copies `jen_url_for` with the `JEN_URL` override, `jen_url_host` and `jen_key_for` (secret keys), `jen_secret_file`, `jen_save_token` (`expires_in // 300`, `− 30`), `jen_job_path` with `jen_urlencode`, `jen_check_http`'s redirect classification, and the `.jobs` projection. `jen` lives in a different repository and CI does not install it, so the `bitbucket-budget-account` pattern (lift the function, run it) does not work. The precedent that fits is `corpus/record-github-issues-runs.mjs` and `runs-for-sha.corpus.test.ts`: record the real CLI once against a stub server and commit the recordings.
-- **Client: Plot would hardcode an organisation's URLs.** Copying `jen`'s defaults (`https://jenkins-ci-{slug}.internal.quatico.dev`, `jen:6`; `https://id.quatico.dev/realms/quatico`, `jen:28`) into `rules/jenkins-url.ts` and the client puts one company's hosts into Plot's domain. CLAUDE.md's *Project-Agnostic Design* forbids that. Today `plot-host.sh` delegates the defaults to `jen` and names no host.
-- **Client: Open Question 2 option A races `jen`.** `jen` refreshes with no lock (`jen:185-200`). Where the realm rotates refresh tokens, a fleetd refresh that overlaps an operator's `jen` refresh makes one side lose. The plan records the rotation measurement and nothing for the race.
-- **Cutover: no GitHub overlay work.** Open Question 4 (option A) asks for a Jenkins overlay in `githubPrListing` (`adapters/host/github-pr-listing.ts`, which names Jenkins zero times) and a corpus row against the arm at `plot-host.sh:4767`. The Cutover slice line names only `bitbucketPrListing`.
-- Low risk: the CI gate *The domain names no vendor* (`ci.yml:1667-1672`) greps non-comment lines outside `adapters/`. New `rules/jenkins-*.ts` pass it only if no code line holds the word `jenkins` (for example, a `'jenkins'` connector literal). Keep such literals in `adapters/build/`. The gate passes on this checkout today (run locally, 0 hits).
+## 4. Missing or wrong
 
-## 5. The five decided questions
+- **The vendor gate fails on cross-imports between Jenkins rules.** `ci.yml:1667` greps `\b(…|jenkins|…)\b` case-insensitive over code lines in `packages/domain/src/` outside `adapters/`. A module path is a code line: `printf "import { a } from './jenkins-pr-checks.js';\n" | grep -Ei '\bjenkins\b'` matches. The plan's `rules/jenkins-sha-runs.ts`, `rules/jenkins-build-map.ts` and the Bitbucket per-row projection "beside them" (*Slice 3*) will import each other's types or `rowsToBind` from `./jenkins-pr-checks.js`. Today no file under `packages/domain/src/` imports `rules/jenkins-pr-checks.ts` (`grep -rn jenkins-pr-checks packages/domain/src` finds none); its callers are the board entry and the corpus, through the package export `./rules/*`. The plan's sentence *"Literals that name `jenkins` stay in `adapters/build/`, so the CI gate … passes on the new `rules/` files"* holds for literals and not for import paths.
+- **The token bucket and the slot bound.** `connector-https.ts` keys the bound on connector and account only (`boundKey`, `boundFor`), and ignores the bucket. A `token`-bucket entry with a non-`unknown` basis sets the Jenkins instance's slot bound. The plan states the instance entry's basis (`predicted` 60) and not the token entry's. Non-blocking: state the token entry's basis, `unknown` or `predicted` 60, so it cannot change the bound.
+- **`jen_save_token`'s `//`.** `jen:153` is `jq -r '.expires_in // 300'`: jq's alternative operator, *`expires_in`, or 300 where absent*. The plan's `(expires_in // 300)` reads as floor division to a TypeScript author. The corpus row catches a wrong reading, so this is a wording note.
 
-- Q1 (A) is consistent with the design. The file-backend path must follow `XDG_CONFIG_HOME` and the `jen_secret_file` key mapping.
-- Q2 (A) is consistent with the design. It needs a declared rule for the race with a concurrent `jen` refresh, and the slice that writes the blob back must reproduce `jen_save_token`'s format.
-- Q3 (A) is consistent with the design and cheaper than the plan states, because `bitbucketBudgetAccount(null, override)` already is the rule (see section 1).
-- Q4 (A) is not carried into the slices or into *Done when*.
-- Q5 (A) is consistent with the design: `shellReasonOf` (`rules/host-transport.ts`) already answers `PLOT_HOST_TRANSPORT=shell` first.
+## 5. Decisions and the five added choices
+
+The eight decisions agree with the slices. Decision 7 is carried into the Cutover bullet and a Done-when row; decision 8 into a composition row with a `.env` holding `JENKINS_API_TOKEN`; decision 6 into the unit-environment composition row.
+
+- **Realm URL from `JEN_REALM_URL`, else the token's `iss`:** consistent. `jen` already reads claims from the stored access token (`jen_kc_claim`, `jen:210`), so decoding a claim is not new to the estate. The person's measurement row checks `iss` against the realm URL before the Client branch merges.
+- **A bare slug with no `JEN_URL` keeps the shell:** consistent with *Project-Agnostic Design*. `plot-host.sh:1770` splits the slug the same way. On a repository whose `Jenkins instance` is a slug, the saving needs a config edit, and the reason line names that edit.
+- **Credentials only to `https:` or loopback:** consistent. The transport sends `http:` today for stub servers (`connector-https.ts:49`), so the rule is the client's, and the census stub at `127.0.0.1` passes it.
+- **Refresh POST under connector `jenkins`, bucket `token`:** consistent with the ledger, see the bound note in section 4.
+- **Census cap at 1.45 times the measured HEAD time above 1,000 s:** consistent with the comment at `ci.yml:887-888`. The estimate under it is low, see section 2.
 
 ## Required edits
 
-1. Correct the instance-URL facts. `jen` 0.4.0 fixes `JEN_URL_PATTERN` at `jen:6` and honours only `JEN_URL` (`jen:86`). `jen_url_for` is at `jen:50-60`. `JEN_CONFIG_DIR` defaults to `${XDG_CONFIG_HOME:-~/.config}/jen`. Rewrite the `jenkins-url` Done-when row to match.
-2. Keep Plot free of `jen`'s Quatico defaults. The client must take the instance URL, or the realm URL and the pattern, from `Jenkins instance` as a full URL or from the environment (`JEN_URL`, `JEN_REALM_URL`), and keep the shell with a logged reason where none resolves. Name this rule in Slice 1.
-3. List the rules the client copies from `jen` as declared duplicates: `jen_url_for` with `JEN_URL`, `jen_url_host` and `jen_key_for`, `jen_secret_file`, `jen_save_token`, `jen_job_path` with `jen_urlencode`, `jen_check_http`'s redirect classification, and the `job list --json` `.jobs` projection. Hold each one with a corpus row that does not need `jen` in CI.
-4. Record the shell side of `jenkins-reads.corpus.test.ts` from the real `jen` 0.4.0. Run it once against the stub server with `JEN_URL` and environment credentials, in a recorder such as `corpus/record-jenkins-reads.mjs` modelled on `record-github-issues-runs.mjs`. The stub `jen` must replay the recorded stdout, stderr and exit codes, and must not reimplement `jen`.
-5. Add a form or raw body with its own content type to `connector-https.ts` in Slice 1, for the refresh grant. State which ledger key the Keycloak POST charges, or that it charges none.
-6. Rework the Cutover for all `hostReadsFor` callers (`registryd-main.ts:3138`, `pr-reader.ts:134,137`, `state-branch.ts:69`, `merge-ports.ts:39`). Keep the rich read on the shell wherever the caller holds no Jenkins client, rather than emptying the constants for every caller. Add a row that proves the board's PR reader and the merge path still carry Jenkins checks with no fleetd running.
-7. Add the GitHub overlay to the Cutover slice (`githubPrListing`, with a corpus row against `plot-host.sh:4767`) and add a Done-when row for it, or reverse the Open Question 4 decision.
-8. State that the Cutover inverts `bitbucket-jenkins.census.test.ts:51-55` (`bbOpenReads > 0`), along with the start line at `:64-67`.
-9. Reuse `bitbucketBudgetAccount(null, override)`, or extract its fallback, for the Jenkins account. Add a row with an empty connector to `bitbucket-budget-account.corpus.test.ts` instead of writing a new rule.
-10. Name the guard for Open Question 2 option A against a concurrent `jen` refresh. One option: re-read the stored blob immediately before the refresh, and use the stored blob where it is newer.
-11. Write `repair-start.ts:106` as `packages/fleet/src/shared/repair-start.ts:106`.
+1. Make the new Jenkins rules pass *The domain names no vendor* (`ci.yml:1667`) with their imports. Either name the `rules/` files with no standalone `jenkins` token (for example `ci-build-map.ts`, `ci-sha-runs.ts`), or import them only from `adapters/build/` and `adapters/host/`. Correct the sentence in *Approach* to cover import paths as well as literals.
+2. Correct *The census cost*: a fourth entry in `FIXTURES` adds one traced run and one untraced shell-baseline run (`fleetd.census.test.ts:154`, `:228`). Restate the estimate for both runs, or run the Jenkins fixture's baseline outside the `FIXTURES` loop and say so.
+
+Non-blocking notes: pass the Jenkins client through `buildShell` (`build-resolve.ts:57`), because fleetd calls that at `registryd-main.ts:3371`. Lift `budget_account` with the argument `jenkins`, not `''`. State the `token` entry's basis. Write `jen_save_token`'s rule as *`expires_in`, else 300, minus 30*. Name `bitbucket-pr-listing.corpus.test.ts` and `record-bitbucket-pr-listing.mjs` as the base for the Bitbucket overlay corpus row.

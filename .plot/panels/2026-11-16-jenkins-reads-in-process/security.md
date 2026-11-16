@@ -1,64 +1,80 @@
+Round: 2
+
 # Security and credentials juror
 
 Position: amend
 
-The plan's facts hold and its transport choice is sound. The credential design has gaps that would make Slice 1 ship a client that either never runs on the operator's fleetd or races `jen` over one refresh token. Each gap is fixable in the plan text, so the plan is approvable after the edits below.
+The amendment answers all ten round-1 edits for this lens. Three gaps remain, and each one is a plan-text edit: the refresh lock has no named location that two fleetds of two repositories share, the realm and scheme rules added without a person's decision have no Done-when row, and the rotation measurement decides nothing because the plan names no consequence for its result.
+
+## Round-1 edits, checked against the plan at `3491292d8`
+
+| Round-1 edit | Answered at | Status |
+|---|---|---|
+| 1. fleetd under launchd finds the file backend | decision 6 (plan:129), design plan:86, row plan:145 | answered |
+| 2. `JEN_CONFIG_DIR` default, `JEN_URL`, `jen_key_for`, `jen_secret_file` | plan:65, plan:85, row plan:137 | answered |
+| 3. Refresh against the second writer | plan:87, rows plan:142-143 | answered, with the lock-location gap below |
+| 4. Atomic `0600` write-back, only to the store read | plan:88, row plan:144 | answered |
+| 5. Rotation measurement is a person's step, includes reuse revocation | plan:89, row plan:151 | answered, with the consequence gap below |
+| 6. Redirect and status rules | plan:90, rows plan:147-148 | answered |
+| 7. Token POST charges the ledger | plan:93, row plan:150 | answered |
+| 8. Credential-leak row, `said` from `error` and `error_description` only | plan:91, row plan:149 | answered |
+| 9. Drop `.env` for Jenkins | decision 8 (plan:131), row plan:146 | answered |
+| 10. fleetd's account reads `unknown` under launchd | decision 3 (plan:126) | answered |
 
 ## 1. Existing deliverables
 
-No slice's deliverable exists. `ls packages/domain/src/rules/ | grep -i jenk` shows only `jenkins-pr-checks.ts`, which the plan reuses. `grep -rln 'keycloak\|refresh_token\|JEN_SECRET_BACKEND' packages/ skills/plot/scripts/*.sh` finds no hits, so the estate has no Keycloak refresh and no reader for `jen`'s store. `adapters/build/` holds no `jenkins-api.ts`.
+None exists. `adapters/build/` holds no `jenkins-api.ts`, and `packages/domain/src/rules/` holds only `jenkins-pr-checks.ts` for Jenkins, which the plan reuses. No code under `packages/` reads `jen`'s store or posts a Keycloak refresh grant (round-1 grep, unchanged by the amendment, which touches only the plan file).
 
 ## 2. Factual claims checked
 
-- `jen` 0.4.0 at `/opt/homebrew/bin/jen` has 1,819 lines (`wc -l`). The two headers, `jen_auth_args` at `jen:309-317`, are true. The cited text also shows that the Basic header goes out only where a user and a token both exist, so "sends both headers" is conditional in `jen`.
-- The blob format, `expires_at = now + expires_in − 30` (`jen:150-155`), the refresh POST (`jen:185-200`) and the message *session expired and refresh failed* (`jen:204`) are true.
-- The backend rule (`jen:115-130`) is true. Two details are missing. `JEN_CONFIG_DIR` defaults to `${XDG_CONFIG_HOME:-$HOME/.config}/jen` (`jen:31`), not plain `~/.config/jen`. The file backend writes `( umask 077; printf '%s' "$2" > file )` (`jen:141`), which truncates and then writes in place: it is not atomic and takes no lock. `grep -n 'flock\|lockf\|\.lock\|mv ' jen` finds no lock anywhere.
-- The per-instance secrets are keyed by the RESOLVED lowercased host[:port] (`jen_key_for`, `jen:79-81`), honour `JEN_URL` first (`jen:86`), and map to `<key with ':' and '/' → '_'>.secret` (`jen_secret_file`, `jen:120`). The plan's URL rule does not name `JEN_URL`, and the corpus row does not cover the key or the filename.
-- `jen_check_http` (`jen:343-366`) treats 401 and 403 alike. It refuses a 3xx to a third host as *unexpected redirect*, and it accepts a 3xx within the instance. The plan names only `401` and the `/oauth2/` or realm `3xx`.
-- `~/.config/jen` does not exist (`ls -ld`). That matches the plan.
-- `plot-host.sh` has 6,033 lines. `:1758` `jenkins_build_map`, `:2024` `jenkins_sha_runs`, `:2101` `jenkins_bind_rows`, `:3828` `host_concurrency_bound`, `:3909` `jen()` and `:5927` the `ci-limit` line are all true. `budget_account` (`:3523-3542`) reads `PLOT_BUDGET_ACCOUNT`, else `unknown`, for the Jenkins connector. That is true.
-- `connectorHttps` at `connector-https.ts:152` and `throttledOf` near `:119` are true. The transport does not follow redirects, because it uses bare `http.request` and `https.request` (`:184-212`). It logs no header (`:53`). Its error text is `error.message` only.
-- `SHELL_CI` (`host-reads.ts:24`) and `SHELL_RICH_CI` (`:31`) are true. `buildJenkins` (`build-jenkins.ts:96`) is true.
-- **Not in the plan, and load-bearing:** the shell reads NO Jenkins credential from `.env`. The only `read_env_var` callers in `plot-host.sh` are Jira and Bitbucket (`:3071`, `:3097`). So Open Question 1A's ".env through `rules/env-file.ts`" is a new credential source with no shell twin, not a duplicate.
-- **Not in the plan, and load-bearing:** the installed fleetd unit (`plutil -p ~/Library/LaunchAgents/com.plot-pm.fleetd.plist`, key names only) carries `PATH` and `PLOT_REPO_ROOT` and nothing else. So does the template, `skills/plot/units/com.plot-pm.fleetd.plist`. fleetd therefore never sees `JEN_SECRET_BACKEND`, `JEN_CONFIG_DIR`, `XDG_CONFIG_HOME`, `JENKINS_USER`, `JENKINS_API_TOKEN`, `JEN_URL_PATTERN`, `JEN_REALM_URL` or `PLOT_BUDGET_ACCOUNT` from the operator's shell.
+- `jen` 0.4.0 has 1,819 lines (`wc -l /opt/homebrew/bin/jen`). `JEN_REALM_URL` defaults to the company realm at `jen:28`, and `JEN_CONFIG_DIR` defaults to `${XDG_CONFIG_HOME:-${HOME}/.config}/jen` at `jen:31`. Both are true.
+- The file-backend write `( umask 077; printf '%s' "$2" > file )` is at `jen:134`, as the plan now says. It takes no lock and does no rename. True.
+- `jen_secret_backend` (`jen:115-118`) picks `keychain` wherever `security` exists and no `JEN_SECRET_BACKEND` is set. So the probe of decision 6 departs from `jen` on purpose: the client reads a file store that `jen` on the same machine ignores. plan:86 names this case (a file store the operator's `jen` no longer uses reads as a dead session) only where the refresh fails; see note 3.
+- `jen_save_token` (`jen:150-155`) stores `now + (expires_in // 300) − 30`. True.
+- The refresh posts `refresh_token=…` as a `curl -d` argument (`jen:194-197`), so it is visible in `ps` while `curl` runs. True. The in-process refresh removes that exposure for fleetd.
+- `JEN_TOKEN_ENDPOINT` derives from `JEN_REALM_URL` once at `jen:34`. `jen` never reads `iss`. So the `iss` fallback is a new rule with no `jen` twin, and the corpus cannot hold it.
+- `connector-https.ts:50` documents `url` as "`http:` is allowed, for a stub server", and `:175` picks `http` for any host with `http:`. So the transport does not enforce *https or loopback*; the Jenkins client is the only guard for that rule.
+- The transport logs no header (`connector-https.ts:53`) and puts only `error.message` into an error (`:196`, `:217`). The refresh token travels in the body, never in the URL, so `error.message` cannot carry it.
+- The installed fleetd unit and the template carry `PATH` and `PLOT_REPO_ROOT` only (round-1 check, key names only). `~/.config/jen` does not exist on this machine (`ls -d`).
+- `jen_migrate_instance_keys` (`jen:228-262`) moves a legacy slug key to the canonical key and deletes the old one, through `jen_secret_set` and `jen_secret_del`. The plan's declared duplicates do not include it; see note 2.
 
 ## 3. Done-when rows
 
-- The client rows (refresh, dead session, ledger) are real fail-before, pass-after checks against the stub server.
-- **"A machine with no readable credentials keeps the shell" passes trivially on the operator's machine.** Under launchd, fleetd's environment has no `JEN_SECRET_BACKEND=file`. Applied as `jen_secret_backend` applies it, the rule then picks `keychain`, so the client finds no source and keeps the shell. Census P12 sets its own environment and turns green while the production fleetd never takes the in-process path. The Changelog line "fleetd asks Jenkins … from inside its own process" would then be false on a default install.
-- The rotation measurement that Open Question 2 puts in Slice 1 has no row. The write-back of decision 2A has no row either: no check covers the mode, atomicity, or a concurrent `jen`.
-- No row checks that a credential never reaches a log, a ledger line, a refusal's `said` or the status line.
+- Rows plan:141-150 are fail-before, pass-after checks against the stub server: before Slice 1 no client exists, so each row fails.
+- Row plan:144 (atomic and private write-back) is a real check: a poller over 100 write-backs fails on a truncate-then-write implementation.
+- Row plan:145 holds decision 6 under the unit's environment, which closes round-1's trivial-pass finding.
+- Row plan:151 is a person's record. It cannot fail mechanically, and the plan says so.
+- **No row holds the three amendment rules added without a person's decision**: the realm URL from `JEN_REALM_URL` else `iss`, the refusal of a credential to a non-`https:`, non-loopback URL, and the bare-slug fallback is held by plan:139 only for the slug. See required edit 2.
+- **No row holds the lock between two fleetds of two repositories.** Row plan:143 says "two clients over one store" and does not say that they run in two repositories. See required edit 1.
 
 ## 4. What is missing or wrong
 
-- **Where fleetd finds the file backend (blocks the whole saving).** Decision 1A tells the operator to set `JEN_SECRET_BACKEND=file`. That variable lives in the operator's shell, and the launchd unit does not carry it (§2). The plan must say how fleetd decides. One option probes `${XDG_CONFIG_HOME:-$HOME/.config}/jen/keycloak-token.secret` with no variable. The other has `plot-fleetctl.sh` write `JEN_SECRET_BACKEND` and `JEN_CONFIG_DIR` into the unit at `--start` from the starting shell. The choice matters for security. A probe with no variable can read a stale file that the operator's `jen` (still on the Keychain) no longer uses, and it can write rotated tokens there.
-- **The two-writer race (decision 2A).** The design holds the blob in memory and refreshes it when `expires_at` has passed. It never re-reads the store first. `jen` takes no lock and writes non-atomically. One fleetd runs per repository, and the bearer is realm-wide, so every fleetd on the machine and the operator's `jen` share one refresh token. With rotation, two refreshes from the same token mean one gets `invalid_grant`. With reuse detection, the realm can also revoke the session for both. The plan names the risk under *Credentials* and decides 2A, but it designs nothing against the race.
-- **A torn read.** `jen`'s `printf > file` leaves a window in which the file is empty or partial. A Plot reader that parses in that window must re-read, not answer `auth` with *not logged in*.
-- **Write-back mechanics.** "Mode 0600" alone is not enough. A chmod after the write leaves a window in which the file has the umask mode. A write in place has the torn-read problem itself. The plan must also say what happens where the store is the environment, `.env` or `JEN_TOKEN`: the client must never write there.
-- **Redirects and status codes.** The plan maps only `401` and the oauth2/realm `3xx`. A `3xx` to a third host must be a refusal, as in `jen:361-365`. The client must never follow it, because following it sends both credentials to the `Location` host. A `403` needs the same treatment as a `401`. Today Node's transport does not follow, but nothing in the plan pins that.
-- **The ledger and the token endpoint.** The refresh POST goes to Keycloak, not Jenkins. The plan does not say whether it goes through `exchange` under connector `jenkins`. If it does, it breaks "one request appends one entry" and the "request count does not grow" row about every 270 s. If it does not, it is an unmetered request.
-- **Refusal text.** `bitbucket-api.ts:248` puts the reply's `message` into `said`. A token-endpoint reply on success carries `access_token` and `refresh_token`. The plan must say that `said` takes only `error` and `error_description` from the token endpoint and never the raw body, and that a Jenkins HTML body is cut short.
-- **`.env` as a new source.** Reading `JENKINS_API_TOKEN` from a worktree's `.env` gives in-process and shell different identities, because `jen` never reads `.env`. Then `PLOT_HOST_TRANSPORT=shell` changes who is authenticated, not only the route. Either drop `.env` for Jenkins or state it as a new source with no twin.
-- **The rotation probe needs a person.** "Two refreshes from one refresh token against a throwaway session" needs a device-flow login, which an unattended Slice 1 worker cannot do (`PLOT_UNATTENDED=1`). It must also measure whether reusing a rotated token revokes the session, not only whether rotation is on.
-- **One positive.** The in-process refresh removes a leak that exists today. `jen:187-190` passes `refresh_token=…` as a `curl -d` argument, so any process on the machine can read it from `ps`. The plan can state this as a benefit.
+- **The lock location.** plan:87 puts `keycloak-token.lock` "under the Plot state directory". The bearer is realm-wide and the store is per user (`~/.config/jen`), while Plot keeps both a per-user state directory (`~/.plot/state`, which holds `budget.tsv` and `slots`) and a per-repository one (`.plot/state` under the common git dir). Two fleetds that serve two `CI: jenkins` repositories share one store. A per-repository lock does not serialise them, both post a grant from one refresh token, and where the realm rotates, the second gets `invalid_grant` or, if reuse detection is on, revokes the session for `jen` and both fleetds. The lock must live in a per-user place keyed by the store directory, for example beside the store or under `~/.plot/state`.
+- **The `iss` fallback has no row and no failure rule.** Under launchd fleetd never sees `JEN_REALM_URL`, so in production the `iss` arm is the only realm source, not a fallback. The plan names no answer for an access token that does not parse as a JWT, has no `iss`, or carries an `iss` with `http:` on a non-loopback host. The last case is a known Keycloak shape: behind a TLS-terminating proxy without forwarded headers, Keycloak issues `http://…` issuers. The rule "credentials only to `https:` or loopback" then refuses, which is right, but no row proves it, and `connector-https.ts:50` does not stop it.
+- **The rotation measurement decides nothing.** plan:89 records whether reuse of a rotated refresh token revokes the session. `jen` takes no lock (`jen:134`), so a refresh by `jen` and one by fleetd from the same token within one round trip remains possible after every guard in plan:87. Where reuse revokes the session, that race logs the operator out of `jen` and stops fleetd's Jenkins reads until `jen auth login`. The plan must say what each result means for the Cutover: proceed and name the cost, or hold the Cutover.
 
-## 5. The five decisions against the design
+## 5. The decisions and the five amendment choices
 
-- **1A** fits the stated design. It conflicts with the launchd environment (§4, first item), and its `.env` arm is not a duplicate of the shell (§2).
-- **2A** fits the story's 2026-11-05 decision. The design does not implement it safely yet: it has no re-read before refresh, no atomic write, no handling of the torn read, and no rule for which stores are written.
-- **3A** fits. Under launchd, `PLOT_BUDGET_ACCOUNT` is absent, so in-process and shell lines from fleetd both read `unknown`, and the shared key still meets. The plan cites 968 lines keyed `jwloka`, which come from processes outside the unit. Add one line saying that fleetd's lines will read `unknown` unless the unit carries the variable.
-- **4A** fits. It carries no credential issue beyond the overlay.
-- **5A** fits. With the `.env` arm, switching to the shell can also switch the identity (§4). That is a reason to drop the arm, not to add a second switch.
+- **Decisions 1, 6 and 8** are consistent with plan:86 and rows plan:145-146. Decision 6's probe ignores `jen`'s backend choice, and plan:86 states the consequence for a store that no longer refreshes.
+- **Decision 2** is consistent with plan:87-88 and rows plan:142-144, subject to required edits 1 and 3.
+- **Decision 3** is consistent with plan:92 and row plan:150.
+- **Decisions 4, 5 and 7** carry no credential issue. Decision 5's switch now changes only the transport, because decision 8 removed the `.env` arm.
+- **Realm URL from `JEN_REALM_URL`, else the stored token's `iss`.** Safe in trust terms. The store file is the user's own, mode `0600`, and the access token in it came from the realm the previous refresh posted to. An attacker who can write that file can already read the refresh token in it, so trusting its unsigned `iss` gives such an attacker nothing new. The claim is read without a signature check, so the rule rests only on the store's file mode, and the plan should say so in one line. It needs the row and the failure rule in required edit 2.
+- **A bare-slug `Jenkins instance` with no `JEN_URL` keeps the shell.** Safe and conservative: the client never guesses a host, so it never sends a credential to a guessed one. On a default install it means the in-process path needs a host in `Jenkins instance`, which plan:79 names in the reason text.
+- **Credentials only to `https:` or loopback.** Right, and necessary, because the transport admits `http:` for any host (`connector-https.ts:50`). It must apply to the instance URL, the realm URL from either source, and the token endpoint. It needs a row (required edit 2).
+- **The refresh POST charges connector `jenkins`, bucket `token`.** Sound. It meters the refresh and keeps it off the instance's limit of 60. The ledger entry holds connector, bucket, account and basis, never the body.
+- **The census cap at 1.45× the measured HEAD time above 1,000 s.** No credential bearing; outside this lens.
 
 ## Required edits
 
-1. In Open Question 1's design text and Slice 1, state how fleetd under launchd finds `jen`'s file backend. Either `plot-fleetctl.sh` writes `JEN_SECRET_BACKEND` and `JEN_CONFIG_DIR` into the unit, or the client probes `${XDG_CONFIG_HOME:-$HOME/.config}/jen` with no variable. Add a Done-when row that runs the composition with the unit's environment only (`PATH`, `PLOT_REPO_ROOT`, `HOME`) and a file-backend store present, and asserts which transport it picks.
-2. Correct the `JEN_CONFIG_DIR` default to `${XDG_CONFIG_HOME:-$HOME/.config}/jen`. Add `JEN_URL`, the canonical lowercased host[:port] key (`jen_key_for`) and the `':'/'/' → '_'` `.secret` filename (`jen_secret_file`) to the declared duplicate, with corpus rows next to `jenkins-url.corpus.test.ts`.
-3. Design the refresh against the second writer. Re-read the store before every refresh, and adopt a blob whose `expires_at` lies ahead instead of refreshing. On `invalid_grant`, re-read once before refusing. Serialise refreshes between Plot processes with one lock, and say that `jen` does not honour it. Treat an empty or unparseable blob as a torn read and re-read once. Add client rows for each: a newer blob on disk means no grant posted, and `invalid_grant` followed by a newer blob on disk means success.
-4. Specify the write-back. Create a temp file in the same directory with mode `0600` at open (`O_EXCL`), write it, then `rename` it over the target. Write only to the file backend the client read. Never write the environment, `.env` or `JEN_TOKEN`. Add a row that asserts the mode is `0600` and that a concurrent reader never sees a partial file.
-5. Make the rotation measurement in Open Question 2 a named step for a person, not for the unattended Slice 1 worker. Have it also measure whether reusing a rotated refresh token revokes the session. Record the result in a Done-when row in the story's *Measures*.
-6. State the redirect and status rules. The client never follows a redirect. A `3xx` to a host that is neither the instance, `/oauth2/` nor the realm is a refusal. A `3xx` within the instance is an answer. A `403` takes the `401` path. Add client rows for the third-host `3xx` and for `403`.
-7. State whether the token-endpoint POST charges the ledger, and under which connector. Correct "one request appends one entry" and the request-count row to match.
-8. Add a credential-leak row. Seed the stub with recognisable bearer, refresh and API-token values, run every client row and P12, and assert that no value appears in fleetd's log, the status line, any ledger line or any refusal's `said`. State that `said` takes only `error` and `error_description` from the token endpoint.
-9. Drop `.env` as a Jenkins credential source, because `jen` and `plot-host.sh` never read it for Jenkins. Otherwise state it as a new source with no shell twin, and log that `PLOT_HOST_TRANSPORT=shell` then changes the identity.
-10. Note under Open Question 3 that fleetd's lines read the account `unknown` under launchd, because the unit carries no `PLOT_BUDGET_ACCOUNT`.
+1. Name the lock's location in plan:87 as a per-user path keyed by the store directory (beside `keycloak-token.secret`, or under `~/.plot/state`), so that fleetds of two repositories over one `jen` store serialise. Change row plan:143 to two clients with two repository roots over one store.
+2. Add client and composition rows for the realm and scheme rules: `JEN_REALM_URL` wins over `iss`; an access token with no parseable `iss` keeps the shell with a named reason; an instance URL, `JEN_REALM_URL` or `iss` with `http:` on a non-loopback host keeps the shell with a named reason, and the stub receives no request. State in plan:79 that the client reads `iss` without a signature check and that the store's `0600` mode is what makes that safe.
+3. State in plan:89 what each rotation result means: where reuse of a rotated refresh token revokes the session, the plan either names the accepted cost (a `jen` and fleetd refresh race logs the operator out, and the refusal names `jen auth login`) or holds the Cutover until a person decides.
+
+## Notes, not blocking
+
+1. A torn read and a stale-lock takeover (two processes both find a lock older than 30 s) can still produce two grants; the `invalid_grant` re-read bounds that, so it is acceptable as written.
+2. The client does not copy `jen_migrate_instance_keys`. State that it reads the canonical key only and never migrates or deletes a key, so fleetd is never a second writer of the per-instance secrets.
+3. Decision 6 can read a file store that `jen` on the same machine ignores (the machine has `security`, so `jen` uses the Keychain). A store whose refresh token still works then keeps a session alive that the operator believes abandoned. One line in plan:86 can state that the log line names the directory, so the operator sees it.
+4. `rename` over a `keycloak-token.secret` that is a symlink replaces the link with a regular file. An `fsync` of the temp file before the rename makes the write-back survive a crash; neither is a defect in this plan's scope.
+5. A daemon that refreshes every 270 s keeps the Keycloak session alive up to the realm's SSO Session Max. That follows from decision 2 and the story's 2026-11-05 decision; the *Measures* line could record the realm's session maximum beside the rotation result.
