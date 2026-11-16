@@ -50,9 +50,8 @@ export const jenInstanceUrl = (jenUrl: string | undefined, slug: string): string
  * @returns the host, or '' where the value is not an absolute `http:` or `https:` URL.
  */
 export const jenUrlHost = (url: string): string => {
-  if (!url.startsWith('http://') && !url.startsWith('https://')) return '';
-  const rest = url.replace(/^https?:\/\//, '');
-  return (rest.split('/')[0] ?? '').split('?')[0]?.split('#')[0]?.toLowerCase() ?? '';
+  if (!/^https?:\/\//.test(url)) return '';
+  return url.replace(/^https?:\/\/([^/?#]*)[\s\S]*$/, '$1').toLowerCase();
 };
 
 /**
