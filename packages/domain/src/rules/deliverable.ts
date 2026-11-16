@@ -140,6 +140,47 @@ export const deliveryLanding = (
   return landed(meta, pulse, complete, false) === 'merged' ? 'merge-unconfirmed' : 'scan-incomplete';
 };
 
+/** The part of a host deliverability answer that {@link confirmedLanding} reads. */
+export interface HostLanding {
+  /** Whether the host's reading lets every non-deferred branch deliver. */
+  readonly deliverable: boolean;
+  /** The refusal's reason, or `''` when none fired. */
+  readonly reason: string;
+  /** The branches the host reads as not merged. */
+  readonly unmerged: readonly string[];
+}
+
+/** The verdict {@link confirmedLanding} returns, with the branches a `not-merged` names. */
+export interface ConfirmedLanding {
+  readonly landing: DeliveryLanding;
+  /** Branches the host reads open; non-empty only where `landing` is `not-merged` after a host answer. */
+  readonly unmerged: readonly string[];
+}
+
+/**
+ * Joins the pulse's reading of a plan with the host's, where the host was asked.
+ *
+ * @param pulse The pulse's own answer from {@link deliveryLanding}.
+ * @param host The host-side answer, or `null` where none was read.
+ * @returns `merged` where the pulse reads `merged` or the host answer is
+ *   deliverable. `scan-incomplete` stays `scan-incomplete`. Otherwise, with a
+ *   host answer: `merge-unconfirmed` where its reason is `cannot-tell`;
+ *   `not-merged` with the host's `unmerged` names where it names any; the
+ *   pulse's own answer, with no names, for any other refusal. With no host
+ *   answer, the pulse's own answer.
+ */
+export const confirmedLanding = (
+  pulse: DeliveryLanding,
+  host: HostLanding | null,
+): ConfirmedLanding => {
+  if (pulse === 'merged') return { landing: 'merged', unmerged: [] };
+  if (pulse === 'scan-incomplete' || host === null) return { landing: pulse, unmerged: [] };
+  if (host.deliverable) return { landing: 'merged', unmerged: [] };
+  if (host.reason === 'cannot-tell') return { landing: 'merge-unconfirmed', unmerged: [] };
+  if (host.unmerged.length > 0) return { landing: 'not-merged', unmerged: host.unmerged };
+  return { landing: pulse, unmerged: [] };
+};
+
 /**
  * The plan's slices counted off the pulse: how many hold at least one
  * non-deferred branch (the denominator {@link sliceProgress} reports), and how

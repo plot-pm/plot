@@ -2,11 +2,13 @@ import { describe, it, expect } from 'vitest';
 import {
   allSlicesConfirmed,
   allSlicesMerged,
+  confirmedLanding,
   deliveryLanding,
   deliveryPulse,
   sliceProgress,
   FleetReadingSchema,
   type FleetReading,
+  type HostLanding,
   type BranchState,
   type SliceVerdict,
 } from '../src/index.js';
@@ -686,5 +688,41 @@ describe('deliveryPulse chooses the pulse a delivery is judged against', () => {
     // from it is exactly the input that already means *nothing was measured*.
     const judging = deliveryPulse(planBranches([['feature/a', false]]), null, false, null);
     expect(allSlicesConfirmed({ file: PLAN }, judging, judging !== null)).toBe('unknown');
+  });
+});
+
+describe('confirmedLanding', () => {
+  const host = (over: Partial<HostLanding>): HostLanding => ({ deliverable: false, reason: '', unmerged: [], ...over });
+  const pulses = ['merged', 'not-merged', 'merge-unconfirmed', 'scan-incomplete'] as const;
+
+  it('keeps a landed pulse whatever the host says', () => {
+    expect(confirmedLanding('merged', host({ reason: 'branches-unmerged', unmerged: ['a'] }))).toEqual({ landing: 'merged', unmerged: [] });
+  });
+
+  it('keeps scan-incomplete whatever the host says', () => {
+    expect(confirmedLanding('scan-incomplete', host({ deliverable: true }))).toEqual({ landing: 'scan-incomplete', unmerged: [] });
+  });
+
+  it('keeps the pulse where no host answer was read', () => {
+    for (const p of pulses) expect(confirmedLanding(p, null)).toEqual({ landing: p, unmerged: [] });
+  });
+
+  it('answers merged where the host is deliverable, for each refusing pulse', () => {
+    for (const p of ['not-merged', 'merge-unconfirmed'] as const) {
+      expect(confirmedLanding(p, host({ deliverable: true }))).toEqual({ landing: 'merged', unmerged: [] });
+    }
+  });
+
+  it('answers merge-unconfirmed where the host cannot tell, even over a not-merged pulse', () => {
+    expect(confirmedLanding('not-merged', host({ reason: 'cannot-tell', unmerged: ['a'] }))).toEqual({ landing: 'merge-unconfirmed', unmerged: [] });
+  });
+
+  it('names the branches the host reads open, even over a merge-unconfirmed pulse', () => {
+    expect(confirmedLanding('merge-unconfirmed', host({ reason: 'branches-unmerged', unmerged: ['a', 'b'] }))).toEqual({ landing: 'not-merged', unmerged: ['a', 'b'] });
+  });
+
+  it('keeps the pulse for a refusal that names no branch', () => {
+    expect(confirmedLanding('not-merged', host({ reason: 'plan-unparseable' }))).toEqual({ landing: 'not-merged', unmerged: [] });
+    expect(confirmedLanding('merge-unconfirmed', host({ reason: 'plan-unparseable' }))).toEqual({ landing: 'merge-unconfirmed', unmerged: [] });
   });
 });

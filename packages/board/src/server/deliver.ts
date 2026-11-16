@@ -3,9 +3,11 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-write';
-import { deliveryLanding, type Refs } from '@plot-pm/domain';
+import { confirmedLanding, deliveryLanding, type Refs } from '@plot-pm/domain';
 import { refsGit } from '@plot-pm/domain/adapters';
 import { agentLogPath } from './agent-log.js';
+import { deliverabilityOf, type DeliverabilityPorts } from './controllers/deliverability.js';
+import { realEstate } from './estate.js';
 import {
   readConfig,
   deliveryPulse,
@@ -310,7 +312,7 @@ const phaseOfBlob = async (opts: BuildBoardOptions, ref: string, relPath: string
 export type Deliverability =
   | { verdict: 'not-found' }
   | { verdict: 'already-delivered' }
-  | { verdict: 'not-merged' }
+  | { verdict: 'not-merged'; unmerged?: string[] }
   | { verdict: 'scan-incomplete' }
   | { verdict: 'merge-unconfirmed' }
   | { verdict: 'branch-not-on-origin' }
@@ -361,7 +363,12 @@ export const deliverabilityOnBranch = async (opts: BuildBoardOptions, slug: stri
   return { verdict: 'deliverable', file };
 };
 
-export async function deliverability(opts: BuildBoardOptions, slug: string, branch?: string): Promise<Deliverability> {
+export async function deliverability(
+  opts: BuildBoardOptions,
+  slug: string,
+  branch?: string,
+  ports?: DeliverabilityPorts,
+): Promise<Deliverability> {
   if (branch !== undefined) return deliverabilityOnBranch(opts, slug, branch);
   const file = resolvePlanBySlug(opts, slug);
   if (!file) return { verdict: 'not-found' };
@@ -415,7 +422,25 @@ export async function deliverability(opts: BuildBoardOptions, slug: string, bran
   // the re-gate behind it would refuse: `/plot-deliver` asks the host, where a
   // throttled answer counts as not merged. The wave gate still reads the
   // subject and still opens the next slice.
-  switch (deliveryLanding(meta, judging, judging !== null)) {
+  const pulseLanding = deliveryLanding(meta, judging, judging !== null);
+  // THE PULSE STAYS THE FIRST READING: a landed pulse costs no host call. Only
+  // where it refuses on a merge does the route ask `deliverabilityOf` — the PR
+  // index's MERGED rows first, then the host — so a delivery follows the merge
+  // rather than the next PR read and pulse (#3472). A host that cannot answer
+  // is `merge-unconfirmed`; any other refusal without branch names keeps the
+  // pulse's own answer.
+  const asked = pulseLanding === 'not-merged' || pulseLanding === 'merge-unconfirmed';
+  const estate = asked ? (ports ?? realEstate({ repoRoot: opts.repoRoot, scriptsDir: opts.scriptsDir })) : null;
+  const host =
+    estate === null
+      ? null
+      : await deliverabilityOf(
+          { planStore: estate.planStore, host: estate.host, refs: estate.refs, prIndex: estate.prIndex },
+          slug,
+          file,
+        );
+  const confirmed = confirmedLanding(pulseLanding, host);
+  switch (confirmed.landing) {
     case 'merged':
       return { verdict: 'deliverable' };
     case 'scan-incomplete':
@@ -423,7 +448,9 @@ export async function deliverability(opts: BuildBoardOptions, slug: string, bran
     case 'merge-unconfirmed':
       return { verdict: 'merge-unconfirmed' };
     default:
-      return { verdict: 'not-merged' };
+      return confirmed.unmerged.length > 0
+        ? { verdict: 'not-merged', unmerged: [...confirmed.unmerged] }
+        : { verdict: 'not-merged' };
   }
 }
 
@@ -547,6 +574,8 @@ export interface DeliverDeps {
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
   /** The plan's deliverability, or a refusal reason; `branch` is the request's, where it names one. */
   check?: (opts: BuildBoardOptions, slug: string, branch?: string) => Promise<Deliverability>;
+  /** The ports the default `check` asks the PR index and the host through; defaults to the real estate. */
+  ports?: DeliverabilityPorts;
 }
 
 /**
@@ -583,7 +612,7 @@ export async function handleDeliver(
   deps: DeliverDeps = {},
 ): Promise<void> {
   const readCfg = deps.config ?? readConfig;
-  const readCheck = deps.check ?? deliverability;
+  const readCheck = deps.check ?? ((o: BuildBoardOptions, s: string, b?: string) => deliverability(o, s, b, deps.ports));
   const json = (status: number, body: unknown) => {
     res.writeHead(status, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(body));
@@ -703,7 +732,9 @@ export async function handleDeliver(
       409,
       'not-deliverable',
       slug,
-      `plan \`${slug}\` has a branch that is not merged — a plan is deliverable only once every non-deferred branch has landed, and /plot-deliver would refuse it too`,
+      state.unmerged !== undefined && state.unmerged.length > 0
+        ? `plan \`${slug}\` has a branch the host reads open: ${state.unmerged.map((b) => `\`${b}\``).join(', ')} — a plan is deliverable only once every non-deferred branch has landed, and /plot-deliver would refuse it too`
+        : `plan \`${slug}\` has a branch that is not merged — a plan is deliverable only once every non-deferred branch has landed, and /plot-deliver would refuse it too`,
     );
     return;
   }
