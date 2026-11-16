@@ -1,0 +1,1 @@
+../2026-11-16-a-deferred-slice-keeps-its-branch.md
