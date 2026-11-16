@@ -2440,14 +2440,19 @@ graphql_budget_spent() {
 #
 # THE ARMS, AND WHY EACH IS WHERE IT IS:
 #
-#   pr-state          both transports. The only op with a REST fallback
-#                     written, so the only one where the budget can change the
-#                     answer.
+#   pr-state          both transports, so the budget can change the answer.
+#   pr-list           both transports for the PLAIN listing (`gh_pr_list_routed`).
+#                     `--rich`, `--rich-open`'s open half and the Jenkins arm stay
+#                     GraphQL whatever the route: REST's list endpoint carries no
+#                     check rollup, no `mergeable` and no `reviewDecision`, so a
+#                     rich row would cost four calls per PR on every refresh, and
+#                     `reviewDecision` has no REST field at all. A rich call with
+#                     GraphQL spent is refused (exit 5), never answered thinner.
 #   limit             REST-only BY NATURE rather than by omission. It is
 #                     reached through `gh api`, which is REST's transport.
 #                     It spends a GraphQL call to read its own headers —
 #                     the call it makes is GraphQL, the route to it is not.
-#   *                 GraphQL-only. Ten ops, and this is where "every op
+#   *                 GraphQL-only. Nine ops, and this is where "every op
 #                     consults the router" is honest rather than decorative:
 #                     their answer is a statement about what THIS SCRIPT has
 #                     implemented, not about what GitHub offers, which serves
@@ -2460,8 +2465,9 @@ graphql_budget_spent() {
 # `PLOT_HOST_FORCE_REST=1` IS NOT A DEBUG SWITCH. It is how the rate-refusal
 # re-entry reaches the second path without a second copy of the REST code:
 # `pr-state` re-enters itself with the variable set after GraphQL is refused
-# for rate. An operator may also set it, and that is supported, but the
-# re-entry is why it exists. It is consulted before the budget because it is
+# for rate; plain `pr-list` asks REST in `gh_pr_list_routed` instead. An
+# operator may also set it, and that is supported, but the re-entry is why it
+# exists. It is consulted before the budget because it is
 # free and the budget read is not.
 #
 # THE BUDGET IS CONSULTED LAST, AND IT READS THE RECORD BY BUCKET NAME. Every
@@ -2484,8 +2490,8 @@ gh_route() { # $1=op → graphql|rest
     limit|pr-create|pr-body)
       printf 'rest\n'
       ;;
-    # Both transports implemented — the one op where the reasons apply.
-    pr-state)
+    # Both transports implemented — the ops where the reasons apply.
+    pr-state|pr-list)
       if [ "${PLOT_HOST_FORCE_REST:-0}" = "1" ] || graphql_budget_spent; then
         printf 'rest\n'
       else
@@ -2548,6 +2554,36 @@ rest_pr_state() { # $1=owner/repo $2=PR number or branch; returns 3 when the bra
   sha="$(jq -r '.head.sha // ""' <<<"$pr")"
   ck="$(gh_api_harvest "repos/$1/commits/$sha/check-runs?per_page=100")" && st="$(gh_api_harvest "repos/$1/commits/$sha/status?per_page=100")" || return 2
   jq -cs "$CHECKS_OF$MERGEABLE_OF"'.[0] as $p | (.[1].check_runs // []) as $c | (.[2].statuses // []) as $s | (($p.merged == true) or ($p.merged_at != null)) as $m | {number: $p.number, state: (if $m then "MERGED" else ($p.state // "" | ascii_upcase) end), isDraft: ($p.draft // false), url: ($p.html_url // ""), mergeCommit: (if $m then {oid: ($p.merge_commit_sha // "")} else null end), headRefName: ($p.head.ref // ""), headRefOid: ($p.head.sha // ""), baseRefName: ($p.base.ref // ""), mergedAt: ($p.merged_at // ""), mergeable: (if $p.mergeable == true then "MERGEABLE" elif $p.mergeable == false then "CONFLICTING" else "UNKNOWN" end), mergeStateStatus: (($p.mergeable_state // "") | ascii_upcase), statusCheckRollup: ([$c[] | {name, status: ((.status // "") | ascii_upcase), conclusion: ((.conclusion // "") | ascii_upcase), startedAt: (.started_at // "")}] + [$s[] | {context, state: ((.state // "") | ascii_upcase), startedAt: (.created_at // "")}] + (if ((.[1].total_count // 0) > ($c | length)) or ((.[2].total_count // 0) > ($s | length)) then [{status: "QUEUED"}] else [] end))} |'"$PR_STATE_OF" <<<"$pr$ck$st"
+}
+
+# GITHUB'S `pr-list`, ON THE ROUTE `gh_route` CHOSE. "$@" is the `gh pr list` argv,
+# asked while the route is `graphql` and always under `--rich`: REST's list has no
+# rollup, no `mergeable` and no `reviewDecision`, so a rich row has no REST form.
+# A plain call refused by GraphQL for rate asks REST once, as `pr-state` does; the
+# REST answer, or REST's own failure for `pr_list_call` to classify, is the op's. Measured 2026-11-16: GraphQL at 0
+# while REST answered, and every `pr-list` caller failed with exit 5.
+#
+# REST PRINTS THE ARRAY `gh` PRINTS for the plain fields (`number,title,state,
+# headRefName,isDraft,url,updatedAt,author,headRefOid,mergedAt`), so the plain
+# arm's one projection reads either. It reads the arm's `$state`, `$limit` (`gh`'s 30 when empty), `$since`
+# and one-branch `$head_args`. REST's `state` is `open|closed|all`: `merged` and
+# `closed` are its `closed` split on `merged_at`, as GraphQL splits them. Pages
+# run newest-created first, as `gh pr list` does; `--since` walks `sort=updated`
+# instead and stops at the first page that reaches the stamp. A failed page fails
+# the whole list, so no partial array is printed.
+gh_pr_list_routed() {
+  local page=1 pages='' repo n="${limit:-30}" sel
+  if [ "$route" != rest ] || [ "$rich" = 1 ]; then
+    "$@" 2>"$HOST_ERR" && { cat "$HOST_ERR" >&2; return 0; }
+    [ "$rich" = 0 ] && is_rate_refusal "$(cat "$HOST_ERR")" || { cat "$HOST_ERR" >&2; return 1; }
+  fi
+  repo="$(gh_rest_repo)"
+  sel='def keep: .updated_at > $s and (if $st == "merged" then .merged_at != null elif $st == "closed" then .merged_at == null else true end);'
+  while [ "$page" -gt 0 ]; do
+    pages="$pages$(gh_api_harvest "repos/$repo/pulls?state=${state/merged/closed}&per_page=100&page=$page${since:+&sort=updated&direction=desc}${head_args[1]:+&head=${repo%%/*}:${head_args[1]}}")" || return
+    page="$(jq -s --arg st "$state" --arg s "$since" --argjson n "$n" --argjson p "$page" "$sel"'if (.[-1] | length) == 100 and ([.[][] | select(keep)] | length) < $n and .[-1][-1].updated_at > $s then $p + 1 else 0 end' <<<"$pages")" || return
+  done
+  jq -cs --arg st "$state" --arg s "$since" --argjson n "$n" "$sel"'[.[][] | select(keep)] | sort_by(-.number) | .[:$n] | map({number, title, state: (if .merged_at then "MERGED" else (.state | ascii_upcase) end), headRefName: .head.ref, isDraft: (.draft // false), url: .html_url, updatedAt: .updated_at, author: {login: (.user.login // "")}, headRefOid: .head.sha, mergedAt: .merged_at})' <<<"$pages"
 }
 
 # `owner/repo` from the `origin` URL, with no host call. An `ssh://` URL may carry
@@ -4660,6 +4696,16 @@ case "$op" in
                      failing_checks:[]}'
         exit 0
       fi
+      # ONE CALL FOR ALL THREE ARMS, and the arm decides only the fields and the
+      # projection. The plain fields always travel; `--rich` adds the verdicts,
+      # and the rollup only where CI is not Jenkins (the Jenkins arm discards it).
+      # `gh_pr_list_routed` asks GraphQL or REST; a rich call is GraphQL always.
+      _json=number,title,state,headRefName,isDraft,url,updatedAt,author,headRefOid,mergedAt
+      [ "$rich" = 1 ] && _json="$_json,mergeable,mergeStateStatus,reviewDecision$([ "$ci" = jenkins ] || echo ,statusCheckRollup)"
+      _gh_raw="$(pr_list_call gh_pr_list_routed gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} ${head_args[@]+"${head_args[@]}"} \
+        --json "$_json")" || exit $?
+      pr_list_report_truncation github "$limit" "$state" \
+        "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
       if [ "$rich" = 1 ]; then
         # `checks` has FOUR states, and two of them mean "a person is the
         # blocker" rather than "a machine is busy":
@@ -4742,10 +4788,6 @@ case "$op" in
           #   $jstatus != "ok"  → Jenkins could not answer; every row `unknown`.
           #   $jentry == null   → the branch has no Jenkins job; `none`.
           #   otherwise         → the joined colour's `checks`, job named on fail.
-          _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} ${head_args[@]+"${head_args[@]}"} \
-            --json number,title,state,headRefName,isDraft,mergeable,mergeStateStatus,reviewDecision,url,updatedAt,author,headRefOid,mergedAt)" || exit $?
-          pr_list_report_truncation github "$limit" "$state" \
-            "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
           # GAPS 3/4/10: `jmap` names no commit, so a push between builds would
           # carry the OLD head's colour onto the new one. The bundle names the
           # rows `jmap` cannot settle (green/failing with a head sha, at most
@@ -4787,10 +4829,6 @@ case "$op" in
               } + (if $jstatus == "ok" and $ambiguous and $eff == null then {checksLookup:"skipped"} else {} end)'
         else
           # GitHub without Jenkins (or Jenkins not configured): use GitHub rollup
-          _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} ${head_args[@]+"${head_args[@]}"} \
-            --json number,title,state,headRefName,isDraft,statusCheckRollup,mergeable,mergeStateStatus,reviewDecision,url,updatedAt,author,headRefOid,mergedAt)" || exit $?
-          pr_list_report_truncation github "$limit" "$state" \
-            "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
           printf '%s' "$_gh_raw" \
             | jq -c "$CHECKS_OF$MERGEABLE_OF"'.[] | {
                 number:.number, title:.title, state:.state, head:.headRefName,
@@ -4818,10 +4856,6 @@ case "$op" in
         # advances its watermark by. Without it a split full read would leave
         # the store unable to narrow and the daily full read would never fall
         # due against anything but a cold window.
-        _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} ${head_args[@]+"${head_args[@]}"} \
-          --json number,title,state,headRefName,isDraft,url,updatedAt,author,headRefOid,mergedAt)" || exit $?
-        pr_list_report_truncation github "$limit" "$state" \
-          "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
         printf '%s' "$_gh_raw" \
           | jq -c '.[] | {number:.number,title:.title,state:.state,head:.headRefName,draft:.isDraft,url:.url,updatedAt:(.updatedAt // ""),headSha:(.headRefOid // ""),mergedAt:(.mergedAt // ""),author:(.author.login // "")}'
       fi
