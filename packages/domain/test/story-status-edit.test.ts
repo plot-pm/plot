@@ -34,6 +34,10 @@ describe('storyOfContent', () => {
   it('answers null for a file with no front matter', () => {
     expect(storyOfContent('# Title\n\nstatus: active\n', 's', 'p')).toBeNull();
   });
+
+  it('answers null for a front matter that opens and never closes', () => {
+    expect(storyOfContent('---\nstatus: active\n# Title\n', 's', 'p')).toBeNull();
+  });
 });
 
 describe('withStoryStatus', () => {
