@@ -171,7 +171,7 @@ Order inside the phase follows the Phase 1 measurement: largest share first.
 
 **The problem.** Plot also reads Bitbucket (`bb`), Jenkins (`jen`) and a separately configured issue tracker such as Jira (`issue-refresh.ts`). Each read starts a CLI process today, and `readBitbucketListing`'s refused-delta retry starts one `pr-list --branch` per tracked branch.
 
-- 🟡 One plan per connector moves its reads into the connector adapter over Node's HTTPS client. Each connector keeps its own budget and rate-limit bookkeeping and refreshes its own credentials on expiry. Order: by use in the operator's repositories; Bitbucket and Jira first for ewz-kus-portal. The Bitbucket baseline from Phase 1 is the number each plan moves. Bitbucket and Jira: delivered by `bitbucket-and-jira-read-in-process`. Jenkins (`jen`) has no plan yet.
+- 🟡 One plan per connector moves its reads into the connector adapter over Node's HTTPS client. Each connector keeps its own budget and rate-limit bookkeeping and refreshes its own credentials on expiry. Order: by use in the operator's repositories; Bitbucket and Jira first for ewz-kus-portal. The Bitbucket baseline from Phase 1 is the number each plan moves. Bitbucket and Jira: delivered by `bitbucket-and-jira-read-in-process`, released in v2.34.0. Jenkins (`jen`): Draft plan `jenkins-reads-in-process` (#3464).
 
 ### Phase 8: Triggers replace the tick ✅
 
@@ -344,3 +344,15 @@ The integration branch `sprint/idle-and-supersede` carried #3446, #3449–#3452,
 - Other sources in the same sample: 7 `plot-plan-meta.sh` and 4 `git log origin/main … docs/plans` per minute. Their cause is not read yet.
 - Phases 5, 6 and 8 are ✅. Phase 7 is 🟡: Jenkins reads have no plan.
 - Open: measure the idle rate again after #3463 is on `main`, with `main` quiet, and record a whole-tree figure.
+
+### 2026-11-16 — Release 2.34.0
+
+Release PR #3444 merged at 16:12 as `9721f079e`, and `692295c12` recorded v2.34.0. The release booked `bitbucket-and-jira-read-in-process`, `triggers-replace-the-tick` and `a-merge-ignores-an-unanswered-human` as Released. The booking closed #3327 and this story's issue #3170, because two of the released plans name #3170 in their `Issue:` field.
+
+**Key outcomes:**
+
+- After #3463 reached `main`, a 60 s `ps` sample at 5 Hz saw 0 host calls from fleetd. The closed repair episode no longer asks `plot-host.sh pr-state`.
+- The same sample saw 6 `plot-plan-meta.sh` and 6 `git log origin/main … docs/plans` per minute. Two free agents and one slice waiting for a hand-over ran during the sample, so it is not an idle figure.
+- On the release PR at `7795279e1`, `census-compare` failed S6 once (HEAD 881 against a limit of 648.8, merge base 588) and passed on a full re-run of the same commit. The release PR changes only versions and changelogs, so S6 varies between runs by more than its tolerance.
+- Phase 7 has a Draft plan for Jenkins, `jenkins-reads-in-process` (#3464).
+- Open: approve and build `jenkins-reads-in-process`; measure an idle fleetd with no free agents and no eligible slice, and record a whole-tree figure; read the cause of the `plot-plan-meta.sh` and `git log` calls; decide whether #3170 reopens until the story closes.
