@@ -11,6 +11,7 @@
 - **Story:** delivery-tab-reads-at-a-glance
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -57,6 +58,21 @@ Depends on plan 1, `delivery-tab-header-and-my-sprint`, for the section-header p
 ### Open Questions
 
 - [ ] In the opened list, which date does a Done slice show where the host reports no `mergedAt` for it (a slice completed by a named commit)?
+- [ ] [Contradiction, Deliverable] `feature/delivery-release-person-cards` reads sprint Owners but waits only on `feature/delivery-section-header`; plan 1's `feature/sprint-owner-field` builds the Owner field. Add that wait. (blocks)
+- [ ] [Contradiction, Deliverable] Settled Questions says the sprint-scope slice also waits on `feature/delivery-section-header`, but its marker names only `feature/delivery-my-sprint-scope`, and it edits the section `feature/delivery-release-plan-rows` creates. Plan 1 gives `feature/delivery-my-sprint-scope` no `waits:` marker either (its open question at line 67). Declare the wait on `feature/delivery-release-plan-rows`, or state that the chain through plan 1 carries it. (blocks)
+- [ ] [Estate] A Release delivery section already exists: `packages/board/src/app/lib/agent-rows/delivery-view.ts:186-192, 423-439`, `AgentList.tsx:1378-1400`, and `release-delivery` already collapsed by default (`agent-rows/collapse.ts:20`). Name what `feature/delivery-release-plan-rows` replaces (`deliveredBlocks`, `releaseLines`, `expandSection`), and whether existing `delivery-view` tests pin the old shape. (misleads)
+- [ ] [Estate, Contradiction] The five-state classification is built twice: plan 1 (`delivery-tab-header-and-my-sprint.md:43`) builds the five-segment bar, and this plan builds the strip. Plan 1's own open question about which plan owns the classification is unresolved. Name one owner, and have the other read it. (misleads)
+- [ ] [Estate] `sliceProgress` (`packages/domain/src/rules/deliverable.ts`) already defines "N of M slices merged" and excludes deferred-only slices. Say whether "1 / 5 delivered" reads it, and how a deferred slice counts. (misleads)
+- [ ] [Contradiction, Deliverable] The plan-row **Owner** column has no stated source: a plan file carries no owner, and plan 1 adds Owner to sprints only. Say whose owner a plan row shows. (misleads)
+- [ ] [Contradiction] "Blocked" means a slice under You › Blocks delivery, which plan 2 builds (`feature/delivery-you-groups`) and whose `YouReason` mapping is open there. "At a gate" and the in-flight links depend on plan 3's rows. No slice here waits on them. Declare the waits, or state what the strip shows until they land. (misleads)
+- [ ] [Contradiction] "A slice listed here always has its row in Work items or You" contradicts "a slice that has not started shows only in its plan's opened list". Restate the scope rule for a slice with no branch and no agent. (misleads)
+- [ ] [Contradiction, Deliverable] Done When requires every slice under exactly one of Done, In flight and To do, but the plan does not say where an at-a-gate or blocked slice goes. Define the mapping from the five strip states to the three groups. (misleads)
+- [ ] [Deliverable] The Changelog and Done When omit the header counts and the per-release blocks that the slices build, and Done When has no item for the person cards. Add them, or drop the work from the slices. (misleads)
+- [ ] [Deliverable] `feature/delivery-release-plan-rows` holds the header counts, the strip, the opened list, the links and the waits-for text, and `feature/delivery-release-person-cards` also holds the per-release blocks. Decide whether to split them. (misleads)
+- [ ] [Deliverable, Cost] No slice carries a per-slice merge date or PR link to the board. State that both come from the PR index or the existing payload with no new host call (*A Decision Reads The Index*), and which slice adds the field. This settles the Done-date question above. (misleads)
+- [ ] [Cost, Deliverable] The Board impact line says to rebuild the board artifact with each slice; `check-no-bundle-diff.sh` refuses a committed bundle. Say that the rebuild is a local test only, as plans 1 and 3 do. (misleads)
+- [ ] [Cost] `feature/delivery-release-plan-rows` and `feature/delivery-release-person-cards` edit the same section and domain module and wait on the same slice. Order person cards after plan rows, or state that they run in parallel. (misleads)
+- [ ] [Cost] No claim is made about the payload for about 40 slices across 8 plans. State the expected size, or that it is small. (cosmetic)
 
 ### Left to the Builder
 
@@ -81,3 +97,13 @@ Depends on plan 1, `delivery-tab-header-and-my-sprint`, for the section-header p
 
 - Created by `/plot-idea` in one batch with plans 1 to 4 and 6 of the same design. Type `feature` came from the brief; the design question was answered with the default, no, so the plan starts in Draft.
 - Deliverable search for "slice strip" and "per-person progress" found no artifact of that name in the estate.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "engine": "panel",
+  "questionHistory": [],
+  "deferredItems": [],
+  "categoriesCovered": {}
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
