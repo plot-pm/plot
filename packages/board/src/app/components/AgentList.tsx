@@ -95,11 +95,13 @@ import { ActivityMark } from '../lib/agent-rows/marks.js';
 import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
 import { deliveryMapping, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
 import {
+  groupAnchor,
   machineLine,
   placeMapping,
   planBlockShown,
   planBlockToggleKey,
   reasonWords,
+  sectionGlyph,
   type BlockView,
   type PlacedAgentView,
   type PlacedItemView,
@@ -1377,10 +1379,28 @@ export function AgentList({
               const sectionPace = groupPace(release ? view.deliveredRows : section.rows, active);
               const { folded, header } = fold(section.key, release ? view.deliveredBlocks.length : section.count, (
                 <h2 data-delivery-section={section.key} className="flex items-baseline gap-1 text-base font-semibold text-slate-800 dark:text-slate-100">
-                  <span aria-hidden="true">{section.icon}</span> {section.label}
-                  {section.groups.length > 0 && <span className="ml-1 font-normal text-slate-500">({section.count})</span>}
+                  <svg aria-hidden="true" data-section-icon={section.icon} viewBox="0 0 16 16" width="16" height="16" fill="currentColor" className="inline-block shrink-0 self-center">
+                    <path d={sectionGlyph(section)} />
+                  </svg>{' '}
+                  {section.label}
+                  {section.summary.length > 0 && (
+                    <span data-section-summary className="ml-2 flex flex-wrap items-baseline gap-x-2 text-sm font-normal text-slate-500">
+                      {section.summary.map((c) => (
+                        <span key={c.key} data-summary-count={c.key}>
+                          {c.anchor === null ? (
+                            <>{c.label} {c.count}</>
+                          ) : (
+                            <button type="button" data-summary-link={c.key} onClick={() => scrollToAnchor(c.anchor!)} className="text-blue-600 hover:underline dark:text-blue-400">
+                              {c.label} {c.count}
+                            </button>
+                          )}
+                        </span>
+                      ))}
+                    </span>
+                  )}
                   {release && <span className="ml-1 font-normal text-slate-500">({view.deliveredBlocks.length})</span>}
                   {sectionPace && <ActivityMark pace={sectionPace} place="heading" />}
+                  <span data-section-controls className="ml-auto" />
                 </h2>
               ));
               return (
@@ -1420,7 +1440,7 @@ export function AgentList({
                   {section.key === 'machine' && (
                     <p data-machine-line className="px-3 text-sm text-slate-600 dark:text-slate-300">{machineLine(fleet.rows, hostAnswer(fleet))}</p>
                   )}
-                  {!folded && section.groups.map((group) => {
+                  {!folded && section.groups.filter((group) => group.count > 0).map((group) => {
                     const groupMark = groupPace(group.rows, active);
                     const held = headerOf(
                       group.label, section.key, group.key,
@@ -1445,7 +1465,7 @@ export function AgentList({
                       </h3>
                     ));
                     return (
-                      <div key={group.key} data-group={group.key} className="space-y-1">
+                      <div key={group.key} id={groupAnchor(group.key)} data-group={group.key} className="space-y-1">
                         {g.header}
                         {!g.folded && group.count > 0 && (
                           <ul

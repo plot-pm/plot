@@ -15,17 +15,18 @@ import { groupBySlice, type SliceGroup } from './slices.js';
 import { rowInSlice } from './delivery-readings.js';
 import { headSliceNames, showsSliceFold, slicesElsewhere } from './sections.js';
 import { hasExceptions } from './stuck.js';
+import { GLYPH_PATH, type GlyphKind } from '../glyphs.js';
 import { HOST_ANSWER_HINT, type HostAnswer } from './host-notes.js';
 
 /** Every key a collapse toggle can hold: a section or one of its groups. */
 export type DeliveryKey = string;
 
-const SECTION_LABELS: Record<DeliverySection, { icon: string; label: string; hint: string }> = {
-  'release-delivery': { icon: '📦', label: 'Release delivery', hint: 'what has left the fleet' },
-  you: { icon: '⚠', label: 'You', hint: 'review, merge, decide' },
-  'work-items': { icon: '📋', label: 'Work items', hint: 'what the fleet is carrying' },
-  fleet: { icon: '🤖', label: 'Fleet', hint: 'the agents' },
-  machine: { icon: '🖥', label: 'Machine', hint: 'processes and rate limits' },
+const SECTION_LABELS: Record<DeliverySection, { icon: GlyphKind; label: string; hint: string }> = {
+  'release-delivery': { icon: 'release', label: 'Release delivery', hint: 'what has left the fleet' },
+  you: { icon: 'ticket', label: 'You', hint: 'review, merge, decide' },
+  'work-items': { icon: 'plan', label: 'Work items', hint: 'what the fleet is carrying' },
+  fleet: { icon: 'agent', label: 'Fleet', hint: 'the agents' },
+  machine: { icon: 'build', label: 'Machine', hint: 'processes and rate limits' },
 };
 
 const GROUP_LABELS: Record<string, { label: string; hint: string }> = {
@@ -156,9 +157,32 @@ export interface GroupView {
   tally: string;
 }
 
+/** One count of a section's header line: a group, its number, and where the number links. */
+export interface SectionCount {
+  key: string;
+  label: string;
+  count: number;
+  /** The anchor of the group's heading; `null` where the group has no rows and so renders no body. */
+  anchor: string | null;
+}
+
+export const groupAnchor = (key: string): string => `delivery-group-${key}`;
+
+/**
+ * The counts of a section's header line, one per group in layout order. A group with no rows keeps its count of 0
+ * and links nowhere, because its heading and body are not rendered.
+ */
+export const summarise = (groups: readonly GroupView[]): SectionCount[] =>
+  groups.map((g) => ({ key: g.key, label: g.label, count: g.count, anchor: g.count > 0 ? groupAnchor(g.key) : null }));
+
+/** The path of a section's glyph in the board's glyph table. */
+export const sectionGlyph = (section: SectionView): string => GLYPH_PATH[section.icon];
+
 export interface SectionView {
   key: DeliverySection;
-  icon: string;
+  icon: GlyphKind;
+  /** The header line: one count per group, empty for a section with no groups. */
+  summary: SectionCount[];
   label: string;
   hint: string;
   groups: GroupView[];
@@ -393,7 +417,7 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
       };
     });
     return {
-      key: section, ...SECTION_LABELS[section], groups: groupViews,
+      key: section, ...SECTION_LABELS[section], groups: groupViews, summary: summarise(groupViews),
       rows: groupViews.flatMap((g) => g.rows), count: groupViews.reduce((n, g) => n + g.count, 0),
     };
   });

@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { DELIVERY_LAYOUT } from '@plot-pm/domain';
 import type { AgentRow, Slice } from '../../src/contract/schema.js';
 import { deliveryMapping, type RegistryAgent } from '../../src/app/lib/agent-rows/delivery-readings.js';
-import { machineLine, placeMapping, planBlockShown } from '../../src/app/lib/agent-rows/delivery-view.js';
+import { GLYPH_PATH } from '../../src/app/lib/glyphs.js';
+import { groupAnchor, machineLine, placeMapping, planBlockShown, summarise } from '../../src/app/lib/agent-rows/delivery-view.js';
 
 const row = (over: Record<string, unknown>): AgentRow => ({
   branch: '', plan: '', wave: '', kind: 'branch', phase: 'Development', state: 'wip',
@@ -101,5 +102,36 @@ describe('delivery view nesting', () => {
     expect(planBlockShown(head(one), new Set())).toBe(true);
     expect(planBlockShown(head(two), new Set())).toBe(false);
     expect(planBlockShown(head(two), new Set([`open:${head(two).key}`]))).toBe(true);
+  });
+});
+
+describe('section header summary', () => {
+  const section = (v: ReturnType<typeof view>, key: string) => v.sections.find((s) => s.key === key)!;
+
+  it('keeps the count of an empty group at 0 and links nowhere', () => {
+    const v = view([], [agent({ session: 'x', branch: 'feature/a' })]);
+    const counts = section(v, 'fleet').summary;
+    expect(counts.map((c) => c.key)).toEqual(['working', 'blocked', 'free']);
+    const empty = counts.filter((c) => c.count === 0);
+    expect(empty.length).toBeGreaterThan(0);
+    for (const c of empty) expect(c.anchor).toBeNull();
+    for (const c of counts.filter((x) => x.count > 0)) expect(c.anchor).toBe(groupAnchor(c.key));
+  });
+
+  it('counts the fleet\'s working, blocked and free groups', () => {
+    const fleet = section(view([], [agent({ session: 'x', branch: '' })]), 'fleet');
+    expect(fleet.summary.map((c) => c.label)).toEqual(['Working', 'Blocked', 'Free agents']);
+    expect(fleet.summary.map((c) => c.count)).toEqual(fleet.groups.map((g) => g.count));
+  });
+
+  it('gives a section with no groups no counts', () => {
+    const v = view([]);
+    expect(section(v, 'release-delivery').summary).toEqual([]);
+    expect(section(v, 'machine').summary).toEqual([]);
+    expect(summarise([])).toEqual([]);
+  });
+
+  it('draws every section from an entry in the glyph table', () => {
+    for (const s of view([]).sections) expect(GLYPH_PATH[s.icon]).toMatch(/^M/);
   });
 });

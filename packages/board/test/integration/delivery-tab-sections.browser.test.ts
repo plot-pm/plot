@@ -49,4 +49,21 @@ describe('the Delivery tab renders the five sections', () => {
       await page.close();
     }
   }, 60_000);
+
+  it('shows an icon and a count link in a header, and the link reaches its group', async () => {
+    const page = await cat.open('a-full-estate', { tab: 'agents' });
+    try {
+      const header = page.locator('h2[data-delivery-section="fleet"]');
+      await header.waitFor({ timeout: 15_000 });
+      expect(await header.locator('svg[data-section-icon]').count()).toBe(1);
+      const link = header.locator('[data-summary-link]').first();
+      await link.waitFor({ timeout: 15_000 });
+      const key = await link.getAttribute('data-summary-link');
+      await link.click();
+      await page.locator(`[data-group="${key}"][data-link-target]`).waitFor({ timeout: 5_000 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
 });
