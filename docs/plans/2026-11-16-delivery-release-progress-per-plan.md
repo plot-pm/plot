@@ -11,7 +11,7 @@
 - **Story:** delivery-tab-reads-at-a-glance
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -99,6 +99,17 @@ Depends on plan 1, `delivery-tab-header-and-my-sprint`, for the section-header p
 - [x] [Cost, Deliverable] The Board impact line says to rebuild the board artifact with each slice. Resolved: the rebuild is a local test only.
 - [x] [Cost] The plan-rows and person-cards slices edit the same module and wait on the same slice. Resolved: the person cards wait on the plan rows.
 - [x] [Cost] No claim is made about the payload. Resolved: a few kilobytes for about 40 slices.
+- [ ] [Estate, Deliverable] `feature/delivery-release-plan-rows` reads the sprint Owner and `Release:` but waits only on `feature/delivery-slice-states` and `feature/delivery-work-items-gates`; neither chain reaches `feature/sprint-owner-field`. Add the wait, or move the Owner column to the person-cards slice. (round 2, estate)
+- [ ] [Contradiction, Estate] Start moves to "a slice whose earlier slices have landed", but `isStartable` (`row-identity.ts:116`) reads `startability`, which `classify` computes from four inputs, on the rows `isUnbegun` removes. Name where a To do line reads startability and how a wait on a slice in another plan counts. (round 2, contradiction)
+- [ ] [Deliverable, Estate] "1 / 5 delivered" reads `sliceProgress`'s counts, but `sliceProgress` (`deliverable.ts:302`) returns the string "N of M slices merged" or `undefined`; the counts live in the unexported `slicesOf` (`:175`). Name plan 1's classification as the one source of counts and say what the strip shows for a partial pulse. (round 2, deliverable)
+- [ ] [Deliverable, Cost] Plan 3's Queued slices (a branch or claim, no live agent) fit none of the five states or the three headings, and plan 1's open question on this is unresolved. Done When 3 and 5 fail for such a slice until it is mapped. (round 2, deliverable and cost)
+- [ ] [Deliverable, Cost, Estate] A Done line has no defined text for a MERGED slice with no index row, a missing or `complete: false` store, or an empty `mergedAt`, and the plan forbids a host call. On Bitbucket `mergedAt` is the row's `updated_on` (`bitbucket-pr-row.ts:49`). State the fallback (no date). (round 2, three lenses)
+- [ ] [Cost] The named-commit date from local git has no Refs operation: `ports/refs.ts:138-146` holds `BranchDate` only. State the new operation, that it runs once per plan with named commits, and that it adds one adapter spawn. (round 2, cost)
+- [ ] [Contradiction, Deliverable, Estate] Plan 1's `feature/delivery-my-sprint-scope` also scopes Release delivery and does not wait on plan-rows, which replaces that section; plan 1's own open question says both plans claim it. State which slice narrows and renames the section, and which keeps the other's scope hook. (round 2, four lenses)
+- [ ] [Deliverable] The Changelog says one card per team member, Done When says one card per sprint owner. An owner of two sprints and a sprint with no Owner have no stated card, and the release total counts the Owner-less sprint. (round 2, deliverable)
+- [ ] [Cost] `feature/delivery-release-person-cards` and `feature/delivery-sprint-delivery-scope` both wait on plan-rows and not on each other, and both edit the Release delivery module. Order them or name the shared file. (round 2, cost)
+- [ ] [Contradiction] Plan 3 says Release delivery rows keep `ROW_COLUMNS` unchanged; this plan gives them Plan · Phase · Slices · Owner. Say which holds. (round 2, contradiction)
+- [ ] [Deliverable, Estate] A stored collapse key keeps an already-collapsed Release delivery collapsed after `release-delivery` leaves `COLLAPSED_BY_DEFAULT`; the tests that pin `deliveredBlocks` (`delivery-view.test.ts`, `delivery-readings.test.ts`) and `expandSection` are unnamed. (round 2, deliverable and estate)
 
 ### Left to the Builder
 
@@ -127,7 +138,7 @@ Depends on plan 1, `delivery-tab-header-and-my-sprint`, for the section-header p
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "engine": "panel",
   "questionHistory": [],
   "deferredItems": [],
