@@ -1553,7 +1553,7 @@ test('host: pr-list without --rich carries no verdict, and never invents one', (
   const stubs = makeStubs({ ghJson: richGh('[{"conclusion":"SUCCESS"}]') });
   const out = JSON.parse(run(['pr-list'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(Object.keys(out).sort(),
-    ['author', 'draft', 'head', 'headSha', 'mergedAt', 'number', 'state', 'title', 'updatedAt', 'url']);
+    ['author', 'base', 'draft', 'head', 'headSha', 'mergedAt', 'number', 'state', 'title', 'updatedAt', 'url']);
   // `headSha` and `mergedAt` are scalar columns too, and `""` where the host omits them.
   // NO VERDICT, AND ABSENT RATHER THAN `unknown`: this arm did not ask, and a
   // word here would be a claim. `--rich-open` fills them in as `unknown` for
