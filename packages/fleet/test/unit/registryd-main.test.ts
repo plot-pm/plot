@@ -1,11 +1,11 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { refusedSlicesFixture, runLogFixture, answerRecordFile, ANSWER_RECORD_HOME_ENV, channelAddressFor } from '@plot-pm/domain/adapters';
 import type { AgentRun, AgentRunEnd, AgentRunRequest, AgentRunResult } from '@plot-pm/domain/ports/agent-run';
-import { UNBLOCKER_BOUND_SECONDS } from '@plot-pm/domain/rules/unblocker-due';
+import { UNBLOCKER_BOUND_SECONDS, unblockerDue } from '@plot-pm/domain/rules/unblocker-due';
 import { QUESTION_MAX } from '../../src/shared/worker-question.js';
 import { join } from 'node:path';
 import { connect, createServer } from 'node:net';
@@ -3278,6 +3278,52 @@ describe('unblockWorldForRepo and unblockPortsFor — the production wiring', ()
     }
   };
 
+  /**
+   * Writes the files the default reader reads for an agent that has ended: a
+   * recorded pid that no process holds and exit code 0.
+   *
+   * @param desk the worktree to write to.
+   */
+  const deadAgentOn = async (desk: string): Promise<void> => {
+    const child = spawn(process.execPath, ['-e', '']);
+    await new Promise((r) => child.on('exit', r));
+    writeFileSync(join(desk, '.plot-worker.pid'), `${child.pid}\n`);
+    writeFileSync(join(desk, '.plot-worker.exit'), '0\n');
+  };
+
+  /**
+   * Asks the world's `deskDead` and `marker` through `unblockerDue` for a desk.
+   *
+   * @param desk the worktree, whose files name the agent.
+   * @param scriptsDir the fixture's scripts directory.
+   * @returns the decision.
+   */
+  const dueOn = async (desk: string, scriptsDir: string) => {
+    const world = unblockWorldForRepo(desk, scriptsDir);
+    return unblockerDue({
+      marker: await world.marker(desk),
+      deskDead: await world.deskDead(desk),
+      liveFixer: false,
+      recordedOutcomes: [],
+      startedCount: 0,
+      answerCap: 2,
+    });
+  };
+
+  it('unblockWorldForRepo reads a blocked desk with a dead agent as waiting', async () => {
+    const { repoRoot, scriptsDir } = fixture();
+    writeFileSync(join(repoRoot, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which adapter?\n');
+    await deadAgentOn(repoRoot);
+    expect(await dueOn(repoRoot, scriptsDir)).toEqual({ start: true });
+  });
+
+  it('unblockWorldForRepo reads a blocked desk with a live agent as live', async () => {
+    const { repoRoot, scriptsDir } = fixture();
+    writeFileSync(join(repoRoot, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which adapter?\n');
+    writeFileSync(join(repoRoot, '.plot-worker.pid'), `${process.pid}\n`);
+    expect(await dueOn(repoRoot, scriptsDir)).toEqual({ start: false, why: 'not-waiting' });
+  });
+
   it('unblockWorldForRepo reads a real marker and answerCap through real config', async () => {
     const { repoRoot, scriptsDir } = fixture();
     writeFileSync(join(repoRoot, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which adapter?\n');
@@ -3304,11 +3350,10 @@ describe('unblockWorldForRepo and unblockPortsFor — the production wiring', ()
       dirs.push(manifestDir);
       writeFileSync(join(manifestDir, 'sess.json'), JSON.stringify({ session: 'sess', branch: 'feature/waiting', worktree: repoRoot, pid: '424242' }));
 
-      // The desk reads `waiting` through a stubbed worker-state reader: the
-      // world asks with `hasPr` set, and a real desk's task state reads
-      // `finished` whenever a PR is named.
-      const waiting = { workerState: async () => ({ ok: true as const, value: { state: 'waiting' as const, pid: '', exitCode: '', activity: '' as const } }) };
-      const unblock = unblockWorldForRepo(repoRoot, scriptsDir, () => false, waiting);
+      // The desk reads `waiting` through the default reader: a dead pid, exit 0 and a
+      // marker, with no PR assumed.
+      await deadAgentOn(repoRoot);
+      const unblock = unblockWorldForRepo(repoRoot, scriptsDir);
       expect(unblock).toBeDefined();
 
       let runCalls = 0;

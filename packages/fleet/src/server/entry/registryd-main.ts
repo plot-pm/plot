@@ -1385,6 +1385,10 @@ export const CORRECTION_BUDGET_KEY = 'Correction budget';
  * the answer record's outcomes and `started` count for that desk, and the
  * configured `Correction budget`.
  *
+ * The desk is read with no PR assumed (`hasPr` false): this world holds no PR
+ * fact, and a dead agent's `PLOT-BLOCKED` marker is read from the tree only
+ * where no PR is claimed.
+ *
  * `liveFixer` answers `liveRun()` for every desk: in production that is the
  * {@link unblockApplier}'s `live`, which is true while a batch of role runs
  * started by an earlier tick has not ended.
@@ -1409,7 +1413,7 @@ export const unblockWorldForRepo = (
   return {
     marker: (worktree) => markerReading(worktree),
     deskDead: async (worktree) => {
-      const state = await processes.workerState(worktree, true);
+      const state = await processes.workerState(worktree, false);
       return state.ok ? deskDeadFromWorkerState(state.value.state) : { dead: false, why: 'unread' };
     },
     liveFixer: async () => liveRun(),
