@@ -66,7 +66,8 @@ export interface RepairStartWorld {
  * Reads the record and the reading, asks `redMainStep`, and acts on three of
  * its answers; `revert`, `close-prs` and `exhausted` are left to their own
  * callers. A held host answer (`unaskable` or `failed`) ends the pass with
- * `held` and writes nothing.
+ * `held` and writes nothing. A record whose state is `done` or `exhausted`
+ * answers `none` before any host, CI or ref read.
  *
  * - `await-rerun`: re-runs the first red SHA's failed jobs once, then records
  *   `rerun: 'asked'`.
@@ -92,6 +93,7 @@ export const repairStartTick = async (
   const read = await world.repair.read();
   if (!read.ok || read.value === null) return 'none';
   const record = read.value;
+  if (record.state === 'done' || record.state === 'exhausted') return 'none';
   const now = world.now();
   const stamp = new Date(now).toISOString();
 
