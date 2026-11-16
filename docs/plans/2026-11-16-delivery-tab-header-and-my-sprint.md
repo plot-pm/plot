@@ -11,7 +11,7 @@
 - **Story:** delivery-tab-reads-at-a-glance
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -88,6 +88,14 @@ Approach A of the design: evolve the current tab in place.
 - [x] "Checked against `People`" sits in the sprint parser, which cannot read `People`. Resolved: the board server checks the handle against its person directory; an undeclared handle reads as no owner and is named on the card, and the parser never refuses the file.
 - [x] The fleet card and the Fleet section header both show the fleet switches. Resolved: both render `FleetControls.tsx`, the card in a read-only mode; the Fleet header is plan 4's. The scope slice waits on plan 3's gates slice, and plan 2's groups through the release card.
 - [x] The Board impact line says to rebuild the board artifact with each slice. Resolved: the rebuild is a local test only, and no slice commits a bundle.
+- [ ] [Domain] The tab already renders a sprint line (`data-sprint-report`, `DeliveryFilters.tsx:183`) and a release line (`data-release-line`, `AgentList.tsx:1390`, built in `delivery-view.ts:411-423`). Which slice removes each, so neither shows beside the new card? The release line also uses "blocked" to mean You › Unblock, where the five states mean You › Blocks delivery. — *panel round 2: estate*
+- [ ] [Domain] The five slice states do not cover plan 3's Queued group, so "the five counts add up to the total" can fail. Does Queued join a state, and does `delivery-slice-states` also wait on `feature/delivery-work-items-gates`? — *panel round 2: contradiction*
+- [ ] [Technical] "Blocked" reads `placeDelivery`, which only client code calls and which takes the reader's filters. Are the states computed on the server for every tick, or in the client from the placement the tab already holds? A team-wide release bar differs per reader under the second reading. — *panel round 2: cost, contradiction*
+- [ ] [Domain] The release-card slice removes the release row, which holds the only **Approve release** button today. With no Active sprint, or a `Release:` value no row carries, no card has an enabled button. Where does the button live then? The "Approve release" to-do line also needs a marker the plan says it does not decide. — *panel round 2: contradiction*
+- [ ] [Technical] The sprint card shows a bar per owned Active sprint, which needs the Owner-to-reader rule that `feature/delivery-my-sprint-scope` builds one wave later. Does the rule move into `feature/sprint-owner-field`? — *panel round 2: deliverable*
+- [ ] [Cost] A wave starts after every earlier wave completes, so this plan is eight serial merges and the longest chain across the six plans is nine. Should the sprint card move before the release card, and should the plan state the chain in Notes? — *panel round 2: deliverable, cost*
+- [ ] [Domain] `SprintOwner` already names the type of the `Sprint owner` config key (`issue-source.ts:116`), and the Notes search for "sprint Owner field" missed it. What does the per-sprint handle fact get called? Plans 1 and 5 also both claim to scope the delivery section. — *panel round 2: estate, contradiction*
+- [ ] [Deliverable] Citations: `readerIsKnown` is `ownership.ts:316` and does not call `resolvePerson`; `Reader` is `ownership.ts:19-29`; the `parsePersonDirectory` call is `server-info.ts:179`; the "This sprint" label is also set in `chip-row.ts:117,120`; the rename reverses the decision at `DeliveryFilters.tsx:63-65`. The Changelog, Board impact and Done When omit the release row's removal, the slice-state payload counts and the `/plot-sprint` write, and the section icons are emoji where the plan requires `glyphs.ts`. — *panel round 2: estate, contradiction, deliverable, cost*
 
 ### Left to the Builder
 
@@ -136,9 +144,9 @@ Approach A of the design: evolve the current tab in place.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "engine": "panel",
-  "panel": ".plot/panels/delivery-tab-header-and-my-sprint/panel.md",
+  "panel": ".plot/panels/delivery-tab-header-and-my-sprint/r2-panel.md",
   "questionHistory": [],
   "deferredItems": [
     {"q": "Which handle does My sprint compare for a reader not in People?", "category": "domain", "context": "Sprint owner"}
