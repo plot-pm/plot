@@ -16,11 +16,12 @@
 ## Changelog
 
 - The **Work items** header counts items at a gate, being built and queued, and names how long the oldest one waits.
-- An item at a gate shows each gate as ✓, ⟳ or ✗, each linked to its run or review (`CI ✗ validate · review –`).
+- An item at a gate shows its CI and review gates as ✓, ⟳ or ✗, each linked to its PR's checks or review (`CI ✗ · review –`).
 - An item being built shows its progress (`4 commits · no PR yet`); a queued item shows what it waits on (`no agent assigned`, or the earlier slice).
+- The **Where** column shows the PR with its branch beneath it, written in full.
 - The **By** column shows the agent's role chip and name, linked to its Fleet row; a fixer adds its attempt ("1/2").
 
-Board impact: changes the Work items section's rows in `packages/board`; no change to the plan format, the template, the helper scripts or the `docs/plans` layout. Rebuild the board artifact (`pnpm build:board`) with each slice that changes the board.
+Board impact: changes the Work items section's rows in `packages/domain` and `packages/board`; no change to the plan format, the template, the helper scripts or the `docs/plans` layout. A builder runs `pnpm build:board` locally to test a slice and commits no bundle: `scripts/check-no-bundle-diff.sh` refuses one, and `main` builds the bundle after the merge.
 
 ## Motivation
 
@@ -32,68 +33,79 @@ The design is canonical. This plan implements its *Work Items* section and the *
 
 ### Approach
 
-Depends on plan 1, `delivery-tab-header-and-my-sprint`, for the section-header pattern; every slice waits on its `feature/delivery-section-header` slice.
+Depends on plan 1, `delivery-tab-header-and-my-sprint`, for the section-header pattern, and on plan 2's `feature/delivery-you-groups`, whose PR rule decides which PR is a gate here. The By slice waits on plan 4's `feature/delivery-agent-roles`, which builds the role chip once.
 
-- **Header.** "<n> at a gate · <n> being built · <n> queued · oldest waits <age>", each count linking to its group.
+- **Header.** "<n> at a gate · <n> being built · <n> queued · oldest waits <age>", each count linking to its group. "Oldest waits" is the age of the oldest row in the section.
 - **Groups:** At a gate · Being built · Queued.
 - **Columns:** Kind · Item · Where · (group column) · By · Age. The group column is **Gates** for At a gate, **Progress** for Being built and **Waits on** for Queued. One column holds one kind of value.
-- **Gates.** Each gate (CI, review) is ✓, ⟳ or ✗, and links to its run or review. A slice PR is a gate here unless plan 2's PR rule places it under You › Blocks delivery (*Calls Made After Review*, "A PR blocks delivery; no PR is an input").
-- **Item** is the plan § slice, linked. **Where** is the PR, with the branch beneath it, written in full. **By** is the agent's role chip and name, linked to its Fleet row; a fixer adds its attempt ("1/2"). The role chips are the ones plan 4 shows in Fleet; this plan adds them to the row form in `packages/domain/src/rules/delivery-row-form.ts`.
-- **A slice that has not started** (no branch, no agent) is not a row here; it shows only in its plan's opened list under Release delivery (plan 5).
+- **Gates.** The gate marks exist: `GATE_MARK` and `gateValue` (`delivery-row-form.ts:91, 139`) render ✓ ⟳ ✗ for one gate per row today. The gates slice extends `gateValue` to show CI and review side by side. A review nobody has asked reads `–` and stands for `review: none`; an unread gate yields a `null` cell, as the row form's rule says (`delivery-row-form.ts:221`). A slice PR is a gate here unless plan 2's PR rule places it under You › Blocks delivery (*Calls Made After Review*, "A PR blocks delivery; no PR is an input").
+- **Gate links and the check name.** The PR index carries `ciChecks` as a summary (`green`, `pending`, `failing`, `none`, `unknown`) and no run id or check name, and `ciRun` is never set. The CI mark links to the PR's checks page, and the review mark to the PR's review, both built from the PR URL the payload carries; the gates slice fills `prUrl`, which is `() => null` today, from the PR number and the repository URL the board already holds. The check name ("validate") has no reading. The design forbids a new host read (*Non-goals*), so the cell shows `CI ✗` without the name, and this plan records the check name as a gap.
+- **Progress.** A row being built shows its commit count and its PR state ("4 commits · no PR yet"). The count comes from the pulse's local git reading of the branch (`local_ahead` for a desk on this machine), which is a local read; a branch with no desk here shows no count.
+- **Queued.** After this plan, Queued holds the slices of approved plans that have a branch or a claim and no live agent: `stage: 'building'` with no live agent and no stopped agent, and `stage: 'queued'`. **Waits on** reads "no agent assigned", or the earlier slice the branch's `<!-- waits: -->` marker or its slice order names. Ticket rows leave Queued with plan 6's tickets slice. Another person's Draft or Design plan and another person's approval-owed item stay in Queued as today, with Waits on naming the phase or the approval; see the open question below.
+- **A slice that has not started** (no branch, no agent) is not a row here. Plan 5's `feature/delivery-release-plan-rows` removes those rows, through `isUnbegun` (`row-identity.ts:77`), and gives the eligible ones today's **Start** (`dispatch`) control (`AgentList.tsx:1219`) on their To do line in Release delivery. This plan does not remove them, so Start never disappears.
+- **The release row** under At a gate keeps its current form until plan 1's `feature/delivery-release-card` removes it.
+- **Item** is the plan § slice, linked. **Where** is the PR, with the branch beneath it, written in full. **By** is the agent's role chip and name, linked to its Fleet row. The role chip and the role readings are plan 4's (`feature/delivery-agent-roles`, which widens `AgentRole` from six roles to eight); this plan adds the chip to the row form in `packages/domain/src/rules/delivery-row-form.ts`.
+- **A fixer's attempt.** A fixer adds "<attempt>/<budget>": its attempt number on the finding kind it fixes, read from `.plot/state/fixer-attempts/<pr>.json` through `rules/fixer-attempts.ts`, against `FIXER_ATTEMPTS_BUDGET` (2, per finding kind). The `Correction budget` key is the desk's correction budget that plan 2's PR rule reads; it is not the fixer's denominator.
 - **A closed PR or branch no plan names** moves to You › Unblock (plan 2), not Queued.
 - **Scope.** Mine narrows Work items; the **My sprint** scope from plan 1 applies here too (*Calls Made After Review*, "One scope rule for every section").
-- **Domain first.** Every gate state, link target, progress value and waits-on value is a domain property with a unit test.
+- **Domain first.** Every gate state, link target, progress value, waits-on value and header count is a domain property with a unit test.
 
 ### Done When
 
 - Every group in Work items shows its own column under a header, and no column holds two kinds of value.
-- An item at a gate shows one glyph per gate, each linked to its run or review, asserted in a unit test.
-- A fixer row in By shows its attempt against the `Correction budget`.
-- No slice without a branch or an agent shows as a Work items row.
+- The header counts each group, each count linking to its group, and names the oldest row's age, asserted in a unit test.
+- An item at a gate shows one mark per gate, CI and review, each linked to the PR's checks or review; a review nobody asked reads `–` and an unread gate renders no cell, asserted in a unit test.
+- A row being built shows its commit count where the pulse reads one, and "no PR yet" where it has no PR.
+- A queued row names what it waits on: "no agent assigned" or the earlier slice.
+- Where shows the PR with the full branch name beneath it.
+- By shows the agent's role chip and name, linked to its Fleet row; a fixer row shows its attempt against `FIXER_ATTEMPTS_BUDGET` on the finding kind it fixes.
 
 ### Settled Questions
 
 - Every slice waits on plan 1's `feature/delivery-section-header`. Writer's call, from the design: plan 1 lays the section-header pattern every later plan uses.
+- Plan 4 owns the role chip and the role readings; this plan's By slice waits on `feature/delivery-agent-roles`. Writer's call, from the round-1 panel.
+- Plan 5 removes not-started slices from Work items and gives them Start; this plan only states the exclusion. Writer's call, from the round-1 panel.
 
 ### Open Questions
 
-- [ ] Which glyph in `glyphs.ts` stands for a gate nobody has asked yet ("review –")?
+- [x] Which glyph in `glyphs.ts` stands for a gate nobody has asked yet ("review –")? Resolved: the gate marks live in `GATE_MARK`, not `glyphs.ts`; `–` stands for `review: none`, and an unread gate renders no cell.
 
 ### Left to the Builder
 
 - The names of the new domain facts and their types, within the domain's terminology.
-- Which existing browser tests move to unit tests.
+- Which existing browser tests move to unit tests, and which browser tests select the current columns.
 
 ## Slices
 
 ### Group columns
 
-- `feature/delivery-work-items-gates` <!-- waits: feature/delivery-section-header --> — the Work items header and groups, the per-group column (Gates as ✓ ⟳ ✗ with links, Progress, Waits on), and not-started slices out of the rows <!-- builds: Work items gate, progress and waits-on cells -->
+- `feature/delivery-work-items-gates` <!-- waits: feature/delivery-section-header, feature/delivery-you-groups --> — the Work items header and groups, the per-group column (Gates as ✓ ⟳ ✗ with links, Progress, Waits on), the Where column, and what Queued holds <!-- builds: Work items gate, progress and waits-on cells -->
 
 ### Agent chips
 
-- `feature/delivery-work-items-by-chips` <!-- waits: feature/delivery-section-header --> — the By column with the agent's role chip, name and Fleet link, and a fixer's attempt count <!-- builds: a By cell with role chip and fixer attempt -->
+- `feature/delivery-work-items-by-chips` <!-- waits: feature/delivery-work-items-gates, feature/delivery-agent-roles --> — the By column with the agent's role chip, name and Fleet link, and a fixer's attempt count <!-- builds: a By cell with role chip and fixer attempt -->
 
 ## Notes
 
 - Created by `/plot-idea` in one batch with plans 1, 2 and 4 to 6 of the same design. Type `feature` came from the brief; the design question was answered with the default, no, so the plan starts in Draft.
-- Deliverable search for "gate glyphs" and "agent role chip" found no artifact of that name in the estate.
+- Deliverable search for "gate glyphs" and "agent role chip" found no artifact of that name. The gate marks exist as `GATE_MARK` and `gateValue` in `delivery-row-form.ts`, which the gates slice extends.
+- Amended after the round-1 panel, 2026-11-16: the role chip belongs to plan 4, the not-started exclusion and Start belong to plan 5, and both slices carry their waits.
 
 ## Open Points
 
 Round 1, panel of four lenses, all `amend` (`.plot/panels/delivery-work-items-show-gates/panel.md`).
 
-- [ ] [Estate] The gate marks exist: `GATE_MARK` and `gateValue` in `delivery-row-form.ts:91,139` render ✓ ⟳ ✗, and `glyphs.ts` holds kind icons only. State that the gates slice extends `gateValue`, which shows one gate per row today, and move the glyph Open Question to `GATE_MARK`. Correct the Notes line that found no artifact.
-- [ ] [Contradiction] `–` for a review nobody has asked conflicts with the row form's rule that an unread fact yields a `null` cell (`delivery-row-form.ts:221`). Decide: `–` stands for `review: none` and `unread` renders nothing, or the rule changes.
-- [ ] [Estate, Contradiction, Deliverable] The role chip has two owners: this plan's By slice and plan 4's `feature/delivery-fleet-agent-rows`, both in `delivery-row-form.ts`. Name one owner, order the other with a `waits:`, and name who widens `AgentRole` (six roles at `delivery-placement.ts:93`, eight in the design).
-- [ ] [Estate, Deliverable, Cost] Four readings are not in the payload and no plan adds them: the CI run link and check name (`ciRun` never set, `prUrl` is `() => null`), the agent role (every agent reads `loop`), the fixer attempt count (`corrections` unmapped), and a per-slice commit count ("4 commits"). Name which slice adds each, or drop the claim.
-- [ ] [Estate, Cost] The fixer's denominator has two sources: the `Correction budget` key and `FIXER_ATTEMPTS_BUDGET = 2` counted per finding kind (`fixer-attempts.ts:5`). Say which one By shows and which kind of attempt it counts.
-- [ ] [Contradiction] Queued holds tickets, Draft and Design plans and approval-owed items today (`delivery-placement.ts:205-207`), and "waits on the earlier slice" contradicts the not-started exclusion. State what Queued holds after the exclusion and which plan owns that change. Done When says "branch or an agent" where the Approach says "no branch, no agent".
-- [ ] [Estate] Removing not-started slices from Work items removes today's Start (`dispatch`) control (`AgentList.tsx:1219`), and plan 5's opened list names none. State where Start goes, and whether the exclusion reuses `isUnbegun` (`row-identity.ts:77`).
-- [ ] [Contradiction, Cost] No `waits:` on plan 2's PR rule (`feature/delivery-you-groups`) or plan 1's release-row removal. Declare them, or state what At a gate shows until they land. Cost: five slices across plans edit `delivery-row-form.ts` and `AgentList.tsx`.
-- [ ] [Deliverable] Done When checks neither the By slice's role chip and Fleet link, the header counts and "oldest waits", the Progress and Waits on values, nor the Where change (branch beneath the PR, in full). Add an item for each, or cut the Changelog line.
-- [ ] [Contradiction, Cost] The Board impact line says to rebuild the board artifact with each slice, and `check-no-bundle-diff.sh` refuses a committed bundle. Say the rebuild is a local test only.
-- [ ] [Not verified by any juror] Whether `.plot/state/fixer-attempts/<pr>.json` records a count, whether the host listing carries CI run ids for slice PRs, whether fleetd fixers appear as registry entries, and which browser tests select the current columns.
+- [x] [Estate] The gate marks exist in `GATE_MARK` and `gateValue`, and `glyphs.ts` holds kind icons only. Resolved: the gates slice extends `gateValue`; the glyph question moves to `GATE_MARK`; the Notes line is corrected.
+- [x] [Contradiction] `–` for a review nobody has asked conflicts with the row form's rule that an unread fact yields a `null` cell. Resolved: `–` stands for `review: none`, and `unread` renders nothing.
+- [x] [Estate, Contradiction, Deliverable] The role chip has two owners. Resolved: plan 4's `feature/delivery-agent-roles` builds it and widens `AgentRole`; this plan's By slice waits on it.
+- [x] [Estate, Deliverable, Cost] Four readings are not in the payload. Resolved: the gates slice fills `prUrl` from the PR number and the repository URL; the check name is a named gap with no new host read; plan 4 builds the agent role reading; the fixer attempt comes from the fixer-attempts record; the commit count comes from the pulse's local git reading.
+- [x] [Estate, Cost] The fixer's denominator has two sources. Resolved: By shows the attempt on the finding kind in flight against `FIXER_ATTEMPTS_BUDGET`; the `Correction budget` key stays plan 2's.
+- [ ] [Contradiction] Queued holds tickets, Draft and Design plans and approval-owed items today. Resolved in part: Queued holds approved plans' slices with a branch or claim and no live agent, and tickets leave it through plan 6. Question for Jan Wloka: the design says Work items holds items in flight, and is silent on another person's Draft or Design plan and another person's approval-owed item. This plan keeps them in Queued with Waits on naming the phase or the approval. Keep them there, or take them off the tab.
+- [x] [Estate] Removing not-started slices from Work items removes today's Start control. Resolved: plan 5's plan-rows slice removes those rows through `isUnbegun` and puts Start on the eligible To do lines in Release delivery.
+- [x] [Contradiction, Cost] No `waits:` on plan 2's PR rule or plan 1's release-row removal. Resolved: the gates slice waits on `feature/delivery-you-groups`; the release row keeps its current form until plan 1's release-card slice removes it.
+- [x] [Deliverable] Done When checks neither the role chip, the header counts, Progress, Waits on nor Where. Resolved: Done When has a line for each.
+- [x] [Contradiction, Cost] The Board impact line says to rebuild the board artifact with each slice. Resolved: the rebuild is a local test only.
+- [x] [Not verified by any juror] Whether the fixer-attempts record carries a count, whether CI run ids exist, whether fixers are registry entries, and which browser tests select the columns. Resolved: the record holds one attempt entry per start, per finding kind (`entities/fixer-attempts.ts`); no CI run id or check name is on the index (`ciChecks` is a summary); the fixer role reading is plan 4's; the browser tests are the builder's.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
