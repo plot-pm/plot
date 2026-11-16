@@ -90,7 +90,7 @@ describe('a Design plan card states where its spike stands', () => {
       // Approve shows as the disabled primary, its reason on the card itself.
       const approve = article(page).getByRole('button', { name: 'Approve', exact: true });
       expect(await approve.getAttribute('aria-disabled')).toBe('true');
-      expect(await article(page).locator('[data-action-reason]').textContent())
+      expect(await article(page).locator('[data-action-reason]', { hasText: 'waits on its spike' }).textContent())
         .toContain('waits on its spike feature/greenhouse-spike #41');
       // The reason is plain text: a `role="tooltip"` element holds no links.
       expect(await article(page).locator('[role="tooltip"] a').count()).toBe(0);

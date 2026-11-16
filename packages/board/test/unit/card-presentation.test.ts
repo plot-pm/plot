@@ -302,10 +302,16 @@ describe('presentCard: the footer\'s actions', () => {
     expect(presentCard(off, 'plans', { unavailable: { 'start-work': 'only on localhost' } }).footer.primary?.reason).toBe('only on localhost');
   });
 
-  it('a draft offers Approve first, then Interrogate', () => {
+  it('a draft offers Approve first, then Interrogate and Supersede', () => {
     const s = sections({ status: 'draft', state: 'draft', controls: cardControls({ state: 'draft', status: 'draft' }) });
     expect(s.footer.primary?.label).toBe('Approve');
-    expect(s.footer.secondary.map((a) => a.label)).toEqual(['Interrogate']);
+    expect(s.footer.secondary.map((a) => a.label)).toEqual(['Interrogate', 'Supersede']);
+  });
+
+  it('a Delivered plan shows Supersede disabled, naming its state', () => {
+    const s = sections({ status: 'delivered', state: 'delivered', controls: cardControls({ state: 'delivered', status: 'delivered' }) });
+    const supersede = [...(s.footer.primary ? [s.footer.primary] : []), ...s.footer.secondary, ...s.footer.more].find((a) => a.action === 'supersede');
+    expect(supersede).toMatchObject({ label: 'Supersede', enabled: false, reason: 'a Delivered plan cannot be superseded' });
   });
 });
 
