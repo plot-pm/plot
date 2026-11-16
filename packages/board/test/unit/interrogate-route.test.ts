@@ -21,6 +21,7 @@ import {
   interrogatePromptPath,
   interrogateStatus,
   prepareInterrogateWorktree,
+  resolveInterrogatePlanPr,
   type InterrogateDeps,
   type InterrogateRefusal,
   type PlanPrLookup,
@@ -29,6 +30,8 @@ import { agentLogPath } from '../../src/server/agent-log.js';
 import { boardRunsSettled, endHeldRuns } from '../../src/server/board-run.js';
 import { lastModel, settled, useFakeClaude } from './fake-claude.js';
 import { rmTree } from '../helpers.mjs';
+import { hostFixture } from '@plot-pm/domain/adapters';
+import type { Pr } from '@plot-pm/domain';
 import { signalRecorded } from '../../../../test/reconcile/own-process.mjs';
 
 const SCRIPTS = path.resolve(__dirname, '../../../../skills/plot/scripts');
@@ -581,5 +584,121 @@ describe('the plan-PR worktree', () => {
     const tree = await prepareInterrogateWorktree(opts(dir), SLUG, HEAD);
     assert.ok(tree);
     assert.equal(git(dir, 'rev-parse', HEAD), local, 'the local branch was not reset to origin');
+  });
+});
+
+describe('resolving where the plan is read', () => {
+  const BATCH = `idea/batch-${SLUG}`;
+  const OTHER_NAME = '2026-09-26-a-second-plan.md';
+  const git = (cwd: string, ...args: string[]): string =>
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, encoding: 'utf8' }).trim();
+
+  const openPr = (number: number, head: string, headSha: string): Pr => ({
+    number, repo: '', head, base: 'main', state: 'OPEN', mergedAt: null, mergeCommit: '',
+    draft: true, mergeable: 'unknown', review: '', checks: 'unknown', failingChecks: [],
+    url: `https://example.invalid/pr/${number}`, author: 't', headSha,
+  });
+
+  /** A clone of a bare origin; `branch` pushes the Draft plan (and a second plan) to origin and leaves the checkout on main without it. */
+  const estate = (): { dir: string; push: (branch: string, text?: string) => string } => {
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-interrogate-source-'));
+    made.push(parent);
+    const origin = path.join(parent, 'origin.git');
+    git(parent, 'init', '-q', '--bare', '-b', 'main', origin);
+    const dir = path.join(parent, 'repo');
+    git(parent, 'clone', '-q', origin, dir);
+    fs.writeFileSync(path.join(dir, 'README.md'), 'x\n', 'utf8');
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'init');
+    git(dir, 'push', '-q', 'origin', 'HEAD:main');
+    git(dir, 'remote', 'set-head', 'origin', 'main');
+    const push = (branch: string, text?: string): string => {
+      git(dir, 'checkout', '-q', '-b', branch, 'main');
+      fs.mkdirSync(path.join(dir, 'docs/plans'), { recursive: true });
+      const file = draftPlan(dir);
+      if (text !== undefined) fs.appendFileSync(file, text, 'utf8');
+      fs.writeFileSync(path.join(dir, 'docs/plans', OTHER_NAME), '# Second\n\n## Status\n\n- **State:** Draft\n', 'utf8');
+      git(dir, 'add', '.');
+      git(dir, 'commit', '-q', '-m', 'plans');
+      git(dir, 'push', '-q', 'origin', branch);
+      const sha = git(dir, 'rev-parse', 'HEAD');
+      git(dir, 'checkout', '-q', 'main');
+      git(dir, 'branch', '-q', '-D', branch);
+      return sha;
+    };
+    return { dir, push };
+  };
+
+  const resolve = (dir: string, prs: Pr[]) =>
+    resolveInterrogatePlanPr({ repoRoot: dir, scriptsDir: SCRIPTS, hostAdapter: hostFixture({ prs }) }, SLUG);
+
+  it('finds a plan that only a batch PR carries, at that PR\'s head', async () => {
+    const { dir, push } = estate();
+    const sha = push(BATCH);
+    assert.deepEqual(await resolve(dir, [openPr(3469, BATCH, sha)]), { kind: 'found', head: BATCH, at: sha, number: 3469 });
+  });
+
+  it('runs the panel for a batch-PR plan in a worktree of that head, and names the branch in the prompt', async () => {
+    const { dir, push } = estate();
+    const sha = push(BATCH);
+    const { res, got } = response();
+    await handleInterrogate(
+      request({ slug: SLUG }),
+      res,
+      { repoRoot: dir, scriptsDir: SCRIPTS, host: 'localhost', port: 7777, hostAdapter: hostFixture({ prs: [openPr(3469, BATCH, sha)] }) },
+      { config: (_o, key, fallback) => (key === INTERROGATE_COMMAND_KEY ? 'true' : fallback) },
+    );
+    assert.equal(got.status, 202, JSON.stringify(got.body));
+    const tree = git(dir, 'worktree', 'list', '--porcelain').split('\n').find((l) => l.includes('.plot-interrogate-'));
+    assert.ok(tree, 'a worktree was prepared');
+    assert.equal(git(tree.slice('worktree '.length), 'rev-parse', 'HEAD'), sha);
+    const prompt = fs.readFileSync(interrogatePromptPath(dir, SLUG), 'utf8');
+    assert.match(prompt, new RegExp(`detached worktree of \`${BATCH}\``));
+    await settled(() => interrogateStatus({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG));
+  });
+
+  it('reads a plan the checkout holds from the checkout when no open PR carries it', async () => {
+    const { dir } = estate();
+    fs.mkdirSync(path.join(dir, 'docs/plans'), { recursive: true });
+    draftPlan(dir);
+    assert.deepEqual(await resolve(dir, []), { kind: 'none' });
+  });
+
+  it('reads a plan the checkout lacks from the default branch as fetched', async () => {
+    const { dir, push } = estate();
+    push('idea/landed');
+    git(dir, 'push', '-q', 'origin', 'origin/idea/landed:refs/heads/main');
+    git(dir, 'fetch', '-q', 'origin', 'main');
+    assert.deepEqual(await resolve(dir, []), { kind: 'default', branch: 'main' });
+  });
+
+  it('refuses pr-copies-differ when two open PRs carry differing copies', async () => {
+    const { dir, push } = estate();
+    const first = push(BATCH);
+    const second = push(`idea/${SLUG}-again`, 'a different line\n');
+    const answer = await resolve(dir, [openPr(3469, BATCH, first), openPr(3470, `idea/${SLUG}-again`, second)]);
+    assert.equal(answer.kind, 'refused');
+    assert.equal(answer.kind === 'refused' && answer.reason, 'pr-copies-differ');
+  });
+
+  it('refuses plan-unreadable naming where it looked when no source holds the plan', async () => {
+    const { dir } = estate();
+    const answer = await resolve(dir, []);
+    assert.equal(answer.kind, 'refused');
+    assert.equal(answer.kind === 'refused' && answer.reason, undefined);
+    assert.match(answer.kind === 'refused' ? answer.detail : '', /on origin\/main, and on the heads of the open PRs/);
+  });
+});
+
+describe('a refusal the resolver names', () => {
+  it('answers 409 with the resolver\'s own reason', async () => {
+    const dir = repo();
+    draftPlan(dir);
+    const got = await post({
+      repoRoot: dir,
+      resolvePlanPr: async () => ({ kind: 'refused', reason: 'pr-copies-differ', detail: 'the plan file differs between #1 and #2' }),
+    });
+    assert.equal(got.status, 409);
+    assert.equal(refusal(got), 'pr-copies-differ');
   });
 });
