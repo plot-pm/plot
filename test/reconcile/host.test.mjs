@@ -11932,3 +11932,31 @@ test('host: pr-state still answers NONE when REST arrives and finds no PR', () =
   assert.equal(res.code, 0, res.stderr);
   assert.equal(JSON.parse(res.stdout).state, 'NONE');
 });
+
+// The base branch of a pull request travels on every `pr-list` row, so a hold on
+// a red default branch can tell a PR into `sprint/x` from one into `main`. The
+// fixture base differs from `main`, which a hard-coded `main` would not survive.
+const BASE_PR = { number: 7, title: 't', state: 'OPEN', headRefName: 'feature/x', baseRefName: 'sprint/card-1', isDraft: false, url: 'u' };
+
+for (const [flags, label] of [[[], 'plain'], [['--rich'], '--rich'], [['--rich-open'], '--rich-open']]) {
+  test(`host: pr-list github ${label} carries base from the PR's base branch`, () => {
+    const stubs = makeStubs({
+      ghJson: JSON.stringify([{ ...BASE_PR, statusCheckRollup: [], mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null }]),
+    });
+    const out = JSON.parse(run(['pr-list', ...flags], { env: { PLOT_HOST: 'github' }, stubs }));
+    assert.equal(out.base, 'sprint/card-1');
+  });
+}
+
+test('host: pr-list github reads a PR with no base as an empty base', () => {
+  const { baseRefName, ...bare } = BASE_PR;
+  const stubs = makeStubs({ ghJson: JSON.stringify([bare]) });
+  assert.equal(JSON.parse(run(['pr-list'], { env: { PLOT_HOST: 'github' }, stubs })).base, '');
+});
+
+test('host: pr-list bitbucket carries base from the destination branch', () => {
+  const stubs = makeStubs({
+    bbJson: '[{"id":3,"title":"A","state":"OPEN","source":{"branch":{"name":"feature/a"}},"destination":{"branch":{"name":"sprint/card-1"}}}]',
+  });
+  assert.equal(JSON.parse(run(['pr-list'], { env: { PLOT_HOST: 'bitbucket' }, stubs })).base, 'sprint/card-1');
+});

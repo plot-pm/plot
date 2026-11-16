@@ -32,7 +32,7 @@ const OWNER = 'plot-fixture';
 const REPO = 'listing';
 
 /** The fields `plot-host.sh`'s plain arm asks for. */
-const PLAIN = ['number', 'title', 'state', 'headRefName', 'isDraft', 'url', 'updatedAt', 'author', 'headRefOid', 'mergedAt'];
+const PLAIN = ['number', 'title', 'state', 'headRefName', 'baseRefName', 'isDraft', 'url', 'updatedAt', 'author', 'headRefOid', 'mergedAt'];
 /** The fields the rich arm adds. */
 const RICH = [...PLAIN, 'statusCheckRollup', 'mergeable', 'mergeStateStatus', 'reviewDecision'];
 
@@ -111,6 +111,7 @@ const pr = (n, state) => {
     title: `Change ${n}${n % 9 === 0 ? ' "quoted" & <tagged>' : ''}`,
     state,
     headRefName: n % 17 === 0 ? `feature/ünïcode-${n}` : `feature/change-${n}`,
+    baseRefName: n % 3 === 0 ? `sprint/card-${n % 5}` : 'main',
     isDraft: state === 'OPEN' && n % 7 === 0,
     statusCheckRollup: {
       nodes: rollup === 'no-commit' ? [] : [{ commit: { statusCheckRollup: rollup === null ? null : { contexts: { nodes: rollup, pageInfo: { hasNextPage: false, endCursor: rollup.length === 0 ? null : 'ctx' } } } } }],

@@ -64,6 +64,7 @@ interface FieldChange {
 const CHANGES: readonly FieldChange[] = [
   { field: 'number', fixture: 'open-rich-two-pages', number: 392, change: (n) => void (n.number = 9392) },
   { field: 'head', fixture: 'open-rich-two-pages', number: 392, change: (n) => void (n.headRefName = 'feature/renamed') },
+  { field: 'base', fixture: 'open-rich-two-pages', number: 392, change: (n) => void (n.baseRefName = 'sprint/renamed') },
   { field: 'state', fixture: 'open-rich-two-pages', number: 392, change: (n) => void (n.state = 'CLOSED') },
   { field: 'draft', fixture: 'open-rich-two-pages', number: 392, change: (n) => void (n.isDraft = n.isDraft !== true) },
   { field: 'checks', fixture: 'open-rich-two-pages', number: 392, change: (n) => void (contexts(n)[0].conclusion = 'FAILURE') },
