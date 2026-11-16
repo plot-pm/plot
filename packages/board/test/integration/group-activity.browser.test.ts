@@ -320,9 +320,12 @@ describe('a group heading carries the activity of the rows behind it', () => {
     // vertical space on a view whose entire complaint was crowding.
     const page = await open();
     await expect.poll(() => markInHeading(page, 'queued').count()).toBe(1);
-    const marked = (await headingFor(page, 'queued').boundingBox())!;
-    const plain = (await headingFor(page, 'being-built').boundingBox())!;
-    expect(Math.abs(marked.height - plain.height)).toBeLessThan(2);
+    // An empty group renders no heading, so the bound is the heading's own
+    // line height: one line is under 1.5 of it, a wrapped second line is not.
+    const heading = headingFor(page, 'queued');
+    const marked = (await heading.boundingBox())!;
+    const line = await heading.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
+    expect(marked.height).toBeLessThan(line * 1.5);
   });
 
   // ── What it says, and to whom ─────────────────────────────────────────────

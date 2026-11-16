@@ -1686,10 +1686,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       fleet({ rows: fleet().rows.filter((r) => r.group !== 'working') }),
     );
     try {
-      // Fleet › Working, empty, reads its hint in place of a count.
-      const working = group(page, 'working');
-      await expect.poll(() => working.getByText('an agent acts on an item').count()).toBe(1);
-      expect(await working.locator('[data-live-dot]').count()).toBe(0);
+      // Fleet › Working, empty, renders no group; the header line holds its 0.
+      await expect.poll(() => page.locator('[data-summary-count="working"]').count()).toBe(1);
+      expect(await group(page, 'working').count()).toBe(0);
       // Nowhere else on the page either.
       expect(await page.locator('[data-live-dot]').count()).toBe(0);
     } finally {
@@ -1771,20 +1770,16 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('gives an EMPTY group no collapse control, and keeps its hint', async () => {
-    // Both halves — a blanket toggle passes the first and quietly hides the
-    // hint. An empty group hides nothing, and the hint is the explanation for
-    // the emptiness: exactly what a reader wants when there is nothing to list.
+  it('renders an EMPTY group no heading and no body, and keeps its 0 in the header line', async () => {
     const page = await openAgents();
     try {
       // Fleet › Blocked holds no agent in this fixture.
-      const blocked = group(page, 'blocked');
-      await expect.poll(() => blocked.count()).toBe(1);
-      expect(await blocked.locator('[data-group-toggle]').count()).toBe(0);
-      expect(await heading(page, 'blocked').textContent())
-        .toContain('an agent waits on a gate');
-      // And no "(0)" anywhere in that header.
-      expect(await heading(page, 'blocked').textContent()).not.toContain('(0)');
+      const count = page.locator('[data-summary-count="blocked"]');
+      await expect.poll(() => count.count()).toBe(1);
+      expect(await count.textContent()).toContain('0');
+      expect(await count.locator('[data-summary-link]').count()).toBe(0);
+      expect(await group(page, 'blocked').count()).toBe(0);
+      expect(await heading(page, 'blocked').count()).toBe(0);
     } finally {
       await page.close();
     }
