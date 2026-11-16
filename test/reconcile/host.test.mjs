@@ -9657,7 +9657,10 @@ const prMergedLib = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'pl
 function sourcedPrMerged(script, stubDir, extraEnv = {}) {
   const res = spawnSync('bash', ['-c', `source ${JSON.stringify(prMergedLib)}\n${script}`], {
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${stubDir}:${process.env.PATH}`, ...extraEnv },
+    // An empty budget record in the stub's own directory: the operator's record
+    // can read GraphQL at 0, and `pr-list` would then ask REST, which these
+    // stubs do not answer.
+    env: { ...process.env, PATH: `${stubDir}:${process.env.PATH}`, PLOT_BUDGET_HOME: path.join(stubDir, 'budget-home'), ...extraEnv },
   });
   return { code: res.status, stdout: res.stdout, stderr: res.stderr };
 }
