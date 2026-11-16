@@ -1869,6 +1869,26 @@ await esbuild.build({
 fs.copyFileSync(supersedeArtifact, shippedSupersede);
 fs.chmodSync(shippedSupersede, 0o755);
 
+// A story's front-matter status — the same person-only entry shape as
+// plot-supersede.mjs above, with no `.sh` launcher.
+const storyStatusArtifact = path.join(here, 'dist/plot-story-status.mjs');
+const shippedStoryStatus = path.join(here, '../../skills/plot/scripts/board/plot-story-status.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/story-status.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: storyStatusArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(storyStatusArtifact, shippedStoryStatus);
+fs.chmodSync(shippedStoryStatus, 0o755);
+
 // The released-label backfill — an operator-command entry like
 // plot-needs-design.mjs above; the reconcile sweep also calls its dry run.
 const releasedLabelsArtifact = path.join(here, 'dist/plot-released-labels.mjs');
@@ -2117,6 +2137,7 @@ const findingTicketsKb = (fs.statSync(shippedFindingTickets).size / 1024).toFixe
 const releasedLabelsKb = (fs.statSync(shippedReleasedLabels).size / 1024).toFixed(1);
 const needsDesignKb = (fs.statSync(shippedNeedsDesign).size / 1024).toFixed(1);
 const supersedeKb = (fs.statSync(shippedSupersede).size / 1024).toFixed(1);
+const storyStatusKb = (fs.statSync(shippedStoryStatus).size / 1024).toFixed(1);
 const sprintMemberKb = (fs.statSync(shippedSprintMember).size / 1024).toFixed(1);
 const claimAnswerKb = (fs.statSync(shippedClaimAnswer).size / 1024).toFixed(1);
 const reapKb = (fs.statSync(shippedReap).size / 1024).toFixed(1);
@@ -2173,6 +2194,7 @@ console.log(`Built plot-finding-tickets.mjs (${findingTicketsKb} KB) → skills/
 console.log(`Built plot-released-labels.mjs (${releasedLabelsKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-needs-design.mjs (${needsDesignKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-supersede.mjs (${supersedeKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-story-status.mjs (${storyStatusKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-sprint-member.mjs (${sprintMemberKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-claim-answer.mjs (${claimAnswerKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-reap.mjs (${reapKb} KB) → skills/plot/scripts/board/`);

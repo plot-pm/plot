@@ -225,6 +225,7 @@ describe('mayRunController', () => {
     'curl -X POST http://localhost:4000/api/loose-delete',
     'curl -X POST http://localhost:4000/api/needs-design',
     'curl -X POST http://localhost:4000/api/supersede',
+    'curl -X POST http://localhost:4000/api/story-status',
   ])('passes %s', (command) => expect(mayRunController(command)).toBe(true));
 
   it.each(['ls -la', 'git commit -m x', 'pnpm test', 'curl http://localhost:4000/api/dispatch'])('skips %s', (command) =>
@@ -248,6 +249,7 @@ describe('controllerInvocation reads plot-ask.mjs and the gated HTTP routes', ()
     ['loose-delete', 'curl -X POST http://localhost:4000/api/loose-delete'],
     ['needs-design', 'curl -X POST http://localhost:4000/api/needs-design'],
     ['supersede', 'curl -X POST http://localhost:4000/api/supersede'],
+    ['story-status', 'curl -X POST http://localhost:4000/api/story-status'],
   ])('answers %s for a POST to its route', (action, command) => expect(controllerInvocation(command)).toBe(action));
 
   it('answers restart for --request POST', () => {
@@ -341,6 +343,7 @@ describe('controllerHttpAction', () => {
     ['loose-delete', 'curl -X POST http://localhost:4000/api/loose-delete'],
     ['needs-design', 'curl -X POST http://localhost:4000/api/needs-design'],
     ['supersede', 'curl -X POST http://localhost:4000/api/supersede'],
+    ['story-status', 'curl -X POST http://localhost:4000/api/story-status'],
   ])('answers %s for a POST to its route', (action, command) => expect(controllerHttpAction(command)).toBe(action));
 
   it('answers null for the plot-ask.mjs script call, which is not an HTTP request', () => {
@@ -388,6 +391,13 @@ describe('finalControllerRefusal', () => {
     const text = finalControllerRefusal('supersede', dir);
     expect(text).toContain('POST /api/supersede');
     expect(text).toContain(`node ${dir}/board/plot-supersede.mjs --by <successor> <slug>`);
+    expect(text).not.toContain('plot-state-receipt.sh');
+  });
+
+  it('names the board button and the story-status bundle for story-status, with no receipt bypass', () => {
+    const text = finalControllerRefusal('story-status', dir);
+    expect(text).toContain('POST /api/story-status');
+    expect(text).toContain(`node ${dir}/board/plot-story-status.mjs <slug> <status>`);
     expect(text).not.toContain('plot-state-receipt.sh');
   });
 

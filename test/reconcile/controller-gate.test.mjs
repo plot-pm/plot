@@ -973,6 +973,7 @@ test('controller gate: a POST to /api/loose-delete is refused, names the bundle,
 for (const [route, bundle, body] of [
   ['needs-design', /plot-needs-design\.mjs <slug>/, '{"slug":"p"}'],
   ['supersede', /plot-supersede\.mjs --by <successor> <slug>/, '{"slug":"p","by":"q"}'],
+  ['story-status', /plot-story-status\.mjs <slug> <status>/, '{"slug":"p","status":"active"}'],
 ]) {
   test(`controller gate: a POST to /api/${route} is refused, names the bundle, and offers no receipt escape`, () => {
     const r = run(repo(), `curl -X POST http://localhost:4000/api/${route} -d '${body}'`);

@@ -194,6 +194,7 @@ describe('release-approve and the HTTP routes refuse with no receipt escape', ()
     ['loose-delete', 'curl -X POST http://localhost:4000/api/loose-delete'],
     ['needs-design', 'curl -X POST http://localhost:4000/api/needs-design'],
     ['supersede', 'curl -X POST http://localhost:4000/api/supersede'],
+    ['story-status', 'curl -X POST http://localhost:4000/api/story-status'],
     // The same POST written the other ways an agent writes it. Each of these
     // passed the gate while only the bare `-X POST` form was read.
     ['a quoted URL', 'curl -X POST "http://localhost:4000/api/release"'],
