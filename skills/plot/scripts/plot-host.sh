@@ -2586,6 +2586,19 @@ gh_pr_list_routed() {
   jq -cs --arg st "$state" --arg s "$since" --argjson n "$n" "$sel"'[.[][] | select(keep)] | sort_by(-.number) | .[:$n] | map({number, title, state: (if .merged_at then "MERGED" else (.state | ascii_upcase) end), headRefName: .head.ref, isDraft: (.draft // false), url: .html_url, updatedAt: .updated_at, author: {login: (.user.login // "")}, headRefOid: .head.sha, mergedAt: .merged_at})' <<<"$pages"
 }
 
+# THE ARGUMENTS OF `pr-merged`, `pr-merge-commit`, `pr-merge-dest` and
+# `pr-merged-heads`: a branch, then `--repo <owner/repo>` at most. Sets `ref` and
+# `repo_args`; a missing branch or any other argument ends the script.
+op_branch_args() {
+  ref="${1:?$op needs a branch}"; shift; repo_args=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --repo) repo_args=(-R "${2:?}"); shift 2 ;;
+      *) die "$op: unknown arg $1" ;;
+    esac
+  done
+}
+
 # `owner/repo` from the `origin` URL, with no host call. An `ssh://` URL may carry
 # a port after the host, and an scp-style remote splits host and path at its first
 # colon. Prints nothing and exits 1 where the URL names no `owner/repo`.
@@ -4242,13 +4255,7 @@ case "$op" in
   # deciding whether to remove something. Exit 3 is still reserved for the call
   # itself failing in a way this adapter does not recognise as a miss.
   pr-merged)
-    ref="${1:?pr-merged needs a branch}"; shift || true; repo_args=()
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        --repo) repo_args=(-R "${2:?}"); shift 2 ;;
-        *) die "pr-merged: unknown arg $1" ;;
-      esac
-    done
+    op_branch_args "$@"
     # NO REMOTE, NO PR: no repository holds one, so nothing merged, whatever gh's auth says.
     if [ ${#repo_args[@]} -eq 0 ] && [ -z "$(git remote 2>/dev/null)" ]; then echo "not-merged"; else
       if [ "$be" = "github" ]; then
@@ -4315,13 +4322,7 @@ case "$op" in
     # `pr_list_report_truncation`. Bitbucket's arm already pages in full via
     # `_bb_paged_walk` (#2484); its `mergedAt` is `updated_on` as in `pr-list`,
     # since the endpoint carries no real merge timestamp (#2202).
-    ref="${1:?$op needs a branch}"; shift || true; repo_args=()
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        --repo) repo_args=(-R "${2:?}"); shift 2 ;;
-        *) die "$op: unknown arg $1" ;;
-      esac
-    done
+    op_branch_args "$@"
     if [ "$op" = pr-merge-dest ]; then pick='.[] | [.n, .b, .s, .t] | @tsv'; else pick='first.s // empty'; fi
     if [ "$be" = "github" ]; then
       limit=100
@@ -4373,13 +4374,7 @@ case "$op" in
     # A FAILURE WITH NO MESSAGE IS A FAILURE HERE, unlike `pr-state`: an empty
     # answer makes the caller fall back to a patch-id reading, so silence must
     # not stand in for *no merged head*. Only a recognised lookup miss is empty.
-    ref="${1:?pr-merged-heads needs a branch}"; shift || true; repo_args=()
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        --repo) repo_args=(-R "${2:?}"); shift 2 ;;
-        *) die "pr-merged-heads: unknown arg $1" ;;
-      esac
-    done
+    op_branch_args "$@"
     if [ "$be" = "github" ]; then
       if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json mergedAt,headRefOid 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
