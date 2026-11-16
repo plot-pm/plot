@@ -11,7 +11,7 @@
 - **Story:** delivery-tab-reads-at-a-glance
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -130,11 +130,22 @@ Depends on plan 1, `delivery-tab-header-and-my-sprint`, for the section-header p
 - [x] [Scope] Changelog line 4 and Done When line 4 describe loose-branch Release and Delete, which ship today. Resolved: both now name only the closed PR, and Done When has lines for markers, columns, header counts and the Mine change.
 - [x] [Technical] "Rebuild the board artifact with each slice" conflicts with `check-no-bundle-diff.sh`; the story link resolves to no file. Resolved: the rebuild is a local test only; the story is on `main` and the link resolves once this branch merges.
 - [ ] [UX] The design's You header names no Unblock count, while its rule says a group's 0 count says it is empty. This plan adds "<n> to clean up", as the to-do header has it. Question for Jan Wloka: keep that count, or leave Unblock uncounted in the You header.
+- [ ] [Domain] Round 2, held by all four jurors (amend): "You places an item only when `ownership === 'mine'`" (Approach, *You ignores Mine*) empties Unblock. A loose branch with no PR reads `ownership` `'unknown'` (`ownership.ts:287-288`) and so does every PR on Bitbucket (`ownership.ts:103-106`), so loose branches would fall to Work items › Queued, which the design (spec:116) and plan 3 forbid, and the release row (authored by the changesets bot) would leave Blocks delivery before plan 1's release card removes it. This reopens the [x] "You ignores Mine" point above. Question for Jan Wloka: should You admit `!== 'theirs'`, or place regardless of `input.mine` and keep each reason's own ownership test? A Done When line must then cover a loose branch with unknown ownership in every Mine mode.
+- [ ] [Domain] Round 2, plan 1 reads You: its **Blocked** slice state is "the slice sits under You › Blocks delivery" and its release bar counts every team member's sprints. If You holds only the reader's items, the blocked count differs per reader. Question for Jan Wloka: is Blocked reader-relative, or does plan 1 read a reader-independent set?
+- [ ] [Domain] Round 2: a closed PR under Unblock gets **Delete**, but `loose-delete` also refuses `held` (a desk, manifest or running worker), and the plan's condition names only `named` false. Which facts must a closed PR carry to place as loose (`held`, `fixing`), and does Delete show only when `held` is false? Release refuses only an open or merged PR (`releaseClaim`), so the stale comment at `AgentList.tsx:1165` is not the rule.
+- [ ] [Technical] Round 2: the plan says `delivery-readings.ts:128` drops a closed PR before placement. Line 128 is `hasOpenPr` and only sets `stage`; a closed PR places in Queued today. What keeps it out of Unblock is the server's fixer read, which skips closed PRs (`fleet.ts:6626`), so `looseOf` returns `undefined` (`delivery-readings.ts:155-157`). The groups slice must name the fixer-read gate it changes.
+- [ ] [Domain] Round 2: Release on a closed-PR Unblock row may always refuse, because `plot-dispatch.sh:1799` refuses a release when the origin branch carries commits that change files, and a branch that carried a PR does. Done When line 79 passes with a button that only calls its controller. Does the row show Release only when the controller would accept it?
+- [ ] [Technical] Round 2: the phase strip cites `/api/stories`, which does not exist. The Discovery tab reads `Board.storyLanes` (`schema.ts:1577`) and `ticketLanes` (`rules/ticket-lanes.ts:185`). The 2026-11-08 design takes phase names from the `Workflow phases` config key (`rules/workflow-phases.ts`), and this repo declares `Development`, not "Handed to fleet". Does the strip use the config map or the three fixed labels, and does it add a fetch per poll?
+- [ ] [Technical] Round 2: `planSliceCount` is a field of pulse slices (`schema.ts:2310`, `rules/pulse.ts:68`). A Draft plan with no rows carries no slice count, and `DraftPlanSchema` (`schema.ts:4315-4333`) has none. Done When line 80 tests exactly that case. Name the source (`Card.sliceSummary.slices`, `schema.ts:281-290`, or a new fact). "Slice 2 only renders" is also false: it adds a plan-parser fact and a contract field (`schema.ts:2310`, `pulse.ts:68`, `fleet.ts:4265`); name the file the parser goes into, because shell additions cost lines under `check-shell-lines.sh`.
+- [ ] [Scope] Round 2: Done When line 1 holds today, because the Status cell already shows short words (`delivery-row-form.ts:107-120`). The sentence that repeats is the reason line under each row (`AgentList.tsx:1158-1163`, `REASON_WORDS` in `delivery-view.ts:44-56`), which the plan never names. A builder can pass line 1 and leave the measured repetition.
+- [ ] [Scope] Round 2: Done When lines 74, 79 and 82 each split across two slices, line 83 ("No ticket row shows under You") is plan 6's deliverable, and both slices claim Release · Delete on closed-PR rows (guard at `AgentList.tsx:1167`). The changelog does not mention slice 2's column change. Assign each line and the guard change to one slice.
+- [ ] [Scope] Round 2: slices 2 and 3 wait only on slice 1 and both edit the You header and rows in `AgentList.tsx`, the collision round 1 fixed between slices 1 and 2. Slice 1 is the largest and sits on the critical path for plans 1, 3 and 5, though downstream slices need only its placement rule and markers. Consider moving the closed-PR reading and header counts to a later slice.
+- [ ] [Scope] Round 2, cosmetic: cited lines drifted: `holdersOf` starts at `delivery-row-form.ts:378` (plan: 381), the draft exception is at `delivery-view.ts:246` (plan: 248).
 
 <!--
 CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "engine": "panel",
   "questionHistory": [],
   "deferredItems": [],
