@@ -148,37 +148,37 @@ Each item stands alone and turns one Phase 1 assertion green.
 - ✅ While fleetd's heartbeat is fresh, the board reads the snapshot from the channel, derives its verdicts with the domain rules, and starts nothing. The agent registry, the supervisor reading and plan content travel in the snapshot; today the board reads them itself every beat (`fleet.ts:2836-2875`). Delivered by `board-reads-the-channel`: *View from snapshot* (#3289), *Serve from snapshot* (#3291), *Census zero* (#3299); repairs #3301 and #3303. S3 reads 0. `GET /api/board` still reads plans from the ref and starts about 5 `git` processes per request; S3 sends none (Open Question 2 of that plan).
 - ✅ With no fleetd and a visible tab, the board keeps its own reader, at the cost Phase 1 measures. When the last tab leaves, it stops that reader. Delivered by `no-tab-no-pulse` (#3251, #3260); *Serve from snapshot* (#3291) holds it with a regression row.
 
-### Phase 5: The largest sources ⏸️
+### Phase 5: The largest sources ✅
 
 Order inside the phase follows the Phase 1 measurement: largest share first.
 
-- ⏸️ Refs, `packed-refs`, worktree `HEAD`s and worker records read from files. Loose-over-packed precedence, peeled tags, symbolic refs and per-worktree refs are git's rules, so the file reader is a declared duplicate with a corpus test against git, and it falls back to git on reftable.
-- ⏸️ One `git cat-file --batch` per repository.
-- ⏸️ The per-desk `plot-worker-state.sh` probes become domain functions over the snapshot, through the `Processes` port, the board's `registry.ts` path included. Each replaced function gets a corpus test against `plot_worker_state`. `plot_worker_activity` runs `sleep 0.4` per running desk per probe (`plot-worker-state.sh:1101-1110`) under fleetd; the activity reading moves to file events on `.plot-worker.log`.
-- ⏸️ The GitHub reads in-process: open PRs, the merged and `--since` deltas, the issue read and the default-branch re-ask. "Differs" covers every field a rule reads. A new gate holds the second transport: an HTTPS request to a host only from `packages/domain/src/adapters/host/`, because `check-host-cli-callers.sh` greps only `*.sh` for `gh`/`bb`. Reads and writes share the `Budget` port. Each rule copied out of `plot-host.sh` (6,050 lines) is a declared duplicate with a corpus test. The connector refreshes its token on expiry.
-- ⏸️ Until Phase 6, the AgentMonitor still calls `plot-host.sh pr-state <branch>` per desk every 300 s (`plot-agent-monitor.sh:257-264`); the gate counts it.
+- ✅ Refs, `packed-refs`, worktree `HEAD`s and worker records read from files. Loose-over-packed precedence, peeled tags, symbolic refs and per-worktree refs are git's rules, so the file reader is a declared duplicate with a corpus test against git, and it falls back to git on reftable. Delivered by `refs-from-files` (#3316, #3326).
+- ✅ One `git cat-file --batch` per repository. Delivered by `one-cat-file-batch` (#3334, #3341).
+- ✅ The per-desk `plot-worker-state.sh` probes become domain functions over the snapshot, through the `Processes` port, the board's `registry.ts` path included. Each replaced function gets a corpus test against `plot_worker_state`. `plot_worker_activity` runs `sleep 0.4` per running desk per probe (`plot-worker-state.sh:1101-1110`) under fleetd; the activity reading moves to file events on `.plot-worker.log`. Delivered by `desk-probes-in-domain` (#3319, #3324, #3337, #3346).
+- ✅ The GitHub reads in-process: open PRs, the merged and `--since` deltas, the issue read and the default-branch re-ask. "Differs" covers every field a rule reads. A new gate holds the second transport: an HTTPS request to a host only from `packages/domain/src/adapters/host/`, because `check-host-cli-callers.sh` greps only `*.sh` for `gh`/`bb`. Reads and writes share the `Budget` port. Each rule copied out of `plot-host.sh` (6,050 lines) is a declared duplicate with a corpus test. The connector refreshes its token on expiry. Delivered by `github-reads-in-process` (#3338, #3347, #3371, #3375, #3377).
+- ✅ Until Phase 6, the AgentMonitor still calls `plot-host.sh pr-state <branch>` per desk every 300 s (`plot-agent-monitor.sh:257-264`); the gate counts it. Ended by `liveness-token`, slice *Monitor in fleetd* (#3365).
 
-### Phase 6: Worker liveness without a process ⏸️
+### Phase 6: Worker liveness without a process ✅
 
 **The problem.** fleetd must know when a worker dies, to restart its slice, release its claim or reap its desk. The wrapper writes an exit record on a normal end, but a wrapper killed by `SIGKILL`, OOM or a reboot writes nothing, and its agent can outlive it. Today the start-time check reads `ps -o lstart`, and the same pid-start question decides the reader election (`rules/reader-election.ts`, through `process-probe-system.ts`), the implement lock (`rules/implement-lock.ts`) and the continue lock (`rules/continue-lock.ts`). On 2026-11-05 the monitors' `sleep` calls were the largest single item in the census (315 in 20 s); Phase 2 removes that share.
 
-- ⏸️ First step: the worker wrapper moves from the inline `nohup sh -c` string to a node bundle started through `adapters/detached/detached-node.ts`. macOS `sh` has no `flock` and cannot listen on a socket, and adding the contract to `plot-dispatch.sh` would grow the shell that `check-shell-lines.sh` ratchets.
-- ⏸️ The liveness token is a descriptor the agent's process group inherits, for example the write end of a named FIFO. fleetd opens the read end with `O_NONBLOCK`; end-of-file means no holder is left. A socket or lock held by the wrapper alone would read "gone" while the agent lives, and a restart would then put two writers on one branch. The plan tests pid reuse and a killed wrapper with a live agent.
-- ⏸️ The reader election, the implement lock and the continue lock use the same kind of token, or the plan names each one it leaves on `ps` and why.
-- ⏸️ The per-desk `plot-agent-monitor.sh` loops end; what they watch moves into fleetd's triggers. Their final pass after an agent exits (`plot-agent-monitor.sh:552-569`) moves to fleetd's startup full read and desk-root watch.
+- ✅ First step: the worker wrapper moves from the inline `nohup sh -c` string to a node bundle started through `adapters/detached/detached-node.ts`. macOS `sh` has no `flock` and cannot listen on a socket, and adding the contract to `plot-dispatch.sh` would grow the shell that `check-shell-lines.sh` ratchets. Delivered by `node-worker-wrapper` (#3325, #3335, #3356).
+- ✅ The liveness token is a descriptor the agent's process group inherits, for example the write end of a named FIFO. fleetd opens the read end with `O_NONBLOCK`; end-of-file means no holder is left. A socket or lock held by the wrapper alone would read "gone" while the agent lives, and a restart would then put two writers on one branch. The plan tests pid reuse and a killed wrapper with a live agent. Delivered by `liveness-token`, slice *Worker token* (#3361).
+- ✅ The reader election, the implement lock and the continue lock use the same kind of token, or the plan names each one it leaves on `ps` and why. Delivered by `liveness-token`, slice *Locks* (#3364).
+- ✅ The per-desk `plot-agent-monitor.sh` loops end; what they watch moves into fleetd's triggers. Their final pass after an agent exits (`plot-agent-monitor.sh:552-569`) moves to fleetd's startup full read and desk-root watch. Delivered by `liveness-token`, slice *Monitor in fleetd* (#3365).
 
-### Phase 7: The other connectors in-process ⏸️
+### Phase 7: The other connectors in-process 🟡
 
 **The problem.** Plot also reads Bitbucket (`bb`), Jenkins (`jen`) and a separately configured issue tracker such as Jira (`issue-refresh.ts`). Each read starts a CLI process today, and `readBitbucketListing`'s refused-delta retry starts one `pr-list --branch` per tracked branch.
 
-- ⏸️ One plan per connector moves its reads into the connector adapter over Node's HTTPS client. Each connector keeps its own budget and rate-limit bookkeeping and refreshes its own credentials on expiry. Order: by use in the operator's repositories; Bitbucket and Jira first for ewz-kus-portal. The Bitbucket baseline from Phase 1 is the number each plan moves.
+- 🟡 One plan per connector moves its reads into the connector adapter over Node's HTTPS client. Each connector keeps its own budget and rate-limit bookkeeping and refreshes its own credentials on expiry. Order: by use in the operator's repositories; Bitbucket and Jira first for ewz-kus-portal. The Bitbucket baseline from Phase 1 is the number each plan moves. Bitbucket and Jira: delivered by `bitbucket-and-jira-read-in-process`. Jenkins (`jen`) has no plan yet.
 
-### Phase 8: Triggers replace the tick ⏸️
+### Phase 8: Triggers replace the tick ✅
 
-- ⏸️ The watches arm, and fleetd waits on the triggers in *Target Shape* and re-reads only what a trigger names. The `git fetch --prune` on every 5 s scan (`fleet-scan.ts:32`, `:713`) ends; a fetch runs only on a host change or a safety-net pass.
-- ⏸️ fleetd's own `git` probes for the fleet-size decision (5 `git rev-parse --git-dir` samples per measurement, `machine-system.ts:9`, `registryd-main.ts:633`) run on a dispatch decision only.
-- ⏸️ Deadline timers re-check against the wall clock on wake and on a clock jump.
-- ⏸️ The 10-minute safety net runs a full read and logs every difference the triggers missed.
+- ✅ The watches arm, and fleetd waits on the triggers in *Target Shape* and re-reads only what a trigger names. The `git fetch --prune` on every 5 s scan (`fleet-scan.ts:32`, `:713`) ends; a fetch runs only on a host change or a safety-net pass. Delivered by `triggers-replace-the-tick`, slices *Watches*, *Quiet beats* and *Scan*.
+- ✅ fleetd's own `git` probes for the fleet-size decision (5 `git rev-parse --git-dir` samples per measurement, `machine-system.ts:9`, `registryd-main.ts:633`) run on a dispatch decision only. Delivered by `triggers-replace-the-tick`, slice *Fleet size*.
+- ✅ Deadline timers re-check against the wall clock on wake and on a clock jump. Delivered by `triggers-replace-the-tick`, slice *Deadlines*.
+- ✅ The 10-minute safety net runs a full read and logs every difference the triggers missed. Delivered by `triggers-replace-the-tick`, slice *Safety net*.
 
 ## Measures
 
@@ -342,4 +342,5 @@ The integration branch `sprint/idle-and-supersede` carried #3446, #3449–#3452,
 - On this machine, a 60 s `ps` sample at 5 Hz saw 66 processes that fleetd started, about 1.1 per second. The sample misses short processes, so it is a lower bound and does not compare with the 139 to 188 per second measured on 2026-11-15, which counted every start.
 - The largest remaining source was 12 `plot-host.sh pr-state` calls per minute for the branch of a closed repair episode. `repairStartTick` read the PR state, the rerun's CI runs and a containment answer before `redMainStep`, which answers `none` for a `done` or `exhausted` record. #3463 returns before those reads.
 - Other sources in the same sample: 7 `plot-plan-meta.sh` and 4 `git log origin/main … docs/plans` per minute. Their cause is not read yet.
-- Open: measure the idle rate again after #3463 is on `main`.
+- Phases 5, 6 and 8 are ✅. Phase 7 is 🟡: Jenkins reads have no plan.
+- Open: measure the idle rate again after #3463 is on `main`, with `main` quiet, and record a whole-tree figure.
