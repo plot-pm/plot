@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { placeDelivery, type WorkItemReading } from '../src/rules/delivery-placement.js';
-import { ROW_COLUMNS } from '../src/rules/delivery-row-form.js';
+import { placeDelivery, type ItemPlacement, type WorkItemReading } from '../src/rules/delivery-placement.js';
+import { ROW_COLUMNS, type ItemRowFacts } from '../src/rules/delivery-row-form.js';
 import {
   WORK_GROUP_COLUMN,
   WORK_ITEM_COLUMNS,
@@ -9,8 +9,8 @@ import {
   workItemCells,
 } from '../src/rules/delivery-work-columns.js';
 
-const slice = (group: 'at-a-gate' | 'being-built' | 'queued') =>
-  ({ id: `slice:${group}`, kind: 'slice', section: 'work-items', group, reason: null, agents: [] }) as const;
+const slice = (group: 'at-a-gate' | 'being-built' | 'queued'): ItemPlacement =>
+  ({ id: `slice:${group}`, kind: 'slice', section: 'work-items', group, reason: null, agents: [] });
 
 describe('the Work items columns', () => {
   it('name one column per group and none of them is status', () => {
@@ -25,7 +25,7 @@ describe('the Work items columns', () => {
   });
 
   it('give three groups three column names and three kinds of value', () => {
-    const facts = { plan: 'p', branch: 'feature/x', pr: 4, prReading: { ci: 'passed', review: 'pending' }, waitsOn: 'first' } as const;
+    const facts: ItemRowFacts = { plan: 'p', branch: 'feature/x', pr: 4, prReading: { ci: 'passed', review: 'pending' }, waitsOn: 'first' };
     const gate = workItemCells(slice('at-a-gate'), facts)!;
     const built = workItemCells(slice('being-built'), facts)!;
     const queued = workItemCells(slice('queued'), facts)!;
