@@ -117,6 +117,8 @@ import { rowKey } from '../lib/agent-rows/row-identity.js';
 // their marks and their menus are declared next door.
 import { splitTicketRows, waitingView } from '../lib/agent-rows/waiting-view.js';
 import { TicketsSectionView } from './TicketsSection.js';
+import { RoleChip } from './RoleChip.js';
+import { RoleRunRow } from './RoleRunRow.js';
 import { HeaderRow, IssueRowView, PlanRow, Row, RegistryRow, SliceRow, type AgentListProps } from '../lib/agent-rows/rows.js';
 import { workingAgentRows, draftPlanRows } from '../lib/agent-rows/working-agents.js';
 import { DraftPlanRowView } from '../lib/agent-rows/draft-plan-row.js';
@@ -1088,6 +1090,7 @@ export function AgentList({
           releases: sprintReleases(activeSprints, selectedSprints),
           sprints: (fleet.sprints ?? []).map((s) => ({ release: s.release, started: s.start ?? '' })),
           releaseTickets: fleet.releaseTickets,
+          roleRuns: fleet.roleRuns ?? [],
         });
         const placement = placeDelivery(mapping.readings, mapping.input);
         const view = placeMapping(mapping, fleet.slices);
@@ -1341,6 +1344,14 @@ export function AgentList({
               planIndex={planIndex}
               by={byCell(forms.agents.get(agent.placement.id))}
               details={detailLines(agent.row === null ? [] : [agent.row], agent.entry)}
+              kindChip={<RoleChip role={agent.placement.role} />}
+            />
+          ) : mapping.runsById[agent.placement.id] !== undefined ? (
+            <RoleRunRow
+              key={agent.placement.id}
+              run={mapping.runsById[agent.placement.id]!}
+              label={agent.label}
+              by={byCell(forms.agents.get(agent.placement.id))}
             />
           ) : null,
           linkLine(`links-${agent.anchor}`, agent.links, '→ acts on:'),

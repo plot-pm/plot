@@ -2461,7 +2461,10 @@ export function RegistryRow({
   planIndex,
   by,
   details,
+  kindChip,
 }: {
+  /** The role chip for the kind slot. */
+  kindChip?: ReactNode;
   /** The BY cell: who acts on the item. */
   by?: ReactNode;
   /** The details popover's lines. */
@@ -2657,6 +2660,7 @@ export function RegistryRow({
       <TupleRowView
         by={by}
         details={details}
+        kindChip={kindChip}
         tuple={tuple}
         onOpenPlan={onOpenPlan}
         // THE NAME OPENS THE PANEL — the session has no address, so the name is

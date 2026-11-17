@@ -97,6 +97,9 @@ import {
 // names. `slotsFile` is seamed by `PLOT_BUDGET_HOME`, which is how a test moves
 // it, exactly as `budgetFile` is.
 import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
+import { readReviewRuns } from '@plot-pm/domain/adapters/review-start/review-start-node';
+import { listFixerAttempts } from '@plot-pm/domain/adapters/fixer-attempts/fixer-attempts-file';
+import { roleRuns, type RoleRun } from '@plot-pm/domain/rules/agent-roles';
 import { fixerAttemptsFile } from '@plot-pm/domain/adapters/fixer-attempts/fixer-attempts-file';
 import { fixerInFlight } from '@plot-pm/domain/rules/fixer-attempts';
 import type { PortResult } from '@plot-pm/domain';
@@ -8462,6 +8465,32 @@ export const withBranchTips = async (
  * `repoRoot` stays a parameter even while the UI shows one repo, so the second
  * one is an addition rather than a rebuild.
  */
+/** Whether a pid answers; `EPERM` means it does, to another user. */
+const pidAnswers = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+};
+
+/**
+ * The reviewer, fixer, design and verify agents, each read once from its own state file.
+ *
+ * @param repoRoot - the repository the fleet serves.
+ * @param now - epoch milliseconds.
+ * @returns the runs; a source that cannot be read adds none and leaves the others whole.
+ */
+export const readRoleRuns = async (repoRoot: string, now: number): Promise<RoleRun[]> =>
+  roleRuns({
+    reviews: readReviewRuns(repoRoot, pidAnswers),
+    fixers: await listFixerAttempts(repoRoot),
+    design: readDesignStatus(repoRoot),
+    verify: readVerifyStatus(repoRoot),
+    now,
+  });
+
 export async function buildFleet(
   opts: BuildBoardOptions,
   quietMinutes = DEFAULT_QUIET_MINUTES,
@@ -8812,6 +8841,8 @@ export async function buildFleet(
     verification: verificationPayload(readVerifyStatus(opts.repoRoot)),
     // THE SPEC PASS'S OWN WRITE, read the same way beside `verification`.
     design: designPayload(readDesignStatus(opts.repoRoot)),
+    // THE ROLE RUNS: reviewer, fixer, design and verify agents, each from its own state file.
+    roleRuns: await readRoleRuns(opts.repoRoot, Date.now()),
   };
 }
 

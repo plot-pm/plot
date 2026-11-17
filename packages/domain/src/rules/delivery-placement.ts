@@ -88,7 +88,7 @@ export interface LooseReading {
   fixing?: boolean;
 }
 
-export type AgentRole = 'loop' | 'fixer' | 'reviewer' | 'approver' | 'idea' | 'brief';
+export type AgentRole = 'loop' | 'fixer' | 'reviewer' | 'approver' | 'idea' | 'brief' | 'design' | 'verify';
 
 /** What was measured of one agent. */
 export interface AgentPlacementReading {
@@ -100,6 +100,8 @@ export interface AgentPlacementReading {
   actsOn: string | null;
   /** The gate it waits on, or `null`. */
   blockedOn: DeliveryGate | null;
+  /** Epoch milliseconds of the start; `null` where the source carries none; absent where nobody read it. */
+  startedAt?: number | null;
 }
 
 export interface DeliveryReadings {

@@ -570,6 +570,7 @@ export function TupleRowView({
   tracks = TUPLE_TRACKS,
   by,
   details,
+  kindChip,
 }: {
   tuple: TupleRowData;
   onOpenPlan?: (planFile: string) => boolean;
@@ -676,6 +677,8 @@ export function TupleRowView({
   by?: ReactNode;
   /** The details popover's lines — pids, desk paths, extra branches. No popover where there are none. */
   details?: readonly string[];
+  /** The chip that stands in slot 2 for the kind word, where the kind has a role to show. */
+  kindChip?: ReactNode;
 }) {
   return (
     <li
@@ -742,7 +745,7 @@ export function TupleRowView({
       >
         <span className="sr-only sm:hidden">Kind: </span>
         <span data-tuple-kind-label={tuple.kind} data-kind={tuple.kind}>
-          {tuple.kindLabel}
+          {kindChip ?? tuple.kindLabel}
         </span>
       </span>
       {/* SLOT 3 — THE ITEM'S OWN NAME: what the reader is deciding about. A PR

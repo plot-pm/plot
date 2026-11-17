@@ -82,6 +82,21 @@ export const liveReviewRuns = (
 };
 
 /**
+ * Every review run the file records, each with whether its pid answers.
+ *
+ * @param repoRoot - the repository the fleet serves.
+ * @param pidAlive - whether a pid answers.
+ * @returns the entries; `null` where the file cannot be read.
+ */
+export const readReviewRuns = (
+  repoRoot: string,
+  pidAlive: (pid: number) => boolean,
+): { entry: ReviewRunEntry; pidAlive: boolean }[] | null => {
+  const entries = readList<ReviewRunEntry>(reviewInFlightPath(repoRoot));
+  return entries === null ? null : entries.map((entry) => ({ entry, pidAlive: entry.pid > 0 && pidAlive(entry.pid) }));
+};
+
+/**
  * The start record of every head.
  *
  * @param repoRoot - the repository the fleet serves.

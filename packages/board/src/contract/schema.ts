@@ -4390,6 +4390,23 @@ export const DesignStatusSchema = z.object({
 });
 export type DesignStatus = z.infer<typeof DesignStatusSchema>;
 
+/**
+ * One reviewer, fixer, design or verify agent the server read from a state file
+ * (`.plot/state/review-in-flight.json`, `fixer-attempts/<pr>.json`,
+ * `auto-design-in-flight.json`, `auto-verify-in-flight.json`).
+ */
+export const RoleRunSchema = z.object({
+  id: z.string(),
+  role: z.enum(['reviewer', 'fixer', 'design', 'verify']),
+  /** The PR the run acts on; absent for a design or verify run. */
+  pr: z.number().optional(),
+  /** The plan the run acts on; absent for a reviewer or fixer run. */
+  plan: z.string().optional(),
+  /** Epoch milliseconds; `null` where the source carries no start. */
+  startedAt: z.number().nullable(),
+});
+export type RoleRunPayload = z.infer<typeof RoleRunSchema>;
+
 export const FleetShape = z.object({
   generatedAt: z.string(),
   /** Seconds since the cached scan completed — the tab shows this. */
@@ -4942,6 +4959,12 @@ export const FleetShape = z.object({
    * renders no row from it yet.
    */
   design: DesignStatusSchema.nullable().default(null),
+  /**
+   * The reviewer, fixer, design and verify agents, each read from its own state
+   * file on the render clock. A source that cannot be read adds none. Absent from
+   * an older server, so the client reads `?? []`.
+   */
+  roleRuns: z.array(RoleRunSchema).default([]),
   /**
    * Where the hub's copy of fleetd's snapshot stands. `mismatch` names both
    * protocol versions, with `theirs` absent where an older fleetd refused the
