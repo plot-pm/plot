@@ -811,7 +811,7 @@ export function TupleRowView({
         data-tuple-status
         className="flex min-w-0 items-baseline gap-2 truncate text-xs text-slate-500 dark:text-slate-400"
       >
-        {        {tuple.status && (
+        {tuple.status && (
           // COLOUR REINFORCES THE WORD, never replaces it — see `statusTone`,
           // whose palette this restores from the `PrCell` the collapse deleted.
           <span

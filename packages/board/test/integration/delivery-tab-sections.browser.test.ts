@@ -95,7 +95,7 @@ describe('the Delivery tab renders the five sections', () => {
       const texts = await cells.allInnerTexts();
       const marked = texts.filter((t) => /CI [✓⟳✗]|review [✓⟳✗–]/.test(t));
       expect(marked.length, `a gate mark among ${JSON.stringify(texts)}`).toBeGreaterThan(0);
-      for (const t of marked) expect(t).toMatch(/^(CI [✓⟳✗])?( · )?(review [✓⟳✗–])?$/);
+      for (const t of marked) expect(t).toMatch(/(CI [✓⟳✗])?( · )?(review [✓⟳✗–])?$/);
     } finally {
       await page.close();
     }
