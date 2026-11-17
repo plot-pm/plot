@@ -12,6 +12,7 @@ import {
   type SlicePrStep,
 } from '@plot-pm/domain';
 import {
+  baseBranchFile,
   buildShell,
   defaultBranchFile,
   mergerAppHeld,
@@ -198,7 +199,10 @@ const repairReading = async (
  */
 export const mergeTick = async (
   rows: readonly PrIndexRow[],
-  readings: Omit<SlicePrNextReadings, 'row' | 'reviewRun' | 'reviewStarts'>,
+  readings: Omit<SlicePrNextReadings, 'row' | 'reviewRun' | 'reviewStarts' | 'baseReading'> & {
+    /** The reading kept for each non-default base among the rows, keyed by base name. */
+    baseReadings?: ReadonlyMap<string, DefaultBranchReading | null>;
+  },
   ports: MergePorts,
   refused: MergeRefusals,
   repoRoot: string,
@@ -210,10 +214,12 @@ export const mergeTick = async (
 ): Promise<MergeTickResult> => {
   const repairMerge = readings.repairMerge ?? (await repairReading(rows, readings.defaultBranch, ports));
   const live = liveReviewRuns(repoRoot, pidAlive, readings.now);
+  const { baseReadings, ...shared } = readings;
   const rowSteps = rows.map((row) => {
     const run = live?.find((e) => e.pr === row.number) ?? null;
     const step = slicePrNext({
-      ...readings,
+      ...shared,
+      baseReading: baseReadings?.get(row.base ?? '') ?? null,
       ...(repairMerge === undefined ? {} : { repairMerge }),
       row,
       reviewRun: run === null ? null : { head: run.head, pid: run.pid, startedAt: run.startedAt, live: true },
@@ -313,6 +319,7 @@ export const runAutoMergePass = async (
     host,
     scripts,
     defaultBranch: defaultBranches,
+    baseBranch: (base) => baseBranchFile(opts.repoRoot, base),
     refs: { ...refs, remoteSha: remote.remoteSha },
     checksWaitMs,
     now: () => now,
@@ -323,9 +330,17 @@ export const runAutoMergePass = async (
     checks: checkNamesOf(readConfig(opts, 'Default branch checks', '')),
     mergeChecks: checkNamesOf(readConfig(opts, 'Merge checks', '')),
   };
+  const baseReadings = new Map<string, DefaultBranchReading | null>();
+  for (const base of new Set(rows.map((row) => row.base ?? ''))) {
+    if (base === '' || base === defaultBranch.branch) continue;
+    const read = await baseBranchFile(opts.repoRoot, base).read();
+    baseReadings.set(base, read.ok ? read.value : null);
+  }
   return mergeTick(
     rows,
     {
+      defaultBranchName: defaultBranch.branch,
+      baseReadings,
       newestMerged: merged[0] === undefined ? null : { mergedAt: merged[0] },
       scope,
       verdict: { read: 'absent' },

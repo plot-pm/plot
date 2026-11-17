@@ -1,7 +1,7 @@
 import type { DefaultBranchReading } from '../entities/default-branch.js';
 import type { PrIndexRow } from '../entities/pr-index.js';
 import type { HostBackend } from '../ports/host.js';
-import { defaultBranchAgeMs } from './default-branch.js';
+import { baseBranchRed, defaultBranchAgeMs, holdsApply } from './default-branch.js';
 import { mergeIdentity, type MergerAppReading } from './merge-identity.js';
 import { repairMergeVerdict, repairNamesPr, type RepairMergeReading } from './repair-pr.js';
 import type { DeskDeadAnswer } from './desk-dead.js';
@@ -70,6 +70,10 @@ export interface SlicePrNextReadings {
   readonly reviewStarts: Pick<ReviewStart, 'head' | 'count' | 'lastAt'> | null;
   readonly verdict: VerdictReading;
   readonly defaultBranch: DefaultBranchReading | null;
+  /** The default branch's name; absent keeps the default-branch holds on every PR (see {@link holdsApply}). */
+  readonly defaultBranchName?: string;
+  /** The reading kept for this row's base branch, where that is not the default branch; absent reads as no reading. */
+  readonly baseReading?: DefaultBranchReading | null;
   readonly desk: DeskDeadAnswer;
   /**
    * Whether the desk's own ending record currently reads `corrections-spent`
@@ -114,6 +118,7 @@ export type HoldReason =
   | 'fixer-in-flight'
   | 'ci-red-attempts-spent'
   | 'default-branch-red'
+  | 'base-branch-red'
   | 'default-branch-stale'
   | 'default-branch-unread'
   | 'merge-in-flight'
@@ -343,7 +348,10 @@ export const reviewArm = (readings: SlicePrNextReadings): SlicePrStep => {
  * `merger-app-missing`, `merger-app-invalid` or `merger-app-unread` from
  * {@link mergeIdentity}. On a settled red, `readings.repairMerge` lifts
  * `default-branch-red` for the one PR {@link repairMergeVerdict} admits; the
- * remaining holds then apply to it unchanged. A PR the record names and the
+ * remaining holds then apply to it unchanged. A row whose `base` names a branch
+ * other than `readings.defaultBranchName` skips every default-branch hold and
+ * holds `base-branch-red` only, from `readings.baseReading`; `conflicting` and
+ * the merge identity apply to both paths. A PR the record names and the
  * verdict refuses holds with the verdict's reason. The stale check is this arm's own and never
  * `defaultBranchRed`: a merge cannot be undone, so an old reading holds here
  * where it lifts the queue's hold.
@@ -358,6 +366,14 @@ export const mergeArm = (readings: SlicePrNextReadings): SlicePrStep => {
   const trusted = trustedReview(row);
   if (trusted === 'unchecked') return hold('review-writer-unchecked');
   if (trusted !== 'success' || row.plotReviewSha !== row.headSha) return none('not-passed');
+  const base = row.base ?? '';
+  if (!holdsApply(base, readings.defaultBranchName)) {
+    if (baseBranchRed(base, readings.baseReading ?? null, now, config.checksWaitMs)) return hold('base-branch-red');
+    if (row.mergeable === 'CONFLICTING') return hold('conflicting');
+    const own = mergeIdentity(readings.backend, readings.mergerApp);
+    if (own.identity === 'hold') return hold(own.reason);
+    return { step: 'merge', head: row.headSha };
+  }
   if (defaultBranch === null) return hold('default-branch-unread');
   const age = defaultBranchAgeMs(defaultBranch, now);
   if (age === null || age > config.checksWaitMs) return hold('default-branch-stale');

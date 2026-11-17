@@ -16,6 +16,7 @@ import {
   checksWaitMsOf,
   declaredRuns,
   defaultBranchAgeMs,
+  baseBranchRed,
   defaultBranchRed,
   defaultBranchStatus,
   settledRed,
@@ -523,5 +524,23 @@ describe('decodeDefaultBranch', () => {
 
   it.each(['', '   ', '{not json', '[]', '{"v":1}'])('reads %j as no reading', (text) => {
     expect(decodeDefaultBranch(text)).toBeNull();
+  });
+});
+
+describe('baseBranchRed', () => {
+  const sprint = (over: Partial<DefaultBranchReading> = {}): DefaultBranchReading => ({
+    v: 1, branch: 'sprint/x', headSha: 'a', head: 'red', settled: { sha: 'a', state: 'red' }, failingRuns: [],
+    headSince: '2026-10-10T10:00:00.000Z', askedAt: '2026-10-10T10:00:00.000Z', at: '2026-10-10T10:00:00.000Z', ...over,
+  });
+  const now = Date.parse('2026-10-10T10:30:00.000Z');
+
+  it('holds on a fresh settled red that names the base', () => {
+    expect(baseBranchRed('sprint/x', sprint(), now, 3_600_000)).toBe(true);
+  });
+  it('holds nothing for no reading, another branch, a green one, or one past the bound', () => {
+    expect(baseBranchRed('sprint/x', null, now, 3_600_000)).toBe(false);
+    expect(baseBranchRed('sprint/y', sprint(), now, 3_600_000)).toBe(false);
+    expect(baseBranchRed('sprint/x', sprint({ settled: { sha: 'a', state: 'green' } }), now, 3_600_000)).toBe(false);
+    expect(baseBranchRed('sprint/x', sprint(), now, 60_000)).toBe(false);
   });
 });
