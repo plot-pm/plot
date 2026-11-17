@@ -389,3 +389,47 @@ describe('deliveryMapping: agent roles', () => {
     expect(deliveryMapping(input({ roleRuns: null })).readings.agents).toEqual([]);
   });
 });
+
+describe('deliveryMapping under a Mine mode', () => {
+  // The rows the payload carries, unfiltered: the board passes these, and the
+  // mapping applies the Mine mode.
+  const rows = [
+    row({ branch: 'feature/loose', state: 'wip', worker: 'elsewhere', group: 'quiet', desk: false }),
+    row({ branch: 'feature/unsigned', state: 'wip', worker: 'elsewhere', group: 'quiet', desk: false, fixerInFlight: false, pr: pr({ number: 3, author: '', ciChecks: 'green' }) }),
+    row({ branch: 'feature/mine', plan: 'p', wave: 'A', state: 'wip', pr: pr({ number: 1, author: 'me', ciChecks: 'pending' }) }),
+    row({ branch: 'feature/nobodys', plan: 'p', wave: 'B', state: 'wip', worker: 'running' }),
+    row({ branch: 'feature/theirs', plan: 'p', wave: 'C', state: 'wip', pr: pr({ number: 2, author: 'them', ciChecks: 'green', plotReview: 'absent' }) }),
+  ];
+  const drafts = [
+    { plan: 'their-draft', assignee: 'them', author: 'them', approver: '' },
+    { plan: 'nobodys-draft', assignee: '', author: '', approver: '' },
+  ] as unknown as DeliveryMapInput['drafts'];
+  const people = { reader: { hostUser: 'me', directory: { me: 'Me', them: 'Them' } } };
+  const placed = (mode: DeliveryMapInput['mode']) =>
+    place(deliveryMapping(input({ ...people, rows, drafts, mode, config: { autoReview: false, correctionBudget: 2 } })));
+  const youIds = (mode: DeliveryMapInput['mode']) => placed(mode).items.filter((i) => i.section === 'you').map((i) => i.id).sort();
+  const shown = (mode: DeliveryMapInput['mode']) => placed(mode).items.map((i) => i.id);
+
+  it('keeps the same You items in every Mine mode, a loose branch and an unknown-owner PR included', () => {
+    const all = youIds('all');
+    expect(all).toEqual(['branch:feature/loose', 'branch:feature/unsigned', 'plan:nobodys-draft']);
+    expect(youIds('mine-and-unknown')).toEqual(all);
+    expect(youIds('mine')).toEqual(all);
+  });
+
+  it('places a theirs PR and a theirs draft under Work items › Queued with Mine off, and hides both under Mine', () => {
+    const off = placed('all').items;
+    expect(off.find((i) => i.id === sliceItemId('p', 'C'))).toMatchObject({ section: 'work-items', group: 'queued' });
+    expect(off.find((i) => i.id === 'plan:their-draft')).toMatchObject({ section: 'work-items', group: 'queued' });
+    for (const mode of ['mine-and-unknown', 'mine'] as const) {
+      expect(shown(mode)).not.toContain(sliceItemId('p', 'C'));
+      expect(shown(mode)).not.toContain('plan:their-draft');
+    }
+  });
+
+  it('narrows Work items by the mode: strict drops an unknown-owner slice, lenient keeps it', () => {
+    expect(shown('mine-and-unknown')).toContain(sliceItemId('p', 'B'));
+    expect(shown('mine')).not.toContain(sliceItemId('p', 'B'));
+    expect(shown('mine')).toContain(sliceItemId('p', 'A'));
+  });
+});

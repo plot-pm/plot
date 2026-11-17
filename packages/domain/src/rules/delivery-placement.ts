@@ -179,10 +179,13 @@ export interface DeliveryPlacement {
   unplaced: Unplaced[];
 }
 
-/** The marker each You group draws, and the words it shows beside the group's label. */
-export const YOU_GROUP_MARKERS: Record<YouGroup, { marker: YouMarker; words: string }> = {
-  'blocks-delivery': { marker: 'blocks-delivery', words: 'blocks delivery' },
-  'input-to-the-fleet': { marker: 'input', words: 'input' },
+/**
+ * The marker each You group draws, and the words it shows beside the group's
+ * label: only Unblock carries words ("clean up"); the other two carry a colour.
+ */
+export const YOU_GROUP_MARKERS: Record<YouGroup, { marker: YouMarker; words: string | null }> = {
+  'blocks-delivery': { marker: 'blocks-delivery', words: null },
+  'input-to-the-fleet': { marker: 'input', words: null },
   unblock: { marker: 'clean-up', words: 'clean up' },
 };
 
@@ -193,19 +196,24 @@ export interface YouCase {
   marker: YouMarker;
 }
 
-const YOU_CASES: Record<YouReason, YouCase> = {
-  'draft-plan': { group: 'input-to-the-fleet', reason: 'draft-plan', marker: 'input' },
-  'plan-approval': { group: 'blocks-delivery', reason: 'plan-approval', marker: 'blocks-delivery' },
-  'spike-approval': { group: 'blocks-delivery', reason: 'spike-approval', marker: 'blocks-delivery' },
-  'release-approval': { group: 'blocks-delivery', reason: 'release-approval', marker: 'blocks-delivery' },
-  'test-delivered-plan': { group: 'blocks-delivery', reason: 'test-delivered-plan', marker: 'blocks-delivery' },
-  'review-pr': { group: 'blocks-delivery', reason: 'review-pr', marker: 'blocks-delivery' },
-  'blocked-marker': { group: 'blocks-delivery', reason: 'blocked-marker', marker: 'blocks-delivery' },
-  'fleet-stuck': { group: 'blocks-delivery', reason: 'fleet-stuck', marker: 'blocks-delivery' },
-  'merge-conflict': { group: 'blocks-delivery', reason: 'merge-conflict', marker: 'blocks-delivery' },
-  'agent-died': { group: 'blocks-delivery', reason: 'agent-died', marker: 'blocks-delivery' },
-  loose: { group: 'unblock', reason: 'loose', marker: 'clean-up' },
+const YOU_GROUP_OF: Record<YouReason, YouGroup> = {
+  'draft-plan': 'input-to-the-fleet',
+  'plan-approval': 'blocks-delivery',
+  'spike-approval': 'blocks-delivery',
+  'release-approval': 'blocks-delivery',
+  'test-delivered-plan': 'blocks-delivery',
+  'review-pr': 'blocks-delivery',
+  'blocked-marker': 'blocks-delivery',
+  'fleet-stuck': 'blocks-delivery',
+  'merge-conflict': 'blocks-delivery',
+  'agent-died': 'blocks-delivery',
+  loose: 'unblock',
 };
+
+const YOU_CASES = Object.fromEntries(
+  (Object.entries(YOU_GROUP_OF) as [YouReason, YouGroup][]).map(([reason, group]) =>
+    [reason, { group, reason, marker: YOU_GROUP_MARKERS[group].marker }]),
+) as Record<YouReason, YouCase>;
 
 /**
  * The case of a You reason: its group and marker.
@@ -247,7 +255,7 @@ const looseOf = (item: WorkItemReading): 'loose' | 'not-loose' | 'unread' => {
   return 'loose';
 };
 
-/** Whether a Mine mode shows an item of this ownership; the You section does not ask it. */
+/** Whether a Mine mode shows a ticket of this ownership; no other item asks it. */
 const mineAllows = (mode: DeliveryMine, ownership: Ownership): boolean =>
   mode === 'off' || (mode === 'strict' ? ownership === 'mine' : ownership !== 'theirs');
 
@@ -321,10 +329,12 @@ const agentGroup = (agent: AgentPlacementReading): FleetGroup | null => {
 /**
  * Places every work item and every agent on the Delivery tab, once.
  *
- * A work item goes to You where a person must act first and to Work items
- * otherwise. An agent goes to Fleet. Each placement names the other side of the
- * link: an item lists the agents acting on it, and an agent carries the id of
- * its item. An agent blocks on any gate, not only on a person.
+ * A work item goes to You where a person must act first and its ownership is
+ * not `'theirs'`, in every Mine mode. An item a person must act on that is
+ * `'theirs'` goes to Work items › Queued, a delivered plan to test included.
+ * Every other item that is not delivered goes to Work items. An agent goes to
+ * Fleet. Each placement names the other side of the link: an item lists the
+ * agents acting on it, and an agent carries the id of its item. An agent blocks on any gate, not only on a person.
  *
  * A ticket goes to `tickets` and to no section of `items`, unless a plan names
  * it, it is closed, or the Mine mode excludes it; each of those appears in
@@ -390,6 +400,10 @@ export const placeDelivery = (readings: DeliveryReadings, input: DeliveryInput):
     }
     if (you !== null && item.ownership !== 'theirs') {
       items.push({ id: item.id, kind: item.kind, section: 'you', ...you, agents: names });
+      continue;
+    }
+    if (you !== null) {
+      items.push({ id: item.id, kind: item.kind, section: 'work-items', group: 'queued', reason: null, agents: names });
       continue;
     }
     if (item.delivered === true) {

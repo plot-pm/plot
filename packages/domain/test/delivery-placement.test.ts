@@ -190,11 +190,17 @@ describe('Mine', () => {
     }
   });
 
-  it('places a theirs item under Work items › Queued in every mode and absent from You', () => {
+  it('places a theirs draft plan under Work items › Queued whatever the Mine mode, and not under You', () => {
     for (const mine of ['off', 'mine', 'strict'] as const) {
       const p = placeDelivery({ items: [draft('theirs')], agents: [] }, input({ mine }));
       expect(p.items).toEqual([expect.objectContaining({ section: 'work-items', group: 'queued', reason: null })]);
     }
+  });
+
+  it('places a theirs PR that waits for review under Work items › Queued', () => {
+    const pr = item({ id: 'p', stage: 'pr', pr: { ci: 'passed', review: 'pending' }, ownership: 'theirs' });
+    expect(placeDelivery({ items: [pr], agents: [] }, input({ autoReview: false })).items[0])
+      .toMatchObject({ section: 'work-items', group: 'queued', reason: null });
   });
 
   it('places a loose branch of unknown ownership under Unblock in every mode, and a theirs one under Queued', () => {
@@ -225,10 +231,12 @@ describe('Mine', () => {
     });
   });
 
-  it('keeps a delivered theirs plan to test out of Work items', () => {
+  it('places a delivered theirs plan to test under Work items › Queued with Mine off', () => {
     const plan = item({ id: 'p', kind: 'plan', phase: 'delivered', delivered: true, testOwed: true, ownership: 'theirs' });
 
-    expect(placeDelivery({ items: [plan], agents: [] }, input({ mine: 'mine' })).items).toEqual([]);
+    const p = placeDelivery({ items: [plan], agents: [] }, input({ mine: 'off' }));
+    expect(p.items).toEqual([expect.objectContaining({ id: 'p', section: 'work-items', group: 'queued' })]);
+    expect(p.unplaced).toEqual([]);
   });
 });
 
@@ -507,10 +515,15 @@ describe('the You cases and their markers', () => {
 
   it('draws the group markers: Blocks delivery red, Input blue, Unblock grey and "clean up"', () => {
     expect(YOU_GROUP_MARKERS).toEqual({
-      'blocks-delivery': { marker: 'blocks-delivery', words: 'blocks delivery' },
-      'input-to-the-fleet': { marker: 'input', words: 'input' },
+      'blocks-delivery': { marker: 'blocks-delivery', words: null },
+      'input-to-the-fleet': { marker: 'input', words: null },
       unblock: { marker: 'clean-up', words: 'clean up' },
     });
+  });
+
+  it.each(cases)('%s carries the marker its group draws', (reason) => {
+    const c = youCaseOf(reason);
+    expect(c.marker).toBe(YOU_GROUP_MARKERS[c.group].marker);
   });
 
   it('counts the former Unblock reasons as stuck, and an approval as not', () => {

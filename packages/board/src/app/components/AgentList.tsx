@@ -84,8 +84,6 @@ import {
   readMineStrict,
   agentsForReader,
   readerFrom,
-  rowsForReader,
-  draftsForReader,
   ticketsForReader,
   writeMineOnly,
   writeMineStrict,
@@ -131,6 +129,13 @@ export { menuState, noActionReason, offersOpen, openLabel, openTarget, runLinkLa
 export { inferredPlanName, isReleaseBranch, isUnpushed, rowSubject, startableNote } from '../lib/agent-rows/rows.js';
 export type { AgentListProps };
 
+/** The colour class of each You marker: Blocks delivery red, Input to the fleet blue, Unblock grey. */
+const YOU_MARKER_CLASS: Record<YouMarker, string> = {
+  'blocks-delivery': 'text-red-600 dark:text-red-400',
+  input: 'text-blue-600 dark:text-blue-400',
+  'clean-up': 'text-slate-500 dark:text-slate-400',
+};
+
 /**
  * The pid `spawnerStatus` is called with from this component, for both its
  * `identity.pid` and `runningPid` arguments. The wire payload's
@@ -140,12 +145,6 @@ export type { AgentListProps };
  * `spawnerStatus`'s shared signature from a call site that has no real pid to
  * compare.
  */
-const YOU_MARKER_CLASS: Record<YouMarker, string> = {
-  'blocks-delivery': 'text-red-600 dark:text-red-400',
-  input: 'text-blue-600 dark:text-blue-400',
-  'clean-up': 'text-slate-500 dark:text-slate-400',
-};
-
 const WIRE_IDENTITY_PID = 1;
 
 
@@ -1083,10 +1082,12 @@ export function AgentList({
         // `DELIVERY_LAYOUT`. Nothing below computes a section, a group, a link
         // target or a reason.
         const mapping = deliveryMapping({
-          rows: rowsForReader(filteredRows, reader, mode),
+          // UNFILTERED BY MINE: `deliveryMapping` applies the mode, so You keeps
+          // every item that is not someone else's in every Mine mode.
+          rows: filteredRows,
           slices: fleet.slices ?? [],
           agents: ownAgents,
-          drafts: draftsForReader(draftPlanRows(fleet.draftPlans ?? [], fleet.rows ?? []), reader, mode),
+          drafts: draftPlanRows(fleet.draftPlans ?? [], fleet.rows ?? []),
           reader,
           mode,
           config: { autoReview: fleet.autoReview, correctionBudget: fleet.correctionBudget },
