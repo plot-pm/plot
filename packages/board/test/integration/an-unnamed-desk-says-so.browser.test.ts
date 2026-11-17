@@ -79,9 +79,11 @@ describe('a desk no manifest names (real browser renders the shipped artifact)',
 
       // THE LABEL IS THE RULE'S WORDS, seeded from the rule's own output.
       const label = unnamedDeskLabel({ checkout: 'bug/x', live: true });
-      const note = row.locator('[data-row-note]');
-      await expect.poll(() => note.count()).toBe(1);
-      expect(await note.textContent()).toContain(label);
+      // THE SENTENCE IS THE AGENT CELL'S TOOLTIP, and the row text does not carry it.
+      const cell = page.locator('[data-fleet-agent-row] [data-agent-cell="agent"]');
+      await expect.poll(() => cell.count()).toBe(1);
+      expect(await cell.getAttribute('title')).toContain(label);
+      expect(await row.textContent()).not.toContain(label);
 
       // `bug/x` APPEARS ONLY INSIDE THAT DETAIL — never as the row's name, its
       // link, or its id. The row has no branch (synthesized entries never do),
@@ -105,9 +107,11 @@ describe('a desk no manifest names (real browser renders the shipped artifact)',
       const row = page.locator('[data-agent-row][data-agent-undeclared]');
       await expect.poll(() => row.count()).toBe(1);
       const label = unnamedDeskLabel({ checkout: 'bug/y', live: false });
-      const note = row.locator('[data-row-note]');
-      await expect.poll(() => note.count()).toBe(1);
-      expect(await note.textContent()).toContain(label);
+      // THE SENTENCE IS THE AGENT CELL'S TOOLTIP, and the row text does not carry it.
+      const cell = page.locator('[data-fleet-agent-row] [data-agent-cell="agent"]');
+      await expect.poll(() => cell.count()).toBe(1);
+      expect(await cell.getAttribute('title')).toContain(label);
+      expect(await row.textContent()).not.toContain(label);
     } finally {
       await page.close();
     }
@@ -123,9 +127,10 @@ describe('a desk no manifest names (real browser renders the shipped artifact)',
       const row = page.locator('[data-agent-row][data-agent-undeclared]');
       await expect.poll(() => row.count()).toBe(1);
       const label = unnamedDeskLabel({ checkout: '', live: true });
-      const note = row.locator('[data-row-note]');
-      await expect.poll(() => note.count()).toBe(1);
-      expect(await note.textContent()).toBe(label);
+      const cell = page.locator('[data-fleet-agent-row] [data-agent-cell="agent"]');
+      await expect.poll(() => cell.count()).toBe(1);
+      expect(await cell.getAttribute('title')).toBe(label);
+      expect(await row.textContent()).not.toContain(label);
     } finally {
       await page.close();
     }
