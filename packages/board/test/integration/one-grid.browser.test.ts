@@ -379,9 +379,9 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // groups would be the most expensive kind of regression here — the
       // sections are what a reader scans first.
       // The conflicting branch's slice has no agent, so the rule puts it under
-      // You › Unblock; the PR row is its own item at a gate; the ticket renders
+      // You › Blocks delivery; the PR row is its own item at a gate; the ticket renders
       // in the Tickets section, outside the rule.
-      const waiting = page.locator('ul[role="grid"][aria-label^="Unblock"]');
+      const waiting = page.locator('ul[role="grid"][aria-label^="Blocks delivery"]');
       expect(await waiting.locator('li[data-tuple-kind="wave"]').count()).toBe(1);
       expect(await waiting.locator('li[data-tuple-kind="pr"]').count()).toBe(0);
       const gate = page.locator('ul[role="grid"][aria-label^="At a gate"]');

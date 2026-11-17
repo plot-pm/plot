@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Trees } from '@plot-pm/domain/ports/trees';
-import { roleAgentsJson, type RoleName } from '@plot-pm/domain/rules/role-command';
+import { roleAgentsJson, roleTools, type RoleName } from '@plot-pm/domain/rules/role-command';
 
 /** What {@link roleFilesAt} reads and acts through. */
 export interface RoleFilesDeps {
@@ -34,6 +34,8 @@ export type RoleFilesRead<Settings extends boolean = boolean> =
       settingsFile: Settings extends true ? string : undefined;
       /** The `maxTurns` the definition declares; `0` where it declares none. */
       maxTurns: number;
+      /** The `tools` the definition declares; `[]` where it declares none. */
+      tools: readonly string[];
       /** The definition file's text as read from `origin/<default>`. */
       definition: string;
     }
@@ -95,5 +97,5 @@ export const roleFilesAt = async <Settings extends boolean>(
     settingsFile = join(input.outDir, 'settings.json');
     writeFileSync(settingsFile, settingsText);
   }
-  return { read: 'files', agentsFile, settingsFile: settingsFile as Settings extends true ? string : undefined, maxTurns: maxTurnsOfRole(definition.value), definition: definition.value };
+  return { read: 'files', agentsFile, settingsFile: settingsFile as Settings extends true ? string : undefined, maxTurns: maxTurnsOfRole(definition.value), tools: roleTools(definition.value), definition: definition.value };
 };

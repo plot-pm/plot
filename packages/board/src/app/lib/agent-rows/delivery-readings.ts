@@ -1,5 +1,6 @@
 import {
   ownership,
+  placeDelivery,
   type AgentPlacementReading,
   type AgentRole,
   type DeliveryInput,
@@ -248,21 +249,8 @@ const processOf = (state: AgentEntry['state']): AgentPlacementReading['process']
   }
 };
 
-/**
- * Maps what the Delivery tab's payload carries to the readings `placeDelivery` takes.
- *
- * One work item per slice (rows sharing a plan and a slice name), one per
- * branch row that names no slice, and one per Draft plan that has no row. One
- * agent per registry entry. The mapper copies facts the payload states and
- * leaves every other field absent: a row with no CI reading carries `ci:
- * 'unread'`, an entry whose process nobody read carries no `process`. It sets
- * no `gateUnpassable`, `approvalOwed`, `testOwed` or `corrections`, because the
- * payload does not state them.
- *
- * @param input - the payload's rows, slices, registry entries and Draft plans, the reader and Mine mode, and the config keys.
- * @returns the readings and input for `placeDelivery`, with the lookups the tab renders from.
- */
-export const deliveryMapping = (input: DeliveryMapInput): DeliveryMapping => {
+/** The readings of the rows and Draft plans as given, with no Mine filter. */
+const mapReadings = (input: DeliveryMapInput): DeliveryMapping => {
   const rowsByItem: Record<string, AgentRow[]> = {};
   for (const row of input.rows) (rowsByItem[itemIdOfRow(row)] ??= []).push(row);
 
@@ -353,6 +341,41 @@ export const deliveryMapping = (input: DeliveryMapInput): DeliveryMapping => {
       tickets: input.releaseTickets == null ? null : input.releaseTickets,
     },
   };
+};
+
+/**
+ * Maps what the Delivery tab's payload carries to the readings `placeDelivery`
+ * takes, with the Mine mode applied to the rows and Draft plans.
+ *
+ * `input.rows` and `input.drafts` are the payload's, not filtered by Mine. The
+ * mode `all` keeps every row. `mine-and-unknown` drops a row or Draft plan that
+ * is `'theirs'`. `mine` also drops one whose owner is `'unknown'`, except where
+ * `placeDelivery`, given every row, puts its item under You. So You lists the
+ * same items in every Mine mode, and the mode narrows Work items only.
+ *
+ * One work item per slice (rows sharing a plan and a slice name), one per
+ * branch row that names no slice, and one per Draft plan that has no row. One
+ * agent per registry entry. The mapper copies facts the payload states and
+ * leaves every other field absent: a row with no CI reading carries `ci:
+ * 'unread'`, an entry whose process nobody read carries no `process`. It sets
+ * no `gateUnpassable`, `approvalOwed`, `testOwed` or `corrections`, because the
+ * payload does not state them.
+ *
+ * @param input - the payload's rows, slices, registry entries and Draft plans, the reader and Mine mode, and the config keys.
+ * @returns the readings and input for `placeDelivery`, with the lookups the tab renders from.
+ */
+export const deliveryMapping = (input: DeliveryMapInput): DeliveryMapping => {
+  const whole = mapReadings(input);
+  if (input.mode === 'all') return whole;
+  const you = new Set(
+    placeDelivery(whole.readings, whole.input).items.filter((p) => p.section === 'you').map((p) => p.id),
+  );
+  const keeps = (id: string, o: Ownership): boolean => o === 'mine' || (o === 'unknown' && (input.mode === 'mine-and-unknown' || you.has(id)));
+  return mapReadings({
+    ...input,
+    rows: input.rows.filter((r) => keeps(itemIdOfRow(r), ownership(ownedFromRow(r), input.reader))),
+    drafts: input.drafts.filter((d) => keeps(draftItemId(d.plan), ownership(ownedFromCard(d), input.reader))),
+  });
 };
 
 /**

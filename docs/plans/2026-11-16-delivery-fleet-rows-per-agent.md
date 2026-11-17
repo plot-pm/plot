@@ -117,7 +117,7 @@ Per slice, in slice order.
 
 ### Agent rows
 
-- `feature/delivery-fleet-agent-rows` <!-- waits: feature/delivery-fleet-plan-runs --> — the Fleet groups with Free collapsed and the other folds removed, `agentRowCells` changed to the design's columns, Acting on, Doing now, Waits on through `ciOf` and the limit reading, and the desk-manifest text moved to a tooltip <!-- builds: an agent row with role, activity and waits-on -->
+- `feature/delivery-fleet-agent-rows` <!-- waits: feature/delivery-fleet-plan-runs --> — the Fleet groups with Free collapsed and the other folds removed, `agentRowCells` changed to the design's columns, Acting on, Doing now, Waits on through `ciOf` and the limit reading, and the desk-manifest text moved to a tooltip <!-- builds: an agent row with role, activity and waits-on --> → #3509
 
 ### Time and tokens
 
