@@ -578,8 +578,17 @@ jobs:
   # bash 3.2 may be a construct not on the list, or a behaviour change with no
   # syntax error at all — `bash -n` cannot see either. This job runs real
   # shipped shell under a real `/bin/bash` 3.2.57, the version macOS ships and
-  # the version an operator's or an agent's machine runs. `macos-latest` is the
+  # the version an operator's or an agent's machine runs. A macOS runner is the
   # only runner here that has one.
+  #
+  # `macos-15-intel`, NOT `macos-latest`. `macos-latest` is arm64, and on
+  # 2026-11-17 GitHub assigned no arm64 runner to this job on 3 main commits
+  # (a9e65cb15, 2ae6e2f9c, 70baad6fe): each job ran zero steps and
+  # was cancelled after 15 to 18 minutes with "The job was not acquired by
+  # Runner of type hosted even after multiple attempts" and three notices of
+  # capacity constraints on macOS arm64. Each cancel read as a red main and
+  # held every merge until a rerun. `/bin/bash` is 3.2.57 on both
+  # architectures, so the architecture does not change what this job tests.
   #
   # ITS OWN JOB, NOT A STEP ON ONE OF THE FOUR ABOVE: all four run
   # `ubuntu-latest`, and a macOS runner bills and schedules differently. A
@@ -628,7 +637,7 @@ jobs:
   # the FRONT of `PATH` for the test step — every `spawnSync('bash', ...)`
   # resolves through that symlink, and nothing else on `PATH` moves.
   macos-shell-contract:
-    runs-on: macos-latest
+    runs-on: macos-15-intel
     needs: [select, gates]
     if: ${{ !cancelled() && needs.gates.result == 'success' && needs.select.outputs.macos != 'false' && needs.select.outputs.reuse_macos == '' }}
     # Guard first, same reason as every job above: a checkout ahead of it
