@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-17, Jan Wloka, plan-PR #3505 merged
+- **Started:** 2026-11-17, Jan Wloka, `bug/a-role-session-may-use-its-declared-tools`
 
 ## Changelog
 
