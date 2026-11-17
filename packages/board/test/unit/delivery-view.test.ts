@@ -119,3 +119,30 @@ describe('section header summary', () => {
     for (const s of view([]).sections) expect(GLYPH_PATH[s.icon]).toMatch(/^M/);
   });
 });
+
+describe('Work items header and group columns', () => {
+  const work = (v: ReturnType<typeof view>) => v.sections.find((s) => s.key === 'work-items')!;
+
+  it('names the three groups and their columns, one column name per group', () => {
+    const w = work(view([]));
+    expect(w.groups.map((g) => [g.key, g.column])).toEqual([
+      ['at-a-gate', 'Gates'], ['being-built', 'Progress'], ['queued', 'Waits on'],
+    ]);
+    expect(w.summary.map((c) => c.text)).toEqual(['0 at a gate', '0 being built', '0 queued']);
+  });
+
+  it('gives the other sections no group column and the old count text', () => {
+    const v = view([], [agent({ session: 'x', branch: '' })]);
+    for (const g of v.sections.find((s) => s.key === 'fleet')!.groups) expect(g.column).toBeNull();
+    expect(v.sections.find((s) => s.key === 'fleet')!.summary[0]!.text).toMatch(/^Working \d+$/);
+  });
+
+  it('names the oldest age across the section and prints none without an age reading', () => {
+    expect(work(view([row({ branch: 'feature/a', plan: 'p', wave: 'A' })])).oldest).toBeNull();
+    const aged = view([
+      row({ branch: 'feature/a', plan: 'p', wave: 'A', ageMinutes: 5 }),
+      row({ branch: 'feature/b', plan: 'p', wave: 'B', ageMinutes: 190 }),
+    ]);
+    expect(work(aged).oldest).toBe('oldest waits 3h');
+  });
+});

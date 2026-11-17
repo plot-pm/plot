@@ -1430,14 +1430,15 @@ export function AgentList({
                       {section.summary.map((c) => (
                         <span key={c.key} data-summary-count={c.key}>
                           {c.anchor === null ? (
-                            <>{c.label} {c.count}</>
+                            <>{c.text}</>
                           ) : (
                             <button type="button" data-summary-link={c.key} onClick={() => scrollToAnchor(c.anchor!)} className="text-blue-600 hover:underline dark:text-blue-400">
-                              {c.label} {c.count}
+                              {c.text}
                             </button>
                           )}
                         </span>
                       ))}
+                      {section.oldest !== null && <span data-summary-oldest>{section.oldest}</span>}
                     </span>
                   )}
                   {release && <span className="ml-1 font-normal text-slate-500">({view.deliveredBlocks.length})</span>}
@@ -1524,7 +1525,7 @@ export function AgentList({
                             aria-label={`${group.label} — agent branches`}
                             className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40"
                           >
-                            <HeaderRow />
+                            <HeaderRow statusName={group.column ?? 'Status'} />
                             {group.blocks.flatMap(blockBody)}
                             {group.agents.flatMap(agentBody)}
                           </ul>

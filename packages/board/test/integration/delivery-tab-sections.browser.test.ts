@@ -66,4 +66,23 @@ describe('the Delivery tab renders the five sections', () => {
       await page.close();
     }
   }, 60_000);
+
+  it('shows Work items counts that link to their group, and a column name under each group', async () => {
+    const page = await cat.open('a-full-estate', { tab: 'agents' });
+    try {
+      const header = page.locator('h2[data-delivery-section="work-items"]');
+      await header.waitFor({ timeout: 15_000 });
+      const link = header.locator('[data-summary-link]').first();
+      await link.waitFor({ timeout: 15_000 });
+      expect(await link.innerText()).toMatch(/^\d+ [a-z ]+$/);
+      const key = await link.getAttribute('data-summary-link');
+      await link.click();
+      await page.locator(`[data-group="${key}"][data-link-target]`).waitFor({ timeout: 5_000 });
+      const names = await page.locator('[data-section="work-items"] [data-column-header]').allTextContents();
+      expect(names.length).toBeGreaterThan(0);
+      for (const n of names) expect(['Gates', 'Progress', 'Waits on']).toContain(n);
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
 });

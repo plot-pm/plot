@@ -1,6 +1,10 @@
 import {
   DELIVERY_LAYOUT,
   isStuckReason,
+  oldestWaitsClause,
+  WORK_GROUP_COLUMN,
+  workGroupCountText,
+  type WorkItemGroup,
   placeDelivery,
   releaseTicketWording,
   type AgentPlacement,
@@ -11,6 +15,7 @@ import {
 } from '@plot-pm/domain';
 import type { AgentRow, DraftPlan, IssueRow, Slice } from '../../../contract/schema.js';
 import type { DeliveryMapping, RegistryAgent } from './delivery-readings.js';
+import { itemRowFactsOf } from './delivery-row-facts.js';
 import { isUnbegun } from './row-identity.js';
 import { groupBySlice, type SliceGroup } from './slices.js';
 import { rowInSlice } from './delivery-readings.js';
@@ -126,6 +131,8 @@ export type BlockView = PlanBlockView | ItemBlockView;
 
 export interface GroupView {
   key: string;
+  /** The Work items column name of this group (`Gates`, `Progress`, `Waits on`); `null` for the other sections. */
+  column: string | null;
   label: string;
   hint: string;
   items: PlacedItemView[];
@@ -144,6 +151,8 @@ export interface SectionCount {
   key: string;
   label: string;
   count: number;
+  /** What the header prints for the count: `3 queued` in Work items, `Queued 3` elsewhere. */
+  text: string;
   /** The anchor of the group's heading; `null` where the group has no rows and so renders no body. */
   anchor: string | null;
 }
@@ -154,8 +163,14 @@ export const groupAnchor = (key: string): string => `delivery-group-${key}`;
  * The counts of a section's header line, one per group in layout order. A group with no rows keeps its count of 0
  * and links nowhere, because its heading and body are not rendered.
  */
-export const summarise = (groups: readonly GroupView[]): SectionCount[] =>
-  groups.map((g) => ({ key: g.key, label: g.label, count: g.count, anchor: g.count > 0 ? groupAnchor(g.key) : null }));
+export const summarise = (groups: readonly GroupView[], section?: DeliverySection): SectionCount[] =>
+  groups.map((g) => ({
+    key: g.key,
+    label: g.label,
+    count: g.count,
+    text: section === 'work-items' ? workGroupCountText(g.label, g.count) : `${g.label} ${g.count}`,
+    anchor: g.count > 0 ? groupAnchor(g.key) : null,
+  }));
 
 /** The path of a section's glyph in the board's glyph table. */
 export const sectionGlyph = (section: SectionView): string => GLYPH_PATH[section.icon];
@@ -165,6 +180,8 @@ export interface SectionView {
   icon: GlyphKind;
   /** The header line: one count per group, empty for a section with no groups. */
   summary: SectionCount[];
+  /** `oldest waits <age>`: the oldest row of the whole section. `null` where no row has an age reading. */
+  oldest: string | null;
   label: string;
   hint: string;
   groups: GroupView[];
@@ -392,12 +409,15 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
         ? [plural(heads.length, 'plan'), plural(sliceCount, 'slice'), ...(loose > 0 ? [`${loose} ${loose === 1 ? 'branch' : 'branches'}`] : [])].join(' · ')
         : String(count);
       return {
-        key: group, ...meta, items, agents, blocks, rows, count,
+        key: group, column: section === 'work-items' ? WORK_GROUP_COLUMN[group as WorkItemGroup].name : null, ...meta, items, agents, blocks, rows, count,
         tally,
       };
     });
     return {
-      key: section, ...SECTION_LABELS[section], groups: groupViews, summary: summarise(groupViews),
+      key: section, ...SECTION_LABELS[section], groups: groupViews, summary: summarise(groupViews, section),
+      oldest: section === 'work-items'
+        ? oldestWaitsClause(groupViews.flatMap((g) => g.items.map((v) => itemRowFactsOf(mapping, v.placement?.id ?? '').ageMinutes)))
+        : null,
       rows: groupViews.flatMap((g) => g.rows), count: groupViews.reduce((n, g) => n + g.count, 0),
     };
   });
