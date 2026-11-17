@@ -86,7 +86,7 @@ Per slice, in slice order.
 
 ### Gate cells
 
-- `feature/delivery-work-items-gate-cells` <!-- waits: feature/delivery-work-items-groups --> — `gateValue` returning a CI and a review mark, linked to `CardPr.checksUrl` and `CardPr.url` with the new checks link target <!-- builds: Work items gate cells with host links -->
+- `feature/delivery-work-items-gate-cells` <!-- waits: feature/delivery-work-items-groups --> — `gateValue` returning a CI and a review mark, linked to `CardPr.checksUrl` and `CardPr.url` with the new checks link target <!-- builds: Work items gate cells with host links --> → #3515
 
 ### Progress and waits
 
