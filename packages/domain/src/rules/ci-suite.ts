@@ -114,8 +114,11 @@ const isReader = (words: readonly string[]): boolean => {
 
 /**
  * Splits a command line at every match of `separator` that the shell treats as
- * an operator. A match inside a word's `[start, end)` span, as `readShell`
- * reads words, is quoted or escaped and does not split.
+ * an operator. A match inside the `[start, end)` span of a word that runs no
+ * code, as `readShell` reads words, is quoted or escaped and does not split. A
+ * word that holds `$( )`, a backtick, `<( )`, `${ }` or `$'…'` protects
+ * nothing, so a separator inside a substitution splits; a quoted word inside
+ * that substitution is a word of its own and still protects its separators.
  *
  * @param text - the command line.
  * @param separator - the operator pattern; its flags are ignored and it is matched globally.
@@ -126,7 +129,7 @@ const isReader = (words: readonly string[]): boolean => {
 const unquotedSplit = (text: string, separator: RegExp): string[] => {
   const reading = readShell(text);
   if (reading === null) return text.split(separator);
-  const spans = reading.commands.flatMap((command) => command.words.map((word) => [word.start, word.end] as const));
+  const spans = reading.commands.flatMap((command) => command.words.filter((word) => !word.executes).map((word) => [word.start, word.end] as const));
   const pattern = new RegExp(separator.source, 'g');
   const slices: string[] = [];
   let from = 0;
@@ -142,7 +145,8 @@ const unquotedSplit = (text: string, separator: RegExp): string[] => {
 
 /**
  * The simple commands of a loop body: the text after `do` up to the segment
- * that is `done`, split on `&&`, `||`, `;`, `|` and new lines.
+ * that is `done`, split on `&&`, `||`, `;`, `|` and new lines outside quotes
+ * and escapes. An unreadable body splits on every separator.
  */
 const bodySegments = (after: string): string[][] => {
   const segments: string[][] = [];
@@ -203,7 +207,8 @@ export const programWords = (words: readonly string[]): string[] => {
  * Decides whether a command runs one of the suites.
  *
  * The command is split into simple commands on `&&`, `||`, `;`, `|` and new
- * lines outside quotes and escapes. A simple command runs a suite when its
+ * lines outside quotes and escapes; an unreadable command splits on every
+ * separator. A simple command runs a suite when its
  * words, from the program on, begin with that suite's words.
  *
  * @param command - the command line an agent is about to run.
@@ -277,6 +282,11 @@ export const ciSuiteRefusal = (command: string, suites: readonly string[]): CiSu
  * basenames; it answers only where exactly one of them matches, so `*.sh` —
  * matching all three — is not a run.
  *
+ * A quoted or escaped separator splits nothing; a separator inside `$( )`, a
+ * backtick or `<( )` splits, and an unreadable command splits on every
+ * separator. A gated script name behind a `;`, `&` or `|` inside one word of a
+ * segment that is not a read is still a run.
+ *
  * An unquoted `#` starts a comment: it and the rest of its line are not read.
  * The word after `--who` or `--release` is that flag's value and is never read
  * as a mode. The word list of a `for` loop whose body only runs readers
@@ -293,7 +303,7 @@ export const controllerInvocation = (command: string): GatedAction | null => {
     if (route !== null) return route;
     for (const word of words) {
       if (wordBasename(word) === ASK_MJS && words.includes('release-approve')) return 'release-approve';
-      const script = scriptNamed(word);
+      const script = scriptNamed(word) ?? gluedScript(word);
       if (script === null) continue;
       return actionFor(script, words);
     }
@@ -304,7 +314,8 @@ export const controllerInvocation = (command: string): GatedAction | null => {
 /**
  * The segments of a command that are not reads, each as its words. A command
  * splits on `&&`, `||`, `;` and new lines into pipelines, and a pipeline on
- * `|` into segments. A segment that only `isProcessRead` admits counts as a
+ * `|` into segments, outside quotes and escapes; an unreadable command splits
+ * on every separator. A segment that only `isProcessRead` admits counts as a
  * read when every other segment of its pipeline is a read, so `pgrep -f x |
  * xargs kill` keeps both segments.
  */
@@ -420,6 +431,22 @@ export const commandRunsScript = (command: string, name: string): boolean =>
  * The gated script a word names, by exact basename or by a glob matching
  * exactly one of the three.
  */
+/**
+ * The gated script a word names after a `;`, `&` or `|` inside it, as in
+ * `sh -c 'PATH=x:$PATH;plot-deliver.sh y'`, where the quote keeps the
+ * separator from splitting the command.
+ *
+ * @param word - one word of a segment that is not a read.
+ * @returns the first gated basename after a separator, or `null`.
+ */
+const gluedScript = (word: string): string | null => {
+  for (const piece of word.split(/[;&|]/).slice(1)) {
+    const script = scriptNamed(piece);
+    if (script !== null) return script;
+  }
+  return null;
+};
+
 const scriptNamed = (word: string): string | null => {
   const base = wordBasename(word);
   if (base in GATED) return base;

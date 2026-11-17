@@ -483,3 +483,32 @@ describe('an unreadable command over-splits', () => {
     expect(ciSuiteRefusal('echo "x; pnpm run test:e2e', SUITES)).toEqual({ suite: 'pnpm run test:e2e' });
   });
 });
+
+describe('a separator inside a substitution splits', () => {
+  it.each([
+    'out=$(cd e2e && pnpm run test:e2e 2>&1)',
+    'x=`cd e2e; pnpm run test:e2e --ci`',
+    'echo $(cd e2e; pnpm run test:e2e --ci)',
+    'diff <(cd e2e; pnpm run test:e2e --ci) x',
+  ])('%s runs a suite', (command) => {
+    expect(ciSuiteRefusal(command, SUITES)).toEqual({ suite: 'pnpm run test:e2e' });
+  });
+
+  it('reads a run behind a separator inside a substitution', () => {
+    expect(controllerInvocation('cat $(true;plot-deliver.sh x)')).toBe('deliver');
+  });
+
+  it('keeps a quoted separator inside a substitution from splitting', () => {
+    expect(ciSuiteRefusal('echo "$(grep \'a; pnpm run test:e2e\' f)"', SUITES)).toBeNull();
+  });
+});
+
+describe('a script glued behind a quoted separator is a run', () => {
+  it('reads sh -c with the script after a ;', () => {
+    expect(controllerInvocation("sh -c 'PATH=$PWD/skills/plot/scripts:$PATH;plot-deliver.sh x'")).toBe('deliver');
+  });
+
+  it('keeps a read that names the script after a quoted separator a read', () => {
+    expect(controllerInvocation("grep -n 'a;plot-deliver.sh' README.md")).toBeNull();
+  });
+});
