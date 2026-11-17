@@ -110,6 +110,7 @@ export const fullSnapshot = (): RepoSnapshot => ({
             goal: 'g',
             start: '2026-11-02',
             end: '2026-11-13',
+            ownerHandle: '',
             members: [{ slug: 'x', text: '', tier: 'must', checked: false }],
           },
         },

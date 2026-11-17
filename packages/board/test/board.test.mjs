@@ -201,6 +201,8 @@ describe('board: contract fields + frontmatter visibility', () => {
       goal: '',
       start: '',
       end: '',
+      // No `- **Owner:**` line: "" rather than an omitted key.
+      ownerHandle: '',
       // A sprint file naming no dates has no timebox to show. `none` and ''
       // rather than a placeholder: hand-written sprint files predate the
       // fields, and absence must render as absence rather than as an error or

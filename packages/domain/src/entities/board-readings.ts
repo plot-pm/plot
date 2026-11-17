@@ -23,6 +23,8 @@ export const SprintRecordSchema = z.object({
   goal: z.string(),
   start: z.string(),
   end: z.string(),
+  /** The `- **Owner:**` handle as written, or `''`. Not checked against `People`: the domain package cannot read it. */
+  ownerHandle: z.string(),
   members: z.array(SprintMemberRecordSchema).readonly(),
 });
 export type SprintRecord = z.infer<typeof SprintRecordSchema>;

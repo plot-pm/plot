@@ -1148,6 +1148,7 @@ export function App() {
             goal: '',
             start: '',
             end: '',
+            ownerHandle: '',
             // No file, so no dates, so no timebox — the same honesty the dates
             // above take.
             timebox: 'none' as const,

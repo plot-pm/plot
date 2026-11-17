@@ -151,6 +151,7 @@ export * from './rules/node-pin.js';
 export * from './rules/adoption.js';
 export * from './rules/slice-pr.js';
 export * from './rules/ownership.js';
+export * from './rules/sprint-ownership.js';
 export * from './rules/mine-mode.js';
 export * from './rules/waiting-tickets.js';
 export * from './rules/handed-to.js';

@@ -899,6 +899,8 @@ export const SprintCardSchema = z.object({
    * Sprint end date — `- **End:** YYYY-MM-DD` from `## Status`, or "".
    */
   end: z.string().default(''),
+  /** The sprint's `- **Owner:**` handle as written, or "". */
+  ownerHandle: z.string().default(''),
   /**
    * Where the sprint sits against its own dates — `rules/timebox.ts`'s answer,
    * computed on the server against the day the board was generated.
@@ -4273,6 +4275,10 @@ export const FleetSprintSchema = z.object({
   release: z.string().default(''),
   /** The sprint's `- **Start:** YYYY-MM-DD`, or "" — the Delivery tab's release line compares it with the closed window. */
   start: z.string().default(''),
+  /** The sprint's `- **End:** YYYY-MM-DD`, or "". */
+  end: z.string().default(''),
+  /** The sprint's `- **Owner:**` handle as written, or "". Not checked against `People` here; `sprintIsMine` does that. */
+  ownerHandle: z.string().default(''),
   counts: SprintCountsSchema,
   /**
    * Where the sprint sits against its dates, and the label the row prints —

@@ -255,6 +255,8 @@ mkdir -p docs/sprints
 
 Write `docs/sprints/${WEEK_PREFIX}-<slug>.md` using the template from `skills/plot/templates/sprint.md`, substituting `<title>` and `<sprint goal>`.
 
+Write the creating person's handle on the `- **Owner:**` line: the git host login, or the handle the `People` config key declares for them. Where neither is known, ask once rather than leave `<handle>` in the file. The board reads the line to decide whose sprint the Delivery tab's My sprint toggle shows; a handle `People` does not declare belongs to nobody's toggle, and the sprint still counts toward its release.
+
 Item format: `- [ ] [slug] description` (plan reference) or `- [ ] description` (lightweight task).
 
 **A reference is a plan slug, and only a plan slug.** All three readers apply the same rule — `plot-sprint-release.sh`, `itemsFrom` and `parseSprintMembers` — so an item is one of:

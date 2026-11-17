@@ -8319,6 +8319,8 @@ export async function activeSprints(
       title: sprint.title,
       release: sprint.release,
       start: sprint.start,
+      end: sprint.end,
+      ownerHandle: sprint.ownerHandle,
       counts,
       timebox: timeboxStanding(readings),
       timeboxLabel: timeboxLabel(readings),
