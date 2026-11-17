@@ -88,9 +88,10 @@ test('controller gate: the dispatch refusal names the command bundle first, then
   assert.ok(bundle < r.stderr.indexOf('--unowned-action'), 'the bundle comes before the escape');
 });
 
-test('controller gate: the approve, deliver and release refusals name the endpoint first and no bundle (#1458)', () => {
-  // The bundle the old text named is itself refused by this gate with no
-  // receipt, so the first repair it printed was a second refusal.
+test('controller gate: the approve, deliver and release refusals name the endpoint, and only a board-free command as a bundle (#1458)', () => {
+  // plot-approve.mjs and plot-deliver.mjs are refused by this gate with no
+  // receipt, so a refusal never names them. The board-free commands pass the
+  // gate, so approve and deliver name those; release has none.
   for (const [command, endpoint] of [
     ['bash skills/plot/scripts/plot-approve.sh some-slug', 'POST /api/approve {"slug":"<slug>"}'],
     ['bash skills/plot/scripts/plot-deliver.sh some-slug', 'POST /api/deliver {"slug":"<slug>"}'],
@@ -101,7 +102,9 @@ test('controller gate: the approve, deliver and release refusals name the endpoi
     const at = r.stderr.indexOf(endpoint);
     assert.ok(at >= 0, `${command} names ${endpoint}:\n${r.stderr}`);
     assert.ok(at < r.stderr.indexOf('--unowned-action'), 'the endpoint comes before the escape');
-    assert.doesNotMatch(r.stderr, /\.mjs/, 'no bundle is named for this action');
+    assert.doesNotMatch(r.stderr, /plot-(approve|deliver)\.mjs/, 'the gated bundle is never named');
+    if (command.includes('--release')) assert.doesNotMatch(r.stderr, /\.mjs/, 'release names no bundle');
+    else assert.match(r.stderr, /plot-(approve|deliver)-command\.mjs/, 'the board-free command is named');
     assert.match(r.stderr, /TWO calls/, 'the two-call order of the escape is named');
   }
 });
