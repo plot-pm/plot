@@ -318,6 +318,46 @@ test('the census halves upload and the compare job downloads, each pinned by SHA
   assert.match(jobLines(CI, 'census-compare').join('\n'), /actions\/download-artifact@[0-9a-f]{40}/);
 });
 
+/** The `upload-artifact` steps of a job, each as `{ if, name, overwrite }`. */
+const uploadsOf = (ci, job) =>
+  jobLines(ci, job)
+    .join('\n')
+    .split(/\n {6}- /)
+    .filter((step) => /uses: actions\/upload-artifact@/.test(step))
+    .map((step) => ({
+      if: /\n {8}if: (.+)/.exec(step)?.[1] ?? '',
+      name: /\n {10}name: (.+)/.exec(step)?.[1] ?? '',
+      overwrite: /\n {10}overwrite: true\b/.test(step),
+    }));
+
+/** Whether an artifact name matches the compare job's `census-report-*` download pattern. */
+const comparedName = (name) => name.startsWith('census-report-');
+
+test('census-head uploads the compared report only from a passing census, and replaces an earlier one', () => {
+  const uploads = uploadsOf(CI, 'census-head');
+  const compared = uploads.filter((u) => comparedName(u.name));
+  assert.deepEqual(compared.map((u) => u.name), ['census-report-head']);
+  assert.equal(compared[0].if, '${{ success() }}');
+  assert.equal(compared[0].overwrite, true);
+  // A failed census keeps its report for a person, under a name the compare never downloads.
+  const failed = uploads.filter((u) => u.if === '${{ failure() }}');
+  assert.equal(failed.length, 1);
+  assert.equal(comparedName(failed[0].name), false);
+  assert.match(failed[0].name, /\$\{\{ github\.run_attempt \}\}/);
+});
+
+test('census-head: a copy that uploads the compared report after a failed census is refused', () => {
+  const copy = CI.replace(/( {8}if: )\$\{\{ success\(\) \}\}(\n {8}with:\n {10}name: census-report-head\n)/, '$1${{ !cancelled() }}$2');
+  assert.notEqual(copy, CI);
+  const compared = uploadsOf(copy, 'census-head').filter((u) => comparedName(u.name));
+  assert.notEqual(compared[0].if, '${{ success() }}');
+});
+
+test('census-base replaces an earlier report of the same name', () => {
+  const compared = uploadsOf(CI, 'census-base').filter((u) => comparedName(u.name));
+  assert.deepEqual(compared.map((u) => [u.name, u.overwrite]), [['census-report-before', true]]);
+});
+
 test('the census jobs stay outside validate needs', () => {
   const needs = needsOf(headerOf(jobLines(CI, 'validate')));
   for (const name of TIER_3) assert.ok(!needs.includes(name), `${name} must not be in validate's needs:`);

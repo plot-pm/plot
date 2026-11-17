@@ -891,11 +891,26 @@ jobs:
         timeout-minutes: 20
         run: node packages/fleet/test/census/census-gate.mjs --only head --report "$RUNNER_TEMP/census-head.jsonl"
 
-      # A failed census still uploads what it recorded; a missing file is no error.
+      # ONLY A PASSING CENSUS UPLOADS THE REPORT `census-compare` READS. A
+      # re-run adds a second `census-report-head` to the run, and
+      # `download-artifact` takes one of the two by name. Run 44002554236
+      # (78b4bbd51) compared against attempt 1's failed report twice after
+      # attempt 2 passed. A failed census uploads what it recorded under
+      # `census-failed-head-<attempt>`, which the compare's pattern does not
+      # match; a missing file is no error.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: ${{ !cancelled() }}
+        if: ${{ success() }}
         with:
           name: census-report-head
+          path: ${{ runner.temp }}/census-head.jsonl
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 7
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ failure() }}
+        with:
+          name: census-failed-head-${{ github.run_attempt }}
           path: ${{ runner.temp }}/census-head.jsonl
           if-no-files-found: ignore
           retention-days: 7
@@ -1043,6 +1058,8 @@ jobs:
           name: census-report-before
           path: ${{ runner.temp }}/census-before.jsonl
           if-no-files-found: ignore
+          # A re-run of this job replaces its report rather than adding a second one by the same name.
+          overwrite: true
           retention-days: 7
 
   census-compare:

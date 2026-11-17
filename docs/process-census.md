@@ -93,6 +93,7 @@ The census jobs in `.github/workflows/ci.yml` run on `ubuntu-latest`. `census-he
 - One step installs `strace` with `apt-get` when the image lacks it and logs that. A second step reads `kernel.yama.ptrace_scope`, lowers 2 to 1 with a log line, fails by name on 3, and traces a two-level tree once.
 - A third step starts the runner user's systemd manager (`loginctl enable-linger`), exports `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS` to later steps, and fails by name unless `systemd-run --user` starts a transient service that systemd gives an `INVOCATION_ID`.
 - A pull request compares with `git merge-base HEAD origin/<base branch>`. A push to `main` compares with the event's `before` SHA. A dispatched run compares with `main`.
+- `census-head` uploads `census-report-head` only when its census passed, and replaces an earlier report of the same name. A failed census uploads what it recorded as `census-failed-head-<attempt>`, which `census-compare` does not download. A re-run of a failed `census-head` therefore leaves one report to compare.
 - The jobs are not in `validate`'s `needs:` and are not required checks.
 - Each half has a 20-minute step cap and a 25-minute job cap; `census-compare` has a 5-minute job cap. On the first Linux run (PR #3237, 2026-11-08) the census against HEAD took 830 s, and the steps before it 32 s.
 
