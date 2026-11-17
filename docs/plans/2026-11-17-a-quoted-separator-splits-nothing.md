@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-17, Jan Wloka, plan-PR #3497 merged
+- **Started:** 2026-11-17, Jan Wloka, `bug/a-quoted-separator-splits-nothing`
 
 ## Changelog
 
