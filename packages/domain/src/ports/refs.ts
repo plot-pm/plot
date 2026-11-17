@@ -124,6 +124,13 @@ export type RemoteHeadAnswer = 'present' | 'absent' | 'unknown';
  */
 export type RemoteShaReading = { readonly sha: string } | 'unknown';
 
+/**
+ * What {@link Refs.remoteTips} read: the tip of the default branch and of every
+ * `sprint/*` branch on the remote, keyed by branch name without `refs/heads/`,
+ * or `unknown` where the read could not say.
+ */
+export type RemoteTipsReading = { readonly tips: Readonly<Record<string, string>> } | 'unknown';
+
 /** One ref and the object it points at, as a signal reads the pair. */
 export interface RefState {
   /** The full ref name, such as `refs/remotes/origin/main`. */
@@ -936,6 +943,19 @@ export interface Refs {
    *   branch.
    */
   remoteSha(branch: string): Promise<PortResult<RemoteShaReading>>;
+
+  /**
+   * One `git ls-remote origin refs/heads/<default> 'refs/heads/sprint/*'`: the
+   * tip of the default branch and of every `sprint/*` branch. Each listed ref is
+   * matched in full (`refs/heads/<default>` or `refs/heads/sprint/…`), so a
+   * `feature/<default>` branch is not read as the default branch.
+   *
+   * @param defaultBranch - the default branch's name, without a remote prefix.
+   * @returns `unaskable` from the board's instance; otherwise the tips by branch
+   *   name, or `unknown` where the read failed or timed out. `unknown` is not
+   *   "no branches".
+   */
+  remoteTips(defaultBranch: string): Promise<PortResult<RemoteTipsReading>>;
 
   /**
    * The parents of an in-progress merge, from `MERGE_HEAD`.

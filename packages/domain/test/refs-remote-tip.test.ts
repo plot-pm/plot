@@ -213,3 +213,34 @@ describe('refsRemoteGit.claimBranch', () => {
     expect(result).toEqual({ ok: true, value: 'failed' });
   });
 });
+
+describe('refsRemoteGit.remoteTips', () => {
+  const ctx = { repoRoot: '/nowhere', scriptDir: '/nowhere/scripts' };
+
+  it('asks one ls-remote for the default branch and the sprint branches', async () => {
+    const seen: (readonly string[])[] = [];
+    const remote = refsRemoteGit(ctx, async (_c, args) => {
+      seen.push(args);
+      return { code: 0, stdout: 'a\trefs/heads/main\nb\trefs/heads/sprint/x\n', stderr: '' };
+    });
+    expect(await remote.remoteTips('main')).toEqual({ ok: true, value: { tips: { main: 'a', 'sprint/x': 'b' } } });
+    expect(seen).toEqual([['ls-remote', 'origin', 'refs/heads/main', 'refs/heads/sprint/*']]);
+  });
+
+  it('matches the full ref, never a branch whose name ends the same', async () => {
+    const remote = refsRemoteGit(ctx, async () => ({
+      code: 0,
+      stdout: 'f\trefs/heads/feature/main\nb\trefs/heads/sprint/x\nc\trefs/heads/sprint/y/z\n',
+      stderr: '',
+    }));
+    expect(await remote.remoteTips('main')).toEqual({
+      ok: true,
+      value: { tips: { 'sprint/x': 'b', 'sprint/y/z': 'c' } },
+    });
+  });
+
+  it('answers unknown, never an empty listing, where the read failed', async () => {
+    const remote = refsRemoteGit(ctx, async () => ({ code: 128, stdout: '', stderr: '' }));
+    expect(await remote.remoteTips('main')).toEqual({ ok: true, value: 'unknown' });
+  });
+});

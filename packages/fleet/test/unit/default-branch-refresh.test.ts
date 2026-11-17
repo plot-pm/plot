@@ -11,8 +11,11 @@ import { ANCESTOR_ASKS_MAX, defaultBranchAgeMs, defaultBranchRed } from '@plot-p
 
 import {
   REASK_MS,
+  refreshBases,
   refreshDefaultBranch,
   refreshOnChange,
+  refreshWithBases,
+  type BaseRefreshWorld,
   type DefaultBranchWorld,
 } from '../../src/shared/default-branch-refresh.js';
 
@@ -915,5 +918,196 @@ describe('refreshOnChange — reads the tip only where it may have moved', () =>
     r.clock(WAIT / 2 + 60_000);
     await refresh();
     expect(c.tips()).toBe(3);
+  });
+});
+
+interface BaseRig {
+  world: BaseRefreshWorld;
+  files: Map<string, DefaultBranchReading>;
+  removed: string[];
+  asked: string[];
+  warnings: string[];
+  runs: Record<string, WorkflowShaRun[]>;
+  throwOn: Set<string>;
+}
+
+const baseRig = (held: readonly string[] | null = []): BaseRig => {
+  const files = new Map<string, DefaultBranchReading>();
+  const removed: string[] = [];
+  const asked: string[] = [];
+  const warnings: string[] = [];
+  const runs: Record<string, WorkflowShaRun[]> = {};
+  const throwOn = new Set<string>();
+  const world: BaseRefreshWorld = {
+    shared: {
+      refs: {
+        remoteSha: async () => ({ ok: true, value: 'unknown' }),
+        firstParentLine: async () => ({ ok: true, value: [] }),
+      },
+      build: {
+        system: () => 'github-actions',
+        runsForSha: async (branch, sha) => {
+          if (throwOn.has(branch)) throw new Error('boom');
+          asked.push(`${branch}@${sha}`);
+          return { ok: true, value: runs[sha] ?? [] };
+        },
+      },
+      slot: (call) => call(),
+      now: () => T0,
+      checksWaitMs: WAIT,
+      checks: ['CI'],
+    },
+    storeFor: (base) => ({
+      read: async () => ({ ok: true, value: files.get(base) ?? null }),
+      write: async (reading) => {
+        files.set(base, reading);
+        return { ok: true, value: undefined };
+      },
+    }),
+    held: async () => held,
+    remove: async (base) => {
+      removed.push(base);
+      return true;
+    },
+  };
+  return { world, files, removed, asked, warnings, runs, throwOn };
+};
+
+describe('refreshBases', () => {
+  it('writes one reading per sprint base, named for the base', async () => {
+    const r = baseRig();
+    r.runs.s1 = [run('CI', 'failure')];
+    await refreshBases(r.world, { 'sprint/x': 's1', main: 'm1', 'feature/y': 'f1' }, (l) => r.warnings.push(l));
+    expect([...r.files.keys()]).toEqual(['sprint/x']);
+    expect(r.files.get('sprint/x')).toMatchObject({ branch: 'sprint/x', headSha: 's1', head: 'red' });
+    expect(r.asked).toEqual(['sprint/x@s1']);
+  });
+
+  it('never touches a repair store or the snapshot record', async () => {
+    const r = baseRig();
+    (r.world.shared as DefaultBranchWorld).record = () => {
+      throw new Error('record called');
+    };
+    (r.world.shared as DefaultBranchWorld).repair = {
+      read: async () => {
+        throw new Error('repair read');
+      },
+      write: async () => {
+        throw new Error('repair write');
+      },
+    };
+    r.runs.s1 = [run('CI', 'failure')];
+    await refreshBases(r.world, { 'sprint/x': 's1' }, (l) => r.warnings.push(l));
+    expect(r.files.get('sprint/x')).toMatchObject({ head: 'red', settled: { sha: 's1', state: 'red' } });
+    expect(r.warnings).toEqual([]);
+  });
+
+  it('does not warn that a declared check matched no run for a base with no runs', async () => {
+    const r = baseRig();
+    await refreshBases(r.world, { 'sprint/x': 's1', 'sprint/y': 's2' }, (l) => r.warnings.push(l));
+    expect(r.warnings.filter((l) => l.includes('matched no run'))).toEqual([]);
+    expect(r.files.get('sprint/x')).toMatchObject({ head: 'unknown' });
+  });
+
+  it('refreshes the next base after one throws', async () => {
+    const r = baseRig();
+    r.throwOn.add('sprint/a');
+    r.runs.s2 = [run('CI', 'success')];
+    const out = await refreshBases(r.world, { 'sprint/a': 's1', 'sprint/b': 's2' }, (l) => r.warnings.push(l));
+    expect(out).toEqual({ 'sprint/a': 'failed', 'sprint/b': 'asked' });
+    expect(r.files.has('sprint/a')).toBe(false);
+    expect(r.files.get('sprint/b')).toMatchObject({ head: 'green' });
+    expect(r.warnings.some((l) => l.includes("'sprint/a' failed: boom"))).toBe(true);
+  });
+
+  it('removes the file of a sprint base the listing no longer names, and only that file', async () => {
+    const r = baseRig(['sprint/gone', 'sprint/x', 'other/y']);
+    await refreshBases(r.world, { 'sprint/x': 's1' });
+    expect(r.removed).toEqual(['sprint/gone']);
+  });
+
+  it('removes nothing where the held files could not be listed', async () => {
+    const r = baseRig(null);
+    await refreshBases(r.world, {});
+    expect(r.removed).toEqual([]);
+  });
+});
+
+describe('refreshWithBases', () => {
+  it('refreshes no base and removes no file where the refresh read no listing', async () => {
+    const r = baseRig(['sprint/gone']);
+    let refreshed = 0;
+    const beat = refreshWithBases(async () => { refreshed += 1; }, () => null, r.world);
+    await beat();
+    expect(refreshed).toBe(1);
+    expect(r.removed).toEqual([]);
+    expect(r.asked).toEqual([]);
+    expect(r.files.size).toBe(0);
+  });
+
+  it('keeps the listing of this pass only', async () => {
+    const r = baseRig(['sprint/gone']);
+    let tips: Record<string, string> | null = null;
+    const take = () => {
+      const t = tips;
+      tips = null;
+      return t;
+    };
+    const beat = refreshWithBases(async () => { tips = { 'sprint/x': 's1' }; }, take, r.world);
+    await beat();
+    expect(r.removed).toEqual(['sprint/gone']);
+    expect(r.asked).toEqual(['sprint/x@s1']);
+  });
+
+  it('starts no process while the default branch refresh skips, with a sprint branch on origin', async () => {
+    // An idle pass: the key is unchanged and the held reading is not due, so the
+    // refresh reads no tip, and the combined listing is never asked.
+    const d = rig();
+    d.runs('a1', [run('ci', 'success')]);
+    let listings = 0;
+    const world: DefaultBranchWorld = {
+      ...d.world,
+      refs: {
+        ...d.world.refs,
+        remoteSha: async () => {
+          listings += 1;
+          return { ok: true, value: { sha: 'a1' } };
+        },
+      },
+    };
+    const refresh = refreshOnChange(world, async () => 'k');
+    const r = baseRig();
+    const beat = refreshWithBases(refresh, () => (listings > 0 ? { 'sprint/x': 's1' } : null), r.world);
+    await beat();
+    const afterFirst = listings;
+    await beat();
+    expect(afterFirst).toBe(1);
+    expect(listings).toBe(1);
+  });
+
+  it('writes no reading and deletes no file where the listing failed', async () => {
+    const r = baseRig(['sprint/x']);
+    const beat = refreshWithBases(async () => undefined, () => null, r.world);
+    await beat();
+    expect(r.files.size).toBe(0);
+    expect(r.removed).toEqual([]);
+  });
+});
+
+describe('refreshDefaultBranch for a base', () => {
+  it('writes a red reading for a sprint branch with no repair store and no repair record', async () => {
+    const r = rig();
+    const writes: DefaultBranchReading[] = [];
+    const world: DefaultBranchWorld = {
+      ...r.world,
+      branch: async () => 'sprint/x',
+      refs: { ...r.world.refs, remoteSha: async () => ({ ok: true, value: { sha: 'a1' } }) },
+      store: { read: async () => ({ ok: true, value: null }), write: async (v) => (writes.push(v), { ok: true, value: undefined }) },
+    };
+    delete world.repair;
+    r.runs('a1', [run('ci', 'failure')]);
+    await refreshDefaultBranch(world);
+    expect(writes[0]).toMatchObject({ branch: 'sprint/x', head: 'red' });
+    expect(r.repair()).toBeNull();
   });
 });

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { answered, type PortResult } from '../../port-result.js';
 import type { RemoteTipReading } from '../../rules/checks-verdict.js';
-import type { RemoteHeadAnswer, RemoteShaReading } from '../../ports/refs.js';
+import type { RemoteHeadAnswer, RemoteShaReading, RemoteTipsReading } from '../../ports/refs.js';
 import { runProcess, type RunOptions, type ScriptRun } from '../run-script.js';
 import type { ShellContext } from '../scripts.js';
 
@@ -37,7 +37,8 @@ const FETCH_TIMEOUT_MS = 30_000;
  *   the read failed, timed out, or found no such branch. `fetchRemoteHead`:
  *   `present` where the fetch succeeded, `absent` where `ls-remote` found no
  *   such branch, and `unknown` otherwise. `remoteSha`: the sha at the full ref
- *   `refs/heads/<branch>`, or `unknown`. `claimBranch`: `won` where the push of
+ *   `refs/heads/<branch>`, or `unknown`. `remoteTips`: the tips of the default branch and every
+ *   `sprint/*` branch from one `ls-remote`, or `unknown`. `claimBranch`: `won` where the push of
  *   an empty `plot: claim <branch>` commit on top of `baseSha` created the
  *   branch, `lost` where origin already holds it, `failed` where neither
  *   happened.
@@ -49,6 +50,7 @@ export const refsRemoteGit = (
   remoteTip: (branch: string, pushedSha: string) => Promise<PortResult<RemoteTipReading>>;
   fetchRemoteHead: (branch: string) => Promise<PortResult<RemoteHeadAnswer>>;
   remoteSha: (branch: string) => Promise<PortResult<RemoteShaReading>>;
+  remoteTips: (defaultBranch: string) => Promise<PortResult<RemoteTipsReading>>;
   claimBranch: (branch: string, baseSha: string) => Promise<PortResult<ClaimBranchOutcome>>;
 } => ({
   fetchRemoteHead: async (branch) => {
@@ -95,6 +97,25 @@ export const refsRemoteGit = (
     const line = result.stdout.split('\n').find((l) => l.split('\t')[1]?.trim() === ref);
     const sha = line?.split('\t')[0]?.trim();
     return answered<RemoteShaReading>(sha ? { sha } : 'unknown');
+  },
+
+  remoteTips: async (defaultBranch) => {
+    // THE FULL REF, matched as `remoteSha` does: a bare pattern also lists
+    // `refs/heads/feature/x`. A failed or timed-out read is `unknown`, never an
+    // empty listing.
+    const result = await run('git', ['ls-remote', 'origin', `refs/heads/${defaultBranch}`, 'refs/heads/sprint/*'], {
+      cwd: context.repoRoot,
+      timeoutMs: REMOTE_TIP_TIMEOUT_MS,
+    });
+    if (result.code !== 0) return answered<RemoteTipsReading>('unknown');
+    const tips: Record<string, string> = {};
+    for (const line of result.stdout.split('\n')) {
+      const [sha, ref] = line.split('\t').map((part) => part.trim());
+      if (!sha || !ref?.startsWith('refs/heads/')) continue;
+      const name = ref.slice('refs/heads/'.length);
+      if (name === defaultBranch || name.startsWith('sprint/')) tips[name] = sha;
+    }
+    return answered<RemoteTipsReading>({ tips });
   },
 
   remoteTip: async (branch, pushedSha) => {

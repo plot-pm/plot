@@ -17,6 +17,7 @@ import type {
   Refs,
   RemoteHeadAnswer,
   RemoteShaReading,
+  RemoteTipsReading,
   StagedEntry,
   StagedPath,
   TreeBlob,
@@ -541,6 +542,10 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
       const line = fixture.firstParentLine ?? [];
       const at = line.indexOf(sha);
       return at === -1 ? failed<readonly string[]>() : answered<readonly string[]>(line.slice(at, at + max));
+    },
+
+    remoteTips: async (): Promise<PortResult<RemoteTipsReading>> => {
+      return answered<RemoteTipsReading>({ tips: { ...(fixture.remoteTips ?? {}) } });
     },
 
     remoteSha: async (branch): Promise<PortResult<RemoteShaReading>> => {

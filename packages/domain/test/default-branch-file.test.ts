@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { baseBranchFile, baseBranchPath, defaultBranchFile, defaultBranchPath } from '../src/adapters/default-branch/default-branch-file.js';
+import { baseBranchFile, baseBranchNames, baseBranchPath, removeBaseBranch, defaultBranchFile, defaultBranchPath } from '../src/adapters/default-branch/default-branch-file.js';
 import { DEFAULT_BRANCH_VERSION, type DefaultBranchReading } from '../src/entities/default-branch.js';
 
 const reading: DefaultBranchReading = {
@@ -88,5 +88,26 @@ describe('baseBranchFile', () => {
   it('answers failed where the read fails other than by a missing file', async () => {
     mkdirSync(baseBranchPath(root, 'sprint/x'), { recursive: true });
     expect((await baseBranchFile(root, 'sprint/x').read()).ok).toBe(false);
+  });
+});
+
+describe('baseBranchNames and removeBaseBranch', () => {
+  it('lists the written bases, and removes one file while keeping its directory', async () => {
+    const store = baseBranchFile(root, 'sprint/x');
+    await store.write({ ...reading, branch: 'sprint/x' });
+    await baseBranchFile(root, 'sprint/y').write({ ...reading, branch: 'sprint/y' });
+    expect(await baseBranchNames(root)).toEqual({ ok: true, value: expect.arrayContaining(['sprint/x', 'sprint/y']) });
+    expect(await removeBaseBranch(root, 'sprint/x')).toEqual({ ok: true, value: undefined });
+    expect(existsSync(baseBranchPath(root, 'sprint/x'))).toBe(false);
+    expect(existsSync(baseBranchPath(root, 'sprint/y'))).toBe(true);
+  });
+
+  it('lists nothing where no directory exists, and refuses a `..` base', async () => {
+    expect(await baseBranchNames(root)).toEqual({ ok: true, value: [] });
+    expect((await removeBaseBranch(root, 'sprint/../x')).ok).toBe(false);
+  });
+
+  it('refuses to write a base with a `..` segment', async () => {
+    expect((await baseBranchFile(root, 'sprint/../x').write({ ...reading, branch: 'sprint/../x' })).ok).toBe(false);
   });
 });

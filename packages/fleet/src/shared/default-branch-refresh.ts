@@ -71,9 +71,10 @@ export interface DefaultBranchWorld {
   /**
    * The repair record's file, written at the change from green to red. A
    * person may also set its `repairPr`, so fleetd keeps an open record of the
-   * same episode rather than replacing it.
+   * same episode rather than replacing it. Where absent, the refresh writes no
+   * repair record.
    */
-  repair: RepairRecordStore;
+  repair?: RepairRecordStore;
   /** Runs one host call, inside a host slot where the CI system is GitHub Actions. */
   slot<T>(call: () => Promise<T>): Promise<T>;
   /** Epoch ms. */
@@ -188,7 +189,7 @@ const settleBehindHead = async (
  *   record on disk could not be read.
  */
 const writeRepairRecord = async (
-  world: DefaultBranchWorld,
+  world: DefaultBranchWorld & { repair: RepairRecordStore },
   branch: string,
   settled: SettledReading,
   carried: SettledReading | undefined,
@@ -347,8 +348,8 @@ export const refreshDefaultBranch = async (
     // The change from a green settled reading (or none) to a red one: write
     // the repair record before this reading, so a crash or a second tick on
     // one machine starts no second repair.
-    if (settled?.state === 'red' && settled.sha !== carried?.sha && carried?.state !== 'red') {
-      await writeRepairRecord(world, branch, settled, carried, stamp, warn);
+    if (world.repair && settled?.state === 'red' && settled.sha !== carried?.sha && carried?.state !== 'red') {
+      await writeRepairRecord({ ...world, repair: world.repair }, branch, settled, carried, stamp, warn);
     }
 
     reading = {
@@ -407,4 +408,128 @@ export const refreshOnChange = (
     readKey = outcome === 'unreadable' ? null : key;
     return outcome;
   };
+};
+
+/** What {@link refreshBases} reads and writes beyond the default branch's own world. */
+export interface BaseRefreshWorld {
+  /** The CI reads, the clock and the bounds, shared with the default branch's refresh. */
+  shared: Pick<DefaultBranchWorld, 'refs' | 'build' | 'slot' | 'now' | 'checksWaitMs' | 'checks'>;
+  /** The reading's file for one base. */
+  storeFor(base: string): DefaultBranchStore;
+  /** The bases that hold a reading file now, or `null` where they could not be listed. */
+  held(): Promise<readonly string[] | null>;
+  /** Deletes one base's reading file. Returns whether the file is gone. */
+  remove(base: string): Promise<boolean>;
+}
+
+/**
+ * Refreshes one reading per `sprint/*` branch that a remote listing names, and
+ * removes the file of each base the listing no longer names.
+ *
+ * Each base runs {@link refreshDefaultBranch} through a world whose `branch()`
+ * is the base, whose `refs.remoteSha` answers from `tips`, and which has no
+ * `record` and no `repair`: a base never touches the daemon snapshot's
+ * default-branch reading and opens no repair episode. The bases run one after
+ * another, so a base never asks concurrently with another. A base whose
+ * refresh throws or ends `'unreadable'` is reported to `warn` and the next base
+ * still runs. A declared check that matched no run is not reported: a sprint
+ * branch with no pull request open has no runs, which is its normal state.
+ *
+ * Only `sprint/*` files are removed, and only where `tips` is a listing the
+ * remote answered. A caller with no answered listing calls nothing.
+ *
+ * @param world - the reads, and the files.
+ * @param tips - the tips of every `sprint/*` branch the remote lists, by name.
+ * @param warn - receives one line per failure, and each line once per base.
+ * @returns the outcome of each refreshed base, by name.
+ */
+export const refreshBases = async (
+  world: BaseRefreshWorld,
+  tips: Readonly<Record<string, string>>,
+  warn: (line: string) => void = () => undefined,
+): Promise<Readonly<Record<string, DefaultBranchOutcome | 'failed'>>> => {
+  const outcomes: Record<string, DefaultBranchOutcome | 'failed'> = {};
+  const bases = Object.keys(tips).filter((name) => name.startsWith('sprint/')).sort();
+  for (const base of bases) {
+    let last: string | null = null;
+    const baseWarn = (line: string): void => {
+      if (line.includes('matched no run') || line === last) return;
+      last = line;
+      warn(`${line} [base ${base}]`);
+    };
+    const store = world.storeFor(base);
+    const { build, slot, now, checksWaitMs, checks } = world.shared;
+    const baseWorld: DefaultBranchWorld = {
+      build,
+      slot,
+      now,
+      checksWaitMs,
+      checks,
+      branch: async () => base,
+      refs: {
+        firstParentLine: world.shared.refs.firstParentLine,
+        remoteSha: async () => ({ ok: true, value: { sha: tips[base]! } }),
+      },
+      store: {
+        read: () => store.read(),
+        write: async (reading) => {
+          const written = await store.write(reading);
+          if (!written.ok) baseWarn(`plot-fleetd: base-branch reading for '${base}' left unwritten`);
+          return written;
+        },
+      },
+    };
+    try {
+      outcomes[base] = await refreshDefaultBranch(baseWorld, baseWarn);
+    } catch (e) {
+      outcomes[base] = 'failed';
+      baseWarn(`plot-fleetd: base-branch read for '${base}' failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  const held = await world.held();
+  if (held !== null) {
+    for (const base of held) {
+      if (!base.startsWith('sprint/') || base in tips) continue;
+      if (!(await world.remove(base))) warn(`plot-fleetd: base-branch reading for '${base}' could not be removed`);
+    }
+  }
+  return outcomes;
+};
+
+/**
+ * Builds one beat that refreshes the default branch and then each `sprint/*` base.
+ *
+ * The bases are refreshed only where the default branch's refresh read the
+ * combined tip listing during this call: an idle pass reads none, starts no
+ * process, and leaves every base file as it was. A sprint tip that moves while
+ * `origin/<default>` does not is therefore read when the default branch's
+ * reading is next due, at most once per half `Checks wait`. A refresh that
+ * throws is reported to `warn` and the bases still run on any listing it read.
+ *
+ * @param refresh - the default branch's refresh.
+ * @param takeTips - returns the listing the refresh read since the last call and
+ *   forgets it; `null` where no answered listing was read.
+ * @param bases - the per-base reads, and the files.
+ * @param warn - receives one line per failure.
+ * @returns one beat per call.
+ */
+export const refreshWithBases = (
+  refresh: () => Promise<unknown>,
+  takeTips: () => Readonly<Record<string, string>> | null,
+  bases: BaseRefreshWorld,
+  warn: (line: string) => void = () => undefined,
+): (() => Promise<void>) => async () => {
+  takeTips();
+  try {
+    await refresh();
+  } catch (e) {
+    warn(`plot-fleetd: default-branch read failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  const tips = takeTips();
+  if (tips === null) return;
+  try {
+    await refreshBases(bases, tips, warn);
+  } catch (e) {
+    warn(`plot-fleetd: base-branch read failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
 };
