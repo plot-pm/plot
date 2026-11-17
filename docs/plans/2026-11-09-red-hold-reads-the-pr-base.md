@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** bug-fixes-2-35-0
 - **Issue:** #3322
@@ -15,6 +15,7 @@
 - **Started:** 2026-11-16, Jan Wloka, `bug/red-hold-reads-the-pr-base`
 - **Started:** 2026-11-17, Jan Wloka, `bug/red-hold-base-readings`
 - **Started:** 2026-11-17, Jan Wloka, `bug/red-hold-base-repair`
+- **Delivered:** 2026-11-17
 
 ## Changelog
 
