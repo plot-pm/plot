@@ -134,6 +134,26 @@ describe('parseSprintFile — release', () => {
   });
 });
 
+describe('activeSprints — end and ownerHandle', () => {
+  const sprintWith = (status: string): ReturnType<typeof withEstate> =>
+    withEstate({ 'plan-app': APPROVED }, {
+      '2026-W40-alpha.md': sprintFile(status, '- [ ] [plan-app] a\n'),
+    });
+
+  it('carries the file\'s End and Owner lines, raw', async () => {
+    const opts = sprintWith('- **State:** Active\n- **Start:** 2026-11-16\n- **End:** 2026-11-20\n- **Owner:** Stranger');
+    const [sprint] = await activeSprints(opts, null);
+    expect(sprint.end).toBe('2026-11-20');
+    expect(sprint.ownerHandle).toBe('Stranger');
+  });
+
+  it('keeps a sprint with no Owner line, ownerHandle ""', async () => {
+    const [sprint] = await activeSprints(sprintWith('- **State:** Active'), null);
+    expect(sprint.ownerHandle).toBe('');
+    expect(sprint.end).toBe('');
+  });
+});
+
 describe('activeSprints — the three exhaustive counts, aggregated from plan.status', () => {
   it('tallies each member into its bucket, and carries the release', async () => {
     const opts = withEstate(
