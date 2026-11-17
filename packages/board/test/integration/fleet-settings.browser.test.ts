@@ -300,4 +300,29 @@ describe('the two fleet controls (real browser renders the shipped artifact)', (
       await page.close();
     }
   });
+  it('the fleet card shows the state and counts, posts nothing on a click, and links to the controls', async () => {
+    const { page, posts } = await open(fleet({ autoDispatch: false, parallelAgents: 3 }));
+    try {
+      await page.locator('[data-fleet-card]').waitFor({ timeout: 10_000 });
+      const box = page.locator('[data-fleet-card-auto-dispatch]');
+      expect(await box.isChecked()).toBe(false);
+      // A forced click reaches the element though it is disabled; it must write nothing.
+      await box.click({ force: true });
+      await page.locator('[data-fleet-card-parallel-agents]').focus();
+      await page.keyboard.press('ArrowUp');
+      await page.waitForTimeout(300);
+      expect(posts).toEqual([]);
+      expect(await box.isChecked()).toBe(false);
+      // One source: the card's cap equals the Fleet body's.
+      expect(await page.locator('[data-fleet-card-parallel-agents]').getAttribute('aria-valuenow'))
+        .toBe(await page.locator('[data-fleet-parallel-agents]').getAttribute('aria-valuenow'));
+      await page.locator('[data-fleet-card-link]').click();
+      expect(await page.locator('#fleet-controls').isVisible()).toBe(true);
+      // 320 px: no horizontal scroll.
+      await page.setViewportSize({ width: 320, height: 800 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    } finally {
+      await page.close();
+    }
+  });
 });
