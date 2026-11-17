@@ -32,6 +32,20 @@ describe('roleRuns', () => {
     expect(fixer!.startedAt).toBe(Date.parse('2026-11-17T10:00:00Z'));
   });
 
+  it('shows a stopped design or verify run once, with what the pass recorded', () => {
+    const stopped = { reason: 'failed 3 times', restart: '/plot-deliver --verify plan-s', log: '/r/log' };
+    const runs = roleRuns({
+      ...live(),
+      design: { running: ['plan-d'], stopped: [{ plan: 'plan-d', ...stopped }, { plan: 'plan-x', ...stopped }] },
+      verify: { running: [], stopped: [{ plan: 'plan-s', ...stopped }] },
+    });
+    expect(runs.filter((r) => r.role === 'design').map((r) => [r.id, r.stopped])).toEqual([
+      ['agent:design:plan-d', undefined],
+      ['agent:design:plan-x', stopped],
+    ]);
+    expect(runs.filter((r) => r.role === 'verify').map((r) => [r.id, r.stopped])).toEqual([['agent:verify:plan-s', stopped]]);
+  });
+
   it('gives design and verify a null start', () => {
     const [, , design, verify] = roleRuns(live());
     expect(design!.startedAt).toBeNull();

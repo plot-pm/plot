@@ -4752,54 +4752,41 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     });
   });
 
-  // THE BOARD ROW (H7) — issue #1640. The Acceptance payload: one failed row,
-  // one running plan and `halted: true`, with no row carrying `fleetHalted`, so
-  // the halted line shows. Each count is read against the same payload without
-  // `verification`: one higher proves the section counts its plan-level row,
-  // and not two higher proves the halted line stays out of the count.
-  it('shows the fleet\'s verify runs as plan-level rows under Plan runs, and the halted line once', async () => {
+  // THE FLEET ROW of a verify run, and the halted line. One failed run, one
+  // running plan and `halted: true`, with no row carrying `fleetHalted`, so the
+  // halted line shows once. Each run is a Fleet row with its role chip.
+  it('shows the fleet\'s verify runs as Fleet rows with their role, and the halted line once', async () => {
+    const stopped = {
+      reason: 'verification failed 3 times; the fleet stopped retrying this plan',
+      restart: '/plot-deliver --verify plant-tomatoes',
+      log: '/r/.plot/logs/plot-verify-plant-tomatoes.log',
+    };
     const page = await openAgentsWithBoard(fleet({
       verification: {
         halted: true,
         running: ['beans'],
         refusals: {},
-        rows: [{
-          slug: 'plant-tomatoes',
-          reason: 'verification failed 3 times; the fleet stopped retrying this plan',
-          log: '/r/.plot/logs/plot-verify-plant-tomatoes.log',
-          restart: '/plot-deliver --verify plant-tomatoes',
-          stopped: true,
-          fleetHalted: false,
-        }],
+        rows: [{ slug: 'plant-tomatoes', ...stopped, stopped: true, fleetHalted: false }],
       },
+      roleRuns: [
+        { id: 'agent:verify:beans', role: 'verify', plan: 'beans', startedAt: null },
+        { id: 'agent:verify:plant-tomatoes', role: 'verify', plan: 'plant-tomatoes', startedAt: null, stopped },
+      ],
     }));
     try {
-      // Plan-level runs render outside the placement rule, in Plan runs.
-      const waiting = page.locator('[data-outside-rule]');
-      const failedRow = waiting.locator('[data-plan-level-row="plant-tomatoes"]');
-      await expect.poll(() => failedRow.count()).toBe(1);
-      expect(await failedRow.locator('[data-plan-level-restart]').textContent())
-        .toBe('/plot-deliver --verify plant-tomatoes');
-      expect(await failedRow.locator('[data-plan-level-log]').textContent())
-        .toBe('/r/.plot/logs/plot-verify-plant-tomatoes.log');
-      // The plan file comes from the board card whose slug is the row's plan.
-      await expect.poll(() => failedRow.locator('a[href="/plan/2026-03-01-plant-tomatoes.md"]').count())
-        .toBe(1);
-      // The rows sit under Plan runs, outside the placement rule, and no heading counts them.
-      expect(await page.locator('[data-delivery-section="you"]').textContent()).not.toContain('plan run');
+      const verifyRows = page.locator('[data-role-run="verify"]');
+      await expect.poll(() => verifyRows.count()).toBe(2);
+      const failedRow = verifyRows.filter({ has: page.locator('[data-plan-level-restart]') });
+      expect(await failedRow.count()).toBe(1);
+      expect(await failedRow.locator('[data-plan-level-restart]').textContent()).toBe(stopped.restart);
+      expect(await failedRow.locator('[data-plan-level-log]').textContent()).toBe(stopped.log);
+      expect(await page.locator('[data-plan-level-row]').count()).toBe(0);
+      expect(await page.getByRole('heading', { level: 2, name: 'Plan runs' }).count()).toBe(0);
 
       const line = page.locator('[data-fleet-halted]');
       expect(await line.count()).toBe(1);
-      expect(await waiting.locator('[data-fleet-halted]').count()).toBe(1);
       expect(await line.textContent())
         .toBe('The fleet starts no verify run until a person restarts one.');
-
-      const working = page.locator('[data-outside-rule]');
-      const runningRow = working.locator('[data-plan-level-row="beans"]');
-      await expect.poll(() => runningRow.count()).toBe(1);
-      expect(await runningRow.locator('[data-plan-level-restart]').count()).toBe(0);
-      expect(await runningRow.locator('[data-plan-level-log]').count()).toBe(0);
-      expect(await page.locator('[data-delivery-group="working"]').textContent()).not.toContain('plan run');
     } finally {
       await page.close();
     }

@@ -368,6 +368,13 @@ describe('deliveryMapping: agent roles', () => {
     expect(reviewer?.process).toBe('running');
   });
 
+  it('reads a stopped design or verify run as a stopped process blocked on a person', () => {
+    const stopped = { reason: 'r', restart: '/plot-deliver --verify pv', log: '/l' };
+    const m = deliveryMapping(input({ roleRuns: [{ id: 'agent:verify:pv', role: 'verify', plan: 'pv', startedAt: null, stopped }] }));
+    expect(m.readings.agents.map((a) => [a.id, a.process, a.blockedOn])).toEqual([['agent:verify:pv', 'stopped', 'person']]);
+    expect(place(m).agents.map((a) => a.id)).toEqual(['agent:verify:pv']);
+  });
+
   it('adds no agent when the payload carries no runs', () => {
     expect(deliveryMapping(input({ roleRuns: null })).readings.agents).toEqual([]);
   });
