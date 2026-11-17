@@ -68,6 +68,8 @@ export const resolveLink = (target: LinkTarget, ctx: LinkContext): ResolvedLink 
     }
     case 'action':
       return { kind: 'act', action: target.action, id: target.id };
+    case 'url':
+      return target.url === '' ? { kind: 'none' } : { kind: 'href', href: target.url };
     case 'ci-run':
     case 'person':
       return { kind: 'none' };
