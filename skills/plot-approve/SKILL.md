@@ -46,10 +46,10 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 1. Parse Input | Small | Slug lookup via helper scripts |
 | 2. Determine Review State | Small | plot-plan-meta.sh reports the channel |
 | 2b. Suggest Tracer Bullet | Mid | Heuristic evaluation of plan design. For a Design plan, read the spike annotation instead and name the fix of a `spike-unmerged` or `slices-unpushed` refusal |
-| 3. Effect and Record (`pr`) | Small | One call to `plot-approve.sh`; read back its summary |
-| 3. `Review: in-session` | Small | One call: `plot-approve.sh --who <handle>`; read back its summary |
+| 3. Effect and Record (`pr`) | Small | One call to `plot-approve-command.mjs` in a person's session (`plot-approve.sh` under `PLOT_UNATTENDED=1`); read back its summary |
+| 3. `Review: in-session` | Small | One call: `plot-approve-command.mjs --who <handle>`; read back its summary |
 | 3b. Record by hand (`ballot` only) | Mid | The tally, then the same records without a script |
-| 3c. Spike approval (`--spike`) | Small | One call: `plot-approve.sh --spike --who <handle> <slug>`; read back its summary. Stop if a spike approval was asked for and the call has no `--spike` |
+| 3c. Spike approval (`--spike`) | Small | One call: `plot-approve-command.mjs --spike --who <handle> <slug>`; read back its summary. Stop if a spike approval was asked for and the call has no `--spike` |
 | 4. Summary | Small | Orientation template |
 
 **What this skill judges and what the script collects.** Manifesto
@@ -242,6 +242,8 @@ channels converge, so the panel gate is here regardless of which one a plan
 declares.
 
 ### 3. Effect and Record the Approval
+
+**Which command.** In a person's session, call `../plot/scripts/board/plot-approve-command.mjs` with the arguments shown below for `plot-approve.sh`. It needs no board, leaves no receipt, and refuses `PLOT_UNATTENDED=1`. An unattended run keeps the `plot-approve.sh` call. `--dry-run` calls stay on `plot-approve.sh`.
 
 **`Review: pr` — one call. Do not do this by hand:**
 
