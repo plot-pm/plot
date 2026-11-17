@@ -1,5 +1,6 @@
 import {
   DELIVERY_LAYOUT,
+  isStuckReason,
   placeDelivery,
   releaseTicketWording,
   type AgentPlacement,
@@ -30,9 +31,9 @@ const SECTION_LABELS: Record<DeliverySection, { icon: GlyphKind; label: string; 
 };
 
 const GROUP_LABELS: Record<string, { label: string; hint: string }> = {
-  'input-to-the-fleet': { label: 'Input to the fleet', hint: 'a plan or approval waits for you' },
-  'review-a-result': { label: 'Review a result', hint: 'a PR or a delivered plan waits for you' },
-  unblock: { label: 'Unblock', hint: 'the fleet cannot go on alone' },
+  'blocks-delivery': { label: 'Blocks delivery', hint: 'delivery waits for you' },
+  'input-to-the-fleet': { label: 'Input to the fleet', hint: 'a plan waits for your input' },
+  unblock: { label: 'Unblock', hint: 'clean up what no plan names' },
   'at-a-gate': { label: 'At a gate', hint: 'CI, review or another gate holds it' },
   'being-built': { label: 'Being built', hint: 'an agent works on it' },
   queued: { label: 'Queued', hint: 'nobody has taken it' },
@@ -40,23 +41,6 @@ const GROUP_LABELS: Record<string, { label: string; hint: string }> = {
   blocked: { label: 'Blocked', hint: 'an agent waits on a gate' },
   free: { label: 'Free agents', hint: 'an agent holds no item' },
 };
-
-/** The YOU reasons as a short sentence, so a row says why it sits under You. */
-const REASON_WORDS: Record<string, string> = {
-  'draft-plan': 'a draft plan needs your input',
-  'plan-approval': 'the plan needs your approval',
-  'spike-approval': 'the spike needs your approval',
-  'release-approval': 'the release needs your approval',
-  'test-delivered-plan': 'a delivered plan waits for your test',
-  'review-pr': 'the PR waits for your review',
-  'blocked-marker': 'the desk holds a PLOT-BLOCKED marker',
-  'fleet-stuck': 'the fleet cannot pass the gate alone',
-  'merge-conflict': 'the PR conflicts and no agent works on it',
-  'agent-died': 'the agent died and left the slice unbuilt',
-  loose: 'no plan names it and nobody works on it',
-};
-
-export const reasonWords = (reason: string): string => REASON_WORDS[reason] ?? reason;
 
 /** One work item the rule placed, with the payload rows it stands for. */
 export interface PlacedItemView {
@@ -434,7 +418,7 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
     + placement.unplaced.filter((u) => u.subject === 'item' && u.id.startsWith('slice:')).length;
   const slicesDelivered = delivered.filter((u) => u.id.startsWith('slice:')).length;
   const held = placement.items.filter((p) => p.section === 'work-items' && p.group === 'at-a-gate').length;
-  const blocked = placement.items.filter((p) => p.section === 'you' && p.group === 'unblock').length;
+  const blocked = placement.items.filter((p) => p.section === 'you' && isStuckReason(p.reason)).length;
   const sliceLine = `${slicesDelivered} of ${slicesTotal} slices delivered · ${held} held at gates · ${blocked} blocked`;
   const { targets, tickets } = mapping.releases;
   const ticketLines = tickets === null ? [] : targets.flatMap((t) => {

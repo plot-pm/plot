@@ -218,12 +218,12 @@ describe('a folded plan folds its branches PR states onto its head', () => {
   });
 
   it('planHeads PATH: a plan split across two groups folds each group\'s own slices onto that group\'s head', async () => {
-    // `conflict-wins` has one slice with a conflicting PR (no agent works on it: You > Unblock) and one with a
+    // `conflict-wins` has one slice with a conflicting PR (no agent works on it: You > Blocks delivery) and one with a
     // failing PR (Work items > At a gate). The rule places each slice alone, so the plan shows a head in each
     // group and each head folds only the slices it heads.
     const page = await open();
     try {
-      const unblock = page.locator('[data-group="unblock"]');
+      const unblock = page.locator('[data-group="blocks-delivery"]');
       const gate = page.locator('[data-group="at-a-gate"]');
       for (const [grp, state] of [[unblock, 'conflicts'], [gate, 'failing']] as const) {
         const toggle = grp.locator('[data-slice-toggle="conflict-wins"]');
@@ -265,7 +265,7 @@ describe('a folded plan folds its branches PR states onto its head', () => {
   it('planHeads PATH: the fold STAYS when the group is expanded', async () => {
     const page = await open();
     try {
-      const unblock = page.locator('[data-group="unblock"]');
+      const unblock = page.locator('[data-group="blocks-delivery"]');
       const toggle = unblock.locator('[data-slice-toggle="conflict-wins"]');
       await toggle.waitFor({ timeout: 10_000 });
       if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();

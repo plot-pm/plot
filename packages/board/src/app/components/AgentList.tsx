@@ -90,7 +90,7 @@ import {
   writeMineOnly,
   writeMineStrict,
 } from '../lib/agent-rows/mine-filter.js';
-import { mineMode, placeDelivery, planIndexOf } from '@plot-pm/domain';
+import { mineMode, placeDelivery, planIndexOf, YOU_GROUP_MARKERS, type YouGroup, type YouMarker } from '@plot-pm/domain';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
 import { ActivityMark } from '../lib/agent-rows/marks.js';
 import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
@@ -101,7 +101,6 @@ import {
   placeMapping,
   planBlockShown,
   planBlockToggleKey,
-  reasonWords,
   sectionGlyph,
   type BlockView,
   type PlacedAgentView,
@@ -141,6 +140,12 @@ export type { AgentListProps };
  * `spawnerStatus`'s shared signature from a call site that has no real pid to
  * compare.
  */
+const YOU_MARKER_CLASS: Record<YouMarker, string> = {
+  'blocks-delivery': 'text-red-600 dark:text-red-400',
+  input: 'text-blue-600 dark:text-blue-400',
+  'clean-up': 'text-slate-500 dark:text-slate-400',
+};
+
 const WIRE_IDENTITY_PID = 1;
 
 
@@ -1161,13 +1166,8 @@ export function AgentList({
         const anchorOf = (item: PlacedItemView) => (
           <li key={`anchor-${item.anchor}`} role="presentation" id={item.anchor} className="h-0" />
         );
-        // The reason a You item sits there, and its links to the agents acting on it.
+        // The loose-branch actions and the links to the agents acting on it.
         const itemTail = (item: PlacedItemView) => [
-          item.placement?.section === 'you' ? (
-            <li key={`reason-${item.anchor}`} role="row" data-placement-reason={item.placement.reason} className="px-3 pb-1 text-xs text-amber-700 dark:text-amber-500">
-              <span role="gridcell">{reasonWords(item.placement.reason)}</span>
-            </li>
-          ) : null,
           // A loose BRANCH can be released or deleted; a loose PR has neither action (release
           // refuses any branch with a PR, delete refuses an open one), so it shows none.
           item.placement?.section === 'you' && item.placement.reason === 'loose' && item.rows[0]?.pr === null ? (
@@ -1466,6 +1466,15 @@ export function AgentList({
                     );
                     const g = fold(group.key, group.count, (
                       <h3 data-delivery-group={group.key} className="flex flex-wrap items-baseline gap-1 text-sm font-medium text-slate-700 dark:text-slate-200">
+                        {section.key === 'you' && (
+                          <span
+                            data-group-marker={YOU_GROUP_MARKERS[group.key as YouGroup].marker}
+                            className={`inline-flex items-center gap-1 text-xs font-normal ${YOU_MARKER_CLASS[YOU_GROUP_MARKERS[group.key as YouGroup].marker]}`}
+                          >
+                            <span aria-hidden className="inline-block h-2 w-2 rounded-full bg-current" />
+                            {YOU_GROUP_MARKERS[group.key as YouGroup].words}
+                          </span>
+                        )}
                         {group.label}
                         <span className="ml-1 font-normal text-slate-500">
                           ({group.count > 0 ? group.tally : group.hint})

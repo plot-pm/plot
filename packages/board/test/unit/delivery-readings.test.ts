@@ -78,7 +78,7 @@ describe('deliveryMapping', () => {
 
   it('puts a dead agent on a slice under You to unblock and the agent under Fleet blocked', () => {
     const p = place(deliveryMapping(mixed));
-    expect(p.items.find((i) => i.id === sliceItemId('p', 'B'))).toMatchObject({ section: 'you', group: 'unblock' });
+    expect(p.items.find((i) => i.id === sliceItemId('p', 'B'))).toMatchObject({ section: 'you', group: 'blocks-delivery' });
     expect(p.agents.find((x) => x.id === 'agent:dead')).toMatchObject({ group: 'blocked' });
   });
 
@@ -87,7 +87,7 @@ describe('deliveryMapping', () => {
     const on = place(deliveryMapping(input({ rows, config: { autoReview: true, correctionBudget: 2 } })));
     const off = place(deliveryMapping(input({ rows, config: { autoReview: false, correctionBudget: 2 } })));
     expect(on.items[0]).toMatchObject({ section: 'work-items', group: 'at-a-gate' });
-    expect(off.items[0]).toMatchObject({ section: 'you', group: 'review-a-result' });
+    expect(off.items[0]).toMatchObject({ section: 'you', group: 'blocks-delivery' });
   });
 
   it('passes the Mine mode and both config keys through unchanged', () => {
@@ -247,6 +247,23 @@ describe('release lines', () => {
   it('keeps the slice counts alone where no sprint names a release', () => {
     expect(lines({ releaseTickets: tickets, sprints: [{ release: '', started: '' }] }))
       .toEqual(['0 of 0 slices delivered · 0 held at gates · 0 blocked']);
+  });
+
+  it('counts the same blocked slices when a review joins Blocks delivery', () => {
+    const rows = [
+      row({ branch: 'feature/b', plan: 'p', wave: 'B', state: 'wip' }),
+      row({ branch: 'feature/c', plan: 'p', wave: 'C', pr: pr({ ciChecks: 'green', plotReview: 'pending' }) }),
+    ];
+    const base = {
+      rows,
+      slices: ['B', 'C'].map((n) => slice(n)),
+      agents: [agent({ session: 'dead', branch: 'feature/b', state: 'failed' })],
+    };
+    const reviewJoins = lines({ ...base, config: { autoReview: false, correctionBudget: 2 } });
+    expect(place(deliveryMapping(input({ ...base, config: { autoReview: false, correctionBudget: 2 } }))).items
+      .filter((i) => i.section === 'you' && i.reason === 'review-pr')).toHaveLength(1);
+    expect(reviewJoins[0]).toContain('· 1 blocked');
+    expect(lines(base)[0]).toContain('· 1 blocked');
   });
 
   it('keeps the slice counts alone where the index is missing', () => {

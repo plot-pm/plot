@@ -11,14 +11,17 @@ import type { Ownership } from './ownership.js';
  */
 export const DELIVERY_LAYOUT = [
   { section: 'release-delivery', groups: [] },
-  { section: 'you', groups: ['input-to-the-fleet', 'review-a-result', 'unblock'] },
+  { section: 'you', groups: ['blocks-delivery', 'input-to-the-fleet', 'unblock'] },
   { section: 'work-items', groups: ['at-a-gate', 'being-built', 'queued'] },
   { section: 'fleet', groups: ['working', 'blocked', 'free'] },
   { section: 'machine', groups: [] },
 ] as const;
 
 export type DeliverySection = (typeof DELIVERY_LAYOUT)[number]['section'];
-export type YouGroup = 'input-to-the-fleet' | 'review-a-result' | 'unblock';
+export type YouGroup = 'blocks-delivery' | 'input-to-the-fleet' | 'unblock';
+
+/** The marker a You group draws: red, blue and grey "clean up". */
+export type YouMarker = 'blocks-delivery' | 'input' | 'clean-up';
 export type WorkItemGroup = 'at-a-gate' | 'being-built' | 'queued';
 export type FleetGroup = 'working' | 'blocked' | 'free';
 
@@ -137,7 +140,7 @@ export type YouReason =
   | 'loose';
 
 export type ItemPlacement =
-  | { id: string; kind: ItemKind; section: 'you'; group: YouGroup; reason: YouReason; agents: string[] }
+  | { id: string; kind: ItemKind; section: 'you'; group: YouGroup; marker: YouMarker; reason: YouReason; agents: string[] }
   | { id: string; kind: ItemKind; section: 'work-items'; group: WorkItemGroup; reason: null; agents: string[] };
 
 export interface AgentPlacement {
@@ -176,7 +179,54 @@ export interface DeliveryPlacement {
   unplaced: Unplaced[];
 }
 
-type YouCase = { group: YouGroup; reason: YouReason };
+/** The marker each You group draws, and the words it shows beside the group's label. */
+export const YOU_GROUP_MARKERS: Record<YouGroup, { marker: YouMarker; words: string }> = {
+  'blocks-delivery': { marker: 'blocks-delivery', words: 'blocks delivery' },
+  'input-to-the-fleet': { marker: 'input', words: 'input' },
+  unblock: { marker: 'clean-up', words: 'clean up' },
+};
+
+/** What an item needs from a person: the group it sits in, why, and the marker the group draws. */
+export interface YouCase {
+  group: YouGroup;
+  reason: YouReason;
+  marker: YouMarker;
+}
+
+const YOU_CASES: Record<YouReason, YouCase> = {
+  'draft-plan': { group: 'input-to-the-fleet', reason: 'draft-plan', marker: 'input' },
+  'plan-approval': { group: 'blocks-delivery', reason: 'plan-approval', marker: 'blocks-delivery' },
+  'spike-approval': { group: 'blocks-delivery', reason: 'spike-approval', marker: 'blocks-delivery' },
+  'release-approval': { group: 'blocks-delivery', reason: 'release-approval', marker: 'blocks-delivery' },
+  'test-delivered-plan': { group: 'blocks-delivery', reason: 'test-delivered-plan', marker: 'blocks-delivery' },
+  'review-pr': { group: 'blocks-delivery', reason: 'review-pr', marker: 'blocks-delivery' },
+  'blocked-marker': { group: 'blocks-delivery', reason: 'blocked-marker', marker: 'blocks-delivery' },
+  'fleet-stuck': { group: 'blocks-delivery', reason: 'fleet-stuck', marker: 'blocks-delivery' },
+  'merge-conflict': { group: 'blocks-delivery', reason: 'merge-conflict', marker: 'blocks-delivery' },
+  'agent-died': { group: 'blocks-delivery', reason: 'agent-died', marker: 'blocks-delivery' },
+  loose: { group: 'unblock', reason: 'loose', marker: 'clean-up' },
+};
+
+/**
+ * The case of a You reason: its group and marker.
+ *
+ * @param reason - the reason an item sits under You.
+ * @returns the case; it does not depend on who reads the board.
+ */
+export const youCaseOf = (reason: YouReason): YouCase => YOU_CASES[reason];
+
+const STUCK_REASONS: readonly YouReason[] = ['blocked-marker', 'fleet-stuck', 'merge-conflict', 'agent-died', 'loose'];
+
+/**
+ * Whether a reason names an item the fleet cannot take further alone.
+ *
+ * The set is the one the former Unblock group held, so a count over it does not
+ * move with the fold of Review a result into Blocks delivery.
+ *
+ * @param reason - the reason an item sits under You.
+ * @returns true for `blocked-marker`, `fleet-stuck`, `merge-conflict`, `agent-died` and `loose`.
+ */
+export const isStuckReason = (reason: YouReason): boolean => STUCK_REASONS.includes(reason);
 
 /**
  * Whether a PR or a branch is loose, from the readings taken of it.
@@ -197,6 +247,7 @@ const looseOf = (item: WorkItemReading): 'loose' | 'not-loose' | 'unread' => {
   return 'loose';
 };
 
+/** Whether a Mine mode shows an item of this ownership; the You section does not ask it. */
 const mineAllows = (mode: DeliveryMine, ownership: Ownership): boolean =>
   mode === 'off' || (mode === 'strict' ? ownership === 'mine' : ownership !== 'theirs');
 
@@ -207,25 +258,25 @@ const youCase = (
   live: number,
   stopped: number,
 ): YouCase | null => {
-  if (item.phase === 'draft' || item.phase === 'design') return { group: 'input-to-the-fleet', reason: 'draft-plan' };
-  if (item.approvalOwed === 'plan') return { group: 'input-to-the-fleet', reason: 'plan-approval' };
-  if (item.approvalOwed === 'spike') return { group: 'input-to-the-fleet', reason: 'spike-approval' };
-  if (item.approvalOwed === 'release') return { group: 'review-a-result', reason: 'release-approval' };
-  if (item.testOwed === true) return { group: 'review-a-result', reason: 'test-delivered-plan' };
+  if (item.phase === 'draft' || item.phase === 'design') return YOU_CASES['draft-plan'];
+  if (item.approvalOwed === 'plan') return YOU_CASES['plan-approval'];
+  if (item.approvalOwed === 'spike') return YOU_CASES['spike-approval'];
+  if (item.approvalOwed === 'release') return YOU_CASES['release-approval'];
+  if (item.testOwed === true) return YOU_CASES['test-delivered-plan'];
   if (item.delivered === true) return null;
-  if (item.blockedMarker === true) return { group: 'unblock', reason: 'blocked-marker' };
+  if (item.blockedMarker === true) return YOU_CASES['blocked-marker'];
   const pr = item.pr;
   if (item.stage === 'pr' && pr !== undefined) {
     const spent = (item.corrections ?? 0) >= input.correctionBudget;
     const failing = pr.ci === 'failed' || pr.review === 'high';
-    if (item.gateUnpassable === true || (failing && spent)) return { group: 'unblock', reason: 'fleet-stuck' };
-    if (item.mergeConflict === true && live === 0) return { group: 'unblock', reason: 'merge-conflict' };
+    if (item.gateUnpassable === true || (failing && spent)) return YOU_CASES['fleet-stuck'];
+    if (item.mergeConflict === true && live === 0) return YOU_CASES['merge-conflict'];
     if (!input.autoReview && pr.ci === 'passed' && (pr.review === 'pending' || pr.review === 'none')) {
-      return { group: 'review-a-result', reason: 'review-pr' };
+      return YOU_CASES['review-pr'];
     }
   }
-  if (item.stage === 'building' && live === 0 && stopped > 0) return { group: 'unblock', reason: 'agent-died' };
-  if (looseOf(item) === 'loose') return { group: 'unblock', reason: 'loose' };
+  if (item.stage === 'building' && live === 0 && stopped > 0) return YOU_CASES['agent-died'];
+  if (looseOf(item) === 'loose') return YOU_CASES['loose'];
   return null;
 };
 
@@ -337,7 +388,7 @@ export const placeDelivery = (readings: DeliveryReadings, input: DeliveryInput):
       unplaced.push({ id: item.id, subject: 'item', reason: 'unread' });
       continue;
     }
-    if (you !== null && mineAllows(input.mine, item.ownership)) {
+    if (you !== null && item.ownership !== 'theirs') {
       items.push({ id: item.id, kind: item.kind, section: 'you', ...you, agents: names });
       continue;
     }

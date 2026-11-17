@@ -20,7 +20,7 @@ describe('a loose branch under You > Unblock', () => {
     await cat?.close();
   });
 
-  it('shows the reason and the release and delete buttons', async () => {
+  it('shows the release and delete buttons and no reason line', async () => {
     const base = scenario('a-full-estate');
     const loose = row({
       branch: 'feature/nobody-wants-this', plan: '', wave: '', group: 'quiet', state: 'wip', worker: 'elsewhere', desk: false,
@@ -31,12 +31,36 @@ describe('a loose branch under You > Unblock', () => {
       over: { fleet: fleet({ ...base.fleet, rows: [...base.fleet.rows, loose] }) },
     });
     try {
-      await page.locator('[data-placement-reason="loose"]').waitFor({ timeout: 15_000 });
+      await page.locator('[data-section="you"] [data-loose-actions]').waitFor({ timeout: 15_000 });
+      expect(await page.locator('[data-placement-reason]').count()).toBe(0);
       const actions = page.locator('[data-section="you"] [data-loose-actions]');
       expect(await actions.count()).toBe(1);
       expect(await actions.locator('[data-release-claim]').count()).toBe(1);
       expect(await actions.locator('[data-loose-delete]').count()).toBe(1);
       expect(await actions.locator('[data-loose-delete]').getAttribute('aria-label')).toContain('feature/nobody-wants-this');
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+
+  it('marks the three You groups red, blue and grey "clean up"', async () => {
+    const base = scenario('a-full-estate');
+    const loose = row({
+      branch: 'feature/nobody-wants-this', plan: '', wave: '', group: 'quiet', state: 'wip', worker: 'elsewhere', desk: false,
+      ageMinutes: 900, pr: null,
+    });
+    const page = await cat.open('a-full-estate', {
+      tab: 'agents',
+      over: { fleet: fleet({ ...base.fleet, rows: [...base.fleet.rows, loose] }) },
+    });
+    try {
+      const marker = (group: string) => page.locator(`h3[data-delivery-group="${group}"] [data-group-marker]`);
+      await marker('unblock').waitFor({ timeout: 15_000 });
+      expect(await marker('unblock').innerText()).toContain('clean up');
+      expect(await marker('unblock').getAttribute('data-group-marker')).toBe('clean-up');
+      for (const [group, name] of [['blocks-delivery', 'blocks-delivery'], ['input-to-the-fleet', 'input']] as const) {
+        if (await marker(group).count() > 0) expect(await marker(group).getAttribute('data-group-marker')).toBe(name);
+      }
     } finally {
       await page.close();
     }

@@ -3431,8 +3431,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expect.poll(() => mark(page, 'feature/watched').count(),
         { timeout: 10_000 }).toBe(1);
       // On the row where it NOW sits: a conflicting PR with no agent on it moves
-      // from Work items › At a gate to You › Unblock.
-      const marked = group(page, 'unblock').locator('[data-change-mark]');
+      // from Work items › At a gate to You › Blocks delivery.
+      const marked = group(page, 'blocks-delivery').locator('[data-change-mark]');
       expect(await marked.count()).toBe(1);
       expect(await group(page, 'at-a-gate')
         .locator('[data-change-mark]').count()).toBe(0);

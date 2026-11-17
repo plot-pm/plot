@@ -368,9 +368,9 @@ export interface GroupHeader {
  * Which switches an off reading holds a group back by, given the reasons its
  * items sit there.
  *
- * Queued waits on auto-dispatch. Input to the fleet holds draft plans that
- * auto-design would take. Review a result holds PRs that auto-review would take
- * and delivered plans that auto-verify would take. A group with no item holds
+ * Queued waits on auto-dispatch. In You the switch follows the reason of the
+ * items, not the group: a draft plan waits on auto-design, a `review-pr` row on
+ * auto-review and a delivered plan on auto-verify. A group with no item holds
  * nothing.
  */
 const holdersOf = (
@@ -381,14 +381,11 @@ const holdersOf = (
   if (reasons.length === 0) return [];
   if (section === 'work-items' && group === 'queued') return ['autoDispatch'];
   if (section !== 'you') return [];
-  if (group === 'input-to-the-fleet' && reasons.includes('draft-plan')) return ['autoDesign'];
-  if (group === 'review-a-result') {
-    return [
-      ...(reasons.includes('review-pr') ? ['autoReview' as const] : []),
-      ...(reasons.includes('test-delivered-plan') ? ['autoVerify' as const] : []),
-    ];
-  }
-  return [];
+  return [
+    ...(reasons.includes('draft-plan') ? ['autoDesign' as const] : []),
+    ...(reasons.includes('review-pr') ? ['autoReview' as const] : []),
+    ...(reasons.includes('test-delivered-plan') ? ['autoVerify' as const] : []),
+  ];
 };
 
 /**

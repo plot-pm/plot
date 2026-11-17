@@ -6,7 +6,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   DELIVERY_LAYOUT,
+  YOU_GROUP_MARKERS,
+  isStuckReason,
   placeDelivery,
+  youCaseOf,
+  type ItemPlacement,
+  type YouReason,
   type AgentPlacementReading,
   type DeliveryInput,
   type WorkItemReading,
@@ -53,18 +58,18 @@ describe('the fixer case', () => {
     expect(p.items.filter((i) => i.section === 'you')).toEqual([]);
   });
 
-  it('flips the same slice to You › Unblock once the correction budget is spent', () => {
+  it('flips the same slice to You › Blocks delivery once the correction budget is spent', () => {
     const p = placeDelivery({ items: [ciSlice(2)], agents: [] }, input());
 
-    expect(p.items[0]).toMatchObject({ section: 'you', group: 'unblock', reason: 'fleet-stuck' });
+    expect(p.items[0]).toMatchObject({ section: 'you', group: 'blocks-delivery', marker: 'blocks-delivery', reason: 'fleet-stuck' });
   });
 
-  it('moves a HIGH finding to Unblock only when the budget is spent', () => {
+  it('moves a HIGH finding to Blocks delivery only when the budget is spent', () => {
     const high = (corrections: number) =>
       item({ id: 's', stage: 'pr', pr: { ci: 'passed', review: 'high' }, corrections });
 
     expect(placeDelivery({ items: [high(1)], agents: [] }, input()).items[0]).toMatchObject({ group: 'at-a-gate' });
-    expect(placeDelivery({ items: [high(2)], agents: [] }, input()).items[0]).toMatchObject({ group: 'unblock' });
+    expect(placeDelivery({ items: [high(2)], agents: [] }, input()).items[0]).toMatchObject({ group: 'blocks-delivery' });
   });
 
   it('sends a gate the fleet cannot pass alone to Unblock', () => {
@@ -87,7 +92,7 @@ describe('auto-review', () => {
   it('asks a person to review the same PR when off', () => {
     expect(placeDelivery({ items: [pr], agents: [] }, input({ autoReview: false })).items[0]).toMatchObject({
       section: 'you',
-      group: 'review-a-result',
+      group: 'blocks-delivery',
       reason: 'review-pr',
     });
   });
@@ -96,7 +101,7 @@ describe('auto-review', () => {
     const unreviewed = item({ id: 'p', stage: 'pr', pr: { ci: 'passed', review: 'none' } });
 
     expect(placeDelivery({ items: [unreviewed], agents: [] }, input({ autoReview: false })).items[0]).toMatchObject({
-      group: 'review-a-result',
+      group: 'blocks-delivery',
     });
   });
 
@@ -120,33 +125,33 @@ describe('the six You cases', () => {
 
   it('plan, spike and release approvals', () => {
     expect(only(item({ id: 'p', kind: 'plan', phase: 'draft', approvalOwed: 'plan' }))).toMatchObject({ reason: 'draft-plan' });
-    expect(only(item({ id: 'p', kind: 'plan', phase: 'approved', approvalOwed: 'plan' }))).toMatchObject({ group: 'input-to-the-fleet', reason: 'plan-approval' });
+    expect(only(item({ id: 'p', kind: 'plan', phase: 'approved', approvalOwed: 'plan' }))).toMatchObject({ group: 'blocks-delivery', reason: 'plan-approval' });
     expect(only(item({ id: 'p', kind: 'plan', phase: 'design', approvalOwed: 'spike' }))).toMatchObject({ reason: 'draft-plan' });
     expect(only(item({ id: 'b', kind: 'branch', stage: 'building', approvalOwed: 'spike' }))).toMatchObject({ reason: 'spike-approval' });
-    expect(only(item({ id: 'r', kind: 'release', stage: 'pr', approvalOwed: 'release' }))).toMatchObject({ group: 'review-a-result', reason: 'release-approval' });
+    expect(only(item({ id: 'r', kind: 'release', stage: 'pr', approvalOwed: 'release' }))).toMatchObject({ group: 'blocks-delivery', reason: 'release-approval' });
   });
 
   it('a delivered plan to test is a result to review and stays out of Work items otherwise', () => {
     const plan = item({ id: 'p', kind: 'plan', phase: 'delivered', delivered: true, testOwed: true });
 
-    expect(only(plan)).toMatchObject({ group: 'review-a-result', reason: 'test-delivered-plan' });
+    expect(only(plan)).toMatchObject({ group: 'blocks-delivery', reason: 'test-delivered-plan' });
   });
 
   it('a PLOT-BLOCKED marker', () => {
-    expect(only(item({ id: 's', stage: 'building', blockedMarker: true }))).toMatchObject({ group: 'unblock', reason: 'blocked-marker' });
+    expect(only(item({ id: 's', stage: 'building', blockedMarker: true }))).toMatchObject({ group: 'blocks-delivery', reason: 'blocked-marker' });
   });
 
   it('a merge conflict that no agent is assigned to', () => {
     const conflicted = item({ id: 's', stage: 'pr', pr: { ci: 'passed', review: 'passed' }, mergeConflict: true });
 
-    expect(only(conflicted)).toMatchObject({ group: 'unblock', reason: 'merge-conflict' });
+    expect(only(conflicted)).toMatchObject({ group: 'blocks-delivery', reason: 'merge-conflict' });
     expect(only(conflicted, [agent({ id: 'a', actsOn: 's' })])).toMatchObject({ section: 'work-items', group: 'at-a-gate' });
   });
 
   it('a slice whose agent died, which Quiet used to hold', () => {
     const building = item({ id: 's', stage: 'building' });
 
-    expect(only(building, [agent({ id: 'a', actsOn: 's', process: 'stopped' })])).toMatchObject({ group: 'unblock', reason: 'agent-died' });
+    expect(only(building, [agent({ id: 'a', actsOn: 's', process: 'stopped' })])).toMatchObject({ group: 'blocks-delivery', reason: 'agent-died' });
     expect(only(building, [agent({ id: 'a', actsOn: 's' })])).toMatchObject({ section: 'work-items', group: 'being-built' });
   });
 });
@@ -178,15 +183,37 @@ describe('Mine', () => {
   const sectionOf = (ownership: 'mine' | 'theirs' | 'unknown', mine: 'off' | 'mine' | 'strict') =>
     placeDelivery({ items: [draft(ownership)], agents: [] }, input({ mine })).items[0]?.section;
 
-  it('places a theirs item under Work items in both filtered modes', () => {
-    expect(sectionOf('theirs', 'off')).toBe('you');
-    expect(sectionOf('theirs', 'mine')).toBe('work-items');
-    expect(sectionOf('theirs', 'strict')).toBe('work-items');
+  it('shows You the same rows in every Mine mode, whoever the item belongs to but them', () => {
+    for (const mine of ['off', 'mine', 'strict'] as const) {
+      expect(sectionOf('mine', mine)).toBe('you');
+      expect(sectionOf('unknown', mine)).toBe('you');
+    }
   });
 
-  it('keeps unknown under You in the lenient mode only', () => {
-    expect(sectionOf('unknown', 'mine')).toBe('you');
-    expect(sectionOf('unknown', 'strict')).toBe('work-items');
+  it('places a theirs item under Work items › Queued in every mode and absent from You', () => {
+    for (const mine of ['off', 'mine', 'strict'] as const) {
+      const p = placeDelivery({ items: [draft('theirs')], agents: [] }, input({ mine }));
+      expect(p.items).toEqual([expect.objectContaining({ section: 'work-items', group: 'queued', reason: null })]);
+    }
+  });
+
+  it('places a loose branch of unknown ownership under Unblock in every mode, and a theirs one under Queued', () => {
+    const loose = (ownership: 'unknown' | 'theirs') =>
+      item({ id: 'branch:feature/x', kind: 'branch', stage: 'queued', ownership, loose: { named: false, held: false } });
+    for (const mine of ['off', 'mine', 'strict'] as const) {
+      expect(placeDelivery({ items: [loose('unknown')], agents: [] }, input({ mine })).items[0])
+        .toMatchObject({ section: 'you', group: 'unblock', reason: 'loose' });
+      expect(placeDelivery({ items: [loose('theirs')], agents: [] }, input({ mine })).items[0])
+        .toMatchObject({ section: 'work-items', group: 'queued' });
+    }
+  });
+
+  it('exports one case for every reader of a blocked slice', () => {
+    const blocked = (ownership: 'mine' | 'unknown') => item({ id: 's', stage: 'building', blockedMarker: true, ownership });
+    const place = (o: 'mine' | 'unknown') => placeDelivery({ items: [blocked(o)], agents: [] }, input()).items[0]!;
+    const { group, reason, marker } = place('mine') as Extract<ItemPlacement, { section: 'you' }>;
+    expect(place('unknown')).toMatchObject({ group, reason, marker });
+    expect({ group, reason, marker }).toEqual(youCaseOf('blocked-marker'));
   });
 
   it('queues a theirs item that owes an approval under Work items', () => {
@@ -350,7 +377,7 @@ describe('the layout constant', () => {
     expect(DELIVERY_LAYOUT.map((s) => s.section)).toEqual(['release-delivery', 'you', 'work-items', 'fleet', 'machine']);
     expect(DELIVERY_LAYOUT.map((s) => [...s.groups])).toEqual([
       [],
-      ['input-to-the-fleet', 'review-a-result', 'unblock'],
+      ['blocks-delivery', 'input-to-the-fleet', 'unblock'],
       ['at-a-gate', 'being-built', 'queued'],
       ['working', 'blocked', 'free'],
       [],
@@ -379,7 +406,7 @@ describe('loose ends', () => {
 
   it('places a branch no plan names, no desk holds and no PR covers under You › Unblock', () => {
     expect(placed(branch(nobody)).items).toEqual([
-      { id: 'branch:feature/x', kind: 'branch', section: 'you', group: 'unblock', reason: 'loose', agents: [] },
+      { id: 'branch:feature/x', kind: 'branch', section: 'you', group: 'unblock', marker: 'clean-up', reason: 'loose', agents: [] },
     ]);
   });
 
@@ -428,14 +455,14 @@ describe('loose ends', () => {
     expect(p.unplaced).toEqual([{ id: 'branch:fix/y', subject: 'item', reason: 'delivered' }]);
   });
 
-  it('keeps a PR that waits for review under Review a result, ahead of loose', () => {
+  it('keeps a PR that waits for review under Blocks delivery, ahead of loose', () => {
     const p = placed(openPr({ ...nobody, fixing: false }, { pr: { ci: 'passed', review: 'pending' } }), { autoReview: false });
-    expect(p.items[0]).toMatchObject({ group: 'review-a-result', reason: 'review-pr' });
+    expect(p.items[0]).toMatchObject({ group: 'blocks-delivery', reason: 'review-pr' });
   });
 
   it('keeps another You case for an item whose loose reading lacks a fact', () => {
     const p = placed(openPr({ named: false }, { pr: { ci: 'passed', review: 'pending' } }), { autoReview: false });
-    expect(p.items[0]).toMatchObject({ group: 'review-a-result', reason: 'review-pr' });
+    expect(p.items[0]).toMatchObject({ group: 'blocks-delivery', reason: 'review-pr' });
     expect(p.unplaced).toEqual([]);
   });
 
@@ -456,5 +483,58 @@ describe('loose ends', () => {
     }
     expect(placed(branch(nobody, { ownership: 'theirs' }), { mine: 'mine' }).items[0]!.section).toBe('work-items');
     expect(placed(branch(nobody, { ownership: 'mine' }), { mine: 'strict' }).items[0]!.section).toBe('you');
+  });
+});
+
+describe('the You cases and their markers', () => {
+  const cases: [YouReason, string, string][] = [
+    ['draft-plan', 'input-to-the-fleet', 'input'],
+    ['plan-approval', 'blocks-delivery', 'blocks-delivery'],
+    ['spike-approval', 'blocks-delivery', 'blocks-delivery'],
+    ['release-approval', 'blocks-delivery', 'blocks-delivery'],
+    ['test-delivered-plan', 'blocks-delivery', 'blocks-delivery'],
+    ['review-pr', 'blocks-delivery', 'blocks-delivery'],
+    ['blocked-marker', 'blocks-delivery', 'blocks-delivery'],
+    ['fleet-stuck', 'blocks-delivery', 'blocks-delivery'],
+    ['merge-conflict', 'blocks-delivery', 'blocks-delivery'],
+    ['agent-died', 'blocks-delivery', 'blocks-delivery'],
+    ['loose', 'unblock', 'clean-up'],
+  ];
+
+  it.each(cases)('%s sits in %s with the %s marker', (reason, group, marker) => {
+    expect(youCaseOf(reason)).toEqual({ group, reason, marker });
+  });
+
+  it('draws the group markers: Blocks delivery red, Input blue, Unblock grey and "clean up"', () => {
+    expect(YOU_GROUP_MARKERS).toEqual({
+      'blocks-delivery': { marker: 'blocks-delivery', words: 'blocks delivery' },
+      'input-to-the-fleet': { marker: 'input', words: 'input' },
+      unblock: { marker: 'clean-up', words: 'clean up' },
+    });
+  });
+
+  it('counts the former Unblock reasons as stuck, and an approval as not', () => {
+    for (const r of ['blocked-marker', 'fleet-stuck', 'merge-conflict', 'agent-died', 'loose'] as const) expect(isStuckReason(r)).toBe(true);
+    for (const r of ['plan-approval', 'spike-approval', 'release-approval', 'test-delivered-plan', 'review-pr', 'draft-plan'] as const) expect(isStuckReason(r)).toBe(false);
+  });
+
+  it('places a PR with CI running and Auto-review off under Work items › At a gate', () => {
+    const running = item({ id: 'p', stage: 'pr', pr: { ci: 'running', review: 'pending' } });
+    expect(placeDelivery({ items: [running], agents: [] }, input({ autoReview: false })).items[0])
+      .toMatchObject({ section: 'work-items', group: 'at-a-gate' });
+  });
+
+  it('places a PR with CI failed under budget and Auto-review off under Work items', () => {
+    const failed = item({ id: 'p', stage: 'pr', pr: failedCi, corrections: 0 });
+    expect(placeDelivery({ items: [failed], agents: [] }, input({ autoReview: false })).items[0])
+      .toMatchObject({ section: 'work-items', group: 'at-a-gate' });
+  });
+
+  it('places a passed, pending PR under Blocks delivery with Auto-review off and under Work items with it on', () => {
+    const pending = item({ id: 'p', stage: 'pr', pr: { ci: 'passed', review: 'pending' } });
+    expect(placeDelivery({ items: [pending], agents: [] }, input({ autoReview: false })).items[0])
+      .toMatchObject({ section: 'you', group: 'blocks-delivery', reason: 'review-pr' });
+    expect(placeDelivery({ items: [pending], agents: [] }, input({ autoReview: true })).items[0])
+      .toMatchObject({ section: 'work-items' });
   });
 });
