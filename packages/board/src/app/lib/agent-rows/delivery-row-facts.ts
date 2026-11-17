@@ -1,6 +1,7 @@
 import {
   deliveryRowForms,
   groupHeader,
+  identityWasDeclared,
   type AgentRowFacts,
   type DeliveryPlacement,
   type DeliveryRowForms,
@@ -8,8 +9,9 @@ import {
   type ItemPlacement,
   type ItemRowFacts,
 } from '@plot-pm/domain';
-import type { AgentRow } from '../../../contract/schema.js';
-import type { DeliveryMapping } from './delivery-readings.js';
+import { unnamedDeskLabel } from '@plot-pm/domain/rules/desk-manifest';
+import { isLiveState, type AgentRow } from '../../../contract/schema.js';
+import { ciOf, reviewOf, type DeliveryMapping } from './delivery-readings.js';
 
 const youngest = (values: readonly (number | null | undefined)[]): number | undefined => {
   const known = values.filter((v): v is number => typeof v === 'number');
@@ -55,28 +57,51 @@ export const itemRowFactsOf = (mapping: DeliveryMapping, id: string): ItemRowFac
   return facts;
 };
 
-/** The minutes since an ISO timestamp, or `undefined` where it is empty or does not parse. */
-const minutesSince = (iso: string, now: number): number | undefined => {
-  const at = Date.parse(iso);
-  return Number.isNaN(at) ? undefined : Math.max(0, Math.floor((now - at) / 60000));
+/** The item row of an item id, for the name an agent's Acting on cell shows. */
+const itemNameOf = (mapping: DeliveryMapping, itemId: string | null): string | undefined => {
+  if (itemId === null) return undefined;
+  const first = (mapping.rowsByItem[itemId] ?? [])[0];
+  return first === undefined ? undefined : first.wave !== '' ? first.wave : first.branch || undefined;
 };
 
 /**
- * The names one agent's links point at, read from its registry entry and the row of its branch.
+ * The names and readings one agent's Fleet row is built from, read from its
+ * registry entry or state-file run and the payload row of its branch or PR.
+ *
+ * A reading the payload does not carry stays absent: the cell it feeds is then
+ * `null` or shorter, never a default word.
  *
  * @param mapping - the readings and the registry entries by agent id.
  * @param id - the agent's id.
- * @param now - the clock in milliseconds; the AGE column counts from the entry's `startedAt`.
+ * @param _now - unused; kept so the caller's signature does not change.
  */
-export const agentRowFactsOf = (mapping: DeliveryMapping, id: string, now: number): AgentRowFacts => {
+export const agentRowFactsOf = (mapping: DeliveryMapping, id: string, _now?: number): AgentRowFacts => {
   const entry = mapping.agentsById[id];
-  const facts: AgentRowFacts = {};
-  if (entry === undefined) return facts;
-  const rows = Object.values(mapping.rowsByItem).flat().filter((r) => r.branch === entry.branch && entry.branch !== '');
-  const asked = rows.find((r) => r.question !== null && r.question !== undefined);
-  if (asked !== undefined) facts.question = asked.branch;
-  const age = minutesSince(entry.startedAt, now);
-  if (age !== undefined) facts.ageMinutes = age;
+  const run = mapping.runsById[id];
+  const facts: AgentRowFacts = { rateLimit: mapping.rateLimit };
+  if (entry !== undefined && !identityWasDeclared(entry)) {
+    facts.unnamedDesk = unnamedDeskLabel({ checkout: entry.checkout ?? '', live: isLiveState(entry.state) });
+  }
+  const reading = mapping.readings.agents.find((a) => a.id === id);
+  const itemName = itemNameOf(mapping, reading?.actsOn ?? null);
+  if (itemName !== undefined) facts.itemName = itemName;
+  const all = Object.values(mapping.rowsByItem).flat();
+  const row = entry !== undefined
+    ? all.find((r) => r.branch === entry.branch && entry.branch !== '')
+    : run?.pr !== undefined ? all.find((r) => r.pr?.number === run.pr) : undefined;
+  if (row === undefined) return facts;
+  if (row.branch !== '') facts.branch = row.branch;
+  if (row.question !== null && row.question !== undefined) facts.question = row.branch;
+  if (row.localAhead > 0) facts.commits = row.localAhead;
+  if (row.pr !== null) {
+    facts.pr = { ci: ciOf(row.pr), review: reviewOf(row.pr) };
+    const checks = mapping.checksUrlOf(row.planFile, row.pr.number);
+    if (checks !== '') facts.pr.checksUrl = checks;
+    if (row.pr.url) facts.pr.url = row.pr.url;
+    if (row.pr.headSha) facts.reviewHead = row.pr.headSha.slice(0, 7);
+    if (facts.pr.ci === 'failed') facts.fixerFinding = 'ci';
+    else if (facts.pr.review === 'high') facts.fixerFinding = 'high';
+  }
   return facts;
 };
 

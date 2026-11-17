@@ -36,7 +36,6 @@ const EMPTY_PLAN_INDEX: PlanIndex = planIndexOf({});
 // `packages/domain/test/agent.test.ts`; comparing the string here would be a
 // second copy of it in a component.
 import { identityWasDeclared, noteShown } from '@plot-pm/domain';
-import { unnamedDeskLabel } from '@plot-pm/domain/rules/desk-manifest';
 import { type SliceGroup, groupedNote, sliceDissent } from './slices.js';
 import { sliceRowReading } from './slice-reading.js';
 import { ActivityMark, BlockedByMark, ChangeMark, StuckCell, UnpushedMark } from './marks.js';
@@ -2656,7 +2655,7 @@ export function RegistryRow({
     : row
     ? noteWithoutPr(row.note, row.pr)
     : !identityWasDeclared(agent)
-      ? unnamedDeskLabel({ checkout: agent.checkout ?? '', live: isLiveState(agent.state) })
+      ? '' // the unnamed-desk sentence is the Agent cell's tooltip (`agentRowFactsOf`)
       : !isLiveState(agent.state)
         ? 'stopped — no ending was read, so why it stopped is unknown'
         : '';
