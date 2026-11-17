@@ -1,9 +1,11 @@
 import type { BuildRun, ShaRun, WorkflowShaRun } from '../../entities/build.js';
 import type { LimitReading } from '../../entities/limit.js';
-import { answered, type PortResult } from '../../port-result.js';
+import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import type { BuildPort, BuildSystem } from '../../ports/build.js';
-import type { ShellContext } from '../scripts.js';
-import { buildReads } from './build-shell.js';
+import { runProcess } from '../run-script.js';
+import { scriptPath, type ShellContext } from '../scripts.js';
+import { buildReads, runOf, shaRunOf, workflowShaRunOf } from './build-shell.js';
+import { jenkinsReads, type JenkinsApi } from './jenkins-api.js';
 
 /** The system word `plot-host.sh` knows this connector by, and tags its limit with. */
 const SYSTEM = 'jenkins';
@@ -57,6 +59,18 @@ export const newestPerSha = (runs: readonly WorkflowShaRun[]): WorkflowShaRun[] 
   return [...newest.values()];
 };
 
+/** How long a held config answer applies; a person's edit to `CLAUDE.md` shows within it. */
+const CONFIG_HOLD_MS = 60_000;
+
+/** The limits `plot-host.sh` applies where the caller names none. */
+const RUNS_LIMIT = 10;
+const SHA_LIMIT = 20;
+
+/** Where the declared instance and the job a branch builds in are. */
+interface Target {
+  readonly job: string;
+}
+
 /**
  * Reads the CI system whose builds live on a Jenkins instance.
  *
@@ -90,19 +104,92 @@ export const newestPerSha = (runs: readonly WorkflowShaRun[]): WorkflowShaRun[] 
  * answer would be back to the branch-scoped guessing this operation exists to
  * end.
  *
+ * GIVEN A CLIENT, `runs`, `runForSha` and `runsForSha` read in-process through
+ * `jenkinsReads` and start no `plot-host.sh`. `rerunFailed`, `rerunAll` and
+ * `limit` stay on the script, and so does every read where no client is
+ * given. A refusal in-process answers `unaskable` with the client's words,
+ * and a missing instance answers `failed`, as the script's exit 3 does.
+ *
  * @param context - where the scripts and the repository are.
+ * @param client - the in-process Jenkins client; given, the three reads go through it.
  * @returns a `BuildPort` backed by this vendor's connector.
  */
-export const buildJenkins = (context: ShellContext): BuildPort => {
+export const buildJenkins = (context: ShellContext, client?: JenkinsApi): BuildPort => {
   const reads = buildReads({ context, system: SYSTEM }, { PLOT_CI: SYSTEM });
+  const api = client === undefined ? null : jenkinsReads(client);
+  let inProcessRefusal: string | null = null;
+  let lastWasInProcess = false;
+  const held = new Map<string, { at: number; value: string }>();
+
+  /** Reads one `## Plot Config` key through `plot-config.sh`, held for {@link CONFIG_HOLD_MS}. */
+  const config = async (key: string): Promise<string> => {
+    const seen = held.get(key);
+    if (seen !== undefined && Date.now() - seen.at < CONFIG_HOLD_MS) return seen.value;
+    const said = await runProcess('bash', [scriptPath(context, 'plot-config.sh'), 'get', key, ''], { cwd: context.repoRoot });
+    const value = said.code === 0 ? said.stdout.trim() : '';
+    held.set(key, { at: Date.now(), value });
+    return value;
+  };
+
+  /** The job a branch builds in, with the precedence `plot-host.sh` applies, or why none is named. */
+  const targetOf = async (branch: string): Promise<{ ok: true; target: Target } | { ok: false; result: PortResult<never> }> => {
+    const instance = (await config('Jenkins instance')) || process.env.JENKINS_INSTANCE || '';
+    if (instance === '') {
+      inProcessRefusal = 'plot-host: CI is jenkins but no Jenkins instance is configured';
+      return { ok: false, result: failed() };
+    }
+    const slash = instance.indexOf('/');
+    let job = slash < 0 ? '' : instance.slice(slash + 1);
+    const defaultJob = await config('Default branch job');
+    if (defaultJob !== '') {
+      const head = await runProcess('git', ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], { cwd: context.repoRoot });
+      if (branch === head.stdout.trim().replace(/^origin\//, '')) job = defaultJob;
+    }
+    if ((process.env.PLOT_JENKINS_JOB ?? '') !== '') job = process.env.PLOT_JENKINS_JOB as string;
+    if (job === '') {
+      inProcessRefusal = 'plot-host: the Jenkins instance names no job path; a sha lives in a job\'s builds, so it must be <slug>/<job/path>, not a bare host';
+      return { ok: false, result: unaskable(inProcessRefusal) };
+    }
+    return { ok: true, target: { job } };
+  };
+
+  /** Reads one job's builds in-process, mapping a refusal to `unaskable`. */
+  const builds = async (branch: string, sha: string, limit: number) => {
+    lastWasInProcess = true;
+    inProcessRefusal = null;
+    const target = await targetOf(branch);
+    if (!target.ok) return target.result;
+    const read = await (api as ReturnType<typeof jenkinsReads>).builds({ job: target.target.job, branch, sha, limit });
+    if (!read.ok) {
+      inProcessRefusal = read.said;
+      return unaskable<never>(read.said);
+    }
+    return answered(read.runs);
+  };
+
+  /** Runs one script read, after which `lastRefusal` reads the script's refusal again. */
+  const scripted = <T>(call: () => Promise<T>): Promise<T> => {
+    lastWasInProcess = false;
+    return call();
+  };
 
   return {
     system: (): BuildSystem => SYSTEM,
 
-    runs: (branch, limit): Promise<PortResult<readonly BuildRun[]>> => reads.runs(branch, limit),
+    runs: async (branch, limit): Promise<PortResult<readonly BuildRun[]>> => {
+      if (api === null) return scripted(() => reads.runs(branch, limit));
+      const read = await builds(branch, '', limit ?? RUNS_LIMIT);
+      if (!read.ok) return read;
+      return answered(read.value.map((run) => runOf({ ...run, conclusion: run.conclusion ?? run.status })));
+    },
 
     runForSha: async (branch, sha, limit): Promise<PortResult<ShaRun | null>> => {
-      const run = await reads.runForSha(branch, sha, limit);
+      let run: PortResult<ShaRun | null>;
+      if (api === null) run = await scripted(() => reads.runForSha(branch, sha, limit));
+      else {
+        const read = await builds(branch, sha, limit ?? SHA_LIMIT);
+        run = read.ok ? answered(read.value[0] === undefined ? null : shaRunOf(read.value[0])) : read;
+      }
       if (!run.ok) return run;
       return answered(
         run.value === null ? null : { ...run.value, conclusion: jenkinsConclusion(run.value.conclusion) },
@@ -110,7 +197,12 @@ export const buildJenkins = (context: ShellContext): BuildPort => {
     },
 
     runsForSha: async (branch, sha): Promise<PortResult<readonly WorkflowShaRun[]>> => {
-      const listing = await reads.runsForSha(branch, sha);
+      let listing: PortResult<readonly WorkflowShaRun[]>;
+      if (api === null) listing = await scripted(() => reads.runsForSha(branch, sha));
+      else {
+        const read = await builds(branch, sha, SHA_LIMIT);
+        listing = read.ok ? answered(read.value.map(workflowShaRunOf)) : read;
+      }
       if (!listing.ok) return listing;
       return answered(
         newestPerSha(listing.value).map((run) => ({
@@ -121,12 +213,12 @@ export const buildJenkins = (context: ShellContext): BuildPort => {
     },
 
     // `plot-host.sh rerun-failed` and `rerun-all` exit 4 for Jenkins, which reads `unaskable`.
-    rerunFailed: (branch, sha): Promise<PortResult<null>> => reads.rerunFailed(branch, sha),
+    rerunFailed: (branch, sha): Promise<PortResult<null>> => scripted(() => reads.rerunFailed(branch, sha)),
 
-    rerunAll: (branch, sha): Promise<PortResult<null>> => reads.rerunAll(branch, sha),
+    rerunAll: (branch, sha): Promise<PortResult<null>> => scripted(() => reads.rerunAll(branch, sha)),
 
-    limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),
+    limit: (): Promise<PortResult<readonly LimitReading[]>> => scripted(() => reads.limit()),
 
-    lastRefusal: (): string | null => reads.lastRefusal(),
+    lastRefusal: (): string | null => (lastWasInProcess ? inProcessRefusal : reads.lastRefusal()),
   };
 };

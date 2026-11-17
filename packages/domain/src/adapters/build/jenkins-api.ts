@@ -6,8 +6,12 @@ import { join } from 'node:path';
 import type { BudgetRecord } from '../../ports/budget.js';
 import type { Slots } from '../../ports/slots.js';
 import { bitbucketBudgetAccount } from '../../rules/bitbucket-budget-account.js';
+import { listingBuildMap, plainBuildMap, shapeOfJob, type CiBuildMap } from '../../rules/ci-build-map.js';
+import { ciRunsOf, type CiRun } from '../../rules/ci-sha-runs.js';
 import {
   jenInstanceUrl,
+  jenJobPath,
+  jenJobsOf,
   jenSaveToken,
   jenSecretFile,
   jenStatusClass,
@@ -556,3 +560,105 @@ export const composeJenkins = (options: JenkinsApiOptions, log: (line: string) =
       return { kind: 'in-process', api, source: state.source, dir: state.dir };
     })());
 };
+
+/** What {@link JenkinsReads.builds} answers: the runs, or why Jenkins could not be asked. */
+export type JenkinsBuildsRead =
+  | { readonly ok: true; readonly runs: readonly CiRun[] }
+  | { readonly ok: false; readonly said: string };
+
+/** What {@link JenkinsReads.builds} is asked. */
+export interface JenkinsBuildsQuery {
+  /** The job path, such as `team/portal`. Never empty: a sha lives in a job's builds. */
+  readonly job: string;
+  readonly branch: string;
+  /** The commit asked about, or '' for the branch's history. */
+  readonly sha: string;
+  readonly limit: number;
+}
+
+/** The three Jenkins questions the build port asks in-process. */
+export interface JenkinsReads {
+  /**
+   * Reads the branch-to-checks map of a job.
+   *
+   * A refusal on the job's own request, or on the listing, reads `failed`: a
+   * dead session reads like an unreachable Jenkins, as it does in the shell. A
+   * `FreeStyleProject` or any other unmeasured class reads `unknown`.
+   *
+   * @param job - the job path; '' for the root.
+   * @returns the map and its status.
+   */
+  colourMap(job: string): Promise<CiBuildMap>;
+  /**
+   * Reads a job's builds for a commit, or for a branch.
+   *
+   * Asks the branch's path first and the job root second, for `3 × limit`
+   * builds, and filters after the fetch. A multibranch root that answers
+   * with no builds is an empty answer; a Jenkins that answers nothing is a
+   * refusal.
+   *
+   * @param query - what to read.
+   * @returns the runs, or the reason Jenkins could not be asked.
+   */
+  builds(query: JenkinsBuildsQuery): Promise<JenkinsBuildsRead>;
+}
+
+const MULTIBRANCH_CLASS = 'org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject';
+
+/** The `tree` parameter of the builds read, `limit` builds with their revision records. */
+const buildsTree = (window: number): string =>
+  `tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,${window}%7D`;
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/**
+ * Builds the Jenkins reads over one client.
+ *
+ * A declared duplicate of `jenkins_build_map` and `jenkins_sha_runs` in
+ * `plot-host.sh`, held to them by `corpus/jenkins-reads.corpus.test.ts`. It
+ * calls {@link JenkinsApi.request} only, so the credential, the budget and
+ * the refusal classes stay the client's.
+ *
+ * @param api - the client.
+ * @returns the reads.
+ */
+export const jenkinsReads = (api: JenkinsApi): JenkinsReads => ({
+  colourMap: async (job) => {
+    if (job !== '') {
+      const view = await api.request({ path: `${jenJobPath(job)}/api/json?tree=_class,color`, label: 'job view' });
+      if (!view.ok) return { status: 'failed', map: {} };
+      const shape = shapeOfJob(view.reply.body);
+      if (shape === 'plain') return plainBuildMap(view.reply.body, job);
+      if (shape === 'other') return { status: 'unknown', map: {} };
+    }
+    const listing = await api.request({ path: `${jenJobPath(job)}/api/json?tree=jobs%5Bname,color%5D`, label: 'job list' });
+    if (!listing.ok) return { status: 'failed', map: {} };
+    return listingBuildMap(jenJobsOf(listing.reply.body), job);
+  },
+
+  builds: async ({ job, branch, sha, limit }) => {
+    const root = jenJobPath(job);
+    let plain = false;
+    let branchAnswered = false;
+    let refusal = '';
+    for (const path of [jenJobPath(job, branch), root]) {
+      const answer = await api.request({ path: `${path}/api/json?${buildsTree(limit * 3)}`, label: 'builds' });
+      if (answer.ok) {
+        const body = answer.reply.body;
+        if (isObject(body) && Array.isArray(body.builds)) {
+          return { ok: true, runs: ciRunsOf(body.builds, { sha, job, branch, plain, limit }) };
+        }
+        if (path !== root && body !== null && body !== false && typeof body !== 'string') branchAnswered = true;
+        if (path === root && isObject(body) && body._class === MULTIBRANCH_CLASS) {
+          return { ok: true, runs: ciRunsOf([], { sha, job, branch, plain: true, limit }) };
+        }
+      } else {
+        refusal = answer.refusal.said;
+      }
+      plain = true;
+    }
+    if (branchAnswered) return { ok: false, said: `Jenkins has no branch '${branch}' indexed for '${job}'` };
+    return { ok: false, said: refusal === '' ? `Jenkins did not answer for '${job}'` : refusal };
+  },
+});
