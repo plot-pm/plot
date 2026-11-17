@@ -343,7 +343,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
 
   const staleBanner = (page: Page) => page.getByText(/Not reaching the board server/);
 
-  const footer = (page: Page) => page.getByText(/branches across .* plans/);
+  const footer = (page: Page) => page.locator('[data-footer-line]');
 
   // ── Every link goes where its text says ───────────────────────────────────
 
@@ -2156,8 +2156,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents();
     try {
       const text = await footer(page).textContent();
-      expect(text).toMatch(/scanned \d+s ago · next in \d+s/);
-      expect(text).toMatch(/PR data \d+s ago · next in \d+s/);
+      expect(text).toMatch(/board read \d+ s old · next in \d+ s/);
+      expect(text).toMatch(/PR data \d+ (?:s|min) old · next read in \d+ (?:s|min)/);
     } finally {
       await page.close();
     }
@@ -2173,10 +2173,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents(fleet({ scanNextInSeconds: null }));
     try {
       const text = (await footer(page).textContent()) ?? '';
-      expect(text).toMatch(/scanned \d+s ago/);
+      expect(text).toMatch(/board read \d+ s old/);
       expect(text).not.toContain('NaN');
       // Exactly one countdown remains: the PR's.
-      expect(text.match(/next in/g) ?? []).toHaveLength(1);
+      expect(text.match(/next (?:read )?in/g) ?? []).toHaveLength(1);
     } finally {
       await page.close();
     }
@@ -2189,9 +2189,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents(fleet({ prNextInSeconds: null }));
     try {
       const text = (await footer(page).textContent()) ?? '';
-      expect(text).toMatch(/PR data \d+s ago/);
+      expect(text).toMatch(/PR data \d+ (?:s|min) old/);
       // Exactly one countdown remains: git's.
-      expect(text.match(/next in/g) ?? []).toHaveLength(1);
+      expect(text.match(/next (?:read )?in/g) ?? []).toHaveLength(1);
     } finally {
       await page.close();
     }
@@ -2202,7 +2202,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     try {
       const read = async () => {
         const t = (await footer(page).textContent()) ?? '';
-        return Number(/scanned \d+s ago · next in (\d+)s/.exec(t)?.[1]);
+        return Number(/board read \d+ s old · next in (\d+) s/.exec(t)?.[1]);
       };
       const first = await read();
       await expect.poll(read, { timeout: 6_000 }).not.toBe(first);
@@ -2225,7 +2225,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await footer(page).waitFor({ timeout: 5_000 });
       const read = async () => {
         const t = (await footer(page).textContent()) ?? '';
-        return Number(/scanned \d+s ago · next in (\d+)s/.exec(t)?.[1]);
+        return Number(/board read \d+ s old · next in (\d+) s/.exec(t)?.[1]);
       };
       const first = await read();
       await expect.poll(read, { timeout: 6_000 }).not.toBe(first);
@@ -2271,12 +2271,12 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // at 3 is still a prediction, and no refresh is coming.
     const { page, fail } = await openAgentsWithFailSwitch();
     try {
-      expect(await footer(page).textContent()).toMatch(/next in \d+s/);
+      expect(await footer(page).textContent()).toMatch(/next in \d+ s/);
       fail();
       await staleBanner(page).waitFor({ timeout: 10_000 });
       await expect.poll(async () => (await footer(page).textContent()) ?? '')
         .not.toMatch(/next in/);
-      expect(await footer(page).textContent()).not.toContain('next in 0s');
+      expect(await footer(page).textContent()).not.toContain('next in 0 s');
     } finally {
       await page.close();
     }
@@ -2291,7 +2291,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const { page, fail } = await openAgentsWithFailSwitch();
     try {
       const scanned = async () =>
-        Number(/scanned (\d+)s ago/.exec((await footer(page).textContent()) ?? '')?.[1]);
+        Number(/board read (\d+) s old/.exec((await footer(page).textContent()) ?? '')?.[1]);
       fail();
       await staleBanner(page).waitFor({ timeout: 10_000 });
       const frozen = await scanned();
@@ -2358,7 +2358,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
 
       const read = async () => {
         const t = (await footer(page).textContent()) ?? '';
-        return Number(/scanned \d+s ago · next in (\d+)s/.exec(t)?.[1]);
+        return Number(/board read \d+ s old · next in (\d+) s/.exec(t)?.[1]);
       };
       await expect.poll(read, { timeout: 10_000 }).not.toBeNaN();
       const first = await read();
@@ -3896,7 +3896,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       expect(body).toContain('not measured');
       expect(body).not.toContain('not checked yet');
       // The age is the footer's job, and it is still doing it.
-      await page.getByText(/PR data 11\ds ago/).waitFor({ timeout: 10_000 });
+      await page.getByText(/PR data 11\d s old/).waitFor({ timeout: 10_000 });
     } finally {
       await page.close();
     }
@@ -3979,7 +3979,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       expect(body).not.toContain('none');
       // Both ages are still reported separately, which is the separation the
       // section is now honouring rather than replacing.
-      await page.getByText(/scanned \ds ago/).waitFor({ timeout: 10_000 });
+      await page.getByText(/board read \d s old/).waitFor({ timeout: 10_000 });
       await page.getByText(/no PR data yet/).waitFor({ timeout: 10_000 });
     } finally {
       await page.close();
@@ -4451,7 +4451,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // panel, and it gains nothing when a status appears.
     const page = await openAgents(fleet({ prError: 'gh: 503' }));
     try {
-      const footer = page.getByText(/branches across/);
+      const footer = page.locator('[data-footer-line]');
       await footer.waitFor({ timeout: 10_000 });
       // Below the rows: the footer's top edge sits under the first section's.
       const footerTop = await footer.evaluate((el) => el.getBoundingClientRect().top);
@@ -4460,7 +4460,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       expect(footerTop).toBeGreaterThan(headingTop);
       // And it still carries every currency reading it did before.
       const line = (await footer.textContent()) ?? '';
-      expect(line).toMatch(/scanned \d+s ago/);
+      expect(line).toMatch(/board read \d+ s old/);
       expect(line).toContain('PR data');
     } finally {
       await page.close();
