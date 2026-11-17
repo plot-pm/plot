@@ -4774,6 +4774,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       ],
     }));
     try {
+      for (const toggle of await page.locator('[data-group-toggle]').all()) {
+        if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+      }
       const verifyRows = page.locator('[data-role-run="verify"]');
       await expect.poll(() => verifyRows.count()).toBe(2);
       const failedRow = verifyRows.filter({ has: page.locator('[data-plan-level-restart]') });

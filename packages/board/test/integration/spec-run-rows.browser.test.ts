@@ -57,6 +57,9 @@ describe('tiny-garden: the board shows the spec run (real browser renders the sh
       ],
     }));
     try {
+      for (const toggle of await page.locator('[data-group-toggle]').all()) {
+        if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+      }
       await expect.poll(() => page.locator('[data-role-run="design"] [data-role-chip="design"]').count()).toBe(2);
       await expect.poll(() => page.locator('[data-role-run="verify"] [data-role-chip="verify"]').count()).toBe(1);
 

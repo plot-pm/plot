@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Page } from 'playwright';
 import {
-  openCatalogue, board, card, column, fleet as buildFleet, row as buildRow, sprint,
+  openCatalogue, scenario, board, card, column, fleet as buildFleet, row as buildRow, sprint,
   type Catalogue,
 } from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type Fleet } from '../../src/contract/schema.js';
