@@ -110,7 +110,7 @@ The rule is pure and synchronous, so the Layering Rule holds: no port, no adapte
 
 ### Quote-aware split
 
-- `bug/a-quoted-separator-splits-nothing` — `packages/domain/src/rules/ci-suite.ts` (`unquotedSplit` over `readShell` word spans, used by `nonReadSegments`, `bodySegments` and `ciSuiteRefusal`; TSDoc of the three and of `controllerInvocation`), `packages/domain/test/ci-suite.test.ts` (three new `describe` blocks), `test/reconcile/controller-gate.test.mjs` (one bundle test), and `.changeset/a-quoted-separator-splits-nothing.md` for `plot` (patch, with a `bumps:` block naming `plot: patch`) <!-- builds: unquotedSplit, a quote-aware separator split over readShell -->
+- `bug/a-quoted-separator-splits-nothing` — `packages/domain/src/rules/ci-suite.ts` (`unquotedSplit` over `readShell` word spans, used by `nonReadSegments`, `bodySegments` and `ciSuiteRefusal`; TSDoc of the three and of `controllerInvocation`), `packages/domain/test/ci-suite.test.ts` (three new `describe` blocks), `test/reconcile/controller-gate.test.mjs` (one bundle test), and `.changeset/a-quoted-separator-splits-nothing.md` for `plot` (patch, with a `bumps:` block naming `plot: patch`) <!-- builds: unquotedSplit, a quote-aware separator split over readShell --> → #3502
 
 ## Notes
 
