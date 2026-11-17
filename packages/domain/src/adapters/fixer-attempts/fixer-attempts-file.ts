@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
@@ -18,6 +18,36 @@ const SUBDIR = 'fixer-attempts';
 /** Where one PR's record lives under a repository root. */
 export const fixerAttemptsPath = (repoRoot: string, pr: number): string =>
   join(repoRoot, '.plot', 'state', SUBDIR, `${pr}.json`);
+
+/**
+ * Reads every PR's record under `.plot/state/fixer-attempts/`, once.
+ *
+ * @param repoRoot - the repository the records belong to.
+ * @returns one entry per `<pr>.json`; `[]` where the directory does not exist; `null` where it cannot be listed.
+ *   A file that cannot be read or decoded is `unreadable`.
+ */
+export const listFixerAttempts = async (
+  repoRoot: string,
+): Promise<{ pr: number; record: FixerAttemptsRecord | 'none' | 'unreadable' }[] | null> => {
+  const dir = join(repoRoot, '.plot', 'state', SUBDIR);
+  let names: string[];
+  try {
+    names = await readdir(dir);
+  } catch (error) {
+    return isMissing(error) ? [] : null;
+  }
+  const out: { pr: number; record: FixerAttemptsRecord | 'none' | 'unreadable' }[] = [];
+  for (const name of names) {
+    const match = /^(\d+)\.json$/.exec(name);
+    if (match === null) continue;
+    try {
+      out.push({ pr: Number(match[1]), record: decodeFixerAttempts(await readFile(join(dir, name), 'utf8')) });
+    } catch {
+      out.push({ pr: Number(match[1]), record: 'unreadable' });
+    }
+  }
+  return out;
+};
 
 /** Whether a failure was the file simply not being there. */
 const isMissing = (error: unknown): boolean =>
