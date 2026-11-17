@@ -9,6 +9,9 @@ import type {
   YouReason,
   DeliveryGate,
 } from './delivery-placement.js';
+import type { TokenCountsRecord } from '../entities/slice-spend.js';
+import { tokenCountValue } from './agent-run-tokens.js';
+import { timeLeft, timeLeftValue } from './agent-time-left.js';
 import { FIXER_ATTEMPTS_BUDGET } from './fixer-attempts.js';
 
 /** The seven columns of a Delivery row, in the order they render. */
@@ -116,6 +119,16 @@ export interface AgentRowFacts {
   pr?: AgentPrFacts;
   /** The connector's window: `exhausted` stops the agent, `free` and `unknown` do not. */
   rateLimit?: 'exhausted' | 'free' | 'unknown';
+  /** Whether the agent's process runs now; a run in progress has no token reading. */
+  running?: boolean;
+  /** The four counters of the agent's last finished run; `null` or absent where none is read. */
+  lastRun?: TokenCountsRecord | null;
+  /** Epoch milliseconds of the agent's start; `null` or absent where none is known. */
+  startedAt?: number | null;
+  /** The bound that applies to the agent's role, in seconds; `null` or absent where it has none. */
+  boundSeconds?: number | null;
+  /** Epoch milliseconds the Time left cell is measured at. */
+  now?: number;
 }
 
 const GATE_MARK = { running: '⟳', failed: '✗', passed: '✓' } as const;
@@ -353,6 +366,10 @@ export interface AgentRowCells extends Record<AgentColumn, Cell | null> {
   doingLabel: 'Doing now' | 'Waits on';
   /** The Agent cell's tooltip; `null` where the agent has nothing to add. */
   agentTitle: string | null;
+  /** The Tokens cell's tooltip: the three counters the cell does not show; `null` with the cell. */
+  tokensTitle: string | null;
+  /** The Time left bar: the share left and whether it is red; `null` where the cell is `null`. */
+  timeLeftBar: { fraction: number; red: boolean } | null;
 }
 
 /** The order a blocked agent's gates are named in, first true gate wins. */
@@ -430,13 +447,33 @@ const doingValue = (placement: AgentPlacement, facts: AgentRowFacts): string | n
   }
 };
 
+const lastFinishedRun = (facts: AgentRowFacts): TokenCountsRecord | null =>
+  facts.running === true ? null : facts.lastRun ?? null;
+
+const tokensCell = (facts: AgentRowFacts): Cell | null => {
+  const run = lastFinishedRun(facts);
+  return run === null ? null : link(`${tokenCountValue(run.outputTokens)} out`);
+};
+
+const tokensTitle = (facts: AgentRowFacts): string | null => {
+  const run = lastFinishedRun(facts);
+  if (run === null) return null;
+  const n = (v: number): string => v.toLocaleString('en-US');
+  return `Output tokens of the last finished run: ${n(run.outputTokens)}. Input ${n(run.inputTokens)} · cache creation ${n(run.cacheCreationTokens)} · cache read ${n(run.cacheReadTokens)}`;
+};
+
 /**
  * The six cells of a Fleet agent row: the agent, its role, the item it acts on,
  * what it does now or waits on, and the Tokens and Time left columns.
  *
  * Doing now is the activity the role names. A blocked agent's Doing now cell
- * holds the gate it waits on instead ({@link agentWaitsOn}). Tokens and Time
- * left are columns of the form and stay `null` until a reading fills them.
+ * holds the gate it waits on instead ({@link agentWaitsOn}).
+ *
+ * Tokens shows the output tokens of the agent's last finished run, with input,
+ * cache creation and cache read in `tokensTitle`; it is `null` for a running
+ * agent and for a run nobody read. Time left is `bound − (now − start)` from
+ * `facts.startedAt`, `facts.boundSeconds` and `facts.now`; it and its bar are
+ * `null` where any of the three is absent.
  *
  * @param placement - what `placeDelivery` returned for the agent.
  * @param facts - the names and readings the cells are built from.
@@ -445,6 +482,7 @@ const doingValue = (placement: AgentPlacement, facts: AgentRowFacts): string | n
 export const agentRowCells = (placement: AgentPlacement, facts: AgentRowFacts): AgentRowCells => {
   const blocked = placement.group === 'blocked';
   const on = placement.linked ? placement.actsOn : null;
+  const left = facts.now === undefined ? null : timeLeft(facts.startedAt, facts.boundSeconds, facts.now);
   const doing = blocked ? agentWaitsOn(placement, facts)?.cell ?? null : ((): Cell | null => {
     const value = doingValue(placement, facts);
     return value === null ? null : link(value, { to: 'log', id: placement.id });
@@ -457,9 +495,11 @@ export const agentRowCells = (placement: AgentPlacement, facts: AgentRowFacts): 
     doing,
     doingDetail: !blocked && facts.lastCommit !== undefined && placement.role === 'loop' ? facts.lastCommit : null,
     doingLabel: blocked ? 'Waits on' : 'Doing now',
-    tokens: null,
-    timeLeft: null,
+    tokens: tokensCell(facts),
+    timeLeft: left === null ? null : link(timeLeftValue(left.leftMs)),
     agentTitle: facts.unnamedDesk ?? null,
+    tokensTitle: tokensTitle(facts),
+    timeLeftBar: left === null ? null : { fraction: left.fraction, red: left.red },
   };
 };
 
