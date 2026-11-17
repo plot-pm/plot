@@ -903,7 +903,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // was one kind's. `Related` heads slot 4, which holds whatever a kind's
       // artifacts are and where each link states its own `what` beside itself.
       await expect.poll(() => headers.allTextContents())
-        .toEqual(['Marks', 'Kind', 'Item', 'Where', 'Status', 'Do', 'By', 'Age']);
+        .toEqual(['Marks', 'Kind', 'Item', 'Where', 'Gates', 'Do', 'By', 'Age']);
       // The accessible name, not `textContent`: what a screen reader hears is
       // the question, and it must hear the header once and the cell's word once.
       const kindCell = li.locator('[role="gridcell"]').nth(KIND_CELL);

@@ -36,6 +36,10 @@ describe('the Work items columns', () => {
     expect(Object.keys(gate.cells)).toEqual([...WORK_ITEM_COLUMNS]);
   });
 
+  it('return nothing for a Work items item with no row shape', () => {
+    expect(workItemCells({ ...slice('queued'), kind: 'plan' }, {})).toBeNull();
+  });
+
   it('return nothing for an item outside Work items', () => {
     expect(workItemCells({ ...slice('queued'), section: 'fleet' } as never, {})).toBeNull();
   });
