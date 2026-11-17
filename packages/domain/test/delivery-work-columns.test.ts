@@ -48,6 +48,10 @@ describe('the Gates cell', () => {
     expect(gates({ ci: 'unread', review: 'unread' })).toBeNull();
   });
 
+  it('renders no cell where no gate reading exists', () => {
+    expect(gates(undefined)).toBeNull();
+  });
+
   it('links nothing where the PR number is unknown', () => {
     expect(gates({ ci: 'passed', review: 'passed' }, {})?.links).toEqual([]);
   });

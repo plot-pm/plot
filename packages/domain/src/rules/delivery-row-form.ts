@@ -161,11 +161,10 @@ export interface GateMarks {
 /**
  * The CI mark and the review mark of a PR, each on its own.
  *
- * @param pr - the PR's gate readings, or `undefined` where none was read.
+ * @param pr - the PR's gate readings.
  * @returns one mark per gate; `unread` yields `null`, and `review: 'none'` yields `–`.
  */
-export const gateMarks = (pr: PrReading | undefined): GateMarks => {
-  if (pr === undefined) return { ci: null, review: null };
+export const gateMarks = (pr: PrReading): GateMarks => {
   const review = ((): string | null => {
     switch (pr.review) {
       case 'pending': return `review ${GATE_MARK.running}`;
@@ -181,17 +180,18 @@ export const gateMarks = (pr: PrReading | undefined): GateMarks => {
 /**
  * The Gates cell of a work item at a gate: one mark per gate, each linked to its own page.
  *
- * @param pr - the PR's gate readings.
+ * @param pr - the PR's gate readings, or `undefined` where none was read.
  * @param number - the PR number the links point at, or `undefined` where unknown.
  * @returns the cell, or `null` where neither gate was read.
  */
 export const gatesCell = (pr: PrReading | undefined, number: number | undefined): Cell | null => {
+  if (pr === undefined) return null;
   const marks = gateMarks(pr);
   const parts: CellPart[] = [
     ...(marks.ci === null ? [] : [{ value: marks.ci, link: number === undefined ? null : { to: 'checks', pr: number } as const }]),
     ...(marks.review === null ? [] : [{
       value: marks.review,
-      link: number === undefined || pr?.review === 'none' ? null : { to: 'review', pr: number } as const,
+      link: number === undefined || pr.review === 'none' ? null : { to: 'review', pr: number } as const,
     }]),
   ];
   if (parts.length === 0) return null;

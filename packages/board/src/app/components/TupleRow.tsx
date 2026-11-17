@@ -676,7 +676,7 @@ export function TupleRowView({
   tracks?: string;
   /** The BY cell: who acts on the item, or for an agent who started it. Empty where nobody read it. */
   by?: ReactNode;
-  /** The Gates cell of a work item at a gate. Where set it fills slot 5 in place of the status word and what a kind adds beside it. */
+  /** The Gates cell of a work item at a gate. Where set it renders in slot 5 after the status word and what a kind adds beside it. */
   gates?: ReactNode;
   /** The details popover's lines — pids, desk paths, extra branches. No popover where there are none. */
   details?: readonly string[];
@@ -811,8 +811,7 @@ export function TupleRowView({
         data-tuple-status
         className="flex min-w-0 items-baseline gap-2 truncate text-xs text-slate-500 dark:text-slate-400"
       >
-        {gates !== undefined ? gates : <>
-        {tuple.status && (
+        {        {tuple.status && (
           // COLOUR REINFORCES THE WORD, never replaces it — see `statusTone`,
           // whose palette this restores from the `PrCell` the collapse deleted.
           <span
@@ -823,7 +822,7 @@ export function TupleRowView({
           </span>
         )}
         {statusExtra}
-        </>}
+        {gates}
       </span>
       {/* THE MENU — per kind, and passed in. The tuple says what a row IS; the
           menu says what can be DONE to it, and a kind with nothing to offer is
