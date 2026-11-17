@@ -16,6 +16,7 @@ import {
   MergeabilitySchema,
   DefaultBranchReadingSchema,
   CardControlsSchema,
+  HeadroomSchema,
   RELEASE_BRANCH,
   type Phase,
   type SprintState,
@@ -4409,6 +4410,25 @@ export const RoleRunSchema = z.object({
 });
 export type RoleRunPayload = z.infer<typeof RoleRunSchema>;
 
+/** One bucket of the host's budget as the record last read it. */
+export const MachineBudgetSchema = z.object({
+  bucket: z.string(),
+  limit: z.number().nullable(),
+  remaining: z.number().nullable(),
+  resetAt: z.number().nullable(),
+});
+export type MachineBudget = z.infer<typeof MachineBudgetSchema>;
+
+/** What the Machine line reads: the headroom verdict, its context, and the host budget. */
+export const FleetMachineSchema = z.object({
+  headroom: HeadroomSchema,
+  /** The 1-minute load average, or null where unmeasured. */
+  load1: z.number().nullable(),
+  cores: z.number().nullable(),
+  host: z.object({ connector: z.string(), buckets: z.array(MachineBudgetSchema) }).nullable(),
+});
+export type FleetMachine = z.infer<typeof FleetMachineSchema>;
+
 export const FleetShape = z.object({
   generatedAt: z.string(),
   /** Seconds since the cached scan completed — the tab shows this. */
@@ -4673,6 +4693,15 @@ export const FleetShape = z.object({
    * measured.
    */
   prSlotsHeld: z.number().nullable().default(null),
+  /**
+   * The machine the fleet runs on and the host's remaining budget, for the Delivery tab's Machine line.
+   *
+   * `headroom` is the spawn-cost verdict and the only input to the line's dot; `load1` and `cores` are context. The
+   * board measures at most once per 60 s per process and serves the last reading to every poll. `host` carries the
+   * connector's own name and the record's reading per bucket, and is null where no connector is named or the record
+   * is unread. Null on an older server and before the first measurement; the client then reads `unmeasured`.
+   */
+  machine: FleetMachineSchema.nullable().default(null),
   /**
    * Open tracker issues no plan references, for WAITING ON YOU.
    *

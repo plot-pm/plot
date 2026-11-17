@@ -44,7 +44,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 1-4. Parse through Verify PRs | Small | Git/gh commands, helper script, state checks; discovery and existence read each plan's declared phase via `plot-plan-meta.sh` — the index is never asked |
 | 5. Verify Completeness | Frontier (orchestrator + jurors) + Small (the gate) | Orchestrator extracts deliverables and reads the panel's moderation; `/plot-panel` fans out one juror per lens, each running `gh pr diff` across the plan's PRs; the two commitment checks are one script call each |
 | 6. Release Note Check | Small | File existence checks |
-| 7-8. Deliver and Board Status | Small | The fleet delivers a proven tracer plan on the pass after its first dependent reads delivered, never in the same pass; a proven tracer plan with no dependent is a person's `/plot-deliver <slug>`, and its dependent check reads `waits_on` from `plot-plan-meta.sh` for each plan. File ops, git commands, board sync; the phase edit plus the `Delivered:` record are the transition, the index write is best-effort; the issue status write is one script call inside `plot-deliver.sh`, reported and never gating |
+| 7-8. Deliver and Board Status | Small | In a person's session step 7 calls `plot-deliver-command.mjs`; an unattended run calls `plot-deliver.sh`. The fleet delivers a proven tracer plan on the pass after its first dependent reads delivered, never in the same pass; a proven tracer plan with no dependent is a person's `/plot-deliver <slug>`, and its dependent check reads `waits_on` from `plot-plan-meta.sh` for each plan. File ops, git commands, board sync; the phase edit plus the `Delivered:` record are the transition, the index write is best-effort; the issue status write is one script call inside `plot-deliver.sh`, reported and never gating |
 | 7b. Delivery-Landed Gate | Small | Run the reconcile scan, grep for the delivered plan; gate progression on the real grep result |
 | 9. Summary | Small | Template formatting |
 | Verify mode | Frontier (orchestrator + jurors) + Small (the preflight, the gate, the record) | Judging each numbered claim as supported or refuted is the same judgment as step 5's panel; the phase and tracer refusals, `plot-verify.mjs` and the per-label `check` calls are script calls an exit code decides |
@@ -419,7 +419,7 @@ are the transition**; moving the symlink is convenience for human browsing and
 cannot fail the delivery.
 
 Run the delivery helper — it performs all mechanical writes (phase flip, record,
-index symlink, sprint annotation, push) and is idempotent:
+index symlink, sprint annotation, push) and is idempotent. In a person's session call `../plot/scripts/board/plot-deliver-command.mjs <slug>` (or `--branch <integration-branch> <slug>`): it needs no board, leaves no receipt, refuses `PLOT_UNATTENDED=1` and refuses `--release`. An unattended run, and every `--dry-run` or `--release` call, keeps `plot-deliver.sh`:
 
 ```bash
 ../plot/scripts/plot-deliver.sh <slug>

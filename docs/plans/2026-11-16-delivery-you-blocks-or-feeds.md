@@ -111,7 +111,7 @@ Per slice, in slice order.
 
 ### Groups and markers
 
-- `feature/delivery-you-groups` <!-- waits: feature/delivery-section-header, feature/delivery-tickets-section --> — the placement rule's three You groups with their markers and the `YouReason` table, the exported case, the Correction budget and Auto-review arms, You admitting every item that is not `'theirs'` in every Mine mode, the group-keyed tables, and the reason line removed <!-- builds: You groups Blocks delivery, Input to the fleet and Unblock with markers and the PR rule -->
+- `feature/delivery-you-groups` <!-- waits: feature/delivery-section-header, feature/delivery-tickets-section --> — the placement rule's three You groups with their markers and the `YouReason` table, the exported case, the Correction budget and Auto-review arms, You admitting every item that is not `'theirs'` in every Mine mode, the group-keyed tables, and the reason line removed <!-- builds: You groups Blocks delivery, Input to the fleet and Unblock with markers and the PR rule --> → #3500
 
 ### Loose PRs
 

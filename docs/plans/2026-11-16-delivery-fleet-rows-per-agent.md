@@ -112,7 +112,7 @@ Per slice, in slice order.
 
 ### Plan runs
 
-- `feature/delivery-fleet-plan-runs` <!-- waits: feature/delivery-agent-roles, feature/delivery-tickets-section --> — design and verify runs as Fleet agents with their roles, and their rows out of the "Tickets and plan runs" block <!-- builds: design and verify runs as Fleet agents -->
+- `feature/delivery-fleet-plan-runs` <!-- waits: feature/delivery-agent-roles, feature/delivery-tickets-section --> — design and verify runs as Fleet agents with their roles, and their rows out of the "Tickets and plan runs" block <!-- builds: design and verify runs as Fleet agents --> → #3499
 
 ### Agent rows
 

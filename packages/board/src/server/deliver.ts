@@ -3,7 +3,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-write';
-import { confirmedLanding, deliveryLanding, type Refs } from '@plot-pm/domain';
+import { confirmedLanding, deliveryLanding, type Refs, type Scripts } from '@plot-pm/domain';
 import { refsGit } from '@plot-pm/domain/adapters';
 import { agentLogPath } from './agent-log.js';
 import { deliverabilityOf, type DeliverabilityPorts } from './controllers/deliverability.js';
@@ -113,8 +113,6 @@ function deliverStatePath(repoRoot: string, slug: string): string {
 
 /** Why delivering a plan was refused — each sends the reader somewhere different. */
 export type DeliverRefusal =
-  /** No `Idea command` is configured, so no agent can be started. */
-  | 'no-deliver-command'
   /** The plan could not be found or its slices could not be read. */
   | 'plan-unreadable'
   /** The request names a `branch` this clone holds no `origin/<branch>` ref for. */
@@ -569,6 +567,9 @@ export function deliverStatus(opts: BuildBoardOptions, slug: string): DeliverSta
  * not-deliverable, plan-unreadable, already-delivered — without standing up a
  * real plan estate, a real pulse and a real `/plot-deliver` run.
  */
+/** The bundle the route starts where no `Idea command` is configured. */
+export const DELIVER_BUNDLE = 'board/plot-deliver.mjs';
+
 export interface DeliverDeps {
   /** The configured `Idea command`. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
@@ -576,11 +577,14 @@ export interface DeliverDeps {
   check?: (opts: BuildBoardOptions, slug: string, branch?: string) => Promise<Deliverability>;
   /** The ports the default `check` asks the PR index and the host through; defaults to the real estate. */
   ports?: DeliverabilityPorts;
+  /** Starts `plot-deliver.mjs` where no `Idea command` exists; the board's `Scripts` where absent. */
+  scripts?: Pick<Scripts, 'start'>;
 }
 
 /**
  * Handle `POST /api/deliver` — refuse, or write the prompt and spawn the agent
- * that delivers a fully-merged plan.
+ * that delivers a fully-merged plan, or run `plot-deliver.mjs` where no
+ * `Idea command` exists.
  *
  * Detached and answered 202 immediately, for the reason `/api/reslice`
  * documents: this server is single-threaded, and awaiting an agent would freeze
@@ -593,7 +597,6 @@ export interface DeliverDeps {
  * | refusal | because |
  * |---|---|
  * | cross-origin | any page can POST to localhost; the binding cannot cover that |
- * | `no-deliver-command` | no script can do a plot agent's job; accepting the click and doing nothing is the silent failure |
  * | `plan-unreadable` | a plan whose slices cannot be read cannot be delivered; guessing would spawn an agent against an unknown plan |
  * | `not-deliverable` | #350's gate: a plan with an open branch is not deliverable, and this must not weaken it |
  * | `already-delivered` | the decision was already made; re-making it is not what the button does |
@@ -656,19 +659,11 @@ export async function handleDeliver(
   }
   const { branch } = named;
 
-  // ASKED BEFORE ANYTHING IS READ OR WRITTEN. A repo with no runner cannot act
-  // on this click at all, and finding that out after resolving a plan would
-  // spend the read to reach the same refusal.
+  // WHICH ARM RUNS. With a usable `Idea command` the route starts the
+  // /plot-deliver skill; with none it runs `plot-deliver.mjs` itself. Both arms
+  // stand behind the checks below. With no `Idea command` the merge check is
+  // the only check, and the click delivers without the skill's verification.
   const usable = usableCommand(readCfg(opts, IDEA_COMMAND_KEY, ''));
-  if (!usable) {
-    refuse(
-      409,
-      'no-deliver-command',
-      slug,
-      `no \`${IDEA_COMMAND_KEY}\` in Plot Config — delivering a plan runs the /plot-deliver SKILL, which no script can do; add the key or run /plot-deliver yourself`,
-    );
-    return;
-  }
 
   // THE PLAN MUST BE DELIVERABLE. Its slices are read from the file through the
   // one parser that owns the format, against the same pulse the board renders
@@ -755,17 +750,18 @@ export async function handleDeliver(
     return;
   }
 
-  const prompt = composeDeliverPrompt(branch === undefined ? { slug, planFile } : { slug, planFile, branch });
-
   const promptPath = deliverPromptPath(opts.repoRoot, slug);
-  try {
-    fs.mkdirSync(path.dirname(promptPath), { recursive: true });
-    fs.writeFileSync(promptPath, prompt, 'utf8');
-  } catch (err) {
-    json(500, {
-      error: `cannot write ${promptPath}: ${err instanceof Error ? err.message : String(err)}`,
-    });
-    return;
+  if (usable) {
+    const prompt = composeDeliverPrompt(branch === undefined ? { slug, planFile } : { slug, planFile, branch });
+    try {
+      fs.mkdirSync(path.dirname(promptPath), { recursive: true });
+      fs.writeFileSync(promptPath, prompt, 'utf8');
+    } catch (err) {
+      json(500, {
+        error: `cannot write ${promptPath}: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      return;
+    }
   }
 
   const log = deliverLogPath(opts.repoRoot, slug);
@@ -788,6 +784,43 @@ export async function handleDeliver(
   // `plot-controller-gate.sh` exactly as a master agent's does. The controller
   // authorised the action here; the receipt is what says so.
   recordActionReceipt(opts.repoRoot, 'deliver', slug);
+
+  if (!usable) {
+    // THE SCRIPT ARM: `plot-deliver.mjs` asks the host about every slice and
+    // refuses an unmerged one itself. It starts with no `PLOT_UNATTENDED`, so it
+    // runs as a person's delivery, under the receipt written above. The handle
+    // stays referenced: the exit code is what the card waits for.
+    let out: number;
+    try {
+      out = fs.openSync(log, 'a');
+    } catch (err) {
+      json(500, { error: `cannot open ${log}: ${err instanceof Error ? err.message : String(err)}` });
+      return;
+    }
+    const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+      try {
+        fs.writeFileSync(statePath, signal ? `signal ${signal}` : String(code ?? 1), 'utf8');
+      } catch {
+        /* the log is the record */
+      }
+    };
+    const onError = (err: Error): void => {
+      try {
+        fs.appendFileSync(log, `\n${err.message}\n`, 'utf8');
+        fs.writeFileSync(statePath, '1', 'utf8');
+      } catch {
+        /* nothing further to do */
+      }
+    };
+    (deps.scripts ?? scriptsFor(opts)).start(
+      DELIVER_BUNDLE,
+      [...(branch === undefined ? [] : ['--branch', branch]), slug],
+      { log: out, onExit, onError, env: { [MAIN_CHECKOUT_WRITER_ENV]: '1' } },
+    );
+    fs.closeSync(out);
+    json(202, { ok: true, slug, ...(branch === undefined ? {} : { branch }), log });
+    return;
+  }
 
   try {
     markBoardRun(statePath, log);

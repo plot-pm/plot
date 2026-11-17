@@ -168,7 +168,7 @@ export const scriptsShell = (context: ShellContext, answers: FixedAnswers = proc
       const stdio: ('ignore' | number)[] =
         options.log === undefined ? ['ignore', 'ignore', 'ignore'] : ['ignore', options.log, options.log];
       const env = startEnv(script, options.env, answers.heldScriptEnv(context.repoRoot));
-      const child = spawn('bash', [scriptPath(context, script), ...args], {
+      const child = spawn(script.endsWith('.mjs') ? process.execPath : 'bash', [scriptPath(context, script), ...args], {
         cwd: context.repoRoot,
         detached: true,
         stdio,
@@ -191,7 +191,7 @@ export const scriptsShell = (context: ShellContext, answers: FixedAnswers = proc
       return new Promise<void>((resolve, reject) => {
         // DETACHED, so the script leads its own process group and a timeout
         // can end the subshells and children it started, not only `bash`.
-        const child = spawn('bash', [scriptPath(context, script), ...args], {
+        const child = spawn(script.endsWith('.mjs') ? process.execPath : 'bash', [scriptPath(context, script), ...args], {
           cwd: context.repoRoot,
           detached: true,
           ...(env ? { env: { ...process.env, ...env } } : {}),
