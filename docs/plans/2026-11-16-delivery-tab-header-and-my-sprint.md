@@ -128,7 +128,7 @@ Per slice, in slice order.
 
 ### Fleet card
 
-- `feature/delivery-fleet-card` <!-- waits: feature/delivery-section-header --> — the fleet card with its state, counts and read-only switches from `FleetControls.tsx`, linking to `#fleet-controls` <!-- builds: a Delivery tab fleet card -->
+- `feature/delivery-fleet-card` <!-- waits: feature/delivery-section-header --> — the fleet card with its state, counts and read-only switches from `FleetControls.tsx`, linking to `#fleet-controls` <!-- builds: a Delivery tab fleet card --> → #3491
 
 ### Slice states
 
