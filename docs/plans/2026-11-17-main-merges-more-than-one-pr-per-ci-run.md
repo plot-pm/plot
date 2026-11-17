@@ -10,6 +10,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-17, Jan Wloka, plan-PR #3503 merged
+- **Started:** 2026-11-17, Jan Wloka, `feature/the-settle-ignores-plot-commits`
 
 ## Changelog
 
