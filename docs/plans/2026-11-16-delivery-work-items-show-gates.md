@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 2
 - **Approved:** 2026-11-17, Jan Wloka, plan-PR #3469 merged
+- **Started:** 2026-11-17, Jan Wloka, `feature/delivery-work-items-groups`
 
 ## Changelog
 
@@ -80,7 +81,7 @@ Per slice, in slice order.
 
 ### Groups and columns
 
-- `feature/delivery-work-items-groups` <!-- waits: feature/delivery-section-header, feature/delivery-you-groups --> — the Work items header and groups, what Queued holds, the group column in the place of `status`, and the Where column <!-- builds: Work items groups, header and column model -->
+- `feature/delivery-work-items-groups` <!-- waits: feature/delivery-section-header, feature/delivery-you-groups --> — the Work items header and groups, what Queued holds, the group column in the place of `status`, and the Where column <!-- builds: Work items groups, header and column model --> → #3512
 
 ### Gate cells
 
