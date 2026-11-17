@@ -350,7 +350,7 @@ describe('the remaining branches', () => {
   });
 
   it('gives a ticket no seven-column row, because a ticket keeps its own row', () => {
-    expect(itemRowCells(you('ticket-assigned', 'input-to-the-fleet', [], 'ticket'), facts)).toBeNull();
+    expect(itemRowCells(you('loose', 'unblock', [], 'ticket'), facts)).toBeNull();
     expect(itemRowCells(work('queued', [], 'ticket'), facts)).toBeNull();
   });
 });
