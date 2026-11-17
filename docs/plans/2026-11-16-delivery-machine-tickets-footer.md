@@ -89,7 +89,7 @@ Per slice, in slice order.
 
 ### Footer
 
-- `feature/delivery-tab-footer` <!-- waits: feature/delivery-tickets-section, feature/delivery-machine-line --> — the footer fact and line with freshness, next read, dot states by interval, branch and plan counts, and desks not placed behind details <!-- builds: a Delivery tab footer fact with freshness and details -->
+- `feature/delivery-tab-footer` <!-- waits: feature/delivery-tickets-section, feature/delivery-machine-line --> — the footer fact and line with freshness, next read, dot states by interval, branch and plan counts, and desks not placed behind details <!-- builds: a Delivery tab footer fact with freshness and details --> → #3507
 
 ## Notes
 

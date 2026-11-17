@@ -66,10 +66,10 @@ describe('a question moves its row into You › Unblock, with its age', () => {
   const group = (page: Page, key: string) => page.locator(`[data-group="${key}"]`);
   const section = (page: Page, key: string) => page.locator(`[data-section="${key}"]`);
 
-  it('lands the row in You › Unblock, not under Work items', async () => {
+  it('lands the row in You › Blocks delivery, not under Work items', async () => {
     const page = await open();
     try {
-      await expect.poll(() => group(page, 'unblock').locator('[data-branch="feature/asking"]').count())
+      await expect.poll(() => group(page, 'blocks-delivery').locator('[data-branch="feature/asking"]').count())
         .toBe(1);
       await expect.poll(() => section(page, 'work-items').locator('[data-branch="feature/asking"]').count())
         .toBe(0);

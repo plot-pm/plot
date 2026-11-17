@@ -1514,7 +1514,7 @@ export const unblockPortsFor = (deps: {
       );
       if (files.read === 'refused') return { ok: false, detail: files.why };
       const roleAgent: RoleAgentRef = { name: 'unblocker', agentsFile: files.agentsFile, settingsFile: files.settingsFile };
-      const command = roleCommand(roleAgent, files.maxTurns);
+      const command = roleCommand(roleAgent, files.maxTurns, files.tools);
       if (command.read === 'refused') return { ok: false, detail: command.why };
       const logFile = join(deps.repoRoot, '.plot', 'state', 'unblocker.log');
       const settings = agentSettingsFile(main);

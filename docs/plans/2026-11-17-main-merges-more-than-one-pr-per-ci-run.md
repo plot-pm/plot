@@ -123,7 +123,7 @@ Per slice, in slice order.
 
 ### The settle ignores Plot commits
 
-- `feature/the-settle-ignores-plot-commits` — `Refs.firstParentCommits` carries `subject`; a domain rule treats unsettled commits that change only `syncPathSet` paths or generated bundles as settled; `mergeArm`, `merge()` and `mergeAt` read it in place of `settled.sha === tip` <!-- builds: settledPast and the unsettled-commits reading in packages/domain/src/rules -->
+- `feature/the-settle-ignores-plot-commits` — `Refs.firstParentCommits` carries `subject`; a domain rule treats unsettled commits that change only `syncPathSet` paths or generated bundles as settled; `mergeArm`, `merge()` and `mergeAt` read it in place of `settled.sha === tip` <!-- builds: settledPast and the unsettled-commits reading in packages/domain/src/rules --> → #3508
 
 ### The reading settles on completion
 

@@ -78,7 +78,7 @@ describe('deliveryMapping', () => {
 
   it('puts a dead agent on a slice under You to unblock and the agent under Fleet blocked', () => {
     const p = place(deliveryMapping(mixed));
-    expect(p.items.find((i) => i.id === sliceItemId('p', 'B'))).toMatchObject({ section: 'you', group: 'unblock' });
+    expect(p.items.find((i) => i.id === sliceItemId('p', 'B'))).toMatchObject({ section: 'you', group: 'blocks-delivery' });
     expect(p.agents.find((x) => x.id === 'agent:dead')).toMatchObject({ group: 'blocked' });
   });
 
@@ -87,7 +87,7 @@ describe('deliveryMapping', () => {
     const on = place(deliveryMapping(input({ rows, config: { autoReview: true, correctionBudget: 2 } })));
     const off = place(deliveryMapping(input({ rows, config: { autoReview: false, correctionBudget: 2 } })));
     expect(on.items[0]).toMatchObject({ section: 'work-items', group: 'at-a-gate' });
-    expect(off.items[0]).toMatchObject({ section: 'you', group: 'review-a-result' });
+    expect(off.items[0]).toMatchObject({ section: 'you', group: 'blocks-delivery' });
   });
 
   it('passes the Mine mode and both config keys through unchanged', () => {
@@ -249,6 +249,23 @@ describe('release lines', () => {
       .toEqual(['0 of 0 slices delivered · 0 held at gates · 0 blocked']);
   });
 
+  it('counts the same blocked slices when a review joins Blocks delivery', () => {
+    const rows = [
+      row({ branch: 'feature/b', plan: 'p', wave: 'B', state: 'wip' }),
+      row({ branch: 'feature/c', plan: 'p', wave: 'C', pr: pr({ ciChecks: 'green', plotReview: 'pending' }) }),
+    ];
+    const base = {
+      rows,
+      slices: ['B', 'C'].map((n) => slice(n)),
+      agents: [agent({ session: 'dead', branch: 'feature/b', state: 'failed' })],
+    };
+    const reviewJoins = lines({ ...base, config: { autoReview: false, correctionBudget: 2 } });
+    expect(place(deliveryMapping(input({ ...base, config: { autoReview: false, correctionBudget: 2 } }))).items
+      .filter((i) => i.section === 'you' && i.reason === 'review-pr')).toHaveLength(1);
+    expect(reviewJoins[0]).toContain('· 1 blocked');
+    expect(lines(base)[0]).toContain('· 1 blocked');
+  });
+
   it('keeps the slice counts alone where the index is missing', () => {
     expect(lines({ releaseTickets: null, sprints: [{ release: '2.32.0', started: '' }] }))
       .toEqual(['0 of 0 slices delivered · 0 held at gates · 0 blocked']);
@@ -377,5 +394,49 @@ describe('deliveryMapping: agent roles', () => {
 
   it('adds no agent when the payload carries no runs', () => {
     expect(deliveryMapping(input({ roleRuns: null })).readings.agents).toEqual([]);
+  });
+});
+
+describe('deliveryMapping under a Mine mode', () => {
+  // The rows the payload carries, unfiltered: the board passes these, and the
+  // mapping applies the Mine mode.
+  const rows = [
+    row({ branch: 'feature/loose', state: 'wip', worker: 'elsewhere', group: 'quiet', desk: false }),
+    row({ branch: 'feature/unsigned', state: 'wip', worker: 'elsewhere', group: 'quiet', desk: false, fixerInFlight: false, pr: pr({ number: 3, author: '', ciChecks: 'green' }) }),
+    row({ branch: 'feature/mine', plan: 'p', wave: 'A', state: 'wip', pr: pr({ number: 1, author: 'me', ciChecks: 'pending' }) }),
+    row({ branch: 'feature/nobodys', plan: 'p', wave: 'B', state: 'wip', worker: 'running' }),
+    row({ branch: 'feature/theirs', plan: 'p', wave: 'C', state: 'wip', pr: pr({ number: 2, author: 'them', ciChecks: 'green', plotReview: 'absent' }) }),
+  ];
+  const drafts = [
+    { plan: 'their-draft', assignee: 'them', author: 'them', approver: '' },
+    { plan: 'nobodys-draft', assignee: '', author: '', approver: '' },
+  ] as unknown as DeliveryMapInput['drafts'];
+  const people = { reader: { hostUser: 'me', directory: { me: 'Me', them: 'Them' } } };
+  const placed = (mode: DeliveryMapInput['mode']) =>
+    place(deliveryMapping(input({ ...people, rows, drafts, mode, config: { autoReview: false, correctionBudget: 2 } })));
+  const youIds = (mode: DeliveryMapInput['mode']) => placed(mode).items.filter((i) => i.section === 'you').map((i) => i.id).sort();
+  const shown = (mode: DeliveryMapInput['mode']) => placed(mode).items.map((i) => i.id);
+
+  it('keeps the same You items in every Mine mode, a loose branch and an unknown-owner PR included', () => {
+    const all = youIds('all');
+    expect(all).toEqual(['branch:feature/loose', 'branch:feature/unsigned', 'plan:nobodys-draft']);
+    expect(youIds('mine-and-unknown')).toEqual(all);
+    expect(youIds('mine')).toEqual(all);
+  });
+
+  it('places a theirs PR and a theirs draft under Work items › Queued with Mine off, and hides both under Mine', () => {
+    const off = placed('all').items;
+    expect(off.find((i) => i.id === sliceItemId('p', 'C'))).toMatchObject({ section: 'work-items', group: 'queued' });
+    expect(off.find((i) => i.id === 'plan:their-draft')).toMatchObject({ section: 'work-items', group: 'queued' });
+    for (const mode of ['mine-and-unknown', 'mine'] as const) {
+      expect(shown(mode)).not.toContain(sliceItemId('p', 'C'));
+      expect(shown(mode)).not.toContain('plan:their-draft');
+    }
+  });
+
+  it('narrows Work items by the mode: strict drops an unknown-owner slice, lenient keeps it', () => {
+    expect(shown('mine-and-unknown')).toContain(sliceItemId('p', 'B'));
+    expect(shown('mine')).not.toContain(sliceItemId('p', 'B'));
+    expect(shown('mine')).toContain(sliceItemId('p', 'A'));
   });
 });

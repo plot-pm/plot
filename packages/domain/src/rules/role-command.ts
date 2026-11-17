@@ -56,10 +56,14 @@ export type RoleCommand = { read: 'command'; command: string } | { read: 'refuse
  *
  * @param role - the role's files.
  * @param maxTurns - the session's turn limit; `0` for none.
+ * @param tools - the role's declared tools ({@link roleTools}). A non-empty
+ *   list adds one `--allowedTools '<comma-joined>'` argument before
+ *   `--settings`, because the flag is variadic and a trailing one reads the
+ *   next argument as a tool name. An empty list adds nothing.
  * @returns the fragment, or a refusal for a name that is not a declared role
  *   or a turn limit that is not a whole number.
  */
-export const roleCommand = (role: RoleAgentRef, maxTurns: number): RoleCommand => {
+export const roleCommand = (role: RoleAgentRef, maxTurns: number, tools: readonly string[] = []): RoleCommand => {
   if (!(ROLE_NAMES as readonly string[]).includes(role.name)) {
     return { read: 'refused', why: `'${role.name}' is not a declared role` };
   }
@@ -75,6 +79,7 @@ export const roleCommand = (role: RoleAgentRef, maxTurns: number): RoleCommand =
     role.name,
     '--agents',
     `"$(cat -- ${singleQuote(role.agentsFile)})"`,
+    ...(tools.length > 0 ? ['--allowedTools', singleQuote(tools.join(','))] : []),
     '--settings',
     singleQuote(role.settingsFile),
     ...(maxTurns > 0 ? ['--max-turns', String(maxTurns)] : []),
@@ -93,22 +98,10 @@ const JSON_KEYS: ReadonlySet<string> = new Set([
 /** One frontmatter scalar: a number where it is written as one, else the text. */
 const scalar = (text: string): string | number => (/^[0-9]+$/.test(text) ? Number(text) : text.replace(/^(['"])(.*)\1$/, '$2'));
 
-/**
- * Translates a role's definition file into the `--agents` JSON object.
- *
- * The frontmatter's `description`, `model`, `effort`, `maxTurns`, `memory`
- * and `tools` carry over; the body becomes `prompt`. The frontmatter's own
- * `prompt` and `isolation` keys are not carried: `prompt` names a path while
- * the JSON wants the text, and fleetd creates every worktree itself.
- *
- * @param name - the role.
- * @param text - the definition file's text.
- * @returns the JSON text naming exactly one agent, or a refusal when the file
- *   has no frontmatter, no `description` or no body.
- */
-export const roleAgentsJson = (name: RoleName, text: string): RoleAgentsJson => {
+/** A definition file's accepted frontmatter keys and its body; `null` without frontmatter. */
+const parseDefinition = (text: string): { definition: Record<string, unknown>; body: string } | null => {
   const match = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text);
-  if (match === null) return { read: 'refused', why: `the ${name} definition has no frontmatter` };
+  if (match === null) return null;
   const definition: Record<string, unknown> = {};
   let list: string | null = null;
   for (const line of match[1]!.split('\n')) {
@@ -128,7 +121,40 @@ export const roleAgentsJson = (name: RoleName, text: string): RoleAgentsJson => 
       list = key;
     } else definition[key] = scalar(value);
   }
-  const prompt = match[2]!.trim();
+  return { definition, body: match[2]! };
+};
+
+/**
+ * The tools a role's definition declares, read by the parser
+ * {@link roleAgentsJson} uses.
+ *
+ * @param text - the definition file's text.
+ * @returns the `tools` list as strings; `[]` for no frontmatter, no `tools`
+ *   key or an empty list.
+ */
+export const roleTools = (text: string): readonly string[] => {
+  const tools = parseDefinition(text)?.definition.tools;
+  return Array.isArray(tools) ? tools.map(String) : [];
+};
+
+/**
+ * Translates a role's definition file into the `--agents` JSON object.
+ *
+ * The frontmatter's `description`, `model`, `effort`, `maxTurns`, `memory`
+ * and `tools` carry over; the body becomes `prompt`. The frontmatter's own
+ * `prompt` and `isolation` keys are not carried: `prompt` names a path while
+ * the JSON wants the text, and fleetd creates every worktree itself.
+ *
+ * @param name - the role.
+ * @param text - the definition file's text.
+ * @returns the JSON text naming exactly one agent, or a refusal when the file
+ *   has no frontmatter, no `description` or no body.
+ */
+export const roleAgentsJson = (name: RoleName, text: string): RoleAgentsJson => {
+  const parsed = parseDefinition(text);
+  if (parsed === null) return { read: 'refused', why: `the ${name} definition has no frontmatter` };
+  const { definition, body } = parsed;
+  const prompt = body.trim();
   if (typeof definition.description !== 'string' || definition.description === '') {
     return { read: 'refused', why: `the ${name} definition names no description` };
   }
