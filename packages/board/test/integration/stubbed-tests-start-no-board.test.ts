@@ -915,7 +915,8 @@ const EXPECTED_FILES = 91;
 // 677 → 673 on 2026-11-17: a design or verify run is a Fleet row, so the Plan runs rows are gone. `plan-link-click.browser.test.ts`
 // lost the five tests that clicked a plan name in that section (the plan row's link keeps its two in the same file), and
 // `spec-run-rows.browser.test.ts` gains one for the empty case.
-const EXPECTED_TESTS = 673;
+// 673 → 674 on 2026-11-17: the one `it(` the Delivery tab footer adds to `fleet-read-ref-age.browser.test.ts`, for the line without a path and the details button. Added, not moved.
+const EXPECTED_TESTS = 674;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

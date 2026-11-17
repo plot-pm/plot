@@ -3211,6 +3211,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       'awaiting review',
     ));
     try {
+      // An unread PR state places the row in Not placed, behind the footer's details button.
+      await page.getByRole('button', { name: 'details' }).click();
       const li = rowFor(page, 'feature/pr-row');
       await expect.poll(() => li.getByRole('link', { name: 'Pull request 149' }).count()).toBe(1);
       expect(await li.locator('[data-pr-state]').count()).toBe(0);
@@ -3896,7 +3898,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       expect(body).toContain('not measured');
       expect(body).not.toContain('not checked yet');
       // The age is the footer's job, and it is still doing it.
-      await page.getByText(/PR data 11\d s old/).waitFor({ timeout: 10_000 });
+      await page.getByText(/PR data 2 min old/).waitFor({ timeout: 10_000 });
     } finally {
       await page.close();
     }
