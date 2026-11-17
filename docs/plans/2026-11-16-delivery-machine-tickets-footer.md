@@ -15,6 +15,7 @@
 - **Approved:** 2026-11-17, Jan Wloka, plan-PR #3469 merged
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-tickets-section`
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-machine-line`
+- **Started:** 2026-11-17, Jan Wloka, `feature/delivery-tab-footer`
 
 ## Changelog
 

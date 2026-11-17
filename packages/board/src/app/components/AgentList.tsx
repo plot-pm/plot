@@ -10,6 +10,36 @@ import {
   isLiveState,
 } from '../../contract/schema.js';
 
+const MACHINE_DOT_CLASS: Record<MachineDot, string> = {
+  green: 'bg-emerald-500',
+  amber: 'bg-amber-500',
+  red: 'bg-red-500',
+  grey: 'bg-slate-400',
+};
+
+/** The Machine section: one header line, and a Resource · Now · Effect table only where a resource limits the fleet. */
+const MachineSection = ({ machine }: { machine: MachineHealth }) => (
+  <div data-machine-line={machine.dot} className="px-3 text-sm text-slate-600 dark:text-slate-300">
+    <p className="flex flex-wrap items-center gap-x-1.5">
+      <span role="img" aria-label={machine.word} data-machine-dot={machine.dot} className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${MACHINE_DOT_CLASS[machine.dot]}`} />
+      <span className="font-medium">{machine.word}</span>
+      {machine.line !== '' && <span>· {machine.line}</span>}
+    </p>
+    {machine.rows.length > 0 && (
+      <table data-machine-rows className="mt-1 w-full text-left">
+        <thead>
+          <tr className="text-xs text-slate-500"><th className="pr-3 font-normal">Resource</th><th className="pr-3 font-normal">Now</th><th className="font-normal">Effect</th></tr>
+        </thead>
+        <tbody>
+          {machine.rows.map((r) => (
+            <tr key={r.resource}><td className="pr-3 align-top">{r.resource}</td><td className="pr-3 align-top">{r.now}</td><td className="align-top">{r.effect}</td></tr>
+          ))}
+        </tbody>
+      </table>
+    )}
+  </div>
+);
+
 /**
  * A fleet's controls, or the declared default where the payload carries none.
  *
@@ -95,7 +125,6 @@ import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
 import { deliveryMapping, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
 import {
   groupAnchor,
-  machineLine,
   placeMapping,
   planBlockShown,
   planBlockToggleKey,
@@ -108,6 +137,7 @@ import {
 } from '../lib/agent-rows/delivery-view.js';
 import { shrinkNote } from '../lib/agent-rows/actions.js';
 import { hostAnswer, issueNote, prStatusEntry, scanHostNote } from '../lib/agent-rows/host-notes.js';
+import { machineHealth, type MachineDot, type MachineHealth } from '../lib/agent-rows/machine-health.js';
 import { rowKey } from '../lib/agent-rows/row-identity.js';
 // THE ROW ESTATE, in three modules beside this one. `AgentList` is the shell:
 // it reads the fleet, decides the sections, and mounts the rows — the rows,
@@ -119,7 +149,7 @@ import { RoleRunRow } from './RoleRunRow.js';
 import { HeaderRow, IssueRowView, PlanRow, Row, RegistryRow, SliceRow, type AgentListProps } from '../lib/agent-rows/rows.js';
 import { workingAgentRows, draftPlanRows } from '../lib/agent-rows/working-agents.js';
 import { DraftPlanRowView } from '../lib/agent-rows/draft-plan-row.js';
-import { PlanLevelRowView, planFileFromFleet, verificationRows } from '../lib/agent-rows/plan-level-row.js';
+import { planFileFromFleet, verificationRows } from '../lib/agent-rows/plan-level-row.js';
 import { specRows } from '../lib/agent-rows/spec-row.js';
 // RE-EXPORTED, not redefined — the same allowance `splitBranch` above is given.
 // These moved out of this file when the row estate was split into three
@@ -547,20 +577,14 @@ export function AgentList({
   // `running` and `rows` come from `.plot/state/auto-verify-in-flight.json` as
   // the daemon last wrote it; `null` (the file unreadable) answers no rows and
   // no banner at all, by `verificationRows`'s own rule.
-  const { working: verifyWorkingRows, waiting: verifyWaitingRows, haltedLine } =
+  const { haltedLine } =
     verificationRows(fleet?.verification ?? null);
   // THE FLEET'S OWN SPEC RUNS — the same shape as the verify runs above, read
   // from `.plot/state/auto-design-in-flight.json` via `fleet.design`. A verify
   // halt and a design halt are two independent facts, so `specHaltedLine`
   // stays its own nullable string rather than folding into `haltedLine`.
-  const { working: specWorkingRows, waiting: specWaitingRows, haltedLine: specHaltedLine } =
+  const { haltedLine: specHaltedLine } =
     specRows(fleet?.design ?? null);
-  // BOTH FLEETS' PLAN-LEVEL ROWS, COMBINED — `sectionCount`'s `planLevel`
-  // bucket is one number pair for every plan-level row regardless of kind, so
-  // the production step is concatenation, not a second bucket or a second
-  // render path. `PlanLevelRowView` already switches on `row.kind`.
-  const workingPlanRows = [...verifyWorkingRows, ...specWorkingRows];
-  const verificationWaitingRows = [...verifyWaitingRows, ...specWaitingRows];
   // THE PLAN FILE of a plan-level row: the payload names only the slug, so the
   // file is read from the fleet's own rows (`planFileFromFleet`), which exist
   // before the board loads, and then from the board card with that slug
@@ -1456,7 +1480,7 @@ export function AgentList({
                     </div>
                   )}
                   {section.key === 'machine' && (
-                    <p data-machine-line className="px-3 text-sm text-slate-600 dark:text-slate-300">{machineLine(fleet.rows, hostAnswer(fleet))}</p>
+                    <MachineSection machine={machineHealth(fleet.machine, hostAnswer(fleet))} />
                   )}
                   {!folded && section.groups.filter((group) => group.count > 0).map((group) => {
                     const groupMark = groupPace(group.rows, active);
@@ -1551,24 +1575,12 @@ export function AgentList({
               absence={fleet.issueAnswer === 'failed' ? issueNote(fleet) ?? '' : fleet.issueAnswer === 'unsupported' ? fleet.issueAbsence ?? '' : ''}
               idea={idea ?? { available: false, reason: 'this board has not said whether it can create plans' }}
             />
-            {/* THE FLEET'S OWN PLAN-LEVEL RUNS AND HALTED LINES, until plan 4 moves them. */}
-            {(workingPlanRows.length > 0 || verificationWaitingRows.length > 0 || haltedLine || specHaltedLine) && (
+            {/* THE FLEET'S HALTED LINES. A design or verify run is a Fleet row with its role chip. */}
+            {(haltedLine || specHaltedLine) && (
               <section data-outside-rule className="space-y-1">
-                <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">Plan runs</h2>
                 {[haltedLine, specHaltedLine].filter((l): l is string => Boolean(l)).map((line) => (
                   <p key={line} data-fleet-halted className="px-3 text-xs text-amber-700 dark:text-amber-500">{line}</p>
                 ))}
-                <ul role="grid" aria-label="Plan runs" className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
-                  {[...workingPlanRows, ...verificationWaitingRows].map((row) => (
-                    <PlanLevelRowView
-                      key={`plan-level-${row.kind}-${row.plan}`}
-                      row={row}
-                      planFile={planFileOf(row.plan)}
-                      onOpenPlan={onOpenPlan}
-                      planIndex={planIndex}
-                    />
-                  ))}
-                </ul>
               </section>
             )}
           </>

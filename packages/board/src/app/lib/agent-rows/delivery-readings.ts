@@ -316,7 +316,10 @@ const mapReadings = (input: DeliveryMapInput): DeliveryMapping => {
       ? itemOfPr.get(run.pr) ?? null
       : run.plan !== undefined && draftsByItem[draftItemId(run.plan)] !== undefined ? draftItemId(run.plan) : null;
     // The source is a live run, so its process is running; no source says it waits.
-    agents.push({ id: run.id, role: run.role, actsOn, blockedOn: null, process: 'running', startedAt: run.startedAt });
+    // A run a pass recorded as stopped or failed has no process: it blocks on a person.
+    agents.push(run.stopped === undefined
+      ? { id: run.id, role: run.role, actsOn, blockedOn: null, process: 'running', startedAt: run.startedAt }
+      : { id: run.id, role: run.role, actsOn, blockedOn: 'person', process: 'stopped', startedAt: run.startedAt });
   }
 
   return {

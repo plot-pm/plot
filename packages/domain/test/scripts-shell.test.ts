@@ -235,6 +235,14 @@ describe('a started script runs detached and answers that it started', () => {
     expect(code).toBe(3);
   });
 
+  it('runs a .mjs script with node, not bash', async () => {
+    const dir = scriptDir({ 'plot-thing.mjs': 'process.exit(5);\n' });
+    const code = await new Promise<number | null>((resolve) => {
+      at(dir).start('plot-thing.mjs', [], { onExit: resolve });
+    });
+    expect(code).toBe(5);
+  });
+
   it('writes both streams to the log it was given', async () => {
     const dir = scriptDir({
       'plot-reap.sh': '#!/usr/bin/env bash\necho out\necho err >&2\n',

@@ -15,6 +15,7 @@
 - **Approved:** 2026-11-17, Jan Wloka, plan-PR #3469 merged
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-agent-roles`
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-fleet-plan-runs`
+- **Started:** 2026-11-17, Jan Wloka, `feature/delivery-fleet-agent-rows`
 
 ## Changelog
 
@@ -112,7 +113,7 @@ Per slice, in slice order.
 
 ### Plan runs
 
-- `feature/delivery-fleet-plan-runs` <!-- waits: feature/delivery-agent-roles, feature/delivery-tickets-section --> — design and verify runs as Fleet agents with their roles, and their rows out of the "Tickets and plan runs" block <!-- builds: design and verify runs as Fleet agents -->
+- `feature/delivery-fleet-plan-runs` <!-- waits: feature/delivery-agent-roles, feature/delivery-tickets-section --> — design and verify runs as Fleet agents with their roles, and their rows out of the "Tickets and plan runs" block <!-- builds: design and verify runs as Fleet agents --> → #3499
 
 ### Agent rows
 

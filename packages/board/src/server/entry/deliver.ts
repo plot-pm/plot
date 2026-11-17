@@ -1070,7 +1070,12 @@ export const runRelease = async (
 
 // Only when RUN, never when imported. `pathToFileURL` over the realpath, for
 // the reason `agent-settings.ts` records: `/tmp` is a symlink on macOS.
-if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+declare const PLOT_EMBEDDED: boolean | undefined;
+if (
+  typeof PLOT_EMBEDDED === 'undefined' &&
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
+) {
   const scriptDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   void endEntry(await run(process.argv.slice(2), process.cwd(), scriptDir));
 }
