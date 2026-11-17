@@ -290,8 +290,6 @@ const youCase = (
 
 /** The Work items group of an item no person must act on first, or `null` where a needed reading is absent. */
 const workGroup = (item: WorkItemReading, live: number): WorkItemGroup | null => {
-  if (item.phase === 'draft' || item.phase === 'design') return 'queued';
-  if (item.approvalOwed !== undefined) return 'queued';
   if (item.heldBy !== undefined) return 'at-a-gate';
   switch (item.stage) {
     case 'pr':
