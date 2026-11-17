@@ -495,3 +495,41 @@ export const refreshBases = async (
   }
   return outcomes;
 };
+
+/**
+ * Builds one beat that refreshes the default branch and then each `sprint/*` base.
+ *
+ * The bases are refreshed only where the default branch's refresh read the
+ * combined tip listing during this call: an idle pass reads none, starts no
+ * process, and leaves every base file as it was. A sprint tip that moves while
+ * `origin/<default>` does not is therefore read when the default branch's
+ * reading is next due, at most once per half `Checks wait`. A refresh that
+ * throws is reported to `warn` and the bases still run on any listing it read.
+ *
+ * @param refresh - the default branch's refresh.
+ * @param takeTips - returns the listing the refresh read since the last call and
+ *   forgets it; `null` where no answered listing was read.
+ * @param bases - the per-base reads, and the files.
+ * @param warn - receives one line per failure.
+ * @returns one beat per call.
+ */
+export const refreshWithBases = (
+  refresh: () => Promise<unknown>,
+  takeTips: () => Readonly<Record<string, string>> | null,
+  bases: BaseRefreshWorld,
+  warn: (line: string) => void = () => undefined,
+): (() => Promise<void>) => async () => {
+  takeTips();
+  try {
+    await refresh();
+  } catch (e) {
+    warn(`plot-fleetd: default-branch read failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  const tips = takeTips();
+  if (tips === null) return;
+  try {
+    await refreshBases(bases, tips, warn);
+  } catch (e) {
+    warn(`plot-fleetd: base-branch read failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+};

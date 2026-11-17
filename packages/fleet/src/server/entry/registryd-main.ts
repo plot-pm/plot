@@ -144,7 +144,7 @@ import { runDeskRelay } from '../../shared/desk-relay.js';
 import { runIndexMonitor, sliceBranchesAtTip, sliceBranchesOf } from '../../shared/index-monitor.js';
 import { fleetIssues, fleetIssueWrites, freshIssueState, issueGateOf } from '../../shared/issue-refresh.js';
 import { freshPrState, withHostSlot } from '../../shared/pr-refresh.js';
-import { refreshBases, refreshOnChange } from '../../shared/default-branch-refresh.js';
+import { refreshOnChange, refreshWithBases } from '../../shared/default-branch-refresh.js';
 import { createSnapshotHolder, failUnread, readOf, registryEntryOf, type RecordReading, type SnapshotHolder } from '../../shared/snapshot-fill.js';
 import type { RegistryEntry, RepoSnapshot } from '@plot-pm/domain/entities/snapshot';
 import { freshScanState, planDirectory } from '../../shared/fleet-scan.js';
@@ -3452,38 +3452,32 @@ export const run = async (
   const refreshDefault = defaultBranchWorld === null
     ? null
     : refreshOnChange(defaultBranchWorld, tipMoved, warnDefaultBranchOnce);
-  const readDefaultBranch = seams.readDefaultBranch ?? (async (): Promise<void> => {
-    if (refreshDefault === null || defaultBranchWorld === null) return;
-    sprintTips = null;
-    try {
-      await refreshDefault();
-    } catch (e) {
-      warn(`plot-fleetd: default-branch read failed: ${e instanceof Error ? e.message : String(e)}`);
-    }
-    // EACH `sprint/*` BASE IS READ WHERE THE DEFAULT BRANCH READ ITS TIP: a pass
-    // that asked nothing leaves `sprintTips` null and starts no process. A sprint
-    // tip that moves while `origin/<default>` does not is read when the default
-    // branch's reading is next due, at most once per half `Checks wait`.
-    if (sprintTips === null) return;
-    const tips = sprintTips;
-    try {
-      await refreshBases(
-        {
-          shared: defaultBranchWorld,
-          storeFor: (base) => baseBranchFile(repoRoot, base),
-          held: async () => {
-            const names = await baseBranchNames(repoRoot);
-            return names.ok ? names.value : null;
+  // EACH `sprint/*` BASE IS READ WHERE THE DEFAULT BRANCH READ ITS TIP: a pass
+  // that asked nothing starts no process. A sprint tip that moves while
+  // `origin/<default>` does not is read when the default branch's reading is
+  // next due, at most once per half `Checks wait`.
+  const readDefaultBranch = seams.readDefaultBranch ?? (
+    refreshDefault === null || defaultBranchWorld === null
+      ? async (): Promise<void> => undefined
+      : refreshWithBases(
+          refreshDefault,
+          () => {
+            const taken = sprintTips;
+            sprintTips = null;
+            return taken;
           },
-          remove: async (base) => (await removeBaseBranch(repoRoot, base)).ok,
-        },
-        tips,
-        warnDefaultBranchOnce,
-      );
-    } catch (e) {
-      warn(`plot-fleetd: base-branch read failed: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  });
+          {
+            shared: defaultBranchWorld,
+            storeFor: (base) => baseBranchFile(repoRoot, base),
+            held: async () => {
+              const names = await baseBranchNames(repoRoot);
+              return names.ok ? names.value : null;
+            },
+            remove: async (base) => (await removeBaseBranch(repoRoot, base)).ok,
+          },
+          warnDefaultBranchOnce,
+        )
+  );
   // THE CHANNEL IS THE LOOP'S ALONE: `--once` opens no socket, which would
   // leave a stale file behind. A bind that fails at start is one warning; the
   // daemon runs without the channel until a later PR beat binds it. The PR
