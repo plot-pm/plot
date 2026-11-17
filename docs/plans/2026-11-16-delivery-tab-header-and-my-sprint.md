@@ -123,7 +123,7 @@ Per slice, in slice order.
 
 ### Sprint owner
 
-- `feature/sprint-owner-field` — `- **Owner:** <handle>` in the sprint template, `/plot-sprint` and the sprint parser as `ownerHandle`; `ownerHandle` and `end` on the fleet payload's sprint; the board's check of the handle against `People`; the rule that answers whether the reader owns a sprint <!-- builds: a sprint Owner field, the sprint end date on the fleet payload, and a sprint ownership rule -->
+- `feature/sprint-owner-field` — `- **Owner:** <handle>` in the sprint template, `/plot-sprint` and the sprint parser as `ownerHandle`; `ownerHandle` and `end` on the fleet payload's sprint; the board's check of the handle against `People`; the rule that answers whether the reader owns a sprint <!-- builds: a sprint Owner field, the sprint end date on the fleet payload, and a sprint ownership rule --> → #3490
 
 ### Fleet card
 
