@@ -2,7 +2,7 @@
 // design's "Links by Row" table. One test per row of the table: a test that
 // checks only the slice-at-a-gate row passes with every other row wrong.
 import { describe, it, expect } from 'vitest';
-import type { AgentPlacement, ItemPlacement } from '../src/rules/delivery-placement.js';
+import { youCaseOf, type AgentPlacement, type ItemPlacement } from '../src/rules/delivery-placement.js';
 import {
   ROW_COLUMNS,
   ageValue,
@@ -17,7 +17,7 @@ import {
 const work = (group: 'at-a-gate' | 'being-built' | 'queued', agents: string[] = [], kind: ItemPlacement['kind'] = 'slice'): ItemPlacement =>
   ({ id: 'slice:a', kind, section: 'work-items', group, reason: null, agents });
 const you = (reason: Extract<ItemPlacement, { section: 'you' }>['reason'], group: Extract<ItemPlacement, { section: 'you' }>['group'], agents: string[] = [], kind: ItemPlacement['kind'] = 'slice'): ItemPlacement =>
-  ({ id: 'slice:a', kind, section: 'you', group, reason, agents });
+  ({ id: 'slice:a', kind, section: 'you', group, marker: youCaseOf(reason).marker, reason, agents });
 const facts: ItemRowFacts = { plan: 'the-plan', slice: 'first', branch: 'feature/x', pr: 12, ciRun: '#901', ageMinutes: 125 };
 
 describe('the seven columns', () => {
@@ -30,7 +30,7 @@ describe('the seven columns', () => {
   it('show DO under You only', () => {
     expect(itemRowCells(work('being-built'), facts)!.do).toBeNull();
     expect(itemRowCells(work('at-a-gate'), facts)!.do).toBeNull();
-    expect(itemRowCells(you('plan-approval', 'input-to-the-fleet', [], 'plan'), facts)!.do).toEqual({
+    expect(itemRowCells(you('plan-approval', 'blocks-delivery', [], 'plan'), facts)!.do).toEqual({
       value: 'approve ›', links: [{ to: 'action', action: 'approve', id: 'slice:a' }],
     });
   });
@@ -73,7 +73,7 @@ describe('links by row', () => {
   });
 
   it('slice, stuck: STATUS links to the agent question, WHERE to branch and PR, BY to the agent row', () => {
-    const c = itemRowCells(you('blocked-marker', 'unblock', ['agent-2']), { ...facts, question: 'q-7' })!;
+    const c = itemRowCells(you('blocked-marker', 'blocks-delivery', ['agent-2']), { ...facts, question: 'q-7' })!;
     expect(c.item!.links).toEqual([{ to: 'plan', plan: 'the-plan', slice: 'first' }]);
     expect(c.where!.links).toEqual([{ to: 'branch', branch: 'feature/x' }, { to: 'pr', pr: 12 }]);
     expect(c.status).toEqual({ value: 'blocked · question', links: [{ to: 'question', id: 'q-7' }] });
@@ -82,7 +82,7 @@ describe('links by row', () => {
   });
 
   it('slice, stuck by a failed build: STATUS links to the failed CI run', () => {
-    const c = itemRowCells(you('fleet-stuck', 'unblock', ['agent-2']), { ...facts, prReading: { ci: 'failed', review: 'unread' } })!;
+    const c = itemRowCells(you('fleet-stuck', 'blocks-delivery', ['agent-2']), { ...facts, prReading: { ci: 'failed', review: 'unread' } })!;
     expect(c.status).toEqual({ value: 'stuck · CI ✗ #901', links: [{ to: 'ci-run', run: '#901' }] });
   });
 
@@ -164,16 +164,22 @@ describe('groupHeader', () => {
   it('holds Input to the fleet by auto-design only where a draft plan sits there', () => {
     const off = { ...on, autoDesign: false };
     const draft = you('draft-plan', 'input-to-the-fleet', [], 'plan');
-    const approval = you('plan-approval', 'input-to-the-fleet', [], 'plan');
+    const approval = you('plan-approval', 'blocks-delivery', [], 'plan');
     expect(groupHeader('Input to the fleet', 'you', 'input-to-the-fleet', [draft], off).text).toBe('Input to the fleet (1) · auto-design off · design ›');
-    expect(groupHeader('Input to the fleet', 'you', 'input-to-the-fleet', [approval], off).held).toEqual([]);
+    expect(groupHeader('Blocks delivery', 'you', 'blocks-delivery', [approval], off).held).toEqual([]);
   });
 
-  it('holds Review a result by auto-review and auto-verify by the reasons its items carry', () => {
+  it('holds Blocks delivery by auto-review and auto-verify by the reasons its items carry', () => {
     const off = { ...on, autoReview: false, autoVerify: false };
-    const items = [you('review-pr', 'review-a-result'), you('test-delivered-plan', 'review-a-result', [], 'plan')];
-    expect(groupHeader('Review a result', 'you', 'review-a-result', items, off).held.map((h) => h.switch)).toEqual(['autoReview', 'autoVerify']);
-    expect(groupHeader('Review a result', 'you', 'review-a-result', [items[0]!], off).held.map((h) => h.switch)).toEqual(['autoReview']);
+    const items = [you('review-pr', 'blocks-delivery'), you('test-delivered-plan', 'blocks-delivery', [], 'plan')];
+    expect(groupHeader('Blocks delivery', 'you', 'blocks-delivery', items, off).held.map((h) => h.switch)).toEqual(['autoReview', 'autoVerify']);
+    expect(groupHeader('Blocks delivery', 'you', 'blocks-delivery', [items[0]!], off).held.map((h) => h.switch)).toEqual(['autoReview']);
+  });
+
+  it('names no switch on a Blocks delivery group of approvals and blocked slices', () => {
+    const off = { autoDispatch: false, autoReview: false, autoVerify: false, autoDesign: false };
+    const items = [you('plan-approval', 'blocks-delivery', [], 'plan'), you('blocked-marker', 'blocks-delivery'), you('fleet-stuck', 'blocks-delivery')];
+    expect(groupHeader('Blocks delivery', 'you', 'blocks-delivery', items, off).held).toEqual([]);
   });
 
   it('never holds At a gate, Being built or a Fleet group', () => {
@@ -185,7 +191,7 @@ describe('groupHeader', () => {
 
 describe('links by row: plans, releases and loose branches', () => {
   it('plan awaiting a decision: ITEM links to the plan, WHERE to the plan PR, BY to the person, DO to the action', () => {
-    const c = itemRowCells(you('plan-approval', 'input-to-the-fleet', [], 'plan'), { plan: 'the-plan', planPr: 77, person: 'jwloka' })!;
+    const c = itemRowCells(you('plan-approval', 'blocks-delivery', [], 'plan'), { plan: 'the-plan', planPr: 77, person: 'jwloka' })!;
     expect(c.item).toEqual({ value: 'the-plan', links: [{ to: 'plan', plan: 'the-plan', slice: null }] });
     expect(c.where).toEqual({ value: '#77', links: [{ to: 'plan-pr', pr: 77 }] });
     expect(c.status).toEqual({ value: 'approval', links: [] });
@@ -199,14 +205,14 @@ describe('links by row: plans, releases and loose branches', () => {
   });
 
   it('plan in Testing: STATUS links to every merged PR', () => {
-    const c = itemRowCells(you('test-delivered-plan', 'review-a-result', [], 'plan'), { plan: 'the-plan', mergedPrs: [3, 4], person: 'eins78' })!;
+    const c = itemRowCells(you('test-delivered-plan', 'blocks-delivery', [], 'plan'), { plan: 'the-plan', mergedPrs: [3, 4], person: 'eins78' })!;
     expect(c.status).toEqual({ value: 'to test · 2 merged', links: [{ to: 'pr', pr: 3 }, { to: 'pr', pr: 4 }] });
     expect(c.where).toBeNull();
     expect(c.by!.value).toBe('eins78');
   });
 
   it('plan in Testing with no merged PRs read keeps only the reason', () => {
-    const c = itemRowCells(you('test-delivered-plan', 'review-a-result', [], 'plan'), { plan: 'the-plan' })!;
+    const c = itemRowCells(you('test-delivered-plan', 'blocks-delivery', [], 'plan'), { plan: 'the-plan' })!;
     expect(c.status).toEqual({ value: 'to test', links: [] });
   });
 
@@ -215,20 +221,20 @@ describe('links by row: plans, releases and loose branches', () => {
   });
 
   it('release: ITEM links to the PR, WHERE to its branch, STATUS to the gate', () => {
-    const c = itemRowCells(you('release-approval', 'review-a-result', [], 'release'), { branch: 'changeset-release/main', pr: 90, prReading: { ci: 'passed', review: 'unread' }, ciRun: '#5' })!;
+    const c = itemRowCells(you('release-approval', 'blocks-delivery', [], 'release'), { branch: 'changeset-release/main', pr: 90, prReading: { ci: 'passed', review: 'unread' }, ciRun: '#5' })!;
     expect(c.item).toEqual({ value: '#90', links: [{ to: 'pr', pr: 90 }] });
     expect(c.where).toEqual({ value: 'branch', links: [{ to: 'branch', branch: 'changeset-release/main' }] });
     expect(c.status).toEqual({ value: 'release approval · CI ✓ #5', links: [{ to: 'ci-run', run: '#5' }] });
   });
 
   it('release with no branch or PR read falls back to the id and an empty WHERE', () => {
-    const c = itemRowCells(you('release-approval', 'review-a-result', [], 'release'), {})!;
+    const c = itemRowCells(you('release-approval', 'blocks-delivery', [], 'release'), {})!;
     expect(c.item).toEqual({ value: '#slice:a', links: [] });
     expect(c.where).toBeNull();
   });
 
   it('loose branch: ITEM links to the branch, WHERE to the compare view, STATUS is the last commit, BY is empty', () => {
-    const p: ItemPlacement = { id: 'branch:x', kind: 'branch', section: 'you', group: 'unblock', reason: 'fleet-stuck', agents: ['a1'] };
+    const p: ItemPlacement = { id: 'branch:x', kind: 'branch', section: 'you', group: 'blocks-delivery', marker: 'blocks-delivery', reason: 'fleet-stuck', agents: ['a1'] };
     const c = itemRowCells(p, { branch: 'feature/x', lastCommit: 'abc1234' })!;
     expect(c.item).toEqual({ value: 'feature/x', links: [{ to: 'branch', branch: 'feature/x' }] });
     expect(c.where).toEqual({ value: 'compare', links: [{ to: 'compare', branch: 'feature/x' }] });
@@ -287,7 +293,7 @@ describe('the STATUS gate readings', () => {
   });
 
   it('shows a stuck slice with no gate and no question as its reason alone', () => {
-    expect(itemRowCells(you('agent-died', 'unblock', ['a']), { plan: 'p' })!.status).toEqual({ value: 'agent died', links: [] });
+    expect(itemRowCells(you('agent-died', 'blocks-delivery', ['a']), { plan: 'p' })!.status).toEqual({ value: 'agent died', links: [] });
   });
 
   it('shows a loose branch as loose, with its last commit, and offers to plan it', () => {
@@ -338,15 +344,15 @@ describe('deliveryRowForms', () => {
 
 describe('the remaining branches', () => {
   it('reads a You slice that waits on a review as a slice at a gate, not a stuck one', () => {
-    const c = itemRowCells(you('review-pr', 'review-a-result'), { ...facts, prReading: { ci: 'passed', review: 'pending' } })!;
+    const c = itemRowCells(you('review-pr', 'blocks-delivery'), { ...facts, prReading: { ci: 'passed', review: 'pending' } })!;
     expect(c.status).toEqual({ value: 'review · CI ✓ #901', links: [{ to: 'ci-run', run: '#901' }, { to: 'review', pr: 12 }] });
     expect(c.where!.value).toBe('feature/x · #12');
   });
 
-  it('holds Review a result by auto-verify alone where only a delivered plan sits there', () => {
+  it('holds Blocks delivery by auto-verify alone where only a delivered plan sits there', () => {
     const off = { autoDispatch: true, autoReview: false, autoVerify: false, autoDesign: true };
-    const plan = you('test-delivered-plan', 'review-a-result', [], 'plan');
-    expect(groupHeader('Review a result', 'you', 'review-a-result', [plan], off).held.map((h) => h.switch)).toEqual(['autoVerify']);
+    const plan = you('test-delivered-plan', 'blocks-delivery', [], 'plan');
+    expect(groupHeader('Blocks delivery', 'you', 'blocks-delivery', [plan], off).held.map((h) => h.switch)).toEqual(['autoVerify']);
   });
 
   it('gives a ticket no seven-column row, because a ticket keeps its own row', () => {

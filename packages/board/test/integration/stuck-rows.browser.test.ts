@@ -561,7 +561,7 @@ describe('a stuck branch says so in its row', () => {
         rowFor(page, branch).evaluate((el) =>
           el.closest('[data-group]')?.getAttribute('data-group') ?? '');
       // A conflict no agent works on needs a person; a stuck row with no PR is queued.
-      expect(await groupOf('feature/collides')).toBe('unblock');
+      expect(await groupOf('feature/collides')).toBe('blocks-delivery');
       expect(await groupOf('feature/red-ci')).toBe('queued');
       expect(await groupOf('feature/local-only')).toBe('queued');
       // No group of its own: the headings never name a "stuck" section.
