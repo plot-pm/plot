@@ -49,8 +49,23 @@ export const defaultBranchFile = (repoRoot: string): DefaultBranchStore => {
   };
 };
 
-/** Whether a base branch name is safe to use as a file name segment path. */
-const validBase = (base: string): boolean => base !== '' && base.split('/').every((part) => part !== '' && part !== '..' && part !== '.');
+/** The suffix of a base's repair record file; a base whose last segment ends in it would share a reading path with another base's record. */
+export const BASE_REPAIR_SUFFIX = '.repair';
+
+/**
+ * Whether a base branch name is safe to use as a file name segment path.
+ *
+ * Refuses an empty, `.` or `..` segment, and a last segment ending in
+ * {@link BASE_REPAIR_SUFFIX}.
+ */
+export const validBase = (base: string): boolean =>
+  base !== '' &&
+  base.split('/').every((part) => part !== '' && part !== '..' && part !== '.') &&
+  !(base.split('/').pop() as string).endsWith(BASE_REPAIR_SUFFIX);
+
+/** Where the repair record for a base branch lives under a repository root. */
+export const baseRepairPath = (repoRoot: string, base: string): string =>
+  join(repoRoot, '.plot', 'state', 'base-branches', `${base}${BASE_REPAIR_SUFFIX}.json`);
 
 /** Where the reading for a base branch lives under a repository root. */
 export const baseBranchPath = (repoRoot: string, base: string): string =>
@@ -105,7 +120,7 @@ export const baseBranchFile = (repoRoot: string, base: string): DefaultBranchSto
  *
  * Walks `.plot/state/base-branches/` and returns each `<base>.json` path
  * relative to it, without the extension: `sprint/x` for `sprint/x.json`.
- * Temporary `.tmp` files are not names.
+ * Temporary `.tmp` files and `<base>.repair.json` repair records are not names.
  *
  * @param repoRoot - the repository the files belong to.
  * @returns the names, or `failed` where the directory could not be read; a
@@ -117,7 +132,7 @@ export const baseBranchNames = async (repoRoot: string): Promise<PortResult<read
     const names: string[] = [];
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       if (entry.isDirectory()) names.push(...(await walk(join(dir, entry.name), `${prefix}${entry.name}/`)));
-      else if (entry.name.endsWith('.json')) names.push(`${prefix}${entry.name.slice(0, -'.json'.length)}`);
+      else if (entry.name.endsWith('.json') && !entry.name.endsWith(`${BASE_REPAIR_SUFFIX}.json`)) names.push(`${prefix}${entry.name.slice(0, -'.json'.length)}`);
     }
     return names;
   };
@@ -143,6 +158,23 @@ export const removeBaseBranch = async (repoRoot: string, base: string): Promise<
   if (!validBase(base)) return failed<void>();
   try {
     await rm(baseBranchPath(repoRoot, base), { force: true });
+    return answered(undefined);
+  } catch {
+    return failed<void>();
+  }
+};
+
+/**
+ * Deletes the repair record of one base branch, and only that file.
+ *
+ * @param repoRoot - the repository the file belongs to.
+ * @param base - the base branch whose record is removed.
+ * @returns `answered` where the file is gone or never existed, `failed` for an invalid base or an error.
+ */
+export const removeBaseRepair = async (repoRoot: string, base: string): Promise<PortResult<void>> => {
+  if (!validBase(base)) return failed<void>();
+  try {
+    await rm(baseRepairPath(repoRoot, base), { force: true });
     return answered(undefined);
   } catch {
     return failed<void>();

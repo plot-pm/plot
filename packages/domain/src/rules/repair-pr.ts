@@ -13,6 +13,17 @@ export const REPAIR_BRANCH_SHA_LENGTH = 12;
  */
 export const EPISODE_LINE_DEPTH = 200;
 
+/**
+ * The one branch a fix PR into a red sprint base may come from.
+ *
+ * @param lastGreenSha - the base record's last green SHA, absent where the episode opened with none.
+ * @returns `bug/sprint-repair-<first 12 hex of lastGreenSha>`, or null where there is no last green SHA.
+ */
+export const sprintRepairBranchOf = (lastGreenSha: string | undefined): string | null =>
+  lastGreenSha === undefined || lastGreenSha === ''
+    ? null
+    : `bug/sprint-repair-${lastGreenSha.slice(0, REPAIR_BRANCH_SHA_LENGTH)}`;
+
 /** The revert branch: `bug/revert-<pr>`, where `<pr>` is the reverted PR's number. */
 const REVERT_BRANCH = /^bug\/revert-([1-9][0-9]*)$/;
 
@@ -43,16 +54,20 @@ export const isRevertBranch = (branch: string, revertedPr: number | undefined): 
 /** Which of the record's two PR fields names a PR. */
 export type RepairRole = 'repair' | 'revert';
 
+/** Whose record it is: the default branch's, or a sprint base's. A base has no revert arm. */
+export type RepairScope = 'default' | 'base';
+
 /**
  * Which field of the record names a PR.
  *
  * @param record - the repair record.
  * @param pr - the PR number.
- * @returns `repair` where `repairPr` names it, `revert` where `revertPr` names it, null otherwise.
+ * @param scope - `base` ignores `revertPr`; defaults to `default`.
+ * @returns `repair` where `repairPr` names it, `revert` where `revertPr` names it (default scope only), null otherwise.
  */
-export const repairRoleOf = (record: RepairRecord, pr: number): RepairRole | null => {
+export const repairRoleOf = (record: RepairRecord, pr: number, scope: RepairScope = 'default'): RepairRole | null => {
   if (record.repairPr === pr) return 'repair';
-  if (record.revertPr === pr) return 'revert';
+  if (scope === 'default' && record.revertPr === pr) return 'revert';
   return null;
 };
 
@@ -62,12 +77,13 @@ export const repairRoleOf = (record: RepairRecord, pr: number): RepairRole | nul
  * @param record - the repair record.
  * @param role - the field of the record that names the PR.
  * @param head - the PR's head branch.
+ * @param scope - `base` expects {@link sprintRepairBranchOf} and refuses a revert; defaults to `default`.
  * @returns true for a fix PR from {@link mainRepairBranchOf} the record's last
  *   green SHA, or a revert PR from `bug/revert-<revertedPr>`.
  */
-export const repairBranchMatches = (record: RepairRecord, role: RepairRole, head: string): boolean => {
-  if (role === 'revert') return isRevertBranch(head, record.revertedPr);
-  const expected = mainRepairBranchOf(record.lastGreenSha);
+export const repairBranchMatches = (record: RepairRecord, role: RepairRole, head: string, scope: RepairScope = 'default'): boolean => {
+  if (role === 'revert') return scope === 'default' && isRevertBranch(head, record.revertedPr);
+  const expected = scope === 'base' ? sprintRepairBranchOf(record.lastGreenSha) : mainRepairBranchOf(record.lastGreenSha);
   return expected !== null && head === expected;
 };
 
@@ -114,6 +130,8 @@ export interface RepairMergeReading {
   readonly episode: EpisodeReading;
   /** The settled red commit's runs, asked again for this merge and folded; `unaskable` where the ask failed. */
   readonly redRuns: RunsState | 'unaskable';
+  /** `base` where the record is a sprint base's; absent reads as the default branch's. */
+  readonly scope?: RepairScope;
 }
 
 /**
@@ -134,8 +152,8 @@ export const repairNamesPr = (
 ): boolean => {
   const { record } = reading;
   if (record === null || record === 'unaskable' || reading.episode !== 'open') return false;
-  const role = repairRoleOf(record, pr.number);
-  return role !== null && repairBranchMatches(record, role, pr.head);
+  const role = repairRoleOf(record, pr.number, reading.scope);
+  return role !== null && repairBranchMatches(record, role, pr.head, reading.scope);
 };
 
 /** What the repair exception answers for one PR on a red default branch. */
@@ -168,7 +186,8 @@ export const repairMergeVerdict = (
   const { record } = reading;
   if (record === 'unaskable') return { verdict: 'not-named', why: 'the repair record could not be read' };
   if (record === null) return { verdict: 'not-named', why: 'no repair record exists' };
-  const role = repairRoleOf(record, pr.number);
+  const scope = reading.scope ?? 'default';
+  const role = repairRoleOf(record, pr.number, scope);
   if (role === null) return { verdict: 'not-named', why: `the repair record does not name PR #${pr.number}` };
   if (reading.episode === 'unaskable') {
     return { verdict: 'refused', reason: 'unaskable', detail: `the first-parent line of ${record.branch} could not be read, so the episode of the repair record cannot be checked. Nothing was merged.` };
@@ -176,8 +195,8 @@ export const repairMergeVerdict = (
   if (reading.episode === 'closed') {
     return { verdict: 'refused', reason: 'repair-episode-closed', detail: `the repair record's episode (first red ${record.firstRedSha.slice(0, 12)}, state '${record.state}') is not open on the settled red commit. A closed episode admits no PR.` };
   }
-  if (!repairBranchMatches(record, role, pr.head)) {
-    const expected = mainRepairBranchOf(record.lastGreenSha);
+  if (!repairBranchMatches(record, role, pr.head, scope)) {
+    const expected = scope === 'base' ? sprintRepairBranchOf(record.lastGreenSha) : mainRepairBranchOf(record.lastGreenSha);
     const wanted = role === 'repair' ? (expected ?? 'no branch: the record has no last green SHA') : record.revertedPr === undefined ? 'no branch: the record names no reverted PR' : `bug/revert-${record.revertedPr}`;
     return { verdict: 'refused', reason: 'repair-branch-mismatch', detail: `PR #${pr.number} comes from '${pr.head}', but the ${role} PR of this episode must come from ${wanted}. Nothing was merged.` };
   }

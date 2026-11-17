@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { answered } from '@plot-pm/domain';
-import { repairRecordFile } from '@plot-pm/domain/adapters';
+import { baseRepairFile, repairRecordFile } from '@plot-pm/domain/adapters';
 import { REPAIR_RECORD_VERSION, type RepairRecord } from '@plot-pm/domain/entities/repair-record';
 
 import type { MergePorts, NameRepairPrPorts } from '../../src/server/entry/merge.js';
@@ -115,6 +115,18 @@ describe('plot-ask repair-pr', () => {
     expect(named).toHaveLength(1);
     expect(named[0]!.caller).toBe('person');
     expect(await named[0]!.repair.read()).toEqual(answered(RECORD));
+  });
+
+  it('hands the workflow factories that read the base\'s own record, not the default branch\'s', async () => {
+    const repoRoot = await repoWithRecord();
+    const baseRecord: RepairRecord = { ...RECORD, branch: 'sprint/x', lastGreenSha: 'c'.repeat(40) };
+    expect((await baseRepairFile(repoRoot, 'sprint/x').write(baseRecord)).ok).toBe(true);
+    await run(['repair-pr', '2942'], HERE, vi.fn());
+    const ports = named[0]!;
+    expect(await ports.baseRepair!('sprint/x').read()).toEqual(answered(baseRecord));
+    expect(await ports.baseRepair!('sprint/y').read()).toEqual(answered(null));
+    expect(typeof ports.baseBranch).toBe('function');
+    expect(await ports.repair.read()).toEqual(answered(RECORD));
   });
 
   it('hands the workflow the unattended caller under PLOT_UNATTENDED=1', async () => {

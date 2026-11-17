@@ -14,7 +14,9 @@ import {
   baseBranchFile,
   baseBranchNames,
   defaultBranchFile,
+  baseRepairFile,
   removeBaseBranch,
+  removeBaseRepair,
   repairRecordFile,
   scriptsShell,
   treesGit,
@@ -3469,11 +3471,16 @@ export const run = async (
           {
             shared: defaultBranchWorld,
             storeFor: (base) => baseBranchFile(repoRoot, base),
+            repairFor: (base) => baseRepairFile(repoRoot, base),
             held: async () => {
               const names = await baseBranchNames(repoRoot);
               return names.ok ? names.value : null;
             },
-            remove: async (base) => (await removeBaseBranch(repoRoot, base)).ok,
+            remove: async (base) => {
+              const reading = await removeBaseBranch(repoRoot, base);
+              const record = await removeBaseRepair(repoRoot, base);
+              return reading.ok && record.ok;
+            },
           },
           warnDefaultBranchOnce,
         )

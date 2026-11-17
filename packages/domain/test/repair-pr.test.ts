@@ -8,7 +8,9 @@ import {
   mainRepairBranchOf,
   repairEpisode,
   repairMergeVerdict,
+  repairBranchMatches,
   repairRoleOf,
+  sprintRepairBranchOf,
   type RepairMergeReading,
 } from '../src/rules/repair-pr.js';
 import { nameRepairPr, nameRepairPrAt, type NameRepairPrPorts, type NameRepairPrReadings } from '../src/workflows/repair-pr.js';
@@ -402,5 +404,116 @@ describe('nameRepairPrAt — the workflow wired to its ports', () => {
     const { p } = ports(record());
     p.repair.write = async () => ({ ok: false, why: 'failed' }) as never;
     expect(await nameRepairPrAt(p, 2942)).toMatchObject({ named: false, reason: 'unaskable' });
+  });
+});
+
+describe('a sprint base\'s repair record', () => {
+  const SPRINT_BRANCH = `bug/sprint-repair-${GREEN.slice(0, 12)}`;
+  const baseRecord = (over: Partial<RepairRecord> = {}): RepairRecord => record({ branch: 'sprint/x', repairPr: 2942, ...over });
+
+  it('names bug/sprint-repair-<12 hex>, and nothing without a last green SHA', () => {
+    expect(sprintRepairBranchOf(GREEN)).toBe(SPRINT_BRANCH);
+    expect(sprintRepairBranchOf(undefined)).toBeNull();
+    expect(sprintRepairBranchOf('')).toBeNull();
+  });
+
+  it('reads revertPr as no role in the base scope', () => {
+    const r = baseRecord({ repairPr: undefined, revertPr: 9, revertedPr: 5 });
+    expect(repairRoleOf(r, 9, 'base')).toBeNull();
+    expect(repairRoleOf(r, 9)).toBe('revert');
+    expect(repairBranchMatches(r, 'revert', 'bug/revert-5', 'base')).toBe(false);
+  });
+
+  it('matches the sprint branch in the base scope and the main branch only in the default scope', () => {
+    expect(repairBranchMatches(baseRecord(), 'repair', SPRINT_BRANCH, 'base')).toBe(true);
+    expect(repairBranchMatches(baseRecord(), 'repair', BRANCH, 'base')).toBe(false);
+    expect(repairBranchMatches(baseRecord(), 'repair', SPRINT_BRANCH)).toBe(false);
+  });
+
+  it('admits the named PR from the sprint branch while the runs read red', () => {
+    const reading: RepairMergeReading = { record: baseRecord(), episode: 'open', redRuns: 'red', scope: 'base' };
+    expect(repairMergeVerdict(reading, { number: 2942, head: SPRINT_BRANCH })).toEqual({ verdict: 'admitted', role: 'repair' });
+  });
+
+  it('refuses a base PR from the main-repair branch as repair-branch-mismatch, naming the sprint branch', () => {
+    const reading: RepairMergeReading = { record: baseRecord(), episode: 'open', redRuns: 'red', scope: 'base' };
+    const out = repairMergeVerdict(reading, { number: 2942, head: BRANCH });
+    expect(out).toMatchObject({ verdict: 'refused', reason: 'repair-branch-mismatch' });
+    expect(out.verdict === 'refused' && out.detail).toContain(SPRINT_BRANCH);
+  });
+
+  it('refuses repair-red-unconfirmed where the re-asked runs read pending or green', () => {
+    for (const redRuns of ['pending', 'green'] as const) {
+      const reading: RepairMergeReading = { record: baseRecord(), episode: 'open', redRuns, scope: 'base' };
+      expect(repairMergeVerdict(reading, { number: 2942, head: SPRINT_BRANCH })).toMatchObject({ verdict: 'refused', reason: 'repair-red-unconfirmed' });
+    }
+  });
+
+  describe('nameRepairPrAt', () => {
+    const baseReading: DefaultBranchReading = { ...redOn(BUNDLE), branch: 'sprint/x' };
+    const mk = (stored: RepairRecord | null, over: Partial<NameRepairPrPorts> = {}, prOver: Partial<Pr> = {}) => {
+      const writes: RepairRecord[] = [];
+      const mainWrites: RepairRecord[] = [];
+      let current = stored;
+      const p: NameRepairPrPorts = {
+        caller: 'person',
+        host: { prState: async () => ({ ok: true, value: pr({ base: 'sprint/x', head: SPRINT_BRANCH, ...prOver }) }) } as never,
+        refs: {
+          firstParentLine: async () => ({ ok: true, value: [BUNDLE, RED, GREEN] }),
+          defaultBranch: async () => ({ ok: true, value: 'main' }),
+        } as never,
+        defaultBranch: { read: async () => ({ ok: true, value: redOn(BUNDLE) }) } as never,
+        repair: { read: async () => ({ ok: true, value: record() }), write: async (r: RepairRecord) => { mainWrites.push(r); return { ok: true, value: undefined }; } } as never,
+        baseBranch: (base) => ({ read: async () => ({ ok: true, value: base === 'sprint/x' ? baseReading : null }) }) as never,
+        baseRepair: () => ({
+          read: async () => ({ ok: true, value: current }),
+          write: async (r: RepairRecord) => { writes.push(r); current = r; return { ok: true, value: undefined }; },
+        }) as never,
+        ...over,
+      };
+      return { p, writes, mainWrites };
+    };
+
+    it('records a PR into sprint/x on the base\'s record and never touches the main record', async () => {
+      const { p, writes, mainWrites } = mk(baseRecord({ repairPr: undefined }));
+      expect(await nameRepairPrAt(p, 2942)).toEqual({ named: true, pr: 2942, branch: SPRINT_BRANCH });
+      expect(writes).toEqual([baseRecord({ repairPr: 2942 })]);
+      expect(mainWrites).toEqual([]);
+    });
+
+    it('refuses a head that is not the sprint repair branch, by the default branch\'s name', async () => {
+      const { p, writes } = mk(baseRecord({ repairPr: undefined }), {}, { head: BRANCH });
+      expect(await nameRepairPrAt(p, 2942)).toMatchObject({ named: false, reason: 'repair-branch-mismatch' });
+      expect(writes).toEqual([]);
+    });
+
+    it('refuses no-open-episode where the base has no record, and where its reading is green', async () => {
+      expect(await nameRepairPrAt(mk(null).p, 2942)).toMatchObject({ named: false, reason: 'no-open-episode' });
+      const green = { ...baseReading, settled: { sha: BUNDLE, state: 'green' as const } };
+      const { p } = mk(baseRecord({ repairPr: undefined }), { baseBranch: () => ({ read: async () => ({ ok: true, value: green }) }) as never });
+      expect(await nameRepairPrAt(p, 2942)).toMatchObject({ named: false, reason: 'no-open-episode' });
+    });
+
+    it('refuses no-last-green for a base record with no last green SHA', async () => {
+      const { p } = mk(baseRecord({ repairPr: undefined, lastGreenSha: undefined }));
+      expect(await nameRepairPrAt(p, 2942)).toMatchObject({ named: false, reason: 'no-last-green' });
+    });
+
+    it('refuses repair-pr-already-named for a second repair PR on the base', async () => {
+      const { p } = mk(baseRecord({ repairPr: 7 }));
+      expect(await nameRepairPrAt(p, 2942)).toMatchObject({ named: false, reason: 'repair-pr-already-named' });
+    });
+
+    it('refuses pr-not-open for a merged PR into the base', async () => {
+      const { p } = mk(baseRecord({ repairPr: undefined }), {}, { state: 'MERGED' });
+      expect(await nameRepairPrAt(p, 2942)).toMatchObject({ named: false, reason: 'pr-not-open' });
+    });
+
+    it('records a PR into the default branch on the main record, with base stores wired', async () => {
+      const { p, writes, mainWrites } = mk(baseRecord(), {}, { base: 'main', head: BRANCH });
+      expect(await nameRepairPrAt(p, 2942)).toEqual({ named: true, pr: 2942, branch: BRANCH });
+      expect(mainWrites).toEqual([record({ repairPr: 2942 })]);
+      expect(writes).toEqual([]);
+    });
   });
 });

@@ -6,7 +6,8 @@ import { scriptsFor, primeAgentSettings, refsFor, gateContractFor, type BuildBoa
 import { estateFromEnv, realEstate } from '../estate.js';
 import { leaveBoardRunsToTheBoard } from '../board-run.js';
 import { gatherReadingsAndRelease } from '../release-claim.js';
-import { repairRecordFile } from '@plot-pm/domain/adapters/repair-record/repair-record-file';
+import { baseRepairFile, repairRecordFile } from '@plot-pm/domain/adapters/repair-record/repair-record-file';
+import { baseBranchFile } from '@plot-pm/domain/adapters/default-branch/default-branch-file';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { fleetdStartFile, readFleetdHeartbeatSync } from '@plot-pm/domain/adapters';
 import { hostTransportStatusLine } from '@plot-pm/domain/rules/host-transport';
@@ -215,6 +216,8 @@ export const run = async (
         refs: estate.refs,
         defaultBranch: estate.defaultBranch,
         repair: repairRecordFile(opts.repoRoot),
+        baseBranch: (base) => baseBranchFile(opts.repoRoot, base),
+        baseRepair: (base) => baseRepairFile(opts.repoRoot, base),
         caller: callerOf({ unattended: process.env.PLOT_UNATTENDED === '1' }),
       },
       Number(pr),

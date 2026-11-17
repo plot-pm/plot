@@ -99,6 +99,11 @@ export interface SlicePrNextReadings {
    * per tick (#2904). Absent reads as no record: a settled red holds every PR.
    */
   readonly repairMerge?: RepairMergeReading;
+  /**
+   * The repair reading of this row's base, read once per tick for a red base
+   * whose record names an open row. Absent reads as no record: a red base holds every PR.
+   */
+  readonly baseRepairMerge?: RepairMergeReading;
   /** The host backend, as `Host.backend()` answers it. {@link mergeIdentity} reads this to decide an identity. */
   readonly backend: HostBackend;
   /**
@@ -155,18 +160,19 @@ const isNone = (step: SlicePrStep): boolean => step.step === 'none';
  * Arm 1. Whether the PR is one this fleet acts on at all.
  *
  * An open, non-draft PR is in where the sprint scope names its head branch,
- * or where `readings.repairMerge` names it through {@link repairNamesPr}: the
+ * or where `readings.repairMerge` or `readings.baseRepairMerge` names it through {@link repairNamesPr}: the
  * repair record, not the scope, names a fix PR or a revert PR.
  *
  * @param readings - the PR's readings.
  * @returns `none` with the first reason the PR is out, or `null` where it is in.
  */
 export const guardArm = (readings: SlicePrNextReadings): SlicePrStep | null => {
-  const { row, scope, repairMerge } = readings;
+  const { row, scope, repairMerge, baseRepairMerge } = readings;
   if (row === null) return none('no-row');
   if (row.state !== 'OPEN') return none('not-open');
   if (row.draft) return none('draft');
   if (repairMerge !== undefined && repairNamesPr(repairMerge, row)) return null;
+  if (baseRepairMerge !== undefined && repairNamesPr(baseRepairMerge, row)) return null;
   if (scope.read === 'none') return none(`scope-${scope.why}`);
   if (!scope.branches.includes(row.head)) return none('out-of-scope');
   return null;
@@ -350,8 +356,9 @@ export const reviewArm = (readings: SlicePrNextReadings): SlicePrStep => {
  * `default-branch-red` for the one PR {@link repairMergeVerdict} admits; the
  * remaining holds then apply to it unchanged. A row whose `base` names a branch
  * other than `readings.defaultBranchName` skips every default-branch hold and
- * holds `base-branch-red` only, from `readings.baseReading`; `conflicting` and
- * the merge identity apply to both paths. A PR the record names and the
+ * holds `base-branch-red` only, from `readings.baseReading`, which
+ * `readings.baseRepairMerge` lifts for the one PR {@link repairMergeVerdict}
+ * admits; `conflicting` and the merge identity apply to both paths. A PR the record names and the
  * verdict refuses holds with the verdict's reason. The stale check is this arm's own and never
  * `defaultBranchRed`: a merge cannot be undone, so an old reading holds here
  * where it lifts the queue's hold.
@@ -368,7 +375,14 @@ export const mergeArm = (readings: SlicePrNextReadings): SlicePrStep => {
   if (trusted !== 'success' || row.plotReviewSha !== row.headSha) return none('not-passed');
   const base = row.base ?? '';
   if (!holdsApply(base, readings.defaultBranchName)) {
-    if (baseBranchRed(base, readings.baseReading ?? null, now, config.checksWaitMs)) return hold('base-branch-red');
+    if (baseBranchRed(base, readings.baseReading ?? null, now, config.checksWaitMs)) {
+      const verdict =
+        readings.baseRepairMerge === undefined
+          ? null
+          : repairMergeVerdict(readings.baseRepairMerge, { number: row.number, head: row.head });
+      if (verdict === null || verdict.verdict === 'not-named') return hold('base-branch-red');
+      if (verdict.verdict === 'refused') return hold(verdict.reason);
+    }
     if (row.mergeable === 'CONFLICTING') return hold('conflicting');
     const own = mergeIdentity(readings.backend, readings.mergerApp);
     if (own.identity === 'hold') return hold(own.reason);

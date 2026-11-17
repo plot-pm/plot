@@ -18,6 +18,7 @@ import {
   type RepairMergeReading,
   type RepairMergeRefusal,
   type RepairRole,
+  type RepairScope,
 } from '../rules/repair-pr.js';
 import { humanCommentOpen } from '../rules/human-comment-open.js';
 import { mergeChecksVerdict } from '../rules/merge-checks.js';
@@ -89,6 +90,12 @@ export interface MergeReadings {
    * failed; absent reads as no reading.
    */
   readonly baseReading?: DefaultBranchReading | null | 'unaskable';
+  /**
+   * The base's repair record, its episode and the red commit's runs asked
+   * again, read only where the base reads red. Absent reads as no record:
+   * every PR into the base then refuses `base-branch-red`.
+   */
+  readonly baseRepair?: RepairMergeReading;
   /**
    * The `plot/review` state on the pinned head, re-asked through the host and
    * never folded from the checks rollup. `'unaskable'` where the read failed.
@@ -374,7 +381,12 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
       return no('unaskable', `the reading of ${pr.base} could not be read for PR #${input.pr}. A failed read is not an absent reading; nothing was merged.`);
     }
     if (baseBranchRed(pr.base, baseReading, input.now, input.checksWaitMs)) {
-      return no('base-branch-red', `${pr.base} is red on ${short(baseReading?.settled?.sha)}. A merge now stacks a change on an unproven base.`);
+      const verdict = repairMergeVerdict(readings.baseRepair ?? { record: null, episode: 'closed', redRuns: 'unaskable' }, { number: input.pr, head: pr.head });
+      if (verdict.verdict === 'not-named') {
+        return no('base-branch-red', `${pr.base} is red on ${short(baseReading?.settled?.sha)}. A merge now stacks a change on an unproven base.`);
+      }
+      if (verdict.verdict === 'refused') return no(verdict.reason, verdict.detail);
+      admitted = verdict.role;
     }
   }
   return decide('merge', [{ kind: 'pr-merge', pr: input.pr, deleteBranch: false, sha: pr.headSha }], {
@@ -418,6 +430,8 @@ export interface MergePorts {
   defaultBranch: DefaultBranchStore;
   /** Opens the reading kept for a PR's base branch; absent reads as no reading. */
   baseBranch?: (base: string) => DefaultBranchStore;
+  /** Opens the repair record kept for a PR's base branch; absent reads as no record, so a red base admits no PR. */
+  baseRepair?: (base: string) => RepairRecordStore;
   refs: Refs;
   /** The `Checks wait` bound, in milliseconds. */
   checksWaitMs: number;
@@ -458,16 +472,17 @@ export interface MergePorts {
  */
 export const readRepair = async (
   ports: Pick<MergePorts, 'repair' | 'build' | 'checks'> & { refs: Pick<Refs, 'firstParentLine'> },
-  branch: string, settled: SettledReading, pr: number): Promise<RepairMergeReading> => {
+  branch: string, settled: SettledReading, pr: number, scope: RepairScope = 'default'): Promise<RepairMergeReading> => {
+  const tag = scope === 'base' ? { scope } : {};
   const read = ports.repair ? await ports.repair.read() : { ok: true as const, value: null };
-  if (!read.ok) return { record: 'unaskable', episode: 'unaskable', redRuns: 'unaskable' };
+  if (!read.ok) return { record: 'unaskable', episode: 'unaskable', redRuns: 'unaskable', ...tag };
   const record = read.value;
-  if (record === null || repairRoleOf(record, pr) === null) return { record, episode: 'closed', redRuns: 'unaskable' };
+  if (record === null || repairRoleOf(record, pr, scope) === null) return { record, episode: 'closed', redRuns: 'unaskable', ...tag };
   const line = await ports.refs.firstParentLine(settled.sha, EPISODE_LINE_DEPTH);
   const episode = repairEpisode(record, branch, settled, line.ok ? line.value : 'unaskable');
-  if (episode !== 'open' || ports.build === undefined) return { record, episode, redRuns: 'unaskable' };
+  if (episode !== 'open' || ports.build === undefined) return { record, episode, redRuns: 'unaskable', ...tag };
   const runs = await ports.build.runsForSha(branch, settled.sha);
-  return { record, episode, redRuns: runs.ok ? foldRuns(declaredRuns(runs.value, ports.checks ?? [])) : 'unaskable' };
+  return { record, episode, redRuns: runs.ok ? foldRuns(declaredRuns(runs.value, ports.checks ?? [])) : 'unaskable', ...tag };
 };
 
 /** What `plot-ask.mjs merge` (and fleetd) print or hold, as one JSON line. */
@@ -564,6 +579,11 @@ export const mergeAt = async (
   const repair = holds && settledReading !== null && settledReading.settled?.state === 'red'
     ? await readRepair(ports, settledReading.branch, settledReading.settled, pr)
     : undefined;
+  const baseReading = baseRead !== undefined && baseRead.ok ? baseRead.value : null;
+  const baseRepair = ports.baseRepair !== undefined && baseReading !== null && baseReading.settled !== undefined
+    && baseBranchRed(base, baseReading, ports.now(), ports.checksWaitMs)
+    ? await readRepair({ ...ports, repair: ports.baseRepair(base) }, baseReading.branch, baseReading.settled, pr, 'base')
+    : undefined;
   const lookedPr = lookup.ok ? lookup.value : null;
   const gate = ports.stateSync;
   const sync = gate === undefined || lookedPr === null ? undefined
@@ -583,6 +603,7 @@ export const mergeAt = async (
       reviewWriter: writer.ok ? writer.value : 'unaskable',
       conversation: conversation.ok ? conversation.value : 'unaskable',
       ...(repair ? { repair } : {}),
+      ...(baseRepair ? { baseRepair } : {}),
     },
     {
       pr,
