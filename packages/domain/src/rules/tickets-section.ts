@@ -19,6 +19,8 @@ export interface TicketsSectionInput<T> {
   others: readonly T[];
   /** The count of unassigned tickets as the waiting read reports it; `null` where it carries none. */
   unassigned: number | null;
+  /** How many open tickets the waiting read holds back; `0` where it holds none back or carries no read. */
+  hidden?: number;
   /** Whether *show all* is open. */
   showAll: boolean;
   /** Whether the fold is open. */
@@ -30,7 +32,7 @@ export interface TicketsSection<T> {
   state: 'rows' | 'failed' | 'unsupported' | 'unasked';
   /** The header text before the *show all* control; `null` for an absent reading. */
   header: string | null;
-  /** Whether the *show all* control shows: the read carries unassigned tickets or others to open. */
+  /** Whether the *show all* control shows: there are tickets to open, or *show all* is open and must close. */
   showAllControl: boolean;
   /** The rows to render now, in order: the reader's, then the others where *show all* is open. */
   rows: readonly T[];
@@ -65,7 +67,7 @@ export const ticketsSection = <T>(input: TicketsSectionInput<T>): TicketsSection
   return {
     state: 'rows',
     header,
-    showAllControl: input.others.length > 0 || (input.unassigned ?? 0) > 0,
+    showAllControl: input.showAll || input.others.length > 0 || (input.unassigned ?? 0) > 0 || (input.hidden ?? 0) > 0,
     rows,
     folded,
     foldLabel: folded === 0 ? null : `… ${folded} more · ${input.foldOpen ? 'hide' : 'show'}`,

@@ -14,6 +14,12 @@ describe('ticketsSection', () => {
     expect(s.showAllControl).toBe(true);
   });
 
+  it('offers show all where the read holds tickets back, and keeps it while open', () => {
+    expect(ticketsSection(input({ unassigned: null, hidden: 126 })).showAllControl).toBe(true);
+    expect(ticketsSection(input({ unassigned: null, hidden: 0 })).showAllControl).toBe(false);
+    expect(ticketsSection(input({ unassigned: null, showAll: true })).showAllControl).toBe(true);
+  });
+
   it('omits the unassigned part where the read carries no count', () => {
     expect(ticketsSection(input({ assigned: rows(1), unassigned: null })).header).toBe('1 assigned to you with no plan');
   });

@@ -1522,6 +1522,7 @@ export function AgentList({
               assigned={ticketSplit.assigned}
               others={ticketSplit.others}
               unassigned={fleet.waiting?.unassigned ?? null}
+              hidden={fleet.waiting?.hidden ?? 0}
               showAll={showEveryTicket}
               onToggleShowAll={() => setShowEveryTicket((on) => !on)}
               hiddenSentence={waitingBlock.hidden}

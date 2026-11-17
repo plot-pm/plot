@@ -15,6 +15,8 @@ export interface TicketsSectionViewProps {
   others: readonly IssueRow[];
   /** `waiting.unassigned`; `null` where the read carries none. */
   unassigned: number | null;
+  /** `waiting.hidden`; `0` where the read holds nothing back. */
+  hidden: number;
   showAll: boolean;
   onToggleShowAll: () => void;
   /** The host's hidden-ticket sentence and the reader-match notice, where `waitingView` reports them. */
@@ -40,6 +42,7 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
     assigned: props.assigned,
     others: props.others,
     unassigned: props.unassigned,
+    hidden: props.hidden,
     showAll: props.showAll,
     foldOpen,
   });
@@ -91,7 +94,7 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
                 <span role="gridcell" className="text-xs text-slate-500 dark:text-slate-400">Ticket</span>
                 <span role="gridcell" className="min-w-0 truncate">
                   {issue.url !== '' ? (
-                    <a href={issue.url} target="_blank" rel="noreferrer" data-issue-link className="text-blue-600 hover:underline dark:text-blue-400">
+                    <a href={issue.url} target="_blank" rel="noreferrer" data-issue-link className="inline-block min-h-6 max-w-full truncate align-middle leading-6 text-blue-600 hover:underline dark:text-blue-400">
                       <span data-issue-number>{issue.number}</span>: {issue.title}
                     </a>
                   ) : (
