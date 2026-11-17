@@ -465,7 +465,7 @@ const startFixer = async (
     return { started: false, why: 'role-files-failed' };
   }
   const ref: RoleAgentRef = { name: 'fixer', agentsFile: files.agentsFile, settingsFile: files.settingsFile };
-  const role = roleCommand(ref, files.maxTurns);
+  const role = roleCommand(ref, files.maxTurns, files.tools);
   if (role.read !== 'command') return { started: false, why: 'role-command-refused' };
   // A SECOND `--settings` MERGES WITH THE ROLE'S OWN (measured on 2.1.316): the agent settings disable the operator's plugins.
   const agentSettings = world.agentSettingsFile(main);

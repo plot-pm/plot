@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { ROLE_NAMES, roleAgentsJson, roleCommand, type RoleAgentRef } from '../src/rules/role-command.js';
+import { ROLE_NAMES, roleAgentsJson, roleCommand, roleTools, type RoleAgentRef } from '../src/rules/role-command.js';
 
 const ref = (over: Partial<RoleAgentRef> = {}): RoleAgentRef => ({
   name: 'fixer',
@@ -51,6 +51,20 @@ describe('roleCommand', () => {
     expect(roleCommand(ref(), 0)).toMatchObject({ read: 'command', command: expect.not.stringContaining('--max-turns') });
   });
 
+  it('passes the declared tools as one --allowedTools argument before --settings', () => {
+    const built = roleCommand(ref(), 80, ['Read', 'Write', 'Bash']);
+    if (built.read !== 'command') throw new Error(built.why);
+    const w = words(built.command);
+    expect(w.filter((x) => x === '--allowedTools')).toHaveLength(1);
+    expect(w[w.indexOf('--allowedTools') + 1]).toBe('Read,Write,Bash');
+    expect(w.indexOf('--allowedTools')).toBeLessThan(w.indexOf('--settings'));
+  });
+
+  it('passes no --allowedTools for a role that declares no tools', () => {
+    expect(roleCommand(ref(), 80, [])).toMatchObject({ command: expect.not.stringContaining('--allowedTools') });
+    expect(roleCommand(ref(), 80)).toMatchObject({ command: expect.not.stringContaining('--allowedTools') });
+  });
+
   it('single-quotes a path holding a quote', () => {
     const built = roleCommand(ref({ agentsFile: "/tmp/a'b.json" }), 0);
     expect(built).toMatchObject({ command: expect.stringContaining(`'/tmp/a'\\''b.json'`) });
@@ -93,5 +107,27 @@ describe('roleAgentsJson', () => {
     expect(roleAgentsJson('fixer', 'plain').read).toBe('refused');
     expect(roleAgentsJson('fixer', '---\nmodel: opus\n---\nbody').read).toBe('refused');
     expect(roleAgentsJson('fixer', '---\ndescription: d\n---\n').read).toBe('refused');
+  });
+});
+
+describe('roleTools', () => {
+  it('reads the same list roleAgentsJson carries', () => {
+    const text = '---\ndescription: d\ntools:\n  - Read\n  - Write\n  - Bash\n---\nbody\n';
+    const built = roleAgentsJson('fixer', text);
+    if (built.read !== 'json') throw new Error(built.why);
+    expect(roleTools(text)).toEqual(JSON.parse(built.json).fixer.tools);
+    expect(roleTools(text)).toEqual(['Read', 'Write', 'Bash']);
+    for (const name of ROLE_NAMES) {
+      const file = readFileSync(join(__dirname, '../../../.claude/agents', `${name}.md`), 'utf8');
+      const json = roleAgentsJson(name, file);
+      if (json.read !== 'json') throw new Error(json.why);
+      expect(roleTools(file)).toEqual(JSON.parse(json.json)[name].tools ?? []);
+    }
+  });
+
+  it('answers [] for no frontmatter, no tools key or an empty list', () => {
+    expect(roleTools('no frontmatter')).toEqual([]);
+    expect(roleTools('---\ndescription: d\n---\nbody\n')).toEqual([]);
+    expect(roleTools('---\ndescription: d\ntools:\n---\nbody\n')).toEqual([]);
   });
 });

@@ -245,7 +245,7 @@ describe('agentRunCommand', () => {
         return answered<BoundedRunResult>({ status: 0, timedOut: false, ranSeconds: 1 });
       },
     };
-    const built = roleCommand({ name: 'reviewer', agentsFile: '/t/a.json', settingsFile: '/t/s.json' }, 40);
+    const built = roleCommand({ name: 'reviewer', agentsFile: '/t/a.json', settingsFile: '/t/s.json' }, 40, []);
     if (built.read !== 'command') throw new Error(built.why);
     await writeFile(logFile, '');
     await agentRunCommand({ boundedRun, fragment: built.command, limitPatterns: undefined, now: () => 0 }).run(

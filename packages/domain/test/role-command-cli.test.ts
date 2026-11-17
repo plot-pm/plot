@@ -32,6 +32,8 @@ if (!ok) {
   process.exit(1);
 }
 console.log('FAKE-CLAUDE-OK');
+console.log('ALLOWED=' + (a.includes('--allowedTools') ? a[a.indexOf('--allowedTools') + 1] : ''));
+console.log('LAST=' + a[a.length - 1]);
 `,
 );
 chmodSync(join(bin, 'claude'), 0o755);
@@ -42,11 +44,11 @@ const runner = (fragment: string) =>
   agentRunCommand({ boundedRun: boundedRunProcess(processes), fragment, limitPatterns: undefined, now: () => Date.now() });
 
 let n = 0;
-const runRole = async (name: RoleName, agentsPath: string) => {
+const runRole = async (name: RoleName, agentsPath: string, tools: readonly string[] = []) => {
   const dir = join(root, `run${n++}`);
   mkdirSync(dir);
   const logFile = join(dir, 'out.log');
-  const built = roleCommand({ name, agentsFile: agentsPath, settingsFile: join(dir, 's.json') }, 5);
+  const built = roleCommand({ name, agentsFile: agentsPath, settingsFile: join(dir, 's.json') }, 5, tools);
   if (built.read !== 'command') throw new Error(built.why);
   const req = {
     worktree: dir, prompt: 'go', resumeId: '', role: 'worker', harness: 'claude', model: '', effort: '',
@@ -94,6 +96,14 @@ describe('roleCommand through the real runner', () => {
   it("survives JSON holding a '", async () => {
     const p = agentsFile('j', JSON.stringify({ 'main-repair': { description: "don't stop", prompt: "it's" } }));
     expect(await runRole('main-repair', p)).toContain('FAKE-CLAUDE-OK');
+  });
+
+  it('runs the fixer fragment with its six tools and the prompt arrives intact', async () => {
+    const tools = ['Read', 'Grep', 'Glob', 'Write', 'Edit', 'Bash'];
+    const out = await runRole('fixer', agentsFile('t', '{"fixer":{}}'), tools);
+    expect(out).toContain('FAKE-CLAUDE-OK');
+    expect(out).toContain('ALLOWED=Read,Grep,Glob,Write,Edit,Bash');
+    expect(out).toContain('LAST=go');
   });
 
   it('fails when the agents file is missing', async () => {
