@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Page } from 'playwright';
 import { expandAgentFolds } from '../helpers.mjs';
+import { expandTickets } from '../catalogue/index.js';
 import { openCatalogue, board as buildBoard, card as buildCard, column, type Catalogue } from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type IssueRow } from '../../src/contract/schema.js';
 
@@ -165,6 +166,7 @@ describe('the row says what it knows', () => {
     });
     await page.locator('[data-delivery-section]').first().waitFor({ timeout: 15_000 });
     await expandAgentFolds(page);
+    await expandTickets(page);
     return page;
   }
 

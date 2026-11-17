@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Page } from 'playwright';
 import { expandAgentFolds } from '../helpers.mjs';
+import { expandTickets } from '../catalogue/index.js';
 import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type IssueRow } from '../../src/contract/schema.js';
 
@@ -126,6 +127,7 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
     });
     await page.locator('li[data-tuple-kind]').first().waitFor({ timeout: 15_000 });
     await expandAgentFolds(page);
+    await expandTickets(page);
     return page;
   }
 
@@ -148,7 +150,7 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // the list when a plan grew a head and its branches became waves under it.
       const kinds = new Set(templates.map((t) => t.kind));
       // A branch that is the only branch of its slice is the slice's row, so no separate branch row exists.
-      expect([...kinds].sort()).toEqual(['plan', 'pr', 'ticket', 'wave']);
+      expect([...kinds].sort()).toEqual(['plan', 'pr', 'wave']);
       // SEVEN TRACKS on every row — the claim, and the form of it that nesting
       // cannot falsify.
       //
@@ -194,25 +196,12 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
   it('gives a ticket row no branch tracks to wear', async () => {
     const page = await open();
     try {
-      const ticket = page.locator('li[data-tuple-kind="ticket"]');
+      const ticket = page.locator('section#tickets li[data-issue-row]').first();
       await ticket.waitFor({ timeout: 10_000 });
-      // THE DEFECT, from both sides. A ticket has no branch, no wave and no
-      // worker — and it used to render the columns for all three because it was
-      // laid on `ROW_TRACKS`.
+      // A ticket has no branch, no wave and no worker, and no plan phase.
       expect(await ticket.locator('[data-branch]').count()).toBe(0);
       expect(await ticket.locator('[data-slice]').count()).toBe(0);
-      // And the cell that used to hold a plan PHASE on a row that is not a plan
-      // now holds the KIND, in a word, which is the fact that cell was always
-      // failing to state.
       expect(await ticket.locator('[data-phase]').count()).toBe(0);
-      // EMPTY, not `Ticket` — `ticket-rows-show-type-and-owner` dropped the
-      // per-row word from the Waiting-on-you ticket block in favour of one
-      // sub-header above it (`Open tickets · N` here, the payload carrying no `waiting`), since every row in that
-      // block is already a ticket and the repeated word said nothing a reader
-      // didn't already know. `tupleFromIssue`'s `showKindLabel: false` clears
-      // the slot's text; it does not remove the slot, so slot 2 stays empty
-      // rather than absent.
-      expect(await ticket.locator('[data-kind]').innerText()).toBe('');
     } finally {
       await page.close();
     }
@@ -397,8 +386,8 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       expect(await waiting.locator('li[data-tuple-kind="pr"]').count()).toBe(0);
       const gate = page.locator('ul[role="grid"][aria-label^="At a gate"]');
       expect(await gate.locator('li[data-tuple-kind="pr"]').count()).toBe(1);
-      const tickets = page.locator('ul[role="grid"][aria-label="Tickets"]');
-      expect(await tickets.locator('li[data-tuple-kind="ticket"]').count()).toBe(1);
+      const tickets = page.locator('section#tickets');
+      expect(await tickets.locator('li[data-issue-row]').count()).toBe(1);
       expect(await waiting.locator('li[data-tuple-kind="ticket"]').count()).toBe(0);
       // A PLAN ROW HEADS ITS OWN GROUP, in whichever section that group falls.
       //

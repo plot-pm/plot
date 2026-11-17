@@ -121,6 +121,18 @@ export const expandAgentFolds = async (page: Page): Promise<void> => {
 };
 
 /**
+ * Open the Tickets section's *show all* and its fold, so every ticket row is in the DOM.
+ *
+ * A page whose Tickets section is absent, or has nothing to open, is left as it is.
+ */
+export const expandTickets = async (page: Page): Promise<void> => {
+  for (const selector of ['button[data-tickets-show-all]', 'button[data-tickets-fold]']) {
+    const toggle = page.locator(selector);
+    if ((await toggle.count()) > 0 && (await toggle.first().getAttribute('aria-expanded')) === 'false') await toggle.first().click();
+  }
+};
+
+/**
  * How many Slice rows the open page renders.
  *
  * ## Why a count, and not a match

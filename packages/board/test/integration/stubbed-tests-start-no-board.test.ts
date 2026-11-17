@@ -908,7 +908,8 @@ const EXPECTED_FILES = 90;
 // shows (`sprint-exempt` x2, `unplanned-issues` x1).
 // 677 → 678 on 2026-11-12: the one `it(` in the new `loose-ends-show-under-unblock.browser.test.ts`. Added, not moved.
 // 678 → 682 on 2026-11-12: the four tests of the new `delivery-rows.browser.test.ts`. Added, not moved.
-const EXPECTED_TESTS = 683;
+// 683 → 674 on 2026-11-17: the Tickets section replaced the old ticket block; nine tests of its row (plan name, badges, status word, menu items) are gone, three of the section are new.
+const EXPECTED_TESTS = 674;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

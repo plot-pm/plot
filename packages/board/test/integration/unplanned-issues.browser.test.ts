@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Page } from 'playwright';
 import { expandAgentFolds } from '../helpers.mjs';
+import { expandTickets } from '../catalogue/index.js';
 import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type IssueRow } from '../../src/contract/schema.js';
 
@@ -93,6 +94,7 @@ describe('an unplanned issue appears in the ticket list', () => {
     });
     await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
+    await expandTickets(page);
     return page;
   }
 

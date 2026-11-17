@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Page } from 'playwright';
 import { openCatalogue, board as buildBoard, type Catalogue } from '../catalogue/index.js';
 import { expandAgentFolds } from '../helpers.mjs';
+import { expandTickets } from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type IssueRow } from '../../src/contract/schema.js';
 
 /**
@@ -112,6 +113,7 @@ describe('the issue row has one action, and it creates a Draft', () => {
       }));
     await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
+    await expandTickets(page);
     return { page, posts };
   }
 
