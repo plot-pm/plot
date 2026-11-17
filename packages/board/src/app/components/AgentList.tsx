@@ -152,7 +152,7 @@ import { RoleRunRow } from './RoleRunRow.js';
 import { HeaderRow, IssueRowView, PlanRow, Row, RegistryRow, SliceRow, type AgentListProps } from '../lib/agent-rows/rows.js';
 import { workingAgentRows, draftPlanRows } from '../lib/agent-rows/working-agents.js';
 import { DraftPlanRowView } from '../lib/agent-rows/draft-plan-row.js';
-import { PlanLevelRowView, planFileFromFleet, verificationRows } from '../lib/agent-rows/plan-level-row.js';
+import { planFileFromFleet, verificationRows } from '../lib/agent-rows/plan-level-row.js';
 import { specRows } from '../lib/agent-rows/spec-row.js';
 // RE-EXPORTED, not redefined — the same allowance `splitBranch` above is given.
 // These moved out of this file when the row estate was split into three
@@ -573,20 +573,14 @@ export function AgentList({
   // `running` and `rows` come from `.plot/state/auto-verify-in-flight.json` as
   // the daemon last wrote it; `null` (the file unreadable) answers no rows and
   // no banner at all, by `verificationRows`'s own rule.
-  const { working: verifyWorkingRows, waiting: verifyWaitingRows, haltedLine } =
+  const { haltedLine } =
     verificationRows(fleet?.verification ?? null);
   // THE FLEET'S OWN SPEC RUNS — the same shape as the verify runs above, read
   // from `.plot/state/auto-design-in-flight.json` via `fleet.design`. A verify
   // halt and a design halt are two independent facts, so `specHaltedLine`
   // stays its own nullable string rather than folding into `haltedLine`.
-  const { working: specWorkingRows, waiting: specWaitingRows, haltedLine: specHaltedLine } =
+  const { haltedLine: specHaltedLine } =
     specRows(fleet?.design ?? null);
-  // BOTH FLEETS' PLAN-LEVEL ROWS, COMBINED — `sectionCount`'s `planLevel`
-  // bucket is one number pair for every plan-level row regardless of kind, so
-  // the production step is concatenation, not a second bucket or a second
-  // render path. `PlanLevelRowView` already switches on `row.kind`.
-  const workingPlanRows = [...verifyWorkingRows, ...specWorkingRows];
-  const verificationWaitingRows = [...verifyWaitingRows, ...specWaitingRows];
   // THE PLAN FILE of a plan-level row: the payload names only the slug, so the
   // file is read from the fleet's own rows (`planFileFromFleet`), which exist
   // before the board loads, and then from the board card with that slug
@@ -1571,24 +1565,12 @@ export function AgentList({
               absence={fleet.issueAnswer === 'failed' ? issueNote(fleet) ?? '' : fleet.issueAnswer === 'unsupported' ? fleet.issueAbsence ?? '' : ''}
               idea={idea ?? { available: false, reason: 'this board has not said whether it can create plans' }}
             />
-            {/* THE FLEET'S OWN PLAN-LEVEL RUNS AND HALTED LINES, until plan 4 moves them. */}
-            {(workingPlanRows.length > 0 || verificationWaitingRows.length > 0 || haltedLine || specHaltedLine) && (
+            {/* THE FLEET'S HALTED LINES. A design or verify run is a Fleet row with its role chip. */}
+            {(haltedLine || specHaltedLine) && (
               <section data-outside-rule className="space-y-1">
-                <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">Plan runs</h2>
                 {[haltedLine, specHaltedLine].filter((l): l is string => Boolean(l)).map((line) => (
                   <p key={line} data-fleet-halted className="px-3 text-xs text-amber-700 dark:text-amber-500">{line}</p>
                 ))}
-                <ul role="grid" aria-label="Plan runs" className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
-                  {[...workingPlanRows, ...verificationWaitingRows].map((row) => (
-                    <PlanLevelRowView
-                      key={`plan-level-${row.kind}-${row.plan}`}
-                      row={row}
-                      planFile={planFileOf(row.plan)}
-                      onOpenPlan={onOpenPlan}
-                      planIndex={planIndex}
-                    />
-                  ))}
-                </ul>
               </section>
             )}
           </>

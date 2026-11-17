@@ -4405,6 +4405,8 @@ export const RoleRunSchema = z.object({
   plan: z.string().optional(),
   /** Epoch milliseconds; `null` where the source carries no start. */
   startedAt: z.number().nullable(),
+  /** Present on a design or verify run that stopped or failed. */
+  stopped: z.object({ reason: z.string(), restart: z.string(), log: z.string() }).optional(),
 });
 export type RoleRunPayload = z.infer<typeof RoleRunSchema>;
 

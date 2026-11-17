@@ -5,7 +5,7 @@ import { openCatalogue, scenario, fleet as buildFleet, type Catalogue } from '..
 import { type Fleet } from '../../src/contract/schema.js';
 
 /**
- * THE BOARD ROW for a spec run — `the-board-shows-the-spec-run`.
+ * THE FLEET ROW of a design or verify run.
  *
  * `/api/fleet` has carried `design` since `the-fleet-reads-design-work` and
  * nothing under `packages/board/src/app` read it. This is the browser half of
@@ -39,42 +39,48 @@ describe('tiny-garden: the board shows the spec run (real browser renders the sh
     return page;
   }
 
-  /** The plan-level runs sit under Plan runs, outside the placement rule. */
-  const planRuns = (page: Page) => page.locator('section[data-outside-rule]');
+  /** A design or verify run is a Fleet row with its role chip. */
+  const runRow = (page: Page, role: string, plan: string) =>
+    page.locator(`[data-role-run="${role}"]`).filter({ hasText: plan });
 
-  it('shows a going spec run and a failed one under Plan runs, with its restart command', async () => {
+  it('shows a going design run, a failed one and a verify run once each in Fleet, with the restart command and log', async () => {
+    const stopped = {
+      reason: 'the spec run failed 3 times; the fleet stopped retrying this plan',
+      restart: 'plot-design.mjs restart plant-tomatoes',
+      log: '/r/.plot/logs/plot-design-plant-tomatoes.log',
+    };
     const page = await openAgents(fleet({
-      design: {
-        halted: false,
-        running: ['beans'],
-        refusals: {},
-        rows: [{
-          // The domain also writes an empty row for a going plan.
-          kind: 'spec', plan: 'beans', reason: '', log: '', restart: '', stopped: false, halted: false,
-        }, {
-          kind: 'spec',
-          plan: 'plant-tomatoes',
-          reason: 'the spec run failed 3 times; the fleet stopped retrying this plan',
-          log: '/r/.plot/logs/plot-design-plant-tomatoes.log',
-          restart: 'plot-design.mjs restart plant-tomatoes',
-          stopped: true,
-          halted: false,
-        }],
-      },
+      roleRuns: [
+        { id: 'agent:design:beans', role: 'design', plan: 'beans', startedAt: null },
+        { id: 'agent:design:plant-tomatoes', role: 'design', plan: 'plant-tomatoes', startedAt: null, stopped },
+        { id: 'agent:verify:leeks', role: 'verify', plan: 'leeks', startedAt: null },
+      ],
     }));
     try {
-      const runningRow = planRuns(page).locator('[data-plan-level-row="beans"]');
-      await expect.poll(() => runningRow.count()).toBe(1);
-      expect(await runningRow.locator('[data-plan-level-reason]').textContent())
-        .toBe('spec run running');
-      expect(await runningRow.locator('[data-plan-level-restart]').count()).toBe(0);
+      for (const toggle of await page.locator('[data-group-toggle]').all()) {
+        if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+      }
+      await expect.poll(() => page.locator('[data-role-run="design"] [data-role-chip="design"]').count()).toBe(2);
+      await expect.poll(() => page.locator('[data-role-run="verify"] [data-role-chip="verify"]').count()).toBe(1);
 
-      const failedRow = planRuns(page).locator('[data-plan-level-row="plant-tomatoes"]');
-      await expect.poll(() => failedRow.count()).toBe(1);
-      expect(await failedRow.locator('[data-plan-level-restart]').textContent())
-        .toBe('plot-design.mjs restart plant-tomatoes');
-      expect(await failedRow.locator('[data-plan-level-log]').textContent())
-        .toBe('/r/.plot/logs/plot-design-plant-tomatoes.log');
+      const failedRow = page.locator('[data-role-run="design"]').filter({ has: page.locator('[data-plan-level-restart]') });
+      expect(await failedRow.count()).toBe(1);
+      expect(await failedRow.locator('[data-plan-level-restart]').textContent()).toBe(stopped.restart);
+      expect(await failedRow.locator('[data-plan-level-log]').textContent()).toBe(stopped.log);
+
+      // No Plan runs section and no plan-level row remain.
+      expect(await page.locator('[data-plan-level-row]').count()).toBe(0);
+      expect(await page.getByRole('heading', { level: 2, name: 'Plan runs' }).count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('renders no Plan runs heading and no empty list where no run and no halted line exist', async () => {
+    const page = await openAgents(fleet({ design: null, verification: null, roleRuns: [] }));
+    try {
+      expect(await page.getByRole('heading', { level: 2, name: 'Plan runs' }).count()).toBe(0);
+      expect(await page.locator('section[data-outside-rule]').count()).toBe(0);
     } finally {
       await page.close();
     }
