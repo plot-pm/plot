@@ -53,7 +53,7 @@ describe('the Gates cell', () => {
   });
 
   it('keeps the single status string for the You rows', () => {
-    const you: ItemPlacement = { id: 's', kind: 'slice', section: 'you', reason: 'review-pr', agents: [] };
+    const you: ItemPlacement = { id: 's', kind: 'slice', section: 'you', group: 'blocks-delivery', marker: 'blocks-delivery', reason: 'review-pr', agents: [] };
     expect(itemRowCells(you, { pr: 4, prReading: { ci: 'passed', review: 'high' } })!.status?.value).toBe('review · CI ✓');
   });
 });
