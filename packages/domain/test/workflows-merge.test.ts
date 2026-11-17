@@ -1034,6 +1034,32 @@ describe('merge — the default-branch holds read the PR base', () => {
       const r = into(SPRINT, { pr: pr({ head: `bug/main-repair-${'e'.repeat(12)}`, base: SPRINT }), baseReading: sprintRed(), repair });
       expect(decideAt(r)).toBe('base-branch-red');
     });
+    describe("the base's repair PR", () => {
+      const LAST_GREEN = 'e'.repeat(40);
+      const baseRepair = (over: Partial<RepairMergeReading> = {}): RepairMergeReading => ({
+        record: {
+          v: 1, branch: SPRINT, state: 'repairing', lastGreenSha: LAST_GREEN, firstRedSha: 'f'.repeat(40),
+          redSince: '2026-10-10T00:00:00Z', candidates: [], rerun: 'asked', preRevertRerun: 'none', repairPr: 42, at: '2026-10-10T00:00:00Z',
+        },
+        episode: 'open',
+        redRuns: 'red',
+        scope: 'base',
+        ...over,
+      });
+      const repairInto = (over: Partial<RepairMergeReading> = {}, head = `bug/sprint-repair-${LAST_GREEN.slice(0, 12)}`) =>
+        into(SPRINT, { pr: pr({ head, base: SPRINT }), baseReading: sprintRed(), baseRepair: baseRepair(over) });
+
+      it('admits the PR the base record names on a red base, as a repair', () => {
+        const out = merge(repairInto(), { pr: 42, sha: HEAD, ...CLOCK });
+        expect(out.outcome === 'decided' && out.detail.repair).toBe('repair');
+      });
+      it('refuses by name where the episode is closed', () => {
+        expect(decideAt(repairInto({ episode: 'closed' }))).toBe('repair-episode-closed');
+      });
+      it('refuses where the base record names a branch other than the sprint repair branch', () => {
+        expect(decideAt(repairInto({}, `bug/main-repair-${LAST_GREEN.slice(0, 12)}`))).toBe('repair-branch-mismatch');
+      });
+    });
   });
 
   it('still admits the repair PR into the default branch on a red reading', () => {
@@ -1138,6 +1164,35 @@ describe('mergeAt — the default-branch holds read the PR base', () => {
       expect(await mergeAt(p, 9, SHA)).toMatchObject({ merged: false, reason: 'base-branch-red' });
       expect(opened).toEqual([SPRINT]);
       expect(calls).toEqual([]);
+    });
+    describe("the base's repair record", () => {
+      const withRepair = (read: unknown) => {
+        const made = withBase(baseOf('red', at(60_000)));
+        const opened: string[] = [];
+        (made.p as unknown as { baseRepair: (b: string) => unknown }).baseRepair = (b: string) => {
+          opened.push(b);
+          return { read: async () => read, write: async () => ({ ok: true, value: undefined }) };
+        };
+        return { ...made, openedRepair: opened };
+      };
+      it('opens the base record only for a fresh red base, and holds base-branch-red where it names no PR', async () => {
+        const { p, calls, openedRepair } = withRepair({ ok: true, value: null });
+        expect(await mergeAt(p, 9, SHA)).toMatchObject({ merged: false, reason: 'base-branch-red' });
+        expect(openedRepair).toEqual([SPRINT]);
+        expect(calls).toEqual([]);
+      });
+      it('admits nothing on a failed base record read, and holds base-branch-red', async () => {
+        const { p, calls } = withRepair({ ok: false, why: 'failed' });
+        expect(await mergeAt(p, 9, SHA)).toMatchObject({ merged: false, reason: 'base-branch-red' });
+        expect(calls).toEqual([]);
+      });
+      it('opens no base record where the base reading is not red', async () => {
+        const made = withBase(baseOf('green', at(60_000)));
+        const opened: string[] = [];
+        (made.p as unknown as { baseRepair: (b: string) => unknown }).baseRepair = (b: string) => { opened.push(b); return { read: async () => ({ ok: true, value: null }) }; };
+        expect(await mergeAt(made.p, 9, SHA)).toMatchObject({ merged: true });
+        expect(opened).toEqual([]);
+      });
     });
     it('merges where the base reading is older than Checks wait or absent', async () => {
       expect(await mergeAt(withBase(baseOf('red', at(WAIT + 60_000))).p, 9, SHA)).toMatchObject({ merged: true });
