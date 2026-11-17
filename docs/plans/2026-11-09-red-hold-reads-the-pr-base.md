@@ -174,7 +174,7 @@ Rows still to meet:
 
 ### Base readings
 
-- `bug/red-hold-base-readings` — the combined tip listing in `refs-remote-git.ts`, the optional `repair` in `DefaultBranchWorld`, the per-base refresh and the file removal in fleetd's beat, and the beat and census rows; merges after `bug/red-hold-reads-the-pr-base` <!-- builds: fleetd keeps a CI reading per sprint branch -->
+- `bug/red-hold-base-readings` — the combined tip listing in `refs-remote-git.ts`, the optional `repair` in `DefaultBranchWorld`, the per-base refresh and the file removal in fleetd's beat, and the beat and census rows; merges after `bug/red-hold-reads-the-pr-base` <!-- builds: fleetd keeps a CI reading per sprint branch --> → #3486
 
 ### Base repair
 
