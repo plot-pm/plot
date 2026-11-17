@@ -179,7 +179,7 @@ Rows still to meet:
 
 ### Base repair
 
-- `bug/red-hold-base-repair` — the per-base repair store, the `repair` world for each sprint base in fleetd's beat, the base-aware `plot-ask.mjs repair-pr`, the `base-branch-red` repair arm in `merge` and `mergeArm`, and the `CLAUDE.md` paragraph on the repair exception; merges after `bug/red-hold-base-readings` <!-- builds: a red sprint base admits its own repair PR -->
+- `bug/red-hold-base-repair` — the per-base repair store, the `repair` world for each sprint base in fleetd's beat, the base-aware `plot-ask.mjs repair-pr`, the `base-branch-red` repair arm in `merge` and `mergeArm`, and the `CLAUDE.md` paragraph on the repair exception; merges after `bug/red-hold-base-readings` <!-- builds: a red sprint base admits its own repair PR --> → #3487
 
 ## Notes
 
