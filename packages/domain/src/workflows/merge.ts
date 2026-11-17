@@ -573,13 +573,16 @@ export const mergeAt = async (
   const defaultBranchName = named === null ? 'unaskable' : named.ok ? named.value : 'unaskable';
   const holds = holdsApply(base, defaultBranchName);
   const settledSha = settledReading?.settled?.state === 'green' ? settledReading.settled.sha : undefined;
-  const unsettled = holds && settledSha !== undefined && tipSha !== 'unaskable' && tipSha !== settledSha && ports.plotPaths !== undefined
-    ? await readUnsettled(ports.refs, settledSha, tipSha)
-    : undefined;
+  const plotPaths = ports.plotPaths;
+  let line: { readonly unsettled: UnsettledReading; readonly pathSet: readonly string[] } | undefined;
+  let covered = false;
+  if (holds && settledSha !== undefined && tipSha !== 'unaskable' && tipSha !== settledSha && plotPaths !== undefined) {
+    const unsettled = await readUnsettled(ports.refs, settledSha, tipSha);
+    line = { unsettled, pathSet: plotPaths };
+    covered = unsettled !== 'unread' && unsettled.headSha === tipSha && settledPast({ sha: settledSha }, unsettled, plotPaths);
+  }
   if (holds && settledReading !== null && tipSha !== 'unaskable' && ports.caller !== 'unattended' && settledReading.settled?.state !== 'red') {
     const age = defaultBranchAgeMs(settledReading, ports.now());
-    const covered = unsettled !== undefined && unsettled !== 'unread' && unsettled.headSha === tipSha
-      && settledReading.settled !== undefined && settledPast(settledReading.settled, unsettled, ports.plotPaths ?? []);
     if (age !== null && age <= ports.checksWaitMs && tipSha !== settledReading.settled?.sha && !covered
       && !unknownHeadBound(ports.caller, settledReading, tipSha, ports.now(), ports.checksWaitMs)) {
       return {
@@ -626,7 +629,7 @@ export const mergeAt = async (
       pr: lookup.ok ? lookup.value : 'unaskable',
       defaultBranch: reading.ok ? reading.value : 'unaskable',
       defaultBranchTip: tipSha,
-      ...(unsettled === undefined ? {} : { unsettled, pathSet: ports.plotPaths ?? [] }),
+      ...(line ?? {}),
       defaultBranchName,
       ...(baseRead === undefined ? {} : { baseReading: baseRead.ok ? baseRead.value : 'unaskable' as const }),
       review: review.ok ? review.value : 'unaskable',
