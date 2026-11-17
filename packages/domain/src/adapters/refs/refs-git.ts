@@ -301,7 +301,7 @@ export const commitSubjectsOf = (stdout: string): readonly CommitSubject[] => {
 };
 
 /**
- * Walks a `git log --topo-order --format='%H|%T|%P'` listing of a range into
+ * Walks a `git log --topo-order --format='%H|%T|%P|%s'` listing of a range into
  * its first-parent line.
  *
  * The walk starts at the first row (the tip) and follows each first parent
@@ -313,18 +313,19 @@ export const commitSubjectsOf = (stdout: string): readonly CommitSubject[] => {
  * @returns the first-parent commits, newest first.
  */
 export const firstParentCommitsOf = (stdout: string): readonly FirstParentCommit[] => {
-  const rows = new Map<string, { tree: string; parents: readonly string[] }>();
+  const rows = new Map<string, { tree: string; subject: string; parents: readonly string[] }>();
   let tip: string | null = null;
   for (const line of asLines(stdout)) {
-    const [sha, tree, parents] = line.split('|');
+    // The subject is last and may hold `|`, so the fields after the third rejoin.
+    const [sha, tree, parents, ...subject] = line.split('|');
     if (!sha || !tree) continue;
-    rows.set(sha, { tree, parents: (parents ?? '').split(' ').filter((p) => p !== '') });
+    rows.set(sha, { tree, subject: subject.join('|'), parents: (parents ?? '').split(' ').filter((p) => p !== '') });
     tip ??= sha;
   }
   const line: FirstParentCommit[] = [];
   for (let at = tip; at !== null && rows.has(at); ) {
     const row = rows.get(at)!;
-    line.push({ sha: at, tree: row.tree, forward: row.parents.slice(1).some((p) => !rows.has(p)) });
+    line.push({ sha: at, tree: row.tree, subject: row.subject, forward: row.parents.slice(1).some((p) => !rows.has(p)) });
     at = row.parents[0] ?? null;
   }
   return line;
@@ -861,7 +862,7 @@ export const refsGit = (
       );
     },
 
-    commitFiles: (sha) =>
+    commitFiles: (sha, options) =>
       // `--format=` empties the header so only the name-status body remains.
       // `-m --first-parent` is one reading and the two flags are inseparable.
       // Without `-m`, git prints NOTHING for a commit with two parents, so every
@@ -872,7 +873,7 @@ export const refsGit = (
       // parent already gave.
       runScript(
         'git',
-        ['show', '--name-only', '--format=', '-m', '--first-parent', sha],
+        ['show', '--name-only', '--format=', ...(options?.noRenames ? ['--no-renames'] : []), '-m', '--first-parent', sha],
         asLines,
         inRepo,
       ),
@@ -1123,7 +1124,7 @@ export const refsGit = (
     firstParentCommits: (range) =>
       runScript(
         'git',
-        ['log', '--topo-order', '--format=%H|%T|%P', range],
+        ['log', '--topo-order', '--format=%H|%T|%P|%s', range],
         firstParentCommitsOf,
         { ...inRepo, maxBuffer: REFS_MAX_BUFFER },
       ),

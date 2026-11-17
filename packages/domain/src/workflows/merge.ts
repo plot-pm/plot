@@ -23,6 +23,8 @@ import {
 import { humanCommentOpen } from '../rules/human-comment-open.js';
 import { mergeChecksVerdict } from '../rules/merge-checks.js';
 import { sameCommit } from '../rules/same-commit.js';
+import { settledPast, type UnsettledReading } from '../rules/settled-past.js';
+import { readUnsettled } from './unsettled-line.js';
 import { isSyncPr, mayBeSyncPr, syncPathVerdict, type UnreadSyncGate } from '../rules/state-sync.js';
 import type { StateWriteTarget } from '../rules/write-target.js';
 import { RELEASE_BRANCH } from '../rules/release-branch.js';
@@ -77,6 +79,14 @@ export interface MergeReadings {
    * failed or could not say.
    */
   readonly defaultBranchTip: string | 'unaskable';
+  /**
+   * The first-parent line from the reading's settled commit to the remote tip.
+   * Absent reads as `'unread'`, so a tip past the settled commit refuses as
+   * `default-branch-unsettled`.
+   */
+  readonly unsettled?: UnsettledReading;
+  /** The paths a commit may change and still not unsettle the reading; absent reads as empty. */
+  readonly pathSet?: readonly string[];
   /**
    * The repository's default branch name, read through `Refs.defaultBranch`;
    * `'unaskable'` where the read failed. Absent reads as `'unaskable'`. The
@@ -370,7 +380,15 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
           return no('unaskable', `the default branch's remote tip could not be read for PR #${input.pr}. A failed read is not an absent reading; nothing was merged.`);
         }
         const bounded = unknownHeadBound(readings.caller, defaultBranch, tip, input.now, input.checksWaitMs);
-        if (!bounded && (tip !== defaultBranch.headSha || defaultBranch.settled.sha !== tip)) {
+        const line = readings.unsettled ?? 'unread';
+        const covered =
+          defaultBranch.settled.sha === tip ||
+          (admitted === undefined &&
+            defaultBranch.settled.state === 'green' &&
+            line !== 'unread' &&
+            line.headSha === tip &&
+            settledPast(defaultBranch.settled, line, readings.pathSet ?? []));
+        if (!bounded && (tip !== defaultBranch.headSha || !covered)) {
           return no('default-branch-unsettled', `${defaultBranch.branch}'s tip is now ${short(tip)}, but the reading names head ${short(defaultBranch.headSha)} and settled ${short(defaultBranch.settled.sha)}. A merge needs a reading of the settled tip.`);
         }
       }
@@ -443,6 +461,11 @@ export interface MergePorts {
   caller: Caller;
   /** The repair record's file. Absent reads as no record, so a red default branch admits no PR. */
   repair?: RepairRecordStore;
+  /**
+   * The paths Plot's own commits change: `syncPathSet` plus the generated
+   * bundles. Absent, a tip past the settled commit never counts as settled.
+   */
+  plotPaths?: readonly string[];
   /** The CI connector, asked again for the red commit's runs before a repair PR merges. */
   build?: Pick<BuildPort, 'runsForSha'>;
   /** The workflow names `Default branch checks` declares; empty folds every run. */
@@ -549,9 +572,15 @@ export const mergeAt = async (
   const named = base === '' ? null : await ports.refs.defaultBranch();
   const defaultBranchName = named === null ? 'unaskable' : named.ok ? named.value : 'unaskable';
   const holds = holdsApply(base, defaultBranchName);
+  const settledSha = settledReading?.settled?.state === 'green' ? settledReading.settled.sha : undefined;
+  const unsettled = holds && settledSha !== undefined && tipSha !== 'unaskable' && tipSha !== settledSha && ports.plotPaths !== undefined
+    ? await readUnsettled(ports.refs, settledSha, tipSha)
+    : undefined;
   if (holds && settledReading !== null && tipSha !== 'unaskable' && ports.caller !== 'unattended' && settledReading.settled?.state !== 'red') {
     const age = defaultBranchAgeMs(settledReading, ports.now());
-    if (age !== null && age <= ports.checksWaitMs && tipSha !== settledReading.settled?.sha
+    const covered = unsettled !== undefined && unsettled !== 'unread' && unsettled.headSha === tipSha
+      && settledReading.settled !== undefined && settledPast(settledReading.settled, unsettled, ports.plotPaths ?? []);
+    if (age !== null && age <= ports.checksWaitMs && tipSha !== settledReading.settled?.sha && !covered
       && !unknownHeadBound(ports.caller, settledReading, tipSha, ports.now(), ports.checksWaitMs)) {
       return {
         merged: false,
@@ -597,6 +626,7 @@ export const mergeAt = async (
       pr: lookup.ok ? lookup.value : 'unaskable',
       defaultBranch: reading.ok ? reading.value : 'unaskable',
       defaultBranchTip: tipSha,
+      ...(unsettled === undefined ? {} : { unsettled, pathSet: ports.plotPaths ?? [] }),
       defaultBranchName,
       ...(baseRead === undefined ? {} : { baseReading: baseRead.ok ? baseRead.value : 'unaskable' as const }),
       review: review.ok ? review.value : 'unaskable',

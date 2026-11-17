@@ -90,11 +90,11 @@ const portsOf = (world: World): StateSyncPorts => {
       firstParentCommits: async (range: string) => {
         if (range.includes('^..')) {
           const landed = world.landed ?? [];
-          return landed === 'fail' ? failed() : answered(landed.map((tree, i) => ({ sha: `m${i}`, tree, forward: false })));
+          return landed === 'fail' ? failed() : answered(landed.map((tree, i) => ({ sha: `m${i}`, tree, subject: '', forward: false })));
         }
-        if (world.line !== undefined) return world.line === 'fail' ? failed() : answered(world.line.map((c, i) => ({ sha: `l${i}`, ...c })));
+        if (world.line !== undefined) return world.line === 'fail' ? failed() : answered(world.line.map((c, i) => ({ sha: `l${i}`, subject: '', ...c })));
         const n = world.ahead;
-        return n === 'fail' ? failed() : answered(Array.from({ length: n ?? 0 }, (_, i) => ({ sha: `l${i}`, tree: `t${i}`, forward: false })));
+        return n === 'fail' ? failed() : answered(Array.from({ length: n ?? 0 }, (_, i) => ({ sha: `l${i}`, tree: `t${i}`, subject: '', forward: false })));
       },
       changedFiles: async () => (world.changed === 'fail' ? failed() : answered([...(world.changed ?? [])])),
       showFile: async (ref: string, path: string) => {
