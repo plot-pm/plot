@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Type:** feature
+- **Sprint:** bug-fixes-2-35-0
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-17, Jan Wloka, plan-PR #3503 merged
