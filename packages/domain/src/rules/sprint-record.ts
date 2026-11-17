@@ -76,6 +76,7 @@ export const sprintRecordOf = (content: string, name: string): SprintRecord | nu
     goal: sprintGoal(content),
     start: field(/^- \*\*Start:\*\* (.+)$/m),
     end: field(/^- \*\*End:\*\* (.+)$/m),
+    ownerHandle: field(/^- \*\*Owner:\*\* (.+)$/m),
     members: sprintMembersOf(content),
   };
 };
