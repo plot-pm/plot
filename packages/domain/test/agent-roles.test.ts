@@ -48,6 +48,11 @@ describe('roleRuns', () => {
     expect(roleRuns(live({ reviews: [young] })).filter((r) => r.role === 'reviewer')).toHaveLength(1);
   });
 
+  it('keeps a fixer whose mark start does not parse, with no start time', () => {
+    const fixers = [{ pr: 8, record: record({ pid: 6, startedAt: 'not a time' }) }];
+    expect(roleRuns(live({ fixers })).find((r) => r.role === 'fixer')!.startedAt).toBeNull();
+  });
+
   it('shows no fixer for an attempt record with no inFlight mark', () => {
     expect(roleRuns(live({ fixers: [{ pr: 8, record: record() }] })).filter((r) => r.role === 'fixer')).toEqual([]);
   });
