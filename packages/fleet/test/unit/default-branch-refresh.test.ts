@@ -924,6 +924,7 @@ describe('refreshOnChange — reads the tip only where it may have moved', () =>
 interface BaseRig {
   world: BaseRefreshWorld;
   files: Map<string, DefaultBranchReading>;
+  records: Map<string, RepairRecord>;
   removed: string[];
   asked: string[];
   warnings: string[];
@@ -933,6 +934,7 @@ interface BaseRig {
 
 const baseRig = (held: readonly string[] | null = []): BaseRig => {
   const files = new Map<string, DefaultBranchReading>();
+  const records = new Map<string, RepairRecord>();
   const removed: string[] = [];
   const asked: string[] = [];
   const warnings: string[] = [];
@@ -964,16 +966,64 @@ const baseRig = (held: readonly string[] | null = []): BaseRig => {
         return { ok: true, value: undefined };
       },
     }),
+    repairFor: (base) => ({
+      read: async () => ({ ok: true, value: records.get(base) ?? null }),
+      write: async (record) => {
+        records.set(base, record);
+        return { ok: true, value: undefined };
+      },
+    }),
     held: async () => held,
     remove: async (base) => {
       removed.push(base);
       return true;
     },
   };
-  return { world, files, removed, asked, warnings, runs, throwOn };
+  return { world, files, records, removed, asked, warnings, runs, throwOn };
 };
 
 describe('refreshBases', () => {
+  describe('the base repair record', () => {
+    const green = (r: BaseRig, sha: string) => {
+      r.runs[sha] = [run('CI', 'success')];
+    };
+    const beat = (r: BaseRig, tips: Record<string, string>) => refreshBases(r.world, tips, (l) => r.warnings.push(l));
+
+    it('opens a record for the base on a green-to-red change, with that base\'s last green SHA', async () => {
+      const r = baseRig();
+      green(r, 's1');
+      await beat(r, { 'sprint/x': 's1' });
+      r.world.shared.now = () => T0 + 1000;
+      r.runs.s2 = [run('CI', 'failure')];
+      await beat(r, { 'sprint/x': 's2' });
+      expect(r.records.get('sprint/x')).toMatchObject({ branch: 'sprint/x', lastGreenSha: 's1' });
+    });
+
+    it('keeps the record on disk across a second beat while the base stays red', async () => {
+      const r = baseRig();
+      green(r, 's1');
+      await beat(r, { 'sprint/x': 's1' });
+      r.runs.s2 = [run('CI', 'failure')];
+      await beat(r, { 'sprint/x': 's2' });
+      await beat(r, { 'sprint/x': 's2' });
+      expect(r.records.get('sprint/x')).toMatchObject({ branch: 'sprint/x', lastGreenSha: 's1' });
+    });
+
+    it('opens no record for a base with no reading', async () => {
+      const r = baseRig();
+      await beat(r, { 'sprint/x': 's1' });
+      expect(r.records.size).toBe(0);
+    });
+
+    it('removes the record with the reading when the listing drops the base', async () => {
+      const r = baseRig(['sprint/x']);
+      r.runs.s1 = [run('CI', 'failure')];
+      await beat(r, { 'sprint/x': 's1' });
+      await beat(r, {});
+      expect(r.removed).toEqual(['sprint/x']);
+    });
+  });
+
   it('writes one reading per sprint base, named for the base', async () => {
     const r = baseRig();
     r.runs.s1 = [run('CI', 'failure')];
@@ -983,7 +1033,7 @@ describe('refreshBases', () => {
     expect(r.asked).toEqual(['sprint/x@s1']);
   });
 
-  it('never touches a repair store or the snapshot record', async () => {
+  it('never touches the default branch\'s repair store or the snapshot record', async () => {
     const r = baseRig();
     (r.world.shared as DefaultBranchWorld).record = () => {
       throw new Error('record called');
@@ -999,7 +1049,8 @@ describe('refreshBases', () => {
     r.runs.s1 = [run('CI', 'failure')];
     await refreshBases(r.world, { 'sprint/x': 's1' }, (l) => r.warnings.push(l));
     expect(r.files.get('sprint/x')).toMatchObject({ head: 'red', settled: { sha: 's1', state: 'red' } });
-    expect(r.warnings).toEqual([]);
+    expect(r.records.get('sprint/x')).toMatchObject({ branch: 'sprint/x' });
+    expect(r.warnings.filter((l) => !l.includes('no last green SHA'))).toEqual([]);
   });
 
   it('does not warn that a declared check matched no run for a base with no runs', async () => {

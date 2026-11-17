@@ -160,18 +160,19 @@ const isNone = (step: SlicePrStep): boolean => step.step === 'none';
  * Arm 1. Whether the PR is one this fleet acts on at all.
  *
  * An open, non-draft PR is in where the sprint scope names its head branch,
- * or where `readings.repairMerge` names it through {@link repairNamesPr}: the
+ * or where `readings.repairMerge` or `readings.baseRepairMerge` names it through {@link repairNamesPr}: the
  * repair record, not the scope, names a fix PR or a revert PR.
  *
  * @param readings - the PR's readings.
  * @returns `none` with the first reason the PR is out, or `null` where it is in.
  */
 export const guardArm = (readings: SlicePrNextReadings): SlicePrStep | null => {
-  const { row, scope, repairMerge } = readings;
+  const { row, scope, repairMerge, baseRepairMerge } = readings;
   if (row === null) return none('no-row');
   if (row.state !== 'OPEN') return none('not-open');
   if (row.draft) return none('draft');
   if (repairMerge !== undefined && repairNamesPr(repairMerge, row)) return null;
+  if (baseRepairMerge !== undefined && repairNamesPr(baseRepairMerge, row)) return null;
   if (scope.read === 'none') return none(`scope-${scope.why}`);
   if (!scope.branches.includes(row.head)) return none('out-of-scope');
   return null;

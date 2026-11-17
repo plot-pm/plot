@@ -4,7 +4,9 @@ import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { baseBranchFile, baseBranchNames, baseBranchPath, removeBaseBranch, defaultBranchFile, defaultBranchPath } from '../src/adapters/default-branch/default-branch-file.js';
+import { baseBranchFile, baseBranchNames, baseBranchPath, removeBaseBranch, baseRepairPath, removeBaseRepair, validBase, defaultBranchFile, defaultBranchPath } from '../src/adapters/default-branch/default-branch-file.js';
+import { baseRepairFile } from '../src/adapters/repair-record/repair-record-file.js';
+import { REPAIR_RECORD_VERSION, type RepairRecord } from '../src/entities/repair-record.js';
 import { DEFAULT_BRANCH_VERSION, type DefaultBranchReading } from '../src/entities/default-branch.js';
 
 const reading: DefaultBranchReading = {
@@ -109,5 +111,44 @@ describe('baseBranchNames and removeBaseBranch', () => {
 
   it('refuses to write a base with a `..` segment', async () => {
     expect((await baseBranchFile(root, 'sprint/../x').write({ ...reading, branch: 'sprint/../x' })).ok).toBe(false);
+  });
+});
+
+describe('the base repair record file', () => {
+  const rec = (branch: string): RepairRecord => ({
+    v: REPAIR_RECORD_VERSION, branch, state: 'idle', lastGreenSha: 'g'.repeat(40), firstRedSha: 'r'.repeat(40),
+    redSince: reading.at, candidates: [], rerun: 'none', preRevertRerun: 'none', at: reading.at,
+  });
+
+  it('lives beside the reading as <base>.repair.json and is not listed as a base', async () => {
+    expect(baseRepairPath(root, 'sprint/x')).toBe(`${baseBranchPath(root, 'sprint/x')}`.replace(/\.json$/, '.repair.json'));
+    await baseBranchFile(root, 'sprint/x').write(reading);
+    expect((await baseRepairFile(root, 'sprint/x').write(rec('sprint/x'))).ok).toBe(true);
+    expect(existsSync(baseRepairPath(root, 'sprint/x'))).toBe(true);
+    expect(await baseBranchNames(root)).toEqual({ ok: true, value: ['sprint/x'] });
+  });
+
+  it('refuses a base whose last segment ends in .repair', async () => {
+    expect(validBase('sprint/x.repair')).toBe(false);
+    expect(validBase('sprint/x')).toBe(true);
+    expect((await baseRepairFile(root, 'sprint/x.repair').write(rec('sprint/x.repair'))).ok).toBe(false);
+  });
+
+  it('reads null for a file whose branch is not the base, and round-trips its own', async () => {
+    const store = baseRepairFile(root, 'sprint/x');
+    expect(await store.read()).toEqual({ ok: true, value: null });
+    await store.write(rec('sprint/y'));
+    expect(await store.read()).toEqual({ ok: true, value: null });
+    await store.write(rec('sprint/x'));
+    expect(await store.read()).toEqual({ ok: true, value: rec('sprint/x') });
+  });
+
+  it('removeBaseRepair deletes the record only, and tolerates a missing one', async () => {
+    await baseBranchFile(root, 'sprint/x').write(reading);
+    await baseRepairFile(root, 'sprint/x').write(rec('sprint/x'));
+    expect(await removeBaseRepair(root, 'sprint/x')).toEqual({ ok: true, value: undefined });
+    expect(existsSync(baseRepairPath(root, 'sprint/x'))).toBe(false);
+    expect(existsSync(baseBranchPath(root, 'sprint/x'))).toBe(true);
+    expect(await removeBaseRepair(root, 'sprint/x')).toEqual({ ok: true, value: undefined });
   });
 });

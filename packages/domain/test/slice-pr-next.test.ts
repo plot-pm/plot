@@ -554,6 +554,51 @@ describe('the merge arm', () => {
     });
   });
 
+  describe('the base repair exception', () => {
+    const SPRINT = 'sprint/x';
+    const LAST_GREEN = 'e'.repeat(40);
+    const SPRINT_BRANCH = `bug/sprint-repair-${LAST_GREEN.slice(0, 12)}`;
+    const baseRed = reading({ branch: SPRINT, settled: { sha: TIP, state: 'red' }, head: 'red' });
+    const sprintRow = { ...passed, base: SPRINT, head: SPRINT_BRANCH };
+    const baseRepairMerge = (over: Partial<RepairMergeReading> = {}): RepairMergeReading => ({
+      record: {
+        v: 1, branch: SPRINT, state: 'idle', lastGreenSha: LAST_GREEN, firstRedSha: 'f'.repeat(40),
+        redSince: '2026-10-10T00:00:00Z', candidates: [], rerun: 'none', preRevertRerun: 'none',
+        repairPr: passed.number, at: '2026-10-10T00:00:00Z',
+      },
+      episode: 'open',
+      redRuns: 'red',
+      scope: 'base',
+      ...over,
+    });
+    const into = (over: Partial<SlicePrNextReadings> = {}) =>
+      merging({ row: sprintRow, defaultBranchName: 'main', baseReading: baseRed, scope: { read: 'scope', sprint: {} as Sprint, slugs: ['x'], branches: [BRANCH, SPRINT_BRANCH, 'bug/main-repair-' + LAST_GREEN.slice(0, 12)] }, ...over });
+
+    it('selects the base\'s repair PR on a red base', () => {
+      expect(into({ baseRepairMerge: baseRepairMerge() })).toEqual({ step: 'merge', head: HEAD });
+    });
+    it('holds base-branch-red for every other row into the base', () => {
+      expect(into({ baseRepairMerge: baseRepairMerge(), row: { ...sprintRow, number: sprintRow.number + 1 } })).toEqual({ step: 'hold', reason: 'base-branch-red' });
+      expect(into()).toEqual({ step: 'hold', reason: 'base-branch-red' });
+    });
+    it('holds with the verdict\'s reason where the runs no longer read red, or the branch is wrong', () => {
+      expect(into({ baseRepairMerge: baseRepairMerge({ redRuns: 'pending' }) })).toEqual({ step: 'hold', reason: 'repair-red-unconfirmed' });
+      expect(into({ row: { ...sprintRow, head: 'bug/main-repair-' + LAST_GREEN.slice(0, 12) }, baseRepairMerge: baseRepairMerge() }))
+        .toEqual({ step: 'hold', reason: 'repair-branch-mismatch' });
+      expect(into({ baseRepairMerge: baseRepairMerge({ episode: 'closed' }) })).toEqual({ step: 'hold', reason: 'repair-episode-closed' });
+    });
+    it('does not admit a PR the default branch\'s record names', () => {
+      const main = baseRepairMerge({ scope: undefined });
+      expect(into({ repairMerge: main })).toEqual({ step: 'hold', reason: 'base-branch-red' });
+    });
+    it('still holds conflicting after admission', () => {
+      expect(into({ baseRepairMerge: baseRepairMerge(), row: { ...sprintRow, mergeable: 'CONFLICTING' } })).toEqual({ step: 'hold', reason: 'conflicting' });
+    });
+    it('admits nothing for a base reading that is not red', () => {
+      expect(into({ baseReading: null, baseRepairMerge: baseRepairMerge() })).toEqual({ step: 'merge', head: HEAD });
+    });
+  });
+
   describe('the repair exception', () => {
     const LAST_GREEN = 'e'.repeat(40);
     const REPAIR_BRANCH = `bug/main-repair-${LAST_GREEN.slice(0, 12)}`;

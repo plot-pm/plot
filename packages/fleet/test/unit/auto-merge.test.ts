@@ -392,6 +392,71 @@ describe('mergeTick on a red default branch', () => {
   });
 });
 
+describe('mergeTick on a red sprint base', () => {
+  const SPRINT = 'sprint/x';
+  const LAST_GREEN = 'e'.repeat(40);
+  const FIRST_RED = 'f'.repeat(40);
+  const REPAIR_BRANCH = `bug/sprint-repair-${LAST_GREEN.slice(0, 12)}`;
+  const sprintRed = reading({ branch: SPRINT, head: 'red', settled: { sha: TIP, state: 'red' } });
+  const record = {
+    v: 1, branch: SPRINT, state: 'idle', lastGreenSha: LAST_GREEN, firstRedSha: FIRST_RED,
+    redSince: '2026-10-30T10:00:00Z', candidates: [], rerun: 'none', preRevertRerun: 'none', repairPr: 5,
+    at: '2026-10-30T10:00:00Z',
+  };
+  const basePorts = (runs: 'failure' | 'success' = 'failure') => {
+    const { ports, calls } = portsFor('answered');
+    const base = ports as unknown as Record<string, unknown>;
+    const host = base.host as Record<string, unknown>;
+    const prState = host.prState as (n: number) => Promise<{ ok: true; value: Record<string, unknown> }>;
+    return {
+      calls,
+      ports: {
+        ...base,
+        host: {
+          ...host,
+          prState: async (n: number) => {
+            const out = await prState(n);
+            return { ...out, value: { ...out.value, base: SPRINT, head: n === 5 ? REPAIR_BRANCH : out.value.head } };
+          },
+        },
+        baseBranch: () => ({ read: async () => ({ ok: true, value: sprintRed }) }),
+        baseRepair: () => ({ read: async () => ({ ok: true, value: record }) }),
+        refs: {
+          remoteSha: async () => ({ ok: true, value: { sha: TIP } }),
+          defaultBranch: async () => ({ ok: true, value: 'main' }),
+          firstParentLine: async () => ({ ok: true, value: [TIP, FIRST_RED, LAST_GREEN] }),
+          localSha: async () => ({ ok: true, value: TIP }),
+          branchTip: async () => ({ ok: true, value: TIP }),
+        },
+        build: {
+          runsForSha: async (_b: string, sha: string) => ({ ok: true, value: [{ sha, status: 'completed', conclusion: runs, url: '', workflow: 'CI' }] }),
+        },
+        checks: ['CI'],
+      } as unknown as MergePorts,
+    };
+  };
+  const scope = { read: 'scope', sprint: {}, slugs: ['x'], branches: ['feature/p3'] };
+  const over = { scope, defaultBranchName: 'main', baseReadings: new Map([[SPRINT, sprintRed]]) };
+  const rows = [row(3, { base: SPRINT }), row(5, { head: REPAIR_BRANCH, base: SPRINT })];
+
+  it('selects the base\'s repair PR, holds every other PR into the base, and merges the repair PR', async () => {
+    const { ports, calls } = basePorts();
+    const out = await tick(rows, over, ports);
+    expect(out.steps).toEqual([
+      { pr: 3, step: { step: 'hold', reason: 'base-branch-red' } },
+      { pr: 5, step: { step: 'merge', head: head(5) } },
+    ]);
+    expect(calls).toEqual([['pr-merge', '5', '--match-head', head(5)]]);
+  });
+
+  it('merges nothing where the re-asked runs read green', async () => {
+    const { ports, calls } = basePorts('success');
+    const out = await tick(rows, over, ports);
+    expect(out.steps[1]).toEqual({ pr: 5, step: { step: 'hold', reason: 'repair-red-unconfirmed' } });
+    expect(calls).toEqual([]);
+  });
+});
+
 describe('mergeTick — a PR held for an unanswered human comment', () => {
   const ASK = { prAuthor: 'author', rows: [{ kind: 'issue', id: 1, login: 'max', type: 'User', time: '2026-10-30T10:00:00Z', body: 'why MIT?' }] };
   const T0 = '2026-10-30T10:30:00Z';
