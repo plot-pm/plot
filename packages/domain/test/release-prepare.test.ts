@@ -89,7 +89,7 @@ describe('releaseStage — a job-form Default branch checks value', () => {
   it('reads the workflow part, so CI/validate still matches the release PR\'s CI runs', () => {
     const config = (requiredWorkflow: string) => ({ requiredWorkflow, reviewBoundMs: 3_600_000, startBudget: 3 });
     const ready = releaseStage(readings());
-    expect(releaseStage(readings({ config: config(workflowOfCheck('CI/validate', 'github-actions')) }))).toBe(ready);
+    expect(releaseStage(readings({ config: config(workflowOfCheck('CI/validate', true)) }))).toBe(ready);
     expect(releaseStage(readings({ config: config('CI/validate') }))).not.toBe(ready);
   });
 });

@@ -30,18 +30,18 @@ export const checkNamesOf = (value: string): string[] =>
 /**
  * The workflow a declared check name points into.
  *
- * Under GitHub Actions a name `<workflow>/<job>` names one job of a workflow
- * and the workflow is the part before its last `/`; a bare name is a workflow.
- * Under any other CI system the name is returned whole, because a Jenkins job
- * path contains `/` and is itself the run's name.
+ * Where the CI system names a job as `<workflow>/<job>`, the workflow is the
+ * part before the name's last `/`, and a bare name is a workflow. Where it does
+ * not, the name is returned whole, because a path such as a Jenkins job's
+ * contains `/` and is itself the run's name.
  *
  * @param name - one declared name, from {@link checkNamesOf}.
- * @param system - the CI system's word, from `BuildPort.system()`.
+ * @param jobForm - whether the CI system reads `<workflow>/<job>`; the caller decides from its connector.
  * @returns the workflow name.
  */
-export const workflowOfCheck = (name: string, system: string): string => {
+export const workflowOfCheck = (name: string, jobForm: boolean): string => {
   const slash = name.lastIndexOf('/');
-  return system === 'github-actions' && slash > 0 ? name.slice(0, slash) : name;
+  return jobForm && slash > 0 ? name.slice(0, slash) : name;
 };
 
 /**

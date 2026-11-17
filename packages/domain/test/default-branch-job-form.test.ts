@@ -26,17 +26,17 @@ describe('Default branch checks — the job form', () => {
     const runs = [entry('folder/job', 'success')];
     expect(declaredRuns(runs, ['folder/job'])).toEqual(runs);
     expect(unmatchedChecks(runs, ['folder/job'])).toEqual([]);
-    expect(workflowOfCheck('folder/job', 'jenkins')).toBe('folder/job');
+    expect(workflowOfCheck('folder/job', false)).toBe('folder/job');
   });
 });
 
 describe('workflowOfCheck', () => {
   it.each([
-    ['CI/validate', 'github-actions', 'CI'],
-    ['CI', 'github-actions', 'CI'],
-    ['CI/validate', 'jenkins', 'CI/validate'],
-  ])('%s under %s is %s', (name, system, workflow) => {
-    expect(workflowOfCheck(name, system)).toBe(workflow);
+    ['CI/validate', true, 'CI'],
+    ['CI', true, 'CI'],
+    ['CI/validate', false, 'CI/validate'],
+  ])('%s with job form %s is %s', (name, jobForm, workflow) => {
+    expect(workflowOfCheck(name, jobForm)).toBe(workflow);
   });
 });
 

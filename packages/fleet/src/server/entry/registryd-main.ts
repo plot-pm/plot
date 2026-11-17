@@ -3984,7 +3984,7 @@ export const run = async (
             ref: `origin/${defaultBranch.ok ? defaultBranch.value : 'main'}`,
           }),
           {
-            requiredWorkflow: workflowOfCheck(checkNamesOf(await readConfigAsync(boardOpts, 'Default branch checks', ''))[0] ?? 'CI', ci.system()),
+            requiredWorkflow: workflowOfCheck(checkNamesOf(await readConfigAsync(boardOpts, 'Default branch checks', ''))[0] ?? 'CI', ci.system() === 'github-actions'),
             reviewBoundMs: checksWait,
             startBudget: 0,
           },
