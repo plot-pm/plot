@@ -463,12 +463,33 @@ describe('unpinnedMerges', () => {
 describe('the refusal texts', () => {
   const dir = '/plugins/plot/skills/plot/scripts';
 
-  it('names the endpoint first for approve, deliver and release, and no bundle', () => {
-    expect(controllerRefusal('approve', dir)).toContain('POST /api/approve {"slug":"<slug>"}');
-    expect(controllerRefusal('deliver', dir)).toContain('POST /api/deliver {"slug":"<slug>"}');
-    expect(controllerRefusal('release', dir)).toContain('POST /api/release {"slug":"<slug>","version":"<version>"}');
-    for (const action of ['approve', 'deliver', 'release'] as const) {
-      expect(controllerRefusal(action, dir)).not.toContain('.mjs');
+  it('names the command first for approve and deliver, then the board route as the button', () => {
+    const approve = controllerRefusal('approve', dir);
+    expect(approve).toContain(`node ${dir}/board/plot-approve-command.mjs [--who <handle>] <slug>`);
+    expect(approve).toContain('which runs with no board and refuses PLOT_UNATTENDED=1.');
+    expect(approve.indexOf('plot-approve-command.mjs')).toBeLessThan(approve.indexOf('POST /api/approve'));
+    const deliver = controllerRefusal('deliver', dir);
+    expect(deliver).toContain(`node ${dir}/board/plot-deliver-command.mjs <slug>`);
+    expect(deliver.indexOf('plot-deliver-command.mjs')).toBeLessThan(deliver.indexOf('POST /api/deliver'));
+  });
+
+  it('names --spike on the command and the spike body on the route', () => {
+    const text = controllerRefusal('approve', dir, true);
+    expect(text).toContain(`plot-approve-command.mjs --spike [--who <handle>] <slug>`);
+    expect(text).toContain('POST /api/approve {"slug":"<slug>","spike":true}');
+  });
+
+  it('names the release route and no command for release', () => {
+    const text = controllerRefusal('release', dir);
+    expect(text).toContain('POST /api/release {"slug":"<slug>","version":"<version>"}');
+    expect(text).not.toContain('-command.mjs');
+  });
+
+  it('no controller refusal says where the board is not running', () => {
+    for (const action of ['dispatch', 'approve', 'deliver', 'release', 'restart', 'release-approve'] as const) {
+      const text = controllerRefusal(action, dir);
+      expect(text).not.toContain('board is not running');
+      expect(text).toContain('Or, if you accept the bypass');
     }
   });
 

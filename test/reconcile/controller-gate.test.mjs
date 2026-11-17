@@ -203,6 +203,18 @@ test('controller gate: --release on the bundle refuses naming /api/release, not 
   assert.match(r.stderr, /POST \/api\/release/);
 });
 
+// The commands are not in GATED: they refuse PLOT_UNATTENDED=1 themselves and
+// run the entries in their own process, so no receipt is needed.
+test('controller gate: plot-approve-command.mjs passes the gate in a main checkout with no receipt', () => {
+  const r = run(repo(), 'node skills/plot/scripts/board/plot-approve-command.mjs --who jwloka some-slug');
+  assert.equal(r.status, 0, `must allow (stderr: ${r.stderr})`);
+});
+
+test('controller gate: plot-deliver-command.mjs passes the gate in a main checkout with no receipt', () => {
+  const r = run(repo(), 'node skills/plot/scripts/board/plot-deliver-command.mjs some-slug');
+  assert.equal(r.status, 0, `must allow (stderr: ${r.stderr})`);
+});
+
 // --- the gate test pair (an-in-session-approval-has-a-controller slice 2) ---
 //
 // `plot-deliver.sh --release` is a FOURTH action sharing a script `deliver`
