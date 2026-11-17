@@ -1,12 +1,14 @@
 import {
   DELIVERY_LAYOUT,
   isStuckReason,
+  looseActions,
   placeDelivery,
   releaseTicketWording,
   type AgentPlacement,
   type DeliveryPlacement,
   type DeliverySection,
   type ItemPlacement,
+  type LooseActions,
   type Unplaced,
 } from '@plot-pm/domain';
 import type { AgentRow, DraftPlan, IssueRow, Slice } from '../../../contract/schema.js';
@@ -55,6 +57,8 @@ export interface PlacedItemView {
   anchor: string;
   /** The agents acting on the item, as links. */
   links: LinkView[];
+  /** The loose-item actions the domain offers; both false for an item that is not loose. */
+  looseActions: LooseActions;
 }
 
 /** One agent the rule placed, with its registry entry. */
@@ -349,6 +353,7 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
     label: labelOfItem(p.id),
     anchor: itemAnchor(p.id),
     links: p.agents.map((a) => ({ label: labelOfAgent(a), anchor: agentAnchor(a) })),
+    looseActions: looseActions(mapping.readings.items.find((i) => i.id === p.id) ?? { kind: 'slice' }),
   }));
   const agentViews = placement.agents.map((p): PlacedAgentView => ({
     placement: p,
@@ -436,6 +441,7 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
       label: labelOfItem(u.id),
       anchor: itemAnchor(u.id),
       links: [],
+      looseActions: { delete: false, release: false },
     }));
   const deliveredBlocks = nestItems('delivered', deliveredItems, slices);
 

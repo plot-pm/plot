@@ -43,6 +43,27 @@ describe('a loose branch under You > Unblock', () => {
     }
   }, 60_000);
 
+  it('shows Delete and no Release on a closed PR whose branch nobody names or holds', async () => {
+    const base = scenario('a-full-estate');
+    const closed = row({
+      branch: 'feature/closed-and-forgotten', plan: '', wave: '', group: 'quiet', state: 'wip', worker: 'elsewhere', desk: false,
+      ageMinutes: 900, kind: 'pr', pr: { ...base.fleet.rows.find((r) => r.pr !== null)!.pr!, state: 'closed', open: false },
+    });
+    const page = await cat.open('a-full-estate', {
+      tab: 'agents',
+      over: { fleet: fleet({ ...base.fleet, rows: [...base.fleet.rows, closed] }) },
+    });
+    try {
+      await page.locator('[data-section="you"] [data-loose-actions]').waitFor({ timeout: 15_000 });
+      const actions = page.locator('[data-section="you"] [data-loose-actions]');
+      expect(await actions.count()).toBe(1);
+      expect(await actions.locator('[data-loose-delete]').getAttribute('aria-label')).toContain('feature/closed-and-forgotten');
+      expect(await actions.locator('[data-release-claim]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+
   it('marks the three You groups red, blue and grey "clean up"', async () => {
     const base = scenario('a-full-estate');
     const loose = row({

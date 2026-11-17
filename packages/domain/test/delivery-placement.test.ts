@@ -8,6 +8,7 @@ import {
   DELIVERY_LAYOUT,
   YOU_GROUP_MARKERS,
   isStuckReason,
+  looseActions,
   placeDelivery,
   youCaseOf,
   type ItemPlacement,
@@ -477,6 +478,41 @@ describe('loose ends', () => {
   it('never calls a release item loose', () => {
     const release = item({ id: 'branch:changeset-release/main', kind: 'release', stage: 'pr', pr: { ci: 'passed', review: 'passed' }, loose: { ...nobody, fixing: false } });
     expect(placed(release).items.map((i) => i.reason)).not.toContain('loose');
+  });
+
+  it('places a closed PR nobody names or holds under Unblock, with no fixer reading asked', () => {
+    expect(placed(openPr({ ...nobody, closed: true })).items[0]).toMatchObject({ section: 'you', group: 'unblock', reason: 'loose' });
+  });
+
+  it('keeps an open PR with no fixer reading unplaced, never loose', () => {
+    const p = placed(openPr(nobody));
+    expect(p.items.map((i) => i.reason)).not.toContain('loose');
+    expect(p.unplaced).toContainEqual({ id: 'branch:fix/y', subject: 'item', reason: 'unread' });
+  });
+
+  it('keeps a closed PR out of Unblock where a plan names it or a desk holds it', () => {
+    for (const facts of [{ named: true, held: false }, { named: false, held: true }]) {
+      expect(placed(openPr({ ...facts, closed: true })).items.map((i) => i.reason)).not.toContain('loose');
+    }
+  });
+
+  it('lists a closed PR whose desk was not read as unplaced, never loose', () => {
+    const p = placed(openPr({ named: false, closed: true }));
+    expect(p.items.map((i) => i.reason)).not.toContain('loose');
+    expect(p.unplaced).toContainEqual({ id: 'branch:fix/y', subject: 'item', reason: 'unread' });
+  });
+
+  it('never calls a delivered closed PR loose', () => {
+    expect(placed(openPr({ ...nobody, closed: true }, { delivered: true })).items.map((i) => i.reason)).not.toContain('loose');
+  });
+
+  it('offers actions per kind: both for a branch, Delete for a closed PR, neither for an open PR', () => {
+    expect(looseActions({ kind: 'branch', loose: nobody })).toEqual({ delete: true, release: true });
+    expect(looseActions({ kind: 'pr', loose: { ...nobody, closed: true } })).toEqual({ delete: true, release: false });
+    expect(looseActions({ kind: 'pr', loose: { ...nobody, fixing: false } })).toEqual({ delete: false, release: false });
+    expect(looseActions({ kind: 'pr', loose: nobody })).toEqual({ delete: false, release: false });
+    expect(looseActions({ kind: 'branch' })).toEqual({ delete: false, release: false });
+    expect(looseActions({ kind: 'release', loose: nobody })).toEqual({ delete: false, release: false });
   });
 
   it('applies the Mine filter to a loose item as it does to any Unblock item', () => {
