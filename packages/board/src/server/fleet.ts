@@ -155,6 +155,7 @@ export {
 export { branchUrlBase, listedBranchCount, scanListingCost } from '@plot-pm/fleet/shared/fleet-scan';
 import { scanOnce, branchAges, planDirectory, type ScanResult } from '@plot-pm/fleet/shared/fleet-scan';
 import { readFleetSettings } from './fleet-settings.js';
+import { machineReaderFor } from './machine-reading.js';
 import { readSupervisor } from './supervisor-reading.js';
 import {
   readSupervisionReport,
@@ -8475,6 +8476,18 @@ const pidAnswers = (pid: number): boolean => {
   }
 };
 
+const machineReaders = new Map<string, ReturnType<typeof machineReaderFor>>();
+
+/** The payload's `machine` field: one throttled reader per repository root. */
+const machineReadingOf = (repoRoot: string, connector: string | null) => {
+  let reader = machineReaders.get(repoRoot);
+  if (reader === undefined) {
+    reader = machineReaderFor(repoRoot);
+    machineReaders.set(repoRoot, reader);
+  }
+  return reader(connector);
+};
+
 /**
  * The reviewer, fixer, design and verify agents, each read once from its own state file.
  *
@@ -8737,6 +8750,8 @@ export async function buildFleet(
     // is *unbounded* rather than *zero*.
     prConcurrencyCap: prConcurrencyBound(entry),
     prSlotsHeld: entry.prSlotsHeld,
+    // THE MACHINE LINE'S READING, measured at most once per 60 s per process and served to every poll.
+    machine: await machineReadingOf(opts.repoRoot, entry.backend),
     // The inbox travels with its ANSWER, never alone: a consumer reading
     // `issues: []` without `issueAnswer` cannot tell an empty tracker from one
     // that was never reachable, and would render the second as the first.

@@ -10,6 +10,36 @@ import {
   isLiveState,
 } from '../../contract/schema.js';
 
+const MACHINE_DOT_CLASS: Record<MachineDot, string> = {
+  green: 'bg-emerald-500',
+  amber: 'bg-amber-500',
+  red: 'bg-red-500',
+  grey: 'bg-slate-400',
+};
+
+/** The Machine section: one header line, and a Resource · Now · Effect table only where a resource limits the fleet. */
+const MachineSection = ({ machine }: { machine: MachineHealth }) => (
+  <div data-machine-line={machine.dot} className="px-3 text-sm text-slate-600 dark:text-slate-300">
+    <p className="flex flex-wrap items-center gap-x-1.5">
+      <span role="img" aria-label={machine.word} data-machine-dot={machine.dot} className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${MACHINE_DOT_CLASS[machine.dot]}`} />
+      <span className="font-medium">{machine.word}</span>
+      {machine.line !== '' && <span>· {machine.line}</span>}
+    </p>
+    {machine.rows.length > 0 && (
+      <table data-machine-rows className="mt-1 w-full text-left">
+        <thead>
+          <tr className="text-xs text-slate-500"><th className="pr-3 font-normal">Resource</th><th className="pr-3 font-normal">Now</th><th className="font-normal">Effect</th></tr>
+        </thead>
+        <tbody>
+          {machine.rows.map((r) => (
+            <tr key={r.resource}><td className="pr-3 align-top">{r.resource}</td><td className="pr-3 align-top">{r.now}</td><td className="align-top">{r.effect}</td></tr>
+          ))}
+        </tbody>
+      </table>
+    )}
+  </div>
+);
+
 /**
  * A fleet's controls, or the declared default where the payload carries none.
  *
@@ -97,7 +127,6 @@ import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
 import { deliveryMapping, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
 import {
   groupAnchor,
-  machineLine,
   placeMapping,
   planBlockShown,
   planBlockToggleKey,
@@ -111,6 +140,7 @@ import {
 } from '../lib/agent-rows/delivery-view.js';
 import { shrinkNote } from '../lib/agent-rows/actions.js';
 import { hostAnswer, issueNote, prStatusEntry, scanHostNote } from '../lib/agent-rows/host-notes.js';
+import { machineHealth, type MachineDot, type MachineHealth } from '../lib/agent-rows/machine-health.js';
 import { rowKey } from '../lib/agent-rows/row-identity.js';
 // THE ROW ESTATE, in three modules beside this one. `AgentList` is the shell:
 // it reads the fleet, decides the sections, and mounts the rows — the rows,
@@ -1455,7 +1485,7 @@ export function AgentList({
                     </div>
                   )}
                   {section.key === 'machine' && (
-                    <p data-machine-line className="px-3 text-sm text-slate-600 dark:text-slate-300">{machineLine(fleet.rows, hostAnswer(fleet))}</p>
+                    <MachineSection machine={machineHealth(fleet.machine, hostAnswer(fleet))} />
                   )}
                   {!folded && section.groups.filter((group) => group.count > 0).map((group) => {
                     const groupMark = groupPace(group.rows, active);

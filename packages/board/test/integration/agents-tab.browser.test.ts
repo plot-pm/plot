@@ -3867,17 +3867,18 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('reads exactly as today once a fetch has landed and found nothing', async () => {
-    // The other half, and the one a regression would take out silently. After
-    // an answer, `none` is a real observation — nothing is pending — and it
-    // must keep saying so in the same words. A fix that labelled every empty
-    // section `not checked yet` would trade one misreading for another.
+  it('shows the Machine health line once a fetch has landed, and never the old text', async () => {
+    // After an answer the section is one Machine health line. A board that
+    // has measured nothing reads `not measured` on a grey dot, and the text the
+    // section used to print for every empty state is gone from the page.
     const page = await openAgents(fleet({ prAgeSeconds: 4 }));
     try {
       const { header, body } = await machineSection(page);
-      expect(body).toContain('none');
+      expect(header).toContain('not measured');
       expect(body).not.toContain('not checked yet');
-      expect(header).toContain('nothing — a machine is working');
+      expect(await page.locator('[data-machine-dot="grey"]').count()).toBe(1);
+      expect(await page.locator('[data-machine-rows]').count()).toBe(0);
+      expect(await page.locator('body').textContent()).not.toContain('nothing — a machine is working');
     } finally {
       await page.close();
     }
@@ -3892,7 +3893,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents(fleet({ prAgeSeconds: 111, prNextInSeconds: 0 }));
     try {
       const { body } = await machineSection(page);
-      expect(body).toContain('none');
+      expect(body).toContain('not measured');
       expect(body).not.toContain('not checked yet');
       // The age is the footer's job, and it is still doing it.
       await page.getByText(/PR data 11\ds ago/).waitFor({ timeout: 10_000 });
