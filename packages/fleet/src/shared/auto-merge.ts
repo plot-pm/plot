@@ -382,6 +382,7 @@ export const runAutoMergePass = async (
     .sort((a, b) => Date.parse(b) - Date.parse(a));
   const checksWaitMs = checksWaitMsOf(readConfig(opts, 'Checks wait', '3600'));
   const remote = refsRemoteGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+  const plotPaths = plotPathSetOf(opts);
   const ports: MergePorts = {
     host,
     scripts,
@@ -400,7 +401,6 @@ export const runAutoMergePass = async (
     plotPaths,
   };
   // Read once per tick: the line depends on the reading, not on a PR.
-  const plotPaths = plotPathSetOf(opts);
   const unsettled =
     defaultBranch.settled?.state === 'green'
       ? await readUnsettled(refs, defaultBranch.settled.sha, defaultBranch.headSha)

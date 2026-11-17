@@ -467,6 +467,61 @@ describe('the merge arm', () => {
     });
   });
 
+  describe('a head past the settled commit by Plot commits only', () => {
+    const NEWER = 'd'.repeat(40);
+    const SET = ['docs/plans/', 'skills/plot/scripts/board/x.mjs'];
+    const trailing = (files: readonly string[] | 'unknown', over: Partial<SlicePrNextReadings> = {}) =>
+      merging({
+        defaultBranch: reading({ headSha: NEWER }),
+        pathSet: SET,
+        unsettled: { headSha: NEWER, commits: [{ sha: NEWER, files }] },
+        ...over,
+      });
+
+    it('merges where every commit past the settled one lies in the set', () => {
+      expect(trailing(['docs/plans/p.md'])).toEqual({ step: 'merge', head: HEAD });
+      expect(
+        merging({
+          defaultBranch: reading({ headSha: NEWER }),
+          pathSet: SET,
+          unsettled: { headSha: NEWER, commits: [{ sha: NEWER, files: ['skills/plot/scripts/board/x.mjs'] }, { sha: 'e'.repeat(40), files: ['docs/plans/p.md'] }] },
+        }),
+      ).toEqual({ step: 'merge', head: HEAD });
+    });
+
+    it('holds merge-in-flight for one code commit, an unread diff and an absent reading', () => {
+      expect(trailing(['docs/plans/p.md', 'packages/a.ts'])).toEqual({ step: 'hold', reason: 'merge-in-flight' });
+      expect(trailing('unknown')).toEqual({ step: 'hold', reason: 'merge-in-flight' });
+      expect(trailing(['docs/plans/p.md'], { unsettled: undefined })).toEqual({ step: 'hold', reason: 'merge-in-flight' });
+      expect(trailing(['docs/plans/p.md'], { unsettled: 'unread' })).toEqual({ step: 'hold', reason: 'merge-in-flight' });
+    });
+
+    it('holds merge-in-flight where the line ends at another head than the reading', () => {
+      expect(trailing(['docs/plans/p.md'], { unsettled: { headSha: 'f'.repeat(40), commits: [{ sha: 'f'.repeat(40), files: ['docs/plans/p.md'] }] } })).toEqual({
+        step: 'hold',
+        reason: 'merge-in-flight',
+      });
+    });
+
+    it('still holds a pending settled state', () => {
+      expect(trailing(['docs/plans/p.md'], { defaultBranch: reading({ headSha: NEWER, settled: { sha: TIP, state: 'pending' } }) })).toEqual({
+        step: 'hold',
+        reason: 'default-branch-unsettled',
+      });
+    });
+
+    it('still holds a red settled state', () => {
+      expect(trailing(['docs/plans/p.md'], { defaultBranch: reading({ headSha: NEWER, settled: { sha: TIP, state: 'red' } }) })).toEqual({
+        step: 'hold',
+        reason: 'default-branch-red',
+      });
+    });
+
+    it('keeps the newest-merged check', () => {
+      expect(trailing(['docs/plans/p.md'], { newestMerged: { mergedAt: '2026-10-30T11:58:00Z' } })).toEqual({ step: 'hold', reason: 'merge-in-flight' });
+    });
+  });
+
   it('holds merge-in-flight where a merged row is newer than the reading, though the reading looks settled', () => {
     expect(merging({ newestMerged: { mergedAt: '2026-10-30T11:58:00Z' } })).toEqual({
       step: 'hold',
