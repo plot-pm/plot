@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-17, Jan Wloka, plan-PR #3494 merged
+- **Started:** 2026-11-17, Jan Wloka, `bug/approve-and-deliver-run-without-a-board`
 
 ## Changelog
 
