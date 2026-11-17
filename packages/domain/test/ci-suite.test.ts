@@ -426,6 +426,7 @@ describe('a process-table read is a read (#2530)', () => {
     'ps -o pid= -C plot-deliver.mjs',
     'lsof -c plot-deliver.mjs',
     'ps aux | grep plot-approve.mjs',
+    'pgrep -f "plot-approve.mjs|plot-deliver.mjs"',
   ])('%s is not a run', (command) => {
     expect(controllerInvocation(command)).toBeNull();
   });
@@ -433,7 +434,6 @@ describe('a process-table read is a read (#2530)', () => {
   it.each([
     ['pkill -f plot-approve.mjs', 'approve'],
     ['pgrep -f plot-approve.mjs | xargs kill', 'approve'],
-    ['pgrep -f "plot-approve.mjs|plot-deliver.mjs"', 'approve'],
     ['until ! pgrep -f "plot-deliver.mjs x"; do sleep 1; done', 'deliver'],
     ['pgrep -KILL -f plot-approve.mjs', 'approve'],
     ['pgrep --signal=KILL -f plot-approve.mjs', 'approve'],
@@ -451,5 +451,79 @@ describe('a process-table read is a read (#2530)', () => {
 
   it('the merge path sees the same answer', () => {
     expect(unpinnedMerges('while pgrep -f "gh pr merge 12" >/dev/null; do sleep 1; done')).toEqual([]);
+  });
+});
+
+describe('a quoted separator does not split a command', () => {
+  it('reads grep with a quoted \\| as a read', () => {
+    expect(controllerInvocation('grep -n "a\\|plot-deliver.mjs" README.md | head')).toBeNull();
+    expect(controllerInvocation("grep -n 'a;plot-deliver.sh' README.md")).toBeNull();
+  });
+
+  it('keeps bash -c "plot-deliver.sh x" a run', () => {
+    expect(controllerInvocation('bash -c "plot-deliver.sh x"')).toBe('deliver');
+  });
+
+  it('keeps an unquoted separator splitting', () => {
+    expect(controllerInvocation('a | plot-deliver.sh x')).toBe('deliver');
+    expect(controllerInvocation('cat x | plot-dispatch.sh y')).toBe('dispatch');
+    expect(controllerInvocation('true && plot-approve.sh x')).toBe('approve');
+  });
+
+  it('keeps a loop body that only reads a read', () => {
+    expect(controllerInvocation('for f in plot-deliver.sh; do grep "a\\|b" $f; done')).toBeNull();
+  });
+});
+
+describe('an escaped quote does not open a span', () => {
+  it('reads the command after it', () => {
+    expect(controllerInvocation("cat it\\'s; plot-deliver.sh x; cat 'y'")).toBe('deliver');
+  });
+
+  it('refuses a suite after it', () => {
+    expect(ciSuiteRefusal("cat it\\'s; pnpm run test:e2e; cat 'y'", SUITES)).toEqual({ suite: 'pnpm run test:e2e' });
+  });
+
+  it('passes a suite named inside quotes', () => {
+    expect(ciSuiteRefusal('echo "a; pnpm run test:e2e"', SUITES)).toBeNull();
+  });
+});
+
+describe('an unreadable command over-splits', () => {
+  it('reads a run inside a case', () => {
+    expect(controllerInvocation('case x in a) plot-deliver.sh y;; esac')).toBe('deliver');
+  });
+
+  it('reads a run after an unterminated quote', () => {
+    expect(ciSuiteRefusal('echo "x; pnpm run test:e2e', SUITES)).toEqual({ suite: 'pnpm run test:e2e' });
+  });
+});
+
+describe('a separator inside a substitution splits', () => {
+  it.each([
+    'out=$(cd e2e && pnpm run test:e2e 2>&1)',
+    'x=`cd e2e; pnpm run test:e2e --ci`',
+    'echo $(cd e2e; pnpm run test:e2e --ci)',
+    'diff <(cd e2e; pnpm run test:e2e --ci) x',
+  ])('%s runs a suite', (command) => {
+    expect(ciSuiteRefusal(command, SUITES)).toEqual({ suite: 'pnpm run test:e2e' });
+  });
+
+  it('reads a run behind a separator inside a substitution', () => {
+    expect(controllerInvocation('cat $(true;plot-deliver.sh x)')).toBe('deliver');
+  });
+
+  it('keeps a quoted separator inside a substitution from splitting', () => {
+    expect(ciSuiteRefusal('echo "$(grep \'a; pnpm run test:e2e\' f)"', SUITES)).toBeNull();
+  });
+});
+
+describe('a script glued behind a quoted separator is a run', () => {
+  it('reads sh -c with the script after a ;', () => {
+    expect(controllerInvocation("sh -c 'PATH=$PWD/skills/plot/scripts:$PATH;plot-deliver.sh x'")).toBe('deliver');
+  });
+
+  it('keeps a read that names the script after a quoted separator a read', () => {
+    expect(controllerInvocation("grep -n 'a;plot-deliver.sh' README.md")).toBeNull();
   });
 });
