@@ -444,7 +444,7 @@ const doingValue = (placement: AgentPlacement, facts: AgentRowFacts): string | n
  */
 export const agentRowCells = (placement: AgentPlacement, facts: AgentRowFacts): AgentRowCells => {
   const blocked = placement.group === 'blocked';
-  const acting = placement.actsOn !== null && placement.linked;
+  const on = placement.linked ? placement.actsOn : null;
   const doing = blocked ? agentWaitsOn(placement, facts)?.cell ?? null : ((): Cell | null => {
     const value = doingValue(placement, facts);
     return value === null ? null : link(value, { to: 'log', id: placement.id });
@@ -452,9 +452,8 @@ export const agentRowCells = (placement: AgentPlacement, facts: AgentRowFacts): 
   return {
     agent: link(facts.name ?? placement.id, { to: 'agent', id: placement.id }),
     role: link(placement.role satisfies AgentRole),
-    actingOn: acting && placement.actsOn !== null
-      ? link(facts.itemName ?? placement.actsOn, { to: 'item', id: placement.actsOn }) : null,
-    branch: acting && facts.branch !== undefined ? link(facts.branch, { to: 'branch', branch: facts.branch }) : null,
+    actingOn: on !== null ? link(facts.itemName ?? on, { to: 'item', id: on }) : null,
+    branch: on !== null && facts.branch !== undefined ? link(facts.branch, { to: 'branch', branch: facts.branch }) : null,
     doing,
     doingDetail: !blocked && facts.lastCommit !== undefined && placement.role === 'loop' ? facts.lastCommit : null,
     doingLabel: blocked ? 'Waits on' : 'Doing now',

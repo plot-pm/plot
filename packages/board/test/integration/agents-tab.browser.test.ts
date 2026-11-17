@@ -1672,7 +1672,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // form: it keeps passing until an element is added, then reports the
       // wrong thing rather than failing.
       expect(await li.locator('[data-tuple-age]').textContent()).toBe('3h');
-      expect(await group(still, 'working').getByText('feature/beans-a').count()).toBe(1);
+      // The Fleet row and the registry row below it each name the branch; the
+      // claim is that the reduced-motion page shows the same rows as the moving one.
+      expect(await group(still, 'working').locator('[data-fleet-agent-row]').filter({ hasText: 'feature/beans-a' }).count()).toBe(1);
     } finally {
       await still.close();
     }
@@ -1948,7 +1950,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     });
     const page = await cat.browser.newPage();
     try {
-      // 1100px, and the height is part of the fixture rather than a detail of
+      // 1200px (1100 until the Fleet row grew a header and one row per agent:
+      // the collapsed document measured 1112px on CI), and the height is part of the fixture rather than a detail of
       // it. It was 800, then 900 for a ~4px font-metric spread between CI's
       // Linux and macOS that straddled 800 and produced a test passing on one
       // platform and failing on the other for identical code.
@@ -1967,7 +1970,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // The window between the two is wide, and the viewport sits in the middle
       // of it rather than on either edge — which is what makes this test about
       // the COLLAPSE rather than about how tall a row happens to render.
-      await page.setViewportSize({ width: 1280, height: 1100 });
+      await page.setViewportSize({ width: 1280, height: 1200 });
       await page.route('**/api/fleet', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(many) }));
       await page.goto(`${cat.mock.baseURL}?tab=agents`);

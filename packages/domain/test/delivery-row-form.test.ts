@@ -315,6 +315,16 @@ describe('agent rows, the other readings', () => {
   it('names a reviewer by its head and a fixer by its attempt', () => {
     expect(agentRowCells(agent({ role: 'reviewer', actsOn: 'x' }), { reviewHead: '2d929a6' }).doing!.value).toBe('reviewing head 2d929a6');
     expect(agentRowCells(agent({ role: 'fixer', actsOn: 'x' }), { fixerFinding: 'ci', fixerAttempt: 1 }).doing!.value).toBe('fixing CI ✗ · attempt 1 of 2');
+    expect(agentRowCells(agent({ role: 'reviewer', actsOn: 'x' }), {}).doing!.value).toBe('reviewing');
+    expect(agentRowCells(agent({ role: 'fixer', actsOn: 'x' }), { fixerFinding: 'high' }).doing!.value).toBe('fixing review ✗');
+    expect(agentRowCells(agent({ role: 'fixer', actsOn: 'x' }), {}).doing!.value).toBe('fixing');
+    const words: Record<string, string> = {
+      design: 'designing', verify: 'verifying', idea: 'writing the idea', brief: 'writing the brief', approver: 'approving',
+    };
+    for (const [role, word] of Object.entries(words)) {
+      expect(agentRowCells(agent({ role: role as never, actsOn: 'x' }), {}).doing!.value).toBe(word);
+    }
+    expect(agentRowCells(agent({ actsOn: 'x' }), { commits: 1 }).doing!.value).toBe('writing code · 1 commit');
   });
 
   it('shows no Doing now for an agent with no item', () => {
@@ -339,6 +349,15 @@ describe('agent rows, the other readings', () => {
   it('Waits on: CI passed and review pending names review and links to the PR', () => {
     const w = agentWaitsOn(blocked(), { pr: { ci: 'passed', review: 'pending', checksUrl: 'https://h/checks', url: 'https://h/pr' } });
     expect(w).toEqual({ gate: 'review', cell: { value: 'review', links: [{ to: 'url', url: 'https://h/pr' }] } });
+  });
+
+  it('Waits on: CI and review name their gate with no link when the host gave no URL', () => {
+    expect(agentWaitsOn(blocked(), { pr: { ci: 'running', review: 'unread' } })).toEqual({ gate: 'ci', cell: { value: 'CI', links: [] } });
+    expect(agentWaitsOn(blocked(), { pr: { ci: 'passed', review: 'pending' } })).toEqual({ gate: 'review', cell: { value: 'review', links: [] } });
+  });
+
+  it('a blocked agent with no gate has an empty Waits on cell', () => {
+    expect(agentRowCells(blocked(), {}).doing).toBeNull();
   });
 
   it('Waits on: no CI reading is no gate, and unknown limit is neither exhausted nor free', () => {
