@@ -3,7 +3,7 @@ import { DELIVERY_LAYOUT } from '@plot-pm/domain';
 import type { AgentRow, Slice } from '../../src/contract/schema.js';
 import { deliveryMapping, type RegistryAgent } from '../../src/app/lib/agent-rows/delivery-readings.js';
 import { GLYPH_PATH } from '../../src/app/lib/glyphs.js';
-import { groupAnchor, machineLine, placeMapping, planBlockShown, summarise } from '../../src/app/lib/agent-rows/delivery-view.js';
+import { groupAnchor, placeMapping, planBlockShown, summarise } from '../../src/app/lib/agent-rows/delivery-view.js';
 
 const row = (over: Record<string, unknown>): AgentRow => ({
   branch: '', plan: '', wave: '', kind: 'branch', phase: 'Development', state: 'wip',
@@ -50,22 +50,6 @@ describe('delivery view order', () => {
 
   it('names a section hint without a forecast', () => {
     for (const s of view([]).sections) expect(s.hint).not.toContain('will finish');
-  });
-});
-
-describe('machineLine', () => {
-  it('says none for rows with none once the host answered', () => {
-    expect(machineLine([row({})])).toBe('none — nothing — a machine is working');
-  });
-
-  it('says the host was not asked, or not reached, instead of none', () => {
-    expect(machineLine([row({})], 'unasked')).toBe('not checked yet');
-    expect(machineLine([row({})], 'unreachable')).toBe('could not reach the host');
-  });
-
-  it('counts the processes the rows carry', () => {
-    expect(machineLine([row({ processes: [{}, {}] })])).toBe('2 processes running');
-    expect(machineLine([row({ processes: [{}] })])).toBe('1 process running');
   });
 });
 

@@ -16,7 +16,6 @@ import { rowInSlice } from './delivery-readings.js';
 import { headSliceNames, showsSliceFold, slicesElsewhere } from './sections.js';
 import { hasExceptions } from './stuck.js';
 import { GLYPH_PATH, type GlyphKind } from '../glyphs.js';
-import { HOST_ANSWER_HINT, type HostAnswer } from './host-notes.js';
 
 /** Every key a collapse toggle can hold: a section or one of its groups. */
 export type DeliveryKey = string;
@@ -465,18 +464,3 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
 /** Maps the payload and places it: the one call the tab makes. */
 export const placeMapping = (mapping: DeliveryMapping, slices?: Slice[]): DeliveryView =>
   deliveryView(mapping, placeDelivery(mapping.readings, mapping.input), slices);
-
-/**
- * The Machine section's one line: what the host answered, then the processes the payload's rows carry.
- *
- * A host that has not answered is stated as such and never reads as an empty answer: `not checked yet` before the first
- * fetch, `could not reach the host` after a first fetch failed. Once the host has answered, no process reads `none`.
- *
- * @param rows - the payload's rows.
- * @param answer - `hostAnswer` of the fleet's PR age and PR error.
- */
-export const machineLine = (rows: readonly AgentRow[], answer: HostAnswer = 'answered'): string => {
-  if (answer !== 'answered') return HOST_ANSWER_HINT[answer];
-  const processes = rows.reduce((n, r) => n + (r.processes?.length ?? 0), 0);
-  return processes === 0 ? 'none — nothing — a machine is working' : `${processes} ${processes === 1 ? 'process' : 'processes'} running`;
-};
