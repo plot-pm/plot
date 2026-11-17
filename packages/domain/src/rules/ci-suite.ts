@@ -113,12 +113,41 @@ const isReader = (words: readonly string[]): boolean => {
 };
 
 /**
+ * Splits a command line at every match of `separator` that the shell treats as
+ * an operator. A match inside a word's `[start, end)` span, as `readShell`
+ * reads words, is quoted or escaped and does not split.
+ *
+ * @param text - the command line.
+ * @param separator - the operator pattern; its flags are ignored and it is matched globally.
+ * @returns the slices between operators, with quotes kept. Plain
+ *   `text.split(separator)` when `readShell` returns `null`, so an unreadable
+ *   line over-splits and never under-splits.
+ */
+const unquotedSplit = (text: string, separator: RegExp): string[] => {
+  const reading = readShell(text);
+  if (reading === null) return text.split(separator);
+  const spans = reading.commands.flatMap((command) => command.words.map((word) => [word.start, word.end] as const));
+  const pattern = new RegExp(separator.source, 'g');
+  const slices: string[] = [];
+  let from = 0;
+  for (let match = pattern.exec(text); match !== null; match = pattern.exec(text)) {
+    const at = match.index;
+    if (match[0] === '') { pattern.lastIndex = at + 1; continue; }
+    if (spans.some(([start, end]) => at >= start && at < end)) { pattern.lastIndex = at + 1; continue; }
+    slices.push(text.slice(from, at));
+    from = at + match[0].length;
+  }
+  slices.push(text.slice(from));
+  return slices;
+};
+
+/**
  * The simple commands of a loop body: the text after `do` up to the segment
  * that is `done`, split on `&&`, `||`, `;`, `|` and new lines.
  */
 const bodySegments = (after: string): string[][] => {
   const segments: string[][] = [];
-  for (const segment of after.split(/&&|\|\||[;|\n]/)) {
+  for (const segment of unquotedSplit(after, /&&|\|\||[;|\n]/)) {
     const words = segment.trim().split(/\s+/).filter((w) => w !== '');
     if (words[0] === 'done') break;
     if (words.length > 0) segments.push(words);
@@ -175,7 +204,7 @@ export const programWords = (words: readonly string[]): string[] => {
  * Decides whether a command runs one of the suites.
  *
  * The command is split into simple commands on `&&`, `||`, `;`, `|` and new
- * lines, after quoted text is removed. A simple command runs a suite when its
+ * lines outside quotes and escapes. A simple command runs a suite when its
  * words, from the program on, begin with that suite's words.
  *
  * @param command - the command line an agent is about to run.
@@ -185,7 +214,7 @@ export const programWords = (words: readonly string[]): string[] => {
 export const ciSuiteRefusal = (command: string, suites: readonly string[]): CiSuiteRefusal | null => {
   const entries = suites.map((suite) => ({ suite, words: suite.trim().split(/\s+/) })).filter((e) => e.words[0] !== '');
   if (entries.length === 0) return null;
-  const segments = withoutQuotes(command).split(/&&|\|\||[;|\n]/);
+  const segments = unquotedSplit(command, /&&|\|\||[;|\n]/);
   for (const segment of segments) {
     const words = programWords(segment.trim().split(/\s+/).filter((word) => word !== ''));
     for (const entry of entries) {
@@ -282,8 +311,8 @@ export const controllerInvocation = (command: string): GatedAction | null => {
  */
 const nonReadSegments = (command: string): string[][] => {
   const out: string[][] = [];
-  for (const pipeline of withoutDataLists(withoutComments(command)).split(/&&|\|\||[;\n]/)) {
-    const segments = pipeline.split('|')
+  for (const pipeline of unquotedSplit(withoutDataLists(withoutComments(command)), /&&|\|\||[;\n]/)) {
+    const segments = unquotedSplit(pipeline, /\|/)
       .map((segment) => segment.trim().split(/\s+/).filter((word) => word !== ''))
       .filter((words) => words.length > 0);
     const allRead = segments.every(isReadSegment);

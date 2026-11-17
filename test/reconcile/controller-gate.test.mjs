@@ -987,3 +987,12 @@ for (const [route, bundle, body] of [
 test('controller gate: a GET on /api/loose-delete is a read and is allowed', () => {
   assert.equal(run(repo(), 'curl http://localhost:4000/api/loose-delete').status, 0);
 });
+
+test('controller gate: a quoted separator in a read does not split it, and a real one still does (no receipt)', () => {
+  const dir = repo();
+  assert.equal(existsSync(path.join(dir, '.plot', 'state', 'action-receipts')), false, 'the sandbox holds no receipt');
+  const read = run(dir, 'grep -n "a\\|plot-deliver.mjs" README.md | head');
+  assert.equal(read.status, 0, `a quoted | is not a separator (stderr: ${read.stderr})`);
+  const real = run(dir, 'true && bash skills/plot/scripts/plot-approve.sh x');
+  assert.equal(real.status, 2, `an unquoted && still splits (stderr: ${real.stderr})`);
+});
