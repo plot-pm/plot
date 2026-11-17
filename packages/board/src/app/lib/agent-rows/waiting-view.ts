@@ -1,4 +1,5 @@
-import { hiddenSentence, shownSentence } from '@plot-pm/domain';
+import { hiddenSentence, shownSentence, type TicketPlacement } from '@plot-pm/domain';
+import { ticketItemId } from './delivery-readings.js';
 import { type FleetWaiting, type IssueRow } from '../../../contract/schema.js';
 
 /** The label of the control that switches *Waiting on you* to every ticket. */
@@ -102,5 +103,32 @@ export const waitingView = (
     notice: waiting.notice,
     control,
     showing: shownSentence(tickets.length, waiting.shown + waiting.hidden, waiting.complete),
+  };
+};
+
+/**
+ * Splits the tickets the Tickets section may show into the reader's and the rest, newest first.
+ *
+ * A ticket the placement holds for the reader is the reader's; one it holds
+ * with another ownership is an other. A ticket the placement did not see (the
+ * ones only `show all` reaches) is an other unless a plan names it or the
+ * tracker closed it.
+ *
+ * @param tickets - the narrowed ticket list `waitingView` returned with `show all` open.
+ * @param placed - `DeliveryPlacement.tickets`.
+ * @returns the reader's tickets and the others, each ordered by age ascending.
+ */
+export const splitTicketRows = (
+  tickets: readonly IssueRow[],
+  placed: readonly TicketPlacement[],
+): { assigned: IssueRow[]; others: IssueRow[] } => {
+  const mine = new Set(placed.filter((t) => t.ownership === 'mine').map((t) => t.id));
+  const held = new Set(placed.map((t) => t.id));
+  const newest = (a: IssueRow, b: IssueRow): number =>
+    (a.ageMinutes ?? Number.POSITIVE_INFINITY) - (b.ageMinutes ?? Number.POSITIVE_INFINITY);
+  const open = (t: IssueRow): boolean => held.has(ticketItemId(t.number)) || (t.planned !== true && t.statusCategory !== 'Done');
+  return {
+    assigned: tickets.filter((t) => mine.has(ticketItemId(t.number))).sort(newest),
+    others: tickets.filter((t) => !mine.has(ticketItemId(t.number)) && open(t)).sort(newest),
   };
 };

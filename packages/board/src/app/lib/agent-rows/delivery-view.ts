@@ -54,7 +54,6 @@ const REASON_WORDS: Record<string, string> = {
   'merge-conflict': 'the PR conflicts and no agent works on it',
   'agent-died': 'the agent died and left the slice unbuilt',
   loose: 'no plan names it and nobody works on it',
-  'ticket-assigned': 'a ticket is assigned to you and no plan names it',
 };
 
 export const reasonWords = (reason: string): string => REASON_WORDS[reason] ?? reason;
@@ -216,8 +215,6 @@ export interface DeliveryView {
   deliveredBlocks: BlockView[];
   /** Every payload row the delivered items hold. */
   deliveredRows: AgentRow[];
-  /** The numbers of the tickets a section holds; the ticket list outside the rule leaves these out. */
-  placedTickets: ReadonlySet<string>;
 }
 
 export const itemAnchor = (id: string): string => `delivery-item-${id}`;
@@ -462,7 +459,6 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
   return {
     sections, notPlaced, releaseLines, delivered, deliveredBlocks,
     deliveredRows: deliveredItems.flatMap((v) => v.rows),
-    placedTickets: new Set(placement.items.flatMap((p) => mapping.ticketsByItem[p.id]?.number ?? [])),
   };
 };
 

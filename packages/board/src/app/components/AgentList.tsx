@@ -114,7 +114,8 @@ import { rowKey } from '../lib/agent-rows/row-identity.js';
 // THE ROW ESTATE, in three modules beside this one. `AgentList` is the shell:
 // it reads the fleet, decides the sections, and mounts the rows — the rows,
 // their marks and their menus are declared next door.
-import { waitingView } from '../lib/agent-rows/waiting-view.js';
+import { splitTicketRows, waitingView } from '../lib/agent-rows/waiting-view.js';
+import { TicketsSectionView } from './TicketsSection.js';
 import { HeaderRow, IssueRowView, PlanRow, Row, RegistryRow, SliceRow, type AgentListProps } from '../lib/agent-rows/rows.js';
 import { workingAgentRows, draftPlanRows } from '../lib/agent-rows/working-agents.js';
 import { DraftPlanRowView } from '../lib/agent-rows/draft-plan-row.js';
@@ -1109,8 +1110,7 @@ export function AgentList({
         const byItem = (item: PlacedItemView) => byCell(forms.items.get(item.placement?.id ?? ''));
         const slices = fleet.slices;
         const issues = fleet.issueAnswer === 'answered' ? filteredIssues : [];
-        // A ticket a section holds is listed there only; the block and its count lines stay while the read has any.
-        const unplacedIssues = issues.filter((i) => !view.placedTickets.has(String(i.number)));
+        const ticketSplit = splitTicketRows(issues, placement.tickets);
         const scrollTo = (anchor: string) => (e: { preventDefault: () => void }) => {
           e.preventDefault();
           document.getElementById(anchor)?.scrollIntoView({ block: 'center' });
@@ -1509,62 +1509,28 @@ export function AgentList({
                 )}
               </section>
             )}
-            {/* OUTSIDE THE PLACEMENT RULE, LABELLED AS SUCH. The rule places work
-                items and agents; tickets and the fleet's own plan-level runs are
-                neither, and plan 3 owns tickets. They render here, after the
-                five sections, so none disappears while that plan is open. */}
-            {(issues.length > 0 || fleet.issueAnswer === 'failed' || fleet.issueAnswer === 'unsupported'
-              || workingPlanRows.length > 0 || verificationWaitingRows.length > 0 || haltedLine || specHaltedLine) && (
+            {/* THE TICKETS SECTION. The domain placed each ticket (`placement.tickets`);
+                this renders them, after the five sections. Its anchor is `#tickets`. */}
+            <TicketsSectionView
+              issueAnswer={fleet.issueAnswer}
+              assigned={ticketSplit.assigned}
+              others={ticketSplit.others}
+              unassigned={fleet.waiting?.unassigned ?? null}
+              showAll={showEveryTicket}
+              onToggleShowAll={() => setShowEveryTicket((on) => !on)}
+              hiddenSentence={waitingBlock.hidden}
+              notice={waitingBlock.notice}
+              absence={fleet.issueAnswer === 'failed' ? issueNote(fleet) ?? '' : fleet.issueAnswer === 'unsupported' ? fleet.issueAbsence ?? '' : ''}
+              idea={idea ?? { available: false, reason: 'this board has not said whether it can create plans' }}
+            />
+            {/* THE FLEET'S OWN PLAN-LEVEL RUNS AND HALTED LINES, until plan 4 moves them. */}
+            {(workingPlanRows.length > 0 || verificationWaitingRows.length > 0 || haltedLine || specHaltedLine) && (
               <section data-outside-rule className="space-y-1">
-                <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">Tickets and plan runs</h2>
-                <p className="px-3 text-xs text-slate-500 dark:text-slate-400">
-                  Outside the placement rule: the rule places work items and agents only.
-                </p>
+                <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">Plan runs</h2>
                 {[haltedLine, specHaltedLine].filter((l): l is string => Boolean(l)).map((line) => (
                   <p key={line} data-fleet-halted className="px-3 text-xs text-amber-700 dark:text-amber-500">{line}</p>
                 ))}
-                <ul role="grid" aria-label="Tickets and plan runs" className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
-                  {fleet.issueAnswer === 'answered' && issues.length > 0 && (
-                    <li role="row" data-waiting-heading className="px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-200">
-                      <span role="gridcell">{waitingBlock.heading}</span>
-                    </li>
-                  )}
-                  {fleet.issueAnswer === 'answered' && waitingBlock.notice !== null && (
-                    <li role="row" data-waiting-notice className="border-t border-slate-100 px-3 py-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                      <span role="gridcell">{waitingBlock.notice}</span>
-                    </li>
-                  )}
-                  {fleet.issueAnswer === 'answered' && waitingBlock.control !== null && (
-                    <li role="row" data-waiting-hidden className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-3 py-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                      <span role="gridcell" className="flex flex-wrap items-center gap-2">
-                        {waitingBlock.hidden !== null && <span data-waiting-hidden-text>{waitingBlock.hidden}</span>}
-                        <label className="flex cursor-pointer items-center gap-1.5">
-                          <input
-                            type="checkbox"
-                            data-show-every-ticket
-                            checked={showEveryTicket}
-                            onChange={() => setShowEveryTicket((on) => !on)}
-                            className="h-3.5 w-3.5 accent-green-600"
-                          />
-                          <span className="font-medium text-slate-700 dark:text-slate-200">{waitingBlock.control}</span>
-                        </label>
-                        {waitingBlock.showing !== null && <span data-waiting-showing-text>{waitingBlock.showing}</span>}
-                      </span>
-                    </li>
-                  )}
-                  {unplacedIssues.map((issue) => (
-                    <IssueRowView
-                      key={`issue-${issue.number}`}
-                      issue={issue}
-                      idea={idea ?? { available: false, reason: 'this board has not said whether it can create plans' }}
-                      story={story ?? { available: false, reason: 'this board has not said whether it can create stories' }}
-                      issueAnswer={fleet.issueAnswer}
-                      facts={ticketFacts?.get(String(issue.number))}
-                      showKindLabel={false}
-                      onOpenPlan={onOpenPlan}
-                      planIndex={planIndex}
-                    />
-                  ))}
+                <ul role="grid" aria-label="Plan runs" className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
                   {[...workingPlanRows, ...verificationWaitingRows].map((row) => (
                     <PlanLevelRowView
                       key={`plan-level-${row.kind}-${row.plan}`}
@@ -1574,16 +1540,6 @@ export function AgentList({
                       planIndex={planIndex}
                     />
                   ))}
-                  {fleet.issueAnswer === 'failed' && issueNote(fleet) && (
-                    <li role="row" data-issue-error className="border-t border-slate-100 px-3 py-2 text-sm text-amber-700 dark:border-slate-800 dark:text-amber-500">
-                      <span role="gridcell">{issueNote(fleet)}</span>
-                    </li>
-                  )}
-                  {fleet.issueAnswer === 'unsupported' && fleet.issueAbsence && (
-                    <li role="row" data-issue-absence className="border-t border-slate-100 px-3 py-2 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                      <span role="gridcell">{fleet.issueAbsence}</span>
-                    </li>
-                  )}
                 </ul>
               </section>
             )}

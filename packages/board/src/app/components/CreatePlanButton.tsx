@@ -46,6 +46,8 @@ export interface CreatePlanButtonProps {
   issueAnswer: IssueAnswer | null;
   /** Why the ticket's card facts refuse *Create plan*; `''` or absent where they allow it. */
   factsRefusal?: string;
+  /** The idle label; `Create plan` unless a caller names the control otherwise (the Tickets section's `Plan it ›`). */
+  label?: string;
 }
 
 type State =
@@ -84,7 +86,7 @@ export function refusalReason(idea: DispatchInfo, issueAnswer: IssueAnswer | nul
   return verdict.kind === 'refused' ? verdict.reason : '';
 }
 
-export function CreatePlanButton({ issue, idea, issueAnswer, factsRefusal = '' }: CreatePlanButtonProps) {
+export function CreatePlanButton({ issue, idea, issueAnswer, factsRefusal = '', label = 'Create plan' }: CreatePlanButtonProps) {
   const [state, setState] = useState<State>({ kind: 'idle' });
   const armed = state.kind === 'armed';
   const running = state.kind === 'running';
@@ -246,7 +248,7 @@ export function CreatePlanButton({ issue, idea, issueAnswer, factsRefusal = '' }
               : 'text-xs font-medium text-blue-600 hover:underline dark:text-blue-400'
         }
       >
-        {running ? 'creating…' : armed ? armedLabel(issue) : 'Create plan'}
+        {running ? 'creating…' : armed ? armedLabel(issue) : label}
         {/* Beside the word, never instead of it — motion must not be the only
             carrier of a fact, and the label is what a screen reader gets. */}
         {running && <ActingSpinner />}
