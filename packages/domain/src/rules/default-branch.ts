@@ -28,11 +28,30 @@ export const checkNamesOf = (value: string): string[] =>
     .filter((name) => name !== '');
 
 /**
+ * The workflow a declared check name points into.
+ *
+ * Under GitHub Actions a name `<workflow>/<job>` names one job of a workflow
+ * and the workflow is the part before its last `/`; a bare name is a workflow.
+ * Under any other CI system the name is returned whole, because a Jenkins job
+ * path contains `/` and is itself the run's name.
+ *
+ * @param name - one declared name, from {@link checkNamesOf}.
+ * @param system - the CI system's word, from `BuildPort.system()`.
+ * @returns the workflow name.
+ */
+export const workflowOfCheck = (name: string, system: string): string => {
+  const slash = name.lastIndexOf('/');
+  return system === 'github-actions' && slash > 0 ? name.slice(0, slash) : name;
+};
+
+/**
  * Keeps the runs of the workflows a project declares as its checks.
  *
  * The default-branch fold reads only these, so a workflow outside the list —
  * one that publishes or releases rather than tests — cannot turn the branch
- * red or green. An empty list keeps every run.
+ * red or green. An empty list keeps every run. A name matches a run's
+ * `workflow` as a whole; a `<workflow>/<job>` name matches the job entry the
+ * CI connector adds for it (`BuildPort.runsForSha`), never the whole run.
  *
  * @param runs - every workflow run of one commit.
  * @param checks - the declared workflow names, from {@link checkNamesOf}.

@@ -16,10 +16,27 @@ export type GithubRunsAnswer =
   | { readonly ok: true; readonly runs: readonly GhRun[] }
   | { readonly ok: false; readonly refusal: HostRefusal };
 
+/** One job of a run, as `GET /actions/runs/{id}/jobs` reports it. */
+export interface GhJob {
+  readonly name: string;
+  readonly status: string;
+  readonly conclusion: string | null;
+  readonly url: string;
+  readonly startedAt: string;
+  readonly completedAt: string;
+}
+
+/** What one jobs read answered. */
+export type GithubJobsAnswer =
+  | { readonly ok: true; readonly jobs: readonly GhJob[] }
+  | { readonly ok: false; readonly refusal: HostRefusal };
+
 /** The in-process GitHub Actions run listing. */
 export interface GithubRuns {
   /** Lists a branch's newest runs. Never rejects. */
   list(branch: string, limit?: number): Promise<GithubRunsAnswer>;
+  /** Lists the latest attempt's jobs of one run: one request. Never rejects. */
+  jobs(runId: number): Promise<GithubJobsAnswer>;
 }
 
 /** A value read as an object, or an empty one. */
@@ -50,6 +67,25 @@ const text = (value: unknown): string => (typeof value === 'string' ? value : ''
  * @returns the listing.
  */
 export const githubRuns = (api: GithubApi): GithubRuns => ({
+  jobs: async (runId) => {
+    const slug = api.origin.slug;
+    if (slug === null) return { ok: false, refusal: { kind: 'failed', said: 'the origin remote names no GitHub owner/repo' } };
+    const asked = await api.request({
+      method: 'GET',
+      path: `/repos/${slug}/actions/runs/${String(runId)}/jobs?per_page=100`,
+      label: `actions run ${String(runId)} jobs`,
+    });
+    if (!asked.ok) return { ok: false, refusal: asked.refusal };
+    const jobs = list(record(asked.reply.body).jobs).map(record).map((job): GhJob => ({
+      name: text(job.name),
+      status: text(job.status),
+      conclusion: text(job.conclusion) === '' ? null : text(job.conclusion),
+      url: text(job.html_url),
+      startedAt: text(job.started_at),
+      completedAt: text(job.completed_at),
+    }));
+    return { ok: true, jobs };
+  },
   list: async (branch, limit = RUNS_FOR_SHA_LIMIT) => {
     const slug = api.origin.slug;
     if (slug === null) return { ok: false, refusal: { kind: 'failed', said: 'the origin remote names no GitHub owner/repo' } };
