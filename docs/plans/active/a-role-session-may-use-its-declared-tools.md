@@ -1,0 +1,1 @@
+../2026-11-17-a-role-session-may-use-its-declared-tools.md
