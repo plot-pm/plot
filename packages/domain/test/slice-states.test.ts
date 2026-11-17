@@ -131,6 +131,10 @@ describe('the merge answer', () => {
     expect(allSlicesMerged({ file: PLAN }, p, true)).toBe('not-merged');
   });
 
+  it('answers no slices for a plan the finished pulse does not list', () => {
+    expect(planSliceMerges({ file: 'docs/plans/2026-11-16-other.md' }, p, true)).toEqual([]);
+  });
+
   it('answers undefined on a partial pulse, as sliceProgress does', () => {
     expect(planSliceMerges({ file: PLAN }, p, false)).toBeUndefined();
     expect(planSliceMerges({ file: PLAN }, null, true)).toBeUndefined();
