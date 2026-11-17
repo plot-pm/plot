@@ -68,6 +68,11 @@ A third unsettled merge refuses `stack-full`. A shared path refuses `paths-overl
 
 ### Open Questions
 
+- [ ] **Stacked red attribution can answer `unknown` by construction.** `redMainPicker` (`repair.ts:135-137`) answers a PR only when exactly one candidate is settled red on its own runs. PR2 merges on top of PR1, so PR2's run contains PR1's change: when PR1 breaks main, both commits settle red, two candidates qualify, and the answer is `unknown`. Step 4 states that each merge keeps its own verdict; for a stack that holds only when PR2 is independent of the breakage. Slice 4 must either change the picker (name the lowest red candidate whose parent commit settled green) or accept `unknown` plus a notification for every stacked red, and the Guard measure then counts every stacked red as a regression.
+- [ ] **Disjoint paths plus a clean `merge-tree` do not keep the anti-goal.** `DESIGN-delivery-loop.md:31,90` names two PRs green on an old base that are red together. Two PRs can touch different files and still break each other (a signature change in one file, a new caller in another), and neither `paths-overlap` nor `merge-tree` sees that. The Design says the plan keeps the anti-goal; it narrows it to textual overlap. Decide whether the stack rule adds a semantic bound (for example, no stacking when either PR changes `packages/domain/src/ports/` or a shared type), or states the narrowed anti-goal and relies on step 4 and the revert path.
+- [ ] **Reverting the lower PR of a stack.** If PR1 settles red with PR2 already merged on it, `bug/revert-<revertedPr>` reverts PR1 over PR2's changes and can conflict. State what `redMainStep` does when the revert does not apply cleanly, and whether it reverts the stack top-down.
+- [ ] **`merge-in-flight` under a stack.** `mergeArm` holds `merge-in-flight` while `settled.sha !== headSha` or a MERGED row is newer than `askedAt` (`slice-pr-next.ts:407-410`). Both conditions are true for every PR merged onto an unsettled tip, so step 3 must name how they change, and which reading supplies the commit list and per-commit changed paths that `mergeArm` needs (a new port reading, since `mergeArm` is pure over readings).
+- [ ] **Counting unsettled merges.** Step 3 counts PR merges between `settled.sha` and the tip after step 1 removes Plot-path commits. State whether a plan-only PR merge (a merge commit whose paths all lie in the set) counts, and how a stack is counted when `settled.sha` is itself older than a settled-red tip.
 - [ ] Does CI on main test the generated bundles in a way the merge commit's run did not? A bundle commit is a deterministic rebuild (`main-bundles.sh` refuses a non-deterministic one), but a contract suite that runs the shipped bundle could still go red on it alone.
 - [ ] A plan-file commit can turn main red through a docs gate (`check-plan-headings.sh`). Step 1 treats it as settled for the merge gate only; its own run still feeds the reading. Is that enough, or does the rule exclude paths a `scripts/check-*.sh` gate reads?
 - [ ] The config shape for job names in `Default branch checks`: today it names workflows (`default-branch-refresh.ts:88`). The repo already declares `Merge checks: validate`, which `merge-ports.ts:63` and `auto-merge.ts:369` read for a PR's checks. Slice 2 decides whether the reading reuses `Merge checks` or `Default branch checks` gains a job form such as `CI/validate`.
@@ -113,3 +118,24 @@ A third unsettled merge refuses `stack-full`. A shared path refuses `paths-overl
 
 - No `Story:` field: the story that held the merge loop, `the-fleet-delivers-a-scope-alone`, is archived, and no active story under `docs/stories/` owns merge throughput.
 - Design question unanswered: the plan starts in `State: Draft`.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "mode": "unattended",
+  "questionHistory": [
+    {"q": "Does redMainPicker still name one PR when PR2's run contains PR1's breakage?", "a": "No: both settle red, qualifying.length is 2, answer is unknown (repair.ts:136). Recorded as an open question.", "category": "technical"},
+    {"q": "Do disjoint paths and a clean merge-tree keep the anti-goal of two PRs green on an old base and red together?", "a": "No: semantic interaction across files is not seen. Recorded as an open question.", "category": "tradeoffs"},
+    {"q": "What does a revert of the lower stacked PR do when it conflicts with the upper one?", "a": "Not stated in the plan. Recorded as an open question.", "category": "domain"},
+    {"q": "How do merge-in-flight and the commit-list reading change under a stack?", "a": "Not stated in the plan. Recorded as an open question.", "category": "technical"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "domain": true,
+    "ux": false,
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
