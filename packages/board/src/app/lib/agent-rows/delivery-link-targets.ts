@@ -21,6 +21,8 @@ export interface LinkContext {
   branchUrlBase: string;
   /** The URL of a PR by number, or `null` where no row carries it. */
   prUrl: (pr: number) => string | null;
+  /** The URL of a PR's checks page by number, or `null` where no row carries it. */
+  checksUrl: (pr: number) => string | null;
   /** The plan's filename, or `''` where the plan has no file. */
   planFileOf: (plan: string) => string;
   /** The branch an agent works on, or `''`. */
@@ -46,6 +48,10 @@ export const resolveLink = (target: LinkTarget, ctx: LinkContext): ResolvedLink 
     case 'pr':
     case 'review': {
       const url = ctx.prUrl(target.pr);
+      return url === null || url === '' ? { kind: 'none' } : { kind: 'href', href: url };
+    }
+    case 'checks': {
+      const url = ctx.checksUrl(target.pr);
       return url === null || url === '' ? { kind: 'none' } : { kind: 'href', href: url };
     }
     case 'branch':
@@ -82,6 +88,8 @@ export const linkLabel = (target: LinkTarget): string => {
       return `#${target.pr}`;
     case 'review':
       return 'review';
+    case 'checks':
+      return 'checks';
     case 'ci-run':
       return `run ${target.run}`;
     default:

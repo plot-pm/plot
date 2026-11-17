@@ -85,4 +85,19 @@ describe('the Delivery tab renders the five sections', () => {
       await page.close();
     }
   }, 60_000);
+
+  it('shows the At a gate cell as one mark per gate', async () => {
+    const page = await cat.open('a-full-estate', { tab: 'agents' });
+    try {
+      await page.locator('[data-delivery-section="work-items"]').waitFor({ timeout: 15_000 });
+      const cells = page.locator('[data-section="work-items"] [data-group="at-a-gate"] [data-row-cell="status"]');
+      await cells.first().waitFor({ timeout: 15_000 });
+      const texts = await cells.allInnerTexts();
+      const marked = texts.filter((t) => /CI [✓⟳✗]|review [✓⟳✗–]/.test(t));
+      expect(marked.length, `a gate mark among ${JSON.stringify(texts)}`).toBeGreaterThan(0);
+      for (const t of marked) expect(t).toMatch(/^(CI [✓⟳✗])?( · )?(review [✓⟳✗–])?$/);
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
 });
