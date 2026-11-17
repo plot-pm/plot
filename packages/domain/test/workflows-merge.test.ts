@@ -310,6 +310,55 @@ describe('merge — the controller for a PR merge', () => {
     });
   });
 
+  describe('a tip past the settled commit by Plot commits only', () => {
+    const SETTLED_SHA = 'c'.repeat(40);
+    const NEWER = 'd'.repeat(40);
+    const behind = (over: Partial<DefaultBranchReading> = {}): DefaultBranchReading => ({
+      ...reading('green'), headSha: NEWER, head: 'pending', settled: { sha: SETTLED_SHA, state: 'green' }, ...over,
+    });
+    const past = (files: readonly string[] | 'unknown', over: Partial<MergeReadings> = {}) =>
+      readings({
+        defaultBranch: behind(),
+        defaultBranchTip: NEWER,
+        pathSet: ['docs/plans/'],
+        unsettled: { headSha: NEWER, commits: [{ sha: NEWER, files }] },
+        ...over,
+      });
+
+    it('decides the merge where every commit past the settled one lies in the set', () => {
+      expect(refusalOf(past(['docs/plans/p.md']))).toBe('decided');
+    });
+
+    it('refuses default-branch-unsettled for one code commit, an unread diff and an absent line', () => {
+      expect(refusalOf(past(['docs/plans/p.md', 'packages/a.ts']))).toBe('default-branch-unsettled');
+      expect(refusalOf(past('unknown'))).toBe('default-branch-unsettled');
+      expect(refusalOf(past(['docs/plans/p.md'], { unsettled: undefined }))).toBe('default-branch-unsettled');
+      expect(refusalOf(past(['docs/plans/p.md'], { unsettled: 'unread' }))).toBe('default-branch-unsettled');
+    });
+
+    it('refuses where the line ends at another tip than the one read', () => {
+      expect(refusalOf(past(['docs/plans/p.md'], { defaultBranchTip: NEWER, unsettled: { headSha: 'e'.repeat(40), commits: [{ sha: 'e'.repeat(40), files: ['docs/plans/p.md'] }] } }))).toBe('default-branch-unsettled');
+    });
+
+    it('keeps the strict requirement for a repair-admitted merge on a red reading', () => {
+      const LAST_GREEN = 'e'.repeat(40);
+      const repair: RepairMergeReading = {
+        record: {
+          v: 1, branch: 'main', state: 'idle', lastGreenSha: LAST_GREEN, firstRedSha: 'f'.repeat(40),
+          redSince: '2026-10-10T00:00:00Z', candidates: [], rerun: 'none', preRevertRerun: 'none',
+          repairPr: 42, at: '2026-10-10T00:00:00Z',
+        },
+        episode: 'open',
+        redRuns: 'red',
+      };
+      const onBranch = { pr: pr({ head: `bug/main-repair-${LAST_GREEN.slice(0, 12)}` }) };
+      const red = (headSha: string) => behind({ headSha, settled: { sha: SETTLED_SHA, state: 'red' } });
+      const strict = merge(readings({ ...onBranch, defaultBranch: red(SETTLED_SHA), defaultBranchTip: SETTLED_SHA, repair }), { pr: 42, sha: HEAD, ...CLOCK });
+      expect(strict.outcome === 'refused' ? strict.reason : strict.outcome).toBe('decided');
+      expect(refusalOf(past(['docs/plans/p.md'], { ...onBranch, defaultBranch: red(NEWER), repair }))).toBe('default-branch-unsettled');
+    });
+  });
+
   it('refuses default-branch-unsettled when the tip moved past the reading', () => {
     // The reading still names the pre-merge head; a naive check comparing the
     // reading with itself would pass.
@@ -464,6 +513,65 @@ describe('mergeAt — the workflow wired to its ports', () => {
     expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'default-branch-unsettled' });
     expect(asked).toEqual(['prState']);
     expect(calls).toEqual([]);
+  });
+
+  describe('a tip past the settled commit by Plot commits only', () => {
+    const TIP2 = 'd'.repeat(40);
+    const fresh = () => new Date(NOW - 60_000).toISOString();
+    const commit = (sha: string) => ({ sha, tree: '', parents: [], subject: '' });
+    type Over = { line?: 'fail' | readonly string[]; files?: Record<string, readonly string[] | 'fail'> };
+    const wired = (over: Over) => {
+      const reading = { ...settled('green', fresh()), headSha: TIP2, head: 'pending' as const };
+      const { p, calls } = ports(prFixture(), 'answered', { ok: true, value: reading });
+      const refs = p.refs as unknown as Record<string, unknown>;
+      refs.remoteSha = async () => ({ ok: true, value: { sha: TIP2 } });
+      refs.firstParentCommits = async () => (over.line === 'fail'
+        ? { ok: false, why: 'failed' }
+        : { ok: true, value: (over.line ?? [TIP2]).map(commit) });
+      refs.commitFiles = async (sha: string) => {
+        const f = over.files?.[sha] ?? ['docs/plans/p.md'];
+        return f === 'fail' ? { ok: false, why: 'failed' } : { ok: true, value: f };
+      };
+      p.plotPaths = ['docs/plans/', '.plot/briefs/', 'skills/plot/scripts/board/board-server.mjs'];
+      const asked: string[] = [];
+      const host = p.host as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>;
+      const real = host.prReview!;
+      host.prReview = async (...a) => { asked.push('prReview'); return real(...a); };
+      return { p, calls, asked };
+    };
+
+    it('merges onto a tip whose only unsettled commits are a bundle commit and a bookkeeping commit', async () => {
+      const B = 'e'.repeat(40);
+      const { p } = wired({
+        line: [TIP2, B],
+        files: { [TIP2]: ['skills/plot/scripts/board/board-server.mjs'], [B]: ['docs/plans/p.md', '.plot/briefs/p.md'] },
+      });
+      expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: true });
+    });
+
+    it('refuses default-branch-unsettled with no prReview call for a code commit', async () => {
+      const { p, asked } = wired({ files: { [TIP2]: ['docs/plans/p.md', 'packages/a.ts'] } });
+      expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'default-branch-unsettled' });
+      expect(asked).toEqual([]);
+    });
+
+    it('refuses on a failed line read, a failed diff read and a rename source outside the set', async () => {
+      for (const over of [
+        { line: 'fail' as const },
+        { files: { [TIP2]: 'fail' as const } },
+        { files: { [TIP2]: ['docs/plans/p.md', 'packages/x/y.ts'] } },
+      ]) {
+        const { p, asked } = wired(over);
+        expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'default-branch-unsettled' });
+        expect(asked).toEqual([]);
+      }
+    });
+
+    it('refuses when the adapter supplies no path set', async () => {
+      const { p } = wired({});
+      p.plotPaths = undefined;
+      expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'default-branch-unsettled' });
+    });
   });
 
   it('refuses review-writer-unread when the Review app writer cannot be resolved', async () => {

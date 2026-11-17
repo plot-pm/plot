@@ -7,6 +7,7 @@ import { repairMergeVerdict, repairNamesPr, type RepairMergeReading } from './re
 import type { DeskDeadAnswer } from './desk-dead.js';
 import { trustedReview } from './pr-index.js';
 import { reviewStartAllowed, type ReviewStart } from './review-run.js';
+import { settledPast, type UnsettledReading } from './settled-past.js';
 import type { SprintScope } from './sprint-scope.js';
 import type { TicketReading } from './ticket.js';
 
@@ -65,6 +66,14 @@ export interface SlicePrNextReadings {
   readonly row: PrIndexRow | null;
   /** The newest MERGED row of the index, for #2902's `merge-in-flight` hold. */
   readonly newestMerged: { mergedAt: string } | null;
+  /**
+   * The first-parent line from the reading's settled commit to its head, read
+   * once per tick. Absent reads as `'unread'`, so a head past the settled
+   * commit holds as `merge-in-flight`.
+   */
+  readonly unsettled?: UnsettledReading;
+  /** The paths a commit may change and still not unsettle the reading; absent reads as empty. */
+  readonly pathSet?: readonly string[];
   readonly scope: SprintScope;
   readonly reviewRun: ReviewRunReading | null;
   readonly reviewStarts: Pick<ReviewStart, 'head' | 'count' | 'lastAt'> | null;
@@ -350,7 +359,7 @@ export const reviewArm = (readings: SlicePrNextReadings): SlicePrStep => {
  * a reading whose `askedAt` is older than `Checks wait` or does not parse, red
  * or green; `default-branch-red`; `default-branch-unsettled` for a settled
  * state that is not green; `merge-in-flight` for a settled commit that is not
- * the head, or a merged row newer than the reading; `conflicting`;
+ * the head and is not covered by {@link settledPast}, or a merged row newer than the reading; `conflicting`;
  * `merger-app-missing`, `merger-app-invalid` or `merger-app-unread` from
  * {@link mergeIdentity}. On a settled red, `readings.repairMerge` lifts
  * `default-branch-red` for the one PR {@link repairMergeVerdict} admits; the
@@ -405,7 +414,16 @@ export const mergeArm = (readings: SlicePrNextReadings): SlicePrStep => {
   if (settled === undefined || (!repairAdmitted && settled.state !== 'green')) return hold('default-branch-unsettled');
   const mergedAt = newestMerged === null ? Number.NaN : Date.parse(newestMerged.mergedAt);
   const askedAt = Date.parse(defaultBranch.askedAt);
-  if (settled.sha !== defaultBranch.headSha || (newestMerged !== null && !(mergedAt <= askedAt))) {
+  // A repair merge keeps the strict requirement; a green settled commit may trail the head by Plot's own commits.
+  const covered =
+    settled.sha === defaultBranch.headSha ||
+    (!repairAdmitted &&
+      settled.state === 'green' &&
+      settledPast(settled, readings.unsettled ?? 'unread', readings.pathSet ?? []) &&
+      readings.unsettled !== undefined &&
+      readings.unsettled !== 'unread' &&
+      readings.unsettled.headSha === defaultBranch.headSha);
+  if (!covered || (newestMerged !== null && !(mergedAt <= askedAt))) {
     return hold('merge-in-flight');
   }
   if (row.mergeable === 'CONFLICTING') return hold('conflicting');

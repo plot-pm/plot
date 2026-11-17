@@ -92,6 +92,8 @@ export interface RefsFixture {
   firstParentAdditions?: Readonly<Record<string, string>>;
   /** Files each commit changed, keyed by sha — what `commitFiles` answers. */
   commitFiles?: Readonly<Record<string, readonly string[]>>;
+  /** Files each commit changed with rename detection off, keyed by sha; a sha absent here answers from `commitFiles`. */
+  commitFilesNoRenames?: Readonly<Record<string, readonly string[]>>;
   /** The commit that filled a record, keyed `<file>\t<field>` — what `recordCommit` answers. */
   recordCommits?: Readonly<Record<string, string>>;
   /** `<ref>:<path>` to that file's content at that ref. */
@@ -170,7 +172,7 @@ export interface RefsFixture {
    */
   ancestry?: Readonly<Record<string, Containment>>;
   /** The operations that fail on this estate, by port member name. */
-  failing?: readonly ('planAdditions' | 'planAuthors' | 'mergeSubjects' | 'contains' | 'containsMany' | 'commitSubjects' | 'firstParentCommits')[];
+  failing?: readonly ('planAdditions' | 'planAuthors' | 'mergeSubjects' | 'contains' | 'containsMany' | 'commitSubjects' | 'firstParentCommits' | 'commitFiles')[];
   /**
    * The branches whose `remoteHead` call fails, answering `unknown`.
    *
@@ -381,7 +383,10 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
       return answered(paths.filter((path) => unset.has(path)));
     },
 
-    commitFiles: async (sha) => answered(commitFiles[sha] ?? []),
+    commitFiles: async (sha, options) =>
+      failing.has('commitFiles')
+        ? failed<readonly string[]>()
+        : answered((options?.noRenames ? fixture.commitFilesNoRenames?.[sha] : undefined) ?? commitFiles[sha] ?? []),
     recordCommit: async (file, field, _ref) => answered(fixture.recordCommits?.[`${file}\t${field}`] ?? null),
 
     pulse: async () =>
