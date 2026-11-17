@@ -66,7 +66,7 @@ No shell/domain duplicate is declared, and no corpus row is needed. `maxTurnsOfR
 
 ### Tools
 
-- `bug/a-role-session-may-use-its-declared-tools` — `packages/domain/src/rules/role-command.ts` (`roleTools`, `roleCommand`'s `tools` parameter), `packages/fleet/src/shared/role-files.ts`, the three callers in `auto-fixer.ts`, `repair-role.ts` and `registryd-main.ts`, tests in `packages/domain/test/role-command.test.ts`, `role-command-cli.test.ts`, `agent-run-command.test.ts`, `packages/fleet/test/unit/auto-fixer.test.ts` and `repair-role.test.ts`, and a changeset for `plot` (patch; no skill directory changes, so no `bumps:` block) <!-- builds: roleTools, the declared tools of a role definition -->
+- `bug/a-role-session-may-use-its-declared-tools` — `packages/domain/src/rules/role-command.ts` (`roleTools`, `roleCommand`'s `tools` parameter), `packages/fleet/src/shared/role-files.ts`, the three callers in `auto-fixer.ts`, `repair-role.ts` and `registryd-main.ts`, tests in `packages/domain/test/role-command.test.ts`, `role-command-cli.test.ts`, `agent-run-command.test.ts`, `packages/fleet/test/unit/auto-fixer.test.ts` and `repair-role.test.ts`, and a changeset for `plot` (patch; no skill directory changes, so no `bumps:` block) <!-- builds: roleTools, the declared tools of a role definition --> → #3506
 
 ## Notes
 
