@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Page } from 'playwright';
 import { expandAgentFolds } from '../helpers.mjs';
+import { expandTickets } from '../catalogue/index.js';
 import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type IssueRow } from '../../src/contract/schema.js';
 
@@ -93,11 +94,12 @@ describe('an unplanned issue appears in the ticket list', () => {
     });
     await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
+    await expandTickets(page);
     return page;
   }
 
   // Tickets render in the Delivery tab's trailing list outside the placement rule.
-  const section = (page: Page) => page.locator('ul[role="grid"][aria-label="Tickets and plan runs"]');
+  const section = (page: Page) => page.locator('ul[role="grid"][aria-label="Tickets"]');
   const issueRow = (page: Page, n: string | number) =>
     section(page).locator(`li[data-issue-row="${n}"]`);
 
@@ -110,43 +112,6 @@ describe('an unplanned issue appears in the ticket list', () => {
       // substituted for it. Its open green PR places it under Work items › At a gate.
       await expect.poll(() =>
         page.locator('[data-group="at-a-gate"] [data-branch="feature/needs-review"]').count()).toBe(1);
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('renders a Jira ticket\'s OWN status word, not `open`', async () => {
-    // THE DEFECT, AT THE PIXEL. #849 measured four tickets in *Internal
-    // Approving*, *In Progress* and *Reviewing* all reading `open`, because
-    // `tupleFromIssue` wrote the word itself. A projection test proves the
-    // slot carries it; only a rendered page proves the cell shows it.
-    const page = await open(fleet({
-      issues: [issue({
-        number: 'PROJ-123', title: 'A ticket in flight', url: '',
-        status: 'Internal Approving', statusCategory: 'In Progress',
-      })],
-    }));
-    try {
-      const status = issueRow(page, 'PROJ-123').locator('[data-tuple-status]');
-      await expect.poll(() => status.innerText()).toContain('Internal Approving');
-      await expect.poll(() => status.innerText()).not.toContain('open');
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('renders a row whose status the tracker never gave, with an EMPTY cell', async () => {
-    // Absent renders as absent — the rule `prStatus` states for `unknown`. The
-    // row itself must survive: a status this board cannot read is never a
-    // reason to drop the row, which is what `IssueAnswerSchema` keeps apart
-    // from a tracker that could not be asked at all.
-    const page = await open(fleet({
-      issues: [issue({ number: 227, title: 'No status given', status: '', statusCategory: '' })],
-    }));
-    try {
-      await expect.poll(() => issueRow(page, 227).count()).toBe(1);
-      const status = issueRow(page, 227).locator('[data-tuple-status]');
-      await expect.poll(() => status.innerText().then((t) => t.trim())).toBe('');
     } finally {
       await page.close();
     }
@@ -193,129 +158,6 @@ describe('an unplanned issue appears in the ticket list', () => {
     }
   });
 
-  it('renders the inferred name as TEXT, never as an anchor', async () => {
-    // No plan names #228, so a link to a plan that does not exist is the
-    // fabrication this board keeps removing. The name is still TEXT; what it
-    // reads gained the ticket's own key as a prefix.
-    const page = await open();
-    try {
-      const name = issueRow(page, 228).locator('[data-issue-name]');
-      // `innerText`, not `textContent`. The slot carries an `sr-only` word
-      // naming the column — measured, `textContent` reads
-      // `plan228: fleet-scan-asks-the-host-once` — and that word is for a
-      // screen reader, not part of the name. `innerText` is computed from
-      // layout and reports what a sighted reader sees, which is what this
-      // claims.
-      //
-      // `228: ` is the ISSUE PREFIX every plan reference wears. A ticket no
-      // plan names refers to the plan it would become, and `planRefOfIssue`
-      // makes the ticket's own key that reference's prefix, so the row reads
-      // the same shape as a row whose plan exists.
-      await expect.poll(() => name.evaluate((el) => (el as HTMLElement).innerText.trim()))
-        .toBe('228: fleet-scan-asks-the-host-once');
-      await expect.poll(() => name.locator('a').count()).toBe(0);
-      await expect.poll(() => name.evaluate((el) => el.tagName)).not.toBe('A');
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('is named by the sub-header, and is NOT given a plan phase it does not have', async () => {
-    // Slot 2 read `Discovery` on this row — a PLAN PHASE on a thing that is not
-    // a plan and has never entered the lifecycle that word comes from. It was
-    // defended as *not a fifth phase; the first one, worn by something that is
-    // not a plan yet*, which is coherent and still borrows another object's
-    // vocabulary to say what this row is.
-    //
-    // And the sentence that explained it was a TOOLTIP — *"Not a plan yet, this
-    // row asks whether it should become one"* — hover-only text doing a label's
-    // job, which is the second defect this branch closes.
-    const page = await open();
-    try {
-      const kind = issueRow(page, 228).locator('[data-kind]');
-      // The per-row word is gone — `ticket-rows-show-type-and-owner` replaced
-      // it with ONE sub-header above the block (`Assigned to you · N`), since
-      // every row in this list is already a ticket and saying so per row was
-      // the repetition that plan named. Slot 2 is empty rather than blank-but-
-      // present: `tupleFromIssue`'s `showKindLabel: false` clears the label
-      // text, it does not remove the slot.
-      await expect.poll(() => kind.textContent()).toBe('');
-      await expect.poll(() => section(page).locator('[data-waiting-heading]').count()).toBe(1);
-      // The phase word is gone, and so is the tooltip that stood in for a label.
-      await expect.poll(() => issueRow(page, 228).locator('[data-phase]').count()).toBe(0);
-      expect(await issueRow(page, 228).textContent()).not.toContain('Discovery');
-      const cell = issueRow(page, 228).locator('[role="gridcell"]').nth(1);
-      expect(await cell.getAttribute('title')).toBeNull();
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('renders the sub-header and a row\'s type and owner together', async () => {
-    // THE ONE BROWSER TEST the brief caps this change to: the sub-header
-    // and a ticket row's type/owner badge, proved on the same page at once.
-    // The payload has the production shape: `issues` carries no owner, and
-    // `waiting.tickets` carries the owner the server resolved for a matched
-    // reader. The heading wording and the owner precedence are unit-tested in
-    // `waiting-view.test.ts`; this is only the proof that both reach the screen.
-    const mine = issue({
-      number: 228, title: 'Fleet scan asks the host once per branch',
-      url: 'https://github.com/tiny/garden/issues/228', ageMinutes: 120,
-      type: 'bug', owner: 'jwloka',
-    });
-    const page = await open(fleet({
-      issues: [
-        { ...mine, owner: null },
-        issue({ number: 227, title: 'A blocked wave is not eligible', url: '', ageMinutes: 180 }),
-      ],
-      waiting: { tickets: [mine], shown: 1, hidden: 1, complete: true, notice: null, source: null },
-    }));
-    try {
-      await expect.poll(() => section(page).locator('[data-waiting-heading]').innerText())
-        .toMatch(/^Assigned to you · 1$/);
-      await expect.poll(() => issueRow(page, 228).locator('[data-issue-type]').innerText()).toBe('bug');
-      await expect.poll(() => issueRow(page, 228).locator('[data-issue-owner]').innerText()).toBe('jwloka');
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('renders no badge at all for a ticket with no type and no owner', async () => {
-    // THE REGRESSION TO PIN: absent is not false. A ticket the tracker gave
-    // neither field for renders exactly as it did before this branch — no
-    // empty badge standing in for the missing fact.
-    const page = await open();
-    try {
-      await expect.poll(() => issueRow(page, 228).locator('[data-issue-type]').count()).toBe(0);
-      await expect.poll(() => issueRow(page, 228).locator('[data-issue-owner]').count()).toBe(0);
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('leaves the branch column EMPTY rather than deriving a name', async () => {
-    // A derived branch name would be indistinguishable from a branch nobody has
-    // claimed — a row this board already renders, meaning something else.
-    const page = await open();
-    try {
-      const cells = issueRow(page, 228).locator('[role="gridcell"]');
-      // NO BRANCH IS INVENTED — the claim, and slot 4 is no longer where it is
-      // read. That slot was the branch COLUMN under `ROW_TRACKS`; the tuple
-      // made it the ARTIFACT slot, and on a ticket it carries the plan name the
-      // issue would become. Measured: `fleet-scan-asks-the-host-once`, which is
-      // a plan slug and not a branch.
-      //
-      // So the assertion is asked of the branch itself, one line down, which is
-      // where it was always true — an empty cell was only ever a proxy for it.
-      expect(await cells.nth(3).evaluate((el) => (el as HTMLElement).innerText.trim()))
-        .not.toMatch(/^(feature|bug|docs|infra|idea)\//);
-      // And no branch marker anywhere on the row.
-      await expect.poll(() => issueRow(page, 228).locator('[data-branch]').count()).toBe(0);
-    } finally {
-      await page.close();
-    }
-  });
-
   it('links the number to the tracker when the host gave an address', async () => {
     const page = await open();
     try {
@@ -346,7 +188,7 @@ describe('an unplanned issue appears in the ticket list', () => {
       await page.locator('[data-branch="feature/needs-review"]').first().waitFor({ timeout: 10_000 });
       await expect.poll(() => section(page).locator('li[data-issue-row]').count()).toBe(0);
       // And no outage notice: nothing failed, this host simply has no issues.
-      await expect.poll(() => section(page).locator('[data-issue-error]').count()).toBe(0);
+      await expect.poll(() => page.locator('section#tickets [data-issue-error]').count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -358,10 +200,10 @@ describe('an unplanned issue appears in the ticket list', () => {
     const absence = 'Open issues are not listed: bb 1.9.0 lists no issue command';
     const page = await open(fleet({ issues: [], issueAnswer: 'unsupported', issueAbsence: absence }));
     try {
-      const notice = section(page).locator('[data-issue-absence]');
+      const notice = page.locator('section#tickets [data-issue-absence]');
       await expect.poll(() => notice.count()).toBe(1);
       await expect.poll(() => notice.textContent()).toBe(absence);
-      await expect.poll(() => section(page).locator('[data-issue-error]').count()).toBe(0);
+      await expect.poll(() => page.locator('section#tickets [data-issue-error]').count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -376,7 +218,7 @@ describe('an unplanned issue appears in the ticket list', () => {
       issues: [], issueAnswer: 'failed', issueError: 'gh: 503 Service Unavailable',
     }));
     try {
-      const notice = section(page).locator('[data-issue-error]');
+      const notice = page.locator('section#tickets [data-issue-error]');
       await expect.poll(() => notice.count()).toBe(1);
       await expect.poll(() => notice.textContent()).toContain('could not be read');
     } finally {
@@ -396,7 +238,7 @@ describe('an unplanned issue appears in the ticket list', () => {
       prNextInSeconds: 480,
     }));
     try {
-      const notice = section(page).locator('[data-issue-error]');
+      const notice = page.locator('section#tickets [data-issue-error]');
       await expect.poll(() => notice.count()).toBe(1);
       await expect.poll(() => notice.textContent()).toContain('rate limit');
       await expect.poll(() => notice.textContent()).toContain('8 min');

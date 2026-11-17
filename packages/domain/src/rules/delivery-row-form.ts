@@ -116,7 +116,6 @@ const REASON_STATUS: Record<YouReason, string> = {
   'merge-conflict': 'conflict',
   'agent-died': 'agent died',
   loose: 'loose',
-  'ticket-assigned': 'assigned',
 };
 
 /** What a You reason offers in the DO column: one verb with `›`. */
@@ -132,7 +131,6 @@ const REASON_DO: Record<YouReason, { verb: string; action: string }> = {
   'merge-conflict': { verb: 'resolve', action: 'resolve-conflict' },
   'agent-died': { verb: 'restart', action: 'restart' },
   loose: { verb: 'plan', action: 'create-plan' },
-  'ticket-assigned': { verb: 'plan', action: 'create-plan' },
 };
 
 /** The gate readings of a PR as `CI ⟳ #3234` and `review ✗`; absent where a gate was not read. */

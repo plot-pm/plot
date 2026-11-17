@@ -61,8 +61,8 @@ function boardWithCard() {
 }
 
 // A STOPPED SPEC RUN IS A PLAN-LEVEL RUN, which the placement rule does not
-// place: it renders in the trailing `Tickets and plan runs` section.
-describe('tiny-garden: a click on a plan name in Tickets and plan runs', () => {
+// place: it renders in the trailing `Plan runs` section.
+describe('tiny-garden: a click on a plan name in Plan runs', () => {
   let cat: Catalogue;
 
   beforeAll(async () => {
@@ -83,9 +83,9 @@ describe('tiny-garden: a click on a plan name in Tickets and plan runs', () => {
       over: { board: boardWithCard(), fleet: fleetWithWaitingDesignRow() },
     });
     try {
-      await page.getByText('Tickets and plan runs').waitFor({ timeout: 10_000 });
+      await page.getByText('Plan runs').waitFor({ timeout: 10_000 });
       await expandAgentFolds(page);
-      const waiting = group(page, 'Tickets and plan runs');
+      const waiting = group(page, 'Plan runs');
       const planRow = waiting.locator(`[data-plan-level-row="${PLAN}"]`);
       await expect.poll(() => planRow.count()).toBe(1);
       await planRow.getByRole('link', { name: PLAN }).click();
@@ -124,9 +124,9 @@ describe('tiny-garden: a click on a plan name in Tickets and plan runs', () => {
       },
     });
     try {
-      await page.getByText('Tickets and plan runs').waitFor({ timeout: 10_000 });
+      await page.getByText('Plan runs').waitFor({ timeout: 10_000 });
       await expandAgentFolds(page);
-      const waiting = group(page, 'Tickets and plan runs');
+      const waiting = group(page, 'Plan runs');
       const planRow = waiting.locator(`[data-plan-level-row="${PLAN}"]`);
       await expect.poll(() => planRow.count()).toBe(1);
       await planRow.getByRole('link', { name: PLAN }).click();
@@ -163,9 +163,9 @@ describe('tiny-garden: a click on a plan name in Tickets and plan runs', () => {
       },
     });
     try {
-      await page.getByText('Tickets and plan runs').waitFor({ timeout: 10_000 });
+      await page.getByText('Plan runs').waitFor({ timeout: 10_000 });
       await expandAgentFolds(page);
-      const waiting = group(page, 'Tickets and plan runs');
+      const waiting = group(page, 'Plan runs');
       const planRow = waiting.locator(`[data-plan-level-row="${PLAN}"]`);
       await expect.poll(() => planRow.count()).toBe(1);
       await planRow.getByRole('link', { name: PLAN }).click();
@@ -197,9 +197,9 @@ describe('tiny-garden: a click on a plan name in Tickets and plan runs', () => {
       },
     });
     try {
-      await page.getByText('Tickets and plan runs').waitFor({ timeout: 10_000 });
+      await page.getByText('Plan runs').waitFor({ timeout: 10_000 });
       await expandAgentFolds(page);
-      const waiting = group(page, 'Tickets and plan runs');
+      const waiting = group(page, 'Plan runs');
       const planRow = waiting.locator(`[data-plan-level-row="${PLAN}"]`);
       await expect.poll(() => planRow.count()).toBe(1);
       await planRow.getByRole('link', { name: PLAN }).click();
@@ -220,9 +220,9 @@ describe('tiny-garden: a click on a plan name in Tickets and plan runs', () => {
       over: { board: boardWithCard(), fleet: fleetWithWaitingDesignRow() },
     });
     try {
-      await page.getByText('Tickets and plan runs').waitFor({ timeout: 10_000 });
+      await page.getByText('Plan runs').waitFor({ timeout: 10_000 });
       await expandAgentFolds(page);
-      const waiting = group(page, 'Tickets and plan runs');
+      const waiting = group(page, 'Plan runs');
       const planRow = waiting.locator(`[data-plan-level-row="${PLAN}"]`);
       await expect.poll(() => planRow.count()).toBe(1);
       const link = planRow.getByRole('link', { name: PLAN });

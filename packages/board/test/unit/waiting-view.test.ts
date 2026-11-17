@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SHOW_EVERY_TICKET_LABEL, waitingView } from '../../src/app/lib/agent-rows/waiting-view.js';
+import { SHOW_EVERY_TICKET_LABEL, splitTicketRows, waitingView } from '../../src/app/lib/agent-rows/waiting-view.js';
 import type { FleetWaiting, IssueRow } from '../../src/contract/schema.js';
 
 const ticket = (number: string, assignees: string[] = []): IssueRow => ({
@@ -170,5 +170,28 @@ describe('waitingView', () => {
       const view = waitingView(waitingOf({ tickets: [ticket('1')], shown: 1 }), issues, true, keep);
       expect(view.tickets.map((t) => t.number)).toEqual(['1']);
     }
+  });
+});
+
+describe('splitTicketRows', () => {
+  const aged = (number: string, ageMinutes: number | null, over: Partial<IssueRow> = {}): IssueRow => ({ ...ticket(number), ageMinutes, ...over });
+
+  it('puts the reader\'s tickets first-class and orders both lists newest first, undated last', () => {
+    const issues = [aged('1', 50), aged('2', 10), aged('3', null), aged('4', 5)];
+    const placed = [{ id: 'ticket:1', ownership: 'mine' as const }, { id: 'ticket:2', ownership: 'mine' as const }];
+    const { assigned, others } = splitTicketRows(issues, placed);
+    expect(assigned.map((t) => t.number)).toEqual(['2', '1']);
+    expect(others.map((t) => t.number)).toEqual(['4', '3']);
+  });
+
+  it('leaves planned and closed tickets out of the others', () => {
+    const issues = [aged('1', 1, { planned: true }), aged('2', 2, { statusCategory: 'Done' }), aged('3', 3)];
+    expect(splitTicketRows(issues, []).others.map((t) => t.number)).toEqual(['3']);
+  });
+
+  it('keeps a ticket the placement filtered out of the others', () => {
+    const issues = [aged('1', 1), aged('2', 2)];
+    const { others } = splitTicketRows(issues, [], [{ id: 'ticket:1', reason: 'filtered' }]);
+    expect(others.map((t) => t.number)).toEqual(['2']);
   });
 });

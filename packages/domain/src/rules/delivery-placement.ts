@@ -1,5 +1,4 @@
 import type { Ownership } from './ownership.js';
-import { releaseOf } from './release-of.js';
 
 /**
  * The sections of the Delivery tab, top to bottom, and the groups inside the
@@ -135,8 +134,7 @@ export type YouReason =
   | 'fleet-stuck'
   | 'merge-conflict'
   | 'agent-died'
-  | 'loose'
-  | 'ticket-assigned';
+  | 'loose';
 
 export type ItemPlacement =
   | { id: string; kind: ItemKind; section: 'you'; group: YouGroup; reason: YouReason; agents: string[] }
@@ -164,8 +162,16 @@ export interface Unplaced {
   reason: 'delivered' | 'unread' | 'planned' | 'filtered';
 }
 
+/** A ticket the Tickets section holds: no plan names it and it is open. `ownership` says whose it is. */
+export interface TicketPlacement {
+  id: string;
+  ownership: Ownership;
+}
+
 export interface DeliveryPlacement {
   items: ItemPlacement[];
+  /** The tickets the Tickets section holds; no ticket is also an entry of `items`. */
+  tickets: TicketPlacement[];
   agents: AgentPlacement[];
   unplaced: Unplaced[];
 }
@@ -201,7 +207,6 @@ const youCase = (
   live: number,
   stopped: number,
 ): YouCase | null => {
-  if (item.kind === 'ticket') return item.ownership === 'mine' ? { group: 'input-to-the-fleet', reason: 'ticket-assigned' } : null;
   if (item.phase === 'draft' || item.phase === 'design') return { group: 'input-to-the-fleet', reason: 'draft-plan' };
   if (item.approvalOwed === 'plan') return { group: 'input-to-the-fleet', reason: 'plan-approval' };
   if (item.approvalOwed === 'spike') return { group: 'input-to-the-fleet', reason: 'spike-approval' };
@@ -226,7 +231,6 @@ const youCase = (
 
 /** The Work items group of an item no person must act on first, or `null` where a needed reading is absent. */
 const workGroup = (item: WorkItemReading, live: number): WorkItemGroup | null => {
-  if (item.kind === 'ticket') return 'queued';
   if (item.phase === 'draft' || item.phase === 'design') return 'queued';
   if (item.approvalOwed !== undefined) return 'queued';
   if (item.heldBy !== undefined) return 'at-a-gate';
@@ -243,22 +247,17 @@ const workGroup = (item: WorkItemReading, live: number): WorkItemGroup | null =>
 };
 
 /**
- * Why a ticket sits in no section, or `null` where it places.
+ * Why a ticket sits in no section, or `null` where the Tickets section holds it.
  *
  * A planned ticket shows through its plan, and a closed one (`delivered`) has
- * left the fleet. With the Sprint filter on, a ticket whose `releases` were never
- * read is `unread`, and one whose `releases` name no target is `filtered`.
+ * left the fleet. The Sprint filter (`input.releases`) does not apply: the
+ * Tickets section is unscoped.
  */
 const ticketUnplaced = (item: WorkItemReading, input: DeliveryInput): Unplaced['reason'] | null => {
   if (item.planned === true) return 'planned';
   if (item.delivered === true) return 'delivered';
   if (!mineAllows(input.mine, item.ownership)) return 'filtered';
-  const targets = input.releases;
-  if (targets === undefined) return null;
-  const releases = item.releases;
-  if (releases === undefined) return 'unread';
-  const row = { number: item.id, title: '', url: '', releases: [...releases] };
-  return targets.some((version) => releaseOf(row, version)) ? null : 'filtered';
+  return null;
 };
 
 const agentGroup = (agent: AgentPlacementReading): FleetGroup | null => {
@@ -276,10 +275,9 @@ const agentGroup = (agent: AgentPlacementReading): FleetGroup | null => {
  * link: an item lists the agents acting on it, and an agent carries the id of
  * its item. An agent blocks on any gate, not only on a person.
  *
- * A ticket assigned to the reader goes to You › Input to the fleet, and any
- * other ticket to Work items › Queued, unless a plan names it, it is closed, or
- * the Mine mode or the Sprint filter (`input.releases`) excludes it; each of
- * those appears in `unplaced`.
+ * A ticket goes to `tickets` and to no section of `items`, unless a plan names
+ * it, it is closed, or the Mine mode excludes it; each of those appears in
+ * `unplaced`. The Sprint filter (`input.releases`) does not apply to tickets.
  *
  * A PR or branch that no plan names, no desk or manifest holds and no fixer
  * works on is loose and goes to You › Unblock with the reason `loose`. One whose
@@ -317,6 +315,7 @@ export const placeDelivery = (readings: DeliveryReadings, input: DeliveryInput):
   }
 
   const items: ItemPlacement[] = [];
+  const tickets: TicketPlacement[] = [];
   for (const item of readings.items) {
     const acting = readings.agents.filter((a) => a.actsOn === item.id);
     const live = acting.filter((a) => a.process === 'running').length;
@@ -327,8 +326,10 @@ export const placeDelivery = (readings: DeliveryReadings, input: DeliveryInput):
       const why = ticketUnplaced(item, input);
       if (why !== null) {
         unplaced.push({ id: item.id, subject: 'item', reason: why });
-        continue;
+      } else {
+        tickets.push({ id: item.id, ownership: item.ownership });
       }
+      continue;
     }
 
     const you = youCase(item, input, live, stopped);
@@ -352,5 +353,5 @@ export const placeDelivery = (readings: DeliveryReadings, input: DeliveryInput):
     items.push({ id: item.id, kind: item.kind, section: 'work-items', group, reason: null, agents: names });
   }
 
-  return { items, agents, unplaced };
+  return { items, tickets, agents, unplaced };
 };

@@ -3,9 +3,9 @@ import { openCatalogue, board as buildBoard, expandAgentFolds, fleet as buildFle
 import { type Fleet } from '../../src/contract/schema.js';
 
 /**
- * A ticket assigned to the reader that no plan names is SEEN in You › Input to the fleet.
+ * A ticket assigned to the reader that no plan names is SEEN in the Tickets section and absent from You › Input to the fleet.
  * The placement rule is asserted in `delivery-placement.test.ts`; this proves the
- * shipped artifact renders it, and that a planned ticket does not render there.
+ * shipped artifact renders it there, and that a planned ticket renders nowhere.
  */
 const ME = 'gardener';
 const THEM = 'neighbour';
@@ -16,7 +16,7 @@ const ticket = (number: number, title: string, assignees: string[], extra: Recor
   status: 'open', statusCategory: 'To Do', assignees, ...extra,
 });
 
-describe('a ticket reaches Input to the fleet (real browser renders the shipped artifact)', () => {
+describe('a ticket reaches the Tickets section (real browser renders the shipped artifact)', () => {
   let cat: Catalogue;
 
   beforeAll(async () => {
@@ -41,7 +41,7 @@ describe('a ticket reaches Input to the fleet (real browser renders the shipped 
     } as unknown as Partial<Fleet>);
   };
 
-  it('places an unplanned assigned ticket and leaves the planned and the foreign one out', async () => {
+  it('lists an unplanned assigned ticket in Tickets, leaves the planned and the foreign one out, and keeps all of them out of You', async () => {
     const page = await cat.open('ten-rows-one-kind-each', {
       tab: 'agents',
       over: {
@@ -57,10 +57,11 @@ describe('a ticket reaches Input to the fleet (real browser renders the shipped 
     try {
       await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
       await expandAgentFolds(page);
-      const section = page.locator('[data-group="input-to-the-fleet"]');
+      const section = page.locator('section#tickets');
       await section.locator('[data-issue-row="501"]').waitFor({ timeout: 10_000 });
       expect(await section.locator('[data-issue-row="502"]').count()).toBe(0);
       expect(await section.locator('[data-issue-row="503"]').count()).toBe(0);
+      expect(await page.locator('[data-group="input-to-the-fleet"] [data-issue-row]').count()).toBe(0);
     } finally {
       await page.close();
     }
