@@ -116,7 +116,7 @@ Per slice, in slice order.
 
 ### Loose PRs
 
-- `feature/delivery-you-loose-prs` <!-- waits: feature/delivery-you-groups --> — a closed PR on an unnamed, unheld branch read as loose and placed under Unblock, with Delete and without Release, and each button's availability as a domain property <!-- builds: closed PRs as loose ends under Unblock -->
+- `feature/delivery-you-loose-prs` <!-- waits: feature/delivery-you-groups --> — a closed PR on an unnamed, unheld branch read as loose and placed under Unblock, with Delete and without Release, and each button's availability as a domain property <!-- builds: closed PRs as loose ends under Unblock --> → #3511
 
 ### Plan rows
 
