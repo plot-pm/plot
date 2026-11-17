@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { PrIndexRow } from '../src/entities/pr-index.js';
 import type { Sprint } from '../src/entities/sprint.js';
+import { workflowOfCheck } from '../src/rules/default-branch.js';
 import type { FileChange } from '../src/ports/refs.js';
 import type { RunLogLine } from '../src/ports/run-log.js';
 import {
@@ -82,6 +83,15 @@ const readings = (over: Partial<ReleasePrepareReadings> = {}): ReleasePrepareRea
   config: { requiredWorkflow: 'CI', reviewBoundMs: 3_600_000, startBudget: 3 },
   now: NOW,
   ...over,
+});
+
+describe('releaseStage — a job-form Default branch checks value', () => {
+  it('reads the workflow part, so CI/validate still matches the release PR\'s CI runs', () => {
+    const config = (requiredWorkflow: string) => ({ requiredWorkflow, reviewBoundMs: 3_600_000, startBudget: 3 });
+    const ready = releaseStage(readings());
+    expect(releaseStage(readings({ config: config(workflowOfCheck('CI/validate', 'github-actions')) }))).toBe(ready);
+    expect(releaseStage(readings({ config: config('CI/validate') }))).not.toBe(ready);
+  });
 });
 
 describe('releasePrepareNext — the release head provenance', () => {
