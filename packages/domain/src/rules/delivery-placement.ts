@@ -259,8 +259,16 @@ const looseOf = (item: WorkItemReading): 'loose' | 'not-loose' | 'unread' => {
 const mineAllows = (mode: DeliveryMine, ownership: Ownership): boolean =>
   mode === 'off' || (mode === 'strict' ? ownership === 'mine' : ownership !== 'theirs');
 
-/** The person-facing case an item meets, in the order the rule checks them; `null` when none. */
-const youCase = (
+/**
+ * The person-facing case an item meets, in the order the rule checks them.
+ *
+ * @param item - the item's reading.
+ * @param input - the `Auto-review` key and the `Correction budget`.
+ * @param live - the running agents acting on the item.
+ * @param stopped - the stopped agents acting on the item.
+ * @returns the case, or `null` where none applies. The answer ignores ownership and the Mine mode.
+ */
+export const youCaseOfItem = (
   item: WorkItemReading,
   input: DeliveryInput,
   live: number,
@@ -391,7 +399,7 @@ export const placeDelivery = (readings: DeliveryReadings, input: DeliveryInput):
       continue;
     }
 
-    const you = youCase(item, input, live, stopped);
+    const you = youCaseOfItem(item, input, live, stopped);
     if (you === null && looseOf(item) === 'unread') {
       unplaced.push({ id: item.id, subject: 'item', reason: 'unread' });
       continue;

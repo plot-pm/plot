@@ -249,7 +249,7 @@ describe('release lines', () => {
       .toEqual(['0 of 0 slices delivered · 0 held at gates · 0 blocked']);
   });
 
-  it('counts the same blocked slices when a review joins Blocks delivery', () => {
+  it('counts a slice that waits for a review as blocked, as Blocks delivery now holds it', () => {
     const rows = [
       row({ branch: 'feature/b', plan: 'p', wave: 'B', state: 'wip' }),
       row({ branch: 'feature/c', plan: 'p', wave: 'C', pr: pr({ ciChecks: 'green', plotReview: 'pending' }) }),
@@ -262,8 +262,19 @@ describe('release lines', () => {
     const reviewJoins = lines({ ...base, config: { autoReview: false, correctionBudget: 2 } });
     expect(place(deliveryMapping(input({ ...base, config: { autoReview: false, correctionBudget: 2 } }))).items
       .filter((i) => i.section === 'you' && i.reason === 'review-pr')).toHaveLength(1);
-    expect(reviewJoins[0]).toContain('· 1 blocked');
+    expect(reviewJoins[0]).toContain('· 2 blocked');
     expect(lines(base)[0]).toContain('· 1 blocked');
+  });
+
+  it('prints the same blocked count under every Mine mode', () => {
+    const base = {
+      rows: [row({ branch: 'feature/b', plan: 'p', wave: 'B', state: 'wip' })],
+      slices: [slice('B')],
+      agents: [agent({ session: 'dead', branch: 'feature/b', state: 'failed' })],
+    };
+    for (const mode of ['all', 'mine-and-unknown', 'mine'] as const) {
+      expect(lines({ ...base, mode })[0]).toContain('· 1 blocked');
+    }
   });
 
   it('keeps the slice counts alone where the index is missing', () => {
