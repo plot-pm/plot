@@ -39,10 +39,10 @@ describe('tiny-garden: the board shows the spec run (real browser renders the sh
     return page;
   }
 
-  /** The plan-level runs sit under Tickets and plan runs, outside the placement rule. */
+  /** The plan-level runs sit under Plan runs, outside the placement rule. */
   const planRuns = (page: Page) => page.locator('section[data-outside-rule]');
 
-  it('shows a going spec run and a failed one under Tickets and plan runs, with its restart command', async () => {
+  it('shows a going spec run and a failed one under Plan runs, with its restart command', async () => {
     const page = await openAgents(fleet({
       design: {
         halted: false,

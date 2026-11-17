@@ -176,10 +176,10 @@ describe('deliveryMapping tickets', () => {
   const withTickets = (tickets: DeliveryMapInput['tickets'], over: Partial<DeliveryMapInput> = {}) =>
     place(deliveryMapping(input({ tickets, ticketSource: source, ...over })));
 
-  const youIds = (p: ReturnType<typeof place>) =>
-    p.items.filter((i) => i.kind === 'ticket').map((i) => i.id);
+  // A ticket is never an item: the placement lists it in `tickets`.
+  const youIds = (p: ReturnType<typeof place>) => p.tickets.map((t) => t.id);
 
-  it('places an assigned unplanned ticket once and omits a planned one', () => {
+  it('lists an assigned unplanned ticket once in tickets and omits a planned one', () => {
     const p = withTickets([tk('1'), tk('2', { planned: true })]);
     expect(youIds(p)).toEqual(['ticket:1']);
     expect(p.unplaced.some((u) => u.id === 'ticket:2' && u.reason === 'planned')).toBe(true);
@@ -200,17 +200,10 @@ describe('deliveryMapping tickets', () => {
     expect(youIds(withTickets(undefined))).toEqual([]);
   });
 
-  it('passes releases to the rule and names an unasked reading under the filter', () => {
-    const m = deliveryMapping(input({ tickets: [tk('4')], ticketSource: source, releases: ['2.32'] }));
+  it('lists tickets whatever the sprint filter names', () => {
+    const m = deliveryMapping(input({ tickets: [tk('4'), tk('5', { releases: ['2.32.0'] })], ticketSource: source, releases: ['2.32'] }));
     expect(m.input.releases).toEqual(['2.32']);
-    const p = place(m);
-    expect(youIds(p)).toEqual([]);
-    expect(p.unplaced.some((u) => u.id === 'ticket:4' && u.reason === 'unread')).toBe(true);
-  });
-
-  it('matches a release by exact name', () => {
-    const p = withTickets([tk('5', { releases: ['2.32'] }), tk('6', { releases: ['2.32.0'] })], { releases: ['2.32'] });
-    expect(youIds(p)).toEqual(['ticket:5']);
+    expect(youIds(place(m))).toEqual(['ticket:4', 'ticket:5']);
   });
 });
 

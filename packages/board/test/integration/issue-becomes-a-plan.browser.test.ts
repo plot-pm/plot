@@ -116,17 +116,15 @@ describe('the issue row has one action, and it creates a Draft', () => {
   }
 
   // Tickets render in the Delivery tab's trailing list outside the placement rule.
-  const section = (page: Page) => page.locator('ul[role="grid"][aria-label="Tickets and plan runs"]');
+  const section = (page: Page) => page.locator('ul[role="grid"][aria-label="Tickets"]');
   const issueRow = (page: Page, n: number) => section(page).locator(`li[data-issue-row="${n}"]`);
   const button = (page: Page, n: number) => issueRow(page, n).locator(`[data-create-plan="${n}"]`);
   // THE `⋯` MENU the action now lives behind — `every-action-is-in-the-menu`.
   // *Create plan* is no longer inline in the row; it hangs in the issue row's
   // menu with the same `data-create-plan` hook, so every assertion below reaches
   // the same control once the menu is open.
-  const menuButton = (page: Page, n: number) =>
-    issueRow(page, n).locator(`[data-issue-actions="${n}"]`);
+  // The Tickets section shows the action inline in Do; there is no menu to open.
   const openMenu = async (page: Page, n: number) => {
-    await menuButton(page, n).click();
     await button(page, n).waitFor({ timeout: 10_000 });
   };
 
@@ -144,47 +142,12 @@ describe('the issue row has one action, and it creates a Draft', () => {
   const clickAnyway = (page: Page, n: number) =>
     button(page, n).dispatchEvent('click');
 
-  it('offers Create plan from the issue row menu', async () => {
+  it('offers Plan it › inline in the Do column', async () => {
     const { page } = await open();
     try {
-      // The action is behind the `⋯` now: absent until the menu opens, which is
-      // the whole point — the row says what IS, the menu says what you can DO.
-      await expect.poll(() => menuButton(page, 228).count()).toBe(1);
-      await expect.poll(() => button(page, 228).count()).toBe(0);
-      await openMenu(page, 228);
       await expect.poll(() => button(page, 228).count()).toBe(1);
-      await expect.poll(() => button(page, 228).textContent()).toContain('Create plan');
+      await expect.poll(() => button(page, 228).textContent()).toContain('Plan it');
       await expect.poll(() => button(page, 228).getAttribute('aria-disabled')).toBe(null);
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('offers Create story beside it, refused with its reason', async () => {
-    // The other half of the ticket's decision. It is OFFERED — a reader weighing
-    // an unplanned issue is choosing between a plan and a story — and it refuses,
-    // because a story is a person's decision (where it lives, whether it is
-    // wanted yet), not a board write. The reason is on the control.
-    const { page } = await open();
-    try {
-      await openMenu(page, 228);
-      const story = issueRow(page, 228).locator('[data-create-story="228"]');
-      await expect.poll(() => story.count()).toBe(1);
-      await expect.poll(() => story.getAttribute('aria-disabled')).toBe('true');
-      await expect.poll(() => story.textContent()).toContain('Create story');
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('offers Open on host in the same menu', async () => {
-    const { page } = await open();
-    try {
-      await openMenu(page, 228);
-      const openLink = issueRow(page, 228).locator('a[data-issue-open]');
-      await expect.poll(() => openLink.count()).toBe(1);
-      await expect.poll(() => openLink.getAttribute('href'))
-        .toBe('https://github.com/tiny/garden/issues/228');
     } finally {
       await page.close();
     }
@@ -234,7 +197,7 @@ describe('the issue row has one action, and it creates a Draft', () => {
       // should leave one of them behind. So re-open and prove the control came
       // back UNARMED: the arm was cancelled, not merely hidden.
       await openMenu(page, 228);
-      await expect.poll(() => button(page, 228).textContent()).toContain('Create plan');
+      await expect.poll(() => button(page, 228).textContent()).toContain('Plan it');
       await expect.poll(() => button(page, 228).getAttribute('aria-pressed')).toBe('false');
       expect(posts).toEqual([]);
     } finally {
@@ -302,10 +265,10 @@ describe('the issue row has one action, and it creates a Draft', () => {
     try {
       // AN OUTAGE IS NOT AN ANSWER: no action, and no silence either. The
       // notice is what keeps a broken lookup from passing for an empty inbox.
-      await expect.poll(() => section(page).locator('[data-issue-error]').count()).toBe(1);
+      await expect.poll(() => page.locator('section#tickets [data-issue-error]').count()).toBe(1);
       await expect.poll(() => button(page, 228).count()).toBe(0);
       expect(posts).toEqual([]);
-      const notice = await section(page).locator('[data-issue-error]').textContent();
+      const notice = await page.locator('section#tickets [data-issue-error]').textContent();
       expect(notice).toContain('could not be read');
     } finally {
       await page.close();
@@ -334,40 +297,4 @@ describe('the issue row has one action, and it creates a Draft', () => {
     }
   });
 
-  it('leaves what wave 1 renders untouched, and frees the age column', async () => {
-    // #236 settled the row's shape, and its own tests assert it. This is the
-    // one thing THIS wave could plausibly break: the action lives in the
-    // seventh track, and a row that grew a cell would shift every other one.
-    const { page } = await open();
-    try {
-      const name = issueRow(page, 228).locator('[data-issue-name]');
-      await expect.poll(() => name.locator('a').count()).toBe(0);
-      const cells = issueRow(page, 228).locator('[role="gridcell"]');
-      // STILL SEVEN — the action did not grow a cell, it moved into the one that
-      // was already there. The menu component owns the seventh track.
-      await expect.poll(() => cells.count()).toBe(8);
-      // Track 4 (0-indexed 3) is still the empty branch column.
-      // NO BRANCH IS INVENTED, and slot 4 is where the plan slug goes.
-      //
-      // This read `textContent().toBe('')` on the branch COLUMN under
-      // ROW_TRACKS. The tuple made slot 4 the ARTIFACT slot, so on a ticket it
-      // carries the plan name the issue would become — measured,
-      // `planfleet-scan-asks-the-host-once`, the `plan` being an `sr-only`
-      // column name a sighted reader never sees.
-      await expect.poll(() => cells.nth(3).evaluate((el) => (el as HTMLElement).innerText.trim()))
-        .not.toMatch(/^(feature|bug|docs|infra|idea)\//);
-      await expect.poll(() => issueRow(page, 228).locator('a[data-issue-link]').count()).toBe(1);
-      // THE AGE COLUMN RENDERS ALONE — the reported defect. Track 6 (0-indexed
-      // 5) held `1d`/`Create plan` overlapping when the button sat one track
-      // over and overflowed left; now it holds only the age.
-      await expect.poll(() => issueRow(page, 228).locator('[data-row-cell="age"]').textContent()).toBe('2h');
-      // The DO column is the menu, and it holds the glyph — not the
-      // words. The action is one click in, not spilling across the age.
-      const menuCell = issueRow(page, 228).locator('[data-row-cell="do"]');
-      await expect.poll(() => menuCell.locator('[data-issue-actions="228"]').count()).toBe(1);
-      await expect.poll(() => menuCell.textContent()).not.toContain('Create plan');
-    } finally {
-      await page.close();
-    }
-  });
 });

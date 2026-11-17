@@ -1110,7 +1110,7 @@ export function AgentList({
         const byItem = (item: PlacedItemView) => byCell(forms.items.get(item.placement?.id ?? ''));
         const slices = fleet.slices;
         const issues = fleet.issueAnswer === 'answered' ? filteredIssues : [];
-        const ticketSplit = splitTicketRows(issues, placement.tickets);
+        const ticketSplit = splitTicketRows(issues, placement.tickets, placement.unplaced);
         const scrollTo = (anchor: string) => (e: { preventDefault: () => void }) => {
           e.preventDefault();
           document.getElementById(anchor)?.scrollIntoView({ block: 'center' });

@@ -550,8 +550,7 @@ describe('the plans tab filters to my work', () => {
 /**
  * THE TICKET BLOCK SAYS WHAT IT HIDES — `the-delivery-tab-filters-by-sprint-and-owner`.
  *
- * The ticket block renders in `Tickets and plan runs`, outside the placement
- * rule. The server decides which tickets the block shows (`waiting`), and the page
+ * The tickets render in the Tickets section, outside the placement rule. The server decides which tickets the block shows (`waiting`), and the page
  * renders the domain's sentences for it. The fixture is the plan's own: 127
  * unplanned tickets, none assigned to the reader but one that is older than
  * the 50 newest, so `issues` holds 50 unassigned rows and `waiting.tickets`
@@ -595,13 +594,11 @@ describe('the ticket block says what it hides', () => {
         }),
       },
     });
-    // The tickets render in `Tickets and plan runs`, after the five sections.
-    // That section has no fold, so nothing needs opening.
-    await page.locator('section[data-outside-rule]').waitFor({ timeout: 15_000 });
+    await page.locator('section#tickets').waitFor({ timeout: 15_000 });
     return page;
   };
 
-  const everyTicketControl = (page: Page) => page.locator('[data-show-every-ticket]');
+  const everyTicketControl = (page: Page) => page.locator('button[data-tickets-show-all]');
 
   it('says how many tickets it hides and lists only the reader\'s own', async () => {
     const page = await open(withWaiting(
@@ -631,20 +628,19 @@ describe('the ticket block says what it hides', () => {
     }
   });
 
-  it('show every ticket lists the 50 newest and keeps the older assigned ticket, saying N of M', async () => {
+  it('show all lists the 50 newest unassigned tickets after the reader\'s own, and a second press hides them', async () => {
     const page = await open(withWaiting(
       { tickets: [OLD_MINE], shown: 1, hidden: 126, complete: true, notice: null, source },
       newest,
     ));
     try {
-      await everyTicketControl(page).check();
-      await expect.poll(() => page.locator('[data-waiting-showing-text]').textContent())
-        .toBe('Showing 51 of 127 open tickets.');
+      await everyTicketControl(page).click();
+      await expect.poll(() => everyTicketControl(page).getAttribute('aria-expanded')).toBe('true');
       expect(await page.getByText('Old ticket assigned to me').count()).toBe(1);
       expect(await page.getByText(FIRST_NEWEST, { exact: true }).count()).toBe(1);
 
-      await everyTicketControl(page).uncheck();
-      await expect.poll(() => page.locator('[data-waiting-showing-text]').count()).toBe(0);
+      await everyTicketControl(page).click();
+      await expect.poll(() => everyTicketControl(page).getAttribute('aria-expanded')).toBe('false');
       await expect.poll(() => page.getByText(FIRST_NEWEST, { exact: true }).count()).toBe(0);
     } finally {
       await page.close();
@@ -664,7 +660,7 @@ describe('the ticket block says what it hides', () => {
     }
   });
 
-  it('with show every ticket and Only my work on, drops another person\'s ticket and keeps an unassigned one', async () => {
+  it('with show all and Only my work on, drops another person\'s ticket and keeps an unassigned one', async () => {
     const theirs = ticket(2, 'Ticket for the neighbour', [THEM]);
     const unassigned = ticket(3, 'Ticket for nobody');
     const page = await open(withWaiting(
@@ -672,7 +668,7 @@ describe('the ticket block says what it hides', () => {
       [theirs, unassigned],
     ));
     try {
-      await everyTicketControl(page).check();
+      await everyTicketControl(page).click();
       await expect.poll(() => page.getByText('Ticket for the neighbour').count()).toBe(1);
 
       await page.locator('[data-chip^="Mine"]').click();

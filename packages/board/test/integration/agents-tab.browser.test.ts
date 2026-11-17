@@ -4757,7 +4757,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   // the halted line shows. Each count is read against the same payload without
   // `verification`: one higher proves the section counts its plan-level row,
   // and not two higher proves the halted line stays out of the count.
-  it('shows the fleet\'s verify runs as plan-level rows under Tickets and plan runs, and the halted line once', async () => {
+  it('shows the fleet\'s verify runs as plan-level rows under Plan runs, and the halted line once', async () => {
     const page = await openAgentsWithBoard(fleet({
       verification: {
         halted: true,
@@ -4774,7 +4774,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       },
     }));
     try {
-      // Plan-level runs render outside the placement rule, in Tickets and plan runs.
+      // Plan-level runs render outside the placement rule, in Plan runs.
       const waiting = page.locator('[data-outside-rule]');
       const failedRow = waiting.locator('[data-plan-level-row="plant-tomatoes"]');
       await expect.poll(() => failedRow.count()).toBe(1);
@@ -4785,7 +4785,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // The plan file comes from the board card whose slug is the row's plan.
       await expect.poll(() => failedRow.locator('a[href="/plan/2026-03-01-plant-tomatoes.md"]').count())
         .toBe(1);
-      // The rows sit under Tickets and plan runs, outside the placement rule, and no heading counts them.
+      // The rows sit under Plan runs, outside the placement rule, and no heading counts them.
       expect(await page.locator('[data-delivery-section="you"]').textContent()).not.toContain('plan run');
 
       const line = page.locator('[data-fleet-halted]');

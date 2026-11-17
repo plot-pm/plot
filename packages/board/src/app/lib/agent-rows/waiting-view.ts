@@ -116,19 +116,22 @@ export const waitingView = (
  *
  * @param tickets - the narrowed ticket list `waitingView` returned with `show all` open.
  * @param placed - `DeliveryPlacement.tickets`.
+ * @param unplaced - `DeliveryPlacement.unplaced`; a ticket it holds as `filtered` (Mine mode, another reader's) stays out of the others.
  * @returns the reader's tickets and the others, each ordered by age ascending.
  */
 export const splitTicketRows = (
   tickets: readonly IssueRow[],
   placed: readonly TicketPlacement[],
+  unplaced: readonly { id: string; reason: string }[] = [],
 ): { assigned: IssueRow[]; others: IssueRow[] } => {
   const mine = new Set(placed.filter((t) => t.ownership === 'mine').map((t) => t.id));
   const held = new Set(placed.map((t) => t.id));
+  const filtered = new Set(unplaced.filter((u) => u.reason === 'filtered').map((u) => u.id));
   const newest = (a: IssueRow, b: IssueRow): number =>
     (a.ageMinutes ?? Number.POSITIVE_INFINITY) - (b.ageMinutes ?? Number.POSITIVE_INFINITY);
   const open = (t: IssueRow): boolean => held.has(ticketItemId(t.number)) || (t.planned !== true && t.statusCategory !== 'Done');
   return {
     assigned: tickets.filter((t) => mine.has(ticketItemId(t.number))).sort(newest),
-    others: tickets.filter((t) => !mine.has(ticketItemId(t.number)) && open(t)).sort(newest),
+    others: tickets.filter((t) => !mine.has(ticketItemId(t.number)) && !filtered.has(ticketItemId(t.number)) && open(t)).sort(newest),
   };
 };

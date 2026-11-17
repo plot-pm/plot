@@ -326,9 +326,9 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
         .evaluateAll((els) => els.map((e) => (e as HTMLElement).innerText.trim()));
       expect(words.length).toBeGreaterThanOrEqual(3);
       expect(words.every(Boolean), `blank kind among: ${JSON.stringify(words)}`).toBe(true);
-      // The sub-header replacing the per-row word, present and non-blank.
+      // The Tickets header replaces the per-row word, present and non-blank.
       await expect.poll(() =>
-        page.locator('[data-waiting-heading]').innerText()).toMatch(/Open tickets · \d+/);
+        page.locator('[data-tickets-header]').innerText()).toMatch(/\d+ assigned to you with no plan/);
       // And they are the SAME SORT OF WORD on every row — the property the
       // four-meanings column failed at, where the cell read a wave name, a plan
       // phase, nothing, or a plan phase on a ticket depending on a wave count
@@ -391,13 +391,13 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // sections are what a reader scans first.
       // The conflicting branch's slice has no agent, so the rule puts it under
       // You › Unblock; the PR row is its own item at a gate; the ticket renders
-      // in `Tickets and plan runs`, outside the rule.
+      // in the Tickets section, outside the rule.
       const waiting = page.locator('ul[role="grid"][aria-label^="Unblock"]');
       expect(await waiting.locator('li[data-tuple-kind="wave"]').count()).toBe(1);
       expect(await waiting.locator('li[data-tuple-kind="pr"]').count()).toBe(0);
       const gate = page.locator('ul[role="grid"][aria-label^="At a gate"]');
       expect(await gate.locator('li[data-tuple-kind="pr"]').count()).toBe(1);
-      const tickets = page.locator('ul[role="grid"][aria-label="Tickets and plan runs"]');
+      const tickets = page.locator('ul[role="grid"][aria-label="Tickets"]');
       expect(await tickets.locator('li[data-tuple-kind="ticket"]').count()).toBe(1);
       expect(await waiting.locator('li[data-tuple-kind="ticket"]').count()).toBe(0);
       // A PLAN ROW HEADS ITS OWN GROUP, in whichever section that group falls.

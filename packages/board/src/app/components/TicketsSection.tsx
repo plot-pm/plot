@@ -50,7 +50,7 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
         Tickets
       </h2>
       {section.state !== 'rows' ? (
-        <p data-tickets-absent={section.state} className="px-3 text-sm text-slate-500 dark:text-slate-400">
+        <p data-tickets-absent={section.state} data-issue-error={section.state === 'failed' ? '' : undefined} data-issue-absence={section.state === 'unsupported' ? '' : undefined} className="px-3 text-sm text-slate-500 dark:text-slate-400">
           {props.absence !== '' ? props.absence : section.state === 'unasked' ? 'the tracker has not been read yet' : 'the tracker gave no answer'}
         </p>
       ) : (
