@@ -11,6 +11,7 @@ import {
   type ReleaseTarget,
   type ReleaseTicketReading,
   type Reader,
+  type RoleRun,
   type WorkItemReading,
 } from '@plot-pm/domain';
 import { ticketMarkOf, ticketRecordOf } from '@plot-pm/domain/rules/sprint-ticket-record';
@@ -46,6 +47,8 @@ export interface DeliveryMapInput {
   sprints?: readonly ReleaseTarget[];
   /** The issue index's `releases`, from `Fleet.releaseTickets`; absent or null reads as no ticket count. */
   releaseTickets?: ReleaseTickets | null | undefined;
+  /** The reviewer, fixer, design and verify agents the server read from the state files (`fleet.roleRuns`); absent or `null` reads as none. */
+  roleRuns?: readonly RoleRun[] | null | undefined;
 }
 
 /** What `placeDelivery` reads, and the payload rows each subject id stands for. */
@@ -60,6 +63,8 @@ export interface DeliveryMapping {
   agentsById: Record<string, RegistryAgent>;
   /** Item id → the ticket it stands for. */
   ticketsByItem: Record<string, IssueRow>;
+  /** Agent id → the state-file run it stands for; a registry agent is in `agentsById` instead. */
+  runsById: Record<string, RoleRun>;
   /** One entry per distinct target release, and the tickets the release line counts for them. */
   releases: { targets: ReleaseTarget[]; tickets: ReleaseTicketReading | null };
 }
@@ -294,19 +299,37 @@ export const deliveryMapping = (input: DeliveryMapInput): DeliveryMapping => {
   for (const row of input.rows) if (row.branch !== '') itemOfBranch.set(row.branch, itemIdOfRow(row));
 
   const agentsById: Record<string, RegistryAgent> = {};
-  const agents: AgentPlacementReading[] = input.agents.map((agent) => {
+  const agents: AgentPlacementReading[] = [];
+  // THE APPROVER HAS NO READING: no runner and no state file writes one, so a
+  // registry entry that names the role produces no row rather than a guessed one.
+  for (const agent of input.agents) {
+    if (agent.role === 'approver') continue;
     const id = agentId(agent);
     agentsById[id] = agent;
+    const startedAt = Date.parse(agent.startedAt);
     const reading: AgentPlacementReading = {
       id,
       role: agent.role ?? 'loop',
       actsOn: agent.branch === '' ? null : itemOfBranch.get(agent.branch) ?? branchItemId(agent.branch),
       blockedOn: agent.state === 'waiting' ? 'person' : null,
+      startedAt: Number.isNaN(startedAt) ? null : startedAt,
     };
     const process = processOf(agent.state);
     if (process !== undefined) reading.process = process;
-    return reading;
-  });
+    agents.push(reading);
+  }
+
+  const itemOfPr = new Map<number, string>();
+  for (const row of input.rows) if (row.pr !== null) itemOfPr.set(row.pr.number, itemIdOfRow(row));
+  const runsById: Record<string, RoleRun> = {};
+  for (const run of input.roleRuns ?? []) {
+    runsById[run.id] = run;
+    const actsOn = run.pr !== undefined
+      ? itemOfPr.get(run.pr) ?? null
+      : run.plan !== undefined && draftsByItem[draftItemId(run.plan)] !== undefined ? draftItemId(run.plan) : null;
+    // The source is a live run, so its process is running; no source says it waits.
+    agents.push({ id: run.id, role: run.role, actsOn, blockedOn: null, process: 'running', startedAt: run.startedAt });
+  }
 
   return {
     readings: { items, agents },
@@ -321,6 +344,7 @@ export const deliveryMapping = (input: DeliveryMapInput): DeliveryMapping => {
     draftsByItem,
     agentsById,
     ticketsByItem,
+    runsById,
     releases: {
       targets: releaseTargets(input.sprints ?? []),
       tickets: input.releaseTickets == null ? null : input.releaseTickets,
