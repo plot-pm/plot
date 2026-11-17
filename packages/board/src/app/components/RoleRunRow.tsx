@@ -18,7 +18,7 @@ export const RoleRunRow = ({ run, label, by }: { run: RoleRun; label: string; by
     kindLabel: KIND_LABEL.agent,
     name: { what: 'ticket', label, href: '' },
     links: [],
-    status: 'running',
+    status: run.stopped === undefined ? 'running' : 'stopped',
     age: { text: '', label: '' },
   };
   return (
@@ -26,6 +26,13 @@ export const RoleRunRow = ({ run, label, by }: { run: RoleRun; label: string; by
       tuple={tuple}
       kindChip={<RoleChip role={run.role} />}
       by={by}
+      statusExtra={run.stopped === undefined ? null : (
+        <>
+          <span data-plan-level-reason className="min-w-0 truncate text-slate-500 dark:text-slate-400">{run.stopped.reason}</span>
+          <span data-plan-level-restart className="shrink-0 truncate font-mono text-xs text-slate-400 dark:text-slate-500">{run.stopped.restart}</span>
+          <span data-plan-level-log className="shrink-0 truncate font-mono text-xs text-slate-400 dark:text-slate-500">{run.stopped.log}</span>
+        </>
+      )}
       rowAttr={{ 'data-agent-row': '', 'data-role-run': run.role }}
     />
   );

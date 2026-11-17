@@ -1,7 +1,4 @@
 import type { VerificationStatus } from '../../../contract/schema.js';
-import { tupleFromPlan } from '../tuple-row.js';
-import { TupleRowView } from '../../components/TupleRow.js';
-import type { PlanIndex } from '@plot-pm/domain';
 
 /**
  * A run the fleet makes ON A PLAN rather than on a branch — a plan, a sentence,
@@ -147,52 +144,3 @@ export const sectionCount = (
       : section === 'quiet'
         ? held.branches + (held.quiet ?? 0)
         : held.branches;
-
-/**
- * A plan-level run as a WAITING ON YOU or WORKING row: the plan's name, the
- * status word `planLevelStatus` answers, the reason, and where the payload
- * carries one, the restart command and the log path, both as plain text and
- * never as links.
- *
- * `planFile` comes from the caller, which reads it from the fleet payload
- * (`planFileFromFleet`) and then from the board card whose `slug` is the row's
- * `plan` (`planFileForSlug`). `''` renders the slug with no plan link.
- */
-export const PlanLevelRowView = (
-  { row, planFile, onOpenPlan, planIndex }: {
-    row: PlanLevelRow;
-    planFile: string;
-    onOpenPlan?: (planFile: string) => boolean;
-    /** The board's plan index — see `AgentListProps.planIndex`. */
-    planIndex?: PlanIndex;
-  },
-) => {
-  return (
-    <TupleRowView
-      tuple={tupleFromPlan({
-        plan: row.plan,
-        planFile,
-        issues: [],
-        phase: planLevelStatus(row),
-        waitingDays: null,
-      }, planIndex)}
-      onOpenPlan={onOpenPlan}
-      rowAttr={{ 'data-plan-level-row': row.plan }}
-      statusExtra={<>
-        <span data-plan-level-reason className="min-w-0 truncate text-slate-500 dark:text-slate-400">
-          {row.reason}
-        </span>
-        {row.restart && (
-          <span data-plan-level-restart className="shrink-0 truncate font-mono text-xs text-slate-400 dark:text-slate-500">
-            {row.restart}
-          </span>
-        )}
-        {row.log && (
-          <span data-plan-level-log className="shrink-0 truncate font-mono text-xs text-slate-400 dark:text-slate-500">
-            {row.log}
-          </span>
-        )}
-      </>}
-    />
-  );
-};

@@ -99,7 +99,7 @@ import {
 import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
 import { readReviewRuns } from '@plot-pm/domain/adapters/review-start/review-start-node';
 import { listFixerAttempts } from '@plot-pm/domain/adapters/fixer-attempts/fixer-attempts-file';
-import { roleRuns, type RoleRun } from '@plot-pm/domain/rules/agent-roles';
+import { roleRuns, type PlanRunsRead, type RoleRun } from '@plot-pm/domain/rules/agent-roles';
 import { fixerAttemptsFile } from '@plot-pm/domain/adapters/fixer-attempts/fixer-attempts-file';
 import { fixerInFlight } from '@plot-pm/domain/rules/fixer-attempts';
 import type { PortResult } from '@plot-pm/domain';
@@ -8475,6 +8475,11 @@ const pidAnswers = (pid: number): boolean => {
   }
 };
 
+const planRunsRead = (
+  running: readonly string[],
+  stopped: readonly { plan: string; reason: string; restart: string; log: string }[],
+): PlanRunsRead => ({ running, stopped });
+
 /**
  * The reviewer, fixer, design and verify agents, each read once from its own state file.
  *
@@ -8482,14 +8487,17 @@ const pidAnswers = (pid: number): boolean => {
  * @param now - epoch milliseconds.
  * @returns the runs; a source that cannot be read adds none and leaves the others whole.
  */
-export const readRoleRuns = async (repoRoot: string, now: number): Promise<RoleRun[]> =>
-  roleRuns({
+export const readRoleRuns = async (repoRoot: string, now: number): Promise<RoleRun[]> => {
+  const design = readDesignStatus(repoRoot);
+  const verify = readVerifyStatus(repoRoot);
+  return roleRuns({
     reviews: readReviewRuns(repoRoot, pidAnswers),
     fixers: await listFixerAttempts(repoRoot),
-    design: readDesignStatus(repoRoot),
-    verify: readVerifyStatus(repoRoot),
+    design: design === null ? null : planRunsRead(design.running, design.rows.map((row) => ({ ...row, plan: row.plan }))),
+    verify: verify === null ? null : planRunsRead(verify.running, verify.rows.map((row) => ({ ...row, plan: row.slug }))),
     now,
   });
+};
 
 export async function buildFleet(
   opts: BuildBoardOptions,
