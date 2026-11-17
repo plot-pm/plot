@@ -649,6 +649,53 @@ describe('readBranchReadings — a subject-proven branch reads the host merge (#
   });
 });
 
+// A PREREQUISITE IN ANOTHER PLAN READS THE INDEX. Measured 2026-11-17:
+// feature/delivery-tickets-section (#3492) merged and its ref was deleted, the
+// pulse read it `merged`, and feature/delivery-you-groups in another plan still
+// read `waiting` on it, because fleetd's reused listing held no MERGED row.
+describe('readBranchReadings — a waits: prerequisite reads the PR index', () => {
+  const OTHER = 'docs/plans/2026-10-02-another-plan.md';
+  const twoPlans = (): Estate => {
+    const one = estateOf(line('feature/gone'));
+    return {
+      ...one,
+      plans: [
+        ...one.plans,
+        {
+          blob: { source: 'main', path: OTHER, sha: 'p2' } as Estate['plans'][number]['blob'],
+          record: planRecord({ file: OTHER, phase: 'approved', slices: [{ name: 'next', branches: [line('feature/after', { waitsOn: ['feature/gone'] })] }] }),
+        },
+      ],
+    };
+  };
+  const listing = (rows: string) => readCarriedPrStates(`${rows}.list-complete\t1\t-\t-\n.list-arrived\t1\t-\t-\n`)!;
+  const waiter = async (input: Partial<BranchStageInput>, refs: Refs = world({ additions: { [PLAN]: 'add1', [OTHER]: 'add2' }, ancestry: { 'mg1 add1': 'no', 'mg1 add2': 'no' } })) => {
+    const answer = await readBranchReadings(refs, hostFixture({ backend: 'github' }), twoPlans(), { ...INPUT, ...input });
+    if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+    const after = answer.value.branches.find((b) => b.branch === 'feature/after')!;
+    return { pr: after.readings.waits[0]!.pr, state: branchState(after.readings) };
+  };
+
+  it('reads MERGED for a merged, refless prerequisite of another plan that the listing lacks', async () => {
+    expect(await waiter({ prs: { kind: 'listed', listing: listing('feature_other\tMERGED\t-\t-\n') }, indexMerged: new Set(['feature/gone']), indexOpen: new Set() }))
+      .toEqual({ pr: 'MERGED', state: 'open' });
+  });
+
+  it('reads MERGED over a stale OPEN listing row where the index holds no OPEN row', async () => {
+    expect(await waiter({ prs: { kind: 'listed', listing: listing('feature_gone\tOPEN\t-\t-\n') }, indexMerged: new Set(['feature/gone']), indexOpen: new Set() }))
+      .toEqual({ pr: 'MERGED', state: 'open' });
+  });
+
+  it('keeps the wait while the prerequisite is open, unmerged, or still has a ref', async () => {
+    const open = { kind: 'listed' as const, listing: listing('feature_gone\tOPEN\t-\t-\n') };
+    expect(await waiter({ prs: open, indexMerged: new Set(['feature/gone']), indexOpen: new Set(['feature/gone']) })).toEqual({ pr: 'OPEN', state: 'waiting' });
+    expect(await waiter({ prs: open, indexMerged: new Set(['feature/gone']) })).toEqual({ pr: 'OPEN', state: 'waiting' });
+    expect(await waiter({ prs: open, indexMerged: new Set(), indexOpen: new Set() })).toEqual({ pr: 'OPEN', state: 'waiting' });
+    const withRef = world({ tips: { 'feature/here': 't1', 'feature/gone': 'g1' }, additions: { [PLAN]: 'add1', [OTHER]: 'add2' } });
+    expect(await waiter({ prs: open, indexMerged: new Set(['feature/gone']), indexOpen: new Set() }, withRef)).toEqual({ pr: 'OPEN', state: 'waiting' });
+  });
+});
+
 describe('mergeWalkLimit', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
