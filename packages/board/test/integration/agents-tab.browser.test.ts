@@ -1950,9 +1950,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     });
     const page = await cat.browser.newPage();
     try {
-      // 1200px (1100 until the Fleet row grew a header and one row per agent:
-      // the collapsed document measured 1112px on CI), and the height is part of the fixture rather than a detail of
-      // it. It was 800, then 900 for a ~4px font-metric spread between CI's
+      // 2000px (1100 until the Fleet section kept Working and Blocked open with
+      // a header and one row per agent; the collapsed footer then measured
+      // 1692px on CI, and the 24 hidden rows add at least 670px above that),
+      // and the height is part of the fixture rather than a detail of it. It was 800, then 900 for a ~4px font-metric spread between CI's
       // Linux and macOS that straddled 800 and produced a test passing on one
       // platform and failing on the other for identical code.
       //
@@ -1970,7 +1971,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // The window between the two is wide, and the viewport sits in the middle
       // of it rather than on either edge — which is what makes this test about
       // the COLLAPSE rather than about how tall a row happens to render.
-      await page.setViewportSize({ width: 1280, height: 1200 });
+      await page.setViewportSize({ width: 1280, height: 2000 });
       await page.route('**/api/fleet', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(many) }));
       await page.goto(`${cat.mock.baseURL}?tab=agents`);
