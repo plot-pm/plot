@@ -13,6 +13,7 @@ import {
 } from '@plot-pm/domain';
 import {
   baseBranchFile,
+  baseRepairFile,
   buildShell,
   defaultBranchFile,
   mergerAppHeld,
@@ -24,6 +25,7 @@ import { hostForReads } from '@plot-pm/domain/adapters/host/process-host-reads';
 import { refsRemoteGit } from '@plot-pm/domain/adapters/refs/refs-remote-git';
 import { sprintScopeRef } from '@plot-pm/domain/adapters/sprint-scope-ref';
 import { liveReviewRuns } from '@plot-pm/domain/adapters/review-start/review-start-node';
+import { baseBranchRed } from '@plot-pm/domain/rules/default-branch';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { RunLogLine } from '@plot-pm/domain/ports/run-log';
 import type { RepairMergeReading } from '@plot-pm/domain/rules/repair-pr';
@@ -172,6 +174,39 @@ const repairReading = async (
 };
 
 /**
+ * Reads the repair record's merge reading of each red sprint base, once for a tick.
+ *
+ * Reads a base's record only where its reading is red and fresh
+ * ({@link baseBranchRed}), and re-asks the red commit's runs only where the
+ * record names an open row into that base, once per base.
+ *
+ * @param rows - the open rows.
+ * @param baseReadings - the tick's reading of each non-default base, by name.
+ * @param ports - the merge controller's ports.
+ * @param now - epoch milliseconds of the tick.
+ * @returns the reading of each base the exception has something to read for.
+ */
+const baseRepairReadings = async (
+  rows: readonly PrIndexRow[],
+  baseReadings: ReadonlyMap<string, DefaultBranchReading | null> | undefined,
+  ports: MergePorts,
+  now: number,
+): Promise<ReadonlyMap<string, RepairMergeReading>> => {
+  const out = new Map<string, RepairMergeReading>();
+  if (ports.baseRepair === undefined || baseReadings === undefined) return out;
+  for (const [base, reading] of baseReadings) {
+    const settled = reading?.settled;
+    if (reading === null || settled === undefined || !baseBranchRed(base, reading, now, ports.checksWaitMs)) continue;
+    const record = await ports.baseRepair(base).read();
+    if (!record.ok || record.value === null || record.value.repairPr === undefined) continue;
+    const named = rows.find((r) => r.number === record.value?.repairPr && r.base === base);
+    if (named === undefined) continue;
+    out.set(base, await readRepair({ ...ports, repair: ports.baseRepair(base) }, reading.branch, settled, named.number, 'base'));
+  }
+  return out;
+};
+
+/**
  * One tick of the merge arm over the open rows.
  *
  * Asks {@link slicePrNext} for every row, drops a row whose (PR, head) the
@@ -199,7 +234,7 @@ const repairReading = async (
  */
 export const mergeTick = async (
   rows: readonly PrIndexRow[],
-  readings: Omit<SlicePrNextReadings, 'row' | 'reviewRun' | 'reviewStarts' | 'baseReading'> & {
+  readings: Omit<SlicePrNextReadings, 'row' | 'reviewRun' | 'reviewStarts' | 'baseReading' | 'baseRepairMerge'> & {
     /** The reading kept for each non-default base among the rows, keyed by base name. */
     baseReadings?: ReadonlyMap<string, DefaultBranchReading | null>;
   },
@@ -215,11 +250,13 @@ export const mergeTick = async (
   const repairMerge = readings.repairMerge ?? (await repairReading(rows, readings.defaultBranch, ports));
   const live = liveReviewRuns(repoRoot, pidAlive, readings.now);
   const { baseReadings, ...shared } = readings;
+  const baseRepairMerges = await baseRepairReadings(rows, baseReadings, ports, readings.now);
   const rowSteps = rows.map((row) => {
     const run = live?.find((e) => e.pr === row.number) ?? null;
     const step = slicePrNext({
       ...shared,
       baseReading: baseReadings?.get(row.base ?? '') ?? null,
+      ...(baseRepairMerges.has(row.base ?? '') ? { baseRepairMerge: baseRepairMerges.get(row.base ?? '') } : {}),
       ...(repairMerge === undefined ? {} : { repairMerge }),
       row,
       reviewRun: run === null ? null : { head: run.head, pid: run.pid, startedAt: run.startedAt, live: true },
@@ -320,6 +357,7 @@ export const runAutoMergePass = async (
     scripts,
     defaultBranch: defaultBranches,
     baseBranch: (base) => baseBranchFile(opts.repoRoot, base),
+    baseRepair: (base) => baseRepairFile(opts.repoRoot, base),
     refs: { ...refs, remoteSha: remote.remoteSha },
     checksWaitMs,
     now: () => now,

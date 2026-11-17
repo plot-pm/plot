@@ -5,7 +5,8 @@ import type { DefaultBranchStore } from '../ports/default-branch.js';
 import type { Host } from '../ports/host.js';
 import type { Refs } from '../ports/refs.js';
 import type { RepairRecordStore } from '../ports/repair-record.js';
-import { EPISODE_LINE_DEPTH, mainRepairBranchOf, repairEpisode, type EpisodeReading } from '../rules/repair-pr.js';
+import { holdsApply } from '../rules/default-branch.js';
+import { EPISODE_LINE_DEPTH, mainRepairBranchOf, repairEpisode, sprintRepairBranchOf, type EpisodeReading, type RepairScope } from '../rules/repair-pr.js';
 import type { Caller } from './decision.js';
 
 /** Why recording a repair PR refused. Each ends the action: the record is unchanged. */
@@ -29,6 +30,8 @@ export interface NameRepairPrReadings {
   readonly episode: EpisodeReading;
   /** The PR as the host answers now; null where the host holds none, `unaskable` where it did not answer. */
   readonly pr: Pr | null | 'unaskable';
+  /** Whose record this is; `base` expects `bug/sprint-repair-<12 hex>`. Absent reads as the default branch's. */
+  readonly scope?: RepairScope;
 }
 
 /** What recording a repair PR answers. */
@@ -50,7 +53,8 @@ const no = (reason: NameRepairPrRefusal, detail: string): NameRepairPrOutcome =>
  * `no-last-green` where the record has no last green SHA, so the episode has
  * no repair branch; `unaskable` where the host did not answer for the PR;
  * `pr-not-open` for an unknown, merged or closed PR; `repair-branch-mismatch`
- * where the PR's head is not `bug/main-repair-<12 hex of lastGreenSha>`; and
+ * where the PR's head is not `bug/main-repair-<12 hex of lastGreenSha>`
+ * (`bug/sprint-repair-<12 hex>` for a base's record); and
  * `repair-pr-already-named` where the record already names another repair PR.
  *
  * @param readings - the caller, the record, its episode and the host's PR answer.
@@ -69,7 +73,7 @@ export const nameRepairPr = (readings: NameRepairPrReadings, pr: number): NameRe
   if (readings.episode === 'unaskable') {
     return no('unaskable', `the first-parent line of ${record.branch} could not be read, so the episode cannot be checked. Nothing was written.`);
   }
-  const branch = mainRepairBranchOf(record.lastGreenSha);
+  const branch = readings.scope === 'base' ? sprintRepairBranchOf(record.lastGreenSha) : mainRepairBranchOf(record.lastGreenSha);
   if (branch === null) {
     return no('no-last-green', 'the repair record has no last green SHA, so the episode has no repair branch to admit. Nothing was written.');
   }
@@ -90,9 +94,13 @@ export const nameRepairPr = (readings: NameRepairPrReadings, pr: number): NameRe
 /** The ports recording a repair PR needs. */
 export interface NameRepairPrPorts {
   readonly host: Pick<Host, 'prState'>;
-  readonly refs: Pick<Refs, 'firstParentLine'>;
+  readonly refs: Pick<Refs, 'firstParentLine'> & Partial<Pick<Refs, 'defaultBranch'>>;
   readonly defaultBranch: DefaultBranchStore;
   readonly repair: RepairRecordStore;
+  /** Opens the reading kept for a sprint base; with `baseRepair`, a PR into a non-default base is recorded on that base's record. */
+  readonly baseBranch?: (base: string) => DefaultBranchStore;
+  /** Opens the repair record kept for a sprint base. */
+  readonly baseRepair?: (base: string) => RepairRecordStore;
   /** Who is asking; an unattended caller is refused before any read. */
   readonly caller: Caller;
 }
@@ -133,23 +141,36 @@ export const nameRepairPrAt = async (ports: NameRepairPrPorts, pr: number): Prom
     // nameRepairPr refuses an unattended caller before it looks at any other reading.
     return refused(nameRepairPr({ caller: 'unattended', record: null, episode: 'closed', pr: null }, pr) as NameRepairPrRefused);
   }
-  const read = await ports.repair.read();
+  // With base stores wired, the PR is asked first, only to learn its base.
+  const early = ports.baseRepair !== undefined && ports.baseBranch !== undefined ? await ports.host.prState(pr) : undefined;
+  let scope: RepairScope = 'default';
+  let repairStore = ports.repair;
+  let readingStore = ports.defaultBranch;
+  if (early !== undefined && early.ok && early.value !== null && early.value.base !== '' && ports.refs.defaultBranch !== undefined) {
+    const named = await ports.refs.defaultBranch();
+    if (named.ok && !holdsApply(early.value.base, named.value)) {
+      scope = 'base';
+      repairStore = ports.baseRepair!(early.value.base);
+      readingStore = ports.baseBranch!(early.value.base);
+    }
+  }
+  const read = await repairStore.read();
   const record = read.ok ? read.value : 'unaskable';
   let episode: EpisodeReading = 'closed';
   if (record !== 'unaskable' && record !== null) {
-    const reading = await ports.defaultBranch.read();
+    const reading = await readingStore.read();
     if (!reading.ok) return refused({ reason: 'unaskable', detail: 'the default-branch reading could not be read. Nothing was written.' });
     episode = await episodeOf(ports, record, reading.value);
   }
-  const lookup = await ports.host.prState(pr);
-  const out = nameRepairPr({ caller: ports.caller, record, episode, pr: lookup.ok ? lookup.value : 'unaskable' }, pr);
+  const lookup = early ?? (await ports.host.prState(pr));
+  const out = nameRepairPr({ caller: ports.caller, record, episode, pr: lookup.ok ? lookup.value : 'unaskable', ...(scope === 'base' ? { scope } : {}) }, pr);
   if (out.outcome === 'refused') return refused(out);
-  const again = await ports.repair.read();
+  const again = await repairStore.read();
   if (!again.ok) return refused({ reason: 'unaskable', detail: 'the repair record could not be read again before the write. Nothing was written.' });
   if (again.value === null || encodeRepairRecord(again.value) !== encodeRepairRecord(record as RepairRecord)) {
     return refused({ reason: 'record-moved', detail: 'the repair record changed after it was read. Nothing was written; run the command again.' });
   }
-  const written = await ports.repair.write(out.record);
+  const written = await repairStore.write(out.record);
   if (!written.ok) return refused({ reason: 'unaskable', detail: 'the repair record could not be written. The record is unchanged.' });
   return { named: true, pr, branch: out.branch };
 };

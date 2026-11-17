@@ -180,13 +180,14 @@ export {
   defaultBranchFile,
   defaultBranchPath,
   removeBaseBranch,
+  removeBaseRepair,
 } from './default-branch/default-branch-file.js';
 export { fixerAttemptsFile, fixerAttemptsPath } from './fixer-attempts/fixer-attempts-file.js';
 export { ticketRecordFile, ticketRecordPath } from './ticket-record/ticket-record-file.js';
 
 // THE REPAIR RECORD'S FILE ADAPTER. One file under `.plot/state/`, local to
 // the machine, written by `plot-fleetd` only.
-export { repairRecordFile, repairRecordPath } from './repair-record/repair-record-file.js';
+export { baseRepairFile, repairRecordFile, repairRecordPath } from './repair-record/repair-record-file.js';
 
 // THE PASSKEY'S FILE ADAPTER. One file under `.plot/state/`, written by the
 // board's registration route; the signature check is `node:crypto`.

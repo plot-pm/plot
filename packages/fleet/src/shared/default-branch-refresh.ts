@@ -416,9 +416,11 @@ export interface BaseRefreshWorld {
   shared: Pick<DefaultBranchWorld, 'refs' | 'build' | 'slot' | 'now' | 'checksWaitMs' | 'checks'>;
   /** The reading's file for one base. */
   storeFor(base: string): DefaultBranchStore;
+  /** The repair record's file for one base; a red reading opens that base's episode there. */
+  repairFor(base: string): RepairRecordStore;
   /** The bases that hold a reading file now, or `null` where they could not be listed. */
   held(): Promise<readonly string[] | null>;
-  /** Deletes one base's reading file. Returns whether the file is gone. */
+  /** Deletes one base's reading file and its repair record. Returns whether both are gone. */
   remove(base: string): Promise<boolean>;
 }
 
@@ -428,8 +430,9 @@ export interface BaseRefreshWorld {
  *
  * Each base runs {@link refreshDefaultBranch} through a world whose `branch()`
  * is the base, whose `refs.remoteSha` answers from `tips`, and which has no
- * `record` and no `repair`: a base never touches the daemon snapshot's
- * default-branch reading and opens no repair episode. The bases run one after
+ * `record`, and whose `repair` is `world.repairFor(base)`: a base never touches
+ * the daemon snapshot's default-branch reading or the default branch's repair
+ * record, and a red reading opens an episode on its own base's record only. The bases run one after
  * another, so a base never asks concurrently with another. A base whose
  * refresh throws or ends `'unreadable'` is reported to `warn` and the next base
  * still runs. A declared check that matched no run is not reported: a sprint
@@ -470,6 +473,7 @@ export const refreshBases = async (
         firstParentLine: world.shared.refs.firstParentLine,
         remoteSha: async () => ({ ok: true, value: { sha: tips[base]! } }),
       },
+      repair: world.repairFor(base),
       store: {
         read: () => store.read(),
         write: async (reading) => {
