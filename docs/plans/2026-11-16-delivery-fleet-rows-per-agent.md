@@ -107,7 +107,7 @@ Per slice, in slice order.
 
 ### Agent roles
 
-- `feature/delivery-agent-roles` <!-- waits: feature/delivery-section-header --> — `AgentRole` widened to eight roles, the reading per role in the table, and the role chip as a domain fact and one component <!-- builds: agent roles with their readings and the role chip -->
+- `feature/delivery-agent-roles` <!-- waits: feature/delivery-section-header --> — `AgentRole` widened to eight roles, the reading per role in the table, and the role chip as a domain fact and one component <!-- builds: agent roles with their readings and the role chip --> → #3493
 
 ### Plan runs
 
