@@ -132,7 +132,6 @@ const unquotedSplit = (text: string, separator: RegExp): string[] => {
   let from = 0;
   for (let match = pattern.exec(text); match !== null; match = pattern.exec(text)) {
     const at = match.index;
-    if (match[0] === '') { pattern.lastIndex = at + 1; continue; }
     if (spans.some(([start, end]) => at >= start && at < end)) { pattern.lastIndex = at + 1; continue; }
     slices.push(text.slice(from, at));
     from = at + match[0].length;
