@@ -218,7 +218,7 @@ export function ParallelAgentsStepper({ value, readOnly = false }: { value: numb
       role="spinbutton"
       {...(readOnly ? { 'data-fleet-card-parallel-agents': '' } : { 'data-fleet-parallel-agents': '' })}
       aria-readonly={readOnly || undefined}
-      aria-label="parallel agents cap"
+      aria-label={readOnly ? 'agent limit, read-only' : 'parallel agents cap'}
       aria-valuenow={readOnly ? value : count}
       aria-valuemin={MIN_PARALLEL_AGENTS}
       aria-valuetext={`${readOnly ? value : count} agents cap`}
