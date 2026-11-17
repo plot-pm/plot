@@ -333,3 +333,49 @@ describe('deliveryMapping loose ends', () => {
     expect(place(m).items.map((i) => i.reason)).not.toContain('loose');
   });
 });
+
+describe('deliveryMapping: agent roles', () => {
+  const runs = [
+    { id: 'agent:reviewer:7:abcdef1', role: 'reviewer' as const, pr: 7, startedAt: 5 },
+    { id: 'agent:fixer:8', role: 'fixer' as const, pr: 8, startedAt: 6 },
+    { id: 'agent:design:pd', role: 'design' as const, plan: 'pd', startedAt: null },
+    { id: 'agent:verify:pv', role: 'verify' as const, plan: 'pv', startedAt: null },
+  ];
+  const registry = [
+    agent({ session: 'a-loop', branch: 'feature/x' }),
+    agent({ session: 'a-idea', role: 'idea' }),
+    agent({ session: 'a-brief', role: 'brief' }),
+  ];
+
+  it('places one agent per source with its role and no others', () => {
+    const m = deliveryMapping(input({ agents: registry, roleRuns: runs }));
+    expect(place(m).agents.map((a) => [a.id, a.role])).toEqual([
+      ['agent:a-loop', 'loop'], ['agent:a-idea', 'idea'], ['agent:a-brief', 'brief'],
+      ['agent:reviewer:7:abcdef1', 'reviewer'], ['agent:fixer:8', 'fixer'],
+      ['agent:design:pd', 'design'], ['agent:verify:pv', 'verify'],
+    ]);
+  });
+
+  it('gives a registry entry that names the approver no row', () => {
+    const m = deliveryMapping(input({ agents: [agent({ session: 'a-appr', role: 'approver' })] }));
+    expect(m.readings.agents).toEqual([]);
+    expect(place(m).agents).toEqual([]);
+  });
+
+  it('carries a null start for design and verify and the source start for the others', () => {
+    const m = deliveryMapping(input({ roleRuns: runs }));
+    const start = Object.fromEntries(m.readings.agents.map((a) => [a.role, a.startedAt]));
+    expect(start).toEqual({ reviewer: 5, fixer: 6, design: null, verify: null });
+  });
+
+  it('links a reviewer to the item of the row that holds its PR', () => {
+    const m = deliveryMapping(input({ rows: [row({ branch: 'feature/y', pr: pr({ number: 7 }) })], roleRuns: runs }));
+    const reviewer = m.readings.agents.find((a) => a.role === 'reviewer');
+    expect(reviewer?.actsOn).toBe('branch:feature/y');
+    expect(reviewer?.process).toBe('running');
+  });
+
+  it('adds no agent when the payload carries no runs', () => {
+    expect(deliveryMapping(input({ roleRuns: null })).readings.agents).toEqual([]);
+  });
+});
