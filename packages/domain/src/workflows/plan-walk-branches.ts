@@ -101,8 +101,9 @@ export interface BranchStageInput {
   /**
    * The heads the PR index holds a merged, non-draft row for. A branch with no
    * remote ref that a merge subject or a landed commit proves reads `pr`
-   * `MERGED` where its head is in the set and no `OPEN` row names it. A head
-   * absent from the set changes no reading: the index answers `MERGED` and
+   * `MERGED` where its head is in the set and no `OPEN` row names it. A
+   * `waits:` prerequisite with no remote ref reads `MERGED` on the same two
+   * conditions, in any plan. A head absent from the set changes no reading: the index answers `MERGED` and
    * never `none`. Absent, no branch reads from the index.
    */
   indexMerged?: ReadonlySet<string>;
@@ -399,6 +400,15 @@ export const readBranchReadings = async (
     return askHost(branch);
   };
   const indexMerged = input.indexMerged ?? new Set<string>();
+  // A PREREQUISITE READS THE INDEX AS ITS OWN BRANCH DOES. A refless name with
+  // a merged index row and no OPEN row reads `MERGED` over a reused listing
+  // that lacks the row or still carries a stale OPEN row; a name with a ref
+  // keeps the listing's word, so a recreated name inherits no earlier merge.
+  const waitPrFor = async (name: string): Promise<PrReading> => {
+    const listedPr = await askedPrFor(name);
+    const openRow = input.indexOpen === undefined ? listedPr === 'OPEN' : input.indexOpen.has(name);
+    return !tipOf.has(name) && !openRow && indexMerged.has(name) ? 'MERGED' : listedPr;
+  };
 
   const live = estate.plans.filter((p) => !SKIPPED_PHASES.has(p.record.phase));
   const sliceNames = namedSlices(
@@ -488,7 +498,7 @@ export const readBranchReadings = async (
         }
         const waits: WaitsReading[] = [];
         for (const name of line.waitsOn) {
-          waits.push({ branch: name, pr: await askedPrFor(name), namedSlice: sliceNames.has(name) });
+          waits.push({ branch: name, pr: await waitPrFor(name), namedSlice: sliceNames.has(name) });
         }
         // A branch with a ref answers from the list alone; a merge subject or a
         // landed commit already proves a refless one, so neither is asked.
