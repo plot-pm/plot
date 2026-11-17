@@ -91,3 +91,12 @@ describe('machineHealth', () => {
     }
   });
 });
+
+describe('machineHealth with a payload that carries no machine field', () => {
+  it('reads as not measured instead of throwing', () => {
+    const health = machineHealth(undefined);
+    expect(health.dot).toBe('grey');
+    expect(health.word).toBe('not measured');
+    expect(health.rows).toEqual([]);
+  });
+});

@@ -109,10 +109,11 @@ const strainRows = (machine: FleetMachine): readonly MachineRow[] => {
  * tenth of its limit, and no other resource. A host that has not answered reads as not asked or as an outage, never as
  * `0 left`.
  *
- * @param machine - the payload's reading, or null where the board has not measured.
+ * @param reading - the payload's reading, or null or undefined where the board has not measured (an older server sends none).
  * @param answer - `hostAnswer` of the fleet's PR age and PR error.
  */
-export const machineHealth = (machine: FleetMachine | null, answer: HostAnswer = 'answered'): MachineHealth => {
+export const machineHealth = (reading: FleetMachine | null | undefined, answer: HostAnswer = 'answered'): MachineHealth => {
+  const machine = reading ?? null;
   const { dot, word } = DOT_AND_WORD[machine?.headroom ?? 'unmeasured'];
   const line = [loadFigure(machine), hostFigure(machine, answer)].filter((part): part is string => part !== null).join(' · ');
   const strained = machine !== null && (machine.headroom === 'tight' || machine.headroom === 'starved');
