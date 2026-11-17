@@ -240,8 +240,8 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
       echo "  usage: plot-state-receipt.sh --unowned-action <dispatch|approve|deliver|release|restart> <subject> <reason>" >&2
       echo "" >&2
       echo "  The reason is required because each use names a routing gap, and a gap" >&2
-      echo "  nobody wrote down is one nobody closes. Where the board IS running, the" >&2
-      echo "  controller is the route and this is not needed." >&2
+      echo "  nobody wrote down is one nobody closes. Where the controller command" >&2
+      echo "  exists, it is the route and this is not needed." >&2
       exit 2
     fi
     # The action word, or the script name — an operator reaching for this has
@@ -271,7 +271,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     echo "plot-state-receipt: recorded an UNOWNED action — $action_script $action_subject"
     echo "  reason: $action_reason"
     echo "  This clears plot-controller-gate.sh for one run of that script. The controller"
-    echo "  is still the route: this exists for a machine running no board."
+    echo "  command is still the route: this exists where it cannot run."
     exit 0
   fi
 
@@ -284,7 +284,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     echo "  /plot-release writing 'State: Released'" >&2
     echo "" >&2
     echo "--unowned-action is the other layer: a controller-owned action run with no" >&2
-    echo "controller, for a machine running no board." >&2
+    echo "controller command, where it cannot run." >&2
     echo "" >&2
     echo "Every other State: write has a command that owns it. Use that command." >&2
     exit 2

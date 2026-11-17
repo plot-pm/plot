@@ -274,6 +274,21 @@ describe('controllerInvocation', () => {
     });
   });
 
+  describe('the approve and deliver commands are not gated', () => {
+    it.each([
+      'node skills/plot/scripts/board/plot-approve-command.mjs --who jwloka x',
+      'node skills/plot/scripts/board/plot-approve-command.mjs --spike --who jwloka x',
+      'node skills/plot/scripts/board/plot-deliver-command.mjs x',
+      'node skills/plot/scripts/board/plot-deliver-command.mjs --branch sprint/a x',
+    ])('%s answers null', (command) => {
+      expect(controllerInvocation(command)).toBeNull();
+    });
+
+    it('a glob over plot-approve*.mjs still reads as approve', () => {
+      expect(controllerInvocation('node skills/plot/scripts/board/plot-approve*.mjs x')).toBe('approve');
+    });
+  });
+
   it('answers null for a read-only script this rule does not gate', () => {
     expect(controllerInvocation('bash skills/plot/scripts/plot-fleet-scan.sh')).toBeNull();
     expect(controllerInvocation('gh pr merge 123 --squash')).toBeNull();

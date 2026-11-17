@@ -1398,8 +1398,14 @@ const userNameOf = async (ctx: Context): Promise<string> => {
   return name.ok && name.value.trim() !== '' ? name.value.trim() : 'plot';
 };
 
-// Runs only when launched as a program; a test imports `run` without starting it.
-if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+// Runs only when launched as a program; a test imports `run` without starting it,
+// and a bundle that embeds this module defines `PLOT_EMBEDDED`.
+declare const PLOT_EMBEDDED: boolean | undefined;
+if (
+  typeof PLOT_EMBEDDED === 'undefined' &&
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
+) {
   const scriptDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   void endEntry(await run(process.argv.slice(2), process.cwd(), scriptDir));
 }

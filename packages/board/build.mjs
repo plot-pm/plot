@@ -1849,6 +1849,47 @@ await esbuild.build({
 fs.copyFileSync(approveArtifact, shippedApprove);
 fs.chmodSync(shippedApprove, 0o755);
 
+// A person's `approve` and `deliver`, callable with no board running. Neither
+// name is in the controller gate's GATED set: they refuse PLOT_UNATTENDED=1
+// themselves and then run the entries above in the same process.
+const approveCommandArtifact = path.join(here, 'dist/plot-approve-command.mjs');
+const shippedApproveCommand = path.join(here, '../../skills/plot/scripts/board/plot-approve-command.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/approve-command.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: approveCommandArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+  define: { PLOT_EMBEDDED: 'true' },
+});
+
+fs.copyFileSync(approveCommandArtifact, shippedApproveCommand);
+fs.chmodSync(shippedApproveCommand, 0o755);
+
+const deliverCommandArtifact = path.join(here, 'dist/plot-deliver-command.mjs');
+const shippedDeliverCommand = path.join(here, '../../skills/plot/scripts/board/plot-deliver-command.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/deliver-command.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: deliverCommandArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+  define: { PLOT_EMBEDDED: 'true' },
+});
+
+fs.copyFileSync(deliverCommandArtifact, shippedDeliverCommand);
+fs.chmodSync(shippedDeliverCommand, 0o755);
+
 // The Draft → Design move — the same operator-command entry shape as
 // plot-approve.mjs above, with no `.sh` launcher: a person starts it from the
 // board or by hand, and no skill names a script path for it.

@@ -342,10 +342,9 @@ export const carriesSpikeFlag = (command: string): boolean =>
 
 /**
  * The refusal for a controller-owned action called with no controller receipt.
- * It names the HTTP endpoint first and the receipt escape second. Only
- * dispatch and restart have a board-free bundle to name; `approve` and `deliver` take
- * `--who`/`--release` modes the gate itself reads as a run, so the text does
- * not send the reader to them.
+ * It names the board-free command first where the action has one (`dispatch`,
+ * `approve`, `deliver`, `restart`, `release-approve`), the board's route as the
+ * button, and the receipt escape last.
  *
  * @param action - the action the command runs; `loose-delete`, `needs-design`,
  *   `supersede` and `story-status` have no receipt escape and take {@link finalControllerRefusal} instead.
@@ -367,13 +366,18 @@ export const controllerRefusal = (action: Exclude<ControllerAction, 'loose-delet
   } else if (action === 'restart') {
     lines.push(`      node ${shellQuote(`${scriptDir}/board/plot-restart-command.mjs`)} <branch>`);
     lines.push(`    which runs with no board. With the board up, ${ENDPOINT[action]} is its button.`);
+  } else if (action === 'approve' || action === 'deliver') {
+    const args = action === 'approve' ? `${spike ? '--spike ' : ''}[--who <handle>] <slug>` : '<slug>';
+    lines.push(`      node ${shellQuote(`${scriptDir}/board/plot-${action}-command.mjs`)} ${args}`);
+    lines.push('    which runs with no board and refuses PLOT_UNATTENDED=1.');
+    lines.push(`    With the board up, ${spike && action === 'approve' ? SPIKE_ENDPOINT : ENDPOINT[action]} is its button, and /plot-${action} asks it.`);
   } else {
-    lines.push(`      ${spike && action === 'approve' ? SPIKE_ENDPOINT : ENDPOINT[action]}`);
+    lines.push(`      ${ENDPOINT[action]}`);
     lines.push(`    which is the board's button, and /plot-${owner} asks it.`);
   }
   lines.push(
     '',
-    '  Or, where the board is not running and you accept the bypass, run these as TWO calls, in this order:',
+    '  Or, if you accept the bypass, run these as TWO calls, in this order:',
     `      1. bash ${shellQuote(`${scriptDir}/plot-state-receipt.sh`)} --unowned-action ${action} ${action === 'restart' ? '<branch>' : '<slug>'} "<reason>"`,
     `      2. the ${action} command you meant`,
     '    A chained `receipt && command` is checked before either runs, and is refused. The receipt stays until the',

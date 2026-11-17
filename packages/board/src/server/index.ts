@@ -399,8 +399,10 @@ async function handleRequest(
     { path: '/api/reslice', verb: 'slicing a plan', handle: handleReslice },
     // POST /api/deliver — a fully-merged plan is delivered.
     //
-    // The same class of route as /api/reslice, and the same binding: it spawns a
-    // plot agent (`/plot-deliver`) that flips a plan's phase on this disk. It is
+    // The same class of route as /api/reslice, and the same binding: with an
+    // `Idea command` it spawns a plot agent (`/plot-deliver`) that flips a plan's
+    // phase on this disk; with none it runs `plot-deliver.mjs` itself, and the
+    // merge check is then the only check. It is
     // SLUG-scoped — it acts on the plan the Testing card already names — and it
     // asks the plan's own slices (through `plot-plan-meta.sh`, against the pulse
     // the board renders from) whether every non-deferred branch has merged before

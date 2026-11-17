@@ -27,6 +27,7 @@ import {
   composeDeliverPrompt,
   deliverability,
   deliverAvailability,
+  DELIVER_BUNDLE,
   deliverPromptPath,
   handleDeliver,
   type Deliverability,
@@ -129,6 +130,7 @@ async function post(
     check?: (() => Deliverability);
     host?: string;
     runner?: string;
+    scripts?: DeliverDeps['scripts'];
   },
 ): Promise<Captured> {
   const { res, got } = response();
@@ -136,6 +138,7 @@ async function post(
     config: (_o, key, fallback) =>
       key === 'Idea command' ? (opts.command ?? 'true') : key === 'Agent runner' && opts.runner ? opts.runner : fallback,
     check: () => (opts.check ? opts.check() : { verdict: 'deliverable' }),
+    ...(opts.scripts ? { scripts: opts.scripts } : {}),
   };
   await handleDeliver(
     request(opts.body ?? { slug: SLUG }),
@@ -196,22 +199,27 @@ describe('the prompt says verify-then-deliver, deliver-not-release, and move the
 describe('an action that cannot work is not offered', () => {
   const refusal = (got: Captured): DeliverRefusal => got.body.reason as DeliverRefusal;
 
-  it('refuses when no Idea command is configured, rather than doing nothing', async () => {
+  it.each(['', 'none'])('with Idea command %j a deliverable plan runs plot-deliver.mjs, not an agent', async (command) => {
     const dir = repo();
-    const got = await post({ repoRoot: dir, command: '' });
-    assert.equal(refusal(got), 'no-deliver-command');
-    // The refusal NAMES THE FIX. A board that accepted the click and silently
-    // did nothing is this repo's recurring defect wearing a button.
-    assert.match(String(got.body.detail), /Idea command/);
-    assert.ok(!fs.existsSync(deliverPromptPath(dir, SLUG)), 'nothing may be written');
+    mergedPlan(dir);
+    const start = vi.fn();
+    const got = await post({ repoRoot: dir, command, scripts: { start } });
+    assert.equal(got.status, 202);
+    assert.equal(got.body.slug, SLUG);
+    assert.equal(start.mock.calls.length, 1);
+    assert.equal(start.mock.calls[0][0], DELIVER_BUNDLE);
+    assert.deepEqual(start.mock.calls[0][1], [SLUG]);
+    // No prompt: no agent reads one, and `none` is never run as a command.
+    assert.ok(!fs.existsSync(deliverPromptPath(dir, SLUG)), 'no prompt is written for the script arm');
   });
 
-  it('never runs the `none` sentinel as a command', async () => {
+  it('with no Idea command a plan with an open branch refuses and starts nothing', async () => {
     const dir = repo();
-    const got = await post({ repoRoot: dir, command: 'none' });
-    // `none` is the repo's established "we do this by hand" answer. Running it
-    // would spawn `none: command not found` and log that as the reason.
-    assert.equal(refusal(got), 'no-deliver-command');
+    mergedPlan(dir);
+    const start = vi.fn();
+    const got = await post({ repoRoot: dir, command: '', scripts: { start }, check: () => ({ verdict: 'not-merged' }) });
+    assert.equal(refusal(got), 'not-deliverable');
+    assert.equal(start.mock.calls.length, 0);
   });
 
   it('refuses a plan with an unmerged branch — #350\'s gate, not weakened', async () => {
