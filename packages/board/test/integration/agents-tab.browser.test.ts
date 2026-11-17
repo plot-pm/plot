@@ -3893,7 +3893,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents(fleet({ prAgeSeconds: 111, prNextInSeconds: 0 }));
     try {
       const { body } = await machineSection(page);
-      expect(body).toContain('none');
+      expect(body).toContain('not measured');
       expect(body).not.toContain('not checked yet');
       // The age is the footer's job, and it is still doing it.
       await page.getByText(/PR data 11\ds ago/).waitFor({ timeout: 10_000 });
