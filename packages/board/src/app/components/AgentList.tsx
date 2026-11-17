@@ -137,8 +137,10 @@ import {
   type PlacedItemView,
   type PlanBlockView,
   type SliceBlockView,
+  type UnplacedView,
 } from '../lib/agent-rows/delivery-view.js';
 import { shrinkNote } from '../lib/agent-rows/actions.js';
+import { footerFact, unplacedDetails } from '../lib/agent-rows/footer-fact.js';
 import { hostAnswer, issueNote, prStatusEntry, scanHostNote } from '../lib/agent-rows/host-notes.js';
 import { machineHealth, type MachineDot, type MachineHealth } from '../lib/agent-rows/machine-health.js';
 import { rowKey } from '../lib/agent-rows/row-identity.js';
@@ -607,6 +609,9 @@ export function AgentList({
   // back, the effect re-runs and resets the count, so a recovered view ticks
   // from the payload that just arrived rather than from where the frozen one
   // left off.
+  const [showUnplaced, setShowUnplaced] = useState(false);
+  // Set while the sections render, read by the footer below them: one `notPlaced` array feeds the count and the list.
+  let unplacedForFooter: UnplacedView[] = [];
   const [tick, setTick] = useState(0);
   useEffect(() => {
     setTick(0);
@@ -1118,6 +1123,7 @@ export function AgentList({
         });
         const placement = placeDelivery(mapping.readings, mapping.input);
         const view = placeMapping(mapping, fleet.slices);
+        unplacedForFooter = view.notPlaced;
         // THE SEVEN COLUMNS' BY CELL AND THE HELD-GROUP HEADERS — domain properties, rendered here.
         const forms = rowFormsOf(mapping, placement, Date.now());
         const switches = switchesOf(fleet);
@@ -1525,17 +1531,14 @@ export function AgentList({
                 </section>
               );
             })}
-            {view.notPlaced.length > 0 && (
-              <section data-unplaced className="px-3 pt-2">
+            {view.notPlaced.length > 0 && showUnplaced && (
+              <section id="unplaced-details" data-unplaced className="px-3 pt-2">
                 <p className="text-xs text-amber-600 dark:text-amber-500">
-                  {view.notPlaced.length} {view.notPlaced.length === 1 ? 'subject' : 'subjects'} not placed —
-                  shown here, in no section, because the reading the rule needs is missing.
+                  Shown here, in no section, because the reading the rule needs is missing.
                 </p>
                 <ul className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  {view.notPlaced.map((u) => (
-                    <li key={u.id} data-unplaced-row data-unplaced-reason={u.reason}>
-                      {u.label} — {u.note}
-                    </li>
+                  {unplacedDetails(view.notPlaced).map((d, i) => (
+                    <li key={d.id} data-unplaced-row data-unplaced-reason={view.notPlaced[i]?.reason}>{d.text}</li>
                   ))}
                 </ul>
                 {view.notPlaced.some((u) => u.rows.length > 0) && (
@@ -1586,44 +1589,56 @@ export function AgentList({
           Each age now carries a countdown beside it, because the two readings
           answer different questions and the pair is the point: how old is this,
           and when does it change. */}
-      <p className="px-3 text-xs text-slate-400 dark:text-slate-600">
-        {/* Counted from the ROWS, not from `summary`: the pulse summarises the
-            branches plans name, and the list also shows open PRs no plan
-            claims. Reading the summary here said "8 branches across 3 plans"
-            under twelve visible rows. */}
-        {fleet.rows.length} branches across{' '}
-        {new Set(fleet.rows.map((r) => r.plan).filter(Boolean)).size} plans
-        {/* THE COUNT IS OF WHAT ARRIVED, and while the scan is still running
-            that is not the same as the count of what there is. The scan takes
-            18 s on 84 branches against a 5 s cadence, so this window is most of
-            the time — and "8 branches across 3 plans" stated flatly during it
-            is a measurement of the scan's progress wearing the shape of a
-            measurement of the fleet.
-
-            The rows themselves are NOT qualified: each one is fully derived
-            from its plan and its refs, and is exactly as true now as it will be
-            when the scan ends. Only the TOTAL is provisional, so only the total
-            says so. */}
-        {!fleet.complete && ' so far'}
-        {/* `fleet.readRefAge`, not `fleet.ageSeconds`: this dates the last
-            SUCCESSFUL fetch of the ref, so it keeps counting up while fetches
-            fail rather than resetting on every finished scan. Null — no fetch
-            has ever succeeded — omits the age entirely rather than printing
-            `0s ago` for a scan that never refreshed the ref.
-
-            `tick` stops while stale, so this age freezes rather than ageing
-            against a scan that is not happening — the defect itself, since an
-            age that keeps climbing is the most confident-looking part of a dead
-            page. The word says so too: a number that has stopped moving is
-            indistinguishable from a slow one until it is labelled. */}
-        {fleet.readRefAge !== null && (
-          <> · scanned {fleet.readRefAge + tick}s ago{stale && ' (frozen)'}</>
-        )}
-        {gitNext !== null && ` · next in ${gitNext}s`}
-        {fleet.prAgeSeconds !== null && ` · PR data ${fleet.prAgeSeconds + tick}s ago`}
-        {fleet.prAgeSeconds !== null && prNext !== null && ` · next in ${prNext}s`}
-        {fleet.prAgeSeconds === null && !fleet.prError && ' · no PR data yet'}
-      </p>
+      {(() => {
+        // Counted from the ROWS, not from `summary`: the pulse lists branches plans name and open PRs no plan claims.
+        const fact = footerFact({
+          boardAgeSeconds: fleet.readRefAge === null ? null : fleet.readRefAge + tick,
+          pollSeconds,
+          boardNextSeconds: gitNext,
+          prAgeSeconds: fleet.prAgeSeconds === null ? null : fleet.prAgeSeconds + tick,
+          prIntervalMs: fleet.prIntervalMs,
+          prNextSeconds: prNext,
+          prError: Boolean(fleet.prError),
+          frozen: stale,
+          complete: fleet.complete,
+          branches: fleet.rows.length,
+          plans: new Set(fleet.rows.map((r) => r.plan).filter(Boolean)).size,
+          notPlaced: unplacedForFooter,
+        });
+        const np = fact.notPlaced;
+        const dotClass: Record<string, string> = {
+          fresh: 'text-emerald-500', aging: 'text-amber-500', stale: 'text-rose-500', unknown: 'text-slate-400',
+        };
+        return (
+          <>
+            <p data-footer-line className="px-3 text-xs text-slate-400 dark:text-slate-600">
+              {fact.freshness.map((e) => (
+                <span key={e.key} data-freshness={e.key} data-freshness-state={e.state}>
+                  <span role="img" aria-label={e.word} className={dotClass[e.state]}>●</span>{' '}
+                  <span aria-hidden="true">{e.word}</span> · {e.text}
+                  {e.next !== null && ` · ${e.next}`} ·{' '}
+                </span>
+              ))}
+              {fact.counts}
+              {np !== null && (
+                <>
+                  {' '}· {np.text} ·{' '}
+                  <button
+                    type="button"
+                    data-unplaced-toggle
+                    aria-expanded={showUnplaced}
+                    aria-controls="unplaced-details"
+                    onClick={() => setShowUnplaced((on) => !on)}
+                    className="underline decoration-dotted underline-offset-2 hover:text-slate-600 dark:hover:text-slate-400"
+                  >
+                    details
+                  </button>
+                </>
+              )}
+            </p>
+          </>
+        );
+      })()}
       {/* This IS the view-status line, and it stays here: it answers *how fresh
           is what I see?* and it is always true, so it belongs at the foot where
           the eye lands after the rows rather than in the StatusPanel, whose
