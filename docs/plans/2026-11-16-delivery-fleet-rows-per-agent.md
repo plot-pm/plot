@@ -14,6 +14,7 @@
 - **Rounds:** 2
 - **Approved:** 2026-11-17, Jan Wloka, plan-PR #3469 merged
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-agent-roles`
+- **Started:** 2026-11-17, Jan Wloka, `feature/delivery-fleet-plan-runs`
 
 ## Changelog
 
