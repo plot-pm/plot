@@ -175,6 +175,14 @@ describe('repairRoleOf', () => {
     r.finish();
   });
 
+  it("starts with the definition's tools as --allowedTools", async () => {
+    const r = rig({ definition: DEFINITION.replace('model: opus', 'model: opus\ntools:\n  - Read\n  - Write\n  - Bash') });
+    expect(await repairRoleOf(r.deps).startRole(BRANCH)).toBe('started');
+    expect(r.fragments[0]).toContain("--allowedTools 'Read,Write,Bash'");
+    expect(r.fragments[0]!.indexOf('--allowedTools')).toBeLessThan(r.fragments[0]!.indexOf('--settings'));
+    r.finish();
+  });
+
   it('starts nothing where the role files are not on the default branch', async () => {
     const r = rig({ files: false });
     expect(await repairRoleOf(r.deps).startRole(BRANCH)).toBe('failed');

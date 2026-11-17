@@ -113,7 +113,7 @@ export const repairRoleOf = (deps: RepairRoleDeps) => {
       return 'failed';
     }
     const role: RoleAgentRef = { name: 'main-repair', agentsFile: files.agentsFile, settingsFile: files.settingsFile };
-    const command = roleCommand(role, files.maxTurns);
+    const command = roleCommand(role, files.maxTurns, files.tools);
     if (command.read === 'refused') {
       deps.warn(`plot-fleetd: repair-start held — ${command.why}`);
       return 'failed';

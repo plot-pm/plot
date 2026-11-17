@@ -438,6 +438,17 @@ describe('fixerTick', () => {
     expect(runRequests[0]!.fragment).toContain(path.join(repoRoot, '.plot', 'state', 'fixer', '7', 'settings.json'));
   });
 
+  it("starts with the definition's tools as --allowedTools", async () => {
+    const { repoRoot, scriptsDir } = fixture();
+    const roleText = '---\ndescription: Fixes one review finding.\ntools:\n  - Read\n  - Write\n  - Bash\nmaxTurns: 7\n---\n\nFix the finding.\n';
+    const runRequests: NonNullable<WorldOptions['runRequests']> = [];
+    const [result] = await fixerTick([highRow], baseReadings, { repoRoot, scriptsDir }, world({ runRequests, roleText }));
+    expect(result!.started).toEqual({ started: true, pid: 9001 });
+    const fragment = runRequests[0]!.fragment;
+    expect(fragment).toContain("--allowedTools 'Read,Write,Bash'");
+    expect(fragment.indexOf('--allowedTools')).toBeLessThan(fragment.indexOf('--settings'));
+  });
+
   it('fetches the default branch before it reads the role file', async () => {
     const { repoRoot, scriptsDir } = fixture();
     const loads: string[] = [];
