@@ -109,7 +109,7 @@ describe('NOT STARTED draws no plan head for rows no plan names', () => {
     // plan's own figures.
     const page = await open();
     try {
-      const heading = page.getByRole('heading', { name: /Queued/i }).first();
+      const heading = page.locator('h3[data-delivery-group="queued"]');
       await heading.waitFor({ timeout: 5_000 });
       await expect.poll(() => heading.textContent()).toContain('(1 plan · 2 slices · 2 branches)');
     } finally {

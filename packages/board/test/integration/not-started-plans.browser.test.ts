@@ -547,7 +547,7 @@ describe('NOT STARTED renders one row per plan', () => {
     // count states the scope the reader reaches by expanding every head.
     const page = await open();
     try {
-      const heading = page.getByRole('heading', { name: /Input to the fleet/i }).first();
+      const heading = page.locator('h3[data-delivery-group="input-to-the-fleet"]');
       await heading.waitFor({ timeout: 5_000 });
       const planRows = section(page).locator('li[data-plan-row]');
       await expect.poll(() => planRows.count()).toBe(3);
