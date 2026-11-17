@@ -13,6 +13,7 @@
 - **Approved:** 2026-11-16, Jan Wloka, plan-PR #3323 merged
 - **Started:** 2026-11-16, Jan Wloka, `bug/red-hold-index-base`
 - **Started:** 2026-11-16, Jan Wloka, `bug/red-hold-reads-the-pr-base`
+- **Started:** 2026-11-17, Jan Wloka, `bug/red-hold-base-readings`
 
 ## Changelog
 
