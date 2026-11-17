@@ -84,7 +84,7 @@ Per slice, in slice order.
 
 ### Machine line
 
-- `feature/delivery-machine-line` <!-- waits: feature/delivery-tickets-section --> — headroom, 1-minute load, cores and host budget on the payload from a reading cached for 60 s, the one-line Machine header with its dot and word from `Headroom`, and the strained body of limiting resources with their effects <!-- builds: a Machine health verdict with limiting resources -->
+- `feature/delivery-machine-line` <!-- waits: feature/delivery-tickets-section --> — headroom, 1-minute load, cores and host budget on the payload from a reading cached for 60 s, the one-line Machine header with its dot and word from `Headroom`, and the strained body of limiting resources with their effects <!-- builds: a Machine health verdict with limiting resources --> → #3496
 
 ### Footer
 
