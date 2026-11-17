@@ -11,7 +11,10 @@ import {
   refsGit,
   refsRemoteGit,
   buildShell,
+  baseBranchFile,
+  baseBranchNames,
   defaultBranchFile,
+  removeBaseBranch,
   repairRecordFile,
   scriptsShell,
   treesGit,
@@ -141,7 +144,7 @@ import { runDeskRelay } from '../../shared/desk-relay.js';
 import { runIndexMonitor, sliceBranchesAtTip, sliceBranchesOf } from '../../shared/index-monitor.js';
 import { fleetIssues, fleetIssueWrites, freshIssueState, issueGateOf } from '../../shared/issue-refresh.js';
 import { freshPrState, withHostSlot } from '../../shared/pr-refresh.js';
-import { refreshOnChange } from '../../shared/default-branch-refresh.js';
+import { refreshBases, refreshOnChange } from '../../shared/default-branch-refresh.js';
 import { createSnapshotHolder, failUnread, readOf, registryEntryOf, type RecordReading, type SnapshotHolder } from '../../shared/snapshot-fill.js';
 import type { RegistryEntry, RepoSnapshot } from '@plot-pm/domain/entities/snapshot';
 import { freshScanState, planDirectory } from '../../shared/fleet-scan.js';
@@ -3373,6 +3376,9 @@ export const run = async (
   // where `tipMoved` changed or the re-ask rule is due, and the runs only when
   // the SHA moved or the re-ask rule is due.
   const ci = await buildShell({ repoRoot, scriptDir: scriptsDir }, readsApi);
+  // The last answered listing, set by the default branch's tip read and taken by
+  // the per-base pass that follows it; `null` where no read answered this pass.
+  let sprintTips: Readonly<Record<string, string>> | null = null;
   const defaultBranchWorld = args.once
     ? null
     : {
@@ -3386,7 +3392,23 @@ export const run = async (
           return base.ok ? base.value : null;
         },
         refs: {
-          remoteSha: refsRemoteGit({ repoRoot, scriptDir: scriptsDir }).remoteSha,
+          // THE COMBINED LISTING: one `ls-remote` serves the default branch's
+          // tip and every `sprint/*` tip, and it is read only where this call
+          // is reached, which an idle pass never does.
+          remoteSha: async (branch: string) => {
+            const listed = await refsRemoteGit({ repoRoot, scriptDir: scriptsDir }).remoteTips(branch);
+            if (!listed.ok) {
+              sprintTips = null;
+              return listed;
+            }
+            if (listed.value === 'unknown') {
+              sprintTips = null;
+              return { ok: true as const, value: 'unknown' as const };
+            }
+            const sha = listed.value.tips[branch];
+            sprintTips = listed.value.tips;
+            return { ok: true as const, value: sha ? { sha } : ('unknown' as const) };
+          },
           firstParentLine: refsGit({ repoRoot, scriptDir: scriptsDir }).firstParentLine,
         },
         build: ci,
@@ -3431,11 +3453,35 @@ export const run = async (
     ? null
     : refreshOnChange(defaultBranchWorld, tipMoved, warnDefaultBranchOnce);
   const readDefaultBranch = seams.readDefaultBranch ?? (async (): Promise<void> => {
-    if (refreshDefault === null) return;
+    if (refreshDefault === null || defaultBranchWorld === null) return;
+    sprintTips = null;
     try {
       await refreshDefault();
     } catch (e) {
       warn(`plot-fleetd: default-branch read failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    // EACH `sprint/*` BASE IS READ WHERE THE DEFAULT BRANCH READ ITS TIP: a pass
+    // that asked nothing leaves `sprintTips` null and starts no process. A sprint
+    // tip that moves while `origin/<default>` does not is read when the default
+    // branch's reading is next due, at most once per half `Checks wait`.
+    if (sprintTips === null) return;
+    const tips = sprintTips;
+    try {
+      await refreshBases(
+        {
+          shared: defaultBranchWorld,
+          storeFor: (base) => baseBranchFile(repoRoot, base),
+          held: async () => {
+            const names = await baseBranchNames(repoRoot);
+            return names.ok ? names.value : null;
+          },
+          remove: async (base) => (await removeBaseBranch(repoRoot, base)).ok,
+        },
+        tips,
+        warnDefaultBranchOnce,
+      );
+    } catch (e) {
+      warn(`plot-fleetd: base-branch read failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   });
   // THE CHANNEL IS THE LOOP'S ALONE: `--once` opens no socket, which would

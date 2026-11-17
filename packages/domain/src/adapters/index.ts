@@ -174,7 +174,13 @@ export {
 
 // THE DEFAULT-BRANCH READING'S FILE ADAPTER. One file under `.plot/state/`,
 // written by `plot-fleetd` only.
-export { baseBranchFile, defaultBranchFile, defaultBranchPath } from './default-branch/default-branch-file.js';
+export {
+  baseBranchFile,
+  baseBranchNames,
+  defaultBranchFile,
+  defaultBranchPath,
+  removeBaseBranch,
+} from './default-branch/default-branch-file.js';
 export { fixerAttemptsFile, fixerAttemptsPath } from './fixer-attempts/fixer-attempts-file.js';
 export { ticketRecordFile, ticketRecordPath } from './ticket-record/ticket-record-file.js';
 

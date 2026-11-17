@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
@@ -98,4 +98,53 @@ export const baseBranchFile = (repoRoot: string, base: string): DefaultBranchSto
       }
     },
   };
+};
+
+/**
+ * Names the base branches that hold a reading file.
+ *
+ * Walks `.plot/state/base-branches/` and returns each `<base>.json` path
+ * relative to it, without the extension: `sprint/x` for `sprint/x.json`.
+ * Temporary `.tmp` files are not names.
+ *
+ * @param repoRoot - the repository the files belong to.
+ * @returns the names, or `failed` where the directory could not be read; a
+ *   missing directory answers an empty list.
+ */
+export const baseBranchNames = async (repoRoot: string): Promise<PortResult<readonly string[]>> => {
+  const root = join(repoRoot, '.plot', 'state', 'base-branches');
+  const walk = async (dir: string, prefix: string): Promise<string[]> => {
+    const names: string[] = [];
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) names.push(...(await walk(join(dir, entry.name), `${prefix}${entry.name}/`)));
+      else if (entry.name.endsWith('.json')) names.push(`${prefix}${entry.name.slice(0, -'.json'.length)}`);
+    }
+    return names;
+  };
+  try {
+    return answered(await walk(root, ''));
+  } catch (error) {
+    if ((error as { code?: string }).code === 'ENOENT') return answered<readonly string[]>([]);
+    return failed<readonly string[]>();
+  }
+};
+
+/**
+ * Deletes the reading file of one base branch, and only that file.
+ *
+ * The directory that held it stays. A base with an empty, `.` or `..` segment
+ * has no file and is refused.
+ *
+ * @param repoRoot - the repository the file belongs to.
+ * @param base - the base branch whose reading is removed.
+ * @returns `answered` where the file is gone or never existed, `failed` otherwise.
+ */
+export const removeBaseBranch = async (repoRoot: string, base: string): Promise<PortResult<void>> => {
+  if (!validBase(base)) return failed<void>();
+  try {
+    await rm(baseBranchPath(repoRoot, base), { force: true });
+    return answered(undefined);
+  } catch {
+    return failed<void>();
+  }
 };

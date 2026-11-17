@@ -20,6 +20,7 @@ import type {
   Refs,
   RemoteHeadAnswer,
   RemoteShaReading,
+  RemoteTipsReading,
   StagedEntry,
   StagedPath,
   TreeBlob,
@@ -1256,6 +1257,7 @@ export const refsGit = (
     remoteTip: async () => unaskable<RemoteTipReading>(),
     fetchRemoteHead: async () => unaskable<RemoteHeadAnswer>(),
     remoteSha: async () => unaskable<RemoteShaReading>(),
+    remoteTips: async () => unaskable<RemoteTipsReading>(),
   };
   return self;
 };
