@@ -79,7 +79,7 @@ Per slice, in slice order.
 
 ### Tickets section
 
-- `feature/delivery-tickets-section` <!-- waits: feature/delivery-section-header --> — the Tickets section with its header, Plan it rows, "… n more" and **show all**, every ticket row moved into it from You and Work items, and the plan runs kept in their own block <!-- builds: the Tickets section as triage target -->
+- `feature/delivery-tickets-section` <!-- waits: feature/delivery-section-header --> — the Tickets section with its header, Plan it rows, "… n more" and **show all**, every ticket row moved into it from You and Work items, and the plan runs kept in their own block <!-- builds: the Tickets section as triage target --> → #3492
 
 ### Machine line
 
