@@ -929,7 +929,8 @@ const EXPECTED_FILES = 92;
 // 684 → 685 on 2026-11-18: the one `it(` that shows the to-do list above the cards, added to `delivery-tab-sections.browser.test.ts`. Added, not moved.
 // 685 → 686 on 2026-11-18: the one `it(` that shows the release card above Work items and anchors its to-do line, added to `release-approve.browser.test.ts`. Added, not moved.
 // 686 → 688 on 2026-11-18: the one `it(` that checks the My sprint toggle switches the status card and the rows, added to `delivery-filters.browser.test.ts`, and the one that checks the My sprint chip is disabled while the reader owns no Active sprint, added to `agents-tab.browser.test.ts`. Added, not moved.
-const EXPECTED_TESTS = 688;
+// 688 → 689 on 2026-11-18: the one `it(` the Delivery tab footer adds to `fleet-read-ref-age.browser.test.ts`, for the line without a path and the details button. Added, not moved.
+const EXPECTED_TESTS = 689;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

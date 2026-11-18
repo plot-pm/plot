@@ -282,6 +282,8 @@ describe('a plan row shows plan status only', () => {
     // and the rule places the slice nowhere. It is shown, with the reason, and carries no verdict.
     const page = await open();
     try {
+      // The list sits behind the footer's details button.
+      await page.getByRole('button', { name: 'details' }).click();
       const unplaced = page.locator('section[data-unplaced]');
       await unplaced.waitFor({ timeout: 10_000 });
       await expect.poll(() => unplaced.locator('[data-unplaced-row]').allTextContents())
