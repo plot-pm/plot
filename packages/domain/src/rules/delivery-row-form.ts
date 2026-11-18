@@ -18,6 +18,13 @@ import { FIXER_ATTEMPTS_BUDGET } from './fixer-attempts.js';
 export const ROW_COLUMNS = ['kind', 'item', 'where', 'status', 'do', 'by', 'age'] as const;
 export type RowColumn = (typeof ROW_COLUMNS)[number];
 
+/** The five columns of a You row, in the order they render. Every You row is the reader's, so there is no By column. */
+export const YOU_COLUMNS = ['kind', 'item', 'status', 'do', 'age'] as const;
+export type YouColumn = (typeof YOU_COLUMNS)[number];
+
+/** The header of each You column. */
+export const YOU_COLUMN_LABELS: Record<YouColumn, string> = { kind: 'Kind', item: 'Item', status: 'Status', do: 'Do', age: 'Age' };
+
 /** What a cell link points at. Each kind of target is one kind of place on the tab or the host. */
 export type LinkTarget =
   | { to: 'plan'; plan: string; slice: string | null }
@@ -98,6 +105,8 @@ export interface ItemRowFacts {
   question?: string;
   /** Minutes in this state. */
   ageMinutes?: number;
+  /** Interrogation rounds a Draft plan records; absent where it records none. */
+  rounds?: number;
   /** Merged PR numbers of a plan in Testing. */
   mergedPrs?: number[];
   /** The agents acting on the item, in `placement.agents` order; absent where none were read. */
@@ -785,4 +794,41 @@ export const deliveryRowForms = (
   const agents = new Map<string, AgentRowCells>();
   for (const p of placement.agents) agents.set(p.id, agentRowCells(p, agentFacts(p.id)));
   return { items, agents };
+};
+
+/** One You row: the cells of `YOU_COLUMNS`. */
+export type YouRowCells = Record<YouColumn, Cell | null>;
+
+/**
+ * The Status value of a You item: the item's state in words.
+ *
+ * @param reason - why the item is in You.
+ * @param facts - the item's row facts; `rounds` words a Draft plan's interrogation.
+ */
+export const youStatusText = (reason: YouReason, facts: ItemRowFacts): string => {
+  if (reason === 'draft-plan') {
+    const rounds = facts.rounds;
+    return `${facts.phase === 'design' ? 'Design' : 'Draft'} · ${rounds === undefined ? 'not interrogated' : rounds === 1 ? '1 round' : `${rounds} rounds`}`;
+  }
+  if (reason === 'loose') return 'loose · no plan, nobody works on it';
+  return REASON_STATUS[reason];
+};
+
+/**
+ * The cells of a You row in `YOU_COLUMNS`. Status holds the item's state and
+ * Do holds the verb with `›`.
+ *
+ * @param placement - what `placeDelivery` returned for the item.
+ * @param facts - the names and numbers the links point at.
+ * @returns the cells, or `null` where the item is not in You or has no row shape.
+ */
+export const youRowCells = (placement: ItemPlacement, facts: ItemRowFacts): YouRowCells | null => {
+  if (placement.section !== 'you') return null;
+  const row = itemRowCells(placement, facts);
+  if (row === null) return null;
+  const base = youStatusText(placement.reason, facts);
+  const status = row.status === null || row.status.value === REASON_STATUS[placement.reason]
+    ? { value: base, links: [] }
+    : { ...row.status, value: row.status.value.replace(REASON_STATUS[placement.reason], base) };
+  return { kind: row.kind, item: row.item, status, do: row.do, age: row.age };
 };

@@ -1254,7 +1254,7 @@ export function AgentList({
               )]
             : []),
           ...(item.draft !== null
-            ? [<DraftPlanRowView key={`draft-${item.draft.plan}`} draft={item.draft} onOpenPlan={onOpenPlan} planIndex={planIndex} />]
+            ? [<DraftPlanRowView key={`draft-${item.draft.plan}`} draft={item.draft} card={cardForPlanFile?.(item.draft.planFile) ?? null} onOpenPlan={onOpenPlan} planIndex={planIndex} />]
             : []),
           ...itemTail(item),
         ];
@@ -1600,7 +1600,7 @@ export function AgentList({
                             aria-label={`${group.label} — agent branches`}
                             className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40"
                           >
-                            <HeaderRow statusName={group.column ?? 'Status'} />
+                            <HeaderRow statusName={group.column ?? 'Status'} youColumns={section.key === 'you'} />
                             {group.blocks.flatMap(blockBody)}
                             {group.agents.length > 0 && <FleetAgentHeader blocked={group.key === 'blocked'} />}
                             {group.agents.flatMap(agentBody)}

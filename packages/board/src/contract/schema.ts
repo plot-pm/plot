@@ -266,6 +266,15 @@ export { STORY_LIFECYCLE } from '@plot-pm/domain';
 export type { StoryStatus, StoryStanding } from '@plot-pm/domain';
 
 /**
+ * The open questions a plan carries, from `planOpenQuestions`. Absent where the plan
+ * has neither an `### Open Questions` nor an `## Open Points` heading: absent is not 0.
+ */
+export const OpenQuestionsSchema = z.object({
+  count: z.number().int().nonnegative().default(0),
+  first: z.string().nullable().default(null),
+});
+
+/**
  * Slice state condensed to the numbers a board tile can show — from TWO sources,
  * deliberately, and the split is the whole point.
  *
@@ -596,6 +605,8 @@ export const CardSchema = z.object({
    * question whether a plan has one branch or nine.
    */
   sliceSummary: SliceSummarySchema.optional(),
+  /** The plan's open questions; absent where it names no such heading. Carried on the card as `rounds` is. */
+  openQuestions: OpenQuestionsSchema.optional(),
   /**
    * Where this plan's branches are checked out on THIS machine — one entry per
    * branch that has a local worktree, in the pulse's own order.
@@ -4335,6 +4346,7 @@ export const DraftPlanSchema = z.object({
   planFile: z.string(),
   title: z.string().default(''),
   rounds: z.number().optional(),
+  openQuestions: OpenQuestionsSchema.optional(),
   /** The tracker keys the plan answers, as `CardSchema.issues` carries them. */
   issues: z.array(z.string()).default([]),
   /**
