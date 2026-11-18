@@ -1223,13 +1223,13 @@ export function AgentList({
         );
         // The loose-branch actions and the links to the agents acting on it.
         const itemTail = (item: PlacedItemView) => [
-          // A loose BRANCH can be released or deleted; a loose PR has neither action (release
-          // refuses any branch with a PR, delete refuses an open one), so it shows none.
-          item.placement?.section === 'you' && item.placement.reason === 'loose' && item.rows[0]?.pr === null ? (
+          // `looseActions` follows the controllers: Delete for a branch or a closed PR, Release for a
+          // branch with no PR only, neither for an open PR (`loose-delete` refuses it, release refuses any PR).
+          item.placement?.section === 'you' && item.placement.reason === 'loose' && (item.looseActions.delete || item.looseActions.release) ? (
             <li key={`loose-${item.anchor}`} role="row" data-loose-actions className="flex gap-3 px-3 pb-1">
               <span role="gridcell" className="flex gap-3">
-                <ReleaseClaimButton branch={item.rows[0].branch} />
-                <LooseDeleteButton branch={item.rows[0].branch} />
+                {item.looseActions.release ? <ReleaseClaimButton branch={item.rows[0]!.branch} /> : null}
+                {item.looseActions.delete ? <LooseDeleteButton branch={item.rows[0]!.branch} /> : null}
               </span>
             </li>
           ) : null,

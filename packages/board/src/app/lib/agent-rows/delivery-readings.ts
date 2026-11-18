@@ -189,6 +189,9 @@ export const reviewOf = (pr: NonNullable<AgentRow['pr']>): PrFacts['review'] => 
 const hasOpenPr = (row: AgentRow): boolean =>
   row.pr !== null && row.state !== 'merged' && row.pr.state !== 'closed' && row.pr.open !== false;
 
+const isClosedPr = (rows: readonly AgentRow[]): boolean =>
+  rows.every((r) => r.pr !== null && r.state !== 'merged' && (r.pr.state === 'closed' || r.pr.open === false));
+
 const ownershipOfRows = (rows: readonly AgentRow[], reader: Reader): Ownership => {
   const readings = rows.map((row) => ownership(ownedFromRow(row), reader));
   if (readings.includes('mine')) return 'mine';
@@ -215,6 +218,11 @@ const looseOf = (rows: readonly AgentRow[], manifests: ReadonlySet<string>): Wor
   if (holds) loose.held = true;
   else if (rows.every((r) => r.desk === false)) loose.held = false;
   if (first.pr === null) return loose;
+  // No fixer runs on a closed PR, so the server reads none; the PR's state is the answer.
+  if (isClosedPr(rows)) {
+    loose.closed = true;
+    return loose;
+  }
   const fixing = rows.find((r) => r.fixerInFlight !== undefined)?.fixerInFlight;
   if (fixing === undefined) return undefined;
   loose.fixing = fixing;

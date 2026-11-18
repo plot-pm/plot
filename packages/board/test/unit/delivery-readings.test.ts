@@ -328,6 +328,26 @@ describe('deliveryMapping loose ends', () => {
     expect(loose([row({ ...open, fixerInFlight: false })])).toMatchObject({ fixing: false });
   });
 
+  it('reads a closed PR as closed with no fixer record, and an open PR with none as unread', () => {
+    const base = { branch: 'feature/x', kind: 'pr', ...wip, desk: false };
+    expect(loose([row({ ...base, pr: pr({ state: 'closed' }) })])).toEqual({ named: false, held: false, closed: true });
+    expect(loose([row({ ...base, pr: pr({ ciChecks: 'green' }) })])).toBeUndefined();
+  });
+
+  it('places a closed PR under Unblock, and not where a plan names it or a desk holds it', () => {
+    const place1 = (over: Record<string, unknown>) =>
+      place(deliveryMapping(input({ rows: [row({ branch: 'feature/x', kind: 'pr', pr: pr({ state: 'closed' }), ...wip, desk: false, ...over })] }))).items[0];
+    expect(place1({})).toMatchObject({ section: 'you', group: 'unblock', reason: 'loose' });
+    expect(place1({ plan: 'p', wave: 'A' })).not.toMatchObject({ reason: 'loose' });
+    expect(place1({ desk: true })).not.toMatchObject({ reason: 'loose' });
+  });
+
+  it('lists a closed PR whose desk was not read as unplaced', () => {
+    const p = place(deliveryMapping(input({ rows: [row({ branch: 'feature/x', kind: 'pr', pr: pr({ state: 'closed' }), ...wip, desk: undefined })] })));
+    expect(p.items).toEqual([]);
+    expect(p.unplaced).toContainEqual({ id: 'branch:feature/x', subject: 'item', reason: 'unread' });
+  });
+
   it('places a loose wip branch under You > Unblock and a held one elsewhere', () => {
     const place1 = (over: Record<string, unknown>, agents: RegistryAgent[] = []) =>
       place(deliveryMapping(input({ rows: [row({ branch: 'feature/x', ...wip, ...over })], agents }))).items[0];
