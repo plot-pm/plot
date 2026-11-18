@@ -3218,6 +3218,7 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs, served?: Boar
     branchUrlBase: urlBase,
     issueUrlBase: issueBase,
     phaseMapRefusal,
+    phaseMap: phaseMap.map((entry) => ({ name: entry.name, plan: [...entry.plan], story: [...entry.story] })),
     // WHERE THE PLANS ABOVE CAME FROM. Reported on every board, not only a
     // broken one: "these came from origin/main" is a fact a reader needs stated
     // rather than inferred from the absence of a warning, and its absence is

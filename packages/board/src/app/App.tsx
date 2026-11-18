@@ -1462,6 +1462,8 @@ export function App() {
             <AgentList
               fleet={fleet}
               ticketFacts={ticketFacts}
+              phaseMap={board?.phaseMap}
+              stories={board ? (board.storyLanes ?? []).filter((l) => l.lane === 'Draft' || l.lane === 'Active').flatMap((l) => l.stories) : []}
               pollSeconds={FLEET_POLL_MS / 1000}
               staleSeconds={fleetStaleSeconds}
               onOpenPlan={onOpenPlanFile}
