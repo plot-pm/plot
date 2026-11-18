@@ -1,7 +1,6 @@
 import {
   DELIVERY_LAYOUT,
   countSliceStates,
-  isStuckReason,
   oldestWaitsClause,
   WORK_GROUP_COLUMN,
   workGroupCountText,
