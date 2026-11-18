@@ -7,15 +7,14 @@ import { startFleetd } from './fleetd-driver.js';
 import { buildSandbox, type Sandbox } from './sandbox.js';
 import { BITBUCKET_ROUTE } from './stub-host.js';
 
-// A Bitbucket repository with `CI: jenkins` reads its plain states in-process
-// and its rich open read through `plot-host.sh pr-list --state open --rich`,
-// because only the shell overlays Jenkins colours on the checks. The census
-// P10 row runs on a fixture with no `CI` key and so cannot see the split. This
-// file runs fleetd untraced against a `CI: jenkins` fixture and counts the
-// requests the stub `bb` and the stub server answer. A Bitbucket open listing is
-// the same HTTP request whether it is rich or plain, so the server's count cannot
-// tell the two apart; the shell's `bb api` open reads are the proof that the rich
-// read left the process.
+// A Bitbucket repository with `CI: jenkins` reads every listing in-process,
+// the rich open read included, because fleetd holds a Jenkins client and
+// overlays the CI colours itself. This file runs fleetd untraced against a
+// `CI: jenkins` fixture and counts the requests the stub `bb` and the stub
+// server answer. A Bitbucket open listing is the same HTTP request whether it
+// is rich or plain, so the server's count cannot tell the two apart; the
+// shell's `bb api` open reads, which stay at zero, are the proof that the rich
+// read stayed in the process.
 
 /** The stub `bb api` calls naming the open state, which only an open read sends. */
 const bbOpenReads = (box: Sandbox): number =>
@@ -49,21 +48,22 @@ afterAll(async () => {
 });
 
 describe.skipIf(gate.kind !== 'run')('fleetd on bitbucket with CI: jenkins', () => {
-  it('reads the rich open pull requests through the shell', () => {
+  it('starts no stub bb open read', () => {
     expect(box).toBeDefined();
     if (box === undefined) return;
-    expect(bbOpenReads(box)).toBeGreaterThan(0);
+    expect(bbOpenReads(box)).toBe(0);
   });
 
-  it('reads the other states in-process', () => {
+  it('reads the open pull requests in-process', () => {
     if (box === undefined) return;
-    const bitbucketRequests = (box.api?.requests() ?? []).filter((r) => r.path.startsWith(`${BITBUCKET_ROUTE}/`));
-    expect(bitbucketRequests.length).toBeGreaterThan(0);
+    const openRequests = (box.api?.requests() ?? []).filter((r) => r.path.startsWith(`${BITBUCKET_ROUTE}/`) && r.path.includes('pullrequests'));
+    expect(openRequests.length).toBeGreaterThan(0);
   });
 
-  it('logs the transport, the Jenkins reason and the credential source at start', () => {
-    expect(started.log.filter((l) => l.includes('host reads:'))).toEqual([
-      'plot-fleetd: host reads: in-process (the git host is bitbucket; CI is jenkins, so the rich open read stays on the shell; token from environment)',
-    ]);
+  it('logs the in-process transport and the credential source at start', () => {
+    const lines = started.log.filter((l) => l.includes('host reads:'));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/host reads: in-process \(.*Jenkins reads: in-process \(credentials from [^)]+\)\)/);
+    expect(lines[0]).not.toContain('stays on the shell');
   });
 });
