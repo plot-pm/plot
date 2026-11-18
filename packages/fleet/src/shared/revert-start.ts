@@ -189,11 +189,17 @@ export const repairRevertTick = async (
 
   let pickerAnswer: RedMainPickerAnswer = 'unknown';
   if (inRevertWindow) {
-    const candidates = await Promise.all(record.candidates.map((c) => world.candidate(c)));
-    const read = candidates.filter((c): c is RedMainCandidate => c !== null);
-    if (read.length !== candidates.length) {
-      warn('plot-fleetd: revert held — a candidate commit could not be read');
-      return 'held';
+    // Oldest first, stopping at the first candidate that is not green: the
+    // picker never looks past it, so reading further costs calls for nothing.
+    const read: RedMainCandidate[] = [];
+    for (const commit of [...record.candidates].reverse()) {
+      const found = await world.candidate(commit);
+      if (found === null) {
+        warn('plot-fleetd: revert held — a candidate commit could not be read');
+        return 'held';
+      }
+      read.unshift(found);
+      if (found.runs !== 'green') break;
     }
     pickerAnswer = redMainPicker(read);
   }
@@ -201,7 +207,7 @@ export const repairRevertTick = async (
   let lastGreenRerunSettled: 'pending' | 'green' | 'red' | 'none' = 'none';
   if (record.state === 'reverting' && record.preRevertRerun === 'asked' && record.lastGreenSha !== undefined && reading !== null) {
     const lastGreen = record.lastGreenSha;
-    const asked = await world.slot(() => world.build.runsForSha(reading.branch, lastGreen));
+    const asked = await world.slot(() => world.build.runsForSha(reading.branch, lastGreen, world.checks));
     lastGreenRerunSettled = lastGreenRerunSettledOf(record, asked.ok ? asked.value : null, world.checks, now);
   }
 
@@ -257,7 +263,7 @@ export const repairRevertTick = async (
     return (await moved(world, record, 'reverting', { preRevertRerun: 'asked' })) ? 'rerun-asked' : 'held';
   }
 
-  if (pickerAnswer === 'unknown') return 'held';
+  if (pickerAnswer === 'unknown' || pickerAnswer === 'hold') return 'held';
   return makeRevert(world, record, reading, pickerAnswer.pr, warn);
 };
 
@@ -339,10 +345,9 @@ const makeRevert = async (
   if (open === null) {
     if (onMain.value === 'no') return exhaust(world, record, `${breaking.sha} is no longer on ${ref}`);
     if (already.value) return exhaust(world, record, `${breaking.sha} is already reverted on ${ref}`);
-    const asks = [record.firstRedSha];
-    if (reading.settled !== undefined && reading.settled.sha !== record.firstRedSha) asks.push(reading.settled.sha);
+    const asks = [...new Set([record.firstRedSha, breaking.sha, ...(reading.settled !== undefined ? [reading.settled.sha] : [])])];
     for (const sha of asks) {
-      const runs = await world.slot(() => world.build.runsForSha(reading.branch, sha));
+      const runs = await world.slot(() => world.build.runsForSha(reading.branch, sha, world.checks));
       if (!runs.ok || foldRuns(declaredRuns(runs.value, world.checks)) !== 'red') {
         warn(`plot-fleetd: revert held — ${sha} does not read red on a second look`);
         return 'held';

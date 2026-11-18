@@ -23,7 +23,7 @@ import {
   repairRecordFile,
   type MergerAppReader,
 } from '@plot-pm/domain/adapters';
-import { hostForReads } from '@plot-pm/domain/adapters/host/process-host-reads';
+import { apiForReads, hostForReads } from '@plot-pm/domain/adapters/host/process-host-reads';
 import { refsRemoteGit } from '@plot-pm/domain/adapters/refs/refs-remote-git';
 import { sprintScopeRef } from '@plot-pm/domain/adapters/sprint-scope-ref';
 import { liveReviewRuns } from '@plot-pm/domain/adapters/review-start/review-start-node';
@@ -395,7 +395,9 @@ export const runAutoMergePass = async (
     requireReading: true,
     caller: 'fleetd',
     repair: repairRecordFile(opts.repoRoot),
-    build: await buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+    // The composed client reads a `<workflow>/<job>` check's jobs; the script
+    // reads none, so the repair exception would fold the red commit `unknown`.
+    build: await buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }, apiForReads(context)),
     checks: checkNamesOf(readConfig(opts, 'Default branch checks', '')),
     mergeChecks: checkNamesOf(readConfig(opts, 'Merge checks', '')),
     plotPaths,

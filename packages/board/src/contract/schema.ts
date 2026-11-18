@@ -266,6 +266,15 @@ export { STORY_LIFECYCLE } from '@plot-pm/domain';
 export type { StoryStatus, StoryStanding } from '@plot-pm/domain';
 
 /**
+ * The open questions a plan carries, from `planOpenQuestions`. Absent where the plan
+ * has neither an `### Open Questions` nor an `## Open Points` heading: absent is not 0.
+ */
+export const OpenQuestionsSchema = z.object({
+  count: z.number().int().nonnegative().default(0),
+  first: z.string().nullable().default(null),
+});
+
+/**
  * Slice state condensed to the numbers a board tile can show — from TWO sources,
  * deliberately, and the split is the whole point.
  *
@@ -596,6 +605,8 @@ export const CardSchema = z.object({
    * question whether a plan has one branch or nine.
    */
   sliceSummary: SliceSummarySchema.optional(),
+  /** The plan's open questions; absent where it names no such heading. Carried on the card as `rounds` is. */
+  openQuestions: OpenQuestionsSchema.optional(),
   /**
    * Where this plan's branches are checked out on THIS machine — one entry per
    * branch that has a local worktree, in the pulse's own order.
@@ -1506,6 +1517,15 @@ export const BoardSchema = z.object({
    * value draws the default map, and the board shows this text above the columns.
    */
   phaseMapRefusal: z.string().nullable().default(null),
+  /**
+   * The declared phases in declared order: the parsed `Workflow phases` map, or the default map where the key is absent or refused.
+   * The Delivery tab's You header names its phase strip from it. `[]` for an older server, which the client reads as the default map.
+   */
+  phaseMap: z.array(z.object({
+    name: z.string(),
+    plan: z.array(z.string()),
+    story: z.array(z.string()),
+  })).default([]),
   sprints: z.array(SprintCardSchema),
   stories: z.array(StoryCardSchema),
   /**
@@ -4335,6 +4355,7 @@ export const DraftPlanSchema = z.object({
   planFile: z.string(),
   title: z.string().default(''),
   rounds: z.number().optional(),
+  openQuestions: OpenQuestionsSchema.optional(),
   /** The tracker keys the plan answers, as `CardSchema.issues` carries them. */
   issues: z.array(z.string()).default([]),
   /**
@@ -4560,6 +4581,12 @@ export const FleetShape = z.object({
    */
   slices: z.array(SliceSchema).default([]),
   summary: FleetReadingSchema.shape.summary,
+  /**
+   * The Fleet header's figure: today's finished-run output tokens, with the
+   * other three counters in `title`. `text` is `—` where the spend record could
+   * not be read: absent is not zero. Built by `fleetTokensFigure`.
+   */
+  tokensToday: z.object({ text: z.string(), title: z.string() }).strict().default({ text: '—', title: '' }),
   /**
    * How many branches cannot move, and in which of the four ways.
    *

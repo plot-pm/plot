@@ -18,7 +18,7 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
 - **Worker bound:** 28800
 - **Checks wait:** 3600
 - **Main repair bound:** 3600
-- **Default branch checks:** CI
+- **Default branch checks:** CI/validate
 - **Merge checks:** validate
 <!-- Seconds a single prompt run may take before the worker loop ends it — the
      FLOOR under the reading, not the reading itself. Since 2026-08-30 a worker

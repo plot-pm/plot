@@ -64,6 +64,7 @@ export const itemRowFactsOf = (mapping: DeliveryMapping, id: string): ItemRowFac
   else if (reading?.waitsOn !== undefined) facts.waitsOn = reading.waitsOn;
   if (reading?.phase === 'draft' || reading?.phase === 'design') facts.phase = reading.phase;
   if (reading?.approvalOwed !== undefined) facts.approvalOwed = reading.approvalOwed;
+  if (draft?.rounds !== undefined) facts.rounds = draft.rounds;
   const owner = ownerOf(rows, draft);
   if (owner !== '') {
     const person = resolvePerson(owner, mapping.directory ?? {});

@@ -53,6 +53,8 @@ const rig = (
   let slots = 0;
   let broken = false;
   let firstParents: readonly string[] = [];
+  let rangeCommits: Record<string, readonly { sha: string; tree: string; subject: string; forward: boolean }[]> = {};
+  let rangeFails = false;
   const failing = new Set<string>();
   const askedShas: string[] = [];
   const byRun: Record<string, WorkflowShaRun[]> = {};
@@ -76,6 +78,8 @@ const rig = (
       remoteSha: async () =>
         refsFixture({ remoteTips: tipSha === null ? {} : { main: tipSha } }).remoteSha('main'),
       firstParentLine: (sha, max) => refsFixture({ firstParentLine: firstParents }).firstParentLine(sha, max),
+      firstParentCommits: (range) =>
+        refsFixture({ firstParentCommitLists: rangeCommits, failing: rangeFails ? ['firstParentCommits'] : [] }).firstParentCommits(range),
     },
     build: {
       system: () => 'github-actions',
@@ -119,6 +123,12 @@ const rig = (
     },
     line: (shas) => {
       firstParents = shas;
+    },
+    range: (range, commits) => {
+      rangeCommits = { ...rangeCommits, [range]: commits };
+    },
+    failRange: (on) => {
+      rangeFails = on;
     },
     failOn: (sha) => {
       failing.add(sha);
@@ -523,6 +533,42 @@ describe('refreshDefaultBranch — the repair record', () => {
     expect(r.repair()).toMatchObject({ branch: 'main', state: 'idle', firstRedSha: 'r1' });
     expect(r.repair()?.lastGreenSha).toBeUndefined();
     expect(warnings.some((line) => line.includes('no last green SHA'))).toBe(true);
+  });
+
+  it('writes the commits of lastGreenSha..firstRedSha as candidates, newest first, without a forward merge', async () => {
+    const r = rig(green('g1'));
+    r.tip('r1');
+    r.runs('r1', [run('ci', 'failure')]);
+    r.range('g1..r1', [
+      { sha: 'r1', tree: 't', subject: 'B (#3)', forward: false },
+      { sha: 'f1', tree: 't', subject: 'Merge main', forward: true },
+      { sha: 'm1', tree: 't', subject: 'A (#1)', forward: false },
+    ]);
+    await refreshDefaultBranch(r.world);
+    expect(r.repair()?.candidates).toEqual([
+      { sha: 'r1', subject: 'B (#3)' },
+      { sha: 'm1', subject: 'A (#1)' },
+    ]);
+  });
+
+  it('keeps no candidates, and warns, where the range cannot be read', async () => {
+    const r = rig(green('g1'));
+    r.tip('r1');
+    r.runs('r1', [run('ci', 'failure')]);
+    r.failRange(true);
+    const warnings: string[] = [];
+    await refreshDefaultBranch(r.world, (line) => warnings.push(line));
+    expect(r.repair()?.candidates).toEqual([]);
+    expect(warnings.some((line) => line.includes('could not be read'))).toBe(true);
+  });
+
+  it('keeps no candidates where there was no previous reading', async () => {
+    const r = rig(null);
+    r.tip('r1');
+    r.runs('r1', [run('ci', 'failure')]);
+    r.range('g1..r1', [{ sha: 'r1', tree: 't', subject: 'B (#3)', forward: false }]);
+    await refreshDefaultBranch(r.world);
+    expect(r.repair()?.candidates).toEqual([]);
   });
 
   it('writes no record where the settled part stays red across a refresh', async () => {
@@ -945,6 +991,7 @@ const baseRig = (held: readonly string[] | null = []): BaseRig => {
       refs: {
         remoteSha: async () => ({ ok: true, value: 'unknown' }),
         firstParentLine: async () => ({ ok: true, value: [] }),
+        firstParentCommits: async () => ({ ok: true, value: [] }),
       },
       build: {
         system: () => 'github-actions',
