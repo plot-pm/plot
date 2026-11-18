@@ -439,12 +439,12 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
     + placement.unplaced.filter((u) => u.subject === 'item' && u.id.startsWith('slice:')).length;
   const slicesDelivered = delivered.filter((u) => u.id.startsWith('slice:')).length;
   const held = placement.items.filter((p) => p.section === 'work-items' && p.group === 'at-a-gate').length;
-  // The five-state Blocked count reads the items, not the You placement, so a reader's Mine mode does not move it.
+  // The five-state Blocked count reads every row's items, not the You placement or the Mine-narrowed items, so a reader's Mine mode does not move it.
   const blocked = countSliceStates(
-    mapping.readings.items
+    mapping.wholeReadings.items
       .filter((i) => i.id.startsWith('slice:'))
       .map((i) => ({ id: i.id, merge: i.delivered === true ? 'merged' as const : 'open' as const })),
-    mapping.readings,
+    mapping.wholeReadings,
     mapping.input,
   ).blocked;
   const sliceLine = `${slicesDelivered} of ${slicesTotal} slices delivered · ${held} held at gates · ${blocked} blocked`;

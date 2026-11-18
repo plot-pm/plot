@@ -103,6 +103,8 @@ const loopGateOf = (
 /** What `placeDelivery` reads, and the payload rows each subject id stands for. */
 export interface DeliveryMapping {
   readings: DeliveryReadings;
+  /** The readings of every row, before the Mine mode narrows them; the five-state slice counts read these. */
+  wholeReadings: DeliveryReadings;
   input: DeliveryInput;
   /** Item id → the branch rows it holds, in payload order. A draft plan holds none. */
   rowsByItem: Record<string, AgentRow[]>;
@@ -394,6 +396,7 @@ const mapReadings = (input: DeliveryMapInput): DeliveryMapping => {
 
   return {
     readings: { items, agents },
+    wholeReadings: { items, agents },
     input: {
       mine: MINE[input.mode],
       ...(input.releases === undefined ? {} : { releases: input.releases }),
@@ -445,11 +448,12 @@ export const deliveryMapping = (input: DeliveryMapInput): DeliveryMapping => {
     placeDelivery(whole.readings, whole.input).items.filter((p) => p.section === 'you').map((p) => p.id),
   );
   const keeps = (id: string, o: Ownership): boolean => o === 'mine' || (o === 'unknown' && (input.mode === 'mine-and-unknown' || you.has(id)));
-  return mapReadings({
+  const narrowed = mapReadings({
     ...input,
     rows: input.rows.filter((r) => keeps(itemIdOfRow(r), ownership(ownedFromRow(r), input.reader))),
     drafts: input.drafts.filter((d) => keeps(draftItemId(d.plan), ownership(ownedFromCard(d), input.reader))),
   });
+  return { ...narrowed, wholeReadings: whole.readings };
 };
 
 /**

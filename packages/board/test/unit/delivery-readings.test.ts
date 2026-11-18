@@ -277,6 +277,24 @@ describe('release lines', () => {
     }
   });
 
+  it('counts a teammate\'s blocked slice under every Mine mode', () => {
+    const base = {
+      rows: [
+        row({ branch: 'feature/b', plan: 'p', wave: 'B', state: 'wip', assignee: 'other' }),
+        row({ branch: 'feature/c', plan: 'p', wave: 'C', state: 'wip', assignee: 'me' }),
+      ],
+      slices: [slice('B'), slice('C')],
+      agents: [
+        agent({ session: 'dead-b', branch: 'feature/b', state: 'failed' }),
+        agent({ session: 'dead-c', branch: 'feature/c', state: 'failed' }),
+      ],
+    };
+    const people = { reader: { hostUser: 'me', directory: { me: 'me', other: 'other' } } };
+    for (const mode of ['all', 'mine-and-unknown', 'mine'] as const) {
+      expect(lines({ ...base, ...people, mode })[0]).toContain('· 2 blocked');
+    }
+  });
+
   it('keeps the slice counts alone where the index is missing', () => {
     expect(lines({ releaseTickets: null, sprints: [{ release: '2.32.0', started: '' }] }))
       .toEqual(['0 of 0 slices delivered · 0 held at gates · 0 blocked']);
