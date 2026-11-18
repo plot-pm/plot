@@ -991,6 +991,7 @@ const baseRig = (held: readonly string[] | null = []): BaseRig => {
       refs: {
         remoteSha: async () => ({ ok: true, value: 'unknown' }),
         firstParentLine: async () => ({ ok: true, value: [] }),
+        firstParentCommits: async () => ({ ok: true, value: [] }),
       },
       build: {
         system: () => 'github-actions',

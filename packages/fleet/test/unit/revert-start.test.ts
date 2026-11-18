@@ -314,6 +314,7 @@ describe('repairRevertTick — the second look at the red', () => {
 
   it.each(['pending', 'unknown', 'success'] as const)('holds and starts no desk where the named candidate reads %s on the second look', async (outcome) => {
     const r = rig(record());
+    expect(await repairRevertTick(r.world)).toBe('rerun-asked');
     r.state.runs.set(BREAKING, outcome === 'success' ? [run(BREAKING, 'success')] : outcome === 'pending' ? [run(BREAKING, null)] : []);
     r.set({ now: r.state.now + 30 * 60_000 });
     expect(await repairRevertTick(r.world)).toBe('held');
@@ -323,6 +324,7 @@ describe('repairRevertTick — the second look at the red', () => {
 
   it('holds, and does not exhaust, where the first non-green candidate is pending', async () => {
     const r = rig(record());
+    expect(await repairRevertTick(r.world)).toBe('rerun-asked');
     r.state.candidateRuns.set(BREAKING, 'pending');
     r.set({ now: r.state.now + 30 * 60_000 });
     expect(await repairRevertTick(r.world)).toBe('held');
@@ -336,6 +338,8 @@ describe('repairRevertTick — the second look at the red', () => {
     const asked: string[] = [];
     const inner = r.world.candidate;
     r.world.candidate = async (commit) => { asked.push(commit.sha); return inner(commit); };
+    expect(await repairRevertTick(r.world)).toBe('rerun-asked');
+    asked.length = 0;
     r.set({ now: r.state.now + 30 * 60_000 });
     await repairRevertTick(r.world);
     expect(asked).toEqual([OLDER]);
