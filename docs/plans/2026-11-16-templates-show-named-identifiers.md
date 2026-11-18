@@ -8,6 +8,7 @@
 - **Type:** docs
 - **Review:** pr
 - **Impl:** same branch
+- **Rounds:** 1
 
 ## Changelog
 
@@ -41,6 +42,13 @@ Adopters have different tastes, so Plot adds no gate, no config key and no lint 
 
 ### Open Points
 
+- [ ] `[question-d10-name-scope]` Does `[decision-person-approves-plans]` fit D10, which holds for a Design plan only (`plot-approve/SKILL.md:124-128`)? The panel proposes `[decision-person-approves-design-plans]`. *(panel round 1: estate, contradiction, deliverable)*
+- [ ] `[question-board-messages-keep-codes]` The refusal messages `approve.ts:332` and `entry/approve.ts:1060` print "(D10)", `approve.test.mjs:359` asserts it, and `auto-deliver.ts:325` cites D14. Are they in scope or named as out of scope? *(panel round 1: estate, contradiction, cost)*
+- [ ] `[question-open-points-row-text]` `planOpenQuestions` shows the first unchecked Open Points line raw on a Draft plan row (`draft-plan-row.tsx:64-67`), so `Board impact: none` is false. Does the prefix move out of the first line, or does the row strip it? *(panel round 1: contradiction, cost)*
+- [ ] `[question-citation-target-file]` `plot-idea/SKILL.md:281` cites D3 "in `DESIGN-phases.md`", which keeps the code. Does the citation name the story's Decisions table instead? *(panel round 1: contradiction, deliverable)*
+- [ ] `[question-marker-and-name-order]` Does the identifier replace or follow the `⏸️`/`✅` markers on an Open Points bullet? *(panel round 1: contradiction)*
+- [ ] `[question-changelog-and-cost-honesty]` The Changelog omits the `story-tracking/SKILL.md` wording and the archived Decisions-table edit; the changeset carries five skill bumps; a change under `skills/plot/templates/plan.md` selects every CI job (`ci-selection-jobs.test.mjs:128-133`). Does the plan state these? *(panel round 1: deliverable, cost)*
+- [ ] `[question-other-cited-codes]` `plot-host.sh` comments cite D20, D23 and a D6 from another plan, and `gate.ts:438` uses "D14" for a different decision. Are they in scope? *(panel round 1: deliverable, estate)*
 - [ ] `[question-design-doc-citations]` Should `DESIGN-phases.md` replace its citations "(D3)", "(D10)" and so on with names? This plan leaves them: the design doc sits beside the table that defines the codes, so its reader has the legend.
 
 ## Slices
@@ -52,3 +60,20 @@ Adopters have different tastes, so Plot adds no gate, no config key and no lint 
 ## Notes
 
 - No parser depends on the changed lines: `packages/domain/src/rules/story-record.ts` tests only for the heading `## Open Points`, and no script reads a Decision cell.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "Panel round 1 (estate, contradiction, deliverable, cost): unanimous amend; findings recorded as Open Points", "a": "unattended, no answers", "category": "panel"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": false, "implementation": false},
+    "domain": false,
+    "ux": {"happyPath": false, "edgeCases": false, "errors": false, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": false
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
