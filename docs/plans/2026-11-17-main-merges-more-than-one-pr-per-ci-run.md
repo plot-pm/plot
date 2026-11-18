@@ -133,7 +133,7 @@ Per slice, in slice order.
 
 ### A red main names its PR
 
-- `feature/a-red-main-names-its-pr` — `writeRepairRecord` fills the candidates; `redMainPicker` names the oldest red candidate whose earlier candidates are green, holds on a pending one, and answers `unknown` otherwise; the revert reads the named candidate's runs a second time <!-- builds: oldest-red attribution in redMainPicker and repair-record candidates -->
+- `feature/a-red-main-names-its-pr` — `writeRepairRecord` fills the candidates; `redMainPicker` names the oldest red candidate whose earlier candidates are green, holds on a pending one, and answers `unknown` otherwise; the revert reads the named candidate's runs a second time <!-- builds: oldest-red attribution in redMainPicker and repair-record candidates --> → #3521
 
 ### Merges stack two deep
 
