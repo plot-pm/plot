@@ -16,6 +16,7 @@
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-work-items-groups`
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-work-items-gate-cells`
 - **Started:** 2026-11-18, Jan Wloka, `feature/delivery-work-items-progress`
+- **Started:** 2026-11-18, Jan Wloka, `feature/delivery-work-items-by-chips`
 
 ## Changelog
 
