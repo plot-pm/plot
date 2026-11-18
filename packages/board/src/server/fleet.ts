@@ -113,7 +113,7 @@ import { fleetdHeartbeatFile, agentsFs, refsGit, shellContext, treesGit, planSto
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { CarriedListing } from '@plot-pm/domain/rules/scan-listing';
 import { fleetOwnsScan, ownedBridgeNote } from '@plot-pm/domain/rules/scan-owner';
-import { boardSourceOf } from '@plot-pm/domain/rules/board-watch';
+import { boardSourceOf, heldViewNote, type BoardSource } from '@plot-pm/domain/rules/board-watch';
 import type { HeldSnapshot } from '@plot-pm/domain/rules/snapshot-sync';
 import { PR_INDEX_VERSION, type PrIndex } from '@plot-pm/domain/entities/pr-index';
 import { HOST_BRANCH_URL_SCHEMES } from '@plot-pm/domain/adapters/host/host-branch-urls';
@@ -618,9 +618,11 @@ export interface CacheEntry {
   heartbeat: FleetdHeartbeat | null;
   /**
    * Where the last refresh took the view from: `snapshot` where it installed
-   * fleetd's snapshot, `own` where it read for itself, null before the first.
+   * fleetd's snapshot, `own` where it read for itself, `held` where a live
+   * fleetd speaks another snapshot protocol and the board installed only
+   * fleetd's bridge, null before the first.
    */
-  viewSource: 'snapshot' | 'own' | null;
+  viewSource: 'snapshot' | 'own' | 'held' | null;
   prs: Map<string, PrRecord> | null;
   /**
    * The same records keyed by PR NUMBER. The fleet tab asks "what is this
@@ -2826,7 +2828,12 @@ const readMergedIndex = async (opts: BuildBoardOptions, entry: CacheEntry): Prom
  * cadence — never the fleet bridge, which only `fleetd` ever writes and which
  * a machine-local reader never touches.
  */
-const readPrsFromStore = async (opts: BuildBoardOptions, entry: CacheEntry, key: string): Promise<void> => {
+const readPrsFromStore = async (
+  opts: BuildBoardOptions,
+  entry: CacheEntry,
+  key: string,
+  { runs = true }: { runs?: boolean } = {},
+): Promise<void> => {
   const startedAt = Date.now();
   const backend = await resolveBackend(entry, hostFor(opts));
   const held = await prStoreFor(opts.repoRoot).read(backend);
@@ -2840,7 +2847,7 @@ const readPrsFromStore = async (opts: BuildBoardOptions, entry: CacheEntry, key:
     applyPrMaps(entry, maps);
     const at = Date.parse(held.value.at);
     entry.prAt = Number.isNaN(at) ? startedAt : at;
-    await refreshRuns(opts, entry, maps.prs, await buildPortFor(opts));
+    if (runs) await refreshRuns(opts, entry, maps.prs, await buildPortFor(opts));
   }
   adoptPublishedSchedule(entry, published.ok ? published.value : null, startedAt);
 };
@@ -2991,6 +2998,20 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
     }
     return;
   }
+  // ON `held`, THE PR ROWS fleetd'S READER LEFT IN THE STORE, AND NOTHING ELSE:
+  // no election, no reader start, no CI-run read and no issue read. A live
+  // fleetd on another snapshot protocol still owns every read (#3528).
+  if (opts.channelSnapshot !== undefined && boardSourceFor(opts, entry, await fleetdHeartbeatFor(opts), Date.now()) === 'held') {
+    entry.prRunning = true;
+    try {
+      const key = await readerLockKey(opts, entry);
+      if (key !== '') await readPrsFromStore(opts, entry, key, { runs: false });
+      entry.prReader = 'fleet';
+    } finally {
+      entry.prRunning = false;
+    }
+    return;
+  }
   if (!prGateOpen(entry.prNextAt, entry.prNextIsBackoff)) {
     // A CLOSED GATE STILL HEARTBEATS. During a reader backoff longer than
     // HEARTBEAT_STALE_MS, a board that wrote no heartbeat would read as gone,
@@ -3086,6 +3107,23 @@ export const snapshotToServe = (
   const source = boardSourceOf({ clients: entry.clients, heartbeat, link: channel?.link, now });
   return source === 'snapshot' && channel?.held !== undefined ? channel.held : null;
 };
+
+/**
+ * Where the board's view comes from on this beat, as `boardSourceOf` answers
+ * over the hub's snapshot link.
+ *
+ * @param opts - the board's options; `channelSnapshot` is the hub's copy.
+ * @param entry - the cache entry, for its attached streams.
+ * @param heartbeat - the heartbeat as last read, or null.
+ * @param now - the current time, epoch milliseconds.
+ * @returns the source; `held` while a live fleetd speaks another snapshot protocol.
+ */
+export const boardSourceFor = (
+  opts: BuildBoardOptions,
+  entry: CacheEntry,
+  heartbeat: FleetdHeartbeat | null,
+  now: number,
+): BoardSource => boardSourceOf({ clients: entry.clients, heartbeat, link: opts.channelSnapshot?.().link, now });
 
 /**
  * The board's plan-card inputs from fleetd's snapshot, where the board serves
@@ -3261,6 +3299,47 @@ const serveSnapshot = async (
   installSnapshotView(entry, held, now);
 };
 
+/**
+ * One beat while a live fleetd speaks another snapshot protocol: the
+ * supervisor from the heartbeat and the pulse from fleetd's bridge, a file
+ * read. No scan, no registry, branch, release, unmerged or question read.
+ * Every field the bridge does not carry keeps its last value.
+ *
+ * @param opts - the board's options.
+ * @param entry - the cache entry.
+ * @param heartbeat - the heartbeat this beat read.
+ * @param now - the current time, epoch milliseconds.
+ */
+const serveHeld = async (
+  opts: BuildBoardOptions,
+  entry: CacheEntry,
+  heartbeat: FleetdHeartbeat | null,
+  now: number,
+): Promise<void> => {
+  entry.heartbeat = heartbeat;
+  const supervisor = supervisorSource(heartbeat, now);
+  entry.supervisor = supervisor.source === 'heartbeat' ? supervisor.run : await readSupervisor(opts);
+  const bridge = await fleetStateFor(opts).read();
+  const bridged = bridge.ok ? bridge.value : null;
+  if (bridged !== null) {
+    const before = entry.pulseComplete ? entry.pulse : null;
+    entry.shrink = pulseShrink(before, bridged.pulse, entry.at);
+    entry.pulse = bridged.pulse;
+    entry.pulseComplete = true;
+    entry.lastComplete = bridged.pulse;
+    entry.ages = bridged.ages;
+    entry.branchUrlBase = bridged.branchUrlBase;
+    entry.approvedAt = bridged.approvedAt;
+    entry.ideaPlans = bridged.ideaPlans;
+    entry.at = bridged.at;
+    if (bridged.pulse.fetch_failed !== true) entry.fetchedAt = bridged.at;
+  }
+  entry.prReader = 'fleet';
+  entry.scanNote = null;
+  entry.error = null;
+  entry.viewSource = 'held';
+};
+
 export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
   if (entry.running) return;
   entry.running = true;
@@ -3278,6 +3357,13 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     const held = snapshotToServe(opts, entry, heartbeat, Date.now());
     if (held !== null) {
       await serveSnapshot(opts, entry, held, heartbeat, Date.now());
+      return;
+    }
+    // ON `held`, fleetd'S BRIDGE AND NO READ OF THE BOARD'S OWN: a live fleetd
+    // on another snapshot protocol already reads everything, and a second
+    // reader beside it saturated macOS's `syspolicyd` twice (#3528).
+    if (boardSourceFor(opts, entry, heartbeat, Date.now()) === 'held') {
+      await serveHeld(opts, entry, heartbeat, Date.now());
       return;
     }
     entry.viewSource = 'own';
@@ -8838,6 +8924,8 @@ export async function buildFleet(
     fleetd: fleetdFacts(entry.heartbeat, opts.channelLink?.() ?? 'unknown', now),
     // Where the last refresh took the view from; omitted before the first.
     viewSource: entry.viewSource ?? undefined,
+    // The held view's note, naming the mismatch and the restart; null otherwise.
+    heldNote: heldViewNote(entry.viewSource, opts.channelSnapshot?.().link),
     issueError: entry.issueError,
     issueAbsence: entry.issueAbsence,
     autoReview: settings.autoReview,
