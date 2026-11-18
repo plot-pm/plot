@@ -225,6 +225,10 @@ describe('the By cell', () => {
     expect(cell).toEqual(person);
   });
 
+  it('stays null where the row has no By cell', () => {
+    expect(workByCell(null, ['a1'], { agents: [{ id: 'a1', role: 'loop', name: 'n' }] })).toBeNull();
+  });
+
   it('keeps the plain id where the agent\'s facts were not read', () => {
     const cell = by(placed(['a1']), {});
     expect(cell).toMatchObject({ value: 'a1' });

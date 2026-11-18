@@ -127,6 +127,12 @@ describe('roleRuns: a fixer run\'s attempt', () => {
     expect(fixerOf([att('high', { start: 'failed' }), att('high', flying)])?.attempt).toBe(1);
   });
 
+  it('leaves the attempt absent where nothing counts, never 0', () => {
+    const run = fixerOf([att('ci', { ...flying, start: 'failed' })]);
+    expect(run).toBeDefined();
+    expect(run).not.toHaveProperty('attempt');
+  });
+
   it('puts the attempt on the fixer run and on no other run', () => {
     const runs = roleRuns(live({ fixers: [{ pr: 8, record: { v: 1, pr: 8, attempts: [att('ci', flying)] } as unknown as FixerAttemptsRecord }] }));
     expect(runs.map((r) => [r.role, r.attempt])).toEqual([
