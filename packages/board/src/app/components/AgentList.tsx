@@ -1719,6 +1719,7 @@ export function AgentList({
         const fact = footerFact({
           boardAgeSeconds: fleet.readRefAge === null ? null : fleet.readRefAge + tick,
           pollSeconds,
+          scanIntervalMs: fleet.scanIntervalMs ?? null,
           boardNextSeconds: gitNext,
           prAgeSeconds: fleet.prAgeSeconds === null ? null : fleet.prAgeSeconds + tick,
           prIntervalMs: fleet.prIntervalMs,

@@ -8751,6 +8751,7 @@ export async function buildFleet(
     // 5 s" would be a guess about a scan that has not happened.
     scanNextInSeconds:
       entry.at === null ? null : Math.max(0, Math.round((entry.at + REFRESH_MS - now) / 1000)),
+    scanIntervalMs: REFRESH_MS,
     prError: entry.prError,
     // HOW MANY SPENDERS THE RECORD ACCOUNTS FOR, computed here because this is
     // where both halves of the quotient live: the observed rate the cadence

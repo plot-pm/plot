@@ -2304,6 +2304,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       expect(await scanned()).toBe(frozen);
       // And it says so, so a reader does not have to watch it to find out.
       expect(await footer(page).textContent()).toContain('frozen');
+      // A frozen age is no evidence of freshness: every dot reads stale.
+      expect(await footer(page).getByRole('img', { name: 'fresh' }).count()).toBe(0);
+      expect(await footer(page).getByRole('img', { name: 'stale' }).count()).toBeGreaterThan(0);
     } finally {
       await page.close();
     }

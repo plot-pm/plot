@@ -4,7 +4,7 @@ import type { UnplacedView } from '../../src/app/lib/agent-rows/delivery-view.js
 import { durationText, footerFact, freshnessState, type FooterInput } from '../../src/app/lib/agent-rows/footer-fact.js';
 
 const base: FooterInput = {
-  boardAgeSeconds: 3, pollSeconds: 4, boardNextSeconds: 2,
+  boardAgeSeconds: 3, pollSeconds: 4, scanIntervalMs: 5_000, boardNextSeconds: 2,
   prAgeSeconds: 480, prIntervalMs: 240_000, prNextSeconds: 120, prError: false,
   frozen: false, complete: true, branches: 8, plans: 3, notPlaced: [],
 };
@@ -54,6 +54,13 @@ describe('the footer fact', () => {
     const f = footerFact({ ...base, frozen: true, prAgeSeconds: 10 });
     expect(f.freshness.map((e) => [e.key, e.state, e.word])).toEqual([['board', 'stale', 'stale'], ['pr', 'stale', 'stale']]);
     expect(footerFact({ ...base, frozen: true, prAgeSeconds: null }).freshness.every((e) => e.state === 'stale')).toBe(true);
+  });
+
+  it('measures the board age against the scan interval plus the poll interval', () => {
+    const board = (over: Partial<FooterInput>) => footerFact({ ...base, ...over }).freshness.find((e) => e.key === 'board')!;
+    expect(board({ boardAgeSeconds: 8 }).state).toBe('fresh');
+    expect(board({ boardAgeSeconds: 10 }).state).toBe('aging');
+    expect(board({ boardAgeSeconds: 8, scanIntervalMs: null }).state).toBe('aging');
   });
 
   it('counts desks and work items apart', () => {

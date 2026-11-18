@@ -4678,6 +4678,12 @@ export const FleetShape = z.object({
    * countdown — the same honest degradation as the PR side.
    */
   scanNextInSeconds: z.number().nullable().default(null),
+  /**
+   * The server's git scan interval in milliseconds — the cadence `readRefAge`
+   * is stamped at. Null on an older server: the client then measures the age
+   * against its own poll interval alone.
+   */
+  scanIntervalMs: z.number().nullable().default(null),
   prError: z.string().nullable(),
   /**
    * How many spenders the budget record accounts for on this account, or null

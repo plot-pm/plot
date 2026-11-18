@@ -45,6 +45,8 @@ export interface FooterInput {
   boardAgeSeconds: number | null;
   /** The client's poll interval in seconds; null when nothing polls. */
   pollSeconds: number | null;
+  /** The server's scan interval in ms; null on an older server, where the poll interval stands alone. */
+  scanIntervalMs: number | null;
   /** Seconds to the next board read, already ticked; null where unknown. */
   boardNextSeconds: number | null;
   /** The ticked age of the PR data; null when none has landed. */
@@ -93,7 +95,9 @@ export const footerFact = (i: FooterInput): FooterFact => {
   const freshness: FreshnessEntry[] = [];
 
   if (i.boardAgeSeconds !== null) {
-    const state = i.frozen ? 'stale' : freshnessState(i.boardAgeSeconds, i.pollSeconds === null ? null : i.pollSeconds * 1000);
+    // The age at the client is the server's scan age plus the ticks since the last poll, so it is measured against both intervals.
+    const boardIntervalMs = i.pollSeconds === null ? null : i.pollSeconds * 1000 + (i.scanIntervalMs ?? 0);
+    const state = i.frozen ? 'stale' : freshnessState(i.boardAgeSeconds, boardIntervalMs);
     freshness.push({
       key: 'board', state, word: FRESHNESS_WORD[state],
       text: `board read ${durationText(i.boardAgeSeconds)} old${frozen}`,
