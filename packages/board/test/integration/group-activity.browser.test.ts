@@ -224,11 +224,11 @@ describe('a group heading carries the activity of the rows behind it', () => {
 
   it('leaves a collapsed group with NO active row unmarked', async () => {
     // The negative, and it is what makes the positive mean anything: a heading
-    // that always shows the mark says nothing at all. DONE is collapsed by
-    // default too, so this is the same shape with the opposite answer.
+    // that always shows the mark says nothing at all. Release delivery never
+    // folds, so it carries no toggle and no mark.
     const page = await open();
-    await expect.poll(() => toggleFor(page, 'release-delivery').count()).toBe(1);
-    expect(await toggleFor(page, 'release-delivery').getAttribute('aria-expanded')).toBe('false');
+    await page.locator('[data-delivery-section="release-delivery"]').waitFor({ timeout: 10_000 });
+    expect(await toggleFor(page, 'release-delivery').count()).toBe(0);
     expect(await markInHeading(page, 'release-delivery').count()).toBe(0);
   });
 

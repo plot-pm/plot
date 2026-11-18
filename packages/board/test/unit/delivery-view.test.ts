@@ -20,11 +20,13 @@ const agent = (over: Record<string, unknown>): RegistryAgent => ({
   session: 's', branch: '', state: 'running', pid: 1, ...over,
 }) as unknown as RegistryAgent;
 
-const view = (rows: AgentRow[], agents: RegistryAgent[] = []) =>
-  placeMapping(deliveryMapping({
-    rows, slices: ['A', 'B'].map(slice), agents, drafts: [], reader: { hostUser: 'me' }, mode: 'all',
+const view = (rows: AgentRow[], agents: RegistryAgent[] = []) => {
+  const slices = ['A', 'B'].map(slice);
+  return placeMapping(deliveryMapping({
+    rows, slices, agents, drafts: [], reader: { hostUser: 'me' }, mode: 'all',
     config: { autoReview: true, correctionBudget: 2 },
-  }));
+  }), slices);
+};
 
 describe('delivery view order', () => {
   it('renders the sections and groups in exactly DELIVERY_LAYOUT order', () => {
@@ -68,8 +70,62 @@ describe('delivery view nesting', () => {
   it('puts a delivered slice under Release delivery, not in a work group', () => {
     const v = view([row({ branch: 'feature/a', plan: 'p', wave: 'A', phase: 'Testing', state: 'merged', group: 'done' })]);
     expect(v.sections.flatMap((s) => s.groups.flatMap((g) => g.blocks))).toEqual([]);
-    expect(v.deliveredBlocks).toHaveLength(1);
-    expect(v.deliveredRows).toHaveLength(1);
+    expect(v.releaseBlocks).toHaveLength(1);
+    expect(v.releaseBlocks[0]!.plans).toHaveLength(1);
+    expect(v.releaseRows).toHaveLength(1);
+  });
+
+  describe('Release delivery plan rows', () => {
+    const merged = (plan: string, name: string) => row({ branch: `feature/${plan}-${name}`, plan, wave: name, phase: 'Testing', state: 'merged', group: 'done' });
+    const mergedSlice = (plan: string, name: string): Slice => ({ ...slice(name), plan, complete: true, merge: 'merged' }) as Slice;
+    const planView = (rows: AgentRow[], slices: Slice[], sprints: never[] = []) =>
+      placeMapping(deliveryMapping({
+        rows, slices, agents: [], drafts: [], reader: { hostUser: 'me' }, mode: 'all',
+        config: { autoReview: true, correctionBudget: 2 },
+      }), slices, sprints);
+
+    it('gives 40 merged slices over 8 plans 8 rows', () => {
+      const plans = Array.from({ length: 8 }, (_, i) => `plan-${i}`);
+      const slices = plans.flatMap((p) => ['a', 'b', 'c', 'd', 'e'].map((n) => mergedSlice(p, n)));
+      const rows = slices.map((s) => merged(s.plan, s.name));
+      const v = planView(rows, slices);
+      expect(v.releaseBlocks).toHaveLength(1);
+      expect(v.releaseBlocks[0]!.plans).toHaveLength(8);
+      expect(v.releaseBlocks[0]!.header).toBe('8 plans · 40 of 40 slices delivered · 0 blocked');
+      expect(v.releaseBlocks[0]!.plans[0]!.stripText).toBe('5 / 5 delivered');
+    });
+
+    it('lists a slice with no branch and no agent under To do, not as a Work items row', () => {
+      const slices = [{ ...slice('A'), plan: 'p', merge: 'open' }, { ...slice('B'), plan: 'p', merge: 'open' }] as Slice[];
+      const v = planView([row({ branch: '', plan: 'p', wave: 'A', state: 'open', group: 'not-started', startability: 'start-work' })], slices);
+      const blocks = v.sections.filter((s) => s.key === 'work-items').flatMap((s) => s.groups.flatMap((g) => g.items));
+      expect(blocks).toHaveLength(0);
+      const lines = v.releaseBlocks[0]!.plans[0]!.lines;
+      expect(lines.filter((l) => l.heading === 'to-do').map((l) => l.slice)).toContain('A');
+    });
+
+    it('carries Start and the waits-for name from blockedBy on a slice waiting across plans', () => {
+      const slices = [{ ...slice('A'), plan: 'p', merge: 'open' }] as Slice[];
+      const v = planView([row({ branch: '', plan: 'p', wave: 'A', state: 'open', group: 'not-started', startability: 'start-work', blockedBy: 'other-plan › Z' })], slices);
+      const line = v.releaseBlocks[0]!.plans[0]!.lines[0]!;
+      expect(line.start).toBe(true);
+      expect(line.text).toContain('waits for other-plan › Z');
+    });
+
+    it('groups plans by Release: value and counts a plan named by two sprints once', () => {
+      const slices = [mergedSlice('p1', 'a'), mergedSlice('p2', 'a')];
+      const rows = slices.map((s) => merged(s.plan, s.name));
+      const sprint = (release: string, members: string[]) => ({ release, ownerHandle: 'jwloka', members: members.map((slug) => ({ slug })) });
+      const v = planView(rows, slices, [sprint('2.0', ['p1']), sprint('2.0', ['p1', 'p2']), sprint('2.1', ['p2'])] as never[]);
+      expect(v.releaseBlocks.map((b) => [b.release, b.plans.map((p) => p.plan)])).toEqual([['2.0', ['p1', 'p2']], ['2.1', ['p2']]]);
+      expect(v.releaseBlocks[0]!.plans[0]!.owner).toBe('jwloka');
+    });
+
+    it('says progress not read where no slice has a reading', () => {
+      const slices = [{ ...slice('A'), plan: 'p', merge: 'open' }] as Slice[];
+      const v = planView([], slices);
+      expect(v.releaseBlocks[0]!.plans[0]!.stripText).toBe('progress not read');
+    });
   });
 
   it('opens a plan head over one slice and folds one over several', () => {

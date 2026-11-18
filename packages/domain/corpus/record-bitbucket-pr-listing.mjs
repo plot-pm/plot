@@ -20,14 +20,17 @@
  *
  * Usage: node packages/domain/corpus/record-bitbucket-pr-listing.mjs [case ...]
  */
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { INSTANCE, jenCallsIn, jenShim, jenkinsEnv, jenkinsRoutes, jenkinsScratch, realJen, startJenkins } from './jenkins-listing.mjs';
+
 const ROOT = new URL('../../..', import.meta.url).pathname.replace(/\/$/, '');
 const HOST = join(ROOT, 'skills/plot/scripts/plot-host.sh');
 const OUT = join(ROOT, 'packages/domain/corpus/fixtures/bitbucket-pr-listing');
+const OUT_JENKINS = join(ROOT, 'packages/domain/corpus/fixtures/bitbucket-pr-listing-jenkins');
 const SLUG = 'plot-fixture/listing';
 const BASE = 'https://api.bitbucket.org/2.0';
 
@@ -81,6 +84,35 @@ const CASES = [
 // `closed` is the shell's word for DECLINED; the port asks `all`, `open` or `merged`, so drop the case the port cannot ask.
 CASES.splice(CASES.findIndex((one) => one.name === 'declined-plain'), 1);
 
+/**
+ * The cases that run the Jenkins arm (`CI: jenkins`), written to
+ * `fixtures/bitbucket-pr-listing-jenkins/`. `jenkins.refused` leaves every
+ * branch without builds, so a read by commit fails.
+ */
+const JENKINS_CASES = [
+  { name: 'jenkins-open-rich-open', query: { state: 'open', richOpen: true, limit: 50 }, args: ['--rich-open', '--state', 'open', '--limit', '50'], jenkins: {} },
+  { name: 'jenkins-all-rich-open', query: { state: 'all', richOpen: true, limit: 200 }, args: ['--rich-open', '--state', 'all', '--limit', '200'], jenkins: {} },
+  { name: 'jenkins-open-rich-open-refused', query: { state: 'open', richOpen: true, limit: 50 }, args: ['--rich-open', '--state', 'open', '--limit', '50'], jenkins: { refused: true } },
+];
+
+/**
+ * One scenario's Jenkins answers. The open rows 1 to 9 carry colours; rows 9
+ * and 8 have a build of their head, row 6 has only a build of another commit,
+ * row 4 fails the builds read, so rows 4 and 3 read broken, and rows 2 and 1 fall past the cap of
+ * five lookups. Two merged rows carry colours too, which stay plain.
+ */
+const jenkinsSpec = ({ refused = false }) => {
+  const palette = { 9: 'blue', 8: 'red', 7: 'yellow', 6: 'blue', 5: 'notbuilt', 4: 'red', 3: 'blue', 2: 'red', 1: 'blue', 100: 'blue', 101: 'red' };
+  const colours = Object.fromEntries(Object.entries(palette).map(([n, colour]) => [`feature/change-${n}`, colour]));
+  const builds = {};
+  if (!refused) {
+    builds['feature/change-9'] = [{ number: 1, result: 'SUCCESS', sha: sha(9) }];
+    builds['feature/change-8'] = [{ number: 2, result: 'FAILURE', sha: sha(8) }];
+    builds['feature/change-6'] = [{ number: 3, result: 'SUCCESS', sha: sha(60) }];
+  }
+  return { colours, builds, failing: refused ? [] : ['feature/change-4'] };
+};
+
 /** The stub `bb`: answers `bb api <path>` from the dataset and appends each exchange to a log. */
 const STUB = String.raw`
 import { appendFileSync, readFileSync } from 'node:fs';
@@ -117,6 +149,42 @@ appendFileSync(log, JSON.stringify({ argv, path, stdout }) + '\n');
 process.stdout.write(stdout);
 `;
 
+/** Runs `plot-host.sh pr-list` for one case; a Jenkins case runs against a stub Jenkins and the real `jen`. */
+const runHost = async (one, repo, bin) => {
+  let ci = { PLOT_CI: 'github-actions' };
+  let path = `${bin}:${process.env.PATH}`;
+  let jenkins = null;
+  if (one.jenkins !== undefined) {
+    const scratch = jenkinsScratch(tmpdir());
+    const server = await startJenkins(jenkinsRoutes(jenkinsSpec(one.jenkins)));
+    jenShim(scratch.bin, scratch.calls, realJen().jen);
+    jenkins = { scratch, server };
+    ci = jenkinsEnv(server.port, scratch.store);
+    path = `${scratch.bin}:${path}`;
+  }
+  const ran = await new Promise((resolve) => {
+    const child = spawn('bash', [HOST, 'pr-list', ...one.args], {
+      cwd: repo,
+      env: { ...process.env, PATH: path, PLOT_HOST: 'bitbucket', PLOT_BUDGET_OFF: '1', PLOT_BB_SKIP_CAP_CHECK: '1', ...ci },
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => (stdout += d));
+    child.stderr.on('data', (d) => (stderr += d));
+    child.on('close', (status) => resolve({ status, stdout, stderr }));
+  });
+  if (jenkins === null) return ran;
+  const recording = {
+    instance: INSTANCE,
+    routes: jenkinsRoutes(jenkinsSpec(one.jenkins)),
+    calls: jenCallsIn(jenkins.scratch.calls, jenkins.server.port),
+    requests: jenkins.server.seen.map((u) => u.replace(/^\/jenkins/, '')),
+  };
+  await jenkins.server.close();
+  rmSync(jenkins.scratch.root, { recursive: true, force: true });
+  return { ...ran, recording };
+};
+
 const only = process.argv.slice(2);
 const work = mkdtempSync(join(tmpdir(), 'plot-bitbucket-record-'));
 try {
@@ -129,16 +197,13 @@ try {
   execFileSync('git', ['init', '-q'], { cwd: repo });
   execFileSync('git', ['remote', 'add', 'origin', join(work, 'no-such-origin.git')], { cwd: repo });
   mkdirSync(OUT, { recursive: true });
-  for (const one of CASES.filter((c) => only.length === 0 || only.includes(c.name))) {
+  mkdirSync(OUT_JENKINS, { recursive: true });
+  for (const one of [...CASES, ...JENKINS_CASES].filter((c) => only.length === 0 || only.includes(c.name))) {
     const log = join(work, `${one.name}.log`);
     writeFileSync(log, '');
     writeFileSync(join(bin, 'bb'), `#!/usr/bin/env bash\nexec node ${JSON.stringify(join(work, 'stub.mjs'))} ${JSON.stringify(join(work, 'dataset.json'))} ${JSON.stringify(log)} "$@"\n`);
     chmodSync(join(bin, 'bb'), 0o755);
-    const ran = spawnSync('bash', [HOST, 'pr-list', ...one.args], {
-      cwd: repo,
-      encoding: 'utf8',
-      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, PLOT_HOST: 'bitbucket', PLOT_CI: 'github-actions', PLOT_BUDGET_OFF: '1', PLOT_BB_SKIP_CAP_CHECK: '1' },
-    });
+    const ran = await runHost(one, repo, bin);
     if (ran.status !== 0) throw new Error(`${one.name}: plot-host.sh exited ${ran.status}\n${ran.stderr}`);
     const lines = readFileSync(log, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
     const unresolved = (p) => p.replace(`/repositories/${SLUG}/`, '/repositories/{ws}/{repo}/');
@@ -148,7 +213,8 @@ try {
       calls: lines.map((l) => ({ argv: l.argv, stdout: l.stdout })),
       exchanges: lines.map((l) => ({ path: unresolved(l.path), response: JSON.parse(l.stdout) })),
     };
-    writeFileSync(join(OUT, `${one.name}.json`), `${JSON.stringify(fixture, null, 1)}\n`);
+    if (ran.recording !== undefined) fixture.jenkins = ran.recording;
+    writeFileSync(join(one.jenkins === undefined ? OUT : OUT_JENKINS, `${one.name}.json`), `${JSON.stringify(fixture, null, 1)}\n`);
     console.log(`${one.name}: ${lines.length} calls, ${ran.stdout.split('\n').filter(Boolean).length} rows`);
   }
 } finally {

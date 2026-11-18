@@ -185,11 +185,10 @@ describe('a folded plan folds its branches PR states onto its head', () => {
   it('PLAN-GROUP PATH: a green plan says only its phase', async () => {
     const page = await open();
     try {
-      // A plan in Testing is delivered: its head sits under Release delivery, folded by default.
-      await page.locator('[data-group-toggle="release-delivery"]').click();
+      // A plan in Testing is delivered: it is one row under Release delivery,
+      // which carries no phase cell and no PR fold.
       await expect.poll(() =>
-        planRow(page, 'all-green').locator('[data-phase]').getAttribute('data-phase'))
-        .toBe('Testing');
+        page.locator('[data-release-block] li[data-plan-row="all-green"]').count()).toBe(1);
       // No badge — nothing to act on.
       expect(await fold(page, 'all-green').count()).toBe(0);
     } finally {

@@ -1,5 +1,6 @@
 import type { FleetReading } from '../entities/fleet.js';
 import { planIdOf } from '../entities/plan.js';
+import { sliceMerge } from './deliverable.js';
 
 /**
  * A plan's slug, from the dated filename the estate stores it under.
@@ -35,6 +36,8 @@ export interface SliceReading {
   verdict: string;
   /** Whether every branch has landed or was given up. */
   complete: boolean;
+  /** The slice's merge answer: `none` for a slice holding only deferred branches, which no count includes. */
+  merge: 'merged' | 'open' | 'none';
   /** How many slices the plan holds, so a sole slice can be told from one of many. */
   planSliceCount: number;
 }
@@ -65,6 +68,7 @@ export const sliceReadings = (reading: FleetReading): SliceReading[] => {
         branches: slice.branches.map((b) => b.branch),
         verdict: slice.verdict,
         complete: slice.branches.every((b) => b.deferred || b.state === 'merged'),
+        merge: sliceMerge(slice),
         planSliceCount: plan.slices.length,
       });
     }

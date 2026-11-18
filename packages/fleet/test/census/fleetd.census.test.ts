@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -8,7 +8,7 @@ import type { CensusFixture } from './census-report.js';
 import { buildFleetdEntry, type FleetdEntry } from './fleetd-entry-build.js';
 import { startFleetd } from './fleetd-driver.js';
 import { buildSandbox, githubPr, type Sandbox } from './sandbox.js';
-import { BITBUCKET_ROUTE, JENKINS_ROUTE } from './stub-host.js';
+import { BITBUCKET_ROUTE, JENKINS_ROUTE, REALM_ROUTE } from './stub-host.js';
 import { passWindows } from './census-settle.js';
 import { censusGate, findStrace } from './strace-run.js';
 import type { ExecRecord, StraceCensus } from './strace-execs.js';
@@ -37,13 +37,13 @@ const FIXTURES: CensusFixture[] = [
   { host: 'github', desks: 0, openPrs: 5 },
   { host: 'github', desks: 3, openPrs: 5 },
   { host: 'bitbucket', desks: 3, openPrs: 5 },
-  // The Jenkins fixture records the rows the shell still answers and gates only S8.
+  // The Jenkins fixture records S4, which the default-branch read's tip read still answers, and gates every other row.
   {
     host: 'bitbucket',
     desks: 3,
     openPrs: 5,
     ci: 'jenkins',
-    recordOnly: ['S4', 'P2', 'P3', 'P4', 'P7', 'P8', 'P10', 'P11'],
+    recordOnly: ['S4'],
   },
 ];
 
@@ -152,6 +152,27 @@ const isBitbucketRead = (e: ExecRecord): boolean =>
 /** The in-process Jenkins requests the stub API answered so far: the Jenkins route, token route not included. */
 const jenkinsRequests = (box: Sandbox): number => (box.api?.requests() ?? []).filter((r) => r.path.startsWith(`${JENKINS_ROUTE}/`)).length;
 
+/** The in-process requests to the stub realm's token route so far; reported apart from the Jenkins reads. */
+const tokenRequests = (box: Sandbox): number => (box.api?.requests() ?? []).filter((r) => r.path.startsWith(`${REALM_ROUTE}/`)).length;
+
+/** The stub `jen api`, `jen job view` and `jen job list` calls in the stub log so far: the Jenkins reads the shell makes. */
+const jenReadsLogged = (box: Sandbox): number =>
+  existsSync(box.stubLog) ? readFileSync(box.stubLog, 'utf8').split('\n').filter((l) => /^jen (api|job view|job list)\b/.test(l)).length : 0;
+
+/** The `checks` word of every row in the sandbox's PR store, as `number:word` sorted by number; empty where the store holds none. */
+const storedChecks = (box: Sandbox): string[] => {
+  const dir = join(box.repo, '.git', '.plot', 'state', 'index');
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => f.endsWith('.json') && f !== 'issues.json')
+    .flatMap((f) => {
+      const parsed = JSON.parse(readFileSync(join(dir, f), 'utf8')) as { rows?: { number: number; checks: string }[] };
+      return (parsed.rows ?? []).map((r) => ({ number: r.number, word: r.checks }));
+    })
+    .sort((a, b) => a.number - b.number)
+    .map((r) => `${r.number}:${r.word}`);
+};
+
 /** The stub `curl` calls in the stub log so far: the shell's Jira REST requests. */
 const curlReadsLogged = (box: Sandbox): number =>
   existsSync(box.stubLog) ? readFileSync(box.stubLog, 'utf8').split('\n').filter((l) => l.startsWith('curl ')).length : 0;
@@ -186,6 +207,13 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
   let jiraRequestsPerPass: number[] = [];
   /** The in-process Jenkins requests per idle pass. */
   let jenkinsRequestsPerPass: number[] = [];
+  /** The in-process Jenkins requests over all three passes: the first pass reads, and the idle passes after it read nothing until something changes. */
+  let jenkinsRequestsTotal = 0;
+  /** The in-process token-route requests over the three passes, the shell's `jen` read calls per idle pass, and each run's stored `checks` words. */
+  let tokenRequestsTotal = 0;
+  let jenBaseline: number[] = [];
+  let storedInProcess: string[] = [];
+  let storedShell: string[] = [];
   let jiraBaseline: number[] = [];
   /** The last safety-net pass's number, and the stamps before the first and after fleetd stopped. */
   let netPass = 0;
@@ -213,6 +241,8 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
       requests = deltas(sampled);
       jiraRequestsPerPass = deltas(jiraSampled);
       jenkinsRequestsPerPass = deltas(jenkinsSampled);
+      tokenRequestsTotal = tokenRequests(box);
+      jenkinsRequestsTotal = jenkinsSampled.at(-1) ?? 0;
       if (withChanges) {
         const desk = box.desks[0];
         if (desk === undefined) throw new Error('process census: the fixture holds no desk');
@@ -247,6 +277,7 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
       afterNet = lastSafetyNetAtOf(box);
       if (end.census === null) throw new Error('process census: the fleetd run was not traced');
       census = end.census;
+      storedInProcess = storedChecks(box);
     }
     const launcher = census.execs.find((e) => e.ppid === null && e.argv.some((a) => a.endsWith('launch.mjs')));
     if (launcher === undefined) throw new Error('process census: no fleetd node process in the trace');
@@ -266,17 +297,21 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
         const shellFleetd = startFleetd(entry as FleetdEntry, shellBox, { trace: false });
         const logged: number[] = [];
         const curlLogged: number[] = [];
+        const jenLogged: number[] = [];
         try {
           for (let n = 0; n < 3; n += 1) {
             await shellFleetd.pass();
             logged.push(fixture.host === 'github' ? ghReadsLogged(shellBox) : bbApiLogged(shellBox));
             curlLogged.push(curlReadsLogged(shellBox));
+            jenLogged.push(jenReadsLogged(shellBox));
           }
         } finally {
           await shellFleetd.stop();
         }
         baseline = deltas(logged);
         jiraBaseline = deltas(curlLogged);
+        jenBaseline = deltas(jenLogged);
+        storedShell = storedChecks(shellBox);
       } finally {
         await shellBox.remove();
       }
@@ -390,16 +425,29 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
     });
 
     if (fixture.ci === 'jenkins') {
-      // Measured on CI run 43939512746 (33b585c86): the idle passes start 0 Jenkins
-      // reads before the Cutover, so the zero alone does not fail. The row also holds
-      // the plan's lower bound, that the stub's Jenkins route receives requests summed
-      // over both idle passes; it fails until the Cutover reads Jenkins in-process.
-      it.fails(rowTitle(CENSUS_ROWS.P12, fixture), () => {
+      // The row holds the zero and a lower bound: the stub's Jenkins route receives requests over
+      // the three passes. Measured on CI run 44316759954 (9b95ab92e): the idle passes 2 and 3 read
+      // no listing on this fixture, in-process or on the shell (P10 reads 0, 0 and the shell run's
+      // `jen` calls 0, 0), so the bound over the idle passes alone held 0 and failed; pass 1 carries
+      // the reads. The store's `checks` words equal the shell run's,
+      // and one of them is a bound green word, so a Jenkins read that answers nothing fails here.
+      it(rowTitle(CENSUS_ROWS.P12, fixture), () => {
         const { mean, each, execs } = perPass(isJenkinsRead);
         recordCount(CENSUS_ROWS.P12, fixture, mean, execs);
-        console.log(`process census P12: in-process Jenkins requests per idle pass ${jenkinsRequestsPerPass.join(', ')}`);
+        console.log(`process census P12: in-process Jenkins requests per idle pass ${jenkinsRequestsPerPass.join(', ')}, over three passes ${jenkinsRequestsTotal}; token-route requests ${tokenRequestsTotal}`);
         expect(each).toEqual([0, 0]);
-        expect(jenkinsRequestsPerPass.reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
+        expect(jenkinsRequestsTotal).toBeGreaterThan(0);
+        expect(storedInProcess).toEqual(storedShell);
+        expect(storedInProcess.some((w) => w.endsWith(':green'))).toBe(true);
+      });
+
+      // The in-process reads do not exceed the shell's `jen api`, `jen job view` and `jen job list`
+      // calls over both idle passes. The token-route requests are reported apart: the shell's `jen` refreshes in its own process.
+      it('in-process Jenkins requests stay within the shell run\'s jen read calls', () => {
+        const sum = (ns: readonly number[]): number => ns.reduce((a, b) => a + b, 0);
+        console.log(`process census P12 requests: in-process ${jenkinsRequestsPerPass.join(', ')}; shell jen calls ${jenBaseline.join(', ')}; token route ${tokenRequestsTotal}`);
+        expect(jenBaseline).toHaveLength(2);
+        expect(sum(jenkinsRequestsPerPass)).toBeLessThanOrEqual(sum(jenBaseline));
       });
     }
 
