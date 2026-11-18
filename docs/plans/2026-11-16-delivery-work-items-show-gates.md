@@ -96,7 +96,7 @@ Per slice, in slice order.
 
 ### Agent chips
 
-- `feature/delivery-work-items-by-chips` <!-- waits: feature/delivery-work-items-progress, feature/delivery-agent-roles --> — the By column with the agent's role chip, name and Fleet link, and a fixer's attempt count <!-- builds: a By cell with role chip and fixer attempt -->
+- `feature/delivery-work-items-by-chips` <!-- waits: feature/delivery-work-items-progress, feature/delivery-agent-roles --> — the By column with the agent's role chip, name and Fleet link, and a fixer's attempt count <!-- builds: a By cell with role chip and fixer attempt --> → #3519
 
 ## Notes
 
