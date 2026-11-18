@@ -249,6 +249,23 @@ const planOfItem = (item: PlacedItemView): string => item.rows[0]?.plan ?? '';
 const isSliceItem = (item: PlacedItemView): boolean => item.rows.length > 0 && rowInSlice(item.rows[0]!);
 
 /**
+ * The items of the You section with a Draft or Design plan's slice items dropped: the plan's own
+ * row stands for it. A plan with no draft item keeps its first slice item as that row.
+ */
+const oneRowPerDraftPlan = (items: readonly PlacedItemView[]): PlacedItemView[] => {
+  const isDraftSlice = (i: PlacedItemView) => i.placement?.section === 'you' && i.placement.reason === 'draft-plan' && isSliceItem(i);
+  const hasDraftRow = new Set(items.filter((i) => i.draft !== null).map(planOfItem));
+  const kept = new Set<string>();
+  return items.filter((i) => {
+    if (!isDraftSlice(i)) return true;
+    const plan = planOfItem(i);
+    if (hasDraftRow.has(plan) || kept.has(plan)) return false;
+    kept.add(plan);
+    return true;
+  });
+};
+
+/**
  * Nests a list of placed items: one plan head per plan that has a slice item in
  * the list, holding that plan's slice items, its plan row and its other items;
  * every other item on its own. Heads and lone items keep the order of their first
@@ -257,9 +274,11 @@ const isSliceItem = (item: PlacedItemView): boolean => item.rows.length > 0 && r
  * @param scope - prefix for the block keys, unique per group.
  * @param items - the items one group (or the delivered list) holds, in placement order.
  * @param slices - the payload's slices, for the count of slices under no head here.
+ * @param inYou - where the items are the You section's: a Draft or Design plan is then one row and its slice items show as none. The other sections keep the nesting.
  * @returns the blocks, each item in exactly one.
  */
-export const nestItems = (scope: string, items: readonly PlacedItemView[], slices?: Slice[]): BlockView[] => {
+export const nestItems = (scope: string, rawItems: readonly PlacedItemView[], slices?: Slice[], inYou = false): BlockView[] => {
+  const items = inYou ? oneRowPerDraftPlan(rawItems) : rawItems;
   const withSlice = new Set(items.filter(isSliceItem).map(planOfItem).filter((p) => p !== ''));
   const blocks: BlockView[] = [];
   const heads = new Map<string, PlanBlockView>();
@@ -395,13 +414,14 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
 
   const sections = DELIVERY_LAYOUT.map(({ section, groups }): SectionView => {
     const groupViews = groups.map((group): GroupView => {
-      const items = itemViews.filter((v) => (section === 'work-items'
+      const grouped = itemViews.filter((v) => (section === 'work-items'
         ? homeGroup(v) === group
         : v.placement?.section === section && v.placement.group === group));
+      const items = section === 'you' ? oneRowPerDraftPlan(grouped) : grouped;
       const agents = agentViews.filter((v) => section === 'fleet' && v.placement.group === group);
       const meta = GROUP_LABELS[group] ?? { label: group, hint: '' };
       const rows = [...items.flatMap((v) => v.rows), ...agents.flatMap((v) => (v.row === null ? [] : [v.row]))];
-      const blocks = nestItems(group, items, slices);
+      const blocks = nestItems(group, items, slices, section === 'you');
       const heads = blocks.flatMap((b) => (b.kind === 'plan' ? [b] : []));
       const sliceCount = heads.reduce((n, b) => n + b.slices.length, 0);
       const loose = blocks.length - heads.length;

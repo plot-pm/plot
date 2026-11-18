@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { expandAgentFolds } from '../helpers.mjs';
-import { openCatalogue, scenario, fleet as buildFleet, type Catalogue } from '../catalogue/index.js';
+import { openCatalogue, scenario, board as buildBoard, card, column, fleet as buildFleet, type Catalogue } from '../catalogue/index.js';
 import { DRAFT_PLAN_NOTE, type Fleet } from '../../src/contract/schema.js';
 
 /**
@@ -59,6 +59,42 @@ describe('a Draft plan asks for a decision (real browser renders the shipped art
 
       // No action: the row says a decision is owed and offers none.
       expect(await zucchini.locator('button').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('shows a plan of five slices and no pulse rows as one row with its chips and the You headers', async () => {
+    const { agents: _a, summary: _s, ...envelope } = scenario('ten-rows-one-kind-each').fleet;
+    const fleet = buildFleet({
+      ...envelope,
+      draftPlans: [{
+        plan: 'bean-trellis', planFile: '2026-09-26-bean-trellis.md', title: 'Bean trellis',
+        openQuestions: { count: 3, first: 'Which wire gauge?' },
+      }],
+    } as Partial<Fleet>);
+    const board = buildBoard({
+      columns: [column({
+        phase: 'Draft',
+        cards: [card({
+          slug: 'bean-trellis', title: 'Bean trellis', path: 'docs/plans/2026-09-26-bean-trellis.md',
+          sliceSummary: { slices: 5, branches: 5, deferred: 0 },
+        } as never)],
+      })],
+    });
+    const page = await cat.open('ten-rows-one-kind-each', { tab: 'agents', over: { fleet, board } });
+    try {
+      await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
+      await expandAgentFolds(page);
+      const row = page.locator('[data-draft-plan-row="bean-trellis"]');
+      await row.waitFor({ timeout: 10_000 });
+      expect(await page.locator('[data-draft-plan-row="bean-trellis"]').count()).toBe(1);
+      expect(await row.locator('[data-draft-plan-slices]').textContent()).toBe('5 slices');
+      expect(await row.locator('[data-draft-plan-questions]').textContent()).toBe('3 open');
+      expect(await row.locator('[data-draft-plan-first-question]').textContent()).toContain('Which wire gauge?');
+      expect(await row.locator('[data-draft-plan-more]').textContent()).toBe('+2 more');
+      const headers = await page.locator('[data-you-header] [role="columnheader"]').allTextContents();
+      expect(headers.slice(0, 5)).toEqual(['Kind', 'Item', 'Status', 'Do', 'Age']);
     } finally {
       await page.close();
     }

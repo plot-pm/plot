@@ -72,6 +72,8 @@ import {
   type Detached,
   planRouteOfDocLink,
   answered,
+  planOpenQuestions,
+  type OpenQuestions,
 } from '@plot-pm/domain';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 import type { GateContractReader } from '@plot-pm/domain/ports/gate-contract';
@@ -2380,6 +2382,8 @@ interface EstateReads {
   metas: PlanMeta[];
   /** Each Delivered plan's text and delivery commit, by repository-relative path. */
   delivered: Map<string, { text: string; deliveryCommit: string | null }>;
+  /** Each Draft or Design plan's open questions, by repository-relative path; `null` where the plan has neither heading. */
+  openQuestions: Map<string, OpenQuestions | null>;
   planAuthors: ReadonlyMap<string, string>;
   /** The sprint files the default branch carries, before the working tree adds to them. */
   refSprints: SprintCard[];
@@ -2512,6 +2516,8 @@ const readOwnEstate = async (
     // adopting project, and it must behave exactly as before.
   }
   const deliveredReadings = new Map<string, { text: string; deliveryCommit: string | null }>();
+  // A Draft or Design plan's open questions, read while the staged copies exist; keyed by the plan's canonical path.
+  const openQuestionsByPlan = new Map<string, OpenQuestions | null>();
   let metas: PlanMeta[];
   try {
     metas = await readPlanMeta(opts, [...files, ...staged]);
@@ -2520,11 +2526,15 @@ const readOwnEstate = async (
     // delivery commit cannot be read gets no verification: an error is not a
     // reading that agrees with the record.
     for (const meta of metas) {
-      if (meta.phase !== 'delivered') continue;
+      if (meta.phase !== 'delivered' && meta.phase.toLowerCase() !== 'draft' && meta.phase.toLowerCase() !== 'design') continue;
       const text = (() => { try { return fs.readFileSync(meta.file, 'utf8'); } catch { return null; } })();
       if (text === null) continue;
       const canonical = canonicalPath.get(meta.file);
       const rel = canonical ?? path.relative(repoRoot, meta.file);
+      if (meta.phase !== 'delivered') {
+        openQuestionsByPlan.set(rel, planOpenQuestions(text));
+        continue;
+      }
       // The Delivered record sits at the state ref where one holds the records.
       const found = await refs.recordCommit(rel, 'Delivered', recordSource === undefined ? `origin/${defaultBranch}` : (await resolveRecordRef(refs, recordSource)).ref);
       if (!found.ok) continue;
@@ -2595,6 +2605,7 @@ const readOwnEstate = async (
     // plan would produce. Copied: a parse the walk cache holds stays as held.
     metas: metas.map((meta) => ({ ...meta, file: canonicalPath.get(meta.file) ?? path.relative(repoRoot, meta.file) })),
     delivered: deliveredReadings,
+    openQuestions: openQuestionsByPlan,
     planAuthors,
     refSprints,
     refStories: storyFiles === null ? null : { live: refStoriesIn(storyFiles, false), archived: refStoriesIn(storyFiles, true) },
@@ -2769,7 +2780,13 @@ const readServedEstate = async (
     .map(({ path: planPath, record }) => planMetaOf(record, planPath));
   const metas = [...served.plans.map((plan) => planMetaOf(plan)), ...localMetas, ...branchMetas];
   const delivered = new Map<string, { text: string; deliveryCommit: string | null }>();
+  const openQuestions = new Map<string, OpenQuestions | null>();
   for (const meta of metas) {
+    if (meta.phase.toLowerCase() === 'draft' || meta.phase.toLowerCase() === 'design') {
+      const planText = (() => { try { return fs.readFileSync(path.join(repoRoot, meta.file), 'utf8'); } catch { return null; } })();
+      if (planText !== null) openQuestions.set(meta.file, planOpenQuestions(planText));
+      continue;
+    }
     if (meta.phase !== 'delivered') continue;
     const input = served.delivered[meta.file];
     if (input !== undefined) {
@@ -2795,6 +2812,7 @@ const readServedEstate = async (
     localOnlyPaths: new Set(local.map(([relPath]) => relPath)),
     metas,
     delivered,
+    openQuestions,
     planAuthors: new Map(Object.entries(served.authors)),
     refSprints: served.sprints.map(({ sprint }) => ({
       ...sprint,
@@ -3041,6 +3059,8 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs, served?: Boar
     // must survive to the client as 0. Only the parser's OWN silence — no block,
     // or an unreadable one — leaves the field off the card.
     if (meta.rounds !== undefined) card.rounds = meta.rounds;
+    const openQuestions = reads.openQuestions.get(relPath);
+    if (openQuestions) card.openQuestions = openQuestions;
     // WHAT THIS PLAN'S SLICES COST, partitioned out of the ONE read taken
     // above the loop. `planSpend` is pure — it takes the lines as a value and
     // reaches nothing — so this costs no I/O per plan.
@@ -3330,7 +3350,7 @@ export async function planStatusBySlug(
  * @param ownerFields - the same `assignee`/`author`/`approver` the caller
  *   already computed for `fieldsBySlug` from this `meta`/`relPath` pair.
  */
-export const draftPlanOf = (meta: PlanMeta, relPath: string, ownerFields: PlanOwnerFields): DraftPlan | null =>
+export const draftPlanOf = (meta: PlanMeta, relPath: string, ownerFields: PlanOwnerFields, openQuestions?: OpenQuestions | null): DraftPlan | null =>
   meta.phase === 'draft'
     ? {
       plan: planSlug(relPath),
@@ -3341,6 +3361,7 @@ export const draftPlanOf = (meta: PlanMeta, relPath: string, ownerFields: PlanOw
       author: ownerFields.author,
       approver: ownerFields.approver,
       ...(meta.rounds === undefined ? {} : { rounds: meta.rounds }),
+      ...(openQuestions ? { openQuestions } : {}),
     }
     : null;
 
@@ -3483,7 +3504,10 @@ async function readPlanEstate(
         approver: approverOf(meta.approved_raw),
       };
       fieldsBySlug.set(slug, ownerFields);
-      const draft = draftPlanOf(meta, relPath, ownerFields);
+      const planText = meta.phase === 'draft'
+        ? (() => { try { return fs.readFileSync(meta.file, 'utf8'); } catch { return null; } })()
+        : null;
+      const draft = draftPlanOf(meta, relPath, ownerFields, planText === null ? null : planOpenQuestions(planText));
       if (draft) draftPlans.push(draft);
       if (meta.phase.toLowerCase() === 'design') {
         const spike = licensedSpike(meta.spike_approved_raw, meta.slices);

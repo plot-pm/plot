@@ -3,7 +3,7 @@ import { DELIVERY_LAYOUT } from '@plot-pm/domain';
 import type { AgentRow, Slice } from '../../src/contract/schema.js';
 import { deliveryMapping, type RegistryAgent } from '../../src/app/lib/agent-rows/delivery-readings.js';
 import { GLYPH_PATH } from '../../src/app/lib/glyphs.js';
-import { groupAnchor, placeMapping, planBlockShown, summarise } from '../../src/app/lib/agent-rows/delivery-view.js';
+import { groupAnchor, nestItems, placeMapping, planBlockShown, summarise, type PlacedItemView } from '../../src/app/lib/agent-rows/delivery-view.js';
 
 const row = (over: Record<string, unknown>): AgentRow => ({
   branch: '', plan: '', wave: '', kind: 'branch', phase: 'Development', state: 'wip',
@@ -144,5 +144,26 @@ describe('Work items header and group columns', () => {
       row({ branch: 'feature/b', plan: 'p', wave: 'B', ageMinutes: 190 }),
     ]);
     expect(work(aged).oldest).toBe('oldest waits 3h');
+  });
+});
+
+describe('a Draft plan in You', () => {
+  const placed = (anchor: string, over: Record<string, unknown>): PlacedItemView => ({
+    placement: { section: 'you', reason: 'draft-plan', id: anchor }, rows: [], draft: null, ticket: null,
+    label: anchor, anchor, links: [], looseActions: { delete: false, release: false }, ...over,
+  }) as unknown as PlacedItemView;
+  const sliceItem = (n: string) => placed(`s-${n}`, { rows: [row({ branch: `feature/${n}`, plan: 'p', wave: n })] });
+  const draftItem = placed('d', { draft: { plan: 'p', planFile: 'p.md' }, rows: [row({ kind: 'plan', plan: 'p', wave: '' })] });
+
+  it('is one row in You and its slices show as none', () => {
+    const items = ['a', 'b', 'c', 'd', 'e'].map(sliceItem);
+    const blocks = nestItems('input-to-the-fleet', [draftItem, ...items], undefined, true);
+    expect(blocks.map((b) => b.kind)).toEqual(['item']);
+  });
+
+  it('keeps its nesting in the other sections', () => {
+    const items = ['a', 'b'].map(sliceItem).map((i) => ({ ...i, placement: { section: 'work-items', group: 'queued', id: i.anchor } }) as unknown as PlacedItemView);
+    const blocks = nestItems('queued', [draftItem, ...items], undefined, false);
+    expect(blocks.map((b) => b.kind).sort()).toEqual(['item', 'plan']);
   });
 });

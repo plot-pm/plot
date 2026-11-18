@@ -429,3 +429,26 @@ describe('the remaining branches', () => {
     expect(itemRowCells(work('queued', [], 'ticket'), facts)).toBeNull();
   });
 });
+
+describe('the You column set', () => {
+  it('is KIND, ITEM, STATUS, DO, AGE, and ROW_COLUMNS stays the seven', async () => {
+    const { YOU_COLUMNS, youRowCells } = await import('../src/rules/delivery-row-form.js');
+    expect([...YOU_COLUMNS]).toEqual(['kind', 'item', 'status', 'do', 'age']);
+    expect([...ROW_COLUMNS]).toEqual(['kind', 'item', 'where', 'status', 'do', 'by', 'age']);
+    const cells = youRowCells(you('draft-plan', 'input-to-the-fleet', [], 'plan'), { plan: 'p', ageMinutes: 60 })!;
+    expect(Object.keys(cells)).toEqual([...YOU_COLUMNS]);
+    expect(cells.do?.value).toBe('open ›');
+  });
+  it('words a draft plan and a loose branch in the Status column', async () => {
+    const { youRowCells } = await import('../src/rules/delivery-row-form.js');
+    const draft = you('draft-plan', 'input-to-the-fleet', [], 'plan');
+    expect(youRowCells(draft, { plan: 'p' })!.status?.value).toBe('Draft · not interrogated');
+    expect(youRowCells(draft, { plan: 'p', rounds: 2 })!.status?.value).toBe('Draft · 2 rounds');
+    expect(youRowCells(draft, { plan: 'p', rounds: 1, phase: 'design' })!.status?.value).toBe('Design · 1 round');
+    expect(youRowCells(you('loose', 'unblock', [], 'branch'), { branch: 'feature/x' })!.status?.value).toBe('loose · no plan, nobody works on it');
+  });
+  it('is null outside You', async () => {
+    const { youRowCells } = await import('../src/rules/delivery-row-form.js');
+    expect(youRowCells(work('queued'), facts)).toBeNull();
+  });
+});
