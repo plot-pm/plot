@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import type { AgentPlacement } from '../src/rules/delivery-placement.js';
 import { agentRowCells } from '../src/rules/delivery-row-form.js';
 import { boundSecondsOf, timeLeft, timeLeftValue, TIME_LEFT_RED_BELOW } from '../src/rules/agent-time-left.js';
-import { lastRunTokens, runLineRoleOf, tokenCountValue } from '../src/rules/agent-run-tokens.js';
+import { lastRunIndex, lastRunTokens, runLineRoleOf, tokenCountValue } from '../src/rules/agent-run-tokens.js';
 
 const agent = (over: Partial<AgentPlacement> = {}): AgentPlacement =>
   ({ id: 'a', role: 'loop', section: 'fleet', group: 'working', actsOn: 'x', linked: true, blockedOn: null, ...over });
@@ -110,6 +110,12 @@ describe('lastRunTokens', () => {
     ];
     expect(lastRunTokens(lines, 'feature/x', 'loop')!.outputTokens).toBe(10);
     expect(lastRunTokens(lines, 'feature/x', 'brief')!.outputTokens).toBe(600);
+  });
+
+  it('reads a prebuilt index the same as the lines it came from', () => {
+    const lines = [run({ branch: 'feature/x' })];
+    expect(lastRunTokens(lastRunIndex(lines), 'feature/x', 'loop')).toEqual(lastRunTokens(lines, 'feature/x', 'loop'));
+    expect(lastRunTokens(lastRunIndex(lines), 'feature/x', 'loop')).not.toBeNull();
   });
 
   it('is null for an unreadable record, an empty record and a branch with no run line, never zero', () => {
