@@ -17,6 +17,7 @@
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-fleet-plan-runs`
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-fleet-agent-rows`
 - **Started:** 2026-11-18, Jan Wloka, `feature/delivery-fleet-time-tokens`
+- **Started:** 2026-11-18, Jan Wloka, `feature/delivery-fleet-header-switches`
 
 ## Changelog
 
@@ -126,7 +127,7 @@ Per slice, in slice order.
 
 ### Header switches
 
-- `feature/delivery-fleet-header-switches` <!-- waits: feature/delivery-fleet-time-tokens --> — the existing switch strip (`AgentList.tsx:1403-1418`, `FleetControls.tsx`) moved into the Fleet header's controls slot with the `#fleet-controls` anchor kept, the header counts asserted, and the header's output tokens today <!-- builds: the Fleet header line with switches and tokens today -->
+- `feature/delivery-fleet-header-switches` <!-- waits: feature/delivery-fleet-time-tokens --> — the existing switch strip (`AgentList.tsx:1403-1418`, `FleetControls.tsx`) moved into the Fleet header's controls slot with the `#fleet-controls` anchor kept, the header counts asserted, and the header's output tokens today <!-- builds: the Fleet header line with switches and tokens today --> → #3518
 
 ## Notes
 
