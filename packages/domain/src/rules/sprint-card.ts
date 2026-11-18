@@ -88,13 +88,9 @@ export interface SprintCardsView {
   readonly unknownOwners: readonly { slug: string; handle: string }[];
 }
 
-/**
- * Whether a plan is delivered, from the merge answers of its counted slices.
- *
- * @returns `undefined` where the plan has no counted slice or none was read.
- */
-const planDelivered = (slices: readonly CountedSlice[] | undefined): boolean | undefined =>
-  slices === undefined || slices.length === 0 ? undefined : slices.every((s) => s.merge === 'merged');
+/** Whether a plan is delivered: it has counted slices and every one merged. A plan with none is not delivered. */
+const planDelivered = (slices: readonly CountedSlice[]): boolean =>
+  slices.length > 0 && slices.every((s) => s.merge === 'merged');
 
 /**
  * Reads the sprint card: the owned Active sprints, each with an end line, a
@@ -130,7 +126,8 @@ export const sprintCards = (
         const members = counted.filter((m) => m.tier === tier);
         if (members.length === 0) continue;
         const done = members.filter((m) => {
-          const delivered = m.slug === '' ? 'no-plan-named' : planDelivered(slicesByPlan.get(m.slug)) ?? false;
+          // `countSliceStatesOver` answered, so every named plan has an entry.
+          const delivered = m.slug === '' ? 'no-plan-named' : planDelivered(slicesByPlan.get(m.slug)!);
           return scoreItem({ tier, checked: m.checked, plan: m.slug, text: '' }, delivered) === 'done';
         }).length;
         tiers.push({ tier, done, total: members.length, text: `${tier[0]!.toUpperCase()}${tier.slice(1)} ${done}/${members.length}` });
@@ -148,9 +145,9 @@ export const sprintCards = (
       readingMissing: counts === undefined,
     };
   });
-  const directory = reader.directory ?? {};
+  // An owned sprint needs a declared Owner, so `cards` is empty unless the directory exists.
   const unknownOwners = cards.length === 0 ? [] : sprints
-    .filter((s) => s.ownerHandle.trim() !== '' && !declaresSpelling(s.ownerHandle.trim(), directory))
+    .filter((s) => s.ownerHandle.trim() !== '' && !declaresSpelling(s.ownerHandle.trim(), reader.directory!))
     .map((s) => ({ slug: s.slug, handle: s.ownerHandle.trim() }));
   return { cards, unknownOwners };
 };

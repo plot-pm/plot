@@ -1460,7 +1460,7 @@ export function AgentList({
               switches={{ ...switches, autoDispatch: fleetControlsOf(fleet).autoDispatch, parallelAgents: fleetControlsOf(fleet).parallelAgents }}
               onJump={scrollToAnchor}
             />
-            <SprintCard view={sprintCards(activeSprints, reader, countedSlicesByPlan(mapping.wholeReadings.items), mapping.wholeReadings, mapping.input)} />
+            <SprintCard view={sprintCards(activeSprints.map((s) => ({ ...s, release: s.release ?? '', end: s.end ?? '', ownerHandle: s.ownerHandle ?? '', members: s.members ?? [] })), reader, countedSlicesByPlan(mapping.wholeReadings.items), mapping.wholeReadings, mapping.input)} />
             {view.sections.map((section) => {
               // THE HEADING CARRIES THE PACE OF THE ROWS BEHIND IT, folded or
               // open, read from the same `active` set the rows render from.

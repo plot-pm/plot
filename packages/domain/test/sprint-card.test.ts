@@ -99,6 +99,12 @@ describe('sprintCards', () => {
     expect(card.tierLine).toBe('Could 1/2');
   });
 
+  it('does not count a plan with an empty slice list as delivered', () => {
+    const empty = new Map<string, CountedSlice[]>([['e', []]]);
+    const card = sprintCards([sprint({ members: [member('e', 'must')] })], reader, empty, none, input).cards[0]!;
+    expect(card.tierLine).toBe('Must 0/1');
+  });
+
   it('carries the end line and release, and prints none where absent', () => {
     const card = sprintCards([sprint({ end: '', release: '' })], reader, plans, none, input).cards[0]!;
     expect(card.endLine).toBe('');
