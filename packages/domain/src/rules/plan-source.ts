@@ -22,7 +22,7 @@ export interface PlanSourceReadings {
 export type PlanSource =
   /** The head of the open plan PR that carries it. */
   | { at: 'pr-head'; number: number; branch: string; sha: string; file: string }
-  /** The checkout. */
+  /** The checkout, where neither a plan PR nor the default branch holds the plan. */
   | { at: 'checkout' }
   /** The default branch as fetched. */
   | { at: 'default'; branch: string; file: string };
@@ -55,8 +55,10 @@ export type PlanSourceAnswer =
  *    the plan file differs refuses `pr-copies-differ`; an identical copy does
  *    not. The head wins over the checkout, so a commit onto the plan lands on
  *    the branch that carries it.
- * 3. The checkout, where it holds the plan file.
- * 4. The default branch as fetched, where it holds the plan file.
+ * 3. The default branch as fetched, where it holds the plan file, also where
+ *    the checkout holds a copy: the board reads the plan from the default
+ *    branch, and the checkout can stand on any branch.
+ * 4. The checkout, where only it holds the plan file.
  * 5. Otherwise `plan-not-found`.
  *
  * @param readings - where the plan was looked for, and what was found.
@@ -81,10 +83,10 @@ export const planSourceOf = (readings: PlanSourceReadings): PlanSourceAnswer => 
     }
     return { outcome: 'found', source: { at: 'pr-head', number: pr.number, branch: pr.branch, sha: pr.read.sha, file: pr.read.file } };
   }
-  if (readings.inCheckout) return { outcome: 'found', source: { at: 'checkout' } };
   if (readings.onMainFile !== '') {
     return { outcome: 'found', source: { at: 'default', branch: readings.main, file: readings.onMainFile } };
   }
+  if (readings.inCheckout) return { outcome: 'found', source: { at: 'checkout' } };
   return no(
     'plan-not-found',
     `no plan found for '${slug}' — looked in the checkout, on origin/${readings.main}, and on the heads of the open PRs`,

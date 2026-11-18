@@ -30,8 +30,15 @@ const readings = (over: Partial<PlanSourceReadings> = {}): PlanSourceReadings =>
 });
 
 describe('planSourceOf', () => {
-  it('reads a plan the checkout holds from the checkout', () => {
-    expect(planSourceOf(readings({ inCheckout: true, onMainFile: FILE }))).toEqual({ outcome: 'found', source: { at: 'checkout' } });
+  it('reads a plan only the checkout holds from the checkout', () => {
+    expect(planSourceOf(readings({ inCheckout: true }))).toEqual({ outcome: 'found', source: { at: 'checkout' } });
+  });
+
+  it('reads a plan the default branch holds from the default branch, even where the checkout holds it too', () => {
+    expect(planSourceOf(readings({ inCheckout: true, onMainFile: FILE }))).toEqual({
+      outcome: 'found',
+      source: { at: 'default', branch: 'main', file: FILE },
+    });
   });
 
   it('reads a plan only the default branch holds from the default branch', () => {

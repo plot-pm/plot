@@ -433,9 +433,10 @@ them back to the branch they came from.
 git symbolic-ref -q HEAD >/dev/null 2>&1 && echo attached || echo detached
 ```
 
-- **attached** → an ordinary branch checkout (the `## Plot Config` fallback,
-  or a Draft plan already on the default branch). Commit locally as this
-  skill always has. Nothing below applies.
+- **attached** → an ordinary branch checkout: the `## Plot Config` checkout,
+  which the board uses only for a plan that neither an open plan PR nor the
+  default branch holds. Commit locally as this skill always has. Nothing
+  below applies.
 - **detached** → the branch to push to is the one the board named. `POST /api/interrogate` cuts this worktree at the tip of the plan PR that carries the plan (`idea/<slug>` or a batch PR such as `idea/batch-<first-slug>`), or at the default branch when only the default branch holds the plan, and names that branch in the prompt and in `PLOT_INTERROGATE_BRANCH`. Without that variable, find which remote branch HEAD came from, skipping the `origin/HEAD` alias:
 
   ```bash
@@ -500,6 +501,30 @@ this phase is markdown run by an agent, so it runs the same steps as plain
    creating a local branch — there is nothing to clean up afterward. A
    rejected push (the branch moved between the fetch above and this push)
    is the same refusal as step 1: report it by name, do not retry.
+
+**The default branch is the one exception to "do not rebase".** When
+`$BRANCH` is the default branch (`git symbolic-ref --short
+refs/remotes/origin/HEAD` names `origin/$BRANCH`, and the prompt says so),
+other merges move it during almost every round. Step 1 and a rejected push
+in step 3 then rebase the round instead of refusing, under one condition:
+the plan file is unchanged between the round's start and the new tip.
+
+```bash
+git diff --quiet "$STARTED_AT" "refs/remotes/origin/$BRANCH" -- "$PLAN_FILE" || echo plan-file-moved
+```
+
+- **unchanged** → commit the round if it is not committed yet, run
+  `git rebase "refs/remotes/origin/$BRANCH"`, and push again. Fetch and
+  repeat at most three times; after the third rejection, refuse by name as
+  `default-branch-moved`, leave the round committed in the worktree, and
+  name the worktree path.
+- **changed** → someone else edited the plan during this round. Refuse by
+  name as `plan-file-moved`, leave the round uncommitted in the worktree,
+  and name the worktree path for a person to reconcile.
+
+A round that was not pushed is never reported as done: the board reads the
+plan from the default branch, and a round that stays in the worktree leaves
+the card at "not interrogated".
 
 **One commit carries all three artifacts**, because Phase 5b's `Rounds:` and
 metadata-block writes and Phase 7's Open Points edits all land in the same

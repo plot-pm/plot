@@ -27,7 +27,7 @@ import { PlanMetaSchema } from '../contract/schema.js';
  * Under `Plan PRs: required` a Draft plan exists only on its plan PR until
  * that PR merges — `idea/<slug>`, or a batch PR on another head — so the route
  * resolves the plan's source first: the head of the open plan PR that carries
- * it, then the main checkout, then the default branch as fetched. A PR head
+ * it, then the default branch as fetched, then the main checkout. A PR head
  * or the default branch runs the command in a detached worktree of that tip,
  * and the prompt names the branch Phase 7b of `/challenge-the-plan` pushes the
  * round to. A host that cannot answer refuses `plan-unreadable` naming its
@@ -184,8 +184,8 @@ const blobAt = async (refs: Refs, sha: string, file: string): Promise<string> =>
  * finder `plot-approve.mjs` and `plot-needs-design.mjs` use (`choosePlanPr`,
  * which asks `planPrOf`), then `planSourceOf` chooses: the head of the open
  * plan PR that carries the plan (`idea/<slug>`, or any open PR whose head
- * changes the plan file, such as a batch PR), then the checkout, then the
- * default branch as fetched.
+ * changes the plan file, such as a batch PR), then the default branch as
+ * fetched, then the checkout.
  *
  * Reads the local mirror only: the `Trees` handed to the finder fetches
  * nothing, so a PR head git does not hold reads as unread and the request path
@@ -248,12 +248,16 @@ export const resolveInterrogatePlanPr = async (opts: BuildBoardOptions, slug: st
  * unattended panel refuses when a parameter is missing.
  *
  * Where the plan was read from a branch's tip in a detached worktree, the
- * prompt names that branch, so Phase 7b pushes the round to it.
+ * prompt names that branch, so Phase 7b pushes the round to it. Where that
+ * branch is the default branch, the prompt says so: the default branch moves
+ * during a run, and Phase 7b rebases the round onto its new tip where the plan
+ * file did not change.
  *
  * @param planPath the plan file, relative to the repository root
  * @param branch the branch the detached worktree was cut from; `''` for the main checkout
+ * @param onDefault whether `branch` is the default branch
  */
-export const composeInterrogatePrompt = (planPath: string, branch = ''): string =>
+export const composeInterrogatePrompt = (planPath: string, branch = '', onDefault = false): string =>
   [
     `/challenge-the-plan ${planPath}`,
     '',
@@ -266,6 +270,9 @@ export const composeInterrogatePrompt = (planPath: string, branch = ''): string 
         '',
         `This checkout is a detached worktree of \`${branch}\`. Phase 7b pushes the`,
         `round to \`${branch}\` (also in PLOT_INTERROGATE_BRANCH), and to no other branch.`,
+        ...(onDefault
+          ? [`\`${branch}\` is the default branch: commit the round there and push it, rebasing`, 'it onto the new tip where the branch moved and the plan file did not.']
+          : []),
       ]),
     '',
   ].join('\n');
@@ -314,8 +321,10 @@ export const interrogateStatus = (opts: BuildBoardOptions, slug: string): Interr
 interface InterrogateTarget {
   /** The checkout to read the plan from, and to run the command in: `opts.repoRoot`, or a worktree of the plan PR's head. */
   root: string;
-  /** The plan PR's head branch, where one was used; empty on the main-checkout fallback. */
+  /** The plan PR's head branch, or the default branch, where one was used; empty on the main-checkout fallback. */
   head: string;
+  /** Whether `head` is the default branch. */
+  onDefault: boolean;
 }
 
 /**
@@ -480,7 +489,7 @@ export const handleInterrogate = async (
       );
       return;
     }
-    target = { root: tree, head: lookup.head };
+    target = { root: tree, head: lookup.head, onDefault: false };
   } else if (lookup.kind === 'default') {
     const tree = await prepareWorktree(opts, slug, lookup.branch);
     if (tree === null) {
@@ -491,9 +500,9 @@ export const handleInterrogate = async (
       );
       return;
     }
-    target = { root: tree, head: lookup.branch };
+    target = { root: tree, head: lookup.branch, onDefault: true };
   } else {
-    target = { root: opts.repoRoot, head: '' };
+    target = { root: opts.repoRoot, head: '', onDefault: false };
   }
 
   // The phase read and the prompt below both resolve the plan through
@@ -535,7 +544,7 @@ export const handleInterrogate = async (
     return;
   }
 
-  const prompt = composeInterrogatePrompt(path.relative(target.root, planFile), target.head);
+  const prompt = composeInterrogatePrompt(path.relative(target.root, planFile), target.head, target.onDefault);
   const promptPath = interrogatePromptPath(opts.repoRoot, slug);
   try {
     fs.mkdirSync(path.dirname(promptPath), { recursive: true });

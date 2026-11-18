@@ -108,7 +108,7 @@ const post = async (opts: {
   phase?: () => string | null;
   runner?: string;
   resolvePlanPr?: () => Promise<PlanPrLookup>;
-  prepareWorktree?: () => Promise<string | null>;
+  prepareWorktree?: NonNullable<InterrogateDeps['prepareWorktree']>;
 }): Promise<Captured> => {
   const { res, got } = response();
   const deps: InterrogateDeps = {
@@ -120,7 +120,7 @@ const post = async (opts: {
           : fallback,
     phase: () => (opts.phase ? opts.phase() : 'draft'),
     resolvePlanPr: opts.resolvePlanPr ? () => opts.resolvePlanPr!() : async () => ({ kind: 'none' }),
-    prepareWorktree: opts.prepareWorktree ? () => opts.prepareWorktree!() : async () => null,
+    prepareWorktree: opts.prepareWorktree ?? (async () => null),
   };
   await handleInterrogate(
     request(opts.body ?? { slug: SLUG }),
@@ -279,6 +279,29 @@ describe('resolving the plan PR', () => {
     assert.equal(got.status, 409);
     assert.equal(refusal(got), 'plan-unreadable');
     assert.match(String(got.body.detail), /idea\//);
+  });
+
+  it('runs a plan only the default branch holds in a worktree of it, and names the default branch as the push target', async () => {
+    const dir = repo();
+    const worktree = repo();
+    draftPlan(worktree);
+    let cutAt = '';
+    const got = await post({
+      repoRoot: dir,
+      resolvePlanPr: async () => ({ kind: 'default', branch: 'main' }),
+      prepareWorktree: async (_o, _s, head) => { cutAt = head; return worktree; },
+    });
+    assert.equal(got.status, 202);
+    assert.equal(cutAt, 'main');
+    const prompt = fs.readFileSync(interrogatePromptPath(dir, SLUG), 'utf8');
+    assert.match(prompt, /detached worktree of `main`/);
+    assert.match(prompt, /pushes the\s+round to `main`/);
+    assert.match(prompt, /`main` is the default branch/);
+    await boardRunsSettled();
+  });
+
+  it('names no default branch in the prompt for a plan PR head', () => {
+    assert.doesNotMatch(composeInterrogatePrompt('docs/plans/x.md', 'idea/x'), /default branch/);
   });
 
   it('falls back to the main checkout when the host answers no open plan PR', async () => {
@@ -669,6 +692,15 @@ describe('resolving where the plan is read', () => {
     push('idea/landed');
     git(dir, 'push', '-q', 'origin', 'origin/idea/landed:refs/heads/main');
     git(dir, 'fetch', '-q', 'origin', 'main');
+    assert.deepEqual(await resolve(dir, []), { kind: 'default', branch: 'main' });
+  });
+
+  it('reads a plan the checkout and the default branch both hold from the default branch', async () => {
+    const { dir, push } = estate();
+    push('idea/landed');
+    git(dir, 'push', '-q', 'origin', 'origin/idea/landed:refs/heads/main');
+    git(dir, 'pull', '-q', '--ff-only', 'origin', 'main');
+    assert.ok(fs.existsSync(path.join(dir, 'docs/plans', PLAN_NAME)), 'the checkout holds the plan');
     assert.deepEqual(await resolve(dir, []), { kind: 'default', branch: 'main' });
   });
 
