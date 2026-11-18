@@ -57,6 +57,7 @@ function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents:
   return fleet.fleetControls ?? FLEET_CONTROLS_DEFAULT;
 }
 import { FleetCard } from './FleetCard.js';
+import { SprintCard } from './SprintCard.js';
 import { AutoDispatchSwitch, AutoSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
 import { FleetAgentHeader, FleetAgentRow } from './FleetAgentRow.js';
 import { RowCell, scrollToAnchor, type LinkHandlers } from './DeliveryRows.js';
@@ -119,11 +120,11 @@ import {
   writeMineOnly,
   writeMineStrict,
 } from '../lib/agent-rows/mine-filter.js';
-import { freeLine, mineMode, placeDelivery, planIndexOf, workItemCells, YOU_GROUP_MARKERS, type YouGroup, type YouMarker } from '@plot-pm/domain';
+import { freeLine, mineMode, placeDelivery, planIndexOf, sprintCards, workItemCells, YOU_GROUP_MARKERS, type YouGroup, type YouMarker } from '@plot-pm/domain';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
 import { ActivityMark } from '../lib/agent-rows/marks.js';
 import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
-import { deliveryMapping, rateLimitOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
+import { countedSlicesByPlan, deliveryMapping, rateLimitOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
 import {
   groupAnchor,
   placeMapping,
@@ -1459,6 +1460,7 @@ export function AgentList({
               switches={{ ...switches, autoDispatch: fleetControlsOf(fleet).autoDispatch, parallelAgents: fleetControlsOf(fleet).parallelAgents }}
               onJump={scrollToAnchor}
             />
+            <SprintCard view={sprintCards(activeSprints, reader, countedSlicesByPlan(mapping.wholeReadings.items), mapping.wholeReadings, mapping.input)} />
             {view.sections.map((section) => {
               // THE HEADING CARRIES THE PACE OF THE ROWS BEHIND IT, folded or
               // open, read from the same `active` set the rows render from.

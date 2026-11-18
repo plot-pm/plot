@@ -681,6 +681,7 @@ export * from './rules/slice-pr-next.js';
 export * from './rules/pulse-branch.js';
 export * from './rules/delivery-placement.js';
 export * from './rules/slice-states.js';
+export * from './rules/sprint-card.js';
 export * from './rules/tickets-section.js';
 export * from './rules/agent-roles.js';
 export * from './rules/agent-time-left.js';

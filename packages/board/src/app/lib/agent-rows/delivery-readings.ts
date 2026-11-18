@@ -16,6 +16,7 @@ import {
   type RoleRun,
   type WorkItemReading,
 } from '@plot-pm/domain';
+import type { CountedSlice } from '@plot-pm/domain/rules/slice-states';
 import type { PersonDirectory } from '@plot-pm/domain/entities/person';
 import { ticketMarkOf, ticketRecordOf } from '@plot-pm/domain/rules/sprint-ticket-record';
 import type { AgentEntry, AgentRow, DraftPlan, IssueRow, ReleaseTickets, Slice, TicketSourceShape } from '../../../contract/schema.js';
@@ -473,4 +474,22 @@ export const ticketMarkFor = (sprintTexts: readonly string[], ticket: string): s
     if (mark !== null) return mark;
   }
   return null;
+};
+
+/**
+ * The counted slices per plan, read from the slice items of one set of readings.
+ *
+ * A slice item's id is `slice:<plan>\0<wave>` (`sliceItemId`), so the plan is the
+ * part before the NUL. A plan with no slice item has no entry: its merge answer is unread.
+ */
+export const countedSlicesByPlan = (items: readonly WorkItemReading[]): Map<string, CountedSlice[]> => {
+  const byPlan = new Map<string, CountedSlice[]>();
+  for (const item of items) {
+    if (!item.id.startsWith('slice:')) continue;
+    const plan = item.id.slice('slice:'.length).split('\0')[0]!;
+    const list = byPlan.get(plan) ?? [];
+    list.push({ id: item.id, merge: item.delivered === true ? 'merged' : 'open' });
+    byPlan.set(plan, list);
+  }
+  return byPlan;
 };
