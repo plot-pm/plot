@@ -56,6 +56,7 @@ const rig = (earlierTookMs: number | undefined, checks: readonly string[] = ['CI
     refs: {
       remoteSha: async () => refsFixture({ remoteTips: { main: 'a1' } }).remoteSha('main'),
       firstParentLine: async () => ({ ok: true, value: [] }),
+      firstParentCommits: async () => ({ ok: true, value: [] }),
     },
     build: {
       system: () => 'github-actions',

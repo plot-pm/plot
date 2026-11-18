@@ -190,6 +190,15 @@ describe('redMainStep', () => {
     expect(answer).toBe('exhausted');
   });
 
+  it('the bound reached with the picker answering hold answers hold, never exhausted', () => {
+    const answer = redMainStep(
+      reading(),
+      record({ state: 'repairing', redSince: new Date(Date.parse(AT) - 2 * BOUND).toISOString() }),
+      input({ pickerAnswer: 'hold' }),
+    );
+    expect(answer).toBe('hold');
+  });
+
   it('the bound reached, fresh reading, head at settled, picker names a PR: revert', () => {
     const answer = redMainStep(
       reading(),
@@ -205,7 +214,7 @@ const candidate = (over: Partial<RedMainCandidate> = {}): RedMainCandidate => ({
   subject: 'Fix the thing (#12)',
   prMerged: true,
   hostMergeCommit: 'c'.repeat(40),
-  settledRed: true,
+  runs: 'red',
   touchesState: false,
   ...over,
 });
@@ -227,9 +236,42 @@ describe('redMainPicker', () => {
     expect(redMainPicker([candidate({ hostMergeCommit: 'd'.repeat(40) })])).toBe('unknown');
   });
 
-  it('answers unknown with two qualifying candidates', () => {
-    const other = candidate({ sha: 'e'.repeat(40), subject: 'Other fix (#13)', hostMergeCommit: 'e'.repeat(40) });
-    expect(redMainPicker([candidate(), other])).toBe('unknown');
+  const at = (n: number, over: Partial<RedMainCandidate> = {}) =>
+    candidate({ sha: String(n).repeat(40), subject: `Change ${n} (#${n})`, hostMergeCommit: String(n).repeat(40), ...over });
+
+  // Candidates are supplied newest first, the order the repair record stores them.
+  it('names the oldest PR where M1 and M2 both settle red', () => {
+    expect(redMainPicker([at(2), at(1)])).toEqual({ pr: 1 });
+  });
+
+  it('names M2 where M1 settles green and M2 red', () => {
+    expect(redMainPicker([at(2), at(1, { runs: 'green' })])).toEqual({ pr: 2 });
+  });
+
+  it('answers unknown where every candidate is green', () => {
+    expect(redMainPicker([at(2, { runs: 'green' }), at(1, { runs: 'green' })])).toBe('unknown');
+  });
+
+  it.each(['pending', 'unknown'] as const)('holds on a first non-green candidate whose runs read %s, never skipping to a later red', (runs) => {
+    expect(redMainPicker([at(2), at(1, { runs })])).toBe('hold');
+  });
+
+  it('names the PR merge, not a red bundle commit above it', () => {
+    const bundle = candidate({ sha: 'b'.repeat(40), subject: 'plot: build the board artifact', prMerged: false, hostMergeCommit: '' });
+    expect(redMainPicker([bundle, at(1)])).toEqual({ pr: 1 });
+  });
+
+  it('answers unknown where the first red candidate is a Plot-path commit with a red PR merge above it', () => {
+    const plot = candidate({ sha: 'b'.repeat(40), subject: 'plot: book the plan', prMerged: false, hostMergeCommit: '' });
+    expect(redMainPicker([at(2), plot])).toBe('unknown');
+  });
+
+  it('answers unknown where the first red candidate changes a State: line', () => {
+    expect(redMainPicker([at(2), at(1, { touchesState: true })])).toBe('unknown');
+  });
+
+  it('reads the list from its end: the oldest is the last element', () => {
+    expect(redMainPicker([at(1), at(2)])).toEqual({ pr: 2 });
   });
 
   it('parses GitHub’s merge-commit subject form', () => {
@@ -246,8 +288,8 @@ describe('redMainPicker', () => {
     expect(redMainPicker([candidate({ touchesState: true })])).toBe('unknown');
   });
 
-  it('answers unknown when the candidate is not itself settled red', () => {
-    expect(redMainPicker([candidate({ settledRed: false })])).toBe('unknown');
+  it('answers unknown when the only candidate is green', () => {
+    expect(redMainPicker([candidate({ runs: 'green' })])).toBe('unknown');
   });
 
   it('answers unknown when the host does not read the PR as merged', () => {

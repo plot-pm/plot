@@ -135,7 +135,7 @@ export const revertWorldOf = (options: RevertWorldOptions): RevertWorld => {
         ...commit,
         prMerged: found !== null && found.state === 'MERGED',
         hostMergeCommit: found !== null && found.state === 'MERGED' ? found.mergeCommit : '',
-        settledRed: foldRuns(declaredRuns(runs.value, options.checks)) === 'red',
+        runs: foldRuns(declaredRuns(runs.value, options.checks)),
         touchesState: files.value.some((file) => dirs.some((dir) => file.startsWith(dir))),
       };
     },
