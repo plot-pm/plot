@@ -2,6 +2,7 @@ import {
   ownership,
   placeDelivery,
   type AgentPlacementReading,
+  type AgentBounds,
   type AgentRole,
   type DeliveryInput,
   type DeliveryMine,
@@ -53,6 +54,8 @@ export interface DeliveryMapInput {
   roleRuns?: readonly RoleRun[] | null | undefined;
   /** The connector's window from `fleet.machine`; absent reads as unknown, which blocks nothing. */
   rateLimit?: RateLimitReading | undefined;
+  /** The run bounds from `fleet.bounds`; absent reads as no bound, so no Time left. */
+  bounds?: AgentBounds | undefined;
   /** The checks page of a PR, from the Planning cards; absent or `''` where none is known. */
   checksUrlOf?: ((planFile: string, pr: number) => string) | undefined;
 }
@@ -108,6 +111,8 @@ export interface DeliveryMapping {
   rateLimit: RateLimitReading;
   /** The `People` spellings of the reader's config; absent where none is declared. */
   directory?: PersonDirectory;
+  /** The run bounds, as `deliveryMapping` read them; absent where the payload carried none. */
+  bounds: AgentBounds | undefined;
   /** The checks page of a PR; `''` where none is known. */
   checksUrlOf: (planFile: string, pr: number) => string;
   /** One entry per distinct target release, and the tickets the release line counts for them. */
@@ -388,6 +393,7 @@ const mapReadings = (input: DeliveryMapInput): DeliveryMapping => {
     ticketsByItem,
     runsById,
     rateLimit: input.rateLimit ?? 'unknown',
+    bounds: input.bounds,
     checksUrlOf: input.checksUrlOf ?? (() => ''),
     releases: {
       targets: releaseTargets(input.sprints ?? []),

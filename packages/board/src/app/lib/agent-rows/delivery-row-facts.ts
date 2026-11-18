@@ -1,4 +1,5 @@
 import {
+  boundSecondsOf,
   deliveryRowForms,
   groupHeader,
   identityWasDeclared,
@@ -95,9 +96,9 @@ const itemNameOf = (mapping: DeliveryMapping, itemId: string | null): string | u
  *
  * @param mapping - the readings and the registry entries by agent id.
  * @param id - the agent's id.
- * @param _now - unused; kept so the caller's signature does not change.
+ * @param now - epoch milliseconds the Time left cell is measured at.
  */
-export const agentRowFactsOf = (mapping: DeliveryMapping, id: string, _now?: number): AgentRowFacts => {
+export const agentRowFactsOf = (mapping: DeliveryMapping, id: string, now?: number): AgentRowFacts => {
   const entry = mapping.agentsById[id];
   const run = mapping.runsById[id];
   const facts: AgentRowFacts = { rateLimit: mapping.rateLimit };
@@ -105,6 +106,13 @@ export const agentRowFactsOf = (mapping: DeliveryMapping, id: string, _now?: num
     facts.unnamedDesk = unnamedDeskLabel({ checkout: entry.checkout ?? '', live: isLiveState(entry.state) });
   }
   const reading = mapping.readings.agents.find((a) => a.id === id);
+  if (reading !== undefined) {
+    if (reading.process !== undefined) facts.running = reading.process === 'running';
+    facts.startedAt = reading.startedAt ?? null;
+    facts.boundSeconds = boundSecondsOf(reading.role, mapping.bounds);
+    if (now !== undefined) facts.now = now;
+  }
+  if (entry?.lastRun !== undefined) facts.lastRun = entry.lastRun;
   const itemName = itemNameOf(mapping, reading?.actsOn ?? null);
   if (itemName !== undefined) facts.itemName = itemName;
   const all = Object.values(mapping.rowsByItem).flat();
