@@ -50,6 +50,8 @@ export interface PrRecord {
   plotReviewCheckedAt?: string;
   /** `checks` folded with `plot/review` excluded; the GitHub rollup arm only. */
   ciChecks?: 'green' | 'pending' | 'failing' | 'none' | 'unknown';
+  /** fleetd's held `human-comment-open` answer; absent where no merge pass asked. */
+  personComment?: { head: string; at: string };
 }
 
 const OPTIONAL_FIELDS = [
@@ -70,6 +72,7 @@ const OPTIONAL_FIELDS = [
   'plotReviewJudged',
   'plotReviewCheckedSha',
   'plotReviewCheckedAt',
+  'personComment',
 ] as const satisfies ReadonlyArray<keyof PrRecord & keyof PrIndexRow>;
 
 /**

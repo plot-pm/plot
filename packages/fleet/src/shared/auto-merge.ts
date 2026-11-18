@@ -27,6 +27,7 @@ import { apiForReads, hostForReads } from '@plot-pm/domain/adapters/host/process
 import { refsRemoteGit } from '@plot-pm/domain/adapters/refs/refs-remote-git';
 import { sprintScopeRef } from '@plot-pm/domain/adapters/sprint-scope-ref';
 import { liveReviewRuns } from '@plot-pm/domain/adapters/review-start/review-start-node';
+import { personCommentHolds } from '@plot-pm/domain/rules/person-comment';
 import { baseBranchRed } from '@plot-pm/domain/rules/default-branch';
 import { shippedPathsOf } from '@plot-pm/domain/rules/bundle-commit';
 import { DEFAULT_RELEASE_DIR, syncPathSet } from '@plot-pm/domain/rules/state-sync';
@@ -59,6 +60,8 @@ export interface ConversationHold {
   readonly head: string;
   /** The later of the refusal's `conversationAt` and the row's `updatedAt`, as an ISO time. */
   readonly at: string;
+  /** Which refusal set the hold; only `human-comment-open` is a person's comment. */
+  readonly reason: 'human-comment-open' | 'human-comment-unread';
 }
 
 /**
@@ -69,10 +72,7 @@ export type ConversationHolds = Map<number, ConversationHold>;
 
 /** Whether a hold still covers a row: same head commit, and the row's `updatedAt` is not newer than the hold. */
 const holds = (hold: ConversationHold | undefined, head: string, row: PrIndexRow): boolean => {
-  if (hold === undefined || hold.head !== head) return false;
-  const held = Date.parse(hold.at);
-  const updated = row.updatedAt === undefined ? Number.NaN : Date.parse(row.updatedAt);
-  return !Number.isNaN(held) && !Number.isNaN(updated) && updated <= held;
+  return personCommentHolds(hold, { headSha: head, updatedAt: row.updatedAt });
 };
 
 /** The later of two ISO times; the one that parses where only one does, and the row's where neither does. */
@@ -294,7 +294,7 @@ export const mergeTick = async (
   if (!result.merged && result.reason === 'host-refused') refused.set(pick.pr, pick.head);
   if (!result.merged && (result.reason === 'human-comment-open' || result.reason === 'human-comment-unread')) {
     const row = rowSteps.find(({ pr }) => pr === pick.pr)?.row;
-    conversationHolds?.set(pick.pr, { head: pick.head, at: laterOf(result.conversationAt, row?.updatedAt) });
+    conversationHolds?.set(pick.pr, { head: pick.head, at: laterOf(result.conversationAt, row?.updatedAt), reason: result.reason });
   }
   if (opts !== undefined) {
     const branch = rowSteps.find(({ pr }) => pr === pick.pr)?.row.head ?? pick.head;
