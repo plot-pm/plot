@@ -66,6 +66,30 @@ export function dispatchAvailability(host: string): DispatchAvailability {
   return localCapability(host, 'starting work', 'the worktrees');
 }
 
+/** The variable that names further origins the board's own page may be served from. */
+export const ORIGINS_ENV = 'PLOT_BOARD_ORIGINS';
+
+/**
+ * The origins `PLOT_BOARD_ORIGINS` declares, comma-separated.
+ *
+ * An entry counts only where it is an exact origin, `scheme://host[:port]`, as
+ * `new URL(entry).origin` prints it: a path, a trailing slash or an unparsable
+ * entry is dropped. The intended entry is a `tailscale serve` address such as
+ * `https://machine.tailnet.ts.net`, where the board stays bound to loopback and
+ * the tailnet decides who reaches it.
+ */
+export const declaredOrigins = (env: NodeJS.ProcessEnv = process.env): string[] =>
+  (env[ORIGINS_ENV] ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => {
+      try {
+        return entry !== '' && new URL(entry).origin === entry;
+      } catch {
+        return false;
+      }
+    });
+
 /**
  * Did this request come from the board's own page?
  *
@@ -73,8 +97,15 @@ export function dispatchAvailability(host: string): DispatchAvailability {
  * which is exactly why they are worth checking and a token is not. Absent
  * headers pass: a non-browser caller (curl, a test) sends neither, and it was
  * never the browser's cross-site behaviour that this guards against.
+ *
+ * The page's origin is one of the three loopback origins on `port`, or an
+ * origin `PLOT_BOARD_ORIGINS` declares (`declaredOrigins`).
  */
-export function isSameOrigin(req: http.IncomingMessage, port: number): boolean {
+export function isSameOrigin(
+  req: http.IncomingMessage,
+  port: number,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
   const site = req.headers['sec-fetch-site'];
   if (typeof site === 'string' && site !== 'same-origin') return false;
   const origin = req.headers.origin;
@@ -83,6 +114,7 @@ export function isSameOrigin(req: http.IncomingMessage, port: number): boolean {
       `http://localhost:${port}`,
       `http://127.0.0.1:${port}`,
       `http://[::1]:${port}`,
+      ...declaredOrigins(env),
     ];
     if (!allowed.includes(origin)) return false;
   }
