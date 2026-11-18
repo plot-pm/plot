@@ -134,8 +134,10 @@ describe('the plan row carries the sole wave’s actions', () => {
     return page;
   }
 
+  // Work-item plan heads only: the Release delivery section also lists an
+  // approved plan, as one collapsed row under the same attribute.
   const planRow = (page: Page, slug: string) =>
-    page.locator(`li[data-plan-row="${slug}"]`);
+    page.locator(`xpath=//li[@data-plan-row="${slug}"][not(ancestor::*[@data-release-block])]`);
 
   it("carries the sole wave's Start work in ONE menu, in a labelled wave section", async () => {
     // `beans` declares one wave. Its wave row IS rendered — the wave's NAME

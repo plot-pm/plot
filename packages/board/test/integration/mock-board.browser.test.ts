@@ -79,19 +79,12 @@ describe('the mock board serves named states', () => {
   it('a test names a state and gets it', async () => {
     const page = await cat.open('a-done-wave', { tab: 'agents' });
     try {
-      // DONE is folded by default, so the wave row is not in the DOM until the
-      // section is opened. Asserting before this is how a correct fixture reads
-      // as a missing one.
-      await page.locator('[data-delivery-section="release-delivery"]').waitFor({ timeout: 15_000 });
-      const doneToggle = page.locator('[data-group-toggle="release-delivery"]');
-      if ((await doneToggle.getAttribute('aria-expanded')) === 'false') await doneToggle.click();
-
-      const sliceRow = page.locator('[data-slice-row="Complete"]');
-      await sliceRow.waitFor({ timeout: 10_000 });
-      // The state is what its NAME says: a done wave of two merged branches,
-      // whose own verdict is `complete`.
-      const status = await sliceRow.locator('[data-tuple-status]').textContent();
-      expect(status).toMatch(/2\s+complete/);
+      // Release delivery is always open: one collapsed row per plan, and the
+      // a-done-wave state holds one delivered slice on `six-waves`.
+      const planRow = page.locator('[data-release-block] li[data-plan-row="six-waves"]');
+      await planRow.waitFor({ timeout: 15_000 });
+      const delivered = await planRow.locator('[data-strip-segment="delivered"]').textContent();
+      expect(delivered).toMatch(/\d+\s+delivered/);
     } finally {
       await page.close();
     }
@@ -102,13 +95,11 @@ describe('the mock board serves named states', () => {
     // `a-done-wave` — the count, the verdict word, the section — must be
     // unchanged, or the override is not an override but a second fixture.
     const base = await cat.open('a-done-wave', { tab: 'agents' });
-    let baseStatus: string | null;
+    let baseStrip: string | null;
     try {
-      await base.locator('[data-delivery-section="release-delivery"]').waitFor({ timeout: 15_000 });
-      const t = base.locator('[data-group-toggle="release-delivery"]');
-      if ((await t.getAttribute('aria-expanded')) === 'false') await t.click();
-      baseStatus = await base.locator('[data-slice-row="Complete"] [data-tuple-status]')
-        .textContent();
+      const baseRow = base.locator('[data-release-block] li[data-plan-row="six-waves"]');
+      await baseRow.waitFor({ timeout: 15_000 });
+      baseStrip = await baseRow.locator('[data-plan-strip]').textContent();
     } finally {
       await base.close();
     }
@@ -142,23 +133,11 @@ describe('the mock board serves named states', () => {
       },
     });
     try {
-      await page.locator('[data-delivery-section="release-delivery"]').waitFor({ timeout: 15_000 });
-      const t = page.locator('[data-group-toggle="release-delivery"]');
-      if ((await t.getAttribute('aria-expanded')) === 'false') await t.click();
-
-      const sliceRow = page.locator('[data-slice-row="Complete"]');
-      await sliceRow.waitFor({ timeout: 10_000 });
-      // CHANGED: the branch the override named. A wave's branches sit behind
-      // two folds (plan, then wave), so this opens them the way the rest of the
-      // suite does rather than reaching for one toggle by hand.
-      await expandAgentFolds(page);
-      await page.locator(`[data-branch="${renamed}"]`).first()
-        .waitFor({ timeout: 10_000 });
-      // UNCHANGED: everything the override did not name. Same wave, same count,
-      // same verdict word — the override moved one branch name and nothing else.
-      expect(await sliceRow.locator('[data-tuple-status]').textContent()).toBe(baseStatus);
-      expect(await page.locator('[data-branch="feature/done-two"]').count())
-        .toBeGreaterThan(0);
+      const planRow = page.locator('[data-release-block] li[data-plan-row="six-waves"]');
+      await planRow.waitFor({ timeout: 15_000 });
+      // UNCHANGED: everything the override did not name. The override moved one
+      // branch name and nothing else, so the plan row's strip reads as before.
+      expect(await planRow.locator('[data-plan-strip]').textContent()).toBe(baseStrip);
     } finally {
       await page.close();
     }

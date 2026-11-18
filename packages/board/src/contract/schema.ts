@@ -2331,6 +2331,14 @@ export const SliceSchema = z.object({
    * *multi-slice* anyway, and a default of 2 is that same rule spelled once.
    */
   planSliceCount: z.number().default(2),
+  /**
+   * The pulse's merge answer for the slice: `merged`, `open`, or `none` for a slice holding only deferred branches, which no count includes. Absent from a server predating the field.
+   */
+  merge: z.enum(['merged', 'open', 'none']).optional(),
+  /**
+   * The PR that merged the slice and when, from a MERGED row of a complete PR index. Absent where the index is missing, partial or holds no such row.
+   */
+  mergedFact: z.object({ pr: z.number().optional(), mergedAt: z.string().optional(), commit: z.string().optional() }).optional(),
 });
 export type Slice = z.infer<typeof SliceSchema>;
 

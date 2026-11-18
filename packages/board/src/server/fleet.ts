@@ -2805,6 +2805,19 @@ export const prOverdueSecondsFor = (
   !entry.prNextScheduled || entry.prNextIsBackoff ? null : Math.max(0, Math.round((now - entry.prNextAt) / 1000));
 
 /**
+ * The PR index the store holds, for the Done lines of the Release delivery section.
+ * A store that cannot be read answers `null`, so a slice shows the bare merged line.
+ */
+const readMergedIndex = async (opts: BuildBoardOptions, entry: CacheEntry): Promise<PrIndex | null> => {
+  try {
+    const held = await prStoreFor(opts.repoRoot).read(await resolveBackend(entry, hostFor(opts)));
+    return held.ok ? held.value : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
  * Serves the maps the reader's last fold left in the store, and asks the host
  * nothing. CI runs are still read here: the board owns them.
  *
@@ -4214,6 +4227,7 @@ import {
   quietNote,
   readingLoss,
   sliceReadings,
+  mergedFactOf,
   startabilityVerdict,
   startPulse,
   pulseWanted,
@@ -4263,8 +4277,12 @@ export type { StartabilityVerdict, BriefState } from '@plot-pm/domain';
  * and this maps that onto the `Wave` the view groups and renders. A rule that
  * named sections would be deciding where a row is drawn.
  */
-export function deriveSlices(pulse: FleetReading): Slice[] {
+export function deriveSlices(pulse: FleetReading, index: PrIndex | null = null): Slice[] {
   return sliceReadings(pulse).map((slice) => ({
+    merge: slice.merge,
+    ...(slice.merge === 'merged' && mergedFactOf(slice.branches, index) !== undefined
+      ? { mergedFact: mergedFactOf(slice.branches, index) }
+      : {}),
     plan: slice.plan,
     name: slice.name,
     branches: [...slice.branches],
@@ -8724,7 +8742,7 @@ export async function buildFleet(
     // `.default([])` never fires client-side. A field the server left off would
     // reach the renderer as `undefined`, the `fleetControls` lesson from
     // 2026-08-22.
-    slices: entry.pulse ? deriveSlices(entry.pulse) : [],
+    slices: entry.pulse ? deriveSlices(entry.pulse, await readMergedIndex(opts, entry)) : [],
     summary: entry.pulse?.summary ?? EMPTY_SUMMARY,
     tokensToday,
     // COUNTED FROM THE ROWS, never tallied beside the decision that made them.

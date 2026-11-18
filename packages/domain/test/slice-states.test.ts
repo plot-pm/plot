@@ -7,6 +7,7 @@ import {
   planSliceMerges,
   placeDelivery,
   sliceProgress,
+  sliceStateIn,
   sliceStateOf,
   type AgentPlacementReading,
   type BranchState,
@@ -171,5 +172,18 @@ describe('counts per release and per sprint', () => {
   it('answers undefined where a named plan has no merge answer', () => {
     expect(countSliceStatesOver(plans, ['one', 'three'], rs, input)).toBeUndefined();
     expect(countSliceStatesOver(plans, ['missing'], rs, input)).toBeUndefined();
+  });
+});
+
+describe('sliceStateIn', () => {
+  it('reads the slice\'s item and the agents acting on it from the readings', () => {
+    const r = readings([item({ id: 'a', stage: 'building' })], [agent({ id: 'x', actsOn: 'a' }), agent({ id: 'y', actsOn: 'b', process: 'stopped' })]);
+    expect(sliceStateIn(open('a'), r, input)).toBe(sliceStateOf(open('a'), r.items[0], 1, 0, input));
+    expect(sliceStateIn(merged('a'), r, input)).toBe('delivered');
+  });
+
+  it('reads a stopped acting agent as stopped', () => {
+    const r = readings([item({ id: 'a', stage: 'building' })], [agent({ id: 'x', actsOn: 'a', process: 'stopped' })]);
+    expect(sliceStateIn(open('a'), r, input)).toBe(sliceStateOf(open('a'), r.items[0], 0, 1, input));
   });
 });
