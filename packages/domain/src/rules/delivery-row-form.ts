@@ -219,6 +219,9 @@ const REASON_DO: Record<YouReason, { verb: string; action: string }> = {
   loose: { verb: 'plan', action: 'create-plan' },
 };
 
+/** The verb a You reason offers in the DO column and the to-do list's lines. */
+export const reasonVerb = (reason: YouReason): string => REASON_DO[reason].verb;
+
 /** The gate readings of a PR as `CI ⟳ #3234` and `review ✗`; absent where a gate was not read. */
 const gateValue = (pr: PrReading | undefined, ciRun: string | undefined): string | null => {
   if (pr === undefined) return null;

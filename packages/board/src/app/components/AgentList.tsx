@@ -58,6 +58,8 @@ function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents:
 }
 import { FleetCard } from './FleetCard.js';
 import { SprintCard } from './SprintCard.js';
+import { TodoList } from './TodoList.js';
+import { todoListOf } from '../lib/agent-rows/todo-list.js';
 import { AutoDispatchSwitch, AutoSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
 import { FleetAgentHeader, FleetAgentRow } from './FleetAgentRow.js';
 import { RowCell, scrollToAnchor, type LinkHandlers } from './DeliveryRows.js';
@@ -1485,6 +1487,7 @@ export function AgentList({
               onJump={scrollToAnchor}
             />
             <SprintCard view={sprintCardView} />
+            <TodoList todo={todoListOf(view, placement, fleet.issueAnswer ?? null)} onJump={scrollToAnchor} />
             {view.sections.map((section) => {
               // THE HEADING CARRIES THE PACE OF THE ROWS BEHIND IT, folded or
               // open, read from the same `active` set the rows render from.
