@@ -90,6 +90,7 @@ const NOT_FROM_THE_LISTING: Readonly<Record<string, string>> = {
   plotReviewJudged: 'judgeReviews, against the Review app',
   plotReviewCheckedSha: 'judgeReviews, against the Review app',
   plotReviewCheckedAt: 'judgeReviews, against the Review app',
+  personComment: "fleetd's merge pass, stamped by writePrStore from its held human-comment-open answer",
 };
 
 describe('a change in a field the in-process listing answers is a change of the prs reading', () => {
