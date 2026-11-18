@@ -120,11 +120,11 @@ import {
   writeMineOnly,
   writeMineStrict,
 } from '../lib/agent-rows/mine-filter.js';
-import { freeLine, mineMode, placeDelivery, planIndexOf, sprintCards, workItemCells, YOU_GROUP_MARKERS, type YouGroup, type YouMarker } from '@plot-pm/domain';
+import { freeLine, mineMode, placeDelivery, planIndexOf, workItemCells, YOU_GROUP_MARKERS, type YouGroup, type YouMarker } from '@plot-pm/domain';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
 import { ActivityMark } from '../lib/agent-rows/marks.js';
 import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
-import { countedSlicesByPlan, deliveryMapping, rateLimitOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
+import { deliveryMapping, rateLimitOf, sprintCardViewOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
 import {
   groupAnchor,
   placeMapping,
@@ -1133,7 +1133,11 @@ export function AgentList({
         const mapping = deliveryMapping(mappingInput);
         // THE SPRINT CARD READS EVERY ROW: the Sprint filter hides rows, and a card
         // that follows it would call an unselected sprint's reading missing.
-        const cardMapping = deliveryMapping({ ...mappingInput, rows: fleet.rows, mode: 'all' });
+        const sprintCardView = sprintCardViewOf(
+          activeSprints.map((s) => ({ ...s, release: s.release ?? '', end: s.end ?? '', ownerHandle: s.ownerHandle ?? '', members: s.members ?? [] })),
+          reader,
+          { ...mappingInput, rows: fleet.rows },
+        );
         const placement = placeDelivery(mapping.readings, mapping.input);
         const view = placeMapping(mapping, fleet.slices);
         const youHead = youHeaderOf({
@@ -1464,7 +1468,7 @@ export function AgentList({
               switches={{ ...switches, autoDispatch: fleetControlsOf(fleet).autoDispatch, parallelAgents: fleetControlsOf(fleet).parallelAgents }}
               onJump={scrollToAnchor}
             />
-            <SprintCard view={sprintCards(activeSprints.map((s) => ({ ...s, release: s.release ?? '', end: s.end ?? '', ownerHandle: s.ownerHandle ?? '', members: s.members ?? [] })), reader, countedSlicesByPlan(cardMapping.readings.items, { rows: fleet.rows, drafts: mappingInput.drafts }), cardMapping.readings, cardMapping.input)} />
+            <SprintCard view={sprintCardView} />
             {view.sections.map((section) => {
               // THE HEADING CARRIES THE PACE OF THE ROWS BEHIND IT, folded or
               // open, read from the same `active` set the rows render from.

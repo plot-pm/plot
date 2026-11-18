@@ -14,9 +14,12 @@ import {
   type ReleaseTicketReading,
   type Reader,
   type RoleRun,
+  sprintCards,
+  type CountedSlice,
+  type SprintCardSprint,
+  type SprintCardsView,
   type WorkItemReading,
 } from '@plot-pm/domain';
-import type { CountedSlice } from '@plot-pm/domain/rules/slice-states';
 import type { PersonDirectory } from '@plot-pm/domain/entities/person';
 import { personCommentHolds } from '@plot-pm/domain/rules/person-comment';
 import { ticketMarkOf, ticketRecordOf } from '@plot-pm/domain/rules/sprint-ticket-record';
@@ -506,4 +509,26 @@ export const countedSlicesByPlan = (
     byPlan.set(plan, list);
   }
   return byPlan;
+};
+
+/**
+ * The sprint card's view, read from every row the payload carries.
+ *
+ * Maps `input` in mode `all`, so the Mine mode does not narrow the readings,
+ * and hands the slices per plan to `sprintCards`. The caller passes the
+ * payload's rows before the Sprint filter, so an unselected sprint keeps its
+ * reading.
+ *
+ * @param sprints - the Active sprints.
+ * @param reader - who is reading.
+ * @param input - the payload's rows, unfiltered by the Sprint filter, and the rest of the Delivery tab's mapping input.
+ * @returns the cards of the sprints the reader owns.
+ */
+export const sprintCardViewOf = (
+  sprints: readonly SprintCardSprint[],
+  reader: Reader,
+  input: DeliveryMapInput,
+): SprintCardsView => {
+  const whole = deliveryMapping({ ...input, mode: 'all' });
+  return sprintCards(sprints, reader, countedSlicesByPlan(whole.readings.items, input), whole.readings, whole.input);
 };
