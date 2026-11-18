@@ -6,6 +6,9 @@ import { hostFixture } from '../src/adapters/host/host-fixture.js';
 import { apiForReads, recordHostReads } from '../src/adapters/host/process-host-reads.js';
 import type { GithubApi, GithubAnswer, GithubRequest } from '../src/adapters/host/github-api.js';
 import type { WorkflowShaRun } from '../src/entities/build.js';
+import { REPAIR_RECORD_VERSION, type RepairRecord } from '../src/entities/repair-record.js';
+import { repairMergeVerdict } from '../src/rules/repair-pr.js';
+import { readRepair } from '../src/workflows/merge.js';
 import type { ShellContext } from '../src/adapters/scripts.js';
 import { declaredRuns, foldRuns, unmatchedChecks, workflowOfCheck } from '../src/rules/default-branch.js';
 
@@ -76,12 +79,12 @@ describe('buildActions.runsForSha — job entries', () => {
   };
   const answered = { ok: true, reply: { status: 200, headers: {}, body: jobs } } as GithubAnswer;
 
-  it('adds the declared job beside the run, with its own times, in one jobs read', async () => {
+  it("adds the declared job beside the run, with the job's end and the run's start, in one jobs read", async () => {
     const { api, jobsReads } = apiThat(answered);
     const read = await buildActions(CONTEXT, api).runsForSha('main', 'abc', ['CI/validate']);
     expect(read.ok && read.value.map((run) => run.workflow)).toEqual(['CI', 'CI/validate']);
     const job = read.ok ? read.value[1] : undefined;
-    expect(job).toMatchObject({ conclusion: 'success', completedAt: '2026-11-17T10:16:10Z', startedAt: '2026-11-17T10:00:10Z' });
+    expect(job).toMatchObject({ conclusion: 'success', completedAt: '2026-11-17T10:16:10Z', startedAt: '2026-11-17T10:00:00Z' });
     expect(jobsReads()).toBe(1);
   });
 
@@ -127,5 +130,34 @@ describe('the repair read of a red commit under the job form', () => {
     recordHostReads(root.repoRoot, hostFixture({}), api);
     const read = await buildFor('github-actions', root, apiForReads(root)).runsForSha('main', 'abc', ['CI/validate']);
     expect(read.ok && foldRuns(declaredRuns(read.value, ['CI/validate']))).toBe('red');
+  });
+
+  it('reads the red commit red in readRepair, so the repair PR is admitted', async () => {
+    const { api } = apiThat(red);
+    const root: ShellContext = { repoRoot: '/nonexistent/repair-job-form-admit', scriptDir: '/nonexistent' };
+    recordHostReads(root.repoRoot, hostFixture({}), api);
+    const green = 'a'.repeat(40);
+    const record: RepairRecord = {
+      v: REPAIR_RECORD_VERSION,
+      branch: 'main',
+      state: 'idle',
+      lastGreenSha: green,
+      firstRedSha: 'abc',
+      redSince: '2026-11-17T10:00:00Z',
+      candidates: [],
+      rerun: 'none',
+      preRevertRerun: 'none',
+      at: '2026-11-17T10:00:00Z',
+      repairPr: 42,
+    };
+    const ports = {
+      repair: { read: async () => ({ ok: true as const, value: record }) },
+      refs: { firstParentLine: async () => ({ ok: true as const, value: ['abc'] }) },
+      build: buildFor('github-actions', root, apiForReads(root)),
+      checks: ['CI/validate'],
+    };
+    const reading = await readRepair(ports as never, 'main', { sha: 'abc', state: 'red' }, 42);
+    expect(reading.redRuns).toBe('red');
+    expect(repairMergeVerdict(reading, { number: 42, head: `bug/main-repair-${green.slice(0, 12)}` })).toEqual({ verdict: 'admitted', role: 'repair' });
   });
 });

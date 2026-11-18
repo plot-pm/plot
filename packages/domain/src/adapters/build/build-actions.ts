@@ -51,8 +51,11 @@ export interface GithubActionsBuild extends BuildPort {
  *
  * A declared `<workflow>/<job>` name makes `runsForSha` read that run's jobs
  * (one `GET /actions/runs/{id}/jobs` per run a declared name points into) and
- * add an entry per matching job. The shell route reads no jobs, so a job name
- * has no entry there and folds as `unknown`.
+ * add an entry per matching job. The entry carries the job's status,
+ * conclusion and end, and its run's start (the job's own start where the run
+ * reports none), so a duration measured over it covers the whole run and not
+ * only a job that waits on the others. The shell route reads no jobs, so a job
+ * name has no entry there and folds as `unknown`.
  *
  * @param context - where the scripts and the repository are.
  * @param api - the in-process GitHub client; absent, every read runs the script.
@@ -99,7 +102,7 @@ export const buildActions = (context: ShellContext, api?: GithubApi): GithubActi
           status: job.status,
           conclusion: job.conclusion,
           url: job.url,
-          startedAt: job.startedAt,
+          startedAt: Date.parse(run.startedAt) > 0 ? run.startedAt : job.startedAt,
           ...(job.completedAt === '' ? {} : { completedAt: job.completedAt }),
         });
       }
