@@ -496,7 +496,7 @@ export const handleInterrogate = async (
       refuse(
         'plan-unreadable',
         slug,
-        `plan \`${slug}\` is on \`origin/${lookup.branch}\` but not in this checkout, and \`origin/${lookup.branch}\` could not be checked out into a worktree — refusing rather than interrogating a plan that could not be read`,
+        `plan \`${slug}\` is on \`origin/${lookup.branch}\`, and \`origin/${lookup.branch}\` could not be checked out into a worktree — refusing rather than interrogating a plan that could not be read`,
       );
       return;
     }

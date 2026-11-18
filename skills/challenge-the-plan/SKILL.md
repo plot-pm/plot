@@ -519,8 +519,15 @@ git diff --quiet "$STARTED_AT" "refs/remotes/origin/$BRANCH" -- "$PLAN_FILE" || 
   `default-branch-moved`, leave the round committed in the worktree, and
   name the worktree path.
 - **changed** → someone else edited the plan during this round. Refuse by
-  name as `plan-file-moved`, leave the round uncommitted in the worktree,
-  and name the worktree path for a person to reconcile.
+  name as `plan-file-moved`, leave the round as it stands (committed or
+  not) in the worktree, and name the worktree path for a person to
+  reconcile.
+
+Rebase only on a non-fast-forward rejection (the push output says
+`non-fast-forward` or `fetch first`). Any other rejection, such as a branch
+rule that refuses direct pushes, refuses by name as
+`default-branch-push-refused` with the remote's message, and the round stays
+committed in the worktree.
 
 A round that was not pushed is never reported as done: the board reads the
 plan from the default branch, and a round that stays in the worktree leaves
