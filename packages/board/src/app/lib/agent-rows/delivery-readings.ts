@@ -14,6 +14,10 @@ import {
   type ReleaseTicketReading,
   type Reader,
   type RoleRun,
+  sprintCards,
+  type CountedSlice,
+  type SprintCardSprint,
+  type SprintCardsView,
   type WorkItemReading,
 } from '@plot-pm/domain';
 import type { PersonDirectory } from '@plot-pm/domain/entities/person';
@@ -475,4 +479,56 @@ export const ticketMarkFor = (sprintTexts: readonly string[], ticket: string): s
     if (mark !== null) return mark;
   }
   return null;
+};
+
+/**
+ * The counted slices per plan, read from the slice items of one set of readings.
+ *
+ * A slice item's id is `slice:<plan>\0<wave>` (`sliceItemId`), so the plan is the
+ * part before the NUL. Every plan the payload read a row or a Draft card for has
+ * an entry, `[]` where it holds no slice item: a Draft plan is split into
+ * branches only after approval. A plan the payload read nothing for has no
+ * entry: its merge answer is unread.
+ *
+ * @param items - the work items of one set of readings.
+ * @param input - the rows and Draft plans the readings were mapped from.
+ */
+export const countedSlicesByPlan = (
+  items: readonly WorkItemReading[],
+  input: Pick<DeliveryMapInput, 'rows' | 'drafts'> = { rows: [], drafts: [] },
+): Map<string, CountedSlice[]> => {
+  const byPlan = new Map<string, CountedSlice[]>();
+  for (const plan of [...input.rows.map((r) => r.plan), ...input.drafts.map((d) => d.plan)]) {
+    if (plan !== '' && !byPlan.has(plan)) byPlan.set(plan, []);
+  }
+  for (const item of items) {
+    if (!item.id.startsWith('slice:')) continue;
+    const plan = item.id.slice('slice:'.length).split('\0')[0]!;
+    const list = byPlan.get(plan) ?? [];
+    list.push({ id: item.id, merge: item.delivered === true ? 'merged' : 'open' });
+    byPlan.set(plan, list);
+  }
+  return byPlan;
+};
+
+/**
+ * The sprint card's view, read from every row the payload carries.
+ *
+ * Maps `input` in mode `all`, so the Mine mode does not narrow the readings,
+ * and hands the slices per plan to `sprintCards`. The caller passes the
+ * payload's rows before the Sprint filter, so an unselected sprint keeps its
+ * reading.
+ *
+ * @param sprints - the Active sprints.
+ * @param reader - who is reading.
+ * @param input - the payload's rows, unfiltered by the Sprint filter, and the rest of the Delivery tab's mapping input.
+ * @returns the cards of the sprints the reader owns.
+ */
+export const sprintCardViewOf = (
+  sprints: readonly SprintCardSprint[],
+  reader: Reader,
+  input: DeliveryMapInput,
+): SprintCardsView => {
+  const whole = deliveryMapping({ ...input, mode: 'all' });
+  return sprintCards(sprints, reader, countedSlicesByPlan(whole.readings.items, input), whole.readings, whole.input);
 };

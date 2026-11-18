@@ -57,6 +57,7 @@ function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents:
   return fleet.fleetControls ?? FLEET_CONTROLS_DEFAULT;
 }
 import { FleetCard } from './FleetCard.js';
+import { SprintCard } from './SprintCard.js';
 import { AutoDispatchSwitch, AutoSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
 import { FleetAgentHeader, FleetAgentRow } from './FleetAgentRow.js';
 import { RowCell, scrollToAnchor, type LinkHandlers } from './DeliveryRows.js';
@@ -124,7 +125,7 @@ import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRow
 import { ActivityMark } from '../lib/agent-rows/marks.js';
 import { PlanActions } from '../lib/agent-rows/menus.js';
 import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
-import { deliveryMapping, rateLimitOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
+import { deliveryMapping, rateLimitOf, sprintCardViewOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
 import {
   groupAnchor,
   placeMapping,
@@ -1114,7 +1115,7 @@ export function AgentList({
         // work item and every agent once; `deliveryView` orders that answer by
         // `DELIVERY_LAYOUT`. Nothing below computes a section, a group, a link
         // target or a reason.
-        const mapping = deliveryMapping({
+        const mappingInput = {
           // UNFILTERED BY MINE: `deliveryMapping` applies the mode, so You keeps
           // every item that is not someone else's in every Mine mode.
           rows: filteredRows,
@@ -1132,8 +1133,16 @@ export function AgentList({
           roleRuns: fleet.roleRuns ?? [],
           rateLimit: rateLimitOf(fleet.machine?.host, Date.now()),
           bounds: fleet.bounds,
-          checksUrlOf: (planFile, pr) => cardForPlanFile?.(planFile)?.prs.find((p) => p.number === pr)?.checksUrl ?? '',
-        });
+          checksUrlOf: (planFile: string, pr: number) => cardForPlanFile?.(planFile)?.prs.find((p) => p.number === pr)?.checksUrl ?? '',
+        };
+        const mapping = deliveryMapping(mappingInput);
+        // THE SPRINT CARD READS EVERY ROW: the Sprint filter hides rows, and a card
+        // that follows it would call an unselected sprint's reading missing.
+        const sprintCardView = sprintCardViewOf(
+          activeSprints.map((s) => ({ ...s, release: s.release ?? '', end: s.end ?? '', ownerHandle: s.ownerHandle ?? '', members: s.members ?? [] })),
+          reader,
+          { ...mappingInput, rows: fleet.rows },
+        );
         const placement = placeDelivery(mapping.readings, mapping.input);
         const view = placeMapping(mapping, fleet.slices, activeSprints);
         const youHead = youHeaderOf({
@@ -1464,6 +1473,7 @@ export function AgentList({
               switches={{ ...switches, autoDispatch: fleetControlsOf(fleet).autoDispatch, parallelAgents: fleetControlsOf(fleet).parallelAgents }}
               onJump={scrollToAnchor}
             />
+            <SprintCard view={sprintCardView} />
             {view.sections.map((section) => {
               // THE HEADING CARRIES THE PACE OF THE ROWS BEHIND IT, folded or
               // open, read from the same `active` set the rows render from.
