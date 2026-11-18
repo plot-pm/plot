@@ -48,7 +48,24 @@ export const FleetAgentRow = ({ id, cells, handlers }: { id: string; cells: Agen
         <span data-agent-detail className="block truncate text-xs text-slate-500 dark:text-slate-400">{cells.doingDetail}</span>
       )}
     </span>
-    <span role="gridcell" data-agent-cell="tokens" className="text-slate-400">{cells.tokens === null ? DASH : cells.tokens.value}</span>
-    <span role="gridcell" data-agent-cell="timeLeft" className="text-slate-400">{cells.timeLeft === null ? DASH : cells.timeLeft.value}</span>
+    <span role="gridcell" data-agent-cell="tokens" title={cells.tokensTitle ?? undefined} className="text-slate-400">
+      {cells.tokens === null ? DASH : cells.tokens.value}
+    </span>
+    <span role="gridcell" data-agent-cell="timeLeft" className="text-slate-400">
+      {cells.timeLeft === null ? DASH : cells.timeLeft.value}
+      {cells.timeLeftBar !== null && (
+        <span
+          data-time-left-bar
+          data-time-left-red={cells.timeLeftBar.red ? 'true' : 'false'}
+          role="presentation"
+          className="mt-0.5 block h-1 rounded bg-slate-200 dark:bg-slate-700"
+        >
+          <span
+            className={`block h-1 rounded ${cells.timeLeftBar.red ? 'bg-red-500' : 'bg-emerald-500'}`}
+            style={{ width: `${Math.round(cells.timeLeftBar.fraction * 100)}%` }}
+          />
+        </span>
+      )}
+    </span>
   </li>
 );

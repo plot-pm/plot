@@ -1123,6 +1123,7 @@ export function AgentList({
           releaseTickets: fleet.releaseTickets,
           roleRuns: fleet.roleRuns ?? [],
           rateLimit: rateLimitOf(fleet.machine?.host, Date.now()),
+          bounds: fleet.bounds,
           checksUrlOf: (planFile, pr) => cardForPlanFile?.(planFile)?.prs.find((p) => p.number === pr)?.checksUrl ?? '',
         });
         const placement = placeDelivery(mapping.readings, mapping.input);
