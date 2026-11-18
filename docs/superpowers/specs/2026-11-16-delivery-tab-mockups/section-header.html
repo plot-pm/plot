@@ -1,0 +1,70 @@
+<h2>Section header = summary, section body = items</h2>
+<p class="subtitle">The tab header stays as in v2. Every section opens with one summary line; its body lists the rows to act on. The same pattern for each section.</p>
+
+<style>
+  .dt { background:#0b1020; color:#d7dbe7; font:13px/1.45 -apple-system,system-ui,sans-serif; border-radius:10px; padding:16px; margin-bottom:14px; }
+  .dt .muted { color:#8a93a8; } .dt .link { color:#7aa2ff; text-decoration:none; } .dt .ok { color:#4ade80; } .dt .amber { color:#fbbf24; }
+  .shead { display:flex; align-items:baseline; gap:14px; padding-bottom:8px; border-bottom:1px solid #232c46; flex-wrap:wrap; }
+  .shead .t { font-size:15px; font-weight:650; color:#fff; min-width:110px; }
+  .sum { display:flex; gap:14px; flex-wrap:wrap; }
+  .sum a { text-decoration:none; }
+  .n { font-weight:700; margin-right:3px; }
+  .red { color:#f87171; } .blue { color:#60a5fa; }
+  .grp { font-size:12px; font-weight:650; margin:12px 0 4px; display:flex; gap:8px; align-items:center; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:9px; font-size:11px; font-weight:600; }
+  .tag.input { background:#132a4a; color:#60a5fa; } .tag.block { background:#3a1418; color:#f87171; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:#6b7490; font-weight:600; padding:4px 8px; border-bottom:1px solid #232c46; }
+  td { padding:8px; border-bottom:1px solid #1a2238; vertical-align:top; }
+  .kind { font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:#8a93a8; }
+  .chip { display:inline-block; padding:1px 7px; border-radius:9px; font-size:11px; background:#2a3352; color:#c9d2ea; margin-right:4px; }
+  .chip.warn { background:#3b2f10; color:#fbbf24; }
+  .do { font-weight:600; white-space:nowrap; color:#60a5fa; }
+  .age { color:#8a93a8; text-align:right; }
+  .collapsed { color:#8a93a8; padding:8px; }
+</style>
+
+<div class="dt">
+  <div class="shead">
+    <span class="t">You</span>
+    <span class="sum">
+      <a href="#"><span class="n red">0</span><span class="muted">block delivery</span></a>
+      <a href="#"><span class="n blue">2</span><span class="muted">inputs the fleet waits for</span></a>
+      <a href="#"><span class="n">30</span><span class="muted">tickets to triage</span></a>
+      <span class="muted">· Discovery 30 ─▶ Design 2 ─▶ Handed to fleet 6</span>
+    </span>
+  </div>
+  <div class="grp"><span class="tag input">Input to the fleet</span></div>
+  <table>
+    <tr><th style="width:52px">Kind</th><th>Item</th><th>Status</th><th style="width:100px">Do</th><th style="width:40px">Age</th></tr>
+    <tr><td class="kind">plan</td><td><a class="link" href="#"><b>jenkins-reads-in-process</b></a> <span class="chip">3 slices</span><span class="chip warn">2 open questions</span></td><td>Draft · not interrogated</td><td class="do">Interrogate ›</td><td class="age">2h</td></tr>
+    <tr><td class="kind">plan</td><td><a class="link" href="#"><b>red-hold-reads-the-pr-base</b></a> <span class="chip">4 slices</span><span class="chip">no open questions</span></td><td>Draft · not interrogated</td><td class="do">Interrogate ›</td><td class="age">1d</td></tr>
+  </table>
+  <div class="collapsed">30 tickets assigned to you have no plan · <a class="link" href="#">triage</a></div>
+</div>
+
+<div class="dt">
+  <div class="shead">
+    <span class="t">Work items</span>
+    <span class="sum">
+      <a href="#"><span class="n amber">1</span><span class="muted">at a gate</span></a>
+      <a href="#"><span class="n">0</span><span class="muted">being built</span></a>
+      <a href="#"><span class="n">2</span><span class="muted">queued</span></a>
+      <span class="muted">· oldest waits 23d</span>
+    </span>
+  </div>
+  <div class="muted" style="padding:8px">… rows to act on …</div>
+</div>
+
+<div class="dt">
+  <div class="shead">
+    <span class="t">Fleet</span>
+    <span class="sum">
+      <a href="#"><span class="n ok">0</span><span class="muted">working</span></a>
+      <a href="#"><span class="n">0</span><span class="muted">blocked</span></a>
+      <a href="#"><span class="n">3</span><span class="muted">free</span></a>
+      <span class="muted">· auto-dispatch on · 3 parallel</span>
+    </span>
+  </div>
+  <div class="muted" style="padding:8px">… rows to act on …</div>
+</div>
