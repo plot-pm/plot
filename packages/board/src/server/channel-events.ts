@@ -3,6 +3,7 @@ import type { ChannelLink, ChannelMessage } from '@plot-pm/domain';
 import { ruleEventWindow, SERVER_EVENT_WINDOW_MS, type EventWindow } from '@plot-pm/domain';
 import { subscribe, subscribeSnapshot, type Subscribed } from '@plot-pm/domain/adapters';
 import type { SnapshotLink } from '@plot-pm/domain/rules/snapshot-link';
+import { FLEETD_RESTART_COMMAND } from '@plot-pm/domain/rules/board-watch';
 import type { HeldSnapshot } from '@plot-pm/domain/rules/snapshot-sync';
 
 /**
@@ -209,7 +210,7 @@ export const startEventHub = (options: EventHubOptions): EventHub => {
         }
         return;
       }
-      const line = `channel: snapshot protocol mismatch (this board speaks ${next.ours}, fleetd ${next.theirs ?? 'a version that refused the purpose'}): ${next.reason}; reading for itself`;
+      const line = `channel: snapshot protocol mismatch (this board speaks ${next.ours}, fleetd ${next.theirs ?? 'a version that refused the purpose'}): ${next.reason}; while fleetd's heartbeat is live the board shows its bridge and reads nothing for itself; run ${FLEETD_RESTART_COMMAND}`;
       if (line !== reported) log(line);
       reported = line;
     },

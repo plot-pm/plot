@@ -954,6 +954,17 @@ export function AgentList({
         + (fleet.ready ? ' — showing the last successful pulse below.' : ''),
     });
   }
+  // A LIVE fleetd ON ANOTHER SNAPSHOT PROTOCOL: the board reads nothing for
+  // itself, so the view is fleetd's bridge until the restart the note names.
+  // `heldViewNote` owns the wording (#3528).
+  if (fleet.heldNote) {
+    statuses.push({
+      key: 'held-view',
+      severity: 25,
+      tone: 'amber',
+      text: fleet.heldNote,
+    });
+  }
   if (fleet.shrink) {
     statuses.push({
       key: 'shrink',

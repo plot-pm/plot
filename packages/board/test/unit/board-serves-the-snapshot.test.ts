@@ -19,7 +19,8 @@ import type { Estate } from '@plot-pm/domain/workflows/plan-walk-estate';
 
 // While fleetd's heartbeat is live and the channel holds a current snapshot,
 // the board's refresh installs the view fleetd sent and starts no process. On
-// `mismatch` or a stale heartbeat it reads for itself, as before.
+// `mismatch` under a live heartbeat it installs fleetd's bridge and starts no
+// process. Under a stale heartbeat it reads for itself, as before.
 //
 // THE SPAWN SPY COUNTS EVERY CHILD PROCESS THIS TEST PROCESS STARTS. It wraps
 // each `child_process` function before the board's modules load, so a module
@@ -243,11 +244,47 @@ describe('the board serves from fleetd snapshot', () => {
     expect(entry.scanNote).toBeNull();
   });
 
-  it('runs its own scan with the channel in mismatch', async () => {
-    const { opts } = await fixture();
+  // #3528: a board on protocol 8 beside a fleetd on protocol 7 read for itself
+  // beside fleetd's own reads and saturated macOS's `syspolicyd` twice.
+  it('spawns 0 processes in 12 beats with a live heartbeat and the channel in mismatch', async () => {
+    const { dir, opts } = await fixture();
+    const written = await adapters.fleetStateFile({ repoRoot: dir }).write({
+      at: Date.now() - 2_000,
+      pulse: {
+        main: 'main',
+        head: 'abc1234',
+        plans: [],
+        summary: { plans: 0, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0, waiting: 0, prereq_missing: 0, host: 'unknown' as const },
+      },
+      ages: new Map(),
+      branchUrlBase: '',
+      approvedAt: new Map(),
+      ideaPlans: new Map(),
+      prError: null,
+    });
+    expect(written.ok).toBe(true);
     const entry = fleet.freshCacheEntry();
     entry.clients = 1;
-    const link: SnapshotLink = { state: 'mismatch', reason: 'protocol 1', ours: 2, theirs: 1 };
+    entry.backend = 'github';
+    const link: SnapshotLink = { state: 'mismatch', reason: 'protocol 7', ours: 8, theirs: 7 };
+    const served = { ...opts, channelSnapshot: () => ({ link, held: undefined }) };
+    counted.calls.length = 0;
+    for (let i = 0; i < 12; i += 1) {
+      await fleet.refresh(served, entry);
+      await fleet.maybeRefreshPrs(served, entry);
+    }
+    expect(counted.calls).toEqual([]);
+    expect(entry.viewSource).toBe('held');
+    expect(entry.pulse?.head).toBe('abc1234');
+    expect(entry.supervisor?.supervisor).toBe('up');
+    expect(entry.prReader).toBe('fleet');
+  });
+
+  it('runs its own scan with the channel in mismatch once the heartbeat turns stale', async () => {
+    const { opts } = await fixture(Date.now() - 600_000);
+    const entry = fleet.freshCacheEntry();
+    entry.clients = 1;
+    const link: SnapshotLink = { state: 'mismatch', reason: 'protocol 7', ours: 8, theirs: 7 };
     counted.calls.length = 0;
     await fleet.refresh({ ...opts, channelSnapshot: () => ({ link, held: undefined }) }, entry);
     expect(entry.viewSource).toBe('own');
