@@ -121,6 +121,14 @@ describe('delivery view nesting', () => {
       expect(v.releaseBlocks[0]!.plans[0]!.owner).toBe('jwloka');
     });
 
+    it('puts a sprint with no Owner on the no owner card of its release', () => {
+      const slices = [mergedSlice('p1', 'a')];
+      const rows = slices.map((s) => merged(s.plan, s.name));
+      const sprints = [{ slug: 's1', title: 'One', release: '2.0', members: [{ slug: 'p1' }] }];
+      const v = planView(rows, slices, sprints as never[]);
+      expect(v.releaseBlocks[0]!.cards.map((c) => [c.label, c.sprints.map((x) => x.slug)])).toEqual([['no owner', ['s1']]]);
+    });
+
     it('says progress not read where no slice has a reading', () => {
       const slices = [{ ...slice('A'), plan: 'p', merge: 'open' }] as Slice[];
       const v = planView([], slices);

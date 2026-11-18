@@ -533,7 +533,7 @@ export const deliveryView = (
     const tickets = mapping.releases.tickets;
     const wording = target === undefined || tickets === null ? null : releaseTicketWording(tickets, target.release, target.started);
     const header = headerText(headerCounts(plans), b.release, { blocked });
-    const cards = releasePersonCards(sprints, b.release, mapping.directory ?? {}, slicesByPlan, mapping.wholeReadings, mapping.input);
+    const cards = releasePersonCards(sprints.map((sp) => ({ slug: sp.slug, title: sp.title ?? '', release: sp.release ?? '', ownerHandle: sp.ownerHandle ?? '', members: sp.members ?? [] })), b.release, mapping.directory ?? {}, slicesByPlan, mapping.wholeReadings, mapping.input);
     return { release: b.release, plans, header: wording === null ? header : `${header} · ${wording}`, cards };
   });
   const releaseRows = blocks.flatMap((b) => b.plans.flatMap((p) => Object.values(p.itemIds).flatMap((id) => mapping.rowsByItem[id] ?? [])));
