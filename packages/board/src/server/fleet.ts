@@ -100,6 +100,11 @@ import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dir
 import { readReviewRuns } from '@plot-pm/domain/adapters/review-start/review-start-node';
 import { listFixerAttempts } from '@plot-pm/domain/adapters/fixer-attempts/fixer-attempts-file';
 import { roleRuns, type PlanRunsRead, type RoleRun } from '@plot-pm/domain/rules/agent-roles';
+import { lastRunTokens } from '@plot-pm/domain/rules/agent-run-tokens';
+import type { AgentRole } from '@plot-pm/domain/rules/delivery-placement';
+import { FIXER_BOUND_SECONDS } from '@plot-pm/domain/rules/fixer-attempts';
+import { REVIEW_BOUND_MS } from '@plot-pm/fleet/shared/auto-review';
+import { lastRunsFor, workerBoundFor } from './agent-readings.js';
 import { fixerAttemptsFile } from '@plot-pm/domain/adapters/fixer-attempts/fixer-attempts-file';
 import { fixerInFlight } from '@plot-pm/domain/rules/fixer-attempts';
 import type { PortResult } from '@plot-pm/domain';
@@ -8431,10 +8436,7 @@ export const anyFreeWaitEnded = (
  * `endedDeskPlacement` must tell `0`, absent and unknown apart from a real
  * bound — each of the first three words the note "at the wait bound".
  */
-const workerBoundSeconds = async (opts: BuildBoardOptions): Promise<number | null> => {
-  const value = Number(await readConfigAsync(opts, 'Worker bound', ''));
-  return Number.isInteger(value) && value > 0 ? value : null;
-};
+const workerBoundSeconds = (opts: BuildBoardOptions): Promise<number | null> => workerBoundFor(opts);
 
 /**
  * Attaches each PR's branch tip, read once from `refs/remotes/origin`.
@@ -8668,7 +8670,14 @@ export async function buildFleet(
   // with no reader. `boundSecondsOf` is deliberately not used here: it
   // substitutes 28800 for an absent or `0` key, and a desk's note must read
   // "at the wait bound" rather than "after 0 h" for either.
-  const boundSeconds = anyFreeWaitEnded(entry.agents) ? await workerBoundSeconds(opts) : null;
+  // READ ONCE PER BOARD PROCESS and again only when the config file's stat
+  // changes (`workerBoundFor`), so the Time left column can use it on every
+  // poll. The ended-desk note still takes it only where a free wait ended.
+  const workerBound = await workerBoundSeconds(opts);
+  const boundSeconds = anyFreeWaitEnded(entry.agents) ? workerBound : null;
+  // THE SPEND RECORD, PARSED AT MOST ONCE PER BUILD and only when its stat
+  // changed: the last finished run of every branch, asked per agent below.
+  const lastRuns = await lastRunsFor(opts);
   return {
     generatedAt: new Date().toISOString(),
     ageSeconds,
@@ -8773,7 +8782,10 @@ export async function buildFleet(
     // Beside `rows`, never derived from them: a row is a branch that mentions an
     // agent, this is an agent that mentions a branch. A running worker appears
     // in both and is not duplicated — the entities differ.
-    agents: withEndedDesks(entry.agents, placedRows, boundSeconds),
+    agents: withEndedDesks(entry.agents, placedRows, boundSeconds).map((agent) => {
+      const lastRun = lastRunTokens(lastRuns, agent.branch, (agent as { role?: AgentRole }).role ?? 'loop');
+      return lastRun === null ? agent : { ...agent, lastRun };
+    }),
     // Metadata about the registry read — directory, manifest count, synthesized
     // count. Makes a synthesized fleet legible: a reader seeing `0 manifests,
     // 12 synthesized` knows the drop menu is absent because the board is reading
@@ -8866,6 +8878,10 @@ export async function buildFleet(
     design: designPayload(readDesignStatus(opts.repoRoot)),
     // THE ROLE RUNS: reviewer, fixer, design and verify agents, each from its own state file.
     roleRuns: await readRoleRuns(opts.repoRoot, Date.now()),
+    // THE BOUNDS Time left IS MEASURED AGAINST: `Worker bound` for loop, design
+    // and verify; the reviewer's and the fixer's own constants. Idea and brief
+    // runs have no bound and no entry here.
+    bounds: { worker: workerBound, reviewer: REVIEW_BOUND_MS / 1000, fixer: FIXER_BOUND_SECONDS },
   };
 }
 

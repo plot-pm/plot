@@ -58,9 +58,10 @@ function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents:
 }
 import { FleetCard } from './FleetCard.js';
 import { AutoDispatchSwitch, AutoSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
+import { FleetAgentHeader, FleetAgentRow } from './FleetAgentRow.js';
 import { RowCell, scrollToAnchor, type LinkHandlers } from './DeliveryRows.js';
 import { detailLines } from '../lib/agent-rows/delivery-link-targets.js';
-import { headerOf, rowFormsOf, switchesOf } from '../lib/agent-rows/delivery-row-facts.js';
+import { headerOf, itemRowFactsOf, rowFormsOf, switchesOf } from '../lib/agent-rows/delivery-row-facts.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { ReleaseClaimButton } from './ReleaseClaimButton.js';
 import { LooseDeleteButton } from './LooseDeleteButton.js';
@@ -118,11 +119,11 @@ import {
   writeMineOnly,
   writeMineStrict,
 } from '../lib/agent-rows/mine-filter.js';
-import { mineMode, placeDelivery, planIndexOf, YOU_GROUP_MARKERS, type YouGroup, type YouMarker } from '@plot-pm/domain';
+import { freeLine, mineMode, placeDelivery, planIndexOf, workItemCells, YOU_GROUP_MARKERS, type YouGroup, type YouMarker } from '@plot-pm/domain';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
 import { ActivityMark } from '../lib/agent-rows/marks.js';
 import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
-import { deliveryMapping, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
+import { deliveryMapping, rateLimitOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
 import {
   groupAnchor,
   placeMapping,
@@ -1121,17 +1122,29 @@ export function AgentList({
           sprints: (fleet.sprints ?? []).map((s) => ({ release: s.release, started: s.start ?? '' })),
           releaseTickets: fleet.releaseTickets,
           roleRuns: fleet.roleRuns ?? [],
+          rateLimit: rateLimitOf(fleet.machine?.host, Date.now()),
+          bounds: fleet.bounds,
+          checksUrlOf: (planFile, pr) => cardForPlanFile?.(planFile)?.prs.find((p) => p.number === pr)?.checksUrl ?? '',
         });
         const placement = placeDelivery(mapping.readings, mapping.input);
         const view = placeMapping(mapping, fleet.slices);
         // THE SEVEN COLUMNS' BY CELL AND THE HELD-GROUP HEADERS — domain properties, rendered here.
         const forms = rowFormsOf(mapping, placement, Date.now());
         const switches = switchesOf(fleet);
+        // THE LOOKUP READS THE PAYLOAD AND BUILDS NO ADDRESS: an empty `url` stays empty and the mark renders as text.
+        const cardPrOf = (pr: number) => {
+          for (const card of cards ?? []) {
+            const found = card.prs.find((p) => p.number === pr);
+            if (found !== undefined) return found;
+          }
+          return undefined;
+        };
         const linkHandlers: LinkHandlers = {
           context: {
             plan: '',
             branchUrlBase: fleet.branchUrlBase ?? '',
-            prUrl: () => null,
+            prUrl: (pr) => cardPrOf(pr)?.url ?? null,
+            checksUrl: (pr) => cardPrOf(pr)?.checksUrl ?? null,
             planFileOf: (p) => planFileOf(p),
             branchOfAgent: (id) => mapping.agentsById[id]?.branch ?? '',
           },
@@ -1142,6 +1155,23 @@ export function AgentList({
         const byCell = (cells: { by: Parameters<typeof RowCell>[0]['cell'] } | undefined) =>
           cells?.by ? <RowCell cell={cells.by} handlers={linkHandlers} /> : undefined;
         const byItem = (item: PlacedItemView) => byCell(forms.items.get(item.placement?.id ?? ''));
+        // THE GATES CELL IS A DOMAIN PROPERTY: `workItemCells` decides the marks and their links; this renders them.
+        const gatesItem = (item: PlacedItemView) => {
+          const placed = item.placement;
+          if (placed === null || placed === undefined) return undefined;
+          const cell = workItemCells(placed, itemRowFactsOf(mapping, placed.id))?.cells.group;
+          return placed.section === 'work-items' && placed.group === 'at-a-gate' && cell?.parts !== undefined
+            ? <RowCell cell={cell} handlers={linkHandlers} /> : undefined;
+        };
+        // Progress and Waits on replace the status word: a column holds one kind of value.
+        const groupCellItem = (item: PlacedItemView) => {
+          const placed = item.placement;
+          if (placed === null || placed === undefined || placed.section !== 'work-items' || placed.group === 'at-a-gate') return undefined;
+          const cell = workItemCells(placed, itemRowFactsOf(mapping, placed.id))?.cells.group;
+          return cell === null || cell === undefined ? undefined : <RowCell cell={cell} handlers={linkHandlers} />;
+        };
+        const gatesOrGroupItem = (item: PlacedItemView) => gatesItem(item) ?? groupCellItem(item);
+        const replacesStatus = (item: PlacedItemView) => groupCellItem(item) !== undefined;
         const slices = fleet.slices;
         const issues = fleet.issueAnswer === 'answered' ? filteredIssues : [];
         const ticketSplit = splitTicketRows(issues, placement.tickets, placement.unplaced);
@@ -1207,7 +1237,7 @@ export function AgentList({
         ];
         const itemBody = (item: PlacedItemView, inPlan = false) => [
           anchorOf(item),
-          ...item.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={inPlan} by={byItem(item)} />),
+          ...item.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={inPlan} by={byItem(item)} gates={gatesOrGroupItem(item)} gatesReplaceStatus={replacesStatus(item)} />),
           ...(item.ticket !== null
             ? [(
                 <IssueRowView
@@ -1266,6 +1296,8 @@ export function AgentList({
                   onExpandSection={expandSection}
                   planIndex={planIndex}
                   by={byItem(s.item)}
+                  gates={gatesOrGroupItem(s.item)}
+                  gatesReplaceStatus={replacesStatus(s.item)}
                 />
                 {many && sliceOpen && (
                   <ul
@@ -1278,7 +1310,7 @@ export function AgentList({
                 )}
               </li>
             ),
-            ...s.loose.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={block.headed} by={byItem(s.item)} />),
+            ...s.loose.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={block.headed} by={byItem(s.item)} gates={gatesOrGroupItem(s.item)} gatesReplaceStatus={replacesStatus(s.item)} />),
             ...itemTail(s.item),
           ];
         };
@@ -1346,6 +1378,14 @@ export function AgentList({
           ];
         };
         const agentBody = (agent: PlacedAgentView) => [
+          forms.agents.get(agent.placement.id) !== undefined && (
+            <FleetAgentRow
+              key={`fleet-${agent.anchor}`}
+              id={agent.placement.id}
+              cells={forms.agents.get(agent.placement.id)!}
+              handlers={linkHandlers}
+            />
+          ),
           <li key={`anchor-${agent.anchor}`} role="presentation" id={agent.anchor} className="h-0" />,
           agent.entry !== null ? (
             <RegistryRow
@@ -1367,7 +1407,6 @@ export function AgentList({
               onRevealBranch={onRevealBranch}
               highlighted={agent.entry.branch !== '' && agent.entry.branch === highlightBranch}
               planIndex={planIndex}
-              by={byCell(forms.agents.get(agent.placement.id))}
               details={detailLines(agent.row === null ? [] : [agent.row], agent.entry)}
               kindChip={<RoleChip role={agent.placement.role} />}
             />
@@ -1376,13 +1415,12 @@ export function AgentList({
               key={agent.placement.id}
               run={mapping.runsById[agent.placement.id]!}
               label={agent.label}
-              by={byCell(forms.agents.get(agent.placement.id))}
             />
           ) : null,
           linkLine(`links-${agent.anchor}`, agent.links, '→ acts on:'),
         ];
-        const fold = (key: string, count: number, heading: React.ReactNode) => {
-          const foldable = isCollapsible(count);
+        const fold = (key: string, count: number, heading: React.ReactNode, always = false) => {
+          const foldable = !always && isCollapsible(count);
           const folded = foldable && collapsed.has(key);
           return { folded, header: (
             <div className="flex items-center gap-2">
@@ -1430,14 +1468,15 @@ export function AgentList({
                       {section.summary.map((c) => (
                         <span key={c.key} data-summary-count={c.key}>
                           {c.anchor === null ? (
-                            <>{c.label} {c.count}</>
+                            <>{c.text}</>
                           ) : (
                             <button type="button" data-summary-link={c.key} onClick={() => scrollToAnchor(c.anchor!)} className="text-blue-600 hover:underline dark:text-blue-400">
-                              {c.label} {c.count}
+                              {c.text}
                             </button>
                           )}
                         </span>
                       ))}
+                      {section.oldest !== null && <span data-summary-oldest>{section.oldest}</span>}
                     </span>
                   )}
                   {release && <span className="ml-1 font-normal text-slate-500">({view.deliveredBlocks.length})</span>}
@@ -1489,6 +1528,35 @@ export function AgentList({
                       placement.items.filter((p) => p.section === section.key && p.group === group.key),
                       switches,
                     );
+                    const fleetOpen = section.key === 'fleet' && (group.key === 'working' || group.key === 'blocked');
+                    const freeGroup = section.key === 'fleet' && group.key === 'free';
+                    const free = freeGroup
+                      ? freeLine(group.agents.map((a) => forms.agents.get(a.placement.id)?.agent?.value ?? a.placement.id))
+                      : null;
+                    if (freeGroup) {
+                      return free === null ? null : (
+                        <div key={group.key} id={groupAnchor(group.key)} data-group={group.key} className="space-y-1">
+                          <p data-free-line className="flex items-baseline gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <span>{free.text}</span>
+                            <button
+                              type="button"
+                              data-group-toggle={group.key}
+                              aria-expanded={!collapsed.has(group.key)}
+                              onClick={() => toggle(group.key)}
+                              className="text-blue-600 hover:underline dark:text-blue-400"
+                            >
+                              {collapsed.has(group.key) ? 'show' : 'hide'}
+                            </button>
+                          </p>
+                          {!collapsed.has(group.key) && (
+                            <ul role="grid" aria-label={`${group.label} — agents`} className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
+                              <FleetAgentHeader blocked={false} />
+                              {group.agents.flatMap(agentBody)}
+                            </ul>
+                          )}
+                        </div>
+                      );
+                    }
                     const g = fold(group.key, group.count, (
                       <h3 data-delivery-group={group.key} className="flex flex-wrap items-baseline gap-1 text-sm font-medium text-slate-700 dark:text-slate-200">
                         {section.key === 'you' && (
@@ -1514,7 +1582,7 @@ export function AgentList({
                         ))}
                         {groupMark && <ActivityMark pace={groupMark} place="heading" />}
                       </h3>
-                    ));
+                    ), fleetOpen);
                     return (
                       <div key={group.key} id={groupAnchor(group.key)} data-group={group.key} className="space-y-1">
                         {g.header}
@@ -1524,8 +1592,9 @@ export function AgentList({
                             aria-label={`${group.label} — agent branches`}
                             className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40"
                           >
-                            <HeaderRow />
+                            <HeaderRow statusName={group.column ?? 'Status'} />
                             {group.blocks.flatMap(blockBody)}
+                            {group.agents.length > 0 && <FleetAgentHeader blocked={group.key === 'blocked'} />}
                             {group.agents.flatMap(agentBody)}
                           </ul>
                         )}

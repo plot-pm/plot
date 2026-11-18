@@ -187,6 +187,8 @@ export interface FirstParentCommit {
   sha: string;
   /** The commit's tree id. */
   tree: string;
+  /** The commit's subject line; may contain `|`. */
+  subject: string;
   /**
    * Whether the commit is a merge whose second parent lies outside the range,
    * on the range's excluded side. Such a merge carries the excluded side's
@@ -445,11 +447,14 @@ export interface Refs {
    * population this question is asked about. The merge commit survives.
    *
    * @param sha - the commit to read; any revision git accepts.
+   * @param options - `noRenames` turns rename detection off, so a moved file
+   *   lists both its old and its new path. Absent, git's default detection
+   *   lists only the destination.
    * @returns the paths it changed, relative to the repository root. An empty
    *   list is an ANSWER: a commit that changed nothing. A commit that cannot be
    *   read is a failed result, never an empty one.
    */
-  commitFiles(sha: string): Promise<PortResult<readonly string[]>>;
+  commitFiles(sha: string, options?: { noRenames?: boolean }): Promise<PortResult<readonly string[]>>;
 
   /**
    * The newest first-parent commit on the default branch whose diff ADDS a
@@ -736,8 +741,8 @@ export interface Refs {
    * Reads the first-parent line of a range, each commit with its tree.
    *
    * @param range - `<excluded>..<tip>`.
-   * @returns the tip's first-parent commits inside the range, newest first;
-   *   empty for a range with none. A failed result where git could not read
+   * @returns the tip's first-parent commits inside the range, newest first,
+   *   each with its subject; empty for a range with none. A failed result where git could not read
    *   the range.
    */
   firstParentCommits(range: string): Promise<PortResult<readonly FirstParentCommit[]>>;

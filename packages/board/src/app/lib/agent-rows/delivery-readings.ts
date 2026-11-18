@@ -2,6 +2,7 @@ import {
   ownership,
   placeDelivery,
   type AgentPlacementReading,
+  type AgentBounds,
   type AgentRole,
   type DeliveryInput,
   type DeliveryMine,
@@ -15,6 +16,7 @@ import {
   type RoleRun,
   type WorkItemReading,
 } from '@plot-pm/domain';
+import type { PersonDirectory } from '@plot-pm/domain/entities/person';
 import { ticketMarkOf, ticketRecordOf } from '@plot-pm/domain/rules/sprint-ticket-record';
 import type { AgentEntry, AgentRow, DraftPlan, IssueRow, ReleaseTickets, Slice, TicketSourceShape } from '../../../contract/schema.js';
 import { ownedFromCard, ownedFromRow, ownedFromTicket } from './mine-filter.js';
@@ -29,6 +31,13 @@ export interface DeliveryConfig {
 
 /** A registry entry, with the role the registry declares where it declares one. */
 export type RegistryAgent = AgentEntry & { role?: AgentRole };
+
+/**
+ * The text of an agent's Agent cell on its Fleet row, and of its name in a By cell.
+ * A state-file run has no registry entry and reads as its id.
+ */
+export const agentLabel = (id: string, entry: RegistryAgent | null): string =>
+  entry?.branch || entry?.worktree || id;
 
 export interface DeliveryMapInput {
   rows: readonly AgentRow[];
@@ -50,7 +59,46 @@ export interface DeliveryMapInput {
   releaseTickets?: ReleaseTickets | null | undefined;
   /** The reviewer, fixer, design and verify agents the server read from the state files (`fleet.roleRuns`); absent or `null` reads as none. */
   roleRuns?: readonly RoleRun[] | null | undefined;
+  /** The connector's window from `fleet.machine`; absent reads as unknown, which blocks nothing. */
+  rateLimit?: RateLimitReading | undefined;
+  /** The run bounds from `fleet.bounds`; absent reads as no bound, so no Time left. */
+  bounds?: AgentBounds | undefined;
+  /** The checks page of a PR, from the Planning cards; absent or `''` where none is known. */
+  checksUrlOf?: ((planFile: string, pr: number) => string) | undefined;
 }
+
+/** The connector's window: `exhausted` stops a loop agent, `free` and `unknown` do not. */
+export type RateLimitReading = 'exhausted' | 'free' | 'unknown';
+
+/**
+ * Reads the host budget `fleet.machine` carries.
+ *
+ * A bucket with `remaining` 0 whose reset is not past reads exhausted. A budget
+ * where no bucket states `remaining` reads `unknown`, never free.
+ *
+ * @param host - `fleet.machine.host`, or `null` where no connector was read.
+ * @param now - the clock in milliseconds.
+ */
+export const rateLimitOf = (
+  host: { buckets: readonly { remaining: number | null; resetAt: number | null }[] } | null | undefined,
+  now: number,
+): RateLimitReading => {
+  const known = (host?.buckets ?? []).filter((b) => b.remaining !== null);
+  if (known.length === 0) return 'unknown';
+  return known.some((b) => b.remaining === 0 && (b.resetAt === null || b.resetAt > now)) ? 'exhausted' : 'free';
+};
+
+/** The gate a running loop agent waits on, from its PR's readings and the connector's window; `null` where none holds. */
+const loopGateOf = (
+  pr: AgentRow['pr'],
+  rateLimit: RateLimitReading | undefined,
+): 'rate-limit' | 'ci' | 'review' | null => {
+  if (rateLimit === 'exhausted') return 'rate-limit';
+  if (pr === null || pr === undefined) return null;
+  const ci = ciOf(pr);
+  if (ci === 'running') return 'ci';
+  return ci === 'passed' && reviewOf(pr) === 'pending' ? 'review' : null;
+};
 
 /** What `placeDelivery` reads, and the payload rows each subject id stands for. */
 export interface DeliveryMapping {
@@ -66,6 +114,14 @@ export interface DeliveryMapping {
   ticketsByItem: Record<string, IssueRow>;
   /** Agent id → the state-file run it stands for; a registry agent is in `agentsById` instead. */
   runsById: Record<string, RoleRun>;
+  /** The connector's window, as `deliveryMapping` read it. */
+  rateLimit: RateLimitReading;
+  /** The `People` spellings of the reader's config; absent where none is declared. */
+  directory?: PersonDirectory;
+  /** The run bounds, as `deliveryMapping` read them; absent where the payload carried none. */
+  bounds: AgentBounds | undefined;
+  /** The checks page of a PR; `''` where none is known. */
+  checksUrlOf: (planFile: string, pr: number) => string;
   /** One entry per distinct target release, and the tickets the release line counts for them. */
   releases: { targets: ReleaseTarget[]; tickets: ReleaseTicketReading | null };
 }
@@ -102,7 +158,7 @@ export const itemIdOfRow = (row: AgentRow): string =>
   rowInSlice(row) ? sliceItemId(row.plan, row.wave) : branchItemId(row.branch);
 
 /** A host that answers `none` reports that no check gates the PR, which is a reading; `unknown` is the host not answering. */
-const ciOf = (pr: NonNullable<AgentRow['pr']>): PrFacts['ci'] => {
+export const ciOf = (pr: NonNullable<AgentRow['pr']>): PrFacts['ci'] => {
   switch (pr.ciChecks) {
     case 'green':
     case 'none': return 'passed';
@@ -120,7 +176,7 @@ const ciOf = (pr: NonNullable<AgentRow['pr']>): PrFacts['ci'] => {
   }
 };
 
-const reviewOf = (pr: NonNullable<AgentRow['pr']>): PrFacts['review'] => {
+export const reviewOf = (pr: NonNullable<AgentRow['pr']>): PrFacts['review'] => {
   switch (pr.plotReview) {
     case 'success': return 'passed';
     case 'failure': return 'high';
@@ -310,6 +366,12 @@ const mapReadings = (input: DeliveryMapInput): DeliveryMapping => {
       blockedOn: agent.state === 'waiting' ? 'person' : null,
       startedAt: Number.isNaN(startedAt) ? null : startedAt,
     };
+    // A running loop agent with an item names the gate it waits on; the reviewer
+    // and the fixer are the agents that pass those gates and never wait on them.
+    if (reading.blockedOn === null && reading.role === 'loop' && reading.actsOn !== null && agent.state !== 'waiting' && processOf(agent.state) === 'running') {
+      const row = input.rows.find((r) => r.branch === agent.branch && r.branch !== '');
+      reading.blockedOn = loopGateOf(row?.pr ?? null, input.rateLimit);
+    }
     const process = processOf(agent.state);
     if (process !== undefined) reading.process = process;
     agents.push(reading);
@@ -339,11 +401,15 @@ const mapReadings = (input: DeliveryMapInput): DeliveryMapping => {
       // required, so the cast is the one place the mapper cannot say so.
       ...input.config,
     } as DeliveryInput,
+    ...(input.reader.directory === undefined ? {} : { directory: input.reader.directory }),
     rowsByItem,
     draftsByItem,
     agentsById,
     ticketsByItem,
     runsById,
+    rateLimit: input.rateLimit ?? 'unknown',
+    bounds: input.bounds,
+    checksUrlOf: input.checksUrlOf ?? (() => ''),
     releases: {
       targets: releaseTargets(input.sprints ?? []),
       tickets: input.releaseTickets == null ? null : input.releaseTickets,

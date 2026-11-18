@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { LinkTarget } from '@plot-pm/domain';
 import type { AgentRow, Slice } from '../../src/contract/schema.js';
-import { deliveryMapping, sliceItemId, type RegistryAgent } from '../../src/app/lib/agent-rows/delivery-readings.js';
+import { deliveryMapping, rateLimitOf, sliceItemId, type RegistryAgent } from '../../src/app/lib/agent-rows/delivery-readings.js';
 import { agentAnchor, itemAnchor } from '../../src/app/lib/agent-rows/delivery-view.js';
 import {
   actionPlace, detailLines, linkLabel, resolveLink, type LinkContext,
@@ -34,11 +34,18 @@ const ctx: LinkContext = {
   plan: 'p',
   branchUrlBase: 'https://host/o/r/tree/',
   prUrl: (n) => (n === 7 ? 'https://host/o/r/pull/7' : null),
+  checksUrl: (n) => (n === 7 ? 'https://host/o/r/pull/7/checks' : n === 9 ? '' : null),
   planFileOf: (p) => (p === 'p' ? 'docs/plans/p.md' : ''),
   branchOfAgent: (id) => (id === 'a1' ? 'feature/a' : ''),
 };
 
 describe('resolveLink', () => {
+  it('sends a checks target to the checks URL, and to none where the host gave none', () => {
+    expect(resolveLink({ to: 'checks', pr: 7 }, ctx)).toEqual({ kind: 'href', href: 'https://host/o/r/pull/7/checks' });
+    expect(resolveLink({ to: 'checks', pr: 9 }, ctx)).toEqual({ kind: 'none' });
+    expect(resolveLink({ to: 'checks', pr: 8 }, ctx)).toEqual({ kind: 'none' });
+  });
+
   it('sends a slice to its row on the page', () => {
     expect(resolveLink({ to: 'slice', id: 'A' } as LinkTarget, ctx))
       .toEqual({ kind: 'anchor', id: itemAnchor(sliceItemId('p', 'A')) });
@@ -54,6 +61,11 @@ describe('resolveLink', () => {
       expect(resolveLink({ to, pr: 7 } as LinkTarget, ctx)).toEqual({ kind: 'href', href: 'https://host/o/r/pull/7' });
       expect(resolveLink({ to, pr: 8 } as LinkTarget, ctx)).toEqual({ kind: 'none' });
     }
+  });
+
+  it('sends a url target to that url and to nothing where it is empty', () => {
+    expect(resolveLink({ to: 'url', url: 'https://h/checks' } as LinkTarget, ctx)).toEqual({ kind: 'href', href: 'https://h/checks' });
+    expect(resolveLink({ to: 'url', url: '' } as LinkTarget, ctx)).toEqual({ kind: 'none' });
   });
 
   it('sends a plan to its file and to nothing where the plan has none', () => {
@@ -123,12 +135,94 @@ describe('itemRowFactsOf and agentRowFactsOf', () => {
     expect(facts.planPr).toBeUndefined();
   });
 
-  it('counts an agent age from startedAt and is empty for an unknown agent', () => {
-    const entry = agent({ session: 's1', branch: 'feature/a', startedAt: new Date(Date.UTC(2026, 10, 9, 10, 0)).toISOString() });
-    const m = mapping([row({ branch: 'feature/a', plan: 'p', wave: 'A' })], [entry]);
+  it('reads an agent\'s branch, commit count and PR readings from the payload row of its branch', () => {
+    const entry = agent({ session: 's1', branch: 'feature/a' });
+    const m = mapping([row({ branch: 'feature/a', plan: 'p', wave: 'A', localAhead: 4, pr: { number: 7, url: 'https://h/pull/7', state: 'pending', ciChecks: 'pending', plotReview: 'pending', headSha: '2d929a6aaaa' } })], [entry]);
     const id = Object.keys(m.agentsById)[0]!;
-    expect(agentRowFactsOf(m, id, Date.UTC(2026, 10, 9, 11, 30)).ageMinutes).toBe(90);
-    expect(agentRowFactsOf(m, 'nobody', 0)).toEqual({});
+    expect(agentRowFactsOf(m, id, 0)).toMatchObject({
+      branch: 'feature/a', commits: 4, reviewHead: '2d929a6', pr: { ci: 'running', review: 'pending', url: 'https://h/pull/7' },
+    });
+  });
+
+  it('reads an unobserved commit count as absent and an unknown agent as nothing but the limit', () => {
+    const entry = agent({ session: 's1', branch: 'feature/a' });
+    const m = mapping([row({ branch: 'feature/a', plan: 'p', wave: 'A', localAhead: 0 })], [entry]);
+    expect(agentRowFactsOf(m, Object.keys(m.agentsById)[0]!, 0).commits).toBeUndefined();
+    expect(agentRowFactsOf(m, 'nobody', 0)).toEqual({ rateLimit: 'unknown' });
+  });
+
+  it('puts the unnamed-desk sentence on a synthesized agent\'s facts', () => {
+    const entry = agent({ session: '', identity: 'synthesized', branch: '', checkout: 'bug/x', worktree: '/wt/x' });
+    const m = mapping([], [entry]);
+    expect(agentRowFactsOf(m, Object.keys(m.agentsById)[0]!, 0).unnamedDesk).toContain('bug/x');
+  });
+});
+
+describe('itemRowFactsOf: progress and waits', () => {
+  const factsOf = (rows: AgentRow[], directory?: Record<string, string>) => {
+    const m = deliveryMapping({
+      rows, slices: [slice('A')], agents: [], drafts: [], reader: { hostUser: 'me', ...(directory === undefined ? {} : { directory }) },
+      mode: 'all', config: { autoReview: true, correctionBudget: 2 },
+    });
+    return itemRowFactsOf(m, Object.keys(m.rowsByItem)[0]!);
+  };
+  const built = { branch: 'feature/a', plan: 'p', wave: 'A', kind: 'slice' };
+
+  it('sets the unpushed count only where localAhead is above 0', () => {
+    expect(factsOf([row({ ...built, localAhead: 2 })]).unpushed).toBe(2);
+    expect(factsOf([row({ ...built, localAhead: 0 })]).unpushed).toBeUndefined();
+    expect(factsOf([row(built)]).unpushed).toBeUndefined();
+  });
+
+  it('carries the server-named blocker of another plan, and an empty one as empty', () => {
+    expect(factsOf([row({ ...built, state: 'claimed', blockedBy: 'other/first' })]).waitsOn).toBe('other/first');
+    expect(factsOf([row({ ...built, state: 'claimed', blockedBy: '' })]).waitsOn).toBe('');
+    expect(factsOf([row({ ...built, state: 'claimed' })]).waitsOn).toBeUndefined();
+  });
+
+  it('resolves the owner through People and never carries the raw handle as the name', () => {
+    const named = factsOf([row({ ...built, assignee: 'Max Albrecht' })], { 'max albrecht': 'eins78' });
+    expect(named).toMatchObject({ person: 'eins78', personName: 'Max Albrecht' });
+    const unknown = factsOf([row({ ...built, assignee: 'zed' })], {});
+    expect(unknown.person).toBe('zed');
+    expect(unknown.personName).toBeUndefined();
+  });
+});
+
+describe('the gates a running loop agent waits on', () => {
+  const placed = (rows: AgentRow[], rateLimit?: 'exhausted' | 'free' | 'unknown') => {
+    const m = deliveryMapping({
+      rows, slices: [slice('A')], agents: [agent({ session: 's1', branch: 'feature/a' })], drafts: [], reader: { hostUser: 'me' }, mode: 'all',
+      config: { autoReview: true, correctionBudget: 2 }, ...(rateLimit === undefined ? {} : { rateLimit }),
+    });
+    return m.readings.agents[0]!.blockedOn;
+  };
+  const withPr = (pr: Record<string, unknown>) => [row({ branch: 'feature/a', plan: 'p', wave: 'A', pr: { number: 7, state: 'pending', ...pr } })];
+
+  it('names ci while the checks run, and review once they passed and the review is pending', () => {
+    expect(placed(withPr({ ciChecks: 'pending' }))).toBe('ci');
+    expect(placed(withPr({ ciChecks: 'green', plotReview: 'pending' }))).toBe('review');
+  });
+
+  it('names no gate where the CI reading is absent', () => {
+    expect(placed(withPr({ ciChecks: undefined, state: 'unknown' }))).toBeNull();
+    expect(placed(withPr({ ciChecks: 'green', plotReview: 'success' }))).toBeNull();
+  });
+
+  it('names rate-limit for an exhausted window only', () => {
+    expect(placed(withPr({ ciChecks: 'green' }), 'exhausted')).toBe('rate-limit');
+    expect(placed(withPr({ ciChecks: 'green' }), 'unknown')).toBeNull();
+    expect(placed(withPr({ ciChecks: 'green' }), 'free')).toBeNull();
+  });
+});
+
+describe('rateLimitOf', () => {
+  it('reads exhausted, free and unknown', () => {
+    expect(rateLimitOf({ buckets: [{ remaining: 0, resetAt: 2000 }] }, 1000)).toBe('exhausted');
+    expect(rateLimitOf({ buckets: [{ remaining: 0, resetAt: 500 }] }, 1000)).toBe('free');
+    expect(rateLimitOf({ buckets: [{ remaining: 40, resetAt: null }] }, 1000)).toBe('free');
+    expect(rateLimitOf({ buckets: [{ remaining: null, resetAt: null }] }, 1000)).toBe('unknown');
+    expect(rateLimitOf(null, 1000)).toBe('unknown');
   });
 });
 

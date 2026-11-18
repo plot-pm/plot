@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** bug-fixes-2-35-0
 - **Issue:** #3504
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-17, Jan Wloka, plan-PR #3505 merged
 - **Started:** 2026-11-17, Jan Wloka, `bug/a-role-session-may-use-its-declared-tools`
+- **Delivered:** 2026-11-17
 
 ## Changelog
 

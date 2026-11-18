@@ -36,7 +36,6 @@ const EMPTY_PLAN_INDEX: PlanIndex = planIndexOf({});
 // `packages/domain/test/agent.test.ts`; comparing the string here would be a
 // second copy of it in a component.
 import { identityWasDeclared, noteShown } from '@plot-pm/domain';
-import { unnamedDeskLabel } from '@plot-pm/domain/rules/desk-manifest';
 import { type SliceGroup, groupedNote, sliceDissent } from './slices.js';
 import { sliceRowReading } from './slice-reading.js';
 import { ActivityMark, BlockedByMark, ChangeMark, StuckCell, UnpushedMark } from './marks.js';
@@ -438,7 +437,7 @@ export function PlanLink({
  * slot 1's kind ICON as well, which is a fact about the row rather than an
  * ornament on it.
  */
-export function HeaderRow() {
+export function HeaderRow({ statusName = 'Status' }: { statusName?: string } = {}) {
   return (
     <li role="row" className="sr-only max-sm:hidden">
       {/* THE SIX SLOTS, and the header is where each is NAMED for a reader who
@@ -461,7 +460,7 @@ export function HeaderRow() {
       <span role="columnheader">Kind</span>
       <span role="columnheader">Item</span>
       <span role="columnheader">Where</span>
-      <span role="columnheader">Status</span>
+      <span role="columnheader" data-column-header>{statusName}</span>
       <span role="columnheader">Do</span>
       <span role="columnheader">By</span>
       <span role="columnheader">Age</span>
@@ -1020,10 +1019,14 @@ export function SliceRow({
   onExpandSection,
   planIndex,
   by,
+  gates,
+  gatesReplaceStatus,
   details,
 }: {
   /** The BY cell: who acts on the item. */
   by?: ReactNode;
+  gates?: ReactNode;
+  gatesReplaceStatus?: boolean;
   /** The details popover's lines. */
   details?: readonly string[];
   group: SliceGroup;
@@ -1193,6 +1196,8 @@ export function SliceRow({
   return (
     <TupleRowView
       by={by}
+      gates={gates}
+      gatesReplaceStatus={gatesReplaceStatus}
       details={details}
       tuple={tupleFromSlice({
         name: group.wave,
@@ -1751,10 +1756,14 @@ export function Row({
   highlighted = false,
   planIndex,
   by,
+  gates,
+  gatesReplaceStatus,
   details,
 }: {
   /** The BY cell: who acts on the item. */
   by?: ReactNode;
+  gates?: ReactNode;
+  gatesReplaceStatus?: boolean;
   /** The details popover's lines. */
   details?: readonly string[];
   row: AgentRow;
@@ -2033,6 +2042,8 @@ export function Row({
   return (
     <TupleRowView
       by={by}
+      gates={gates}
+      gatesReplaceStatus={gatesReplaceStatus}
       details={details}
       tuple={tuple}
       onOpenPlan={onOpenPlan}
@@ -2650,7 +2661,7 @@ export function RegistryRow({
     : row
     ? noteWithoutPr(row.note, row.pr)
     : !identityWasDeclared(agent)
-      ? unnamedDeskLabel({ checkout: agent.checkout ?? '', live: isLiveState(agent.state) })
+      ? '' // the unnamed-desk sentence is the Agent cell's tooltip (`agentRowFactsOf`)
       : !isLiveState(agent.state)
         ? 'stopped — no ending was read, so why it stopped is unknown'
         : '';
