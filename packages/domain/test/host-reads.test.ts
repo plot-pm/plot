@@ -5,6 +5,7 @@ import type { GithubApi, GithubApiOptions, GithubRequest } from '../src/adapters
 import { hostFixture } from '../src/adapters/host/host-fixture.js';
 import { hostReadsFor, hostWithListing } from '../src/adapters/host/host-reads.js';
 import { apiForReads, hostForReads } from '../src/adapters/host/process-host-reads.js';
+import type { JenkinsReads } from '../src/adapters/build/jenkins-api.js';
 import type { Host, LimitObservation, PrListing } from '../src/ports/host.js';
 
 const context = { repoRoot: '/nonexistent', scriptDir: '/nonexistent' };
@@ -356,5 +357,114 @@ describe('apiForReads', () => {
     expect(reads.api).not.toBeNull();
     expect(apiForReads(root)).toBe(reads.api);
     expect(apiForReads({ repoRoot: '/nonexistent/other-api', scriptDir: '/nonexistent' })).toBeUndefined();
+  });
+});
+
+describe('hostReadsFor with a Jenkins client', () => {
+  /** A Jenkins client whose map paints `feature/x` green and records every question. */
+  const fakeJenkins = (asked: string[]): JenkinsReads => ({
+    colourMap: async (job) => {
+      asked.push(`colourMap:${job}`);
+      return { status: 'ok', map: { 'feature/x': { color: 'blue', checks: 'green', job: 'team/portal/feature%2Fx' } } };
+    },
+    builds: async (query) => {
+      asked.push(`builds:${query.job}:${query.branch}`);
+      return {
+        ok: true,
+        runs: [{ status: 'completed', conclusion: 'SUCCESS', url: 'u', startedAt: '2026-11-01T00:00:00Z', workflow: query.job, sha: query.sha }],
+      };
+    },
+  });
+  const config = async (key: string): Promise<string> => (key === 'Jenkins instance' ? 'acme/team/portal' : '');
+
+  it('reads a GitHub repository with CI: jenkins in-process and overlays the colours', async () => {
+    const shell = shellHost();
+    const asked: string[] = [];
+    const seen = { options: null as GithubApiOptions | null, requests: [] as GithubRequest[] };
+    const reads = await hostReadsFor(
+      context,
+      { backend: 'github', ci: 'jenkins' },
+      { env: { GH_TOKEN: 'fixture' }, shell, origin: async () => null, client: fakeClient('GH_TOKEN', seen), jenkins: fakeJenkins(asked), config },
+    );
+    expect(reads.choice.transport).toBe('in-process');
+    expect(reads.choice.reason).toBe('the git host is github');
+    const listing = await reads.host.prListing({ state: 'open', limit: 30, rich: true });
+    expect(listing.rows.map((row) => row.checks)).toEqual(['green']);
+    expect(asked[0]).toBe('colourMap:team/portal');
+    expect(asked).toContain('builds:team/portal:feature/x');
+    expect(listing.rows[0]?.checksSha).toBe('abc');
+    expect(shell.calls).toEqual([]);
+  });
+
+  it('reads the rich open listing of a Bitbucket repository in-process, and the reason names no shell exception', async () => {
+    const shell = shellHost();
+    const asked: string[] = [];
+    const paths: string[] = [];
+    const reads = await hostReadsFor(
+      context,
+      { backend: 'bitbucket', ci: 'jenkins' },
+      {
+        env: {},
+        shell,
+        origin: async () => null,
+        bitbucketClient: () => ({
+          base: 'http://stub/2.0',
+          slug: 'ws/repo',
+          account: 'ws',
+          credentialSource: async () => 'environment',
+          nextPath: () => ({ ok: false, refusal: { kind: 'failed', said: 'no next' } }),
+          request: async (request) => {
+            paths.push(request.path);
+            return { ok: true, reply: { status: 200, headers: {}, body: { pagelen: 50, page: 1, size: 0, values: [] } } };
+          },
+        }),
+        jenkins: fakeJenkins(asked),
+        config,
+      },
+    );
+    expect(reads.choice.reason).toBe('the git host is bitbucket');
+    await reads.host.prListing({ state: 'open', limit: 50, richOpen: true });
+    await reads.host.prList('open', 50, undefined, true);
+    expect(shell.calls).toEqual([]);
+    expect(paths.length).toBeGreaterThan(0);
+    expect(asked).toContain('colourMap:team/portal');
+  });
+
+  it('keeps the shell where PLOT_HOST_TRANSPORT=shell, and asks Jenkins nothing', async () => {
+    const shell = shellHost();
+    const asked: string[] = [];
+    const seen = { options: null as GithubApiOptions | null, requests: [] as GithubRequest[] };
+    const reads = await hostReadsFor(
+      context,
+      { backend: 'github', ci: 'jenkins' },
+      { env: { PLOT_HOST_TRANSPORT: 'shell', GH_TOKEN: 'fixture' }, shell, client: fakeClient('GH_TOKEN', seen), jenkins: fakeJenkins(asked), config },
+    );
+    expect(reads.choice.reason).toBe('PLOT_HOST_TRANSPORT=shell');
+    expect(reads.host).toBe(shell);
+    expect(asked).toEqual([]);
+  });
+
+  it('keeps the rich open read of Bitbucket on the shell where no client is given', async () => {
+    const shell = shellHost();
+    const reads = await hostReadsFor(
+      context,
+      { backend: 'bitbucket', ci: 'jenkins' },
+      {
+        env: {},
+        shell,
+        origin: async () => null,
+        bitbucketClient: () => ({
+          base: 'http://stub/2.0',
+          slug: 'ws/repo',
+          account: 'ws',
+          credentialSource: async () => 'environment',
+          nextPath: () => ({ ok: false, refusal: { kind: 'failed', said: 'no next' } }),
+          request: async () => ({ ok: true, reply: { status: 200, headers: {}, body: { pagelen: 50, page: 1, size: 0, values: [] } } }),
+        }),
+      },
+    );
+    expect(reads.choice.reason).toMatch(/rich open read stays on the shell/);
+    await reads.host.prListing({ state: 'open', limit: 50, richOpen: true });
+    expect(shell.calls).toEqual(['prListing']);
   });
 });
