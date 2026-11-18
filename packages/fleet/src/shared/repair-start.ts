@@ -105,7 +105,7 @@ export const repairStartTick = async (
 
   let rerunSettled: 'pending' | 'green' | 'red' | 'none' = 'none';
   if (reading !== null && record.rerun === 'asked') {
-    const asked = await world.slot(() => world.build.runsForSha(reading.branch, record.firstRedSha));
+    const asked = await world.slot(() => world.build.runsForSha(reading.branch, record.firstRedSha, world.checks));
     rerunSettled = rerunSettledOf(record, asked.ok ? asked.value : null, world.checks, now);
   }
 

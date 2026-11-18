@@ -127,7 +127,7 @@ export const revertWorldOf = (options: RevertWorldOptions): RevertWorld => {
       const found = pr === null ? null : pr.value;
       const defaultBranch = await refs.defaultBranch();
       if (!defaultBranch.ok) return null;
-      const runs = await options.slot(() => options.build.runsForSha(defaultBranch.value, commit.sha));
+      const runs = await options.slot(() => options.build.runsForSha(defaultBranch.value, commit.sha, options.checks));
       const files = await refs.commitFiles(commit.sha);
       const dirs = await stateDirs();
       if (!runs.ok || !files.ok || dirs === null) return null;
@@ -135,7 +135,7 @@ export const revertWorldOf = (options: RevertWorldOptions): RevertWorld => {
         ...commit,
         prMerged: found !== null && found.state === 'MERGED',
         hostMergeCommit: found !== null && found.state === 'MERGED' ? found.mergeCommit : '',
-        settledRed: foldRuns(declaredRuns(runs.value, options.checks)) === 'red',
+        runs: foldRuns(declaredRuns(runs.value, options.checks)),
         touchesState: files.value.some((file) => dirs.some((dir) => file.startsWith(dir))),
       };
     },

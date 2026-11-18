@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { lastRunIndex, type LastRunIndex } from '@plot-pm/domain';
+import { finishedRuns, lastRunIndexOf, type DayBounds, type FinishedRun, type LastRunIndex } from '@plot-pm/domain';
 import { readConfigAsync, spendRecordFor, type BuildBoardOptions } from './board.js';
 import { fileStatKey, statCache, type StatCache } from './stat-cache.js';
 
@@ -32,25 +32,49 @@ export const workerBoundCache = (
 ): StatCache<number | null> =>
   statCache(statKey, async () => ({ ok: true, value: workerBoundOf(await read()) }));
 
+/** One parse of the spend record: every finished run, and the last of each branch and role. */
+export interface SpendParse {
+  readonly runs: readonly FinishedRun[];
+  readonly index: LastRunIndex;
+}
+
 /**
- * The record's last finished run per branch and role, parsed once and again
+ * The local day `now` falls in, as the instants it spans.
+ *
+ * @param now - the instant, in epoch milliseconds.
+ */
+export const localDayBounds = (now: number): DayBounds => {
+  const d = new Date(now);
+  return { startMs: new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(), endMs: new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime() };
+};
+
+/** The local day `now` falls in as the tooltip names it, `2026-11-18`. */
+export const localDayLabel = (now: number): string => {
+  const d = new Date(now);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+/**
+ * The record's finished runs, and the last run per branch and role, parsed once and again
  * only where one stat of the record shows a new size or modification time.
  *
  * @param statKey - one stat of the record.
  * @param lines - the record's lines; `ok: false` where the read failed.
  * @returns the cache; its value is `null` where the read failed.
  */
-export const lastRunCache = (
+export const spendCache = (
   statKey: () => Promise<string | null>,
   lines: () => Promise<{ ok: true; value: readonly string[] } | { ok: false }>,
-): StatCache<LastRunIndex | null> =>
+): StatCache<SpendParse | null> =>
   statCache(statKey, async () => {
     const read = await lines();
-    return read.ok ? { ok: true, value: lastRunIndex(read.value) } : { ok: false, value: null };
+    if (!read.ok) return { ok: false, value: null };
+    const runs = finishedRuns(read.value);
+    return { ok: true, value: { runs, index: lastRunIndexOf(runs) } };
   });
 
 const workerBounds = new Map<string, StatCache<number | null>>();
-const lastRuns = new Map<string, StatCache<LastRunIndex | null>>();
+const spends = new Map<string, StatCache<SpendParse | null>>();
 
 /** `Worker bound` for this board's repository, from the process-wide cache. */
 export const workerBoundFor = (opts: BuildBoardOptions): Promise<number | null> => {
@@ -69,23 +93,23 @@ export const workerBoundFor = (opts: BuildBoardOptions): Promise<number | null> 
   return cache.get();
 };
 
-/** The last finished run of every branch for this board, from the process-wide cache; `null` where the record could not be read. */
-export const lastRunsFor = (opts: BuildBoardOptions): Promise<LastRunIndex | null> => {
+/** The spend record's one parse for this board, from the process-wide cache; `null` where the record could not be read. */
+export const spendFor = (opts: BuildBoardOptions): Promise<SpendParse | null> => {
   if (opts.spendRecord !== undefined) {
     // A held fixture has no file to stat: one parse per call.
-    return lastRunCache(async () => null, () => opts.spendRecord!.lines()).get();
+    return spendCache(async () => null, () => opts.spendRecord!.lines()).get();
   }
-  let cache = lastRuns.get(opts.repoRoot);
+  let cache = spends.get(opts.repoRoot);
   if (cache === undefined) {
     const record = spendRecordFor(opts);
-    cache = lastRunCache(
+    cache = spendCache(
       async () => {
         const where = record.location();
         return where.ok ? fileStatKey(where.value) : null;
       },
       () => record.lines(),
     );
-    lastRuns.set(opts.repoRoot, cache);
+    spends.set(opts.repoRoot, cache);
   }
   return cache.get();
 };

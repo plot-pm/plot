@@ -49,6 +49,14 @@ export interface GithubActionsBuild extends BuildPort {
  * failing `gh`, and records the whole refusal for `lastHostRefusal`. Every
  * other operation keeps the script.
  *
+ * A declared `<workflow>/<job>` name makes `runsForSha` read that run's jobs
+ * (one `GET /actions/runs/{id}/jobs` per run a declared name points into) and
+ * add an entry per matching job. The entry carries the job's status,
+ * conclusion and end, and its run's start (the job's own start where the run
+ * reports none), so a duration measured over it covers the whole run and not
+ * only a job that waits on the others. The shell route reads no jobs, so a job
+ * name has no entry there and folds as `unknown`.
+ *
  * @param context - where the scripts and the repository are.
  * @param api - the in-process GitHub client; absent, every read runs the script.
  * @returns a `BuildPort` backed by this vendor's connector.
@@ -60,7 +68,11 @@ export const buildActions = (context: ShellContext, api?: GithubApi): GithubActi
   let inProcessRefusal: string | null = null;
   let lastWasInProcess = false;
 
-  const runsForShaInProcess = async (branch: string, sha: string): Promise<PortResult<readonly WorkflowShaRun[]>> => {
+  const runsForShaInProcess = async (
+    branch: string,
+    sha: string,
+    declared: readonly string[],
+  ): Promise<PortResult<readonly WorkflowShaRun[]>> => {
     lastWasInProcess = true;
     const asked = await (runs as GithubRuns).list(branch);
     if (!asked.ok) {
@@ -68,9 +80,36 @@ export const buildActions = (context: ShellContext, api?: GithubApi): GithubActi
       inProcessRefusal = asked.refusal.said;
       return unaskable(asked.refusal.said);
     }
+    const rows = runsForShaOf(asked.runs, sha).map(workflowShaRunOf);
+    const jobRows: WorkflowShaRun[] = [];
+    for (const run of asked.runs.filter((one) => one.headSha === sha)) {
+      const flow = run.workflowName ?? '';
+      if (flow === '' || run.databaseId === undefined) continue;
+      const wanted = declared.filter((name) => name.startsWith(`${flow}/`) && !rows.some((row) => row.workflow === name));
+      if (wanted.length === 0) continue;
+      const jobs = await (runs as GithubRuns).jobs(run.databaseId);
+      if (!jobs.ok) {
+        hostRefusal = jobs.refusal;
+        inProcessRefusal = jobs.refusal.said;
+        return unaskable(jobs.refusal.said);
+      }
+      for (const name of wanted) {
+        const job = jobs.jobs.find((one) => `${flow}/${one.name}` === name);
+        if (job === undefined) continue;
+        jobRows.push({
+          sha,
+          workflow: name,
+          status: job.status,
+          conclusion: job.conclusion,
+          url: job.url,
+          startedAt: Date.parse(run.startedAt) > 0 ? run.startedAt : job.startedAt,
+          ...(job.completedAt === '' ? {} : { completedAt: job.completedAt }),
+        });
+      }
+    }
     hostRefusal = null;
     inProcessRefusal = null;
-    return answered(runsForShaOf(asked.runs, sha).map(workflowShaRunOf));
+    return answered([...rows, ...jobRows]);
   };
 
   /** Runs one script read, after which `lastRefusal` reads the script's refusal again. */
@@ -87,8 +126,8 @@ export const buildActions = (context: ShellContext, api?: GithubApi): GithubActi
     runForSha: (branch, sha, limit): Promise<PortResult<ShaRun | null>> =>
       scripted(() => reads.runForSha(branch, sha, limit)),
 
-    runsForSha: (branch, sha): Promise<PortResult<readonly WorkflowShaRun[]>> =>
-      runs === null ? scripted(() => reads.runsForSha(branch, sha)) : runsForShaInProcess(branch, sha),
+    runsForSha: (branch, sha, declared = []): Promise<PortResult<readonly WorkflowShaRun[]>> =>
+      runs === null ? scripted(() => reads.runsForSha(branch, sha)) : runsForShaInProcess(branch, sha, declared),
 
     rerunFailed: (branch, sha): Promise<PortResult<null>> => scripted(() => reads.rerunFailed(branch, sha)),
 

@@ -99,7 +99,7 @@ import { deskDead, type DeskDeadAnswer } from '@plot-pm/domain/rules/desk-dead';
 import type { Processes } from '@plot-pm/domain/ports/processes';
 import { landed, type LandedAnswer } from '@plot-pm/domain/rules/landed';
 import { indexMergedHeads, indexSettledMergedHeads, mergedSetWindowFor, viewLanded } from '@plot-pm/domain/rules/known-pr';
-import { checkNamesOf, checksWaitMsOf, defaultBranchRed, mainRepairBoundMsOf } from '@plot-pm/domain/rules/default-branch';
+import { checkNamesOf, checksWaitMsOf, defaultBranchRed, mainRepairBoundMsOf, workflowOfCheck } from '@plot-pm/domain/rules/default-branch';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Trees } from '@plot-pm/domain/ports/trees';
@@ -146,7 +146,7 @@ import { runDeskRelay } from '../../shared/desk-relay.js';
 import { runIndexMonitor, sliceBranchesAtTip, sliceBranchesOf } from '../../shared/index-monitor.js';
 import { fleetIssues, fleetIssueWrites, freshIssueState, issueGateOf } from '../../shared/issue-refresh.js';
 import { freshPrState, withHostSlot } from '../../shared/pr-refresh.js';
-import { refreshOnChange, refreshWithBases } from '../../shared/default-branch-refresh.js';
+import { refreshOnChange, refreshWithBases, runTiming } from '../../shared/default-branch-refresh.js';
 import { createSnapshotHolder, failUnread, readOf, registryEntryOf, type RecordReading, type SnapshotHolder } from '../../shared/snapshot-fill.js';
 import type { RegistryEntry, RepoSnapshot } from '@plot-pm/domain/entities/snapshot';
 import { freshScanState, planDirectory } from '../../shared/fleet-scan.js';
@@ -3412,6 +3412,7 @@ export const run = async (
             return { ok: true as const, value: sha ? { sha } : ('unknown' as const) };
           },
           firstParentLine: refsGit({ repoRoot, scriptDir: scriptsDir }).firstParentLine,
+          firstParentCommits: refsGit({ repoRoot, scriptDir: scriptsDir }).firstParentCommits,
         },
         build: ci,
         store: defaultBranchFile(repoRoot),
@@ -3425,6 +3426,7 @@ export const run = async (
         now: () => Date.now(),
         record: recordSnapshot,
         checksWaitMs: await checksWaitMs(),
+        timing: runTiming(),
         checks: checkNamesOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Default branch checks', '')),
       };
   // WARNS ONCE PER CAUSE: `refreshDefaultBranch` is asked every tick, and a
@@ -3983,7 +3985,7 @@ export const run = async (
             ref: `origin/${defaultBranch.ok ? defaultBranch.value : 'main'}`,
           }),
           {
-            requiredWorkflow: checkNamesOf(await readConfigAsync(boardOpts, 'Default branch checks', ''))[0] ?? 'CI',
+            requiredWorkflow: workflowOfCheck(checkNamesOf(await readConfigAsync(boardOpts, 'Default branch checks', ''))[0] ?? 'CI', ci.system() === 'github-actions'),
             reviewBoundMs: checksWait,
             startBudget: 0,
           },

@@ -15,6 +15,9 @@
 - **Approved:** 2026-11-16, Jan Wloka, plan-PR #3469 merged
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-you-groups`
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-you-loose-prs`
+- **Started:** 2026-11-18, Jan Wloka, `feature/delivery-you-plan-rows`
+- **Started:** 2026-11-18, Jan Wloka, `feature/delivery-you-phase-strip`
+- **Started:** 2026-11-18, Jan Wloka, `feature/delivery-you-person-comment`
 
 ## Changelog
 
@@ -120,11 +123,11 @@ Per slice, in slice order.
 
 ### Plan rows
 
-- `feature/delivery-you-plan-rows` <!-- waits: feature/delivery-you-loose-prs --> — one row per plan with the slice-count chip from `Card.sliceSummary`, the open-question rule and its card fields, the first open question, and the Kind · Item · Status · Do · Age columns <!-- builds: a one-row plan form, an open-question count and a column set for You -->
+- `feature/delivery-you-plan-rows` <!-- waits: feature/delivery-you-loose-prs --> — one row per plan with the slice-count chip from `Card.sliceSummary`, the open-question rule and its card fields, the first open question, and the Kind · Item · Status · Do · Age columns <!-- builds: a one-row plan form, an open-question count and a column set for You --> → #3520
 
 ### Phase strip
 
-- `feature/delivery-you-phase-strip` <!-- waits: feature/delivery-you-plan-rows --> — the You header counts with "to clean up" and the tickets to triage, and the phase strip named from the phase map, each count linking to its items <!-- builds: the You header counts and phase strip -->
+- `feature/delivery-you-phase-strip` <!-- waits: feature/delivery-you-plan-rows --> — the You header counts with "to clean up" and the tickets to triage, and the phase strip named from the phase map, each count linking to its items <!-- builds: the You header counts and phase strip --> → #3522
 
 ### Person comment
 

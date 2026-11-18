@@ -6,7 +6,7 @@ import {
   REPAIR_RECORD_VERSION,
   type RepairRecord,
 } from '../src/entities/repair-record.js';
-import { candidatesFromLine } from '../src/rules/repair.js';
+import { candidatesFromCommits } from '../src/rules/repair.js';
 import { moveRepairState } from '../src/transitions/repair-record.js';
 
 const AT = '2026-10-10T00:00:00.000Z';
@@ -82,22 +82,21 @@ describe('moveRepairState', () => {
   });
 });
 
-describe('candidatesFromLine', () => {
-  const line = ['r1', 'm2', 'm1', 'g0', 'old'];
-  const subjects = [
-    { sha: 'old', subject: 'ancient' },
-    { sha: 'm1', subject: 'A (#1)' },
-    { sha: 'r1', subject: 'B (#3)' },
-  ];
+describe('candidatesFromCommits', () => {
+  const commit = (sha: string, subject: string, forward = false) => ({ sha, tree: `t-${sha}`, subject, forward });
 
-  it('keeps the line newest first, stops at the last green and drops SHAs with no subject', () => {
-    expect(candidatesFromLine(line, subjects, 'g0')).toEqual([
+  it('keeps the range newest first as {sha, subject}', () => {
+    expect(candidatesFromCommits([commit('r1', 'B (#3)'), commit('m1', 'A (#1)')])).toEqual([
       { sha: 'r1', subject: 'B (#3)' },
       { sha: 'm1', subject: 'A (#1)' },
     ]);
   });
 
-  it('keeps the whole line where the last green is not on it', () => {
-    expect(candidatesFromLine(line, subjects, 'elsewhere').map((c) => c.sha)).toEqual(['r1', 'm1', 'old']);
+  it('drops a forward merge, which carries no commit of the range', () => {
+    expect(candidatesFromCommits([commit('r1', 'B (#3)'), commit('f1', 'Merge main', true), commit('m1', 'A (#1)')]).map((c) => c.sha)).toEqual(['r1', 'm1']);
+  });
+
+  it('answers none for an empty range', () => {
+    expect(candidatesFromCommits([])).toEqual([]);
   });
 });

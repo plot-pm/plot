@@ -13,6 +13,8 @@ import {
   type WaitingGroup,
   type Slice,
   type AgentEntry,
+  type Board,
+  type StoryCard,
   UNNAMED_SLICE,
   isSpikeSlice,
   isBrokenState,
@@ -35,7 +37,7 @@ const EMPTY_PLAN_INDEX: PlanIndex = planIndexOf({});
 // 'manifest'` is a rule with a test beside it in
 // `packages/domain/test/agent.test.ts`; comparing the string here would be a
 // second copy of it in a component.
-import { identityWasDeclared, noteShown } from '@plot-pm/domain';
+import { identityWasDeclared, noteShown, YOU_COLUMNS, YOU_COLUMN_LABELS } from '@plot-pm/domain';
 import { type SliceGroup, groupedNote, sliceDissent } from './slices.js';
 import { sliceRowReading } from './slice-reading.js';
 import { ActivityMark, BlockedByMark, ChangeMark, StuckCell, UnpushedMark } from './marks.js';
@@ -149,6 +151,10 @@ export interface AgentListProps {
   fleet: Fleet;
   /** The board's ticket card facts by issue number; the issue rows' *Create plan* follows them. */
   ticketFacts?: ReadonlyMap<string, CardFacts>;
+  /** The board's declared phases; the You header's strip names its phases from them. Absent reads as the default map. */
+  phaseMap?: Board['phaseMap'] | undefined;
+  /** The live stories (Draft and Active lanes), for the strip's Discovery count. */
+  stories?: readonly StoryCard[] | undefined;
   /**
    * Seconds between fleet polls, or null when the tab is not open and nothing
    * is polling. Null suppresses the git countdown: a counter ticking toward a
@@ -437,7 +443,15 @@ export function PlanLink({
  * slot 1's kind ICON as well, which is a fact about the row rather than an
  * ornament on it.
  */
-export function HeaderRow({ statusName = 'Status' }: { statusName?: string } = {}) {
+export function HeaderRow({ statusName = 'Status', youColumns = false }: { statusName?: string; youColumns?: boolean } = {}) {
+  if (youColumns) {
+    // The You section's own column set: no Where, no By — every row there is the reader's.
+    return (
+      <li role="row" data-you-header className="sr-only max-sm:hidden">
+        {YOU_COLUMNS.map((c) => <span key={c} role="columnheader">{YOU_COLUMN_LABELS[c]}</span>)}
+      </li>
+    );
+  }
   return (
     <li role="row" className="sr-only max-sm:hidden">
       {/* THE SIX SLOTS, and the header is where each is NAMED for a reader who

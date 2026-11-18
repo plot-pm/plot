@@ -145,6 +145,7 @@ import { rowKey } from '../lib/agent-rows/row-identity.js';
 // their marks and their menus are declared next door.
 import { splitTicketRows, waitingView } from '../lib/agent-rows/waiting-view.js';
 import { TicketsSectionView } from './TicketsSection.js';
+import { youHeaderOf } from '../lib/agent-rows/you-header.js';
 import { RoleChip } from './RoleChip.js';
 import { RoleRunRow } from './RoleRunRow.js';
 import { HeaderRow, IssueRowView, PlanRow, Row, RegistryRow, SliceRow, type AgentListProps } from '../lib/agent-rows/rows.js';
@@ -395,6 +396,8 @@ export function AgentList({
   idea,
   story,
   ticketFacts,
+  phaseMap,
+  stories,
   pulse = 0,
   onStarting,
   onRevealBranch,
@@ -1128,6 +1131,10 @@ export function AgentList({
         });
         const placement = placeDelivery(mapping.readings, mapping.input);
         const view = placeMapping(mapping, fleet.slices);
+        const youHead = youHeaderOf({
+          view, placement, reader, ticketAnswer: fleet.issueAnswer ?? null, phaseMap,
+          stories: stories ?? [], cards: cards ?? [],
+        });
         // THE SEVEN COLUMNS' BY CELL AND THE HELD-GROUP HEADERS — domain properties, rendered here.
         const forms = rowFormsOf(mapping, placement, Date.now());
         const switches = switchesOf(fleet);
@@ -1254,7 +1261,7 @@ export function AgentList({
               )]
             : []),
           ...(item.draft !== null
-            ? [<DraftPlanRowView key={`draft-${item.draft.plan}`} draft={item.draft} onOpenPlan={onOpenPlan} planIndex={planIndex} />]
+            ? [<DraftPlanRowView key={`draft-${item.draft.plan}`} draft={item.draft} card={cardForPlanFile?.(item.draft.planFile) ?? null} onOpenPlan={onOpenPlan} planIndex={planIndex} />]
             : []),
           ...itemTail(item),
         ];
@@ -1458,12 +1465,43 @@ export function AgentList({
               const release = section.key === 'release-delivery';
               const sectionPace = groupPace(release ? view.deliveredRows : section.rows, active);
               const { folded, header } = fold(section.key, release ? view.deliveredBlocks.length : section.count, (
-                <h2 data-delivery-section={section.key} className="flex items-baseline gap-1 text-base font-semibold text-slate-800 dark:text-slate-100">
+                <h2 data-delivery-section={section.key} className="flex min-w-0 flex-1 items-baseline gap-1 text-base font-semibold text-slate-800 dark:text-slate-100">
                   <svg aria-hidden="true" data-section-icon={section.icon} viewBox="0 0 16 16" width="16" height="16" fill="currentColor" className="inline-block shrink-0 self-center">
                     <path d={sectionGlyph(section)} />
                   </svg>{' '}
                   {section.label}
-                  {section.summary.length > 0 && (
+                  {section.key === 'you' && (
+                    <span data-you-header className="ml-2 flex flex-wrap items-baseline gap-x-2 text-sm font-normal text-slate-500">
+                      {youHead.counts.map((c, i) => (
+                        <span key={c.key} data-you-count={c.key}>
+                          {i > 0 && <span aria-hidden="true">· </span>}
+                          {c.anchor === null ? (
+                            <>{c.text}</>
+                          ) : (
+                            <button type="button" data-you-count-link={c.key} onClick={() => scrollToAnchor(c.anchor!)} className="text-blue-600 hover:underline dark:text-blue-400">
+                              {c.text}
+                            </button>
+                          )}
+                        </span>
+                      ))}
+                      <span data-phase-strip className="flex flex-wrap items-baseline gap-x-1">
+                        {youHead.strip.map((e, i) => (
+                          <span key={e.role} data-phase-strip-entry={e.role}>
+                            {i > 0 && <span aria-hidden="true">─▶ </span>}
+                            {e.anchor === null ? (
+                              <>{e.text}</>
+                            ) : (
+                              <button type="button" data-phase-strip-link={e.role} onClick={() => scrollToAnchor(e.anchor!)} className="text-blue-600 hover:underline dark:text-blue-400">
+                                {e.text}
+                              </button>
+                            )}
+                          </span>
+                        ))}
+                      </span>
+                      {section.oldest !== null && <span data-summary-oldest>{section.oldest}</span>}
+                    </span>
+                  )}
+                  {section.key !== 'you' && section.summary.length > 0 && (
                     <span data-section-summary className="ml-2 flex flex-wrap items-baseline gap-x-2 text-sm font-normal text-slate-500">
                       {section.summary.map((c) => (
                         <span key={c.key} data-summary-count={c.key}>
@@ -1477,11 +1515,26 @@ export function AgentList({
                         </span>
                       ))}
                       {section.oldest !== null && <span data-summary-oldest>{section.oldest}</span>}
+                      {section.key === 'fleet' && (
+                        <span data-fleet-tokens-today title={fleet?.tokensToday?.title ?? ''}>
+                          · {fleet?.tokensToday?.text ?? '—'}
+                        </span>
+                      )}
                     </span>
                   )}
                   {release && <span className="ml-1 font-normal text-slate-500">({view.deliveredBlocks.length})</span>}
                   {sectionPace && <ActivityMark pace={sectionPace} place="heading" />}
-                  <span data-section-controls className="ml-auto" />
+                  <span data-section-controls className="ml-auto">
+                    {section.key === 'fleet' && (
+                      <span id="fleet-controls" data-fleet-control-column className="flex flex-wrap items-center gap-3">
+                        <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
+                        <AutoSwitch name="autoReview" value={switches.autoReview} />
+                        <AutoSwitch name="autoVerify" value={switches.autoVerify} />
+                        <AutoSwitch name="autoDesign" value={switches.autoDesign} />
+                        <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} />
+                      </span>
+                    )}
+                  </span>
                 </h2>
               ));
               return (
@@ -1508,13 +1561,6 @@ export function AgentList({
                         hiddenByFilter={workersHiddenByFilter}
                         registry={fleet?.registry}
                       />
-                      <span id="fleet-controls" data-fleet-control-column className="ml-auto flex flex-wrap items-center gap-3">
-                        <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
-                        <AutoSwitch name="autoReview" value={switches.autoReview} />
-                        <AutoSwitch name="autoVerify" value={switches.autoVerify} />
-                        <AutoSwitch name="autoDesign" value={switches.autoDesign} />
-                        <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} />
-                      </span>
                       <FleetAlert supervisor={fleet?.supervisor} />
                     </div>
                   )}
@@ -1592,7 +1638,7 @@ export function AgentList({
                             aria-label={`${group.label} — agent branches`}
                             className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40"
                           >
-                            <HeaderRow statusName={group.column ?? 'Status'} />
+                            <HeaderRow statusName={group.column ?? 'Status'} youColumns={section.key === 'you'} />
                             {group.blocks.flatMap(blockBody)}
                             {group.agents.length > 0 && <FleetAgentHeader blocked={group.key === 'blocked'} />}
                             {group.agents.flatMap(agentBody)}

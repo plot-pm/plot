@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** bug-fixes-2-35-0
 - **Review:** pr
@@ -12,6 +12,8 @@
 - **Approved:** 2026-11-17, Jan Wloka, plan-PR #3503 merged
 - **Started:** 2026-11-17, Jan Wloka, `feature/the-settle-ignores-plot-commits`
 - **Started:** 2026-11-17, Jan Wloka, `feature/the-reading-settles-on-completion`
+- **Started:** 2026-11-18, Jan Wloka, `feature/a-red-main-names-its-pr`
+- **Delivered:** 2026-11-18
 
 ## Changelog
 
@@ -132,7 +134,7 @@ Per slice, in slice order.
 
 ### A red main names its PR
 
-- `feature/a-red-main-names-its-pr` — `writeRepairRecord` fills the candidates; `redMainPicker` names the oldest red candidate whose earlier candidates are green, holds on a pending one, and answers `unknown` otherwise; the revert reads the named candidate's runs a second time <!-- builds: oldest-red attribution in redMainPicker and repair-record candidates -->
+- `feature/a-red-main-names-its-pr` — `writeRepairRecord` fills the candidates; `redMainPicker` names the oldest red candidate whose earlier candidates are green, holds on a pending one, and answers `unknown` otherwise; the revert reads the named candidate's runs a second time <!-- builds: oldest-red attribution in redMainPicker and repair-record candidates --> → #3521
 
 ### Merges stack two deep
 

@@ -1,40 +1,20 @@
-import type { Containment } from '../ports/refs.js';
+import type { Containment, FirstParentCommit } from '../ports/refs.js';
 import type { DefaultBranchReading } from '../entities/default-branch.js';
 import type { CandidateCommit, RepairRecord } from '../entities/repair-record.js';
 import { defaultBranchRed } from './default-branch.js';
 
 /**
- * The episode's candidates: the first-parent SHAs strictly between the last
- * green and the first red commit, with each one's subject.
+ * The episode's candidates: the first-parent commits of `lastGreenSha..firstRedSha`.
  *
- * PURE — a caller supplies the first-parent line (newest first, the first red
- * SHA first) and the subjects of a wider range; this intersects them rather
- * than reading git itself, so it adds no port operation of its own. A SHA on
- * the first-parent line with no matching subject is dropped: {@link Refs.commitSubjects}
- * failing to cover the whole line means the subject is unknown, not that the
- * commit does not exist.
+ * PURE. A `forward` merge carries the excluded side's content and no commit of
+ * the range's own, so it is not a candidate: reverting it would remove content
+ * the episode's window never introduced.
  *
- * @param firstParentLine - the first red SHA and its first-parent ancestors,
- *   newest first, as {@link Refs.firstParentLine} reads them.
- * @param subjects - `{sha, subject}` pairs covering at least the line, in any order.
- * @param lastGreenSha - the boundary the window stops at, exclusive.
- * @returns the candidates, newest first, excluding `lastGreenSha` itself.
+ * @param commits - the range's first-parent commits, as {@link Refs.firstParentCommits} reads them.
+ * @returns the `{sha, subject}` of each non-forward commit, in the order given.
  */
-export const candidatesFromLine = (
-  firstParentLine: readonly string[],
-  subjects: readonly CandidateCommit[],
-  lastGreenSha: string,
-): CandidateCommit[] => {
-  const bySha = new Map(subjects.map((entry) => [entry.sha, entry.subject]));
-  const boundary = firstParentLine.indexOf(lastGreenSha);
-  const window = firstParentLine.slice(0, boundary === -1 ? undefined : boundary);
-  const result: CandidateCommit[] = [];
-  for (const sha of window) {
-    const subject = bySha.get(sha);
-    if (subject !== undefined) result.push({ sha, subject });
-  }
-  return result;
-};
+export const candidatesFromCommits = (commits: readonly FirstParentCommit[]): CandidateCommit[] =>
+  commits.filter((commit) => !commit.forward).map(({ sha, subject }) => ({ sha, subject }));
 
 /**
  * One candidate commit, with the readings the picker needs about it.
@@ -49,14 +29,17 @@ export interface RedMainCandidate extends CandidateCommit {
    * names, or `''` where the subject names none or the host answered none.
    */
   hostMergeCommit: string;
-  /** Whether this candidate is settled red on its own runs. */
-  settledRed: boolean;
+  /** This candidate's own runs, folded: `green`, `red`, `pending` or `unknown`. */
+  runs: 'green' | 'red' | 'pending' | 'unknown';
   /** Whether this commit changes, adds or removes a `State:` line. */
   touchesState: boolean;
 }
 
-/** What the picker answers: a PR number, or `unknown` where no single candidate qualifies. */
-export type RedMainPickerAnswer = { pr: number } | 'unknown';
+/**
+ * What the picker answers: a PR number, `hold` where the first non-green
+ * candidate has not settled, or `unknown` where no PR can be named.
+ */
+export type RedMainPickerAnswer = { pr: number } | 'hold' | 'unknown';
 
 /** The squash-merge shape GitHub and Bitbucket both write: `Title (#N)`. */
 const SQUASH = /\(#(\d+)\)$/;
@@ -106,35 +89,35 @@ export const prNumberOf = (subject: string): number | null => {
  * recorded SHAs — this never reads the moving settled SHA, so the fix PR's own
  * merge and a bundle bot's push can never enter the window.
  *
- * Answers a PR number only when EXACTLY ONE candidate qualifies, meeting every
- * one of:
- * - its subject names a PR number (squash `Title (#N)`, or GitHub's or
- *   Bitbucket's merge-commit form);
- * - the host reads that PR `MERGED`;
- * - the host's `mergeCommit` for that PR equals the candidate's own sha;
- * - the candidate is itself settled red on its own runs;
- * - the candidate changes, adds or removes no `State:` line.
+ * Walks the candidates oldest first, in merge order, and skips each whose runs
+ * read `green`. The first candidate that is not green decides:
+ * - `pending` or `unknown` runs answer `hold`; a later red candidate contains
+ *   the earlier one's change, so it is never named in its place;
+ * - `red` runs answer that candidate's PR number when its subject names a PR,
+ *   the host reads that PR `MERGED`, the host's `mergeCommit` equals the
+ *   candidate's sha, and the candidate changes no `State:` line.
  *
- * Every other shape — no candidate qualifying, more than one qualifying, a
- * direct push with no PR number, a PR number whose `mergeCommit` points
- * elsewhere, a candidate that touches a `State:` line — answers `unknown`.
- * `unknown` never reverts.
+ * Every other shape — no candidates, every candidate green, a first red
+ * candidate that is a direct push, a Plot-path commit, a `State:` commit or a
+ * PR whose merge commit points elsewhere — answers `unknown`. `unknown` never
+ * reverts.
  *
- * @param candidates - the episode's candidates, in any order.
- * @returns the PR number of the one breaking commit, or `unknown`.
+ * @param candidates - the episode's candidates NEWEST first, the order the
+ *   repair record stores them; the picker reads them from the end.
+ * @returns the PR number of the breaking merge, `hold`, or `unknown`.
  */
 export const redMainPicker = (candidates: readonly RedMainCandidate[]): RedMainPickerAnswer => {
-  const qualifying = candidates.filter((candidate) => {
+  for (const candidate of [...candidates].reverse()) {
+    if (candidate.runs === 'green') continue;
+    if (candidate.runs !== 'red') return 'hold';
     const number = prNumberOf(candidate.subject);
-    if (number === null) return false;
-    if (!candidate.prMerged) return false;
-    if (candidate.hostMergeCommit !== candidate.sha) return false;
-    if (!candidate.settledRed) return false;
-    if (candidate.touchesState) return false;
-    return true;
-  });
-  if (qualifying.length !== 1) return 'unknown';
-  return { pr: prNumberOf(qualifying[0]!.subject)! };
+    if (number === null) return 'unknown';
+    if (!candidate.prMerged) return 'unknown';
+    if (candidate.hostMergeCommit !== candidate.sha) return 'unknown';
+    if (candidate.touchesState) return 'unknown';
+    return { pr: number };
+  }
+  return 'unknown';
 };
 
 /** What `redMainStep` answers. */
@@ -274,6 +257,8 @@ export const redMainStep = (
   }
 
   if (reading.headSha !== reading.settled.sha) return 'hold';
+
+  if (input.pickerAnswer === 'hold') return 'hold';
 
   if (input.pickerAnswer === 'unknown') return 'exhausted';
 

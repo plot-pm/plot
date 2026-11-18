@@ -155,6 +155,8 @@ export interface ShaRun {
   url: string;
   /** When it started, ISO-8601 as the system reported it; `''` when absent. */
   startedAt: string;
+  /** When it ended, ISO-8601, as a job entry of a GitHub Actions run reports it; absent for a run entry and for a job still going. */
+  completedAt?: string;
   /**
    * Each job's own conclusion, start/completion time and the verbatim
    * conclusion of every one of its steps, for a run that concluded `failure`

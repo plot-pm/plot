@@ -504,7 +504,7 @@ export const readRepair = async (
   const line = await ports.refs.firstParentLine(settled.sha, EPISODE_LINE_DEPTH);
   const episode = repairEpisode(record, branch, settled, line.ok ? line.value : 'unaskable');
   if (episode !== 'open' || ports.build === undefined) return { record, episode, redRuns: 'unaskable', ...tag };
-  const runs = await ports.build.runsForSha(branch, settled.sha);
+  const runs = await ports.build.runsForSha(branch, settled.sha, ports.checks ?? []);
   return { record, episode, redRuns: runs.ok ? foldRuns(declaredRuns(runs.value, ports.checks ?? [])) : 'unaskable', ...tag };
 };
 

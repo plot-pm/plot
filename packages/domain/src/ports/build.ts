@@ -112,12 +112,21 @@ export interface BuildPort {
    * ONLY THE ASKED-FOR SHA, as {@link runForSha} does. `[]` is an answer: CI
    * has not started on this commit yet.
    *
+   * A DECLARED NAME `<workflow>/<job>` asks for that job's own entry. Where
+   * the connector reads GitHub Actions and no run's workflow is named exactly
+   * so, it adds one entry per matching job, with `workflow` set to the
+   * declared name, so a fold over the declared names reads the job alone. A
+   * connector for another system ignores `declared`: a Jenkins job path
+   * contains `/` and matches as a whole name. A job that cannot be read adds no
+   * entry, and a read that fails answers `unaskable`.
+   *
    * @param branch - the branch the runs belong to.
    * @param sha - the commit to ask about.
+   * @param declared - the `Default branch checks` names the caller folds; absent, no job entry is added.
    * @returns the runs, newest first; `unaskable` where there is no CI to ask
    *   or the connector has no arm for this question.
    */
-  runsForSha(branch: string, sha: string): Promise<PortResult<readonly WorkflowShaRun[]>>;
+  runsForSha(branch: string, sha: string, declared?: readonly string[]): Promise<PortResult<readonly WorkflowShaRun[]>>;
 
   /**
    * Re-runs the failed jobs of every run that concluded as a failure for ONE commit.
