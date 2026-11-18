@@ -43,6 +43,8 @@ export interface Cell {
   links: LinkTarget[];
   /** Marks that each carry their own link, joined by ` · ` into `value`. Absent where the cell has one value. */
   parts?: CellPart[];
+  /** The agent a By cell names: its role (the chip) and, for a fixer, its attempt text such as `1/2`. Absent on every other cell. */
+  agent?: { role: AgentRole; attempt: string | null };
 }
 
 /** One mark of a cell, with the single place it links to; `null` where it links nowhere. */
@@ -98,6 +100,19 @@ export interface ItemRowFacts {
   ageMinutes?: number;
   /** Merged PR numbers of a plan in Testing. */
   mergedPrs?: number[];
+  /** The agents acting on the item, in `placement.agents` order; absent where none were read. */
+  agents?: ItemAgentFacts[];
+}
+
+/** One agent acting on an item, as its By cell names it. */
+export interface ItemAgentFacts {
+  id: string;
+  /** From the agent's reading, never parsed from `id`. */
+  role: AgentRole;
+  /** The text of the agent's Agent cell on its Fleet row. */
+  name: string;
+  /** A fixer's current attempt on the finding it answers, from 1; absent where none is read. */
+  attempt?: number;
 }
 
 /** The PR an agent acts on, as far as the payload reads it. */
@@ -303,6 +318,29 @@ const whereValue = (facts: ItemRowFacts, withPr: boolean): Cell | null => {
     ...(withPr && facts.pr !== undefined ? [`#${facts.pr}`] : []),
   ];
   return link(parts.join(' · '), ...links);
+};
+
+/**
+ * The By cell of a Work items row: the first agent's role, name and attempt,
+ * linked to every agent's Fleet row.
+ *
+ * A row with no agent keeps the plain `by` cell, so a person's link gets no chip.
+ * An agent whose facts were not read keeps the plain cell too: the id, no chip.
+ *
+ * @param plain - the cell `itemRowCells` built.
+ * @param agents - the ids acting on the item, in placement order.
+ * @param facts - the item's row facts.
+ * @returns the cell, with `agent` set where the first agent's facts were read.
+ */
+export const workByCell = (plain: Cell | null, agents: readonly string[], facts: ItemRowFacts): Cell | null => {
+  const [first] = agents;
+  const named = first === undefined ? undefined : facts.agents?.find((a) => a.id === first);
+  if (plain === null || named === undefined) return plain;
+  return {
+    ...plain,
+    value: named.name,
+    agent: { role: named.role, attempt: named.attempt === undefined ? null : `${named.attempt}/${FIXER_ATTEMPTS_BUDGET}` },
+  };
 };
 
 /** BY: the agents acting on the item, as links to their Fleet rows. The first names the cell. */
