@@ -1,5 +1,5 @@
 import type { IssueAnswer } from '../entities/issue.js';
-import type { ItemPlacement, YouMarker, YouReason } from './delivery-placement.js';
+import { youCaseOf, type YouMarker, type YouReason, type ItemPlacement } from './delivery-placement.js';
 import { reasonVerb } from './delivery-row-form.js';
 import { TICKETS_ANCHOR } from './tickets-section.js';
 
@@ -45,6 +45,8 @@ export interface TodoListInput {
   ticketAnswer: IssueAnswer | null;
   /** The tickets the placement gave the Tickets section. */
   tickets: readonly { ownership: string }[];
+  /** The releases the release cards owe an approval for (`releaseTodoEntries`); absent reads as none. */
+  releases?: readonly { id: string; label: string; anchor: string }[];
 }
 
 export interface TodoLine {
@@ -81,29 +83,35 @@ const plural = (n: number, one: string, many: string): string => `${n} ${n === 1
  *
  * A line's marker is the placement's own; no second reason-to-marker map exists. The order is
  * marker (blocks delivery, input, clean up), then `REASON_ORDER`, then item id, and does not read age.
+ * A release a release card binds adds one `release-approval` line, sorted with the rest.
  * The header counts the three markers from the same lines and prints only non-zero parts;
  * with no line it reads `You block nothing`. The triage count is the tickets with ownership `mine`,
  * the figure the Tickets section shows as "assigned to you with no plan", and is `null` unless the tracker answered.
  *
- * @param input - the placed items, the tracker answer and the placed tickets.
+ * @param input - the placed items, the releases owed an approval, the tracker answer and the placed tickets.
  */
 export const todoList = (input: TodoListInput): TodoList => {
-  const rank = (p: ItemPlacement & { section: 'you' }): [number, number] =>
-    [MARKER_ORDER.indexOf(p.marker), REASON_ORDER.indexOf(p.reason)];
-  const you = input.items.flatMap((i) => (i.placement.section === 'you' ? [{ item: i, p: i.placement }] : []));
-  you.sort((a, b) => {
-    const [am, ar] = rank(a.p);
-    const [bm, br] = rank(b.p);
+  const release = youCaseOf('release-approval');
+  const entries = [
+    ...input.items.flatMap((i) => (i.placement.section === 'you'
+      ? [{ id: i.placement.id, reason: i.placement.reason, marker: i.placement.marker, label: i.label, anchor: i.anchor }]
+      : [])),
+    ...(input.releases ?? []).map((r) => ({ id: r.id, reason: release.reason, marker: release.marker, label: r.label, anchor: r.anchor })),
+  ];
+  const rank = (e: (typeof entries)[number]): [number, number] => [MARKER_ORDER.indexOf(e.marker), REASON_ORDER.indexOf(e.reason)];
+  entries.sort((a, b) => {
+    const [am, ar] = rank(a);
+    const [bm, br] = rank(b);
     if (am !== bm) return am - bm;
     if (ar !== br) return ar - br;
-    return a.p.id < b.p.id ? -1 : 1;
+    return a.id < b.id ? -1 : 1;
   });
-  const lines: TodoLine[] = you.map(({ item, p }) => ({
-    id: p.id,
-    text: `${capital(reasonVerb(p.reason))} ${item.label}`,
-    marker: p.marker,
-    markerWords: TODO_MARKER_WORDS[p.marker],
-    anchor: item.anchor,
+  const lines: TodoLine[] = entries.map((e) => ({
+    id: e.id,
+    text: `${capital(reasonVerb(e.reason))} ${e.label}`,
+    marker: e.marker,
+    markerWords: TODO_MARKER_WORDS[e.marker],
+    anchor: e.anchor,
   }));
   const counts: Record<YouMarker, number> = { 'blocks-delivery': 0, input: 0, 'clean-up': 0 };
   for (const l of lines) counts[l.marker] += 1;
