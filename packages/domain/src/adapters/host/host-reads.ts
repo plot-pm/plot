@@ -2,7 +2,8 @@ import { answered, failed, unaskable } from '../../port-result.js';
 import type { Host, HostRefusal, PrListingState } from '../../ports/host.js';
 import { HOST_TRANSPORT_ENV, hostTransportOf, shellReasonOf, type HostTransportChoice } from '../../rules/host-transport.js';
 import { refsGit } from '../refs/refs-git.js';
-import type { ShellContext } from '../scripts.js';
+import { scriptPath, type ShellContext } from '../scripts.js';
+import { runProcess } from '../run-script.js';
 import {
   BITBUCKET_NO_CREDENTIAL,
   bitbucketApi,
@@ -10,6 +11,8 @@ import {
   type BitbucketApiOptions,
 } from './bitbucket-api.js';
 import { bitbucketPrListing, type BitbucketPrListing } from './bitbucket-pr-listing.js';
+import { jenkinsBuildReader, type CiBuildReader } from './ci-overlay.js';
+import type { JenkinsReads } from '../build/jenkins-api.js';
 import { githubApi, type GithubApi, type GithubApiOptions } from './github-api.js';
 import { githubPrListing, type GithubPrListing } from './github-pr-listing.js';
 import { hostShell, prOf } from './host-shell.js';
@@ -68,6 +71,15 @@ export interface HostReadsOptions {
   readonly client?: (options: GithubApiOptions) => GithubApi;
   /** Builds the Bitbucket client; defaults to {@link bitbucketApi}. */
   readonly bitbucketClient?: (options: BitbucketApiOptions) => BitbucketApi;
+  /**
+   * The in-process Jenkins reads. Given, the CI colours overlay on the rich
+   * reads in-process and {@link SHELL_CI} and {@link SHELL_RICH_CI} do not
+   * apply; absent, both lists apply. Only a caller that composed a Jenkins
+   * client passes it.
+   */
+  readonly jenkins?: JenkinsReads;
+  /** Reads one `## Plot Config` key for the Jenkins job; defaults to `plot-config.sh`. */
+  readonly config?: (key: string) => Promise<string>;
 }
 
 /** The `pr-list` states the in-process GitHub listing answers; `settled` reads as `all` on GitHub, as the shell's GitHub arm reads it. */
@@ -173,8 +185,10 @@ export const hostWithListing = (
  * environment or `.env`, never the keychain; with none, the shell reads and
  * the reason says so. A Bitbucket repository whose `CI` is in
  * {@link SHELL_RICH_CI} reads its rich open pull requests through the shell
- * and everything else in-process. `api` is the GitHub client and is null on
- * Bitbucket.
+ * and everything else in-process, and a GitHub repository whose `CI` is in
+ * {@link SHELL_CI} reads everything through the shell. Given
+ * `options.jenkins`, neither list applies: the rich reads overlay the Jenkins
+ * colours in-process. `api` is the GitHub client and is null on Bitbucket.
  * The client reports its rate-limit observations to the shell `Host`'s
  * `observe`. An in-process composition is recorded for the repository, so
  * `hostForReads` answers it to an adapter that builds its own `Host`. It never
@@ -192,7 +206,24 @@ export const hostReadsFor = async (
 ): Promise<HostReads> => {
   const env = options.env ?? process.env;
   const shell = options.shell ?? hostShell(context);
-  const reading = { ...basis, override: env[HOST_TRANSPORT_ENV], inProcessBackends: IN_PROCESS_BACKENDS, shellCi: shellCiOf(basis.backend) };
+  const inProcessCi = options.jenkins !== undefined && basis.ci.trim().toLowerCase() === 'jenkins';
+  const ci: CiBuildReader | undefined = inProcessCi
+    ? jenkinsBuildReader({
+        reads: options.jenkins as JenkinsReads,
+        env,
+        config:
+          options.config ??
+          (async (key) => {
+            const said = await runProcess('bash', [scriptPath(context, 'plot-config.sh'), 'get', key, ''], { cwd: context.repoRoot });
+            return said.code === 0 ? said.stdout.trim() : '';
+          }),
+        defaultBranch: async () => {
+          const found = await refsGit(context).defaultBranch();
+          return found.ok ? found.value : '';
+        },
+      })
+    : undefined;
+  const reading = { ...basis, override: env[HOST_TRANSPORT_ENV], inProcessBackends: IN_PROCESS_BACKENDS, shellCi: options.jenkins === undefined ? shellCiOf(basis.backend) : [] };
   const early = shellReasonOf(reading);
   if (early !== null) return { choice: { transport: 'shell', reason: early, tokenSource: null }, api: null, host: shell };
   const originOf =
@@ -206,9 +237,9 @@ export const hostReadsFor = async (
     const source = await bitbucket.credentialSource();
     const picked = hostTransportOf({ ...reading, tokenSource: source, noCredential: BITBUCKET_NO_CREDENTIAL });
     if (picked.transport === 'shell') return { choice: picked, api: null, host: shell };
-    const richOnShell = SHELL_RICH_CI.includes(basis.ci.trim().toLowerCase());
+    const richOnShell = options.jenkins === undefined && SHELL_RICH_CI.includes(basis.ci.trim().toLowerCase());
     const host = hostWithConversation(
-      hostWithListing(shell, bitbucketPrListing(bitbucket, refsGit(context)), { states: BITBUCKET_LISTED_STATES, richOnShell }, bitbucketProtection(bitbucket)),
+      hostWithListing(shell, bitbucketPrListing(bitbucket, refsGit(context), ci), { states: BITBUCKET_LISTED_STATES, richOnShell }, bitbucketProtection(bitbucket)),
       bitbucketPrConversation(bitbucket),
     );
     recordHostReads(context.repoRoot, host);
@@ -218,7 +249,7 @@ export const hostReadsFor = async (
   const api = (options.client ?? githubApi)({ origin: await originOf(), env, observe: (observed) => shell.observe(observed) });
   const choice = hostTransportOf({ ...reading, tokenSource: await api.tokenSource() });
   if (choice.transport === 'shell') return { choice, api: null, host: shell };
-  const host = hostWithConversation(hostWithListing(shell, githubPrListing(api), {}, githubProtection(api)), githubPrConversation(api));
+  const host = hostWithConversation(hostWithListing(shell, githubPrListing(api, ci), {}, githubProtection(api)), githubPrConversation(api));
   recordHostReads(context.repoRoot, host, api);
   return { choice, api, host };
 };

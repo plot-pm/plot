@@ -4,6 +4,7 @@ import { bitbucketPlainRow, bitbucketRichRow, type BitbucketPrRow, type Bitbucke
 import { bitbucketMergeable, type MergeableReading } from '../../rules/bitbucket-mergeable.js';
 import { listingWords, pagePossiblyTruncated, sweepComplete, walkStep, type ListedPage } from '../../rules/listing-page.js';
 import type { BitbucketApi } from './bitbucket-api.js';
+import { overlayCiRows, type CiBuildReader } from './ci-overlay.js';
 import { BITBUCKET_REQUEST_PAGELEN, envelopeNextFor } from './listing-paging.js';
 
 /** The pages a branch query reads before it refuses (`BB_BRANCH_QUERY_PAGE_CAP`). */
@@ -108,11 +109,18 @@ const queryPath = (state: string, branch: string | null, since: string | undefin
  * the scan's fetch left it, and cached in memory by head and base SHA. A base
  * ref the clone does not hold reads `unknown` with its reason.
  *
+ * Given a `ci` reader, a rich read overlays the CI system's checks on its rows
+ * as `plot-host.sh` does: the open rows' branch colours bound to their head
+ * commits, and every row's `checks`, `checksSha`, `failing_checks` and
+ * `checksLookup` set from them. A reader that cannot proceed answers `failed`
+ * with its reason and no rows.
+ *
  * @param api - the in-process Bitbucket client.
  * @param refs - the clone the mergeability reading runs against.
+ * @param ci - the CI reads; absent, a rich row's `checks` stays `unknown`.
  * @returns the listing.
  */
-export const bitbucketPrListing = (api: BitbucketApi, refs: Pick<Refs, 'resolve' | 'conflictPaths'>): BitbucketPrListing => {
+export const bitbucketPrListing = (api: BitbucketApi, refs: Pick<Refs, 'resolve' | 'conflictPaths'>, ci?: CiBuildReader): BitbucketPrListing => {
   let refusal: HostRefusal | null = null;
   const merges = new Map<string, MergeableReading>();
 
@@ -236,6 +244,17 @@ export const bitbucketPrListing = (api: BitbucketApi, refs: Pick<Refs, 'resolve'
   };
 
   const listing = async (query: PrListingQuery): Promise<PrListing> => {
+    const read = await listed(query);
+    if (ci === undefined || (query.rich !== true && query.richOpen !== true) || read.answer === 'failed' || read.answer === 'unaskable') return read;
+    const overlaid = await overlayCiRows(read.rows, ci, 'broken-lookup', query.boundShas);
+    if (!overlaid.ok) {
+      const complete: Record<string, PrListingCompleteness> = { [query.state]: 'possibly-truncated' };
+      return { answer: 'failed', rows: [], complete, refusal: { kind: 'failed', said: overlaid.said } };
+    }
+    return { ...read, rows: overlaid.rows };
+  };
+
+  const listed = async (query: PrListingQuery): Promise<PrListing> => {
     const states = STATES[query.state] ?? [query.state];
     const branches = query.branches ?? [];
     const rich = query.rich === true || query.richOpen === true;

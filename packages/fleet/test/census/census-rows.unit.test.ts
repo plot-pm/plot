@@ -53,11 +53,10 @@ describe('the census rows', () => {
     expect(readFileSync(WRAPPER_PLAN, 'utf8')).toContain(`\`D1: ${CENSUS_ROWS.D1.claim}\``);
   });
 
-  it('holds P12 as the Jenkins plan words it, a zero row not yet green, titled with the slice that turns it', () => {
+  it('holds P12 as the Jenkins plan words it, a zero row turned green by its Cutover slice', () => {
     expect(readFileSync(JENKINS_PLAN, 'utf8')).toContain(`\`${CENSUS_ROWS.P12.claim}\``);
-    expect(CENSUS_ROWS.P12).toMatchObject({ target: 'zero', greenBy: { plan: 'jenkins-reads-in-process', slice: 'Cutover' } });
-    expect('green' in CENSUS_ROWS.P12).toBe(false);
-    expect(rowTitle(CENSUS_ROWS.P12)).toMatch(/expected to fail until plan jenkins-reads-in-process, slice Cutover/);
+    expect(CENSUS_ROWS.P12).toMatchObject({ target: 'zero', greenBy: { plan: 'jenkins-reads-in-process', slice: 'Cutover' }, green: true });
+    expect(rowTitle(CENSUS_ROWS.P12)).toMatch(/turned green by plan jenkins-reads-in-process, slice Cutover/);
   });
 
   it('holds P6 as the liveness token plan words it, a zero row turned green by its Monitor in fleetd slice', () => {

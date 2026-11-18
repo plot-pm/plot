@@ -163,6 +163,7 @@ export const CENSUS_ROWS = {
     unit: 'execve per pass',
     target: 'zero',
     greenBy: { plan: 'jenkins-reads-in-process', slice: 'Cutover' },
+    green: true,
   },
   S8: {
     id: 'S8',
