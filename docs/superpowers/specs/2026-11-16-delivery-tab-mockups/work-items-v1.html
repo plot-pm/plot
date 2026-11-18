@@ -1,0 +1,54 @@
+<h2>Work items</h2>
+<p class="subtitle">Items in flight that do not need you. One row per slice, PR or branch; gates as ✓ ⟳ ✗; BY names the agent and links to its Fleet row. First row from today's board, others illustrative.</p>
+
+<style>
+  .dt { background:#0b1020; color:#d7dbe7; font:13px/1.45 -apple-system,system-ui,sans-serif; border-radius:10px; padding:16px; }
+  .dt .muted { color:#8a93a8; } .dt .link { color:#7aa2ff; text-decoration:none; } .dt .ok { color:#4ade80; } .dt .amber { color:#fbbf24; } .dt .red { color:#f87171; }
+  .shead { display:flex; align-items:baseline; gap:14px; padding-bottom:8px; border-bottom:1px solid #232c46; flex-wrap:wrap; }
+  .shead .t { font-size:15px; font-weight:650; color:#fff; }
+  .n { font-weight:700; margin-right:3px; }
+  .grp { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:#8a93a8; margin:14px 0 4px; }
+  .grp em { text-transform:none; letter-spacing:0; font-style:normal; color:#6b7490; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:#6b7490; font-weight:600; padding:4px 8px; border-bottom:1px solid #232c46; }
+  td { padding:8px; border-bottom:1px solid #1a2238; vertical-align:top; }
+  .kind { font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:#8a93a8; }
+  .gate { margin-right:8px; white-space:nowrap; }
+  .role { display:inline-block; padding:1px 7px; border-radius:9px; font-size:11px; font-weight:600; }
+  .loop { background:#132a4a; color:#60a5fa; } .fixer { background:#3b2f10; color:#fbbf24; } .reviewer { background:#2d1f4a; color:#c4a7ff; }
+  .age { color:#8a93a8; text-align:right; white-space:nowrap; }
+  .sub { color:#8a93a8; font-size:12px; }
+</style>
+
+<div class="dt">
+  <div class="shead">
+    <span class="t">Work items</span>
+    <span><span class="n amber">2</span><span class="muted">at a gate</span></span>
+    <span><span class="n ok">1</span><span class="muted">being built</span></span>
+    <span><span class="n">2</span><span class="muted">queued</span></span>
+    <span class="muted">· oldest waits 23d</span>
+  </div>
+
+  <div class="grp">At a gate <em>· the fleet handles it; you only watch</em></div>
+  <table>
+    <tr><th style="width:52px">Kind</th><th>Item</th><th>Where</th><th>Gates</th><th style="width:100px">By</th><th style="width:40px">Age</th></tr>
+    <tr><td class="kind">slice</td><td><a class="link" href="#">a-deferred-slice-keeps-its-branch § Deferred</a></td><td><a class="link" href="#">#3467</a><div class="sub">bug/a-deferred-slice-keeps-its-branch</div></td>
+        <td><span class="gate amber">CI ⟳</span><span class="gate muted">review –</span></td><td><span class="role loop">loop</span> <a class="link" href="#">desk-0eb1</a></td><td class="age">1h</td></tr>
+    <tr><td class="kind">slice</td><td><a class="link" href="#">red-hold-reads-the-pr-base § Index base</a></td><td><a class="link" href="#">#3459</a><div class="sub">bug/red-hold-index-base</div></td>
+        <td><span class="gate red">CI ✗ <a class="link" href="#">validate</a></span><span class="gate muted">review –</span></td><td><span class="role fixer">fixer</span> <a class="link" href="#">fix-f3a1</a> <span class="sub">1/2</span></td><td class="age">12m</td></tr>
+  </table>
+
+  <div class="grp">Being built</div>
+  <table>
+    <tr><th style="width:52px">Kind</th><th>Item</th><th>Where</th><th>Progress</th><th style="width:100px">By</th><th style="width:40px">Age</th></tr>
+    <tr><td class="kind">slice</td><td><a class="link" href="#">jenkins-reads-in-process § Client</a></td><td><a class="link" href="#">feature/jenkins-reads-in-process-client</a></td>
+        <td>4 commits · no PR yet</td><td><span class="role loop">loop</span> <a class="link" href="#">3283c2ee</a></td><td class="age">1h</td></tr>
+  </table>
+
+  <div class="grp">Queued <em>· waits for an agent or an earlier slice</em></div>
+  <table>
+    <tr><th style="width:52px">Kind</th><th>Item</th><th>Where</th><th>Waits on</th><th style="width:100px">By</th><th style="width:40px">Age</th></tr>
+    <tr><td class="kind">branch</td><td><a class="link" href="#">feature/one-pr-reader-per-machine-and</a></td><td><a class="link" href="#">#2436</a> <span class="sub">closed</span></td><td class="muted">no agent assigned</td><td class="muted">—</td><td class="age">23d</td></tr>
+    <tr><td class="kind">PR</td><td><a class="link" href="#">bug/pr-and-issue-reads-still-use</a></td><td><a class="link" href="#">#3358</a> <span class="sub">closed · draft</span></td><td class="muted">no agent assigned</td><td class="muted">—</td><td class="age">6d</td></tr>
+  </table>
+</div>

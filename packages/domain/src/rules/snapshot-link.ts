@@ -7,7 +7,8 @@ import type { SnapshotSync } from './snapshot-sync.js';
  * - `resyncing`: the held copy cannot be brought level and a new subscription is under way.
  * - `current`: the held copy is at the sender's generation.
  * - `mismatch`: the sender speaks another protocol or refused the purpose; the
- *   reader reads for itself.
+ *   board holds fleetd's bridge while fleetd's heartbeat is live
+ *   (`boardSource` answers `held`) and reads for itself otherwise.
  */
 // plot-state: classification — a reader's view of one connection, derived from the last message and the link; no state moves into another by a command.
 export const SNAPSHOT_LINK_STATES = ['absent', 'resyncing', 'current', 'mismatch'] as const;

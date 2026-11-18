@@ -6,7 +6,7 @@ import { type AgentRow, type Fleet, type FleetSprint } from '../../src/contract/
 /**
  * AN OPEN BOARD FOLLOWS A SPRINT CHANGE — #1145, measured in a browser.
  *
- * The Agents tab holds «This sprint» as an in-memory Set of sprint slugs, while
+ * The Agents tab holds «My sprint» as an in-memory Set of sprint slugs, while
  * the control is built from the ACTIVE sprints of the moment. When a selected
  * sprint closes the two disagree, and the filter asks the membership map —
  * built from active sprints only — about a slug it has no entry for. That
@@ -14,7 +14,7 @@ import { type AgentRow, type Fleet, type FleetSprint } from '../../src/contract/
  * fixtures carry a row from each side: a test watching only the new sprint's
  * rows would miss half the defect.
  *
- * THE CONTROL IS NOW ONE CHIP, all-or-nothing against every Active sprint —
+ * THE CONTROL IS NOW ONE CHIP, all-or-nothing against every owned Active sprint —
  * `the-delivery-tab-renders-one-chip-row` replaced the per-sprint checkboxes
  * this file tested with `data-sprint-toggle="<slug>"`. The scenario below
  * (select, let the selected sprint close, confirm the selection survives an
@@ -58,7 +58,7 @@ const pr = (number: number) =>
 
 /** A sprint whose membership list names exactly the given plan slugs. */
 const sprint = (slug: string, title: string, members: string[]): FleetSprint => ({
-  slug, title, release: '', timebox: 'none', timeboxLabel: '',
+  slug, title, release: '', timebox: 'none', timeboxLabel: '', ownerHandle: ME,
   counts: { total: members.length, open: 0, wip: members.length, done: 0, withdrawn: 0 },
   members: members.map((m) => ({ slug: m, text: '', tier: 'must', checked: false, known: true })),
 } as unknown as FleetSprint);
@@ -81,6 +81,12 @@ const fleet = (sprints: FleetSprint[]): Fleet => {
   } as unknown as Fleet;
 };
 
+// The chip reads the sprints the reader owns: every sprint here names ME as
+// its Owner, and the board signs ME in with a `People` entry.
+const ownedBoard = () => buildBoard({
+  server: { restartCommand: 'pnpm board', port: 4711, branch: 'main', repo: 'garden', hostUser: ME, people: { [ME]: ME } },
+});
+
 const ONLY_A = () => fleet([sprint(SPRINT_A, 'Sprint A', [PLAN_A])]);
 const ONLY_B_EMPTY = () => fleet([sprint(SPRINT_B, 'Sprint B', [])]);
 const NO_SPRINTS = () => fleet([]);
@@ -102,9 +108,7 @@ describe('an open board follows a sprint change', () => {
       tab: 'agents',
       over: {
         fleet: payload,
-        board: buildBoard({
-          server: { restartCommand: 'pnpm board', port: 4711, branch: 'main', repo: 'garden', hostUser: ME },
-        }),
+        board: ownedBoard(),
       },
     });
     await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 15_000 });
@@ -133,9 +137,7 @@ describe('an open board follows a sprint change', () => {
     const before = cat.mock.served().fleet;
     cat.mock.serve('an-empty-estate', {
       fleet: payload,
-      board: buildBoard({
-        server: { restartCommand: 'pnpm board', port: 4711, branch: 'main', repo: 'garden', hostUser: ME },
-      }),
+      board: ownedBoard(),
     });
     await expect.poll(() => cat.mock.served().fleet > before, { timeout: 20_000 }).toBe(true);
   }
@@ -168,8 +170,8 @@ describe('an open board follows a sprint change', () => {
     }, { timeout: 20_000 }).toBe(wanted);
   }
 
-  // THE CHIP, all-or-nothing — `data-chip="This sprint"` with `data-chip-on`.
-  const chip = (page: Page) => page.locator('[data-chip="This sprint"]');
+  // THE CHIP, all-or-nothing — `data-chip="My sprint"` with `data-chip-on`.
+  const chip = (page: Page) => page.locator('[data-chip="My sprint"]');
   const chipOn = async (page: Page): Promise<boolean> => (await chip(page).getAttribute('data-chip-on')) === '1';
 
   it('stops filtering on a sprint that closed, and forgets it', async () => {
@@ -216,10 +218,10 @@ describe('an open board follows a sprint change', () => {
     }
   });
 
-  // `This sprint` is all-or-nothing against `activeSprints`
-  // (`toggleThisSprintChip` in `AgentList.tsx`): on means every Active
+  // `My sprint` is all-or-nothing against the owned Active sprints
+  // (`toggleMySprintChip` in `AgentList.tsx`): on means every owned Active
   // sprint, off means none, and a sprint that closes while the chip is on
-  // just shrinks what "every Active sprint" means on the next poll. There is
+  // just shrinks what "every owned Active sprint" means on the next poll. There is
   // no subset selection to assert here — selecting one sprint alone while
   // another stays Active is covered by the per-sprint chip tests above.
 
@@ -228,17 +230,15 @@ describe('an open board follows a sprint change', () => {
   // a reader who bookmarked a sprint's URL, or hit back after it closed, must
   // not land on a board that looks empty. Two sprints are Active here so the
   // per-sprint chips actually render (`DeliveryFilters.tsx` renders them only
-  // while more than one sprint is Active) — both must read off, and both
+  // while the reader owns more than one Active sprint) — both must read off, and both
   // fixture rows must still show. An unsanitized selection would instead
   // apply membership against a sprint the filter has no entry for, hiding
   // everything (the exact failure mode the first test in this file exercises
-  // for `This sprint`).
+  // for `My sprint`).
   it('a stale ?deliverySprint= slug on load reads as "all Active sprints", not "zero rows"', async () => {
     cat.mock.serve('an-empty-estate', {
       fleet: BOTH(),
-      board: buildBoard({
-        server: { restartCommand: 'pnpm board', port: 4711, branch: 'main', repo: 'garden', hostUser: ME },
-      }),
+      board: ownedBoard(),
     });
     const page = await cat.browser.newPage();
     try {

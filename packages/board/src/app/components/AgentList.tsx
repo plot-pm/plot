@@ -58,6 +58,8 @@ function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents:
 }
 import { FleetCard } from './FleetCard.js';
 import { SprintCard } from './SprintCard.js';
+import { TodoList } from './TodoList.js';
+import { todoListOf } from '../lib/agent-rows/todo-list.js';
 import { AutoDispatchSwitch, AutoSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
 import { FleetAgentHeader, FleetAgentRow } from './FleetAgentRow.js';
 import { RowCell, scrollToAnchor, type LinkHandlers } from './DeliveryRows.js';
@@ -77,7 +79,7 @@ import {
 } from '@plot-pm/domain/rules/spawn-contract';
 import { agentRowKey } from '@plot-pm/domain/rules/desk-manifest';
 import { DeliveryFilters } from './DeliveryFilters.js';
-import { activeSprintButton, readList, sprintMembershipLookup, writeList } from '../lib/filters.js';
+import { readList, sprintMembershipLookup, writeList } from '../lib/filters.js';
 import {
   rowInSprintSelection,
   rowIsSprintExempt,
@@ -121,12 +123,13 @@ import {
   writeMineOnly,
   writeMineStrict,
 } from '../lib/agent-rows/mine-filter.js';
-import { freeLine, mineMode, placeDelivery, planIndexOf, workItemCells, YOU_GROUP_MARKERS, type YouGroup, type YouMarker } from '@plot-pm/domain';
+import { deliveryScope, freeLine, mineMode, placeDelivery, planIndexOf, workItemCells, YOU_GROUP_MARKERS, type YouGroup, type YouMarker } from '@plot-pm/domain';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
 import { ActivityMark } from '../lib/agent-rows/marks.js';
 import { PlanActions } from '../lib/agent-rows/menus.js';
 import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
-import { deliveryMapping, rateLimitOf, sprintCardViewOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
+import { deliveryMapping, rateLimitOf, releaseCardsOf, sprintCardViewOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
+import { ReleaseCard } from './ReleaseCard.js';
 import {
   groupAnchor,
   placeMapping,
@@ -649,23 +652,20 @@ export function AgentList({
     () => new Set(readList(DELIVERY_SPRINT_PARAM)),
   );
   // THE ONE SETTER EVERY CHIP CLICK GOES THROUGH — the per-sprint chips and
-  // the «This sprint» chip alike — so the stored `Set` and the URL can never
+  // the «My sprint» chip alike — so the stored `Set` and the URL can never
   // drift apart by one of two code paths forgetting to write one of them.
   const setSelection = (slugs: string[]) => {
     const next = new Set(slugs);
     setSprintFilter(next);
     writeList(DELIVERY_SPRINT_PARAM, [...next]);
   };
-  // SELECT EVERY ACTIVE SPRINT, or none — the «This sprint» chip's meaning
-  // while it acts alone (one Active sprint) or as an all-or-nothing toggle
-  // (several Active sprints, Decision "Sprint line as control or chip row").
-  const selectAllSprints = (slugs: string[]) => setSelection(slugs);
   // TOGGLE ONE SPRINT IN THE SELECTION — a per-sprint chip's whole vocabulary.
   // Goes through `setSelection` like every other setter here, so a per-sprint
-  // click and the «This sprint» click cannot leave the URL and the `Set`
-  // disagreeing about which sprints are selected.
+  // click and the «My sprint» click cannot leave the URL and the `Set`
+  // disagreeing about which sprints are selected. Starts from the scope's
+  // selection, so a selected slug the reader does not own is dropped.
   const toggleSprintSlug = (slug: string) => {
-    const next = new Set(sprintFilter);
+    const next = new Set(sprintScope.selection);
     if (next.has(slug)) next.delete(slug);
     else next.add(slug);
     setSelection([...next]);
@@ -675,7 +675,6 @@ export function AgentList({
   // Zod's `.default([])` only fires at PARSE time; the client CASTS, so
   // `fleet.sprints` is `undefined` on an older server's payload.
   const activeSprints: FleetSprint[] = fleet.sprints ?? [];
-  const sprintSelectAll = useMemo(() => activeSprintButton(activeSprints), [activeSprints]);
 
   // SPRINT MEMBERSHIP — a lookup from sprint slug to its member plan slugs.
   //
@@ -730,16 +729,25 @@ export function AgentList({
   // Is any sprint selected? Asked of the DERIVED list at every site below: a
   // `sprintFilter.size` read would turn the filter on for a slug that no longer
   // filters anything, which is the defect wearing a different number.
-  const sprintFilterOn = selectedSprints.length > 0;
+  // THE SCOPE — `deliveryScope` (`@plot-pm/domain`) decides from the selection,
+  // the reader and the Active sprints: the release (every Active sprint, rows
+  // not narrowed) or my sprint (the owned sprints the selection names). The
+  // status card, You and Work items read it; Fleet and Tickets do not.
+  const sprintScope = useMemo(
+    () => deliveryScope(selectedSprints, reader, activeSprints.map((s) => ({ ...s, ownerHandle: s.ownerHandle ?? '' }))),
+    [selectedSprints, reader, activeSprints],
+  );
+  const scopeSelection = [...sprintScope.selection];
+  const sprintFilterOn = sprintScope.kind === 'my-sprint';
   // Should a row name its own sprint? Only while more than one is Active and
   // the selection does not already single one out — see `showsSprintSlug`.
-  const showSprintSlug = showsSprintSlug(activeSprints.length, selectedSprints);
+  const showSprintSlug = showsSprintSlug(activeSprints.length, scopeSelection);
 
-  // THE «This sprint» CHIP'S OWN CLICK keeps its pre-subset meaning — off
-  // means every Active sprint, on means none — while a per-sprint chip
-  // (`toggleSprintSlug`) sets a true subset. Both go through `setSelection`,
-  // so the stored `Set` and the URL cannot drift between the two paths.
-  const toggleThisSprintChip = () => selectAllSprints(sprintFilterOn ? [] : sprintSelectAll.selection);
+  // THE «My sprint» CHIP'S OWN CLICK: off selects every Active sprint the
+  // reader owns, on selects none, while a per-sprint chip (`toggleSprintSlug`)
+  // sets a subset. Both go through `setSelection`, so the stored `Set` and the
+  // URL cannot drift between the two paths.
+  const toggleMySprintChip = () => setSelection(sprintFilterOn ? [] : sprintScope.owned.map((s) => s.slug));
 
   // PRUNE THE STORED SELECTION, so a dropped sprint cannot come back. A branch
   // switch to a tree where the closed sprint is still Active returns it to
@@ -762,11 +770,11 @@ export function AgentList({
   }, [activeSprints, selectedSprints]);
   const filteredRows = !sprintFilterOn
     ? fleet.rows
-    : fleet.rows.filter((r) => rowInSprintSelection(r, selectedSprints, membership));
+    : fleet.rows.filter((r) => rowInSprintSelection(r, scopeSelection, membership));
 
   // THE CHIP ROW'S READINGS — `chipRow()` (`@plot-pm/domain`) decides every
   // chip's label, on/off, hidden count and disabled reason from these;
-  // `chipReadings` only gathers them. Every sprint chip, «This sprint» and
+  // `chipReadings` only gathers them. Every sprint chip, «My sprint» and
   // each per-sprint chip, reads `fleet.rows` before the sprint filter against
   // the CURRENT selection, so a chip that is on reports the rows the screen
   // hides. The `Mine` chip reads `filteredRows`: after the sprint filter,
@@ -775,8 +783,8 @@ export function AgentList({
     rows: fleet.rows,
     sprintFilteredRows: filteredRows,
     agents: fleet?.agents ?? [],
-    activeSprints,
-    selectedSprints,
+    activeSprints: [...sprintScope.owned],
+    selectedSprints: scopeSelection,
     membership,
     reader,
     mode,
@@ -815,9 +823,9 @@ export function AgentList({
       // No plan → not hidden (would pass any filter)
       if (!row?.plan) return false;
       // Check if this plan FAILS the sprint filter
-      return !slugPassesSprintFilter(row.plan, selectedSprints, membership);
+      return !slugPassesSprintFilter(row.plan, scopeSelection, membership);
     }).length;
-  }, [workingRows, sprintFilterOn, selectedSprints, membership]);
+  }, [workingRows, sprintFilterOn, sprintScope, membership]);
 
   // HOW MANY AGENTS THE REGISTRY HOLDS THAT ARE NOT WORKING — the figure the
   // section's own tally cannot give, and the only one of the two worth a word.
@@ -955,6 +963,17 @@ export function AgentList({
         + (fleet.ready ? ' — showing the last successful pulse below.' : ''),
     });
   }
+  // A LIVE fleetd ON ANOTHER SNAPSHOT PROTOCOL: the board reads nothing for
+  // itself, so the view is fleetd's bridge until the restart the note names.
+  // `heldViewNote` owns the wording (#3528).
+  if (fleet.heldNote) {
+    statuses.push({
+      key: 'held-view',
+      severity: 25,
+      tone: 'amber',
+      text: fleet.heldNote,
+    });
+  }
   if (fleet.shrink) {
     statuses.push({
       key: 'shrink',
@@ -1034,9 +1053,9 @@ export function AgentList({
           view-status line stays at the foot. See `StatusPanel`. */}
       <StatusPanel statuses={statuses} />
 
-      {/* THE DELIVERY FILTERS — one row of toggle chips (`This sprint`,
-          `Mine (<identity>)`, `Waiting on me`), each sprint's own line, and the
-          estate totals at the row's right end. Replaces the sprint card and
+      {/* THE DELIVERY FILTERS — one row of toggle chips (`My sprint`,
+          `Mine (<identity>)`, `Waiting on me`) and the estate totals at the
+          row's right end. Replaces the sprint card and
           the `Only my work` checkbox — two cards and three control styles,
           per issue #2080 — with one row every chip shares. Placed before the
           sections so it is above the list.
@@ -1046,11 +1065,11 @@ export function AgentList({
           reads and this only renders what it returns. */}
       <DeliveryFilters
         readings={chipRowReadings}
-        onToggleSprint={toggleThisSprintChip}
+        onToggleSprint={toggleMySprintChip}
         onToggleMine={toggleMineOnly}
         onToggleStrict={toggleMineStrict}
-        sprints={activeSprints}
-        selectedSprints={selectedSprints}
+        sprints={[...sprintScope.owned]}
+        selectedSprints={scopeSelection}
         onToggleSprintSlug={toggleSprintSlug}
         mineBoardAnswered={server !== undefined}
         estateTotals={fleet.estateTotals}
@@ -1128,7 +1147,7 @@ export function AgentList({
           config: { autoReview: fleet.autoReview, correctionBudget: fleet.correctionBudget },
           tickets: fleet.issueAnswer === 'answered' ? fleet.waiting?.tickets : null,
           ticketSource: fleet.waiting?.source ?? null,
-          releases: sprintReleases(activeSprints, selectedSprints),
+          releases: sprintReleases(activeSprints, scopeSelection),
           sprints: (fleet.sprints ?? []).map((s) => ({ release: s.release, started: s.start ?? '' })),
           releaseTickets: fleet.releaseTickets,
           roleRuns: fleet.roleRuns ?? [],
@@ -1139,11 +1158,12 @@ export function AgentList({
         const mapping = deliveryMapping(mappingInput);
         // THE SPRINT CARD READS EVERY ROW: the Sprint filter hides rows, and a card
         // that follows it would call an unselected sprint's reading missing.
-        const sprintCardView = sprintCardViewOf(
-          activeSprints.map((s) => ({ ...s, release: s.release ?? '', end: s.end ?? '', ownerHandle: s.ownerHandle ?? '', members: s.members ?? [] })),
-          reader,
-          { ...mappingInput, rows: fleet.rows },
-        );
+        const cardSprintOf = (s: FleetSprint) => ({ ...s, release: s.release ?? '', end: s.end ?? '', ownerHandle: s.ownerHandle ?? '', members: s.members ?? [] });
+        const sprintCardView = sprintCardViewOf(sprintScope.sprints.map(cardSprintOf), reader, { ...mappingInput, rows: fleet.rows });
+        // THE RELEASE CARDS READ EVERY ROW TOO, and every reader sees the same cards.
+        // They read every Active sprint in both scopes: the to-do list's
+        // "Approve release" line reads them while the sprint card shows.
+        const releaseCardView = releaseCardsOf(activeSprints.map(cardSprintOf), reader.directory, { ...mappingInput, rows: fleet.rows });
         const placement = placeDelivery(mapping.readings, mapping.input);
         const view = placeMapping(mapping, fleet.slices, activeSprints);
         const youHead = youHeaderOf({
@@ -1474,7 +1494,10 @@ export function AgentList({
               switches={{ ...switches, autoDispatch: fleetControlsOf(fleet).autoDispatch, parallelAgents: fleetControlsOf(fleet).parallelAgents }}
               onJump={scrollToAnchor}
             />
-            <SprintCard view={sprintCardView} />
+            {sprintScope.statusCard === 'sprint'
+              ? <SprintCard view={sprintCardView} />
+              : <ReleaseCard cards={releaseCardView.cards} rows={releaseCardView.rows} />}
+            <TodoList todo={todoListOf(view, placement, fleet.issueAnswer ?? null, releaseCardView.cards)} onJump={scrollToAnchor} />
             {view.sections.map((section) => {
               // THE HEADING CARRIES THE PACE OF THE ROWS BEHIND IT, folded or
               // open, read from the same `active` set the rows render from.

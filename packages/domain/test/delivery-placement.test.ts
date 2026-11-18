@@ -129,7 +129,20 @@ describe('the six You cases', () => {
     expect(only(item({ id: 'p', kind: 'plan', phase: 'approved', approvalOwed: 'plan' }))).toMatchObject({ group: 'blocks-delivery', reason: 'plan-approval' });
     expect(only(item({ id: 'p', kind: 'plan', phase: 'design', approvalOwed: 'spike' }))).toMatchObject({ reason: 'draft-plan' });
     expect(only(item({ id: 'b', kind: 'branch', stage: 'building', approvalOwed: 'spike' }))).toMatchObject({ reason: 'spike-approval' });
-    expect(only(item({ id: 'r', kind: 'release', stage: 'pr', approvalOwed: 'release' }))).toMatchObject({ group: 'blocks-delivery', reason: 'release-approval' });
+  });
+
+  it('a release item places under neither You nor Work items: the release cards hold it', () => {
+    const items = [
+      item({ id: 'r', kind: 'release', stage: 'pr', pr: { ci: 'passed', review: 'passed' } }),
+      item({ id: 'r2', kind: 'release', stage: 'pr', approvalOwed: 'release' }),
+      item({ id: 'x', kind: 'pr', stage: 'pr', approvalOwed: 'release' }),
+    ];
+    for (const mine of ['off', 'mine', 'strict'] as const) {
+      const placed = placeDelivery({ items, agents: [] }, input({ mine }));
+      expect(placed.items).toEqual([]);
+      expect(placed.unplaced).toEqual([]);
+      expect(placed.releases).toEqual(['r', 'r2', 'x']);
+    }
   });
 
   it('a delivered plan to test is a result to review and stays out of Work items otherwise', () => {

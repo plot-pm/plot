@@ -1,12 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   NO_SPRINT,
-  activeSprintButton,
   passesFilter,
   sprintFilterOptions,
   withCounts,
 } from '../../src/app/lib/filters';
-import type { Board, Card, FleetSprint } from '../../src/contract/schema';
+import type { Board, Card } from '../../src/contract/schema';
 
 /** Minimal Board with the given cards (one Draft column) and sprint directory. */
 function mkBoard(
@@ -95,26 +94,5 @@ describe('withCounts', () => {
   it('yields zero counts against an empty card set', () => {
     const opts = withCounts([{ value: NO_SPRINT, label: 'No sprint' }], [], 'sprint', NO_SPRINT);
     expect(opts).toEqual([{ value: NO_SPRINT, label: 'No sprint', count: 0 }]);
-  });
-});
-
-describe('activeSprintButton', () => {
-  const sprintA = { slug: 'a-slug', title: 'Sprint A' } as unknown as FleetSprint;
-  const sprintB = { slug: 'b-slug', title: 'Sprint B' } as unknown as FleetSprint;
-
-  it('is disabled with no selection and names the reason when no sprint is Active', () => {
-    expect(activeSprintButton([])).toEqual({
-      selection: [],
-      disabled: true,
-      sentence: 'No sprint is Active.',
-    });
-  });
-
-  it('selects every Active sprint and is enabled', () => {
-    expect(activeSprintButton([sprintA, sprintB])).toEqual({
-      selection: ['a-slug', 'b-slug'],
-      disabled: false,
-      sentence: 'Select all 2 Active sprints.',
-    });
   });
 });

@@ -3,6 +3,8 @@ import { planningColumns } from '@plot-pm/domain/rules/workflow-phases';
 import type { Board, Card, StoryCard } from '../../contract/schema.js';
 import { NO_STORY, passesFilter, passesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
 import { boardLinksOf, checksUnaskableOn } from '../lib/plan.js';
+import { COLUMN_STEP, pageColumn, showNext, type ColumnPage } from '../lib/column-page.js';
+import { ColumnPager } from './ColumnPager.js';
 import { PlanCard } from './PlanCard.js';
 import { PlanSourceLine } from './PlanSourceLine.js';
 
@@ -22,7 +24,7 @@ import { PlanSourceLine } from './PlanSourceLine.js';
  * rule someone has to remember — the exception would have to be removed the
  * week `Testing` overtook it.
  */
-export const COLUMN_LIMIT = 5;
+export const COLUMN_LIMIT = COLUMN_STEP;
 
 /**
  * The `grid-template-columns` value of the board at the `xl` breakpoint: one
@@ -35,93 +37,38 @@ export const COLUMN_LIMIT = 5;
 export const boardGridColumns = (count: number): string =>
   `repeat(${count}, minmax(0, 1fr))`;
 
-/**
- * How recent a card is, for ordering — its phase date as a comparable number,
- * or `-Infinity` where it has none.
- *
- * Dateless cards sort LAST rather than first: "" means this plan records no
- * date for its phase, and an unknown date must never displace a known one out
- * of the visible set. That is the same rule `groupByPlan` follows for a null
- * age — *we do not know* is not *ancient*, and here it is not *newest* either.
- *
- * String comparison would do for `YYYY-MM-DD`, but only by accident of format;
- * this states the intent, and "" would sort before every real date under it.
- */
-function recency(card: Card): number {
-  if (!card.phaseDate) return -Infinity;
-  const at = Date.parse(`${card.phaseDate}T00:00:00Z`);
-  return Number.isNaN(at) ? -Infinity : at;
-}
-
 /** What a column renders: the visible cards, and how many it is holding back. */
-export interface ColumnView {
-  visible: Card[];
-  /** Cards not shown. 0 when the column is under the limit or expanded. */
-  hidden: number;
-  /** The column's WHOLE size — what the header count must say. */
-  total: number;
-}
+export type ColumnView = ColumnPage<Card>;
 
 /**
  * A column's cards, most recent first, cut to `limit` — with the remainder
  * counted rather than dropped.
  *
- * **Sorted by the phase's own date**, which is what makes the cut honest: a
- * column claiming to show the latest five and showing five arbitrary ones is
- * worse than showing all thirteen, because the reader cannot tell. `phaseDate`
- * is picked per phase on the server, so `Released` sorts by release and
- * `Testing` by delivery without this function knowing either record exists.
+ * Recency is the card's `phaseDate`, picked per phase on the server, so
+ * `Released` sorts by release and `Testing` by delivery. Cards that share a
+ * date keep the order they arrived in, so they do not swap places between
+ * polls. A dateless card sorts last: *we do not know* is not *newest*. The
+ * order holds whether or not anything is hidden.
  *
- * **Stable within a day.** Plot records dates, not timestamps, so several cards
- * routinely share one — five plans were delivered on 2026-08-16. A comparator
- * returning 0 for those leaves `Array.prototype.sort` to its stability
- * guarantee, so same-day cards keep the order they arrived in rather than
- * shuffling between polls; the board re-renders every few seconds, and cards
- * swapping places under the cursor would be the more visible bug.
+ * A highlighted card is never hidden, wherever it falls in the order: the board
+ * scrolls to `#plan-<slug>` when a reader arrives via `?plan=` or *Show in
+ * board*, and a truncated card is not in the DOM. It is kept in addition to the
+ * limit, so following a link costs no other card.
  *
- * **Sorting happens whether or not anything is hidden.** A column of three
- * still shows its newest first — the order is the column's own meaning, not a
- * side effect of being too long. Applying it only past the limit would make a
- * column reorder itself the moment a fourth card arrived.
- *
- * **A highlighted card is never hidden**, wherever it falls in the order. The
- * board scrolls to `#plan-<slug>` when a reader arrives via `?plan=` or the
- * modal's *Show in board*, and an element that was truncated away is not merely
- * unscrolled-to — `getElementById` returns null and the arrival silently lands
- * nowhere. That is reachable today: *Show in board* on a plan delivered in July
- * aims at a card the newest five would not include. It is kept in ADDITION to
- * the limit rather than in place of one of them, so following a link never
- * costs the reader a card they would otherwise have seen.
- *
- * `expanded` shows everything and reports 0 hidden; the caller keeps that state
- * so the control can toggle.
+ * @param cards - the column's cards after the sprint and story filters.
+ * @param options.limit - how many cards the reader asked for; defaults to {@link COLUMN_LIMIT}.
+ * @param options.highlight - the slug of the card just arrived at, or "".
+ * @returns the page, with what the [+] control adds next.
  */
 export function truncateColumn(
   cards: Card[],
-  {
-    limit = COLUMN_LIMIT,
-    expanded = false,
-    highlight = '',
-  }: { limit?: number; expanded?: boolean; highlight?: string } = {},
+  { limit = COLUMN_LIMIT, highlight = '' }: { limit?: number; highlight?: string } = {},
 ): ColumnView {
-  const ordered = [...cards].sort((a, b) => recency(b) - recency(a));
-  if (expanded || ordered.length <= limit) {
-    return { visible: ordered, hidden: 0, total: ordered.length };
-  }
-  const visible = ordered.slice(0, limit);
-  // Appended rather than swapped in: dropping the fifth card to make room would
-  // mean following a link cost you a card, and the count below still reports
-  // exactly what is not on screen either way.
-  const pinned = highlight && ordered.some((c) => c.slug === highlight)
-    && !visible.some((c) => c.slug === highlight)
-    ? ordered.find((c) => c.slug === highlight)
-    : undefined;
-  if (pinned) visible.push(pinned);
-  return {
-    visible,
-    hidden: ordered.length - visible.length,
-    total: ordered.length,
-  };
+  return pageColumn(cards, {
+    shown: limit,
+    dateOf: (card) => card.phaseDate,
+    pinned: highlight ? (card) => card.slug === highlight : undefined,
+  });
 }
 
 export interface BoardViewProps {
@@ -182,18 +129,16 @@ export function BoardView({
   const columns = planningColumns(board.columns, showReleased);
   const showSprint = sprintSel.length === 0;
   const showStory = storySel.length === 0;
-  // Which columns the reader has opened up, by phase.
-  //
-  // Component state rather than the URL, and rather than localStorage. The
-  // board's convention is that the query string holds what is worth SENDING to
-  // someone — `?tab`, `?lanes`, `?plan` — and "I unfolded Released" is not; the
-  // sibling collapse work makes the same argument for the Delivery tab's groups.
-  // Nor is it persisted: unlike a group a reader collapses to keep it out of
-  // the way for the session, this is opened to answer one question, and the
-  // truncated view is the one worth returning to.
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const toggle = (phase: string) =>
-    setExpanded((prev) => ({ ...prev, [phase]: !prev[phase] }));
+  // How many cards each column shows, by phase; a phase absent here shows
+  // COLUMN_LIMIT. Component state rather than the URL: the query string holds
+  // what is worth sending to someone, and a paged column is not.
+  const [shown, setShown] = useState<Record<string, number>>({});
+  const more = (phase: string) => setShown((prev) => ({ ...prev, [phase]: showNext(prev[phase]) }));
+  const collapse = (phase: string) =>
+    setShown((prev) => {
+      const { [phase]: _dropped, ...rest } = prev;
+      return rest;
+    });
   // The board's own stories, by slug — so a card's badge is handed the story it
   // names rather than reconstructing a path from the slug.
   const storyBySlug = new Map(board.stories.map((s) => [s.slug, s]));
@@ -235,7 +180,7 @@ export function BoardView({
         // cards shows all four. The limit is about how tall a column gets on
         // screen, and a filter has already made it shorter.
         const view = truncateColumn(cards, {
-          expanded: expanded[column.phase],
+          limit: shown[column.phase],
           highlight,
         });
         return (
@@ -309,30 +254,12 @@ export function BoardView({
                   No plans in this phase.
                 </p>
               )}
-              {/* The control for the rest — the half that makes this truncation
-                  rather than a hard cut. It renders only where there IS a rest:
-                  a column under the limit offers nothing, the same rule the
-                  Delivery tab's groups follow (a collapse control on a group with
-                  nothing to hide is an offer that leads nowhere).
-
-                  It says the NUMBER hidden, not "show more". `Show 8 older` is
-                  a second statement of the same fact the header count implies,
-                  and the one a reader deciding whether to click actually needs.
-                  "older" rather than "more": the cut is by date, and the word is
-                  what tells them the eight are the oldest rather than an
-                  arbitrary remainder. */}
-              {(view.hidden > 0 || expanded[column.phase]) && view.total > COLUMN_LIMIT && (
-                <button
-                  type="button"
-                  onClick={() => toggle(column.phase)}
-                  aria-expanded={view.hidden === 0}
-                  className="rounded-md border border-dashed border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-500 hover:border-slate-400 hover:text-slate-700 dark:border-slate-700 dark:text-slate-400 dark:hover:border-slate-600 dark:hover:text-slate-200"
-                >
-                  {view.hidden > 0
-                    ? `Show ${view.hidden} older`
-                    : `Show the ${COLUMN_LIMIT} most recent`}
-                </button>
-              )}
+              <ColumnPager
+                page={view}
+                noun="plans"
+                onMore={() => more(column.phase)}
+                onCollapse={() => collapse(column.phase)}
+              />
             </div>
           </section>
         );

@@ -71,6 +71,7 @@ const placed = (rows: Awaited<ReturnType<typeof derive>>) => {
   return (branch: string) => ({
     item: p.items.find((i) => i.id === `branch:${branch}`),
     unplaced: p.unplaced.find((u) => u.id === `branch:${branch}`),
+    release: p.releases.includes(`branch:${branch}`),
   });
 };
 
@@ -103,10 +104,11 @@ describe('a planless branch or PR, from the row builder to the placement', () =>
     expect(at(MANIFEST).item?.reason).not.toBe('loose');
   });
 
-  it('never places changeset-release/main as loose', async () => {
+  it('never places changeset-release/main as loose: the release cards hold it', async () => {
     const at = placed(await derive(desks));
-    expect(at(RELEASE).item?.reason).not.toBe('loose');
-    expect(at(RELEASE).item?.kind).toBe('release');
+    expect(at(RELEASE).item).toBeUndefined();
+    expect(at(RELEASE).unplaced).toBeUndefined();
+    expect(at(RELEASE).release).toBe(true);
   });
 
   it('lists every planless branch as unplaced for unread where the worktree listing failed', async () => {

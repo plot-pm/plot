@@ -1967,7 +1967,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // The window between the two is wide, and the viewport sits in the middle
       // of it rather than on either edge — which is what makes this test about
       // the COLLAPSE rather than about how tall a row happens to render.
-      await page.setViewportSize({ width: 1280, height: 2000 });
+      // 2000 became 2100 on 2026-11-18, when the release cards (64px) joined the
+      // Delivery header and the footer's bottom read 2013px on CI.
+      await page.setViewportSize({ width: 1280, height: 2100 });
       await page.route('**/api/fleet', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(many) }));
       await page.goto(`${cat.mock.baseURL}?tab=agents`);
@@ -4581,15 +4583,32 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   // itself reads on" are now the same fact, so the distinguishing half of
   // this test's old name — proving TWO boxes flip, not one — has no
   // surviving assertion. Reported as a plan gap rather than guessed at here.
-  const activeSprint = (slug: string, title: string): FleetSprint => ({
-    slug, title, release: '', timebox: 'none', timeboxLabel: '',
+  //
+  // The chip reads the sprints the reader OWNS, so each sprint here names an
+  // Owner and `ownedBoard` signs the reader in as that Owner.
+  const OWNER = 'jwloka';
+  const activeSprint = (slug: string, title: string, ownerHandle = OWNER): FleetSprint => ({
+    slug, title, release: '', timebox: 'none', timeboxLabel: '', ownerHandle,
     counts: { total: 0, open: 0, wip: 0, done: 0, withdrawn: 0 },
     members: [],
-  });
-  const sprintChip = (page: Page) => page.locator('[data-chip="This sprint"]');
+  } as unknown as FleetSprint);
+  const sprintChip = (page: Page) => page.locator('[data-chip="My sprint"]');
+  const ownedBoard = () => {
+    const b = scenario('ten-rows-one-kind-each').board;
+    return { ...b, server: { ...b.server, hostUser: OWNER, people: { [OWNER]: OWNER } } };
+  };
+  const openOwning = async (payload: Fleet): Promise<Page> => {
+    const page = await cat.open('ten-rows-one-kind-each', {
+      tab: 'agents', over: { fleet: payload, board: ownedBoard() },
+    });
+    await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
+    await expandAgentFolds(page);
+    await expandPlans(page);
+    return page;
+  };
 
-  it('the This sprint chip turns on and hides nothing further when every row already matches', async () => {
-    const page = await openAgents(fleet({
+  it('the My sprint chip turns on and hides nothing further when every row already matches', async () => {
+    const page = await openOwning(fleet({
       sprints: [activeSprint('sprint-a', 'Sprint A'), activeSprint('sprint-b', 'Sprint B')],
     }));
     try {
@@ -4605,12 +4624,23 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('the This sprint chip is disabled and names the reason when no sprint is Active', async () => {
-    const page = await openAgents(fleet({ sprints: [] }));
+  it('the My sprint chip is disabled and names the reason when no sprint is Active', async () => {
+    const page = await openOwning(fleet({ sprints: [] }));
     try {
       const chip = sprintChip(page);
       expect(await chip.isDisabled()).toBe(true);
-      expect(await chip.getAttribute('title')).toBe('No sprint is Active.');
+      expect(await chip.getAttribute('title')).toBe('You own no active sprint');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('the My sprint chip is disabled when sprints are Active and the reader owns none', async () => {
+    const page = await openOwning(fleet({ sprints: [activeSprint('sprint-a', 'Sprint A', 'eins78')] }));
+    try {
+      const chip = sprintChip(page);
+      expect(await chip.isDisabled()).toBe(true);
+      expect(await chip.getAttribute('title')).toBe('You own no active sprint');
     } finally {
       await page.close();
     }
@@ -4654,8 +4684,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       });
     }
 
-    it('one Active sprint renders no per-sprint chips, and the This sprint chip is unchanged', async () => {
-      const page = await openAgents(fleet({ sprints: [activeSprint('sprint-a', 'Sprint A')] }));
+    it('one owned Active sprint renders no per-sprint chips, and the My sprint chip is unchanged', async () => {
+      const page = await openOwning(fleet({ sprints: [activeSprint('sprint-a', 'Sprint A')] }));
       try {
         // Catches an implementation that always renders N chips, including N=1.
         expect(await page.locator('[data-chip^="sprint:"]').count()).toBe(0);
@@ -4665,8 +4695,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       }
     });
 
-    it('two Active sprints, one selected via its own chip: the other sprint\'s rows hide and the This sprint chip names the selection', async () => {
-      const page = await openAgents(twoSprintPayload());
+    it('two Active sprints, one selected via its own chip: the other sprint\'s rows hide and the My sprint chip names the selection', async () => {
+      const page = await openOwning(twoSprintPayload());
       try {
         await sprintChipFor(page, 'sprint-a').click();
 
@@ -4679,19 +4709,19 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         await expect.poll(() => page.locator('[data-branch="feature/in-a"]').count()).toBe(1);
         expect(await page.locator('[data-branch="feature/in-b"]').count()).toBe(0);
 
-        // `data-chip="This sprint"` STILL RESOLVES after the label changes —
+        // `data-chip="My sprint"` STILL RESOLVES after the label changes —
         // catches an implementation that derives the selector from the label
         // text instead of keeping it a fixed attribute.
-        const thisSprint = sprintChip(page);
-        expect(await thisSprint.count()).toBe(1);
-        expect(await thisSprint.textContent()).toContain('Sprint A');
+        const mySprint = sprintChip(page);
+        expect(await mySprint.count()).toBe(1);
+        expect(await mySprint.textContent()).toContain('Sprint A');
       } finally {
         await page.close();
       }
     });
 
     it('a row in exactly one Active sprint, with that sprint the only one selected, shows no sprint slug', async () => {
-      const page = await openAgents(twoSprintPayload());
+      const page = await openOwning(twoSprintPayload());
       try {
         await sprintChipFor(page, 'sprint-a').click();
         await expect.poll(() => sprintChipFor(page, 'sprint-a').getAttribute('data-chip-on')).toBe('1');
@@ -4707,7 +4737,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     });
 
     it('reload with a selection in the URL restores the same rows hidden', async () => {
-      const page = await openAgents(twoSprintPayload());
+      const page = await openOwning(twoSprintPayload());
       try {
         await sprintChipFor(page, 'sprint-a').click();
         await expect.poll(() => sprintChipFor(page, 'sprint-a').getAttribute('data-chip-on')).toBe('1');
@@ -4734,6 +4764,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       try {
         await page.route('**/api/fleet', (route) =>
           route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
+        await page.route('**/api/board', (route) =>
+          route.fulfill({ contentType: 'application/json', body: JSON.stringify(ownedBoard()) }));
         await page.goto(`${cat.mock.baseURL}?tab=agents&deliverySprint=closed-sprint`);
         await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
         await expandAgentFolds(page);

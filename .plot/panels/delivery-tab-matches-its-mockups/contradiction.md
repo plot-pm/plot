@@ -1,0 +1,26 @@
+# Contradiction lens: delivery-tab-matches-its-mockups
+
+Verified against main 89407abdc in this worktree. Line numbers for AgentList.tsx:1671/1710-1714, rows.tsx:450-456, FleetAgentRow.tsx:6, TicketsSection.tsx:81, SprintCard.tsx:3-9, agent-roles.ts:127-145, ci.yml:1541-1543 and the `prefers-color-scheme` token blocks hold. `--hue-rose` is absent from index.css as the plan says. `data-group` exists (AgentList.tsx:1657).
+
+## Findings
+
+1. OPEN, file ownership. The Theme Tokens decision "five slice states take one colour map ... changes `SprintCard.tsx:3-9`" is assigned to no slice that owns that file. *Primitives* "Owns" omits SprintCard.tsx and FleetCard.tsx; `feature/delivery-visual-tab-header` owns both. The same colour map also feeds the release bar (release card component) and the strip (`delivery-visual-release`). The plan says Primitives defines the map and lists no consumer step. Name the owner of each use.
+2. OPEN, AgentList.tsx overlap. Plan line 195 says "Only `feature/delivery-visual-release` edits `AgentList.tsx`", but other Sections slices need markup there that Primitives does not list:
+   - the Free line (`data-free-line`, AgentList.tsx:1658) belongs to `delivery-visual-fleet`, which owns only FleetAgentRow.tsx, FleetControls.tsx and a stylesheet;
+   - the Fleet counts line and the header switches slot (AgentList.tsx:1483-1554, 1630-1642) are in the plan's own line-range table, owned by nobody;
+   - `delivery-visual-you` builds "group tags" and the inset bar, which the group heading markup (AgentList.tsx:1657-1695, `data-group-marker`) carries, and that markup is Primitives'; the plan says the You slice owns only draft-plan-row.tsx and a stylesheet;
+   - `delivery-visual-tab-header` builds "the two-column header layout" while *Primitives* owns "the tab-header wrapper around the cards".
+   Either list these in Primitives' ownership or let the named slices own the lines. As written, a worker for the Free line or the group tags must edit a file the plan says it does not own.
+3. OPEN, two colour mechanisms. Primitives keeps `YOU_MARKER_CLASS` (a class lookup, AgentList.tsx:167) while the You slice colours bars and Do verbs through CSS selectors on `data-group`. CLAUDE.md's lookup-table rule allows both, but one group colour then has two homes. Pick one.
+4. OPEN, test-selector claim incomplete. Plan line 114 names five integration files. Unit tests also read classes: `test/unit/tuple-row.test.ts:1234-1235` (`text-emerald-700 dark:text-emerald-500`, `text-rose-700`), `test/unit/agent-list.test.ts:1021` (source grep for `bg-amber-300/25`, which lives in marks.tsx:183) and `:1345` (`rounded-full` on the activity dot). `rounded-full` on a dot is the class family the Primitives dot restyle touches. The plan's repair rule (move to `data-*`, say so in the PR) covers it, but the inventory should say "integration and unit". Also `FleetCard.tsx:22` uses `text-emerald-700` in a slice's scope; no test reads it today.
+5. OPEN but decided, wave structure against CLAUDE.md. CLAUDE.md and DESIGN-slice.md say a Slice holds exactly one branch; `plot-reslice` exists to repair multi-branch waves. The *Sections* heading holds six branches on purpose (Jan Wloka, 2026-11-18), and the plan states the reconcile section 7 report is accepted. This contradicts the estate's slice vocabulary and the plan's own sibling plans, which use one heading per branch. Fleet reading is consistent: plot-fleet-scan.sh:235-241 makes a wave eligible once every prior wave merged, so the six start together after Primitives. No fix needed; keep the acceptance note.
+6. RESOLVED, waits structure. All six `waits:` branches exist as sibling slices (footer, todo-list, release-card, my-sprint-scope, person-cards, sprint-delivery-scope). Both domain and primitives slices wait on all six, so they run after siblings finish; no cycle. Sibling `delivery-tab-header-and-my-sprint` marks release-card waiting on todo-list, and my-sprint-scope waiting on release-card, so the plan's list is consistent.
+7. RESOLVED, spec agreement. The spec's "Left to the Builder" leaves colours, spacing and chip styles open; "the text wins over mockups" is quoted correctly; read-only switches, "My sprint" naming, dark-only mockups and the 8-file mockups dir all match. The 11 px floor against the mockups' 10 px is a recorded decision. The spec's strip lists four states; the plan uses five, as sibling plan 1's slice-states slice does.
+8. RESOLVED, CLAUDE.md. "Every rendered state is a domain property" is honoured by the Domain Fields slice before Primitives. The plan's own claim "no slice adds a reading" holds except item 3's `now`-relative merge time, which the plan states openly.
+9. MINOR, gates over rules. The no-decision-in-.tsx rule and "classes that tests read stay" are prose only; only the contrast test is a gate. Acceptable for a styling plan; say so rather than imply enforcement. The plan is silent on the arrow-function rule for the new test and catalogue helpers.
+
+## Commitment
+
+The structure is sound and consistent with the spec, but findings 1 and 2 make the ownership table disagree with the slice descriptions and with the plan's own "only release edits AgentList.tsx" claim. Fix by editing the plan.
+
+Position: amend

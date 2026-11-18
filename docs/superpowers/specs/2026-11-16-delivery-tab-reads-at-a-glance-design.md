@@ -245,4 +245,4 @@ A builder check read this design on 2026-11-16. Jan Wloka decided the first two 
 
 ## Mockups
 
-The brainstorm mockups live in `.superpowers/brainstorm/20038-1794839570/content/` on the writer's machine and are not committed: `first-five-seconds-v2.html` (tab header), `section-header.html`, `you-section-v2.html`, `work-items-v1.html`, `fleet-section-v3.html`, `delivery-toggle-icons-v2.html`, `plan-slices.html`, `bottom-of-tab.html`. Where a mockup and this text disagree, this text wins.
+The brainstorm mockups are in [2026-11-16-delivery-tab-mockups/](2026-11-16-delivery-tab-mockups/). Each file is an HTML fragment with an inline `<style>` and opens in a browser: `first-five-seconds-v2.html` (tab header), `section-header.html`, `you-section-v2.html`, `work-items-v1.html`, `fleet-section-v3.html`, `delivery-toggle-icons-v2.html`, `plan-slices.html`, `bottom-of-tab.html`. The mockups show the dark theme only, and their example rows are partly illustrative. Where a mockup and this text disagree, this text wins.
