@@ -13,17 +13,12 @@ import { type AgentRow, type Fleet, type FleetSprint, type IssueRow } from '../.
  *
  * THE TOGGLE IS NOW ONE CHIP, all-or-nothing — `the-delivery-tab-renders-one-
  * chip-row` replaced the per-sprint checkbox (`data-sprint-toggle="<slug>"`)
- * this file drove with `[data-chip="This sprint"]`. The exempt/member marking
+ * this file drove with `[data-chip="My sprint"]`. The exempt/member marking
  * this file exists to test is unchanged by that rewrite — `rows.tsx`'s
  * `data-sprint-exempt` is untouched — so only the toggle locator moved. The
  * Delivery tab sections removed the per-section `hiddenSuffix` and
- * `data-sprint-unfiltered` that the last two tests assert.
- * One test did not survive: the old control rendered a tab-wide
- * `data-sprint-hidden` / `data-sprint-exempt-count` total on a single
- * unkeyed `[data-sprint-report]`, and the new `DeliveryFilters` renders that
- * attribute keyed per ACTIVE SPRINT with no tab-wide hidden/exempt total at
- * all — see the comment above `does not count an ownership-hidden row under
- * Sprint only` below for why neither surviving figure is a substitute.
+ * `data-sprint-unfiltered`. The chip reads the sprints the reader owns, so the
+ * sprint names the reader as its Owner.
  */
 const ME = 'gardener';
 const THEM = 'neighbour';
@@ -60,7 +55,7 @@ const ELSEWHERE = 'feature/elsewhere';
 const LOOSE = 'loose/ref';
 
 const sprint: FleetSprint = {
-  slug: SPRINT, title: 'The leg', release: '', timebox: 'none', timeboxLabel: '',
+  slug: SPRINT, title: 'The leg', release: '', timebox: 'none', timeboxLabel: '', ownerHandle: ME,
   counts: { total: 1, open: 0, wip: 1, done: 0, withdrawn: 0 },
   members: [{ slug: 'member-plan', text: '', tier: 'must', checked: false, known: true }],
 } as unknown as FleetSprint;
@@ -108,7 +103,7 @@ describe('a sprint view says what it hid', () => {
       over: {
         fleet: payload,
         board: buildBoard({
-          server: { restartCommand: 'pnpm board', port: 4711, branch: 'main', repo: 'garden', hostUser: ME },
+          server: { restartCommand: 'pnpm board', port: 4711, branch: 'main', repo: 'garden', hostUser: ME, people: { [ME]: ME, [THEM]: THEM } },
         }),
       },
     });
@@ -139,11 +134,8 @@ describe('a sprint view says what it hid', () => {
         .filter((e) => e.querySelector('[data-sprint-exempt]'))
         .map((e) => e.getAttribute('data-branch') ?? e.querySelector('[data-branch]')?.getAttribute('data-branch') ?? ''));
 
-  const header = (page: Page) =>
-    page.locator('[data-delivery-section="you"]').first();
-
   // THE CHIP, all-or-nothing — replaces the per-sprint `data-sprint-toggle`.
-  const chip = (page: Page) => page.locator('[data-chip="This sprint"]');
+  const chip = (page: Page) => page.locator('[data-chip="My sprint"]');
 
   async function sprintOnly(page: Page): Promise<void> {
     await chip(page).click();
@@ -171,13 +163,15 @@ describe('a sprint view says what it hid', () => {
   it('hides no row the exemption showed before', async () => {
     const page = await open();
     try {
+      // The release row has no row: its card in the header shows it while
+      // the toggle is off, and the sprint card replaces it while it is on.
+      await expect.poll(() => page.locator('[data-release-card="untargeted"]').count()).toBe(1);
       await sprintOnly(page);
       const shown = await branches(page);
       // The exempt set is shown with the filter on.
       expect(shown).toContain(EXEMPT_PR);
-      // The release row has no row: its card in the header stays.
       expect(shown).not.toContain(RELEASE);
-      expect(await page.locator('[data-release-card="untargeted"]').count()).toBe(1);
+      expect(await page.locator(`[data-sprint-card-sprint="${SPRINT}"]`).count()).toBe(1);
       // And the filter still filters.
       expect(shown).not.toContain(ELSEWHERE);
       expect(shown).not.toContain(LOOSE);
@@ -185,22 +179,4 @@ describe('a sprint view says what it hid', () => {
       await page.close();
     }
   });
-
-  // THE CONTROL-LEVEL REPORT HAS NO REPLACEMENT. `SprintFilter` rendered one
-  // unkeyed `[data-sprint-report]` carrying tab-wide `data-sprint-hidden` and
-  // `data-sprint-exempt-count` totals ("2 rows hidden" / "2 shown without a
-  // plan"). `DeliveryFilters` renders `data-sprint-report={sprint.slug}`
-  // instead — ONE PER ACTIVE SPRINT, naming that sprint's own item counts,
-  // per `FleetSprintSchema`'s own TSDoc on why one sprint's line must never
-  // fold into another's. Neither of the two per-section figures that DID
-  // survive the rewrite is a substitute: `hiddenSuffix`
-  // (`— N hidden by Sprint only`, read via `header(page)`'s text below) is
-  // PER SECTION, not a tab-wide total, and `data-sprint-unfiltered` names
-  // which KINDS the sprint filter never saw rather than counting exempt rows.
-  // This is a real coverage loss from the old control-level total — reported
-  // in this branch's PR rather than guessed at here. The two tests that only
-  // asserted the removed attributes are gone; `marks the exempt rows and not
-  // the member row` and `hides no row the exemption showed before` above
-  // still cover the underlying exempt/hidden behaviour through DOM marks.
-
 });

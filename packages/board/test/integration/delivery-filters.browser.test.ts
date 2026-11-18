@@ -9,8 +9,7 @@ import { type AgentRow, type Fleet, type FleetSprint } from '../../src/contract/
  *
  * The old control was a sprint card and an `Only my work` checkbox in two
  * visual styles, roughly 200px tall; `DeliveryFilters` renders one row of
- * toggle chips (`This sprint`, `Mine`, `Waiting on me`) plus a sprint line and
- * the estate totals. Every chip's label/on/hiddenCount/disabledReason is a
+ * toggle chips (`My sprint`, `Mine`, `Waiting on me`) plus the estate totals. Every chip's label/on/hiddenCount/disabledReason is a
  * domain property `chipRow()` computes (`@plot-pm/domain`) — this file checks
  * what reaches the DOM, not the rule itself, which `chip-row.test.ts` already
  * covers in the domain package.
@@ -36,7 +35,7 @@ const pr = (number: number, author: string) =>
   ({ number, url: `https://github.com/tiny/garden/pull/${number}`, draft: false, state: 'green', author });
 
 const sprint: FleetSprint = {
-  slug: SPRINT, title: 'The leg', release: 'v1.2', timebox: 'none', timeboxLabel: 'on track',
+  slug: SPRINT, title: 'The leg', release: 'v1.2', ownerHandle: ME, timebox: 'none', timeboxLabel: 'on track',
   counts: { total: 3, open: 1, wip: 1, done: 1, withdrawn: 0 },
   members: [{ slug: PLAN, text: '', tier: 'must', checked: false, known: true }],
 } as unknown as FleetSprint;
@@ -45,7 +44,7 @@ function fleet(): Fleet {
   const rows: AgentRow[] = [
     row({ branch: 'feature/mine', pr: pr(11, ME) } as Partial<AgentRow>),
     row({ branch: 'feature/theirs', pr: pr(12, 'neighbour') } as Partial<AgentRow>),
-    // Under a plan the sprint does not list — the one row `This sprint` hides.
+    // Under a plan the sprint does not list — the one row `My sprint` hides.
     row({ branch: 'feature/outside', plan: 'other-plan', planFile: '2026-09-01-other-plan.md', pr: pr(13, 'neighbour') } as Partial<AgentRow>),
   ];
   return {
@@ -77,7 +76,7 @@ describe('the delivery tab renders one chip row', () => {
       over: {
         fleet: fleet(),
         board: buildBoard({
-          server: { restartCommand: 'pnpm board', port: 4711, branch: 'main', repo: 'garden', hostUser: ME },
+          server: { restartCommand: 'pnpm board', port: 4711, branch: 'main', repo: 'garden', hostUser: ME, people: { [ME]: ME } },
         }),
       },
     });
@@ -91,29 +90,24 @@ describe('the delivery tab renders one chip row', () => {
   const chip = (page: Page, label: string) =>
     label === 'Mine' ? page.locator('[data-chip^="Mine"]') : page.locator(`[data-chip="${label}"]`);
 
-  it('shows the chip row, the sprint line and the estate totals at desktop width', async () => {
+  it('shows the chip row and the estate totals at desktop width', async () => {
     const page = await open(1400);
     try {
-      await chip(page, 'This sprint').waitFor({ timeout: 15_000 });
+      await chip(page, 'My sprint').waitFor({ timeout: 15_000 });
 
-      expect(await chip(page, 'This sprint').getAttribute('data-chip-on')).toBe('0');
+      expect(await chip(page, 'My sprint').getAttribute('data-chip-on')).toBe('0');
       expect(await chip(page, 'Mine').getAttribute('data-chip-on')).toBe('0');
       const waitingOnMe = chip(page, 'Waiting on me');
       expect(await waitingOnMe.getAttribute('disabled')).not.toBeNull();
 
-      await chip(page, 'This sprint').click();
-      await expect.poll(() => chip(page, 'This sprint').getAttribute('data-chip-on')).toBe('1');
+      await chip(page, 'My sprint').click();
+      await expect.poll(() => chip(page, 'My sprint').getAttribute('data-chip-on')).toBe('1');
       // A filled chip states its hidden count — one row (`feature/outside`)
       // sits under a plan the sprint does not list.
-      expect(await chip(page, 'This sprint').textContent()).toContain('1 hidden');
+      expect(await chip(page, 'My sprint').textContent()).toContain('1 hidden');
 
-      const sprintLine = page.locator(`[data-sprint-report="${SPRINT}"]`);
-      await expect.poll(() => sprintLine.count()).toBe(1);
-      const sprintText = (await sprintLine.textContent()) ?? '';
-      expect(sprintText).toContain('The leg');
-      // Only the sprint's own items — 3 total — never the estate's 485.
-      expect(sprintText).toContain('3 items');
-      expect(sprintText).not.toContain('485');
+      // The sprint line is gone: the sprint card is the one sprint report.
+      expect(await page.locator('[data-sprint-report]').count()).toBe(0);
 
       const totals = page.locator('[data-estate-totals]');
       await expect.poll(() => totals.count()).toBe(1);
@@ -123,10 +117,44 @@ describe('the delivery tab renders one chip row', () => {
     }
   });
 
+  it('the My sprint toggle switches the status card and the rows', async () => {
+    const page = await open(1400);
+    try {
+      const toggle = chip(page, 'My sprint');
+      await toggle.waitFor({ timeout: 15_000 });
+      expect(await page.locator('[data-chip="This sprint"]').count()).toBe(0);
+      expect(await toggle.getAttribute('disabled')).toBeNull();
+      const outside = page.locator('[data-branch="feature/outside"]');
+      const sprintCard = page.locator(`[data-sprint-card-sprint="${SPRINT}"]`);
+      const releaseCard = page.locator('[data-release-card]');
+
+      // Off: the release scope — every row, the release cards, no sprint card.
+      await expect.poll(() => outside.count()).toBeGreaterThan(0);
+      await expect.poll(() => releaseCard.count()).toBeGreaterThan(0);
+      expect(await sprintCard.count()).toBe(0);
+
+      await toggle.click();
+      await expect.poll(() => toggle.getAttribute('data-chip-on')).toBe('1');
+      // On: the owned sprint — its card replaces the release cards, and the
+      // row under a plan the sprint does not list leaves You and Work items.
+      await expect.poll(() => sprintCard.count()).toBe(1);
+      expect(await releaseCard.count()).toBe(0);
+      await expect.poll(() => outside.count()).toBe(0);
+      expect(await page.locator('[data-branch="feature/mine"]').count()).toBeGreaterThan(0);
+
+      await toggle.click();
+      await expect.poll(() => toggle.getAttribute('data-chip-on')).toBe('0');
+      await expect.poll(() => sprintCard.count()).toBe(0);
+      await expect.poll(() => outside.count()).toBeGreaterThan(0);
+    } finally {
+      await page.close();
+    }
+  });
+
   it('wraps at 375px with no horizontal scroll', async () => {
     const page = await open(375);
     try {
-      await chip(page, 'This sprint').waitFor({ timeout: 15_000 });
+      await chip(page, 'My sprint').waitFor({ timeout: 15_000 });
 
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -134,7 +162,7 @@ describe('the delivery tab renders one chip row', () => {
 
       // Every chip still renders — wrapping onto further lines, never
       // dropped, never scrolled off.
-      for (const label of ['This sprint', 'Mine', 'Waiting on me']) {
+      for (const label of ['My sprint', 'Mine', 'Waiting on me']) {
         await expect.poll(() => chip(page, label).count()).toBe(1);
       }
     } finally {

@@ -147,32 +147,6 @@ export function sprintFilterOptions(board: Board | null): FilterOption[] {
     .sort((a, b) => a.value.localeCompare(b.value));
 }
 
-/** What the *Active sprint* button offers: a selection, and whether it can act. */
-export interface ActiveSprintButton {
-  /** Every slug of `sprints` — the full selection a click would set. */
-  selection: string[];
-  /** True when there is no Active sprint to select. */
-  disabled: boolean;
-  /** The reason the button is disabled, or what it does when enabled. */
-  sentence: string;
-}
-
-/**
- * Select every Active sprint in one step — D32 (story Open Point 12).
- *
- * `sprints` is already the Active set (`fleet.sprints`), so the button is the
- * existing multiselect with every option checked: it answers WHICH slugs to
- * select and whether it can, and does not filter rows itself.
- */
-export const activeSprintButton = (sprints: FleetSprint[]): ActiveSprintButton =>
-  sprints.length === 0
-    ? { selection: [], disabled: true, sentence: 'No sprint is Active.' }
-    : {
-        selection: sprints.map((s) => s.slug),
-        disabled: false,
-        sentence: `Select all ${sprints.length} Active sprints.`,
-      };
-
 /**
  * Read a comma-separated multi-value filter from the URL query.
  *
