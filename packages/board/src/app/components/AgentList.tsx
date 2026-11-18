@@ -127,7 +127,8 @@ import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRow
 import { ActivityMark } from '../lib/agent-rows/marks.js';
 import { PlanActions } from '../lib/agent-rows/menus.js';
 import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
-import { deliveryMapping, rateLimitOf, sprintCardViewOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
+import { deliveryMapping, rateLimitOf, releaseCardsOf, sprintCardViewOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
+import { ReleaseCard } from './ReleaseCard.js';
 import {
   groupAnchor,
   placeMapping,
@@ -1151,11 +1152,10 @@ export function AgentList({
         const mapping = deliveryMapping(mappingInput);
         // THE SPRINT CARD READS EVERY ROW: the Sprint filter hides rows, and a card
         // that follows it would call an unselected sprint's reading missing.
-        const sprintCardView = sprintCardViewOf(
-          activeSprints.map((s) => ({ ...s, release: s.release ?? '', end: s.end ?? '', ownerHandle: s.ownerHandle ?? '', members: s.members ?? [] })),
-          reader,
-          { ...mappingInput, rows: fleet.rows },
-        );
+        const cardSprints = activeSprints.map((s) => ({ ...s, release: s.release ?? '', end: s.end ?? '', ownerHandle: s.ownerHandle ?? '', members: s.members ?? [] }));
+        const sprintCardView = sprintCardViewOf(cardSprints, reader, { ...mappingInput, rows: fleet.rows });
+        // THE RELEASE CARDS READ EVERY ROW TOO, and every reader sees the same cards.
+        const releaseCardView = releaseCardsOf(cardSprints, reader.directory, { ...mappingInput, rows: fleet.rows });
         const placement = placeDelivery(mapping.readings, mapping.input);
         const view = placeMapping(mapping, fleet.slices, activeSprints);
         const youHead = youHeaderOf({
@@ -1487,7 +1487,8 @@ export function AgentList({
               onJump={scrollToAnchor}
             />
             <SprintCard view={sprintCardView} />
-            <TodoList todo={todoListOf(view, placement, fleet.issueAnswer ?? null)} onJump={scrollToAnchor} />
+            <ReleaseCard cards={releaseCardView.cards} rows={releaseCardView.rows} />
+            <TodoList todo={todoListOf(view, placement, fleet.issueAnswer ?? null, releaseCardView.cards)} onJump={scrollToAnchor} />
             {view.sections.map((section) => {
               // THE HEADING CARRIES THE PACE OF THE ROWS BEHIND IT, folded or
               // open, read from the same `active` set the rows render from.

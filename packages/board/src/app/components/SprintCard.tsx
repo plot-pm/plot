@@ -1,6 +1,6 @@
 import type { SliceState, SprintCardsView } from '@plot-pm/domain';
 
-const SEGMENT_CLASS: Record<SliceState, string> = {
+export const SEGMENT_CLASS: Record<SliceState, string> = {
   delivered: 'bg-emerald-500 dark:bg-emerald-400',
   'at-a-gate': 'bg-sky-500 dark:bg-sky-400',
   'being-built': 'bg-blue-300 dark:bg-blue-500',
@@ -8,7 +8,7 @@ const SEGMENT_CLASS: Record<SliceState, string> = {
   'not-started': 'bg-slate-300 dark:bg-slate-600',
 };
 
-const SEGMENT_WORD: Record<SliceState, string> = {
+export const SEGMENT_WORD: Record<SliceState, string> = {
   delivered: 'delivered',
   'at-a-gate': 'at a gate',
   'being-built': 'being built',
