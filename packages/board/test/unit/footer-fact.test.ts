@@ -50,6 +50,18 @@ describe('the footer fact', () => {
     expect(f.counts).toBe('8 branches across 3 plans so far');
   });
 
+  it('reads every dot stale while the tab is frozen, whatever the frozen ages say', () => {
+    const f = footerFact({ ...base, frozen: true, prAgeSeconds: 10 });
+    expect(f.freshness.map((e) => [e.key, e.state, e.word])).toEqual([['board', 'stale', 'stale'], ['pr', 'stale', 'stale']]);
+    expect(footerFact({ ...base, frozen: true, prAgeSeconds: null }).freshness.every((e) => e.state === 'stale')).toBe(true);
+  });
+
+  it('counts desks and work items apart', () => {
+    const item = (id: string): UnplacedView => ({ ...desk(id), subject: 'item' });
+    expect(footerFact({ ...base, notPlaced: [item('a')] }).notPlaced!.text).toBe('1 work item not placed');
+    expect(footerFact({ ...base, notPlaced: [desk('a'), desk('b'), item('c')] }).notPlaced!.text).toBe('2 desks and 1 work item not placed');
+  });
+
   it('matches the example line', () => {
     const f = footerFact({ ...base, notPlaced: ['a', 'b', 'c', 'd', 'e'].map(desk) });
     expect(f.line).toBe(

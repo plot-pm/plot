@@ -53,7 +53,7 @@ export interface FooterInput {
   /** Seconds to the next PR read, already ticked; null where no reader schedules one. */
   prNextSeconds: number | null;
   prError: boolean;
-  /** True while the tab is stale and its ages no longer advance. */
+  /** True while the tab is stale and its ages no longer advance: every dot then reads stale. */
   frozen: boolean;
   /** False while the scan still runs: only the total is provisional. */
   complete: boolean;
@@ -77,13 +77,23 @@ export const unplacedDetails = (notPlaced: readonly UnplacedView[]): { id: strin
 const dotText = (e: FreshnessEntry): string =>
   `● ${e.word} · ${e.text}${e.next === null ? '' : ` · ${e.next}`}`;
 
+const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+/** The not-placed count in words: desks and work items are counted apart. */
+const notPlacedText = (notPlaced: readonly UnplacedView[]): string => {
+  const desks = notPlaced.filter((u) => u.subject === 'agent').length;
+  const items = notPlaced.length - desks;
+  const parts = [...(desks > 0 ? [plural(desks, 'desk', 'desks')] : []), ...(items > 0 ? [plural(items, 'work item', 'work items')] : [])];
+  return `${parts.join(' and ')} not placed`;
+};
+
 /** Derives the Delivery tab footer from readings. The component does no arithmetic or wording. */
 export const footerFact = (i: FooterInput): FooterFact => {
   const frozen = i.frozen ? ' (frozen)' : '';
   const freshness: FreshnessEntry[] = [];
 
   if (i.boardAgeSeconds !== null) {
-    const state = freshnessState(i.boardAgeSeconds, i.pollSeconds === null ? null : i.pollSeconds * 1000);
+    const state = i.frozen ? 'stale' : freshnessState(i.boardAgeSeconds, i.pollSeconds === null ? null : i.pollSeconds * 1000);
     freshness.push({
       key: 'board', state, word: FRESHNESS_WORD[state],
       text: `board read ${durationText(i.boardAgeSeconds)} old${frozen}`,
@@ -91,21 +101,22 @@ export const footerFact = (i: FooterInput): FooterFact => {
     });
   }
   if (i.prAgeSeconds !== null) {
-    const state = freshnessState(i.prAgeSeconds, i.prIntervalMs);
+    const state = i.frozen ? 'stale' : freshnessState(i.prAgeSeconds, i.prIntervalMs);
     freshness.push({
       key: 'pr', state, word: FRESHNESS_WORD[state],
       text: `PR data ${durationText(i.prAgeSeconds)} old${frozen}`,
       next: i.prNextSeconds === null ? null : `next read in ${durationText(i.prNextSeconds)}`,
     });
   } else if (!i.prError) {
-    freshness.push({ key: 'pr', state: 'unknown', word: FRESHNESS_WORD.unknown, text: 'no PR data yet', next: null });
+    const state: FreshnessState = i.frozen ? 'stale' : 'unknown';
+    freshness.push({ key: 'pr', state, word: FRESHNESS_WORD[state], text: 'no PR data yet', next: null });
   }
 
   const counts = `${i.branches} branches across ${i.plans} plans${i.complete ? '' : ' so far'}`;
   const n = i.notPlaced.length;
   const notPlaced = n === 0 ? null : {
     count: n,
-    text: `${n} ${n === 1 ? 'desk' : 'desks'} not placed`,
+    text: notPlacedText(i.notPlaced),
     details: unplacedDetails(i.notPlaced),
   };
 
