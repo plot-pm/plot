@@ -59,7 +59,7 @@ describe('the Delivery tab renders the five sections', () => {
       await line.waitFor({ timeout: 15_000 });
       const counts = await line.locator('[data-you-count]').allInnerTexts();
       expect(counts.length, `counts ${JSON.stringify(counts)}`).toBeGreaterThan(0);
-      for (const c of counts) expect(c).toMatch(/^(\d+ (block delivery|inputs the fleet waits for|to clean up|tickets to triage)|tickets to triage: not read)$/);
+      for (const c of counts.map((t) => t.replace(/^· /, '').trim())) expect(c).toMatch(/^(\d+ (block delivery|inputs the fleet waits for|to clean up|tickets to triage)|tickets to triage: not read)$/);
       const strip = header.locator('[data-phase-strip]');
       await strip.waitFor({ timeout: 15_000 });
       expect(await strip.innerText()).toMatch(/─▶/);
