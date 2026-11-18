@@ -430,6 +430,15 @@ describe('hostReadsFor with a Jenkins client', () => {
     expect(asked).toContain('colourMap:team/portal');
   });
 
+  it('keeps every read of a GitHub repository with CI: jenkins on the shell where no client is given', async () => {
+    const shell = shellHost();
+    const seen = { options: null as GithubApiOptions | null, requests: [] as GithubRequest[] };
+    const reads = await hostReadsFor(context, { backend: 'github', ci: 'jenkins' }, { env: { GH_TOKEN: 'fixture' }, shell, client: fakeClient('GH_TOKEN', seen) });
+    expect(reads.choice.transport).toBe('shell');
+    expect(reads.host).toBe(shell);
+    expect(seen.requests).toEqual([]);
+  });
+
   it('keeps the shell where PLOT_HOST_TRANSPORT=shell, and asks Jenkins nothing', async () => {
     const shell = shellHost();
     const asked: string[] = [];

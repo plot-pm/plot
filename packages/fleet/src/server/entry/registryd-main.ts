@@ -59,7 +59,7 @@ import {
   type TrackerReads,
 } from '@plot-pm/domain/adapters';
 import { indexChange, type PrIndexRow, type ScanPlan } from '@plot-pm/domain';
-import { composeJenkins, jenkinsReads } from '@plot-pm/domain/adapters/build/jenkins-api';
+import { composeJenkins, jenkinsReads, type JenkinsComposition } from '@plot-pm/domain/adapters/build/jenkins-api';
 import { HOST_TRANSPORT_ENV, hostTransportLine } from '@plot-pm/domain/rules/host-transport';
 import { trackerTransportLine } from '@plot-pm/domain/rules/tracker-transport';
 import { probeAppKeysAtStart } from '@plot-pm/domain/workflows/app-key-start-probe';
@@ -289,6 +289,54 @@ const MACHINE_SAMPLES = 5;
  * @returns the artifact's absolute path.
  */
 export const fleetdBundlePath = (here: string): string => join(here, 'plot-fleetd.mjs');
+
+/**
+ * Chooses the Jenkins transport for a repository, once, at start.
+ *
+ * A repository whose `CI` is not `jenkins` has none and answers null. With
+ * `PLOT_HOST_TRANSPORT=shell` the shell stays and the reason is logged. Any
+ * other repository composes the in-process client, which logs the credential
+ * source or the reason the shell stays.
+ *
+ * @param declaredCi - the `CI` config value.
+ * @param env - reads the transport switch.
+ * @param instance - reads the Jenkins instance.
+ * @param warn - receives the log lines, each ending in a newline.
+ * @param compose - builds the composition; defaults to {@link composeJenkins}.
+ * @returns the composition, or null where the repository does not use Jenkins.
+ */
+export const jenkinsTransportOf = async (
+  declaredCi: string,
+  env: Readonly<Record<string, string | undefined>>,
+  instance: () => Promise<string>,
+  warn: (line: string) => void,
+  compose: typeof composeJenkins = composeJenkins,
+): Promise<JenkinsComposition | null> => {
+  if (declaredCi.trim().toLowerCase() !== 'jenkins') return null;
+  if (env[HOST_TRANSPORT_ENV] === 'shell') {
+    const reason = `${HOST_TRANSPORT_ENV}=shell`;
+    warn(`plot-fleetd: Jenkins reads stay on the shell: ${reason}\n`);
+    return { kind: 'shell', reason };
+  }
+  return compose({ instance: await instance() }, (line) => warn(`plot-fleetd: ${line}\n`))();
+};
+
+/**
+ * Appends the Jenkins transport to the host transport's reason, so the start line and the status line name both.
+ *
+ * @param choice - the host transport choice.
+ * @param jenkins - the Jenkins composition, or null where the repository does not use Jenkins.
+ * @returns the choice, with its reason extended where Jenkins is in use.
+ */
+export const withJenkinsTransport = <C extends { readonly reason: string }>(choice: C, jenkins: JenkinsComposition | null): C =>
+  jenkins === null
+    ? choice
+    : {
+        ...choice,
+        reason: `${choice.reason}; Jenkins reads: ${
+          jenkins.kind === 'in-process' ? `in-process (credentials from ${jenkins.dir ?? 'the environment'})` : `shell (${jenkins.reason})`
+        }`,
+      };
 
 /**
  * The record {@link run} writes to `fleetd-start.json` at its own start, or null
@@ -3148,17 +3196,13 @@ export const run = async (
   // repository whose `CI` is `jenkins` reads the colours and builds in-process
   // where a credential resolves, and through `jen` otherwise. The composition
   // logs the credential source or the reason the shell stays, never a token.
-  const jenkinsComposition = await (async () => {
-    if (declaredCi.trim().toLowerCase() !== 'jenkins') return null;
-    if (process.env[HOST_TRANSPORT_ENV] === 'shell') {
-      const reason = `${HOST_TRANSPORT_ENV}=shell`;
-      warn(`plot-fleetd: Jenkins reads stay on the shell: ${reason}\n`);
-      return { kind: 'shell' as const, reason };
-    }
-    const instance =
-      (await readConfigAsync({ repoRoot, scriptsDir }, 'Jenkins instance', '')) || process.env.JENKINS_INSTANCE || '';
-    return composeJenkins({ instance }, (line) => warn(`plot-fleetd: ${line}\n`))();
-  })();
+  const jenkinsComposition = await jenkinsTransportOf(
+    declaredCi,
+    process.env,
+    async () =>
+      (await readConfigAsync({ repoRoot, scriptsDir }, 'Jenkins instance', '')) || process.env.JENKINS_INSTANCE || '',
+    warn,
+  );
   const jenkinsApi = jenkinsComposition?.kind === 'in-process' ? jenkinsComposition.api : undefined;
   const readsOnly =
     seams.hostReads ??
@@ -3169,20 +3213,7 @@ export const run = async (
     ));
   // The status line and the start line carry the Jenkins transport beside the
   // host's, so `--status` names both.
-  const hostReads: HostReads =
-    jenkinsComposition === null
-      ? readsOnly
-      : {
-          ...readsOnly,
-          choice: {
-            ...readsOnly.choice,
-            reason: `${readsOnly.choice.reason}; Jenkins reads: ${
-              jenkinsComposition.kind === 'in-process'
-                ? `in-process (credentials from ${jenkinsComposition.dir ?? 'the environment'})`
-                : `shell (${jenkinsComposition.reason})`
-            }`,
-          },
-        };
+  const hostReads: HostReads = { ...readsOnly, choice: withJenkinsTransport(readsOnly.choice, jenkinsComposition) };
   warn(`plot-fleetd: ${hostTransportLine(hostReads.choice)}\n`);
   const readsApi = hostReads.api ?? undefined;
   // THE TRACKER'S TRANSPORT IS CHOSEN ONCE, AT START, under the same switch as
