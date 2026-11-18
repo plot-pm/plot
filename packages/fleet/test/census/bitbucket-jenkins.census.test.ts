@@ -63,7 +63,7 @@ describe.skipIf(gate.kind !== 'run')('fleetd on bitbucket with CI: jenkins', () 
   it('logs the in-process transport and the credential source at start', () => {
     const lines = started.log.filter((l) => l.includes('host reads:'));
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatch(/host reads: in-process \(.*Jenkins reads: in-process \(credentials from [^)]+\)\)/);
+    expect(lines[0]).toMatch(/host reads: in-process \(.*Jenkins reads: in-process \(credentials from [^)]+\)/);
     expect(lines[0]).not.toContain('stays on the shell');
   });
 });

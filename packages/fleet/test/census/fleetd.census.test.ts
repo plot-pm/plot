@@ -207,6 +207,8 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
   let jiraRequestsPerPass: number[] = [];
   /** The in-process Jenkins requests per idle pass. */
   let jenkinsRequestsPerPass: number[] = [];
+  /** The in-process Jenkins requests over all three passes: the first pass reads, and the idle passes after it read nothing until something changes. */
+  let jenkinsRequestsTotal = 0;
   /** The in-process token-route requests over the three passes, the shell's `jen` read calls per idle pass, and each run's stored `checks` words. */
   let tokenRequestsTotal = 0;
   let jenBaseline: number[] = [];
@@ -240,6 +242,7 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
       jiraRequestsPerPass = deltas(jiraSampled);
       jenkinsRequestsPerPass = deltas(jenkinsSampled);
       tokenRequestsTotal = tokenRequests(box);
+      jenkinsRequestsTotal = jenkinsSampled.at(-1) ?? 0;
       if (withChanges) {
         const desk = box.desks[0];
         if (desk === undefined) throw new Error('process census: the fixture holds no desk');
@@ -422,15 +425,18 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
     });
 
     if (fixture.ci === 'jenkins') {
-      // The row holds the zero and the plan's lower bound: the stub's Jenkins route receives
-      // requests summed over both idle passes. The store's `checks` words equal the shell run's,
+      // The row holds the zero and a lower bound: the stub's Jenkins route receives requests over
+      // the three passes. Measured on CI run 44316759954 (9b95ab92e): the idle passes 2 and 3 read
+      // no listing on this fixture, in-process or on the shell (P10 reads 0, 0 and the shell run's
+      // `jen` calls 0, 0), so the bound over the idle passes alone held 0 and failed; pass 1 carries
+      // the reads. The store's `checks` words equal the shell run's,
       // and one of them is a bound green word, so a Jenkins read that answers nothing fails here.
       it(rowTitle(CENSUS_ROWS.P12, fixture), () => {
         const { mean, each, execs } = perPass(isJenkinsRead);
         recordCount(CENSUS_ROWS.P12, fixture, mean, execs);
-        console.log(`process census P12: in-process Jenkins requests per idle pass ${jenkinsRequestsPerPass.join(', ')}; token-route requests ${tokenRequestsTotal}`);
+        console.log(`process census P12: in-process Jenkins requests per idle pass ${jenkinsRequestsPerPass.join(', ')}, over three passes ${jenkinsRequestsTotal}; token-route requests ${tokenRequestsTotal}`);
         expect(each).toEqual([0, 0]);
-        expect(jenkinsRequestsPerPass.reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
+        expect(jenkinsRequestsTotal).toBeGreaterThan(0);
         expect(storedInProcess).toEqual(storedShell);
         expect(storedInProcess.some((w) => w.endsWith(':green'))).toBe(true);
       });
