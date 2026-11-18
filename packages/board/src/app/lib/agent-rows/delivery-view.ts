@@ -1,5 +1,6 @@
 import {
   DELIVERY_LAYOUT,
+  deliveryGroupAnchor,
   isStuckReason,
   looseActions,
   oldestWaitsClause,
@@ -162,7 +163,7 @@ export interface SectionCount {
   anchor: string | null;
 }
 
-export const groupAnchor = (key: string): string => `delivery-group-${key}`;
+export const groupAnchor = (key: string): string => deliveryGroupAnchor(key);
 
 /**
  * The counts of a section's header line, one per group in layout order. A group with no rows keeps its count of 0

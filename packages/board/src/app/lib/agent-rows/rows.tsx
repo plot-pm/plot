@@ -13,6 +13,8 @@ import {
   type WaitingGroup,
   type Slice,
   type AgentEntry,
+  type Board,
+  type StoryCard,
   UNNAMED_SLICE,
   isSpikeSlice,
   isBrokenState,
@@ -149,6 +151,10 @@ export interface AgentListProps {
   fleet: Fleet;
   /** The board's ticket card facts by issue number; the issue rows' *Create plan* follows them. */
   ticketFacts?: ReadonlyMap<string, CardFacts>;
+  /** The board's declared phases; the You header's strip names its phases from them. Absent reads as the default map. */
+  phaseMap?: Board['phaseMap'] | undefined;
+  /** The live stories (Draft and Active lanes), for the strip's Discovery count. */
+  stories?: readonly StoryCard[] | undefined;
   /**
    * Seconds between fleet polls, or null when the tab is not open and nothing
    * is polling. Null suppresses the git countdown: a counter ticking toward a

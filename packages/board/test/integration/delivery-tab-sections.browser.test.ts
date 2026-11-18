@@ -50,6 +50,33 @@ describe('the Delivery tab renders the five sections', () => {
     }
   }, 60_000);
 
+  it('shows the You header counts and the phase strip, and a count link reaches its target', async () => {
+    const page = await cat.open('a-full-estate', { tab: 'agents' });
+    try {
+      const header = page.locator('h2[data-delivery-section="you"]');
+      await header.waitFor({ timeout: 15_000 });
+      const line = header.locator('[data-you-header]');
+      await line.waitFor({ timeout: 15_000 });
+      const counts = await line.locator('[data-you-count]').allInnerTexts();
+      expect(counts.length, `counts ${JSON.stringify(counts)}`).toBeGreaterThan(0);
+      for (const c of counts) expect(c).toMatch(/^(\d+ (block delivery|inputs the fleet waits for|to clean up|tickets to triage)|tickets to triage: not read)$/);
+      const strip = header.locator('[data-phase-strip]');
+      await strip.waitFor({ timeout: 15_000 });
+      expect(await strip.innerText()).toMatch(/─▶/);
+      expect(await strip.locator('[data-phase-strip-entry]').count()).toBeGreaterThan(0);
+      const link = header.locator('[data-you-count-link]').first();
+      if (await link.count() > 0) {
+        const key = await link.getAttribute('data-you-count-link');
+        await link.click();
+        const target = key === 'tickets' ? '[data-delivery-section="tickets"]' : `[data-group="${key}"][data-link-target]`;
+        await page.locator(target).first().waitFor({ state: 'attached', timeout: 5_000 });
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+
   it('shows an icon and a count link in a header, and the link reaches its group', async () => {
     const page = await cat.open('a-full-estate', { tab: 'agents' });
     try {

@@ -1517,6 +1517,15 @@ export const BoardSchema = z.object({
    * value draws the default map, and the board shows this text above the columns.
    */
   phaseMapRefusal: z.string().nullable().default(null),
+  /**
+   * The declared phases in declared order: the parsed `Workflow phases` map, or the default map where the key is absent or refused.
+   * The Delivery tab's You header names its phase strip from it. `[]` for an older server, which the client reads as the default map.
+   */
+  phaseMap: z.array(z.object({
+    name: z.string(),
+    plan: z.array(z.string()),
+    story: z.array(z.string()),
+  })).default([]),
   sprints: z.array(SprintCardSchema),
   stories: z.array(StoryCardSchema),
   /**
