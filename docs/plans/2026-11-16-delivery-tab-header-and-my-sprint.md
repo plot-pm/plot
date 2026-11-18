@@ -18,6 +18,7 @@
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-fleet-card`
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-slice-states`
 - **Started:** 2026-11-18, Jan Wloka, `feature/delivery-sprint-card`
+- **Started:** 2026-11-18, Jan Wloka, `feature/delivery-tab-todo-list`
 
 ## Changelog
 
