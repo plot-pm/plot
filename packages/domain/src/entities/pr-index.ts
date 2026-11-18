@@ -9,7 +9,7 @@ import { z } from 'zod';
  * unparseable by construction, which is the fallback the store is required to
  * take.
  */
-export const PR_INDEX_VERSION = 7;
+export const PR_INDEX_VERSION = 8;
 
 /**
  * One PR as the store holds it — exactly what the host answered, and nothing
@@ -153,6 +153,19 @@ export const PrIndexRowSchema = z
     //                       pass answered it, not an order a PR passes through.
     //                       Re-read fresh every pass; bound to checksSha.
     ciChecks: z.enum(['green', 'pending', 'failing', 'none', 'unknown']).optional(),
+    /**
+     * A person's unanswered comment, as fleetd's merge pass held it when it
+     * refused the PR `human-comment-open`. `head` is the commit (`headSha`'s
+     * kind, never the branch name); `at` is the later of the conversation's
+     * newest time and the row's `updatedAt` then.
+     *
+     * **ABSENT MEANS NEVER ASKED, NOT "NO COMMENT".** A repository with no merge
+     * pass, a PR whose CI never passed, and every row `plot-pr-reader.mjs`
+     * writes carry none. A reader binds it with `personCommentHolds`.
+     */
+    // plot-state: reading — fleetd's held merge-pass answer, not an order a PR
+    //                       passes through. Bound to head and time by its reader.
+    personComment: z.object({ head: z.string(), at: z.string() }).strict().optional(),
   })
   .strict();
 

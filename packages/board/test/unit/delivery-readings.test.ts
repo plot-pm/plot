@@ -90,6 +90,19 @@ describe('deliveryMapping', () => {
     expect(off.items[0]).toMatchObject({ section: 'you', group: 'blocks-delivery' });
   });
 
+  it('places a PR whose personComment names its head and is not older than updatedAt under Blocks delivery', () => {
+    const open = (over: Record<string, unknown>) => place(deliveryMapping(input({
+      rows: [row({ branch: 'feature/o', pr: pr({ ciChecks: 'green', plotReview: 'success', headSha: 'sha-1', updatedAt: '2026-11-18T09:00:00Z', ...over }) })],
+    }))).items[0];
+    const comment = { head: 'sha-1', at: '2026-11-18T09:30:00Z' };
+    expect(open({ personComment: comment })).toMatchObject({ section: 'you', group: 'blocks-delivery', reason: 'person-comment' });
+    expect(open({})).toMatchObject({ section: 'work-items', group: 'at-a-gate' });
+    expect(open({ personComment: { ...comment, head: 'feature/o' } })).toMatchObject({ section: 'work-items' });
+    expect(open({ personComment: comment, updatedAt: '2026-11-18T10:00:00Z' })).toMatchObject({ section: 'work-items' });
+    expect(open({ personComment: comment, updatedAt: undefined })).toMatchObject({ section: 'work-items' });
+    expect(open({ personComment: { ...comment, at: 'soon' } })).toMatchObject({ section: 'work-items' });
+  });
+
   it('passes the Mine mode and both config keys through unchanged', () => {
     const m = deliveryMapping(input({ mode: 'mine', config: { autoReview: false, correctionBudget: 5 } }));
     expect(m.input).toEqual({ mine: 'strict', autoReview: false, correctionBudget: 5 });

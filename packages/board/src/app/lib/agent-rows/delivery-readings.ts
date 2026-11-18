@@ -18,6 +18,7 @@ import {
 } from '@plot-pm/domain';
 import type { CountedSlice } from '@plot-pm/domain/rules/slice-states';
 import type { PersonDirectory } from '@plot-pm/domain/entities/person';
+import { personCommentHolds } from '@plot-pm/domain/rules/person-comment';
 import { ticketMarkOf, ticketRecordOf } from '@plot-pm/domain/rules/sprint-ticket-record';
 import type { AgentEntry, AgentRow, DraftPlan, IssueRow, ReleaseTickets, Slice, TicketSourceShape } from '../../../contract/schema.js';
 import { ownedFromCard, ownedFromRow, ownedFromTicket } from './mine-filter.js';
@@ -251,6 +252,7 @@ const rowItem = (id: string, rows: readonly AgentRow[], slice: Slice | undefined
     item.stage = 'pr';
     item.pr = { ci: ciOf(open.pr), review: reviewOf(open.pr) };
     if (open.pr.state === 'conflicts') item.mergeConflict = true;
+    if (personCommentHolds(open.pr.personComment, open.pr)) item.personComment = true;
   } else if (rows.some((r) => r.state === 'wip' || r.state === 'claimed')) {
     item.stage = 'building';
   } else if (!merged) {

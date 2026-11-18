@@ -196,7 +196,7 @@ The risk is medium, as the story says: bearer expiry. A reader that holds a 300 
 
 ### Cutover
 
-- `feature/jenkins-reads-in-process-cutover` — the in-process Jenkins overlay in `bitbucketPrListing` and `githubPrListing`, `hostReadsFor` taking the client so that only fleetd leaves `SHELL_CI` and `SHELL_RICH_CI`, the client in fleetd's composition root, the start log and status line, `rules/ci-build-rows.ts` with its corpus row, the inverted `bitbucket-jenkins.census.test.ts`, the Jenkins fixture's `recordOnly` shrunk to S4, census P12 green with its lower bound, the S4 record and the story's *Measures*; the Cutover holds where the rotation measurement says reuse revokes the session; a changeset for `plot` <!-- builds: the Jenkins transport switch in fleetd's composition root -->
+- `feature/jenkins-reads-in-process-cutover` — the in-process Jenkins overlay in `bitbucketPrListing` and `githubPrListing`, `hostReadsFor` taking the client so that only fleetd leaves `SHELL_CI` and `SHELL_RICH_CI`, the client in fleetd's composition root, the start log and status line, `rules/ci-build-rows.ts` with its corpus row, the inverted `bitbucket-jenkins.census.test.ts`, the Jenkins fixture's `recordOnly` shrunk to S4, census P12 green with its lower bound, the S4 record and the story's *Measures*; the Cutover holds where the rotation measurement says reuse revokes the session; a changeset for `plot` <!-- builds: the Jenkins transport switch in fleetd's composition root --> → #3526
 
 ## Notes
 

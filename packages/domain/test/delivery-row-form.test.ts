@@ -454,6 +454,12 @@ describe('the You column set', () => {
     const gated = youRowCells(you('review-pr', 'unblock', [], 'slice'), { ...facts, prReading: { ci: 'passed', review: 'passed' } } as ItemRowFacts)!;
     expect(gated.status?.value).toContain('review');
   });
+  it('words a person comment: status "comment", and a slice at a gate, not a stuck one', async () => {
+    const { youRowCells } = await import('../src/rules/delivery-row-form.js');
+    const cells = youRowCells(you('person-comment', 'blocks-delivery', [], 'slice'), facts)!;
+    expect(cells.status?.value).toContain('comment');
+    expect(cells.do?.value).toBe('answer ›');
+  });
   it('is null for a You item with no row shape', async () => {
     const { youRowCells } = await import('../src/rules/delivery-row-form.js');
     expect(youRowCells(you('review-pr', 'unblock', [], 'ticket'), facts)).toBeNull();

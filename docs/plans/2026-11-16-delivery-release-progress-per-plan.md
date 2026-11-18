@@ -120,7 +120,7 @@ Per slice, in slice order.
 
 ### Plan rows
 
-- `feature/delivery-release-plan-rows` <!-- waits: feature/delivery-slice-states, feature/delivery-work-items-groups, feature/sprint-owner-field --> — the Release delivery header in the place of the release line, one block per target release, one collapsed row per plan with its slice strip and Owner, the opened Done / In flight / To do list with PR numbers, merge dates, links and Start, not-started slices out of Work items, and the narrowed collapse keys <!-- builds: a slice strip and a plan's grouped slice list -->
+- `feature/delivery-release-plan-rows` <!-- waits: feature/delivery-slice-states, feature/delivery-work-items-groups, feature/sprint-owner-field --> — the Release delivery header in the place of the release line, one block per target release, one collapsed row per plan with its slice strip and Owner, the opened Done / In flight / To do list with PR numbers, merge dates, links and Start, not-started slices out of Work items, and the narrowed collapse keys <!-- builds: a slice strip and a plan's grouped slice list --> → #3525
 
 ### Person cards
 

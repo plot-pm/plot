@@ -58,6 +58,8 @@ export interface WorkItemReading {
   blockedMarker?: boolean;
   /** The PR conflicts with the default branch. */
   mergeConflict?: boolean;
+  /** A person's comment on the PR is unanswered, bound to the PR's head and last update. */
+  personComment?: boolean;
   /** The fleet cannot pass the gate holding the item alone. */
   gateUnpassable?: boolean;
   /** A slice's merged PR, or a plan in Delivered or Released, has left the fleet's hands. */
@@ -138,6 +140,7 @@ export type YouReason =
   | 'blocked-marker'
   | 'fleet-stuck'
   | 'merge-conflict'
+  | 'person-comment'
   | 'agent-died'
   | 'loose';
 
@@ -208,6 +211,7 @@ const YOU_GROUP_OF: Record<YouReason, YouGroup> = {
   'blocked-marker': 'blocks-delivery',
   'fleet-stuck': 'blocks-delivery',
   'merge-conflict': 'blocks-delivery',
+  'person-comment': 'blocks-delivery',
   'agent-died': 'blocks-delivery',
   loose: 'unblock',
 };
@@ -310,6 +314,7 @@ export const youCaseOfItem = (
     const failing = pr.ci === 'failed' || pr.review === 'high';
     if (item.gateUnpassable === true || (failing && spent)) return YOU_CASES['fleet-stuck'];
     if (item.mergeConflict === true && live === 0) return YOU_CASES['merge-conflict'];
+    if (item.personComment === true) return YOU_CASES['person-comment'];
     if (!input.autoReview && pr.ci === 'passed' && (pr.review === 'pending' || pr.review === 'none')) {
       return YOU_CASES['review-pr'];
     }

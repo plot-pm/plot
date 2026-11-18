@@ -198,6 +198,7 @@ const REASON_STATUS: Record<YouReason, string> = {
   'blocked-marker': 'blocked',
   'fleet-stuck': 'stuck',
   'merge-conflict': 'conflict',
+  'person-comment': 'comment',
   'agent-died': 'agent died',
   loose: 'loose',
 };
@@ -213,6 +214,7 @@ const REASON_DO: Record<YouReason, { verb: string; action: string }> = {
   'blocked-marker': { verb: 'answer', action: 'continue' },
   'fleet-stuck': { verb: 'unblock', action: 'unblock' },
   'merge-conflict': { verb: 'resolve', action: 'resolve-conflict' },
+  'person-comment': { verb: 'answer', action: 'answer-comment' },
   'agent-died': { verb: 'restart', action: 'restart' },
   loose: { verb: 'plan', action: 'create-plan' },
 };

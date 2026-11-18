@@ -41,6 +41,7 @@ export const fleetAutoWrites = (
   warn: (line: string) => void,
   queueHeld: () => readonly HeldSlice[] | null = () => null,
   stopped: () => boolean = () => false,
+  conversationHolds: ConversationHolds = new Map(),
 ): ((pulse: FleetReading) => Promise<void>) => {
   // IN MEMORY, FOR THE DAEMON'S LIFE: a restart loses it, the brief either
   // landed or did not, and the next pass asks again.
@@ -55,9 +56,7 @@ export const fleetAutoWrites = (
   const progressSent = new Map<string, string>();
   // THE (PR, HEAD) PAIRS THE HOST REFUSED TO MERGE, for the daemon's life: a restart asks once more.
   const mergeRefused = new Map<number, string>();
-  // THE PRS REFUSED FOR AN UNANSWERED OR UNREAD COMMENT, for the daemon's life: one record per PR, cleared by a new head or a newer row.
-  const conversationHolds: ConversationHolds = new Map();
-  // THE FIXER REFUSALS ALREADY LOGGED, for the daemon's life: one line per PR, head and reason.
+    // THE FIXER REFUSALS ALREADY LOGGED, for the daemon's life: one line per PR, head and reason.
   const fixerLogged = new Set<string>();
   // THE REVIEW START REFUSALS ALREADY LOGGED, for the daemon's life: one line per PR, head and reason.
   const reviewLogged = new Set<string>();
