@@ -1170,7 +1170,7 @@ export function AgentList({
         // "Approve release" line reads them while the sprint card shows.
         const releaseCardView = releaseCardsOf(activeSprints.map(cardSprintOf), reader.directory, { ...mappingInput, rows: fleet.rows });
         const placement = placeDelivery(mapping.readings, mapping.input);
-        const view = placeMapping(mapping, fleet.slices, activeSprints);
+        const view = placeMapping(mapping, fleet.slices, activeSprints, sprintScope);
         unplacedForFooter = view.notPlaced;
         const youHead = youHeaderOf({
           view, placement, reader, ticketAnswer: fleet.issueAnswer ?? null, phaseMap,
@@ -1509,7 +1509,7 @@ export function AgentList({
               // open, read from the same `active` set the rows render from.
               const release = section.key === 'release-delivery';
               const sectionPace = groupPace(release ? view.releaseRows : section.rows, active);
-              const { folded, header } = fold(section.key, release ? view.releaseBlocks.reduce((n, b) => n + b.plans.length, 0) : section.count, (
+              const { folded, header } = fold(section.key, release ? view.releasePlanCount : section.count, (
                 <h2 data-delivery-section={section.key} className="flex min-w-0 flex-1 items-baseline gap-1 text-base font-semibold text-slate-800 dark:text-slate-100">
                   <svg aria-hidden="true" data-section-icon={section.icon} viewBox="0 0 16 16" width="16" height="16" fill="currentColor" className="inline-block shrink-0 self-center">
                     <path d={sectionGlyph(section)} />
@@ -1567,7 +1567,7 @@ export function AgentList({
                       )}
                     </span>
                   )}
-                  {release && <span className="ml-1 font-normal text-slate-500">({view.releaseBlocks.reduce((n, b) => n + b.plans.length, 0)})</span>}
+                  {release && <span className="ml-1 font-normal text-slate-500">({view.releasePlanCount})</span>}
                   {sectionPace && <ActivityMark pace={sectionPace} place="heading" />}
                   <span data-section-controls className="ml-auto">
                     {section.key === 'fleet' && (
@@ -1586,12 +1586,12 @@ export function AgentList({
                 <section key={section.key} data-section={section.key} className="space-y-2">
                   {header}
                   {release && view.releaseBlocks.map((block) => (
-                    <div key={block.release || 'all'} data-release-block={block.release} className="space-y-1">
+                    <div key={block.sprint || block.release || 'all'} data-release-block={block.release} {...(block.sprint === '' ? {} : { 'data-sprint-block': block.sprint })} className="space-y-1">
                       <p data-release-line className="px-3 text-sm text-slate-600 dark:text-slate-300">{block.header}</p>
                       <ReleasePersonCards cards={block.cards} />
                       <ul
                         role="list"
-                        aria-label="Release delivery — plans"
+                        aria-label={`${section.label} — plans`}
                         data-delivered
                         className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900/40"
                       >

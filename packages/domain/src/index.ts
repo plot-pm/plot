@@ -686,6 +686,7 @@ export * from './rules/slice-states.js';
 export * from './rules/sprint-card.js';
 export * from './rules/release-card.js';
 export * from './rules/delivery-scope.js';
+export * from './rules/sprint-delivery.js';
 export * from './rules/tickets-section.js';
 export * from './rules/agent-roles.js';
 export * from './rules/agent-time-left.js';

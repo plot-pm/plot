@@ -5,6 +5,10 @@ import {
   planRowFacts,
   releaseBlocks,
   releasePersonCards,
+  sprintDeliveryGroups,
+  sprintDeliveryTitle,
+  sprintGroupHeader,
+  type DeliveryScopeKind,
   type CountedSlice,
   type PersonCard,
   sliceStateIn,
@@ -222,6 +226,8 @@ export interface DeliveryView {
   notPlaced: UnplacedView[];
   /** The Release delivery blocks: one per target release, each holding one collapsed row per plan. */
   releaseBlocks: ReleaseBlockView[];
+  /** The distinct plans the section lists, a plan under two sprint groups counted once. */
+  releasePlanCount: number;
   /** Every payload row the plan rows hold, for the section's pace mark. */
   releaseRows: AgentRow[];
   delivered: UnplacedView[];
@@ -240,6 +246,10 @@ export interface PlanRowView extends PlanRowFacts {
 /** One target release's block. */
 export interface ReleaseBlockView {
   release: string;
+  /** The sprint a group belongs to under the `my-sprint` scope, `''` for a release block. */
+  sprint: string;
+  /** The sprint's name where the scope holds several sprints, `''` otherwise. */
+  name: string;
   header: string;
   plans: PlanRowView[];
   /** One card per sprint owner of the release; empty where no sprint names the release. */
@@ -386,6 +396,7 @@ export const deliveryView = (
   placement: DeliveryPlacement,
   slices?: Slice[],
   sprints: readonly Pick<FleetSprint, 'slug' | 'title' | 'release' | 'ownerHandle' | 'members'>[] = [],
+  scope: DeliveryViewScope = { kind: 'release', sprints: [] },
 ): DeliveryView => {
   const rowOf = (item: string): AgentRow | null => mapping.rowsByItem[item]?.[0] ?? null;
   const ownRow = (entry: RegistryAgent | null): AgentRow | null => {
@@ -533,24 +544,43 @@ export const deliveryView = (
     list.push({ id, merge: s.merge === 'none' ? 'open' : s.merge ?? (s.complete || delivered ? 'merged' : 'open') });
     slicesByPlan.set(s.plan, list);
   }
-  const blocks = releaseBlocks(sprints.map((sp) => ({ release: sp.release, members: sp.members.map((m) => m.slug) })), approved).map((b): ReleaseBlockView => {
+  const scopeFacts = { kind: scope.kind, sprints: scope.sprints.map((sp) => ({ slug: sp.slug, title: sp.title, members: (sp.members ?? []).map((m) => m.slug) })) };
+  const sprintGroups = sprintDeliveryGroups(scopeFacts, approved);
+  const sectionTitle = sprintDeliveryTitle(scopeFacts);
+  for (const section of sections) if (section.key === 'release-delivery') section.label = sectionTitle;
+  const blockedOf = (plans: readonly PlanRowView[]): number => plans.reduce((n, p) => n + (p.strip.find((x) => x.state === 'blocked')?.count ?? 0), 0);
+  const sprintBlocks = sprintGroups.map((g): ReleaseBlockView => {
+    const plans = g.plans.map(planRow);
+    const header = sprintGroupHeader(g.name, sprintGroups.length > 1, headerText(headerCounts(plans), '', { blocked: blockedOf(plans) }));
+    return { release: '', sprint: g.sprint, name: sprintGroups.length > 1 ? g.name : '', header, plans, cards: [] };
+  });
+  const releaseScoped = releaseBlocks(sprints.map((sp) => ({ release: sp.release, members: sp.members.map((m) => m.slug) })), approved).map((b): ReleaseBlockView => {
     const plans = b.plans.filter((p) => approved.includes(p)).map(planRow);
-    const blocked = plans.reduce((n, p) => n + (p.strip.find((x) => x.state === 'blocked')?.count ?? 0), 0);
+    const blocked = blockedOf(plans);
     const target = mapping.releases.targets.find((t) => t.release === b.release);
     const tickets = mapping.releases.tickets;
     const wording = target === undefined || tickets === null ? null : releaseTicketWording(tickets, target.release, target.started);
     const header = headerText(headerCounts(plans), b.release, { blocked });
     const cards = releasePersonCards(sprints.map((sp) => ({ slug: sp.slug, title: sp.title ?? '', release: sp.release ?? '', ownerHandle: sp.ownerHandle ?? '', members: sp.members ?? [] })), b.release, mapping.directory ?? {}, slicesByPlan, mapping.wholeReadings, mapping.input);
-    return { release: b.release, plans, header: wording === null ? header : `${header} · ${wording}`, cards };
+    return { release: b.release, sprint: '', name: '', plans, header: wording === null ? header : `${header} · ${wording}`, cards };
   });
+  const blocks = scope.kind === 'my-sprint' ? sprintBlocks : releaseScoped;
+  const releasePlanCount = new Set(blocks.flatMap((b) => b.plans.map((p) => p.plan))).size;
   const releaseRows = blocks.flatMap((b) => b.plans.flatMap((p) => Object.values(p.itemIds).flatMap((id) => mapping.rowsByItem[id] ?? [])));
 
-  return { sections, notPlaced, releaseBlocks: blocks, releaseRows, delivered };
+  return { sections, notPlaced, releaseBlocks: blocks, releasePlanCount, releaseRows, delivered };
 };
+
+/** The Delivery scope as the section reads it: its kind and the sprints in scope. */
+export interface DeliveryViewScope {
+  kind: DeliveryScopeKind;
+  sprints: readonly Pick<FleetSprint, 'slug' | 'title' | 'members'>[];
+}
 
 /** Maps the payload and places it: the one call the tab makes. */
 export const placeMapping = (
   mapping: DeliveryMapping,
   slices?: Slice[],
   sprints: readonly Pick<FleetSprint, 'slug' | 'title' | 'release' | 'ownerHandle' | 'members'>[] = [],
-): DeliveryView => deliveryView(mapping, placeDelivery(mapping.readings, mapping.input), slices, sprints);
+  scope?: DeliveryViewScope,
+): DeliveryView => deliveryView(mapping, placeDelivery(mapping.readings, mapping.input), slices, sprints, scope);
