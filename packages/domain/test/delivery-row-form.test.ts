@@ -447,6 +447,17 @@ describe('the You column set', () => {
     expect(youRowCells(draft, { plan: 'p', rounds: 1, phase: 'design' })!.status?.value).toBe('Design · 1 round');
     expect(youRowCells(you('loose', 'unblock', [], 'branch'), { branch: 'feature/x' })!.status?.value).toBe('loose · no plan, nobody works on it');
   });
+  it('keeps the other reasons\' status text and any link the base cell carries', async () => {
+    const { youRowCells } = await import('../src/rules/delivery-row-form.js');
+    const review = youRowCells(you('review-pr', 'unblock', [], 'slice'), facts)!;
+    expect(review.status?.value).toContain('review');
+    const gated = youRowCells(you('review-pr', 'unblock', [], 'slice'), { ...facts, prReading: { ci: 'green', review: 'approved' } } as ItemRowFacts)!;
+    expect(gated.status?.value).toContain('review');
+  });
+  it('is null for a You item with no row shape', async () => {
+    const { youRowCells } = await import('../src/rules/delivery-row-form.js');
+    expect(youRowCells(you('review-pr', 'unblock', [], 'ticket'), facts)).toBeNull();
+  });
   it('is null outside You', async () => {
     const { youRowCells } = await import('../src/rules/delivery-row-form.js');
     expect(youRowCells(work('queued'), facts)).toBeNull();

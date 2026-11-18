@@ -161,6 +161,11 @@ describe('a Draft plan in You', () => {
     expect(blocks.map((b) => b.kind)).toEqual(['item']);
   });
 
+  it('keeps the nesting of a plan that has no draft item of its own', () => {
+    const blocks = nestItems('input-to-the-fleet', ['a', 'b', 'c'].map(sliceItem), undefined, true);
+    expect(blocks.map((b) => b.kind)).toEqual(['plan']);
+  });
+
   it('keeps its nesting in the other sections', () => {
     const items = ['a', 'b'].map(sliceItem).map((i) => ({ ...i, placement: { section: 'work-items', group: 'queued', id: i.anchor } }) as unknown as PlacedItemView);
     const blocks = nestItems('queued', [draftItem, ...items], undefined, false);

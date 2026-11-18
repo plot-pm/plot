@@ -249,20 +249,12 @@ const planOfItem = (item: PlacedItemView): string => item.rows[0]?.plan ?? '';
 const isSliceItem = (item: PlacedItemView): boolean => item.rows.length > 0 && rowInSlice(item.rows[0]!);
 
 /**
- * The items of the You section with a Draft or Design plan's slice items dropped: the plan's own
- * row stands for it. A plan with no draft item keeps its first slice item as that row.
+ * The items of the You section with the slice items of a plan that has its own draft item dropped:
+ * that row stands for the plan. A plan with no draft item keeps its slice items and their nesting.
  */
 const oneRowPerDraftPlan = (items: readonly PlacedItemView[]): PlacedItemView[] => {
-  const isDraftSlice = (i: PlacedItemView) => i.placement?.section === 'you' && i.placement.reason === 'draft-plan' && isSliceItem(i);
   const hasDraftRow = new Set(items.filter((i) => i.draft !== null).map(planOfItem));
-  const kept = new Set<string>();
-  return items.filter((i) => {
-    if (!isDraftSlice(i)) return true;
-    const plan = planOfItem(i);
-    if (hasDraftRow.has(plan) || kept.has(plan)) return false;
-    kept.add(plan);
-    return true;
-  });
+  return items.filter((i) => !(isSliceItem(i) && i.placement?.reason === 'draft-plan' && hasDraftRow.has(planOfItem(i))));
 };
 
 /**
