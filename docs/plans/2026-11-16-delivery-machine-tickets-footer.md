@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:**
 - **Issue:**
@@ -16,6 +16,7 @@
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-tickets-section`
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-machine-line`
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-tab-footer`
+- **Delivered:** 2026-11-19
 
 ## Changelog
 
