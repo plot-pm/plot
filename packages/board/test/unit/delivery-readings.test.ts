@@ -228,7 +228,10 @@ describe('release lines', () => {
     closedComplete: true,
     closedSince: '2026-10-27T00:00:00Z',
   };
-  const lines = (over: Partial<DeliveryMapInput>) => placeMapping(deliveryMapping(input(over))).releaseLines;
+  const fleetSprint = (release: string) => ({ release, ownerHandle: '', members: [] as { slug: string }[] });
+  const lines = (over: Partial<DeliveryMapInput>) =>
+    placeMapping(deliveryMapping(input(over)), over.slices === undefined ? undefined : [...over.slices],
+      (over.sprints ?? []).map((t) => fleetSprint(t.release)) as never).releaseBlocks.map((b) => b.header);
 
   it('gives one line per distinct target release, with the ticket counts', () => {
     const out = lines({
@@ -240,13 +243,13 @@ describe('release lines', () => {
       ],
     });
     expect(out).toHaveLength(2);
-    expect(out[0]).toBe('0 of 0 slices delivered · 0 held at gates · 0 blocked · 2.32.0 tickets: closed 1 · planned 1 · untriaged 1');
+    expect(out[0]).toBe('2.32.0 · 0 plans · 0 of 0 slices delivered · 0 blocked · 2.32.0 tickets: closed 1 · planned 1 · untriaged 1');
     expect(out[1]).toContain('2.33.0 tickets: closed 0 · planned 0 · untriaged 1');
   });
 
   it('keeps the slice counts alone where no sprint names a release', () => {
     expect(lines({ releaseTickets: tickets, sprints: [{ release: '', started: '' }] }))
-      .toEqual(['0 of 0 slices delivered · 0 held at gates · 0 blocked']);
+      .toEqual(['0 plans · 0 of 0 slices delivered · 0 blocked']);
   });
 
   it('counts a slice that waits for a review as blocked, as Blocks delivery now holds it', () => {
@@ -297,7 +300,7 @@ describe('release lines', () => {
 
   it('keeps the slice counts alone where the index is missing', () => {
     expect(lines({ releaseTickets: null, sprints: [{ release: '2.32.0', started: '' }] }))
-      .toEqual(['0 of 0 slices delivered · 0 held at gates · 0 blocked']);
+      .toEqual(['2.32.0 · 0 plans · 0 of 0 slices delivered · 0 blocked']);
   });
 });
 

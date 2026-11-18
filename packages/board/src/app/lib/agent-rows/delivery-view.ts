@@ -1,6 +1,7 @@
 import {
   headerCounts,
   headerText,
+  releaseTicketWording,
   planRowFacts,
   releaseBlocks,
   sliceStateIn,
@@ -477,7 +478,8 @@ export const deliveryView = (
   const placedItem = new Map(itemViews.filter((v) => v.placement !== null && !leavesWorkItems(v)).map((v) => [v.placement!.id, v]));
   const factsOf = (slice: Slice): PlanSliceFact => {
     const id = sliceItemId(slice.plan, slice.name);
-    const merge = slice.merge === 'none' ? 'open' : slice.merge ?? (slice.complete ? 'merged' : 'open');
+    const delivered = mapping.wholeReadings.items.find((i) => i.id === id)?.delivered === true;
+    const merge = slice.merge === 'none' ? 'open' : slice.merge ?? (slice.complete || delivered ? 'merged' : 'open');
     const state = sliceStateIn({ id, merge }, mapping.wholeReadings, mapping.input);
     const rows = mapping.rowsByItem[id] ?? [];
     const first = rows.find((r) => r.blockedBy !== null && r.blockedBy !== undefined);
@@ -504,7 +506,12 @@ export const deliveryView = (
   };
   const blocks = releaseBlocks(sprints.map((sp) => ({ release: sp.release, members: sp.members.map((m) => m.slug) })), approved).map((b): ReleaseBlockView => {
     const plans = b.plans.filter((p) => approved.includes(p)).map(planRow);
-    return { release: b.release, plans, header: headerText(headerCounts(plans), b.release) };
+    const blocked = plans.reduce((n, p) => n + (p.strip.find((x) => x.state === 'blocked')?.count ?? 0), 0);
+    const target = mapping.releases.targets.find((t) => t.release === b.release);
+    const tickets = mapping.releases.tickets;
+    const wording = target === undefined || tickets === null ? null : releaseTicketWording(tickets, target.release, target.started);
+    const header = headerText(headerCounts(plans), b.release, { blocked });
+    return { release: b.release, plans, header: wording === null ? header : `${header} · ${wording}` };
   });
   const releaseRows = blocks.flatMap((b) => b.plans.flatMap((p) => Object.values(p.itemIds).flatMap((id) => mapping.rowsByItem[id] ?? [])));
 

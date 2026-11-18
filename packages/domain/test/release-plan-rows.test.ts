@@ -3,6 +3,7 @@ import {
   doneDetail,
   headerCounts,
   headerText,
+  mergedFactOf,
   planLines,
   planRowFacts,
   planStrip,
@@ -98,5 +99,22 @@ describe('the header', () => {
     const counts = headerCounts(rows);
     expect(counts).toEqual({ plans: 2, delivered: 1, total: 5, unread: 1 });
     expect(headerText(counts, '2.0')).toBe('2.0 · 2 plans · 1 of 5 slices delivered · 1 not read');
+  });
+});
+
+describe('mergedFactOf', () => {
+  const row = (over: Record<string, unknown>) => ({ number: 1, head: 'feature/a', state: 'MERGED', draft: false, checks: 'green', review: '', url: '', mergedAt: '2026-11-10T08:00:00Z', ...over });
+  const index = (rows: unknown[], complete = true) => ({ complete, rows }) as never;
+
+  it('returns the newest non-draft MERGED row of a complete index', () => {
+    const fact = mergedFactOf(['feature/a'], index([row({ number: 4, mergedAt: '2026-11-01T00:00:00Z' }), row({ number: 9 }), row({ number: 12, draft: true, mergedAt: '2026-11-17T00:00:00Z' })]));
+    expect(fact).toEqual({ pr: 9, mergedAt: '2026-11-10T08:00:00Z' });
+  });
+
+  it('answers nothing for a missing, partial or MERGED-free index', () => {
+    expect(mergedFactOf(['feature/a'], null)).toBeUndefined();
+    expect(mergedFactOf(['feature/a'], index([row({})], false))).toBeUndefined();
+    expect(mergedFactOf(['feature/a'], index([row({ state: 'OPEN' })]))).toBeUndefined();
+    expect(mergedFactOf(['feature/b'], index([row({})]))).toBeUndefined();
   });
 });
