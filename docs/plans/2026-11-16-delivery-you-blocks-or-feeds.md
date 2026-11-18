@@ -121,7 +121,7 @@ Per slice, in slice order.
 
 ### Plan rows
 
-- `feature/delivery-you-plan-rows` <!-- waits: feature/delivery-you-loose-prs --> — one row per plan with the slice-count chip from `Card.sliceSummary`, the open-question rule and its card fields, the first open question, and the Kind · Item · Status · Do · Age columns <!-- builds: a one-row plan form, an open-question count and a column set for You -->
+- `feature/delivery-you-plan-rows` <!-- waits: feature/delivery-you-loose-prs --> — one row per plan with the slice-count chip from `Card.sliceSummary`, the open-question rule and its card fields, the first open question, and the Kind · Item · Status · Do · Age columns <!-- builds: a one-row plan form, an open-question count and a column set for You --> → #3520
 
 ### Phase strip
 
