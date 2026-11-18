@@ -130,7 +130,7 @@ Per slice, in slice order.
 
 ### Sprint scope
 
-- `feature/delivery-sprint-delivery-scope` <!-- waits: feature/delivery-my-sprint-scope, feature/delivery-release-person-cards --> — Sprint delivery under the **My sprint** toggle, with plans grouped by sprint where the reader owns several <!-- builds: Sprint delivery scope for the delivery section -->
+- `feature/delivery-sprint-delivery-scope` <!-- waits: feature/delivery-my-sprint-scope, feature/delivery-release-person-cards --> — Sprint delivery under the **My sprint** toggle, with plans grouped by sprint where the reader owns several <!-- builds: Sprint delivery scope for the delivery section --> → #3540
 
 ## Notes
 
