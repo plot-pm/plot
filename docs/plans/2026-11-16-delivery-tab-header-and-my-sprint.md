@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:**
 - **Issue:**
@@ -21,6 +21,7 @@
 - **Started:** 2026-11-18, Jan Wloka, `feature/delivery-tab-todo-list`
 - **Started:** 2026-11-18, Jan Wloka, `feature/delivery-release-card`
 - **Started:** 2026-11-18, Jan Wloka, `feature/delivery-my-sprint-scope`
+- **Delivered:** 2026-11-18
 
 ## Changelog
 
