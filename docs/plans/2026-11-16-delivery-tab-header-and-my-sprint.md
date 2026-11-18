@@ -143,7 +143,7 @@ Per slice, in slice order.
 
 ### To-do list
 
-- `feature/delivery-tab-todo-list` <!-- waits: feature/delivery-section-header, feature/delivery-you-groups, feature/delivery-tickets-section --> — the to-do list with its three markers read from plan 2's table, its header counts, and the triage line linking to the Tickets section <!-- builds: the Delivery tab to-do list -->
+- `feature/delivery-tab-todo-list` <!-- waits: feature/delivery-section-header, feature/delivery-you-groups, feature/delivery-tickets-section --> — the to-do list with its three markers read from plan 2's table, its header counts, and the triage line linking to the Tickets section <!-- builds: the Delivery tab to-do list --> → #3530
 
 ### Release card
 
