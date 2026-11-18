@@ -4,6 +4,9 @@ import {
   releaseTicketWording,
   planRowFacts,
   releaseBlocks,
+  releasePersonCards,
+  type CountedSlice,
+  type PersonCard,
   sliceStateIn,
   type PlanRowFacts,
   type PlanSliceFact,
@@ -24,7 +27,7 @@ import {
   type Unplaced,
 } from '@plot-pm/domain';
 import type { AgentRow, DraftPlan, FleetSprint, IssueRow, Slice } from '../../../contract/schema.js';
-import { agentLabel, sliceItemId, type DeliveryMapping, type RegistryAgent } from './delivery-readings.js';
+import { agentLabel, draftItemId, sliceItemId, type DeliveryMapping, type RegistryAgent } from './delivery-readings.js';
 import { itemRowFactsOf } from './delivery-row-facts.js';
 import { isStartable, isUnbegun } from './row-identity.js';
 import { groupBySlice, type SliceGroup } from './slices.js';
@@ -239,6 +242,8 @@ export interface ReleaseBlockView {
   release: string;
   header: string;
   plans: PlanRowView[];
+  /** One card per sprint owner of the release; empty where no sprint names the release. */
+  cards: PersonCard[];
 }
 
 export const itemAnchor = (id: string): string => `delivery-item-${id}`;
@@ -380,7 +385,7 @@ export const deliveryView = (
   mapping: DeliveryMapping,
   placement: DeliveryPlacement,
   slices?: Slice[],
-  sprints: readonly Pick<FleetSprint, 'release' | 'ownerHandle' | 'members'>[] = [],
+  sprints: readonly Pick<FleetSprint, 'slug' | 'title' | 'release' | 'ownerHandle' | 'members'>[] = [],
 ): DeliveryView => {
   const rowOf = (item: string): AgentRow | null => mapping.rowsByItem[item]?.[0] ?? null;
   const ownRow = (entry: RegistryAgent | null): AgentRow | null => {
@@ -512,6 +517,22 @@ export const deliveryView = (
     const planFile = own.flatMap((x) => mapping.rowsByItem[ids[x.name]!] ?? []).find((r) => r.planFile !== '')?.planFile ?? '';
     return { ...planRowFacts(plan, ownerOf(plan), facts), anchors, itemIds: ids, planFile };
   };
+  const DRAFT_ID_PREFIX = draftItemId('');
+  // The person cards' bars read the counted slices per plan, as the sprint card does (`countedSlicesByPlan`).
+  // A plan with a row, a Draft card or a slice the pulse carries has an entry, `[]` where it holds no counted
+  // slice. A plan the payload read nothing for has no entry, so its bar reads missing.
+  const draftPlans = mapping.wholeReadings.items.filter((i) => i.id.startsWith(DRAFT_ID_PREFIX)).map((i) => i.id.slice(DRAFT_ID_PREFIX.length));
+  const slicesByPlan = new Map<string, CountedSlice[]>();
+  for (const plan of [...Object.values(mapping.rowsByItem).flat().map((r) => r.plan), ...draftPlans, ...(slices ?? []).map((s) => s.plan)]) {
+    if (plan !== '' && !slicesByPlan.has(plan)) slicesByPlan.set(plan, []);
+  }
+  for (const s of counted) {
+    const id = sliceItemId(s.plan, s.name);
+    const delivered = mapping.wholeReadings.items.find((i) => i.id === id)?.delivered === true;
+    const list = slicesByPlan.get(s.plan) ?? [];
+    list.push({ id, merge: s.merge === 'none' ? 'open' : s.merge ?? (s.complete || delivered ? 'merged' : 'open') });
+    slicesByPlan.set(s.plan, list);
+  }
   const blocks = releaseBlocks(sprints.map((sp) => ({ release: sp.release, members: sp.members.map((m) => m.slug) })), approved).map((b): ReleaseBlockView => {
     const plans = b.plans.filter((p) => approved.includes(p)).map(planRow);
     const blocked = plans.reduce((n, p) => n + (p.strip.find((x) => x.state === 'blocked')?.count ?? 0), 0);
@@ -519,7 +540,8 @@ export const deliveryView = (
     const tickets = mapping.releases.tickets;
     const wording = target === undefined || tickets === null ? null : releaseTicketWording(tickets, target.release, target.started);
     const header = headerText(headerCounts(plans), b.release, { blocked });
-    return { release: b.release, plans, header: wording === null ? header : `${header} · ${wording}` };
+    const cards = releasePersonCards(sprints.map((sp) => ({ slug: sp.slug, title: sp.title ?? '', release: sp.release ?? '', ownerHandle: sp.ownerHandle ?? '', members: sp.members ?? [] })), b.release, mapping.directory ?? {}, slicesByPlan, mapping.wholeReadings, mapping.input);
+    return { release: b.release, plans, header: wording === null ? header : `${header} · ${wording}`, cards };
   });
   const releaseRows = blocks.flatMap((b) => b.plans.flatMap((p) => Object.values(p.itemIds).flatMap((id) => mapping.rowsByItem[id] ?? [])));
 
@@ -530,5 +552,5 @@ export const deliveryView = (
 export const placeMapping = (
   mapping: DeliveryMapping,
   slices?: Slice[],
-  sprints: readonly Pick<FleetSprint, 'release' | 'ownerHandle' | 'members'>[] = [],
+  sprints: readonly Pick<FleetSprint, 'slug' | 'title' | 'release' | 'ownerHandle' | 'members'>[] = [],
 ): DeliveryView => deliveryView(mapping, placeDelivery(mapping.readings, mapping.input), slices, sprints);

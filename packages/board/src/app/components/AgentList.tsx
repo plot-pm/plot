@@ -67,6 +67,7 @@ import { detailLines } from '../lib/agent-rows/delivery-link-targets.js';
 import { headerOf, itemRowFactsOf, rowFormsOf, switchesOf } from '../lib/agent-rows/delivery-row-facts.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { ReleaseClaimButton } from './ReleaseClaimButton.js';
+import { ReleasePersonCards } from './ReleasePersonCards.js';
 import { LooseDeleteButton } from './LooseDeleteButton.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
 import { checkoutHealthStatus } from '@plot-pm/domain/rules/checkout-health';
@@ -1587,6 +1588,7 @@ export function AgentList({
                   {release && view.releaseBlocks.map((block) => (
                     <div key={block.release || 'all'} data-release-block={block.release} className="space-y-1">
                       <p data-release-line className="px-3 text-sm text-slate-600 dark:text-slate-300">{block.header}</p>
+                      <ReleasePersonCards cards={block.cards} />
                       <ul
                         role="list"
                         aria-label="Release delivery — plans"
