@@ -1,0 +1,22 @@
+# Estate juror: delivery-tab-matches-its-mockups
+
+Lens: does what the plan adds already exist, and are its cited facts right. Checked at a525da09c (detached, near 89407abdc).
+
+## Findings
+
+1. **Token claims hold.** `--card-rule` and `--hue-rose*` are absent from `packages/board/src/app/index.css` (grep, 0 hits). Every other cited token exists in both blocks: `--card-surface/border/track/title/body/meta/primary` (`:84-92`, dark `:131-139`), `--hue-{amber,blue,green,orange,red,sky,slate,teal,violet}` with `-dot` and `-soft`. Dark mode is `@media (prefers-color-scheme: dark)` at `index.css:63` and `:123`. Resolved by the plan (additions are real).
+2. **No duplicates of the harness.** `colorScheme`, `PLOT_SCREENSHOT_DIR`, `delivery-screenshots`, `styles/` and any theme-contrast test do not exist (grep over `packages/board/test`, `.github`, `src/app`). `catalogue/index.ts:40-60` and `:209-215` match the plan (`reducedMotion` passed the same way). `ci.yml:1541-1543` matches the integration step. Resolved.
+3. **Cited line ranges are accurate.** `AgentList.tsx:1671` and `:1710-1714` (`rounded-lg border`), `rows.tsx:446` `HeaderRow` (`sr-only`), `FleetAgentRow.tsx:5-6`, `TicketsSection.tsx:81`, `SprintCard.tsx:3-9` (gate sky, blocked amber), `AgentList.tsx:13-18` all match. Resolved.
+4. **Mockups are present.** Eight files exist under `docs/superpowers/specs/2026-11-16-delivery-tab-mockups/` with the names the slices cite. Resolved.
+5. **The six domain fields are all absent on main.** `CellPart` (`delivery-row-form.ts:58-60`) has `value`, `link` only. `PlanRowFacts` (`release-plan-rows.ts:143-152`) has no phase. `PlanLine` (`:113-122`) has `heading/slice/text/link/start`. `openQuestionsChip` (`plan-open-questions.ts:46`) returns a string. `YouHeaderCount` (`you-header.ts:12-19`) has no `label`. No `todo-list.ts` exists here. No sibling plan (`delivery-machine-tickets-footer`, `delivery-release-progress-per-plan`, `delivery-tab-header-and-my-sprint`) adds outcome, tone or You label. Resolved for 1, 5, 6.
+6. **Items 2 and 3 overlap sibling promises (open).** `delivery-release-progress-per-plan.md:21,47` already specifies the columns "Plan · Phase · Slices · Owner" and `:54` specifies the Done line "merged 2 days ago". Main has neither (no phase on `PlanRowFacts`, `doneDetail` writes an ISO date). The plan treats this as a missing field it adds, but the sibling owns that behaviour and is marked as delivered work. The plan should state that it closes a gap in the shipped `feature/delivery-release-plan-rows` slice, or name which sibling slice owns Phase and the relative time, so a later sibling slice does not add a second copy. Also `feature/delivery-release-card` is stated to build "over `release-plan-rows.ts`" and may add the same fields.
+7. **ChipColour mapping is incomplete in prose (open, minor).** `ChipColour` has `orange` and `sky` as well as `rose` (`agent-roles.ts:127`). Both exist as hue families, so the claim "only rose is missing" is right. The plan lists `ChipColour` `emerald` -> green but does not say `sky` and `orange` map to existing sets; one line fixes it.
+8. **Existing Tailwind use is wider than the plan says (open, minor).** The tab carries 492 `dark:` variant uses under `src/app`, and a second dark-mode block exists in `server/board.ts:3723`. "Tokens, not hex" covers the Delivery tab only; the plan should state it leaves the other `dark:` uses and the server stylesheet alone, so the contrast test (reads `index.css` only) is not read as covering them.
+9. **Files that do not exist yet.** No `TodoList.tsx`, release card or per-person card component on this checkout. The plan says so (`:149`) and the Primitives and Sections slices wait on those slices. Resolved. Branches `feature/delivery-release-card` and `feature/delivery-sprint-delivery-scope` have no local ref, consistent with the plan's "no PR yet".
+10. **Heavy wait chain (note).** Both foundation slices wait on six unmerged branches, three of which have no PR. The plan states the reason; the estate check finds no cheaper existing alternative.
+
+## Assessment
+
+The plan's "does not exist" claims survive the check: tokens, harness, styles directory, contrast test and five of six fields are genuinely absent, and its line citations are correct. The one estate risk is item 6, which concerns who owns Phase and the relative merge time. It is fixable by editing the plan.
+
+Position: amend

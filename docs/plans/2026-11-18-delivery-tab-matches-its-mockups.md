@@ -11,6 +11,7 @@
 - **Story:** delivery-tab-reads-at-a-glance
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -169,6 +170,29 @@ Each item is a state a mockup styles that the domain did not expose on `main` at
 ### Open Questions
 
 - [ ] **Type.** The Type was set to `feature` without a question, because the request came through an agent. Change it if the look belongs under another Type.
+
+- [ ] **Owners for markup no slice owns.** The Free line, the Fleet counts line and switches slot, the group tags and the Do verb sit in `AgentList.tsx` or `TupleRow.tsx`, and the plan says only `feature/delivery-visual-release` edits `AgentList.tsx`. Name an owner or a disjoint range for each, or move the hooks into *Primitives*. *(panel round 1: contradiction, deliverable)*
+- [ ] **Owners for the colour map's consumers.** The five-state map changes `SprintCard.tsx` and `FleetCard.tsx`, which *Primitives* does not own. Name who applies it to the sprint bar, the release bar and the strip. *(contradiction)*
+- [ ] **Two homes for the group colour.** `YOU_MARKER_CLASS` stays in *Primitives* while the You slice colours bars and Do verbs through `data-group` selectors. Pick one. *(contradiction)*
+- [ ] **Paths for components that do not exist yet.** The release card and the per-person card have no file path in any `Owns`. Name them at slice start or say the PR body names them. *(deliverable)*
+- [ ] **Owner of Phase and the relative merge time.** `delivery-release-progress-per-plan.md:21,47,54` already specifies both. State whether *Domain fields* closes a gap in a delivered sibling slice or whether a sibling slice builds them. *(estate)*
+- [ ] **Class-reading tests, complete inventory.** Add `dead-fetch.browser.test.ts:91,153` and the unit tests (`agent-list.test.ts:1021,1338-1550`, `tuple-row.test.ts:1234`). Widen the *Primitives* audit from `columnheader` to every grid `innerText` read (26 integration files). *(contradiction, cost)*
+- [ ] **The artifact link is not a gate.** The link exists only after CI finishes, can trail an auto-merge, and expires. Say it is a link to the run on the PR head, and which clause a reviewer judges versus CI. *(cost, deliverable)*
+- [ ] **Screenshot upload weight.** Every PR that runs the board integration tests uploads the PNGs. Give a measured size, set `retention-days`, or scope the upload. *(cost)*
+- [ ] **Contrast figures and gate scope.** The dark `-soft` figures and `--card-primary` (5.36, not 4.74) differ from a recomputation; all pass 4.5. Light margins are thin (green on soft 4.72). Add `--card-meta` on `--card-band` and `--card-panel` to the asserted pairs. *(cost)*
+- [ ] **Light theme has no mockup.** Say the light theme is reviewed by eye against the dark mockup. *(cost)*
+- [ ] **Token scope.** Say `ChipColour` `sky` and `orange` map to existing hue sets, and that the other 492 `dark:` uses and `server/board.ts:3723` stay as they are. *(estate)*
+- [ ] **Sections wait on Primitives only by heading order.** Add one sentence on the *Sections* heading, since the branches carry no `waits:` marker. Consider splitting the screenshot harness and CI step from *Primitives*. *(deliverable, cost)*
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "engine": "panel",
+  "questionHistory": [],
+  "deferredItems": [],
+  "categoriesCovered": {}
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
 
 ## Slices
 
