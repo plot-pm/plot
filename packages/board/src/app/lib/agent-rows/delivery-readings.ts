@@ -480,10 +480,22 @@ export const ticketMarkFor = (sprintTexts: readonly string[], ticket: string): s
  * The counted slices per plan, read from the slice items of one set of readings.
  *
  * A slice item's id is `slice:<plan>\0<wave>` (`sliceItemId`), so the plan is the
- * part before the NUL. A plan with no slice item has no entry: its merge answer is unread.
+ * part before the NUL. Every plan the payload read a row or a Draft card for has
+ * an entry, `[]` where it holds no slice item: a Draft plan is split into
+ * branches only after approval. A plan the payload read nothing for has no
+ * entry: its merge answer is unread.
+ *
+ * @param items - the work items of one set of readings.
+ * @param input - the rows and Draft plans the readings were mapped from.
  */
-export const countedSlicesByPlan = (items: readonly WorkItemReading[]): Map<string, CountedSlice[]> => {
+export const countedSlicesByPlan = (
+  items: readonly WorkItemReading[],
+  input: Pick<DeliveryMapInput, 'rows' | 'drafts'> = { rows: [], drafts: [] },
+): Map<string, CountedSlice[]> => {
   const byPlan = new Map<string, CountedSlice[]>();
+  for (const plan of [...input.rows.map((r) => r.plan), ...input.drafts.map((d) => d.plan)]) {
+    if (plan !== '' && !byPlan.has(plan)) byPlan.set(plan, []);
+  }
   for (const item of items) {
     if (!item.id.startsWith('slice:')) continue;
     const plan = item.id.slice('slice:'.length).split('\0')[0]!;

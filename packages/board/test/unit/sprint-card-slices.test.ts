@@ -13,6 +13,18 @@ describe('countedSlicesByPlan', () => {
     expect([...by.keys()]).toEqual(['plan-a']);
     expect(by.get('plan-a')!.map((s) => s.merge)).toEqual(['merged', 'open']);
   });
+  it('gives a Draft plan and a plan with only branch rows an empty entry', () => {
+    const by = countedSlicesByPlan(
+      [{ id: 'plan:draft-p', kind: 'plan' as const, ownership: 'mine' as const }],
+      {
+        rows: [{ plan: 'branch-only' }, { plan: '' }] as never,
+        drafts: [{ plan: 'draft-p' }] as never,
+      },
+    );
+    expect(by.get('draft-p')).toEqual([]);
+    expect(by.get('branch-only')).toEqual([]);
+    expect(by.has('')).toBe(false);
+  });
   it('has no entry for a plan with no slice item', () => {
     expect(countedSlicesByPlan([]).get('plan-z')).toBeUndefined();
   });

@@ -105,6 +105,24 @@ describe('sprintCards', () => {
     expect(card.tierLine).toBe('Must 0/1');
   });
 
+  it('reads a sprint with a Draft Must among delivered members: bar and tiers stay present', () => {
+    const byPlan = new Map<string, CountedSlice[]>([['a', [merged('slice:a')]], ['b', [merged('slice:b')]], ['draft', []]]);
+    const card = sprintCards([sprint({ members: [member('a', 'must'), member('b', 'must'), member('draft', 'must')] })], reader, byPlan, none, input).cards[0]!;
+    expect(card.readingMissing).toBe(false);
+    expect(card.total).toBe(2);
+    expect(card.bar!.find((s) => s.state === 'delivered')!.count).toBe(2);
+    expect(card.tierLine).toBe('Must 2/3');
+  });
+
+  it('scores a member the board did not find as withdrawn, with no slice in the bar', () => {
+    const byPlan = new Map<string, CountedSlice[]>([['a', [merged('slice:a')]]]);
+    const gone = { slug: 'gone', tier: 'must' as const, checked: true, known: false };
+    const card = sprintCards([sprint({ members: [member('a', 'must'), gone] })], reader, byPlan, none, input).cards[0]!;
+    expect(card.readingMissing).toBe(false);
+    expect(card.total).toBe(1);
+    expect(card.tierLine).toBe('Must 1/2');
+  });
+
   it('carries the end line and release, and prints none where absent', () => {
     const card = sprintCards([sprint({ end: '', release: '' })], reader, plans, none, input).cards[0]!;
     expect(card.endLine).toBe('');

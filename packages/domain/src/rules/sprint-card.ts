@@ -100,7 +100,8 @@ const planDelivered = (slices: readonly CountedSlice[]): boolean =>
  * merge answer the bar is `null` and `readingMissing` is true, never a bar of
  * zeros. Tier progress scores each member with `scoreItem`: a member is done
  * where its plan is delivered, or where its line names no plan and is ticked.
- * A deferred member is in no tier. A tier with no member is absent.
+ * A member with `known: false` names no plan the board found: it adds no slice
+ * to the bar and scores `withdrawn`, which is not done. A deferred member is in no tier. A tier with no member is absent.
  *
  * @param sprints - the Active sprints.
  * @param reader - who is reading.
@@ -118,7 +119,8 @@ export const sprintCards = (
   const owned = sprints.filter((s) => sprintIsMine(s.ownerHandle, reader));
   const cards = owned.map((sprint): SprintCardView => {
     const counted = sprint.members.filter((m) => m.tier !== 'deferred');
-    const keys = counted.map((m) => m.slug).filter((slug) => slug !== '');
+    // A member the board did not find (renamed, deleted or dropped) has no merge answer to wait for.
+    const keys = counted.filter((m) => m.known !== false).map((m) => m.slug).filter((slug) => slug !== '');
     const counts: SliceStateCounts | undefined = countSliceStatesOver(slicesByPlan, keys, readings, input);
     const tiers: TierProgress[] = [];
     if (counts !== undefined) {
@@ -126,8 +128,8 @@ export const sprintCards = (
         const members = counted.filter((m) => m.tier === tier);
         if (members.length === 0) continue;
         const done = members.filter((m) => {
-          // `countSliceStatesOver` answered, so every named plan has an entry.
-          const delivered = m.slug === '' ? 'no-plan-named' : planDelivered(slicesByPlan.get(m.slug)!);
+          // `countSliceStatesOver` answered, so every known named plan has an entry.
+          const delivered = m.slug === '' ? 'no-plan-named' : m.known === false ? 'withdrawn' : planDelivered(slicesByPlan.get(m.slug)!);
           return scoreItem({ tier, checked: m.checked, plan: m.slug, text: '' }, delivered) === 'done';
         }).length;
         tiers.push({ tier, done, total: members.length, text: `${tier[0]!.toUpperCase()}${tier.slice(1)} ${done}/${members.length}` });
