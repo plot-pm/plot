@@ -125,7 +125,7 @@ Per slice, in slice order.
 
 ### Person cards
 
-- `feature/delivery-release-person-cards` <!-- waits: feature/delivery-release-plan-rows --> — one progress card per sprint owner, with a bar per sprint, and one "no owner" card, in release scope <!-- builds: per-person sprint progress cards -->
+- `feature/delivery-release-person-cards` <!-- waits: feature/delivery-release-plan-rows --> — one progress card per sprint owner, with a bar per sprint, and one "no owner" card, in release scope <!-- builds: per-person sprint progress cards --> → #3532
 
 ### Sprint scope
 
