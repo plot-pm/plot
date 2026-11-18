@@ -17,6 +17,7 @@
 - **Started:** 2026-11-17, Jan Wloka, `feature/sprint-owner-field`
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-fleet-card`
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-slice-states`
+- **Started:** 2026-11-18, Jan Wloka, `feature/delivery-sprint-card`
 
 ## Changelog
 
@@ -137,7 +138,7 @@ Per slice, in slice order.
 
 ### Sprint card
 
-- `feature/delivery-sprint-card` <!-- waits: feature/delivery-slice-states, feature/sprint-owner-field --> — the sprint card with its end date, target release, a bar per owned Active sprint and the MoSCoW tier counts <!-- builds: a sprint status card -->
+- `feature/delivery-sprint-card` <!-- waits: feature/delivery-slice-states, feature/sprint-owner-field --> — the sprint card with its end date, target release, a bar per owned Active sprint and the MoSCoW tier counts <!-- builds: a sprint status card --> → #3524
 
 ### To-do list
 

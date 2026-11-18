@@ -468,6 +468,7 @@ describe('mergeTick — a PR held for an unanswered human comment', () => {
     const first = await tick([stamp(3, T0), stamp(5, T0)], {}, ports, new Map(), holds);
     // The first pass asks PR 3 and is refused; nothing merges until the next pass.
     expect(first.merged).toMatchObject({ pr: 3, result: { merged: false, reason: 'human-comment-open' } });
+    expect(holds.get(3)).toMatchObject({ head: head(3), reason: 'human-comment-open' });
     expect(calls).toEqual([]);
     const second = await tick([stamp(3, T0), stamp(5, T0)], {}, ports, new Map(), holds);
     expect(calls).toEqual([['pr-merge', '5', '--match-head', head(5)]]);
@@ -509,6 +510,6 @@ describe('mergeTick — a PR held for an unanswered human comment', () => {
     expect(out.merged).toMatchObject({ result: { merged: false, reason: 'human-comment-unread' } });
     await tick([stamp(3, T0)], {}, ports, new Map(), holds);
     expect(asked).toEqual([3]);
-    expect(holds.get(3)).toEqual({ head: head(3), at: new Date(T0).toISOString() });
+    expect(holds.get(3)).toEqual({ head: head(3), at: new Date(T0).toISOString(), reason: 'human-comment-unread' });
   });
 });

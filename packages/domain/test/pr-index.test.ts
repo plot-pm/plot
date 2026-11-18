@@ -351,14 +351,22 @@ describe('an unreadable store is nothing to start from', () => {
     //
     // VERSION 7 ADDS `base`; a v6 file fails the same literal parse, so every
     // consumer asks the host and the next PR beat writes a v7 store.
-    expect(PR_INDEX_VERSION).toBe(7);
+    //
+    // VERSION 8 ADDS `personComment`; a v7 file fails the same literal parse.
+    expect(PR_INDEX_VERSION).toBe(8);
+    expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 7 }))).toBeNull();
     expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 5 }))).toBeNull();
     expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 6 }))).toBeNull();
-    expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 7 }))).not.toBeNull();
+    expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 8 }))).not.toBeNull();
     expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 4 }))).toBeNull();
     expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 1 }))).toBeNull();
     expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 2 }))).toBeNull();
     expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 3 }))).toBeNull();
+  });
+
+  it('round-trips a row with a personComment', () => {
+    const held = store([row(1, { personComment: { head: 'abc', at: '2026-11-18T10:00:00Z' } })]);
+    expect(decodePrIndex(encodePrIndex(held))).toEqual(held);
   });
 
   it('round-trips a row with a base', () => {

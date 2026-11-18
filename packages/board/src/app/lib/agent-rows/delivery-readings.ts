@@ -17,6 +17,7 @@ import {
   type WorkItemReading,
 } from '@plot-pm/domain';
 import type { PersonDirectory } from '@plot-pm/domain/entities/person';
+import { personCommentHolds } from '@plot-pm/domain/rules/person-comment';
 import { ticketMarkOf, ticketRecordOf } from '@plot-pm/domain/rules/sprint-ticket-record';
 import type { AgentEntry, AgentRow, DraftPlan, IssueRow, ReleaseTickets, Slice, TicketSourceShape } from '../../../contract/schema.js';
 import { ownedFromCard, ownedFromRow, ownedFromTicket } from './mine-filter.js';
@@ -103,6 +104,8 @@ const loopGateOf = (
 /** What `placeDelivery` reads, and the payload rows each subject id stands for. */
 export interface DeliveryMapping {
   readings: DeliveryReadings;
+  /** The readings of every row, before the Mine mode narrows them; the five-state slice counts read these. */
+  wholeReadings: DeliveryReadings;
   input: DeliveryInput;
   /** Item id → the branch rows it holds, in payload order. A draft plan holds none. */
   rowsByItem: Record<string, AgentRow[]>;
@@ -248,6 +251,7 @@ const rowItem = (id: string, rows: readonly AgentRow[], slice: Slice | undefined
     item.stage = 'pr';
     item.pr = { ci: ciOf(open.pr), review: reviewOf(open.pr) };
     if (open.pr.state === 'conflicts') item.mergeConflict = true;
+    if (personCommentHolds(open.pr.personComment, open.pr)) item.personComment = true;
   } else if (rows.some((r) => r.state === 'wip' || r.state === 'claimed')) {
     item.stage = 'building';
   } else if (!merged) {
@@ -394,6 +398,7 @@ const mapReadings = (input: DeliveryMapInput): DeliveryMapping => {
 
   return {
     readings: { items, agents },
+    wholeReadings: { items, agents },
     input: {
       mine: MINE[input.mode],
       ...(input.releases === undefined ? {} : { releases: input.releases }),
@@ -445,11 +450,12 @@ export const deliveryMapping = (input: DeliveryMapInput): DeliveryMapping => {
     placeDelivery(whole.readings, whole.input).items.filter((p) => p.section === 'you').map((p) => p.id),
   );
   const keeps = (id: string, o: Ownership): boolean => o === 'mine' || (o === 'unknown' && (input.mode === 'mine-and-unknown' || you.has(id)));
-  return mapReadings({
+  const narrowed = mapReadings({
     ...input,
     rows: input.rows.filter((r) => keeps(itemIdOfRow(r), ownership(ownedFromRow(r), input.reader))),
     drafts: input.drafts.filter((d) => keeps(draftItemId(d.plan), ownership(ownedFromCard(d), input.reader))),
   });
+  return { ...narrowed, wholeReadings: whole.readings };
 };
 
 /**

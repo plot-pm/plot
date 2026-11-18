@@ -149,6 +149,21 @@ describe('the six You cases', () => {
     expect(only(conflicted, [agent({ id: 'a', actsOn: 's' })])).toMatchObject({ section: 'work-items', group: 'at-a-gate' });
   });
 
+  it('a fired person comment places under Blocks delivery, and an unfired one stays under At a gate', () => {
+    const pr = { ci: 'passed', review: 'passed' } as const;
+
+    expect(only(item({ id: 's', stage: 'pr', pr, personComment: true }))).toMatchObject({ group: 'blocks-delivery', reason: 'person-comment' });
+    expect(only(item({ id: 's', stage: 'pr', pr }))).toMatchObject({ section: 'work-items', group: 'at-a-gate' });
+  });
+
+  it('a PR that meets fleet-stuck and person-comment reads fleet-stuck; merge-conflict leads person-comment', () => {
+    const stuck = item({ id: 's', stage: 'pr', pr: failedCi, corrections: 2, personComment: true });
+    const conflicted = item({ id: 's', stage: 'pr', pr: { ci: 'passed', review: 'passed' }, mergeConflict: true, personComment: true });
+
+    expect(only(stuck)).toMatchObject({ reason: 'fleet-stuck' });
+    expect(only(conflicted)).toMatchObject({ reason: 'merge-conflict' });
+  });
+
   it('a slice whose agent died, which Quiet used to hold', () => {
     const building = item({ id: 's', stage: 'building' });
 
@@ -541,6 +556,7 @@ describe('the You cases and their markers', () => {
     ['blocked-marker', 'blocks-delivery', 'blocks-delivery'],
     ['fleet-stuck', 'blocks-delivery', 'blocks-delivery'],
     ['merge-conflict', 'blocks-delivery', 'blocks-delivery'],
+    ['person-comment', 'blocks-delivery', 'blocks-delivery'],
     ['agent-died', 'blocks-delivery', 'blocks-delivery'],
     ['loose', 'unblock', 'clean-up'],
   ];

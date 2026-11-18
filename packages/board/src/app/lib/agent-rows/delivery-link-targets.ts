@@ -110,6 +110,7 @@ export const actionPlace = (action: string): 'plan' | 'pr' | 'branch' => {
   switch (action) {
     case 'review':
     case 'resolve-conflict':
+    case 'answer-comment':
     case 'release-approve':
       return 'pr';
     case 'continue':

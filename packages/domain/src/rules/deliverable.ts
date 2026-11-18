@@ -197,6 +197,47 @@ interface SliceCount {
 }
 
 /**
+ * Whether one slice of a pulse has merged.
+ *
+ * @param slice The slice as the pulse reports it: its verdict and its branches.
+ * @returns `none` where every branch is deferred or the slice names no branch,
+ *   so it counts toward no total. `merged` where it holds a non-deferred branch
+ *   and its verdict reads `complete`. `open` for any other slice.
+ */
+export const sliceMerge = (slice: {
+  readonly verdict: string;
+  readonly branches: readonly { readonly state: string }[];
+}): 'merged' | 'open' | 'none' => {
+  if (!slice.branches.some((b) => b.state !== 'deferred')) return 'none';
+  return slice.verdict === 'complete' ? 'merged' : 'open';
+};
+
+/**
+ * The merge answer for each counted slice of a plan.
+ *
+ * @param meta The plan, by file path.
+ * @param pulse The scan's report, or `null`.
+ * @param complete Whether the scan finished.
+ * @returns `undefined` on a partial pulse, as {@link sliceProgress} answers.
+ *   Otherwise one entry per slice that holds a non-deferred branch, in plan
+ *   order, naming the slice by its heading; a plan the pulse does not list
+ *   has none. The `merged` entries number {@link sliceProgress}'s numerator.
+ */
+export const planSliceMerges = (
+  meta: PlanFile,
+  pulse: FleetReading | null,
+  complete: boolean,
+): { readonly name: string; readonly merge: 'merged' | 'open' }[] | undefined => {
+  if (!pulse || !complete) return undefined;
+  const plan = pulse.plans.find((p) => p.file === basename(meta.file));
+  if (!plan) return [];
+  return plan.slices.flatMap((s) => {
+    const merge = sliceMerge(s);
+    return merge === 'none' ? [] : [{ name: s.name, merge }];
+  });
+};
+
+/**
  * The walk both {@link landed} and {@link sliceProgress} need: one pass over a
  * plan's slices, refusing in the same order `landed` always has, while also
  * counting slices for the progress line.
@@ -273,9 +314,10 @@ const slicesOf = (
       continue;
     }
     deferred += slice.branches.length - branches.length;
-    if (branches.length === 0) continue;
+    const merge = sliceMerge(slice);
+    if (merge === 'none') continue;
     totalSlices += 1;
-    if (slice.verdict !== 'complete') {
+    if (merge === 'open') {
       refused = true;
       continue;
     }

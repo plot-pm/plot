@@ -90,6 +90,19 @@ describe('deliveryMapping', () => {
     expect(off.items[0]).toMatchObject({ section: 'you', group: 'blocks-delivery' });
   });
 
+  it('places a PR whose personComment names its head and is not older than updatedAt under Blocks delivery', () => {
+    const open = (over: Record<string, unknown>) => place(deliveryMapping(input({
+      rows: [row({ branch: 'feature/o', pr: pr({ ciChecks: 'green', plotReview: 'success', headSha: 'sha-1', updatedAt: '2026-11-18T09:00:00Z', ...over }) })],
+    }))).items[0];
+    const comment = { head: 'sha-1', at: '2026-11-18T09:30:00Z' };
+    expect(open({ personComment: comment })).toMatchObject({ section: 'you', group: 'blocks-delivery', reason: 'person-comment' });
+    expect(open({})).toMatchObject({ section: 'work-items', group: 'at-a-gate' });
+    expect(open({ personComment: { ...comment, head: 'feature/o' } })).toMatchObject({ section: 'work-items' });
+    expect(open({ personComment: comment, updatedAt: '2026-11-18T10:00:00Z' })).toMatchObject({ section: 'work-items' });
+    expect(open({ personComment: comment, updatedAt: undefined })).toMatchObject({ section: 'work-items' });
+    expect(open({ personComment: { ...comment, at: 'soon' } })).toMatchObject({ section: 'work-items' });
+  });
+
   it('passes the Mine mode and both config keys through unchanged', () => {
     const m = deliveryMapping(input({ mode: 'mine', config: { autoReview: false, correctionBudget: 5 } }));
     expect(m.input).toEqual({ mine: 'strict', autoReview: false, correctionBudget: 5 });
@@ -249,7 +262,7 @@ describe('release lines', () => {
       .toEqual(['0 of 0 slices delivered · 0 held at gates · 0 blocked']);
   });
 
-  it('counts the same blocked slices when a review joins Blocks delivery', () => {
+  it('counts a slice that waits for a review as blocked, as Blocks delivery now holds it', () => {
     const rows = [
       row({ branch: 'feature/b', plan: 'p', wave: 'B', state: 'wip' }),
       row({ branch: 'feature/c', plan: 'p', wave: 'C', pr: pr({ ciChecks: 'green', plotReview: 'pending' }) }),
@@ -262,8 +275,37 @@ describe('release lines', () => {
     const reviewJoins = lines({ ...base, config: { autoReview: false, correctionBudget: 2 } });
     expect(place(deliveryMapping(input({ ...base, config: { autoReview: false, correctionBudget: 2 } }))).items
       .filter((i) => i.section === 'you' && i.reason === 'review-pr')).toHaveLength(1);
-    expect(reviewJoins[0]).toContain('· 1 blocked');
+    expect(reviewJoins[0]).toContain('· 2 blocked');
     expect(lines(base)[0]).toContain('· 1 blocked');
+  });
+
+  it('prints the same blocked count under every Mine mode', () => {
+    const base = {
+      rows: [row({ branch: 'feature/b', plan: 'p', wave: 'B', state: 'wip' })],
+      slices: [slice('B')],
+      agents: [agent({ session: 'dead', branch: 'feature/b', state: 'failed' })],
+    };
+    for (const mode of ['all', 'mine-and-unknown', 'mine'] as const) {
+      expect(lines({ ...base, mode })[0]).toContain('· 1 blocked');
+    }
+  });
+
+  it('counts a teammate\'s blocked slice under every Mine mode', () => {
+    const base = {
+      rows: [
+        row({ branch: 'feature/b', plan: 'p', wave: 'B', state: 'wip', assignee: 'other' }),
+        row({ branch: 'feature/c', plan: 'p', wave: 'C', state: 'wip', assignee: 'me' }),
+      ],
+      slices: [slice('B'), slice('C')],
+      agents: [
+        agent({ session: 'dead-b', branch: 'feature/b', state: 'failed' }),
+        agent({ session: 'dead-c', branch: 'feature/c', state: 'failed' }),
+      ],
+    };
+    const people = { reader: { hostUser: 'me', directory: { me: 'me', other: 'other' } } };
+    for (const mode of ['all', 'mine-and-unknown', 'mine'] as const) {
+      expect(lines({ ...base, ...people, mode })[0]).toContain('· 2 blocked');
+    }
   });
 
   it('keeps the slice counts alone where the index is missing', () => {
