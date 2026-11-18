@@ -201,7 +201,7 @@ esac
  * entity uses does not find it. The `{ v: 1 }` cases below are deliberate and
  * stay: 1 is never the current version.
  */
-function storeWith(rows, { complete = true, v = 7, raw = null } = {}) {
+function storeWith(rows, { complete = true, v = 8, raw = null } = {}) {
   const dir = tmp('prindex');
   const body = raw !== null ? raw : JSON.stringify({
     v,
