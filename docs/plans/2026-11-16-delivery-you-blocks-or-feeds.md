@@ -131,7 +131,7 @@ Per slice, in slice order.
 
 ### Person comment
 
-- `feature/delivery-you-person-comment` <!-- waits: feature/delivery-you-phase-strip --> — fleetd's PR pass folding its held conversation answer into the PR index's `personComment` field at `PR_INDEX_VERSION` 8, and the `person-comment` arm placing that PR under Blocks delivery <!-- builds: a person-comment reading on the PR index and its You arm -->
+- `feature/delivery-you-person-comment` <!-- waits: feature/delivery-you-phase-strip --> — fleetd's PR pass folding its held conversation answer into the PR index's `personComment` field at `PR_INDEX_VERSION` 8, and the `person-comment` arm placing that PR under Blocks delivery <!-- builds: a person-comment reading on the PR index and its You arm --> → #3523
 
 ## Notes
 
