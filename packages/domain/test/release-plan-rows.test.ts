@@ -100,6 +100,11 @@ describe('the header', () => {
     expect(counts).toEqual({ plans: 2, delivered: 1, total: 5, unread: 1 });
     expect(headerText(counts, '2.0')).toBe('2.0 · 2 plans · 1 of 5 slices delivered · 1 not read');
   });
+
+  it('says one plan in the singular, omits an empty release and a read block, and adds the blocked figure', () => {
+    const counts = headerCounts([planRowFacts('a', '', five)]);
+    expect(headerText({ ...counts, unread: 0 }, '', { blocked: 2 })).toBe('1 plan · 1 of 5 slices delivered · 2 blocked');
+  });
 });
 
 describe('mergedFactOf', () => {
@@ -109,6 +114,12 @@ describe('mergedFactOf', () => {
   it('returns the newest non-draft MERGED row of a complete index', () => {
     const fact = mergedFactOf(['feature/a'], index([row({ number: 4, mergedAt: '2026-11-01T00:00:00Z' }), row({ number: 9 }), row({ number: 12, draft: true, mergedAt: '2026-11-17T00:00:00Z' })]));
     expect(fact).toEqual({ pr: 9, mergedAt: '2026-11-10T08:00:00Z' });
+  });
+
+  it('reads a missing mergedAt as the empty time, and prefers a row that has one', () => {
+    expect(mergedFactOf(['feature/a'], index([row({ number: 3, mergedAt: undefined })]))).toEqual({ pr: 3, mergedAt: '' });
+    expect(mergedFactOf(['feature/a'], index([row({ number: 3, mergedAt: undefined }), row({ number: 5 })]))).toEqual({ pr: 5, mergedAt: '2026-11-10T08:00:00Z' });
+    expect(mergedFactOf(['feature/a'], index([row({ number: 5 }), row({ number: 3, mergedAt: undefined })]))).toEqual({ pr: 5, mergedAt: '2026-11-10T08:00:00Z' });
   });
 
   it('answers nothing for a missing, partial or MERGED-free index', () => {
