@@ -15,6 +15,7 @@ import {
   type RoleRun,
   type WorkItemReading,
 } from '@plot-pm/domain';
+import type { PersonDirectory } from '@plot-pm/domain/entities/person';
 import { ticketMarkOf, ticketRecordOf } from '@plot-pm/domain/rules/sprint-ticket-record';
 import type { AgentEntry, AgentRow, DraftPlan, IssueRow, ReleaseTickets, Slice, TicketSourceShape } from '../../../contract/schema.js';
 import { ownedFromCard, ownedFromRow, ownedFromTicket } from './mine-filter.js';
@@ -105,6 +106,8 @@ export interface DeliveryMapping {
   runsById: Record<string, RoleRun>;
   /** The connector's window, as `deliveryMapping` read it. */
   rateLimit: RateLimitReading;
+  /** The `People` spellings of the reader's config; absent where none is declared. */
+  directory?: PersonDirectory;
   /** The checks page of a PR; `''` where none is known. */
   checksUrlOf: (planFile: string, pr: number) => string;
   /** One entry per distinct target release, and the tickets the release line counts for them. */
@@ -378,6 +381,7 @@ const mapReadings = (input: DeliveryMapInput): DeliveryMapping => {
       // required, so the cast is the one place the mapper cannot say so.
       ...input.config,
     } as DeliveryInput,
+    ...(input.reader.directory === undefined ? {} : { directory: input.reader.directory }),
     rowsByItem,
     draftsByItem,
     agentsById,
