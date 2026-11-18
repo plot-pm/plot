@@ -201,7 +201,7 @@ export const repairRevertTick = async (
   let lastGreenRerunSettled: 'pending' | 'green' | 'red' | 'none' = 'none';
   if (record.state === 'reverting' && record.preRevertRerun === 'asked' && record.lastGreenSha !== undefined && reading !== null) {
     const lastGreen = record.lastGreenSha;
-    const asked = await world.slot(() => world.build.runsForSha(reading.branch, lastGreen));
+    const asked = await world.slot(() => world.build.runsForSha(reading.branch, lastGreen, world.checks));
     lastGreenRerunSettled = lastGreenRerunSettledOf(record, asked.ok ? asked.value : null, world.checks, now);
   }
 
@@ -342,7 +342,7 @@ const makeRevert = async (
     const asks = [record.firstRedSha];
     if (reading.settled !== undefined && reading.settled.sha !== record.firstRedSha) asks.push(reading.settled.sha);
     for (const sha of asks) {
-      const runs = await world.slot(() => world.build.runsForSha(reading.branch, sha));
+      const runs = await world.slot(() => world.build.runsForSha(reading.branch, sha, world.checks));
       if (!runs.ok || foldRuns(declaredRuns(runs.value, world.checks)) !== 'red') {
         warn(`plot-fleetd: revert held — ${sha} does not read red on a second look`);
         return 'held';

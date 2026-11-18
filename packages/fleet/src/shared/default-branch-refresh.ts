@@ -17,6 +17,7 @@ import {
   foldRuns,
   unmatchedChecks,
 } from '@plot-pm/domain/rules/default-branch';
+import type { WorkflowShaRun } from '@plot-pm/domain/entities/build';
 import { keepsRepairRecord } from '@plot-pm/domain/rules/repair-pr';
 import type { BuildPort } from '@plot-pm/domain/ports/build';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
@@ -28,6 +29,9 @@ import { failedOf, readOf, type RecordReading } from './snapshot-fill.js';
 /** How long a pending, red or unknown head waits before its runs are asked again, inside `Checks wait`. */
 export const REASK_MS = 5 * 60 * 1000;
 
+/** How long after a run's expected end the head is asked, so a run a little longer than the last one is not asked a second time too early. Also the shortest interval an expected end sets. */
+export const EXPECTED_END_GRACE_MS = 30 * 1000;
+
 /**
  * How long an unsettled head waits before its runs are asked again.
  *
@@ -38,24 +42,104 @@ export const REASK_MS = 5 * 60 * 1000;
  * is renewed before its hold expires, as long as the refresh beat plus one ask
  * takes less than the other half.
  *
+ * Inside `Checks wait` a run's expected end shortens the interval: it becomes
+ * the time left until that end plus {@link EXPECTED_END_GRACE_MS}, never more
+ * than the interval above. An expected end that is not ahead of the last ask
+ * sets nothing, so a run that overruns is asked at the interval above and not
+ * on every tick.
+ *
  * @param checksWaitMs - the `Checks wait` bound, in milliseconds.
  * @param pastWait - whether `Checks wait` has passed since the SHA first appeared.
+ * @param untilEndMs - the time from the last ask to the run's expected end, in milliseconds; absent where no end is known.
  * @returns the re-ask interval, in milliseconds.
  */
-export const reaskIntervalMs = (checksWaitMs: number, pastWait: boolean): number =>
-  pastWait ? checksWaitMs / 2 : Math.min(REASK_MS, checksWaitMs / 2);
+export const reaskIntervalMs = (checksWaitMs: number, pastWait: boolean, untilEndMs?: number): number => {
+  if (pastWait) return checksWaitMs / 2;
+  const bound = Math.min(REASK_MS, checksWaitMs / 2);
+  return untilEndMs === undefined || !(untilEndMs > 0) ? bound : Math.min(bound, untilEndMs + EXPECTED_END_GRACE_MS);
+};
 
 /**
  * Whether a held reading's runs are due to be asked again.
  *
+ * Only a `pending` head inside `Checks wait` uses `expectedEndMs`; a green,
+ * red or unknown head keeps its interval.
+ *
  * @param previous - the held reading.
  * @param now - the current time, in milliseconds.
  * @param checksWaitMs - the `Checks wait` bound, in milliseconds.
+ * @param expectedEndMs - when the head's run is expected to end, epoch milliseconds; absent where unknown.
  * @returns `true` where {@link reaskIntervalMs} has passed since the reading's `at`.
  */
-export const reaskDue = (previous: DefaultBranchReading, now: number, checksWaitMs: number): boolean => {
+export const reaskDue = (
+  previous: DefaultBranchReading,
+  now: number,
+  checksWaitMs: number,
+  expectedEndMs?: number,
+): boolean => {
   const pastWait = previous.head === 'green' || now - Date.parse(previous.headSince) >= checksWaitMs;
-  return now - Date.parse(previous.at) >= reaskIntervalMs(checksWaitMs, pastWait);
+  const at = Date.parse(previous.at);
+  const untilEnd = previous.head === 'pending' && expectedEndMs !== undefined ? expectedEndMs - at : undefined;
+  return now - at >= reaskIntervalMs(checksWaitMs, pastWait, untilEnd);
+};
+
+/** What the refresh remembers of how long the declared runs take. Held in memory only. */
+export interface RunTiming {
+  /**
+   * Notes the folded runs of one commit: when they started, and, where every one concluded `success` and reports an end, how long they took.
+   *
+   * @param sha - the commit the runs belong to.
+   * @param runs - the declared runs of that commit, from `declaredRuns`.
+   */
+  observe(sha: string, runs: readonly WorkflowShaRun[]): void;
+  /**
+   * When the commit's runs are expected to end.
+   *
+   * @param sha - the commit asked about.
+   * @returns the start of its runs plus the last duration observed, epoch milliseconds; `undefined` where either is unread.
+   */
+  expectedEndMs(sha: string): number | undefined;
+}
+
+const TIMING_SHAS_MAX = 16;
+
+const epochOf = (text: string | undefined): number | undefined => {
+  const ms = text === undefined || text === '' ? NaN : Date.parse(text);
+  return Number.isFinite(ms) && ms > 0 ? ms : undefined;
+};
+
+/**
+ * Builds a {@link RunTiming} that holds the start of each commit it saw and the last green duration.
+ *
+ * Nothing is persisted: after a restart `expectedEndMs` answers `undefined`
+ * until a green run has been observed, and the head is asked at
+ * {@link REASK_MS}. A duration comes only from runs that all report an end, so
+ * a bare workflow run (which reports none) never sets one.
+ *
+ * @returns an empty timing.
+ */
+export const runTiming = (): RunTiming => {
+  const starts = new Map<string, number>();
+  let durationMs: number | undefined;
+  return {
+    observe: (sha, runs) => {
+      if (runs.length === 0) return;
+      const began = runs.map((run) => epochOf(run.startedAt));
+      if (began.some((ms) => ms === undefined)) return;
+      const start = Math.min(...(began as number[]));
+      starts.delete(sha);
+      starts.set(sha, start);
+      if (starts.size > TIMING_SHAS_MAX) starts.delete(starts.keys().next().value as string);
+      const ended = runs.map((run) => epochOf(run.completedAt));
+      if (!runs.every((run) => run.conclusion === 'success') || ended.some((ms) => ms === undefined)) return;
+      const took = Math.max(...(ended as number[])) - start;
+      if (took > 0) durationMs = took;
+    },
+    expectedEndMs: (sha) => {
+      const start = starts.get(sha);
+      return start === undefined || durationMs === undefined ? undefined : start + durationMs;
+    },
+  };
 };
 
 /** What one refresh is read and written through. */
@@ -81,9 +165,12 @@ export interface DefaultBranchWorld {
   now(): number;
   /**
    * The `Checks wait` bound in ms. Inside it a head is re-asked every
-   * {@link REASK_MS}; after it, once per half `Checks wait` ({@link reaskIntervalMs}).
+   * {@link REASK_MS}, sooner where a pending run's expected end is known
+   * ({@link RunTiming}); after it, once per half `Checks wait` ({@link reaskIntervalMs}).
    */
   checksWaitMs: number;
+  /** Where the refresh notes how long the declared runs take. Absent, a pending head is asked at {@link REASK_MS}. */
+  timing?: RunTiming;
   /**
    * The workflow names `Default branch checks` declares. Only their runs are
    * folded; an empty list folds every run.
@@ -141,8 +228,9 @@ const settleBehindHead = async (
   const line = walked.ok ? walked.value : [];
   const asking = ancestorsToAsk(line, headSha, kept.settled, ANCESTOR_ASKS_MAX, kept.walked);
   const ask = async (sha: string): Promise<{ step: ReturnType<typeof ancestorStep>; failingRuns: FailingRun[] }> => {
-    const asked = await world.slot(() => world.build.runsForSha(branch, sha));
+    const asked = await world.slot(() => world.build.runsForSha(branch, sha, world.checks));
     const runs = asked.ok ? declaredRuns(asked.value, world.checks) : [];
+    if (asked.ok) world.timing?.observe(sha, runs);
     const step = ancestorStep(sha, asked.ok ? foldRuns(runs) : null);
     return { step, failingRuns: typeof step === 'object' && step.state === 'red' ? failingRunsOf(runs) : [] };
   };
@@ -231,7 +319,7 @@ export type DefaultBranchOutcome = 'skipped' | 'asked' | 'unreadable';
  *
  * Reads the head SHA, and asks for its runs when the SHA changed or the
  * previous ask is old enough. A head that is `pending`, `red` or `unknown` is
- * asked again every {@link REASK_MS}, measured from the last ask (`at`), until
+ * asked again every {@link REASK_MS}, or at the expected end of its run where that is sooner ({@link reaskIntervalMs}), measured from the last ask (`at`), until
  * `Checks wait` has passed since the SHA first appeared (`headSince`). After
  * that it is asked again once per half `Checks wait`, so a red head is renewed
  * before `defaultBranchRed` stops holding it, and a re-run that turns it green
@@ -297,12 +385,12 @@ export const refreshDefaultBranch = async (
   const now = world.now();
 
   const unchanged = previous !== null && previous.headSha === sha;
-  if (unchanged && !reaskDue(previous, now, world.checksWaitMs)) {
+  if (unchanged && !reaskDue(previous, now, world.checksWaitMs, world.timing?.expectedEndMs(sha))) {
     world.record?.('defaultBranch', readOf(previous, now));
     return 'skipped';
   }
 
-  const asked = await world.slot(() => world.build.runsForSha(branch, sha));
+  const asked = await world.slot(() => world.build.runsForSha(branch, sha, world.checks));
   if (!asked.ok && asked.why === 'unaskable') {
     warn(`plot-fleetd: default-branch read skipped — CI did not answer for '${branch}' at ${sha}`);
     world.record?.('defaultBranch', failedOf(`CI did not answer for '${branch}' at ${sha}`, now));
@@ -332,6 +420,7 @@ export const refreshDefaultBranch = async (
       warn(`plot-fleetd: default-branch check '${name}' matched no run for ${sha}`);
     }
     const runs = declaredRuns(asked.value, world.checks);
+    world.timing?.observe(sha, runs);
     const head = foldRuns(runs);
     const advanced = advanceSettled(carried, sha, head);
     // The failing runs belong to the settled commit: new ones when it moved
@@ -399,7 +488,7 @@ export const refreshOnChange = (
       const stored = await world.store.read();
       const previous = stored.ok && stored.value?.branch === branch ? stored.value : null;
       const now = world.now();
-      if (previous !== null && !reaskDue(previous, now, world.checksWaitMs)) {
+      if (previous !== null && !reaskDue(previous, now, world.checksWaitMs, world.timing?.expectedEndMs(previous.headSha))) {
         world.record?.('defaultBranch', readOf(previous, now));
         return 'skipped';
       }

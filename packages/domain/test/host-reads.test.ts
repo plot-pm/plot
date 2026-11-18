@@ -4,7 +4,7 @@ import { BITBUCKET_NO_CREDENTIAL, type BitbucketApi, type BitbucketApiOptions } 
 import type { GithubApi, GithubApiOptions, GithubRequest } from '../src/adapters/host/github-api.js';
 import { hostFixture } from '../src/adapters/host/host-fixture.js';
 import { hostReadsFor, hostWithListing } from '../src/adapters/host/host-reads.js';
-import { hostForReads } from '../src/adapters/host/process-host-reads.js';
+import { apiForReads, hostForReads } from '../src/adapters/host/process-host-reads.js';
 import type { Host, LimitObservation, PrListing } from '../src/ports/host.js';
 
 const context = { repoRoot: '/nonexistent', scriptDir: '/nonexistent' };
@@ -340,5 +340,21 @@ describe('hostForReads', () => {
     });
     expect(hostForReads(root)).toBe(reads.host);
     expect(hostForReads({ repoRoot: '/nonexistent/other', scriptDir: '/nonexistent' })).not.toBe(reads.host);
+  });
+});
+
+describe('apiForReads', () => {
+  it('answers the GitHub client of the in-process composition, and nothing for another repository', async () => {
+    const seen = { options: null as GithubApiOptions | null, requests: [] as GithubRequest[] };
+    const root = { repoRoot: '/nonexistent/api-for-reads', scriptDir: '/nonexistent' };
+    const reads = await hostReadsFor(root, github, {
+      env: { GH_TOKEN: 'fixture' },
+      shell: shellHost(),
+      origin: async () => 'git@github.com:o/r.git',
+      client: fakeClient('GH_TOKEN', seen),
+    });
+    expect(reads.api).not.toBeNull();
+    expect(apiForReads(root)).toBe(reads.api);
+    expect(apiForReads({ repoRoot: '/nonexistent/other-api', scriptDir: '/nonexistent' })).toBeUndefined();
   });
 });

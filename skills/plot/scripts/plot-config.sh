@@ -240,7 +240,11 @@
 #                       of any other workflow is not folded, so a publishing or
 #                       release workflow cannot raise the `default-branch-red`
 #                       hold or the board's red-branch status. Names match a run's
-#                       workflow name exactly. Absent = every workflow's runs.
+#                       workflow name exactly; a bare name folds the whole run.
+#                       `<workflow>/<job>` (`CI/validate`) folds that one job of
+#                       that workflow, under GitHub Actions only: a job name no
+#                       job carries matches no run and reads `unknown`, never
+#                       green. Absent = every workflow's runs.
 #   Merge checks        comma-separated check names (a job's check run or a
 #                       status context, `validate`) that `plot-ask.mjs merge`
 #                       and fleetd's merge arm require to have a completed

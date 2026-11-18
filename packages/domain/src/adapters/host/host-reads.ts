@@ -219,6 +219,6 @@ export const hostReadsFor = async (
   const choice = hostTransportOf({ ...reading, tokenSource: await api.tokenSource() });
   if (choice.transport === 'shell') return { choice, api: null, host: shell };
   const host = hostWithConversation(hostWithListing(shell, githubPrListing(api), {}, githubProtection(api)), githubPrConversation(api));
-  recordHostReads(context.repoRoot, host);
+  recordHostReads(context.repoRoot, host, api);
   return { choice, api, host };
 };
