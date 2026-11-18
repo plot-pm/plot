@@ -15,6 +15,7 @@
 - **Approved:** 2026-11-16, Jan Wloka, plan-PR #3469 merged
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-you-groups`
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-you-loose-prs`
+- **Started:** 2026-11-18, Jan Wloka, `feature/delivery-you-plan-rows`
 
 ## Changelog
 
