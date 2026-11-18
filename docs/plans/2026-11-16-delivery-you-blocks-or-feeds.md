@@ -16,6 +16,7 @@
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-you-groups`
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-you-loose-prs`
 - **Started:** 2026-11-18, Jan Wloka, `feature/delivery-you-plan-rows`
+- **Started:** 2026-11-18, Jan Wloka, `feature/delivery-you-phase-strip`
 
 ## Changelog
 
