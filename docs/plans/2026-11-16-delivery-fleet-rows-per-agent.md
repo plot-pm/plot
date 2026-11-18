@@ -17,6 +17,7 @@
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-fleet-plan-runs`
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-fleet-agent-rows`
 - **Started:** 2026-11-18, Jan Wloka, `feature/delivery-fleet-time-tokens`
+- **Started:** 2026-11-18, Jan Wloka, `feature/delivery-fleet-header-switches`
 
 ## Changelog
 
