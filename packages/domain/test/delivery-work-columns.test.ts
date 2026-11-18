@@ -81,8 +81,8 @@ describe('the Work items columns', () => {
     const queued = workItemCells(slice('queued'), facts)!;
     expect([gate.column, built.column, queued.column]).toEqual(['Gates', 'Progress', 'Waits on']);
     expect(gate.cells.group?.value).toMatch(/CI|review/);
-    expect(built.cells.group).toBeNull();
-    expect(queued.cells.group?.value).toBe('waits on first');
+    expect(built.cells.group?.value).toBe('PR open');
+    expect(queued.cells.group?.value).toBe('first');
     expect(Object.keys(gate.cells)).toEqual([...WORK_ITEM_COLUMNS]);
   });
 
@@ -92,6 +92,63 @@ describe('the Work items columns', () => {
 
   it('return nothing for an item outside Work items', () => {
     expect(workItemCells({ ...slice('queued'), section: 'fleet' } as never, {})).toBeNull();
+  });
+});
+
+describe('the Progress cell', () => {
+  const progress = (facts: ItemRowFacts) => workItemCells(slice('being-built'), { plan: 'p', branch: 'feature/x', ...facts })!.cells.group;
+
+  it('reads no PR yet where the item has no open PR', () => {
+    expect(progress({})?.value).toBe('no PR yet');
+  });
+  it('reads PR open where it has one, linked to the PR', () => {
+    expect(progress({ pr: 4 })).toMatchObject({ value: 'PR open', links: [{ to: 'pr', pr: 4 }] });
+  });
+  it('names the unpushed count as unpushed beside the PR state', () => {
+    expect(progress({ pr: 4, unpushed: 2 })?.value).toBe('PR open · 2 unpushed');
+    expect(progress({ unpushed: 1 })?.value).toBe('no PR yet · 1 unpushed');
+  });
+  it.each([[0], [undefined]])('prints no count for a pushed or unread branch (%s)', (unpushed) => {
+    const cell = progress({ pr: 4, ...(unpushed === undefined ? {} : { unpushed }) });
+    expect(cell?.value).toBe('PR open');
+    expect(cell?.value).not.toContain('unpushed');
+  });
+});
+
+describe('the Waits on cell', () => {
+  const waits = (facts: ItemRowFacts, agents: string[] = []) =>
+    workItemCells({ ...slice('queued'), agents }, facts)!.cells.group;
+
+  it('reads no agent assigned where nothing is waited on and no agent acts', () => {
+    expect(waits({ plan: 'p' })?.value).toBe('no agent assigned');
+  });
+  it('is null where an agent acts and nothing is read', () => {
+    expect(waits({ plan: 'p' }, ['a1'])).toBeNull();
+  });
+  it('names the earlier slice, linked, including a slice of another plan', () => {
+    expect(waits({ waitsOn: 'first' })).toMatchObject({ value: 'first', links: [{ to: 'slice', id: 'first' }] });
+    expect(waits({ waitsOn: 'other-plan/first' })?.value).toBe('other-plan/first');
+  });
+  it('reads an earlier slice where the server names none', () => {
+    expect(waits({ waitsOn: '' })).toMatchObject({ value: 'an earlier slice', links: [] });
+  });
+  it("names another person's Draft plan with the display name", () => {
+    expect(waits({ phase: 'draft', person: 'eins78', personName: 'Max Albrecht' })?.value).toBe('Draft · Max Albrecht');
+    expect(waits({ phase: 'design', person: 'eins78', personName: 'Max Albrecht' })?.value).toBe('Design · Max Albrecht');
+  });
+  it('names the phase alone where no person is read, and the handle where no display name is declared', () => {
+    expect(waits({ phase: 'draft' })).toMatchObject({ value: 'Draft', links: [] });
+    expect(waits({ phase: 'draft', person: '' })?.value).toBe('Draft');
+    expect(waits({ phase: 'draft', person: 'eins78' })).toMatchObject({ value: 'Draft · eins78', links: [{ to: 'person', handle: 'eins78' }] });
+    expect(waits({ phase: 'draft', personName: 'Max Albrecht' })).toMatchObject({ value: 'Draft · Max Albrecht', links: [] });
+  });
+  it('names the spike and release approvals', () => {
+    expect(waits({ approvalOwed: 'spike' })?.value).toBe('spike approval');
+    expect(waits({ approvalOwed: 'release' })?.value).toBe('release approval');
+  });
+  it('names an owed approval with the person', () => {
+    const cell = waits({ approvalOwed: 'plan', person: 'eins78', personName: 'Max Albrecht' });
+    expect(cell).toMatchObject({ value: 'plan approval · Max Albrecht', links: [{ to: 'person', handle: 'eins78' }] });
   });
 });
 

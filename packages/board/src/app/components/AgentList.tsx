@@ -1163,6 +1163,15 @@ export function AgentList({
           return placed.section === 'work-items' && placed.group === 'at-a-gate' && cell?.parts !== undefined
             ? <RowCell cell={cell} handlers={linkHandlers} /> : undefined;
         };
+        // Progress and Waits on replace the status word: a column holds one kind of value.
+        const groupCellItem = (item: PlacedItemView) => {
+          const placed = item.placement;
+          if (placed === null || placed === undefined || placed.section !== 'work-items' || placed.group === 'at-a-gate') return undefined;
+          const cell = workItemCells(placed, itemRowFactsOf(mapping, placed.id))?.cells.group;
+          return cell === null || cell === undefined ? undefined : <RowCell cell={cell} handlers={linkHandlers} />;
+        };
+        const gatesOrGroupItem = (item: PlacedItemView) => gatesItem(item) ?? groupCellItem(item);
+        const replacesStatus = (item: PlacedItemView) => groupCellItem(item) !== undefined;
         const slices = fleet.slices;
         const issues = fleet.issueAnswer === 'answered' ? filteredIssues : [];
         const ticketSplit = splitTicketRows(issues, placement.tickets, placement.unplaced);
@@ -1228,7 +1237,7 @@ export function AgentList({
         ];
         const itemBody = (item: PlacedItemView, inPlan = false) => [
           anchorOf(item),
-          ...item.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={inPlan} by={byItem(item)} gates={gatesItem(item)} />),
+          ...item.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={inPlan} by={byItem(item)} gates={gatesOrGroupItem(item)} gatesReplaceStatus={replacesStatus(item)} />),
           ...(item.ticket !== null
             ? [(
                 <IssueRowView
@@ -1287,7 +1296,8 @@ export function AgentList({
                   onExpandSection={expandSection}
                   planIndex={planIndex}
                   by={byItem(s.item)}
-                  gates={gatesItem(s.item)}
+                  gates={gatesOrGroupItem(s.item)}
+                  gatesReplaceStatus={replacesStatus(s.item)}
                 />
                 {many && sliceOpen && (
                   <ul
@@ -1300,7 +1310,7 @@ export function AgentList({
                 )}
               </li>
             ),
-            ...s.loose.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={block.headed} by={byItem(s.item)} gates={gatesItem(s.item)} />),
+            ...s.loose.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={block.headed} by={byItem(s.item)} gates={gatesOrGroupItem(s.item)} gatesReplaceStatus={replacesStatus(s.item)} />),
             ...itemTail(s.item),
           ];
         };

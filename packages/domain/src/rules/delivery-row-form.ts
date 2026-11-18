@@ -78,10 +78,18 @@ export interface ItemRowFacts {
   ciRun?: string;
   /** The gate's own PR reading. */
   prReading?: PrReading;
-  /** The slice an earlier slice must finish first. */
+  /** The slice an earlier slice must finish first; `''` where the item waits and the server names no slice. */
   waitsOn?: string;
   /** The person the item waits on, as a handle. */
   person?: string;
+  /** The display name of `person`, resolved through `People`; absent where the directory declares none. */
+  personName?: string;
+  /** A plan's phase, where it is `draft` or `design`: another person's plan waits on them. */
+  phase?: 'draft' | 'design';
+  /** The approval the lifecycle needs from `person`. */
+  approvalOwed?: 'plan' | 'spike' | 'release';
+  /** Commits the local branch holds that the remote does not; absent where the pulse read none, `0` is never set. */
+  unpushed?: number;
   /** The last commit of a loose branch, as `<sha7>`. */
   lastCommit?: string;
   /** The id of the question a stopped agent asked. */
@@ -307,6 +315,57 @@ const byAgents = (agents: readonly string[], person: string | undefined): Cell |
 
 const ageCell = (minutes: number | undefined): Cell | null =>
   minutes === undefined ? null : link(ageValue(minutes));
+
+const PHASE_WORD = { draft: 'Draft', design: 'Design' } as const;
+const APPROVAL_WORD = { plan: 'plan approval', spike: 'spike approval', release: 'release approval' } as const;
+
+/**
+ * The Progress cell of an item being built: the PR state, then the unpushed count where one was read.
+ *
+ * The PR state comes from `facts.pr`, the item's own open PR, and never from a stage word.
+ * An absent or zero count adds no part: an unread count is not `0 unpushed`.
+ *
+ * @param facts - the item's row facts.
+ * @returns the cell, as `no PR yet`, `PR open`, or either followed by ` · N unpushed`.
+ */
+export const progressCell = (facts: ItemRowFacts): Cell => {
+  const state = facts.pr === undefined ? 'no PR yet' : 'PR open';
+  const parts: CellPart[] = [
+    { value: state, link: facts.pr === undefined ? null : { to: 'pr', pr: facts.pr } },
+    ...(facts.unpushed !== undefined && facts.unpushed > 0
+      ? [{ value: `${facts.unpushed} unpushed`, link: null } as CellPart] : []),
+  ];
+  return {
+    value: parts.map((p) => p.value).join(' · '),
+    links: parts.flatMap((p) => (p.link === null ? [] : [p.link])),
+    parts,
+  };
+};
+
+/**
+ * The Waits on cell of a queued item.
+ *
+ * Another person's phase or approval comes first, with the person; then the earlier
+ * slice, or `an earlier slice` where the server names none; then `no agent assigned`
+ * where no agent acts on the item.
+ *
+ * @param facts - the item's row facts.
+ * @param agents - the agents acting on the item.
+ * @returns the cell, or `null` where nothing is read to wait on and an agent acts.
+ */
+export const waitsOnCell = (facts: ItemRowFacts, agents: readonly string[]): Cell | null => {
+  const what = facts.approvalOwed !== undefined ? APPROVAL_WORD[facts.approvalOwed]
+    : facts.phase !== undefined ? PHASE_WORD[facts.phase] : undefined;
+  if (what !== undefined) {
+    const who = facts.personName || facts.person;
+    return who === undefined || who === ''
+      ? link(what)
+      : link(`${what} · ${who}`, ...(facts.person === undefined ? [] : [{ to: 'person', handle: facts.person } as const]));
+  }
+  if (facts.waitsOn === '') return link('an earlier slice');
+  if (facts.waitsOn !== undefined) return link(facts.waitsOn, { to: 'slice', id: facts.waitsOn });
+  return agents.length === 0 ? link('no agent assigned') : null;
+};
 
 /**
  * The seven cells of a work-item row, with each cell's link targets per the
