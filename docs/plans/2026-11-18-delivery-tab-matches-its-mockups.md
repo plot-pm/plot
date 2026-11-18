@@ -11,7 +11,7 @@
 - **Story:** delivery-tab-reads-at-a-glance
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -174,7 +174,7 @@ Each item is a state a mockup styles that the domain did not expose on `main` at
 
 ### Open Questions
 
-Round 1 of `/challenge-the-plan` raised the items below. Jan Wloka answered all of them on 2026-11-18, and the slices follow the answers.
+Round 1 of `/challenge-the-plan` raised the checked items below. Jan Wloka answered all of them on 2026-11-18, and the slices follow the answers. Round 2 (panel, unattended) raised the unchecked items at the end of this list; no person has answered them yet.
 
 - [x] **Type.** `feature` stays.
 - [x] **Owners for markup no slice owns.** *Primitives* owns the Free line, the Fleet counts line, the Fleet switches slot, the group tags and the Do cell. Re-checked after the move: in *Sections*, only `feature/delivery-visual-release` edits `AgentList.tsx`, and no *Sections* branch edits `TupleRow.tsx`. *(panel round 1: contradiction, deliverable)*
@@ -190,9 +190,30 @@ Round 1 of `/challenge-the-plan` raised the items below. Jan Wloka answered all 
 - [x] **Token scope.** `sky` and `orange` map to existing hue sets; the other `dark:` uses and `server/board.ts:3723` stay. *(estate)*
 - [x] **Sections wait on Primitives only by heading order.** The *Sections* heading says so. The screenshot harness stays in *Primitives*, because *Primitives* needs it for its own done-when and a separate branch would cost a wave. *(deliverable, cost)*
 
+- [ ] **Round 2: Release header counts.** `ReleaseBlockView.header` is one string (`delivery-view.ts:240`, `:521-522`), so the Release slice cannot show a bold coloured number without parsing it, and *Approach* forbids that. Either add a seventh *Domain Fields* item (Release header counts as `{key, count, label}`, string kept beside them) or state that the Release header stays one muted line and correct item 6's "every section". *(contradiction, deliverable; blocks `feature/delivery-visual-release`)*
+- [ ] **Round 2: `now` and the phase reach `planRowFacts` through a component.** `placeMapping` (`delivery-view.ts:529-534`) takes no clock and its only caller is `AgentList.tsx:1147`, but *Domain fields* owns no `.tsx` file and its done-when forbids one. Name who passes `now` (a parameter on `placeMapping` plus the one call-site line, with the `.tsx` rule relaxed for that line) or move the relative time out of the domain slice. *(estate, deliverable, cost)*
+- [ ] **Round 2: the screenshot artifact can be absent.** `board-integration` is skipped when `reuse_board` is set (`ci.yml:1308`, `:142`, `docs/plans/2026-11-09-ci-reuses-green-runs.md`), so the CI run on the PR head may hold no `delivery-screenshots` artifact. Say what the PR body links in that case, or exempt the Delivery paths from reuse. *(estate, deliverable, cost)*
+- [ ] **Round 2: the Phase colour has two homes.** `PlanCard.tsx:17-24` (`PHASE_ACCENT`) colours Development green and Testing violet on the Plans tab; item 2 says blue and teal, and a chip map keyed on the word `Development` tests a string in the view. `phaseColumns` (`workflow-phases.ts:207-238`) already gives each phase an accent key. Decide which colours both tabs use and whether item 2 reuses that accent. *(estate)*
+- [ ] **Round 2: reuse what exists.** The estate has three relative-time formatters (`storyDateText`, `relativeAge` and one more; item 3 names none), and the released plan `2026-11-06-one-card-grammar.md` built `Tone` and chip, dot and text-colour vocabulary on the Plans tab. State which item 3 and *Primitives* reuse. *(estate)*
+- [ ] **Round 2: item 1 names the wrong builder.** `gateValue` (`delivery-row-form.ts:223-230`) returns a string; the gate-mark `CellPart`s are built in `gatesCell` (`:264-279`) from `gateMarks` (`:244`). *(estate)*
+- [ ] **Round 2: the Do cell range names the By cell.** `TupleRow.tsx:845-848` is the `⋯` menu cell and `:850-862` is the By cell, which *Work items* also claims through `RowCell`; the Do verb is rendered in `DeliveryRows.tsx:53` with `LINK_CLASS`. Split the ownership and say *Work items* keeps `LINK_CLASS` on `data-row-do` unchanged. *(contradiction)*
+- [ ] **Round 2: the group colour still has two homes in the cascade.** `YOU_MARKER_CLASS` stays on `data-group-marker` (`AgentList.tsx:1682-1684`) beside the `data-group` rule, and Tailwind 4 utilities sit in `@layer utilities`. State the layer the section stylesheets import into (unlayered, after `@import "tailwindcss"`) or remove the class and move the class-reading tests. The screenshot test does not catch a lost override. *(contradiction, deliverable)*
+- [ ] **Round 2: "being built" takes two colours.** Line 89 colours the count green, line 78 and line 163 colour the state blue. Map the count to blue or state the exception. *(contradiction)*
+- [ ] **Round 2: the group heading style matches two of four sections.** `you-section-v2.html:8` and `section-header.html:13` show a 12 px, 650-weight, body-colour, not-uppercase heading with a tag beside it. Add a variant or place it in `delivery-you.css`. *(contradiction; cosmetic)*
+- [ ] **Round 2: the token table maps the section card to the wrong mockup colour.** Every section frame is `#0b1020`; `#131a2e` is the tab-header box and the to-do list. Split the row. *(contradiction; cosmetic)*
+- [ ] **Round 2: new tokens against the spec's "existing palette".** `--card-rule` and the `--hue-rose` family deviate from *Left to the Builder* (spec line 241); record the deviation as a decision. *(contradiction; cosmetic)*
+- [ ] **Round 2: the kind cell appears in every section.** `TupleRow.tsx:747-756` is shared by You and Work items, so a `data-group`-scoped rule in `delivery-you.css` leaves Work items unstyled; move its style to *Primitives*. *(contradiction; cosmetic)*
+- [ ] **Round 2: the changelog and the board-impact comment omit two visible changes.** Item 2 adds a Phase column and item 3 replaces an ISO date with "merged 2 days ago", yet the changelog says looks only and the comment says "the board's look only". *(deliverable)*
+- [ ] **Round 2: the tab-header column markup has no owner.** `first-five-seconds-v2.html:55-74` nests the sprint and fleet cards in one right-hand container beside the to-do box; `feature/delivery-visual-tab-header` may style only through its stylesheet. *Primitives* should name the wrapper structure and which card goes in each column. *(deliverable)*
+- [ ] **Round 2: the relative merge time has no testable case list, and the header bar decides word order.** "Every case its type names" does not hold for a string; list the cases (minutes, hours, days, weeks, a future `mergedAt`, a missing one). `SectionCount.text` puts the number first in one section and last in the others (`delivery-view.ts:162-170`), so the bold-number bar needs the order decided in the domain. *(deliverable)*
+- [ ] **Round 2: one mockup image per section, two mockups for two sections; "six fields" counts eight.** The tab-header and release slices cite two mockups each, and item 3 alone adds three fields. *(deliverable; cosmetic)*
+- [ ] **Round 2: the schedule and the dependency claim.** The critical path is seven serial merges (`delivery-tab-todo-list`, `delivery-release-card`, `delivery-my-sprint-scope`, `delivery-sprint-delivery-scope`, *Domain fields*, *Primitives*, *Sections*), three of them slices nobody has written; round 1 asked for it and the Notes do not state it. *Domain fields* "shares files with all six", but #3507 (`feature/delivery-tab-footer`) touches none of its Owns files. *(cost)*
+- [ ] **Round 2: the contrast gate covers an enumerated list.** `--card-meta` on `--card-band-strong` and `--card-panel-strong` reads 4.35 in light and light `--hue-green` on `--card-panel-strong` reads 4.51; assert `--card-meta` on every card background, or say the `-strong` tokens are out of scope. *(cost)*
+- [ ] **Round 2: smaller cost and cite items.** The screenshot test runs on every `board-integration` run (about 32 renders); the `select` diff command is at `ci.yml:198` (file `$RUNNER_TEMP/changed.txt`), not `:260`, and `scripts/ci-job-map.jq` already maps paths to jobs; round-1 cost items 6 (no render at the desk) and 13 (built CSS holds the imported rules) have no answer. *(cost, estate)*
+
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "engine": "panel",
   "questionHistory": [],
   "deferredItems": [],
