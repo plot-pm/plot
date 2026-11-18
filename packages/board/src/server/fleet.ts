@@ -6390,6 +6390,7 @@ export function agentPr(pr: PrRecord): {
   headSha?: string; checksSha?: string; ciChecks?: PrRecord['ciChecks'];
   plotReview?: PrRecord['plotReview']; plotReviewSha?: string;
   plotReviewJudged?: PrRecord['plotReviewJudged']; plotReviewCheckedSha?: string;
+  updatedAt?: string; personComment?: PrRecord['personComment'];
 } {
   const states = prStates(pr);
   return {
@@ -6399,6 +6400,7 @@ export function agentPr(pr: PrRecord): {
     headSha: pr.headSha, checksSha: pr.checksSha, ciChecks: pr.ciChecks,
     plotReview: pr.plotReview, plotReviewSha: pr.plotReviewSha,
     plotReviewJudged: pr.plotReviewJudged, plotReviewCheckedSha: pr.plotReviewCheckedSha,
+    updatedAt: pr.updatedAt, personComment: pr.personComment,
   };
 }
 

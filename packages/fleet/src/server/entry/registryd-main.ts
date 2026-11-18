@@ -131,6 +131,7 @@ import { fleetPrs, fleetScan, startFleetClock } from '../../shared/fleet-clock.j
 import { stateSyncStampOf, stateSyncTick } from '../../shared/state-sync-tick.js';
 import { escalationPostWorldFor, postEscalation } from '../../shared/escalation-post.js';
 import { fleetAutoWrites } from '../../shared/auto-writes.js';
+import type { ConversationHolds } from '../../shared/auto-merge.js';
 import { verifyingCount } from '../../shared/auto-verify.js';
 import { specRunningCount } from '../../shared/auto-design.js';
 import { boundSecondsOf, boundSecondsOfKey, pidAlive } from '../../shared/fleet-run.js';
@@ -3357,8 +3358,11 @@ export const run = async (
     const answer = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
     return answer.ok ? answer.value : null;
   });
+  // SHARED BY THE MERGE PASS (WRITER) AND THE PR PASS (READER), for the daemon's life.
+  const conversationHolds: ConversationHolds = new Map();
   const readPrs = fleetPrs(
     {
+      conversationHolds: () => conversationHolds,
       scripts,
       spend,
       host: hostReads.host,
@@ -3677,6 +3681,7 @@ export const run = async (
             warn,
             () => queueHolds.held,
             stop,
+            conversationHolds,
           ),
         ))),
         prs: passed('pr-reader', prsBeat({ readPrs: raisingPrs(seams.readPrs ?? readPrs), readDefaultBranch }, slot, retryBind)),

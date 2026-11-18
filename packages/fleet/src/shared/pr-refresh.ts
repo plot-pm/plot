@@ -177,6 +177,12 @@ export interface PrWorld {
   /** The clock in epoch ms; defaults to `Date.now`. A test injects one. */
   now?: () => number;
   /**
+   * fleetd's merge pass's held conversation answers, read at the fold. Only a
+   * `human-comment-open` hold is written, as the OPEN row's `personComment`;
+   * the pass asks the host nothing for it. Absent where no merge pass runs.
+   */
+  conversationHolds?: () => ReadonlyMap<number, { readonly head: string; readonly at: string; readonly reason: string }>;
+  /**
    * Records the pass's `prs` reading into the daemon's snapshot: the whole
    * row set where the pass holds one, a `failed` reading where the host did
    * not answer. A pass the gates skip records nothing. It adds no read.
@@ -1255,6 +1261,19 @@ export const applyPrMaps = (entry: PrState, maps: PrMaps): void => {
   entry.prsByHead = maps.byHead;
 };
 
+/** Stamps `personComment` on each OPEN row a `human-comment-open` hold names at the row's own head commit. */
+const withPersonComments = (
+  index: PrIndex,
+  holds: ReadonlyMap<number, { readonly head: string; readonly at: string; readonly reason: string }>,
+): PrIndex => ({
+  ...index,
+  rows: index.rows.map((row) => {
+    const hold = holds.get(row.number);
+    if (row.state !== 'OPEN' || hold === undefined || hold.reason !== 'human-comment-open' || hold.head !== row.headSha) return row;
+    return { ...row, personComment: { head: hold.head, at: hold.at } };
+  }),
+});
+
 /**
  * Folds one answer into the store and writes it, reporting nothing upward.
  *
@@ -1286,6 +1305,7 @@ export const applyPrMaps = (entry: PrState, maps: PrMaps): void => {
  */
 export const writePrStore = async (
   connector: string, rows: readonly PrIndexRow[], kind: PrAnswerKind, store: PrIndexStore,
+  holds?: ReadonlyMap<number, { readonly head: string; readonly at: string; readonly reason: string }>,
 ): Promise<PrIndex | null> => {
   try {
     const held = await store.read(connector);
@@ -1305,8 +1325,12 @@ export const writePrStore = async (
     // must cost the board time and not answers, and the merged view is correct
     // in memory whatever the filesystem did with it — refusing to serve it
     // because the write failed would turn a disk problem into a wrong board.
-    await store.write(connector, folded);
-    return folded;
+    // THE HELD ANSWER IS APPLIED TO THE FOLDED ROWS, not only to this pass's:
+    // a delta replaces a row it names and keeps one it does not, and a hold set
+    // after a row's last answer must still reach a row no delta mentions.
+    const stamped = holds === undefined ? folded : withPersonComments(folded, holds);
+    await store.write(connector, stamped);
+    return stamped;
   } catch {
     // The adapter answers with values rather than throwing, so reaching this is
     // a bug rather than a disk. It is still swallowed: the store may cost the
@@ -1758,7 +1782,7 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
       // what it read — only the WRITE is skipped, the same shape a fold that
       // found no store to write already falls back to below.
       await judgeReviews(world.host, rows);
-      const folded = (await world.fenceFold?.()) === false ? null : await writePrStore(backend, rows, kind, prStore);
+      const folded = (await world.fenceFold?.()) === false ? null : await writePrStore(backend, rows, kind, prStore, world.conversationHolds?.());
       // THE ROWS THE PASS HOLDS WHOLE: a full read's own, or the fold's. A delta
       // whose fold is absent holds only the window, and a window is not the set.
       // A PARTIAL ANSWER IS A FAILED READING: a host state did not answer, so the set is not whole.

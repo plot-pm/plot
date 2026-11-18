@@ -2942,6 +2942,13 @@ export const AgentRowSchema = z.object({
     plotReviewSha: z.string().optional(),
     plotReviewJudged: z.enum(['success', 'failure', 'pending', 'absent', 'error']).optional(),
     plotReviewCheckedSha: z.string().optional(),
+    /**
+     * The row's last-update time and fleetd's held person-comment answer, for
+     * `personCommentHolds`. `.optional()` for the reason `ciChecks` is: absent
+     * means the index never held the answer, not *no comment*.
+     */
+    updatedAt: z.string().optional(),
+    personComment: z.object({ head: z.string(), at: z.string() }).optional(),
   }).nullable().default(null),
   /**
    * Where this branch lives on the git host, or "" — the address the row's own
