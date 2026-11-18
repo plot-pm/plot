@@ -59,7 +59,8 @@ import {
   type TrackerReads,
 } from '@plot-pm/domain/adapters';
 import { indexChange, type PrIndexRow, type ScanPlan } from '@plot-pm/domain';
-import { hostTransportLine } from '@plot-pm/domain/rules/host-transport';
+import { composeJenkins, jenkinsReads } from '@plot-pm/domain/adapters/build/jenkins-api';
+import { HOST_TRANSPORT_ENV, hostTransportLine } from '@plot-pm/domain/rules/host-transport';
 import { trackerTransportLine } from '@plot-pm/domain/rules/tracker-transport';
 import { probeAppKeysAtStart } from '@plot-pm/domain/workflows/app-key-start-probe';
 import { removeStageDirsOnExit } from '@plot-pm/domain/adapters/stage-dirs';
@@ -3142,12 +3143,46 @@ export const run = async (
   // and the default-branch runs read in-process on GitHub with a token, and
   // through `plot-host.sh` otherwise. The line names the transport, its reason
   // and the token source, never the token.
-  const hostReads =
+  const declaredCi = await readConfigAsync({ repoRoot, scriptsDir }, 'CI', '');
+  // THE JENKINS TRANSPORT IS CHOSEN ONCE, AT START, under the same switch: a
+  // repository whose `CI` is `jenkins` reads the colours and builds in-process
+  // where a credential resolves, and through `jen` otherwise. The composition
+  // logs the credential source or the reason the shell stays, never a token.
+  const jenkinsComposition = await (async () => {
+    if (declaredCi.trim().toLowerCase() !== 'jenkins') return null;
+    if (process.env[HOST_TRANSPORT_ENV] === 'shell') {
+      const reason = `${HOST_TRANSPORT_ENV}=shell`;
+      warn(`plot-fleetd: Jenkins reads stay on the shell: ${reason}\n`);
+      return { kind: 'shell' as const, reason };
+    }
+    const instance =
+      (await readConfigAsync({ repoRoot, scriptsDir }, 'Jenkins instance', '')) || process.env.JENKINS_INSTANCE || '';
+    return composeJenkins({ instance }, (line) => warn(`plot-fleetd: ${line}\n`))();
+  })();
+  const jenkinsApi = jenkinsComposition?.kind === 'in-process' ? jenkinsComposition.api : undefined;
+  const readsOnly =
     seams.hostReads ??
     (await hostReadsFor(
       { repoRoot, scriptDir: scriptsDir },
-      { backend: probedHost, ci: await readConfigAsync({ repoRoot, scriptsDir }, 'CI', '') },
+      { backend: probedHost, ci: declaredCi },
+      jenkinsApi === undefined ? {} : { jenkins: jenkinsReads(jenkinsApi) },
     ));
+  // The status line and the start line carry the Jenkins transport beside the
+  // host's, so `--status` names both.
+  const hostReads: HostReads =
+    jenkinsComposition === null
+      ? readsOnly
+      : {
+          ...readsOnly,
+          choice: {
+            ...readsOnly.choice,
+            reason: `${readsOnly.choice.reason}; Jenkins reads: ${
+              jenkinsComposition.kind === 'in-process'
+                ? `in-process (credentials from ${jenkinsComposition.dir ?? 'the environment'})`
+                : `shell (${jenkinsComposition.reason})`
+            }`,
+          },
+        };
   warn(`plot-fleetd: ${hostTransportLine(hostReads.choice)}\n`);
   const readsApi = hostReads.api ?? undefined;
   // THE TRACKER'S TRANSPORT IS CHOSEN ONCE, AT START, under the same switch as
@@ -3377,7 +3412,7 @@ export const run = async (
   // `git ls-remote`. It rides the PR reader's beat: the head is read on a beat
   // where `tipMoved` changed or the re-ask rule is due, and the runs only when
   // the SHA moved or the re-ask rule is due.
-  const ci = await buildShell({ repoRoot, scriptDir: scriptsDir }, readsApi);
+  const ci = await buildShell({ repoRoot, scriptDir: scriptsDir }, readsApi, jenkinsApi);
   // The last answered listing, set by the default branch's tip read and taken by
   // the per-base pass that follows it; `null` where no read answered this pass.
   let sprintTips: Readonly<Record<string, string>> | null = null;
