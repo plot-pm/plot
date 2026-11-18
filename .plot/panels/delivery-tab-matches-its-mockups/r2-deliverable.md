@@ -1,0 +1,50 @@
+# Round 2 — Deliverable lens
+
+Subject: `docs/plans/active/delivery-tab-matches-its-mockups.md` (→ `docs/plans/2026-11-18-delivery-tab-matches-its-mockups.md`), at HEAD `8dcb2ed85`.
+
+## Fleet-readable shape: no defect
+
+I ran `skills/plot/scripts/plot-plan-meta.sh` on the plan. It parses cleanly: three waves (`Domain fields`, `Primitives`, `Sections`), eight branches, a `builds` value for every branch, `waits_on` holding all six names for both early slices, and empty `unread_waits`, `unread_branch_items`, `unread_heading_items`, `unread_branch_headings` and `long_wave_names`. Each of the six `waits:` targets is a slice that a sibling plan names (`grep` over `docs/plans/`), so none reads `blocked`/`prereq_missing`. Reconcile section 18 (stated waits) does not fire: no Sections branch line claims a wait in prose. The `Owns:` text on the Sections branch lines sits after the `builds:` marker on the same line. `marker_value` reads the last `builds:` marker, and each line has one. `plot-fleet-scan.sh:236-241` states the wave rule the plan cites.
+
+## Findings
+
+1. **misleads — the Changelog and the Board impact comment leave out two visible changes.** Plan line 18 describes only looks, and line 20 says *"the board's look only"*. The *Domain fields* slice changes what the tab says. Item 2 adds a Phase column to the Release delivery plan rows. Item 3 replaces the ISO date with "merged 2 days ago": `doneDetail` at `release-plan-rows.ts:106` (at `89407abdc` and `341df638d`) writes `mergedAt.slice(0, 10)` into `PlanLine.text`, and that text is rendered. Round 1's deliverable juror (`deliverable.md:16`) called the six fields "internal". That holds for items 1, 4, 5 and 6, and not for items 2 and 3. Suggested change: add a clause to the Changelog line, e.g. *"Release delivery plan rows show each plan's phase, and a merged slice shows how long ago it merged."* Reword the Board impact comment to "the board's look, plus the Phase column and relative merge times".
+
+2. **misleads — the *Domain fields* slice cannot get `now` to `planRowFacts` within its own Owns.** Plan line 209 says `delivery-view.ts` "gets the phase and `now`" and that the slice touches "No component". `placeMapping(mapping, slices, sprints)` (`delivery-view.ts:530` at `89407abdc`) has no `now` parameter. Its one caller is `AgentList.tsx:1147`, a component. The same component passes `Date.now()` to `rowFormsOf` at `:1153`. A worker must either call `Date.now()` inside `delivery-view.ts` or add a parameter and edit `AgentList.tsx`, which its done-when forbids ("no `.tsx` file … changes"). Suggested change: state which one. Either `delivery-view.ts` reads the clock (and `delivery-view.test.ts` fakes it), or *Domain fields* may change the one `placeMapping` call at `AgentList.tsx:1147` as a named exception. The phase is not a problem: `DeliveryMapping.readings` already carries `WorkItemReading['phase']` (`delivery-readings.ts:142-150`).
+
+3. **misleads — the CI clause of the *Domain fields* done-when is not judgeable for the relative merge time.** Line 213: *"a unit test that asserts its value for every case its type names"*. The relative time is a string, and its type names no cases. A worker cannot tell when the test is complete: minutes, hours, days, weeks, a `mergedAt` later than `now`, a missing `mergedAt`. Suggested change: list the buckets and the wording for each (or point to an existing relative-time rule if one exists), plus the absent and future cases.
+
+4. **misleads — the head-commit artifact may not exist when CI reuses a run.** Lines 113, 221 and 234 make the done-when "the `delivery-screenshots` artifact of the CI run on the PR head". The `board-integration` job runs only `if … needs.select.outputs.reuse_board == ''` (`ci.yml:1308` at `89407abdc`). `select` sets `reuse_board` from `plot-ci-reuse.mjs decide` (`ci.yml:142`, `:416-429`) when an earlier run already covered the board files. A head commit that changes no board-selected path, for example a changeset fix-up or a rebase-only push, then uploads no artifact, and the reviewer has nothing to open. Suggested change: say that the link names the run that executed `board-integration` for the head (the reused source run named in the step summary). Alternatively, make the `delivery` output force the board job to run.
+
+5. **misleads — the You slice is said to read item 6, but item 6 renders in markup the slice does not own.** Line 229: the You slice *"reads the fields of items 5 and 6"*. `YouHeaderCount` renders in the section `h2` at `AgentList.tsx:1490-1503` (`data-you-count`). *Primitives* owns that `h2` (line 219), and line 225 says only `feature/delivery-visual-release` edits `AgentList.tsx` in *Sections*. Primitives' own text (line 89, "A count shows its number in bold") already implies that Primitives consumes item 6. Suggested change: move "item 6" to *Primitives*' slice line and keep only item 5 on the You slice.
+
+6. **misleads — the bold-number header bar still decides word order in the component.** Line 89 says the number is bold. `SectionCount.text` holds *"`3 queued` in Work items, `Queued 3` elsewhere"* (`delivery-view.ts:162-170`). With `count` and `label` apart, Primitives must decide per section whether the number comes first, and line 42 forbids that decision in a component. Suggested change: item 6 (or a seventh item) gives each count a number-first flag or ordered parts, or the plan states one order for every section.
+
+7. **misleads — the tab-header layout needs column markup that no slice is told to build.** Round 1 gave *Primitives* "the tab-header wrapper around the cards". The mockup `first-five-seconds-v2.html:55-74` nests the sprint card and the fleet card in one right-hand `div` inside a `.two` grid, with the to-do box on the left. At `89407abdc` (`AgentList.tsx:1470-1476`) the cards sit in a bare fragment. `feature/delivery-visual-tab-header` may style only through `styles/delivery-header.css` (line 227), so it cannot add the column grouping. Suggested change: *Primitives*' slice line names the wrapper's structure: two column containers with `data-*` names, which card goes in each, and where the release card and the to-do list go.
+
+8. **misleads — the cascade order for the section stylesheets is not stated.** The board uses Tailwind 4 (`packages/board/package.json:72`), whose utilities sit in `@layer utilities`. The You slice colours the group tags through `data-group` selectors while `YOU_MARKER_CLASS` (`text-red-600 …`, `AgentList.tsx:167-171`) stays on the same span (line 182). The same holds wherever a section stylesheet restyles an element that keeps its Tailwind colour classes. That works only if the stylesheets are unlayered, or in a layer after `utilities`. If *Primitives* imports them into `@layer components`, every such override loses silently, and the screenshot test, which checks render and scroll, does not catch it. Suggested change: *Primitives* states the layer (e.g. unlayered `@import` directly after `@import "tailwindcss";`, which also keeps `@import` before other rules), and the You slice's done-when names one colour assertion on a `data-group-marker`.
+
+9. **cosmetic — one `<section>-mock.png` per section, but two sections cite two mockups each.** Line 110 renders "the section's mockup file" to one image. The tab-header slice cites `first-five-seconds-v2.html` and `you-section-v2.html`, and the release slice cites `delivery-toggle-icons-v2.html` and `plan-slices.html` (lines 227-228). The mockups also hold several states per file ("State 2 — …", `first-five-seconds-v2.html:52`). Suggested change: *Primitives* carries a section-to-mockup map and names the images `<section>-mock-<n>.png`.
+
+10. **cosmetic — "six fields" counts eight.** Lines 40, 157 and 207 say six. Item 3 alone adds three (state, PR number, relative time), so the slice adds eight fields over six items. Suggested change: "six gaps" or "the fields of six items".
+
+## Claims checked and found true
+
+- `release-plan-rows.ts` at `341df638d` has no phase and writes `mergedAt.slice(0, 10)` (`git show`).
+- The sibling's `:21`, `:47` and `:54` say what the plan quotes (`sed`).
+- `AgentList.tsx:1542` is `data-section-controls`, `:1556` is the section element, and `:1657`/`:1706` are the `data-group` divs. `:167-172` is `YOU_MARKER_CLASS` (`git show 89407abdc`).
+- `ci.yml:260` is the `git diff --name-only … HEAD^1 HEAD` line, `:1305-1307` is `board-integration` with `needs: [select, gates]`, and `:1541-1543` is the integration step.
+- `ReleaseApprove.tsx`, `test/catalogue/states.ts`, `mock-board.ts` and the five named domain test files exist. `styles/` and `theme-contrast.test.ts` do not.
+- #3530 adds `TodoList.tsx`, `domain/rules/todo-list.ts` and also `board/src/app/lib/agent-rows/todo-list.ts`, which *Domain fields*' Owns does not name; this is minor. #3532 adds `ReleasePersonCards.tsx`.
+- The footer branch (`origin/feature/delivery-tab-footer`) adds `data-footer-line` and `data-freshness-state`, so the bottom slice's "existing `data-*`" holds once #3507 merges.
+- The eight mockups exist at HEAD under `docs/superpowers/specs/2026-11-16-delivery-tab-mockups/`.
+
+## What I looked at, and what I did not
+
+Read: the subject plan; the four active siblings' Status and Slices lines; `.plot/templates/plan.md` (Slices comments); `plot-plan-meta.sh` (`parse_waits`, `read_notes`, branch-claim regex); `plot-fleet-scan.sh` header and wave rule; `plot-reconcile-scan.sh` sections 7, 18 and the no-changeset section; `ci.yml` select/reuse/board-integration; the source files cited above at `89407abdc`; one mockup; grep over the round-1 juror files to avoid repeats.
+
+Ran: `plot-plan-meta.sh` on the plan; `git show`, `git diff --name-only` and `git grep` (read-only).
+
+Did not: run any test or the fleet scan with host calls; recompute contrast figures; check the class-reading test line numbers in *Tests and Selectors*; read the design spec's full text or the other seven mockups; verify `TupleRow.tsx`, `rows.tsx`, `FleetAgentRow.tsx`, `TicketsSection.tsx`, `DeliveryFilters.tsx` or `catalogue/index.ts` line ranges.
+
+Position: amend

@@ -1,0 +1,77 @@
+<h2>Top of the tab — v2</h2>
+<p class="subtitle">C with the tickets line kept. The status card switches between Release (every team member's sprints) and Sprint (my fleet's progress) with the existing filter button. Approve sits on the release card.</p>
+
+<style>
+  .dt { background:#0b1020; color:#d7dbe7; font:13px/1.45 -apple-system,system-ui,sans-serif; border-radius:10px; padding:16px; }
+  .dt .muted { color:#8a93a8; } .dt .ok { color:#4ade80; } .dt .warn { color:#fbbf24; } .dt .link { color:#7aa2ff; }
+  .filters { display:flex; gap:6px; margin-bottom:12px; }
+  .pill { padding:3px 10px; border-radius:12px; border:1px solid #2a3352; color:#a9b2c8; font-size:12px; }
+  .pill.on { background:#2a3352; color:#fff; border-color:#3a4570; }
+  .two { display:grid; grid-template-columns:1.3fr 1fr; gap:12px; }
+  .box { background:#131a2e; border:1px solid #232c46; border-radius:8px; padding:12px; }
+  .box h4 { margin:0 0 6px; font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:#8a93a8; display:flex; justify-content:space-between; }
+  .item { display:flex; gap:10px; align-items:baseline; padding:6px 0; border-bottom:1px solid #1d2540; }
+  .item:last-child { border-bottom:0; }
+  .verb { min-width:110px; font-weight:600; color:#fbbf24; }
+  .bar { height:6px; background:#232c46; border-radius:3px; overflow:hidden; margin:8px 0 4px; display:flex; }
+  .bar > i { display:block; height:100%; }
+  .row { display:flex; justify-content:space-between; padding:2px 0; }
+  .btn { background:#2563eb; color:#fff; border:0; border-radius:6px; padding:5px 12px; font-weight:600; font-size:12px; }
+  .legend span { margin-right:10px; font-size:11px; }
+  .sw { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:4px; vertical-align:middle; }
+  .state { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:#8a93a8; margin:14px 0 6px; }
+</style>
+
+<div class="state">State 1 — "This sprint" off: the card shows the release</div>
+<div class="dt">
+  <div class="filters"><span class="pill">This sprint</span><span class="pill on">Mine (jwloka)</span><span class="pill">Waiting on me</span></div>
+  <div class="two">
+    <div class="box">
+      <h4><span>You block 3 things</span></h4>
+      <div class="item"><span class="verb">Interrogate</span><span>plan <b>jenkins-reads-in-process</b> <span class="muted">· 3 slices wait · 2h</span></span></div>
+      <div class="item"><span class="verb">Interrogate</span><span>plan <b>red-hold-reads-the-pr-base</b> <span class="muted">· 4 slices wait</span></span></div>
+      <div class="item"><span class="verb">Release or delete</span><span>2 loose branches <span class="muted">· 36–37 days old</span></span></div>
+      <div class="muted" style="padding-top:8px">30 tickets assigned to you have no plan · <span class="link">triage</span></div>
+    </div>
+    <div>
+      <div class="box" style="margin-bottom:10px">
+        <h4><span>Release 2.34.0</span><span class="muted" style="text-transform:none;letter-spacing:0">all sprints · 3 people</span></h4>
+        <div class="bar"><i style="width:64%;background:#4ade80"></i><i style="width:9%;background:#fbbf24"></i><i style="width:9%;background:#f87171"></i></div>
+        <div class="legend"><span><i class="sw" style="background:#4ade80"></i>14 delivered</span><span><i class="sw" style="background:#fbbf24"></i>2 at gates</span><span><i class="sw" style="background:#f87171"></i>2 blocked</span><span class="muted">4 not started</span></div>
+        <div class="row" style="margin-top:10px;align-items:center"><span class="warn">Ready to ship · waits on you 43 min</span><button class="btn">Approve release</button></div>
+      </div>
+      <div class="box">
+        <h4><span>Fleet</span></h4>
+        <div class="row"><span class="ok">● idle</span><span>3 free · 0 working · 0 blocked</span></div>
+        <div class="muted">auto-dispatch on · 3 parallel</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="state">State 2 — "This sprint" on: the same card shows my sprint</div>
+<div class="dt">
+  <div class="filters"><span class="pill on">This sprint</span><span class="pill on">Mine (jwloka)</span><span class="pill">Waiting on me</span></div>
+  <div class="two">
+    <div class="box">
+      <h4><span>You block 2 things in this sprint</span></h4>
+      <div class="item"><span class="verb">Interrogate</span><span>plan <b>jenkins-reads-in-process</b> <span class="muted">· 3 slices wait · 2h</span></span></div>
+      <div class="item"><span class="verb">Release or delete</span><span>2 loose branches <span class="muted">· 36–37 days old</span></span></div>
+      <div class="muted" style="padding-top:8px">30 tickets assigned to you have no plan · <span class="link">triage</span></div>
+    </div>
+    <div>
+      <div class="box" style="margin-bottom:10px">
+        <h4><span>Sprint triggers-and-connectors</span><span class="muted" style="text-transform:none;letter-spacing:0">ends Fri · 4 days left</span></h4>
+        <div class="bar"><i style="width:70%;background:#4ade80"></i><i style="width:10%;background:#fbbf24"></i></div>
+        <div class="legend"><span><i class="sw" style="background:#4ade80"></i>7 delivered</span><span><i class="sw" style="background:#fbbf24"></i>1 in progress</span><span class="muted">2 not started</span></div>
+        <div class="row" style="margin-top:8px"><span class="muted">Must 5/5 · Should 2/3 · Could 0/2</span><span class="muted">→ release 2.36.0</span></div>
+      </div>
+      <div class="box">
+        <h4><span>Fleet</span></h4>
+        <div class="row"><span class="ok">● idle</span><span>3 free · 0 working · 0 blocked</span></div>
+        <div class="muted">auto-dispatch on · 3 parallel</div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="subtitle" style="margin-top:10px">Sprint numbers in state 2 are illustrative.</p>
