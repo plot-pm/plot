@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:**
 - **Issue:**
@@ -18,6 +18,7 @@
 - **Started:** 2026-11-18, Jan Wloka, `feature/delivery-you-plan-rows`
 - **Started:** 2026-11-18, Jan Wloka, `feature/delivery-you-phase-strip`
 - **Started:** 2026-11-18, Jan Wloka, `feature/delivery-you-person-comment`
+- **Delivered:** 2026-11-18
 
 ## Changelog
 
