@@ -153,7 +153,7 @@ Per slice, in slice order.
 
 ### Sprint scope
 
-- `feature/delivery-my-sprint-scope` <!-- waits: feature/delivery-release-card, feature/delivery-sprint-card, feature/delivery-work-items-groups --> — the **My sprint** toggle: the rename and its `data-chip` test updates, the scope rule over the Active sprints the reader owns, the disabled state with "You own no active sprint", the scope applied to the status card, You and Work items, and the per-sprint report line removed <!-- builds: a Delivery scope rule for release or my sprint -->
+- `feature/delivery-my-sprint-scope` <!-- waits: feature/delivery-release-card, feature/delivery-sprint-card, feature/delivery-work-items-groups --> — the **My sprint** toggle: the rename and its `data-chip` test updates, the scope rule over the Active sprints the reader owns, the disabled state with "You own no active sprint", the scope applied to the status card, You and Work items, and the per-sprint report line removed <!-- builds: a Delivery scope rule for release or my sprint --> → #3538
 
 ## Notes
 
