@@ -31,7 +31,7 @@ const context = shellContext('/nowhere');
 function slowMachine(costMs: number) {
   let clock = 0;
   let forks = 0;
-  const run = async (): Promise<ScriptRun> => {
+  const run = (): ScriptRun => {
     clock += costMs;
     forks += 1;
     return { code: 0, stdout: '.git', stderr: '' };
@@ -119,13 +119,34 @@ describe('the sampling is bounded by time, not by count', () => {
     // A probe that cannot run has measured nothing. Reporting it as a cheap
     // fork would be the worst possible reading: `clear`, from a broken git.
     const machine = machineSystem(context, {
-      run: async () => ({ code: 128, stdout: '', stderr: 'not a git repository' }),
+      run: () => ({ code: 128, stdout: '', stderr: 'not a git repository' }),
       now: () => 0,
     });
 
     const reading = await machine.measure(5);
 
     expect(reading.ok).toBe(false);
+  });
+});
+
+describe('the reading counts only the probes (#3533)', () => {
+  it('excludes work the calling process queued while it sampled', async () => {
+    // The board measures in the process that also builds its 2 MB responses.
+    // A probe awaited through the event loop let that work run between a fork
+    // and the clock read, and an idle machine read `tight`.
+    const busy = (ms: number): void => {
+      const until = Date.now() + ms;
+      while (Date.now() < until) { /* hold the thread */ }
+    };
+    const machine = machineSystem(context, { run: () => ({ code: 0, stdout: '.git', stderr: '' }) });
+
+    queueMicrotask(() => busy(100));
+    setImmediate(() => busy(100));
+    const reading = await machine.measure(5);
+
+    expect(isAnswered(reading)).toBe(true);
+    if (!isAnswered(reading)) return;
+    expect(reading.value.sampleMs).toBeLessThan(50);
   });
 });
 

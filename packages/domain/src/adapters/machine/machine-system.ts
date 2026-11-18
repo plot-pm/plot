@@ -2,7 +2,7 @@ import { cpus, hostname, loadavg } from 'node:os';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { Machine, MachineReading } from '../../ports/machine.js';
-import { runProcess } from '../run-script.js';
+import { runProcess, runProcessSync } from '../run-script.js';
 import type { ShellContext } from '../scripts.js';
 
 /** The cheapest git call there is; what is being timed is the fork, not the work. */
@@ -28,8 +28,8 @@ export interface MachineSystemOptions {
    * to {@link DEFAULT_SAMPLE_BUDGET_MS}.
    */
   sampleBudgetMs?: number;
-  /** Runs one probe; defaults to {@link runProcess}. */
-  run?: typeof runProcess;
+  /** Runs one probe and returns when it has exited; defaults to {@link runProcessSync}. */
+  run?: typeof runProcessSync;
   /** Reads the clock; defaults to `Date.now`. */
   now?: () => number;
 }
@@ -52,13 +52,17 @@ export interface MachineSystemOptions {
  * measurement that returns without forking has measured nothing, and a zero
  * budget must not be reported as a spawn cost of zero.
  *
+ * The probes run synchronously, so no other work of the calling process runs
+ * between a fork and the clock read. The sampling blocks the caller's event
+ * loop for `sampleMs`: at most the budget plus one probe.
+ *
  * @param context - where the repository is; the probe runs inside it.
  * @param options - the sampling budget and the clock/process seams for tests.
  * @returns a `Machine` backed by timed forks and `node:os`.
  */
 export const machineSystem = (context: ShellContext, options: MachineSystemOptions = {}): Machine => {
   const budgetMs = options.sampleBudgetMs ?? DEFAULT_SAMPLE_BUDGET_MS;
-  const run = options.run ?? runProcess;
+  const run = options.run ?? runProcessSync;
   const now = options.now ?? Date.now;
 
   return {
@@ -67,7 +71,7 @@ export const machineSystem = (context: ShellContext, options: MachineSystemOptio
       const startedAt = now();
       let taken = 0;
       while (taken < samples) {
-        const probe = await run('git', PROBE, { cwd: context.repoRoot });
+        const probe = run('git', PROBE, { cwd: context.repoRoot });
         if (probe.code !== 0) return failed<MachineReading>();
         taken += 1;
         // Checked after the probe, never before: one reading is the floor, and
