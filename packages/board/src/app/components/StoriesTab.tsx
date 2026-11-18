@@ -5,6 +5,8 @@ import type { Card as PlanCardData, StoryCard, StoryLaneGroup, Topic, TicketLane
 import type { BoardLinks } from '../lib/plan.js';
 import { StoryItemCard } from './StoryItemCard.js';
 import { TicketItemCard } from './TicketItemCard.js';
+import { ColumnPager } from './ColumnPager.js';
+import { pageColumn, showNext } from '../lib/column-page.js';
 import { TicketModal } from './TicketModal.js';
 
 /** Lane metadata for display, in D7's order. */
@@ -126,8 +128,15 @@ export function StoriesTab({
   // Per-view only — not kept in the URL. `?archived=1` is the one URL
   // parameter; a second one for Done's expansion would let the two interact
   // in ways neither toggle's name describes.
-  const [storiesDoneExpanded, setStoriesDoneExpanded] = useState(false);
-  const [ticketsDoneExpanded, setTicketsDoneExpanded] = useState(false);
+  // How many cards each lane shows, by `tickets:<lane>` or `stories:<lane>`;
+  // a lane absent here shows COLUMN_STEP. The same pager the Board tab uses.
+  const [shown, setShown] = useState<Record<string, number>>({});
+  const more = (key: string) => setShown((prev) => ({ ...prev, [key]: showNext(prev[key]) }));
+  const collapse = (key: string) =>
+    setShown((prev) => {
+      const { [key]: _dropped, ...rest } = prev;
+      return rest;
+    });
 
   // Narrow to the reader's own work FIRST, so the topic cloud's counts below
   // reflect only post-ownership-filter rows — same reason `lanesForTopic` runs
@@ -290,7 +299,13 @@ export function StoriesTab({
           {(['open', 'in-progress', 'done'] as const).map((lane) => {
             const meta = TICKET_LANE_META[lane];
             const { rows, hiddenByTopic } = filtered.tickets![lane];
-            const visibleRows = lane === 'done' && !ticketsDoneExpanded ? rows.slice(0, 5) : rows;
+            const key = `tickets:${lane}`;
+            const page = pageColumn(rows, {
+              shown: shown[key],
+              dateOf: (row) => (lane === 'done' ? row.closedAt : row.createdAt),
+            });
+            const visibleRows = page.visible;
+            const unloaded = lane === 'done' ? filtered.tickets!.moreCount : 0;
             return (
               <section
                 key={lane}
@@ -330,14 +345,11 @@ export function StoriesTab({
                           : 'No tickets in this lane.'}
                     </p>
                   )}
-                  {lane === 'done' && !ticketsDoneExpanded && (rows.length > 5 || filtered.tickets!.moreCount > 0) && (
-                    <button
-                      type="button"
-                      onClick={() => setTicketsDoneExpanded(true)}
-                      className="px-1 text-left text-xs text-cyan-600 hover:underline dark:text-cyan-400"
-                    >
-                      Show all done ({rows.length - 5 + filtered.tickets!.moreCount} more)
-                    </button>
+                  <ColumnPager page={page} noun="tickets" onMore={() => more(key)} onCollapse={() => collapse(key)} />
+                  {page.hidden === 0 && unloaded > 0 && (
+                    <p className="px-1 text-xs text-slate-500 dark:text-slate-400">
+                      {unloaded} older closed tickets show with Show archived.
+                    </p>
                   )}
                 </div>
               </section>
@@ -364,8 +376,12 @@ export function StoriesTab({
       >
         {filteredLaneGroups.map((group) => {
           const meta = STORY_LANE_META[group.lane];
-          const isDone = group.lane === 'Done';
-          const visibleStories = isDone && !storiesDoneExpanded ? group.rows.slice(0, 5) : group.rows;
+          const key = `stories:${group.lane}`;
+          const page = pageColumn(group.rows, {
+            shown: shown[key],
+            dateOf: (story) => story.updated || story.created,
+          });
+          const visibleStories = page.visible;
           return (
             <section
               key={group.lane}
@@ -402,15 +418,7 @@ export function StoriesTab({
                         : 'No stories in this lane.'}
                   </p>
                 )}
-                {isDone && !storiesDoneExpanded && group.rows.length > 5 && (
-                  <button
-                    type="button"
-                    onClick={() => setStoriesDoneExpanded(true)}
-                    className="px-1 text-left text-xs text-cyan-600 hover:underline dark:text-cyan-400"
-                  >
-                    Show all done ({group.rows.length - 5} more)
-                  </button>
-                )}
+                <ColumnPager page={page} noun="stories" onMore={() => more(key)} onCollapse={() => collapse(key)} />
               </div>
             </section>
           );
