@@ -281,6 +281,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
    */
   async function expand(page: Page, key: string) {
     const toggle = page.locator(`[data-group-toggle="${key}"]`);
+    // Release delivery never folds as a section, so it has no toggle to open.
+    if (key === 'release-delivery') return;
     await toggle.waitFor({ timeout: 10_000 });
     if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
   }
@@ -341,6 +343,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     await expandPlans(page);
   }
 
+  /** Work-item plan heads; Release delivery's collapsed plan rows carry the same attribute. */
+  const workPlanRows = (page: Page) =>
+    page.locator('xpath=//li[@data-plan-row][not(ancestor::*[@data-release-block])]');
+
   const staleBanner = (page: Page) => page.getByText(/Not reaching the board server/);
 
   const footer = (page: Page) => page.getByText(/branches across .* plans/);
@@ -381,13 +387,12 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('leaves a merged branch as plain text — its remote page is gone', async () => {
+  it('gives a merged branch no row and no link — its remote page is gone', async () => {
     const page = await openAgents();
     try {
-      // Release delivery starts collapsed, so the row has to be shown before it can be read.
-      await expand(page, 'release-delivery');
+      await page.locator('[data-release-block]').waitFor({ timeout: 10_000 });
       expect(await page.getByRole('link', { name: 'feature/landed' }).count()).toBe(0);
-      await expect.poll(() => page.getByText('feature/landed').count()).toBe(1);
+      expect(await page.locator('[data-release-block]').getByText('feature/landed').count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -746,7 +751,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // asserted the branch row until the section learned to group; what it
       // MEANS (one column, one answer, carried by colour and title) is
       // unchanged and asserted here.
-      const untakenPlan = page.locator('li[data-plan-row]')
+      const untakenPlan = workPlanRows(page)
         .filter({ hasText: 'plant-tomatoes' }).first();
       await expect.poll(() => untakenPlan.getByTitle(/nobody has started it/).count()).toBe(1);
       // `waiting22d`, and the prefix is the point rather than noise: slot 6
@@ -1079,7 +1084,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // asserted both on the branch until the section grew a plan row.
       const li = rowFor(page, 'feature/untaken');
       await expect.poll(() => li.count()).toBe(1);
-      const plan = page.locator('li[data-plan-row]')
+      const plan = workPlanRows(page)
         .filter({ hasText: 'plant-tomatoes' }).first();
       expect(await plan.textContent()).toContain('Design');
       expect(await li.textContent()).not.toContain('deferred');
@@ -1154,7 +1159,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('reveals a blocker that has completed into a COLLAPSED section', async () => {
+  it('leaves a delivered blocker without a row, counted on its Release plan row', async () => {
     // THE BUG THIS FIXES. The blocking wave is usually finished — so it sits in
     // DONE, which is folded by default for every reader on every load. A folded
     // section is REMOVED from the tree, so `[data-slice-row="Shaped"]` matched
@@ -1204,23 +1209,18 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
 
     const page = await openAgents(crossSection());
     try {
-      // DONE is folded on arrival, so its rows are NOT in the document — the
-      // exact state that used to silence the mark.
-      await expect.poll(() => groupRows(page, 'release-delivery').count()).toBe(0);
-      expect(await group(page, 'release-delivery').locator('[data-slice-row="Shaped"]').count()).toBe(0);
+      // The blocker is delivered, so it has no slice row anywhere: Release
+      // delivery counts it on the plan's row instead.
+      expect(await page.locator('[data-slice-row="Shaped"]').count()).toBe(0);
+      const release = page.locator(`[data-release-block] li[data-plan-row="${blockerPlan}"]`);
+      await expect.poll(() => release.locator('[data-strip-segment="delivered"]').count()).toBe(1);
 
-      // Click the ⓘ on the blocked `Moved` wave, in NOT STARTED.
+      // The blocked `Moved` wave keeps its ⓘ, and a click on it throws nothing
+      // and moves nothing when its blocker has no row to reveal.
       const mark = group(page, 'input-to-the-fleet').locator('[data-slice-blocked-by="Shaped"]');
       await expect.poll(() => mark.count()).toBeGreaterThan(0);
       await mark.first().click();
-
-      // The mark opened DONE and the blocker's row is now on the page — the
-      // reveal that was silently impossible before.
-      const target = group(page, 'release-delivery').locator('[data-slice-row="Shaped"]');
-      await expect.poll(() => target.count()).toBeGreaterThan(0);
-      // And it FLASHED, the same amber ring the mark already used for a sibling.
-      await expect.poll(() => target.first().getAttribute('class'))
-        .toContain('ring-amber-400');
+      expect(await page.locator('[data-slice-row="Shaped"]').count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -1740,16 +1740,15 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   const heading = (page: Page, key: string) =>
     page.locator(`[data-delivery-group="${key}"], [data-delivery-section="${key}"]`);
 
-  it('starts RELEASE DELIVERY collapsed, and every other group open', async () => {
-    // BOTH halves. A blanket default — everything folded, or nothing — passes an
-    // assertion that checks only one group, and the default is the existing
-    // actionable-before-diagnostic order made effective rather than a
-    // preference.
+  it('never folds RELEASE DELIVERY, and starts every other group open', async () => {
+    // The Release section is one row per plan and has no fold control; every
+    // other group starts open.
     const page = await openAgents();
     try {
       await expect.poll(() => groupRows(page, 'working').count()).toBeGreaterThan(0);
       expect(await groupRows(page, 'queued').count()).toBeGreaterThan(0);
-      expect(await groupRows(page, 'release-delivery').count()).toBe(0);
+      expect(await page.locator('[data-group-toggle="release-delivery"]').count()).toBe(0);
+      expect(await page.locator('[data-release-block] li[data-plan-row]').count()).toBeGreaterThan(0);
       // And the actionable end is untouched.
       expect(await groupRows(page, 'input-to-the-fleet').count()).toBeGreaterThan(0);
       expect(await groupRows(page, 'at-a-gate').count()).toBeGreaterThan(0);
@@ -1758,15 +1757,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('keeps the COUNT on a collapsed header', async () => {
-    // A folded header with no number reads as *nothing here*, which is worse
-    // than the crowding this fixes. The count is already rendered — it simply
-    // must not be hidden with the body.
+  it('counts PLANS in the RELEASE DELIVERY heading', async () => {
+    // The heading's number is the count of Release plan rows beneath it.
     const page = await openAgents();
     try {
-      await expect.poll(() => heading(page, 'release-delivery').textContent()).toContain('(1)');
-      expect(await groupRows(page, 'release-delivery').count()).toBe(0);
-      expect(await heading(page, 'release-delivery').textContent()).toContain('(1)');
+      await expect.poll(() => page.locator('[data-release-block] li[data-plan-row]').count())
+        .toBeGreaterThan(0);
+      const plans = await page.locator('[data-release-block] li[data-plan-row]').count();
+      expect(await heading(page, 'release-delivery').textContent()).toContain(`(${plans})`);
     } finally {
       await page.close();
     }
@@ -1787,7 +1785,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('survives a reload, and applies the default when nothing is stored', async () => {
+  it('survives a reload, with the Release section open and an untouched group still folded', async () => {
     // Both halves. Persistence is not optional — this board is left running and
     // reloaded several times an hour, and without it the reader re-configures
     // the view every time, which teaches them not to bother. And a FIRST visit
@@ -1804,16 +1802,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await page.goto(`${cat.mock.baseURL}?tab=agents`);
       await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
-      // The default, on a context that has stored nothing.
-      await expect.poll(() => groupRows(page, 'release-delivery').count()).toBe(0);
-      await expand(page, 'release-delivery');
-      await expect.poll(() => groupRows(page, 'release-delivery').count()).toBeGreaterThan(0);
-      const opened = await groupRows(page, 'release-delivery').count();
+      // The Release section is open on a context that has stored nothing.
+      const releaseRows = () => page.locator('[data-release-block] li[data-plan-row]');
+      await expect.poll(() => releaseRows().count()).toBeGreaterThan(0);
+      const opened = await releaseRows().count();
 
       await page.reload();
       await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
-      // The reader's choice came back — not the default.
-      await expect.poll(() => groupRows(page, 'release-delivery').count()).toBe(opened);
+      await expect.poll(() => releaseRows().count()).toBe(opened);
       // And the group they never touched is still folded, so the reload
       // restored a SET rather than opening everything.
       expect(await groupRows(page, 'free').count()).toBe(0);
@@ -1857,7 +1853,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       rows: [
         ...fleet().rows,
         row({
-          branch: 'feature/just-landed', plan: 'beans', wave: 'Landed', group: 'done', state: 'merged',
+          branch: 'feature/just-landed', plan: 'late-plan', planFile: 'late-plan.md', wave: 'Landed', group: 'done', state: 'merged',
           ageMinutes: 2_000, note: 'merged',
           branchUrl: '',
         }),
@@ -1873,15 +1869,16 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await page.goto(`${cat.mock.baseURL}?tab=agents`);
       await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
-      await expect.poll(() => heading(page, 'release-delivery').textContent()).toContain('(1)');
+      const planRows = () => page.locator('[data-release-block] li[data-plan-row]');
+      await expect.poll(() => planRows().count()).toBeGreaterThan(0);
+      const before = await planRows().count();
       extra = true;
-      // The count moves…
-      await expect.poll(() => heading(page, 'release-delivery').textContent(), { timeout: 15_000 })
-        .toContain('(2)');
-      // …and nothing else does.
-      expect(await groupRows(page, 'release-delivery').count()).toBe(0);
-      expect(await page.locator('[data-group-toggle="release-delivery"]').getAttribute('aria-expanded'))
-        .toBe('false');
+      // The delivered plan gains a row and the heading count follows it…
+      await expect.poll(() => planRows().count(), { timeout: 15_000 }).toBe(before + 1);
+      expect(await heading(page, 'release-delivery').textContent()).toContain(`(${before + 1})`);
+      // …and the section stays open with no fold control and no slice rows.
+      expect(await page.locator('[data-group-toggle="release-delivery"]').count()).toBe(0);
+      expect(await page.locator('[data-release-block] [data-slice-row]').count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -1909,18 +1906,17 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await page.goto(`${cat.mock.baseURL}?tab=agents`);
       await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
-      // The reader opens RELEASE DELIVERY deliberately.
-      await expand(page, 'release-delivery');
-      await expect.poll(() => groupRows(page, 'release-delivery').count()).toBeGreaterThan(0);
-      const opened = await groupRows(page, 'release-delivery').count();
+      // RELEASE DELIVERY is always open.
+      const releaseRows = () => page.locator('[data-release-block] li[data-plan-row]');
+      await expect.poll(() => releaseRows().count()).toBeGreaterThan(0);
+      const opened = await releaseRows().count();
       const queuedBefore = await group(page, 'queued').locator('li[data-tuple-kind]').count();
       quietened = true;
       // EVERY WORKING ROW LANDS IN QUEUED, which grows while the reader's group changes nothing.
       await expect.poll(() => group(page, 'queued').locator('li[data-tuple-kind]').count(),
         { timeout: 15_000 }).toBeGreaterThan(queuedBefore);
-      expect(await page.locator('[data-group-toggle="release-delivery"]').getAttribute('aria-expanded'))
-        .toBe('true');
-      expect(await groupRows(page, 'release-delivery').count()).toBe(opened);
+      expect(await page.locator('[data-group-toggle="release-delivery"]').count()).toBe(0);
+      expect(await releaseRows().count()).toBe(opened);
       // And Being built, now empty, has lost its control rather than folding.
       expect(await group(page, 'being-built').locator('[data-group-toggle]').count()).toBe(0);
     } finally {
@@ -1928,7 +1924,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('leaves the footer reachable without scrolling past a collapsed group', async () => {
+  it('leaves the footer reachable with 13 delivered slices, which add no rows', async () => {
     // The measurable form of the original complaint: QUIET (7) and DONE (13)
     // rendered twenty rows between them, and the line reporting when the last
     // scan ran had scrolled out of view.
@@ -2022,8 +2018,6 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       //
       // Unfolding both puts it back out of reach, which is what makes the
       // assertion above about the COLLAPSE rather than about a short fixture.
-      // Release delivery starts folded, so the reader opens it with the rest.
-      await expand(page, 'release-delivery');
       await expandAll(page);
       // EVERY BOX ON SCREEN, which is what a height claim is about, and the
       // number is the fixture's arithmetic rather than a constant to re-measure
@@ -2034,18 +2028,18 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       //
       // `groupRows` counts items and deliberately skips wave rows; here the
       // question is how tall the section is, so every box counts.
-      const DONE_ROWS = 13, DONE_PLANS = 2;
-      await expect.poll(() => group(page, 'release-delivery').locator('li[data-tuple-kind]').count())
-        .toBe(DONE_ROWS + DONE_PLANS * 2);
-      // And the parts, so a wrong TOTAL says which half moved.
-      expect(await group(page, 'release-delivery').locator('li[data-plan-row]').count()).toBe(DONE_PLANS);
-      expect(await group(page, 'release-delivery').locator('li[data-slice-row]').count()).toBe(DONE_PLANS);
+      const DONE_PLANS = 2;
+      await expect.poll(() => page.locator('[data-release-block] li[data-plan-row]').count())
+        .toBe(DONE_PLANS);
+      expect(await page.locator('[data-release-block] [data-slice-row]').count()).toBe(0);
+      // The 13 delivered slices are counted on the two plan rows' strips, so
+      // unfolding every group leaves the footer inside the viewport.
       const opened = await footer(page).evaluate((el) => {
         const r = el.getBoundingClientRect();
-        return { top: r.top, viewport: window.innerHeight };
+        return { bottom: r.bottom, viewport: window.innerHeight };
       });
-      expect(opened.top, `expanded footer top ${opened.top} in ${opened.viewport}px`)
-        .toBeGreaterThan(opened.viewport + 1);
+      expect(opened.bottom, `expanded footer bottom ${opened.bottom} in ${opened.viewport}px`)
+        .toBeLessThanOrEqual(opened.viewport + 1);
     } finally {
       await page.close();
     }
@@ -3243,10 +3237,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       })],
     }));
     try {
-      await expand(page, 'release-delivery');
-      const li = rowFor(page, 'feature/already-shipped');
+      // The merged slice has no row of its own: the Release plan row counts it.
+      const li = page.locator('[data-release-block] li[data-plan-row="beans"]');
       await li.waitFor({ timeout: 10_000 });
-      expect(await li.locator('[data-pr-state="pending"]').count()).toBe(0);
+      expect(await page.locator('[data-release-block] [data-pr-state="pending"]').count()).toBe(0);
       expect(await li.textContent()).not.toContain('CI running');
     } finally {
       await page.close();

@@ -429,9 +429,9 @@ export const deliveryView = (
     return isPlanRow(v) ? sliceHome.get(planOfItem(v)) ?? at.group : at.group;
   };
 
-  // A slice that holds no branch and no agent is a To do line of its plan row, never a Work items row.
+  // A slice that holds no branch (so no agent either) is a To do line of its plan row, never a Work items row.
   const leavesWorkItems = (v: PlacedItemView): boolean =>
-    v.placement?.section === 'work-items' && v.placement.group === 'queued' && isSliceItem(v) && v.rows.every(isUnbegun);
+    v.placement?.section === 'work-items' && v.placement.group === 'queued' && isSliceItem(v) && v.rows.every((r) => isUnbegun(r) && r.branch === '');
   const sections = DELIVERY_LAYOUT.map(({ section, groups }): SectionView => {
     const groupViews = groups.map((group): GroupView => {
       const grouped = itemViews.filter((v) => !leavesWorkItems(v)).filter((v) => (section === 'work-items'
@@ -490,10 +490,18 @@ export const deliveryView = (
       linked: placedItem.has(id),
       startable: rows.some(isStartable),
       waitsFor: first?.blockedBy ?? '',
-      begun: rows.some((r) => !isUnbegun(r)),
+      begun: rows.some((r) => !(isUnbegun(r) && r.branch === '')),
     };
   };
-  const counted = (slices ?? []).filter((s) => s.merge !== 'none');
+  // A delivered slice the pulse did not carry is still a slice of its plan: its row names both.
+  const carried = new Set((slices ?? []).map((s) => sliceItemId(s.plan, s.name)));
+  const strays = delivered.flatMap((d) => {
+    const r = d.rows[0];
+    return r === undefined || r.plan === '' || r.wave === '' || carried.has(d.id)
+      ? []
+      : [{ plan: r.plan, name: r.wave, branches: [], verdict: 'complete', section: 'done', complete: true, planSliceCount: 1, merge: 'merged' } as unknown as Slice];
+  });
+  const counted = [...(slices ?? []), ...strays].filter((s) => s.merge !== 'none');
   const approved = [...new Set(counted.map((s) => s.plan))];
   const ownerOf = (plan: string): string => sprints.find((sp) => sp.members.some((m) => m.slug === plan) && sp.ownerHandle !== '')?.ownerHandle ?? '';
   const planRow = (plan: string): PlanRowView => {

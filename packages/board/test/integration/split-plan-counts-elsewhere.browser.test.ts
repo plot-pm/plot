@@ -2,7 +2,6 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Page } from 'playwright';
-import { expandAgentFolds } from '../helpers.mjs';
 import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type Slice } from '../../src/contract/schema.js';
 
@@ -123,23 +122,8 @@ describe('a split plan counts what is elsewhere', () => {
   }
 
   const notStarted = (page: Page) => page.locator('ul[role="grid"][aria-label^="Queued"]');
-  const done = (page: Page) => page.locator('ul[role="grid"][aria-label^="Release delivery"]');
   const planHead = (grid: ReturnType<typeof notStarted>, plan: string) =>
     grid.locator(`li[data-plan-row="${plan}"]`);
-
-  /**
-   * DONE is `COLLAPSED_BY_DEFAULT`, so the section itself is folded on load and
-   * its rows are removed from the tree — `expandAgentFolds` opens plan/wave
-   * folds, not section folds. Open the DONE section first, the way a reader does,
-   * then open every plan/wave fold inside it.
-   */
-  async function openDone(page: Page): Promise<void> {
-    if (await done(page).count() === 0) {
-      await page.locator('[data-group-toggle="release-delivery"]').click();
-    }
-    await done(page).first().waitFor({ timeout: 10_000 });
-    await expandAgentFolds(page);
-  }
 
   it('states in the NOT STARTED head that a wave is elsewhere', async () => {
     // The head speaks for the one unstarted wave and says the other is elsewhere.
@@ -156,55 +140,21 @@ describe('a split plan counts what is elsewhere', () => {
     }
   });
 
-  it('states in the DONE head that a wave is elsewhere', async () => {
-    // The other end of the split. Both clauses speak here: `sliceSummaryFor` reads
-    // the server's waves (`the-head-asks-the-wave`) so the DONE head counts its
-    // OWN wave too, and `elsewhereNote` adds the one that is not here.
-    //
-    // ASSERTED AS A JOIN, NOT AS A STRING. The property this test exists for is
-    // that `PlanRow` composes the two clauses without a stray leading or
-    // trailing middot — the failure mode when one half is empty. An earlier
-    // version pinned the whole text with `toBe('1 slice elsewhere')`, which
-    // encoded a premise that held only while `sliceSummaryFor` counted ROWS and
-    // returned nothing in DONE; reading the server's wave list made the count
-    // real here, and the pin then failed on correct output.
+  it('lists the split plan once under Release delivery, with its delivered slice counted', async () => {
+    // The DONE half of the split is one Release row: the merged slice is a
+    // strip segment, not a row of its own, and the unstarted slice is not
+    // rendered under it.
     const page = await open();
     try {
-      await openDone(page);
-      const summary = planHead(done(page), SPLIT).locator('[data-slice-summary]');
-      await expect.poll(() => summary.textContent(), { timeout: 10_000 })
-        .toMatch(/1 slice · 1 slice elsewhere/);
-      // The join itself: no dangling separator at either end.
-      const text = (await summary.textContent()) ?? '';
-      expect(text.trim().startsWith('·')).toBe(false);
-      expect(text.trim().endsWith('·')).toBe(false);
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('renders NONE of the elsewhere waves\' rows under the head here', async () => {
-    // The second half of the spec: the head says how many are elsewhere and shows
-    // none of them. Each section renders its own waves ONLY — a wave is one row in
-    // one section — so the merged wave's row belongs to DONE and the unstarted
-    // wave's row to NOT STARTED, and neither appears under the other's head. The
-    // rows are WAVE rows (`data-slice-row`) here, not branch rows: a plan head
-    // groups its branches by wave, so `data-branch` is gone and the wave name is
-    // the hook. Open every fold first, so this is not passing merely because a row
-    // sits behind a shut one.
-    const page = await open();
-    try {
-      await openDone(page);
-      // The merged wave lives in DONE, never NOT STARTED.
-      await expect.poll(() =>
-        done(page).locator('[data-slice-row="Sown"]').count(), { timeout: 10_000 })
-        .toBe(1);
-      expect(await notStarted(page).locator('[data-slice-row="Sown"]').count()).toBe(0);
-      // The unstarted wave lives in NOT STARTED, never DONE.
+      const row = page.locator(`[data-release-block] li[data-plan-row="${SPLIT}"]`);
+      await row.waitFor({ timeout: 10_000 });
+      await expect.poll(() => row.locator('[data-strip-segment="delivered"]').textContent(),
+        { timeout: 10_000 }).toMatch(/1\s+delivered/);
+      expect(await page.locator('[data-release-block] [data-slice-row]').count()).toBe(0);
+      // The unstarted wave lives in NOT STARTED, never as a Release row.
       await expect.poll(() =>
         notStarted(page).locator('[data-slice-row="Grown"]').count(), { timeout: 10_000 })
         .toBe(1);
-      expect(await done(page).locator('[data-slice-row="Grown"]').count()).toBe(0);
     } finally {
       await page.close();
     }

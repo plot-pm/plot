@@ -55,29 +55,27 @@ describe('a wave row speaks its own verdict in the status slot', () => {
     await page.locator('[data-delivery-section="release-delivery"]').waitFor({ timeout: 10_000 });
     // DONE is folded by default — unfold it to see the wave rows.
     const doneToggle = page.locator('[data-group-toggle="release-delivery"]');
-    if ((await doneToggle.getAttribute('aria-expanded')) === 'false') {
+    if ((await doneToggle.count()) > 0 && (await doneToggle.getAttribute('aria-expanded')) === 'false') {
       await doneToggle.click();
     }
     return page;
   }
 
-  /** The status cell of a wave row. */
-  const sliceStatus = (page: Page, wave: string) =>
-    page.locator(`[data-slice-row="${wave}"]`).locator('[data-tuple-status]');
+  /** A Release delivery plan row. */
+  const planRow = (page: Page, plan: string) =>
+    page.locator(`[data-release-block] li[data-plan-row="${plan}"]`);
 
-  it('a multi-branch wave in DONE shows "complete", not "delivered"', async () => {
+  it('a done slice shows as one delivered segment on its plan row, not as a slice row', async () => {
     const page = await open();
     try {
-      const status = sliceStatus(page, 'Complete');
-      await status.waitFor({ timeout: 5_000 });
-      // The verdict word: `complete`, not `delivered`.
-      // `2 complete` is the shape — count + word.
-      const text = await status.textContent();
-      expect(text).toContain('complete');
-      expect(text).not.toContain('delivered');
-      // Asserted directly by name: item 5 says no row reads `delivered` while
-      // its siblings read `complete`.
-      expect(text).toMatch(/2\s+complete/);
+      const row = planRow(page, 'six-waves');
+      await row.waitFor({ timeout: 5_000 });
+      // The strip names the state word `delivered`; the per-slice verdict word
+      // `complete` no longer has a row to sit on.
+      const delivered = row.locator('[data-strip-segment="delivered"]');
+      await delivered.waitFor({ timeout: 5_000 });
+      expect(await delivered.textContent()).toMatch(/^\s*\d+\s+delivered/);
+      expect(await page.locator('[data-slice-row="Complete"]').count()).toBe(0);
     } finally {
       await page.close();
     }

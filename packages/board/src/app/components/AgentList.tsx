@@ -122,6 +122,7 @@ import {
 import { freeLine, mineMode, placeDelivery, planIndexOf, workItemCells, YOU_GROUP_MARKERS, type YouGroup, type YouMarker } from '@plot-pm/domain';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
 import { ActivityMark } from '../lib/agent-rows/marks.js';
+import { PlanActions } from '../lib/agent-rows/menus.js';
 import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
 import { deliveryMapping, rateLimitOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
 import {
@@ -1577,6 +1578,19 @@ export function AgentList({
                                   {plan.unread > 0 && <span data-strip-unread>{plan.unread} not read</span>}
                                 </span>
                                 {plan.owner !== '' && <span data-plan-owner className="text-slate-500">Owner {plan.owner}</span>}
+                                <span className="ml-auto">
+                                  <PlanActions
+                                    plan={plan.plan}
+                                    card={card}
+                                    approve={approve}
+                                    deliver={deliver}
+                                    implement={implement}
+                                    dispatch={dispatch}
+                                    pulse={pulse}
+                                    onApproving={onStarting}
+                                    onStarting={onStarting}
+                                  />
+                                </span>
                               </div>
                               {open && (
                                 <ul data-plan-lines className="mt-1 space-y-0.5 pl-6">

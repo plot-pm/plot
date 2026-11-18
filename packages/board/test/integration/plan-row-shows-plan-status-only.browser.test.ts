@@ -188,14 +188,16 @@ describe('a plan row shows plan status only', () => {
       viewport: { width: 1400, height: 2000 },
     });
     await page.locator('[data-delivery-section="you"]').waitFor({ timeout: 10_000 });
-    // DONE is folded by default — unfold it, or its rows are not on the page and
-    // every assertion about them passes for the wrong reason.
-    const done = page.locator('[data-group-toggle="release-delivery"]');
-    if ((await done.getAttribute('aria-expanded')) === 'false') await done.click();
+    // Release delivery never folds: it has no toggle.
     return page;
   }
 
-  const planRow = (page: Page, plan: string) => page.locator(`li[data-plan-row="${plan}"]`);
+  // Work-item plan heads. Release delivery lists a plan as one collapsed row
+  // under the same attribute; `releaseRow` reads that one.
+  const planRow = (page: Page, plan: string) =>
+    page.locator(`xpath=//li[@data-plan-row="${plan}"][not(ancestor::*[@data-release-block])]`);
+  const releaseRow = (page: Page, plan: string) =>
+    page.locator(`[data-release-block] li[data-plan-row="${plan}"]`);
   const planVerdict = (page: Page, plan: string) =>
     planRow(page, plan).locator('[data-sole-wave-verdict]');
   const planFold = (page: Page, plan: string) =>
@@ -208,7 +210,7 @@ describe('a plan row shows plan status only', () => {
   it('no plan row on the page carries a slice verdict', async () => {
     const page = await open();
     try {
-      await planRow(page, 'unknown-pr').waitFor({ timeout: 10_000 });
+      await releaseRow(page, 'unknown-pr').waitFor({ timeout: 10_000 });
       // Counted across the whole page, so a third call site added later is held
       // to the rule without a case of its own.
       expect(await page.locator('li[data-plan-row] [data-sole-wave-verdict]').count()).toBe(0);
@@ -219,30 +221,25 @@ describe('a plan row shows plan status only', () => {
 
   // ── DONE ────────────────────────────────────────────────────────────────
 
-  it('DONE, an `unknown` PR: the plan row says the phase, the slice row the verdict', async () => {
+  it('DONE, an `unknown` PR: the plan is one Release row with no slice verdict', async () => {
     const page = await open();
     try {
-      await expect.poll(() => sliceStatus(page, 'unknown-pr', 'Only').textContent(),
-        { timeout: 10_000 }).toContain('complete');
-      expect(await planVerdict(page, 'unknown-pr').count()).toBe(0);
-      // Asserted on the text too: an implementation could print the word
-      // without the attribute.
-      const planText = (await planRow(page, 'unknown-pr').textContent()) ?? '';
-      expect(planText).not.toContain('complete');
-      expect(await planRow(page, 'unknown-pr').locator('[data-phase]')
-        .getAttribute('data-phase')).toBe('Testing');
+      await releaseRow(page, 'unknown-pr').waitFor({ timeout: 10_000 });
+      // A delivered slice has no row of its own: the strip counts it.
+      expect(await page.locator('[data-slice-list="unknown-pr"] [data-slice-row]').count()).toBe(0);
+      expect(await releaseRow(page, 'unknown-pr').locator('[data-sole-wave-verdict]').count()).toBe(0);
+      expect((await releaseRow(page, 'unknown-pr').textContent()) ?? '').not.toContain('complete');
     } finally {
       await page.close();
     }
   });
 
-  it('DONE, a slice of TWO branches: the verdict is on the slice row only', async () => {
+  it('DONE, a slice of TWO branches: the plan is one Release row with no slice verdict', async () => {
     const page = await open();
     try {
-      await expect.poll(() => sliceStatus(page, 'two-branches', 'Both').textContent(),
-        { timeout: 10_000 }).toMatch(/2\s+\S/);
-      expect(await sliceStatus(page, 'two-branches', 'Both').textContent()).toContain('complete');
-      expect(await planVerdict(page, 'two-branches').count()).toBe(0);
+      await releaseRow(page, 'two-branches').waitFor({ timeout: 10_000 });
+      expect(await page.locator('[data-slice-list="two-branches"] [data-slice-row]').count()).toBe(0);
+      expect(await releaseRow(page, 'two-branches').locator('[data-sole-wave-verdict]').count()).toBe(0);
     } finally {
       await page.close();
     }

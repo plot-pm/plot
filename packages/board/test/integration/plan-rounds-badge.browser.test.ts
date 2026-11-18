@@ -178,10 +178,9 @@ describe('the rounds ride beside the phase', () => {
   it('DOES NOT RENDER PAST DISCOVERY, even with rounds recorded', async () => {
     const page = await open();
     try {
-      // A plan past Discovery in Testing is delivered: its head sits under Release delivery, folded by default.
-      await page.locator('[data-group-toggle="release-delivery"]').click();
-      await expect.poll(() => planRow(page, 'shipped').count(), { timeout: 10_000 })
-        .toBeGreaterThan(0);
+      // A plan past Discovery in Testing is delivered: one row under Release delivery.
+      await expect.poll(() => page.locator('[data-release-block] li[data-plan-row="shipped"]').count(), { timeout: 10_000 })
+        .toBe(1);
       // `roundsBadgeText` gates on `controls.roundsBadge` — and this
       // plan is in Testing with `rounds: 3`. The badge is a Draft-or-Design
       // reading: it says how far the thinking got while the thinking is the
@@ -192,9 +191,6 @@ describe('the rounds ride beside the phase', () => {
       // skipped the gate passes all of them and lights the badge up across three
       // more phases.
       expect(await badge(page, 'shipped').count()).toBe(0);
-      // The phase itself is untouched — this is about the badge, not the cell.
-      const cell = planRow(page, 'shipped').locator('[data-phase]');
-      expect(await cell.getAttribute('data-phase')).toBe('Testing');
     } finally { await page.close(); }
   });
 
