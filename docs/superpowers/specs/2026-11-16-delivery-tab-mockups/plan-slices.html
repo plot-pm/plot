@@ -1,0 +1,38 @@
+<h2>A plan's slices: delivered and still to do</h2>
+<p class="subtitle">Release delivery is the one place a plan's full slice list lives. A plan row opens to show every slice in order, with its state. A slice that needs acting on links to its single row in You or Work items instead of repeating it.</p>
+
+<style>
+  .dt { background:#0b1020; color:#d7dbe7; font:13px/1.45 -apple-system,system-ui,sans-serif; border-radius:10px; padding:16px; }
+  .dt .muted { color:#8a93a8; } .dt .link { color:#7aa2ff; text-decoration:none; } .dt .ok { color:#4ade80; } .dt .amber { color:#fbbf24; } .dt .red { color:#f87171; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:#6b7490; font-weight:600; padding:4px 8px; border-bottom:1px solid #232c46; }
+  td { padding:8px; border-bottom:1px solid #1a2238; vertical-align:middle; }
+  .bar { height:7px; background:#232c46; border-radius:4px; overflow:hidden; display:flex; width:160px; }
+  .bar > i { display:block; height:100%; }
+  .phase { display:inline-block; padding:1px 8px; border-radius:9px; font-size:11px; font-weight:600; background:#132a4a; color:#60a5fa; }
+  .tw { color:#c9d2ea; width:14px; cursor:pointer; }
+  .sl td { padding:5px 8px; font-size:12px; border-bottom:1px solid #151c30; }
+  .st { display:inline-block; min-width:92px; }
+  .wave { color:#6b7490; font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
+  .strip { display:flex; gap:3px; }
+  .strip i { width:18px; height:8px; border-radius:2px; display:block; }
+</style>
+
+<div class="dt">
+  <table>
+    <tr><th style="width:14px"></th><th>Plan</th><th style="width:100px">Phase</th><th style="width:180px">Slices</th><th style="width:80px">Owner</th></tr>
+    <tr><td class="tw">▾</td><td><a class="link" href="#"><b>jenkins-reads-in-process</b></a> <span class="muted">(example once approved)</span></td><td><span class="phase">Development</span></td>
+      <td><div class="strip"><i style="background:#4ade80"></i><i style="background:#fbbf24"></i><i style="background:#60a5fa"></i><i style="background:#2a3352"></i><i style="background:#2a3352"></i></div><span class="muted" style="font-size:11px">1 / 5 delivered</span></td><td>jwloka</td></tr>
+    <tr class="sl"><td></td><td colspan="4"><span class="wave">Done</span></td></tr>
+    <tr class="sl"><td></td><td><span class="st ok">✓ merged</span> <a class="link" href="#">Client</a> · <a class="link" href="#">#3470</a></td><td colspan="3" class="muted">2d ago</td></tr>
+    <tr class="sl"><td></td><td colspan="4"><span class="wave">In flight</span></td></tr>
+    <tr class="sl"><td></td><td><span class="st amber">⟳ at CI</span> <a class="link" href="#">Reads</a> · <a class="link" href="#">#3474</a></td><td colspan="3"><a class="link" href="#">→ row in Work items</a></td></tr>
+    <tr class="sl"><td></td><td><span class="st" style="color:#60a5fa">● building</span> <a class="link" href="#">Queue</a></td><td colspan="3"><a class="link" href="#">→ row in Work items</a></td></tr>
+    <tr class="sl"><td></td><td colspan="4"><span class="wave">To do</span></td></tr>
+    <tr class="sl"><td></td><td><span class="st muted">○ waits</span> <a class="link" href="#">Cutover</a></td><td colspan="3" class="muted">after Reads</td></tr>
+    <tr class="sl"><td></td><td><span class="st muted">○ waits</span> <a class="link" href="#">Docs</a></td><td colspan="3" class="muted">after Cutover</td></tr>
+    <tr><td class="tw">▸</td><td><a class="link" href="#"><b>state-branch</b></a></td><td><span class="phase" style="background:#10302a;color:#5eead4">Testing</span></td>
+      <td><div class="strip"><i style="background:#4ade80"></i><i style="background:#4ade80"></i><i style="background:#4ade80"></i><i style="background:#4ade80"></i></div><span class="muted" style="font-size:11px">4 / 4 delivered</span></td><td>jwloka</td></tr>
+  </table>
+</div>
+<p class="subtitle" style="margin-top:10px">Collapsibles that remain on the tab: a plan row here (▸/▾), the Free agents line, and "… n more" lines. Nothing else folds.</p>

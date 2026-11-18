@@ -35,22 +35,22 @@ const base = (overrides: Partial<ChipRowReadings> = {}): ChipRowReadings => ({
   ...overrides,
 });
 
-describe('chipRow — This sprint', () => {
+describe('chipRow — My sprint', () => {
   it('is off with no selection, and counts the rows in no Active sprint as hidden', () => {
     const actual = chipRow(base());
-    expect(actual.thisSprint).toEqual({
-      label: 'This sprint', on: false, hiddenCount: 1, disabledReason: null,
+    expect(actual.mySprint).toEqual({
+      label: 'My sprint', on: false, hiddenCount: 1, disabledReason: null,
     });
   });
 
   it('is on with every Active sprint selected, and reports the same hidden count', () => {
-    const actual = chipRow(base({ sprint: sprintReadings(['alpha', 'beta', 'gamma']) })).thisSprint;
+    const actual = chipRow(base({ sprint: sprintReadings(['alpha', 'beta', 'gamma']) })).mySprint;
     expect(actual.on).toBe(true);
-    expect(actual.hiddenCount).toBe(chipRow(base()).thisSprint.hiddenCount);
+    expect(actual.hiddenCount).toBe(chipRow(base()).mySprint.hiddenCount);
   });
 
   it('counts against the current selection once it narrows', () => {
-    const actual = chipRow(base({ sprint: sprintReadings(['beta']) })).thisSprint;
+    const actual = chipRow(base({ sprint: sprintReadings(['beta']) })).mySprint;
     expect(actual.on).toBe(true);
     // alpha's 2, gamma's 1 and the row in no sprint.
     expect(actual.hiddenCount).toBe(4);
@@ -58,9 +58,22 @@ describe('chipRow — This sprint', () => {
 
   it('is disabled with no active sprint, and never reports a hidden count', () => {
     const actual = chipRow(base({ sprint: sprintReadings([], { sprints: [], membership: new Map() }) }));
-    expect(actual.thisSprint.disabledReason).toBe('No sprint is Active.');
-    expect(actual.thisSprint.hiddenCount).toBe(0);
+    expect(actual.mySprint.disabledReason).toBe('You own no active sprint');
+    expect(actual.mySprint.hiddenCount).toBe(0);
     expect(actual.perSprint).toEqual([]);
+  });
+
+  it('is disabled with "You own no active sprint" where sprints are Active and the reader owns none', () => {
+    const actual = chipRow(base({ sprint: sprintReadings([], { sprints: [] }) }));
+    expect(actual.mySprint).toEqual({ label: 'My sprint', on: false, hiddenCount: 0, disabledReason: 'You own no active sprint' });
+    expect(JSON.stringify(actual)).not.toContain('No sprint is Active.');
+  });
+
+  it('off, counts the rows its click hides: the click selects the owned sprints only', () => {
+    // The reader owns beta alone; alpha's 2, gamma's 1 and the row in no sprint are hidden.
+    const actual = chipRow(base({ sprint: sprintReadings([], { sprints: [{ slug: 'beta', title: 'Beta' }] }) }));
+    expect(actual.mySprint).toEqual({ label: 'My sprint', on: false, hiddenCount: 4, disabledReason: null });
+    expect(actual.perSprint).toEqual([{ label: 'Beta', on: false, hiddenCount: 4, disabledReason: null }]);
   });
 });
 
@@ -265,13 +278,13 @@ describe('chipRow — per-sprint chips', () => {
     ]);
   });
 
-  // ISSUE #2526's HIGH: «This sprint» selects every Active sprint, so every
+  // ISSUE #2526's HIGH: «My sprint» selects every owned Active sprint, so every
   // per-sprint chip turns on. Each one that is on must report the rows the
   // screen hides — counted against its own slug alone, alpha's chip would
   // count beta's and gamma's visible rows as hidden.
   it('with every sprint selected, each chip that is on reports the rows the screen hides', () => {
     const actual = chipRow(base({ sprint: sprintReadings(['alpha', 'beta', 'gamma']) }));
-    expect(actual.thisSprint.hiddenCount).toBe(1);
+    expect(actual.mySprint.hiddenCount).toBe(1);
     expect(actual.perSprint.map((chip) => [chip.on, chip.hiddenCount])).toEqual([
       [true, 1], [true, 1], [true, 1],
     ]);
@@ -284,7 +297,7 @@ describe('chipRow — per-sprint chips', () => {
       rows: allRows.filter((row) => row.plan !== 'plan-g1'),
     });
     const actual = chipRow(base({ sprint: twoSprints }));
-    expect(actual.thisSprint.hiddenCount).toBe(1);
+    expect(actual.mySprint.hiddenCount).toBe(1);
     expect(actual.perSprint).toEqual([
       { label: 'Alpha', on: true, hiddenCount: 1, disabledReason: null },
       { label: 'Beta', on: true, hiddenCount: 1, disabledReason: null },
@@ -296,7 +309,7 @@ describe('chipRow — per-sprint chips', () => {
   // gamma, leaving only the row in no sprint hidden.
   it('with three Active sprints and two selected, the chips that are on match the screen', () => {
     const actual = chipRow(base({ sprint: sprintReadings(['alpha', 'beta']) }));
-    expect(actual.thisSprint.hiddenCount).toBe(2);
+    expect(actual.mySprint.hiddenCount).toBe(2);
     expect(actual.perSprint).toEqual([
       { label: 'Alpha', on: true, hiddenCount: 2, disabledReason: null },
       { label: 'Beta', on: true, hiddenCount: 2, disabledReason: null },
@@ -306,7 +319,7 @@ describe('chipRow — per-sprint chips', () => {
 
   it('with one of three selected, the chips that are off count the selection with their sprint added', () => {
     const actual = chipRow(base({ sprint: sprintReadings(['beta']) }));
-    expect(actual.thisSprint.hiddenCount).toBe(4);
+    expect(actual.mySprint.hiddenCount).toBe(4);
     expect(actual.perSprint).toEqual([
       { label: 'Alpha', on: false, hiddenCount: 2, disabledReason: null },
       { label: 'Beta', on: true, hiddenCount: 4, disabledReason: null },
@@ -317,7 +330,7 @@ describe('chipRow — per-sprint chips', () => {
   it('never hides an exempt row', () => {
     const rows = [...allRows, { kind: 'release', plan: '' }, { kind: 'pr', plan: '' }];
     const actual = chipRow(base({ sprint: sprintReadings(['alpha'], { rows }) }));
-    expect(actual.thisSprint.hiddenCount).toBe(5);
+    expect(actual.mySprint.hiddenCount).toBe(5);
     expect(actual.perSprint[0].hiddenCount).toBe(5);
   });
 });

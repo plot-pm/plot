@@ -10,8 +10,8 @@ import { admitBeforeSnapshot } from '../../../domain/test/fixtures/admit-before-
 
 /**
  * The hub's copy of fleetd's snapshot against a real channel socket: what it
- * reports for `/api/fleet`, and that the board keeps reading for itself when
- * the sender is an older fleetd.
+ * reports for `/api/fleet`, and the one line it logs when the sender is an
+ * older fleetd.
  */
 
 const until = async (holds: () => boolean, ms = 4000): Promise<void> => {

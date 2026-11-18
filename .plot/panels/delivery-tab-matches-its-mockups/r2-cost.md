@@ -1,0 +1,41 @@
+# Cost juror, round 2: delivery-tab-matches-its-mockups
+
+Lens: what the plan spends (reviewer attention, CI minutes, conflict blast radius, the Domain fields slice's risk, the six-branch dependency chain) and whether the plan states it. Checkout at `8dcb2ed85`; `origin/main` at `341df638d`.
+
+## Findings
+
+1. **misleads — the screenshot artifact can be absent on the PR head's run.** Plan lines 113, 221 and 234 make the done-when "the `delivery-screenshots` artifact of the CI run on the PR head". `ci.yml:1308` skips `board-integration` when `needs.select.outputs.reuse_board != ''`, and `ci.yml:142` sets that output when an earlier green run on the same base already covered the board diff (`docs/plans/2026-11-09-ci-reuses-green-runs.md`). A slice that pushes a changeset-only or plan-only fix-up gets a head run with no board job and no artifact. The reviewer then has nothing to open from the run the plan names. Suggested change: name "the latest run on this PR that ran *Board integration tests*", or make the new `delivery` output also clear `reuse_board` so a Delivery PR never reuses the board job. The second option costs one board run per push on eight PRs; state that figure.
+
+2. **misleads — the Domain fields slice cannot pass `now` or the plan phase without touching a `.tsx` file, and its done-when forbids that.** Plan line 209 says `delivery-view.ts` "gets the phase and `now`", and line 213 says a reviewer checks that "no `.tsx` file … changes". `placeMapping(mapping, slices, sprints)` (`delivery-view.ts:529-534`) and `deliveryView` (`:379-384`) take no clock. `DeliveryMapping` (`delivery-readings.ts:109-133`) and `DeliveryInput` carry no `now` and no plan phase. The one caller is `AgentList.tsx:1147`. The phase is readable from `AgentRow.phase` (`schema.ts:2779`, through `mapping.rowsByItem`) without a `.tsx` change. The clock is not: it either needs a new parameter at `AgentList.tsx:1147`, or a `Date.now()` inside a view builder that has none today. A relative time computed once per payload also goes stale between payloads ("merged 2 days ago" for a tab left open over a day boundary). Suggested change: name the source of `now` (a field on `DeliveryMapping` set by `deliveryMapping`, which `delivery-readings.ts:89` already takes a `now` beside), add `delivery-readings.ts` to the slice's Owns, and state that the text refreshes only with the payload.
+
+3. **misleads — the schedule is not stated, and round 1 asked for it.** Round-1 cost finding 9 asked the plan to state the critical path. The Open Questions list (lines 179-191) does not answer it, and the Notes do not state it either. Recomputed from the sibling `waits:` markers: `feature/delivery-tab-todo-list` (#3530, open) → `feature/delivery-release-card` (no PR; waits on the to-do list, `delivery-tab-header-and-my-sprint.md:150`) → `feature/delivery-my-sprint-scope` (no PR; `:154`) → `feature/delivery-sprint-delivery-scope` (no PR; `delivery-release-progress-per-plan.md:132`) → *Domain fields* → *Primitives* → *Sections*. That is seven serial merges from today, and three of them are slices of other plans that nobody has written yet. Suggested change: one Notes line with that chain and its length.
+
+4. **misleads — Domain fields waits on the footer without a shared file.** Plan line 211 says "Why it waits on all six: it shares files with them". #3507 (`feature/delivery-tab-footer`) changes `AgentList.tsx`, `footer-fact.ts`, `contract/schema.ts`, `server/fleet.ts` and tests (`gh pr view 3507`). None of these is in the Domain fields Owns list (line 209). The footer is not on the critical chain in finding 3, so the wait costs nothing while #3507 moves. If #3507 stalls, the wait holds Domain fields for no reason. Suggested change: drop `feature/delivery-tab-footer` from Domain fields' `waits:`. *Primitives* keeps it, because Primitives owns the footer line's dots.
+
+5. **misleads — the contrast gate does not cover every pair the claim covers.** Recomputed by script from `index.css:77-168` (OKLab to sRGB, alpha composited over `--card-surface`). Every figure in the table at lines 57-71 reproduces to two decimals, and the dark figures are now right. Two pairs outside the table fail AA in light: `--card-meta` on `--card-band-strong` and on `--card-panel-strong` read **4.35**. Only `Card.tsx:547,621` (the Plans tab) uses those tokens today, so the failure is outside this plan's scope. But line 82 says "A later token change that breaks AA fails the test", and the test asserts an enumerated list of pairs. A Delivery slice that puts muted text on a `-strong` band, for example a hovered or selected row, passes the gate and fails AA. Light `--hue-green` on `--card-panel-strong` reads 4.51, which leaves no margin. Suggested change: assert `--card-meta` on all four band and panel tokens, or state that `-strong` backgrounds carry no muted text on the Delivery tab.
+
+6. **cosmetic — a permanent CI cost that the plan does not name.** The new `delivery-tab-screenshots.browser.test.ts` runs in every `board-integration` run, not only on Delivery PRs. Only the PNG write depends on `PLOT_SCREENSHOT_DIR` (line 110). The test makes about 8 sections × 4 page renders, against a step measured green at 4-8 min (`ci.yml:1536-1541`). It is one file among 89 browser files. Line 100 also asks "every slice's browser test" to assert 320 px, and the screenshot test already asserts 320 px for every section. If each Sections slice adds its own 320 px test, the check runs twice. Suggested change: state that the screenshot test is the 320 px check, and that a Sections slice adds no second one.
+
+7. **cosmetic — the CI line cite is off.** Plan line 112 cites `git diff --name-only HEAD^1 HEAD` at `ci.yml:260`. In the `select` job, the command is at `ci.yml:198` (the *Ask the rule* step, writing `$RUNNER_TEMP/changed.txt`), and again at `:261` in the record step. Both carry `--no-renames`. The new step reads `$RUNNER_TEMP/changed.txt`. Suggested change: cite `:198` and name the file.
+
+8. **cosmetic — round-1 items with no answer.** Round-1 cost 6 (the agent at the desk styles without seeing the render; the first visual feedback is a CI round trip) and cost 13 (verify that the built CSS contains the imported stylesheets' rules) are absent from the answered list. Neither one blocks. Suggested change: accept them in one line each, or add "the built `board-server.mjs` CSS contains a `delivery.css` selector" to Primitives' CI-gated done-when.
+
+## Claims checked and found true
+
+- The contrast table at lines 57-71, every light and dark figure (script).
+- 26 integration files read `innerText` (`grep -l`).
+- `sr-only` header rows at `rows.tsx:450,456`, `FleetAgentRow.tsx:6`, `TicketsSection.tsx:81`.
+- `board-integration` `needs: [select, gates]` at `ci.yml:1307`, and the test step at `:1541-1543`.
+- The catalogue `newContext` at `index.ts:211-213` with `reducedMotion` at `:52`.
+- `doneDetail` writes `mergedAt.slice(0, 10)` (`release-plan-rows.ts:106`).
+- `planRowFacts` call at `delivery-view.ts:513`.
+- #3525 merged; #3507, #3530 and #3532 are open, and their files match line 211.
+- No other open PR touches `packages/board/src/app` (`gh pr list`).
+- No corpus test reads `delivery-row-form`, `release-plan-rows`, `plan-open-questions` or `you-header`. The Domain fields slice therefore carries no shell-domain corpus risk, and the plan claims none. `release-plan-rows.test.ts:45` asserts the ISO date and must change with item 3, which "the existing tests pass" leaves unsaid.
+- The eight mockup files exist.
+
+## What I looked at and what I did not
+
+Read: the subject plan; the round-1 `panel.md` and `cost.md`; the four active siblings' slice and waits lines; `ci.yml:110-275,1300-1330,1530-1545`; `index.css:62-168`; `delivery-view.ts:379-534`; `delivery-readings.ts:30-133`; `schema.ts` (PlanMeta and AgentRow phase); `AgentList.tsx:1135-1150`; `release-plan-rows.ts`; the domain corpus listing. Ran: a contrast script over `index.css`; `gh pr view` for #3507, #3525, #3530 and #3532; `gh pr list` over open PRs; `grep` counts. Not run: any build, test or browser. Not read: `plot-ci-reuse.mjs` (finding 1 rests on `ci.yml:142,1308` and the reuse plan's name), the mockup HTML, and the spec.
+
+Position: amend

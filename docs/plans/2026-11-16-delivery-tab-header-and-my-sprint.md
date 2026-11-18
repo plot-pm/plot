@@ -18,6 +18,9 @@
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-fleet-card`
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-slice-states`
 - **Started:** 2026-11-18, Jan Wloka, `feature/delivery-sprint-card`
+- **Started:** 2026-11-18, Jan Wloka, `feature/delivery-tab-todo-list`
+- **Started:** 2026-11-18, Jan Wloka, `feature/delivery-release-card`
+- **Started:** 2026-11-18, Jan Wloka, `feature/delivery-my-sprint-scope`
 
 ## Changelog
 
@@ -142,15 +145,15 @@ Per slice, in slice order.
 
 ### To-do list
 
-- `feature/delivery-tab-todo-list` <!-- waits: feature/delivery-section-header, feature/delivery-you-groups, feature/delivery-tickets-section --> — the to-do list with its three markers read from plan 2's table, its header counts, and the triage line linking to the Tickets section <!-- builds: the Delivery tab to-do list -->
+- `feature/delivery-tab-todo-list` <!-- waits: feature/delivery-section-header, feature/delivery-you-groups, feature/delivery-tickets-section --> — the to-do list with its three markers read from plan 2's table, its header counts, and the triage line linking to the Tickets section <!-- builds: the Delivery tab to-do list --> → #3530
 
 ### Release card
 
-- `feature/delivery-release-card` <!-- waits: feature/delivery-slice-states, feature/sprint-owner-field, feature/delivery-tab-todo-list --> — one release card per target release and per unbound release row, with the five-segment bar, the people count, the state and the Approve button bound by version, "No release targeted", the "Approve release" to-do line, and the release out of You and Work items <!-- builds: release status cards with Approve release -->
+- `feature/delivery-release-card` <!-- waits: feature/delivery-slice-states, feature/sprint-owner-field, feature/delivery-tab-todo-list --> — one release card per target release and per unbound release row, with the five-segment bar, the people count, the state and the Approve button bound by version, "No release targeted", the "Approve release" to-do line, and the release out of You and Work items <!-- builds: release status cards with Approve release --> → #3537
 
 ### Sprint scope
 
-- `feature/delivery-my-sprint-scope` <!-- waits: feature/delivery-release-card, feature/delivery-sprint-card, feature/delivery-work-items-groups --> — the **My sprint** toggle: the rename and its `data-chip` test updates, the scope rule over the Active sprints the reader owns, the disabled state with "You own no active sprint", the scope applied to the status card, You and Work items, and the per-sprint report line removed <!-- builds: a Delivery scope rule for release or my sprint -->
+- `feature/delivery-my-sprint-scope` <!-- waits: feature/delivery-release-card, feature/delivery-sprint-card, feature/delivery-work-items-groups --> — the **My sprint** toggle: the rename and its `data-chip` test updates, the scope rule over the Active sprints the reader owns, the disabled state with "You own no active sprint", the scope applied to the status card, You and Work items, and the per-sprint report line removed <!-- builds: a Delivery scope rule for release or my sprint --> → #3538
 
 ## Notes
 

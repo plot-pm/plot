@@ -93,17 +93,23 @@ export interface BoardSourceReading {
   channel: 'current' | 'mismatch' | 'resyncing' | 'none';
 }
 
-/** Where the board's view comes from: fleetd's snapshot, the board's own reads, or nowhere. */
-export type BoardSource = 'snapshot' | 'own' | 'idle';
+/**
+ * Where the board's view comes from: fleetd's snapshot, the board's own reads,
+ * nowhere, or the last view held while a live fleetd speaks another protocol.
+ */
+export type BoardSource = 'snapshot' | 'own' | 'idle' | 'held';
 
 /**
  * Picks the source of the board's view.
  *
  * @param reading the attached streams, fleetd's liveness and the channel state
- * @returns `idle` with no stream attached; `snapshot` while fleetd is `live`,
- *   its observer is fresh and the channel is `current`; `own` otherwise
+ * @returns `held` while fleetd is `live` and the channel is `mismatch`, with or
+ *   without a stream attached; `idle` with no stream attached; `snapshot` while
+ *   fleetd is `live`, its observer is fresh and the channel is `current`; `own`
+ *   otherwise
  */
 export const boardSource = (reading: BoardSourceReading): BoardSource => {
+  if (reading.fleetd === 'live' && reading.channel === 'mismatch') return 'held';
   if (!pulseWanted(reading)) return 'idle';
   return reading.fleetd === 'live' && reading.observerFresh && reading.channel === 'current' ? 'snapshot' : 'own';
 };
@@ -142,3 +148,24 @@ export const boardSourceOf = ({ clients, heartbeat, link, now }: BoardSourceFact
     observerFresh: heartbeat !== null && observerFresh(heartbeat, now),
     channel: boardChannelOf(link),
   });
+
+/** The command that reloads fleetd on the current bundle and signals no agent. */
+export const FLEETD_RESTART_COMMAND = 'skills/plot/scripts/plot-fleetctl.sh --restart';
+
+/**
+ * The page's note for a board that holds its view because fleetd speaks
+ * another snapshot protocol.
+ *
+ * @param source - where the board's last refresh took its view from, or null before the first.
+ * @param link - the hub's snapshot link, or undefined where the board has no hub.
+ * @returns null unless `source` is `held` and `link` is `mismatch`; otherwise
+ *   one sentence naming both protocols and {@link FLEETD_RESTART_COMMAND}.
+ */
+export const heldViewNote = (source: BoardSource | null, link: SnapshotLink | undefined): string | null => {
+  if (source !== 'held' || link === undefined || link.state !== 'mismatch') return null;
+  const theirs = link.theirs === undefined
+    ? 'fleetd refused this board\'s snapshot request'
+    : `fleetd speaks snapshot protocol ${link.theirs}`;
+  return `This board speaks snapshot protocol ${link.ours} and ${theirs}, so the board reads nothing for itself and shows fleetd's last bridge. `
+    + `Run \`${FLEETD_RESTART_COMMAND}\` to load the current bundle into fleetd; it signals no agent.`;
+};

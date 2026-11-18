@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { chipRow } from '@plot-pm/domain/rules/chip-row';
-import { rowInSprintSelection } from '@plot-pm/domain';
+import { deliveryScope, parsePersonDirectory, rowInSprintSelection } from '@plot-pm/domain';
 import { chipReadings, type ChipReadingsInput } from '../../src/app/lib/agent-rows/chip-readings.js';
 
 /**
@@ -47,14 +47,14 @@ const input = (selectedSprints: string[], overrides: Partial<ChipReadingsInput> 
 const hiddenOnScreen = (selected: string[]): number => rows.length - input(selected).sprintFilteredRows.length;
 
 describe('chipReadings — every sprint chip reads the current selection', () => {
-  // ISSUE #2526's HIGH: «This sprint» selects every Active sprint. Each
+  // ISSUE #2526's HIGH: «My sprint» selects every owned Active sprint. Each
   // per-sprint chip is then on and must report what the screen hides, not
   // what its own slug alone would hide.
   it('with every Active sprint selected, every chip reports the rows the screen hides', () => {
     const selected = ['alpha', 'beta', 'gamma'];
     const chips = chipRow(chipReadings(input(selected)));
     expect(hiddenOnScreen(selected)).toBe(1);
-    expect(chips.thisSprint.hiddenCount).toBe(1);
+    expect(chips.mySprint.hiddenCount).toBe(1);
     expect(chips.perSprint.map((chip) => chip.hiddenCount)).toEqual([1, 1, 1]);
   });
 
@@ -62,7 +62,7 @@ describe('chipReadings — every sprint chip reads the current selection', () =>
     const selected = ['alpha', 'beta'];
     const chips = chipRow(chipReadings(input(selected)));
     expect(hiddenOnScreen(selected)).toBe(2);
-    expect(chips.thisSprint).toMatchObject({ on: true, hiddenCount: 2 });
+    expect(chips.mySprint).toMatchObject({ on: true, hiddenCount: 2 });
     expect(chips.perSprint).toEqual([
       { label: 'Alpha', on: true, hiddenCount: 2, disabledReason: null },
       { label: 'Beta', on: true, hiddenCount: 2, disabledReason: null },
@@ -107,5 +107,34 @@ describe('chipReadings — a branch counts once for the Mine chip', () => {
     const chips = chipRow(chipReadings(input([], { rows: branchRows, sprintFilteredRows: branchRows, agents, mode: 'mine' })));
     expect(chips.mine.hiddenCount).toBe(2);
     expect(chips.mineStrict).toEqual({ label: 'show 2 unknown', pressed: true, unknownCount: 2 });
+  });
+});
+
+describe('chipReadings — over the scope AgentList.tsx derives', () => {
+  const directory = parsePersonDirectory('jwloka = Jan Wloka; eins78 = Max Albrecht');
+  const owned = [
+    { slug: 'alpha', title: 'Alpha', ownerHandle: 'jwloka' },
+    { slug: 'beta', title: 'Beta', ownerHandle: 'eins78' },
+    { slug: 'gamma', title: 'Gamma', ownerHandle: '' },
+  ];
+  const scoped = (selected: string[], hostUser = 'jwloka') => {
+    const reader = { hostUser, directory };
+    const scope = deliveryScope(selected, reader, owned);
+    return chipRow(chipReadings(input([...scope.selection], { activeSprints: [...scope.owned], reader })));
+  };
+
+  it('offers a chip for the owned sprint only, and its click hides every other sprint', () => {
+    const chips = scoped([]);
+    expect(chips.mySprint).toEqual({ label: 'My sprint', on: false, hiddenCount: 4, disabledReason: null });
+    expect(chips.perSprint.map((chip) => chip.label)).toEqual(['Alpha']);
+  });
+
+  it('reads a selected sprint the reader does not own as off', () => {
+    expect(scoped(['beta']).mySprint.on).toBe(false);
+  });
+
+  it('is disabled with "You own no active sprint" for a login that owns no sprint', () => {
+    expect(scoped([], 'nobody').mySprint.disabledReason).toBe('You own no active sprint');
+    expect(scoped([], '').mySprint.disabledReason).toBe('You own no active sprint');
   });
 });

@@ -1,0 +1,65 @@
+// The board's release card adapter: release rows from every payload row, bound to cards, whatever the reader.
+import { describe, it, expect } from 'vitest';
+import { parsePersonDirectory, placeDelivery } from '@plot-pm/domain';
+import type { AgentRow, Slice } from '../../src/contract/schema.js';
+import { deliveryMapping, releaseCardsOf, type DeliveryMapInput } from '../../src/app/lib/agent-rows/delivery-readings.js';
+import { todoListOf } from '../../src/app/lib/agent-rows/todo-list.js';
+import { placeMapping } from '../../src/app/lib/agent-rows/delivery-view.js';
+
+const directory = parsePersonDirectory('jwloka = Jan Wloka');
+const reader = { hostUser: 'jwloka', directory };
+const releaseRow = (version: string, number: number): AgentRow => ({
+  branch: 'changeset-release/main', plan: '', wave: '', kind: 'release', version, phase: '', state: 'open', group: 'review',
+  pr: { number, state: 'pending', open: true, headSha: 'a'.repeat(40), ciChecks: 'green', plotReview: 'absent' },
+  question: null, blockedBy: null, assignee: '', author: '', approver: '', desk: false, fixerInFlight: false,
+}) as unknown as AgentRow;
+const row = (plan: string, branch: string): AgentRow => ({
+  branch, plan, wave: 'One', kind: 'branch', phase: 'Testing', state: 'merged', group: 'done', pr: null,
+  question: null, blockedBy: null, assignee: '', author: '', approver: '',
+}) as unknown as AgentRow;
+const slice = (plan: string): Slice => ({
+  plan, name: 'One', branches: [], verdict: 'complete', section: 'done', complete: true, planSliceCount: 1,
+}) as unknown as Slice;
+const input = (over: Partial<DeliveryMapInput>): DeliveryMapInput => ({
+  rows: [], slices: [], agents: [], drafts: [], reader, mode: 'all', config: { autoReview: true, correctionBudget: 2 }, ...over,
+});
+const sprint = (release: string, members: string[] = []) => ({
+  slug: `s-${release}`, release, ownerHandle: 'jwloka', members: members.map((slug) => ({ slug, tier: 'must' as const, checked: false, known: true })),
+});
+
+describe('releaseCardsOf', () => {
+  it('binds the release row to the card of its version and hands back that row', () => {
+    const release = releaseRow('2.35.0', 300);
+    const { cards, rows } = releaseCardsOf([sprint('v2.35.0'), sprint('2.36.0')], directory, input({ rows: [release] }));
+    expect(cards.map((c) => [c.title, c.stateText])).toEqual([
+      ['Release 2.35.0', 'release PR #300 open'],
+      ['Release 2.36.0', 'planned · no release PR yet'],
+    ]);
+    expect(rows[cards[0]!.rowId!]).toBe(release);
+    expect(cards[1]!.rowId).toBeNull();
+  });
+
+  it('gives a release row with no Active sprint a card of its own', () => {
+    const { cards } = releaseCardsOf([], directory, input({ rows: [releaseRow('2.35.0', 300)] }));
+    expect(cards.map((c) => [c.kind, c.title])).toEqual([['untargeted', 'Release 2.35.0 · no sprint targets it']]);
+  });
+
+  it('draws the same bar for two readers and every Mine mode', () => {
+    const over = { rows: [row('a', 'feature/a'), row('b', 'feature/b')], slices: [slice('a'), slice('b')] };
+    const mine = releaseCardsOf([sprint('2.35.0', ['a', 'b'])], directory, input({ ...over, mode: 'mine' }));
+    const theirs = releaseCardsOf([sprint('2.35.0', ['a', 'b'])], directory, input({ ...over, mode: 'strict', reader: { hostUser: 'eins78' } }));
+    expect(mine.cards[0]!.bar).toEqual(theirs.cards[0]!.bar);
+    expect(mine.cards[0]!.total).toBe(2);
+  });
+
+  it('keeps the release row out of every section and owes one "Approve release" line', () => {
+    const rows = [releaseRow('2.35.0', 300)];
+    const mapping = deliveryMapping(input({ rows }));
+    const placement = placeDelivery(mapping.readings, mapping.input);
+    const view = placeMapping(mapping, [], []);
+    expect(view.sections.flatMap((s) => s.groups.flatMap((g) => g.items))).toEqual([]);
+    const { cards } = releaseCardsOf([sprint('2.35.0')], directory, input({ rows }));
+    const todo = todoListOf(view, placement, null, cards);
+    expect(todo.lines.map((l) => [l.text, l.marker, l.anchor])).toEqual([['Approve release 2.35.0', 'blocks-delivery', 'release-card-2.35.0']]);
+  });
+});

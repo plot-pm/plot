@@ -1,18 +1,18 @@
 import { useEffect, useState } from 'react';
 import type { PasskeyRegistration } from '@plot-pm/domain/rules/passkey-settings';
-import { releaseApprovable } from '@plot-pm/domain/rules/release-approvable';
+import { releaseCardApprovable, type ReleaseCardView } from '@plot-pm/domain/rules/release-card';
 import type { AgentRow } from '../../contract/schema.js';
 import { readRegistration } from '../lib/passkey-client.js';
 import { approveRelease, releaseReadingOf } from '../lib/release-approve.js';
 
 /**
- * The release PR row's "Approve release" button.
+ * A release card's "Approve release" button.
  *
- * The button always shows. `releaseApprovable` decides whether it is enabled and,
- * where it is not, the reason this renders beside it. The click approves the row's
- * own PR number and head, and the server re-reads both before it merges.
+ * The button always shows. `releaseCardApprovable` decides whether it is enabled and,
+ * where it is not, the reason this renders beside it. The click approves the bound
+ * row's own PR number and head, and the server re-reads both before it merges.
  */
-export const ReleaseApprove = ({ row }: { row: AgentRow }) => {
+export const ReleaseApprove = ({ card, row }: { card: Pick<ReleaseCardView, 'rowId' | 'unboundReason'>; row: AgentRow | null }) => {
   const [held, setHeld] = useState<PasskeyRegistration | null>(null);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -20,9 +20,8 @@ export const ReleaseApprove = ({ row }: { row: AgentRow }) => {
     void readRegistration().then(setHeld);
   }, []);
 
-  const reading = releaseReadingOf(row.pr);
-  const answer = releaseApprovable(reading, held);
-  const pr = row.pr;
+  const pr = row?.pr ?? null;
+  const answer = releaseCardApprovable(card, releaseReadingOf(pr), held);
 
   const click = async () => {
     if (busy || answer.state !== 'enabled' || pr === null || pr.headSha === undefined) return;
@@ -40,7 +39,7 @@ export const ReleaseApprove = ({ row }: { row: AgentRow }) => {
   };
 
   return (
-    <span className="flex shrink-0 items-center gap-2" data-testid="release-approve">
+    <span className="flex min-w-0 flex-wrap items-center gap-2" data-testid="release-approve">
       <button
         type="button"
         disabled={answer.state === 'disabled' || busy}

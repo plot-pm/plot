@@ -1,5 +1,6 @@
 import { comparableLogin, type Reader } from './ownership.js';
 import { mineCounts, mineHiddenCount, mineStrictControl, type BranchOwnedRow, type MineMode, type MineStrictControl } from './mine-mode.js';
+import { MY_SPRINT_DISABLED } from './delivery-scope.js';
 import { rowInSprintSelection } from './sprint-selection.js';
 
 /**
@@ -12,7 +13,7 @@ import { rowInSprintSelection } from './sprint-selection.js';
  * cannot act hides nothing by its own action.
  */
 export interface Chip {
-  /** What the chip reads, e.g. `This sprint` or `Mine (jwloka)`. */
+  /** What the chip reads, e.g. `My sprint` or `Mine (jwloka)`. */
   readonly label: string;
   /** Whether the filter is currently active. */
   readonly on: boolean;
@@ -24,16 +25,16 @@ export interface Chip {
 
 /** The chip row: the three fixed chips, plus one per Active sprint. */
 export interface ChipRow {
-  readonly thisSprint: Chip;
+  readonly mySprint: Chip;
   readonly mine: Chip;
   /** The hide/show-unknown control beside `Mine`, or `null` where it does not show. */
   readonly mineStrict: MineStrictControl | null;
   readonly waitingOnMe: Chip;
-  /** One chip per Active sprint, in `readings.sprint.sprints`' order. */
+  /** One chip per Active sprint the reader owns, in `readings.sprint.sprints`' order. */
   readonly perSprint: readonly Chip[];
 }
 
-/** One Active sprint, as its chip names it. */
+/** One Active sprint the reader owns, as its chip names it. */
 export interface ActiveSprintReading {
   /** The sprint's slug, as `selected` and `membership` key it. */
   readonly slug: string;
@@ -42,17 +43,20 @@ export interface ActiveSprintReading {
 }
 
 /**
- * What `chipRow` reads for `This sprint` and for every per-sprint chip.
+ * What `chipRow` reads for `My sprint` and for every per-sprint chip.
  *
  * Every sprint chip's on/off and hidden count is decided from these four
  * readings, so each chip answers from the same current selection.
  */
 export interface SprintChipReadings {
-  /** The Active sprints, in display order. Empty when no sprint is Active. */
+  /**
+   * The Active sprints the reader owns (`deliveryScope`'s `owned`), in display
+   * order. Empty when the reader owns no Active sprint, including when none is Active.
+   */
   readonly sprints: readonly ActiveSprintReading[];
   /**
-   * The reader's current selection, sanitized against `sprints`
-   * (`sanitizeSelection`). Empty means the sprint filter is off.
+   * The scope's selection (`deliveryScope`'s `selection`), which names only
+   * sprints in `sprints`. Empty means the sprint filter is off.
    */
   readonly selected: readonly string[];
   /** Sprint slug to the set of plan slugs it contains. */
@@ -85,7 +89,7 @@ export interface WaitingOnMeChipReadings {
 
 /** Everything `chipRow` reads, one block per chip kind. */
 export interface ChipRowReadings {
-  /** Read by `This sprint` and by every per-sprint chip. */
+  /** Read by `My sprint` and by every per-sprint chip. */
   readonly sprint: SprintChipReadings;
   readonly mine: MineChipReadings;
   readonly waitingOnMe: WaitingOnMeChipReadings;
@@ -95,29 +99,29 @@ export interface ChipRowReadings {
  * How many of `readings.rows` a sprint selection hides.
  *
  * @param readings - the rows and the membership they are asked against.
- * @param selection - the sprint slugs to ask against; empty means every Active sprint.
+ * @param selection - the sprint slugs to ask against; never empty at a call site.
  * @returns the count of rows `rowInSprintSelection` excludes.
  */
 const hiddenBySelection = (readings: SprintChipReadings, selection: readonly string[]): number =>
   readings.rows.filter((row) => !rowInSprintSelection(row, [...selection], readings.membership)).length;
 
 /**
- * The `This sprint` chip: on while any sprint is selected, disabled with no
- * sprint Active.
+ * The `My sprint` chip: on while any owned sprint is selected, disabled with
+ * `MY_SPRINT_DISABLED` where the reader owns no Active sprint.
  *
  * On, its hidden count is the rows the current selection hides. Off, it is the
- * rows its click would hide: the click selects every Active sprint, and an
- * empty selection reads as every Active sprint.
+ * rows its click would hide: the click selects every Active sprint the reader owns.
  *
- * @param readings - the Active sprints, the selection, the membership and the rows.
+ * @param readings - the owned Active sprints, the selection, the membership and the rows.
  * @returns the chip.
  */
 const sprintChip = (readings: SprintChipReadings): Chip => {
   if (readings.sprints.length === 0) {
-    return { label: 'This sprint', on: false, hiddenCount: 0, disabledReason: 'No sprint is Active.' };
+    return { label: 'My sprint', on: false, hiddenCount: 0, disabledReason: MY_SPRINT_DISABLED };
   }
-  const hiddenCount = hiddenBySelection(readings, readings.selected);
-  return { label: 'This sprint', on: readings.selected.length > 0, hiddenCount, disabledReason: null };
+  const on = readings.selected.length > 0;
+  const hiddenCount = hiddenBySelection(readings, on ? readings.selected : readings.sprints.map((s) => s.slug));
+  return { label: 'My sprint', on, hiddenCount, disabledReason: null };
 };
 
 /**
@@ -213,8 +217,8 @@ const waitingOnMeChip = (_readings: WaitingOnMeChipReadings): Chip => ({
 });
 
 /**
- * The Delivery tab's chip row: one chip each for `This sprint`, `Mine` and
- * `Waiting on me`, plus one per Active sprint — decided from readings rather
+ * The Delivery tab's chip row: one chip each for `My sprint`, `Mine` and
+ * `Waiting on me`, plus one per Active sprint the reader owns — decided from readings rather
  * than rendered live by the component (root `CLAUDE.md`, "Every rendered
  * state is a domain property").
  *
@@ -222,7 +226,7 @@ const waitingOnMeChip = (_readings: WaitingOnMeChipReadings): Chip => ({
  * @returns the fixed chips and the per-sprint chips, in display order.
  */
 export const chipRow = (readings: ChipRowReadings): ChipRow => ({
-  thisSprint: sprintChip(readings.sprint),
+  mySprint: sprintChip(readings.sprint),
   mine: mineChip(readings.mine),
   mineStrict: mineStrictChip(readings.mine),
   waitingOnMe: waitingOnMeChip(readings.waitingOnMe),

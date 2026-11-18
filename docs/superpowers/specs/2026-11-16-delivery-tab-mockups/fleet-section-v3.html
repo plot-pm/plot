@@ -1,0 +1,67 @@
+<h2>The Fleet section — header and body</h2>
+<p class="subtitle">Agent-centric: who it is, its role, what it acts on, what it does now. Special agents (reviewer, fixer, approver, idea, brief, design, verify) are rows like any loop agent, marked by role. Example rows are illustrative.</p>
+
+<style>
+  .dt { background:#0b1020; color:#d7dbe7; font:13px/1.45 -apple-system,system-ui,sans-serif; border-radius:10px; padding:16px; }
+  .dt .muted { color:#8a93a8; } .dt .link { color:#7aa2ff; text-decoration:none; } .dt .ok { color:#4ade80; } .dt .amber { color:#fbbf24; } .dt .red { color:#f87171; }
+  .shead { display:flex; align-items:center; gap:14px; padding-bottom:8px; border-bottom:1px solid #232c46; flex-wrap:wrap; }
+  .shead .t { font-size:15px; font-weight:650; color:#fff; min-width:80px; }
+  .n { font-weight:700; margin-right:3px; }
+  .grp { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:#8a93a8; margin:14px 0 4px; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:#6b7490; font-weight:600; padding:4px 8px; border-bottom:1px solid #232c46; }
+  td { padding:8px; border-bottom:1px solid #1a2238; vertical-align:top; }
+  .role { display:inline-block; padding:1px 8px; border-radius:9px; font-size:11px; font-weight:600; background:#2a3352; color:#c9d2ea; }
+  .role.reviewer { background:#2d1f4a; color:#c4a7ff; } .role.fixer { background:#3b2f10; color:#fbbf24; } .role.approver { background:#10302a; color:#5eead4; }
+  .role.loop { background:#132a4a; color:#60a5fa; } .role.idea { background:#2a2a2a; color:#d4d4d4; }
+  .dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+  .age { color:#8a93a8; text-align:right; white-space:nowrap; }
+  .sub { color:#8a93a8; font-size:12px; }
+  .free { color:#8a93a8; padding:8px; }
+  .sw { display:inline-flex; align-items:center; gap:6px; margin-left:12px; font-size:12px; color:#c9d2ea; }
+  .tg { width:26px; height:14px; border-radius:7px; background:#2563eb; position:relative; display:inline-block; }
+  .tg::after { content:""; position:absolute; right:2px; top:2px; width:10px; height:10px; border-radius:50%; background:#fff; }
+  .step { display:inline-flex; align-items:center; gap:6px; margin-left:12px; font-size:12px; }
+  .step b { border:1px solid #3a4570; border-radius:4px; padding:0 5px; color:#c9d2ea; font-weight:400; }
+</style>
+
+<div class="dt">
+  <div class="shead">
+    <span class="t">Fleet</span>
+    <span><span class="n ok">3</span><span class="muted">working</span></span>
+    <span><span class="n amber">1</span><span class="muted">blocked</span></span>
+    <span><span class="n">3</span><span class="muted">free</span></span>
+    <span class="muted">· 1.08M tokens today</span>
+    <span style="margin-left:auto">
+      <span class="sw"><i class="tg"></i>dispatch</span>
+      <span class="sw"><i class="tg"></i>review</span>
+      <span class="sw"><i class="tg"></i>verify</span>
+      <span class="sw"><i class="tg"></i>design</span>
+      <span class="step">parallel <b>−</b> 3 <b>+</b></span>
+    </span>
+  </div>
+
+  <div class="grp">Working</div>
+  <table>
+    <tr><th style="width:110px">Agent</th><th style="width:80px">Role</th><th>Acting on</th><th>Doing now</th><th style="width:70px">Tokens</th><th style="width:90px">Time left</th></tr>
+    <tr><td><span class="dot" style="background:#4ade80"></span>3283c2ee</td><td><span class="role loop">loop</span></td>
+        <td><a class="link" href="#">jenkins-reads-in-process § Client</a><div class="sub"><a class="link" href="#">feature/jenkins-reads-in-process-client</a></div></td>
+        <td>writing code · 4 commits<div class="sub">last: “read the Jenkins queue over REST”</div></td><td class="age">412k</td><td class="age">6h 58m<div style="height:4px;background:#232c46;border-radius:2px;margin-top:4px"><div style="width:87%;height:100%;background:#4ade80;border-radius:2px"></div></div></td></tr>
+    <tr><td><span class="dot" style="background:#4ade80"></span>rev-91a4</td><td><span class="role reviewer">reviewer</span></td>
+        <td><a class="link" href="#">PR #3467</a><div class="sub">a-deferred-slice-keeps-its-branch</div></td>
+        <td>reviewing head 2d929a6</td><td class="age">38k</td><td class="age">56m<div style="height:4px;background:#232c46;border-radius:2px;margin-top:4px"><div style="width:93%;height:100%;background:#4ade80;border-radius:2px"></div></div></td></tr>
+    <tr><td><span class="dot" style="background:#4ade80"></span>fix-f3a1</td><td><span class="role fixer">fixer</span></td>
+        <td><a class="link" href="#">PR #3459</a><div class="sub">bug/red-hold-index-base</div></td>
+        <td>fixing CI <a class="link" href="#">✗ validate</a> · attempt 1 of 2</td><td class="age">95k</td><td class="age">48m<div style="height:4px;background:#232c46;border-radius:2px;margin-top:4px"><div style="width:80%;height:100%;background:#4ade80;border-radius:2px"></div></div></td></tr>
+  </table>
+
+  <div class="grp">Blocked <span style="text-transform:none;letter-spacing:0">· waits on a gate</span></div>
+  <table>
+    <tr><th style="width:110px">Agent</th><th style="width:80px">Role</th><th>Acting on</th><th>Waits on</th><th style="width:70px">Tokens</th><th style="width:90px">Time left</th></tr>
+    <tr><td><span class="dot" style="background:#fbbf24"></span>desk-0eb1</td><td><span class="role loop">loop</span></td>
+        <td><a class="link" href="#">a-deferred-slice-keeps-its-branch § Deferred</a><div class="sub"><a class="link" href="#">PR #3467</a></div></td>
+        <td><span class="amber">CI ⟳</span> <a class="link" href="#">run 43871477</a></td><td class="age">530k</td><td class="age">1h 12m<div style="height:4px;background:#232c46;border-radius:2px;margin-top:4px"><div style="width:15%;height:100%;background:#f87171;border-radius:2px"></div></div></td></tr>
+  </table>
+
+  <div class="free">Free · 3 agents ready: desk-c7840bec, desk-58c4c74a, desk-0eb12705 · <a class="link" href="#">show</a></div>
+</div>

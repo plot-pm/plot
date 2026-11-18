@@ -22,7 +22,7 @@ const ticketRow = (id: string, over: Partial<TicketLaneRow> = {}): TicketLaneRow
   ...over,
 });
 
-// 2 open + 1 in progress + 7 done: ten rows, seven of them in Done behind *Show all done*.
+// 2 open + 1 in progress + 7 done: ten rows; Done shows five and pages the rest behind [+].
 const TICKETS: TicketLaneGroups = {
   open: [ticketRow('1688'), ticketRow('1689')],
   'in-progress': [ticketRow('1690', { statusCategory: 'In Progress' })],
@@ -30,7 +30,7 @@ const TICKETS: TicketLaneGroups = {
   moreCount: 0,
 };
 
-// 2 active + 6 done: eight stories, six in Done behind *Show all done*.
+// 2 active + 6 done: eight stories; Done shows five and pages the rest behind [+].
 const STORY_LANES = [
   { lane: 'Active' as const, stories: [buildStory({ slug: 'berry', title: 'Berry story' }), buildStory({ slug: 'plum', title: 'Plum story' })] },
   {
@@ -79,14 +79,14 @@ describe('the Discovery groups have a toggle', () => {
   const search = (page: Page) => page.evaluate(() => location.search);
   const archived = (page: Page) => page.getByLabel('Show archived');
 
-  it('puts a count over each group that holds every row, and does not move when Show all done opens', async () => {
+  it('puts a count over each group that holds every row, and does not move when [+] pages a lane', async () => {
     const page = await open();
     try {
       await expect.poll(() => group(page, 'tickets').count(), { timeout: 10_000 }).toBe(1);
       expect(await group(page, 'tickets').innerText()).toBe('Tickets (10)');
       expect(await group(page, 'stories').innerText()).toBe('Stories (8)');
-      await page.getByRole('button', { name: /^Show all done/ }).first().click();
-      await page.getByRole('button', { name: /^Show all done/ }).first().click();
+      await page.getByRole('button', { name: /^Show \d+ older tickets/ }).click();
+      await page.getByRole('button', { name: /^Show \d+ older stories/ }).click();
       expect(await group(page, 'tickets').innerText()).toBe('Tickets (10)');
       expect(await group(page, 'stories').innerText()).toBe('Stories (8)');
     } finally {

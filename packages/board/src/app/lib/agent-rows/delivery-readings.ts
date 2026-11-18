@@ -9,7 +9,10 @@ import {
   type DeliveryReadings,
   type MineMode,
   type Ownership,
+  releaseCards,
   releaseTargets,
+  type ReleaseCardSprint,
+  type ReleaseCardView,
   type ReleaseTarget,
   type ReleaseTicketReading,
   type Reader,
@@ -531,4 +534,39 @@ export const sprintCardViewOf = (
 ): SprintCardsView => {
   const whole = deliveryMapping({ ...input, mode: 'all' });
   return sprintCards(sprints, reader, countedSlicesByPlan(whole.readings.items, input), whole.readings, whole.input);
+};
+
+/** The release cards, and the first row of each release work item the cards bind or show. */
+export interface ReleaseCardsOf {
+  cards: ReleaseCardView[];
+  /** By work item id. */
+  rows: Record<string, AgentRow>;
+}
+
+/**
+ * The Delivery tab header's release cards, read from every row the payload carries.
+ *
+ * Maps `input` in mode `all`, as `sprintCardViewOf` does, so the cards and their
+ * bars are the same for every reader and every Mine mode. A release row is a work
+ * item of kind `release`; its version and PR number come from its first row.
+ *
+ * @param sprints - the Active sprints.
+ * @param directory - the declared `People` spellings; absent reads as none.
+ * @param input - the payload's rows, unfiltered by the Sprint filter, and the rest of the Delivery tab's mapping input.
+ * @returns the cards, in `releaseCards` order, and the rows they name.
+ */
+export const releaseCardsOf = (
+  sprints: readonly ReleaseCardSprint[],
+  directory: PersonDirectory | undefined,
+  input: DeliveryMapInput,
+): ReleaseCardsOf => {
+  const whole = deliveryMapping({ ...input, mode: 'all' });
+  const rows: Record<string, AgentRow> = {};
+  const readings = whole.readings.items.filter((item) => item.kind === 'release').map((item) => {
+    const row = whole.rowsByItem[item.id]?.[0];
+    if (row !== undefined) rows[item.id] = row;
+    return { id: item.id, version: row?.version ?? '', pr: row?.pr?.number ?? null };
+  });
+  const cards = releaseCards(sprints, readings, directory ?? {}, countedSlicesByPlan(whole.readings.items, input), whole.readings, whole.input);
+  return { cards, rows };
 };

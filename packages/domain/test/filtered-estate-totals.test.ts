@@ -21,7 +21,7 @@ describe('filteredEstateTotals', () => {
   });
 
   it('shrinks once a filter narrows what is visible — it must not report the estate\'s totals', () => {
-    // Simulates "This sprint" hiding every plan not in the sprint: only 5 of
+    // Simulates "My sprint" hiding every plan not in the sprint: only 5 of
     // 37 remain visible. A rule that silently recomputed from the full estate
     // would still report 37 here, which is exactly the defect this fixture
     // exists to catch.

@@ -1,0 +1,54 @@
+<h2>Bottom of the tab: Machine, Tickets, and the diagnostics</h2>
+<p class="subtitle">Today: a Machine section reading "none — nothing — a machine is working", a raw list of 5 desk paths "not placed", a Tickets section, and a footer with "PR data 485s ago". Proposal below.</p>
+
+<style>
+  .dt { background:#0b1020; color:#d7dbe7; font:13px/1.45 -apple-system,system-ui,sans-serif; border-radius:10px; padding:16px; margin-bottom:12px; }
+  .dt .muted { color:#8a93a8; } .dt .link { color:#7aa2ff; text-decoration:none; } .dt .ok { color:#4ade80; } .dt .amber { color:#fbbf24; } .dt .red { color:#f87171; }
+  .shead { display:flex; align-items:baseline; gap:14px; padding-bottom:8px; border-bottom:1px solid #232c46; flex-wrap:wrap; }
+  .shead .t { font-size:15px; font-weight:650; color:#fff; }
+  .n { font-weight:700; margin-right:3px; }
+  table { width:100%; border-collapse:collapse; margin-top:6px; }
+  th { text-align:left; font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:#6b7490; font-weight:600; padding:4px 8px; border-bottom:1px solid #232c46; }
+  td { padding:7px 8px; border-bottom:1px solid #1a2238; }
+  .kind { font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:#8a93a8; }
+  .do { color:#60a5fa; font-weight:600; white-space:nowrap; }
+  .foot { display:flex; gap:18px; flex-wrap:wrap; font-size:12px; color:#8a93a8; border-top:1px solid #232c46; padding-top:10px; }
+  .dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; vertical-align:middle; }
+  .state { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:#8a93a8; margin:14px 0 6px; }
+</style>
+
+<div class="state">Machine — healthy: one line, no section body</div>
+<div class="dt">
+  <div class="shead"><span class="t">Machine</span><span class="ok">● healthy</span><span class="muted">· load 2.1 of 10 cores · GitHub 4,210 / 5,000 left · CI queue 1</span></div>
+</div>
+
+<div class="state">Machine — under strain: the body names what limits the fleet</div>
+<div class="dt">
+  <div class="shead"><span class="t">Machine</span><span class="amber">● strained</span><span class="muted">· the fleet holds new starts</span></div>
+  <table>
+    <tr><th>Resource</th><th>Now</th><th>Effect</th></tr>
+    <tr><td>GitHub GraphQL</td><td class="red">0 / 5,000 · resets 16:42</td><td>PR reads fall back to REST</td></tr>
+    <tr><td>Load</td><td class="amber">8.9 of 10 cores</td><td>auto-dispatch waits</td></tr>
+  </table>
+</div>
+
+<div class="state">Tickets — the target of "triage"</div>
+<div class="dt">
+  <div class="shead"><span class="t">Tickets</span><span><span class="n">30</span><span class="muted">assigned to you with no plan</span></span><span class="muted">· 209 more unassigned · <a class="link" href="#">show all</a></span></div>
+  <table>
+    <tr><th style="width:52px">Kind</th><th>Ticket</th><th style="width:120px">Do</th><th style="width:40px">Age</th></tr>
+    <tr><td class="kind">bug</td><td><a class="link" href="#">#3388</a> Delivery tab reads plan state from …</td><td class="do">Plan it ›</td><td class="muted">5d</td></tr>
+    <tr><td class="kind">bug</td><td><a class="link" href="#">#3385</a> State-sync follow-ups: one exit-c…</td><td class="do">Plan it ›</td><td class="muted">5d</td></tr>
+    <tr><td colspan="4" class="muted">… 28 more · <a class="link" href="#">show</a></td></tr>
+  </table>
+</div>
+
+<div class="state">Footer — freshness and diagnostics, one line</div>
+<div class="dt">
+  <div class="foot">
+    <span><span class="dot" style="background:#4ade80"></span>Board read 11s ago</span>
+    <span><span class="dot" style="background:#fbbf24"></span>PR data 8 min old · next read in 2 min</span>
+    <span>35 branches · 7 plans</span>
+    <span><span class="link">5 desks not placed · details</span></span>
+  </div>
+</div>

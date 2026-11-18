@@ -98,16 +98,16 @@ describe('truncateColumn — what a long column shows', () => {
     expect(view.visible.map((c) => c.slug)).toEqual(['dated']);
   });
 
-  it('shows everything and hides nothing once expanded', () => {
+  it('shows everything and hides nothing once the reader asked for the whole column', () => {
     const cards = Array.from({ length: 13 }, (_, i) => card(`p${i}`, `2026-08-${i + 1}`));
-    const view = truncateColumn(cards, { expanded: true });
+    const view = truncateColumn(cards, { limit: 15 });
     expect(view.visible).toHaveLength(13);
     expect(view.hidden).toBe(0);
     expect(view.total).toBe(13);
   });
 
   it('handles an empty column without inventing a control', () => {
-    expect(truncateColumn([])).toEqual({ visible: [], hidden: 0, total: 0 });
+    expect(truncateColumn([])).toEqual({ visible: [], hidden: 0, total: 0, next: 0, collapsible: false });
   });
 
   it('never drops a card — visible plus hidden accounts for the whole column', () => {

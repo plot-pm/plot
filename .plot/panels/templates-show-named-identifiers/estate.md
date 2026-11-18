@@ -1,0 +1,19 @@
+# Juror: estate
+
+Position: amend
+
+## Findings
+
+1. **No existing convention.** Read: a search for `` `[decision-`` / `[question-` / `[risk-` / `[bug-` / `[task-` over `docs/`, `skills/` and `.plot/` finds only this plan (`docs/plans/2026-11-16-templates-show-named-identifiers.md:14,23,31-38,44`). No sibling plan in `docs/plans/active/` and no member of `docs/sprints/active/bug-fixes-2-35-0.md` touches the plan or story template. `delivery-tab-header-and-my-sprint.md:49,130` changes `skills/plot/templates/sprint.md` only, a different file. No duplication.
+
+2. **The four skill citations exist as stated.** Read: `skills/plot-idea/SKILL.md:281` "(D3 in `DESIGN-phases.md`)"; `skills/plot-approve/SKILL.md:128` "Design plan (D10)"; `skills/plot-deliver/SKILL.md:580` "(decision D14)"; `skills/plot-deliver/SKILL.md:612` "(decisions D5 and D14)". Definitions at `docs/stories/archived/plot-works-in-five-phases/STORY-plot-works-in-five-phases.md:79` (D3), `:81` (D5), `:86` (D10), `:90` (D14). The template headings match: `skills/plot/templates/plan.md:36` `### Open Points`, `.plot/templates/plan.md:56` `### Open Questions`, `skills/story-tracking/STORY-template.md:48` `## Open Points` and the three-column Decisions table at `:53-57`.
+
+3. **The same D10 citation ships in a user-facing refusal and the plan leaves it.** Read: `packages/board/src/server/approve.ts:332` and `packages/board/src/server/entry/approve.ts:1060` print "a person approves it (D10), whatever its 'Review:' channel declares" (also in the built bundle `skills/plot/scripts/board/plot-approve-command.mjs:210`). After the slice, `plot-approve/SKILL.md:128` names `[decision-person-approves-plans]` while the refusal an operator reads still says "(D10)": two identifiers for one decision, and the one with no legend is the one a person sees. Amend: either add the two `.ts` message strings to the slice (one string each; the bundle rebuilds on main), or name them as out of scope in `### Open Points` beside `[question-design-doc-citations]`.
+
+4. **The same D14 citation ships in domain TSDoc.** Read: `packages/domain/src/rules/auto-deliver.ts:325` "(decision D14: a ...". It is the same decision as `plot-deliver/SKILL.md:580`. Same amendment as finding 3, lower weight (a code reader, not an operator).
+
+5. **D-codes already collide across stories, which strengthens the Motivation but is not stated.** Read: `packages/board/src/server/entry/gate.ts:438` "A squash of the state ref's tip (D14)" names a state-ref decision, not the tracer-delivery D14 of `STORY-plot-works-in-five-phases.md:90`. Inferred (not traced to its story): it belongs to a different story's Decisions table. Other bare codes in shipped code: `skills/plot/scripts/plot-host.sh:5328,5384` (D20), `packages/domain/src/ports/tracker.ts:125,541` (D6), `packages/domain/src/rules/state-sync.ts:252` and `packages/board/src/server/entry/deliver.ts:606` (D13), `packages/fleet/src/shared/issue-refresh.ts:384` (D23), `packages/fleet/src/shared/pr-refresh.ts:126` (D28). The plan need not rename these; one Motivation sentence citing the `gate.ts:438` collision gives the claim a measured fact.
+
+6. **The D10 name is broader than its definition.** Read: `STORY-plot-works-in-five-phases.md:86` defines D10 as "the fleet commissions an agent to write [an empty Design spec] ... Approval stays a person's act." The citation at `plot-approve/SKILL.md:128` is about a person approving a Design plan. `[decision-person-approves-plans]` reads as all plans on every channel, which `Review: pr` contradicts for a Draft plan. Suggest `[decision-person-approves-design-plans]`.
+
+7. **"No parser reads a Decision cell" holds.** Read: `packages/domain/src/rules/story-record.ts:109` tests only `/^## Open Points\s*$/m`. The other `Decisions` hits (`issue-status.ts:130` `releaseIssueDecisions`, `plan-store-ref.ts:193`, `fleet.ts:1870`) are names or comments, not readers of a story's table.

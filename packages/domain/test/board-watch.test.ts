@@ -1,6 +1,6 @@
 import { FLEETD_HEARTBEAT_VERSION, type FleetdHeartbeat } from '../src/entities/fleetd-heartbeat.js';
 import { describe, expect, it } from 'vitest';
-import { boardChannelOf, boardSource, boardSourceOf, coldReadDue, pulseWanted, readerWanted, type BoardSourceFacts, type BoardSourceReading, type ColdReadReading, type ReaderWatchReading } from '../src/rules/board-watch.js';
+import { FLEETD_RESTART_COMMAND, boardChannelOf, boardSource, boardSourceOf, coldReadDue, heldViewNote, pulseWanted, readerWanted, type BoardSourceFacts, type BoardSourceReading, type ColdReadReading, type ReaderWatchReading } from '../src/rules/board-watch.js';
 
 describe('pulseWanted', () => {
   it('answers false with no client attached', () => {
@@ -102,18 +102,27 @@ describe('boardSource', () => {
     ['a stale heartbeat', { fleetd: 'stale' as const }],
     ['an absent heartbeat', { fleetd: 'absent' as const }],
     ['a stale observer', { observerFresh: false }],
-    ['a protocol mismatch', { channel: 'mismatch' as const }],
+    ['a protocol mismatch under a stale heartbeat', { channel: 'mismatch' as const, fleetd: 'stale' as const }],
+    ['a protocol mismatch under no heartbeat', { channel: 'mismatch' as const, fleetd: 'absent' as const }],
     ['a resyncing channel', { channel: 'resyncing' as const }],
     ['no snapshot held', { channel: 'none' as const }],
   ])('answers own with one client and %s', (_name, over) => {
     expect(boardSource({ ...live, ...over })).toBe('own');
   });
 
+  it('answers idle with no client and a live fleetd', () => {
+    expect(boardSource({ ...live, clients: 0 })).toBe('idle');
+  });
+
   it.each([
-    ['a live fleetd', live],
-    ['a mismatched channel', { ...live, channel: 'mismatch' as const }],
-  ])('answers idle with no client and %s', (_name, reading) => {
-    expect(boardSource({ ...reading, clients: 0 })).toBe('idle');
+    ['one client', 1],
+    ['no client', 0],
+  ])('answers held for a live fleetd and a mismatched channel with %s', (_name, clients) => {
+    expect(boardSource({ ...live, channel: 'mismatch', clients })).toBe('held');
+  });
+
+  it('answers held for a live fleetd, a stale observer and a mismatched channel', () => {
+    expect(boardSource({ ...live, channel: 'mismatch', observerFresh: false })).toBe('held');
   });
 });
 
@@ -186,5 +195,46 @@ describe('boardSourceOf', () => {
 
   it('answers idle with no client', () => {
     expect(boardSourceOf(facts({ clients: 0 }))).toBe('idle');
+  });
+
+  it('answers held for a live heartbeat and a mismatched link', () => {
+    expect(boardSourceOf(facts({ link: { state: 'mismatch', reason: 'protocol 7', ours: 8, theirs: 7 } }))).toBe('held');
+  });
+
+  it('answers own for a stale heartbeat and a mismatched link', () => {
+    expect(boardSourceOf(facts({ heartbeat: heartbeat(NOW - 600_000), link: { state: 'mismatch', reason: 'protocol 7', ours: 8, theirs: 7 } }))).toBe('own');
+  });
+});
+
+describe('heldViewNote', () => {
+  const mismatch = { state: 'mismatch' as const, reason: 'protocol 7', ours: 8, theirs: 7 };
+
+  it('names both protocols and the restart command for a held view', () => {
+    expect(heldViewNote('held', mismatch)).toBe(
+      'This board speaks snapshot protocol 8 and fleetd speaks snapshot protocol 7, so the board reads nothing for itself and shows fleetd\'s last bridge. '
+        + `Run \`${FLEETD_RESTART_COMMAND}\` to load the current bundle into fleetd; it signals no agent.`,
+    );
+  });
+
+  it('names a refused request where fleetd gave no protocol', () => {
+    expect(heldViewNote('held', { ...mismatch, theirs: undefined })).toContain('fleetd refused this board\'s snapshot request');
+  });
+
+  it('names the restart command as plot-fleetctl.sh --restart', () => {
+    expect(FLEETD_RESTART_COMMAND).toBe('skills/plot/scripts/plot-fleetctl.sh --restart');
+  });
+
+  it.each([
+    ['snapshot', 'snapshot' as const],
+    ['own', 'own' as const],
+    ['idle', 'idle' as const],
+    ['no refresh yet', null],
+  ])('answers null for a %s view', (_name, source) => {
+    expect(heldViewNote(source, mismatch)).toBeNull();
+  });
+
+  it('answers null for a held view whose link is no longer a mismatch', () => {
+    expect(heldViewNote('held', { state: 'current', epoch: 'e', generation: 1 })).toBeNull();
+    expect(heldViewNote('held', undefined)).toBeNull();
   });
 });

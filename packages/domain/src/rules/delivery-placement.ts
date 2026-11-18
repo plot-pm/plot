@@ -180,6 +180,8 @@ export interface DeliveryPlacement {
   items: ItemPlacement[];
   /** The tickets the Tickets section holds; no ticket is also an entry of `items`. */
   tickets: TicketPlacement[];
+  /** The ids of the release items the release cards hold; no release is also an entry of `items`. */
+  releases: string[];
   agents: AgentPlacement[];
   unplaced: Unplaced[];
 }
@@ -304,7 +306,6 @@ export const youCaseOfItem = (
   if (item.phase === 'draft' || item.phase === 'design') return YOU_CASES['draft-plan'];
   if (item.approvalOwed === 'plan') return YOU_CASES['plan-approval'];
   if (item.approvalOwed === 'spike') return YOU_CASES['spike-approval'];
-  if (item.approvalOwed === 'release') return YOU_CASES['release-approval'];
   if (item.testOwed === true) return YOU_CASES['test-delivered-plan'];
   if (item.delivered === true) return null;
   if (item.blockedMarker === true) return YOU_CASES['blocked-marker'];
@@ -370,6 +371,9 @@ const agentGroup = (agent: AgentPlacementReading): FleetGroup | null => {
  * Fleet. Each placement names the other side of the link: an item lists the
  * agents acting on it, and an agent carries the id of its item. An agent blocks on any gate, not only on a person.
  *
+ * A release item, or an item owing a release approval, goes to `releases` and
+ * to no section: the release cards hold it.
+ *
  * A ticket goes to `tickets` and to no section of `items`, unless a plan names
  * it, it is closed, or the Mine mode excludes it; each of those appears in
  * `unplaced`. The Sprint filter (`input.releases`) does not apply to tickets.
@@ -411,7 +415,12 @@ export const placeDelivery = (readings: DeliveryReadings, input: DeliveryInput):
 
   const items: ItemPlacement[] = [];
   const tickets: TicketPlacement[] = [];
+  const releases: string[] = [];
   for (const item of readings.items) {
+    if (item.kind === 'release' || item.approvalOwed === 'release') {
+      releases.push(item.id);
+      continue;
+    }
     const acting = readings.agents.filter((a) => a.actsOn === item.id);
     const live = acting.filter((a) => a.process === 'running').length;
     const stopped = acting.filter((a) => a.process === 'stopped').length;
@@ -452,5 +461,5 @@ export const placeDelivery = (readings: DeliveryReadings, input: DeliveryInput):
     items.push({ id: item.id, kind: item.kind, section: 'work-items', group, reason: null, agents: names });
   }
 
-  return { items, tickets, agents, unplaced };
+  return { items, tickets, releases, agents, unplaced };
 };
