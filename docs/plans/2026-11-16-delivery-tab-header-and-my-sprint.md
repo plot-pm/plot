@@ -148,7 +148,7 @@ Per slice, in slice order.
 
 ### Release card
 
-- `feature/delivery-release-card` <!-- waits: feature/delivery-slice-states, feature/sprint-owner-field, feature/delivery-tab-todo-list --> — one release card per target release and per unbound release row, with the five-segment bar, the people count, the state and the Approve button bound by version, "No release targeted", the "Approve release" to-do line, and the release out of You and Work items <!-- builds: release status cards with Approve release -->
+- `feature/delivery-release-card` <!-- waits: feature/delivery-slice-states, feature/sprint-owner-field, feature/delivery-tab-todo-list --> — one release card per target release and per unbound release row, with the five-segment bar, the people count, the state and the Approve button bound by version, "No release targeted", the "Approve release" to-do line, and the release out of You and Work items <!-- builds: release status cards with Approve release --> → #3537
 
 ### Sprint scope
 
