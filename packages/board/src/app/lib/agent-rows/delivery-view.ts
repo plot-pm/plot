@@ -1,6 +1,7 @@
 import {
   DELIVERY_LAYOUT,
   isStuckReason,
+  looseActions,
   oldestWaitsClause,
   WORK_GROUP_COLUMN,
   fleetCountText,
@@ -12,10 +13,11 @@ import {
   type DeliveryPlacement,
   type DeliverySection,
   type ItemPlacement,
+  type LooseActions,
   type Unplaced,
 } from '@plot-pm/domain';
 import type { AgentRow, DraftPlan, IssueRow, Slice } from '../../../contract/schema.js';
-import type { DeliveryMapping, RegistryAgent } from './delivery-readings.js';
+import { agentLabel, type DeliveryMapping, type RegistryAgent } from './delivery-readings.js';
 import { itemRowFactsOf } from './delivery-row-facts.js';
 import { isUnbegun } from './row-identity.js';
 import { groupBySlice, type SliceGroup } from './slices.js';
@@ -61,6 +63,8 @@ export interface PlacedItemView {
   anchor: string;
   /** The agents acting on the item, as links. */
   links: LinkView[];
+  /** The loose-item actions the domain offers; both false for an item that is not loose. */
+  looseActions: LooseActions;
 }
 
 /** One agent the rule placed, with its registry entry. */
@@ -231,9 +235,6 @@ const itemLabel = (id: string, rows: readonly AgentRow[], draft: DraftPlan | nul
   return draft?.plan ?? id;
 };
 
-const agentLabel = (id: string, entry: RegistryAgent | null): string =>
-  entry?.branch || entry?.worktree || id;
-
 const unreadNote = (subject: Unplaced['subject'], ticket = false): string =>
   subject === 'item'
     ? ticket
@@ -367,6 +368,7 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
     label: labelOfItem(p.id),
     anchor: itemAnchor(p.id),
     links: p.agents.map((a) => ({ label: labelOfAgent(a), anchor: agentAnchor(a) })),
+    looseActions: looseActions(mapping.readings.items.find((i) => i.id === p.id) ?? { kind: 'slice' }),
   }));
   const agentViews = placement.agents.map((p): PlacedAgentView => ({
     placement: p,
@@ -457,6 +459,7 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
       label: labelOfItem(u.id),
       anchor: itemAnchor(u.id),
       links: [],
+      looseActions: { delete: false, release: false },
     }));
   const deliveredBlocks = nestItems('delivered', deliveredItems, slices);
 

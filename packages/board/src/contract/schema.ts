@@ -4416,6 +4416,8 @@ export const RoleRunSchema = z.object({
   startedAt: z.number().nullable(),
   /** Present on a design or verify run that stopped or failed. */
   stopped: z.object({ reason: z.string(), restart: z.string(), log: z.string() }).optional(),
+  /** A fixer run's attempt on the finding it answers, from 1; absent from an older server and from every other role. */
+  attempt: z.number().int().positive().optional(),
 });
 export type RoleRunPayload = z.infer<typeof RoleRunSchema>;
 

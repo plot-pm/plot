@@ -919,8 +919,10 @@ const EXPECTED_FILES = 91;
 // `spec-run-rows.browser.test.ts` gains one for the empty case.
 // 675 → 676 on 2026-11-17: the one `it(` that checks the Work items header counts and group column names, added to `delivery-tab-sections.browser.test.ts`. Added, not moved.
 // 676 → 677 on 2026-11-18: the one `it(` that checks each At a gate item shows one linked mark per gate, added to `delivery-tab-sections.browser.test.ts`. Added, not moved.
-// 677 → 679 on 2026-11-18: the two `it(` that place the Fleet switches in the heading and show today's output tokens, added to `fleet-settings.browser.test.ts`. Added, not moved.
-const EXPECTED_TESTS = 679;
+// 677 → 678 on 2026-11-18: the one `it(` that checks the Progress and Waits on cells, added to `delivery-tab-sections.browser.test.ts`. Added, not moved.
+// 678 → 679 on 2026-11-17: the one `it(` that shows Delete and no Release on a closed PR, added to `loose-ends-show-under-unblock.browser.test.ts`. Added, not moved.
+// 679 → 681 on 2026-11-18: the two `it(` that place the Fleet switches in the heading and show today's output tokens, added to `fleet-settings.browser.test.ts`. Added, not moved.
+const EXPECTED_TESTS = 681;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

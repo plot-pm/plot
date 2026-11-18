@@ -89,6 +89,8 @@ export interface LooseReading {
   held?: boolean;
   /** A fleetd fixer runs on the item's open PR now. Read for a `pr` only. */
   fixing?: boolean;
+  /** The item's PR is closed unmerged. A closed PR has no fixer, so `fixing` is not asked of it. Read for a `pr` only. */
+  closed?: boolean;
 }
 
 export type AgentRole = 'loop' | 'fixer' | 'reviewer' | 'approver' | 'idea' | 'brief' | 'design' | 'verify';
@@ -251,8 +253,29 @@ const looseOf = (item: WorkItemReading): 'loose' | 'not-loose' | 'unread' => {
   if (facts === undefined || item.delivered === true) return 'not-loose';
   if (facts.named === true || facts.held === true || facts.fixing === true) return 'not-loose';
   if (facts.named === undefined || facts.held === undefined) return 'unread';
-  if (item.kind === 'pr' && facts.fixing === undefined) return 'unread';
+  if (item.kind === 'pr' && facts.closed !== true && facts.fixing === undefined) return 'unread';
   return 'loose';
+};
+
+/** Which actions a loose item offers. */
+export interface LooseActions {
+  /** `loose-delete` accepts the item: a branch with no PR, or a branch whose PR is closed. */
+  delete: boolean;
+  /** `release-claim` accepts the item: only a branch with no PR, because `plot-dispatch.sh --release` refuses a branch that carried commits. */
+  release: boolean;
+}
+
+/**
+ * The actions a loose item offers, following the refusals of `loose-delete` and `release-claim`.
+ *
+ * @param item - the item's kind and loose reading.
+ * @returns Delete and Release for a branch with no PR, Delete only for a closed PR, and neither for an open PR or an item with no loose reading.
+ */
+export const looseActions = (item: Pick<WorkItemReading, 'kind' | 'loose'>): LooseActions => {
+  if (item.loose === undefined) return { delete: false, release: false };
+  if (item.kind === 'branch') return { delete: true, release: true };
+  if (item.kind === 'pr' && item.loose.closed === true) return { delete: true, release: false };
+  return { delete: false, release: false };
 };
 
 /** Whether a Mine mode shows a ticket of this ownership; no other item asks it. */

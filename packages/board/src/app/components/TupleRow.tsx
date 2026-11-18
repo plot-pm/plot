@@ -570,6 +570,7 @@ export function TupleRowView({
   tracks = TUPLE_TRACKS,
   by,
   gates,
+  gatesReplaceStatus = false,
   details,
   kindChip,
 }: {
@@ -678,6 +679,8 @@ export function TupleRowView({
   by?: ReactNode;
   /** The Gates cell of a work item at a gate. Where set it renders in slot 5 after the status word and what a kind adds beside it. */
   gates?: ReactNode;
+  /** Where set, `gates` is the group's own cell (Progress, Waits on) and the shared status word is not drawn beside it. */
+  gatesReplaceStatus?: boolean;
   /** The details popover's lines — pids, desk paths, extra branches. No popover where there are none. */
   details?: readonly string[];
   /** The chip that stands in slot 2 for the kind word, where the kind has a role to show. */
@@ -811,7 +814,7 @@ export function TupleRowView({
         data-tuple-status
         className="flex min-w-0 items-baseline gap-2 truncate text-xs text-slate-500 dark:text-slate-400"
       >
-        {tuple.status && (
+        {tuple.status && !(gatesReplaceStatus && gates !== undefined) && (
           // COLOUR REINFORCES THE WORD, never replaces it — see `statusTone`,
           // whose palette this restores from the `PrCell` the collapse deleted.
           <span

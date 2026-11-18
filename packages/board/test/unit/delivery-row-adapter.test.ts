@@ -158,6 +158,37 @@ describe('itemRowFactsOf and agentRowFactsOf', () => {
   });
 });
 
+describe('itemRowFactsOf: progress and waits', () => {
+  const factsOf = (rows: AgentRow[], directory?: Record<string, string>) => {
+    const m = deliveryMapping({
+      rows, slices: [slice('A')], agents: [], drafts: [], reader: { hostUser: 'me', ...(directory === undefined ? {} : { directory }) },
+      mode: 'all', config: { autoReview: true, correctionBudget: 2 },
+    });
+    return itemRowFactsOf(m, Object.keys(m.rowsByItem)[0]!);
+  };
+  const built = { branch: 'feature/a', plan: 'p', wave: 'A', kind: 'slice' };
+
+  it('sets the unpushed count only where localAhead is above 0', () => {
+    expect(factsOf([row({ ...built, localAhead: 2 })]).unpushed).toBe(2);
+    expect(factsOf([row({ ...built, localAhead: 0 })]).unpushed).toBeUndefined();
+    expect(factsOf([row(built)]).unpushed).toBeUndefined();
+  });
+
+  it('carries the server-named blocker of another plan, and an empty one as empty', () => {
+    expect(factsOf([row({ ...built, state: 'claimed', blockedBy: 'other/first' })]).waitsOn).toBe('other/first');
+    expect(factsOf([row({ ...built, state: 'claimed', blockedBy: '' })]).waitsOn).toBe('');
+    expect(factsOf([row({ ...built, state: 'claimed' })]).waitsOn).toBeUndefined();
+  });
+
+  it('resolves the owner through People and never carries the raw handle as the name', () => {
+    const named = factsOf([row({ ...built, assignee: 'Max Albrecht' })], { 'max albrecht': 'eins78' });
+    expect(named).toMatchObject({ person: 'eins78', personName: 'Max Albrecht' });
+    const unknown = factsOf([row({ ...built, assignee: 'zed' })], {});
+    expect(unknown.person).toBe('zed');
+    expect(unknown.personName).toBeUndefined();
+  });
+});
+
 describe('the gates a running loop agent waits on', () => {
   const placed = (rows: AgentRow[], rateLimit?: 'exhausted' | 'free' | 'unknown') => {
     const m = deliveryMapping({

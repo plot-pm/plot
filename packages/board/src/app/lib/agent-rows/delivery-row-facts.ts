@@ -8,11 +8,13 @@ import {
   type DeliveryRowForms,
   type DeliverySwitches,
   type ItemPlacement,
+  type ItemAgentFacts,
   type ItemRowFacts,
 } from '@plot-pm/domain';
+import { resolvePerson } from '@plot-pm/domain/entities/person';
 import { unnamedDeskLabel } from '@plot-pm/domain/rules/desk-manifest';
 import { isLiveState, type AgentRow } from '../../../contract/schema.js';
-import { ciOf, reviewOf, type DeliveryMapping } from './delivery-readings.js';
+import { agentLabel, ciOf, reviewOf, type DeliveryMapping } from './delivery-readings.js';
 
 const youngest = (values: readonly (number | null | undefined)[]): number | undefined => {
   const known = values.filter((v): v is number => typeof v === 'number');
@@ -21,6 +23,15 @@ const youngest = (values: readonly (number | null | undefined)[]): number | unde
 
 const openPr = (rows: readonly AgentRow[]): AgentRow | undefined =>
   rows.find((r) => r.pr !== null && r.state !== 'merged' && r.pr.state !== 'closed' && r.pr.open !== false);
+
+/** The person a plan or row names, as written: the assignee, else the approver, else the author. */
+const ownerOf = (rows: readonly AgentRow[], draft: { assignee: string; approver: string; author: string } | undefined): string => {
+  for (const source of [...rows, ...(draft === undefined ? [] : [draft])]) {
+    const name = source.assignee || source.approver || source.author;
+    if (name) return name;
+  }
+  return '';
+};
 
 /**
  * The names and numbers one work item's links point at, read from the payload rows.
@@ -48,13 +59,35 @@ export const itemRowFactsOf = (mapping: DeliveryMapping, id: string): ItemRowFac
   const planRow = rows.find((r) => r.kind === 'plan' && r.pr !== null);
   if (planRow?.pr) facts.planPr = planRow.pr.number;
   if (reading?.pr !== undefined) facts.prReading = reading.pr;
-  if (reading?.waitsOn !== undefined) facts.waitsOn = reading.waitsOn;
+  const blockedBy = rows.find((r) => r.blockedBy !== null && r.blockedBy !== undefined)?.blockedBy;
+  if (blockedBy !== undefined && blockedBy !== null) facts.waitsOn = blockedBy;
+  else if (reading?.waitsOn !== undefined) facts.waitsOn = reading.waitsOn;
+  if (reading?.phase === 'draft' || reading?.phase === 'design') facts.phase = reading.phase;
+  if (reading?.approvalOwed !== undefined) facts.approvalOwed = reading.approvalOwed;
+  const owner = ownerOf(rows, draft);
+  if (owner !== '') {
+    const person = resolvePerson(owner, mapping.directory ?? {});
+    facts.person = person.handle;
+    if (person.displayName !== '') facts.personName = person.displayName;
+  }
+  const aheads = rows.map((r) => r.localAhead).filter((n): n is number => typeof n === 'number' && n > 0);
+  if (aheads.length > 0) facts.unpushed = Math.max(...aheads);
   const asked = rows.find((r) => r.question !== null && r.question !== undefined);
   if (asked !== undefined) facts.question = asked.branch;
   const age = youngest(rows.map((r) => r.ageMinutes));
   if (age !== undefined) facts.ageMinutes = age;
   const merged = rows.filter((r) => r.state === 'merged' && r.pr !== null).map((r) => r.pr!.number);
   if (merged.length > 0) facts.mergedPrs = merged;
+  const agents = mapping.readings.agents.filter((a) => a.actsOn === id).map((a): ItemAgentFacts => {
+    const attempt = mapping.runsById[a.id]?.attempt;
+    return {
+      id: a.id,
+      role: a.role,
+      name: agentLabel(a.id, mapping.agentsById[a.id] ?? null),
+      ...(attempt === undefined ? {} : { attempt }),
+    };
+  });
+  if (agents.length > 0) facts.agents = agents;
   return facts;
 };
 
@@ -80,6 +113,7 @@ export const agentRowFactsOf = (mapping: DeliveryMapping, id: string, now?: numb
   const entry = mapping.agentsById[id];
   const run = mapping.runsById[id];
   const facts: AgentRowFacts = { rateLimit: mapping.rateLimit };
+  if (run?.attempt !== undefined) facts.fixerAttempt = run.attempt;
   if (entry !== undefined && !identityWasDeclared(entry)) {
     facts.unnamedDesk = unnamedDeskLabel({ checkout: entry.checkout ?? '', live: isLiveState(entry.state) });
   }

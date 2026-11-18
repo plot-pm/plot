@@ -16,6 +16,7 @@ import {
   type RoleRun,
   type WorkItemReading,
 } from '@plot-pm/domain';
+import type { PersonDirectory } from '@plot-pm/domain/entities/person';
 import { ticketMarkOf, ticketRecordOf } from '@plot-pm/domain/rules/sprint-ticket-record';
 import type { AgentEntry, AgentRow, DraftPlan, IssueRow, ReleaseTickets, Slice, TicketSourceShape } from '../../../contract/schema.js';
 import { ownedFromCard, ownedFromRow, ownedFromTicket } from './mine-filter.js';
@@ -30,6 +31,13 @@ export interface DeliveryConfig {
 
 /** A registry entry, with the role the registry declares where it declares one. */
 export type RegistryAgent = AgentEntry & { role?: AgentRole };
+
+/**
+ * The text of an agent's Agent cell on its Fleet row, and of its name in a By cell.
+ * A state-file run has no registry entry and reads as its id.
+ */
+export const agentLabel = (id: string, entry: RegistryAgent | null): string =>
+  entry?.branch || entry?.worktree || id;
 
 export interface DeliveryMapInput {
   rows: readonly AgentRow[];
@@ -108,6 +116,8 @@ export interface DeliveryMapping {
   runsById: Record<string, RoleRun>;
   /** The connector's window, as `deliveryMapping` read it. */
   rateLimit: RateLimitReading;
+  /** The `People` spellings of the reader's config; absent where none is declared. */
+  directory?: PersonDirectory;
   /** The run bounds, as `deliveryMapping` read them; absent where the payload carried none. */
   bounds: AgentBounds | undefined;
   /** The checks page of a PR; `''` where none is known. */
@@ -179,6 +189,9 @@ export const reviewOf = (pr: NonNullable<AgentRow['pr']>): PrFacts['review'] => 
 const hasOpenPr = (row: AgentRow): boolean =>
   row.pr !== null && row.state !== 'merged' && row.pr.state !== 'closed' && row.pr.open !== false;
 
+const isClosedPr = (rows: readonly AgentRow[]): boolean =>
+  rows.every((r) => r.pr !== null && r.state !== 'merged' && (r.pr.state === 'closed' || r.pr.open === false));
+
 const ownershipOfRows = (rows: readonly AgentRow[], reader: Reader): Ownership => {
   const readings = rows.map((row) => ownership(ownedFromRow(row), reader));
   if (readings.includes('mine')) return 'mine';
@@ -205,6 +218,11 @@ const looseOf = (rows: readonly AgentRow[], manifests: ReadonlySet<string>): Wor
   if (holds) loose.held = true;
   else if (rows.every((r) => r.desk === false)) loose.held = false;
   if (first.pr === null) return loose;
+  // No fixer runs on a closed PR, so the server reads none; the PR's state is the answer.
+  if (isClosedPr(rows)) {
+    loose.closed = true;
+    return loose;
+  }
   const fixing = rows.find((r) => r.fixerInFlight !== undefined)?.fixerInFlight;
   if (fixing === undefined) return undefined;
   loose.fixing = fixing;
@@ -383,6 +401,7 @@ const mapReadings = (input: DeliveryMapInput): DeliveryMapping => {
       // required, so the cast is the one place the mapper cannot say so.
       ...input.config,
     } as DeliveryInput,
+    ...(input.reader.directory === undefined ? {} : { directory: input.reader.directory }),
     rowsByItem,
     draftsByItem,
     agentsById,

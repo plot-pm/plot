@@ -1,5 +1,6 @@
 import type { FixerAttemptsRecord } from '../entities/fixer-attempts.js';
 import type { AgentRole } from './delivery-placement.js';
+import { fixerAttemptsSpent } from './fixer-attempts.js';
 import { reviewRunLive, type ReviewRunEntry } from './review-run.js';
 
 /** The roles whose agent the board reads from a state file rather than from the registry. */
@@ -18,6 +19,11 @@ export interface RoleRun {
   startedAt: number | null;
   /** Present on a design or verify run that stopped or failed: what the state file recorded about it. */
   stopped?: StoppedRun;
+  /**
+   * Present on a fixer run: the attempts spent on the kind of finding the run answers,
+   * the run's own start included, from 1. Absent on every other run and where no attempt counts.
+   */
+  attempt?: number;
 }
 
 /** What a pass recorded about a run that stopped or failed. */
@@ -73,7 +79,7 @@ const parseTime = (iso: string): number | null => {
  * only where an attempt carries an `inFlight` mark; the attempt record alone is
  * not a run, and an unreadable record shows no agent. A design or verify run
  * carries no start time. A design or verify run that a pass recorded as stopped
- * or failed, and that is not running again, is a run with a `stopped` fact. The approver has no source and never appears.
+ * or failed, and that is not running again, is a run with a `stopped` fact. A fixer run carries `attempt`, counted by `fixerAttemptsSpent` on the kind of finding the in-flight attempt answers. The approver has no source and never appears.
  *
  * @param readings - what each state file said.
  * @returns one run per live source entry, in the order reviewer, fixer, design, verify.
@@ -86,10 +92,17 @@ export const roleRuns = (readings: RoleReadings): RoleRun[] => {
   }
   for (const { pr, record } of readings.fixers ?? []) {
     if (record === 'none' || record === 'unreadable') continue;
-    const marks = record.attempts.flatMap((attempt) => (attempt.inFlight === undefined ? [] : [attempt.inFlight]));
-    const mark = marks[marks.length - 1];
-    if (mark === undefined) continue;
-    runs.push({ id: `agent:fixer:${pr}`, role: 'fixer', pr, startedAt: parseTime(mark.startedAt) });
+    const flying = record.attempts.filter((attempt) => attempt.inFlight !== undefined);
+    const current = flying[flying.length - 1];
+    if (current?.inFlight === undefined) continue;
+    const spent = fixerAttemptsSpent(record, current.finding.kind);
+    runs.push({
+      id: `agent:fixer:${pr}`,
+      role: 'fixer',
+      pr,
+      startedAt: parseTime(current.inFlight.startedAt),
+      ...(spent > 0 ? { attempt: spent } : {}),
+    });
   }
   for (const plan of readings.design?.running ?? []) {
     runs.push({ id: `agent:design:${plan}`, role: 'design', plan, startedAt: null });

@@ -1020,11 +1020,13 @@ export function SliceRow({
   planIndex,
   by,
   gates,
+  gatesReplaceStatus,
   details,
 }: {
   /** The BY cell: who acts on the item. */
   by?: ReactNode;
   gates?: ReactNode;
+  gatesReplaceStatus?: boolean;
   /** The details popover's lines. */
   details?: readonly string[];
   group: SliceGroup;
@@ -1195,6 +1197,7 @@ export function SliceRow({
     <TupleRowView
       by={by}
       gates={gates}
+      gatesReplaceStatus={gatesReplaceStatus}
       details={details}
       tuple={tupleFromSlice({
         name: group.wave,
@@ -1754,11 +1757,13 @@ export function Row({
   planIndex,
   by,
   gates,
+  gatesReplaceStatus,
   details,
 }: {
   /** The BY cell: who acts on the item. */
   by?: ReactNode;
   gates?: ReactNode;
+  gatesReplaceStatus?: boolean;
   /** The details popover's lines. */
   details?: readonly string[];
   row: AgentRow;
@@ -2038,6 +2043,7 @@ export function Row({
     <TupleRowView
       by={by}
       gates={gates}
+      gatesReplaceStatus={gatesReplaceStatus}
       details={details}
       tuple={tuple}
       onOpenPlan={onOpenPlan}
