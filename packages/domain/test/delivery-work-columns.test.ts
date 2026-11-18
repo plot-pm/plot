@@ -136,6 +136,16 @@ describe('the Waits on cell', () => {
     expect(waits({ phase: 'draft', person: 'eins78', personName: 'Max Albrecht' })?.value).toBe('Draft · Max Albrecht');
     expect(waits({ phase: 'design', person: 'eins78', personName: 'Max Albrecht' })?.value).toBe('Design · Max Albrecht');
   });
+  it('names the phase alone where no person is read, and the handle where no display name is declared', () => {
+    expect(waits({ phase: 'draft' })).toMatchObject({ value: 'Draft', links: [] });
+    expect(waits({ phase: 'draft', person: '' })?.value).toBe('Draft');
+    expect(waits({ phase: 'draft', person: 'eins78' })).toMatchObject({ value: 'Draft · eins78', links: [{ to: 'person', handle: 'eins78' }] });
+    expect(waits({ phase: 'draft', personName: 'Max Albrecht' })).toMatchObject({ value: 'Draft · Max Albrecht', links: [] });
+  });
+  it('names the spike and release approvals', () => {
+    expect(waits({ approvalOwed: 'spike' })?.value).toBe('spike approval');
+    expect(waits({ approvalOwed: 'release' })?.value).toBe('release approval');
+  });
   it('names an owed approval with the person', () => {
     const cell = waits({ approvalOwed: 'plan', person: 'eins78', personName: 'Max Albrecht' });
     expect(cell).toMatchObject({ value: 'plan approval · Max Albrecht', links: [{ to: 'person', handle: 'eins78' }] });

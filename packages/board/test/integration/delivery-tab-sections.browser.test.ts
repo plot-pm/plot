@@ -106,12 +106,11 @@ describe('the Delivery tab renders the five sections', () => {
     try {
       await page.locator('[data-delivery-section="work-items"]').waitFor({ timeout: 15_000 });
       const cell = (group: string) => page.locator(`[data-section="work-items"] [data-group="${group}"] [data-row-cell="status"]`);
-      const built = await cell('being-built').allInnerTexts();
-      const queued = await cell('queued').allInnerTexts();
-      const progress = built.filter((t) => /^(no PR yet|PR open)( · \d+ unpushed)?$/.test(t.trim()));
-      const waits = queued.filter((t) => /^(no agent assigned|an earlier slice|.+)$/.test(t.trim()) && t.trim() !== '');
-      expect(progress.length + waits.length, `cells ${JSON.stringify({ built, queued })}`).toBeGreaterThan(0);
-      for (const t of built.filter((x) => x.trim() !== '')) expect(t.trim()).toMatch(/^(no PR yet|PR open)( · \d+ unpushed)?$/);
+      const built = (await cell('being-built').allInnerTexts()).map((t) => t.trim()).filter((t) => t !== '');
+      const queued = (await cell('queued').allInnerTexts()).map((t) => t.trim()).filter((t) => t !== '');
+      expect(built.length + queued.length, `cells ${JSON.stringify({ built, queued })}`).toBeGreaterThan(0);
+      for (const t of built) expect(t).toMatch(/^(no PR yet|PR open)( · \d+ unpushed)?$/);
+      for (const t of queued) expect(t).not.toMatch(/^waits on /);
     } finally {
       await page.close();
     }
