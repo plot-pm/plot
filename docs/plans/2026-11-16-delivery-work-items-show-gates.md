@@ -91,7 +91,7 @@ Per slice, in slice order.
 
 ### Progress and waits
 
-- `feature/delivery-work-items-progress` <!-- waits: feature/delivery-work-items-gate-cells --> — the Progress cell (PR state, unpushed count) and the Waits on cell (no agent, earlier slice, another person's phase or approval) <!-- builds: Work items progress and waits-on cells -->
+- `feature/delivery-work-items-progress` <!-- waits: feature/delivery-work-items-gate-cells --> — the Progress cell (PR state, unpushed count) and the Waits on cell (no agent, earlier slice, another person's phase or approval) <!-- builds: Work items progress and waits-on cells --> → #3517
 
 ### Agent chips
 
