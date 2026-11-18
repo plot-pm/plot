@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { placeDelivery, type ItemPlacement, type WorkItemReading } from '../src/rules/delivery-placement.js';
-import { ROW_COLUMNS, type ItemRowFacts } from '../src/rules/delivery-row-form.js';
+import { ROW_COLUMNS, itemRowCells, type ItemRowFacts } from '../src/rules/delivery-row-form.js';
 import {
   WORK_GROUP_COLUMN,
   WORK_ITEM_COLUMNS,
@@ -11,6 +11,56 @@ import {
 
 const slice = (group: 'at-a-gate' | 'being-built' | 'queued'): ItemPlacement =>
   ({ id: `slice:${group}`, kind: 'slice', section: 'work-items', group, reason: null, agents: [] });
+
+describe('the Gates cell', () => {
+  const gates = (prReading: ItemRowFacts['prReading'], facts: Partial<ItemRowFacts> = { pr: 4 }) =>
+    workItemCells(slice('at-a-gate'), { plan: 'p', branch: 'feature/x', prReading, ...facts })!.cells.group;
+
+  it('shows both gates at once, each linked to its own page', () => {
+    const cell = gates({ ci: 'passed', review: 'high' });
+    expect(cell?.value).toBe('CI ✓ · review ✗');
+    expect(cell?.parts).toEqual([
+      { value: 'CI ✓', link: { to: 'checks', pr: 4 } },
+      { value: 'review ✗', link: { to: 'review', pr: 4 } },
+    ]);
+  });
+
+  it('marks CI failed beside a review nobody asked, and links only the CI mark', () => {
+    const cell = gates({ ci: 'failed', review: 'none' });
+    expect(cell?.value).toBe('CI ✗ · review –');
+    expect(cell?.parts).toEqual([
+      { value: 'CI ✗', link: { to: 'checks', pr: 4 } },
+      { value: 'review –', link: null },
+    ]);
+    expect(cell?.links).toEqual([{ to: 'checks', pr: 4 }]);
+  });
+
+  it.each([
+    ['pending', 'review ⟳'],
+    ['high', 'review ✗'],
+    ['passed', 'review ✓'],
+  ] as const)('reads review %s as %s linked to the PR', (review, mark) => {
+    expect(gates({ ci: 'unread', review })?.parts).toEqual([{ value: mark, link: { to: 'review', pr: 4 } }]);
+  });
+
+  it('renders no review mark for an unread review and no CI mark for an unread CI', () => {
+    expect(gates({ ci: 'running', review: 'unread' })?.parts).toEqual([{ value: 'CI ⟳', link: { to: 'checks', pr: 4 } }]);
+    expect(gates({ ci: 'unread', review: 'unread' })).toBeNull();
+  });
+
+  it('renders no cell where no gate reading exists', () => {
+    expect(gates(undefined)).toBeNull();
+  });
+
+  it('links nothing where the PR number is unknown', () => {
+    expect(gates({ ci: 'passed', review: 'passed' }, {})?.links).toEqual([]);
+  });
+
+  it('keeps the single status string for the You rows', () => {
+    const you: ItemPlacement = { id: 's', kind: 'slice', section: 'you', group: 'blocks-delivery', marker: 'blocks-delivery', reason: 'review-pr', agents: [] };
+    expect(itemRowCells(you, { pr: 4, prReading: { ci: 'passed', review: 'high' } })!.status?.value).toBe('review · CI ✓');
+  });
+});
 
 describe('the Work items columns', () => {
   it('name one column per group and none of them is status', () => {

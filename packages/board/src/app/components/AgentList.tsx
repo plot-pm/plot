@@ -61,7 +61,7 @@ import { AutoDispatchSwitch, AutoSwitch, ParallelAgentsStepper, WorkingCounts, F
 import { FleetAgentHeader, FleetAgentRow } from './FleetAgentRow.js';
 import { RowCell, scrollToAnchor, type LinkHandlers } from './DeliveryRows.js';
 import { detailLines } from '../lib/agent-rows/delivery-link-targets.js';
-import { headerOf, rowFormsOf, switchesOf } from '../lib/agent-rows/delivery-row-facts.js';
+import { headerOf, itemRowFactsOf, rowFormsOf, switchesOf } from '../lib/agent-rows/delivery-row-facts.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { ReleaseClaimButton } from './ReleaseClaimButton.js';
 import { LooseDeleteButton } from './LooseDeleteButton.js';
@@ -119,7 +119,7 @@ import {
   writeMineOnly,
   writeMineStrict,
 } from '../lib/agent-rows/mine-filter.js';
-import { freeLine, mineMode, placeDelivery, planIndexOf, YOU_GROUP_MARKERS, type YouGroup, type YouMarker } from '@plot-pm/domain';
+import { freeLine, mineMode, placeDelivery, planIndexOf, workItemCells, YOU_GROUP_MARKERS, type YouGroup, type YouMarker } from '@plot-pm/domain';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
 import { ActivityMark } from '../lib/agent-rows/marks.js';
 import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
@@ -1130,11 +1130,20 @@ export function AgentList({
         // THE SEVEN COLUMNS' BY CELL AND THE HELD-GROUP HEADERS — domain properties, rendered here.
         const forms = rowFormsOf(mapping, placement, Date.now());
         const switches = switchesOf(fleet);
+        // THE LOOKUP READS THE PAYLOAD AND BUILDS NO ADDRESS: an empty `url` stays empty and the mark renders as text.
+        const cardPrOf = (pr: number) => {
+          for (const card of cards ?? []) {
+            const found = card.prs.find((p) => p.number === pr);
+            if (found !== undefined) return found;
+          }
+          return undefined;
+        };
         const linkHandlers: LinkHandlers = {
           context: {
             plan: '',
             branchUrlBase: fleet.branchUrlBase ?? '',
-            prUrl: () => null,
+            prUrl: (pr) => cardPrOf(pr)?.url ?? null,
+            checksUrl: (pr) => cardPrOf(pr)?.checksUrl ?? null,
             planFileOf: (p) => planFileOf(p),
             branchOfAgent: (id) => mapping.agentsById[id]?.branch ?? '',
           },
@@ -1145,6 +1154,14 @@ export function AgentList({
         const byCell = (cells: { by: Parameters<typeof RowCell>[0]['cell'] } | undefined) =>
           cells?.by ? <RowCell cell={cells.by} handlers={linkHandlers} /> : undefined;
         const byItem = (item: PlacedItemView) => byCell(forms.items.get(item.placement?.id ?? ''));
+        // THE GATES CELL IS A DOMAIN PROPERTY: `workItemCells` decides the marks and their links; this renders them.
+        const gatesItem = (item: PlacedItemView) => {
+          const placed = item.placement;
+          if (placed === null || placed === undefined) return undefined;
+          const cell = workItemCells(placed, itemRowFactsOf(mapping, placed.id))?.cells.group;
+          return placed.section === 'work-items' && placed.group === 'at-a-gate' && cell?.parts !== undefined
+            ? <RowCell cell={cell} handlers={linkHandlers} /> : undefined;
+        };
         const slices = fleet.slices;
         const issues = fleet.issueAnswer === 'answered' ? filteredIssues : [];
         const ticketSplit = splitTicketRows(issues, placement.tickets, placement.unplaced);
@@ -1210,7 +1227,7 @@ export function AgentList({
         ];
         const itemBody = (item: PlacedItemView, inPlan = false) => [
           anchorOf(item),
-          ...item.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={inPlan} by={byItem(item)} />),
+          ...item.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={inPlan} by={byItem(item)} gates={gatesItem(item)} />),
           ...(item.ticket !== null
             ? [(
                 <IssueRowView
@@ -1269,6 +1286,7 @@ export function AgentList({
                   onExpandSection={expandSection}
                   planIndex={planIndex}
                   by={byItem(s.item)}
+                  gates={gatesItem(s.item)}
                 />
                 {many && sliceOpen && (
                   <ul
@@ -1281,7 +1299,7 @@ export function AgentList({
                 )}
               </li>
             ),
-            ...s.loose.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={block.headed} by={byItem(s.item)} />),
+            ...s.loose.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={block.headed} by={byItem(s.item)} gates={gatesItem(s.item)} />),
             ...itemTail(s.item),
           ];
         };

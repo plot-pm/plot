@@ -1,5 +1,6 @@
 import {
   ageValue,
+  gatesCell,
   itemRowCells,
   type Cell,
   type ItemRowFacts,
@@ -24,9 +25,9 @@ export const WORK_GROUP_COLUMN: Record<WorkItemGroup, { name: string; holds: Gro
 };
 
 /**
- * The cells of a Work items row. The group column carries what the shared
- * `status` column carries for the row until the gate and progress slices
- * replace it; `ROW_COLUMNS` and the other sections keep `status`.
+ * The cells of a Work items row. The At a gate column holds one mark per gate;
+ * the other groups carry what the shared `status` column carries until the
+ * progress slice replaces it; `ROW_COLUMNS` and the other sections keep `status`.
  *
  * @param placement - what `placeDelivery` returned for the item.
  * @param facts - the names and numbers the links point at.
@@ -39,10 +40,11 @@ export const workItemCells = (
   if (placement.section !== 'work-items') return null;
   const row = itemRowCells(placement, facts);
   if (row === null) return null;
+  const gates = placement.group === 'at-a-gate' ? gatesCell(facts.prReading, facts.pr) : null;
   return {
     group: placement.group,
     column: WORK_GROUP_COLUMN[placement.group].name,
-    cells: { kind: row.kind, item: row.item, where: row.where, group: row.status, by: row.by, age: row.age },
+    cells: { kind: row.kind, item: row.item, where: row.where, group: gates ?? row.status, by: row.by, age: row.age },
   };
 };
 

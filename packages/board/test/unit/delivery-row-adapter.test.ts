@@ -34,11 +34,18 @@ const ctx: LinkContext = {
   plan: 'p',
   branchUrlBase: 'https://host/o/r/tree/',
   prUrl: (n) => (n === 7 ? 'https://host/o/r/pull/7' : null),
+  checksUrl: (n) => (n === 7 ? 'https://host/o/r/pull/7/checks' : n === 9 ? '' : null),
   planFileOf: (p) => (p === 'p' ? 'docs/plans/p.md' : ''),
   branchOfAgent: (id) => (id === 'a1' ? 'feature/a' : ''),
 };
 
 describe('resolveLink', () => {
+  it('sends a checks target to the checks URL, and to none where the host gave none', () => {
+    expect(resolveLink({ to: 'checks', pr: 7 }, ctx)).toEqual({ kind: 'href', href: 'https://host/o/r/pull/7/checks' });
+    expect(resolveLink({ to: 'checks', pr: 9 }, ctx)).toEqual({ kind: 'none' });
+    expect(resolveLink({ to: 'checks', pr: 8 }, ctx)).toEqual({ kind: 'none' });
+  });
+
   it('sends a slice to its row on the page', () => {
     expect(resolveLink({ to: 'slice', id: 'A' } as LinkTarget, ctx))
       .toEqual({ kind: 'anchor', id: itemAnchor(sliceItemId('p', 'A')) });

@@ -63,6 +63,20 @@ const Linked = ({ resolved, handlers, children }: { resolved: ResolvedLink; hand
  */
 export const RowCell = ({ cell, handlers }: { cell: Cell | null; handlers: LinkHandlers }) => {
   if (cell === null) return null;
+  if (cell.parts !== undefined) {
+    return (
+      <>
+        {cell.parts.map((part, i) => (
+          <span key={part.value}>
+            {i > 0 && ' · '}
+            {part.link === null ? part.value : (
+              <Linked resolved={resolveLink(part.link, handlers.context)} handlers={handlers}>{part.value}</Linked>
+            )}
+          </span>
+        ))}
+      </>
+    );
+  }
   const [first, ...rest] = cell.links;
   return (
     <>

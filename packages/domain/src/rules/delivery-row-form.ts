@@ -25,6 +25,7 @@ export type LinkTarget =
   | { to: 'ci-run'; run: string }
   | { to: 'url'; url: string }
   | { to: 'review'; pr: number }
+  | { to: 'checks'; pr: number }
   | { to: 'slice'; id: string }
   | { to: 'item'; id: string }
   | { to: 'agent'; id: string }
@@ -37,6 +38,14 @@ export type LinkTarget =
 export interface Cell {
   value: string;
   links: LinkTarget[];
+  /** Marks that each carry their own link, joined by ` · ` into `value`. Absent where the cell has one value. */
+  parts?: CellPart[];
+}
+
+/** One mark of a cell, with the single place it links to; `null` where it links nowhere. */
+export interface CellPart {
+  value: string;
+  link: LinkTarget | null;
 }
 
 /** One row in the seven columns. DO is `null` outside the You section. */
@@ -118,7 +127,7 @@ export interface AgentRowFacts {
   rateLimit?: 'exhausted' | 'free' | 'unknown';
 }
 
-const GATE_MARK = { running: '⟳', failed: '✗', passed: '✓' } as const;
+export const GATE_MARK = { running: '⟳', failed: '✗', passed: '✓' } as const;
 
 /**
  * Minutes as the AGE column shows them: `5m`, `3h`, `2d`.
@@ -171,6 +180,56 @@ const gateValue = (pr: PrReading | undefined, ciRun: string | undefined): string
   if (pr.review === 'high') return 'review ✗';
   if (pr.review === 'passed') return 'review ✓';
   return null;
+};
+
+/** The two gate marks of a PR: `CI ✗` and `review –`. A gate nobody read is `null`; a review nobody asked reads `–`. */
+export interface GateMarks {
+  ci: string | null;
+  review: string | null;
+}
+
+/**
+ * The CI mark and the review mark of a PR, each on its own.
+ *
+ * @param pr - the PR's gate readings.
+ * @returns one mark per gate; `unread` yields `null`, and `review: 'none'` yields `–`.
+ */
+export const gateMarks = (pr: PrReading): GateMarks => {
+  const review = ((): string | null => {
+    switch (pr.review) {
+      case 'pending': return `review ${GATE_MARK.running}`;
+      case 'high': return `review ${GATE_MARK.failed}`;
+      case 'passed': return `review ${GATE_MARK.passed}`;
+      case 'none': return 'review –';
+      case 'unread': return null;
+    }
+  })();
+  return { ci: pr.ci === 'unread' ? null : `CI ${GATE_MARK[pr.ci]}`, review };
+};
+
+/**
+ * The Gates cell of a work item at a gate: one mark per gate, each linked to its own page.
+ *
+ * @param pr - the PR's gate readings, or `undefined` where none was read.
+ * @param number - the PR number the links point at, or `undefined` where unknown.
+ * @returns the cell, or `null` where neither gate was read.
+ */
+export const gatesCell = (pr: PrReading | undefined, number: number | undefined): Cell | null => {
+  if (pr === undefined) return null;
+  const marks = gateMarks(pr);
+  const parts: CellPart[] = [
+    ...(marks.ci === null ? [] : [{ value: marks.ci, link: number === undefined ? null : { to: 'checks', pr: number } as const }]),
+    ...(marks.review === null ? [] : [{
+      value: marks.review,
+      link: number === undefined || pr.review === 'none' ? null : { to: 'review', pr: number } as const,
+    }]),
+  ];
+  if (parts.length === 0) return null;
+  return {
+    value: parts.map((p) => p.value).join(' · '),
+    links: parts.flatMap((p) => (p.link === null ? [] : [p.link])),
+    parts,
+  };
 };
 
 /**
