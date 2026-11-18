@@ -4561,6 +4561,12 @@ export const FleetShape = z.object({
   slices: z.array(SliceSchema).default([]),
   summary: FleetReadingSchema.shape.summary,
   /**
+   * The Fleet header's figure: today's finished-run output tokens, with the
+   * other three counters in `title`. `text` is `—` where the spend record could
+   * not be read: absent is not zero. Built by `fleetTokensFigure`.
+   */
+  tokensToday: z.object({ text: z.string(), title: z.string() }).strict().default({ text: '—', title: '' }),
+  /**
    * How many branches cannot move, and in which of the four ways.
    *
    * A machine-countable tally beside the rows, the way every scan in this repo

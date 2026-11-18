@@ -100,11 +100,11 @@ import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dir
 import { readReviewRuns } from '@plot-pm/domain/adapters/review-start/review-start-node';
 import { listFixerAttempts } from '@plot-pm/domain/adapters/fixer-attempts/fixer-attempts-file';
 import { roleRuns, type PlanRunsRead, type RoleRun } from '@plot-pm/domain/rules/agent-roles';
-import { lastRunTokens } from '@plot-pm/domain/rules/agent-run-tokens';
+import { fleetTokensFigure, lastRunTokens, tokensOnDay } from '@plot-pm/domain/rules/agent-run-tokens';
 import type { AgentRole } from '@plot-pm/domain/rules/delivery-placement';
 import { FIXER_BOUND_SECONDS } from '@plot-pm/domain/rules/fixer-attempts';
 import { REVIEW_BOUND_MS } from '@plot-pm/fleet/shared/auto-review';
-import { lastRunsFor, workerBoundFor } from './agent-readings.js';
+import { localDayBounds, localDayLabel, spendFor, workerBoundFor } from './agent-readings.js';
 import { fixerAttemptsFile } from '@plot-pm/domain/adapters/fixer-attempts/fixer-attempts-file';
 import { fixerInFlight } from '@plot-pm/domain/rules/fixer-attempts';
 import type { PortResult } from '@plot-pm/domain';
@@ -8677,7 +8677,10 @@ export async function buildFleet(
   const boundSeconds = anyFreeWaitEnded(entry.agents) ? workerBound : null;
   // THE SPEND RECORD, PARSED AT MOST ONCE PER BUILD and only when its stat
   // changed: the last finished run of every branch, asked per agent below.
-  const lastRuns = await lastRunsFor(opts);
+  const spend = await spendFor(opts);
+  const lastRuns = spend === null ? null : spend.index;
+  // TODAY'S FINISHED-RUN FIGURE from the same parse: no second read of the record.
+  const tokensToday = fleetTokensFigure(spend === null ? null : tokensOnDay(spend.runs, localDayBounds(now)), localDayLabel(now));
   return {
     generatedAt: new Date().toISOString(),
     ageSeconds,
@@ -8721,6 +8724,7 @@ export async function buildFleet(
     // 2026-08-22.
     slices: entry.pulse ? deriveSlices(entry.pulse) : [],
     summary: entry.pulse?.summary ?? EMPTY_SUMMARY,
+    tokensToday,
     // COUNTED FROM THE ROWS, never tallied beside the decision that made them.
     // A counter incremented in parallel with a classification is a second
     // implementation of it, and the two drift the first time a state is added.
