@@ -118,3 +118,44 @@ describe('youHeader phase strip', () => {
     expect(youHeader(base({ plans: [], tickets: [] })).strip.map((e) => e.anchor)).toEqual([null, null, null]);
   });
 });
+
+describe('youHeader phase holders', () => {
+  const mapOf = (text: string): PhaseMap => {
+    const parsed = parsePhaseMap(text);
+    if (!parsed.ok) throw new Error('map refused');
+    return parsed.map;
+  };
+
+  it('finds the design phase by plan:design alone and by plan:draft alone', () => {
+    const designOnly = youHeader(base({ map: mapOf('Found = story:*; Shape = plan:design; Build = plan:approved') }));
+    expect(designOnly.strip[1]!.name).toBe('Shape');
+    const draftOnly = youHeader(base({ map: mapOf('Found = story:*; Shape = plan:draft; Build = plan:approved') }));
+    expect(draftOnly.strip[1]!.name).toBe('Shape');
+  });
+
+  it('counts every unplanned live story where the map names no story phase', () => {
+    const noStory = mapOf('Shape = plan:draft, plan:design; Build = plan:approved');
+    const { strip } = youHeader(base({ map: noStory, stories: [{ status: 'anything', plans: 0, ownership: 'mine' }] }));
+    expect(strip[0]).toMatchObject({ name: null, count: 3 });
+    expect(strip[0]!.text).toBe('3');
+  });
+
+  it('shows a bare dash for a story slot with no name and no ticket answer', () => {
+    const noStory = mapOf('Shape = plan:draft, plan:design; Build = plan:approved');
+    const { strip } = youHeader(base({ map: noStory, ticketAnswer: null }));
+    expect(strip[0]).toMatchObject({ name: null, count: null, text: '—' });
+  });
+
+  it('links a plan phase to the first item that has an anchor', () => {
+    const plans = [
+      { phase: 'Design', ownership: 'mine' as const, anchor: null },
+      { phase: 'Design', ownership: 'mine' as const, anchor: 'delivery-item-plan:c' },
+    ];
+    expect(youHeader(base({ plans })).strip[1]!.anchor).toBe('delivery-item-plan:c');
+  });
+
+  it('ignores a group key the header does not word', () => {
+    const { counts } = youHeader(base({ groups: [{ key: 'elsewhere', count: 4 }] }));
+    expect(counts.map((c) => c.key)).toEqual(['tickets']);
+  });
+});
