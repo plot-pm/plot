@@ -17,6 +17,7 @@
 - **Started:** 2026-11-17, Jan Wloka, `feature/sprint-owner-field`
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-fleet-card`
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-slice-states`
+- **Started:** 2026-11-18, Jan Wloka, `feature/delivery-sprint-card`
 
 ## Changelog
 
