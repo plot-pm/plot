@@ -283,7 +283,7 @@ test('a linked worktree reads the main checkout\'s store', () => {
     const storeHome = path.join(path.resolve(desk, commonDir), '.plot', 'state', 'index');
     fs.mkdirSync(storeHome, { recursive: true });
     fs.writeFileSync(path.join(storeHome, 'github.json'), JSON.stringify({
-      v: 7, connector: 'github', watermark: null, complete: true,
+      v: 8, connector: 'github', watermark: null, complete: true,
       at: new Date().toISOString(), rows: [row(40, 'idea/solo'), row(50, 'feature/landed')],
     }));
 
