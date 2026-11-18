@@ -451,7 +451,7 @@ describe('the You column set', () => {
     const { youRowCells } = await import('../src/rules/delivery-row-form.js');
     const review = youRowCells(you('review-pr', 'unblock', [], 'slice'), facts)!;
     expect(review.status?.value).toContain('review');
-    const gated = youRowCells(you('review-pr', 'unblock', [], 'slice'), { ...facts, prReading: { ci: 'green', review: 'approved' } } as ItemRowFacts)!;
+    const gated = youRowCells(you('review-pr', 'unblock', [], 'slice'), { ...facts, prReading: { ci: 'passed', review: 'passed' } } as ItemRowFacts)!;
     expect(gated.status?.value).toContain('review');
   });
   it('is null for a You item with no row shape', async () => {
