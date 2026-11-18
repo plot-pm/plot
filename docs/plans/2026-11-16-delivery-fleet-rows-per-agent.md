@@ -122,7 +122,7 @@ Per slice, in slice order.
 
 ### Time and tokens
 
-- `feature/delivery-fleet-time-tokens` <!-- waits: feature/delivery-fleet-agent-rows --> — the time-left rule over a passed-in bound and start time, its bar, the cached `Worker bound` read, and the Tokens cell from the spend record parsed once per changed stat <!-- builds: agent time left and output tokens -->
+- `feature/delivery-fleet-time-tokens` <!-- waits: feature/delivery-fleet-agent-rows --> — the time-left rule over a passed-in bound and start time, its bar, the cached `Worker bound` read, and the Tokens cell from the spend record parsed once per changed stat <!-- builds: agent time left and output tokens --> → #3516
 
 ### Header switches
 
