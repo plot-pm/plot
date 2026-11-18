@@ -96,7 +96,7 @@ export const todoList = (input: TodoListInput): TodoList => {
     const [bm, br] = rank(b.p);
     if (am !== bm) return am - bm;
     if (ar !== br) return ar - br;
-    return a.p.id < b.p.id ? -1 : a.p.id > b.p.id ? 1 : 0;
+    return a.p.id < b.p.id ? -1 : 1;
   });
   const lines: TodoLine[] = you.map(({ item, p }) => ({
     id: p.id,
