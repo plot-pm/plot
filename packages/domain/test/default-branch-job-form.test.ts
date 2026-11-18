@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildActions } from '../src/adapters/build/build-actions.js';
+import { buildFor } from '../src/adapters/build/build-resolve.js';
+import { hostFixture } from '../src/adapters/host/host-fixture.js';
+import { apiForReads, recordHostReads } from '../src/adapters/host/process-host-reads.js';
 import type { GithubApi, GithubAnswer, GithubRequest } from '../src/adapters/host/github-api.js';
 import type { WorkflowShaRun } from '../src/entities/build.js';
 import type { ShellContext } from '../src/adapters/scripts.js';
@@ -101,5 +104,28 @@ describe('buildActions.runsForSha — job entries', () => {
     const connector = buildActions(CONTEXT, api);
     expect(await connector.runsForSha('main', 'abc', ['CI/validate'])).toMatchObject({ ok: false, why: 'unaskable' });
     expect(connector.lastRefusal()).toBe('HTTP 502');
+  });
+});
+
+describe('the repair read of a red commit under the job form', () => {
+  const red = {
+    ok: true,
+    reply: {
+      status: 200,
+      headers: {},
+      body: {
+        jobs: [
+          { name: 'validate', status: 'completed', conclusion: 'failure', html_url: 'j', started_at: '2026-11-17T10:00:10Z', completed_at: '2026-11-17T10:16:10Z' },
+        ],
+      },
+    },
+  } as GithubAnswer;
+
+  it('folds red through the connector a merge arm builds over the composed client', async () => {
+    const { api } = apiThat(red);
+    const root: ShellContext = { repoRoot: '/nonexistent/repair-job-form', scriptDir: '/nonexistent' };
+    recordHostReads(root.repoRoot, hostFixture({}), api);
+    const read = await buildFor('github-actions', root, apiForReads(root)).runsForSha('main', 'abc', ['CI/validate']);
+    expect(read.ok && foldRuns(declaredRuns(read.value, ['CI/validate']))).toBe('red');
   });
 });

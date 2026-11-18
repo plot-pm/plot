@@ -36,10 +36,10 @@ export const mergePortsFor = async (
   // on the shell transport (no credential, or `PLOT_HOST_TRANSPORT=shell`) it
   // is the shell host, and the merge refuses `human-comment-unread`.
   const backend = await estate.host.backend();
-  const host = (await hostReadsFor(
+  const { host, api } = await hostReadsFor(
     { repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir },
     { backend: backend.ok ? backend.value : null, ci: await readConfigAsync(opts, 'CI', '') },
-  )).host;
+  );
   const remote = refsRemoteGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
   const trees = treesGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
   const refs = { ...estate.refs, remoteSha: remote.remoteSha };
@@ -56,9 +56,11 @@ export const mergePortsFor = async (
     checksWaitMs: checksWaitMsOf(await readConfigAsync(opts, 'Checks wait', '3600')),
     now: Date.now,
     // The repair exception on a red default branch: the record, and the
-    // CI connector that asks the red commit's runs again.
+    // CI connector that asks the red commit's runs again. It reads through the
+    // composed client, which lists a `<workflow>/<job>` check's jobs; the
+    // script lists none, and the red commit would fold `unknown`.
     repair: repairRecordFile(opts.repoRoot),
-    build: await buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+    build: await buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }, api ?? undefined),
     checks: checkNamesOf(await readConfigAsync(opts, 'Default branch checks', '')),
     mergeChecks: checkNamesOf(await readConfigAsync(opts, 'Merge checks', '')),
     // No in-process fleetd caller reaches this entrance yet — `PLOT_UNATTENDED`
