@@ -38,7 +38,9 @@ export const realJen = () => {
  *
  * @param spec - `colours`: each branch's job colour in the multibranch listing;
  *   `builds`: each branch's builds as `{ number, result, sha }`, newest first. A
- *   branch with no entry has no builds route, so a read by commit fails.
+ *   branch with no entry has no builds route, so a read by commit reads an empty history;
+ *   `failing`: branches whose builds read answers HTTP 500, and so does the job's own
+ *   builds read, so a read by commit cannot ask at all.
  * @returns the routes, keyed by the request path the stub serves.
  */
 export const jenkinsRoutes = (spec) => {
@@ -68,6 +70,9 @@ export const jenkinsRoutes = (spec) => {
       },
     };
   }
+  const failing = spec.failing ?? [];
+  for (const branch of failing) routes[`/job/team/job/portal/job/${encode(branch)}/api/json`] = { body: {}, failIf: 'builds' };
+  if (failing.length > 0) routes['/job/team/job/portal/api/json'].failIf = 'builds%5B';
   return routes;
 };
 
@@ -82,6 +87,11 @@ export const startJenkins = async (routes) => {
     if (route === undefined) {
       res.writeHead(404, { 'Content-Type': 'text/html' });
       res.end('<html>not found</html>');
+      return;
+    }
+    if (route.failIf !== undefined && url.includes(route.failIf)) {
+      res.writeHead(500, { 'Content-Type': 'text/html' });
+      res.end('<html>boom</html>');
       return;
     }
     let text = JSON.stringify(route.body ?? {});

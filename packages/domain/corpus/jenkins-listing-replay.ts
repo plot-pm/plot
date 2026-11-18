@@ -12,7 +12,7 @@ import { slotsFile } from '../src/adapters/slots/slots-file.js';
 /** What a Jenkins listing fixture records besides the host's exchanges. */
 export interface JenkinsRecording {
   readonly instance: string;
-  readonly routes: Record<string, { readonly body?: { builds?: unknown[] } & Record<string, unknown> }>;
+  readonly routes: Record<string, { readonly body?: { builds?: unknown[] } & Record<string, unknown>; readonly failIf?: string }>;
   readonly calls: readonly { readonly argv: string[]; readonly stdout: string; readonly stderr: string; readonly code: number }[];
   readonly requests: readonly string[];
 }
@@ -35,6 +35,11 @@ export const serveJenkins = async (routes: JenkinsRecording['routes']): Promise<
     if (route === undefined) {
       res.writeHead(404, { 'Content-Type': 'text/html' });
       res.end('<html>not found</html>');
+      return;
+    }
+    if (route.failIf !== undefined && url.includes(route.failIf)) {
+      res.writeHead(500, { 'Content-Type': 'text/html' });
+      res.end('<html>boom</html>');
       return;
     }
     let text = JSON.stringify(route.body ?? {});
