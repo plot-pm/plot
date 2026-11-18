@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** bug-fixes-2-35-0
 - **Review:** pr
@@ -13,6 +13,7 @@
 - **Started:** 2026-11-17, Jan Wloka, `feature/the-settle-ignores-plot-commits`
 - **Started:** 2026-11-17, Jan Wloka, `feature/the-reading-settles-on-completion`
 - **Started:** 2026-11-18, Jan Wloka, `feature/a-red-main-names-its-pr`
+- **Delivered:** 2026-11-18
 
 ## Changelog
 
