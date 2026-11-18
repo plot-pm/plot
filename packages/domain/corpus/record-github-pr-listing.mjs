@@ -25,9 +25,12 @@ import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { INSTANCE, jenCallsIn, jenShim, jenkinsEnv, jenkinsRoutes, jenkinsScratch, realJen, startJenkins } from './jenkins-listing.mjs';
+
 const ROOT = new URL('../../..', import.meta.url).pathname.replace(/\/$/, '');
 const HOST = join(ROOT, 'skills/plot/scripts/plot-host.sh');
 const OUT = join(ROOT, 'packages/domain/corpus/fixtures/github-pr-listing');
+const OUT_JENKINS = join(ROOT, 'packages/domain/corpus/fixtures/github-pr-listing-jenkins');
 const OWNER = 'plot-fixture';
 const REPO = 'listing';
 
@@ -187,6 +190,52 @@ const CASES = {
   },
 };
 
+/**
+ * The cases that run the Jenkins arm (`CI: jenkins`). `jenkins.numbers` lists
+ * the pull requests whose branch the stub Jenkins knows, newest first, and
+ * `jenkins.refused` leaves every branch without builds, so a read by commit
+ * fails. They are written to `fixtures/github-pr-listing-jenkins/`.
+ */
+const JENKINS_CASES = {
+  'jenkins-open-rich': {
+    query: { state: 'open', limit: 50, rich: true },
+    args: ['--rich', '--state', 'open', '--limit', '50'],
+    nodes: range(60, 14, 'OPEN'),
+    jenkins: { numbers: Array.from({ length: 14 }, (_, i) => 60 - i) },
+  },
+  'jenkins-all-rich-open': {
+    query: { state: 'all', limit: 200, richOpen: true },
+    args: ['--rich-open', '--state', 'all', '--limit', '200'],
+    nodes: range(700, 140, mixed),
+    jenkins: { numbers: Array.from({ length: 40 }, (_, i) => 700 - i) },
+  },
+  'jenkins-open-rich-refused': {
+    query: { state: 'open', limit: 50, rich: true },
+    args: ['--rich', '--state', 'open', '--limit', '50'],
+    nodes: range(60, 14, 'OPEN'),
+    jenkins: { numbers: Array.from({ length: 14 }, (_, i) => 60 - i), refused: true },
+  },
+};
+
+/**
+ * One scenario's Jenkins answers: the first ten branches carry a colour, cycling
+ * through ones that settle a row (`yellow`, `notbuilt`) and ones that do not
+ * (`blue`, `red`), and the fourth blue branch has only a build of another commit.
+ */
+const jenkinsSpec = ({ numbers, refused = false }) => {
+  const palette = ['blue', 'red', 'yellow', 'blue', 'notbuilt', 'red', 'blue', 'blue', 'red', 'blue'];
+  const colours = {};
+  const builds = {};
+  numbers.filter((n) => n % 17 !== 0).slice(0, palette.length).forEach((n, i) => {
+    const branch = `feature/change-${n}`;
+    colours[branch] = palette[i];
+    if (refused || (palette[i] !== 'blue' && palette[i] !== 'red')) return;
+    const unmatched = i === 3;
+    builds[branch] = [{ number: i + 1, result: palette[i] === 'red' ? 'FAILURE' : 'SUCCESS', sha: unmatched ? sha(n, 'x') : sha(n) }];
+  });
+  return { colours, builds };
+};
+
 /** Keeps the fields the request's fragment names. */
 const project = (node, query) => {
   const fields = /statusCheckRollup/.test(query) ? RICH : PLAIN;
@@ -226,6 +275,7 @@ const answer = (nodes, body) => {
 /** Records one case. */
 const record = async (name, one, ghVersion) => {
   const dir = mkdtempSync(join(tmpdir().length > 60 ? '/tmp' : tmpdir(), 'ghr-'));
+  let jenkins = null;
   try {
     const sock = join(dir, 's');
     const exchanges = [];
@@ -261,10 +311,21 @@ const record = async (name, one, ghVersion) => {
     chmodSync(join(bin, 'gh'), 0o755);
     execFileSync('git', ['init', '-q'], { cwd: repo });
     execFileSync('git', ['remote', 'add', 'origin', `git@github.com:${OWNER}/${REPO}.git`], { cwd: repo });
+    let ciEnv = { PLOT_CI: 'github-actions' };
+    let jenkinsPath = '';
+    if (one.jenkins !== undefined) {
+      const { jen } = realJen();
+      const scratch = jenkinsScratch(dir);
+      const server = await startJenkins(jenkinsRoutes(jenkinsSpec(one.jenkins)));
+      jenShim(scratch.bin, scratch.calls, jen);
+      jenkins = { scratch, server };
+      ciEnv = jenkinsEnv(server.port, scratch.store);
+      jenkinsPath = `${scratch.bin}:`;
+    }
     const run = await new Promise((resolve) => {
       const child = spawn('bash', [HOST, 'pr-list', ...one.args], {
         cwd: repo,
-        env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, PLOT_HOST: 'github', PLOT_CI: 'github-actions', PLOT_BUDGET_OFF: '1', GH_TOKEN: 'fixture' },
+        env: { ...process.env, PATH: `${jenkinsPath}${bin}:${process.env.PATH}`, PLOT_HOST: 'github', PLOT_BUDGET_OFF: '1', GH_TOKEN: 'fixture', ...ciEnv },
       });
       let stderr = '';
       child.stderr.on('data', (d) => (stderr += d));
@@ -279,9 +340,23 @@ const record = async (name, one, ghVersion) => {
       stdout: readFileSync(join(calls, `${f}.out`), 'utf8'),
     }));
     const fixture = { gh: ghVersion, query: one.query, args: one.args, calls: recorded, exchanges };
-    writeFileSync(join(OUT, `${name}.json`), `${JSON.stringify(fixture)}\n`);
+    if (jenkins !== null) {
+      const spec = jenkinsSpec(one.jenkins);
+      fixture.jenkins = {
+        instance: INSTANCE,
+        routes: jenkinsRoutes(spec),
+        calls: jenCallsIn(jenkins.scratch.calls, jenkins.server.port),
+        requests: jenkins.server.seen.map((u) => u.replace(/^\/jenkins/, '')),
+      };
+      await jenkins.server.close();
+      jenkins = null;
+    }
+    const out = one.jenkins === undefined ? OUT : OUT_JENKINS;
+    mkdirSync(out, { recursive: true });
+    writeFileSync(join(out, `${name}.json`), `${JSON.stringify(fixture)}\n`);
     process.stdout.write(`${name}: ${recorded.length} gh call(s), ${exchanges.length} request(s)\n`);
   } finally {
+    if (jenkins !== null) await jenkins.server.close();
     rmSync(dir, { recursive: true, force: true });
   }
 };
@@ -290,9 +365,10 @@ const main = async () => {
   mkdirSync(OUT, { recursive: true });
   const ghVersion = execFileSync('gh', ['--version'], { encoding: 'utf8' }).split('\n')[0];
   const names = process.argv.slice(2);
-  for (const name of names.length === 0 ? Object.keys(CASES) : names) {
-    if (CASES[name] === undefined) throw new Error(`no case named ${name}`);
-    await record(name, CASES[name], ghVersion);
+  const all = { ...CASES, ...JENKINS_CASES };
+  for (const name of names.length === 0 ? Object.keys(all) : names) {
+    if (all[name] === undefined) throw new Error(`no case named ${name}`);
+    await record(name, all[name], ghVersion);
   }
 };
 
