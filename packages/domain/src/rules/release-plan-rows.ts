@@ -1,3 +1,4 @@
+import type { PrIndex } from '../entities/pr-index.js';
 import { SLICE_STATES, type SliceState, type SliceStateCounts } from './slice-states.js';
 
 /** What the PR index says about a merged slice: the PR that landed it, or a commit the plan names. */
@@ -9,6 +10,23 @@ export interface MergedFact {
   /** The commit a plan names for the slice. */
   readonly commit?: string;
 }
+
+/**
+ * The merge facts of a slice's branches from the PR index.
+ *
+ * @param branches - the slice's branch names.
+ * @param index - the PR index, or `null` where none was read.
+ * @returns the newest MERGED row's PR number and merge time among the branches. `undefined` where the index is missing or `complete: false`, or holds no MERGED row for any branch: the index supplies merged answers only and never says none.
+ */
+export const mergedFactOf = (branches: readonly string[], index: PrIndex | null): MergedFact | undefined => {
+  if (index === null || !index.complete) return undefined;
+  const rows = index.rows.filter((r) => r.state.toUpperCase() === 'MERGED' && !r.draft && branches.includes(r.head));
+  const newest = rows.reduce<(typeof rows)[number] | undefined>(
+    (best, r) => (best === undefined || (r.mergedAt ?? '') > (best.mergedAt ?? '') ? r : best),
+    undefined,
+  );
+  return newest === undefined ? undefined : { pr: newest.number, mergedAt: newest.mergedAt ?? '' };
+};
 
 /** One slice of a plan as the Release delivery section lists it. */
 export interface PlanSliceFact {

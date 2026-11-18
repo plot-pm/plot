@@ -1,6 +1,12 @@
 import {
+  headerCounts,
+  headerText,
+  planRowFacts,
+  releaseBlocks,
+  sliceStateIn,
+  type PlanRowFacts,
+  type PlanSliceFact,
   DELIVERY_LAYOUT,
-  countSliceStates,
   deliveryGroupAnchor,
   looseActions,
   oldestWaitsClause,
@@ -9,7 +15,6 @@ import {
   workGroupCountText,
   type WorkItemGroup,
   placeDelivery,
-  releaseTicketWording,
   type AgentPlacement,
   type DeliveryPlacement,
   type DeliverySection,
@@ -17,10 +22,10 @@ import {
   type LooseActions,
   type Unplaced,
 } from '@plot-pm/domain';
-import type { AgentRow, DraftPlan, IssueRow, Slice } from '../../../contract/schema.js';
-import { agentLabel, type DeliveryMapping, type RegistryAgent } from './delivery-readings.js';
+import type { AgentRow, DraftPlan, FleetSprint, IssueRow, Slice } from '../../../contract/schema.js';
+import { agentLabel, sliceItemId, type DeliveryMapping, type RegistryAgent } from './delivery-readings.js';
 import { itemRowFactsOf } from './delivery-row-facts.js';
-import { isUnbegun } from './row-identity.js';
+import { isStartable, isUnbegun } from './row-identity.js';
 import { groupBySlice, type SliceGroup } from './slices.js';
 import { rowInSlice } from './delivery-readings.js';
 import { headSliceNames, showsSliceFold, slicesElsewhere } from './sections.js';
@@ -211,16 +216,28 @@ export interface DeliveryView {
   sections: SectionView[];
   /** Subjects with a reading nobody took — shown in a note, never dropped. */
   notPlaced: UnplacedView[];
-  /**
-   * The Release delivery lines: delivered, held at gates, blocked, and where the sprint names a target release the
-   * tickets of it. One line per distinct target release; one line without the tickets where none is named.
-   */
-  releaseLines: string[];
+  /** The Release delivery blocks: one per target release, each holding one collapsed row per plan. */
+  releaseBlocks: ReleaseBlockView[];
+  /** Every payload row the plan rows hold, for the section's pace mark. */
+  releaseRows: AgentRow[];
   delivered: UnplacedView[];
-  /** The delivered items, nested as a group's are; rendered under the release line. */
-  deliveredBlocks: BlockView[];
-  /** Every payload row the delivered items hold. */
-  deliveredRows: AgentRow[];
+}
+
+/** One plan row of the Release delivery section, with the item anchors its In flight lines link to. */
+export interface PlanRowView extends PlanRowFacts {
+  /** Slice name → the anchor of its placed item, for the slices that have one. */
+  anchors: Record<string, string>;
+  /** Slice name → the item id, for the Start action. */
+  itemIds: Record<string, string>;
+  /** The plan's file, for the plan card Start acts on; `''` where no row names one. */
+  planFile: string;
+}
+
+/** One target release's block. */
+export interface ReleaseBlockView {
+  release: string;
+  header: string;
+  plans: PlanRowView[];
 }
 
 export const itemAnchor = (id: string): string => `delivery-item-${id}`;
@@ -358,7 +375,12 @@ export const planBlockToggleKey = (block: PlanBlockView): string =>
  * @param slices - the payload's slices, for each plan head's count of slices elsewhere.
  * @returns the sections, the not-placed note rows and the Release delivery line.
  */
-export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacement, slices?: Slice[]): DeliveryView => {
+export const deliveryView = (
+  mapping: DeliveryMapping,
+  placement: DeliveryPlacement,
+  slices?: Slice[],
+  sprints: readonly Pick<FleetSprint, 'release' | 'ownerHandle' | 'members'>[] = [],
+): DeliveryView => {
   const rowOf = (item: string): AgentRow | null => mapping.rowsByItem[item]?.[0] ?? null;
   const ownRow = (entry: RegistryAgent | null): AgentRow | null => {
     if (entry === null || entry.branch === '') return null;
@@ -406,9 +428,12 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
     return isPlanRow(v) ? sliceHome.get(planOfItem(v)) ?? at.group : at.group;
   };
 
+  // A slice that holds no branch and no agent is a To do line of its plan row, never a Work items row.
+  const leavesWorkItems = (v: PlacedItemView): boolean =>
+    v.placement?.section === 'work-items' && v.placement.group === 'queued' && isSliceItem(v) && v.rows.every(isUnbegun);
   const sections = DELIVERY_LAYOUT.map(({ section, groups }): SectionView => {
     const groupViews = groups.map((group): GroupView => {
-      const grouped = itemViews.filter((v) => (section === 'work-items'
+      const grouped = itemViews.filter((v) => !leavesWorkItems(v)).filter((v) => (section === 'work-items'
         ? homeGroup(v) === group
         : v.placement?.section === section && v.placement.group === group));
       const items = section === 'you' ? oneRowPerDraftPlan(grouped) : grouped;
@@ -449,46 +474,46 @@ export const deliveryView = (mapping: DeliveryMapping, placement: DeliveryPlacem
   const notPlaced = placement.unplaced.filter((u) => u.reason === 'unread').map(view);
   const delivered = placement.unplaced.filter((u) => u.reason === 'delivered').map(view);
 
-  const slicesTotal = placement.items.filter((p) => p.id.startsWith('slice:')).length
-    + placement.unplaced.filter((u) => u.subject === 'item' && u.id.startsWith('slice:')).length;
-  const slicesDelivered = delivered.filter((u) => u.id.startsWith('slice:')).length;
-  const held = placement.items.filter((p) => p.section === 'work-items' && p.group === 'at-a-gate').length;
-  // The five-state Blocked count reads every row's items, not the You placement or the Mine-narrowed items, so a reader's Mine mode does not move it.
-  const blocked = countSliceStates(
-    mapping.wholeReadings.items
-      .filter((i) => i.id.startsWith('slice:'))
-      .map((i) => ({ id: i.id, merge: i.delivered === true ? 'merged' as const : 'open' as const })),
-    mapping.wholeReadings,
-    mapping.input,
-  ).blocked;
-  const sliceLine = `${slicesDelivered} of ${slicesTotal} slices delivered · ${held} held at gates · ${blocked} blocked`;
-  const { targets, tickets } = mapping.releases;
-  const ticketLines = tickets === null ? [] : targets.flatMap((t) => {
-    const wording = releaseTicketWording(tickets, t.release, t.started);
-    return wording === null ? [] : [`${sliceLine} · ${wording}`];
-  });
-  const releaseLines = ticketLines.length > 0 ? ticketLines : [sliceLine];
-
-  const deliveredItems = placement.unplaced
-    .filter((u) => u.reason === 'delivered' && u.subject === 'item')
-    .map((u): PlacedItemView => ({
-      placement: null,
-      rows: mapping.rowsByItem[u.id] ?? [],
-      draft: mapping.draftsByItem[u.id] ?? null,
-      ticket: mapping.ticketsByItem[u.id] ?? null,
-      label: labelOfItem(u.id),
-      anchor: itemAnchor(u.id),
-      links: [],
-      looseActions: { delete: false, release: false },
-    }));
-  const deliveredBlocks = nestItems('delivered', deliveredItems, slices);
-
-  return {
-    sections, notPlaced, releaseLines, delivered, deliveredBlocks,
-    deliveredRows: deliveredItems.flatMap((v) => v.rows),
+  const placedItem = new Map(itemViews.filter((v) => v.placement !== null && !leavesWorkItems(v)).map((v) => [v.placement!.id, v]));
+  const factsOf = (slice: Slice): PlanSliceFact => {
+    const id = sliceItemId(slice.plan, slice.name);
+    const merge = slice.merge === 'none' ? 'open' : slice.merge ?? (slice.complete ? 'merged' : 'open');
+    const state = sliceStateIn({ id, merge }, mapping.wholeReadings, mapping.input);
+    const rows = mapping.rowsByItem[id] ?? [];
+    const first = rows.find((r) => r.blockedBy !== null && r.blockedBy !== undefined);
+    return {
+      name: slice.name,
+      state,
+      ...(slice.mergedFact === undefined ? {} : { merged: slice.mergedFact }),
+      linked: placedItem.has(id),
+      startable: rows.some(isStartable),
+      waitsFor: first?.blockedBy ?? '',
+      begun: rows.some((r) => !isUnbegun(r)),
+    };
   };
+  const counted = (slices ?? []).filter((s) => s.merge !== 'none');
+  const approved = [...new Set(counted.map((s) => s.plan))];
+  const ownerOf = (plan: string): string => sprints.find((sp) => sp.members.some((m) => m.slug === plan) && sp.ownerHandle !== '')?.ownerHandle ?? '';
+  const planRow = (plan: string): PlanRowView => {
+    const own = counted.filter((s) => s.plan === plan);
+    const facts = own.map(factsOf);
+    const ids = Object.fromEntries(own.map((s) => [s.name, sliceItemId(s.plan, s.name)]));
+    const anchors = Object.fromEntries(own.flatMap((s) => (placedItem.has(ids[s.name]!) ? [[s.name, itemAnchor(ids[s.name]!)] as const] : [])));
+    const planFile = own.flatMap((x) => mapping.rowsByItem[ids[x.name]!] ?? []).find((r) => r.planFile !== '')?.planFile ?? '';
+    return { ...planRowFacts(plan, ownerOf(plan), facts), anchors, itemIds: ids, planFile };
+  };
+  const blocks = releaseBlocks(sprints.map((sp) => ({ release: sp.release, members: sp.members.map((m) => m.slug) })), approved).map((b): ReleaseBlockView => {
+    const plans = b.plans.filter((p) => approved.includes(p)).map(planRow);
+    return { release: b.release, plans, header: headerText(headerCounts(plans), b.release) };
+  });
+  const releaseRows = blocks.flatMap((b) => b.plans.flatMap((p) => Object.values(p.itemIds).flatMap((id) => mapping.rowsByItem[id] ?? [])));
+
+  return { sections, notPlaced, releaseBlocks: blocks, releaseRows, delivered };
 };
 
 /** Maps the payload and places it: the one call the tab makes. */
-export const placeMapping = (mapping: DeliveryMapping, slices?: Slice[]): DeliveryView =>
-  deliveryView(mapping, placeDelivery(mapping.readings, mapping.input), slices);
+export const placeMapping = (
+  mapping: DeliveryMapping,
+  slices?: Slice[],
+  sprints: readonly Pick<FleetSprint, 'release' | 'ownerHandle' | 'members'>[] = [],
+): DeliveryView => deliveryView(mapping, placeDelivery(mapping.readings, mapping.input), slices, sprints);

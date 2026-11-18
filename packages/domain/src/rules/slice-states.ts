@@ -65,6 +65,28 @@ export const sliceStateOf = (
 };
 
 /**
+ * The state of one slice against a set of readings.
+ *
+ * @param slice - the slice's merge answer and work item id.
+ * @param readings - the work items and agents as measured.
+ * @param input - the `Auto-review` key and the `Correction budget`.
+ */
+export const sliceStateIn = (
+  slice: CountedSlice,
+  readings: DeliveryReadings,
+  input: DeliveryInput,
+): SliceState | 'unread' => {
+  const acting = readings.agents.filter((a) => a.actsOn === slice.id);
+  return sliceStateOf(
+    slice,
+    readings.items.find((i) => i.id === slice.id),
+    acting.filter((a) => a.process === 'running').length,
+    acting.filter((a) => a.process === 'stopped').length,
+    input,
+  );
+};
+
+/**
  * Counts slices by state from one set of readings.
  *
  * @param slices - the counted slices; a deferred-only slice is not among them.

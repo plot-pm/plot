@@ -148,6 +148,7 @@ import { TicketsSectionView } from './TicketsSection.js';
 import { youHeaderOf } from '../lib/agent-rows/you-header.js';
 import { RoleChip } from './RoleChip.js';
 import { RoleRunRow } from './RoleRunRow.js';
+import { StartWorkButton } from './StartWorkButton.js';
 import { HeaderRow, IssueRowView, PlanRow, Row, RegistryRow, SliceRow, type AgentListProps } from '../lib/agent-rows/rows.js';
 import { workingAgentRows, draftPlanRows } from '../lib/agent-rows/working-agents.js';
 import { DraftPlanRowView } from '../lib/agent-rows/draft-plan-row.js';
@@ -455,17 +456,20 @@ export function AgentList({
       return next;
     });
   };
-  // A blocker mark opens the fold its blocker sits behind: a delivered slice
-  // shows under Release delivery, folded by default.
-  const expandSection = (section: string) => {
-    if (section !== 'done') return;
-    setCollapsed((prev) => {
-      if (!prev.has('release-delivery')) return prev;
+  // The plan rows of Release delivery are collapsed one by one; the reader's opened plans.
+  const [openReleasePlans, setOpenReleasePlans] = useState<Set<string>>(() => new Set());
+  const [allPlansOpen, setAllPlansOpen] = useState(false);
+  const toggleReleasePlan = (plan: string) =>
+    setOpenReleasePlans((prev) => {
       const next = new Set(prev);
-      next.delete('release-delivery');
-      writeCollapsed(next);
+      if (next.has(plan)) next.delete(plan);
+      else next.add(plan);
       return next;
     });
+  // A blocker mark opens the plan rows its blocker sits behind: a delivered slice
+  // shows under its plan row in Release delivery, collapsed until opened.
+  const expandSection = (section: string) => {
+    if (section === 'done') setAllPlansOpen(true);
   };
 
   // Whether the reader asked to see only their own work.
@@ -1130,7 +1134,7 @@ export function AgentList({
           checksUrlOf: (planFile, pr) => cardForPlanFile?.(planFile)?.prs.find((p) => p.number === pr)?.checksUrl ?? '',
         });
         const placement = placeDelivery(mapping.readings, mapping.input);
-        const view = placeMapping(mapping, fleet.slices);
+        const view = placeMapping(mapping, fleet.slices, activeSprints);
         const youHead = youHeaderOf({
           view, placement, reader, ticketAnswer: fleet.issueAnswer ?? null, phaseMap,
           stories: stories ?? [], cards: cards ?? [],
@@ -1463,8 +1467,8 @@ export function AgentList({
               // THE HEADING CARRIES THE PACE OF THE ROWS BEHIND IT, folded or
               // open, read from the same `active` set the rows render from.
               const release = section.key === 'release-delivery';
-              const sectionPace = groupPace(release ? view.deliveredRows : section.rows, active);
-              const { folded, header } = fold(section.key, release ? view.deliveredBlocks.length : section.count, (
+              const sectionPace = groupPace(release ? view.releaseRows : section.rows, active);
+              const { folded, header } = fold(section.key, release ? view.releaseBlocks.reduce((n, b) => n + b.plans.length, 0) : section.count, (
                 <h2 data-delivery-section={section.key} className="flex min-w-0 flex-1 items-baseline gap-1 text-base font-semibold text-slate-800 dark:text-slate-100">
                   <svg aria-hidden="true" data-section-icon={section.icon} viewBox="0 0 16 16" width="16" height="16" fill="currentColor" className="inline-block shrink-0 self-center">
                     <path d={sectionGlyph(section)} />
@@ -1522,7 +1526,7 @@ export function AgentList({
                       )}
                     </span>
                   )}
-                  {release && <span className="ml-1 font-normal text-slate-500">({view.deliveredBlocks.length})</span>}
+                  {release && <span className="ml-1 font-normal text-slate-500">({view.releaseBlocks.reduce((n, b) => n + b.plans.length, 0)})</span>}
                   {sectionPace && <ActivityMark pace={sectionPace} place="heading" />}
                   <span data-section-controls className="ml-auto">
                     {section.key === 'fleet' && (
@@ -1536,24 +1540,69 @@ export function AgentList({
                     )}
                   </span>
                 </h2>
-              ));
+              ), release);
               return (
                 <section key={section.key} data-section={section.key} className="space-y-2">
                   {header}
-                  {section.key === 'release-delivery' && view.releaseLines.map((line) => (
-                    <p key={line} data-release-line className="px-3 text-sm text-slate-600 dark:text-slate-300">{line}</p>
+                  {release && view.releaseBlocks.map((block) => (
+                    <div key={block.release || 'all'} data-release-block={block.release} className="space-y-1">
+                      <p data-release-line className="px-3 text-sm text-slate-600 dark:text-slate-300">{block.header}</p>
+                      <ul
+                        role="list"
+                        aria-label="Release delivery — plans"
+                        data-delivered
+                        className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900/40"
+                      >
+                        {block.plans.map((plan) => {
+                          const open = allPlansOpen || openReleasePlans.has(plan.plan);
+                          const card = plan.planFile === '' ? null : cardForPlanFile?.(plan.planFile) ?? null;
+                          return (
+                            <li key={plan.plan} data-plan-row={plan.plan} className="px-3 py-2 text-sm">
+                              <div className="flex flex-wrap items-baseline gap-x-3">
+                                <button
+                                  type="button"
+                                  data-plan-toggle={plan.plan}
+                                  aria-expanded={open}
+                                  onClick={() => toggleReleasePlan(plan.plan)}
+                                  className="flex items-baseline gap-1 text-left font-medium text-slate-800 dark:text-slate-100"
+                                >
+                                  <span aria-hidden="true" className={`inline-block w-4 text-center transition-transform ${open ? 'rotate-90' : ''}`}>▸</span>
+                                  {plan.plan}
+                                </button>
+                                <span data-plan-strip className="flex flex-wrap items-baseline gap-x-2 text-slate-600 dark:text-slate-300">
+                                  {plan.strip.map((seg) => (
+                                    <span key={seg.state} data-strip-segment={seg.state}>{seg.count} {seg.state}</span>
+                                  ))}
+                                  <span data-strip-text>{plan.stripText}</span>
+                                  {plan.unread > 0 && <span data-strip-unread>{plan.unread} not read</span>}
+                                </span>
+                                {plan.owner !== '' && <span data-plan-owner className="text-slate-500">Owner {plan.owner}</span>}
+                              </div>
+                              {open && (
+                                <ul data-plan-lines className="mt-1 space-y-0.5 pl-6">
+                                  {plan.lines.map((line) => (
+                                    <li key={line.slice} data-plan-line={line.heading} className="flex flex-wrap items-baseline gap-x-2">
+                                      <span className="w-20 shrink-0 text-xs uppercase text-slate-500">{line.heading.replace('-', ' ')}</span>
+                                      {line.link && plan.anchors[line.slice] !== undefined ? (
+                                        <button type="button" data-plan-line-link onClick={() => scrollToAnchor(plan.anchors[line.slice]!)} className="text-blue-600 hover:underline dark:text-blue-400">
+                                          {line.text}
+                                        </button>
+                                      ) : (
+                                        <span>{line.text}</span>
+                                      )}
+                                      {line.start && card !== null && dispatch && (
+                                        <StartWorkButton card={card} dispatch={dispatch} pulse={pulse} onStarting={onStarting} />
+                                      )}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
                   ))}
-                  {release && !folded && view.deliveredBlocks.length > 0 && (
-                    <ul
-                      role="grid"
-                      aria-label="Release delivery — agent branches"
-                      data-delivered
-                      className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40"
-                    >
-                      <HeaderRow />
-                      {view.deliveredBlocks.flatMap(blockBody)}
-                    </ul>
-                  )}
                   {section.key === 'fleet' && (
                     <div className="flex flex-wrap items-center gap-2 px-3">
                       <WorkingCounts
