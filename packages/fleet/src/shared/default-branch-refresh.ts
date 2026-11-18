@@ -4,7 +4,7 @@ import {
   type FailingRun,
   type SettledReading,
 } from '@plot-pm/domain/entities/default-branch';
-import { REPAIR_RECORD_VERSION, type RepairRecord } from '@plot-pm/domain/entities/repair-record';
+import { REPAIR_RECORD_VERSION, type CandidateCommit, type RepairRecord } from '@plot-pm/domain/entities/repair-record';
 import {
   ANCESTOR_ASKS_MAX,
   ANCESTOR_WALK_DEPTH,
@@ -18,6 +18,7 @@ import {
   unmatchedChecks,
 } from '@plot-pm/domain/rules/default-branch';
 import type { WorkflowShaRun } from '@plot-pm/domain/entities/build';
+import { candidatesFromCommits } from '@plot-pm/domain/rules/repair';
 import { keepsRepairRecord } from '@plot-pm/domain/rules/repair-pr';
 import type { BuildPort } from '@plot-pm/domain/ports/build';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
@@ -147,7 +148,7 @@ export interface DefaultBranchWorld {
   /** The default branch's name. */
   branch(): Promise<string | null>;
   /** The remote tip reader and the local first-parent walk. */
-  refs: Pick<Refs, 'remoteSha' | 'firstParentLine'>;
+  refs: Pick<Refs, 'remoteSha' | 'firstParentLine' | 'firstParentCommits'>;
   /** The CI connector: `system` and `runsForSha`. */
   build: Pick<BuildPort, 'system' | 'runsForSha'>;
   /** The reading's file. Fleetd is its only writer. */
@@ -253,14 +254,11 @@ const settleBehindHead = async (
  * Writes the repair record for a change from a green settled reading (or
  * none) to a red one.
  *
- * `candidates` is written empty here. Populating it needs each candidate's
- * subject line over the range between `carried` and `settled`, including
- * merge commits — no port operation `DefaultBranchWorld` already holds
- * answers that for an arbitrary range (`Refs.commitSubjects` carries no sha;
- * `Refs.commitsSync` needs a local checkout directory this world does not
- * have and excludes merges; the refs port's own merge-subject reader takes no
- * range). Adding one is out of this slice's scope. With no previous reading
- * the record also has no `lastGreenSha`, and `warn` is told so.
+ * `candidates` holds the first-parent commits of `carried.sha..settled.sha`,
+ * newest first ({@link candidatesFromCommits}), read through
+ * `Refs.firstParentCommits`. With no `carried` reading there is no last green
+ * SHA, and the record keeps `candidates: []` with a `warn` saying so; a range
+ * that cannot be read does the same.
  *
  * Reads the record on disk first and keeps it where it already holds this
  * episode ({@link keepsRepairRecord}), so a `repairPr` that a person recorded
@@ -290,12 +288,14 @@ const writeRepairRecord = async (
     return;
   }
   if (keepsRepairRecord(existing.value, branch, settled.sha)) return;
+  let candidates: CandidateCommit[] = [];
   if (carried === undefined) {
     warn(`plot-fleetd: repair record opened for ${settled.sha} with no last green SHA to pick candidates from`);
   } else {
-    warn(`plot-fleetd: repair record opened for ${settled.sha} with no candidates collected yet`);
+    const range = await world.refs.firstParentCommits(`${carried.sha}..${settled.sha}`);
+    if (range.ok) candidates = candidatesFromCommits(range.value);
+    else warn(`plot-fleetd: repair record opened for ${settled.sha} with no candidates — the range ${carried.sha}..${settled.sha} could not be read`);
   }
-  const candidates: readonly { sha: string; subject: string }[] = [];
   const record: RepairRecord = {
     v: REPAIR_RECORD_VERSION,
     branch,
@@ -303,7 +303,7 @@ const writeRepairRecord = async (
     ...(carried ? { lastGreenSha: carried.sha } : {}),
     firstRedSha: settled.sha,
     redSince: stamp,
-    candidates: [...candidates],
+    candidates,
     rerun: 'none',
     preRevertRerun: 'none',
     at: stamp,
@@ -560,6 +560,7 @@ export const refreshBases = async (
       branch: async () => base,
       refs: {
         firstParentLine: world.shared.refs.firstParentLine,
+        firstParentCommits: world.shared.refs.firstParentCommits,
         remoteSha: async () => ({ ok: true, value: { sha: tips[base]! } }),
       },
       repair: world.repairFor(base),

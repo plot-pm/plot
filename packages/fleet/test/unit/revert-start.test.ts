@@ -101,6 +101,8 @@ interface Rigging {
   greenRerun: 'success' | 'failure';
   /** Where true, every candidate read fails. */
   candidateFails: boolean;
+  /** A candidate's own folded runs by sha; red where absent. */
+  candidateRuns: Map<string, 'green' | 'red' | 'pending' | 'unknown'>;
   /** Where true, the next desk is not made. */
   deskFails: boolean;
   /** Where true, a review start is refused (another review holds the one slot). */
@@ -139,6 +141,7 @@ const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
     settledHasRevert: 'no',
     greenRerun: 'success',
     candidateFails: false,
+    candidateRuns: new Map(),
     deskFails: false,
     reviewRefused: false,
     checksWithout: 'as-set',
@@ -204,7 +207,7 @@ const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
             ...commit,
             prMerged: true,
             hostMergeCommit: commit.sha,
-            settledRed: true,
+            runs: state.candidateRuns.get(commit.sha) ?? ('red' as const),
             touchesState: false,
           },
     baseSha: async () => 'b'.repeat(40),
@@ -307,6 +310,35 @@ describe('repairRevertTick — the second look at the red', () => {
     r.set({ now: r.state.now + 30 * 60_000 });
     expect(await repairRevertTick(r.world)).toBe('held');
     expect(r.calls).not.toContain('claim');
+  });
+
+  it.each(['pending', 'unknown', 'success'] as const)('holds and starts no desk where the named candidate reads %s on the second look', async (outcome) => {
+    const r = rig(record());
+    r.state.runs.set(BREAKING, outcome === 'success' ? [run(BREAKING, 'success')] : outcome === 'pending' ? [run(BREAKING, null)] : []);
+    r.set({ now: r.state.now + 30 * 60_000 });
+    expect(await repairRevertTick(r.world)).toBe('held');
+    expect(r.calls).not.toContain('claim');
+    expect(r.stored()?.revertPr).toBeUndefined();
+  });
+
+  it('holds, and does not exhaust, where the first non-green candidate is pending', async () => {
+    const r = rig(record());
+    r.state.candidateRuns.set(BREAKING, 'pending');
+    r.set({ now: r.state.now + 30 * 60_000 });
+    expect(await repairRevertTick(r.world)).toBe('held');
+    expect(r.stored()?.state).not.toBe('exhausted');
+    expect(r.calls).not.toContain('claim');
+  });
+
+  it('stops reading candidates at the first that is not green', async () => {
+    const OLDER = 'o'.repeat(40);
+    const r = rig(record({ candidates: [{ sha: BREAKING, subject: SUBJECT }, { sha: OLDER, subject: 'Older (#4)' }] }));
+    const asked: string[] = [];
+    const inner = r.world.candidate;
+    r.world.candidate = async (commit) => { asked.push(commit.sha); return inner(commit); };
+    r.set({ now: r.state.now + 30 * 60_000 });
+    await repairRevertTick(r.world);
+    expect(asked).toEqual([OLDER]);
   });
 
   it('opens the revert PR when both SHAs read red', async () => {

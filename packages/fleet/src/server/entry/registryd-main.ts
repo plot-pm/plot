@@ -3412,6 +3412,7 @@ export const run = async (
             return { ok: true as const, value: sha ? { sha } : ('unknown' as const) };
           },
           firstParentLine: refsGit({ repoRoot, scriptDir: scriptsDir }).firstParentLine,
+          firstParentCommits: refsGit({ repoRoot, scriptDir: scriptsDir }).firstParentCommits,
         },
         build: ci,
         store: defaultBranchFile(repoRoot),
