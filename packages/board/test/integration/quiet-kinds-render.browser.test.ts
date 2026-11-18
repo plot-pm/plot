@@ -185,7 +185,8 @@ describe('the board shows which kind of quiet a row is in', () => {
     try {
       const li = rowFor(page, 'feature/left-behind');
       await expect.poll(() => li.textContent()).toContain('commits, no PR ever opened');
-      await expect.poll(() => li.textContent()).toContain('abandoned');
+      // Queued's Waits on cell names the missing agent; the kind word `abandoned` no longer fills that slot.
+      await expect.poll(() => li.textContent()).toContain('no agent assigned');
       // THE AGE IS STILL THERE, beside the state rather than instead of it.
       await expect.poll(() => li.textContent()).toContain('126 days');
       // THE MEASURED DEFECT, asserted directly: `stateStatus` maps `wip` to

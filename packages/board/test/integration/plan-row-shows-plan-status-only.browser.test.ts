@@ -306,7 +306,7 @@ describe('a plan row shows plan status only', () => {
       if (await toggle.count() > 0
         && (await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
       await expect.poll(() => sliceStatus(page, 'unbegun', 'Start').textContent(),
-        { timeout: 10_000 }).toContain('eligible');
+        { timeout: 10_000 }).toContain('no agent assigned');
       expect(await planVerdict(page, 'unbegun').count()).toBe(0);
       // `soleSlice` keeps its one job: the slice's *Start work* on the plan row.
       const menu = planRow(page, 'unbegun').locator('[data-plan-actions="unbegun"]');

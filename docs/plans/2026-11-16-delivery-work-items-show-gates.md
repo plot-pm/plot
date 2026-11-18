@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:**
 - **Issue:**
@@ -14,6 +14,10 @@
 - **Rounds:** 2
 - **Approved:** 2026-11-17, Jan Wloka, plan-PR #3469 merged
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-work-items-groups`
+- **Started:** 2026-11-17, Jan Wloka, `feature/delivery-work-items-gate-cells`
+- **Started:** 2026-11-18, Jan Wloka, `feature/delivery-work-items-progress`
+- **Started:** 2026-11-18, Jan Wloka, `feature/delivery-work-items-by-chips`
+- **Delivered:** 2026-11-18
 
 ## Changelog
 
@@ -81,19 +85,19 @@ Per slice, in slice order.
 
 ### Groups and columns
 
-- `feature/delivery-work-items-groups` <!-- waits: feature/delivery-section-header, feature/delivery-you-groups --> — the Work items header and groups, what Queued holds, the group column in the place of `status`, and the Where column <!-- builds: Work items groups, header and column model -->
+- `feature/delivery-work-items-groups` <!-- waits: feature/delivery-section-header, feature/delivery-you-groups --> — the Work items header and groups, what Queued holds, the group column in the place of `status`, and the Where column <!-- builds: Work items groups, header and column model --> → #3512
 
 ### Gate cells
 
-- `feature/delivery-work-items-gate-cells` <!-- waits: feature/delivery-work-items-groups --> — `gateValue` returning a CI and a review mark, linked to `CardPr.checksUrl` and `CardPr.url` with the new checks link target <!-- builds: Work items gate cells with host links -->
+- `feature/delivery-work-items-gate-cells` <!-- waits: feature/delivery-work-items-groups --> — `gateValue` returning a CI and a review mark, linked to `CardPr.checksUrl` and `CardPr.url` with the new checks link target <!-- builds: Work items gate cells with host links --> → #3515
 
 ### Progress and waits
 
-- `feature/delivery-work-items-progress` <!-- waits: feature/delivery-work-items-gate-cells --> — the Progress cell (PR state, unpushed count) and the Waits on cell (no agent, earlier slice, another person's phase or approval) <!-- builds: Work items progress and waits-on cells -->
+- `feature/delivery-work-items-progress` <!-- waits: feature/delivery-work-items-gate-cells --> — the Progress cell (PR state, unpushed count) and the Waits on cell (no agent, earlier slice, another person's phase or approval) <!-- builds: Work items progress and waits-on cells --> → #3517
 
 ### Agent chips
 
-- `feature/delivery-work-items-by-chips` <!-- waits: feature/delivery-work-items-progress, feature/delivery-agent-roles --> — the By column with the agent's role chip, name and Fleet link, and a fixer's attempt count <!-- builds: a By cell with role chip and fixer attempt -->
+- `feature/delivery-work-items-by-chips` <!-- waits: feature/delivery-work-items-progress, feature/delivery-agent-roles --> — the By column with the agent's role chip, name and Fleet link, and a fixer's attempt count <!-- builds: a By cell with role chip and fixer attempt --> → #3519
 
 ## Notes
 
