@@ -8,7 +8,7 @@
 - **Type:** docs
 - **Review:** pr
 - **Impl:** same branch
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -50,6 +50,10 @@ Adopters have different tastes, so Plot adds no gate, no config key and no lint 
 - [ ] `[question-changelog-and-cost-honesty]` The Changelog omits the `story-tracking/SKILL.md` wording and the archived Decisions-table edit; the changeset carries five skill bumps; a change under `skills/plot/templates/plan.md` selects every CI job (`ci-selection-jobs.test.mjs:128-133`). Does the plan state these? *(panel round 1: deliverable, cost)*
 - [ ] `[question-other-cited-codes]` `plot-host.sh` comments cite D20, D23 and a D6 from another plan, and `gate.ts:438` uses "D14" for a different decision. Are they in scope? *(panel round 1: deliverable, estate)*
 - [ ] `[question-design-doc-citations]` Should `DESIGN-phases.md` replace its citations "(D3)", "(D10)" and so on with names? This plan leaves them: the design doc sits beside the table that defines the codes, so its reader has the legend.
+- [ ] `[question-name-uniqueness-and-rename]` Is a name unique per plan or story, and what happens to the places that refer to it when its wording changes? The plan states no rule, and the convention's only benefit over "D14" is that a reader resolves the reference without a legend. *(interview round 2: domain)*
+- [ ] `[question-checklist-line-first-token]` `UNCHECKED` in `plan-open-questions.ts:9` captures the whole line after `- [ ] `, so the name is part of the board's first-question text and of the "n open" count source. Is a name followed by a sentence the intended shape, or does a bare name with no sentence count as an open point? *(interview round 2: technical)*
+- [ ] `[question-challenge-skill-writes-points]` `challenge-the-plan/SKILL.md:514-525` tells the skill to append deferred items to Open Points and `:630` to write contradictions as checkbox entries. Does the skill adopt the prefix convention, or do the plans it writes keep unnamed lines beside the template's named ones? *(interview round 2: domain)*
+- [ ] `[question-adopter-evidence]` The Motivation rests on one measured case, "D14" in `plot-deliver`. How many plans and stories under `docs/` already carry a legend-bound code, and does a count change the decision between a convention and no change? *(interview round 2: trade-offs)*
 
 ## Slices
 
@@ -63,17 +67,18 @@ Adopters have different tastes, so Plot adds no gate, no config key and no lint 
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
-    {"q": "Panel round 1 (estate, contradiction, deliverable, cost): unanimous amend; findings recorded as Open Points", "a": "unattended, no answers", "category": "panel"}
+    {"q": "Panel round 1 (estate, contradiction, deliverable, cost): unanimous amend; findings recorded as Open Points", "a": "unattended, no answers", "category": "panel"},
+    {"q": "Interview round 2 (unattended): name uniqueness and rename, first-line token against planOpenQuestions, challenge-the-plan skill's own Open Points lines, adopter evidence", "a": "unattended, no answers; recorded as Open Points", "category": "domain"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
-    "technical": {"stack": false, "architecture": false, "implementation": false},
-    "domain": false,
+    "technical": {"stack": false, "architecture": false, "implementation": true},
+    "domain": true,
     "ux": {"happyPath": false, "edgeCases": false, "errors": false, "accessibility": false},
     "nonFunctional": {"security": false, "performance": false, "scalability": false},
-    "tradeOffs": false
+    "tradeOffs": true
   }
 }
 END-CHALLENGE-THE-PLAN-METADATA -->
