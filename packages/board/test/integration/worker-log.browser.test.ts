@@ -399,6 +399,10 @@ describe('the worker log panel: offered by a WORKING row, four outcomes, four an
       // Opened at 60 (see makeScrollable): a real, non-zero reader position that
       // survives the menu click. The round-trip the spec names is that closing
       // lands the reader back there, not at the top.
+      // The menu must sit inside the viewport, or the click scrolls the page first.
+      // Measured 2026-11-18: with the 64px release cards in the header, the menu's
+      // bottom sat at 735px, below the default 720px fold.
+      await page.setViewportSize({ width: 1280, height: 900 });
       await makeScrollable(page, 60);
       await openPanel(page);
       await page.getByRole('button', { name: 'Close' }).click();

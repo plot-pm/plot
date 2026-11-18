@@ -1967,7 +1967,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // The window between the two is wide, and the viewport sits in the middle
       // of it rather than on either edge — which is what makes this test about
       // the COLLAPSE rather than about how tall a row happens to render.
-      await page.setViewportSize({ width: 1280, height: 2000 });
+      // 2000 became 2100 on 2026-11-18, when the release cards (64px) joined the
+      // Delivery header and the footer's bottom read 2013px on CI.
+      await page.setViewportSize({ width: 1280, height: 2100 });
       await page.route('**/api/fleet', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(many) }));
       await page.goto(`${cat.mock.baseURL}?tab=agents`);

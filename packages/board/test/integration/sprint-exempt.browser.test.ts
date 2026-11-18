@@ -45,7 +45,9 @@ const pr = (number: number, author: string) =>
  *   `feature/member-theirs`   a member plan's PR, somebody else's — hidden only
  *                             by «Only my work», never by the sprint
  *   `infra/bump`              a PR naming no plan — exempt, shown, MARKED
- *   `changeset-release/main`  the release row — exempt, shown, MARKED
+ *   `changeset-release/main`  the release row — no row in Work items: its
+ *                             release card in the header shows it, whatever
+ *                             the Sprint filter
  *   `feature/elsewhere`       a PR under a plan no selected sprint names — hidden
  *   `loose/ref`               a plan-less branch with no PR — hidden today, and
  *                             stays hidden: it is not exempt
@@ -159,7 +161,7 @@ describe('a sprint view says what it hid', () => {
       const shown = await branches(page);
       expect(shown).toContain(MEMBER);
       const withMark = await marked(page);
-      expect(withMark.sort()).toEqual([RELEASE, EXEMPT_PR].sort());
+      expect(withMark).toEqual([EXEMPT_PR]);
       expect(withMark).not.toContain(MEMBER);
     } finally {
       await page.close();
@@ -173,7 +175,9 @@ describe('a sprint view says what it hid', () => {
       const shown = await branches(page);
       // The exempt set is shown with the filter on.
       expect(shown).toContain(EXEMPT_PR);
-      expect(shown).toContain(RELEASE);
+      // The release row has no row: its card in the header stays.
+      expect(shown).not.toContain(RELEASE);
+      expect(await page.locator('[data-release-card="untargeted"]').count()).toBe(1);
       // And the filter still filters.
       expect(shown).not.toContain(ELSEWHERE);
       expect(shown).not.toContain(LOOSE);
