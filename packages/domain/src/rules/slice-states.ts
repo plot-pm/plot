@@ -99,13 +99,9 @@ export const countSliceStates = (
   readings: DeliveryReadings,
   input: DeliveryInput,
 ): SliceStateCounts => {
-  const items = new Map(readings.items.map((i) => [i.id, i]));
   const counts = empty();
   for (const slice of slices) {
-    const acting = readings.agents.filter((a) => a.actsOn === slice.id);
-    const live = acting.filter((a) => a.process === 'running').length;
-    const stopped = acting.filter((a) => a.process === 'stopped').length;
-    const state = sliceStateOf(slice, items.get(slice.id), live, stopped, input);
+    const state = sliceStateIn(slice, readings, input);
     counts[state] += 1;
     if (state !== 'unread') counts.total += 1;
   }
