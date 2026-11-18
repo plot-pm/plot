@@ -1,4 +1,5 @@
 import type { Cell } from '@plot-pm/domain';
+import { RoleChip } from './RoleChip.js';
 import { linkLabel, resolveLink, type LinkContext, type ResolvedLink } from '../lib/agent-rows/delivery-link-targets.js';
 
 /** What the tab does when a link is clicked. */
@@ -80,9 +81,11 @@ export const RowCell = ({ cell, handlers }: { cell: Cell | null; handlers: LinkH
   const [first, ...rest] = cell.links;
   return (
     <>
+      {cell.agent === undefined ? null : <><RoleChip role={cell.agent.role} />{' '}</>}
       {first === undefined ? cell.value : (
         <Linked resolved={resolveLink(first, handlers.context)} handlers={handlers}>{cell.value}</Linked>
       )}
+      {cell.agent?.attempt == null ? null : <span data-agent-attempt>{' '}{cell.agent.attempt}</span>}
       {rest.map((target) => (
         <span key={`${target.to}-${JSON.stringify(target)}`}>
           {' '}

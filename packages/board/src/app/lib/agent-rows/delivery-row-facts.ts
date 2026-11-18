@@ -8,12 +8,13 @@ import {
   type DeliveryRowForms,
   type DeliverySwitches,
   type ItemPlacement,
+  type ItemAgentFacts,
   type ItemRowFacts,
 } from '@plot-pm/domain';
 import { resolvePerson } from '@plot-pm/domain/entities/person';
 import { unnamedDeskLabel } from '@plot-pm/domain/rules/desk-manifest';
 import { isLiveState, type AgentRow } from '../../../contract/schema.js';
-import { ciOf, reviewOf, type DeliveryMapping } from './delivery-readings.js';
+import { agentLabel, ciOf, reviewOf, type DeliveryMapping } from './delivery-readings.js';
 
 const youngest = (values: readonly (number | null | undefined)[]): number | undefined => {
   const known = values.filter((v): v is number => typeof v === 'number');
@@ -77,6 +78,16 @@ export const itemRowFactsOf = (mapping: DeliveryMapping, id: string): ItemRowFac
   if (age !== undefined) facts.ageMinutes = age;
   const merged = rows.filter((r) => r.state === 'merged' && r.pr !== null).map((r) => r.pr!.number);
   if (merged.length > 0) facts.mergedPrs = merged;
+  const agents = mapping.readings.agents.filter((a) => a.actsOn === id).map((a): ItemAgentFacts => {
+    const attempt = mapping.runsById[a.id]?.attempt;
+    return {
+      id: a.id,
+      role: a.role,
+      name: agentLabel(a.id, mapping.agentsById[a.id] ?? null),
+      ...(attempt === undefined ? {} : { attempt }),
+    };
+  });
+  if (agents.length > 0) facts.agents = agents;
   return facts;
 };
 
@@ -102,6 +113,7 @@ export const agentRowFactsOf = (mapping: DeliveryMapping, id: string, now?: numb
   const entry = mapping.agentsById[id];
   const run = mapping.runsById[id];
   const facts: AgentRowFacts = { rateLimit: mapping.rateLimit };
+  if (run?.attempt !== undefined) facts.fixerAttempt = run.attempt;
   if (entry !== undefined && !identityWasDeclared(entry)) {
     facts.unnamedDesk = unnamedDeskLabel({ checkout: entry.checkout ?? '', live: isLiveState(entry.state) });
   }

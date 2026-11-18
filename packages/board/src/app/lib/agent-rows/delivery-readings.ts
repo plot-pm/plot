@@ -32,6 +32,13 @@ export interface DeliveryConfig {
 /** A registry entry, with the role the registry declares where it declares one. */
 export type RegistryAgent = AgentEntry & { role?: AgentRole };
 
+/**
+ * The text of an agent's Agent cell on its Fleet row, and of its name in a By cell.
+ * A state-file run has no registry entry and reads as its id.
+ */
+export const agentLabel = (id: string, entry: RegistryAgent | null): string =>
+  entry?.branch || entry?.worktree || id;
+
 export interface DeliveryMapInput {
   rows: readonly AgentRow[];
   slices: readonly Slice[];

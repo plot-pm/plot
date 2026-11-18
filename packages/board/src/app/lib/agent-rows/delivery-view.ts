@@ -14,7 +14,7 @@ import {
   type Unplaced,
 } from '@plot-pm/domain';
 import type { AgentRow, DraftPlan, IssueRow, Slice } from '../../../contract/schema.js';
-import type { DeliveryMapping, RegistryAgent } from './delivery-readings.js';
+import { agentLabel, type DeliveryMapping, type RegistryAgent } from './delivery-readings.js';
 import { itemRowFactsOf } from './delivery-row-facts.js';
 import { isUnbegun } from './row-identity.js';
 import { groupBySlice, type SliceGroup } from './slices.js';
@@ -229,9 +229,6 @@ const itemLabel = (id: string, rows: readonly AgentRow[], draft: DraftPlan | nul
   }
   return draft?.plan ?? id;
 };
-
-const agentLabel = (id: string, entry: RegistryAgent | null): string =>
-  entry?.branch || entry?.worktree || id;
 
 const unreadNote = (subject: Unplaced['subject'], ticket = false): string =>
   subject === 'item'

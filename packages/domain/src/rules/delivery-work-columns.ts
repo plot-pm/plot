@@ -4,6 +4,7 @@ import {
   itemRowCells,
   progressCell,
   waitsOnCell,
+  workByCell,
   type Cell,
   type ItemRowFacts,
 } from './delivery-row-form.js';
@@ -48,7 +49,7 @@ export const workItemCells = (
   return {
     group: placement.group,
     column: WORK_GROUP_COLUMN[placement.group].name,
-    cells: { kind: row.kind, item: row.item, where: row.where, group: group ?? (placement.group === 'at-a-gate' ? row.status : null), by: row.by, age: row.age },
+    cells: { kind: row.kind, item: row.item, where: row.where, group: group ?? (placement.group === 'at-a-gate' ? row.status : null), by: workByCell(row.by, placement.agents, facts), age: row.age },
   };
 };
 
