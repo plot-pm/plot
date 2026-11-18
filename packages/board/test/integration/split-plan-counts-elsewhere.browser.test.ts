@@ -151,10 +151,18 @@ describe('a split plan counts what is elsewhere', () => {
       await expect.poll(() => row.locator('[data-strip-segment="delivered"]').textContent(),
         { timeout: 10_000 }).toMatch(/1\s+delivered/);
       expect(await page.locator('[data-release-block] [data-slice-row]').count()).toBe(0);
-      // The unstarted wave lives in NOT STARTED, never as a Release row.
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('keeps the unstarted slice of the split plan in NOT STARTED, never as a Release row', async () => {
+    const page = await open();
+    try {
       await expect.poll(() =>
         notStarted(page).locator('[data-slice-row="Grown"]').count(), { timeout: 10_000 })
         .toBe(1);
+      expect(await page.locator('[data-release-block] [data-slice-row="Grown"]').count()).toBe(0);
     } finally {
       await page.close();
     }
