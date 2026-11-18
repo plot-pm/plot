@@ -3,8 +3,8 @@ import type { FleetSprint, SprintCounts } from '../../contract/schema.js';
 import { MineStrictToggle } from './MineStrictToggle.js';
 
 /**
- * The Delivery tab's filter row: one chip row (`This sprint`, `Mine`,
- * `Waiting on me`), the active sprint's own line, and the estate totals.
+ * The Delivery tab's filter row: one chip row (`My sprint`, `Mine`,
+ * `Waiting on me`) and the estate totals.
  *
  * Replaces the two-card, two-style control `SprintFilter` + the `Only my
  * work` checkbox used to split across — three controls in three visual
@@ -16,18 +16,18 @@ import { MineStrictToggle } from './MineStrictToggle.js';
 interface DeliveryFiltersProps {
   /** What `chipRow` needs to decide the three chips. */
   readings: ChipRowReadings;
-  /** Toggle the `This sprint` chip. */
+  /** Toggle the `My sprint` chip. */
   onToggleSprint: () => void;
   /** Toggle the `Mine` chip. */
   onToggleMine: () => void;
   /** Toggle the hide/show-unknown control beside `Mine`; `chipRow()` decides whether it shows. */
   onToggleStrict: () => void;
-  /** The active sprints, for the sprint line beneath the chip row. Empty renders no line. */
+  /** The Active sprints the reader owns (`deliveryScope`'s `owned`), one per-sprint chip each. */
   sprints: FleetSprint[];
   /**
-   * The reader's current sprint selection — sanitized, so it never names a
-   * sprint absent from `sprints`. Empty means every Active sprint. Decides
-   * the per-sprint chips' own `on` state and the «This sprint» chip's label.
+   * The scope's selection (`deliveryScope`'s `selection`), which never names a
+   * sprint absent from `sprints`. Empty means the toggle is off. Decides the
+   * per-sprint chips' own `on` state and the «My sprint» chip's label.
    */
   selectedSprints: string[];
   /** Toggle one sprint in the selection — a per-sprint chip's own click. */
@@ -60,11 +60,10 @@ function formatCounts(counts: SprintCounts, unit: string): string {
  * One chip: filled when on, outlined when off, dimmed with a tooltip when
  * disabled.
  *
- * `dataChip` and `label` are separate: the «This sprint» chip's `data-chip`
- * stays `"This sprint"` even once its visible label names a sprint, so the
- * four browser test files selecting `[data-chip="This sprint"]` keep working
- * unmodified. Every other chip leaves `dataChip` unset and the attribute
- * falls back to the label, as it always has.
+ * `dataChip` and `label` are separate: the «My sprint» chip's `data-chip` is
+ * `"My sprint"` also while its visible label names a sprint, and a per-sprint
+ * chip's is `sprint:<slug>`. Every other chip leaves `dataChip` unset and the
+ * attribute falls back to the label.
  */
 function ChipView({
   chip, dataChip, onToggle, showDisabledReason = true,
@@ -109,33 +108,33 @@ export function DeliveryFilters({
 }: DeliveryFiltersProps) {
   const chips = chipRow(readings);
 
-  // THE «This sprint» CHIP NAMES THE SPRINT when exactly one is selected —
+  // THE «My sprint» CHIP NAMES THE SPRINT when exactly one is selected —
   // the rest of its label (on/off, hidden count) is still `chipRow()`'s
   // answer; only the text that says WHICH sprint is decided here, from the
   // selection the component already carries for the per-sprint chips below.
   const selectedOne = selectedSprints.length === 1
     ? sprints.find((s) => s.slug === selectedSprints[0])
     : undefined;
-  const thisSprintChip = selectedOne
-    ? { ...chips.thisSprint, label: `This sprint: ${selectedOne.title}` }
-    : chips.thisSprint;
+  const mySprintChip = selectedOne
+    ? { ...chips.mySprint, label: `My sprint: ${selectedOne.title}` }
+    : chips.mySprint;
 
-  // ONE CHIP PER ACTIVE SPRINT, BESIDE «This sprint» — only while more than
-  // one is Active (Decision "Sprint line as control or chip row": the chip
-  // row stays the one control surface, #2080). With one Active sprint this
-  // renders nothing and the «This sprint» chip behaves exactly as before.
+  // ONE CHIP PER OWNED ACTIVE SPRINT, BESIDE «My sprint» — only while the
+  // reader owns more than one (Decision "Sprint line as control or chip row":
+  // the chip row stays the one control surface, #2080). They narrow the
+  // scope while the toggle is on.
   //
   // EACH CHIP COMES FROM `chipRow()`, not from an object built here (root
   // `CLAUDE.md`, "Every rendered state is a domain property"). Matched to
   // `sprints` by ARRAY POSITION: `chipRow()` returns one chip per entry of
   // `readings.sprint.sprints`, which `chipReadings` builds from the SAME
-  // `activeSprints` array `AgentList.tsx` passes as this `sprints` prop.
+  // owned sprints `AgentList.tsx` passes as this `sprints` prop.
   const perSprintChips = sprints.length > 1 ? chips.perSprint : [];
 
   return (
     <div data-delivery-filters className="space-y-1">
       <div className="flex flex-wrap items-center gap-2">
-        <ChipView chip={thisSprintChip} dataChip="This sprint" onToggle={onToggleSprint} />
+        <ChipView chip={mySprintChip} dataChip="My sprint" onToggle={onToggleSprint} />
         {perSprintChips.map((chip, index) => {
           const sprint = sprints[index];
           return (
@@ -156,47 +155,6 @@ export function DeliveryFilters({
           </span>
         )}
       </div>
-      {/* THE SPRINT LINE — one per Active sprint, each its own name, target,
-          timebox and item counts, never the estate's. `FleetSprintSchema`'s
-          own TSDoc: "Two teams may share one train... picking the newest
-          would silently hide a commitment" — so every Active sprint gets its
-          own line rather than one line summing them.
-
-          THE SPRINT NAME IS NOT A LINK. The plan's own Open Questions leaves
-          "does the sprint line link to the sprint file on the board, or to a
-          sprint view?" unresolved — the board has no sprint page today — so
-          this renders plain text rather than guessing a destination.
-
-          NO AGGREGATE "shown without a plan" COUNT. The old `SprintFilter`
-          printed `N rows hidden · M shown without a plan` beside the late-
-          timebox signal below; this line carries only the hidden count (via
-          the chip) and the timebox. Checked against issue #2476/#2086: the
-          drop was never a settled decision, it is a gap neither merged slice
-          of this plan closed. It stays dropped here rather than restored,
-          because the ESTATE-WIDE figure the old control summed has no
-          equivalent left to sum FROM — `rowIsSprintExempt` still marks each
-          exempt row individually (`AgentList.tsx`'s `sprintExempt` prop), so
-          the per-row fact survived; only the aggregate did not. Restoring it
-          needs a new domain-level count alongside `chipRow()`'s hidden count,
-          which is a chip-row change and out of this branch's scope. */}
-      {sprints.map((sprint) => (
-        <div key={sprint.slug} data-sprint-report={sprint.slug} className="px-1 text-xs text-slate-500 dark:text-slate-400">
-          <span className="font-medium text-slate-700 dark:text-slate-200">Sprint:</span>{' '}
-          {sprint.title}
-          {sprint.release && <span> · target {sprint.release}</span>}
-          {sprint.timeboxLabel && (
-            <span
-              data-sprint-timebox={sprint.slug}
-              data-timebox={sprint.timebox}
-              className={sprint.timebox === 'late' ? 'font-medium text-amber-700 dark:text-amber-500' : undefined}
-            >
-              {' · '}{sprint.timeboxLabel}
-            </span>
-          )}
-          {' — '}
-          {formatCounts(sprint.counts, 'items')}
-        </div>
-      ))}
     </div>
   );
 }
