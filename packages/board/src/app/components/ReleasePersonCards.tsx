@@ -26,7 +26,7 @@ export function ReleasePersonCards({ cards }: { cards: readonly PersonCard[] }) 
   return (
     <div data-person-cards className="flex flex-wrap gap-2 px-3">
       {cards.map((card) => (
-        <div key={card.key || 'no-owner'} data-person-card={card.key} className="min-w-48 space-y-1 rounded-lg border border-slate-200 bg-white p-2 text-xs dark:border-slate-800 dark:bg-slate-900/40">
+        <div key={card.key === '' ? 'none' : `owner:${card.key}`} data-person-card={card.key} className="min-w-48 space-y-1 rounded-lg border border-slate-200 bg-white p-2 text-xs dark:border-slate-800 dark:bg-slate-900/40">
           <p data-person-card-label className="font-medium text-slate-700 dark:text-slate-200">{card.label}</p>
           {card.sprints.map((sprint) => (
             <div key={sprint.slug} data-person-card-sprint={sprint.slug} className="space-y-0.5">

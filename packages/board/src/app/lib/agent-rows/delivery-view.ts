@@ -27,7 +27,7 @@ import {
   type Unplaced,
 } from '@plot-pm/domain';
 import type { AgentRow, DraftPlan, FleetSprint, IssueRow, Slice } from '../../../contract/schema.js';
-import { agentLabel, sliceItemId, type DeliveryMapping, type RegistryAgent } from './delivery-readings.js';
+import { agentLabel, draftItemId, sliceItemId, type DeliveryMapping, type RegistryAgent } from './delivery-readings.js';
 import { itemRowFactsOf } from './delivery-row-facts.js';
 import { isStartable, isUnbegun } from './row-identity.js';
 import { groupBySlice, type SliceGroup } from './slices.js';
@@ -517,8 +517,15 @@ export const deliveryView = (
     const planFile = own.flatMap((x) => mapping.rowsByItem[ids[x.name]!] ?? []).find((r) => r.planFile !== '')?.planFile ?? '';
     return { ...planRowFacts(plan, ownerOf(plan), facts), anchors, itemIds: ids, planFile };
   };
-  // The sprint bars read every row's merge answer; a plan with no counted slice has none, so its bar reads missing.
+  const DRAFT_ID_PREFIX = draftItemId('');
+  // The person cards' bars read the counted slices per plan, as the sprint card does (`countedSlicesByPlan`).
+  // A plan with a row, a Draft card or a slice the pulse carries has an entry, `[]` where it holds no counted
+  // slice. A plan the payload read nothing for has no entry, so its bar reads missing.
+  const draftPlans = mapping.wholeReadings.items.filter((i) => i.id.startsWith(DRAFT_ID_PREFIX)).map((i) => i.id.slice(DRAFT_ID_PREFIX.length));
   const slicesByPlan = new Map<string, CountedSlice[]>();
+  for (const plan of [...Object.values(mapping.rowsByItem).flat().map((r) => r.plan), ...draftPlans, ...(slices ?? []).map((s) => s.plan)]) {
+    if (plan !== '' && !slicesByPlan.has(plan)) slicesByPlan.set(plan, []);
+  }
   for (const s of counted) {
     const id = sliceItemId(s.plan, s.name);
     const delivered = mapping.wholeReadings.items.find((i) => i.id === id)?.delivered === true;

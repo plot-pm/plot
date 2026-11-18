@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { DELIVERY_LAYOUT } from '@plot-pm/domain';
-import type { AgentRow, Slice } from '../../src/contract/schema.js';
-import { deliveryMapping, type RegistryAgent } from '../../src/app/lib/agent-rows/delivery-readings.js';
+import { DELIVERY_LAYOUT, parsePersonDirectory } from '@plot-pm/domain';
+import type { AgentRow, DraftPlan, Slice } from '../../src/contract/schema.js';
+import { deliveryMapping, sprintCardViewOf, type RegistryAgent } from '../../src/app/lib/agent-rows/delivery-readings.js';
 import { GLYPH_PATH } from '../../src/app/lib/glyphs.js';
 import { groupAnchor, nestItems, placeMapping, planBlockShown, summarise, type PlacedItemView } from '../../src/app/lib/agent-rows/delivery-view.js';
 
@@ -127,6 +127,28 @@ describe('delivery view nesting', () => {
       const sprints = [{ slug: 's1', title: 'One', release: '2.0', members: [{ slug: 'p1' }] }];
       const v = planView(rows, slices, sprints as never[]);
       expect(v.releaseBlocks[0]!.cards.map((c) => [c.label, c.sprints.map((x) => x.slug)])).toEqual([['no owner', ['s1']]]);
+    });
+
+    it('draws the same bar on the person card as on the sprint card for a sprint with a Draft member', () => {
+      const slices = [mergedSlice('p1', 'a')];
+      const input = {
+        rows: slices.map((s) => merged(s.plan, s.name)),
+        slices,
+        agents: [],
+        drafts: [{ plan: 'p2', planFile: 'p2.md', title: '', issues: [], assignee: '', author: '', approver: '' }] as unknown as DraftPlan[],
+        reader: { hostUser: 'jwloka', directory: parsePersonDirectory('jwloka = Jan Wloka') },
+        mode: 'all' as const,
+        config: { autoReview: true, correctionBudget: 2 },
+      };
+      const sprint = {
+        slug: 's1', title: 'One', release: '2.0', end: '', ownerHandle: 'jwloka',
+        members: [{ slug: 'p1', tier: 'must' as const, checked: false, known: true }, { slug: 'p2', tier: 'must' as const, checked: false, known: true }],
+      };
+      const sprintCard = sprintCardViewOf([sprint], input.reader, input).cards[0]!;
+      const personBar = placeMapping(deliveryMapping(input), slices, [sprint] as never[]).releaseBlocks[0]!.cards[0]!.sprints[0]!;
+      expect(sprintCard.bar).not.toBeNull();
+      expect(personBar.readingMissing).toBe(false);
+      expect(personBar.bar).toEqual(sprintCard.bar);
     });
 
     it('says progress not read where no slice has a reading', () => {
