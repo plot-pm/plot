@@ -156,7 +156,7 @@ describe('the two fleet controls (real browser renders the shipped artifact)', (
         const read = (sel: string) => {
           const el = document.querySelector(sel);
           const column = el?.closest('[data-fleet-control-column]');
-          const h2 = column?.parentElement;
+          const h2 = column?.closest('h2');
           if (!column || !h2) return null;
           const c = column.getBoundingClientRect();
           const h = h2.getBoundingClientRect();
@@ -184,6 +184,33 @@ describe('the two fleet controls (real browser renders the shipped artifact)', (
       // arithmetic claim above while rendering nothing an operator can hit.
       expect(sw.width).toBeGreaterThan(0);
       expect(st.width).toBeGreaterThan(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('holds the switches and the stepper in the Fleet heading and none in the section body', async () => {
+    const { page } = await open(fleet({ autoDispatch: false, parallelAgents: 3 }));
+    try {
+      const switches = '[data-fleet-auto-dispatch], [data-fleet-auto-switch], [data-fleet-parallel-agents]';
+      expect(await page.locator('#fleet-controls').count()).toBe(1);
+      expect(await page.locator('[data-delivery-section="fleet"] #fleet-controls').count()).toBe(1);
+      expect(await page.locator('[data-delivery-section="fleet"] ' + switches.split(', ').join(', [data-delivery-section="fleet"] ')).count()).toBe(5);
+      // Everything under the Fleet section that is not its heading holds no switch.
+      expect(await page.locator('[data-section="fleet"] > :not(div:first-child) ' + switches.split(', ').join(', [data-section="fleet"] > :not(div:first-child) ')).count()).toBe(0);
+      expect(await page.locator('#fleet-controls [data-fleet-auto-switch]').count()).toBe(3);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('shows the output tokens of today in the heading, from the payload', async () => {
+    const payload = { ...fleet({ autoDispatch: false, parallelAgents: 3 }), tokensToday: { text: '842 output tokens today, finished runs', title: 'cache read tokens: 5M' } } as Fleet;
+    const { page } = await open(payload);
+    try {
+      const figure = page.locator('[data-delivery-section="fleet"] [data-fleet-tokens-today]');
+      expect((await figure.textContent())?.trim()).toBe('· 842 output tokens today, finished runs');
+      expect(await figure.getAttribute('title')).toContain('cache read tokens: 5M');
     } finally {
       await page.close();
     }

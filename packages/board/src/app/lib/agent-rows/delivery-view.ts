@@ -3,6 +3,7 @@ import {
   isStuckReason,
   oldestWaitsClause,
   WORK_GROUP_COLUMN,
+  fleetCountText,
   workGroupCountText,
   type WorkItemGroup,
   placeDelivery,
@@ -168,7 +169,7 @@ export const summarise = (groups: readonly GroupView[], section?: DeliverySectio
     key: g.key,
     label: g.label,
     count: g.count,
-    text: section === 'work-items' ? workGroupCountText(g.label, g.count) : `${g.label} ${g.count}`,
+    text: section === 'work-items' ? workGroupCountText(g.label, g.count) : section === 'fleet' ? fleetCountText(g.key, g.count) : `${g.label} ${g.count}`,
     anchor: g.count > 0 ? groupAnchor(g.key) : null,
   }));
 

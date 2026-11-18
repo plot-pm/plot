@@ -2,7 +2,7 @@
 // board pays for each: one stat per build, one parse or config read per change.
 import { describe, it, expect } from 'vitest';
 import { lastRunTokens } from '@plot-pm/domain';
-import { lastRunCache, workerBoundCache, workerBoundOf } from '../../src/server/agent-readings.js';
+import { spendCache, workerBoundCache, workerBoundOf } from '../../src/server/agent-readings.js';
 import { statCache } from '../../src/server/stat-cache.js';
 import { deliveryMapping, type RegistryAgent } from '../../src/app/lib/agent-rows/delivery-readings.js';
 import { agentRowFactsOf } from '../../src/app/lib/agent-rows/delivery-row-facts.js';
@@ -17,7 +17,7 @@ const runLine = (branch: string, over: Record<string, unknown> = {}) => JSON.str
 const counted = (keys: (string | null)[], lines: readonly string[] | null) => {
   const calls = { stat: 0, read: 0 };
   let i = 0;
-  const cache = lastRunCache(
+  const cache = spendCache(
     async () => { calls.stat++; return keys[Math.min(i++, keys.length - 1)] ?? null; },
     async () => { calls.read++; return lines === null ? { ok: false as const } : { ok: true as const, value: lines }; },
   );
@@ -29,7 +29,7 @@ describe('the spend record cache', () => {
     const lines = Array.from({ length: 8 }, (_, n) => runLine(`feature/a${n}`));
     const { calls, cache } = counted(['1:1'], lines);
     const build1 = await cache.get();
-    for (let n = 0; n < 8; n++) expect(lastRunTokens(build1, `feature/a${n}`, 'loop')!.outputTokens).toBe(2000);
+    for (let n = 0; n < 8; n++) expect(lastRunTokens(build1!.index, `feature/a${n}`, 'loop')!.outputTokens).toBe(2000);
     expect(calls).toEqual({ stat: 1, read: 1 });
     await cache.get();
     expect(calls).toEqual({ stat: 2, read: 1 });
@@ -44,9 +44,9 @@ describe('the spend record cache', () => {
 
   it('shows no figure for any agent on a failed read, and asks again on the next build', async () => {
     const { calls, cache } = counted(['1:1'], null);
-    const index = await cache.get();
-    expect(index).toBeNull();
-    expect(lastRunTokens(index, 'feature/a', 'loop')).toBeNull();
+    const spend = await cache.get();
+    expect(spend).toBeNull();
+    expect(lastRunTokens(spend === null ? null : spend.index, 'feature/a', 'loop')).toBeNull();
     await cache.get();
     expect(calls.read).toBe(2);
   });

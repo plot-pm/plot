@@ -1448,7 +1448,7 @@ export function AgentList({
               const release = section.key === 'release-delivery';
               const sectionPace = groupPace(release ? view.deliveredRows : section.rows, active);
               const { folded, header } = fold(section.key, release ? view.deliveredBlocks.length : section.count, (
-                <h2 data-delivery-section={section.key} className="flex items-baseline gap-1 text-base font-semibold text-slate-800 dark:text-slate-100">
+                <h2 data-delivery-section={section.key} className="flex min-w-0 flex-1 items-baseline gap-1 text-base font-semibold text-slate-800 dark:text-slate-100">
                   <svg aria-hidden="true" data-section-icon={section.icon} viewBox="0 0 16 16" width="16" height="16" fill="currentColor" className="inline-block shrink-0 self-center">
                     <path d={sectionGlyph(section)} />
                   </svg>{' '}
@@ -1467,11 +1467,26 @@ export function AgentList({
                         </span>
                       ))}
                       {section.oldest !== null && <span data-summary-oldest>{section.oldest}</span>}
+                      {section.key === 'fleet' && (
+                        <span data-fleet-tokens-today title={fleet?.tokensToday?.title ?? ''}>
+                          · {fleet?.tokensToday?.text ?? '—'}
+                        </span>
+                      )}
                     </span>
                   )}
                   {release && <span className="ml-1 font-normal text-slate-500">({view.deliveredBlocks.length})</span>}
                   {sectionPace && <ActivityMark pace={sectionPace} place="heading" />}
-                  <span data-section-controls className="ml-auto" />
+                  <span data-section-controls className="ml-auto">
+                    {section.key === 'fleet' && (
+                      <span id="fleet-controls" data-fleet-control-column className="flex flex-wrap items-center gap-3">
+                        <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
+                        <AutoSwitch name="autoReview" value={switches.autoReview} />
+                        <AutoSwitch name="autoVerify" value={switches.autoVerify} />
+                        <AutoSwitch name="autoDesign" value={switches.autoDesign} />
+                        <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} />
+                      </span>
+                    )}
+                  </span>
                 </h2>
               ));
               return (
@@ -1498,13 +1513,6 @@ export function AgentList({
                         hiddenByFilter={workersHiddenByFilter}
                         registry={fleet?.registry}
                       />
-                      <span id="fleet-controls" data-fleet-control-column className="ml-auto flex flex-wrap items-center gap-3">
-                        <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
-                        <AutoSwitch name="autoReview" value={switches.autoReview} />
-                        <AutoSwitch name="autoVerify" value={switches.autoVerify} />
-                        <AutoSwitch name="autoDesign" value={switches.autoDesign} />
-                        <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} />
-                      </span>
                       <FleetAlert supervisor={fleet?.supervisor} />
                     </div>
                   )}
