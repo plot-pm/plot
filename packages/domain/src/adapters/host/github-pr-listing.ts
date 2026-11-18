@@ -3,6 +3,7 @@ import type { RollupItem } from '../../rules/checks-of.js';
 import { githubPlainRow, githubRichRow, isTerminalRow, withAbsentVerdicts, type GhPullRequest } from '../../rules/github-pr-row.js';
 import { GH_PAGE_ROWS } from '../../rules/listing-page.js';
 import type { GithubApi, GithubReply } from './github-api.js';
+import { overlayCiRows, type CiBuildReader } from './ci-overlay.js';
 
 /** The `gh` version whose GraphQL requests this adapter sends, as recorded in the corpus fixtures. */
 export const GH_QUERIES_FROM = 'gh version 2.103.3 (2026-10-26)';
@@ -167,10 +168,16 @@ export interface GithubPrListing {
  * read, `possibly-truncated` for that state and every state not yet read, the
  * refusal, and `partial`; refused on its first page it answers `failed`.
  *
+ * Given a `ci` reader, a rich read overlays the CI system's checks on every
+ * row as the Jenkins arm of `plot-host.sh pr-list` does, and drops the rollup's
+ * `ciChecks` and `plotReview*` fields, which that arm never carries. A reader
+ * that cannot proceed answers `failed` with its reason and no rows.
+ *
  * @param api - the in-process GitHub client.
+ * @param ci - the CI reads; absent, a row's `checks` stays the rollup's.
  * @returns the listing.
  */
-export const githubPrListing = (api: GithubApi): GithubPrListing => {
+export const githubPrListing = (api: GithubApi, ci?: CiBuildReader): GithubPrListing => {
   let refusal: HostRefusal | null = null;
   let searchType: Promise<{ type: string } | { refusal: HostRefusal }> | null = null;
 
@@ -237,6 +244,17 @@ export const githubPrListing = (api: GithubApi): GithubPrListing => {
       : 'possibly-truncated';
 
   const listing = async (query: PrListingQuery): Promise<PrListing> => {
+    const read = await listed(query);
+    if (ci === undefined || (query.rich !== true && query.richOpen !== true) || read.answer === 'failed' || read.answer === 'unaskable') return read;
+    const overlaid = await overlayCiRows(read.rows, ci, 'colour-stands', query.boundShas);
+    if (!overlaid.ok) {
+      const complete: Record<string, PrListingCompleteness> = { [query.state]: 'possibly-truncated' };
+      return { answer: 'failed', rows: [], complete, refusal: { kind: 'failed', said: overlaid.said } };
+    }
+    return { ...read, rows: overlaid.rows };
+  };
+
+  const listed = async (query: PrListingQuery): Promise<PrListing> => {
     const unclaimed: Record<string, PrListingCompleteness> = { [query.state]: 'possibly-truncated' };
     const slug = api.origin.slug;
     if (slug === null) {
