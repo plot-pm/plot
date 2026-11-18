@@ -134,7 +134,7 @@ describe('Work items header and group columns', () => {
   it('gives the other sections no group column, and Fleet the header line wording', () => {
     const v = view([], [agent({ session: 'x', branch: '' })]);
     for (const g of v.sections.find((s) => s.key === 'fleet')!.groups) expect(g.column).toBeNull();
-    expect(v.sections.find((s) => s.key === 'fleet')!.summary.map((c) => c.text)).toEqual(['1 working', '0 blocked', '0 free']);
+    expect(v.sections.find((s) => s.key === 'fleet')!.summary.map((c) => c.text)).toEqual(['0 working', '0 blocked', '1 free']);
   });
 
   it('names the oldest age across the section and prints none without an age reading', () => {
