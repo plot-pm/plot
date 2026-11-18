@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   checkNamesOf,
   checksWaitMsOf,
@@ -26,6 +28,9 @@ import { refsRemoteGit } from '@plot-pm/domain/adapters/refs/refs-remote-git';
 import { sprintScopeRef } from '@plot-pm/domain/adapters/sprint-scope-ref';
 import { liveReviewRuns } from '@plot-pm/domain/adapters/review-start/review-start-node';
 import { baseBranchRed } from '@plot-pm/domain/rules/default-branch';
+import { shippedPathsOf } from '@plot-pm/domain/rules/bundle-commit';
+import { DEFAULT_RELEASE_DIR, syncPathSet } from '@plot-pm/domain/rules/state-sync';
+import { readUnsettled } from '@plot-pm/domain/workflows/unsettled-line';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { RunLogLine } from '@plot-pm/domain/ports/run-log';
 import type { RepairMergeReading } from '@plot-pm/domain/rules/repair-pr';
@@ -300,6 +305,31 @@ export const mergeTick = async (
 };
 
 /**
+ * The paths Plot's own commits change: the sync path set and the generated
+ * board bundles `packages/board/build.mjs` declares.
+ *
+ * @param opts - where the fleet acts.
+ * @returns the set; without a readable `build.mjs` it holds the sync paths only.
+ */
+export const plotPathSetOf = (opts: ActOptions): readonly string[] => {
+  const dirs = {
+    planDir: readConfig(opts, 'Plan directory', 'docs/plans/'),
+    activeIndex: readConfig(opts, 'Active index', 'docs/plans/active/'),
+    deliveredIndex: readConfig(opts, 'Delivered index', 'docs/plans/delivered/'),
+    sprintDir: readConfig(opts, 'Sprint directory', 'docs/sprints/'),
+    releaseDir: DEFAULT_RELEASE_DIR,
+  };
+  const build = join(opts.repoRoot, 'packages/board/build.mjs');
+  let shipped: readonly string[] = [];
+  try {
+    if (existsSync(build)) shipped = shippedPathsOf(readFileSync(build, 'utf8'));
+  } catch {
+    shipped = [];
+  }
+  return [...syncPathSet(dirs), ...shipped];
+};
+
+/**
  * Runs the merge tick on the daemon's loop.
  *
  * Reads the PR index, the default-branch reading, the active sprint's scope
@@ -352,6 +382,7 @@ export const runAutoMergePass = async (
     .sort((a, b) => Date.parse(b) - Date.parse(a));
   const checksWaitMs = checksWaitMsOf(readConfig(opts, 'Checks wait', '3600'));
   const remote = refsRemoteGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+  const plotPaths = plotPathSetOf(opts);
   const ports: MergePorts = {
     host,
     scripts,
@@ -367,7 +398,13 @@ export const runAutoMergePass = async (
     build: await buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
     checks: checkNamesOf(readConfig(opts, 'Default branch checks', '')),
     mergeChecks: checkNamesOf(readConfig(opts, 'Merge checks', '')),
+    plotPaths,
   };
+  // Read once per tick: the line depends on the reading, not on a PR.
+  const unsettled =
+    defaultBranch.settled?.state === 'green'
+      ? await readUnsettled(refs, defaultBranch.settled.sha, defaultBranch.headSha)
+      : undefined;
   const baseReadings = new Map<string, DefaultBranchReading | null>();
   for (const base of new Set(rows.map((row) => row.base ?? ''))) {
     if (base === '' || base === defaultBranch.branch) continue;
@@ -380,6 +417,8 @@ export const runAutoMergePass = async (
       defaultBranchName: defaultBranch.branch,
       baseReadings,
       newestMerged: merged[0] === undefined ? null : { mergedAt: merged[0] },
+      pathSet: plotPaths,
+      ...(unsettled === undefined ? {} : { unsettled }),
       scope,
       verdict: { read: 'absent' },
       defaultBranch,

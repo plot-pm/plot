@@ -14,6 +14,7 @@
 - **Rounds:** 2
 - **Approved:** 2026-11-16, Jan Wloka, plan-PR #3469 merged
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-you-groups`
+- **Started:** 2026-11-17, Jan Wloka, `feature/delivery-you-loose-prs`
 
 ## Changelog
 
@@ -115,7 +116,7 @@ Per slice, in slice order.
 
 ### Loose PRs
 
-- `feature/delivery-you-loose-prs` <!-- waits: feature/delivery-you-groups --> — a closed PR on an unnamed, unheld branch read as loose and placed under Unblock, with Delete and without Release, and each button's availability as a domain property <!-- builds: closed PRs as loose ends under Unblock -->
+- `feature/delivery-you-loose-prs` <!-- waits: feature/delivery-you-groups --> — a closed PR on an unnamed, unheld branch read as loose and placed under Unblock, with Delete and without Release, and each button's availability as a domain property <!-- builds: closed PRs as loose ends under Unblock --> → #3511
 
 ### Plan rows
 

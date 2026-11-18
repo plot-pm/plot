@@ -16,6 +16,7 @@
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-section-header`
 - **Started:** 2026-11-17, Jan Wloka, `feature/sprint-owner-field`
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-fleet-card`
+- **Started:** 2026-11-17, Jan Wloka, `feature/delivery-slice-states`
 
 ## Changelog
 
@@ -132,7 +133,7 @@ Per slice, in slice order.
 
 ### Slice states
 
-- `feature/delivery-slice-states` <!-- waits: feature/delivery-you-groups --> — the five-state slice classification in its fixed order, with its counts per plan, per release and per sprint, the per-slice merge answer exported from `deliverable.ts`, and the five-state Blocked count on the Release delivery line <!-- builds: a five-state slice delivery classification -->
+- `feature/delivery-slice-states` <!-- waits: feature/delivery-you-groups --> — the five-state slice classification in its fixed order, with its counts per plan, per release and per sprint, the per-slice merge answer exported from `deliverable.ts`, and the five-state Blocked count on the Release delivery line <!-- builds: a five-state slice delivery classification --> → #3513
 
 ### Sprint card
 

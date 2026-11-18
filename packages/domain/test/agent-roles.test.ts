@@ -7,7 +7,7 @@ import { REVIEW_START_GRACE_MS } from '../src/rules/review-run.js';
 const NOW = 1_000_000_000;
 
 const record = (inFlight?: { pid: number; startedAt: string }): FixerAttemptsRecord =>
-  ({ v: 1, attempts: [{ headSha: 'abc', ...(inFlight === undefined ? {} : { inFlight }) }] }) as unknown as FixerAttemptsRecord;
+  ({ v: 1, attempts: [{ headSha: 'abc', finding: { kind: 'ci', runId: 'r0' }, ...(inFlight === undefined ? {} : { inFlight }) }] }) as unknown as FixerAttemptsRecord;
 
 const live = (over: Partial<RoleReadings> = {}): RoleReadings => ({
   reviews: [{ entry: { pr: 7, head: 'abcdef123', pid: 5, startedAt: NOW - 1000, mode: 'review' }, pidAlive: true }],
@@ -101,5 +101,42 @@ describe('roleChip', () => {
 
   it('gives the eight roles eight distinct colour keys', () => {
     expect(new Set(roles.map((r) => roleChip(r).colour)).size).toBe(8);
+  });
+});
+
+describe('roleRuns: a fixer run\'s attempt', () => {
+  const att = (kind: 'ci' | 'high', extra: Record<string, unknown> = {}) => ({
+    headSha: 'abc',
+    finding: kind === 'ci' ? { kind, runId: 'r1' } : { kind, hash: 'h1' },
+    ...extra,
+  });
+  const flying = { inFlight: { pid: 6, startedAt: '2026-11-17T10:00:00Z' } };
+  const fixerOf = (attempts: unknown[]) =>
+    roleRuns(live({ fixers: [{ pr: 8, record: { v: 1, pr: 8, attempts } as unknown as FixerAttemptsRecord }] })).find((r) => r.role === 'fixer');
+
+  it('counts the in-flight attempt itself, so a first start reads 1', () => {
+    expect(fixerOf([att('ci', flying)])?.attempt).toBe(1);
+  });
+
+  it('counts on the kind in flight, not over every attempt', () => {
+    expect(fixerOf([att('ci'), att('high', flying)])?.attempt).toBe(1);
+    expect(fixerOf([att('ci'), att('ci', flying)])?.attempt).toBe(2);
+  });
+
+  it('spends nothing on an attempt whose start failed', () => {
+    expect(fixerOf([att('high', { start: 'failed' }), att('high', flying)])?.attempt).toBe(1);
+  });
+
+  it('leaves the attempt absent where nothing counts, never 0', () => {
+    const run = fixerOf([att('ci', { ...flying, start: 'failed' })]);
+    expect(run).toBeDefined();
+    expect(run).not.toHaveProperty('attempt');
+  });
+
+  it('puts the attempt on the fixer run and on no other run', () => {
+    const runs = roleRuns(live({ fixers: [{ pr: 8, record: { v: 1, pr: 8, attempts: [att('ci', flying)] } as unknown as FixerAttemptsRecord }] }));
+    expect(runs.map((r) => [r.role, r.attempt])).toEqual([
+      ['reviewer', undefined], ['fixer', 1], ['design', undefined], ['verify', undefined],
+    ]);
   });
 });

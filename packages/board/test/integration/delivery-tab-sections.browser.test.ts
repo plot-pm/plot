@@ -66,4 +66,53 @@ describe('the Delivery tab renders the five sections', () => {
       await page.close();
     }
   }, 60_000);
+
+  it('shows Work items counts that link to their group, and a column name under each group', async () => {
+    const page = await cat.open('a-full-estate', { tab: 'agents' });
+    try {
+      const header = page.locator('h2[data-delivery-section="work-items"]');
+      await header.waitFor({ timeout: 15_000 });
+      const link = header.locator('[data-summary-link]').first();
+      await link.waitFor({ timeout: 15_000 });
+      expect(await link.innerText()).toMatch(/^\d+ [a-z ]+$/);
+      const key = await link.getAttribute('data-summary-link');
+      await link.click();
+      await page.locator(`[data-group="${key}"][data-link-target]`).waitFor({ timeout: 5_000 });
+      const names = await page.locator('[data-section="work-items"] [data-column-header]').allTextContents();
+      expect(names.length).toBeGreaterThan(0);
+      for (const n of names) expect(['Gates', 'Progress', 'Waits on']).toContain(n);
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+
+  it('shows the At a gate cell as one mark per gate', async () => {
+    const page = await cat.open('a-full-estate', { tab: 'agents' });
+    try {
+      await page.locator('[data-delivery-section="work-items"]').waitFor({ timeout: 15_000 });
+      const cells = page.locator('[data-section="work-items"] [data-group="at-a-gate"] [data-row-cell="status"]');
+      await cells.first().waitFor({ timeout: 15_000 });
+      const texts = await cells.allInnerTexts();
+      const marked = texts.filter((t) => /CI [✓⟳✗]|review [✓⟳✗–]/.test(t));
+      expect(marked.length, `a gate mark among ${JSON.stringify(texts)}`).toBeGreaterThan(0);
+      for (const t of marked) expect(t).toMatch(/(CI [✓⟳✗])?( · )?(review [✓⟳✗–])?$/);
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+
+  it('shows a Progress cell and a Waits on cell', async () => {
+    const page = await cat.open('a-full-estate', { tab: 'agents' });
+    try {
+      await page.locator('[data-delivery-section="work-items"]').waitFor({ timeout: 15_000 });
+      const cell = (group: string) => page.locator(`[data-section="work-items"] [data-group="${group}"] [data-row-cell="status"]`);
+      const built = (await cell('being-built').allInnerTexts()).map((t) => t.trim()).filter((t) => t !== '');
+      const queued = (await cell('queued').allInnerTexts()).map((t) => t.trim()).filter((t) => t !== '');
+      expect(built.length + queued.length, `cells ${JSON.stringify({ built, queued })}`).toBeGreaterThan(0);
+      for (const t of built) expect(t).toMatch(/^(no PR yet|PR open)( · \d+ unpushed)?$/);
+      for (const t of queued) expect(t).not.toMatch(/^waits on /);
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
 });

@@ -6,7 +6,10 @@ import { youCaseOf, type AgentPlacement, type ItemPlacement } from '../src/rules
 import {
   ROW_COLUMNS,
   ageValue,
+  AGENT_COLUMNS,
   agentRowCells,
+  agentWaitsOn,
+  freeLine,
   deliveryRowForms,
   groupHeader,
   itemRowCells,
@@ -99,23 +102,23 @@ describe('links by row', () => {
     expect(itemRowCells(work('at-a-gate', [], 'pr'), { pr: 40 })!.by).toBeNull();
   });
 
-  it('agent: ITEM links to its panel, WHERE to the work item row, STATUS to its question, BY to who started it', () => {
+  it('agent: Agent links to its panel, Acting on to the work item row with the branch beneath, Waits on to its question', () => {
     const p: AgentPlacement = { id: 'agent-9', role: 'fixer', section: 'fleet', group: 'blocked', actsOn: 'slice:a', linked: true, blockedOn: 'person' };
-    const c = agentRowCells(p, { question: 'q-1', startedBy: 'fleetd', ageMinutes: 5 });
-    expect(c.kind).toEqual({ value: 'fixer', links: [] });
-    expect(c.item).toEqual({ value: 'agent-9', links: [{ to: 'agent', id: 'agent-9' }] });
-    expect(c.where).toEqual({ value: 'slice:a', links: [{ to: 'item', id: 'slice:a' }] });
-    expect(c.status).toEqual({ value: 'your answer', links: [{ to: 'question', id: 'q-1' }] });
-    expect(c.do).toBeNull();
-    expect(c.by).toEqual({ value: 'fleetd', links: [] });
-    expect(c.age).toEqual({ value: '5m', links: [] });
+    const c = agentRowCells(p, { question: 'q-1', branch: 'feature/x' });
+    expect(c.agent).toEqual({ value: 'agent-9', links: [{ to: 'agent', id: 'agent-9' }] });
+    expect(c.role).toEqual({ value: 'fixer', links: [] });
+    expect(c.actingOn).toEqual({ value: 'slice:a', links: [{ to: 'item', id: 'slice:a' }] });
+    expect(c.branch).toEqual({ value: 'feature/x', links: [{ to: 'branch', branch: 'feature/x' }] });
+    expect(c.doingLabel).toBe('Waits on');
+    expect(c.doing).toEqual({ value: 'person', links: [{ to: 'question', id: 'q-1' }] });
+    expect(c.tokens).toBeNull();
+    expect(c.timeLeft).toBeNull();
   });
+});
 
-  it('agent blocked on CI: STATUS names the gate and links to the log', () => {
-    const p: AgentPlacement = { id: 'a', role: 'loop', section: 'fleet', group: 'blocked', actsOn: 'x', linked: false, blockedOn: 'ci' };
-    const c = agentRowCells(p, { gateRef: '#3234' });
-    expect(c.status).toEqual({ value: 'CI #3234', links: [{ to: 'log', id: 'a' }] });
-    expect(c.where).toBeNull();
+describe('the six agent columns', () => {
+  it('are Agent, Role, Acting on, Doing now, Tokens, Time left', () => {
+    expect([...AGENT_COLUMNS]).toEqual(['agent', 'role', 'actingOn', 'doing', 'tokens', 'timeLeft']);
   });
 });
 
@@ -306,27 +309,93 @@ describe('the STATUS gate readings', () => {
 describe('agent rows, the other readings', () => {
   const agent = (over: Partial<AgentPlacement>): AgentPlacement =>
     ({ id: 'a', role: 'loop', section: 'fleet', group: 'working', actsOn: null, linked: false, blockedOn: null, ...over });
+  const blocked = (over: Partial<AgentPlacement> = {}): AgentPlacement => agent({ group: 'blocked', actsOn: 'x', linked: true, ...over });
 
-  it('shows a working agent by its group, linked to its log', () => {
-    expect(agentRowCells(agent({}), {}).status).toEqual({ value: 'working', links: [{ to: 'log', id: 'a' }] });
+  it('names what a loop agent does, with its commit count', () => {
+    expect(agentRowCells(agent({ actsOn: 'x', linked: true }), { commits: 4, lastCommit: 'add the thing' }).doing)
+      .toEqual({ value: 'writing code · 4 commits', links: [{ to: 'log', id: 'a' }] });
+    expect(agentRowCells(agent({ actsOn: 'x', linked: true }), { commits: 4, lastCommit: 'add the thing' }).doingDetail).toBe('add the thing');
+    expect(agentRowCells(agent({ actsOn: 'x', linked: true }), {}).doing!.value).toBe('writing code');
   });
 
-  it('names a gate with its reference, linked to the log where no question exists', () => {
-    expect(agentRowCells(agent({ blockedOn: 'ci' }), { gateRef: '#1' }).status).toEqual({ value: 'CI #1', links: [{ to: 'log', id: 'a' }] });
+  it('names a reviewer by its head and a fixer by its attempt', () => {
+    expect(agentRowCells(agent({ role: 'reviewer', actsOn: 'x' }), { reviewHead: '2d929a6' }).doing!.value).toBe('reviewing head 2d929a6');
+    expect(agentRowCells(agent({ role: 'fixer', actsOn: 'x' }), { fixerFinding: 'ci', fixerAttempt: 1 }).doing!.value).toBe('fixing CI ✗ · attempt 1 of 2');
+    expect(agentRowCells(agent({ role: 'reviewer', actsOn: 'x' }), {}).doing!.value).toBe('reviewing');
+    expect(agentRowCells(agent({ role: 'fixer', actsOn: 'x' }), { fixerFinding: 'high' }).doing!.value).toBe('fixing review ✗');
+    expect(agentRowCells(agent({ role: 'fixer', actsOn: 'x' }), {}).doing!.value).toBe('fixing');
+    const words: Record<string, string> = {
+      design: 'designing', verify: 'verifying', idea: 'writing the idea', brief: 'writing the brief', approver: 'approving',
+    };
+    for (const [role, word] of Object.entries(words)) {
+      expect(agentRowCells(agent({ role: role as never, actsOn: 'x' }), {}).doing!.value).toBe(word);
+    }
+    expect(agentRowCells(agent({ actsOn: 'x' }), { commits: 1 }).doing!.value).toBe('writing code · 1 commit');
   });
 
-  it('names the blocking gate for a person and for any other gate', () => {
-    expect(agentRowCells(agent({ blockedOn: 'person' }), {}).status!.value).toBe('your answer');
-    expect(agentRowCells(agent({ blockedOn: 'review' as never }), {}).status!.value).toBe('review');
+  it('shows no Doing now for an agent with no item', () => {
+    expect(agentRowCells(agent({}), {}).doing).toBeNull();
   });
 
-  it('links BY to a person, and to no one for fleetd', () => {
-    expect(agentRowCells(agent({}), { startedBy: 'jwloka' }).by).toEqual({ value: 'jwloka', links: [{ to: 'person', handle: 'jwloka' }] });
-    expect(agentRowCells(agent({}), {}).by).toBeNull();
+  it('leaves Acting on empty for an agent whose item has no row', () => {
+    expect(agentRowCells(agent({ actsOn: 'x', linked: false }), {}).actingOn).toBeNull();
   });
 
-  it('leaves WHERE empty for an agent whose item has no row', () => {
-    expect(agentRowCells(agent({ actsOn: 'x', linked: false }), {}).where).toBeNull();
+  it('puts the unnamed-desk text in the Agent tooltip and nowhere in the row text', () => {
+    const c = agentRowCells(agent({}), { unnamedDesk: 'no manifest names this desk' });
+    expect(c.agentTitle).toBe('no manifest names this desk');
+    expect(JSON.stringify({ ...c, agentTitle: null })).not.toContain('no manifest');
+  });
+
+  it('Waits on: CI running names ci and links to the checks page', () => {
+    const w = agentWaitsOn(blocked(), { pr: { ci: 'running', review: 'unread', checksUrl: 'https://h/checks', url: 'https://h/pr' } });
+    expect(w).toEqual({ gate: 'ci', cell: { value: 'CI', links: [{ to: 'url', url: 'https://h/checks' }] } });
+  });
+
+  it('Waits on: CI passed and review pending names review and links to the PR', () => {
+    const w = agentWaitsOn(blocked(), { pr: { ci: 'passed', review: 'pending', checksUrl: 'https://h/checks', url: 'https://h/pr' } });
+    expect(w).toEqual({ gate: 'review', cell: { value: 'review', links: [{ to: 'url', url: 'https://h/pr' }] } });
+  });
+
+  it('Waits on: CI and review name their gate with no link when the host gave no URL', () => {
+    expect(agentWaitsOn(blocked(), { pr: { ci: 'running', review: 'unread' } })).toEqual({ gate: 'ci', cell: { value: 'CI', links: [] } });
+    expect(agentWaitsOn(blocked(), { pr: { ci: 'passed', review: 'pending' } })).toEqual({ gate: 'review', cell: { value: 'review', links: [] } });
+  });
+
+  it('a blocked agent with no gate has an empty Waits on cell', () => {
+    expect(agentRowCells(blocked(), {}).doing).toBeNull();
+  });
+
+  it('Waits on: no CI reading is no gate, and unknown limit is neither exhausted nor free', () => {
+    expect(agentWaitsOn(blocked(), { pr: { ci: 'unread', review: 'unread' } })).toBeNull();
+    expect(agentWaitsOn(blocked(), {})).toBeNull();
+    expect(agentWaitsOn(blocked(), { rateLimit: 'unknown' })).toBeNull();
+    expect(agentWaitsOn(blocked(), { rateLimit: 'free' })).toBeNull();
+    expect(agentWaitsOn(blocked(), { rateLimit: 'exhausted' })!.gate).toBe('rate-limit');
+  });
+
+  it('Waits on: two true gates show one value, by the stated order', () => {
+    const both = { rateLimit: 'exhausted' as const, pr: { ci: 'running' as const, review: 'unread' as const } };
+    expect(agentWaitsOn(blocked(), both)!.gate).toBe('rate-limit');
+    expect(agentWaitsOn(blocked({ blockedOn: 'person' }), both)!.gate).toBe('person');
+  });
+
+  it('shows no Waits on outside Blocked', () => {
+    expect(agentWaitsOn(agent({}), { rateLimit: 'exhausted' })).toBeNull();
+  });
+});
+
+describe('the Free line', () => {
+  it('renders nothing for zero agents', () => {
+    expect(freeLine([])).toBeNull();
+  });
+
+  it('reads the singular for one agent', () => {
+    expect(freeLine(['a'])!.text).toBe('Free · 1 agent ready: a');
+  });
+
+  it('names every agent', () => {
+    expect(freeLine(['a', 'b', 'c'])!.text).toBe('Free · 3 agents ready: a, b, c');
   });
 });
 
@@ -336,9 +405,9 @@ describe('deliveryRowForms', () => {
       items: [work('queued'), { ...work('queued', [], 'plan'), id: 'plan:p' }],
       agents: [{ id: 'a', role: 'loop', section: 'fleet', group: 'working', actsOn: null, linked: false, blockedOn: null }],
     } as unknown as Parameters<typeof deliveryRowForms>[0];
-    const forms = deliveryRowForms(placement, () => ({ plan: 'p' }), () => ({ ageMinutes: 3 }));
+    const forms = deliveryRowForms(placement, () => ({ plan: 'p' }), () => ({ name: 'Ada' }));
     expect([...forms.items.keys()]).toEqual(['slice:a']);
-    expect(forms.agents.get('a')!.age).toEqual({ value: '3m', links: [] });
+    expect(forms.agents.get('a')!.agent).toEqual({ value: 'Ada', links: [{ to: 'agent', id: 'a' }] });
   });
 });
 

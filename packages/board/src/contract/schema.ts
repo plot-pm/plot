@@ -4064,6 +4064,15 @@ export const AgentEntrySchema = z.object({
    * how `Wave`/`Slice` drifted.
    */
   contextSpend: z.number().optional(),
+  /**
+   * The four counters of the agent's last finished run, from the spend record.
+   * Absent where the record holds no run line for the agent's branch and role,
+   * or could not be read: absent is not zero.
+   */
+  lastRun: z
+    .object({ inputTokens: z.number(), outputTokens: z.number(), cacheCreationTokens: z.number(), cacheReadTokens: z.number() })
+    .strict()
+    .optional(),
   lastActivity: z.string().optional(),
   /**
    * Where the desk belongs once its loop has ended, from `endedDeskPlacement`.
@@ -4407,6 +4416,8 @@ export const RoleRunSchema = z.object({
   startedAt: z.number().nullable(),
   /** Present on a design or verify run that stopped or failed. */
   stopped: z.object({ reason: z.string(), restart: z.string(), log: z.string() }).optional(),
+  /** A fixer run's attempt on the finding it answers, from 1; absent from an older server and from every other role. */
+  attempt: z.number().int().positive().optional(),
 });
 export type RoleRunPayload = z.infer<typeof RoleRunSchema>;
 
@@ -4996,6 +5007,13 @@ export const FleetShape = z.object({
    * an older server, so the client reads `?? []`.
    */
   roleRuns: z.array(RoleRunSchema).default([]),
+  /**
+   * The run bounds in seconds the Time left column measures against; `null`
+   * where the board could not read one. Absent from an older server.
+   */
+  bounds: z
+    .object({ worker: z.number().nullable(), reviewer: z.number().nullable(), fixer: z.number().nullable() })
+    .optional(),
   /**
    * Where the hub's copy of fleetd's snapshot stands. `mismatch` names both
    * protocol versions, with `theirs` absent where an older fleetd refused the

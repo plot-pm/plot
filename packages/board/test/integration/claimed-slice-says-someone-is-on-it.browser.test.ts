@@ -67,7 +67,8 @@ const OLDER_BRANCH = 'feature/older-server';
  * that already states it and the false sentence goes. See the PR body.
  */
 const ON_IT = 'someone is on it';
-const NO_WORKER = 'no known worker';
+// The Waits on cell of Queued names the missing agent; it replaced the startability word in this slot.
+const NO_WORKER = 'no agent assigned';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'a-plan', planFile: '2026-09-13-a-plan.md',

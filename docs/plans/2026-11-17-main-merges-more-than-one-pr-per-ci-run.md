@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-17, Jan Wloka, plan-PR #3503 merged
 - **Started:** 2026-11-17, Jan Wloka, `feature/the-settle-ignores-plot-commits`
+- **Started:** 2026-11-17, Jan Wloka, `feature/the-reading-settles-on-completion`
 
 ## Changelog
 
@@ -127,7 +128,7 @@ Per slice, in slice order.
 
 ### The reading settles on completion
 
-- `feature/the-reading-settles-on-completion` — the refresh asks a pending head again when its run's expected end passes; `Default branch checks` gains the job form `<workflow>/<job>`, and this repository declares `CI/validate` <!-- builds: an expected-end re-ask interval in default-branch-refresh.ts and a job form for Default branch checks -->
+- `feature/the-reading-settles-on-completion` — the refresh asks a pending head again when its run's expected end passes; `Default branch checks` gains the job form `<workflow>/<job>`, and this repository declares `CI/validate` <!-- builds: an expected-end re-ask interval in default-branch-refresh.ts and a job form for Default branch checks --> → #3514
 
 ### A red main names its PR
 

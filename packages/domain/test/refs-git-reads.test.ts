@@ -1144,19 +1144,23 @@ describe('refsGit: recordCommit reads at the oid it is given', () => {
 
 describe('refsGit: firstParentCommits', () => {
   it('follows first parents and marks a merge whose second parent lies outside the range', () => {
-    const out = ['m|tm|r2 side', 'r2|t2|r1', 'r1|t1|base'].join('\n');
+    const out = ['m|tm|r2 side|merge main', 'r2|t2|r1|second', 'r1|t1|base|first'].join('\n');
     expect(firstParentCommitsOf(out)).toEqual([
-      { sha: 'm', tree: 'tm', forward: true },
-      { sha: 'r2', tree: 't2', forward: false },
-      { sha: 'r1', tree: 't1', forward: false },
+      { sha: 'm', tree: 'tm', subject: 'merge main', forward: true },
+      { sha: 'r2', tree: 't2', subject: 'second', forward: false },
+      { sha: 'r1', tree: 't1', subject: 'first', forward: false },
     ]);
   });
 
+  it('keeps a subject that contains the separator whole', () => {
+    expect(firstParentCommitsOf('a|ta|base|fix: a|b||c|')).toEqual([{ sha: 'a', tree: 'ta', subject: 'fix: a|b||c|', forward: false }]);
+  });
+
   it('keeps a merge whose second parent is a commit of the range', () => {
-    const out = ['m|tm|a s', 's|ts|base', 'a|ta|base'].join('\n');
+    const out = ['m|tm|a s|m', 's|ts|base|s', 'a|ta|base|a'].join('\n');
     expect(firstParentCommitsOf(out)).toEqual([
-      { sha: 'm', tree: 'tm', forward: false },
-      { sha: 'a', tree: 'ta', forward: false },
+      { sha: 'm', tree: 'tm', subject: 'm', forward: false },
+      { sha: 'a', tree: 'ta', subject: 'a', forward: false },
     ]);
   });
 
@@ -1199,6 +1203,32 @@ describe('refsGit: firstParentCommits', () => {
       expect(await ahead()).toBe(2);
       const line = await refsGit({ repoRoot: dir, scriptDir: path.join(dir, 'scripts') }).firstParentCommits('main..state');
       expect(line.ok && line.value.map((c) => c.forward)).toEqual([true, false, false, true, false, false]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('refsGit: commitFiles with noRenames lists a rename source', () => {
+  it('lists only the destination by default and both paths with noRenames', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-refs-git-rename-'));
+    try {
+      git(dir, ['init', '--quiet', '--initial-branch=main']);
+      git(dir, ['config', 'user.email', 'test@example.com']);
+      git(dir, ['config', 'user.name', 'Test']);
+      fs.mkdirSync(path.join(dir, 'packages/x'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'docs/plans'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'packages/x/y.ts'), 'export const y = 1;\n'.repeat(20));
+      git(dir, ['add', '-A']);
+      git(dir, ['commit', '--quiet', '-m', 'code']);
+      git(dir, ['mv', 'packages/x/y.ts', 'docs/plans/y.ts']);
+      git(dir, ['commit', '--quiet', '-m', 'move']);
+      const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir }).toString().trim();
+      const adapter = refsGit({ repoRoot: dir, scriptDir: path.join(dir, 'scripts') });
+      const plain = await adapter.commitFiles(sha);
+      expect(plain.ok && [...plain.value]).toEqual(['docs/plans/y.ts']);
+      const strict = await adapter.commitFiles(sha, { noRenames: true });
+      expect(strict.ok && [...strict.value].sort()).toEqual(['docs/plans/y.ts', 'packages/x/y.ts']);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
