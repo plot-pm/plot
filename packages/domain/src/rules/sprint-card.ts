@@ -92,6 +92,48 @@ export interface SprintCardsView {
 const planDelivered = (slices: readonly CountedSlice[]): boolean =>
   slices.length > 0 && slices.every((s) => s.merge === 'merged');
 
+/** A sprint's counted members, the five-state counts over them, and the bar those counts draw. */
+export interface SprintBar {
+  /** The members that are not deferred. */
+  readonly counted: readonly SprintCardSprint['members'][number][];
+  /** The counts, or `undefined` where a named plan has no merge answer. */
+  readonly counts: SliceStateCounts | undefined;
+  /** Five segments in `SLICE_STATES` order, or `null` where `counts` is `undefined`. */
+  readonly bar: readonly BarSegment[] | null;
+  readonly total: number;
+  readonly readingMissing: boolean;
+}
+
+/**
+ * Counts one sprint's slices and draws its bar.
+ *
+ * A deferred member and a member the board did not find (`known: false`) add no slice.
+ * Where any named plan has no merge answer the bar is `null`, never a bar of zeros.
+ *
+ * @param sprint - the sprint's members.
+ * @param slicesByPlan - the counted slices per plan key.
+ * @param readings - the work items and agents as measured.
+ * @param input - the `Auto-review` key and the `Correction budget`.
+ */
+export const sprintBarOf = (
+  sprint: Pick<SprintCardSprint, 'members'>,
+  slicesByPlan: ReadonlyMap<string, readonly CountedSlice[] | undefined>,
+  readings: DeliveryReadings,
+  input: DeliveryInput,
+): SprintBar => {
+  const counted = sprint.members.filter((m) => m.tier !== 'deferred');
+  // A member the board did not find (renamed, deleted or dropped) has no merge answer to wait for.
+  const keys = counted.filter((m) => m.known !== false).map((m) => m.slug).filter((slug) => slug !== '');
+  const counts = countSliceStatesOver(slicesByPlan, keys, readings, input);
+  return {
+    counted,
+    counts,
+    bar: counts === undefined ? null : SLICE_STATES.map((state) => ({ state, count: counts[state] })),
+    total: counts?.total ?? 0,
+    readingMissing: counts === undefined,
+  };
+};
+
 /**
  * Reads the sprint card: the owned Active sprints, each with an end line, a
  * target release, a five-segment bar and progress per commitment tier.
@@ -118,10 +160,7 @@ export const sprintCards = (
 ): SprintCardsView => {
   const owned = sprints.filter((s) => sprintIsMine(s.ownerHandle, reader));
   const cards = owned.map((sprint): SprintCardView => {
-    const counted = sprint.members.filter((m) => m.tier !== 'deferred');
-    // A member the board did not find (renamed, deleted or dropped) has no merge answer to wait for.
-    const keys = counted.filter((m) => m.known !== false).map((m) => m.slug).filter((slug) => slug !== '');
-    const counts: SliceStateCounts | undefined = countSliceStatesOver(slicesByPlan, keys, readings, input);
+    const { counted, counts, bar, total, readingMissing } = sprintBarOf(sprint, slicesByPlan, readings, input);
     const tiers: TierProgress[] = [];
     if (counts !== undefined) {
       for (const tier of CARD_TIERS) {
@@ -140,11 +179,11 @@ export const sprintCards = (
       title: sprint.title,
       endLine: sprintEndLine(sprint.end),
       release: sprint.release,
-      bar: counts === undefined ? null : SLICE_STATES.map((state) => ({ state, count: counts[state] })),
-      total: counts?.total ?? 0,
+      bar,
+      total,
       tiers,
       tierLine: tiers.map((t) => t.text).join(' · '),
-      readingMissing: counts === undefined,
+      readingMissing,
     };
   });
   // An owned sprint needs a declared Owner, so `cards` is empty unless the directory exists.
