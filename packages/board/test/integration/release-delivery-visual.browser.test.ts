@@ -48,7 +48,7 @@ describe('the Release section matches its mockups (real browser renders the ship
       await word.waitFor({ timeout: 5_000 });
       expect(await word.textContent()).toBe('✓ merged');
       expect(await word.evaluate((n) => getComputedStyle(n).color)).toBe(await tokenColour(page, '--hue-green'));
-      const blocked = page.locator(`${RELEASE} [data-release-count="blocked"] b`).first();
+      const blocked = page.locator(`${RELEASE} [data-release-header-count="blocked"] b`).first();
       expect(await blocked.evaluate((n) => getComputedStyle(n).color)).toBe(await tokenColour(page, '--hue-red'));
     } finally {
       await page.close();

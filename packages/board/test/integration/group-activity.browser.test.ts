@@ -224,11 +224,13 @@ describe('a group heading carries the activity of the rows behind it', () => {
 
   it('leaves a collapsed group with NO active row unmarked', async () => {
     // The negative, and it is what makes the positive mean anything: a heading
-    // that always shows the mark says nothing at all. Release delivery never
-    // folds, so it carries no toggle and no mark.
+    // that always shows the mark says nothing at all. Release delivery holds no
+    // active row here, so folded it carries no mark.
     const page = await open();
     await page.locator('[data-delivery-section="release-delivery"]').waitFor({ timeout: 10_000 });
-    expect(await toggleFor(page, 'release-delivery').count()).toBe(0);
+    // The header row is the toggle; its left edge is the ▾ glyph, clear of the count links.
+    await toggleFor(page, 'release-delivery').click({ position: { x: 4, y: 8 } });
+    await expect.poll(() => toggleFor(page, 'release-delivery').getAttribute('aria-expanded')).toBe('false');
     expect(await markInHeading(page, 'release-delivery').count()).toBe(0);
   });
 
