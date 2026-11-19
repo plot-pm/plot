@@ -1,0 +1,88 @@
+<h2>Release delivery folds to its header line</h2>
+<p class="subtitle">The section header is the toggle. Open by default, as the 2026-11-16 mockups show it. Folded, the section is its header line alone: the release, the slice counts and the blocked count, each number a link. The plan rows keep their own fold.</p>
+
+<style>
+  .dt { background:#0b1020; color:#d7dbe7; font:13px/1.45 -apple-system,system-ui,sans-serif; border-radius:10px; padding:16px; margin-bottom:14px; border:1px solid #232c46; }
+  .dt .muted { color:#8a93a8; } .dt .link { color:#7aa2ff; text-decoration:none; } .dt .ok { color:#4ade80; } .dt .amber { color:#fbbf24; }
+  .label { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:#6b7490; margin:18px 0 6px; }
+  .shead { display:flex; align-items:baseline; gap:14px; padding-bottom:8px; border-bottom:1px solid #232c46; flex-wrap:wrap; cursor:pointer; }
+  .shead.folded { border-bottom:none; padding-bottom:0; }
+  .shead .tw { color:#8a93a8; width:12px; display:inline-block; }
+  .shead .t { font-size:15px; font-weight:650; color:#fff; }
+  .shead .rel { color:#c9d2ea; font-weight:600; }
+  .sum { display:flex; gap:14px; flex-wrap:wrap; }
+  .sum a { text-decoration:none; }
+  .n { font-weight:700; margin-right:3px; }
+  .red { color:#f87171; }
+  table { width:100%; border-collapse:collapse; margin-top:6px; }
+  th { text-align:left; font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:#6b7490; font-weight:600; padding:4px 8px; border-bottom:1px solid #232c46; }
+  td { padding:8px; border-bottom:1px solid #1a2238; vertical-align:top; }
+  .phase { display:inline-block; padding:1px 8px; border-radius:9px; font-size:11px; background:#2a2350; color:#c4b5fd; }
+  .strip { display:inline-block; width:22px; height:8px; border-radius:2px; background:#4ade80; margin-right:6px; vertical-align:middle; }
+  .strip.gate { background:#fbbf24; } .strip.block { background:#f87171; }
+  .note { color:#8a93a8; font-size:12px; margin-top:6px; }
+</style>
+
+<div class="label">Open (default)</div>
+<div class="dt">
+  <div class="shead" role="button" aria-expanded="true">
+    <span class="tw">▾</span>
+    <span class="t">Release delivery</span>
+    <span class="rel">2.35.0</span>
+    <span class="sum">
+      <a href="#"><span class="n">3</span><span class="muted">plans</span></a>
+      <a href="#"><span class="n ok">3</span><span class="muted">of 3 slices delivered</span></a>
+      <a href="#"><span class="n red">0</span><span class="muted">blocked</span></a>
+    </span>
+  </div>
+  <table>
+    <tr><th>Plan</th><th style="width:110px">Phase</th><th style="width:200px">Slices</th><th style="width:110px">Owner</th></tr>
+    <tr><td>▸ <a class="link" href="#"><b>#3495 a-quoted-separator-splits-nothing</b></a></td><td><span class="phase">Testing</span></td><td><span class="strip"></span><span class="muted">1 / 1 delivered</span></td><td class="muted">jwloka</td></tr>
+    <tr><td>▸ <a class="link" href="#"><b>#3489 #2531 approve-and-deliver-run-without-a-board</b></a></td><td><span class="phase">Testing</span></td><td><span class="strip"></span><span class="muted">1 / 1 delivered</span></td><td class="muted">jwloka</td></tr>
+  </table>
+</div>
+
+<div class="label">Folded</div>
+<div class="dt">
+  <div class="shead folded" role="button" aria-expanded="false">
+    <span class="tw">▸</span>
+    <span class="t">Release delivery</span>
+    <span class="rel">2.35.0</span>
+    <span class="sum">
+      <a href="#"><span class="n">3</span><span class="muted">plans</span></a>
+      <a href="#"><span class="n ok">3</span><span class="muted">of 3 slices delivered</span></a>
+      <a href="#"><span class="n red">0</span><span class="muted">blocked</span></a>
+    </span>
+  </div>
+</div>
+
+<div class="label">Folded, release in progress</div>
+<div class="dt">
+  <div class="shead folded" role="button" aria-expanded="false">
+    <span class="tw">▸</span>
+    <span class="t">Release delivery</span>
+    <span class="rel">2.36.0</span>
+    <span class="sum">
+      <a href="#"><span class="n">8</span><span class="muted">plans</span></a>
+      <a href="#"><span class="n ok">12</span><span class="muted">of 18 slices delivered</span></a>
+      <a href="#"><span class="n amber">3</span><span class="muted">at a gate</span></a>
+      <a href="#"><span class="n red">1</span><span class="muted">blocked</span></a>
+    </span>
+  </div>
+  <div class="note">A number links to the rows it counts and opens the section. A count of 0 shows and is not a link.</div>
+</div>
+
+<div class="label">Folded, My sprint on</div>
+<div class="dt">
+  <div class="shead folded" role="button" aria-expanded="false">
+    <span class="tw">▸</span>
+    <span class="t">Sprint delivery</span>
+    <span class="rel">bug-fixes-2-36-0</span>
+    <span class="sum">
+      <a href="#"><span class="n">4</span><span class="muted">plans</span></a>
+      <a href="#"><span class="n ok">5</span><span class="muted">of 9 slices delivered</span></a>
+      <a href="#"><span class="n red">0</span><span class="muted">blocked</span></a>
+    </span>
+  </div>
+  <div class="note">The fold is one stored key for the section, whichever toggle state names it.</div>
+</div>

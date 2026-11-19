@@ -1,0 +1,1 @@
+../2026-11-19-release-delivery-folds-to-its-header.md
