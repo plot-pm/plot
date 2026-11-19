@@ -142,8 +142,7 @@ export const mergedWords = (mergedAt: string | undefined, now: Date | undefined)
   if (now === undefined) return undefined;
   const at = mergedAt === undefined ? Number.NaN : new Date(mergedAt).getTime();
   if (Number.isNaN(at)) return undefined;
-  const text = storyDateText(mergedAt, new Date(Math.max(now.getTime(), at)));
-  return text === null ? undefined : `merged ${text}`;
+  return `merged ${storyDateText(mergedAt, new Date(Math.max(now.getTime(), at)))!}`;
 };
 
 /**
