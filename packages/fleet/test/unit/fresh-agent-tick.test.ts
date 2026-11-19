@@ -1359,6 +1359,46 @@ describe('freshAgentDeskReads', () => {
   });
 });
 
+describe('readFreshAgentCandidates asks a bound desk\'s work only where it decides', () => {
+  const counting = (merged: PrMergedReading) => {
+    const asked = { prOpen: 0, commitBeyondClaim: 0 };
+    const asks: FreshAgentAskReads = {
+      ...noAsks,
+      prMerged: async () => merged,
+      prOpen: async () => {
+        asked.prOpen += 1;
+        return false;
+      },
+      commitBeyondClaim: async () => {
+        asked.commitBeyondClaim += 1;
+        return 'no';
+      },
+    };
+    return { asked, asks };
+  };
+  const unreadable = (_worktree: string, name: string) => (name === ENDING_FILENAME ? endingFile('unreadable') : null);
+
+  it('asks no open-PR and no commit question for an unreadable ending whose PR merged', async () => {
+    const { asked, asks } = counting('merged');
+    const [reading] = await readFreshAgentCandidates([tree()], unreadable, emptyStore, noHeldFiles, noMarker, asks);
+    expect(asked).toEqual({ prOpen: 0, commitBeyondClaim: 0 });
+    expect(freshAgentDecisions([reading!], 2)[0]?.verdict).toBe('leave');
+  });
+
+  it('asks no open-PR question for a marked unreadable desk', async () => {
+    const { asked, asks } = counting('not-merged');
+    await readFreshAgentCandidates([tree()], unreadable, emptyStore, noHeldFiles, async () => true, asks);
+    expect(asked.prOpen).toBe(0);
+  });
+
+  it('still asks both for an unmerged, unmarked unreadable ending', async () => {
+    const { asked, asks } = counting('not-merged');
+    const [reading] = await readFreshAgentCandidates([tree()], unreadable, emptyStore, noHeldFiles, noMarker, asks);
+    expect(asked).toEqual({ prOpen: 1, commitBeyondClaim: 1 });
+    expect(freshAgentDecisions([reading!], 2)[0]?.verdict).toBe('release-claim');
+  });
+});
+
 describe('prMergedReading', () => {
   it('reads merged and not-merged as the host said, and a failed or unknown answer as unanswerable — never merged', () => {
     expect(prMergedReading({ ok: true, value: 'merged' })).toBe('merged');
