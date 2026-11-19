@@ -53,6 +53,14 @@ On push to `main`:
    - `--admin` is a named exception, not the routine: record each use in the release PR with its reason.
 5. When that PR merges, the action's `publish` step runs `create-release.sh`, which tags the commit (`vX.Y.Z` plus `<skill>@<version>` for each skill) and creates a GitHub Release with the changelog.
 
+## What users install
+
+The marketplace's `plot` entry installs from `https://github.com/plot-pm/plot.git` at `ref` `vX.Y.Z`, not from the marketplace clone, which follows `main`. `sync-versions.sh` writes the ref beside the version, so the release PR names the tag that `create-release.sh` pushes after the merge. Claude Code fetches a new copy only when the version string changes, and the ref decides which commit that copy holds.
+
+Between the merge of the release PR and the tag push (57 to 60 s for v2.32.0 to v2.34.0), an update fails with `Remote branch vX.Y.Z not found` and keeps the installed version. If the release job fails before it tags, every update fails the same way until the tag exists.
+
+The `plot-follow` mod keeps its relative source `./mods/plot-follow`, so it installs from `main`.
+
 ## Local commands
 
 | Command | Purpose |
