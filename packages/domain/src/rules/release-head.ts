@@ -18,8 +18,8 @@ export type ReleaseHeadVerdict =
   | { read: 'unaskable' };
 
 const VERSION_JSON_LINE = /^\s*"version":\s*"([^"]*)",?\s*$/;
-const REF_JSON_LINE = /^\s*"ref":\s*"([^"]*)",?\s*$/;
-const VERSION_OR_REF_JSON_LINE = /^\s*"(?:version|ref)":\s*"[^"]*",?\s*$/;
+const MARKETPLACE_LINE = /^(\s*)"(version|ref)":\s*"([^"]*)",?\s*$/;
+const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const SKILL_VERSION_LINE = /^ {2}version:\s*\S+\s*$/;
 
 /** Whether every changed line is a replaced version line: as many added as removed, each matching. */
@@ -34,22 +34,35 @@ const onlyVersionLines = (change: FileChange, isVersion: RegExp, section?: strin
   );
 };
 
+/** The semver version the head writes into the root `package.json`, or `undefined` where it writes none. */
+const releaseVersion = (reading: readonly FileChange[]): string | undefined => {
+  const pkg = reading.find((change) => change.path === 'package.json');
+  const values = (pkg?.hunks ?? []).flatMap((hunk) => hunk.added.flatMap((line) => VERSION_JSON_LINE.exec(line)?.[1] ?? []));
+  return values.length === 1 && SEMVER.test(values[0]) ? values[0] : undefined;
+};
+
 /**
- * Whether a marketplace change replaces only version lines and release-tag refs,
- * where every added ref is `v` followed by a version the same change adds.
+ * Whether a marketplace change replaces `version` and `ref` lines one for one,
+ * each added line keeping the key and indentation of the line it replaces, and
+ * every added ref reading `v<release>`.
  */
-const onlyVersionAndTagLines = (change: FileChange): boolean => {
-  if (!onlyVersionLines(change, VERSION_OR_REF_JSON_LINE)) return false;
-  const added = change.hunks.flatMap((hunk) => hunk.added);
-  const versions = new Set(added.flatMap((line) => VERSION_JSON_LINE.exec(line)?.[1] ?? []));
-  return added.every((line) => {
-    const ref = REF_JSON_LINE.exec(line)?.[1];
-    return ref === undefined || (ref.startsWith('v') && versions.has(ref.slice(1)));
-  });
+const onlyVersionAndTagLines = (change: FileChange, release: string | undefined): boolean => {
+  if (change.status !== 'modified' || change.hunks.length === 0) return false;
+  return change.hunks.every(
+    (hunk) =>
+      hunk.added.length > 0 &&
+      hunk.added.length === hunk.removed.length &&
+      hunk.added.every((line, i) => {
+        const added = MARKETPLACE_LINE.exec(line);
+        const removed = MARKETPLACE_LINE.exec(hunk.removed[i]);
+        if (added === null || removed === null || added[1] !== removed[1] || added[2] !== removed[2]) return false;
+        return added[2] === 'version' || (release !== undefined && added[3] === `v${release}`);
+      }),
+  );
 };
 
 /** Whether the changesets version step may write this change. */
-const writtenByVersionStep = (change: FileChange): boolean => {
+const writtenByVersionStep = (change: FileChange, release: string | undefined): boolean => {
   const { path } = change;
   if (/^\.changeset\/[^/]+\.md$/.test(path)) {
     return change.status === 'deleted' && path !== '.changeset/README.md';
@@ -64,7 +77,7 @@ const writtenByVersionStep = (change: FileChange): boolean => {
     return onlyVersionLines(change, VERSION_JSON_LINE);
   }
   if (path === '.claude-plugin/marketplace.json') {
-    return onlyVersionAndTagLines(change);
+    return onlyVersionAndTagLines(change, release);
   }
   if (/^skills\/[^/]+\/SKILL\.md$/.test(path)) {
     return onlyVersionLines(change, SKILL_VERSION_LINE, 'metadata:');
@@ -78,9 +91,11 @@ const writtenByVersionStep = (change: FileChange): boolean => {
  * The version step deletes `.changeset/*.md` changesets, rewrites changelogs,
  * and replaces the `version` line of the package manifests, the plugin
  * metadata and each skill's `metadata.version`. In `marketplace.json` it also
- * replaces the `ref` line of an entry's source, and each added ref must be
- * `v<version>` for a version the same change adds. Any other change, including
- * a dependency line beside a version line, is foreign. `.changeset/README.md`,
+ * replaces the `ref` line of an entry's source: each added ref must read
+ * `v<version>`, where `<version>` is the semver version the head writes into
+ * the root `package.json`, and each replaced line keeps its key and
+ * indentation. Any other change, including a dependency line beside a version
+ * line, is foreign. `.changeset/README.md`,
  * `config.json` and every non-markdown file there stay untouched.
  *
  * @param reading - the head's changes against its merge base with the default branch.
@@ -89,6 +104,7 @@ const writtenByVersionStep = (change: FileChange): boolean => {
 export const releaseHeadVerdict = (reading: ReleaseHeadReading): ReleaseHeadVerdict => {
   if (reading === 'unaskable') return { read: 'unaskable' };
   if (reading.length === 0) return { read: 'empty' };
-  const foreign = reading.find((change) => !writtenByVersionStep(change));
+  const release = releaseVersion(reading);
+  const foreign = reading.find((change) => !writtenByVersionStep(change, release));
   return foreign === undefined ? { read: 'clean' } : { read: 'foreign', path: foreign.path };
 };

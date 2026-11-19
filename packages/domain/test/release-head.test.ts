@@ -62,24 +62,39 @@ describe('releaseHeadVerdict', () => {
         { section: '', removed: ['        "ref": "v2.30.0"'], added: ['        "ref": "v2.31.0"'] },
       ],
     });
-    expect(releaseHeadVerdict([split])).toEqual({ read: 'clean' });
+    expect(releaseHeadVerdict([version('package.json'), split])).toEqual({ read: 'clean' });
   });
 
   it('passes a marketplace.json that replaces its version line alone', () => {
     expect(releaseHeadVerdict([version('.claude-plugin/marketplace.json')])).toEqual({ read: 'clean' });
   });
 
-  it('refuses a marketplace ref that names anything but the tag of the version it writes', () => {
-    expect(releaseHeadVerdict([marketplace('v9.9.9')])).toEqual({ read: 'foreign', path: '.claude-plugin/marketplace.json' });
-    expect(releaseHeadVerdict([marketplace('main')]).read).toBe('foreign');
-    expect(releaseHeadVerdict([marketplace('2.31.0')]).read).toBe('foreign');
+  it('refuses a marketplace ref that names anything but the tag of the version package.json writes', () => {
+    const pkg = version('package.json');
+    expect(releaseHeadVerdict([pkg, marketplace('v9.9.9')])).toEqual({ read: 'foreign', path: '.claude-plugin/marketplace.json' });
+    expect(releaseHeadVerdict([pkg, marketplace('main')]).read).toBe('foreign');
+    expect(releaseHeadVerdict([pkg, marketplace('2.31.0')]).read).toBe('foreign');
   });
 
-  it('refuses a marketplace ref replaced with no version line beside it', () => {
-    const refOnly = change('.claude-plugin/marketplace.json', {
-      hunks: [{ section: '', removed: ['        "ref": "v2.30.0"'], added: ['        "ref": "v2.31.0"'] }],
+  it('refuses a marketplace version and ref that agree with each other and not with package.json', () => {
+    const downgrade = [version('package.json', '2.30.0', '2.31.0'), marketplace('v2.10.0', '2.10.0')];
+    expect(releaseHeadVerdict(downgrade)).toEqual({ read: 'foreign', path: '.claude-plugin/marketplace.json' });
+  });
+
+  it('refuses a marketplace ref when package.json writes no version', () => {
+    expect(releaseHeadVerdict([marketplace()])).toEqual({ read: 'foreign', path: '.claude-plugin/marketplace.json' });
+  });
+
+  it('refuses a marketplace line whose key or indentation changes', () => {
+    const pkg = version('package.json');
+    const keySwap = change('.claude-plugin/marketplace.json', {
+      hunks: [{ section: '', removed: ['      "version": "2.30.0",'], added: ['      "ref": "v2.31.0",'] }],
     });
-    expect(releaseHeadVerdict([refOnly]).read).toBe('foreign');
+    expect(releaseHeadVerdict([pkg, keySwap]).read).toBe('foreign');
+    const moved = change('.claude-plugin/marketplace.json', {
+      hunks: [{ section: '', removed: ['        "ref": "v2.30.0"'], added: ['      "ref": "v2.31.0"'] }],
+    });
+    expect(releaseHeadVerdict([pkg, moved]).read).toBe('foreign');
   });
 
   it('refuses a ref line in any file but marketplace.json', () => {
