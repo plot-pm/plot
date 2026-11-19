@@ -11,7 +11,7 @@ describe('PlanReference', () => {
   it('never truncates the prefix — it carries shrink-0, the slug carries truncate', () => {
     const answer = planReference({ slug: 'a-plan', file: 'a-plan.md', issues: ['1089'] }, planIndexOf({}));
     const html = render(answer);
-    expect(html).toContain('class="shrink-0">1089: </span>');
+    expect(html).toContain('class="shrink-0 whitespace-pre">#1089 </span>');
     expect(html).toContain('truncate');
   });
 
@@ -19,14 +19,14 @@ describe('PlanReference', () => {
     const answer = planReference({ slug: 'a-very-long-plan-slug-name', file: 'a.md' }, planIndexOf({ cards: [{ slug: 'a-very-long-plan-slug-name', title: 'Plan title', path: 'a.md', issues: ['42'] }] }));
     const html = render(answer);
     expect(html).toContain('min-w-[8ch]');
-    expect(html).toContain('title="42: a-very-long-plan-slug-name — Plan title"');
-    expect(html).toContain('aria-label="Plan 42: a-very-long-plan-slug-name"');
+    expect(html).toContain('title="#42 a-very-long-plan-slug-name — Plan title"');
+    expect(html).toContain('aria-label="Plan #42 a-very-long-plan-slug-name"');
   });
 
   it('starts the accessible name with the visible text', () => {
     const answer = planReference({ slug: 'a', issues: ['7'] }, planIndexOf({}));
     const html = render(answer);
-    expect(html).toContain('aria-label="Plan 7: a"');
+    expect(html).toContain('aria-label="Plan #7 a"');
   });
 
   it('renders a real anchor with no href where the reference resolved one', () => {
@@ -51,7 +51,7 @@ describe('PlanReference', () => {
     const index = planIndexOf({ fleetPlans: { 'a-plan': { file: '2026-11-01-a-plan.md', issues: ['1089'] } } });
     const answer = planReference({ slug: 'a-plan' }, index);
     const html = render(answer, '2026-11-01-a-plan.md');
-    expect(html).toContain('1089: a-plan');
+    expect(html).toContain('#1089 a-plan');
     expect(html).toContain('href="/plan/2026-11-01-a-plan.md"');
   });
 });

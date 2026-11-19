@@ -90,9 +90,9 @@ describe('a plan row names its ticket (real browser renders the shipped artifact
     const { page } = await open();
     try {
       await expect.poll(() => planName(page, 'one-ticket').count(), { timeout: 10_000 }).toBe(1);
-      expect((await planName(page, 'one-ticket').textContent())?.trim()).toBe('1089: one-ticket');
-      expect((await planName(page, 'two-tickets').textContent())?.trim()).toBe('1090, 1091: two-tickets');
-      expect((await planName(page, 'jira-ticket').textContent())?.trim()).toBe('EWZKUS-3430: jira-ticket');
+      expect((await planName(page, 'one-ticket').textContent())?.trim()).toBe('#1089 one-ticket');
+      expect((await planName(page, 'two-tickets').textContent())?.trim()).toBe('#1090 #1091 two-tickets');
+      expect((await planName(page, 'jira-ticket').textContent())?.trim()).toBe('EWZKUS-3430 jira-ticket');
       // The prefix sits inside the plan link, and the link still opens the plan.
       expect(await planName(page, 'one-ticket').getAttribute('href')).toContain('2026-09-30-one-ticket.md');
     } finally { await page.close(); }
@@ -102,7 +102,7 @@ describe('a plan row names its ticket (real browser renders the shipped artifact
     const { page } = await open();
     try {
       await expect.poll(() => draftName(page, 'drafted-ticket').count(), { timeout: 10_000 }).toBe(1);
-      expect((await draftName(page, 'drafted-ticket').textContent())?.trim()).toBe('1104: drafted-ticket');
+      expect((await draftName(page, 'drafted-ticket').textContent())?.trim()).toBe('#1104 drafted-ticket');
     } finally { await page.close(); }
   });
 

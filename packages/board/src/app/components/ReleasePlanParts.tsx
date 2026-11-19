@@ -62,11 +62,11 @@ export const PlanTableHead = () => (
 /**
  * The Plan cell: the ▸ toggle, which opens and closes the slice lines, then the plan name.
  *
- * The name links to `plan.href`. A plain click calls `onOpenPlan` and, where it answers `true`, keeps the page; a
+ * The name is `plan.label`, the plan's ticket keys before its slug, and links to `plan.href`. A plain click calls `onOpenPlan` and, where it answers `true`, keeps the page; a
  * modified click or another button keeps the browser's own handling. Where `href` is `''`, the name is plain text.
  */
 export const PlanName = ({ plan, open, onToggle, onOpenPlan }: {
-  plan: Pick<PlanRowView, 'plan' | 'planFile' | 'href'>;
+  plan: Pick<PlanRowView, 'plan' | 'label' | 'planFile' | 'href'>;
   open: boolean;
   onToggle: () => void;
   onOpenPlan?: ((planFile: string) => boolean) | undefined;
@@ -84,19 +84,19 @@ export const PlanName = ({ plan, open, onToggle, onOpenPlan }: {
     </button>
     <LinkIcon kind={linkIconKind('plan')} />
     {plan.href === ''
-      ? <span title={plan.plan} className="delivery-truncate">{plan.plan}</span>
+      ? <span title={plan.label} className="delivery-truncate">{plan.label}</span>
       : (
         <a
           href={plan.href}
           data-plan-link={plan.plan}
-          title={plan.plan}
+          title={plan.label}
           onClick={(e) => {
             if (!isPlainPlanClick(e) || onOpenPlan?.(plan.planFile) !== true) return;
             e.preventDefault();
           }}
           className="delivery-truncate delivery-text-link hover:underline"
         >
-          {plan.plan}
+          {plan.label}
         </a>
       )}
   </span>

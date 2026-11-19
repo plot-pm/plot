@@ -50,15 +50,14 @@ export function PlanReference({
   file?: string;
   onOpenPlan?: (file: string) => boolean;
 }) {
-  const prefix = answer.issues.length > 0 ? `${answer.issues.join(', ')}: ` : '';
+  const { prefix } = answer;
   // `planReference` builds `label` as exactly `prefix + slug`, so slicing off
-  // the prefix's own length recovers the slug without a second field on the
-  // domain's answer shape.
+  // the prefix's own length recovers the slug.
   const slug = answer.label.slice(prefix.length);
   const title = answer.title ? `${answer.label} — ${answer.title}` : answer.label;
   const content = (
     <>
-      {prefix && <span className="shrink-0">{prefix}</span>}
+      {prefix && <span className="shrink-0 whitespace-pre">{prefix}</span>}
       <span className="min-w-[8ch] truncate">{slug}</span>
     </>
   );

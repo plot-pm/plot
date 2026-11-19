@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { planIndexOf, planOfIssue, planRefOfIssue, planRefOfRow, planReference, planRoute, planRouteOfDocLink, type PlanIndex, type PlanIndexCard } from '../src/rules/plan-reference.js';
+import { planIndexOf, planLinkLabel, planOfIssue, planRefOfIssue, planRefOfRow, planReference, planRoute, planRouteOfDocLink, ticketKeyText, type PlanIndex, type PlanIndexCard } from '../src/rules/plan-reference.js';
 
 describe('planRoute', () => {
   it('routes to /plan/<basename> from a repo-relative plan path', () => {
@@ -36,14 +36,56 @@ describe('planRouteOfDocLink', () => {
   });
 });
 
+describe('planLinkLabel', () => {
+  it('prints the slug alone where the plan names no issue', () => {
+    expect(planLinkLabel('templates-show-named-identifiers', [])).toEqual({ prefix: '', label: 'templates-show-named-identifiers' });
+  });
+
+  it('prints one GitHub key with its hash before the slug', () => {
+    expect(planLinkLabel('a-quoted-separator-splits-nothing', ['3495'])).toEqual({ prefix: '#3495 ', label: '#3495 a-quoted-separator-splits-nothing' });
+  });
+
+  it('prints several keys in their order, one space apart', () => {
+    expect(planLinkLabel('approve-and-deliver-run-without-a-board', ['3489', '2531']).label).toBe('#3489 #2531 approve-and-deliver-run-without-a-board');
+  });
+
+  it('prints a Jira key as it is spelled', () => {
+    expect(planLinkLabel('a-plan', ['ABC-123']).label).toBe('ABC-123 a-plan');
+    expect(planLinkLabel('a-plan', ['3489', 'ABC-123']).label).toBe('#3489 ABC-123 a-plan');
+  });
+
+  it('prints a key once where the field names it twice', () => {
+    expect(planLinkLabel('a-plan', ['#3495', '3495', 3495]).label).toBe('#3495 a-plan');
+  });
+
+  it('drops a malformed key and keeps the well-formed ones', () => {
+    expect(planLinkLabel('a-plan', ['', '#', 'TBD', 'see ticket', 'abc-12', '#12a'])).toEqual({ prefix: '', label: 'a-plan' });
+    expect(planLinkLabel('a-plan', ['TBD', '3495']).label).toBe('#3495 a-plan');
+  });
+});
+
+describe('ticketKeyText', () => {
+  it('answers #<n> for a GitHub number, however its source spelled it', () => {
+    expect(ticketKeyText('3495')).toBe('#3495');
+    expect(ticketKeyText('#3495')).toBe('#3495');
+    expect(ticketKeyText(3495)).toBe('#3495');
+  });
+
+  it('answers a Jira key unchanged and null for anything else', () => {
+    expect(ticketKeyText('EWZKUS-3430')).toBe('EWZKUS-3430');
+    expect(ticketKeyText('TBD')).toBeNull();
+    expect(ticketKeyText('')).toBeNull();
+  });
+});
+
 describe('the plan row label', () => {
   // Moved verbatim from packages/board/test/unit/a-plan-row-names-its-ticket.test.ts:84-99.
   const facts = { plan: 'a-plan', planFile: '2026-09-30-a-plan.md', phase: 'Development', waitingDays: null };
 
   it('prefixes the keys the way the ticket row prints them', () => {
-    expect(planReference({ slug: facts.plan, file: facts.planFile, issues: ['1089'] }, planIndexOf({})).label).toBe('1089: a-plan');
-    expect(planReference({ slug: facts.plan, file: facts.planFile, issues: ['1090', '1091'] }, planIndexOf({})).label).toBe('1090, 1091: a-plan');
-    expect(planReference({ slug: facts.plan, file: facts.planFile, issues: ['EWZKUS-3430'] }, planIndexOf({})).label).toBe('EWZKUS-3430: a-plan');
+    expect(planReference({ slug: facts.plan, file: facts.planFile, issues: ['1089'] }, planIndexOf({})).label).toBe('#1089 a-plan');
+    expect(planReference({ slug: facts.plan, file: facts.planFile, issues: ['1090', '1091'] }, planIndexOf({})).label).toBe('#1090 #1091 a-plan');
+    expect(planReference({ slug: facts.plan, file: facts.planFile, issues: ['EWZKUS-3430'] }, planIndexOf({})).label).toBe('EWZKUS-3430 a-plan');
   });
 
   it('prints the slug alone where the plan names no issue', () => {
@@ -61,17 +103,17 @@ describe('planReference', () => {
   });
 
   it('prefixes one key', () => {
-    expect(planReference({ slug: 'a', issues: ['1089'] }, planIndexOf({})).label).toBe('1089: a');
+    expect(planReference({ slug: 'a', issues: ['1089'] }, planIndexOf({})).label).toBe('#1089 a');
   });
 
   it('prefixes three keys, as GitHub numbers and a Jira key are stored', () => {
     const answer = planReference({ slug: 'a', issues: [1085, '1086', '#1101'] }, planIndexOf({}));
-    expect(answer.label).toBe('1085, 1086, 1101: a');
+    expect(answer.label).toBe('#1085 #1086 #1101 a');
     expect(answer.issues).toEqual(['1085', '1086', '1101']);
   });
 
   it('prefixes a bare Jira key as stored', () => {
-    expect(planReference({ slug: 'a', issues: ['EWZKUS-3430'] }, planIndexOf({})).label).toBe('EWZKUS-3430: a');
+    expect(planReference({ slug: 'a', issues: ['EWZKUS-3430'] }, planIndexOf({})).label).toBe('EWZKUS-3430 a');
   });
 
   it('drops blank and duplicate keys, keeping the first occurrence', () => {
@@ -80,7 +122,7 @@ describe('planReference', () => {
 
   it('lets the index entry win over the reference\'s own issues', () => {
     const index = planIndexOf({ cards: [{ slug: 'a', title: '', path: 'a.md', issues: ['2'] }] });
-    expect(planReference({ slug: 'a', issues: ['1'] }, index).label).toBe('2: a');
+    expect(planReference({ slug: 'a', issues: ['1'] }, index).label).toBe('#2 a');
   });
 
   it('shows the slug alone for a card with no issues field, as an unvalidated client fetch sends it', () => {
@@ -94,7 +136,7 @@ describe('planReference', () => {
       drafts: [{ plan: 'a', planFile: 'a.md', title: '', issues: ['7'] }],
     });
     const answer = planReference({ slug: 'a' }, index);
-    expect(answer.label).toBe('7: a');
+    expect(answer.label).toBe('#7 a');
     expect(answer.href).toBe('/plan/a.md');
   });
 
@@ -112,14 +154,14 @@ describe('planReference', () => {
 
   it('answers no link where nothing resolves', () => {
     const answer = planReference({ slug: 'gone', issues: ['5'] }, planIndexOf({}));
-    expect(answer.label).toBe('5: gone');
+    expect(answer.label).toBe('#5 gone');
     expect(answer.href).toBeNull();
     expect(answer.exists).toBe(false);
   });
 
   it('shows the inferred plan on an issue row: its issue prefix, and no link', () => {
     const answer = planReference({ slug: '<inferred name>', issues: ['42'] }, planIndexOf({}));
-    expect(answer.label).toBe('42: <inferred name>');
+    expect(answer.label).toBe('#42 <inferred name>');
     expect(answer.href).toBeNull();
   });
 
@@ -136,7 +178,7 @@ describe('planReference', () => {
 
   it('answers an empty slug for a reference naming neither file nor slug and resolving no index entry', () => {
     const answer = planReference({ issues: ['9'] }, planIndexOf({}));
-    expect(answer.label).toBe('9: ');
+    expect(answer.label).toBe('#9');
     expect(answer.href).toBeNull();
   });
 
@@ -169,7 +211,7 @@ describe('planRefOfRow', () => {
     const ref = planRefOfRow({ kind: 'plan', branch: 'idea/a', plan: '', planFile: '' });
     expect(ref).not.toBeNull();
     const answer = planReference(ref!, index);
-    expect(answer.label).toBe('7: a');
+    expect(answer.label).toBe('#7 a');
     expect(answer.href).toBe('/plan/2026-11-01-a.md');
   });
 
@@ -212,7 +254,7 @@ describe('planRefOfIssue', () => {
     const { ref, resolved } = planRefOfIssue(3006, 'inferred', index);
     expect(resolved).toBe(true);
     const answer = planReference(ref, index);
-    expect(answer.label).toBe('3006: two-test-teardowns-turn-main-red');
+    expect(answer.label).toBe('#3006 two-test-teardowns-turn-main-red');
     expect(answer.href).toBe('/plan/2026-11-01-two-test-teardowns-turn-main-red.md');
   });
 
@@ -220,7 +262,7 @@ describe('planRefOfIssue', () => {
     const { ref, resolved } = planRefOfIssue(42, 'inferred-name', index);
     expect(resolved).toBe(false);
     const answer = planReference(ref, planIndexOf({}));
-    expect(answer.label).toBe('42: inferred-name');
+    expect(answer.label).toBe('#42 inferred-name');
     expect(answer.href).toBeNull();
   });
 });

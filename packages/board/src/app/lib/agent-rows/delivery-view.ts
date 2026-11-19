@@ -36,6 +36,8 @@ import {
   type Unplaced,
   linkIconKind,
   type LinkIconKind,
+  planReference,
+  type PlanIndex,
 } from '@plot-pm/domain';
 import type { AgentRow, DraftPlan, FleetSprint, IssueRow, Slice } from '../../../contract/schema.js';
 import { agentLabel, draftItemId, sliceItemId, type DeliveryMapping, type RegistryAgent } from './delivery-readings.js';
@@ -339,6 +341,8 @@ export interface PlanRowView extends PlanRowFacts {
   planFile: string;
   /** The plan name's link target, `planRoute(planFile)`; `''` where no row names a plan file. */
   href: string;
+  /** The plan name as the link prints it: `planReference`'s label, the ticket keys before the slug. */
+  label: string;
 }
 
 /** One target release's block. */
@@ -359,14 +363,17 @@ export interface ReleaseBlockView {
 export const itemAnchor = (id: string): string => `delivery-item-${id}`;
 export const agentAnchor = (id: string): string => `delivery-agent-${id}`;
 
-const itemLabel = (id: string, rows: readonly AgentRow[], draft: DraftPlan | null, ticket: IssueRow | null = null): string => {
+const itemLabel = (id: string, rows: readonly AgentRow[], draft: DraftPlan | null, ticket: IssueRow | null = null, index: PlanIndex = new Map()): string => {
   if (ticket !== null) return `${ticket.number} ${ticket.title}`;
   const first = rows[0];
   if (first !== undefined) {
-    if (first.wave !== '') return `${first.plan} › ${first.wave}`;
+    if (first.wave !== '') {
+      const plan = first.plan === '' ? '' : planReference({ file: first.planFile || undefined, slug: first.plan }, index).label;
+      return `${plan} › ${first.wave}`;
+    }
     return first.branch || first.plan || id;
   }
-  return draft?.plan ?? id;
+  return draft === null ? id : planReference({ file: draft.planFile || undefined, slug: draft.plan, issues: draft.issues ?? [] }, index).label;
 };
 
 const unreadNote = (subject: Unplaced['subject'], ticket = false): string =>
@@ -489,6 +496,7 @@ export const planBlockToggleKey = (block: PlanBlockView): string =>
  * @param mapping - the readings and the payload rows each subject id stands for.
  * @param placement - what `placeDelivery` returned for `mapping`.
  * @param slices - the payload's slices, for each plan head's count of slices elsewhere.
+ * @param planIndex - the board's plan index, which names each plan's ticket keys for its labels; an empty map labels a plan by its slug.
  * @returns the sections, the not-placed note rows and the Release delivery line.
  */
 export const deliveryView = (
@@ -498,6 +506,7 @@ export const deliveryView = (
   sprints: readonly Pick<FleetSprint, 'slug' | 'title' | 'release' | 'ownerHandle' | 'members'>[] = [],
   scope: DeliveryViewScope = { kind: 'release', sprints: [] },
   now?: Date,
+  planIndex: PlanIndex = new Map(),
 ): DeliveryView => {
   const rowOf = (item: string): AgentRow | null => mapping.rowsByItem[item]?.[0] ?? null;
   const ownRow = (entry: RegistryAgent | null): AgentRow | null => {
@@ -509,7 +518,7 @@ export const deliveryView = (
     return null;
   };
   const labelOfItem = (id: string): string =>
-    itemLabel(id, mapping.rowsByItem[id] ?? [], mapping.draftsByItem[id] ?? null, mapping.ticketsByItem[id] ?? null);
+    itemLabel(id, mapping.rowsByItem[id] ?? [], mapping.draftsByItem[id] ?? null, mapping.ticketsByItem[id] ?? null, planIndex);
   const labelOfAgent = (id: string): string => agentLabel(id, mapping.agentsById[id] ?? null);
   const kindOfItem = (id: string): LinkIconKind | null => {
     const item = placement.items.find((i) => i.id === id);
@@ -642,7 +651,8 @@ export const deliveryView = (
     const planFile = rows.find((r) => (r.planFile ?? '') !== '')?.planFile ?? '';
     const phase = rows.find((r) => r.phase !== null && r.phase !== '')?.phase ?? null;
     const href = planFile === '' ? '' : planRoute(planFile);
-    return { ...planRowFacts(plan, ownerOf(plan, rows), facts, { phase, ...(now === undefined ? {} : { now }) }), anchors, itemIds: ids, planFile, href };
+    const { label } = planReference({ file: planFile || undefined, slug: plan }, planIndex);
+    return { ...planRowFacts(plan, ownerOf(plan, rows), facts, { phase, ...(now === undefined ? {} : { now }) }), anchors, itemIds: ids, planFile, href, label };
   };
   const DRAFT_ID_PREFIX = draftItemId('');
   // The person cards' bars read the counted slices per plan, as the sprint card does (`countedSlicesByPlan`).
@@ -701,4 +711,5 @@ export const placeMapping = (
   sprints: readonly Pick<FleetSprint, 'slug' | 'title' | 'release' | 'ownerHandle' | 'members'>[] = [],
   scope?: DeliveryViewScope,
   now?: Date,
-): DeliveryView => deliveryView(mapping, placeDelivery(mapping.readings, mapping.input), slices, sprints, scope, now);
+  planIndex?: PlanIndex,
+): DeliveryView => deliveryView(mapping, placeDelivery(mapping.readings, mapping.input), slices, sprints, scope, now, planIndex);

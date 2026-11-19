@@ -40,15 +40,14 @@ export function PlanModal({ card, story, onClose, onShowInBoard, onOpenStory }: 
   // than inside the href helper alone.
   const canOpenStory = Boolean(onOpenStory && story && storyHref(story));
 
-  const { label, issues } = planReference({ file: card.path, slug: card.slug, issues: card.issues }, new Map());
+  const { label, prefix } = planReference({ file: card.path, slug: card.slug, issues: card.issues }, new Map());
   // What the card leaves to this view: the path, the approver and an unmeasured cost.
   const details = (card as Partial<Card>).facts ? presentDetails(card.facts) : null;
-  const issuePrefix = issues.length > 0 ? `${issues.join(', ')}: ` : '';
 
   return (
     <DocModal
       label="Plan"
-      ariaLabel={`Plan: ${issuePrefix}${card.title}`}
+      ariaLabel={`Plan: ${prefix}${card.title}`}
       href={planRoute(card.path)}
       frameTitle={`Plan: ${label}`}
       onShowInBoard={onShowInBoard && (() => onShowInBoard(card))}
