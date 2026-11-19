@@ -63,3 +63,16 @@ describe('todoList', () => {
     expect(ask({ tickets, ticketAnswer: 'failed' }).tickets).toBeNull();
   });
 });
+
+describe('todoList verb and label', () => {
+  it('rejoins to text for every line, releases included', () => {
+    const t = ask({ releases: [{ id: 'release:2.0', label: '2.0', anchor: 'release-card' }] });
+    expect(t.lines.some((l) => l.id === 'release:2.0')).toBe(true);
+    for (const l of t.lines) {
+      expect(l.verb).not.toBe('');
+      expect(l.label).not.toBe('');
+      expect(`${l.verb} ${l.label}`).toBe(l.text);
+    }
+    expect(t.lines.find((l) => l.id === 'a')).toMatchObject({ verb: 'Approve', label: 'a' });
+  });
+});

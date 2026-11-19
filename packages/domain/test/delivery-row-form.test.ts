@@ -2,7 +2,7 @@
 // design's "Links by Row" table. One test per row of the table: a test that
 // checks only the slice-at-a-gate row passes with every other row wrong.
 import { describe, it, expect } from 'vitest';
-import { youCaseOf, type AgentPlacement, type ItemPlacement } from '../src/rules/delivery-placement.js';
+import { youCaseOf, type AgentPlacement, type ItemPlacement, type PrReading } from '../src/rules/delivery-placement.js';
 import {
   ROW_COLUMNS,
   ageValue,
@@ -13,6 +13,8 @@ import {
   deliveryRowForms,
   groupHeader,
   itemRowCells,
+  gatesCell,
+  progressCell,
   type DeliverySwitches,
   type ItemRowFacts,
 } from '../src/rules/delivery-row-form.js';
@@ -467,5 +469,33 @@ describe('the You column set', () => {
   it('is null outside You', async () => {
     const { youRowCells } = await import('../src/rules/delivery-row-form.js');
     expect(youRowCells(work('queued'), facts)).toBeNull();
+  });
+});
+
+describe('the gate-mark outcome', () => {
+  const part = (pr: PrReading, mark: 0 | 1) => gatesCell(pr, 7)!.parts![mark]!;
+  it.each([
+    ['running', 'pending'],
+    ['failed', 'fail'],
+    ['passed', 'pass'],
+  ] as const)('reads CI %s as %s from the reading, not the glyph', (ci, outcome) => {
+    expect(part({ ci, review: 'none' }, 0).outcome).toBe(outcome);
+  });
+  it.each([
+    ['pending', 'pending'],
+    ['high', 'fail'],
+    ['passed', 'pass'],
+    ['none', 'none'],
+  ] as const)('reads review %s as %s', (review, outcome) => {
+    expect(part({ ci: 'passed', review }, 1).outcome).toBe(outcome);
+  });
+  it('yields no part for an unread CI or an unread review, never a none', () => {
+    expect(gatesCell({ ci: 'unread', review: 'passed' }, 7)!.parts!.map((p) => p.value)).toEqual(['review ✓']);
+    expect(gatesCell({ ci: 'passed', review: 'unread' }, 7)!.parts!.map((p) => p.value)).toEqual(['CI ✓']);
+    expect(gatesCell({ ci: 'unread', review: 'unread' }, 7)).toBeNull();
+  });
+  it('leaves the outcome absent on the Progress cell parts, which are no gate marks', () => {
+    const cell = progressCell({ pr: 3, unpushed: 2 } as never);
+    expect(cell.parts!.map((p) => 'outcome' in p)).toEqual([false, false]);
   });
 });

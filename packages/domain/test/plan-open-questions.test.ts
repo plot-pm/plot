@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { openQuestionsChip, openQuestionsMore, planOpenQuestions, sliceCountChip } from '../src/rules/plan-open-questions.js';
+import { openQuestionsChip, openQuestionsMore, openQuestionsTone, planOpenQuestions, sliceCountChip } from '../src/rules/plan-open-questions.js';
 
 describe('planOpenQuestions', () => {
   it('counts the unchecked items of both headings', () => {
@@ -29,5 +29,22 @@ describe('chips', () => {
     expect(sliceCountChip(5)).toBe('5 slices');
     expect(sliceCountChip(1)).toBe('1 slice');
     expect(sliceCountChip(0)).toBeNull();
+  });
+});
+
+describe('openQuestionsTone', () => {
+  it('is warn where a question is open and neutral where none is', () => {
+    expect(openQuestionsTone({ count: 3, first: 'x' })).toBe('warn');
+    expect(openQuestionsTone({ count: 0, first: null })).toBe('neutral');
+  });
+  it('is absent where the chip is null, which is not neutral', () => {
+    expect(openQuestionsTone(null)).toBeNull();
+    expect(openQuestionsTone(undefined)).toBeNull();
+  });
+  it('leaves the chip text as it was', () => {
+    expect(openQuestionsChip(null)).toBeNull();
+    expect(openQuestionsChip(undefined)).toBeNull();
+    expect(openQuestionsChip({ count: 0, first: null })).toBe('0 open');
+    expect(openQuestionsChip({ count: 3, first: 'x' })).toBe('3 open');
   });
 });

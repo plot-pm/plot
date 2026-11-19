@@ -159,3 +159,17 @@ describe('youHeader phase holders', () => {
     expect(counts.map((c) => c.key)).toEqual(['tickets']);
   });
 });
+
+describe('YouHeaderCount.words', () => {
+  it('follows the number and holds none', () => {
+    for (const c of youHeader(base()).counts) {
+      expect(c.words).not.toMatch(/\d/);
+      if (c.count !== null) expect(c.text).toBe(`${c.count} ${c.words}`);
+    }
+  });
+  it('keeps count null and says the reading is missing where the tracker did not answer', () => {
+    const tickets = youHeader(base({ ticketAnswer: 'failed' })).counts[3]!;
+    expect(tickets.count).toBeNull();
+    expect(tickets.words).toBe('tickets to triage: not read');
+  });
+});
