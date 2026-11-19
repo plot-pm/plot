@@ -1,4 +1,5 @@
 import type { TodoList as TodoListFact, YouMarker } from '@plot-pm/domain';
+import { LinkIcon } from './LinkIcon.js';
 
 /** The hue of each marker, for its tag and its verb: blocks delivery red, input blue, clean up the body colour. */
 export const TODO_MARKER_CLASS: Record<YouMarker, string> = {
@@ -26,7 +27,10 @@ export const TodoList = ({ todo, onJump }: { todo: TodoListFact; onJump: (anchor
             >
               <span data-todo-verb className="whitespace-nowrap">{l.verb}</span>
               {' '}
-              <span data-todo-label className="delivery-truncate min-w-0" title={l.label}>{l.label}</span>
+              <span className="flex min-w-0 items-baseline">
+                <LinkIcon kind={l.icon} />
+                <span data-todo-label className="delivery-truncate min-w-0" title={l.label}>{l.label}</span>
+              </span>
             </button>
           </li>
         ))}
@@ -35,6 +39,7 @@ export const TodoList = ({ todo, onJump }: { todo: TodoListFact; onJump: (anchor
     <p data-todo-triage className="delivery-text-muted">
       {todo.triageText} ·{' '}
       <button type="button" data-todo-triage-link onClick={() => onJump(todo.triageAnchor)} className="delivery-text-link">
+        <LinkIcon kind={todo.triageIcon} />
         triage ›
       </button>
     </p>

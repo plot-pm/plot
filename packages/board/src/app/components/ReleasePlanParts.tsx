@@ -1,7 +1,8 @@
-import type { HeaderCountPart, PlanLine } from '@plot-pm/domain';
+import { linkIconKind, type HeaderCountPart, type PlanLine } from '@plot-pm/domain';
 import type { PlanRowView, ReleaseBlockView } from '../lib/agent-rows/delivery-view.js';
 import { isPlainPlanClick } from './PlanReference.js';
 import { SEGMENT_CLASS } from './SprintCard.js';
+import { LinkIcon } from './LinkIcon.js';
 
 /** The hue of a Release header count, by key; a key not named here takes the body colour. */
 const COUNT_HUE: Readonly<Partial<Record<HeaderCountPart['key'], string>>> = {
@@ -81,6 +82,7 @@ export const PlanName = ({ plan, open, onToggle, onOpenPlan }: {
     >
       <span aria-hidden="true" className={`inline-block w-4 shrink-0 text-center transition-transform ${open ? 'rotate-90' : ''}`}>▸</span>
     </button>
+    <LinkIcon kind={linkIconKind('plan')} />
     {plan.href === ''
       ? <span title={plan.plan} className="delivery-truncate">{plan.plan}</span>
       : (
@@ -142,9 +144,30 @@ export const LineState = ({ state }: { state: PlanLine['state'] }) => (
 
 /** A line's PR: a link where the payload holds its address, the number as text where it does not. */
 export const LinePr = ({ pr, url }: { pr: number; url: string | null }) => (
-  url === null || url === ''
-    ? <span data-plan-line-pr={pr}>#{pr}</span>
-    : <a data-plan-line-pr={pr} href={url} target="_blank" rel="noopener noreferrer" className="delivery-text-link">#{pr}</a>
+  <span className="inline-flex items-baseline">
+    <LinkIcon kind={linkIconKind('pr')} />
+    {url === null || url === ''
+      ? <span data-plan-line-pr={pr}>#{pr}</span>
+      : <a data-plan-line-pr={pr} href={url} target="_blank" rel="noopener noreferrer" className="delivery-text-link">#{pr}</a>}
+  </span>
+);
+
+/**
+ * An opened plan line's slice: the slice icon, then the slice words, as a button that scrolls to the slice's item
+ * where `onJump` is given and as text where it is not.
+ */
+export const LineSlice = ({ line, onJump }: { line: Pick<PlanLine, 'heading' | 'slice' | 'text' | 'pr'>; onJump?: (() => void) | undefined }) => (
+  <span className="inline-flex min-w-0 items-baseline">
+    <LinkIcon kind={linkIconKind('slice')} />
+    {onJump === undefined
+      ? <span>{lineBody(line)}</span>
+      : <button type="button" data-plan-line-link onClick={onJump} className="delivery-text-link hover:underline">{lineBody(line)}</button>}
+  </span>
+);
+
+/** A plan's owner: the person icon, then the handle. */
+export const PlanOwner = ({ owner }: { owner: string }) => (
+  <span data-plan-owner className="inline-flex items-baseline"><span className="sm:hidden">Owner </span><LinkIcon kind={linkIconKind('person')} />{owner}</span>
 );
 
 /**
