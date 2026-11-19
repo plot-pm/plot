@@ -171,7 +171,7 @@ export function StoryModal({ story, cards, phases, onClose, onShowInBoard, onOpe
         label="Plan"
         ariaLabel={`Plan: ${viewingPlan.title}`}
         href={planRoute(viewingPlan.path)}
-        frameTitle={`Plan: ${viewingPlan.slug}`}
+        frameTitle={`Plan: ${planReference({ file: viewingPlan.path, slug: viewingPlan.slug, issues: viewingPlan.issues ?? [] }, planIndex).label}`}
         onShowInBoard={onShowInBoard && (() => onShowInBoard(story))}
         onClose={onClose}
       >

@@ -37,7 +37,7 @@ describe('panels show the plan reference prefix', () => {
 
   it('PlanModal names the plan with its prefix in the accessible label', () => {
     const html = renderToStaticMarkup(createElement(PlanModal, { card: withIssue, onClose: () => {} }));
-    expect(html).toContain('1089: One ticket');
+    expect(html).toContain('#1089 One ticket');
   });
 
   it('StoryModal lists its plans through PlanReference', () => {
@@ -46,7 +46,7 @@ describe('panels show the plan reference prefix', () => {
       cards: [withIssue], phases: ['Development'], onClose: () => {},
     }));
     expect(html).toContain('data-plan-ref');
-    expect(html).toContain('1089: one-ticket');
+    expect(html).toContain('#1089 one-ticket');
     expect(html).toContain('href="/plan/2026-11-01-one-ticket.md"');
   });
 
@@ -60,7 +60,7 @@ describe('panels show the plan reference prefix', () => {
       onClose: () => {}, onOpenPlan: () => true,
       planIndex: planIndexOf({ cards: [withIssue] }),
     }));
-    expect(html).toContain('1089: ');
+    expect(html).toContain('#1089');
     expect(html).toContain('href="/plan/2026-11-01-one-ticket.md"');
     const gone = html.slice(html.indexOf('gone') - 200, html.indexOf('gone') + 80);
     expect(gone).not.toContain('<a ');

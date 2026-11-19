@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DELIVERY_LAYOUT, deliveryScope, parsePersonDirectory } from '@plot-pm/domain';
+import { DELIVERY_LAYOUT, deliveryScope, parsePersonDirectory, planIndexOf } from '@plot-pm/domain';
 import type { AgentRow, DraftPlan, Slice } from '../../src/contract/schema.js';
 import { deliveryMapping, sprintCardViewOf, type RegistryAgent } from '../../src/app/lib/agent-rows/delivery-readings.js';
 import { GLYPH_PATH } from '../../src/app/lib/glyphs.js';
@@ -115,6 +115,21 @@ describe('delivery view nesting', () => {
       expect(v.releaseBlocks[0]!.plans.map((p) => [p.plan, p.href])).toEqual([['p1', '/plan/2026-11-01-p1.md'], ['p2', '']]);
     });
 
+    it('labels a plan row with the ticket keys the plan index names, and a plan with none by its slug', () => {
+      const slices = [mergedSlice('p1', 'a'), mergedSlice('p2', 'a'), mergedSlice('p3', 'a')];
+      const rows = [merged('p1', 'a'), merged('p2', 'a'), merged('p3', 'a')] as AgentRow[];
+      const index = planIndexOf({ cards: [
+        { slug: 'p1', title: '', path: 'docs/plans/2026-11-01-p1.md', issues: ['3489', '2531'] },
+        { slug: 'p2', title: '', path: 'docs/plans/2026-11-01-p2.md', issues: ['ABC-123'] },
+      ] });
+      const v = placeMapping(deliveryMapping({
+        rows, slices, agents: [], drafts: [], reader: { hostUser: 'me' }, mode: 'all',
+        config: { autoReview: true, correctionBudget: 2 },
+      }), slices, [], undefined, undefined, index);
+      expect(v.releaseBlocks[0]!.plans.map((p) => p.label)).toEqual(['#3489 #2531 p1', 'ABC-123 p2', 'p3']);
+      expect(planView(rows, slices).releaseBlocks[0]!.plans.map((p) => p.label)).toEqual(['p1', 'p2', 'p3']);
+    });
+
     it('lists a slice with no branch and no agent under To do, not as a Work items row', () => {
       const slices = [{ ...slice('A'), plan: 'p', merge: 'open' }, { ...slice('B'), plan: 'p', merge: 'open' }] as Slice[];
       const v = planView([row({ branch: '', plan: 'p', wave: 'A', state: 'open', group: 'not-started', startability: 'start-work' })], slices);
@@ -192,6 +207,19 @@ describe('delivery view nesting', () => {
     expect(planBlockShown(head(one), new Set())).toBe(true);
     expect(planBlockShown(head(two), new Set())).toBe(false);
     expect(planBlockShown(head(two), new Set([`open:${head(two).key}`]))).toBe(true);
+  });
+});
+
+describe('the item label', () => {
+  it('prints the plan ticket keys before the slug and the slice', () => {
+    const slices = ['A', 'B'].map(slice);
+    const index = planIndexOf({ cards: [{ slug: 'p', title: '', path: 'docs/plans/2026-11-01-p.md', issues: ['3495'] }] });
+    const v = placeMapping(deliveryMapping({
+      rows: [row({ branch: 'feature/p-a', plan: 'p', wave: 'A', state: 'stuck', group: 'stuck' })], slices, agents: [], drafts: [],
+      reader: { hostUser: 'me' }, mode: 'all', config: { autoReview: true, correctionBudget: 2 },
+    }), slices, [], undefined, undefined, index);
+    const labels = [...v.sections.flatMap((s) => s.groups.flatMap((g) => g.items.map((i) => i.label))), ...v.notPlaced.map((u) => u.label), ...v.delivered.map((u) => u.label)];
+    expect(labels).toContain('#3495 p › A');
   });
 });
 

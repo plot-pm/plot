@@ -85,9 +85,16 @@ describe('the person cards', () => {
 });
 
 describe('the Plan cell', () => {
-  const cell = (href: string, open = false) => renderToStaticMarkup(createElement(PlanName, {
-    plan: { plan: 'red-hold', planFile: '2026-11-09-red-hold.md', href }, open, onToggle: () => {},
+  const cell = (href: string, open = false, label = 'red-hold') => renderToStaticMarkup(createElement(PlanName, {
+    plan: { plan: 'red-hold', label, planFile: '2026-11-09-red-hold.md', href }, open, onToggle: () => {},
   }));
+
+  it('prints the label, the ticket keys before the slug, as the link text and title', () => {
+    const html = cell('/plan/2026-11-09-red-hold.md', false, '#3489 #2531 red-hold');
+    expect(html).toContain('data-plan-link="red-hold" title="#3489 #2531 red-hold"');
+    expect(html).toContain('>#3489 #2531 red-hold</a>');
+    expect(cell('', false, 'ABC-123 red-hold')).toContain('<span title="ABC-123 red-hold" class="delivery-truncate">ABC-123 red-hold</span>');
+  });
 
   it('links the plan name to its route and keeps the toggle on the chevron alone', () => {
     const html = cell('/plan/2026-11-09-red-hold.md');

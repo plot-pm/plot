@@ -1165,7 +1165,7 @@ export function AgentList({
         const cardSprintOf = (s: FleetSprint) => ({ ...s, release: s.release ?? '', end: s.end ?? '', ownerHandle: s.ownerHandle ?? '', members: s.members ?? [] });
         const sprintCardView = sprintCardViewOf(sprintScope.sprints.map(cardSprintOf), reader, { ...mappingInput, rows: fleet.rows });
         const placement = placeDelivery(mapping.readings, mapping.input);
-        const view = placeMapping(mapping, fleet.slices, activeSprints, sprintScope, new Date(Date.now()));
+        const view = placeMapping(mapping, fleet.slices, activeSprints, sprintScope, new Date(Date.now()), planIndex);
         // THE RELEASE CARDS READ EVERY ROW TOO, and every reader sees the same cards.
         // They read every Active sprint in both scopes: the to-do list's
         // "Approve release" line reads them while the sprint card shows. A card

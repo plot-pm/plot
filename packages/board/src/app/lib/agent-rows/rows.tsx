@@ -393,7 +393,7 @@ export function PlanLink({
     e.preventDefault();
   };
   const answer = planReference({ file: planFile || undefined, slug: plan || undefined }, planIndex);
-  if (!answer.href) return <>{plan}</>;
+  if (!answer.href) return <>{answer.label}</>;
   return (
     <a
       href={answer.href}
@@ -401,7 +401,7 @@ export function PlanLink({
       rel="noreferrer"
       className="text-blue-600 hover:underline dark:text-blue-400"
     >
-      {plan}
+      {answer.label}
     </a>
   );
 }
