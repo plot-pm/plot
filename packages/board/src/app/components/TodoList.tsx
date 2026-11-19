@@ -1,33 +1,40 @@
-import type { TodoList as TodoListFact } from '@plot-pm/domain';
+import type { TodoList as TodoListFact, YouMarker } from '@plot-pm/domain';
+
+/** The hue of each marker, for its tag and its verb: blocks delivery red, input blue, clean up the body colour. */
+export const TODO_MARKER_CLASS: Record<YouMarker, string> = {
+  'blocks-delivery': 'delivery-hue-red',
+  input: 'delivery-hue-blue',
+  'clean-up': 'delivery-tone-neutral',
+};
 
 /** The Delivery tab header's to-do list: every line, the header and the triage line are the domain's. */
-export function TodoList({ todo, onJump }: { todo: TodoListFact; onJump: (anchor: string) => void }) {
-  return (
-    <div data-todo-list className="space-y-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900/40">
-      <p data-todo-header className="font-semibold text-slate-800 dark:text-slate-100">{todo.header}</p>
-      {todo.lines.length > 0 && (
-        <ul className="space-y-0.5">
-          {todo.lines.map((l) => (
-            <li key={l.id} data-todo-line={l.marker} className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-              <button
-                type="button"
-                data-todo-name
-                onClick={() => onJump(l.anchor)}
-                className="min-w-0 break-words text-left text-blue-600 hover:underline dark:text-blue-400"
-              >
-                {l.text}
-              </button>
-              <span data-todo-marker className="text-xs text-slate-500 dark:text-slate-400">{l.markerWords}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-      <p data-todo-triage className="text-xs text-slate-500 dark:text-slate-400">
-        {todo.triageText} ·{' '}
-        <button type="button" data-todo-triage-link onClick={() => onJump(todo.triageAnchor)} className="text-blue-600 hover:underline dark:text-blue-400">
-          triage ›
-        </button>
-      </p>
-    </div>
-  );
-}
+export const TodoList = ({ todo, onJump }: { todo: TodoListFact; onJump: (anchor: string) => void }) => (
+  <div data-todo-list className="delivery-card">
+    <p data-todo-header>{todo.header}</p>
+    {todo.lines.length > 0 && (
+      <ul>
+        {todo.lines.map((l) => (
+          <li key={l.id} data-todo-line={l.marker} className={`flex min-w-0 items-baseline ${TODO_MARKER_CLASS[l.marker]}`}>
+            <span data-todo-marker className="delivery-chip shrink-0">{l.markerWords}</span>
+            <button
+              type="button"
+              data-todo-name
+              onClick={() => onJump(l.anchor)}
+              className="flex min-w-0 items-baseline text-left"
+            >
+              <span data-todo-verb className="shrink-0">{l.verb}</span>
+              {' '}
+              <span data-todo-label className="delivery-truncate" title={l.label}>{l.label}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    )}
+    <p data-todo-triage className="delivery-text-muted">
+      {todo.triageText} ·{' '}
+      <button type="button" data-todo-triage-link onClick={() => onJump(todo.triageAnchor)} className="delivery-text-link">
+        triage ›
+      </button>
+    </p>
+  </div>
+);
