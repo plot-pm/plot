@@ -74,11 +74,34 @@ describe('looseDelete', () => {
     expect(looseDelete({ ...base(), commits: { ok: true, value: [claim] }, pr: closed })).toMatchObject({ reason: 'claimed' });
   });
 
-  it('still refuses a claimed branch with work and no closed PR, or a merge the host cannot rule out', () => {
-    const closed = { ok: true, value: { number: 3054, state: 'CLOSED' } } as never;
+  it('still refuses a claimed branch with work and no closed PR', () => {
     const withWork = { commits: { ok: true, value: [claim, work] } } as const;
     expect(looseDelete({ ...base(), ...withWork })).toMatchObject({ reason: 'claimed' });
-    expect(looseDelete({ ...base(), ...withWork, pr: closed, merged: { ok: true, value: 'unknown' } })).toMatchObject({ reason: 'claimed' });
+    const open = { ok: true, value: { number: 3054, state: 'OPEN' } } as never;
+    expect(looseDelete({ ...base(), ...withWork, pr: open })).toMatchObject({ reason: 'claimed' });
+  });
+
+  it('refuses a claimed branch with work as unaskable where the host cannot rule out a merge of its closed PR', () => {
+    const closed = { ok: true, value: { number: 1425, state: 'CLOSED' } } as never;
+    const withWork = { commits: { ok: true, value: [work, work, claim] } } as const;
+    for (const merged of [{ ok: true, value: 'unknown' }, { ok: false, why: 'unaskable' }] as const) {
+      expect(looseDelete({ ...base(), ...withWork, pr: closed, merged }), JSON.stringify(merged)).toEqual({
+        kind: 'refuse',
+        reason: 'unaskable',
+        detail: 'the host cannot say whether feature/x merged, so its closed PR #1425 cannot be read as closed work',
+      });
+    }
+  });
+
+  it('refuses a claimed branch with work as unaskable where the host cannot say whether a PR exists', () => {
+    const withWork = { commits: { ok: true, value: [claim, work] } } as const;
+    expect(looseDelete({ ...base(), ...withWork, pr: { ok: false, why: 'unaskable' } })).toMatchObject({ reason: 'unaskable' });
+  });
+
+  it('still refuses a claim-only branch as claimed while the host cannot be asked', () => {
+    const only = { commits: { ok: true, value: [claim] } } as const;
+    expect(looseDelete({ ...base(), ...only, pr: { ok: false, why: 'unaskable' } })).toMatchObject({ reason: 'claimed' });
+    expect(looseDelete({ ...base(), ...only, merged: { ok: true, value: 'unknown' } })).toMatchObject({ reason: 'claimed' });
   });
 
   it('refuses a named branch before it asks whether a desk holds it', () => {
