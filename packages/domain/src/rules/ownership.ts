@@ -254,6 +254,29 @@ export const ticketSourceOf = (
 };
 
 /**
+ * How a ticket's assignees are written, read from the issue index's own
+ * `source` and `connector` fields rather than from the `Tracker` config key.
+ *
+ * A `tracker` index answers the lister whose `assignees.service` equals the
+ * connector. A `git-host` index answers the host lister whose `backend` equals
+ * the connector, because a git host's issue read names that host's backend
+ * word as its connector.
+ *
+ * @param index - the index file's `source` and `connector`.
+ * @param reading - the listers the adapters declare, with how each names its
+ *   assignees.
+ * @returns how a ticket's assignees are compared to the reader, or `null`
+ *   where no lister names the connector.
+ */
+export const ticketSourceOfIndex = (
+  index: { readonly source: 'tracker' | 'git-host'; readonly connector: string },
+  reading: TicketSourceReading,
+): TicketSource | null =>
+  index.source === 'tracker'
+    ? reading.listers.find((l) => l.assignees?.service === index.connector)?.assignees ?? null
+    : reading.hosts.find((h) => h.backend === index.connector)?.assignees ?? null;
+
+/**
  * Whose an agent row is, by the machine's own record.
  *
  * `mine` where the state shows a desk is on this machine, whether a manifest

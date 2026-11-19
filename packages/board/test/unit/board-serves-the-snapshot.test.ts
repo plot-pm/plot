@@ -14,6 +14,7 @@ import { emptySnapshot } from '@plot-pm/domain/entities/snapshot';
 import type { HeldSnapshot } from '@plot-pm/domain/rules/snapshot-sync';
 import type { SnapshotLink } from '@plot-pm/domain/rules/snapshot-link';
 import { walkValueOf, type WalkHeader } from '@plot-pm/domain/workflows/board-view';
+import { PlanMetaSchema } from '../../src/contract/schema.js';
 import type { BranchStageReadings } from '@plot-pm/domain/workflows/plan-walk-branches';
 import type { Estate } from '@plot-pm/domain/workflows/plan-walk-estate';
 
@@ -396,6 +397,64 @@ describe('the PR beat on snapshot, with an issue index to serve', () => {
     expect(entry.issueAnswer).toBe('answered');
     expect(entry.issues?.map((issue) => issue.number)).toEqual(['4']);
     expect(entry.waiting).not.toBeNull();
+  });
+});
+
+// #3551: on `held` the PR beat read no issues, and the Tickets section said
+// "the tracker has not been read yet" while fleetd kept `issues.json` current.
+describe('the PR beat on held, with an issue index to serve', () => {
+  const heldFixture = async () => {
+    const { dir, opts } = await fixture();
+    vi.stubEnv('PLOT_ISSUE_INDEX_HOME', path.join(dir, 'issue-index'));
+    const row = (n: number) => ({ number: String(n), title: `issue ${n}`, url: `u${n}`, createdAt: new Date().toISOString(), assignees: ['jwloka'] });
+    const index = await adapters.issueIndexFile({ cwd: dir }).write({
+      v: ISSUE_INDEX_VERSION,
+      source: 'git-host',
+      connector: 'github',
+      requests: 1,
+      nextAt: Date.now() + 120_000,
+      backoffUntil: null,
+      at: new Date().toISOString(),
+      answer: 'answered',
+      rows: [row(3), row(4)],
+      complete: true,
+    });
+    expect(index.ok).toBe(true);
+    const entry = fleet.freshCacheEntry();
+    entry.clients = 1;
+    entry.backend = 'github';
+    const link: SnapshotLink = { state: 'mismatch', reason: 'protocol 7', ours: 8, theirs: 7 };
+    return { entry, served: { ...opts, channelSnapshot: () => ({ link, held: undefined }) } };
+  };
+
+  it('serves the index rows a held plan read leaves unplanned and spawns 0 processes in 12 PR beats', async () => {
+    const { entry, served } = await heldFixture();
+    entry.planMetas = [PlanMetaSchema.parse({ file: 'docs/plans/2026-01-01-x.md', format: 'v2', phase: 'approved', issues: [3] })];
+    counted.calls.length = 0;
+    for (let i = 0; i < 12; i += 1) {
+      await fleet.refresh(served, entry);
+      await fleet.maybeRefreshPrs(served, entry);
+    }
+    expect(counted.calls).toEqual([]);
+    expect(entry.viewSource).toBe('held');
+    expect(entry.issueError).toBeNull();
+    expect(entry.issueAbsence).toBeNull();
+    expect(entry.issueAnswer).toBe('answered');
+    expect(entry.issues.map((issue) => issue.number)).toEqual(['4']);
+    expect(entry.waiting?.source).toEqual({ service: 'github', match: 'host-login' });
+    expect(entry.waiting?.tickets.map((ticket) => [ticket.number, ticket.planned === true]).sort()).toEqual([['3', true], ['4', false]]);
+  });
+
+  it('answers failed and calls no row unplanned where no plan read has answered, and spawns 0 processes', async () => {
+    const { entry, served } = await heldFixture();
+    counted.calls.length = 0;
+    await fleet.refresh(served, entry);
+    await fleet.maybeRefreshPrs(served, entry);
+    expect(counted.calls).toEqual([]);
+    expect(entry.issueAnswer).toBe('failed');
+    expect(entry.issueError).toBe('no plan read has answered while fleetd speaks another snapshot protocol, so no issue can be called unplanned');
+    expect(entry.issues).toEqual([]);
+    expect(entry.waiting).toBeNull();
   });
 });
 
