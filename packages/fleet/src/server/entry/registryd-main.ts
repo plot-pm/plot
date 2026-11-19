@@ -83,8 +83,14 @@ import {
   parseQuestionEscalation,
   DEFAULT_QUESTION_ESCALATION,
 } from '@plot-pm/domain/rules/question-escalation';
-import { parseSliceIdleAfter, DEFAULT_SLICE_IDLE_AFTER, idleEpisodeKey, sliceIdle } from '@plot-pm/domain/rules/slice-idle';
-import type { SliceIdleReading } from '@plot-pm/domain/rules/slice-idle';
+import {
+  parseSliceIdleAfter,
+  DEFAULT_SLICE_IDLE_AFTER,
+  idleEpisodeKey,
+  idleMergeReusable,
+  sliceIdle,
+} from '@plot-pm/domain/rules/slice-idle';
+import type { IdleMergeHeld, SliceIdleReading } from '@plot-pm/domain/rules/slice-idle';
 import type { TempSweep } from '@plot-pm/domain/ports/temp-sweep';
 import { tempSweepDue } from '@plot-pm/domain/rules/temp-sweep';
 import { headroomFor } from '@plot-pm/domain/entities/machine';
@@ -1364,8 +1370,11 @@ export const escalationWorldForRepo = (
  *   tick's merge memo, which answers a branch the PR index settles as merged
  *   with no host call. It has no default, because `desksNow` names every
  *   worktree with a branch and each unmemoized ask starts a `pr-merged` process.
- * @param tally - the host-call counter this pass increments.
- * @returns the reader the tick's idle pass reads through.
+ * @param tally - the host-call counter this pass increments, once per merge question asked.
+ * @param now - the wall clock, epoch milliseconds; `idleMergeReusable` reads it.
+ * @returns the reader the tick's idle pass reads through. It holds each
+ *   branch's last merge reading and asks again only where `idleMergeReusable`
+ *   refuses the held one.
  */
 export const idleWorldForRepo = (
   repoRoot: string,
@@ -1374,40 +1383,54 @@ export const idleWorldForRepo = (
   desksNow: () => Promise<readonly { worktree: string; branch: string }[]>,
   askMerged: (branch: string) => ReturnType<Host['prMerged']>,
   tally: HostTally = { calls: 0 },
-): SliceIdleReader => ({
-  readings: async (): Promise<readonly SliceIdleReading[]> => {
-    const desks = await desksNow();
-    const lines = await runLogFile({ cwd: repoRoot }).read();
-    const allLines = lines.ok ? lines.value : [];
-    const open: SliceIdleReading[] = [];
-    for (const desk of desks) {
-      if (desk.branch === '') continue;
-      tally.calls += 1;
-      if (prMergedReading(await askMerged(desk.branch)) === 'merged') continue;
-      const marker = await markerReading(desk.worktree);
-      open.push({
-        pr: { branch: desk.branch, createdAt: '' },
-        lines: allLines
-          .filter((line) => line.branch === desk.branch)
-          .map((line) => ({ branch: line.branch, step: line.step, outcome: line.outcome, at: line.at })),
-        blocked: marker !== null,
-      });
-    }
-    return open;
-  },
-  fleetdStartedAt: async () => fleetdStartedAt,
-  boundMs: async () =>
-    parseSliceIdleAfter(await readConfigAsync({ repoRoot, scriptsDir }, SLICE_IDLE_AFTER_KEY, DEFAULT_SLICE_IDLE_AFTER)),
-  recordedEpisodes: async () => {
-    const lines = await runLogFile({ cwd: repoRoot }).read();
-    if (!lines.ok) return new Set();
-    return new Set(
-      lines.value
-        .filter((line) => line.step === 'notified')
-        .map((line) => idleEpisodeKey(line.branch, line.at)),
-    );
-  },
-});
+  now: () => number = Date.now,
+): SliceIdleReader => {
+  const held = new Map<string, IdleMergeHeld>();
+  const mergeReading = async (branch: string): Promise<IdleMergeHeld['reading']> => {
+    const at = now();
+    const known = held.get(branch);
+    if (known !== undefined && idleMergeReusable(known, at)) return known.reading;
+    tally.calls += 1;
+    const reading = prMergedReading(await askMerged(branch));
+    held.set(branch, { reading, at });
+    return reading;
+  };
+  return {
+    readings: async (): Promise<readonly SliceIdleReading[]> => {
+      const desks = await desksNow();
+      const named = new Set(desks.map((desk) => desk.branch));
+      for (const branch of held.keys()) if (!named.has(branch)) held.delete(branch);
+      const lines = await runLogFile({ cwd: repoRoot }).read();
+      const allLines = lines.ok ? lines.value : [];
+      const open: SliceIdleReading[] = [];
+      for (const desk of desks) {
+        if (desk.branch === '') continue;
+        if ((await mergeReading(desk.branch)) === 'merged') continue;
+        const marker = await markerReading(desk.worktree);
+        open.push({
+          pr: { branch: desk.branch, createdAt: '' },
+          lines: allLines
+            .filter((line) => line.branch === desk.branch)
+            .map((line) => ({ branch: line.branch, step: line.step, outcome: line.outcome, at: line.at })),
+          blocked: marker !== null,
+        });
+      }
+      return open;
+    },
+    fleetdStartedAt: async () => fleetdStartedAt,
+    boundMs: async () =>
+      parseSliceIdleAfter(await readConfigAsync({ repoRoot, scriptsDir }, SLICE_IDLE_AFTER_KEY, DEFAULT_SLICE_IDLE_AFTER)),
+    recordedEpisodes: async () => {
+      const lines = await runLogFile({ cwd: repoRoot }).read();
+      if (!lines.ok) return new Set();
+      return new Set(
+        lines.value
+          .filter((line) => line.step === 'notified')
+          .map((line) => idleEpisodeKey(line.branch, line.at)),
+      );
+    },
+  };
+};
 
 /**
  * The earliest wall time an open, unblocked slice goes idle.

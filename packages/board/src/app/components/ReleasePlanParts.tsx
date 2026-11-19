@@ -1,5 +1,6 @@
 import type { HeaderCountPart, PlanLine } from '@plot-pm/domain';
 import type { PlanRowView, ReleaseBlockView } from '../lib/agent-rows/delivery-view.js';
+import { isPlainPlanClick } from './PlanReference.js';
 import { SEGMENT_CLASS } from './SprintCard.js';
 
 /** The hue of a Release header count, by key; a key not named here takes the body colour. */
@@ -55,6 +56,48 @@ export const PlanTableHead = () => (
     {PLAN_COLUMNS.map((c) => <span key={c} role="columnheader">{c}</span>)}
     <span />
   </div>
+);
+
+/**
+ * The Plan cell: the ▸ toggle, which opens and closes the slice lines, then the plan name.
+ *
+ * The name links to `plan.href`. A plain click calls `onOpenPlan` and, where it answers `true`, keeps the page; a
+ * modified click or another button keeps the browser's own handling. Where `href` is `''`, the name is plain text.
+ */
+export const PlanName = ({ plan, open, onToggle, onOpenPlan }: {
+  plan: Pick<PlanRowView, 'plan' | 'planFile' | 'href'>;
+  open: boolean;
+  onToggle: () => void;
+  onOpenPlan?: ((planFile: string) => boolean) | undefined;
+}) => (
+  <span className="delivery-release-plan flex w-full min-w-0 items-baseline gap-1 sm:w-auto">
+    <button
+      type="button"
+      data-plan-toggle={plan.plan}
+      aria-expanded={open}
+      aria-label={`${open ? 'Hide' : 'Show'} the slices of ${plan.plan}`}
+      onClick={onToggle}
+      className="shrink-0"
+    >
+      <span aria-hidden="true" className={`inline-block w-4 shrink-0 text-center transition-transform ${open ? 'rotate-90' : ''}`}>▸</span>
+    </button>
+    {plan.href === ''
+      ? <span title={plan.plan} className="delivery-truncate">{plan.plan}</span>
+      : (
+        <a
+          href={plan.href}
+          data-plan-link={plan.plan}
+          title={plan.plan}
+          onClick={(e) => {
+            if (!isPlainPlanClick(e) || onOpenPlan?.(plan.planFile) !== true) return;
+            e.preventDefault();
+          }}
+          className="delivery-truncate delivery-text-link hover:underline"
+        >
+          {plan.plan}
+        </a>
+      )}
+  </span>
 );
 
 /** The Phase cell: a chip with the phase word, or nothing where the plan has no phase. */

@@ -23,6 +23,7 @@ import {
   needsPersonMarker,
   endingAsksPersonOutright,
   isBoundEnding,
+  boundWorkDecides,
   killedWorkerEnding,
   type DeadDeskReadings,
   type EndingActionVerdict,
@@ -1240,6 +1241,20 @@ export const readFreshAgentCandidates = async (
       ending === 'holding-work' && !endingAsked && prMerged === 'merged' && dirtyTreeReading(held) === 'no'
         ? await asks.unpushedCommits(tree.path, tree.branch)
         : 'unanswerable';
+    const escalated = await hasMarker(tree.path);
+    // #1917 — a free wait's `unreadable` ending carries no slice at all;
+    // what it holds beyond its claim belongs to the slice the desk held
+    // BEFORE the wait began. Two readings already on this path settle it:
+    // the ending/exit pair `freeWaitEnded` reads, and a sealed `ok`
+    // declaration `seal` leaves for a slice that finished cleanly.
+    const freeWait =
+      freeWaitEnded(endingReading, deskFile(tree.path, EXIT_FILENAME)) ||
+      isComplete(readDeclaration(deskFile(tree.path, DECLARATION_FILENAME)));
+    // `endingAction` reads these two only on the bound row past its free-wait,
+    // merged and marker arms. Every other desk reads `'unanswerable'` without
+    // a git or host call: a dead desk whose PR merged asked `pr-state` on
+    // every tick until 2026-11-19.
+    const workDecides = !endingAsked && boundWorkDecides({ ending, freeWait, prMerged, blockedMarker: escalated });
     out.push({
       plan,
       branch: tree.branch,
@@ -1253,26 +1268,15 @@ export const readFreshAgentCandidates = async (
       // An unanswerable store reads as zero rows: absence can start one
       // session too many and never strands a slice at a person.
       priorFreshSessions: rows.ok ? rows.value.length : 0,
-      escalated: await hasMarker(tree.path),
+      escalated,
       endingAt: endingAt ?? '',
       endingAsked,
       prMerged,
       heldFiles: held,
       unpushedCommits,
-      // `endingAction` reads these two for `bound`/`unreadable`/`quiet` only. Every
-      // other ending, and an ending already asked about, reads
-      // `'unanswerable'` without a git or host call.
-      commitBeyondClaim:
-        isBoundEnding(ending) && !endingAsked ? await asks.commitBeyondClaim(tree.path) : 'unanswerable',
-      prOpen: isBoundEnding(ending) && !endingAsked ? await asks.prOpen(tree.branch) : 'unanswerable',
-      // #1917 — a free wait's `unreadable` ending carries no slice at all;
-      // what it holds beyond its claim belongs to the slice the desk held
-      // BEFORE the wait began. Two readings already on this path settle it:
-      // the ending/exit pair `freeWaitEnded` reads, and a sealed `ok`
-      // declaration `seal` leaves for a slice that finished cleanly.
-      freeWait:
-        freeWaitEnded(endingReading, deskFile(tree.path, EXIT_FILENAME)) ||
-        isComplete(readDeclaration(deskFile(tree.path, DECLARATION_FILENAME))),
+      commitBeyondClaim: workDecides ? await asks.commitBeyondClaim(tree.path) : 'unanswerable',
+      prOpen: workDecides ? await asks.prOpen(tree.branch) : 'unanswerable',
+      freeWait,
     });
   }
   return out;

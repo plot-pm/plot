@@ -214,6 +214,8 @@ describe('readBranchReadings — how a host list is read', () => {
     expect(await reach(refusing('secondary', 'abuse'))).toBe('secondary');
     expect(await reach(refusing('failed', 'gh: not logged in'))).toBe('unasked');
     expect(await reach(refusing('failed', 'boom'))).toBe('failed');
+    expect(await reach(refusing('failed', 'GraphQL: API rate limit already exceeded for user ID 870334.'))).toBe('throttled');
+    expect(await reach(refusing('failed', 'You have exceeded a secondary rate limit'))).toBe('secondary');
     expect(await reach(refusing('auth', 'HTTP 401: Bad credentials'))).toBe('unasked');
     expect(await reach(refusing(null, ''))).toBe('failed');
   });

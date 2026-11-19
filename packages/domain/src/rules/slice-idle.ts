@@ -200,3 +200,32 @@ export const parseSliceIdleAfter = (configured: string): number | null => {
   const parsed = parseDuration(trimmed);
   return parsed ?? parseDuration(DEFAULT_SLICE_IDLE_AFTER);
 };
+
+/** How long the idle pass reuses a branch's `not-merged` or unanswered merge reading: 10 minutes. */
+export const IDLE_MERGE_REASK_MS = 10 * 60 * 1000;
+
+/** One merge reading the idle pass holds for a branch, and when it was read, in epoch milliseconds. */
+export interface IdleMergeHeld {
+  readonly reading: 'merged' | 'not-merged' | 'unanswerable';
+  readonly at: number;
+}
+
+/**
+ * Whether the idle pass reuses a branch's earlier merge reading instead of asking the host.
+ *
+ * A `merged` reading is terminal and is reused at any age. A `not-merged` or
+ * `unanswerable` reading is reused while it is younger than `reaskMs`. The
+ * idle pass reads both as an open slice, so a reused reading delays an idle
+ * notification by at most `reaskMs` and moves no claim, desk or ref.
+ *
+ * @param held - the reading held for the branch, or `undefined` where none is held.
+ * @param now - the wall clock, epoch milliseconds.
+ * @param reaskMs - the re-ask bound; defaults to {@link IDLE_MERGE_REASK_MS}.
+ * @returns true where `held` is reused; false where nothing is held, where
+ *   `held.at` lies ahead of `now`, and where a non-merged reading reached the bound.
+ */
+export const idleMergeReusable = (held: IdleMergeHeld | undefined, now: number, reaskMs = IDLE_MERGE_REASK_MS): boolean => {
+  if (held === undefined) return false;
+  if (held.reading === 'merged') return true;
+  return held.at <= now && now - held.at < reaskMs;
+};
