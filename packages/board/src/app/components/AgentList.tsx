@@ -1452,6 +1452,7 @@ export function AgentList({
               facts={fleetRowFacts(agent.entry, agent.row)}
               run={agent.entry === null ? mapping.runsById[agent.placement.id] ?? null : null}
               highlighted={agent.entry !== null && agent.entry.branch !== '' && agent.entry.branch === highlightBranch}
+              details={agent.entry === null ? [] : detailLines(agent.row === null ? [] : [agent.row], agent.entry)}
               menu={agent.entry !== null && isBrokenState(agent.entry.state) ? (
                 <BrokenAgentMenu agent={agent.entry} drop={drop} onActing={onStarting} />
               ) : agent.row !== null ? (

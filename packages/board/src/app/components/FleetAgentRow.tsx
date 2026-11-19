@@ -6,7 +6,7 @@ import { RowCell, type LinkHandlers } from './DeliveryRows.js';
 
 /** The column header of a Fleet group's agent rows; `doing` reads `Waits on` in Blocked. */
 export const FleetAgentHeader = ({ blocked }: { blocked: boolean }) => (
-  <li role="row" data-fleet-agent-header className="hidden sm:grid grid-cols-[minmax(0,1.2fr)_5rem_minmax(0,1.5fr)_minmax(0,2fr)_4rem_6rem_1.25rem] gap-x-3 px-3 delivery-thead">
+  <li role="row" data-fleet-agent-header className="hidden sm:grid grid-cols-[minmax(0,1.2fr)_5rem_minmax(0,1.5fr)_minmax(0,2fr)_4rem_6rem_2.5rem] gap-x-3 px-3 delivery-thead">
     <span role="columnheader">{AGENT_COLUMN_LABELS.agent}</span>
     <span role="columnheader">{AGENT_COLUMN_LABELS.role}</span>
     <span role="columnheader">{AGENT_COLUMN_LABELS.actingOn}</span>
@@ -33,8 +33,9 @@ const DASH = '—';
  * @param run - the state-file run the row stands for, where the registry holds none.
  * @param highlighted - the row is the one an agent panel just revealed.
  * @param menu - the row's actions, or nothing where the agent offers none.
+ * @param details - the details popover's lines: pid, manifest counts and the like.
  */
-export const FleetAgentRow = ({ id, cells, handlers, role, facts, run = null, highlighted = false, menu = null }: {
+export const FleetAgentRow = ({ id, cells, handlers, role, facts, run = null, highlighted = false, menu = null, details = [] }: {
   id: string;
   cells: AgentRowCells;
   handlers: LinkHandlers;
@@ -43,6 +44,7 @@ export const FleetAgentRow = ({ id, cells, handlers, role, facts, run = null, hi
   run?: RoleRun | null;
   highlighted?: boolean;
   menu?: ReactNode;
+  details?: readonly string[];
 }) => (
   <li
     role="row"
@@ -53,7 +55,7 @@ export const FleetAgentRow = ({ id, cells, handlers, role, facts, run = null, hi
     {...(facts.availability !== '' ? { 'data-agent-availability': facts.availability } : {})}
     {...(facts.undeclared ? { 'data-agent-undeclared': '' } : {})}
     {...(run !== null ? { 'data-role-run': run.role } : {})}
-    className="delivery-row grid grid-cols-[minmax(0,1.2fr)_5rem_minmax(0,1.5fr)_minmax(0,2fr)_4rem_6rem_1.25rem] items-baseline gap-x-3 px-3 max-sm:grid-cols-1"
+    className="delivery-row grid grid-cols-[minmax(0,1.2fr)_5rem_minmax(0,1.5fr)_minmax(0,2fr)_4rem_6rem_2.5rem] items-baseline gap-x-3 px-3 max-sm:grid-cols-1"
   >
     <span role="gridcell" data-agent-cell="agent" title={cells.agentTitle ?? undefined} className="delivery-truncate">
       <span aria-hidden="true" data-agent-dot className="delivery-dot" />
@@ -103,6 +105,16 @@ export const FleetAgentRow = ({ id, cells, handlers, role, facts, run = null, hi
         </span>
       )}
     </span>
-    <span role="gridcell" data-row-cell="do" className="relative flex w-5 shrink-0 items-center justify-end">{menu}</span>
+    <span role="gridcell" data-row-cell="do" className="relative flex shrink-0 items-center justify-end gap-1">
+      {details.length > 0 && (
+        <details data-row-details className="relative shrink-0">
+          <summary aria-label="Details" className="cursor-pointer select-none list-none text-xs">ⓘ</summary>
+          <ul className="absolute right-0 z-10 mt-1 w-max max-w-[80vw] rounded border border-slate-200 bg-white p-2 font-mono text-xs shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            {details.map((line) => <li key={line} className="break-all">{line}</li>)}
+          </ul>
+        </details>
+      )}
+      {menu}
+    </span>
   </li>
 );

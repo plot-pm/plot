@@ -80,13 +80,13 @@ describe('the Delivery tab rows', () => {
     }
   });
 
-  it('keeps pids and manifest counts inside the details popover', async () => {
+  it('keeps pids inside the details popover and states the registry as one fact', async () => {
     const page = await open();
     try {
       // The facts are on the page, so absence outside the popover is a claim.
       const inside = await page.locator('[data-row-details]').evaluateAll((els) => els.map((e) => e.textContent ?? '').join('\n'));
       expect(inside).toContain('pid 99253');
-      expect(inside).toContain('4 manifests');
+      expect(await page.locator('[data-fleet-registry-fact]').innerText()).toContain('1 of 5 agents has no registry file');
       const outside = await page.locator('body').evaluate((body) => {
         const clone = body.cloneNode(true) as HTMLElement;
         clone.querySelectorAll('[data-row-details]').forEach((n) => n.remove());
