@@ -280,22 +280,26 @@ export const headerCounts = (rows: readonly PlanRowFacts[]): ReleaseHeaderCounts
 
 /** One figure of the header: its key, its number and the words that follow the number. */
 export interface HeaderCountPart {
-  readonly key: 'plans' | 'delivered' | 'blocked' | 'unread';
+  readonly key: 'plans' | 'delivered' | 'at-a-gate' | 'blocked' | 'unread';
   readonly count: number;
   /** What follows the number; `${count} ${words}` is the figure as `headerText` prints it. */
   readonly words: string;
 }
 
+/** The five-state counts the header prints: `blocked` always, `at-a-gate` where the caller gives it. */
+export type HeaderStrip = Pick<SliceStateCounts, 'blocked'> & Partial<Pick<SliceStateCounts, 'at-a-gate'>>;
+
 /**
  * The figures of the header, one per part `headerText` prints after the release.
  *
  * @param counts - the block's counts.
- * @param strip - the five-state counts of the block; without it no `blocked` part is returned.
- * @returns `plans`, `delivered`, `blocked` only where `strip` is given, and `unread` only above 0, so it agrees with `headerText` for the same arguments.
+ * @param strip - the five-state counts of the block; without it no `blocked` part is returned, and without its `at-a-gate` no `at-a-gate` part.
+ * @returns `plans`, `delivered`, `at-a-gate` and `blocked` only where `strip` gives them, and `unread` only above 0, so it agrees with `headerText` for the same arguments.
  */
-export const headerCountParts = (counts: ReleaseHeaderCounts, strip?: Pick<SliceStateCounts, 'blocked'>): HeaderCountPart[] => [
+export const headerCountParts = (counts: ReleaseHeaderCounts, strip?: HeaderStrip): HeaderCountPart[] => [
   { key: 'plans', count: counts.plans, words: counts.plans === 1 ? 'plan' : 'plans' },
   { key: 'delivered', count: counts.delivered, words: `of ${counts.total} slices delivered` },
+  ...(strip?.['at-a-gate'] === undefined ? [] : [{ key: 'at-a-gate' as const, count: strip['at-a-gate'], words: 'at a gate' }]),
   ...(strip === undefined ? [] : [{ key: 'blocked' as const, count: strip.blocked, words: 'blocked' }]),
   ...(counts.unread > 0 ? [{ key: 'unread' as const, count: counts.unread, words: 'not read' }] : []),
 ];
@@ -305,15 +309,55 @@ export const headerCountParts = (counts: ReleaseHeaderCounts, strip?: Pick<Slice
  *
  * @param counts - the block's counts.
  * @param release - the target release, or `''`.
- * @param strip - the five-state counts of the block, for the blocked figure.
+ * @param strip - the five-state counts of the block, for the at-a-gate and blocked figures.
  */
-export const headerText = (counts: ReleaseHeaderCounts, release: string, strip?: Pick<SliceStateCounts, 'blocked'>): string => {
-  const parts = [
-    ...(release === '' ? [] : [release]),
-    `${counts.plans} ${counts.plans === 1 ? 'plan' : 'plans'}`,
-    `${counts.delivered} of ${counts.total} slices delivered`,
-    ...(strip === undefined ? [] : [`${strip.blocked} blocked`]),
-    ...(counts.unread > 0 ? [`${counts.unread} not read`] : []),
-  ];
-  return parts.join(' · ');
+export const headerText = (counts: ReleaseHeaderCounts, release: string, strip?: HeaderStrip): string =>
+  [...(release === '' ? [] : [release]), ...headerCountParts(counts, strip).map((p) => `${p.count} ${p.words}`)].join(' · ');
+
+/** One figure of the Release delivery section's header line, with the plan row its link leads to. */
+export interface ReleaseDeliveryCount extends HeaderCountPart {
+  /** The first plan row holding what the figure counts, or `null` for a count of 0, which is not a link. */
+  readonly target: string | null;
+}
+
+/** The Release delivery section's header line: what it shows open and folded. */
+export interface ReleaseDeliveryHeader {
+  /** The section's name: Release delivery, or Sprint delivery under My sprint. */
+  readonly name: string;
+  /** The one block's release or sprint slug, or `''` where the section holds no block, several blocks, or a block with neither. */
+  readonly scope: string;
+  readonly counts: ReleaseDeliveryCount[];
+}
+
+/** One block of the section as the header line reads it. */
+export interface ReleaseDeliveryBlock {
+  /** The block's release, or its sprint slug under My sprint; `''` where it has neither. */
+  readonly scope: string;
+  readonly rows: readonly PlanRowFacts[];
+}
+
+/**
+ * The header line of the Release delivery section.
+ *
+ * @param name - the section's name.
+ * @param blocks - the section's blocks, in the order it lists them.
+ * @returns the totals over the section's plans, each plan once where two blocks list it: `plans`, `delivered`, `at-a-gate`, `blocked`, and `unread` only above 0. Each figure's `target` is the first plan row, in block order, that holds a slice the figure counts (any row for `plans`), and `null` for a count of 0.
+ */
+export const releaseDeliveryHeader = (name: string, blocks: readonly ReleaseDeliveryBlock[]): ReleaseDeliveryHeader => {
+  const rows = blocks.flatMap((b) => b.rows).filter((r, i, all) => all.findIndex((x) => x.plan === r.plan) === i);
+  const inState = (r: PlanRowFacts, state: SliceState): number => r.strip.find((s) => s.state === state)?.count ?? 0;
+  const holds = (r: PlanRowFacts, key: HeaderCountPart['key']): boolean => {
+    if (key === 'plans') return true;
+    if (key === 'unread') return r.unread > 0;
+    return inState(r, key) > 0;
+  };
+  const strip = {
+    blocked: rows.reduce((n, r) => n + inState(r, 'blocked'), 0),
+    'at-a-gate': rows.reduce((n, r) => n + inState(r, 'at-a-gate'), 0),
+  };
+  const counts = headerCountParts(headerCounts(rows), strip).map((p): ReleaseDeliveryCount => ({
+    ...p,
+    target: rows.find((r) => p.count > 0 && holds(r, p.key))?.plan ?? null,
+  }));
+  return { name, scope: blocks.length === 1 ? blocks[0]!.scope : '', counts };
 };

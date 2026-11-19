@@ -1734,14 +1734,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   const heading = (page: Page, key: string) =>
     page.locator(`[data-delivery-group="${key}"], [data-delivery-section="${key}"]`);
 
-  it('never folds RELEASE DELIVERY, and starts every other group open', async () => {
-    // The Release section is one row per plan and has no fold control; every
-    // other group starts open.
+  it('starts RELEASE DELIVERY open with its header row as the toggle, and every other group open', async () => {
+    // The Release section is one row per plan; its header row folds it, and it
+    // starts open like every other group.
     const page = await openAgents();
     try {
       await expect.poll(() => groupRows(page, 'working').count()).toBeGreaterThan(0);
       expect(await groupRows(page, 'queued').count()).toBeGreaterThan(0);
-      expect(await page.locator('[data-group-toggle="release-delivery"]').count()).toBe(0);
+      expect(await page.locator('[data-group-toggle="release-delivery"]').getAttribute('aria-expanded')).toBe('true');
       expect(await page.locator('[data-release-block] li[data-plan-row]').count()).toBeGreaterThan(0);
       // And the actionable end is untouched.
       expect(await groupRows(page, 'input-to-the-fleet').count()).toBeGreaterThan(0);
@@ -1758,7 +1758,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expect.poll(() => page.locator('[data-release-block] li[data-plan-row]').count())
         .toBeGreaterThan(0);
       const plans = await page.locator('[data-release-block] li[data-plan-row]').count();
-      expect(await heading(page, 'release-delivery').textContent()).toContain(`(${plans})`);
+      expect(await heading(page, 'release-delivery').textContent()).toContain(`${plans} plan${plans === 1 ? '' : 's'}`);
     } finally {
       await page.close();
     }
@@ -1869,9 +1869,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       extra = true;
       // The delivered plan gains a row and the heading count follows it…
       await expect.poll(() => planRows().count(), { timeout: 15_000 }).toBe(before + 1);
-      expect(await heading(page, 'release-delivery').textContent()).toContain(`(${before + 1})`);
-      // …and the section stays open with no fold control and no slice rows.
-      expect(await page.locator('[data-group-toggle="release-delivery"]').count()).toBe(0);
+      expect(await heading(page, 'release-delivery').textContent()).toContain(`${before + 1} plans`);
+      // …and the section stays open with no slice rows.
+      expect(await page.locator('[data-group-toggle="release-delivery"]').getAttribute('aria-expanded')).toBe('true');
       expect(await page.locator('[data-release-block] [data-slice-row]').count()).toBe(0);
     } finally {
       await page.close();
@@ -1900,7 +1900,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await page.goto(`${cat.mock.baseURL}?tab=agents`);
       await page.locator('[data-section="release-delivery"]').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
-      // RELEASE DELIVERY is always open.
+      // RELEASE DELIVERY starts open.
       const releaseRows = () => page.locator('[data-release-block] li[data-plan-row]');
       await expect.poll(() => releaseRows().count()).toBeGreaterThan(0);
       const opened = await releaseRows().count();
@@ -1909,7 +1909,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // EVERY WORKING ROW LANDS IN QUEUED, which grows while the reader's group changes nothing.
       await expect.poll(() => group(page, 'queued').locator('li[data-tuple-kind]').count(),
         { timeout: 15_000 }).toBeGreaterThan(queuedBefore);
-      expect(await page.locator('[data-group-toggle="release-delivery"]').count()).toBe(0);
+      expect(await page.locator('[data-group-toggle="release-delivery"]').getAttribute('aria-expanded')).toBe('true');
       expect(await releaseRows().count()).toBe(opened);
       // And Being built, now empty, has lost its control rather than folding.
       expect(await group(page, 'being-built').locator('[data-group-toggle]').count()).toBe(0);
@@ -1977,7 +1977,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // no longer double-reports them as the section's number. The footer
       // assertion below is what proves the collapse.
       await expect.poll(() => heading(page, 'queued').textContent()).toContain('(2)');
-      expect(await heading(page, 'release-delivery').textContent()).toContain('(2)');
+      expect(await heading(page, 'release-delivery').textContent()).toContain('2 plans');
       // Queued starts open, so the reader folds it, as the test's premise has a folded group in the path.
       await page.locator('[data-group-toggle="queued"]').click();
       await expect.poll(() => groupRows(page, 'queued').count()).toBe(0);

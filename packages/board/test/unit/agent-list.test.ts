@@ -1693,9 +1693,13 @@ describe('which groups start collapsed', () => {
     expect([...COLLAPSED_BY_DEFAULT]).toEqual(['free']);
   });
 
-  it('reads a stored fold of Release delivery as open', () => {
+  it('reads Release delivery as open where nothing is stored', () => {
+    expect([...readCollapsed({ getItem: () => null })]).not.toContain('release-delivery');
+  });
+
+  it('reads a stored fold of Release delivery as folded', () => {
     const stored = { getItem: () => JSON.stringify(['release-delivery']) };
-    expect([...readCollapsed(stored)]).not.toContain('release-delivery');
+    expect([...readCollapsed(stored)]).toEqual(['release-delivery']);
   });
 
   it('gives a set stored under the earlier vocabulary the new default, not an empty set', () => {

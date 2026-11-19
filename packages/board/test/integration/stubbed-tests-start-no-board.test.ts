@@ -564,7 +564,9 @@ describe('a browser test that stubs its own state starts no board', () => {
 // to-do verb hues. It serves its state through the catalogue and starts no board.
 // 97 → 98 on 2026-11-19: `release-delivery-visual.browser.test.ts`, for the Release section's colours and its table at 1280, 639
 // and 320 px. It serves its state through the catalogue and starts no board.
-const EXPECTED_FILES = 98;
+// 98 → 99 on 2026-11-19: `release-delivery-fold.browser.test.ts`, for the Release delivery section folding to its header line, its
+// count links and its one stored fold under the My sprint chip. It serves its state through the catalogue and starts no board.
+const EXPECTED_FILES = 99;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -949,7 +951,8 @@ const EXPECTED_FILES = 98;
 // 708 → 712 on 2026-11-19: the four `it(` that check the Tickets card and the footer line from `delivery-bottom.css`, added to `tickets-section.browser.test.ts`. Added, not moved.
 // 712 → 714 on 2026-11-19: the one `it(` that colours the You groups from the hue tokens, added to `delivery-tab-screenshots.browser.test.ts`, and the one that colours the open-questions chip by the domain tone, added to `draft-plan-row.browser.test.ts`. Added, not moved.
 // 714 → 718 on 2026-11-19: the two `it(` that check a clean-up row's one menu holds Release on a claim-only branch and that the group deletes its quiet branches one by one, added to `loose-ends-show-under-unblock.browser.test.ts` beside the rewritten menu test; the one that checks one Fleet row per agent and the not-working list, added to `delivery-fleet-look.browser.test.ts`; and the one that checks the to-do lines share one grid, added to `delivery-tab-header.browser.test.ts`. Added, not moved.
-const EXPECTED_TESTS = 718;
+// 718 → 722 on 2026-11-19: the four `it(` in the new `release-delivery-fold.browser.test.ts` (98 → 99 files). Added, not moved.
+const EXPECTED_TESTS = 722;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

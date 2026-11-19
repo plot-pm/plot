@@ -54,6 +54,25 @@ describe('the Release delivery section under the My sprint scope', () => {
     expect(v.releasePlanCount).toBe(3);
   });
 
+  it('gives the header line the one sprint as its scope and links each non-zero count to a plan row', () => {
+    const { v } = place(['alpha'], [alpha, theirs]);
+    expect(v.releaseHeader.scope).toBe('alpha');
+    expect(v.releaseHeader.title).toBe('2 plans · 2 of 2 slices delivered · 0 blocked');
+    expect(v.releaseHeader.counts.map((c) => [c.key, c.count, c.anchor])).toEqual([
+      ['plans', 2, 'delivery-plan-p1'],
+      ['delivered', 2, 'delivery-plan-p1'],
+      ['at-a-gate', 0, null],
+      ['blocked', 0, null],
+    ]);
+  });
+
+  it('gives the header line no scope and the totals, each plan once, over two sprints', () => {
+    const { v } = place(['alpha', 'beta']);
+    expect(v.releaseHeader.scope).toBe('');
+    expect(v.releaseHeader.title).toBe('');
+    expect(v.releaseHeader.counts.slice(0, 2).map((c) => c.count)).toEqual([3, 3]);
+  });
+
   it('keeps a plan with an unread merge answer at progress not read', () => {
     const { v } = place(['alpha'], [alpha], reader, [unreadSlice('p1'), mergedSlice('p2')]);
     const p1 = v.releaseBlocks[0]!.plans.find((p) => p.plan === 'p1')!;

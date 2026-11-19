@@ -68,7 +68,7 @@ import { headerOf, itemRowFactsOf, rowFormsOf, switchesOf } from '../lib/agent-r
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { ReleasePersonCards } from './ReleasePersonCards.js';
 import { LinkIcon } from './LinkIcon.js';
-import { LinePr, LineSlice, LineState, PlanOwner, PhaseChip, PlanName, PlanStrip, PlanTableHead, PLAN_TRACKS, ReleaseLine } from './ReleasePlanParts.js';
+import { LinePr, LineSlice, LineState, PlanOwner, PhaseChip, PlanName, PlanStrip, PlanTableHead, PLAN_TRACKS, ReleaseHeaderCounts, ReleaseLine } from './ReleasePlanParts.js';
 import { CleanUpBulkDelete, CleanUpMenu } from './CleanUpMenu.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
 import { checkoutHealthStatus } from '@plot-pm/domain/rules/checkout-health';
@@ -136,6 +136,7 @@ import {
   placeMapping,
   planBlockShown,
   planBlockToggleKey,
+  releasePlanAnchor,
   sectionGlyph,
   type BlockView,
   type LinkView,
@@ -185,6 +186,9 @@ const GROUP_HEADING_CLASS: Record<DeliverySection, string> = {
   fleet: 'delivery-group-plain',
   machine: 'delivery-group-plain',
 };
+
+/** The stored key of the Release delivery section's fold, the same under both scope toggle states. */
+const RELEASE_DELIVERY = 'release-delivery';
 
 /** The colour of a header count's number, by section and count key; a count not named here takes the body colour. */
 const COUNT_HUE: Readonly<Partial<Record<DeliverySection, Readonly<Record<string, string>>>>> = {
@@ -501,10 +505,33 @@ export function AgentList({
       else next.add(plan);
       return next;
     });
-  // A blocker mark opens the plan rows its blocker sits behind: a delivered slice
-  // shows under its plan row in Release delivery, collapsed until opened.
+  // Opens Release delivery where the reader folded it, and persists that.
+  const openReleaseDelivery = () => {
+    setCollapsed((prev) => {
+      if (!prev.has(RELEASE_DELIVERY)) return prev;
+      const next = new Set(prev);
+      next.delete(RELEASE_DELIVERY);
+      writeCollapsed(next);
+      return next;
+    });
+  };
+  // A blocker mark opens the section and the plan rows its blocker sits behind: a
+  // delivered slice shows under its plan row in Release delivery, collapsed until opened.
   const expandSection = (section: string) => {
-    if (section === 'done') setAllPlansOpen(true);
+    if (section !== 'done') return;
+    openReleaseDelivery();
+    setAllPlansOpen(true);
+  };
+  // A header count opens the section, then scrolls once its plan row is mounted:
+  // a folded section renders no rows, and opening it is a `setState`.
+  const jumpToReleasePlan = (anchor: string) => {
+    openReleaseDelivery();
+    let framesLeft = 10;
+    const find = () => {
+      if (document.getElementById(anchor) !== null) scrollToAnchor(anchor);
+      else if (framesLeft-- > 0) requestAnimationFrame(find);
+    };
+    requestAnimationFrame(find);
   };
 
   // Whether the reader asked to see only their own work.
@@ -1476,6 +1503,33 @@ export function AgentList({
             </div>
           ) };
         };
+        // Release delivery's whole header row is its toggle, open by default: folded, the
+        // section is that one line, and the counts in it stay. A section with no plan hides
+        // nothing, so it has no toggle.
+        const releaseFold = (heading: React.ReactNode) => {
+          const folded = isCollapsible(view.releasePlanCount) && collapsed.has(RELEASE_DELIVERY);
+          if (!isCollapsible(view.releasePlanCount)) return { folded, header: <div className="flex items-center gap-2">{heading}</div> };
+          return { folded, header: (
+            <div
+              role="button"
+              tabIndex={0}
+              data-group-toggle={RELEASE_DELIVERY}
+              aria-expanded={!folded}
+              onClick={() => toggle(RELEASE_DELIVERY)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                e.preventDefault();
+                toggle(RELEASE_DELIVERY);
+              }}
+              className="flex cursor-pointer items-center gap-2"
+            >
+              <span aria-hidden className="inline-block w-4 text-center text-base leading-none text-slate-500">{folded ? '▸' : '▾'}</span>
+              {heading}
+            </div>
+          ) };
+        };
+        // A plan two sprint blocks list carries its anchor on its first row only.
+        const anchoredPlans = new Set<string>();
         return (
           <>
             {/* THE TAB HEADER, in two columns: the to-do list, then the release
@@ -1500,7 +1554,7 @@ export function AgentList({
               // open, read from the same `active` set the rows render from.
               const release = section.key === 'release-delivery';
               const sectionPace = groupPace(release ? view.releaseRows : section.rows, active);
-              const { folded, header } = fold(section.key, release ? view.releasePlanCount : section.count, (
+              const heading = (
                 <h2 data-delivery-section={section.key} className="delivery-title flex min-w-0 flex-1 items-baseline gap-1">
                   <svg aria-hidden="true" data-section-icon={section.icon} viewBox="0 0 16 16" width="16" height="16" fill="currentColor" className="inline-block shrink-0 self-center">
                     <path d={sectionGlyph(section)} />
@@ -1558,7 +1612,7 @@ export function AgentList({
                       )}
                     </span>
                   )}
-                  {release && <span className="delivery-text-muted ml-1 font-normal">({view.releasePlanCount})</span>}
+                  {release && <ReleaseHeaderCounts head={view.releaseHeader} onJump={jumpToReleasePlan} />}
                   {sectionPace && <ActivityMark pace={sectionPace} place="heading" />}
                   <span data-section-controls className="ml-auto">
                     {section.key === 'fleet' && (
@@ -1572,13 +1626,14 @@ export function AgentList({
                     )}
                   </span>
                 </h2>
-              ), release);
+              );
+              const { folded, header } = release ? releaseFold(heading) : fold(section.key, section.count, heading);
               return (
                 <section key={section.key} data-section={section.key} className="delivery-card space-y-2">
                   <div className="delivery-head">{header}</div>
-                  {release && view.releaseBlocks.map((block) => (
+                  {release && !folded && view.releaseBlocks.map((block) => (
                     <div key={block.sprint || block.release || 'all'} data-release-block={block.release} {...(block.sprint === '' ? {} : { 'data-sprint-block': block.sprint })} className="space-y-1">
-                      <ReleaseLine block={block} />
+                      {view.releaseBlocks.length > 1 && <ReleaseLine block={block} />}
                       <ReleasePersonCards cards={block.cards} />
                       <div data-plan-table>
                         <PlanTableHead />
@@ -1586,8 +1641,10 @@ export function AgentList({
                           {block.plans.map((plan, i) => {
                             const open = allPlansOpen || openReleasePlans.has(plan.plan);
                             const card = plan.planFile === '' ? null : cardForPlanFile?.(plan.planFile) ?? null;
+                            const anchored = !anchoredPlans.has(plan.plan);
+                            anchoredPlans.add(plan.plan);
                             return (
-                              <li key={plan.plan} data-plan-row={plan.plan} className={`delivery-row px-3 ${i > 0 ? 'delivery-row-ruled' : ''}`}>
+                              <li key={plan.plan} data-plan-row={plan.plan} {...(anchored ? { id: releasePlanAnchor(plan.plan) } : {})} className={`delivery-row px-3 ${i > 0 ? 'delivery-row-ruled' : ''}`}>
                                 <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 sm:grid ${PLAN_TRACKS}`}>
                                   <PlanName plan={plan} open={open} onToggle={() => toggleReleasePlan(plan.plan)} onOpenPlan={onOpenPlan} />
                                   <span data-plan-phase><PhaseChip plan={plan} /></span>

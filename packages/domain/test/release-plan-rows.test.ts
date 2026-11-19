@@ -9,6 +9,7 @@ import {
   planRowFacts,
   planStrip,
   releaseBlocks,
+  releaseDeliveryHeader,
   stripText,
   type PlanSliceFact,
 } from '../src/rules/release-plan-rows.js';
@@ -207,5 +208,55 @@ describe('headerCountParts', () => {
   it('prints unread only above 0 and blocked only with a strip', () => {
     expect(headerCountParts(headerCounts([planRowFacts('p', '', five)])).map((p) => p.key)).toEqual(['plans', 'delivered']);
     expect(headerCountParts(headerCounts(rows), { blocked: 0 }).map((p) => p.key)).toEqual(['plans', 'delivered', 'blocked', 'unread']);
+  });
+});
+
+describe('headerCountParts with an at-a-gate count', () => {
+  it('prints at a gate between delivered and blocked, and agrees with headerText', () => {
+    const counts = headerCounts([planRowFacts('p', '', five)]);
+    const strip = { blocked: 1, 'at-a-gate': 0 };
+    expect(headerCountParts(counts, strip).map((p) => p.key)).toEqual(['plans', 'delivered', 'at-a-gate', 'blocked']);
+    expect(headerText(counts, '', strip)).toBe('1 plan · 1 of 5 slices delivered · 0 at a gate · 1 blocked');
+  });
+});
+
+describe('releaseDeliveryHeader', () => {
+  const gated = planRowFacts('gated', '', [slice('g', 'at-a-gate'), slice('h', 'delivered')]);
+  const done = planRowFacts('done', '', [slice('a', 'delivered')]);
+  const open = planRowFacts('open', '', five);
+  const unread = planRowFacts('unread', '', [slice('u', 'unread')]);
+
+  it('shows every count of 0 with no target', () => {
+    const head = releaseDeliveryHeader('Release delivery', [{ scope: '2.35.0', rows: [done] }]);
+    expect(head.counts.map((c) => [c.key, c.count, c.words, c.target])).toEqual([
+      ['plans', 1, 'plan', 'done'],
+      ['delivered', 1, 'of 1 slices delivered', 'done'],
+      ['at-a-gate', 0, 'at a gate', null],
+      ['blocked', 0, 'blocked', null],
+    ]);
+  });
+
+  it('links a non-zero count to the first plan row holding a slice it counts', () => {
+    const head = releaseDeliveryHeader('Release delivery', [{ scope: '2.36.0', rows: [done, gated, open] }]);
+    const target = Object.fromEntries(head.counts.map((c) => [c.key, c.target]));
+    expect(target).toEqual({ plans: 'done', delivered: 'done', 'at-a-gate': 'gated', blocked: 'open' });
+    expect(head.counts.find((c) => c.key === 'at-a-gate')!.count).toBe(2);
+  });
+
+  it('keeps an unread count as not read, never a 0, and links it', () => {
+    const head = releaseDeliveryHeader('Release delivery', [{ scope: '', rows: [done, unread] }]);
+    expect(head.counts.at(-1)).toEqual({ key: 'unread', count: 1, words: 'not read', target: 'unread' });
+    expect(releaseDeliveryHeader('Release delivery', [{ scope: '', rows: [done] }]).counts.some((c) => c.key === 'unread')).toBe(false);
+  });
+
+  it('names the scope of one block only', () => {
+    expect(releaseDeliveryHeader('Sprint delivery', [{ scope: 'bug-fixes-2-36-0', rows: [done] }])).toMatchObject({ name: 'Sprint delivery', scope: 'bug-fixes-2-36-0' });
+    expect(releaseDeliveryHeader('Release delivery', [{ scope: '2.35.0', rows: [done] }, { scope: '2.36.0', rows: [gated] }]).scope).toBe('');
+    expect(releaseDeliveryHeader('Release delivery', []).scope).toBe('');
+  });
+
+  it('counts a plan two blocks list once', () => {
+    const head = releaseDeliveryHeader('Sprint delivery', [{ scope: 's1', rows: [done, gated] }, { scope: 's2', rows: [gated] }]);
+    expect(head.counts.slice(0, 3).map((c) => c.count)).toEqual([2, 2, 1]);
   });
 });
