@@ -1,6 +1,6 @@
 import type { IssueAnswer } from '../entities/issue.js';
-import { youCaseOf, type YouMarker, type YouReason, type ItemPlacement } from './delivery-placement.js';
-import { reasonVerb } from './delivery-row-form.js';
+import { youCaseOf, type ItemKind, type YouMarker, type YouReason, type ItemPlacement } from './delivery-placement.js';
+import { reasonVerb, youKindWord } from './delivery-row-form.js';
 import { TICKETS_ANCHOR } from './tickets-section.js';
 
 /** The marker words a line carries as text; a marker is never colour alone. */
@@ -85,7 +85,8 @@ const plural = (n: number, one: string, many: string): string => `${n} ${n === 1
 /**
  * The Delivery tab's to-do list: one line per You item, verb first, most urgent on top.
  *
- * A line's marker is the placement's own; no second reason-to-marker map exists. The order is
+ * A line's marker is the placement's own; no second reason-to-marker map exists. A clean-up line
+ * names the item's kind (`youKindWord`) in place of a verb, because a loose item offers no single act. The order is
  * marker (blocks delivery, input, clean up), then `REASON_ORDER`, then item id, and does not read age.
  * A release a release card binds adds one `release-approval` line, sorted with the rest.
  * The header counts the three markers from the same lines and prints only non-zero parts;
@@ -98,9 +99,9 @@ export const todoList = (input: TodoListInput): TodoList => {
   const release = youCaseOf('release-approval');
   const entries = [
     ...input.items.flatMap((i) => (i.placement.section === 'you'
-      ? [{ id: i.placement.id, reason: i.placement.reason, marker: i.placement.marker, label: i.label, anchor: i.anchor }]
+      ? [{ id: i.placement.id, reason: i.placement.reason, kind: i.placement.kind as ItemKind | undefined, marker: i.placement.marker, label: i.label, anchor: i.anchor }]
       : [])),
-    ...(input.releases ?? []).map((r) => ({ id: r.id, reason: release.reason, marker: release.marker, label: r.label, anchor: r.anchor })),
+    ...(input.releases ?? []).map((r) => ({ id: r.id, reason: release.reason, kind: undefined, marker: release.marker, label: r.label, anchor: r.anchor })),
   ];
   const rank = (e: (typeof entries)[number]): [number, number] => [MARKER_ORDER.indexOf(e.marker), REASON_ORDER.indexOf(e.reason)];
   entries.sort((a, b) => {
@@ -110,10 +111,12 @@ export const todoList = (input: TodoListInput): TodoList => {
     if (ar !== br) return ar - br;
     return a.id < b.id ? -1 : 1;
   });
+  const word = (e: (typeof entries)[number]): string =>
+    capital(e.reason === 'loose' && e.kind !== undefined ? youKindWord(e.kind) : reasonVerb(e.reason));
   const lines: TodoLine[] = entries.map((e) => ({
     id: e.id,
-    text: `${capital(reasonVerb(e.reason))} ${e.label}`,
-    verb: capital(reasonVerb(e.reason)),
+    text: `${word(e)} ${e.label}`,
+    verb: word(e),
     label: e.label,
     marker: e.marker,
     markerWords: TODO_MARKER_WORDS[e.marker],

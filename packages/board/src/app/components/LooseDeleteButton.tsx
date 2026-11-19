@@ -17,6 +17,10 @@ export interface LooseDeleteButtonProps {
   branch: string;
   /** Injected by tests; the browser's `fetch` in the app. */
   fetcher?: typeof fetch;
+  /** The idle label; `Delete branch` by default. */
+  label?: string;
+  /** The sentence shown while the button waits for its confirming click. */
+  confirmText?: string;
 }
 
 type State =
@@ -26,7 +30,7 @@ type State =
   | { kind: 'deleted'; restore: string }
   | { kind: 'failed'; message: string };
 
-export const LooseDeleteButton = ({ branch, fetcher = fetch }: LooseDeleteButtonProps) => {
+export const LooseDeleteButton = ({ branch, fetcher = fetch, label: idle = 'Delete branch', confirmText }: LooseDeleteButtonProps) => {
   const [state, setState] = useState<State>({ kind: 'idle' });
 
   const remove = async () => {
@@ -56,10 +60,13 @@ export const LooseDeleteButton = ({ branch, fetcher = fetch }: LooseDeleteButton
     state.kind === 'running' ? 'deleting…'
       : state.kind === 'armed' ? 'Confirm delete'
         : state.kind === 'deleted' ? 'Deleted'
-          : 'Delete branch';
+          : idle;
 
   return (
     <>
+      {state.kind === 'armed' && confirmText !== undefined && (
+        <span data-loose-delete-confirm className="mr-2 block text-xs">{confirmText}</span>
+      )}
       <button
         type="button"
         data-loose-delete

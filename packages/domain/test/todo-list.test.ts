@@ -64,6 +64,19 @@ describe('todoList', () => {
   });
 });
 
+describe('a clean-up line', () => {
+  const loose = (id: string, kind: ItemPlacement['kind']): TodoItem => {
+    const item = you(id, 'loose');
+    return { ...item, placement: { ...item.placement, kind } };
+  };
+
+  it('names the kind of the item, as the Kind cell of the You row does, and not a verb', () => {
+    const t = ask({ items: [loose('feature/x', 'branch'), loose('pr:7', 'pr')] });
+    expect(t.lines.map((l) => [l.id, l.verb])).toEqual([['feature/x', 'Branch'], ['pr:7', 'PR']]);
+    expect(t.lines[0]!.text).toBe('Branch feature/x');
+  });
+});
+
 describe('todoList verb and label', () => {
   it('rejoins to text for every line, releases included', () => {
     const t = ask({ releases: [{ id: 'release:2.0', label: '2.0', anchor: 'release-card' }] });

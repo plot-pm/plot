@@ -93,6 +93,10 @@ export interface LooseReading {
   fixing?: boolean;
   /** The item's PR is closed unmerged. A closed PR has no fixer, so `fixing` is not asked of it. Read for a `pr` only. */
   closed?: boolean;
+  /** Every commit the branch holds beyond the default branch is an empty claim marker. */
+  claimOnly?: boolean;
+  /** The claim was made where this machine holds no worktree for the branch. Read where `claimOnly` holds. */
+  claimElsewhere?: boolean;
 }
 
 export type AgentRole = 'loop' | 'fixer' | 'reviewer' | 'approver' | 'idea' | 'brief' | 'design' | 'verify';
@@ -188,12 +192,13 @@ export interface DeliveryPlacement {
 
 /**
  * The marker each You group draws, and the words it shows beside the group's
- * label: only Unblock carries words ("clean up"); the other two carry a colour.
+ * label. No group carries words: each group's title names it, so the marker
+ * adds the colour only.
  */
 export const YOU_GROUP_MARKERS: Record<YouGroup, { marker: YouMarker; words: string | null }> = {
   'blocks-delivery': { marker: 'blocks-delivery', words: null },
   'input-to-the-fleet': { marker: 'input', words: null },
-  unblock: { marker: 'clean-up', words: 'clean up' },
+  unblock: { marker: 'clean-up', words: null },
 };
 
 /** What an item needs from a person: the group it sits in, why, and the marker the group draws. */
@@ -265,23 +270,33 @@ const looseOf = (item: WorkItemReading): 'loose' | 'not-loose' | 'unread' => {
 
 /** Which actions a loose item offers. */
 export interface LooseActions {
-  /** `loose-delete` accepts the item: a branch with no PR, or a branch whose PR is closed. */
+  /** `loose-delete` accepts the item: a branch with work and no claim-only history, or a branch whose PR is closed. */
   delete: boolean;
-  /** `release-claim` accepts the item: only a branch with no PR, because `plot-dispatch.sh --release` refuses a branch that carried commits. */
-  release: boolean;
+  /**
+   * `release-claim` accepts the item: a branch that holds only its claim and no PR. `elsewhere` where this
+   * machine holds no worktree for the claim, so the claim belongs to another machine; `null` where release refuses.
+   */
+  release: 'here' | 'elsewhere' | null;
 }
 
 /**
  * The actions a loose item offers, following the refusals of `loose-delete` and `release-claim`.
  *
+ * `loose-delete` refuses `claimed` for a branch whose only commits are claim markers, and `release-claim`
+ * refuses a branch that carries work, so a branch offers exactly one of the two. A branch whose claim
+ * nobody read offers neither.
+ *
  * @param item - the item's kind and loose reading.
- * @returns Delete and Release for a branch with no PR, Delete only for a closed PR, and neither for an open PR or an item with no loose reading.
+ * @returns Release for a claim-only branch, Delete for a branch with work or a closed PR, and neither for an
+ *   open PR, an unread claim or an item with no loose reading.
  */
 export const looseActions = (item: Pick<WorkItemReading, 'kind' | 'loose'>): LooseActions => {
-  if (item.loose === undefined) return { delete: false, release: false };
-  if (item.kind === 'branch') return { delete: true, release: true };
-  if (item.kind === 'pr' && item.loose.closed === true) return { delete: true, release: false };
-  return { delete: false, release: false };
+  const none: LooseActions = { delete: false, release: null };
+  if (item.loose === undefined) return none;
+  if (item.kind === 'pr') return item.loose.closed === true ? { delete: true, release: null } : none;
+  if (item.kind !== 'branch' || item.loose.claimOnly === undefined) return none;
+  if (item.loose.claimOnly) return { delete: false, release: item.loose.claimElsewhere === true ? 'elsewhere' : 'here' };
+  return { delete: true, release: null };
 };
 
 /** Whether a Mine mode shows a ticket of this ownership; no other item asks it. */

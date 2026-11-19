@@ -1,6 +1,5 @@
 import type { IssueAnswer } from '../entities/issue.js';
 import type { YouGroup } from './delivery-placement.js';
-import { YOU_GROUP_MARKERS } from './delivery-placement.js';
 import type { Ownership } from './ownership.js';
 import { TICKETS_ANCHOR } from './tickets-section.js';
 import type { PhaseEntry, PhaseMap } from './workflow-phases.js';
@@ -73,7 +72,7 @@ export interface YouHeaderInput {
 const GROUP_WORDS: Record<YouGroup, string> = {
   'blocks-delivery': 'block delivery',
   'input-to-the-fleet': 'inputs the fleet waits for',
-  unblock: `to ${YOU_GROUP_MARKERS.unblock.words}`,
+  unblock: 'to clean up',
 };
 
 const isYouGroup = (key: string): key is YouGroup => Object.prototype.hasOwnProperty.call(GROUP_WORDS, key);

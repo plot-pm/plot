@@ -534,13 +534,30 @@ describe('loose ends', () => {
     expect(placed(openPr({ ...nobody, closed: true }, { delivered: true })).items.map((i) => i.reason)).not.toContain('loose');
   });
 
-  it('offers actions per kind: both for a branch, Delete for a closed PR, neither for an open PR', () => {
-    expect(looseActions({ kind: 'branch', loose: nobody })).toEqual({ delete: true, release: true });
-    expect(looseActions({ kind: 'pr', loose: { ...nobody, closed: true } })).toEqual({ delete: true, release: false });
-    expect(looseActions({ kind: 'pr', loose: { ...nobody, fixing: false } })).toEqual({ delete: false, release: false });
-    expect(looseActions({ kind: 'pr', loose: nobody })).toEqual({ delete: false, release: false });
-    expect(looseActions({ kind: 'branch' })).toEqual({ delete: false, release: false });
-    expect(looseActions({ kind: 'release', loose: nobody })).toEqual({ delete: false, release: false });
+  it('offers Release and no Delete for a branch that holds only its claim, since loose-delete refuses a claim marker', () => {
+    expect(looseActions({ kind: 'branch', loose: { ...nobody, claimOnly: true } })).toEqual({ delete: false, release: 'here' });
+  });
+
+  it('names a claim made from another machine on its Release', () => {
+    expect(looseActions({ kind: 'branch', loose: { ...nobody, claimOnly: true, claimElsewhere: true } }))
+      .toEqual({ delete: false, release: 'elsewhere' });
+  });
+
+  it('offers Delete and no Release for a branch with work, since release-claim refuses a branch that carries commits', () => {
+    expect(looseActions({ kind: 'branch', loose: { ...nobody, claimOnly: false } })).toEqual({ delete: true, release: null });
+  });
+
+  it('offers neither for a branch whose claim nobody read', () => {
+    expect(looseActions({ kind: 'branch', loose: nobody })).toEqual({ delete: false, release: null });
+  });
+
+  it('offers Delete only for a closed PR, and neither for an open PR or an item with no loose reading', () => {
+    expect(looseActions({ kind: 'pr', loose: { ...nobody, closed: true } })).toEqual({ delete: true, release: null });
+    expect(looseActions({ kind: 'pr', loose: { ...nobody, closed: true, claimOnly: true } })).toEqual({ delete: true, release: null });
+    expect(looseActions({ kind: 'pr', loose: { ...nobody, fixing: false } })).toEqual({ delete: false, release: null });
+    expect(looseActions({ kind: 'pr', loose: nobody })).toEqual({ delete: false, release: null });
+    expect(looseActions({ kind: 'branch' })).toEqual({ delete: false, release: null });
+    expect(looseActions({ kind: 'release', loose: nobody })).toEqual({ delete: false, release: null });
   });
 
   it('applies the Mine filter to a loose item as it does to any Unblock item', () => {
@@ -582,7 +599,7 @@ describe('the You cases and their markers', () => {
     expect(YOU_GROUP_MARKERS).toEqual({
       'blocks-delivery': { marker: 'blocks-delivery', words: null },
       'input-to-the-fleet': { marker: 'input', words: null },
-      unblock: { marker: 'clean-up', words: 'clean up' },
+      unblock: { marker: 'clean-up', words: null },
     });
   });
 

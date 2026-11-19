@@ -1660,24 +1660,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // must all read the same with motion suppressed.
     const still = await openAgentsReducedMotion();
     try {
-      const li = rowFor(still, 'feature/beans-a');
-      // WORKING RENDERS THE AGENT NOW, so the information the motion decorates is
-      // the worker's status and its plan — not the branch's last-commit note,
-      // which is a branch row's. The claim is unchanged: what a moving row says,
-      // a still one says too. `running` is the running worker's word — it once
-      // read `someone is on it`, withdrawn by `a-state-is-a-word-not-a-sentence`.
-      await expect.poll(() => li.textContent()).toContain('running');
+      const li = group(still, 'working').locator('[data-fleet-agent-row]').filter({ hasText: 'feature/beans-a' });
+      // WORKING RENDERS THE AGENT AS ONE ROW, so the information the motion
+      // decorates is what the agent does now and its plan. The claim is
+      // unchanged: what a moving row says, a still one says too.
+      await expect.poll(() => li.textContent()).toContain('writing code');
       expect(await li.textContent()).toContain('beans');
-      // 200 minutes → 3h, the same age the moving row shows. Read from the AGE
-      // SLOT by its own hook rather than from `span:last` — the row's last span
-      // is the `⋯` menu's glyph, and it was the age only because the old grid
-      // put the actions cell's content in a `div`. A positional locator that
-      // happens to land on the right element is the stale `nth()` in another
-      // form: it keeps passing until an element is added, then reports the
-      // wrong thing rather than failing.
-      expect(await li.locator('[data-tuple-age]').textContent()).toBe('3h');
-      // The Fleet row and the registry row below it each name the branch; the
-      // claim is that the reduced-motion page shows the same rows as the moving one.
+      // The agent's one Fleet row names the branch; the claim is that the
+      // reduced-motion page shows the same rows as the moving one.
       expect(await group(still, 'working').locator('[data-fleet-agent-row]').filter({ hasText: 'feature/beans-a' }).count()).toBe(1);
     } finally {
       await still.close();
@@ -2762,29 +2752,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // because the label was gated on a fleet-wide count.
     const page = await openAgents(sliceFleet());
     try {
-      const truth = rowFor(page, 'feature/truth-a');       // WORKING
-      // WORKING RENDERS THE AGENT, NOT THE BRANCH, since
-      // `the-working-section-shows-every-worker`. `truth-a`'s WORKING row is now
-      // its worker's row, joined to the branch row, and it carries the wave as
-      // an artifact LINK (`data-slice-link`) rather than the branch-cell BADGE
-      // (`data-slice`) a branch row draws. The reachability the badge existed for
-      // survives whole — the wave is beside the branch either way — and the
-      // running worker's row NAMING its wave as its own subject is a later wave
-      // (`Named`). So the WORKING half of this claim checks the link.
-      await expect.poll(() => truth.locator('[data-slice-link]').getAttribute('data-slice-link')).toBe('Truth');
-      // IN NOT STARTED THE WAVE IS A ROW, not a badge — and the branch is
-      // reachable under it. Measured: `fold-a` renders with zero `[data-slice]`
-      // badges, and that is the design rather than a loss.
-      //
-      // A section that GROUPS states the wave once, in the row heading the
-      // branches; a section that does not (WORKING, WAITING ON A MACHINE — they
-      // ask what is HAPPENING, so an agent or a run is the subject) leaves the
-      // branch row to say it, which is where the badge still is. This asserted
-      // the badge "in EVERY section", written when every section rendered the
-      // same flat list.
-      //
-      // The claim that survives is the one the badge existed for: a branch's
-      // wave is REACHABLE beside it, whichever of the two shapes states it.
+      // WORKING RENDERS THE AGENT AS ONE ROW, and its Acting on cell names the
+      // slice the agent acts on, beside the branch beneath it.
+      const truth = group(page, 'working').locator('[data-fleet-agent-row]').filter({ has: page.locator('[data-agent-branch="feature/truth-a"]') });
+      await expect.poll(() => truth.locator('[data-agent-cell="actingOn"]').textContent()).toContain('Truth');
       const foldSlice = group(page, 'input-to-the-fleet').locator('li[data-slice-row="Fold"]');
       await expect.poll(() => foldSlice.count()).toBe(1);
       for (const b of ['feature/fold-a', 'feature/fold-b']) {
@@ -2794,13 +2765,6 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         // rule that drops a grouped row's plan link.
         expect(await li.locator('[data-slice]').count(), `${b} repeats its wave`).toBe(0);
       }
-      // THE WAVE LINK RIDES IN SLOT 4, the agent row's artifact slot — reachable
-      // beside the branch, the whole point of the move. And slot 2 holds the
-      // KIND, not the wave and not a phase.
-      const kindCell = truth.locator('[role="gridcell"]').nth(KIND_CELL);
-      expect(await kindCell.locator('[data-slice-link], [data-slice]').count()).toBe(0);
-      expect(await kindCell.locator('[data-kind]').count()).toBe(1);
-      expect(await truth.locator('[data-phase]').count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -2817,12 +2781,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // that has one, so a named single wave now prints.
     const page = await openAgents(sliceFleet());
     try {
-      const flat = rowFor(page, 'feature/flat-a');
-      // `flat-a` is a WORKING row, so its worker's row carries the wave as an
-      // artifact LINK now — the branch-cell badge is a branch row's, and WORKING
-      // renders the agent. The named single wave still prints; the count gate
-      // that suppressed it is gone. (`data-slice-link`, not `data-slice`.)
-      await expect.poll(() => flat.locator('[data-slice-link]').getAttribute('data-slice-link')).toBe('Layout');
+      // `flat-a` is a WORKING row: the agent's Fleet row names the slice in Acting on.
+      const flat = group(page, 'working').locator('[data-fleet-agent-row]').filter({ has: page.locator('[data-agent-branch="feature/flat-a"]') });
+      await expect.poll(() => flat.locator('[data-agent-cell="actingOn"]').textContent()).toContain('Layout');
     } finally {
       await page.close();
     }
@@ -3070,8 +3031,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents();
     try {
       await expandAll(page);
-      // The four groups this fixture fills: three of Work items and Fleet › Working.
-      for (const label of ['input-to-the-fleet', 'at-a-gate', 'being-built', 'queued', 'working']) {
+      // The groups of Work items this fixture fills.
+      // Fleet › Working lays its agents on the agent grid, which `delivery-fleet-look` asserts.
+      for (const label of ['input-to-the-fleet', 'at-a-gate', 'being-built', 'queued']) {
         // EVERY ROW THE SECTION SHOWS, not its branch rows. A section whose
         // plans each hold one branch renders a plan head and a wave row and no
         // branch row at all, so `li[data-agent-row]` counted 0 and the poll

@@ -12,7 +12,7 @@ import type { AgentRow, Fleet } from '../../src/contract/schema.js';
  * mutation-tested. This suite serves a payload in which the row ALREADY carries
  * `group: 'working'` and the note, so a bug in that rule cannot reach it. What
  * only a page can settle is where the sentence lands: Fleet › Working renders
- * registry agents through `RegistryRow`, and the note has to arrive in the
+ * registry agents through `FleetAgentRow`, and the note has to arrive in the
  * agent's own row by the join.
  *
  * It asserts the session nowhere. The session already renders in Fleet today,

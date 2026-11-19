@@ -17,11 +17,9 @@ import {
   type StoryCard,
   UNNAMED_SLICE,
   isSpikeSlice,
-  isBrokenState,
-  isLiveState,
   RELEASE_BRANCH,
 } from '../../../contract/schema.js';
-import { tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromSlice, planPrAggregate, statusTone, tupleAgeText, agentStateStatus, agentAvailability, shortSessionId, worktreeName, KIND_LABEL } from '../tuple-row.js';
+import { tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromSlice, planPrAggregate, statusTone, tupleAgeText } from '../tuple-row.js';
 import { TICKET_TRACKS, TUPLE_TRACKS, TupleLinkView, TupleRowView } from '../../components/TupleRow.js';
 import { activityPace } from './activity.js';
 import { soleRowStatus, exceptionSummary } from './stuck.js';
@@ -33,15 +31,11 @@ import { type BriefNote, briefGapNote, briefNote, needsBrief, waitingTone } from
 
 /** An index with no entries — a plan reference still links from its own file. */
 const EMPTY_PLAN_INDEX: PlanIndex = planIndexOf({});
-// THE DOMAIN'S OWN DISCRIMINATOR, not a re-read of the field. `identity ===
-// 'manifest'` is a rule with a test beside it in
-// `packages/domain/test/agent.test.ts`; comparing the string here would be a
-// second copy of it in a component.
-import { identityWasDeclared, noteShown, YOU_COLUMNS, YOU_COLUMN_LABELS } from '@plot-pm/domain';
+import { noteShown, YOU_COLUMNS, YOU_COLUMN_LABELS } from '@plot-pm/domain';
 import { type SliceGroup, groupedNote, sliceDissent } from './slices.js';
 import { sliceRowReading } from './slice-reading.js';
 import { ActivityMark, BlockedByMark, ChangeMark, StuckCell, UnpushedMark } from './marks.js';
-import { BranchMenu, BrokenAgentMenu, IssueRowActions, PlanActions, ResliceMenu, SliceActions } from './menus.js';
+import { BranchMenu, IssueRowActions, PlanActions, ResliceMenu, SliceActions } from './menus.js';
 import { WorkerLogModal } from '../../components/WorkerLogModal.js';
 import { DispatchLogModal } from '../../components/DispatchLogModal.js';
 import { ChangedFilesModal } from '../../components/ChangedFilesModal.js';
@@ -1772,7 +1766,10 @@ export function Row({
   gates,
   gatesReplaceStatus,
   details,
+  menu,
 }: {
+  /** The row's `⋯` menu where the view-model gives it one; the branch row's own menu where absent. */
+  menu?: ReactNode;
   /** The BY cell: who acts on the item. */
   by?: ReactNode;
   gates?: ReactNode;
@@ -2312,7 +2309,7 @@ export function Row({
           )}
         </>
       }
-      menu={
+      menu={menu ?? (
         <BranchMenu
           row={row}
           card={card}
@@ -2325,7 +2322,7 @@ export function Row({
           onOpenPlan={onOpenPlan}
           onRevealBranch={onRevealBranch}
         />
-      }
+      )}
       extra={
         <>
           {/* THE CHANGE MARK, and it is HERE because `extra` renders as a direct
@@ -2428,406 +2425,6 @@ export function Row({
         </>
       }
     />
-  );
-}
-
-/**
- * A registry entry rendered as a WORKING row, joined to a branch row where one
- * exists.
- *
- * THE WORKING SECTION RENDERS FROM THE REGISTRY —
- * `the-working-section-shows-every-worker`, slice 1 (Shown). Every agent in
- * `fleet.agents` gets a row whether or not a branch row exists for it, because a
- * worker in a worktree is a fact about the FLEET while its branch's state is a
- * fact about the WORK, and the section used to derive the first from the second.
- *
- * ## Two shapes, one status word
- *
- * **Where a branch row exists** the tuple is `tupleFromRow(row, agent)` — the
- * SAME projection the branch's own row uses, so the worker row carries what that
- * row knows (plan, slice, PR) by the join used everywhere else. A merged branch's
- * row still sits in DONE; this one joins to it and renders in WORKING, and both
- * are true at once.
- *
- * **Where none exists** — `main`, a `…-recut` scratch branch, a branch no plan
- * lists — the tuple states only what the REGISTRY knows: the worktree and the
- * branch. *Absent is not false*: it says nothing about a plan it cannot name
- * rather than inventing an empty field.
- *
- * In BOTH shapes the status comes from `agent.state`, not from the row's
- * `worker` field. `tupleFromRow` reads `worker` (the scan's view of the BRANCH);
- * the registry's five-way state is the view of the WORKTREE, and it is the one
- * that tells a genuinely running worker (`running`) from an idle, stalled,
- * finished or unknown one. A row whose usual state is a lie teaches its reader
- * to ignore it, so each of those says its own condition — Done when #5.
- *
- * The slice name a running worker's row will carry is a SEPARATE slice (`Named`);
- * here the slice arrives only as whatever a joined branch row already carries.
- */
-export function RegistryRow({
-  agent,
-  row = null,
-  slices,
-  onOpenPlan,
-  card = null,
-  dispatch,
-  implement,
-  continueWith,
-  restartWith,
-  drop,
-  pulse = 0,
-  onStarting,
-  marked = false,
-  active = false,
-  onRevealBranch,
-  highlighted = false,
-  planIndex,
-  by,
-  details,
-  kindChip,
-}: {
-  /** The role chip for the kind slot. */
-  kindChip?: ReactNode;
-  /** The BY cell: who acts on the item. */
-  by?: ReactNode;
-  /** The details popover's lines. */
-  details?: readonly string[];
-  /** The agent registry entry — the source of truth for a WORKING row. */
-  agent: AgentEntry;
-  /**
-   * The branch row this agent holds, if one exists in `fleet.rows`. Joined by
-   * the caller on `agent.branch === row.branch`; null where the pulse names no
-   * row for the branch — the case a branch-join fix silently misses.
-   */
-  row?: AgentRow | null;
-  /**
-   * The fleet's slices — passed so a running worker can name its slice even when
-   * no branch row exists. `the-working-section-shows-every-worker`, slice Named.
-   */
-  slices?: Slice[];
-  onOpenPlan?: AgentListProps['onOpenPlan'];
-  /** This row's plan as a board card, or null where the board has none. */
-  card?: Card | null;
-  /** Whether this server will act on dispatch. */
-  dispatch?: DispatchInfo;
-  /** Whether this server will act on Implement — used by WriteBriefButton. */
-  implement?: DispatchInfo;
-  /** Whether this server will act on Continue with an answer. */
-  continueWith?: DispatchInfo;
-  restartWith?: DispatchInfo;
-  /**
-   * Whether this server will act on Drop, and why not — the BROKEN agent's one
-   * action, removing its manifest so the row disappears. Passed only to broken
-   * agents (those in WAITING ON YOU), never to live ones (those in WORKING).
-   */
-  drop?: DispatchInfo;
-  /** The pulse counter. */
-  pulse?: number;
-  /** A click is outstanding (true) or has settled (false). */
-  onStarting?: (active: boolean) => void;
-  /** This row's status changed within the last `CHANGE_MARK_MS`. */
-  marked?: boolean;
-  /** Something is being written to this row. */
-  active?: boolean;
-  /** Reveal a branch's row — forwarded to the agent panel. */
-  onRevealBranch?: AgentListProps['onRevealBranch'];
-  /** This row is the branch just revealed from an agent panel. */
-  highlighted?: boolean;
-  /** The board's plan index — see `AgentListProps.planIndex`. */
-  planIndex?: PlanIndex;
-}) {
-  const [logOpen, setLogOpen] = useState(false);
-
-  // THE STATUS IS THE REGISTRY'S, always. `agent.state` is the worktree's
-  // liveness — the fact that tells a `running` worker from a stalled one —
-  // where the row's `worker` field is the scan's view of the branch. This is
-  // the whole point of rendering from the registry, so it overrides whatever a
-  // joined row's projection would otherwise say.
-  const status = agentStateStatus(agent.state);
-
-  // AVAILABILITY IS THE SECOND QUESTION, and the status word cannot answer it.
-  // `running` is not busy — an agent between slices is running with no branch
-  // and is available — so this row can truthfully say `running` and `free` at
-  // once. `finished` is not free: its worker exited.
-  //
-  // `sliceHasMerged` COMES FROM THE JOINED ROW, which is where the pulse
-  // already published what the scan measured. Asking the host per agent would
-  // spend a request per pulse per agent to re-learn a fact in hand, and an
-  // agent with no joined row contributes `false` — silence is never landed.
-  const availability = agentAvailability(agent, row?.state === 'merged');
-
-  // AN AGENT ACTS, IT DOES NOT CHANGE — so the age is not *since last change*
-  // but two labelled clocks: how long this run has been going, and how long it
-  // has been silent. `startedAt` is a launch fact; `lastActivity` is read from
-  // the transcript and optional. Both measured against now, the same clock the
-  // agent panel's `agoLabel` uses.
-  const sessionSeconds = agent.startedAt
-    ? Math.floor((Date.now() - new Date(agent.startedAt).getTime()) / 1000)
-    : null;
-  const sessionText = sessionSeconds !== null ? tupleAgeText(Math.floor(sessionSeconds / 60)) : '';
-  const idleSeconds = agent.lastActivity
-    ? Math.floor((Date.now() - new Date(agent.lastActivity).getTime()) / 1000)
-    : null;
-  const idleText = idleSeconds !== null ? tupleAgeText(Math.floor(idleSeconds / 60)) : '';
-  // THE SESSION CLOCKS WHERE THE REGISTRY HAS THEM, else the row's own age. An
-  // agent acts rather than changes, so its clocks are *how long has it run* and
-  // *how long silent* — but both are optional (a manifest with no `startedAt`,
-  // a transcript this board cannot read), and a blank age slot says less than
-  // the branch's commit age a joined row already carries. So the registry
-  // clocks REPLACE the row's age only when there is one to show; absent, the
-  // base tuple's age stands.
-  const sessionAge = sessionText
-    ? {
-        text: [sessionText, idleText && `idle ${idleText}`].filter(Boolean).join(' · '),
-        label: 'session',
-      }
-    : null;
-
-  // THE NAME IS THE SESSION ID, shortened, with no href — the transcript is a
-  // local file the ROW opens, not an address. Where the entry has no session
-  // (a synthesized worktree with no manifest) the branch names the row instead,
-  // and where it has neither the worktree does.
-  const name = agent.session
-    ? { what: 'ticket' as const, label: shortSessionId(agent.session), href: '' }
-    : agent.branch
-      ? { what: 'branch' as const, label: agent.branch, href: row?.branchUrl ?? '' }
-      : { what: 'worktree' as const, label: worktreeName(agent.worktree), href: '' };
-
-  // A RUNNING WORKER NAMES ITS SLICE — looked up from `fleet.slices` by branch.
-  // `the-working-section-shows-every-worker`, slice Named.
-  //
-  // The joined row already carries `row.wave`, but the UNJOINED case (no branch
-  // row exists — a scratch branch, `main`, an unlisted branch) had nothing. Now
-  // it looks up the slice from the fleet, the same derivation that populated
-  // `row.wave` in the first place.
-  //
-  // Silent where the branch belongs to no slice: a `main` worker or a scratch
-  // branch has no slice to name, and `(unnamed)` is filtered out below as
-  // noise — the same rule `sliceLabel` applies to a branch's slice badge.
-  const lookedUpSlice = agent.branch
-    ? slices?.find((w) => w.branches.includes(agent.branch))
-    : undefined;
-  const sliceName = lookedUpSlice && lookedUpSlice.name !== UNNAMED_SLICE
-    ? lookedUpSlice.name
-    : null;
-
-  // THE JOINED SHAPE reuses the branch row's own projection, but as an AGENT:
-  // the WORKING row's subject is the worker, not the branch. `tupleFromRow`
-  // routes on `row.kind`, and a worker's branch row is `kind: 'branch'` (the
-  // server tags no row `agent` — this row is the first producer), so forcing
-  // the kind is what selects the agent arm: the session id as the name, and
-  // worktree → branch → slice → plan as the artifact links. Everything the branch
-  // knows still comes through the same projection; only the subject changes. The
-  // UNJOINED shape states only the registry's facts — worktree then branch, and
-  // now the SLICE where one was found.
-  const base = row
-    ? tupleFromRow({ ...row, kind: 'agent' }, agent, planIndex)
-    : {
-        kind: 'agent' as const,
-        kindLabel: KIND_LABEL.agent,
-        name,
-        links: [
-          ...(agent.worktree
-            ? [{ what: 'worktree' as const, label: worktreeName(agent.worktree), href: '' }]
-            : []),
-          ...(agent.branch
-            ? [{ what: 'branch' as const, label: agent.branch, href: '' }]
-            : []),
-          // THE SLICE, where one was found by looking up `fleet.slices`.
-          ...(sliceName
-            ? [{ what: 'wave' as const, label: sliceName, href: '' }]
-            : []),
-        ],
-        status: '',
-        age: { text: '', label: '' },
-      };
-  // ABSENT IS NOT FALSE, applied to the slice. `tupleFromRow`'s agent arm carries
-  // `row.wave` straight through, so an UNNAMED slice — the absence of a division,
-  // which the server spells `(unnamed)` for a plan with no `### ` headings —
-  // would render a `(unnamed)` link beside the branch. A parenthesised non-answer
-  // is worse than nothing, the same rule `sliceLabel` applies to a branch's slice
-  // badge, so it is dropped here rather than shown.
-  const links = base.links.filter((l) => !(l.what === 'wave' && l.label === UNNAMED_SLICE));
-  const tuple = { ...base, links, status, ...(sessionAge ? { age: sessionAge } : {}) };
-
-  // THE BRANCH'S NOTE, where a branch row carries one — *last commit 3 min ago*,
-  // *claimed, no known worker*. It is a sentence the status word cannot hold, and
-  // it is the channel that survives reduced motion and a screen reader; a worker
-  // with no branch row has none. The PR's own condition is dropped from it, the
-  // same `noteWithoutPr` the branch row applies.
-  //
-  // AN UNDECLARED DESK NAMES ITSELF HERE INSTEAD. `#1101`: a synthesized entry
-  // has no `row` (nothing joins it to a branch), so this slot is otherwise
-  // empty on exactly the row that most needs a sentence — `unnamedDeskLabel`
-  // is the rule's words, verbatim, and this component prints them without
-  // deciding any of its own. `agent.checkout` (the desk's own branch, display
-  // only) is what the label's "checked out" clause names, NEVER `agent.branch`
-  // — a synthesized entry's `branch` is always `''`.
-  //
-  // `agent.checkout ?? ''` RESTATES THE SCHEMA'S DEFAULT: the client CASTS
-  // `/api/fleet` rather than parsing it (`App.tsx`), so a pulse from before
-  // this field existed — or a stubbed route built as a plain object literal —
-  // hands this component `undefined` where the declared type says `string`.
-  const note = agent.ended?.note
-    ? agent.ended.note
-    : row
-    ? noteWithoutPr(row.note, row.pr)
-    : !identityWasDeclared(agent)
-      ? '' // the unnamed-desk sentence is the Agent cell's tooltip (`agentRowFactsOf`)
-      : !isLiveState(agent.state)
-        ? 'stopped — no ending was read, so why it stopped is unknown'
-        : '';
-
-  return (
-    <>
-      <TupleRowView
-        by={by}
-        details={details}
-        kindChip={kindChip}
-        tuple={tuple}
-        onOpenPlan={onOpenPlan}
-        // THE NAME OPENS THE PANEL — the session has no address, so the name is
-        // text and this makes it the control, the same as a branch agent row.
-        // Only where there is a branch to look a worktree up by: the panel keys
-        // its log on the branch, and a between-branches agent has none.
-        onNameClick={agent.session && agent.branch ? () => setLogOpen(true) : undefined}
-        // The scroll target the agent panel's BRANCH fact aims at, keyed on the
-        // branch like the branch agent row's — so a reveal lands on whichever of
-        // the two rows the branch has.
-        id={agent.branch ? `agent-row-${agent.branch}` : undefined}
-        rowAttr={{
-          'data-agent-row': '',
-          // THE SLICE HOOK, so a blocker being WORKED ON stays reachable.
-          //
-          // `BlockedByMark` scrolls to `[data-slice-list="<plan>"]
-          // [data-slice-row="<slice>"]`. A blocker that has not completed sits in
-          // WORKING with a live worker — exactly the case a reader needs, since
-          // that is where attention has to go. WORKING used to render slice rows
-          // and carried this attribute; the registry keying replaced them with
-          // agent rows and took it away, so the query matched nothing and the
-          // mark went dead. Measured 2026-08-25: `agents-tab` › *reveals a
-          // blocker that is being WORKED on right now*, 0 matches.
-          //
-          // The row is an AGENT and still says so. Carrying the slice hook too
-          // does not make it a slice row — it makes the slice it is working on
-          // addressable. A row with no branch, or whose branch belongs to no
-          // slice, carries neither: absent is not empty.
-          //
-          // THE ROW CARRIES ITS OWN PLAN. WORKING mixes the agents of every plan
-          // in one grid, so no wrapper above the row can name the plan: a grid
-          // tagged with the first plan left every other plan's blocker
-          // unreachable. Reported from a screenshot 2026-10-28: four of six
-          // blocked-by marks in NOT STARTED jumped nowhere.
-          // FREE IS RENDERED AS AN ATTRIBUTE, NOT AS THE STATUS WORD. The two
-          // are different questions — *what is it doing?* and *can it take
-          // work?* — and a `running` agent between slices answers `running` and
-          // `free` at the same time, so overwriting one with the other would
-          // lose a fact. The attribute is present only when the agent IS free:
-          // absent is not `false`, the same rule the slice hook follows above.
-          ...(availability ? { 'data-agent-availability': availability } : {}),
-          // THE KIND, AS AN ATTRIBUTE — so a reader and a test can ask whether
-          // this row is an error without reading a colour or a class name.
-          // Present only on the undeclared row: absent is not `false`, the same
-          // rule the two attributes above follow.
-          ...(identityWasDeclared(agent) ? {} : { 'data-agent-undeclared': '' }),
-        }}
-        // AN UNDECLARED AGENT IS AN ERROR ROW, and it is the FIRST question the
-        // tone answers — before any state, because a desk nobody registered is
-        // a defect in the fleet's records rather than a stage of the work.
-        //
-        // `identityWasDeclared` is the domain's rule and the discriminator is
-        // its own: `identity === 'manifest'`. Nothing is decided here, the way
-        // nothing about the supervisor's wording is decided in
-        // `FleetControls`.
-        //
-        // THE ROW STILL RENDERS. Enforcement changes the row's KIND, never its
-        // existence — the desk is what holds the work, so a synthesized entry
-        // that quietly papered over a missing manifest now names the problem
-        // and keeps its place. The trade is stated in the plan and accepted:
-        // deleting a manifest by hand left an `unknown` row and now leaves an
-        // error row.
-        //
-        // Measured 2026-09-10 on this checkout: 4 manifests against 11
-        // worktrees, so the discriminator discriminates and this does not turn
-        // every row into an error. `agent.ts`'s own docstring records the 2026-
-        // 08-28 reading of 0 against 13, which would have — the estate has
-        // moved, and this was re-measured rather than assumed.
-        iconTone={
-          !identityWasDeclared(agent) ? 'error'
-            : agent.state === 'stalled' ? 'error'
-              : agent.state === 'waiting' ? 'warn'
-                : agent.state === 'finished' ? 'success'
-                  : undefined
-        }
-        // THE SAME MARKS THE BRANCH AGENT ROW DRAWS, and by the same rules — a
-        // travelling dot whose PACE reads the worktree (`activityPace`: fast
-        // while a lock is held or files are dirty, slow while a claimed worker
-        // only thinks), and the unpushed mark beside it where the branch holds
-        // commits its remote has not seen. Both read the JOINED row's local
-        // signals, so a worker with no branch row (nothing to observe locally)
-        // shows neither.
-        marks={
-          <>
-            {active && row && <ActivityMark pace={activityPace(row)} inTrack />}
-            {row && isUnpushed(row) && <UnpushedMark ahead={row.localAhead} inTrack />}
-          </>
-        }
-        extra={marked ? <ChangeMark /> : null}
-        // THE BRANCH'S NOTE IN SLOT 4, the sentence a status word cannot say —
-        // the same placement and tone the branch row gives it. A worker with no
-        // branch row has no note, and the slot stays empty.
-        aside={
-          note ? (
-            <span
-              data-row-note
-              data-waiting-on={row?.waitingOn ?? undefined}
-              className={`min-w-0 truncate max-sm:whitespace-normal ${waitingTone(row?.waitingOn ?? null)}`}
-              title={note}
-            >
-              {note}
-            </span>
-          ) : null
-        }
-        // THE MENU DEPENDS ON WHAT THE AGENT IS. A broken agent (`stalled`,
-        // `unknown`) gets `BrokenAgentMenu` with a Drop action — the board's
-        // manual reconciliation for entries the automatic resolver cannot clear.
-        // A live agent (`running`, `waiting`) gets `BranchMenu` where a branch
-        // row exists. A worker with no row and no `drop` capability has no menu.
-        menu={
-          isBrokenState(agent.state) ? (
-            <BrokenAgentMenu
-              agent={agent}
-              drop={drop}
-              onActing={onStarting}
-            />
-          ) : row ? (
-            <BranchMenu
-              row={row}
-              card={card ?? null}
-              dispatch={dispatch}
-              implement={implement}
-              pulse={pulse}
-              onStarting={onStarting}
-              continueWith={continueWith}
-              restartWith={restartWith}
-              onOpenPlan={onOpenPlan}
-              onRevealBranch={onRevealBranch}
-            />
-          ) : null
-        }
-        highlighted={highlighted}
-      />
-      {logOpen && (
-        <WorkerLogModal
-          branch={agent.branch}
-          onClose={() => setLogOpen(false)}
-          canContinue={continueWith}
-          canRestart={restartWith}
-          onOpenPlan={onOpenPlan}
-          onRevealBranch={onRevealBranch}
-        />
-      )}
-    </>
   );
 }
 
