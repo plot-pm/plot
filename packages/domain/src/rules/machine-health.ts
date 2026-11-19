@@ -98,10 +98,8 @@ const STRAINED = { dot: 'amber', word: 'strained' } as const;
 /** A budget bucket at or under this share of its limit limits the fleet. */
 export const LOW_BUDGET_SHARE = 0.1;
 
-const HOST_NAMES: Readonly<Record<string, string>> = { github: 'GitHub', bitbucket: 'Bitbucket' };
-
-/** GitHub's two buckets, in the order the line names them, with their reader-facing names. */
-const GITHUB_BUCKETS: ReadonlyArray<readonly [string, string]> = [
+/** The two buckets of a host that meters GraphQL and REST apart, in the order the line names them, with their reader-facing names. */
+const SPLIT_BUCKETS: ReadonlyArray<readonly [string, string]> = [
   ['graphql', 'GraphQL'],
   ['core', 'REST'],
 ];
@@ -119,22 +117,11 @@ const clock = (epochMs: number): string => {
   return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
 };
 
-/**
- * The host's display name: the connector's own word, capitalised where this rule knows how.
- *
- * @param connector - the connector's backend word.
- * @returns the display name.
- */
-export const hostName = (connector: string): string => HOST_NAMES[connector] ?? connector;
+/** Names a connector for the reader, from its backend word. */
+export type HostNamer = (connector: string) => string;
 
-/** A bucket's reader-facing name: `GraphQL` and `REST` on GitHub, the record's word elsewhere, nothing for `''`. */
-const bucketLabel = (connector: string, bucket: string): string => {
-  if (connector === 'github') {
-    const known = GITHUB_BUCKETS.find(([word]) => word === bucket);
-    if (known !== undefined) return known[1];
-  }
-  return bucket;
-};
+/** A bucket's reader-facing name: `GraphQL` and `REST` for the split buckets, the record's word otherwise, nothing for `''`. */
+const bucketLabel = (bucket: string): string => SPLIT_BUCKETS.find(([word]) => word === bucket)?.[1] ?? bucket;
 
 /** A bucket with both a limit and a remaining count. */
 type ReadBucket = MachineBudget & { limit: number; remaining: number };
@@ -146,38 +133,39 @@ const limiting = (b: ReadBucket): boolean => b.remaining <= b.limit * LOW_BUDGET
 /** GraphQL first, then REST, then any other bucket in record order. */
 const ordered = (buckets: readonly ReadBucket[]): ReadBucket[] => {
   const rank = (b: ReadBucket): number => {
-    const at = GITHUB_BUCKETS.findIndex(([word]) => word === b.bucket);
-    return at === -1 ? GITHUB_BUCKETS.length : at;
+    const at = SPLIT_BUCKETS.findIndex(([word]) => word === b.bucket);
+    return at === -1 ? SPLIT_BUCKETS.length : at;
   };
   return [...buckets].sort((a, b) => rank(a) - rank(b));
 };
 
 /**
  * The host's budget as the line names it: each read bucket's remaining count,
- * and on GitHub each of GraphQL and REST the record holds no reading for.
+ * and, where the record holds one of the split buckets, each split bucket it
+ * holds no reading for.
  *
  * The record holds a bucket only where a call in its window spent it, so a
  * bucket it does not hold is named `not recorded` rather than asked for.
  */
-const budgetFigure = (host: NonNullable<MachineReading['host']>): string => {
-  const name = hostName(host.connector);
+const budgetFigure = (host: NonNullable<MachineReading['host']>, name: string): string => {
   const read = ordered(host.buckets.filter(isRead));
   if (read.length === 0) return `${name} budget not reported`;
   const parts = read.map((b) => {
-    const label = bucketLabel(host.connector, b.bucket);
+    const label = bucketLabel(b.bucket);
     return `${label === '' ? '' : `${label} `}${count(b.remaining)} / ${count(b.limit)} left`;
   });
-  const missing = host.connector === 'github'
-    ? GITHUB_BUCKETS.filter(([word]) => !read.some((b) => b.bucket === word)).map(([, label]) => `${label} not recorded`)
+  const split = read.some((b) => SPLIT_BUCKETS.some(([word]) => word === b.bucket));
+  const missing = split
+    ? SPLIT_BUCKETS.filter(([word]) => !read.some((b) => b.bucket === word)).map(([, label]) => `${label} not recorded`)
     : [];
   return `${name} ${[...parts, ...missing].join(' · ')}`;
 };
 
-const hostFigure = (machine: MachineReading | null, answer: HostAnswer): string | null => {
+const hostFigure = (machine: MachineReading | null, answer: HostAnswer, nameOf: HostNamer): string | null => {
   if (answer === 'unasked' || answer === 'unreachable') return `host ${HOST_ANSWER_HINT[answer]}`;
   const host = machine?.host ?? null;
   if (host === null) return answer === 'rate-limited' ? `host ${HOST_ANSWER_HINT[answer]}` : null;
-  return budgetFigure(host);
+  return budgetFigure(host, nameOf(host.connector));
 };
 
 const loadFigure = (machine: MachineReading | null): string | null => {
@@ -186,12 +174,12 @@ const loadFigure = (machine: MachineReading | null): string | null => {
   return machine.cores === null ? `load ${load}` : `load ${load} of ${machine.cores} cores`;
 };
 
-const budgetRow = (connector: string, b: ReadBucket): MachineRow => {
-  const label = bucketLabel(connector, b.bucket);
+const budgetRow = (name: string, b: ReadBucket): MachineRow => {
+  const label = bucketLabel(b.bucket);
   const reset = b.resetAt === null ? '' : `, resets ${clock(b.resetAt)}`;
   const spent = b.remaining === 0;
   return {
-    resource: label === '' ? hostName(connector) : `${hostName(connector)} ${label}`,
+    resource: label === '' ? name : `${name} ${label}`,
     now: `${count(b.remaining)} / ${count(b.limit)}${reset}`,
     effect: spent ? (SPENT_EFFECT[b.bucket] ?? 'calls wait for the reset') : 'calls may be refused before the reset',
   };
@@ -203,10 +191,10 @@ const machineRows = (machine: MachineReading | null): MachineRow[] => {
   return [];
 };
 
-const hostRows = (machine: MachineReading | null, answer: HostAnswer): MachineRow[] => {
+const hostRows = (machine: MachineReading | null, answer: HostAnswer, nameOf: HostNamer): MachineRow[] => {
   const host = machine?.host ?? null;
   if (host === null || answer === 'unasked' || answer === 'unreachable') return [];
-  return ordered(host.buckets.filter(isRead)).filter(limiting).map((b) => budgetRow(host.connector, b));
+  return ordered(host.buckets.filter(isRead)).filter(limiting).map((b) => budgetRow(nameOf(host.connector), b));
 };
 
 /**
@@ -222,13 +210,18 @@ const hostRows = (machine: MachineReading | null, answer: HostAnswer): MachineRo
  *
  * @param reading - the payload's reading, or null or undefined where the board has not measured.
  * @param answer - {@link hostAnswer} of the fleet's PR age and PR error.
+ * @param nameOf - names the connector for the reader; the backend word itself by default.
  * @returns the Machine section's fact.
  */
-export const machineHealth = (reading: MachineReading | null | undefined, answer: HostAnswer = 'answered'): MachineHealth => {
+export const machineHealth = (
+  reading: MachineReading | null | undefined,
+  answer: HostAnswer = 'answered',
+  nameOf: HostNamer = (connector) => connector,
+): MachineHealth => {
   const machine = reading ?? null;
   const headroom = machine?.headroom ?? 'unmeasured';
-  const line = [loadFigure(machine), hostFigure(machine, answer)].filter((part): part is string => part !== null).join(' · ');
-  const rows = [...machineRows(machine), ...hostRows(machine, answer)];
+  const line = [loadFigure(machine), hostFigure(machine, answer, nameOf)].filter((part): part is string => part !== null).join(' · ');
+  const rows = [...machineRows(machine), ...hostRows(machine, answer, nameOf)];
   const { dot, word } = (headroom === 'clear' || headroom === 'unmeasured') && rows.length > 0 ? STRAINED : DOT_AND_WORD[headroom];
   return { dot, word, line, rows };
 };

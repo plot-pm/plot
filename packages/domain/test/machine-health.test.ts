@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { HOST_ANSWER_HINT, hostAnswer, machineHealth, type HostAnswer, type MachineReading } from '../src/rules/machine-health.js';
+import { HOST_ANSWER_HINT, hostAnswer, machineHealth as health, type HostAnswer, type MachineReading } from '../src/rules/machine-health.js';
+
+const NAMES: Readonly<Record<string, string>> = { github: 'GitHub' };
+const machineHealth = (reading: MachineReading | null | undefined, answer?: HostAnswer) =>
+  health(reading, answer, (connector) => NAMES[connector] ?? connector);
 
 const OLD_TEXT = 'none — nothing — a machine is working';
 
@@ -55,6 +59,10 @@ describe('machineHealth — the healthy line', () => {
   it('names the GitHub bucket the record does not hold, rather than asking for it', () => {
     const h = machineHealth(machine({ host: github({ bucket: 'core', limit: 5000, remaining: 3812, resetAt: null }) }));
     expect(h.line).toBe('load 2.1 of 10 cores · GitHub REST 3,812 / 5,000 left · GraphQL not recorded');
+  });
+
+  it('names the connector by its backend word where the caller names none', () => {
+    expect(health(machine()).line).toContain('github GraphQL');
   });
 
   it('names a host by the connector, with one pool and no bucket label', () => {
