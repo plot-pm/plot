@@ -1,4 +1,8 @@
+import { notWorkingReason, type NotWorkingReason } from '@plot-pm/domain';
 import { isLiveState, isBrokenState, type AgentEntry, type AgentRow, type DraftPlan } from '../../../contract/schema.js';
+import { identityWasDeclared } from '@plot-pm/domain/entities/agent';
+import { agentAvailability, worktreeName } from '../tuple-row.js';
+import { noteWithoutPr } from './host-notes.js';
 
 /**
  * One WORKING row per LIVE registry entry, joined to a branch row where one
@@ -155,3 +159,65 @@ export const draftPlanRows = (draftPlans: DraftPlan[], rows: AgentRow[]): DraftP
  */
 export const draftRoundsText = (rounds: number | undefined): string =>
   rounds === undefined ? 'not interrogated' : rounds === 1 ? '1 round' : `${rounds} rounds`;
+
+/** One registry entry the Fleet card is not showing, as its not-working list names it. */
+export interface NotWorkingEntry {
+  key: string;
+  /** The worktree's name; `''` where the entry names none. */
+  desk: string;
+  /** The branch the entry names, or the checkout of a desk no manifest names; `''` where neither is known. */
+  branch: string;
+  why: NotWorkingReason;
+}
+
+/**
+ * The registry entries whose agent is not working, with why each stopped (`notWorkingReason`).
+ *
+ * @param agents - every registry entry.
+ * @param rows - the payload rows, for whether an entry's branch merged.
+ * @returns one entry per non-live registry entry, in registry order.
+ */
+export const notWorkingEntries = (agents: readonly AgentEntry[], rows: readonly AgentRow[]): NotWorkingEntry[] =>
+  agents.flatMap((agent, i) => {
+    if (isLiveState(agent.state)) return [];
+    const branch = agent.branch || agent.checkout || '';
+    const merged = branch !== '' && rows.some((r) => r.branch === branch && r.state === 'merged');
+    const why = notWorkingReason(agent.state, merged) ?? 'unread';
+    return [{ key: agent.session || agent.worktree || String(i), desk: agent.worktree ? worktreeName(agent.worktree) : '', branch, why }];
+  });
+
+/** What the one Fleet row of a registry agent carries besides the domain's cells. */
+export interface FleetRowFacts {
+  /** The scroll target a reveal of the agent's branch aims at; `null` for an agent with no branch. */
+  anchorId: string | null;
+  /** `free` where the agent can take a slice; `''` otherwise. */
+  availability: string;
+  /** No manifest declared the agent. */
+  undeclared: boolean;
+  /** The sentence the row carries beside its cells: the ending's note, or the joined branch row's; `''` for none. */
+  note: string;
+}
+
+/**
+ * The identity, availability and note of a registry agent's Fleet row.
+ *
+ * @param agent - the registry entry, or `null` for a run the registry does not hold.
+ * @param row - the payload row of the agent's branch, or `null`.
+ */
+export const fleetRowFacts = (agent: AgentEntry | null, row: AgentRow | null): FleetRowFacts => {
+  if (agent === null) return { anchorId: null, availability: '', undeclared: false, note: '' };
+  const declared = identityWasDeclared(agent);
+  const note = agent.ended?.note
+    ? agent.ended.note
+    : row
+      ? noteWithoutPr(row.note, row.pr)
+      : declared && !isLiveState(agent.state)
+        ? 'stopped — no ending was read, so why it stopped is unknown'
+        : '';
+  return {
+    anchorId: agent.branch ? `agent-row-${agent.branch}` : null,
+    availability: agentAvailability(agent, row?.state === 'merged'),
+    undeclared: !declared,
+    note,
+  };
+};

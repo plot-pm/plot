@@ -113,6 +113,57 @@ describe('the Fleet section in the mockup look (real browser renders the shipped
     }
   });
 
+  it('renders one row per agent, says a free loop waits for a slice, and lists the agents not working', async () => {
+    const base = fleetWithBars();
+    const stopped = (session: string, branch: string, state: string) =>
+      ({ ...base.agents![0]!, session, branch, worktree: `/wt/desk-${session}`, state, startedAt: '' });
+    const page = await cat.open('every-delivery-section', {
+      tab: 'agents',
+      over: {
+        fleet: {
+          ...base,
+          agents: [...base.agents!, stopped('gone1', 'feature/old-a', 'stalled'), stopped('gone2', 'feature/old-b', 'elsewhere')],
+          registry: { directory: '/very/long/path/to/the/agent/registry', manifestCount: 3, synthesizedCount: 14 },
+        } as Fleet,
+      },
+      viewport: { width: 1280, height: 900 },
+    });
+    try {
+      const fleet = page.locator('[data-section="fleet"]');
+      await fleet.locator('[data-fleet-agent-row]').first().waitFor({ timeout: 10_000 });
+      // No Free line naming full ids, and no second row per agent.
+      expect(await page.locator('[data-free-line]').count()).toBe(0);
+      expect(await fleet.locator('li[data-agent-row]:not([data-fleet-agent-row])').count()).toBe(0);
+      const ids = await fleet.locator('[data-fleet-agent-row]').evaluateAll((els) => els.map((e) => e.getAttribute('data-fleet-agent-row')));
+      expect(new Set(ids).size).toBe(ids.length);
+      // Free starts folded; open it the way a reader does.
+      const toggle0 = page.locator('[data-group-toggle="free"]');
+      if (await toggle0.count() > 0 && (await toggle0.getAttribute('aria-expanded')) === 'false') await toggle0.click();
+      const free = fleet.locator('[data-group="free"] [data-fleet-agent-row]');
+      await free.first().waitFor({ timeout: 5_000 });
+      expect(await free.first().locator('[data-agent-cell="doing"]').innerText()).toContain('waiting for a slice');
+      expect(await free.first().locator('[data-agent-cell="agent"]').innerText()).not.toContain('agent:');
+      // The not-working count opens a list inside the card: desk, branch, why.
+      const toggle = fleet.locator('[data-fleet-working]');
+      expect((await toggle.innerText()).trim()).toBe('· 2 not working ▸');
+      await toggle.click();
+      const entries = fleet.locator('[data-fleet-not-working] [data-fleet-not-working-entry]');
+      await expect.poll(() => entries.count()).toBe(2);
+      expect(await entries.nth(0).getAttribute('data-fleet-not-working-entry')).toBe('stalled');
+      expect(await entries.nth(0).innerText()).toContain('feature/old-a');
+      expect(await entries.nth(1).getAttribute('data-fleet-not-working-entry')).toBe('gone');
+      // The registry reads as one plain fact, and nothing overflows the card.
+      expect((await fleet.locator('[data-fleet-registry-fact]').innerText()).trim()).toBe('· 14 of 17 agents have no registry file');
+      expect(await page.locator('[data-fleet-details]').count()).toBe(0);
+      const card = await fleet.boundingBox();
+      const list = await fleet.locator('[data-fleet-not-working]').boundingBox();
+      expect(list!.x).toBeGreaterThanOrEqual(card!.x);
+      expect(list!.x + list!.width).toBeLessThanOrEqual(card!.x + card!.width + 1);
+    } finally {
+      await page.close();
+    }
+  });
+
   it('wraps the Fleet header switches at 320 px with no horizontal scroll', async () => {
     const page = await cat.open('every-delivery-section', {
       tab: 'agents',

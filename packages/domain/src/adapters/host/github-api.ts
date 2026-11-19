@@ -3,6 +3,7 @@ import { execFile } from 'node:child_process';
 import type { BudgetRecord } from '../../ports/budget.js';
 import type { HostRefusal, LimitObservation } from '../../ports/host.js';
 import type { Slots } from '../../ports/slots.js';
+import { refusalKindOfWords } from '../../rules/refusal.js';
 import {
   connectorHttps,
   headerNumber,
@@ -154,14 +155,28 @@ const messageOf = (body: unknown): string => {
   return typeof body === 'string' ? body.trim() : '';
 };
 
-/** A GraphQL `RATE_LIMITED` error's message, or null. */
+/** The GraphQL error types and codes GitHub names a spent window with. */
+const GRAPHQL_LIMIT_TYPES: readonly string[] = ['RATE_LIMITED', 'RATE_LIMIT'];
+const GRAPHQL_LIMIT_CODE = 'graphql_rate_limit';
+
+/**
+ * A GraphQL error's message where the error names a spent window, or null.
+ *
+ * GitHub names it by `type` (`RATE_LIMITED`, or `RATE_LIMIT` with code
+ * `graphql_rate_limit`), and an untyped error by its words.
+ */
 const graphqlRateLimited = (body: unknown): string | null => {
   const errors = typeof body === 'object' && body !== null ? (body as { errors?: unknown }).errors : undefined;
   if (!Array.isArray(errors)) return null;
-  const hit = errors.find((e) => typeof e === 'object' && e !== null && (e as { type?: unknown }).type === 'RATE_LIMITED');
-  if (hit === undefined) return null;
-  const message = (hit as { message?: unknown }).message;
-  return typeof message === 'string' ? message : 'API rate limit exceeded';
+  for (const e of errors) {
+    if (typeof e !== 'object' || e === null) continue;
+    const { type, code, message } = e as { type?: unknown; code?: unknown; message?: unknown };
+    const said = typeof message === 'string' ? message : '';
+    const typed = (typeof type === 'string' && GRAPHQL_LIMIT_TYPES.includes(type)) || code === GRAPHQL_LIMIT_CODE;
+    if (typed) return said === '' ? 'API rate limit exceeded' : said;
+    if (said !== '' && refusalKindOfWords(said) === 'throttled') return said;
+  }
+  return null;
 };
 
 /**
@@ -295,7 +310,7 @@ export const githubApi = (options: GithubApiOptions): GithubApi => {
         options.observe?.('secondary');
         return { ok: false, refusal: { kind: 'secondary', said: message, ...waitOf(undefined) }, reply };
       }
-      if (remaining === 0) {
+      if (remaining === 0 || (remaining === null && refusalKindOfWords(message) === 'throttled')) {
         options.observe?.('throttled');
         return { ok: false, refusal: { kind: 'throttled', said: message, ...waitOf(resetWait) }, reply };
       }

@@ -164,10 +164,9 @@ describe('the board shows which kind of quiet a row is in', () => {
     try {
       const li = rowFor(page, 'feature/never-begun');
       await expect.poll(() => li.textContent()).toContain('claimed, no work committed');
-      // THE STATUS WORD MOVED TOO. It read `claimed` — a ref exists — which
-      // says nothing about whether anybody started. `unclaimed` is slot 5's one
-      // word for it; the sweep's full wording is the note above.
-      await expect.poll(() => li.textContent()).toContain('unclaimed');
+      // THE ROW NEVER SAYS `unclaimed` of a branch that holds a claim. Under
+      // Queued the Progress column holds the status, so the note says the rest.
+      expect(await li.locator('[data-row-cell="status"]').textContent()).not.toContain('unclaimed');
       // AND NOT *in progress*, which is what a ref existing used to imply. This
       // estate ran 0 live workers while the board showed seven rows working.
       await expect.poll(() => li.textContent()).not.toContain('in progress');
@@ -261,16 +260,16 @@ describe('the board shows which kind of quiet a row is in', () => {
           body: JSON.stringify({ branch, released: true, hadClaim: true, detail: 'claim released' }),
         });
       });
-      // No desk, manifest or worker holds the claim, so it is loose: You › Unblock.
+      // No desk, manifest or worker holds the claim, so it is loose: You › Clean up.
       const toggle = page.locator('[data-group-toggle="unblock"]');
       await toggle.waitFor({ timeout: 10_000 });
       if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
       await expandAgentFolds(page);
       const li = rowFor(page, branch);
-      await expect.poll(() => li.textContent()).toContain('unclaimed');
+      await expect.poll(() => li.textContent()).toContain('claimed elsewhere');
+      // The row carries one menu, the clean-up menu, and Release claim is in it.
+      expect(await li.locator('[data-row-actions]').count()).toBe(1);
       await li.locator('[data-row-actions]').click();
-      // A loose row also carries Release claim in its own actions line, so the
-      // menu's button is the one this asks about.
       const release = page.locator('[role="menu"] [data-release-claim]');
       await release.waitFor({ timeout: 5_000 });
       await release.click();

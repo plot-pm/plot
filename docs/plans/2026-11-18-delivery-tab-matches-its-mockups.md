@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** bug-fixes-2-35-0
 - **Issue:**
@@ -22,6 +22,7 @@
 - **Started:** 2026-11-19, Jan Wloka, `feature/delivery-visual-you`
 - **Started:** 2026-11-19, Jan Wloka, `feature/delivery-visual-work-items`
 - **Delivered:** 2026-11-19
+- **Released:** 2026-11-19, v2.35.0
 
 ## Changelog
 

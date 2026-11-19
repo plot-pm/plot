@@ -729,8 +729,11 @@ describe('the dot travels at two speeds, and they are distinguishable', () => {
     // is what still tells them apart.
     const page = await open();
     await expect.poll(() => dotIn(page, 'feature/measured').count()).toBe(1);
-    expect(await rowFor(page, 'feature/measured').innerText()).toMatch(/last commit/i);
-    expect(await rowFor(page, 'bug/unobserved').innerText()).toMatch(/claimed, no known worker/i);
+    // The agent's one Fleet row carries the branch's note.
+    const agentRow = (branch: string) =>
+      page.locator('[data-fleet-agent-row]').filter({ has: page.locator(`[data-agent-branch="${branch}"]`) });
+    expect(await agentRow('feature/measured').innerText()).toMatch(/last commit/i);
+    expect(await agentRow('bug/unobserved').innerText()).toMatch(/claimed, no known worker/i);
   });
 });
 

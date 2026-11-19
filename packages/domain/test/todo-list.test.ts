@@ -64,6 +64,19 @@ describe('todoList', () => {
   });
 });
 
+describe('a clean-up line', () => {
+  const loose = (id: string, kind: ItemPlacement['kind']): TodoItem => {
+    const item = you(id, 'loose');
+    return { ...item, placement: { ...item.placement, kind } };
+  };
+
+  it('names the kind of the item, as the Kind cell of the You row does, and not a verb', () => {
+    const t = ask({ items: [loose('feature/x', 'branch'), loose('pr:7', 'pr')] });
+    expect(t.lines.map((l) => [l.id, l.verb])).toEqual([['feature/x', 'Branch'], ['pr:7', 'PR']]);
+    expect(t.lines[0]!.text).toBe('Branch feature/x');
+  });
+});
+
 describe('todoList verb and label', () => {
   it('rejoins to text for every line, releases included', () => {
     const t = ask({ releases: [{ id: 'release:2.0', label: '2.0', anchor: 'release-card' }] });
@@ -74,5 +87,16 @@ describe('todoList verb and label', () => {
       expect(`${l.verb} ${l.label}`).toBe(l.text);
     }
     expect(t.lines.find((l) => l.id === 'a')).toMatchObject({ verb: 'Approve', label: 'a' });
+  });
+
+  it('names the kind each line and the triage link lead to', () => {
+    const kinds: TodoItem[] = [
+      { placement: { ...you('p', 'plan-approval').placement, kind: 'plan' }, label: 'p', anchor: 'a-p' },
+      { placement: { ...you('b', 'loose').placement, kind: 'branch' }, label: 'b', anchor: 'a-b' },
+      { placement: { ...you('r', 'review-pr').placement, kind: 'pr' }, label: 'r', anchor: 'a-r' },
+    ];
+    const t = todoList({ items: kinds, ticketAnswer: 'answered', tickets: [], releases: [{ id: 'release:1.0.0', label: '1.0.0', anchor: 'rel' }] });
+    expect(Object.fromEntries(t.lines.map((l) => [l.id, l.icon]))).toEqual({ p: 'plan', b: 'branch', r: 'pr', 'release:1.0.0': 'release' });
+    expect(t.triageIcon).toBe('ticket');
   });
 });

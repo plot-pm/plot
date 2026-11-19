@@ -11,6 +11,7 @@ import {
   NEEDS_PERSON_ENDINGS,
   BOUND_ENDINGS,
   isBoundEnding,
+  boundWorkDecides,
   killedWorkerEnding,
   type DeadDeskReadings,
   type EndingActionReadings,
@@ -655,5 +656,50 @@ describe('claimOnlyOnLocalEvidence', () => {
 
   it('leaves endingAction itself answering leave for the unanswered reading', () => {
     expect(endingAction(unaskedHost())).toBe('leave');
+  });
+});
+
+describe('boundWorkDecides', () => {
+  const works = [
+    { commitBeyondClaim: 'no', prOpen: false, dirtyTree: 'no' },
+    { commitBeyondClaim: 'yes', prOpen: true, dirtyTree: 'yes' },
+    { commitBeyondClaim: 'unanswerable', prOpen: 'unanswerable', dirtyTree: 'unanswerable' },
+  ] as const;
+  const gates = [
+    { ending: 'unreadable', freeWait: false, prMerged: 'not-merged', blockedMarker: false },
+    { ending: 'unreadable', freeWait: false, prMerged: 'merged', blockedMarker: false },
+    { ending: 'bound', freeWait: true, prMerged: 'not-merged', blockedMarker: false },
+    { ending: 'quiet', freeWait: 'unanswerable', prMerged: 'unanswerable', blockedMarker: false },
+    { ending: 'bound', freeWait: false, prMerged: 'unanswerable', blockedMarker: true },
+    { ending: 'turn-limit', freeWait: false, prMerged: 'not-merged', blockedMarker: false },
+  ] as const;
+
+  it('answers false wherever the work readings cannot change a bound or fresh-session verdict', () => {
+    for (const gate of gates) {
+      for (const priorFreshSessions of [0, 1]) {
+        const verdicts = new Set(works.map((work) => endingAction(readings({ ...gate, ...work, priorFreshSessions }))));
+        if (!boundWorkDecides(gate)) expect(verdicts.size, JSON.stringify(gate)).toBe(1);
+      }
+    }
+  });
+
+  it('answers false for a bound ending whose PR merged, so no open-PR read is spent on it', () => {
+    expect(boundWorkDecides({ ending: 'unreadable', freeWait: false, prMerged: 'merged', blockedMarker: false })).toBe(false);
+  });
+
+  it('answers false for a free wait and for a marked desk', () => {
+    expect(boundWorkDecides({ ending: 'bound', freeWait: true, prMerged: 'not-merged', blockedMarker: false })).toBe(false);
+    expect(boundWorkDecides({ ending: 'bound', freeWait: 'unanswerable', prMerged: 'not-merged', blockedMarker: false })).toBe(false);
+    expect(boundWorkDecides({ ending: 'bound', freeWait: false, prMerged: 'not-merged', blockedMarker: true })).toBe(false);
+  });
+
+  it('answers true for an unmerged, unmarked bound ending, and for one the host could not answer', () => {
+    expect(boundWorkDecides({ ending: 'unreadable', freeWait: false, prMerged: 'not-merged', blockedMarker: false })).toBe(true);
+    expect(boundWorkDecides({ ending: 'quiet', freeWait: false, prMerged: 'unanswerable', blockedMarker: false })).toBe(true);
+  });
+
+  it('answers false for every ending outside the bound set', () => {
+    expect(boundWorkDecides({ ending: 'nothing-done', freeWait: false, prMerged: 'not-merged', blockedMarker: false })).toBe(false);
+    expect(boundWorkDecides({ ending: null, freeWait: false, prMerged: 'not-merged', blockedMarker: false })).toBe(false);
   });
 });

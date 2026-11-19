@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DEFAULT_SLICE_IDLE_AFTER,
+  IDLE_MERGE_REASK_MS,
   idleEpisodeKey,
+  idleMergeReusable,
   parseSliceIdleAfter,
   sliceIdle,
   type SliceIdleReading,
@@ -189,5 +191,32 @@ describe('parseSliceIdleAfter', () => {
     expect(parseSliceIdleAfter('30s')).toBe(30_000);
     expect(parseSliceIdleAfter('15m')).toBe(900_000);
     expect(parseSliceIdleAfter('2d')).toBe(172_800_000);
+  });
+});
+
+describe('idleMergeReusable', () => {
+  const at = Date.parse('2026-11-19T12:00:00.000Z');
+
+  it('reuses a merged answer at any age, because a merge cannot revert', () => {
+    expect(idleMergeReusable({ reading: 'merged', at }, at + 24 * 60 * 60 * 1000)).toBe(true);
+  });
+
+  it('reuses a not-merged or unanswered answer younger than the re-ask bound', () => {
+    expect(idleMergeReusable({ reading: 'not-merged', at }, at + IDLE_MERGE_REASK_MS - 1)).toBe(true);
+    expect(idleMergeReusable({ reading: 'unanswerable', at }, at + 60_000)).toBe(true);
+  });
+
+  it('re-asks a not-merged or unanswered answer at the bound and past it', () => {
+    expect(idleMergeReusable({ reading: 'not-merged', at }, at + IDLE_MERGE_REASK_MS)).toBe(false);
+    expect(idleMergeReusable({ reading: 'unanswerable', at }, at + IDLE_MERGE_REASK_MS + 1)).toBe(false);
+  });
+
+  it('re-asks where nothing is held, or where the held time lies ahead of the clock', () => {
+    expect(idleMergeReusable(undefined, at)).toBe(false);
+    expect(idleMergeReusable({ reading: 'not-merged', at }, at - 1)).toBe(false);
+  });
+
+  it('keeps the re-ask bound well under the default Slice idle after', () => {
+    expect(IDLE_MERGE_REASK_MS * 4).toBeLessThanOrEqual(parseSliceIdleAfter(DEFAULT_SLICE_IDLE_AFTER)!);
   });
 });

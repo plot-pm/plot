@@ -151,6 +151,22 @@ describe('itemRowFactsOf and agentRowFactsOf', () => {
     expect(agentRowFactsOf(m, 'nobody', 0)).toEqual({ rateLimit: 'unknown' });
   });
 
+  it('names an agent by its short session id, its desk by the worktree, and its idle time from the transcript', () => {
+    const entry = agent({ session: '6353f651-f356-4207-818f-98f1ca246e7f', branch: '', worktree: '/wt/desk-098aacb8', lastActivity: '2026-11-19T08:00:00.000Z' });
+    const m = mapping([], [entry]);
+    const facts = agentRowFactsOf(m, Object.keys(m.agentsById)[0]!, Date.parse('2026-11-19T12:05:00.000Z'));
+    expect(facts).toMatchObject({ name: '6353f651', desk: 'desk-098aacb8', idleMinutes: 245 });
+  });
+
+  it('names a desk with no session by its worktree and reads no idle time without a transcript', () => {
+    const entry = agent({ session: '', identity: 'synthesized', branch: '', worktree: '/wt/plot-wt-bare' });
+    const m = mapping([], [entry]);
+    const facts = agentRowFactsOf(m, Object.keys(m.agentsById)[0]!, 0);
+    expect(facts.name).toBe('plot-wt-bare');
+    expect(facts.desk).toBeUndefined();
+    expect(facts.idleMinutes).toBeUndefined();
+  });
+
   it('puts the unnamed-desk sentence on a synthesized agent\'s facts', () => {
     const entry = agent({ session: '', identity: 'synthesized', branch: '', checkout: 'bug/x', worktree: '/wt/x' });
     const m = mapping([], [entry]);

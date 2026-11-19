@@ -15,6 +15,7 @@ import { resolvePerson } from '@plot-pm/domain/entities/person';
 import { unnamedDeskLabel } from '@plot-pm/domain/rules/desk-manifest';
 import { isLiveState, type AgentRow } from '../../../contract/schema.js';
 import { agentLabel, ciOf, reviewOf, type DeliveryMapping } from './delivery-readings.js';
+import { shortSessionId, worktreeName } from '../tuple-row.js';
 
 const youngest = (values: readonly (number | null | undefined)[]): number | undefined => {
   const known = values.filter((v): v is number => typeof v === 'number');
@@ -118,6 +119,17 @@ export const agentRowFactsOf = (mapping: DeliveryMapping, id: string, now?: numb
   if (entry !== undefined && !identityWasDeclared(entry)) {
     facts.unnamedDesk = unnamedDeskLabel({ checkout: entry.checkout ?? '', live: isLiveState(entry.state) });
   }
+  if (entry !== undefined) {
+    const desk = entry.worktree ? worktreeName(entry.worktree) : '';
+    if (entry.session) {
+      facts.name = shortSessionId(entry.session);
+      if (desk !== '') facts.desk = desk;
+    } else if (desk !== '') {
+      facts.name = desk;
+    }
+    const last = entry.lastActivity ? Date.parse(entry.lastActivity) : Number.NaN;
+    if (now !== undefined && Number.isFinite(last)) facts.idleMinutes = Math.max(0, Math.floor((now - last) / 60_000));
+  }
   const reading = mapping.readings.agents.find((a) => a.id === id);
   if (reading !== undefined) {
     if (reading.process !== undefined) facts.running = reading.process === 'running';
@@ -132,6 +144,7 @@ export const agentRowFactsOf = (mapping: DeliveryMapping, id: string, now?: numb
   const row = entry !== undefined
     ? all.find((r) => r.branch === entry.branch && entry.branch !== '')
     : run?.pr !== undefined ? all.find((r) => r.pr?.number === run.pr) : undefined;
+  if (entry?.branch) facts.branch = entry.branch;
   if (row === undefined) return facts;
   if (row.branch !== '') facts.branch = row.branch;
   if (row.question !== null && row.question !== undefined) facts.question = row.branch;

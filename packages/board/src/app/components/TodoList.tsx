@@ -1,4 +1,5 @@
 import type { TodoList as TodoListFact, YouMarker } from '@plot-pm/domain';
+import { LinkIcon } from './LinkIcon.js';
 
 /** The hue of each marker, for its tag and its verb: blocks delivery red, input blue, clean up the body colour. */
 export const TODO_MARKER_CLASS: Record<YouMarker, string> = {
@@ -11,20 +12,25 @@ export const TODO_MARKER_CLASS: Record<YouMarker, string> = {
 export const TodoList = ({ todo, onJump }: { todo: TodoListFact; onJump: (anchor: string) => void }) => (
   <div data-todo-list className="delivery-card">
     <p data-todo-header>{todo.header}</p>
+    {/* ONE GRID FOR EVERY LINE: chip, kind or verb, link. Each line is a subgrid row, so the second and
+        third columns start at one x on every line, and the link truncates rather than wrapping the line. */}
     {todo.lines.length > 0 && (
-      <ul>
+      <ul data-todo-lines className="grid grid-cols-[max-content_max-content_minmax(0,1fr)]">
         {todo.lines.map((l) => (
-          <li key={l.id} data-todo-line={l.marker} className={`flex min-w-0 flex-wrap items-baseline ${TODO_MARKER_CLASS[l.marker]}`}>
-            <span data-todo-marker className="delivery-chip shrink-0">{l.markerWords}</span>
+          <li key={l.id} data-todo-line={l.marker} className={`col-span-3 grid grid-cols-subgrid items-baseline ${TODO_MARKER_CLASS[l.marker]}`}>
+            <span data-todo-marker className="delivery-chip shrink-0 whitespace-nowrap">{l.markerWords}</span>
             <button
               type="button"
               data-todo-name
               onClick={() => onJump(l.anchor)}
-              className="flex min-w-0 items-baseline text-left"
+              className="col-span-2 grid min-w-0 grid-cols-subgrid items-baseline text-left"
             >
-              <span data-todo-verb className="shrink-0">{l.verb}</span>
+              <span data-todo-verb className="whitespace-nowrap">{l.verb}</span>
               {' '}
-              <span data-todo-label className="delivery-truncate" title={l.label}>{l.label}</span>
+              <span className="flex min-w-0 items-baseline">
+                <LinkIcon kind={l.icon} />
+                <span data-todo-label className="delivery-truncate min-w-0" title={l.label}>{l.label}</span>
+              </span>
             </button>
           </li>
         ))}
@@ -33,6 +39,7 @@ export const TodoList = ({ todo, onJump }: { todo: TodoListFact; onJump: (anchor
     <p data-todo-triage className="delivery-text-muted">
       {todo.triageText} ·{' '}
       <button type="button" data-todo-triage-link onClick={() => onJump(todo.triageAnchor)} className="delivery-text-link">
+        <LinkIcon kind={todo.triageIcon} />
         triage ›
       </button>
     </p>

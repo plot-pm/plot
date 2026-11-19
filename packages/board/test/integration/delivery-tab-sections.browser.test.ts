@@ -42,7 +42,7 @@ describe('the Delivery tab renders the five sections', () => {
       );
       expect(headings).toEqual(['release-delivery', 'you', 'work-items', 'fleet', 'machine', 'tickets']);
       for (const section of ['you', 'work-items', 'fleet']) {
-        const rows = page.locator(`[data-section="${section}"] li[data-tuple-kind]`);
+        const rows = page.locator(`[data-section="${section}"] li[data-tuple-kind], [data-section="${section}"] li[data-fleet-agent-row]`);
         expect(await rows.count(), `a row under ${section}`).toBeGreaterThan(0);
       }
     } finally {

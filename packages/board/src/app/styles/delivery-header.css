@@ -34,6 +34,9 @@
   letter-spacing: 0.06em;
   color: var(--card-meta);
 }
+[data-todo-lines] {
+  column-gap: 0.625rem;
+}
 [data-todo-line] {
   column-gap: 0.625rem;
   row-gap: 0.125rem;

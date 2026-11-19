@@ -16,6 +16,10 @@ export interface ReleaseClaimButtonProps {
   branch: string;
   /** Injected by tests; the browser's `fetch` in the app. */
   fetcher?: typeof fetch;
+  /** The idle label; `Release claim` by default. */
+  label?: string;
+  /** The sentence shown while the button waits for its confirming click. */
+  confirmText?: string;
 }
 
 type State =
@@ -25,7 +29,7 @@ type State =
   | { kind: 'released'; detail: string }
   | { kind: 'failed'; message: string };
 
-export const ReleaseClaimButton = ({ branch, fetcher = fetch }: ReleaseClaimButtonProps) => {
+export const ReleaseClaimButton = ({ branch, fetcher = fetch, label: idle = 'Release claim', confirmText }: ReleaseClaimButtonProps) => {
   const [state, setState] = useState<State>({ kind: 'idle' });
 
   const release = async () => {
@@ -55,10 +59,13 @@ export const ReleaseClaimButton = ({ branch, fetcher = fetch }: ReleaseClaimButt
     state.kind === 'running' ? 'releasing…'
       : state.kind === 'armed' ? 'Confirm release'
         : state.kind === 'released' ? 'Released'
-          : 'Release claim';
+          : idle;
 
   return (
     <>
+      {state.kind === 'armed' && confirmText !== undefined && (
+        <span data-release-claim-confirm className="mr-2 block text-xs">{confirmText}</span>
+      )}
       <button
         type="button"
         data-release-claim

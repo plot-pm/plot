@@ -7,7 +7,7 @@ import {
   UNNAMED_SLICE,
   isOneSlicePlan,
   FLEET_CONTROLS_DEFAULT,
-  isLiveState,
+  isBrokenState,
 } from '../../contract/schema.js';
 
 const MACHINE_DOT_CLASS: Record<MachineDot, string> = {
@@ -62,14 +62,14 @@ import { TodoList } from './TodoList.js';
 import { todoListOf } from '../lib/agent-rows/todo-list.js';
 import { AutoDispatchSwitch, AutoSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
 import { FleetAgentHeader, FleetAgentRow } from './FleetAgentRow.js';
-import { RowCell, scrollToAnchor, type LinkHandlers } from './DeliveryRows.js';
+import { MasterAgentLine, RowCell, scrollToAnchor, type LinkHandlers } from './DeliveryRows.js';
 import { detailLines } from '../lib/agent-rows/delivery-link-targets.js';
 import { headerOf, itemRowFactsOf, rowFormsOf, switchesOf } from '../lib/agent-rows/delivery-row-facts.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
-import { ReleaseClaimButton } from './ReleaseClaimButton.js';
 import { ReleasePersonCards } from './ReleasePersonCards.js';
-import { lineBody, LinePr, LineState, PhaseChip, PlanStrip, PlanTableHead, PLAN_TRACKS, ReleaseLine } from './ReleasePlanParts.js';
-import { LooseDeleteButton } from './LooseDeleteButton.js';
+import { LinkIcon } from './LinkIcon.js';
+import { LinePr, LineSlice, LineState, PlanOwner, PhaseChip, PlanName, PlanStrip, PlanTableHead, PLAN_TRACKS, ReleaseLine } from './ReleasePlanParts.js';
+import { CleanUpBulkDelete, CleanUpMenu } from './CleanUpMenu.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
 import { checkoutHealthStatus } from '@plot-pm/domain/rules/checkout-health';
 import {
@@ -78,7 +78,6 @@ import {
   spawnerStatus,
   spawnerStatusEntry,
 } from '@plot-pm/domain/rules/spawn-contract';
-import { agentRowKey } from '@plot-pm/domain/rules/desk-manifest';
 import { DeliveryFilters } from './DeliveryFilters.js';
 import { readList, sprintMembershipLookup, writeList } from '../lib/filters.js';
 import {
@@ -124,20 +123,22 @@ import {
   writeMineOnly,
   writeMineStrict,
 } from '../lib/agent-rows/mine-filter.js';
-import { deliveryScope, freeLine, mineMode, placeDelivery, planIndexOf, workItemCells, YOU_GROUP_MARKERS, type DeliverySection, type YouGroup, type YouMarker } from '@plot-pm/domain';
+import { deliveryScope, mineMode, placeDelivery, planIndexOf, workItemCells, YOU_GROUP_MARKERS, type DeliverySection, type YouGroup, type YouMarker } from '@plot-pm/domain';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
 import { ActivityMark } from '../lib/agent-rows/marks.js';
-import { PlanActions } from '../lib/agent-rows/menus.js';
+import { BranchMenu, BrokenAgentMenu, PlanActions } from '../lib/agent-rows/menus.js';
 import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
 import { deliveryMapping, rateLimitOf, releaseCardsOf, sprintCardViewOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
 import { ReleaseCard } from './ReleaseCard.js';
 import {
+  cleanUpBranches,
   groupAnchor,
   placeMapping,
   planBlockShown,
   planBlockToggleKey,
   sectionGlyph,
   type BlockView,
+  type LinkView,
   type PlacedAgentView,
   type PlacedItemView,
   type PlanBlockView,
@@ -155,11 +156,9 @@ import { rowKey } from '../lib/agent-rows/row-identity.js';
 import { splitTicketRows, waitingView } from '../lib/agent-rows/waiting-view.js';
 import { TicketsSectionView } from './TicketsSection.js';
 import { youHeaderOf } from '../lib/agent-rows/you-header.js';
-import { RoleChip } from './RoleChip.js';
-import { RoleRunRow } from './RoleRunRow.js';
 import { StartWorkButton } from './StartWorkButton.js';
-import { HeaderRow, IssueRowView, PlanRow, Row, RegistryRow, SliceRow, type AgentListProps } from '../lib/agent-rows/rows.js';
-import { workingAgentRows, draftPlanRows } from '../lib/agent-rows/working-agents.js';
+import { HeaderRow, IssueRowView, PlanRow, Row, SliceRow, type AgentListProps } from '../lib/agent-rows/rows.js';
+import { workingAgentRows, draftPlanRows, fleetRowFacts, notWorkingEntries } from '../lib/agent-rows/working-agents.js';
 import { DraftPlanRowView } from '../lib/agent-rows/draft-plan-row.js';
 import { planFileFromFleet, verificationRows } from '../lib/agent-rows/plan-level-row.js';
 import { specRows } from '../lib/agent-rows/spec-row.js';
@@ -882,8 +881,8 @@ export function AgentList({
   // counts as live. That is the safe direction: a state this board does not know
   // is a worker it cannot rule out, so it is never reported as idle.
   const agentsNotWorking = useMemo(
-    () => (fleet?.agents ?? []).filter((agent) => !isLiveState(agent.state)).length,
-    [fleet?.agents],
+    () => notWorkingEntries(fleet?.agents ?? [], fleet?.rows ?? []),
+    [fleet?.agents, fleet?.rows],
   );
 
   // Degrade, do not hide: before the first scan lands this says so rather than
@@ -1125,35 +1124,7 @@ export function AgentList({
           plain text — the rule every row follows for an unrecognised host.
       */}
       {fleet.masterAgentBranch && (
-        <div className="flex items-center gap-2 px-3 py-2 text-sm" data-master-agent>
-          <span className="text-slate-500 dark:text-slate-400">Master Agent:</span>
-          <span className="flex items-center gap-1.5">
-            {/* The branch icon — same ⎇ glyph the tuple rows use for branches,
-                in the same muted style. A branch name alone reads as a label
-                rather than a kind of thing; the icon is what makes it clear. */}
-            <span
-              className="text-slate-400 dark:text-slate-500"
-              title="Branch"
-              aria-label="Branch"
-            >
-              ⎇
-            </span>
-            {fleet.branchUrlBase ? (
-              <a
-                href={`${fleet.branchUrlBase}${encodeURIComponent(fleet.masterAgentBranch)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-mono text-sm text-blue-600 hover:underline dark:text-blue-400"
-              >
-                {fleet.masterAgentBranch}
-              </a>
-            ) : (
-              <span className="font-mono text-sm text-slate-700 dark:text-slate-300">
-                {fleet.masterAgentBranch}
-              </span>
-            )}
-          </span>
-        </div>
+        <MasterAgentLine branch={fleet.masterAgentBranch} branchUrlBase={fleet.branchUrlBase} />
       )}
 
       {/* THE SECTIONS, spaced apart from each other and from nothing else.
@@ -1256,7 +1227,7 @@ export function AgentList({
           e.preventDefault();
           document.getElementById(anchor)?.scrollIntoView({ block: 'center' });
         };
-        const linkLine = (key: string, links: { label: string; anchor: string }[], arrow: string) =>
+        const linkLine = (key: string, links: LinkView[], arrow: string) =>
           links.length === 0 ? null : (
             <li key={key} role="row" data-delivery-link className="px-3 pb-1 text-xs text-slate-500 dark:text-slate-400">
               <span role="gridcell">
@@ -1264,6 +1235,7 @@ export function AgentList({
                 {links.map((l, i) => (
                   <span key={l.anchor}>
                     {i > 0 && ', '}
+                    <LinkIcon kind={l.icon ?? null} />
                     <a href={`#${l.anchor}`} onClick={scrollTo(l.anchor)} className="font-mono text-blue-600 hover:underline dark:text-blue-400">
                       {l.label}
                     </a>
@@ -1298,23 +1270,13 @@ export function AgentList({
         const anchorOf = (item: PlacedItemView) => (
           <li key={`anchor-${item.anchor}`} role="presentation" id={item.anchor} className="h-0" />
         );
-        // The loose-branch actions and the links to the agents acting on it.
+        // The links to the agents acting on the item. A loose item's actions sit in its row's `⋯` menu.
         const itemTail = (item: PlacedItemView) => [
-          // `looseActions` follows the controllers: Delete for a branch or a closed PR, Release for a
-          // branch with no PR only, neither for an open PR (`loose-delete` refuses it, release refuses any PR).
-          item.placement?.section === 'you' && item.placement.reason === 'loose' && (item.looseActions.delete || item.looseActions.release) ? (
-            <li key={`loose-${item.anchor}`} role="row" data-loose-actions className="flex gap-3 px-3 pb-1">
-              <span role="gridcell" className="flex gap-3">
-                {item.looseActions.release ? <ReleaseClaimButton branch={item.rows[0]!.branch} /> : null}
-                {item.looseActions.delete ? <LooseDeleteButton branch={item.rows[0]!.branch} /> : null}
-              </span>
-            </li>
-          ) : null,
           linkLine(`links-${item.anchor}`, item.links, '← agents:'),
         ];
         const itemBody = (item: PlacedItemView, inPlan = false) => [
           anchorOf(item),
-          ...item.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={inPlan} by={byItem(item)} gates={gatesOrGroupItem(item)} gatesReplaceStatus={replacesStatus(item)} />),
+          ...item.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={inPlan} by={byItem(item)} gates={gatesOrGroupItem(item)} gatesReplaceStatus={replacesStatus(item)} menu={item.menu.kind === 'clean-up' ? <CleanUpMenu menu={item.menu} /> : undefined} />),
           ...(item.ticket !== null
             ? [(
                 <IssueRowView
@@ -1454,46 +1416,38 @@ export function AgentList({
             ...block.loose.flatMap((item) => itemBody(item)),
           ];
         };
+        // ONE ROW PER AGENT: the domain's cells, and the actions the branch row offers where the agent acts on a branch.
         const agentBody = (agent: PlacedAgentView) => [
+          <li key={`anchor-${agent.anchor}`} role="presentation" id={agent.anchor} className="h-0" />,
           forms.agents.get(agent.placement.id) !== undefined && (
             <FleetAgentRow
               key={`fleet-${agent.anchor}`}
               id={agent.placement.id}
               cells={forms.agents.get(agent.placement.id)!}
               handlers={linkHandlers}
+              role={agent.placement.role}
+              facts={fleetRowFacts(agent.entry, agent.row)}
+              run={agent.entry === null ? mapping.runsById[agent.placement.id] ?? null : null}
+              highlighted={agent.entry !== null && agent.entry.branch !== '' && agent.entry.branch === highlightBranch}
+              details={agent.entry === null ? [] : detailLines(agent.row === null ? [] : [agent.row], agent.entry)}
+              menu={agent.entry !== null && isBrokenState(agent.entry.state) ? (
+                <BrokenAgentMenu agent={agent.entry} drop={drop} onActing={onStarting} />
+              ) : agent.row !== null ? (
+                <BranchMenu
+                  row={agent.row}
+                  card={cardForPlanFile?.(agent.row.planFile) ?? null}
+                  dispatch={dispatch}
+                  implement={implement}
+                  pulse={pulse}
+                  onStarting={onStarting}
+                  continueWith={continueWith}
+                  restartWith={restartWith}
+                  onOpenPlan={onOpenPlan}
+                  onRevealBranch={onRevealBranch}
+                />
+              ) : null}
             />
           ),
-          <li key={`anchor-${agent.anchor}`} role="presentation" id={agent.anchor} className="h-0" />,
-          agent.entry !== null ? (
-            <RegistryRow
-              key={agentRowKey(agent.entry)}
-              agent={agent.entry}
-              row={agent.row}
-              slices={slices}
-              onOpenPlan={onOpenPlan}
-              card={agent.row ? cardForPlanFile?.(agent.row.planFile) ?? null : null}
-              dispatch={dispatch}
-              implement={implement}
-              continueWith={continueWith}
-              restartWith={restartWith}
-              drop={drop}
-              pulse={pulse}
-              onStarting={onStarting}
-              marked={agent.row ? marked.has(rowKey(agent.row)) : false}
-              active={agent.row ? active.has(rowKey(agent.row)) : false}
-              onRevealBranch={onRevealBranch}
-              highlighted={agent.entry.branch !== '' && agent.entry.branch === highlightBranch}
-              planIndex={planIndex}
-              details={detailLines(agent.row === null ? [] : [agent.row], agent.entry)}
-              kindChip={<RoleChip role={agent.placement.role} />}
-            />
-          ) : mapping.runsById[agent.placement.id] !== undefined ? (
-            <RoleRunRow
-              key={agent.placement.id}
-              run={mapping.runsById[agent.placement.id]!}
-              label={agent.label}
-            />
-          ) : null,
           linkLine(`links-${agent.anchor}`, agent.links, '→ acts on:'),
         ];
         const fold = (key: string, count: number, heading: React.ReactNode, always = false) => {
@@ -1635,21 +1589,11 @@ export function AgentList({
                             return (
                               <li key={plan.plan} data-plan-row={plan.plan} className={`delivery-row px-3 ${i > 0 ? 'delivery-row-ruled' : ''}`}>
                                 <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 sm:grid ${PLAN_TRACKS}`}>
-                                  <button
-                                    type="button"
-                                    data-plan-toggle={plan.plan}
-                                    aria-expanded={open}
-                                    onClick={() => toggleReleasePlan(plan.plan)}
-                                    title={plan.plan}
-                                    className="delivery-release-plan flex w-full min-w-0 items-baseline gap-1 text-left sm:w-auto"
-                                  >
-                                    <span aria-hidden="true" className={`inline-block w-4 shrink-0 text-center transition-transform ${open ? 'rotate-90' : ''}`}>▸</span>
-                                    <span className="delivery-truncate">{plan.plan}</span>
-                                  </button>
+                                  <PlanName plan={plan} open={open} onToggle={() => toggleReleasePlan(plan.plan)} onOpenPlan={onOpenPlan} />
                                   <span data-plan-phase><PhaseChip plan={plan} /></span>
                                   <PlanStrip plan={plan} />
                                   <span className="delivery-text-muted min-w-0">
-                                    {plan.owner !== '' && <span data-plan-owner><span className="sm:hidden">Owner </span>{plan.owner}</span>}
+                                    {plan.owner !== '' && <PlanOwner owner={plan.owner} />}
                                   </span>
                                   <span className="ml-auto sm:ml-0 sm:justify-self-end">
                                     <PlanActions
@@ -1671,13 +1615,10 @@ export function AgentList({
                                       <li key={line.slice} data-plan-line={line.heading} title={line.text} className="flex flex-wrap items-baseline gap-x-2">
                                         <span className="delivery-release-heading">{line.heading.replace('-', ' ')}</span>
                                         <LineState state={line.state} />
-                                        {line.link && plan.anchors[line.slice] !== undefined ? (
-                                          <button type="button" data-plan-line-link onClick={() => scrollToAnchor(plan.anchors[line.slice]!)} className="delivery-text-link hover:underline">
-                                            {lineBody(line)}
-                                          </button>
-                                        ) : (
-                                          <span>{lineBody(line)}</span>
-                                        )}
+                                        <LineSlice
+                                          line={line}
+                                          onJump={line.link && plan.anchors[line.slice] !== undefined ? () => scrollToAnchor(plan.anchors[line.slice]!) : undefined}
+                                        />
                                         {line.pr !== undefined && <LinePr pr={line.pr} url={cardPrOf(line.pr)?.url ?? null} />}
                                         {line.merged !== undefined && <span data-plan-line-merged className="delivery-text-muted">{line.merged}</span>}
                                         {line.start && card !== null && dispatch && (
@@ -1715,34 +1656,6 @@ export function AgentList({
                       switches,
                     );
                     const fleetOpen = section.key === 'fleet' && (group.key === 'working' || group.key === 'blocked');
-                    const freeGroup = section.key === 'fleet' && group.key === 'free';
-                    const free = freeGroup
-                      ? freeLine(group.agents.map((a) => forms.agents.get(a.placement.id)?.agent?.value ?? a.placement.id))
-                      : null;
-                    if (freeGroup) {
-                      return free === null ? null : (
-                        <div key={group.key} id={groupAnchor(group.key)} data-group={group.key} className="space-y-1">
-                          <p data-free-line className="flex flex-wrap items-baseline gap-2 px-3 text-[13px] text-(--card-body)">
-                            <span>{free.text}</span>
-                            <button
-                              type="button"
-                              data-group-toggle={group.key}
-                              aria-expanded={!collapsed.has(group.key)}
-                              onClick={() => toggle(group.key)}
-                              className="delivery-text-link"
-                            >
-                              {collapsed.has(group.key) ? 'show' : 'hide'}
-                            </button>
-                          </p>
-                          {!collapsed.has(group.key) && (
-                            <ul role="grid" aria-label={`${group.label} — agents`} className="delivery-grid">
-                              <FleetAgentHeader blocked={false} />
-                              {group.agents.flatMap(agentBody)}
-                            </ul>
-                          )}
-                        </div>
-                      );
-                    }
                     const g = fold(group.key, group.count, (
                       <h3 data-delivery-group={group.key} className={`flex flex-wrap items-baseline gap-1 ${GROUP_HEADING_CLASS[section.key]}`}>
                         {section.key === 'you' && (
@@ -1767,6 +1680,7 @@ export function AgentList({
                           </span>
                         ))}
                         {groupMark && <ActivityMark pace={groupMark} place="heading" />}
+                        {section.key === 'you' && group.key === 'unblock' && <CleanUpBulkDelete branches={cleanUpBranches(group.items)} />}
                       </h3>
                     ), fleetOpen);
                     return (

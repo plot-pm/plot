@@ -1,4 +1,5 @@
-import type { Cell } from '@plot-pm/domain';
+import { linkIconKind, type Cell, type LinkTarget } from '@plot-pm/domain';
+import { LinkIcon } from './LinkIcon.js';
 import { RoleChip } from './RoleChip.js';
 import { linkLabel, resolveLink, type LinkContext, type ResolvedLink } from '../lib/agent-rows/delivery-link-targets.js';
 
@@ -62,11 +63,16 @@ const Linked = ({ resolved, handlers, children }: { resolved: ResolvedLink; hand
  * One cell's content: the value, linked where it has one target, with a chip
  * per further target. Renders nothing for a cell nobody read.
  *
+ * Each link that leads somewhere is led by the icon of its target's kind. A gate mark draws none, and neither does a
+ * cell whose role chip already names the agent.
+ *
  * @param cell - the cell the domain computed, or `null`.
  * @param handlers - what a click on a link does.
  */
 export const RowCell = ({ cell, handlers }: { cell: Cell | null; handlers: LinkHandlers }) => {
   if (cell === null) return null;
+  const icon = (target: LinkTarget, resolved: ResolvedLink) =>
+    cell.agent !== undefined || resolved.kind === 'none' || resolved.kind === 'act' ? null : <LinkIcon kind={linkIconKind(target)} />;
   if (cell.parts !== undefined) {
     return (
       <>
@@ -84,19 +90,52 @@ export const RowCell = ({ cell, handlers }: { cell: Cell | null; handlers: LinkH
     );
   }
   const [first, ...rest] = cell.links;
+  const firstResolved = first === undefined ? null : resolveLink(first, handlers.context);
   return (
     <>
       {cell.agent === undefined ? null : <><RoleChip role={cell.agent.role} />{' '}</>}
-      {first === undefined ? cell.value : (
-        <Linked resolved={resolveLink(first, handlers.context)} handlers={handlers}>{cell.value}</Linked>
+      {first === undefined || firstResolved === null ? cell.value : (
+        <>{icon(first, firstResolved)}<Linked resolved={firstResolved} handlers={handlers}>{cell.value}</Linked></>
       )}
       {cell.agent?.attempt == null ? null : <span data-agent-attempt>{' '}{cell.agent.attempt}</span>}
-      {rest.map((target) => (
-        <span key={`${target.to}-${JSON.stringify(target)}`}>
-          {' '}
-          <Linked resolved={resolveLink(target, handlers.context)} handlers={handlers}>{linkLabel(target)}</Linked>
-        </span>
-      ))}
+      {rest.map((target) => {
+        const resolved = resolveLink(target, handlers.context);
+        return (
+          <span key={`${target.to}-${JSON.stringify(target)}`}>
+            {' '}
+            {icon(target, resolved)}
+            <Linked resolved={resolved} handlers={handlers}>{linkLabel(target)}</Linked>
+          </span>
+        );
+      })}
     </>
   );
 };
+
+/**
+ * The Master Agent line: the branch icon, then the branch, linked to the host where `branchUrlBase` is known and as
+ * plain text where it is empty.
+ *
+ * @param branch - the branch the master agent works on.
+ * @param branchUrlBase - the base of a branch URL on the host; `''` where the host is unknown.
+ */
+export const MasterAgentLine = ({ branch, branchUrlBase }: { branch: string; branchUrlBase: string }) => (
+  <div className="flex items-center gap-2 px-3 py-2 text-sm" data-master-agent>
+    <span className="text-slate-500 dark:text-slate-400">Master Agent:</span>
+    <span className="flex items-center">
+      <LinkIcon kind={linkIconKind('branch')} />
+      {branchUrlBase !== '' ? (
+        <a
+          href={`${branchUrlBase}${encodeURIComponent(branch)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-mono text-sm text-blue-600 hover:underline dark:text-blue-400"
+        >
+          {branch}
+        </a>
+      ) : (
+        <span className="font-mono text-sm text-slate-700 dark:text-slate-300">{branch}</span>
+      )}
+    </span>
+  </div>
+);

@@ -4,6 +4,8 @@ import {
   type HeaderCountPart,
   headerText,
   releaseTicketWording,
+  planOwner,
+  planRoute,
   planRowFacts,
   releaseBlocks,
   releasePersonCards,
@@ -32,6 +34,8 @@ import {
   type ItemPlacement,
   type LooseActions,
   type Unplaced,
+  linkIconKind,
+  type LinkIconKind,
 } from '@plot-pm/domain';
 import type { AgentRow, DraftPlan, FleetSprint, IssueRow, Slice } from '../../../contract/schema.js';
 import { agentLabel, draftItemId, sliceItemId, type DeliveryMapping, type RegistryAgent } from './delivery-readings.js';
@@ -57,7 +61,7 @@ const SECTION_LABELS: Record<DeliverySection, { icon: GlyphKind; label: string; 
 const GROUP_LABELS: Record<string, { label: string; hint: string }> = {
   'blocks-delivery': { label: 'Blocks delivery', hint: 'delivery waits for you' },
   'input-to-the-fleet': { label: 'Input to the fleet', hint: 'a plan waits for your input' },
-  unblock: { label: 'Unblock', hint: 'clean up what no plan names' },
+  unblock: { label: 'Clean up', hint: 'branches no plan names and nobody works on' },
   'at-a-gate': { label: 'At a gate', hint: 'CI, review or another gate holds it' },
   'being-built': { label: 'Being built', hint: 'an agent works on it' },
   queued: { label: 'Queued', hint: 'nobody has taken it' },
@@ -80,9 +84,91 @@ export interface PlacedItemView {
   anchor: string;
   /** The agents acting on the item, as links. */
   links: LinkView[];
-  /** The loose-item actions the domain offers; both false for an item that is not loose. */
-  looseActions: LooseActions;
+  /** The `⋯` menu of the item's row: the clean-up menu for a loose item, the branch row's own menu otherwise. */
+  menu: RowMenuView;
 }
+
+/**
+ * The `⋯` menu a row of an item carries. A loose item's row carries only the clean-up menu, built from
+ * `looseActions`, so no Quiet-section reading of the row (`quietKind`) can add a second Release.
+ */
+export type RowMenuView =
+  | {
+    kind: 'clean-up';
+    branch: string;
+    /** The PR page or the branch on the host; `''` where the host gave no address. */
+    open: string;
+    release: LooseActions['release'];
+    delete: boolean;
+  }
+  | { kind: 'row' };
+
+/**
+ * The menu of one placed item's row.
+ *
+ * @param placement - what the rule placed.
+ * @param rows - the payload rows of the item.
+ * @param actions - what `looseActions` offers for the item.
+ * @returns the clean-up menu for an item under You with the reason `loose`, else the row's own menu.
+ */
+export const rowMenuOf = (placement: ItemPlacement | null, rows: readonly AgentRow[], actions: LooseActions): RowMenuView => {
+  const first = rows[0];
+  if (placement?.section !== 'you' || placement.reason !== 'loose' || first === undefined) return { kind: 'row' };
+  return { kind: 'clean-up', branch: first.branch, open: first.pr?.url || first.branchUrl || '', release: actions.release, delete: actions.delete };
+};
+
+/** The words a clean-up action shows: its menu label and the confirmation it asks before it acts. */
+export interface CleanUpWords {
+  label: string;
+  confirm: string;
+}
+
+/**
+ * The words of Release claim for one clean-up row.
+ *
+ * @param branch - the branch whose claim is released.
+ * @param where - `elsewhere` where this machine holds no worktree for the claim.
+ */
+export const releaseWords = (branch: string, where: 'here' | 'elsewhere'): CleanUpWords => (where === 'elsewhere'
+  ? {
+    label: 'Release claim (another machine)',
+    confirm: `The claim on ${branch} belongs to another machine. Releasing it deletes the claim and the remote ref there too.`,
+  }
+  : { label: 'Release claim', confirm: `Release the claim on ${branch}? The branch holds only its claim, so no work is lost.` });
+
+/**
+ * The words of Delete branch for one branch: the confirmation names the branch and the pin that restores it.
+ *
+ * @param branch - the branch whose remote ref is deleted.
+ */
+export const deleteWords = (branch: string): CleanUpWords => ({
+  label: 'Delete branch…',
+  confirm: `Delete origin/${branch}? Its tip is pinned first at refs/plot/reaped/${branch}/<sha>, and that ref restores it.`,
+});
+
+/**
+ * The words of the group-wide delete.
+ *
+ * @param branches - the branches it deletes, from {@link cleanUpBranches}.
+ * @returns the label and the confirmation that lists every branch; `null` for no branch.
+ */
+export const bulkDeleteWords = (branches: readonly string[]): CleanUpWords | null => {
+  if (branches.length === 0) return null;
+  const n = branches.length;
+  return {
+    label: `Delete ${n} quiet branch${n === 1 ? '' : 'es'}…`,
+    confirm: `Delete ${n === 1 ? 'this branch' : `these ${n} branches`} from origin? Each tip is pinned first at refs/plot/reaped/<branch>/<sha>: ${branches.join(', ')}`,
+  };
+};
+
+/**
+ * The branches a group-wide delete asks `loose-delete` about: the rows whose clean-up menu offers Delete.
+ *
+ * @param items - the items of one group.
+ * @returns the branch names, sorted.
+ */
+export const cleanUpBranches = (items: readonly PlacedItemView[]): string[] =>
+  items.flatMap((i) => (i.menu.kind === 'clean-up' && i.menu.delete ? [i.menu.branch] : [])).sort();
 
 /** One agent the rule placed, with its registry entry. */
 export interface PlacedAgentView {
@@ -99,6 +185,8 @@ export interface PlacedAgentView {
 export interface LinkView {
   label: string;
   anchor: string;
+  /** The kind of place the link leads to, for its icon; absent or `null` draws none. */
+  icon?: LinkIconKind | null;
 }
 
 /**
@@ -249,6 +337,8 @@ export interface PlanRowView extends PlanRowFacts {
   itemIds: Record<string, string>;
   /** The plan's file, for the plan card Start acts on; `''` where no row names one. */
   planFile: string;
+  /** The plan name's link target, `planRoute(planFile)`; `''` where no row names a plan file. */
+  href: string;
 }
 
 /** One target release's block. */
@@ -421,6 +511,10 @@ export const deliveryView = (
   const labelOfItem = (id: string): string =>
     itemLabel(id, mapping.rowsByItem[id] ?? [], mapping.draftsByItem[id] ?? null, mapping.ticketsByItem[id] ?? null);
   const labelOfAgent = (id: string): string => agentLabel(id, mapping.agentsById[id] ?? null);
+  const kindOfItem = (id: string): LinkIconKind | null => {
+    const item = placement.items.find((i) => i.id === id);
+    return item === undefined ? null : linkIconKind(item.kind);
+  };
 
   const itemViews = placement.items.map((p): PlacedItemView => ({
     placement: p,
@@ -429,8 +523,8 @@ export const deliveryView = (
     ticket: mapping.ticketsByItem[p.id] ?? null,
     label: labelOfItem(p.id),
     anchor: itemAnchor(p.id),
-    links: p.agents.map((a) => ({ label: labelOfAgent(a), anchor: agentAnchor(a) })),
-    looseActions: looseActions(mapping.readings.items.find((i) => i.id === p.id) ?? { kind: 'slice' }),
+    links: p.agents.map((a) => ({ label: labelOfAgent(a), anchor: agentAnchor(a), icon: linkIconKind('agent') })),
+    menu: rowMenuOf(p, mapping.rowsByItem[p.id] ?? [], looseActions(mapping.readings.items.find((i) => i.id === p.id) ?? { kind: 'slice' })),
   }));
   const agentViews = placement.agents.map((p): PlacedAgentView => ({
     placement: p,
@@ -438,7 +532,9 @@ export const deliveryView = (
     row: p.actsOn === null ? null : ownRow(mapping.agentsById[p.id] ?? null) ?? rowOf(p.actsOn),
     label: labelOfAgent(p.id),
     anchor: agentAnchor(p.id),
-    links: p.actsOn !== null && p.linked ? [{ label: labelOfItem(p.actsOn), anchor: itemAnchor(p.actsOn) }] : [],
+    links: p.actsOn !== null && p.linked
+      ? [{ label: labelOfItem(p.actsOn), anchor: itemAnchor(p.actsOn), icon: kindOfItem(p.actsOn) }]
+      : [],
   }));
 
   // A plan's own row (its idea-branch PR) heads the plan beside its slices, so a
@@ -532,15 +628,21 @@ export const deliveryView = (
   });
   const counted = [...(slices ?? []), ...strays].filter((s) => s.merge !== 'none');
   const approved = [...new Set(counted.map((s) => s.plan))];
-  const ownerOf = (plan: string): string => sprints.find((sp) => sp.members.some((m) => m.slug === plan) && sp.ownerHandle !== '')?.ownerHandle ?? '';
+  const sprintOwnerOf = (plan: string): string => sprints.find((sp) => sp.members.some((m) => m.slug === plan) && sp.ownerHandle !== '')?.ownerHandle ?? '';
+  const ownerOf = (plan: string, rows: readonly AgentRow[]): string => {
+    const first = (field: 'assignee' | 'approver' | 'author'): string => rows.find((r) => (r[field] ?? '') !== '')?.[field] ?? '';
+    return planOwner({ assignee: first('assignee'), sprintOwner: sprintOwnerOf(plan), approver: first('approver'), author: first('author') }, mapping.directory);
+  };
   const planRow = (plan: string): PlanRowView => {
     const own = counted.filter((s) => s.plan === plan);
     const facts = own.map(factsOf);
     const ids = Object.fromEntries(own.map((s) => [s.name, sliceItemId(s.plan, s.name)]));
     const anchors = Object.fromEntries(own.flatMap((s) => (placedItem.has(ids[s.name]!) ? [[s.name, itemAnchor(ids[s.name]!)] as const] : [])));
-    const planFile = own.flatMap((x) => mapping.rowsByItem[ids[x.name]!] ?? []).find((r) => r.planFile !== '')?.planFile ?? '';
-    const phase = own.flatMap((x) => mapping.rowsByItem[ids[x.name]!] ?? []).find((r) => r.phase !== null && r.phase !== '')?.phase ?? null;
-    return { ...planRowFacts(plan, ownerOf(plan), facts, { phase, ...(now === undefined ? {} : { now }) }), anchors, itemIds: ids, planFile };
+    const rows = own.flatMap((x) => mapping.rowsByItem[ids[x.name]!] ?? []);
+    const planFile = rows.find((r) => (r.planFile ?? '') !== '')?.planFile ?? '';
+    const phase = rows.find((r) => r.phase !== null && r.phase !== '')?.phase ?? null;
+    const href = planFile === '' ? '' : planRoute(planFile);
+    return { ...planRowFacts(plan, ownerOf(plan, rows), facts, { phase, ...(now === undefined ? {} : { now }) }), anchors, itemIds: ids, planFile, href };
   };
   const DRAFT_ID_PREFIX = draftItemId('');
   // The person cards' bars read the counted slices per plan, as the sprint card does (`countedSlicesByPlan`).

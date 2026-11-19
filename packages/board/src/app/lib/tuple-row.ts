@@ -194,7 +194,8 @@ export const KIND_ICON_PATH: Record<RowKind, string> = GLYPH_PATH;
  * Mostly `KIND_ICON_PATH`, because most `what` values name a kind and a reader
  * who learns the fork means *branch* should read it in both columns. **`worktree`
  * is the exception, and it is why this table exists**: a worktree is a PLACE on
- * this machine, not a board object, so it has no kind and no entry there. It was
+ * this machine, not a board object, so it has no `RowKind`; its glyph is
+ * `GLYPH_PATH.worktree`. It was
  * the first `what` that broke the coincidence `what ⊆ RowKind`, and TypeScript
  * said so rather than letting a row render a missing icon.
  */
@@ -204,8 +205,7 @@ export const LINK_ICON_PATH: Record<TupleLink['what'], string> = {
   pr: KIND_ICON_PATH.pr,
   ticket: KIND_ICON_PATH.ticket,
   wave: KIND_ICON_PATH.wave,
-  // file-directory: a worktree is a directory, which is what it is.
-  worktree: 'M.513 1.513A1.75 1.75 0 0 1 1.75 1h3.5c.55 0 1.07.26 1.4.7l.9 1.2a.25.25 0 0 0 .2.1h6.5c.966 0 1.75.784 1.75 1.75v8.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75c0-.464.184-.909.513-1.237Zm1.237.237a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-8.5a.25.25 0 0 0-.25-.25H7.75a1.75 1.75 0 0 1-1.4-.7l-.9-1.2a.25.25 0 0 0-.2-.1Z',
+  worktree: GLYPH_PATH.worktree,
 };
 
 /**
@@ -1100,22 +1100,24 @@ export function startabilityWord(startability: AgentRow['startability']): string
  * nobody started — each described a mechanism rather than a situation, and both
  * read as work under way.
  *
- * `unclaimed` for `orphaned-claim`, because slot 5 holds ONE WORD a reader
- * scans down a column and *orphaned claim* is two. The rule's name is the
- * sweep's own and stays the rule's; the note beside this says the full sentence
- * — *claimed, no work committed* — which is where the sweep's wording belongs.
+ * `orphaned-claim` reads `claimed elsewhere` where this machine holds no
+ * worktree for the branch (`worker: 'elsewhere'`), the words the server's note
+ * already uses, and `stale claim` otherwise. Both say the branch holds a claim:
+ * the earlier word `unclaimed` contradicted the note beside it. The note says
+ * the full sentence — *claimed, no work committed*.
  *
  * `quiet` KEEPS THE WORD, because the fallthrough kind is a real answer for a
  * branch nothing else describes and renaming it would only move the ambiguity.
  *
  * @param kind - the kind the server read from the rule.
+ * @param worker - the row's worker state; it decides the word of an orphaned claim.
  * @returns the display word.
  */
-export function quietKindWord(kind: NonNullable<AgentRow['quietKind']>): string {
+export function quietKindWord(kind: NonNullable<AgentRow['quietKind']>, worker?: AgentRow['worker']): string {
   switch (kind) {
     case 'merged': return 'merged';
     case 'closed-pr': return 'declined';
-    case 'orphaned-claim': return 'unclaimed';
+    case 'orphaned-claim': return worker === 'elsewhere' ? 'claimed elsewhere' : 'stale claim';
     case 'abandoned': return 'abandoned';
     case 'quiet': return 'quiet';
   }
@@ -1168,7 +1170,7 @@ export function stateStatus(row: AgentRow): string {
   // this* and its four verdicts are about a branch a person may take; this
   // answers *what is this branch* for one nobody is on.
   if (row.group === 'quiet' && row.quietKind) {
-    return quietKindWord(row.quietKind);
+    return quietKindWord(row.quietKind, row.worker);
   }
   switch (row.state) {
     // `delivered`, not `merged` — Plot's own word for the transition, and the

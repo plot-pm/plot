@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:**
 - **Story:** nothing-changed-nothing-runs
@@ -16,6 +16,7 @@
 - **Started:** 2026-11-16, Jan Wloka, `feature/jenkins-reads-in-process-reads`
 - **Started:** 2026-11-17, Jan Wloka, `feature/jenkins-reads-in-process-cutover`
 - **Delivered:** 2026-11-18
+- **Released:** 2026-11-19, v2.35.0
 
 ## Changelog
 

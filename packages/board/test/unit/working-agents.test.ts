@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { claimedWithoutWorkerRows, workingAgentRows } from '../../src/app/lib/agent-rows/working-agents.js';
+import { claimedWithoutWorkerRows, fleetRowFacts, notWorkingEntries, workingAgentRows } from '../../src/app/lib/agent-rows/working-agents.js';
 import {
   AgentEntrySchema,
   AgentRowSchema,
@@ -134,5 +134,44 @@ describe('claimedWithoutWorkerRows — the rows no registry entry names', () => 
 
   it('returns nothing for an empty fleet', () => {
     expect(claimedWithoutWorkerRows([])).toEqual([]);
+  });
+});
+
+describe('the agents that are not working', () => {
+  const agent = (over: Partial<AgentEntry> = {}): AgentEntry =>
+    AgentEntrySchema.parse({ session: 's1', branch: 'feature/x', worktree: '/wt/desk-1', state: 'finished', ...over });
+  it('lists each stopped entry with its desk, its branch and why it stopped, and no live one', () => {
+    const entries = notWorkingEntries([
+      agent({ session: 'a', branch: 'feature/done', worktree: '/wt/desk-a' }),
+      agent({ session: 'b', branch: 'feature/left', worktree: '/wt/desk-b', state: 'stalled' }),
+      agent({ session: 'c', branch: '', checkout: 'bug/y', worktree: '/wt/desk-c', state: 'elsewhere' }),
+      agent({ session: 'd', state: 'running' }),
+    ], [row({ branch: 'feature/done', state: 'merged' })]);
+    expect(entries).toEqual([
+      { key: 'a', desk: 'desk-a', branch: 'feature/done', why: 'merged' },
+      { key: 'b', desk: 'desk-b', branch: 'feature/left', why: 'stalled' },
+      { key: 'c', desk: 'desk-c', branch: 'bug/y', why: 'gone' },
+    ]);
+  });
+});
+
+describe('the facts of one Fleet agent row', () => {
+  const agent = (over: Partial<AgentEntry> = {}): AgentEntry =>
+    AgentEntrySchema.parse({ session: 's1', branch: 'feature/x', worktree: '/wt/desk-1', state: 'running', ...over });
+
+  it('anchors the row on its branch and carries the joined row\'s note', () => {
+    expect(fleetRowFacts(agent(), row({ branch: 'feature/x', note: 'handed to s1' }))).toEqual({
+      anchorId: 'agent-row-feature/x', availability: '', undeclared: false, note: 'handed to s1',
+    });
+  });
+
+  it('marks a running agent with no branch free and an undeclared desk undeclared', () => {
+    expect(fleetRowFacts(agent({ branch: '', session: '', identity: 'synthesized' }), null)).toEqual({
+      anchorId: null, availability: 'free', undeclared: true, note: '',
+    });
+  });
+
+  it('carries nothing for a run the registry does not hold', () => {
+    expect(fleetRowFacts(null, null)).toEqual({ anchorId: null, availability: '', undeclared: false, note: '' });
   });
 });

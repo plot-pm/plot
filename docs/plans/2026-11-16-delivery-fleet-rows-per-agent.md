@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** bug-fixes-2-35-0
 - **Issue:**
@@ -19,6 +19,7 @@
 - **Started:** 2026-11-18, Jan Wloka, `feature/delivery-fleet-time-tokens`
 - **Started:** 2026-11-18, Jan Wloka, `feature/delivery-fleet-header-switches`
 - **Delivered:** 2026-11-18
+- **Released:** 2026-11-19, v2.35.0
 
 ## Changelog
 

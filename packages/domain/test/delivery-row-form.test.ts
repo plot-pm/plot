@@ -9,7 +9,6 @@ import {
   AGENT_COLUMNS,
   agentRowCells,
   agentWaitsOn,
-  freeLine,
   deliveryRowForms,
   groupHeader,
   itemRowCells,
@@ -387,17 +386,37 @@ describe('agent rows, the other readings', () => {
   });
 });
 
-describe('the Free line', () => {
-  it('renders nothing for zero agents', () => {
-    expect(freeLine([])).toBeNull();
+describe('one Fleet row per agent', () => {
+  const agent = (over: Partial<AgentPlacement>): AgentPlacement =>
+    ({ id: 'agent:6353f651-f356', role: 'loop', section: 'fleet', group: 'free', actsOn: null, linked: false, blockedOn: null, ...over });
+
+  it('says a running loop with no slice waits for one, and not that it runs', () => {
+    expect(agentRowCells(agent({}), { running: true }).doing).toEqual({ value: 'waiting for a slice', links: [{ to: 'log', id: 'agent:6353f651-f356' }] });
   });
 
-  it('reads the singular for one agent', () => {
-    expect(freeLine(['a'])!.text).toBe('Free · 1 agent ready: a');
+  it('says nothing of a free loop whose process is not running or was not read', () => {
+    expect(agentRowCells(agent({}), { running: false }).doing).toBeNull();
+    expect(agentRowCells(agent({}), {}).doing).toBeNull();
   });
 
-  it('names every agent', () => {
-    expect(freeLine(['a', 'b', 'c'])!.text).toBe('Free · 3 agents ready: a, b, c');
+  it('says nothing of a free agent of another role', () => {
+    expect(agentRowCells(agent({ role: 'reviewer' }), { running: true }).doing).toBeNull();
+  });
+
+  it('names the agent by its short name and keeps its id as the link', () => {
+    expect(agentRowCells(agent({}), { name: '6353f651' }).agent).toEqual({ value: '6353f651', links: [{ to: 'agent', id: 'agent:6353f651-f356' }] });
+  });
+
+  it('shows the desk in Acting on while the agent acts on no item', () => {
+    expect(agentRowCells(agent({}), { desk: 'desk-098aacb8' }).actingOn).toEqual({ value: 'desk-098aacb8', links: [] });
+    expect(agentRowCells(agent({ actsOn: 'x', linked: true, group: 'working' }), { desk: 'desk-098aacb8', itemName: 'x' }).actingOn!.value).toBe('x');
+    expect(agentRowCells(agent({}), {}).actingOn).toBeNull();
+  });
+
+  it('words the idle time, and leaves it out where nobody read it', () => {
+    expect(agentRowCells(agent({}), { idleMinutes: 245 }).idle).toBe('idle 4h');
+    expect(agentRowCells(agent({}), { idleMinutes: 3 }).idle).toBe('idle 3m');
+    expect(agentRowCells(agent({}), {}).idle).toBeNull();
   });
 });
 

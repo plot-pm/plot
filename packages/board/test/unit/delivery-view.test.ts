@@ -3,7 +3,7 @@ import { DELIVERY_LAYOUT, deliveryScope, parsePersonDirectory } from '@plot-pm/d
 import type { AgentRow, DraftPlan, Slice } from '../../src/contract/schema.js';
 import { deliveryMapping, sprintCardViewOf, type RegistryAgent } from '../../src/app/lib/agent-rows/delivery-readings.js';
 import { GLYPH_PATH } from '../../src/app/lib/glyphs.js';
-import { groupAnchor, nestItems, placeMapping, planBlockShown, summarise, type PlacedItemView } from '../../src/app/lib/agent-rows/delivery-view.js';
+import { bulkDeleteWords, cleanUpBranches, deleteWords, releaseWords, groupAnchor, nestItems, placeMapping, planBlockShown, summarise, type PlacedItemView } from '../../src/app/lib/agent-rows/delivery-view.js';
 
 const row = (over: Record<string, unknown>): AgentRow => ({
   branch: '', plan: '', wave: '', kind: 'branch', phase: 'Development', state: 'wip',
@@ -93,6 +93,26 @@ describe('delivery view nesting', () => {
       expect(v.releaseBlocks[0]!.plans).toHaveLength(8);
       expect(v.releaseBlocks[0]!.header).toBe('8 plans · 40 of 40 slices delivered · 0 blocked');
       expect(v.releaseBlocks[0]!.plans[0]!.stripText).toBe('5 / 5 delivered');
+    });
+
+    it('names the approver as Owner of a plan that no sprint lists, by its People handle', () => {
+      const slices = [mergedSlice('p1', 'a'), mergedSlice('p2', 'a')];
+      const rows = [
+        { ...merged('p1', 'a'), approver: 'Jan Wloka', author: 'Jan Wloka' },
+        { ...merged('p2', 'a'), approver: '', author: 'Max Albrecht' },
+      ] as AgentRow[];
+      const v = placeMapping(deliveryMapping({
+        rows, slices, agents: [], drafts: [], mode: 'all', config: { autoReview: true, correctionBudget: 2 },
+        reader: { hostUser: 'me', directory: parsePersonDirectory('jwloka = Jan Wloka; eins78 = Max Albrecht') },
+      }), slices);
+      expect(v.releaseBlocks[0]!.plans.map((p) => [p.plan, p.owner])).toEqual([['p1', 'jwloka'], ['p2', 'eins78']]);
+    });
+
+    it('links a plan row to its plan route, and leaves a row with no plan file unlinked', () => {
+      const slices = [mergedSlice('p1', 'a'), mergedSlice('p2', 'a')];
+      const rows = [{ ...merged('p1', 'a'), planFile: 'docs/plans/2026-11-01-p1.md' }, merged('p2', 'a')] as AgentRow[];
+      const v = planView(rows, slices);
+      expect(v.releaseBlocks[0]!.plans.map((p) => [p.plan, p.href])).toEqual([['p1', '/plan/2026-11-01-p1.md'], ['p2', '']]);
     });
 
     it('lists a slice with no branch and no agent under To do, not as a Work items row', () => {
@@ -236,7 +256,7 @@ describe('Work items header and group columns', () => {
 describe('a Draft plan in You', () => {
   const placed = (anchor: string, over: Record<string, unknown>): PlacedItemView => ({
     placement: { section: 'you', reason: 'draft-plan', id: anchor }, rows: [], draft: null, ticket: null,
-    label: anchor, anchor, links: [], looseActions: { delete: false, release: false }, ...over,
+    label: anchor, anchor, links: [], menu: { kind: 'row' }, ...over,
   }) as unknown as PlacedItemView;
   const sliceItem = (n: string) => placed(`s-${n}`, { rows: [row({ branch: `feature/${n}`, plan: 'p', wave: n })] });
   const draftItem = placed('d', { draft: { plan: 'p', planFile: 'p.md' }, rows: [row({ kind: 'plan', plan: 'p', wave: '' })] });
@@ -328,5 +348,70 @@ describe('the domain fields the view passes on', () => {
     const lines = v.releaseBlocks[0]!.plans[0]!.lines;
     expect(lines.find((l) => l.slice === 'A')!.pr).toBe(12);
     expect(lines.find((l) => l.slice === 'B')!.pr).toBeUndefined();
+  });
+});
+
+describe('the clean-up rows', () => {
+  const loose = (over: Record<string, unknown>) =>
+    row({ plan: '', wave: '', kind: 'branch', group: 'quiet', desk: false, worker: 'none', ...over });
+  const cleanUp = (rows: AgentRow[]) => {
+    const v = view(rows);
+    const you = v.sections.find((s) => s.key === 'you')!;
+    return you.groups.find((g) => g.key === 'unblock')!;
+  };
+
+  it('titles the group Clean up', () => {
+    expect(cleanUp([]).label).toBe('Clean up');
+  });
+
+  it('gives every loose row the clean-up menu, whatever the row\'s quiet kind says', () => {
+    const group = cleanUp([
+      loose({ branch: 'bug/claimed', state: 'claimed', quietKind: 'orphaned-claim', worker: 'elsewhere', branchUrl: 'https://h/bug/claimed' }),
+      loose({ branch: 'feature/work', state: 'wip', quietKind: 'quiet', branchUrl: 'https://h/feature/work' }),
+      loose({ branch: 'feature/here', state: 'claimed', quietKind: 'orphaned-claim', branchUrl: '' }),
+    ]);
+    const menus = Object.fromEntries(group.items.map((i) => [i.rows[0]!.branch, i.menu]));
+    expect(menus['bug/claimed']).toEqual({ kind: 'clean-up', branch: 'bug/claimed', open: 'https://h/bug/claimed', release: 'elsewhere', delete: false });
+    expect(menus['feature/work']).toEqual({ kind: 'clean-up', branch: 'feature/work', open: 'https://h/feature/work', release: null, delete: true });
+    expect(menus['feature/here']).toEqual({ kind: 'clean-up', branch: 'feature/here', open: '', release: 'here', delete: false });
+  });
+
+  it('offers the bulk delete only for rows whose menu offers Delete', () => {
+    const group = cleanUp([
+      loose({ branch: 'bug/claimed', state: 'claimed' }),
+      loose({ branch: 'feature/work', state: 'wip' }),
+      loose({ branch: 'feature/more', state: 'wip' }),
+    ]);
+    expect(cleanUpBranches(group.items)).toEqual(['feature/more', 'feature/work']);
+  });
+
+  it('keeps the row menu on an item that is not loose', () => {
+    const v = view([row({ branch: 'feature/a', plan: 'p', wave: 'A' })]);
+    const items = v.sections.flatMap((s) => s.groups.flatMap((g) => g.items));
+    expect(items[0]!.menu).toEqual({ kind: 'row' });
+  });
+});
+
+describe('the clean-up words', () => {
+  it('says a claim from another machine belongs to it', () => {
+    expect(releaseWords('bug/x', 'elsewhere').label).toBe('Release claim (another machine)');
+    expect(releaseWords('bug/x', 'elsewhere').confirm).toContain('belongs to another machine');
+    expect(releaseWords('bug/x', 'here')).toEqual({ label: 'Release claim', confirm: expect.stringContaining('bug/x') });
+  });
+
+  it('names the branch and the pin ref in the delete confirmation', () => {
+    expect(deleteWords('feature/x')).toEqual({
+      label: 'Delete branch…',
+      confirm: 'Delete origin/feature/x? Its tip is pinned first at refs/plot/reaped/feature/x/<sha>, and that ref restores it.',
+    });
+  });
+
+  it('lists every branch in the group-wide confirmation, and offers none for no branch', () => {
+    expect(bulkDeleteWords([])).toBeNull();
+    expect(bulkDeleteWords(['a'])!.label).toBe('Delete 1 quiet branch…');
+    const w = bulkDeleteWords(['a', 'b'])!;
+    expect(w.label).toBe('Delete 2 quiet branches…');
+    expect(w.confirm).toContain('a, b');
+    expect(w.confirm).toContain('refs/plot/reaped/');
   });
 });

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:**
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Approved:** 2026-11-16, Jan Wloka, plan-PR #3465 merged
 - **Started:** 2026-11-16, Jan Wloka, `bug/a-deferred-slice-keeps-its-branch`
 - **Delivered:** 2026-11-16
+- **Released:** 2026-11-19, v2.35.0
 
 ## Changelog
 

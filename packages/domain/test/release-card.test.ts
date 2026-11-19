@@ -186,7 +186,7 @@ describe('the release to-do line', () => {
     const release = todo.lines.filter((l) => l.text.startsWith('Approve release'));
     expect(release).toEqual([{ id: 'release:2.35.0', text: 'Approve release 2.35.0',
       verb: 'Approve release',
-      label: '2.35.0', marker: 'blocks-delivery', markerWords: 'blocks delivery', anchor: all[0]!.anchor }]);
+      label: '2.35.0', marker: 'blocks-delivery', markerWords: 'blocks delivery', anchor: all[0]!.anchor, icon: 'release' }]);
     expect(todo.lines[0]).toBe(release[0]);
     expect(todo.counts['blocks-delivery'] + todo.counts.input + todo.counts['clean-up']).toBe(todo.lines.length);
     expect(todo.header).toBe('You block 2 deliveries');

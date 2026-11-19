@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { decodeRunLogLine } from '@plot-pm/domain/adapters';
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
-import { idleEpisodeKey, sliceIdle } from '@plot-pm/domain/rules/slice-idle';
+import { IDLE_MERGE_REASK_MS, idleEpisodeKey, sliceIdle } from '@plot-pm/domain/rules/slice-idle';
 
 import { notifyIdleSlices, idleWorldForRepo } from '../../src/server/entry/registryd-main.js';
 import type { TickReport } from '../../src/server/entry/registryd.js';
@@ -193,6 +193,39 @@ describe('idleWorldForRepo', () => {
       { worktree: root, branch: 'feature/merged' },
     ], async () => ({ ok: true, value: 'merged' }));
     expect(await reader.readings()).toEqual([]);
+    delete process.env[RUN_LOG_HOME_ENV];
+  });
+
+  it('asks the host about an unmerged branch once per re-ask bound, not once per pass', async () => {
+    const root = repo();
+    process.env[RUN_LOG_HOME_ENV] = root;
+    let now = Date.parse('2026-11-19T12:00:00.000Z');
+    const asked: string[] = [];
+    const tally = { calls: 0 };
+    const reader = idleWorldForRepo(
+      root,
+      '/nonexistent',
+      now,
+      async () => [
+        { worktree: root, branch: 'feature/open' },
+        { worktree: root, branch: 'feature/merged' },
+      ],
+      async (branch) => {
+        asked.push(branch);
+        return { ok: true, value: branch === 'feature/merged' ? 'merged' : 'not-merged' };
+      },
+      tally,
+      () => now,
+    );
+    expect((await reader.readings()).map((r) => r.pr.branch)).toEqual(['feature/open']);
+    now += IDLE_MERGE_REASK_MS - 1;
+    expect((await reader.readings()).map((r) => r.pr.branch)).toEqual(['feature/open']);
+    expect(asked).toEqual(['feature/open', 'feature/merged']);
+    expect(tally.calls).toBe(2);
+    now += 1;
+    await reader.readings();
+    expect(asked).toEqual(['feature/open', 'feature/merged', 'feature/open']);
+    expect(tally.calls).toBe(3);
     delete process.env[RUN_LOG_HOME_ENV];
   });
 
