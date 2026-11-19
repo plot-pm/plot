@@ -3218,7 +3218,7 @@ jira_budget_account() {
 # which is never read as free.
 budget_record_jira() {
   [ -z "${PLOT_BUDGET_OFF:-}" ] || return 0
-  budget_append jira "$(jira_budget_account)" api 1 - - - unknown
+  budget_append jira "$(jira_budget_account)" api 1 - - - unknown "$op"
 }
 
 # Split a jira_curl response into (body, status) and enforce the three outcomes.
@@ -3717,12 +3717,12 @@ budget_record_call() { # $1=connector $2=backend-for-account $3=bucket $4=spent 
     # `actual` is the one basis a caller is entitled to trust, and a harvested
     # header is the only thing in this script that earns it: the connector said
     # it, about the call that just happened.
-    budget_append "$1" "$account" "$bucket" "${4:-1}" "$_blim" "$_brem" "$_brst" actual
+    budget_append "$1" "$account" "$bucket" "${4:-1}" "$_blim" "$_brem" "$_brst" actual "$op"
     return 0
   fi
   reading="$(budget_reading "$1")"
   IFS=$'\t' read -r _blim _brem _brst _bbas <<<"$reading"
-  budget_append "$1" "$account" "$bucket" "${4:-1}" "$_blim" "$_brem" "$_brst" "$_bbas"
+  budget_append "$1" "$account" "$bucket" "${4:-1}" "$_blim" "$_brem" "$_brst" "$_bbas" "$op"
 }
 
 # Reads `X-RateLimit-*` out of a header block, into the harvest variable.

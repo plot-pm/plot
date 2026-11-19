@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 
+import { budgetOpOf } from '../../entities/budget.js';
 import type { BudgetRecord } from '../../ports/budget.js';
 import type { HostRefusal, LimitObservation } from '../../ports/host.js';
 import type { Slots } from '../../ports/slots.js';
@@ -222,6 +223,7 @@ export const bitbucketApi = (options: BitbucketApiOptions): BitbucketApi => {
     },
     ...(request.body === undefined ? {} : { body: request.body }),
     connector: BITBUCKET_CONNECTOR,
+    op: budgetOpOf(request.label),
     account,
     spend: (reply) => {
       const headers = reply?.headers ?? {};

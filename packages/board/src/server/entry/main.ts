@@ -9,7 +9,7 @@ import { gatherReadingsAndRelease } from '../release-claim.js';
 import { baseRepairFile, repairRecordFile } from '@plot-pm/domain/adapters/repair-record/repair-record-file';
 import { baseBranchFile } from '@plot-pm/domain/adapters/default-branch/default-branch-file';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
-import { fleetdStartFile, readFleetdHeartbeatSync } from '@plot-pm/domain/adapters';
+import { CALLER_ENV, fleetdStartFile, readFleetdHeartbeatSync } from '@plot-pm/domain/adapters';
 import { hostTransportStatusLine } from '@plot-pm/domain/rules/host-transport';
 import { trackerTransportStatusLine } from '@plot-pm/domain/rules/tracker-transport';
 import { spawnerStatus, spawnerStatusText, spawnerStatusLines, bundleDriftDetected, bundleDriftText } from '@plot-pm/domain/rules/spawn-contract';
@@ -409,6 +409,8 @@ export const run = async (
 // is a symlink — a bundle built there never matches without `pathToFileURL`
 // on the realpath.
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+  // Every ledger line the board and its children write names `board`.
+  process.env[CALLER_ENV] = 'board';
   // `run` awaits ports now, so the exit code arrives as a promise. Awaiting it
   // at the entry keeps the contract a NUMBER for every other caller.
   void run(process.argv.slice(2), path.dirname(fileURLToPath(import.meta.url))).then(endEntry);

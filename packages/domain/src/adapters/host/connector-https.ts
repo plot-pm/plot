@@ -61,6 +61,8 @@ export interface ConnectorCall {
   readonly form?: Readonly<Record<string, string>>;
   /** The connector word the ledger entry carries, such as `github`. */
   readonly connector: string;
+  /** The operation the ledger entry names, such as `pr-merged`; absent writes `unknown`. */
+  readonly op?: string;
   /** The account the ledger entry and the host slot are charged to. */
   readonly account: string;
   /** The key the host slot is taken under; defaults to `account`. */
@@ -242,6 +244,7 @@ export const connectorHttps = (options: ConnectorHttpsOptions = {}): ConnectorHt
       remaining: spent.remaining,
       resetAt: spent.resetAt,
       basis: spent.basis,
+      ...(call.op === undefined ? {} : { op: call.op }),
     };
     if (spent.basis !== 'unknown') bounds.set(boundKey(call), boundFromLimit(readingOf(entry)));
     await budget.append(entry);

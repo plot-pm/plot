@@ -52,6 +52,17 @@ export interface BudgetEntry {
   resetAt: number | null;
   /** How the reading was come by — `actual`, `predicted` or `unknown`. */
   basis: LimitBasis;
+  /**
+   * The process role that made the call, such as `fleetd`, `board`,
+   * `reader.<pid>` or a script's file name. Absent on a `b1` line; written as
+   * `unknown` where absent.
+   */
+  caller?: string;
+  /**
+   * The host operation the call served, such as `pr-merged` or `pr-list`.
+   * Absent on a `b1` line; written as `unknown` where absent.
+   */
+  op?: string;
 }
 
 /**
@@ -80,8 +91,17 @@ export const MAX_LINE_BYTES = 512;
 /** The field separator — a tab, because no key part or number may contain one. */
 const SEP = '\t';
 
-/** The format's version marker, first field of every line. */
-const FORMAT = 'b1';
+/** The format's version marker this module writes, first field of every line. */
+const FORMAT = 'b2';
+
+/** The previous format's marker, which a reader still accepts. */
+const FORMAT_B1 = 'b1';
+
+/** The word a line carries where its caller or operation is not known. */
+export const UNKNOWN_CALLER = 'unknown';
+
+/** The most characters a caller or operation field keeps. */
+const LABEL_MAX = 64;
 
 /** How a null number is written, so an absent field is not an empty one. */
 const NONE = '-';
@@ -114,7 +134,49 @@ const readNum = (field: string): number | null => {
 const clean = (value: string): string => value.replace(/[\t\r\n]/g, '_');
 
 /**
- * Encodes one entry as the line that is appended.
+ * Writes a caller or operation field: cleaned, at most {@link LABEL_MAX}
+ * characters, and {@link UNKNOWN_CALLER} where empty or absent.
+ */
+const label = (value: string | undefined): string => {
+  const cleaned = clean(value ?? '').trim().slice(0, LABEL_MAX);
+  return cleaned === '' ? UNKNOWN_CALLER : cleaned;
+};
+
+/**
+ * Names the process role that spends a call.
+ *
+ * @param declared - the value of `PLOT_CALLER`, or undefined.
+ * @param script - the path of the running script (`process.argv[1]`), or undefined.
+ * @returns `declared` where it is not empty, else the script's file name, else
+ *   {@link UNKNOWN_CALLER}.
+ */
+export const budgetCallerOf = (declared: string | undefined, script: string | undefined): string => {
+  if (declared !== undefined && declared.trim() !== '') return label(declared);
+  const name = (script ?? '').split('/').pop() ?? '';
+  return label(name);
+};
+
+/**
+ * Names the operation a request label describes.
+ *
+ * Keeps the label up to its first comma and drops every word that holds a
+ * digit, so `pr 123 comments, page 2` names `pr-comments` and
+ * `graphql, page 3` names `graphql`.
+ *
+ * @param requestLabel - a connector client's request label.
+ * @returns the words joined by `-`, or {@link UNKNOWN_CALLER} where none remains.
+ */
+export const budgetOpOf = (requestLabel: string): string =>
+  label(
+    (requestLabel.split(',')[0] ?? '')
+      .split(/\s+/)
+      .filter((word) => word !== '' && !/\d/.test(word))
+      .join('-'),
+  );
+
+/**
+ * Encodes one entry as the `b2` line that is appended: the ten `b1` fields,
+ * then the caller and the operation.
  *
  * Tab-separated and single-line, so a reader needs no parser and a partially
  * written line is discardable by shape. The leading {@link FORMAT} marker is
@@ -139,6 +201,8 @@ export const encodeEntry = (entry: BudgetEntry): string =>
     num(entry.remaining),
     entry.resetAt === null ? NONE : String(Math.trunc(entry.resetAt)),
     entry.basis,
+    label(entry.caller),
+    label(entry.op),
   ].join(SEP) + '\n';
 
 /**
@@ -160,10 +224,14 @@ export const withinLineCap = (line: string): boolean =>
   byteLength(line) <= MAX_LINE_BYTES;
 
 /** How many fields a `b1` line carries. */
-const FIELDS = 10;
+const FIELDS_B1 = 10;
+
+/** How many fields a `b2` line carries: the `b1` fields, then caller and operation. */
+const FIELDS = 12;
 
 /**
- * Reads one line back, or null where it is not a line this format wrote.
+ * Reads one `b1` or `b2` line back, or null where it is neither.
+ * A `b1` line decodes with no caller and no operation.
  *
  * A NULL IS THE NORMAL CASE, not an error. The file is appended to
  * concurrently by processes that may be killed mid-write, so a torn tail, a
@@ -177,8 +245,10 @@ const FIELDS = 10;
  */
 export const decodeEntry = (line: string): BudgetEntry | null => {
   const fields = line.replace(/\r?\n$/, '').split(SEP);
-  if (fields.length !== FIELDS || fields[0] !== FORMAT) return null;
-  const [, connector, account, bucket, at, spent, limit, remaining, resetAt, basis] = fields;
+  const b1 = fields.length === FIELDS_B1 && fields[0] === FORMAT_B1;
+  const b2 = fields.length === FIELDS && fields[0] === FORMAT;
+  if (!b1 && !b2) return null;
+  const [, connector, account, bucket, at, spent, limit, remaining, resetAt, basis, caller, op] = fields;
   const parsedBasis = LimitBasisSchema.safeParse(basis);
   const atMs = Number(at);
   const spentCount = Number(spent);
@@ -191,6 +261,7 @@ export const decodeEntry = (line: string): BudgetEntry | null => {
     remaining: readNum(remaining),
     resetAt: readNum(resetAt),
     basis: parsedBasis.data,
+    ...(b2 ? { caller, op } : {}),
   };
 };
 

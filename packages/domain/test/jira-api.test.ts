@@ -91,7 +91,7 @@ const checkouts = () => {
 /** The client under test, against a private ledger and slot directory. */
 const client = (env: Record<string, string | undefined>, over: Partial<JiraApiOptions> = {}) => {
   const home = join(root, 'budget');
-  const budget = budgetFile({ home });
+  const budget = budgetFile({ home, env: { PLOT_CALLER: 'board' } });
   const slots = slotsFile({ home, isAlive: () => true });
   const api = jiraApi({ repoRoot: join(root, 'nowhere'), env, budget, slots, pollMs: 20, ...over });
   const entries = async (): Promise<BudgetEntry[]> => {
@@ -273,6 +273,8 @@ describe('the ledger', () => {
         remaining: null,
         resetAt: null,
         basis: 'unknown',
+        caller: 'board',
+        op: 'open-issues',
       },
     ]);
     expect(api.account()).toBe(hashed(CREDS.JIRA_EMAIL));

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
+import { budgetOpOf } from '../../entities/budget.js';
 import type { BudgetRecord } from '../../ports/budget.js';
 import type { HostRefusal, LimitObservation } from '../../ports/host.js';
 import type { Slots } from '../../ports/slots.js';
@@ -234,6 +235,7 @@ export const jiraApi = (options: JiraApiOptions): JiraApi => {
     },
     ...(request.body === undefined ? {} : { body: request.body }),
     connector: JIRA_CONNECTOR,
+    op: budgetOpOf(request.label),
     account: current.account,
     spend: (reply) => {
       const headers = reply?.headers ?? {};

@@ -136,6 +136,37 @@ describe('a missing record is an empty one', () => {
   });
 });
 
+describe('a line names the caller that spent the call', () => {
+  it('charges an entry that names no caller to PLOT_CALLER', async () => {
+    const record = budgetFile({ home, env: { PLOT_CALLER: 'fleetd' }, script: '/x/plot-ask.mjs' });
+    answer(await record.append(entry(Date.now(), { op: 'pr-list' })));
+    const [line] = answer(await record.lines());
+    expect(decodeEntry(line ?? '')).toMatchObject({ caller: 'fleetd', op: 'pr-list' });
+  });
+
+  it('charges it to the running script where PLOT_CALLER is unset', async () => {
+    const record = budgetFile({ home, env: {}, script: '/x/skills/plot/scripts/board/plot-ask.mjs' });
+    answer(await record.append(entry(Date.now())));
+    const [line] = answer(await record.lines());
+    expect(decodeEntry(line ?? '')).toMatchObject({ caller: 'plot-ask.mjs', op: 'unknown' });
+  });
+
+  it('keeps the caller an entry already names', async () => {
+    const record = budgetFile({ home, env: { PLOT_CALLER: 'fleetd' } });
+    answer(await record.append(entry(Date.now(), { caller: 'board' })));
+    const [line] = answer(await record.lines());
+    expect(decodeEntry(line ?? '')?.caller).toBe('board');
+  });
+
+  it('reads b1 and b2 lines from one record into one window', async () => {
+    const now = Date.now();
+    writeFileSync(join(home, 'budget.tsv'), `b1\tgithub\tjwloka\tgraphql\t${now - 1}\t1\t-\t-\t-\tunknown\n`);
+    const record = budgetFile({ home, env: { PLOT_CALLER: 'board' } });
+    answer(await record.append(entry(now)));
+    expect(readWindow(answer(await record.lines()), KEY, now).live).toHaveLength(2);
+  });
+});
+
 describe('the append is atomic because the line is short', () => {
   it('keeps both lines when two processes append at once, neither interleaved', () => {
     // SEPARATE PROCESSES, not two promises. Two promises in one process share a

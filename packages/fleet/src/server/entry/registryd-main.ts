@@ -51,6 +51,7 @@ import {
   appKeyShell,
   budgetAccount,
   budgetFile,
+  CALLER_ENV,
   installObjectsReader,
   type RunningChannel,
   hostReadsFor,
@@ -4503,6 +4504,8 @@ if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   // unit keeps both paths; what it must not do is grow without one.
   truncateInherited(1);
   truncateInherited(2);
+  // Every ledger line fleetd and its children write names `fleetd`.
+  process.env[CALLER_ENV] = 'fleetd';
   // Exit-only: `stopOnSignals` owns SIGTERM, and a re-raising installer would
   // end the process before its graceful stop.
   removeStageDirsOnExit();

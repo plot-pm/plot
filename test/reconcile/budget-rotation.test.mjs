@@ -352,7 +352,11 @@ test('budget-rotation: four concurrent appenders lose nothing across one rotatio
     .flatMap((name) =>
       readFileSync(path.join(home, name), 'utf8').split('\n').filter((l) => l !== ''),
     );
-  const torn = all.filter((l) => l.split('\t').length !== 10);
+  // The seed is a 10-field `b1` line; every append is a 12-field `b2` line.
+  const torn = all.filter((l) => {
+    const fields = l.split('\t');
+    return !((fields[0] === 'b1' && fields.length === 10) || (fields[0] === 'b2' && fields.length === 12));
+  });
   assert.deepEqual(torn, [], 'a concurrent append was torn');
 });
 

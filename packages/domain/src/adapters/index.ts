@@ -80,7 +80,7 @@ export {
   type AgentRunAnswer,
 } from './agent-run/agent-run-fixture.js';
 
-export { budgetFile, BUDGET_HOME_ENV, type BudgetFileOptions } from './budget/budget-file.js';
+export { budgetFile, BUDGET_HOME_ENV, CALLER_ENV, type BudgetFileOptions } from './budget/budget-file.js';
 export { budgetAccount, type BudgetAccountOptions } from './budget/budget-account.js';
 
 export {

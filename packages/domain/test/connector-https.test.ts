@@ -79,7 +79,7 @@ const BITBUCKET = (url: string, over: Partial<ConnectorCall> = {}): ConnectorCal
 
 const transport = (over: Parameters<typeof connectorHttps>[0] = {}) => {
   const home = join(root, 'budget');
-  const budget = budgetFile({ home });
+  const budget = budgetFile({ home, env: { PLOT_CALLER: 'board' } });
   const slots = slotsFile({ home, isAlive: () => true });
   const entries = async (): Promise<BudgetEntry[]> => {
     const lines = await budget.lines();
@@ -162,6 +162,8 @@ describe('the ledger entry', () => {
         remaining: null,
         resetAt: null,
         basis: 'predicted',
+        caller: 'board',
+        op: 'unknown',
       },
     ]);
   });

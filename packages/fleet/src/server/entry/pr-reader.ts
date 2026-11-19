@@ -6,7 +6,7 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { heartbeatIsFresh } from '@plot-pm/domain/rules/reader-election';
 import { fleetdReadsPrs } from '@plot-pm/domain/rules/fleetd-live';
 import type { FleetdHeartbeat } from '@plot-pm/domain/entities/fleetd-heartbeat';
-import { clockSystem, hostReadsFor, IN_PROCESS_BACKENDS, shellCiOf, prIndexFile, readerLockFile, readFleetdHeartbeatSync, scriptsShell, type HostReads, type ShellContext } from '@plot-pm/domain/adapters';
+import { CALLER_ENV, clockSystem, hostReadsFor, IN_PROCESS_BACKENDS, shellCiOf, prIndexFile, readerLockFile, readFleetdHeartbeatSync, scriptsShell, type HostReads, type ShellContext } from '@plot-pm/domain/adapters';
 import { HOST_TRANSPORT_ENV, hostTransportLine, shellReasonOf } from '@plot-pm/domain/rules/host-transport';
 import { fleetPrs, type PrLock } from '../../shared/fleet-clock.js';
 import { freshPrState, type PrState, type PrWorld } from '../../shared/pr-refresh.js';
@@ -255,6 +255,8 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
 ) {
+  // Every ledger line this reader and its children write names `reader.<pid>`.
+  process.env[CALLER_ENV] = `reader.${process.pid}`;
   const repoRoot = process.cwd();
   const log = processLog(path.join(logDir(repoRoot), 'pr-reader.log'));
   const warn = (line: string): void => void log.write(line);
