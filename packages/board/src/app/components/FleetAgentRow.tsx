@@ -28,40 +28,40 @@ export const FleetAgentRow = ({ id, cells, handlers }: { id: string; cells: Agen
   <li
     role="row"
     data-fleet-agent-row={id}
-    className="grid grid-cols-[minmax(0,1.2fr)_5rem_minmax(0,1.5fr)_minmax(0,2fr)_4rem_5rem] items-baseline gap-x-3 px-3 py-1 text-sm max-sm:grid-cols-1"
+    className="delivery-row grid grid-cols-[minmax(0,1.2fr)_5rem_minmax(0,1.5fr)_minmax(0,2fr)_4rem_5rem] items-baseline gap-x-3 px-3 max-sm:grid-cols-1"
   >
-    <span role="gridcell" data-agent-cell="agent" title={cells.agentTitle ?? undefined} className="min-w-0 truncate font-mono text-xs">
+    <span role="gridcell" data-agent-cell="agent" title={cells.agentTitle ?? undefined} className="delivery-truncate">
+      <span aria-hidden="true" data-agent-dot className="delivery-dot" />
       <RowCell cell={cells.agent} handlers={handlers} />
     </span>
     <span role="gridcell" data-agent-cell="role"><RowCell cell={cells.role} handlers={handlers} /></span>
-    <span role="gridcell" data-agent-cell="actingOn" className="min-w-0 truncate">
+    <span role="gridcell" data-agent-cell="actingOn" className="delivery-truncate">
       <RowCell cell={cells.actingOn} handlers={handlers} />
       {cells.branch !== null && (
-        <span data-agent-branch className="block truncate font-mono text-xs text-slate-500 dark:text-slate-400">
+        <span data-agent-branch className="delivery-truncate delivery-text-muted block">
           <RowCell cell={cells.branch} handlers={handlers} />
         </span>
       )}
     </span>
-    <span role="gridcell" data-agent-cell="doing" data-doing-label={cells.doingLabel} className="min-w-0 truncate">
+    <span role="gridcell" data-agent-cell="doing" data-doing-label={cells.doingLabel} className="delivery-truncate">
       <RowCell cell={cells.doing} handlers={handlers} />
       {cells.doingDetail !== null && (
-        <span data-agent-detail className="block truncate text-xs text-slate-500 dark:text-slate-400">{cells.doingDetail}</span>
+        <span data-agent-detail className="delivery-truncate delivery-text-muted block" title={cells.doingDetail}>{cells.doingDetail}</span>
       )}
     </span>
-    <span role="gridcell" data-agent-cell="tokens" title={cells.tokensTitle ?? undefined} className="text-slate-400">
+    <span role="gridcell" data-agent-cell="tokens" title={cells.tokensTitle ?? undefined} className="delivery-text-muted">
       {cells.tokens === null ? DASH : cells.tokens.value}
     </span>
-    <span role="gridcell" data-agent-cell="timeLeft" className="text-slate-400">
+    <span role="gridcell" data-agent-cell="timeLeft" className="delivery-text-muted">
       {cells.timeLeft === null ? DASH : cells.timeLeft.value}
       {cells.timeLeftBar !== null && (
         <span
           data-time-left-bar
           data-time-left-red={cells.timeLeftBar.red ? 'true' : 'false'}
           role="presentation"
-          className="mt-0.5 block h-1 rounded bg-slate-200 dark:bg-slate-700"
         >
           <span
-            className={`block h-1 rounded ${cells.timeLeftBar.red ? 'bg-red-500' : 'bg-emerald-500'}`}
+            data-time-left-fill
             style={{ width: `${Math.round(cells.timeLeftBar.fraction * 100)}%` }}
           />
         </span>

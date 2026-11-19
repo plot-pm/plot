@@ -556,7 +556,9 @@ describe('a browser test that stubs its own state starts no board', () => {
 // It serves its state through the catalogue and starts no board.
 // 93 → 94 on 2026-11-19: `delivery-tab-screenshots.browser.test.ts`, for every Delivery section in both themes and at 320 px and
 // the screenshot harness. It serves its state through the catalogue and starts no board.
-const EXPECTED_FILES = 94;
+// 94 → 95 on 2026-11-19: `delivery-fleet-look.browser.test.ts`, for the Fleet row dots, the Time left bar fills, the read-only
+// fleet card switches and the header wrap at 320 px. It serves its state through the catalogue and starts no board.
+const EXPECTED_FILES = 95;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -934,8 +936,9 @@ const EXPECTED_FILES = 94;
 // 688 → 689 on 2026-11-18: the one `it(` the Delivery tab footer adds to `fleet-read-ref-age.browser.test.ts`, for the line without a path and the details button. Added, not moved.
 // 689 → 690 on 2026-11-19: the one `it(` that shows the My sprint chip renaming and narrowing the Delivery section, in the new `sprint-delivery-scope.browser.test.ts` (92 → 93 files). Added, not moved.
 // 690 → 695 on 2026-11-19: the five `it(` in the new `delivery-tab-screenshots.browser.test.ts` (93 → 94 files). Added, not moved.
-// 695 → 699 on 2026-11-19: the four `it(` that check the Tickets card and the footer line from `delivery-bottom.css`, added to `tickets-section.browser.test.ts`. Added, not moved.
-const EXPECTED_TESTS = 699;
+// 695 → 699 on 2026-11-19: the four `it(` in the new `delivery-fleet-look.browser.test.ts` (94 → 95 files). Added, not moved.
+// 699 → 703 on 2026-11-19: the four `it(` that check the Tickets card and the footer line from `delivery-bottom.css`, added to `tickets-section.browser.test.ts`. Added, not moved.
+const EXPECTED_TESTS = 703;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an
