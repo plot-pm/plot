@@ -68,7 +68,7 @@ import { headerOf, itemRowFactsOf, rowFormsOf, switchesOf } from '../lib/agent-r
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { ReleaseClaimButton } from './ReleaseClaimButton.js';
 import { ReleasePersonCards } from './ReleasePersonCards.js';
-import { lineBody, LinePr, LineState, PhaseChip, PlanStrip, PlanTableHead, PLAN_TRACKS, ReleaseLine } from './ReleasePlanParts.js';
+import { lineBody, LinePr, LineState, PhaseChip, PlanName, PlanStrip, PlanTableHead, PLAN_TRACKS, ReleaseLine } from './ReleasePlanParts.js';
 import { LooseDeleteButton } from './LooseDeleteButton.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
 import { checkoutHealthStatus } from '@plot-pm/domain/rules/checkout-health';
@@ -1635,17 +1635,7 @@ export function AgentList({
                             return (
                               <li key={plan.plan} data-plan-row={plan.plan} className={`delivery-row px-3 ${i > 0 ? 'delivery-row-ruled' : ''}`}>
                                 <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 sm:grid ${PLAN_TRACKS}`}>
-                                  <button
-                                    type="button"
-                                    data-plan-toggle={plan.plan}
-                                    aria-expanded={open}
-                                    onClick={() => toggleReleasePlan(plan.plan)}
-                                    title={plan.plan}
-                                    className="delivery-release-plan flex w-full min-w-0 items-baseline gap-1 text-left sm:w-auto"
-                                  >
-                                    <span aria-hidden="true" className={`inline-block w-4 shrink-0 text-center transition-transform ${open ? 'rotate-90' : ''}`}>▸</span>
-                                    <span className="delivery-truncate">{plan.plan}</span>
-                                  </button>
+                                  <PlanName plan={plan} open={open} onToggle={() => toggleReleasePlan(plan.plan)} onOpenPlan={onOpenPlan} />
                                   <span data-plan-phase><PhaseChip plan={plan} /></span>
                                   <PlanStrip plan={plan} />
                                   <span className="delivery-text-muted min-w-0">

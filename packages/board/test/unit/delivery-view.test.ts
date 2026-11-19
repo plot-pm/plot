@@ -95,6 +95,26 @@ describe('delivery view nesting', () => {
       expect(v.releaseBlocks[0]!.plans[0]!.stripText).toBe('5 / 5 delivered');
     });
 
+    it('names the approver as Owner of a plan that no sprint lists, by its People handle', () => {
+      const slices = [mergedSlice('p1', 'a'), mergedSlice('p2', 'a')];
+      const rows = [
+        { ...merged('p1', 'a'), approver: 'Jan Wloka', author: 'Jan Wloka' },
+        { ...merged('p2', 'a'), approver: '', author: 'Max Albrecht' },
+      ] as AgentRow[];
+      const v = placeMapping(deliveryMapping({
+        rows, slices, agents: [], drafts: [], mode: 'all', config: { autoReview: true, correctionBudget: 2 },
+        reader: { hostUser: 'me', directory: parsePersonDirectory('jwloka = Jan Wloka; eins78 = Max Albrecht') },
+      }), slices);
+      expect(v.releaseBlocks[0]!.plans.map((p) => [p.plan, p.owner])).toEqual([['p1', 'jwloka'], ['p2', 'eins78']]);
+    });
+
+    it('links a plan row to its plan route, and leaves a row with no plan file unlinked', () => {
+      const slices = [mergedSlice('p1', 'a'), mergedSlice('p2', 'a')];
+      const rows = [{ ...merged('p1', 'a'), planFile: 'docs/plans/2026-11-01-p1.md' }, merged('p2', 'a')] as AgentRow[];
+      const v = planView(rows, slices);
+      expect(v.releaseBlocks[0]!.plans.map((p) => [p.plan, p.href])).toEqual([['p1', '/plan/2026-11-01-p1.md'], ['p2', '']]);
+    });
+
     it('lists a slice with no branch and no agent under To do, not as a Work items row', () => {
       const slices = [{ ...slice('A'), plan: 'p', merge: 'open' }, { ...slice('B'), plan: 'p', merge: 'open' }] as Slice[];
       const v = planView([row({ branch: '', plan: 'p', wave: 'A', state: 'open', group: 'not-started', startability: 'start-work' })], slices);
