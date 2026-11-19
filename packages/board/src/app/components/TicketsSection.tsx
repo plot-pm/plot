@@ -5,7 +5,10 @@ import { tupleAgeText } from '../lib/tuple-row.js';
 import { CreatePlanButton } from './CreatePlanButton.js';
 
 /** The button class of a fold control: a link-looking button that stays in the tab order. */
-const FOLD_CLASS = 'text-blue-600 hover:underline dark:text-blue-400';
+const FOLD_CLASS = 'delivery-text-link';
+
+/** The four tracks of a ticket row from 640 px; below that the cells stack. */
+const ROW_COLUMNS = 'grid grid-cols-[4.5rem_minmax(0,1fr)_auto_4.5rem] max-sm:grid-cols-1';
 
 export interface TicketsSectionViewProps {
   issueAnswer: IssueAnswer | null | undefined;
@@ -48,17 +51,13 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
   });
   const reason = planItReason(issueAnswer, idea.available);
   return (
-    <section id={TICKETS_ANCHOR} data-section="tickets" data-tickets-state={section.state} className="space-y-2">
-      <h2 data-delivery-section="tickets" className="flex items-baseline gap-1 text-base font-semibold text-slate-800 dark:text-slate-100">
-        Tickets
-      </h2>
-      {section.state !== 'rows' ? (
-        <p data-tickets-absent={section.state} data-issue-error={section.state === 'failed' ? '' : undefined} data-issue-absence={section.state === 'unsupported' ? '' : undefined} className="px-3 text-sm text-slate-500 dark:text-slate-400">
-          {props.absence !== '' ? props.absence : section.state === 'unasked' ? 'the tracker has not been read yet' : 'the tracker gave no answer'}
-        </p>
-      ) : (
-        <>
-          <p data-tickets-header className="flex flex-wrap items-baseline gap-x-1 px-3 text-sm text-slate-600 dark:text-slate-300">
+    <section id={TICKETS_ANCHOR} data-section="tickets" data-tickets-state={section.state} className="delivery-card space-y-2">
+      <div className="delivery-head flex flex-wrap items-baseline gap-x-3.5 gap-y-1">
+        <h2 data-delivery-section="tickets" className="delivery-title flex items-baseline gap-1">
+          Tickets
+        </h2>
+        {section.state === 'rows' && (
+          <p data-tickets-header className="delivery-counts gap-x-1">
             <span>{section.header}</span>
             {section.showAllControl && (
               <>
@@ -75,8 +74,16 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
               </>
             )}
           </p>
-          {props.notice !== null && <p data-waiting-notice className="px-3 text-xs text-slate-500 dark:text-slate-400">{props.notice}</p>}
-          {props.hiddenSentence !== null && <p data-waiting-hidden-text className="px-3 text-xs text-slate-500 dark:text-slate-400">{props.hiddenSentence}</p>}
+        )}
+      </div>
+      {section.state !== 'rows' ? (
+        <p data-tickets-absent={section.state} data-issue-error={section.state === 'failed' ? '' : undefined} data-issue-absence={section.state === 'unsupported' ? '' : undefined} className="delivery-text-muted px-3 text-[13px]">
+          {props.absence !== '' ? props.absence : section.state === 'unasked' ? 'the tracker has not been read yet' : 'the tracker gave no answer'}
+        </p>
+      ) : (
+        <>
+          {props.notice !== null && <p data-waiting-notice className="delivery-text-muted px-3 text-xs">{props.notice}</p>}
+          {props.hiddenSentence !== null && <p data-waiting-hidden-text className="delivery-text-muted px-3 text-xs">{props.hiddenSentence}</p>}
           <ul role="grid" aria-label="Tickets" className="delivery-grid">
             <li role="row" className="hidden sm:grid grid-cols-[4.5rem_minmax(0,1fr)_auto_4.5rem] gap-x-3 px-3 delivery-thead">
               <span role="columnheader">Kind</span>
@@ -89,28 +96,28 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
                 key={issue.number}
                 role="row"
                 data-issue-row={issue.number}
-                className="grid grid-cols-[4.5rem_minmax(0,1fr)_auto_4.5rem] items-baseline gap-x-3 border-t border-slate-100 px-3 py-2 text-sm first:border-t-0 dark:border-slate-800"
+                className={`${ROW_COLUMNS} delivery-row delivery-row-ruled items-baseline gap-x-3 px-3`}
               >
-                <span role="gridcell" className="text-xs text-slate-500 dark:text-slate-400">Ticket</span>
-                <span role="gridcell" className="min-w-0 truncate">
+                <span role="gridcell" className="delivery-kind">Ticket</span>
+                <span role="gridcell" className="delivery-truncate" title={`${issue.number}: ${issue.title}`}>
                   {issue.url !== '' ? (
-                    <a href={issue.url} target="_blank" rel="noreferrer" data-issue-link className="inline-block min-h-6 max-w-full truncate align-middle leading-6 text-blue-600 hover:underline dark:text-blue-400">
+                    <a href={issue.url} target="_blank" rel="noreferrer" data-issue-link className="delivery-text-link inline-block min-h-6 max-w-full truncate align-middle leading-6">
                       <span data-issue-number>{issue.number}</span>: {issue.title}
                     </a>
                   ) : (
                     <span><span data-issue-number>{issue.number}</span>: {issue.title}</span>
                   )}
                 </span>
-                <span role="gridcell" data-plan-it-reason={reason ?? undefined}>
+                <span role="gridcell" data-tickets-do data-plan-it-reason={reason ?? undefined} className="delivery-text-link">
                   <CreatePlanButton issue={issue} idea={idea} issueAnswer={issueAnswer} label="Plan it ›" />
                 </span>
-                <span role="gridcell" className="text-right text-xs text-slate-500 dark:text-slate-400">
+                <span role="gridcell" className="delivery-text-muted sm:text-right">
                   {issue.ageMinutes === null ? '' : tupleAgeText(issue.ageMinutes)}
                 </span>
               </li>
             ))}
             {section.foldLabel !== null && (
-              <li role="row" className="border-t border-slate-100 px-3 py-2 text-xs dark:border-slate-800">
+              <li role="row" className="delivery-row delivery-row-ruled delivery-text-muted px-3">
                 <span role="gridcell">
                   <button
                     type="button"

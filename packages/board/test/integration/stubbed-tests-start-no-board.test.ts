@@ -946,7 +946,8 @@ const EXPECTED_FILES = 98;
 // 699 → 701 on 2026-11-19: the two `it(` in the new `delivery-work-items.browser.test.ts` (95 → 96 files). Added, not moved.
 // 701 → 704 on 2026-11-19: the three `it(` in the new `delivery-tab-header.browser.test.ts` (96 → 97 files). Added, not moved.
 // 704 → 708 on 2026-11-19: the four `it(` in the new `release-delivery-visual.browser.test.ts` (97 → 98 files). Added, not moved.
-const EXPECTED_TESTS = 708;
+// 708 → 712 on 2026-11-19: the four `it(` that check the Tickets card and the footer line from `delivery-bottom.css`, added to `tickets-section.browser.test.ts`. Added, not moved.
+const EXPECTED_TESTS = 712;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an
