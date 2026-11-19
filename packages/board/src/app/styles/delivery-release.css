@@ -7,3 +7,52 @@
 [data-section="release-delivery"] {
   --delivery-section: release;
 }
+
+/* The header bar of a Release block: its name, then the counts. */
+.delivery-release-line {
+  color: var(--card-meta);
+}
+.delivery-release-label {
+  font-weight: 600;
+  color: var(--card-title);
+}
+
+/* The Plan cell's toggle. */
+.delivery-release-plan {
+  font-weight: 600;
+  color: var(--card-title);
+}
+
+/* The words beside a slice strip. */
+.delivery-release-strip-text {
+  font-size: 11px;
+  color: var(--card-meta);
+}
+
+/* An opened plan line: its heading, then its state word in the slice's hue. */
+.delivery-release-heading {
+  width: 5rem;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--card-meta);
+}
+.delivery-release-state {
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--delivery-text, var(--card-meta));
+}
+
+/* A person card: the section card's surface, smaller. */
+.delivery-person-card {
+  background: var(--card-surface);
+  border: 1px solid var(--card-border);
+  border-radius: 0.5rem;
+  font-size: 12px;
+  color: var(--card-body);
+}
+.delivery-person-card .delivery-title {
+  font-size: 13px;
+}
