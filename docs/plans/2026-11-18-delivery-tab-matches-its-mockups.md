@@ -17,6 +17,7 @@
 - **Started:** 2026-11-19, Jan Wloka, `feature/delivery-visual-primitives`
 - **Started:** 2026-11-19, Jan Wloka, `feature/delivery-visual-tab-header`
 - **Started:** 2026-11-19, Jan Wloka, `feature/delivery-visual-release`
+- **Started:** 2026-11-19, Jan Wloka, `feature/delivery-visual-bottom`
 
 ## Changelog
 
