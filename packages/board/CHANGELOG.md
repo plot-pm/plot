@@ -1,5 +1,284 @@
 # @plot-pm/board
 
+## 0.28.0
+
+### Minor Changes
+
+- [#3525](https://github.com/plot-pm/plot/pull/3525) [`e3cc5da`](https://github.com/plot-pm/plot/commit/e3cc5dade1f96155d1c898534489f4aac9b8c405) Thanks [@jwloka](https://github.com/jwloka)! - The Release delivery section lists one collapsed row per plan, with a strip of the plan's five slice states, instead of one row per slice. An opened row lists each slice once under Done, In flight or To do, shows the merged PR and date from the PR index, and offers Start on a startable To do slice.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-release-progress-per-plan.md
+  bumps:
+    skills:
+      plot: minor
+  -->
+
+- [#3519](https://github.com/plot-pm/plot/pull/3519) [`9d78621`](https://github.com/plot-pm/plot/commit/9d7862103087835b4f2315c008527662187256e1) Thanks [@jwloka](https://github.com/jwloka)! - The By column of the Delivery tab's Work items shows each agent's role chip and name, linked to its Fleet row, and a fixer's attempt against its budget (`1/2`); the fleet payload's fixer run carries the attempt, and the Fleet row's Doing now cell now shows it too.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-work-items-show-gates.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#3493](https://github.com/plot-pm/plot/pull/3493) [`3c0d103`](https://github.com/plot-pm/plot/commit/3c0d103cf93e3ae4295b6b013f75429a0dd5b209) Thanks [@jwloka](https://github.com/jwloka)! - The Delivery tab reads reviewer, fixer, design and verify agents from the fleet's state files and shows each Fleet agent row with a role chip; the approver has no source and shows no row.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-fleet-rows-per-agent.md
+  -->
+
+- [#3491](https://github.com/plot-pm/plot/pull/3491) [`204325c`](https://github.com/plot-pm/plot/commit/204325c4977c09dca2383ee5a5a54951fb49401c) Thanks [@jwloka](https://github.com/jwloka)! - The Delivery tab header shows a fleet card: the fleet state (idle, working or blocked), the free, working and blocked agent counts, the fleet switches read-only, and a link to the Fleet controls.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-tab-header-and-my-sprint.md
+  -->
+
+- [#3496](https://github.com/plot-pm/plot/pull/3496) [`cd5195e`](https://github.com/plot-pm/plot/commit/cd5195e7b607d4b6f05bf1c888cd7204f63694db) Thanks [@jwloka](https://github.com/jwloka)! - The Delivery tab's Machine section shows a health line: a dot and word from the machine's headroom, the 1-minute load and the host budget, and a Resource, Now, Effect table only for resources that limit the fleet.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-machine-tickets-footer.md
+  -->
+
+- [#3537](https://github.com/plot-pm/plot/pull/3537) [`bddc4e8`](https://github.com/plot-pm/plot/commit/bddc4e83d305b872b10e1e2f60f4b51077a5459a) Thanks [@jwloka](https://github.com/jwloka)! - The Delivery tab header shows one release card per release the Active sprints target, each with a five-segment bar over the sprints' plans, the number of distinct Owners, the release PR's state and the Approve release button. A release PR no sprint targets gets its own card, and a target with no release PR shows the button disabled with the reason. The release row leaves You and Work items, and the to-do list carries one "Approve release <version>" line that scrolls to its card.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-tab-header-and-my-sprint.md
+  -->
+
+- [#3484](https://github.com/plot-pm/plot/pull/3484) [`dca55dc`](https://github.com/plot-pm/plot/commit/dca55dce274a062abe0ab5c65a9aebf669596017) Thanks [@jwloka](https://github.com/jwloka)! - Every Delivery section header shows its glyph and one line of counts, one per group, each linking to its group; a group with no rows keeps its count of 0 and renders no heading or body.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-tab-header-and-my-sprint.md
+  -->
+
+- [#3513](https://github.com/plot-pm/plot/pull/3513) [`5d616ca`](https://github.com/plot-pm/plot/commit/5d616ca788b2a14b9588498dd3e61214ad219a30) Thanks [@jwloka](https://github.com/jwloka)! - The Delivery tab classifies each slice as delivered, blocked, at a gate, being built or not started, and counts the states per plan, release and sprint. The Release delivery line's blocked count now reads the Blocks delivery case of each slice, which no reader's Mine mode changes.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-tab-header-and-my-sprint.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#3507](https://github.com/plot-pm/plot/pull/3507) [`378f797`](https://github.com/plot-pm/plot/commit/378f797113c0d44330f68de45448b183e7c21aae) Thanks [@jwloka](https://github.com/jwloka)! - The Delivery tab footer shows each freshness as a dot with its word, the age in minutes and the next read time, and moves the desks the board cannot place behind a details button.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-machine-tickets-footer.md
+  -->
+
+- [#3530](https://github.com/plot-pm/plot/pull/3530) [`f9b4c42`](https://github.com/plot-pm/plot/commit/f9b4c4240ac67b0039f43f4b20d5dc6360d11183) Thanks [@jwloka](https://github.com/jwloka)! - The Delivery tab header shows a to-do list: one line per thing the reader blocks, most urgent first, each marked blocks delivery, input or clean up, with a triage line for tickets with no plan.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-tab-header-and-my-sprint.md
+  -->
+
+- [#3542](https://github.com/plot-pm/plot/pull/3542) [`7195454`](https://github.com/plot-pm/plot/commit/7195454e6a0252a0b574adb843a1709f590a7088) Thanks [@jwloka](https://github.com/jwloka)! - The Delivery tab draws its sections, headers, rows, chips and counts from theme tokens in light and dark, shows its column names from 640 px up, and a unit test holds every token text pair at 4.5:1 or more.
+
+  <!--
+  plan: docs/plans/2026-11-18-delivery-tab-matches-its-mockups.md
+  -->
+
+- [#3515](https://github.com/plot-pm/plot/pull/3515) [`6461371`](https://github.com/plot-pm/plot/commit/646137131f8bc57f20dbf3f8ba0a14efab29f233) Thanks [@jwloka](https://github.com/jwloka)! - The Delivery tab's At a gate group shows one mark per gate, `CI ✗ · review –`: the CI mark links to the PR's checks page and the review mark to the PR, a review nobody asked reads `–` with no link, and an unread gate shows no mark.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-work-items-show-gates.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#3520](https://github.com/plot-pm/plot/pull/3520) [`c84b263`](https://github.com/plot-pm/plot/commit/c84b263b3be00051459a1981ed6b950e5a2eb666) Thanks [@jwloka](https://github.com/jwloka)! - A Draft plan shows in You as one row with a slice-count chip, an open-question chip and its first open question, and You's rows sit under the headers Kind, Item, Status, Do and Age. The open questions come from the new domain rule `planOpenQuestions`, which counts the unchecked items under `### Open Questions` and `## Open Points`.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-you-blocks-or-feeds.md
+  -->
+
+- [#3518](https://github.com/plot-pm/plot/pull/3518) [`f6414c5`](https://github.com/plot-pm/plot/commit/f6414c5f5f2b59fa8a2fa99c10433dd4d113e7c7) Thanks [@jwloka](https://github.com/jwloka)! - The Fleet section heading holds the dispatch, review, verify and design switches and the parallel-agents stepper, and shows today's finished-run output tokens beside the working, blocked and free counts.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-fleet-rows-per-agent.md
+  -->
+
+- [#3516](https://github.com/plot-pm/plot/pull/3516) [`d5a3957`](https://github.com/plot-pm/plot/commit/d5a3957ef1fa762b6ceddcf40928036d0635e93e) Thanks [@jwloka](https://github.com/jwloka)! - Fleet agent rows show Time left with a bar (red below 20 %) and the output tokens of the agent's last finished run.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-fleet-rows-per-agent.md
+  -->
+
+- [#3523](https://github.com/plot-pm/plot/pull/3523) [`0a476c6`](https://github.com/plot-pm/plot/commit/0a476c67720dc86feb8f150956d47ba69ee67829) Thanks [@jwloka](https://github.com/jwloka)! - The delivery tab places a PR with an unanswered comment from a person under Blocks delivery with the Status word comment, read from the PR index.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-you-blocks-or-feeds.md
+  -->
+
+- [#3532](https://github.com/plot-pm/plot/pull/3532) [`8d8e0fd`](https://github.com/plot-pm/plot/commit/8d8e0fdd12b57734e45360bb3b9154e4015a1f27) Thanks [@jwloka](https://github.com/jwloka)! - Release delivery shows one card per sprint owner under each release header, with one five-state progress bar per sprint that owner holds. Sprints with no Owner share one `no owner` card, and a sprint whose merge reading is missing shows that text instead of a bar.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-release-progress-per-plan.md
+  -->
+
+- [#3540](https://github.com/plot-pm/plot/pull/3540) [`324df60`](https://github.com/plot-pm/plot/commit/324df609ca96dab8583b1b31056f4aa9f2277f5d) Thanks [@jwloka](https://github.com/jwloka)! - The Release delivery section follows the My sprint toggle: it reads Sprint delivery with the sprint's name, lists only the plans of the reader's sprints, and groups them by sprint where the reader owns several.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-release-progress-per-plan.md
+  -->
+
+- [#3490](https://github.com/plot-pm/plot/pull/3490) [`fe47963`](https://github.com/plot-pm/plot/commit/fe4796341bd9a4a51204e764e2ad6b00372a8d2c) Thanks [@jwloka](https://github.com/jwloka)! - A sprint file names its owner on a `- **Owner:** <handle>` line, `/plot-sprint` writes it, and the fleet payload's sprint carries `ownerHandle` and `end`.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-tab-header-and-my-sprint.md
+  bumps:
+    skills:
+      plot-sprint: minor
+  -->
+
+- [#3524](https://github.com/plot-pm/plot/pull/3524) [`baf9db5`](https://github.com/plot-pm/plot/commit/baf9db5722738dccad30535a6155c6634e4649f7) Thanks [@jwloka](https://github.com/jwloka)! - The Delivery tab header shows a sprint card for each Active sprint the reader owns: the end date written in full, the target release, a five-segment progress bar, and progress per Must, Should and Could tier.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-tab-header-and-my-sprint.md
+  -->
+
+- [#3492](https://github.com/plot-pm/plot/pull/3492) [`9a419c0`](https://github.com/plot-pm/plot/commit/9a419c0451b81aa0cfaaa2d6f034c699bd940fc8) Thanks [@jwloka](https://github.com/jwloka)! - The Delivery tab lists open tickets that no plan names in one Tickets section, with Plan it › in the Do column, a header counting the reader's and the unassigned tickets, a five-row fold and a show all control; tickets no longer render under You or Work items.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-machine-tickets-footer.md
+  -->
+
+- [#3512](https://github.com/plot-pm/plot/pull/3512) [`cb0db0a`](https://github.com/plot-pm/plot/commit/cb0db0a774f03bdf739d81f271d38fa22a9bedbb) Thanks [@jwloka](https://github.com/jwloka)! - The Delivery tab's Work items section names the column of each group (Gates, Progress, Waits on) in place of the shared Status column, prints its header counts as `<n> at a gate · <n> being built · <n> queued`, and names the age of the section's oldest row.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-work-items-show-gates.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#3517](https://github.com/plot-pm/plot/pull/3517) [`0b30c0f`](https://github.com/plot-pm/plot/commit/0b30c0f15cc8d4e04301043fc0a667c7b79d76a3) Thanks [@jwloka](https://github.com/jwloka)! - The Delivery tab's Work items section fills the Progress column with `no PR yet` or `PR open` plus the unpushed count where the pulse reads one, and the Waits on column with `no agent assigned`, the earlier slice, or another person's phase or approval with their display name.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-work-items-show-gates.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#3500](https://github.com/plot-pm/plot/pull/3500) [`5147077`](https://github.com/plot-pm/plot/commit/51470778cdfa99cbbce7014fc685cc8faecc252e) Thanks [@jwloka](https://github.com/jwloka)! - The Delivery tab's You section shows three groups with markers: Blocks delivery (red), Input to the fleet (blue) and Unblock (grey, "clean up"). You lists every item whose owner is not someone else in every Mine mode, another person's item goes to Work items › Queued, and the reason line under a You row is gone.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-you-blocks-or-feeds.md
+  -->
+
+### Patch Changes
+
+- [#3553](https://github.com/plot-pm/plot/pull/3553) [`ea23d98`](https://github.com/plot-pm/plot/commit/ea23d98964b40ae91830928081704eb7bccdb681) Thanks [@jwloka](https://github.com/jwloka)! - A release card that no Active sprint names counts the plans and slices the Release delivery section counts, so after a sprint closes the card's bar shows the release's progress instead of an empty bar. Its title is the version alone; `· no sprint targets it` remains only for a release row that carries no plan. A release PR that was not read changes the state line and keeps the bar.
+
+- [#3555](https://github.com/plot-pm/plot/pull/3555) [`8c25a1b`](https://github.com/plot-pm/plot/commit/8c25a1b616ba31e04b27ddca732ff8bd906d9f2c) Thanks [@jwloka](https://github.com/jwloka)! - A Release delivery plan row links its plan name to the plan, and a plain click opens the plan the way other plan links on the board do; the ▸ chevron alone opens and closes the slice lines. The Owner column shows the plan's Assignee, else the Owner of a sprint that names the plan, else the plan's approver or author where the `People` key declares that name, as its handle. A plan in no sprint, or in a closed sprint, now shows an Owner.
+
+- [#3529](https://github.com/plot-pm/plot/pull/3529) [`1faa7f6`](https://github.com/plot-pm/plot/commit/1faa7f6b0f96c2c1e4bc5e76625042490cbc4897) Thanks [@jwloka](https://github.com/jwloka)! - A board whose snapshot protocol differs from a live fleetd's no longer reads for itself beside fleetd. It shows fleetd's bridge and the PR rows from the index, starts no process on its refresh and PR beats, and names both protocols and `skills/plot/scripts/plot-fleetctl.sh --restart` in the status panel. A board whose fleetd heartbeat is stale or absent still reads for itself ([#3528](https://github.com/plot-pm/plot/issues/3528)).
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#3558](https://github.com/plot-pm/plot/pull/3558) [`17e498e`](https://github.com/plot-pm/plot/commit/17e498e5d8299c1c164fe13f2595c19037d6efb1) Thanks [@jwloka](https://github.com/jwloka)! - A spent GitHub GraphQL budget reads as a rate limit, not as an unreachable host. The in-process GitHub client now reads a GraphQL error of type `RATE_LIMIT` or code `graphql_rate_limit`, an untyped GraphQL error whose message names a spent rate limit, and a `403` that names one with no `x-ratelimit-remaining` header as `throttled`. Measured 2026-11-19: GraphQL answered `API rate limit already exceeded for user ID …` with REST and auth healthy, and the board said _"the git host could not be reached … This is not a rate limit"_. The fleet scan's branch walk now reads a `failed` refusal by its words (`refusalKindOfWords`), the scan banner names when the budget refills where the reset is known, and the Machine section no longer reads a rate limit as `host could not reach the host`. The Machine fact moved into the domain (`rules/machine-health.ts`): its line names each GitHub bucket the budget record holds (`GitHub GraphQL 0 / 5,000 left · REST 3,812 / 5,000 left`) and a bucket it does not hold as `not recorded`, and a bucket at or under a tenth of its limit turns a healthy machine amber `strained` with a row such as `GitHub GraphQL · 0 / 5,000, resets 13:47 · PR listings wait for the reset`. An unasked host and a real outage list no bucket.
+
+- [#3511](https://github.com/plot-pm/plot/pull/3511) [`ca4de78`](https://github.com/plot-pm/plot/commit/ca4de7841237d6ace8357079a449163511747c38) Thanks [@jwloka](https://github.com/jwloka)! - A closed PR whose branch no plan names and no desk holds now shows under You › Unblock with a Delete button and no Release button.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-you-blocks-or-feeds.md
+  -->
+
+- [#3541](https://github.com/plot-pm/plot/pull/3541) [`2d8db57`](https://github.com/plot-pm/plot/commit/2d8db57bc18212df712249c81d6214a4920313c8) Thanks [@jwloka](https://github.com/jwloka)! - The Delivery tab's domain exposes twelve states its styling needs: the gate-mark outcome, the plan row's phase and accent, the plan line's state, PR and relative merge time, the to-do line's verb and label, the open-questions tone, the header counts' words, and the Release header counts. The tab renders none of them yet.
+
+  <!--
+  plan: docs/plans/2026-11-18-delivery-tab-matches-its-mockups.md
+  -->
+
+- [#3560](https://github.com/plot-pm/plot/pull/3560) [`ef4dc98`](https://github.com/plot-pm/plot/commit/ef4dc9825f49a9cc6970450ae73eb37c45a2d50f) Thanks [@jwloka](https://github.com/jwloka)! - The Delivery tab's Fleet card shows one row per agent, with its short id, its desk, `waiting for a slice` for a loop that holds no work, and its idle time. The Free line that named every agent's full id is gone. "N not working" opens a list of those agents with their desk, branch and why each stopped, and the registry reads as one fact such as "14 of 17 agents have no registry file". The You group of loose branches is titled Clean up, and each row offers Open, Release claim and Delete branch in one `⋯` menu, only where the controller accepts it. Delete asks first and names the pin ref that restores the branch. A claim made from another machine reads "claimed elsewhere", and "Delete N quiet branches…" deletes the group's branches one by one and names each refusal. To-do lines name a loose item's kind and keep their columns aligned.
+
+- [#3538](https://github.com/plot-pm/plot/pull/3538) [`5f6c8b3`](https://github.com/plot-pm/plot/commit/5f6c8b3dd0e04e6d1c758c3086779895ef654b23) Thanks [@jwloka](https://github.com/jwloka)! - The Delivery tab's `My sprint` toggle scopes the status card, You and Work items to the Active sprints the reader owns; with the toggle off they read every Active sprint and the status card shows the release cards. The toggle is disabled with the tooltip "You own no active sprint" where the reader owns none, and the chip formerly named "This sprint" is now "My sprint".
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-tab-header-and-my-sprint.md
+  -->
+
+- [#3543](https://github.com/plot-pm/plot/pull/3543) [`2176526`](https://github.com/plot-pm/plot/commit/2176526c86a15eed3624163ba1934f62d3f86177) Thanks [@jwloka](https://github.com/jwloka)! - The Delivery tab header takes the mockups' look: the to-do list and the release card sit on `--card-surface`, a to-do line shows its marker tag, its verb in the marker's hue and the item name in bold, the release card shows a legend under its bar and an Approve release button on `--card-primary`, the filter chips read on, off and disabled from tokens, and the two header columns sit side by side from 768 px up and stack below it.
+
+  <!--
+  plan: docs/plans/2026-11-18-delivery-tab-matches-its-mockups.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#3546](https://github.com/plot-pm/plot/pull/3546) [`6207205`](https://github.com/plot-pm/plot/commit/6207205a8b674e1767343a75cc7ce697f249ceeb) Thanks [@jwloka](https://github.com/jwloka)! - The Delivery tab's Tickets section is a card with a header bar, its rows ruled and its Do cell in the link colour; the Machine table and the footer line take the mockup's rules, and each footer freshness entry carries a 7 px dot.
+
+  <!--
+  plan: docs/plans/2026-11-18-delivery-tab-matches-its-mockups.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#3544](https://github.com/plot-pm/plot/pull/3544) [`64ec5b5`](https://github.com/plot-pm/plot/commit/64ec5b58eaddd3b49e0e308b4f9ef61e5fefe6dc) Thanks [@jwloka](https://github.com/jwloka)! - The Fleet section draws from the theme tokens: a green or amber state dot before each agent, muted branch and last-commit lines, right-aligned Tokens and Time left, a 4 px time bar whose fill is green or red, and the fleet switches drawn as a track and knob on the native checkbox, with the read-only switches on the fleet card faded.
+
+  <!--
+  plan: docs/plans/2026-11-18-delivery-tab-matches-its-mockups.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#3545](https://github.com/plot-pm/plot/pull/3545) [`792c90b`](https://github.com/plot-pm/plot/commit/792c90b72748ee329fd4a417515d20daf7396541) Thanks [@jwloka](https://github.com/jwloka)! - The Release delivery section follows its mockups: the header bar prints each count bold in its hue, plans form a Plan · Phase · Slices · Owner table with a phase chip and one coloured block per slice, an opened plan line colours its state word and links the slice and its PR apart, and the person cards take the card surface and the sprint card's segment colours.
+
+  <!--
+  plan: docs/plans/2026-11-18-delivery-tab-matches-its-mockups.md
+  -->
+
+- [#3548](https://github.com/plot-pm/plot/pull/3548) [`9620b15`](https://github.com/plot-pm/plot/commit/9620b155bd8d91616b17d39157b75eab1adee893) Thanks [@jwloka](https://github.com/jwloka)! - The Delivery tab's Work items section colours each gate mark by the outcome the domain read: green for a pass, amber for pending, red for a failure and muted for a review nobody asked for. The Where cell puts the branch beneath the PR link in the muted colour, and a fixer's attempt shows muted beside its name.
+
+  <!--
+  plan: docs/plans/2026-11-18-delivery-tab-matches-its-mockups.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#3547](https://github.com/plot-pm/plot/pull/3547) [`d84f646`](https://github.com/plot-pm/plot/commit/d84f646d9728e7b2adb30d9350b1d442b8f50833) Thanks [@jwloka](https://github.com/jwloka)! - The Delivery tab's You section takes its colours from tokens: the group tags are pills (Blocks delivery red, Input to the fleet blue, Unblock neutral), rows under Blocks delivery and Input to the fleet carry a 3 px inset bar and a Do trigger in the group's colour, and the Draft plan row's chips use the primitives, with the open-questions chip in the domain's tone.
+
+  <!--
+  plan: docs/plans/2026-11-18-delivery-tab-matches-its-mockups.md
+  -->
+
+- [#3522](https://github.com/plot-pm/plot/pull/3522) [`ddc729e`](https://github.com/plot-pm/plot/commit/ddc729e10a908db8ea0a1dcdc86bd2daccbcb1b2) Thanks [@jwloka](https://github.com/jwloka)! - The You header on the Delivery tab counts blocking deliveries, fleet inputs, clean-ups and tickets to triage, and shows a phase strip named from the Workflow phases map; each non-zero count links to its items.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-you-blocks-or-feeds.md
+  -->
+
+- [#3499](https://github.com/plot-pm/plot/pull/3499) [`8914db0`](https://github.com/plot-pm/plot/commit/8914db05e9c9de043108253aa793ca92710aabea) Thanks [@jwloka](https://github.com/jwloka)! - A design or verify run shows once on the Delivery tab, as a Fleet row with its role chip, and a stopped or failed run keeps its reason, restart command and log path on that row. The Plan runs section no longer renders run rows.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-fleet-rows-per-agent.md
+  -->
+
+- [#3509](https://github.com/plot-pm/plot/pull/3509) [`10edd48`](https://github.com/plot-pm/plot/commit/10edd48456266b924303534eb39fb05ba8042f28) Thanks [@jwloka](https://github.com/jwloka)! - Fleet agent rows show Agent, Role, Acting on, Doing now (Waits on in Blocked), Tokens and Time left; Working and Blocked stay open and Free collapses to one line.
+
+  <!--
+  plan: docs/plans/2026-11-16-delivery-fleet-rows-per-agent.md
+  -->
+
+- [#3474](https://github.com/plot-pm/plot/pull/3474) [`b72438c`](https://github.com/plot-pm/plot/commit/b72438c48d17dbe2835851047a18388062d78a29) Thanks [@jwloka](https://github.com/jwloka)! - `POST /api/interrogate` reads a Draft or Design plan from where it is: the head of the open plan PR that carries it (`idea/<slug>` or a batch PR), then the checkout, then the default branch as fetched. It finds the PR through the same `choosePlanPr` finder that approve and needs-design use, runs the panel in a detached worktree of that tip, and names the branch in the prompt and in `PLOT_INTERROGATE_BRANCH`, so `/challenge-the-plan` Phase 7b pushes the round to the plan PR branch. It refuses `pr-copies-differ` when two open PRs carry differing copies, and `pr-head-unheld` or `pr-carries-no-plan` as the finder does. Phase 7b no longer reads the `origin/HEAD` alias as a branch named `origin`.
+
+  <!--
+  bumps:
+    skills:
+      challenge-the-plan: patch
+  -->
+
 ## 0.27.1
 
 ### Patch Changes
@@ -3691,11 +3970,11 @@ O_EXCL` is exclusive but publishes the NAME before the CONTENT: a second process
   flight and room for three more. A cap that refuses nothing and reports nothing
   is indistinguishable from no cap at all.
 
-                                                        <!--
-                                                        bumps:
-                                                          skills:
-                                                            plot: minor
-                                                        -->
+                                                          <!--
+                                                          bumps:
+                                                            skills:
+                                                              plot: minor
+                                                          -->
 
 - [#644](https://github.com/plot-pm/plot/pull/644) [`a7e2be8`](https://github.com/plot-pm/plot/commit/a7e2be8107adbe8081e69a3ac0af9050d5dc1ec0) Thanks [@jwloka](https://github.com/jwloka)! - The PR refresh asks through the `Host` port instead of calling `plot-host.sh` directly, so a board handed a fixture host asks no CLI and spends no budget. The port gains a `runs` op that names its refusal, and one adapter is bound per refresh rather than defaulted independently by each caller.
 
@@ -6410,11 +6689,11 @@ HEAD..origin/main` with `0`, indistinguishable from a genuinely current
 command` in CLAUDE.md is tightened to name the `PLOT-BLOCKED.md` file it asks
   workers to write, so the instruction and the classifier agree.
 
-                                                                  <!--
-                                                                  bumps:
-                                                                    skills:
-                                                                      plot: patch
-                                                                  -->
+                                                                    <!--
+                                                                    bumps:
+                                                                      skills:
+                                                                        plot: patch
+                                                                    -->
 
 - [#352](https://github.com/plot-pm/plot/pull/352) [`299b4e1`](https://github.com/plot-pm/plot/commit/299b4e19c0b8093418b61053e70de0c6044df2ed) Thanks [@jwloka](https://github.com/jwloka)! - board: a release row's fallback number says it is a PR
 
@@ -7731,11 +8010,11 @@ N +` stepper in the **WORKING** header asks _how many agents at once?_ Each
   controls and their shared state on top of wave 1's live registry, and it
   dispatches nothing — the dispatch loop is wave 3.
 
-                                                                    <!--
-                                                                    bumps:
-                                                                      skills:
-                                                                        plot: minor
-                                                                    -->
+                                                                      <!--
+                                                                      bumps:
+                                                                        skills:
+                                                                          plot: minor
+                                                                      -->
 
 ### Patch Changes
 
@@ -7933,11 +8212,11 @@ N +` stepper in the **WORKING** header asks _how many agents at once?_ Each
   never mounted, and it fails against the pre-fix code for the stated reason:
   the Commission design item is absent without the prop.
 
-                                                                    <!--
-                                                                    bumps:
-                                                                      skills:
-                                                                        plot: patch
-                                                                    -->
+                                                                      <!--
+                                                                      bumps:
+                                                                        skills:
+                                                                          plot: patch
+                                                                      -->
 
   ## And a wave said _nobody has taken it_ over finished work
 
@@ -8796,10 +9075,10 @@ has taken it`. The server was right on every field — the row sat in
   Nothing new reads the prose: `verdict` and `blockedBy` remain the fields a
   consumer reads, and this only sharpens the sentence a person sees.
 
-                                                                      <!--
-                                                                      bumps:
-                                                                        skills:
-                                                                      -->
+                                                                        <!--
+                                                                        bumps:
+                                                                          skills:
+                                                                        -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched. `blockedNote` gains an optional argument, so every existing caller is
@@ -8889,10 +9168,10 @@ story, waveSummary`, and a branch row carried `branch, path`. Zero of seven
   PR for this branch_, which was never a decision about the contract so much as
   this cache filter leaking into it.
 
-                                                                      <!--
-                                                                      bumps:
-                                                                        skills:
-                                                                      -->
+                                                                        <!--
+                                                                        bumps:
+                                                                          skills:
+                                                                        -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched, and `plot-fleet-scan.sh` already resolves each branch's PR to decide
@@ -9102,10 +9381,10 @@ story, waveSummary`, and a branch row carried `branch, path`. Zero of seven
   order, a new status flashes then sorts in, the panel is absent when there is
   nothing to report, and the footer line stays at the foot and unchanged.
 
-                                                                      <!--
-                                                                      bumps:
-                                                                        skills:
-                                                                      -->
+                                                                        <!--
+                                                                        bumps:
+                                                                          skills:
+                                                                        -->
 
 - [#287](https://github.com/plot-pm/plot/pull/287) [`50ef368`](https://github.com/plot-pm/plot/commit/50ef3681fb332ecc2b862af18a6722d1ca9dd9f6) Thanks [@jwloka](https://github.com/jwloka)! - board: a failing check shows its step and its age, and its file list moves to the menu
 
@@ -9504,10 +9783,10 @@ bottom 801.3125 in 800px` — the footer really is past the fold there, by 1.3px
   the test says in a comment why it does not — and the defect gets its own plan,
   `2026-08-21-the-page-is-as-tall-as-the-screen.md`.
 
-                                                                      <!--
-                                                                      bumps:
-                                                                        skills:
-                                                                      -->
+                                                                        <!--
+                                                                        bumps:
+                                                                          skills:
+                                                                        -->
 
   No skill version bumps: this is a board-side rendering change only. No helper
   script decides how a section is drawn, `/api/fleet` loses and gains no field,
@@ -9855,11 +10134,11 @@ null` on every row in this section while `ageMinutes` read real values. A plan i
   by construction (a plan's branches move through the lifecycle together), so the
   predicate can demand that every row be wave-grouped rather than handle a mixture.
 
-                                                                      <!--
-                                                                      bumps:
-                                                                        skills:
-                                                                          plot: patch
-                                                                      -->
+                                                                        <!--
+                                                                        bumps:
+                                                                          skills:
+                                                                            plot: patch
+                                                                        -->
 
 - [#300](https://github.com/plot-pm/plot/pull/300) [`93a1e41`](https://github.com/plot-pm/plot/commit/93a1e415ca5903a50280ade19899bb21ecb06b98) Thanks [@jwloka](https://github.com/jwloka)! - board: an agent is the machine, so it never appears in WAITING ON A MACHINE
 
@@ -10051,10 +10330,10 @@ null` on every row in this section while `ageMinutes` read real values. A plan i
   on the pulse, so a brief written between two scans shows up on the next pulse
   instead of waiting out the scan's cadence.
 
-                                                                      <!--
-                                                                      bumps:
-                                                                        skills:
-                                                                      -->
+                                                                        <!--
+                                                                        bumps:
+                                                                          skills:
+                                                                        -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched, and the `/api/fleet` payload gains a field rather than changing one —
@@ -10557,10 +10836,10 @@ spawn`. Every number is measured, not estimated — the worktree count and the
   field — the estate is appended to the existing `error` string, which the tab
   already renders as `Last scan failed: …`.
 
-                                                                      <!--
-                                                                      bumps:
-                                                                        skills:
-                                                                      -->
+                                                                        <!--
+                                                                        bumps:
+                                                                          skills:
+                                                                        -->
 
   The estate report is board-side only. `plot-fleet-scan.sh` is deliberately not
   changed: a SIGKILLed scan cannot append its own diagnosis, so the measurement is
@@ -11190,10 +11469,10 @@ at startup; pruning stale worktrees cuts both the count and the per-spawn cost`.
   as the follow-up: this change's job is to stop asserting a false cause, not to
   find the true one.
 
-                                                                      <!--
-                                                                      bumps:
-                                                                        skills:
-                                                                      -->
+                                                                        <!--
+                                                                        bumps:
+                                                                          skills:
+                                                                        -->
 
   Board-side only, and no schema change: the estate rides the existing `error`
   string. `plot-fleet-scan.sh` is untouched for the same reason it was untouched
@@ -11479,12 +11758,12 @@ at startup; pruning stale worktrees cuts both the count and the per-spawn cost`.
   a row's `⋯` menu holds — so no skill's behaviour changed.
 
 - [#219](https://github.com/plot-pm/plot/pull/219) [`a4ecf36`](https://github.com/plot-pm/plot/commit/a4ecf3632db03b9c40f7062a304eabcd742f481e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-                                                                          bumps:
-                                                                            skills:
-                                                                              plot: minor
-                                                                              plot-dispatch: minor
-                                                                              plot-fleet: minor
-                                                                          -->
+                                                                            bumps:
+                                                                              skills:
+                                                                                plot: minor
+                                                                                plot-dispatch: minor
+                                                                                plot-fleet: minor
+                                                                            -->
 
   plot: `finished` is not a verdict
 
@@ -11634,10 +11913,10 @@ failing` since the previous day, and [#203](https://github.com/plot-pm/plot/issu
   than a review comment — the window where rows are git-fresh and host-unfetched
   is not an edge case, it is most of every minute.
 
-                                                                          <!--
-                                                                          bumps:
-                                                                            skills:
-                                                                          -->
+                                                                            <!--
+                                                                            bumps:
+                                                                              skills:
+                                                                            -->
 
   No skill version bumps: this is a board-side change only. Nothing under
   `skills/` reads or documents what the Agents tab prints in an empty section,
@@ -12144,11 +12423,11 @@ time`), computed server-side where the wave verdict and the plan phase
   here, because this same change reworded a neighbouring note. The client
   no longer imports any note constant.
 
-                                                                              <!--
-                                                                              bumps:
-                                                                                skills:
-                                                                                  plot: patch
-                                                                              -->
+                                                                                <!--
+                                                                                bumps:
+                                                                                  skills:
+                                                                                    plot: patch
+                                                                                -->
 
 - [#182](https://github.com/plot-pm/plot/pull/182) [`07eeceb`](https://github.com/plot-pm/plot/commit/07eecebe6b1d915e1d05fe8d35391c1bbb02f903) Thanks [@jwloka](https://github.com/jwloka)! - A row on the Agents tab now marks itself when something is actually being written to it, rather than when it happens to sit in the WORKING group.
 
