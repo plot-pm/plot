@@ -22,8 +22,8 @@ const PHASE_HUE: Readonly<Record<string, string>> = {
 const LINE_STATE: Readonly<Record<PlanLine['state'], { word: string; hue: string }>> = {
   delivered: { word: '✓ merged', hue: 'delivery-hue-green' },
   blocked: { word: '✕ blocked', hue: 'delivery-hue-red' },
-  'at-a-gate': { word: '⟳ at a gate', hue: 'delivery-hue-amber' },
-  'being-built': { word: '● being built', hue: 'delivery-hue-blue' },
+  'at-a-gate': { word: '⟳ at CI', hue: 'delivery-hue-amber' },
+  'being-built': { word: '● building', hue: 'delivery-hue-blue' },
   'not-started': { word: '○ not started', hue: '' },
   unread: { word: '○ not read', hue: '' },
 };
@@ -31,8 +31,8 @@ const LINE_STATE: Readonly<Record<PlanLine['state'], { word: string; hue: string
 /** The column headers of the plan table, shown from 640 px up. */
 export const PLAN_COLUMNS = ['Plan', 'Phase', 'Slices', 'Owner'] as const;
 
-/** The plan table's tracks: Plan, Phase, Slices, Owner and the actions cell. */
-export const PLAN_TRACKS = 'sm:grid-cols-[minmax(0,2fr)_7rem_minmax(0,1.5fr)_6rem_auto]';
+/** The plan table's tracks: Plan, Phase, Slices, Owner and the actions cell, which holds one 1.25 rem menu. */
+export const PLAN_TRACKS = 'sm:grid-cols-[minmax(0,2fr)_7rem_minmax(0,1.5fr)_6rem_1.25rem]';
 
 /** The header bar of one Release block: its name where it has one, then each count's number in bold and its words. */
 export const ReleaseLine = ({ block }: { block: Pick<ReleaseBlockView, 'release' | 'name' | 'header' | 'counts'> }) => {

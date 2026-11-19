@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { PersonCard } from '@plot-pm/domain';
-import { lineBody, PhaseChip, PlanStrip, ReleaseLine } from '../../src/app/components/ReleasePlanParts.js';
+import { lineBody, LineState, PhaseChip, PLAN_TRACKS, PlanStrip, ReleaseLine } from '../../src/app/components/ReleasePlanParts.js';
 import { ReleasePersonCards } from '../../src/app/components/ReleasePersonCards.js';
 import { SEGMENT_CLASS } from '../../src/app/components/SprintCard.js';
 
@@ -42,6 +42,12 @@ describe('the Phase chip', () => {
   });
 });
 
+describe('the plan table', () => {
+  it('gives the actions track a fixed width, so the header and the rows share every track', () => {
+    expect(PLAN_TRACKS.split('_').at(-1)).toBe('1.25rem]');
+  });
+});
+
 describe('the Release header bar', () => {
   it('prints each count bold in its hue, and the header only as the title', () => {
     const html = renderToStaticMarkup(createElement(ReleaseLine, { block: {
@@ -57,6 +63,11 @@ describe('the Release header bar', () => {
 });
 
 describe('an opened plan line', () => {
+  it('names a slice at a gate and one being built in the mockups\' words and hues', () => {
+    expect(renderToStaticMarkup(createElement(LineState, { state: 'at-a-gate' }))).toBe('<span data-plan-line-state="at-a-gate" class="delivery-release-state delivery-hue-amber">⟳ at CI</span>');
+    expect(renderToStaticMarkup(createElement(LineState, { state: 'being-built' }))).toBe('<span data-plan-line-state="being-built" class="delivery-release-state delivery-hue-blue">● building</span>');
+  });
+
   it('splits a Done line with a PR into the slice name and keeps the commit where there is none', () => {
     expect(lineBody({ heading: 'done', slice: 'Beds', text: '✓ merged · Beds · #12 · 2026-11-01', pr: 12 })).toBe('Beds');
     expect(lineBody({ heading: 'done', slice: 'Beds', text: '✓ merged · Beds · abc1234' })).toBe('Beds · abc1234');
