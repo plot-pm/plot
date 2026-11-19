@@ -6,7 +6,7 @@
 
 - **State:** Approved
 - **Type:** feature
-- **Sprint:**
+- **Sprint:** bug-fixes-2-35-0
 - **Issue:**
 - **Story:** delivery-tab-reads-at-a-glance
 - **Review:** pr
