@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { restPullsAsPrList } from './rest-pulls-shim.mjs';
 import { makeApproveSandbox, pushPlanHead } from './approve-sandbox.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -65,6 +66,7 @@ exec node "${stubDir}/gh.mjs" "$@"
   fs.writeFileSync(path.join(stubDir, 'gh.mjs'), `
 import fs from 'node:fs';
 const argv = process.argv.slice(2);
+${restPullsAsPrList}
 const file = ${JSON.stringify(statePath)};
 const state = JSON.parse(fs.readFileSync(file, 'utf8'));
 if (argv[0] === 'pr' && argv[1] === 'view') {
@@ -80,7 +82,7 @@ if (argv[0] === 'pr' && argv[1] === 'view') {
   state.state = 'MERGED';
   fs.writeFileSync(file, JSON.stringify(state));
   process.stdout.write('merged');
-} else if (argv[0] === 'pr' && argv[1] === 'list' && argv.includes('--head') && argv.includes('mergedAt')) {
+} else if (argv[0] === 'pr' && argv[1] === 'list' && argv.includes('--head')) {
   // The spike's merge reading (plot-host.sh pr-merged): 'merged', 'open' or 'fail'.
   if (state.spike === 'fail') {
     process.stderr.write('HTTP 502: Bad Gateway');
@@ -255,7 +257,7 @@ test('approve entry: a Design plan whose spike has not merged refuses spike-unme
   refusedCleanly(repo, r, before);
   assert.match(r.stderr, /the spike 'feature\/spike' of 'approve-me' has not merged \(the host holds no merged PR for it\)/, r.stderr);
   assert.match(r.stderr, /remove the '<!-- spike -->' annotation/, r.stderr);
-  assert.match(hostCalls(), /^gh pr list --head feature\/spike\b/m, 'the merge is the host\'s answer for the spike branch');
+  assert.match(hostCalls(), /^gh api repos\/\S+\/pulls\?\S*head=[^:&]*:feature\/spike\b/m, 'the merge is the host\'s answer for the spike branch');
 });
 
 test('approve entry: a Design plan whose annotated spike was never approved refuses spike-unmerged', () => {
@@ -316,7 +318,7 @@ test('approve entry: a Design plan whose spike annotation was removed approves o
   const r = approveWho(repo);
   assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
   assert.match(planOnMain(repo), /\*\*Phase:\*\* Approved/);
-  assert.doesNotMatch(hostCalls(), /^gh pr list --head feature\/spike\b/m, 'a plan with no spike reads no spike merge');
+  assert.doesNotMatch(hostCalls(), /^gh api repos\/\S+\/pulls\?\S*head=[^:&]*:feature\/spike\b/m, 'a plan with no spike reads no spike merge');
 });
 
 test('approve entry: --spike over a three-field record rewrites the one line to four fields and files the receipt', () => {

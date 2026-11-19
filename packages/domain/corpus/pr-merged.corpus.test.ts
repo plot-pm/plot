@@ -54,7 +54,7 @@ const ROOT = new URL('../../..', import.meta.url).pathname.replace(/\/$/, '');
 const PR_MERGED_LIB = join(ROOT, 'skills/plot/scripts/plot-pr-merged.sh');
 const report = describingAs({ left: 'adapter', right: 'shell' });
 
-/** One row as `gh pr list --json` returns it, newest first. */
+/** One PR for the branch, newest first; the stub serves it as a REST `pulls` row. */
 interface Row {
   readonly number: number;
   readonly mergedAt: string | null;
@@ -147,15 +147,17 @@ const pathWithoutGh = (dir: string): string => {
 /**
  * The stub `gh` for one case, and the file it records its argv in.
  *
- * THE STUB ANSWERS `--head ""` WITH EVERY ROW IT HOLDS, as the real `gh` does.
- * Measured 2026-10-01: `gh pr list --head ""` applies no filter. A stub that
- * returned nothing for an empty head would reproduce a stub's idea of the
- * defect and would pass with the guard removed.
+ * IT ANSWERS `gh api …/pulls?…` AS REST, which is the read both lookups make:
+ * a header block, as `gh api --include` prints it, then the rows with
+ * `merged_at`. THE STUB ANSWERS AN EMPTY HEAD WITH EVERY ROW IT HOLDS, as the
+ * real host does. Measured 2026-10-01: `gh pr list --head ""` applies no
+ * filter. A stub that returned nothing for an empty head would reproduce a
+ * stub's idea of the defect and would pass with the guard removed.
  *
- * AND IT HONOURS `--limit`, which is what makes the masked-merge case bite. A
- * stub returning both rows regardless passes the verdict comparison on a lookup
- * regressed to `--limit 1`; slicing to the asked limit makes that regression
- * answer *not merged* and fail.
+ * AND IT HONOURS `per_page` AND `page`, which is what makes the masked-merge
+ * case bite. A stub returning both rows regardless passes the verdict
+ * comparison on a lookup regressed to one row; slicing to the asked page makes
+ * that regression answer *not merged* and fail.
  *
  * AND IT RECORDS ITS ARGV ON EVERY CALL, so a missing file is positive proof
  * that no call was made. That is the assertion a guard placed after
@@ -175,9 +177,9 @@ const ghStub = (dir: string, one: Case): string => {
   const rows = JSON.stringify(one.rows).replace(/'/g, `'\\''`);
   stub(dir, 'gh', [
     `printf '%s\\n' "$@" >> ${JSON.stringify(argv)}`,
-    'limit=100; prev=""',
-    'for a in "$@"; do [ "$prev" = --limit ] && limit="$a"; prev="$a"; done',
-    `LIMIT="$limit" node -e 'let s="";process.stdin.on("data",(d)=>{s+=d;}).on("end",()=>{process.stdout.write(JSON.stringify(JSON.parse(s).slice(0,Number(process.env.LIMIT))));});' <<<'${rows}'`,
+    '[ "$1" = api ] || { echo "stub gh: only gh api is served" >&2; exit 1; }',
+    'per=$(sed -nE "s/.*[?&]per_page=([0-9]+).*/\\1/p" <<<"$2"); page=$(sed -nE "s/.*[?&]page=([0-9]+).*/\\1/p" <<<"$2")',
+    `PER="\${per:-30}" PAGE="\${page:-1}" node -e 'let s="";process.stdin.on("data",(d)=>{s+=d;}).on("end",()=>{const per=Number(process.env.PER),from=(Number(process.env.PAGE)-1)*per;const rows=JSON.parse(s).map((r)=>({number:r.number,state:r.mergedAt?"closed":"open",merged_at:r.mergedAt,updated_at:"2026-01-01T00:00:00Z",head:{ref:"b",sha:null},base:{ref:"main"},merge_commit_sha:null}));process.stdout.write("HTTP/2 200\\r\\n\\r\\n"+JSON.stringify(rows.slice(from,from+per)));});' <<<'${rows}'`,
     '',
   ].join('\n'));
   return argv;

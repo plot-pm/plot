@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { restPullsAsPrList } from './rest-pulls-shim.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -62,6 +63,7 @@ const stubGh = (tmp) => {
   const gh = path.join(bin, 'gh');
   fs.writeFileSync(gh, `#!/usr/bin/env node
 const argv = process.argv.slice(2);
+${restPullsAsPrList}
 if (argv[0] !== 'pr' || argv[1] !== 'list') process.exit(1);
 const si = argv.indexOf('--state');
 const state = si === -1 ? 'open' : argv[si + 1];

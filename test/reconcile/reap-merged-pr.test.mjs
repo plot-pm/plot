@@ -37,6 +37,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { restPullsAsPrList } from './rest-pulls-shim.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const reap = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-reap.sh');
@@ -90,6 +91,7 @@ function stubGh(tmp, prs) {
   const gh = path.join(bin, 'gh');
   fs.writeFileSync(gh, `#!/usr/bin/env node
 const argv = process.argv.slice(2);
+${restPullsAsPrList}
 if (argv[0] !== 'pr' || argv[1] !== 'list') { process.exit(1); }
 const table = ${JSON.stringify(prs)};
 const head = argv[argv.indexOf('--head') + 1];
@@ -200,6 +202,7 @@ test('the reaper asks the host for more than one PR', () => {
   const seen = path.join(tmp, 'limit.txt');
   fs.writeFileSync(path.join(bin, 'gh'), `#!/usr/bin/env node
 const argv = process.argv.slice(2);
+${restPullsAsPrList}
 const li = argv.indexOf('--limit');
 require('fs').writeFileSync(${JSON.stringify(seen)}, li === -1 ? 'none' : argv[li + 1]);
 process.stdout.write('[]');
