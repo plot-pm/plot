@@ -3,7 +3,65 @@
  *
  * The rule below marks the file as loaded:
  * the screenshot test reads `--delivery-section` from `[data-section="work-items"]`.
+ *
+ * Every rule is scoped to the section, because `RowCell` also renders the Fleet
+ * section's cells. Rules here are unlayered, so each one outranks a Tailwind
+ * utility on the same element that sets the same property.
  */
 [data-section="work-items"] {
   --delivery-section: work-items;
+}
+
+/* THE GROUP COLUMN: Gates, Progress and Waits on, at row size in the body colour. */
+[data-section="work-items"] [data-row-cell="status"] {
+  font-size: 13px;
+  color: var(--card-body);
+}
+[data-section="work-items"] [data-group="queued"] [data-row-cell="status"] {
+  color: var(--card-meta);
+}
+
+/* THE GATE MARKS: one colour per `CellPart.outcome`; a part with no outcome keeps the body colour. */
+[data-section="work-items"] [data-gate-mark] {
+  white-space: nowrap;
+}
+[data-section="work-items"] [data-gate-separator] {
+  color: var(--card-meta);
+}
+[data-section="work-items"] [data-gate-outcome="pass"] { color: var(--hue-green); }
+[data-section="work-items"] [data-gate-outcome="pending"] { color: var(--hue-amber); }
+[data-section="work-items"] [data-gate-outcome="fail"] { color: var(--hue-red); }
+[data-section="work-items"] [data-gate-outcome="none"] { color: var(--card-meta); }
+/* A linked mark reads in its outcome's colour; the underline on hover says it is a link. */
+[data-section="work-items"] [data-gate-outcome] [data-row-link] {
+  color: inherit;
+}
+
+/* THE WHERE CELL: the PR link, and the branch beneath it in the muted colour. */
+[data-section="work-items"] [data-row-cell="where"] {
+  flex-direction: column;
+  align-items: flex-start;
+  row-gap: 0;
+}
+[data-section="work-items"] [data-row-cell="where"] > * {
+  max-width: 100%;
+}
+[data-section="work-items"] [data-row-cell="where"] [data-tuple-link] {
+  color: var(--hue-blue);
+}
+[data-section="work-items"] [data-row-cell="where"] [data-tuple-link="branch"],
+[data-section="work-items"] [data-row-cell="where"] [data-tuple-text="branch"] {
+  color: var(--card-meta);
+}
+[data-section="work-items"] [data-row-cell="where"] [data-tuple-what] {
+  color: var(--card-meta);
+}
+
+/* THE BY CELL: the role chip, the agent name as a link, the fixer attempt muted and small. */
+[data-section="work-items"] [data-row-cell="by"] [data-row-link] {
+  color: var(--hue-blue);
+}
+[data-section="work-items"] [data-agent-attempt] {
+  font-size: 12px;
+  color: var(--card-meta);
 }
