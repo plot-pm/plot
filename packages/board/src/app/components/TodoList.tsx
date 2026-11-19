@@ -14,7 +14,7 @@ export const TodoList = ({ todo, onJump }: { todo: TodoListFact; onJump: (anchor
     {todo.lines.length > 0 && (
       <ul>
         {todo.lines.map((l) => (
-          <li key={l.id} data-todo-line={l.marker} className={`flex min-w-0 items-baseline ${TODO_MARKER_CLASS[l.marker]}`}>
+          <li key={l.id} data-todo-line={l.marker} className={`flex min-w-0 flex-wrap items-baseline ${TODO_MARKER_CLASS[l.marker]}`}>
             <span data-todo-marker className="delivery-chip shrink-0">{l.markerWords}</span>
             <button
               type="button"

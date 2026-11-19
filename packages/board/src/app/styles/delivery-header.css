@@ -36,6 +36,7 @@
 }
 [data-todo-line] {
   column-gap: 0.625rem;
+  row-gap: 0.125rem;
   padding: 6px 0;
   border-bottom: 1px solid var(--card-rule);
   font-size: 13px;
