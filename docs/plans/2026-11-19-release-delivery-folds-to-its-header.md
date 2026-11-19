@@ -47,7 +47,7 @@ This reverses one point of #3525. The tests that pin the always-open section cha
 
 ### Fold
 
-- `feature/release-delivery-folds-to-its-header` — the header line from one domain function, the header as the toggle, `release-delivery` back in `KNOWN_KEYS`, count links that open the section, and the tests #3525 pinned changed with it <!-- builds: releaseDeliveryHeader, the section's header line -->
+- `feature/release-delivery-folds-to-its-header` — the header line from one domain function, the header as the toggle, `release-delivery` back in `KNOWN_KEYS`, count links that open the section, and the tests #3525 pinned changed with it <!-- builds: releaseDeliveryHeader, the section's header line --> → #3567
 
 ## Notes
 
