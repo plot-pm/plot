@@ -16,7 +16,7 @@ interface World {
   localRef: PortResult<string>;
   ahead: PortResult<number>;
   main: PortResult<string>;
-  plan: { kind: 'none' } | { kind: 'unreadable' } | { kind: 'named'; file: string };
+  plan: { kind: 'none' } | { kind: 'unreadable' } | { kind: 'named'; file: string; phase: string };
   manifests: PortResult<readonly string[]>;
   commits: PortResult<ReadonlyArray<{ subject: string; tree: string; parentTree: string | null }>>;
   pinOk: boolean;
@@ -88,7 +88,7 @@ describe('deleteLooseBranch', () => {
     ['an open PR', { pr: ok({ number: 7, state: 'OPEN' }) }, 'open-pr', 'person'],
     ['an unpushed commit on the local branch', { localRef: ok('c'.repeat(40)), ahead: ok(1) }, 'unpushed', 'person'],
     ['a local branch whose lead cannot be counted', { localRef: ok('c'.repeat(40)), ahead: silent() }, 'unaskable', 'person'],
-    ['a branch a plan names', { plan: { kind: 'named', file: 'docs/plans/p.md' } }, 'named', 'person'],
+    ['a branch a plan names', { plan: { kind: 'named', file: 'docs/plans/p.md', phase: 'approved' } }, 'named', 'person'],
     ['plans that cannot be read', { plan: { kind: 'unreadable' } }, 'unaskable', 'person'],
     ['a desk on this machine', { desk: ok({ path: '/w' }) }, 'held', 'person'],
     ['a registry manifest', { manifests: ok(['agent-3']) }, 'held', 'person'],
