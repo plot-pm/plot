@@ -29,27 +29,30 @@ export const scrollToAnchor = (id: string): void => {
 
 const LINK_CLASS = 'text-blue-600 hover:underline dark:text-blue-400';
 
+/** The four arms that lead somewhere; the `act` arm keeps `LINK_CLASS`, which the You section colours. */
+const TARGET_CLASS = 'delivery-text-link';
+
 const Linked = ({ resolved, handlers, children }: { resolved: ResolvedLink; handlers: LinkHandlers; children: string }) => {
   switch (resolved.kind) {
     case 'none':
       return <span>{children}</span>;
     case 'href':
-      return <a data-row-link href={resolved.href} target="_blank" rel="noopener noreferrer" className={LINK_CLASS}>{children}</a>;
+      return <a data-row-link href={resolved.href} target="_blank" rel="noopener noreferrer" className={TARGET_CLASS}>{children}</a>;
     case 'anchor':
       return (
         <a
           data-row-link
           href={`#${resolved.id}`}
           onClick={(e) => { e.preventDefault(); scrollToAnchor(resolved.id); }}
-          className={LINK_CLASS}
+          className={TARGET_CLASS}
         >
           {children}
         </a>
       );
     case 'plan':
-      return <button type="button" data-row-link onClick={() => handlers.onPlan(resolved.planFile)} className={LINK_CLASS}>{children}</button>;
+      return <button type="button" data-row-link onClick={() => handlers.onPlan(resolved.planFile)} className={TARGET_CLASS}>{children}</button>;
     case 'reveal':
-      return <button type="button" data-row-link onClick={() => handlers.onReveal(resolved.branch)} className={LINK_CLASS}>{children}</button>;
+      return <button type="button" data-row-link onClick={() => handlers.onReveal(resolved.branch)} className={TARGET_CLASS}>{children}</button>;
     case 'act':
       return <button type="button" data-row-do onClick={() => handlers.onAct(resolved.action, resolved.id)} className={LINK_CLASS}>{children}</button>;
   }
@@ -69,10 +72,12 @@ export const RowCell = ({ cell, handlers }: { cell: Cell | null; handlers: LinkH
       <>
         {cell.parts.map((part, i) => (
           <span key={part.value}>
-            {i > 0 && ' · '}
-            {part.link === null ? part.value : (
-              <Linked resolved={resolveLink(part.link, handlers.context)} handlers={handlers}>{part.value}</Linked>
-            )}
+            {i > 0 && <span data-gate-separator>{' · '}</span>}
+            <span data-gate-mark data-gate-outcome={part.outcome}>
+              {part.link === null ? part.value : (
+                <Linked resolved={resolveLink(part.link, handlers.context)} handlers={handlers}>{part.value}</Linked>
+              )}
+            </span>
           </span>
         ))}
       </>
