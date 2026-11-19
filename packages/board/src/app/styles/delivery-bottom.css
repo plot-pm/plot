@@ -7,3 +7,91 @@
 [data-footer-line] {
   --delivery-section: bottom;
 }
+
+/* THE MACHINE LINE: the dot sits on the word's centre line. */
+[data-machine-line] [data-machine-dot] {
+  align-self: center;
+}
+
+/* The strained table: an 11 px uppercase header over a rule, ruled rows below. */
+[data-machine-rows] {
+  margin-top: 6px;
+  border-collapse: collapse;
+}
+[data-machine-rows] th {
+  padding: 0.25rem 0.5rem;
+  border-bottom: 1px solid var(--card-border);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--card-meta);
+}
+[data-machine-rows] td {
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--card-rule);
+  overflow-wrap: anywhere;
+}
+
+/*
+ * THE TICKETS CARD. From 640 px the list is one grid and each row a subgrid of it,
+ * so the header row and every ticket row share one width for the auto Do track.
+ */
+@media (min-width: 640px) {
+  [data-section="tickets"] [role="grid"] {
+    display: grid;
+    grid-template-columns: 4.5rem minmax(0, 1fr) auto 4.5rem;
+    column-gap: 0.75rem;
+  }
+  [data-section="tickets"] [role="grid"] > [role="row"] {
+    grid-column: 1 / -1;
+  }
+  [data-section="tickets"] .delivery-thead,
+  [data-section="tickets"] [data-issue-row] {
+    grid-template-columns: subgrid;
+  }
+}
+/* The header row carries the rule above the first ticket. */
+[data-section="tickets"] .delivery-thead + .delivery-row-ruled {
+  border-top: 0;
+}
+/* The Do cell: the link colour at weight 600 on one line. */
+[data-tickets-do] {
+  font-weight: 600;
+  white-space: nowrap;
+}
+/* An enabled Plan it button takes the cell's colour; armed and refused keep their own. */
+[data-tickets-do] [data-create-plan]:not([aria-disabled]):not([aria-pressed="true"]) {
+  color: inherit;
+  font-size: 13px;
+  font-weight: inherit;
+}
+
+/* THE FOOTER: one wrapping row over a rule, a 7 px dot before each freshness entry. */
+[data-footer-line] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 18px;
+  row-gap: 0.25rem;
+  margin-top: 0.75rem;
+  padding-top: 10px;
+  border-top: 1px solid var(--card-border);
+  font-size: 12px;
+}
+[data-freshness] {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+[data-freshness] > [role="img"] {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 1px;
+  border-radius: 9999px;
+  overflow: hidden;
+  vertical-align: middle;
+  font-size: 0;
+  line-height: 0;
+  background: var(--delivery-dot, var(--card-track));
+}

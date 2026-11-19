@@ -23,7 +23,8 @@ import {
   reviewVerdict,
   type ReviewCounts,
 } from '@plot-pm/domain/rules/review-verdict';
-import { existsSync, linkSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { carriedReview, type CarriedReview, type PriorReview } from '@plot-pm/domain/rules/review-carry';
+import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -127,6 +128,8 @@ export interface ReviewDeps {
    */
   stateSync?: StateSyncGate | UnreadSyncGate | null;
   readText: (file: string) => string | null;
+  /** The file names in `dir`; an empty list where it does not exist or cannot be read. */
+  listFiles: (dir: string) => string[];
   writeText: (file: string, text: string) => void;
   removeFile: (file: string) => void;
   /** The current time, UTC to the second, as `2026-10-19T16:44:37Z`. */
@@ -380,6 +383,21 @@ const markPending = async (deps: ReviewDeps, pr: Pr, sha: string, lock: RunLock)
  * @param ref - the PR number, or `''` for the current branch's PR.
  * @returns the exit code and the lines to print.
  */
+/**
+ * The earlier reviews of PR `number` that `reviews` holds a verdict and a diff
+ * for, except the review of `sha`, in file-name order.
+ */
+const priorReviews = (deps: ReviewDeps, reviews: string, number: number, sha: string): PriorReview[] => {
+  const name = new RegExp(`^${number}-([0-9a-f]{40})\\.md$`);
+  return deps.listFiles(reviews).sort().flatMap((file) => {
+    const head = name.exec(file)?.[1];
+    if (head === undefined || head === sha) return [];
+    const verdictText = deps.readText(path.join(reviews, file));
+    const diff = deps.readText(path.join(reviews, `${number}-${head}.diff`));
+    return verdictText === null || diff === null ? [] : [{ head, diff, verdictText }];
+  });
+};
+
 export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOutcome> => {
   const asked = ref === '' ? deps.currentBranch : ref;
   if (asked === '') return refuse('no PR number given and the current branch is unknown');
@@ -428,11 +446,16 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
     const added = await deps.trees.add(tree, sha);
     if (!added.ok) return refuse(`could not create the review worktree ${tree}`);
     let ran;
+    let carried: CarriedReview | null = null;
     try {
       const change = await deps.readChange(tree, pr.base, sha);
       if (!change.ok) return refuse(`the change of PR #${pr.number} could not be read: ${change.why}`);
       const diffWrite = writeTextOutcome(deps, diffFile, change.diff);
       if (diffWrite !== null) return diffWrite;
+      carried = carriedReview(sha, change.diff, priorReviews(deps, reviews, pr.number, sha));
+      if (carried !== null) {
+        lines.push(`plot-review: the change of PR #${pr.number} at ${sha} equals the change reviewed at ${carried.from}; no reviewer ran`);
+      }
       const request = reviewRequestBlock({
         pr: pr.number,
         headSha: sha,
@@ -442,7 +465,7 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
         diffPath: diffFile,
         diff: change.diff,
       });
-      ran = await agentRun.run({
+      if (carried === null) ran = await agentRun.run({
         worktree: tree,
         prompt: request,
         resumeId: '',
@@ -462,7 +485,12 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
     } finally {
       await deps.trees.removeOnly(tree);
     }
-    if (!ran.ok) return refuse('the reviewer run could not be started');
+    if (carried !== null) {
+      const carriedWrite = writeTextOutcome(deps, verdictFile, carried.verdictText);
+      if (carriedWrite !== null) return carriedWrite;
+      return finishReview(deps, pr, sha, verdictFile, carried.verdictText, carried.counts, lock, lines, carried.from);
+    }
+    if (ran === undefined || !ran.ok) return refuse('the reviewer run could not be started');
     if (ran.value.end.answer !== 'ran') return refuse(`the reviewer run ended without finishing: ${ran.value.end.answer}`);
 
     const verdictText = ran.value.finalText ?? '';
@@ -537,6 +565,7 @@ const finishReview = async (
   counts: ReviewCounts,
   lock: RunLock,
   lines: string[],
+  carriedFrom?: string,
 ): Promise<ReviewOutcome> => {
   const after = await deps.host.prState(String(pr.number));
   if (after.ok && after.value !== null && (after.value.headSha ?? '') !== sha) {
@@ -575,7 +604,8 @@ const finishReview = async (
   }
 
   const state = counts.high === 0 ? 'success' : 'failure';
-  const description = counts.high === 0 ? 'no HIGH findings' : `${counts.high} HIGH finding${counts.high === 1 ? '' : 's'}`;
+  const counted = counts.high === 0 ? 'no HIGH findings' : `${counts.high} HIGH finding${counts.high === 1 ? '' : 's'}`;
+  const description = carriedFrom === undefined ? counted : `${counted}; carried from ${carriedFrom.slice(0, 7)}`;
   const written = await deps.host.commitStatus({
     sha,
     state,
@@ -588,7 +618,8 @@ const finishReview = async (
   if (!written.ok) {
     return { code: EXIT.refused, lines: [...lines, `plot-review: the host did not accept the status on ${sha}`] };
   }
-  const summary = counts.high === 0 ? 'no HIGH findings' : `${counts.high} HIGH`;
+  const found = counts.high === 0 ? 'no HIGH findings' : `${counts.high} HIGH`;
+  const summary = carriedFrom === undefined ? found : `${found}, carried from ${carriedFrom}`;
   lines.push(`plot-review: PR #${pr.number} ${sha} ${state}, ${summary}`);
   return { code: posted ? EXIT.ok : EXIT.issueNotOpened, lines };
 };
@@ -664,6 +695,13 @@ const machineDeps = async (cwd: string, scriptDir: string): Promise<ReviewDeps |
       || (await git(repoRoot, ['fetch', '--quiet', 'origin', sha])).code === 0,
     readChange,
     readText: (file) => (existsSync(file) ? readFileSync(file, 'utf8') : null),
+    listFiles: (dir) => {
+      try {
+        return readdirSync(dir);
+      } catch {
+        return [];
+      }
+    },
     writeText: (file, text) => {
       mkdirSync(path.dirname(file), { recursive: true });
       writeFileSync(`${file}.tmp`, text);

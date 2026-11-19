@@ -45,11 +45,11 @@ export const ReleaseApprove = ({ card, row }: { card: Pick<ReleaseCardView, 'row
         disabled={answer.state === 'disabled' || busy}
         title={answer.reason || undefined}
         onClick={click}
-        className="rounded border px-2 py-0.5 text-xs"
+        className="delivery-approve"
       >
         Approve release
       </button>
-      {answer.reason && <span className="text-xs text-slate-500" data-testid="release-approve-reason">{answer.reason}</span>}
+      {answer.reason && <span className="delivery-text-muted text-xs" data-testid="release-approve-reason">{answer.reason}</span>}
       {message && <span className="text-xs" data-testid="release-approve-message">{message}</span>}
     </span>
   );

@@ -68,6 +68,7 @@ import { headerOf, itemRowFactsOf, rowFormsOf, switchesOf } from '../lib/agent-r
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { ReleaseClaimButton } from './ReleaseClaimButton.js';
 import { ReleasePersonCards } from './ReleasePersonCards.js';
+import { lineBody, LinePr, LineState, PhaseChip, PlanStrip, PlanTableHead, PLAN_TRACKS, ReleaseLine } from './ReleasePlanParts.js';
 import { LooseDeleteButton } from './LooseDeleteButton.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
 import { checkoutHealthStatus } from '@plot-pm/domain/rules/checkout-health';
@@ -1622,75 +1623,74 @@ export function AgentList({
                   <div className="delivery-head">{header}</div>
                   {release && view.releaseBlocks.map((block) => (
                     <div key={block.sprint || block.release || 'all'} data-release-block={block.release} {...(block.sprint === '' ? {} : { 'data-sprint-block': block.sprint })} className="space-y-1">
-                      <p data-release-line className="px-3 text-sm text-slate-600 dark:text-slate-300">{block.header}</p>
+                      <ReleaseLine block={block} />
                       <ReleasePersonCards cards={block.cards} />
-                      <ul
-                        role="list"
-                        aria-label={`${section.label} — plans`}
-                        data-delivered
-                        className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900/40"
-                      >
-                        {block.plans.map((plan) => {
-                          const open = allPlansOpen || openReleasePlans.has(plan.plan);
-                          const card = plan.planFile === '' ? null : cardForPlanFile?.(plan.planFile) ?? null;
-                          return (
-                            <li key={plan.plan} data-plan-row={plan.plan} className="px-3 py-2 text-sm">
-                              <div className="flex flex-wrap items-baseline gap-x-3">
-                                <button
-                                  type="button"
-                                  data-plan-toggle={plan.plan}
-                                  aria-expanded={open}
-                                  onClick={() => toggleReleasePlan(plan.plan)}
-                                  className="flex items-baseline gap-1 text-left font-medium text-slate-800 dark:text-slate-100"
-                                >
-                                  <span aria-hidden="true" className={`inline-block w-4 text-center transition-transform ${open ? 'rotate-90' : ''}`}>▸</span>
-                                  {plan.plan}
-                                </button>
-                                <span data-plan-strip className="flex flex-wrap items-baseline gap-x-2 text-slate-600 dark:text-slate-300">
-                                  {plan.strip.map((seg) => (
-                                    <span key={seg.state} data-strip-segment={seg.state}>{seg.count} {seg.state}</span>
-                                  ))}
-                                  <span data-strip-text>{plan.stripText}</span>
-                                  {plan.unread > 0 && <span data-strip-unread>{plan.unread} not read</span>}
-                                </span>
-                                {plan.owner !== '' && <span data-plan-owner className="text-slate-500">Owner {plan.owner}</span>}
-                                <span className="ml-auto">
-                                  <PlanActions
-                                    plan={plan.plan}
-                                    card={card}
-                                    approve={approve}
-                                    deliver={deliver}
-                                    implement={implement}
-                                    dispatch={dispatch}
-                                    pulse={pulse}
-                                    onApproving={onStarting}
-                                    onStarting={onStarting}
-                                  />
-                                </span>
-                              </div>
-                              {open && (
-                                <ul data-plan-lines className="mt-1 space-y-0.5 pl-6">
-                                  {plan.lines.map((line) => (
-                                    <li key={line.slice} data-plan-line={line.heading} className="flex flex-wrap items-baseline gap-x-2">
-                                      <span className="w-20 shrink-0 text-xs uppercase text-slate-500">{line.heading.replace('-', ' ')}</span>
-                                      {line.link && plan.anchors[line.slice] !== undefined ? (
-                                        <button type="button" data-plan-line-link onClick={() => scrollToAnchor(plan.anchors[line.slice]!)} className="text-blue-600 hover:underline dark:text-blue-400">
-                                          {line.text}
-                                        </button>
-                                      ) : (
-                                        <span>{line.text}</span>
-                                      )}
-                                      {line.start && card !== null && dispatch && (
-                                        <StartWorkButton card={card} dispatch={dispatch} pulse={pulse} onStarting={onStarting} />
-                                      )}
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
-                            </li>
-                          );
-                        })}
-                      </ul>
+                      <div data-plan-table>
+                        <PlanTableHead />
+                        <ul role="list" aria-label={`${section.label} — plans`} data-delivered className="delivery-grid">
+                          {block.plans.map((plan, i) => {
+                            const open = allPlansOpen || openReleasePlans.has(plan.plan);
+                            const card = plan.planFile === '' ? null : cardForPlanFile?.(plan.planFile) ?? null;
+                            return (
+                              <li key={plan.plan} data-plan-row={plan.plan} className={`delivery-row px-3 ${i > 0 ? 'delivery-row-ruled' : ''}`}>
+                                <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 sm:grid ${PLAN_TRACKS}`}>
+                                  <button
+                                    type="button"
+                                    data-plan-toggle={plan.plan}
+                                    aria-expanded={open}
+                                    onClick={() => toggleReleasePlan(plan.plan)}
+                                    title={plan.plan}
+                                    className="delivery-release-plan flex w-full min-w-0 items-baseline gap-1 text-left sm:w-auto"
+                                  >
+                                    <span aria-hidden="true" className={`inline-block w-4 shrink-0 text-center transition-transform ${open ? 'rotate-90' : ''}`}>▸</span>
+                                    <span className="delivery-truncate">{plan.plan}</span>
+                                  </button>
+                                  <span data-plan-phase><PhaseChip plan={plan} /></span>
+                                  <PlanStrip plan={plan} />
+                                  <span className="delivery-text-muted min-w-0">
+                                    {plan.owner !== '' && <span data-plan-owner><span className="sm:hidden">Owner </span>{plan.owner}</span>}
+                                  </span>
+                                  <span className="ml-auto sm:ml-0 sm:justify-self-end">
+                                    <PlanActions
+                                      plan={plan.plan}
+                                      card={card}
+                                      approve={approve}
+                                      deliver={deliver}
+                                      implement={implement}
+                                      dispatch={dispatch}
+                                      pulse={pulse}
+                                      onApproving={onStarting}
+                                      onStarting={onStarting}
+                                    />
+                                  </span>
+                                </div>
+                                {open && (
+                                  <ul data-plan-lines className="mt-1 space-y-0.5 pl-6">
+                                    {plan.lines.map((line) => (
+                                      <li key={line.slice} data-plan-line={line.heading} title={line.text} className="flex flex-wrap items-baseline gap-x-2">
+                                        <span className="delivery-release-heading">{line.heading.replace('-', ' ')}</span>
+                                        <LineState state={line.state} />
+                                        {line.link && plan.anchors[line.slice] !== undefined ? (
+                                          <button type="button" data-plan-line-link onClick={() => scrollToAnchor(plan.anchors[line.slice]!)} className="delivery-text-link hover:underline">
+                                            {lineBody(line)}
+                                          </button>
+                                        ) : (
+                                          <span>{lineBody(line)}</span>
+                                        )}
+                                        {line.pr !== undefined && <LinePr pr={line.pr} url={cardPrOf(line.pr)?.url ?? null} />}
+                                        {line.merged !== undefined && <span data-plan-line-merged className="delivery-text-muted">{line.merged}</span>}
+                                        {line.start && card !== null && dispatch && (
+                                          <StartWorkButton card={card} dispatch={dispatch} pulse={pulse} onStarting={onStarting} />
+                                        )}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
                     </div>
                   ))}
                   {section.key === 'fleet' && (

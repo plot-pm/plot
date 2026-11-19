@@ -169,14 +169,20 @@ const ciSystem = async (opts: BuildBoardOptions): Promise<string> => {
 /** The `## Plot Config` key declaring each person's spellings. */
 const PEOPLE_KEY = 'People';
 
+/** The directory {@link people} last answered, per repository root. */
+const heldPeople = new Map<string, PersonDirectory>();
+
 /**
  * The declared spellings of each person — a startup fact, like `CI`, now read
  * through {@link readConfig}'s own cache rather than held for the process's
  * life. `{}` where the key is absent or unreadable, which the ownership rule
  * reads as no spelling declared.
  */
-export const people = async (opts: BuildBoardOptions): Promise<PersonDirectory> =>
-  parsePersonDirectory(await readConfig(opts, PEOPLE_KEY, ''));
+export const people = async (opts: BuildBoardOptions): Promise<PersonDirectory> => {
+  const directory = parsePersonDirectory(await readConfig(opts, PEOPLE_KEY, ''));
+  heldPeople.set(opts.repoRoot, directory);
+  return directory;
+};
 
 /** Who is reading this board: the host user and git's email, `''` where absent. */
 interface Identity {
@@ -272,6 +278,19 @@ export const identity = async (opts: BuildBoardOptions): Promise<Identity> => {
  */
 export const heldIdentity = async (opts: BuildBoardOptions): Promise<Identity> =>
   cachedIdentity ?? identity(opts);
+
+/**
+ * Who is reading, from what {@link identity} and {@link people} last answered
+ * in this process. Asks nothing and starts no process.
+ *
+ * @param opts - the board's repo root.
+ * @returns the held identity and directory; `''` and `{}` where nothing is held.
+ */
+export const knownReader = (opts: BuildBoardOptions): { hostUser: string; gitEmail: string; directory: PersonDirectory } => ({
+  hostUser: cachedIdentity?.hostUser ?? '',
+  gitEmail: cachedIdentity?.gitEmail ?? '',
+  directory: heldPeople.get(opts.repoRoot) ?? parsePersonDirectory(''),
+});
 
 /**
  * Assemble the server's self-description for the board payload.
