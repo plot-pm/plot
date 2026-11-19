@@ -243,8 +243,20 @@ export const releaseBlocks = (sprints: readonly SprintPlans[], approved: readonl
     for (const plan of sprint.members) if (!plans.includes(plan)) plans.push(plan);
     byRelease.set(sprint.release, plans);
   }
-  if (byRelease.size === 0) return [{ release: '', plans: [...approved] }];
+  if (byRelease.size === 0) return [{ release: '', plans: unsprintedPlans(sprints, approved) }];
   return [...byRelease].map(([release, plans]) => ({ release, plans }));
+};
+
+/**
+ * The approved plans no sprint naming a release holds: the plans a release no Active sprint names carries.
+ *
+ * @param sprints - the active sprints.
+ * @param approved - every plan approved for delivery, in the order the section lists them.
+ * @returns `approved` without the members of each sprint whose `Release:` is not empty, in `approved` order. Where no sprint names a release, it is every approved plan, the plans of the block `releaseBlocks` gives release `''`.
+ */
+export const unsprintedPlans = (sprints: readonly SprintPlans[], approved: readonly string[]): string[] => {
+  const held = new Set(sprints.filter((s) => s.release !== '').flatMap((s) => s.members));
+  return approved.filter((plan) => !held.has(plan));
 };
 
 /** The header's counts over a block's plans. */

@@ -44,6 +44,19 @@ describe('releaseCardsOf', () => {
     expect(cards.map((c) => [c.kind, c.title])).toEqual([['untargeted', 'Release 2.35.0 · no sprint targets it']]);
   });
 
+  it('counts the Release delivery section\'s plans and slices once no Active sprint names the release', () => {
+    const over = { rows: [releaseRow('2.35.0', 300), row('a', 'feature/a'), row('b', 'feature/b')], slices: [slice('a'), slice('b')] };
+    const mapping = deliveryMapping(input(over));
+    const view = placeMapping(mapping, over.slices, []);
+    const { cards } = releaseCardsOf([], directory, input(over), view.releaseCarried);
+    const [block] = view.releaseBlocks;
+    const counts = Object.fromEntries(block!.counts.map((p) => [p.key, p.count]));
+    expect(cards.map((c) => [c.kind, c.title])).toEqual([['untargeted', 'Release 2.35.0']]);
+    expect(cards[0]!.total).toBe(2);
+    expect(cards[0]!.bar!.find((s) => s.state === 'delivered')!.count).toBe(counts.delivered);
+    expect(counts.plans).toBe(2);
+  });
+
   it('draws the same bar for two readers and every Mine mode', () => {
     const over = { rows: [row('a', 'feature/a'), row('b', 'feature/b')], slices: [slice('a'), slice('b')] };
     const mine = releaseCardsOf([sprint('2.35.0', ['a', 'b'])], directory, input({ ...over, mode: 'mine' }));
