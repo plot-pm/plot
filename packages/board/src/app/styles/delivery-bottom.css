@@ -33,7 +33,25 @@
   overflow-wrap: anywhere;
 }
 
-/* THE TICKETS CARD. The header row carries the rule above the first ticket. */
+/*
+ * THE TICKETS CARD. From 640 px the list is one grid and each row a subgrid of it,
+ * so the header row and every ticket row share one width for the auto Do track.
+ */
+@media (min-width: 640px) {
+  [data-section="tickets"] [role="grid"] {
+    display: grid;
+    grid-template-columns: 4.5rem minmax(0, 1fr) auto 4.5rem;
+    column-gap: 0.75rem;
+  }
+  [data-section="tickets"] [role="grid"] > [role="row"] {
+    grid-column: 1 / -1;
+  }
+  [data-section="tickets"] .delivery-thead,
+  [data-section="tickets"] [data-issue-row] {
+    grid-template-columns: subgrid;
+  }
+}
+/* The header row carries the rule above the first ticket. */
 [data-section="tickets"] .delivery-thead + .delivery-row-ruled {
   border-top: 0;
 }
