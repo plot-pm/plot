@@ -444,6 +444,21 @@ describe('the numbers a delta re-asks about', () => {
     expect(pendingOpenPrNumbers(store([row(1, { state: 'OPEN', checks: 'failing' })]))).toEqual([1]);
   });
 
+  it('returns an open PR whose stored checks are none — CI had not reported when the row was read (#3562)', () => {
+    // THE #3562 SHAPE: the release PR's row was read at 18:54Z, before any check reported on
+    // 57855bf14. `validate` posted success at 19:09Z, which moves no `updatedAt`, so a delta
+    // never saw it and the row read `none` until the next full read.
+    const held = store([row(3562, {
+      head: 'changeset-release/main', checks: 'none', ciChecks: 'none',
+      headSha: '57855bf14323f08f217996d328f6ada10d82d54b', checksSha: '57855bf14323f08f217996d328f6ada10d82d54b',
+    })]);
+    expect(pendingOpenPrNumbers(held)).toEqual([3562]);
+  });
+
+  it('does not return a stored none MERGED PR', () => {
+    expect(pendingOpenPrNumbers(store([row(1, { state: 'MERGED', checks: 'none' })]))).toEqual([]);
+  });
+
   it('returns a draft PR whose stored checks are pending — the #2310 shape', () => {
     expect(pendingOpenPrNumbers(store([row(1, { state: 'OPEN', draft: true, checks: 'pending' })]))).toEqual([1]);
   });

@@ -274,12 +274,14 @@ const wholenessAfter = (held: PrIndex | null, kind: PrAnswerKind): boolean => {
 /**
  * The numbers of the open PRs a delta must ask about again.
  *
- * **`pending` AND `failing` ARE THE NON-TERMINAL ANSWERS.** `green`, `none` and
+ * **`pending`, `failing` AND `none` ARE THE NON-TERMINAL ANSWERS.** `green` and
  * `unknown` are answers the host already gave; `--since` asks about them again
  * the moment `updatedAt` moves. `pending` means *the host had not finished
- * computing it*, and `failing` can turn green on a re-run; `updatedAt` moves on
- * neither when a check run completes (#1277), so only asking again replaces
- * them.
+ * computing it*, `failing` can turn green on a re-run, and `none` means no check
+ * had reported yet; `updatedAt` moves on none of them when a check run or a
+ * commit status completes (#1277), so only asking again replaces them. Measured
+ * 2026-11-19 on #3562: its row read `none` at 18:54Z, `validate` posted success at
+ * 19:09Z, and the row still read `none` an hour later.
  *
  * **ONLY `OPEN`.** A `MERGED` or `CLOSED` row is terminal — *A Decision Reads
  * The Index* states "a `MERGED` row cannot revert" — so re-asking one spends a
@@ -290,13 +292,13 @@ const wholenessAfter = (held: PrIndex | null, kind: PrAnswerKind): boolean => {
  * A draft row is re-asked like any other open row; it rides the same `pr-list`
  * call, so a draft adds a number to the question and no request.
  *
- * @returns the numbers of the open rows whose stored `checks` is `pending` or `failing`.
+ * @returns the numbers of the open rows whose stored `checks` is `pending`, `failing` or `none`.
  */
 export const pendingOpenPrNumbers = (held: PrIndex | null): readonly number[] => {
   if (held === null) return [];
   return held.rows
     .filter((row) => row.state === 'OPEN'
-      && (row.checks === 'pending' || row.checks === 'failing'))
+      && (row.checks === 'pending' || row.checks === 'failing' || row.checks === 'none'))
     .map((row) => row.number);
 };
 

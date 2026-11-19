@@ -1,10 +1,12 @@
 import {
   DEFAULT_PHASE_MAP,
   ownership,
+  releaseTodoEntries,
   youHeader,
   type DeliveryPlacement,
   type PhaseMap,
   type Reader,
+  type ReleaseCardView,
   type YouHeader,
 } from '@plot-pm/domain';
 import type { Board, Card, StoryCard } from '../../../contract/schema.js';
@@ -26,6 +28,8 @@ export interface YouHeaderReadings {
   /** The live stories: the Draft and Active lanes. */
   stories: readonly StoryCard[];
   cards: readonly Card[];
+  /** The release cards; the header counts the approvals they owe, as the to-do list does. Absent reads as none. */
+  releases?: readonly ReleaseCardView[];
 }
 
 /** The You header the Delivery tab renders: the domain's counts over the payload's readings. */
@@ -50,5 +54,6 @@ export const youHeaderOf = (r: YouHeaderReadings): YouHeader => {
       ownership: ownership(ownedFromCard(c), r.reader),
       anchor: anchorOf(c.slug),
     })),
+    releases: releaseTodoEntries(r.releases ?? []),
   });
 };

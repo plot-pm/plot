@@ -90,6 +90,7 @@ import {
   readEnding,
   serverPlanRefAgeSeconds,
   unworkedPlacement,
+  releaseBranchVersion,
 } from '@plot-pm/domain';
 // THE ONE ADAPTER THIS FILE CONSTRUCTS FOR ITSELF, and the reason it is here
 // rather than behind `BuildBoardOptions`: the cap is shared state on the
@@ -1401,7 +1402,9 @@ async function claimOnlyBranches(
  * comment for the same trade.
  *
  * "" on anything unreadable — a ref that has gone, a repo whose root package
- * carries no version, malformed JSON. The row then names its PR number, which is
+ * carries no version, malformed JSON — and where the root version equals the
+ * base branch's, which `releaseBranchVersion` reads as already released. The
+ * row then names its PR number, which is
  * the honest fallback rather than an invented tag: the same rule the board
  * applies to a missing URL.
  */
@@ -1430,15 +1433,12 @@ export const releaseVersions = async (opts: BuildBoardOptions): Promise<Map<stri
     // a race rather than a defect — it reads as *no version*, which is what
     // the row then says. `showFile` reads through the board's object reader.
     const shown = await reader.showFile(`origin/${branch}`, 'package.json');
-    const raw = shown.ok ? shown.value : '';
-    if (!raw) continue;
-    try {
-      const version = (JSON.parse(raw) as { version?: unknown }).version;
-      if (typeof version === 'string' && version) found.set(branch, version);
-    } catch {
-      // Malformed JSON on a release branch is not this board's problem to
-      // report, and a partially-parsed version would be worse than none.
-    }
+    if (!shown.ok) continue;
+    // The base's root version is the one already released: a release that bumps
+    // only a workspace package leaves the root as the base carries it (#3562).
+    const base = await reader.showFile(`origin/${branch.replace(RELEASE_BRANCH, '')}`, 'package.json');
+    const version = releaseBranchVersion(shown.value, base.ok ? base.value : null);
+    if (version !== '') found.set(branch, version);
   }
   return found;
 };
