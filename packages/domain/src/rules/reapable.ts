@@ -189,7 +189,9 @@ export const firstReapRefusal = (readings: TreeReadings): ReapProblem | null =>
  */
 export type RefRefusal =
   | 'given-up'
+  | 'merge-unaskable'
   | 'no-merged-pr'
+  | 'open-unaskable'
   | 'open-pr'
   | 'checked-out'
   | 'on-default-branch'
@@ -223,6 +225,8 @@ export interface RefReadings extends TreeReadings {
    * has merged.
    */
   openPr: boolean;
+  /** Whether the host could not be asked for an open PR on the branch. */
+  openPrUnaskable?: boolean;
   /** Whether any worktree on this machine has the branch checked out. */
   checkedOut: boolean;
 }
@@ -256,6 +260,9 @@ export interface RefProblem {
  * plans nobody delivered. **The shared rule answers the question; each caller
  * keeps its own scope.** Nothing here reads a plan or enumerates a branch.
  *
+ * A host that could not be asked refuses as `merge-unaskable` or
+ * `open-unaskable`, never as `no-merged-pr` or as no open PR.
+ *
  * The order is the order the tests run, and it is the argument. `given-up` is
  * first because it is a decision a person already recorded and no merge state
  * overturns it — checked before the host is even asked. The merge gate follows,
@@ -270,8 +277,13 @@ export const refDeletionProblems = (readings: RefReadings): RefProblem[] => {
   if (readings.givenUp) {
     problems.push({ refusal: 'given-up', detail: '' });
   }
-  if (readings.merge !== 'merged') {
+  if (readings.merge === 'unreachable') {
+    problems.push({ refusal: 'merge-unaskable', detail: '' });
+  } else if (readings.merge !== 'merged') {
     problems.push({ refusal: 'no-merged-pr', detail: '' });
+  }
+  if (readings.openPrUnaskable === true) {
+    problems.push({ refusal: 'open-unaskable', detail: '' });
   }
   if (readings.openPr) {
     problems.push({ refusal: 'open-pr', detail: '' });

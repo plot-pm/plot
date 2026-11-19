@@ -211,6 +211,56 @@ test('item 12: an unreachable host deletes nothing', () => {
     `a host that cannot be asked must release nothing:\n${out}`);
 });
 
+test('a host that fails to answer keeps the ref under its own name', () => {
+  // Measured 2026-11-19 (#3556): a rate-limited `pr-merged` answered `unknown`
+  // and the kept line named unlanded work that did not exist.
+  const { tmp, repo } = makeRepo(wavedPlan([['Only', 'feature/host-fails']]));
+  pushBranch(repo, 'feature/host-fails');
+  const bin = path.join(tmp, 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\necho "API rate limit exceeded" >&2\nexit 1\n');
+  fs.chmodSync(path.join(bin, 'gh'), 0o755);
+
+  const out = run(repo, bin, '--yes', 'a-plan');
+  assert.ok(remoteHas(repo, 'feature/host-fails'), `a failing host must release nothing:\n${out}`);
+  assert.match(out, /could not be asked whether a PR merged/,
+    `an unaskable host is not unlanded work:\n${out}`);
+  assert.doesNotMatch(out, /no merged PR/);
+});
+
+test('an open-PR lookup that fails keeps a merged ref', () => {
+  // The veto must not lapse when only the open lookup fails: the merge answer
+  // and the open answer can take different routes, so one can answer while the
+  // other cannot.
+  const { tmp, repo } = makeRepo(wavedPlan([['Only', 'feature/open-unknown']]));
+  pushBranch(repo, 'feature/open-unknown');
+  const bin = stubGh(tmp, { 'feature/open-unknown': [merged(106)] });
+  fs.writeFileSync(path.join(bin, 'gh'), fs.readFileSync(path.join(bin, 'gh'), 'utf8')
+    .replace("const table", "if (!argv.includes('all') && !argv.includes('merged')) { process.exit(1); }\nconst table"));
+
+  const out = run(repo, bin, '--yes', 'a-plan');
+  assert.ok(remoteHas(repo, 'feature/open-unknown'), `an unasked veto must keep the ref:\n${out}`);
+  assert.match(out, /could not be asked for an open PR/);
+});
+
+test('a branch origin does not hold reads absent and asks the host nothing', () => {
+  // Measured 2026-11-19 (#3556): eight merged branches whose refs the host had
+  // already deleted were each asked about, and a rate-limited answer read as
+  // unlanded work. A ref origin does not list has nothing to release.
+  const { tmp, repo } = makeRepo(wavedPlan([['Gone', 'feature/already-gone']]));
+  const bin = path.join(tmp, 'bin');
+  const calls = path.join(tmp, 'gh-calls');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\necho "$*" >> '${calls}'\nexit 1\n`);
+  fs.chmodSync(path.join(bin, 'gh'), 0o755);
+
+  const out = run(repo, bin, '--yes', 'a-plan');
+  assert.match(out.split('\n').find((l) => l.includes('feature/already-gone')) ?? '',
+    /^absent\s.*no remote ref/, `a missing ref reads absent:\n${out}`);
+  const asked = fs.existsSync(calls) ? fs.readFileSync(calls, 'utf8') : '';
+  assert.doesNotMatch(asked, /already-gone/, `the host was asked about a missing ref:\n${asked}`);
+});
+
 test('item 12: a deferred branch keeps its ref even when its PR merged', () => {
   // The `/plot-implement` rule, enforced. A given-up branch is annotated
   // `deferred:` and `/plot-reconcile` needs the ref PLUS that annotation to tell
@@ -315,5 +365,5 @@ test('re-running is a no-op rather than a failure', () => {
   run(repo, bin, '--yes', 'a-plan');
   const second = run(repo, bin, '--yes', 'a-plan');
   assert.doesNotMatch(second, /FAILED/, `a second run must not fail:\n${second}`);
-  assert.match(second, /already absent|released/);
+  assert.match(second, /no remote ref|already absent|released/);
 });
