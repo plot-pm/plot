@@ -4,6 +4,8 @@ import {
   type HeaderCountPart,
   headerText,
   releaseTicketWording,
+  planOwner,
+  planRoute,
   planRowFacts,
   releaseBlocks,
   releasePersonCards,
@@ -246,6 +248,8 @@ export interface PlanRowView extends PlanRowFacts {
   itemIds: Record<string, string>;
   /** The plan's file, for the plan card Start acts on; `''` where no row names one. */
   planFile: string;
+  /** The plan name's link target, `planRoute(planFile)`; `''` where no row names a plan file. */
+  href: string;
 }
 
 /** One target release's block. */
@@ -529,15 +533,21 @@ export const deliveryView = (
   });
   const counted = [...(slices ?? []), ...strays].filter((s) => s.merge !== 'none');
   const approved = [...new Set(counted.map((s) => s.plan))];
-  const ownerOf = (plan: string): string => sprints.find((sp) => sp.members.some((m) => m.slug === plan) && sp.ownerHandle !== '')?.ownerHandle ?? '';
+  const sprintOwnerOf = (plan: string): string => sprints.find((sp) => sp.members.some((m) => m.slug === plan) && sp.ownerHandle !== '')?.ownerHandle ?? '';
+  const ownerOf = (plan: string, rows: readonly AgentRow[]): string => {
+    const first = (field: 'assignee' | 'approver' | 'author'): string => rows.find((r) => (r[field] ?? '') !== '')?.[field] ?? '';
+    return planOwner({ assignee: first('assignee'), sprintOwner: sprintOwnerOf(plan), approver: first('approver'), author: first('author') }, mapping.directory);
+  };
   const planRow = (plan: string): PlanRowView => {
     const own = counted.filter((s) => s.plan === plan);
     const facts = own.map(factsOf);
     const ids = Object.fromEntries(own.map((s) => [s.name, sliceItemId(s.plan, s.name)]));
     const anchors = Object.fromEntries(own.flatMap((s) => (placedItem.has(ids[s.name]!) ? [[s.name, itemAnchor(ids[s.name]!)] as const] : [])));
-    const planFile = own.flatMap((x) => mapping.rowsByItem[ids[x.name]!] ?? []).find((r) => r.planFile !== '')?.planFile ?? '';
-    const phase = own.flatMap((x) => mapping.rowsByItem[ids[x.name]!] ?? []).find((r) => r.phase !== null && r.phase !== '')?.phase ?? null;
-    return { ...planRowFacts(plan, ownerOf(plan), facts, { phase, ...(now === undefined ? {} : { now }) }), anchors, itemIds: ids, planFile };
+    const rows = own.flatMap((x) => mapping.rowsByItem[ids[x.name]!] ?? []);
+    const planFile = rows.find((r) => (r.planFile ?? '') !== '')?.planFile ?? '';
+    const phase = rows.find((r) => r.phase !== null && r.phase !== '')?.phase ?? null;
+    const href = planFile === '' ? '' : planRoute(planFile);
+    return { ...planRowFacts(plan, ownerOf(plan, rows), facts, { phase, ...(now === undefined ? {} : { now }) }), anchors, itemIds: ids, planFile, href };
   };
   const DRAFT_ID_PREFIX = draftItemId('');
   // The person cards' bars read the counted slices per plan, as the sprint card does (`countedSlicesByPlan`).

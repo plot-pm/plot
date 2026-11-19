@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { PersonCard } from '@plot-pm/domain';
-import { lineBody, LineState, PhaseChip, PLAN_TRACKS, PlanStrip, ReleaseLine } from '../../src/app/components/ReleasePlanParts.js';
+import { lineBody, LineState, PhaseChip, PlanName, PLAN_TRACKS, PlanStrip, ReleaseLine } from '../../src/app/components/ReleasePlanParts.js';
 import { ReleasePersonCards } from '../../src/app/components/ReleasePersonCards.js';
 import { SEGMENT_CLASS } from '../../src/app/components/SprintCard.js';
 
@@ -81,5 +81,27 @@ describe('the person cards', () => {
     const html = renderToStaticMarkup(createElement(ReleasePersonCards, { cards }));
     expect(html).toContain(`data-person-card-segment="blocked" data-count="1" style="flex-grow:1" class="${SEGMENT_CLASS.blocked}"`);
     expect(SEGMENT_CLASS.blocked).toBe('delivery-state-blocked');
+  });
+});
+
+describe('the Plan cell', () => {
+  const cell = (href: string, open = false) => renderToStaticMarkup(createElement(PlanName, {
+    plan: { plan: 'red-hold', planFile: '2026-11-09-red-hold.md', href }, open, onToggle: () => {},
+  }));
+
+  it('links the plan name to its route and keeps the toggle on the chevron alone', () => {
+    const html = cell('/plan/2026-11-09-red-hold.md');
+    expect(html).toContain('<a href="/plan/2026-11-09-red-hold.md" data-plan-link="red-hold"');
+    expect(html).toMatch(/<button type="button" data-plan-toggle="red-hold" aria-expanded="false" aria-label="Show the slices of red-hold"[^>]*><span aria-hidden="true"[^>]*>▸<\/span><\/button>/);
+  });
+
+  it('names the toggle Hide once the row is open', () => {
+    expect(cell('/plan/x.md', true)).toContain('aria-label="Hide the slices of red-hold"');
+  });
+
+  it('shows a plain name where the row has no plan file', () => {
+    const html = cell('');
+    expect(html).not.toContain('<a ');
+    expect(html).toContain('<span title="red-hold" class="delivery-truncate">red-hold</span>');
   });
 });
