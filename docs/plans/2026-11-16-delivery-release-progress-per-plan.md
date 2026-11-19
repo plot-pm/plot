@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:**
 - **Issue:**
@@ -16,6 +16,7 @@
 - **Started:** 2026-11-18, Jan Wloka, `feature/delivery-release-plan-rows`
 - **Started:** 2026-11-18, Jan Wloka, `feature/delivery-release-person-cards`
 - **Started:** 2026-11-19, Jan Wloka, `feature/delivery-sprint-delivery-scope`
+- **Delivered:** 2026-11-19
 
 ## Changelog
 
