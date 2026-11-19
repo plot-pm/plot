@@ -63,7 +63,7 @@ export interface TodoLine {
   markerWords: string;
   anchor: string;
   /** The kind of item the line's name leads to: the placed item's kind, or `release` for a release approval. */
-  icon: LinkIconKind;
+  icon: LinkIconKind | null;
 }
 
 export interface TodoList {
@@ -126,7 +126,7 @@ export const todoList = (input: TodoListInput): TodoList => {
     marker: e.marker,
     markerWords: TODO_MARKER_WORDS[e.marker],
     anchor: e.anchor,
-    icon: linkIconKind(e.kind ?? 'release') ?? 'release',
+    icon: linkIconKind(e.kind ?? 'release'),
   }));
   const counts: Record<YouMarker, number> = { 'blocks-delivery': 0, input: 0, 'clean-up': 0 };
   for (const l of lines) counts[l.marker] += 1;
