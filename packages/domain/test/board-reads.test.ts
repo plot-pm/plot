@@ -31,9 +31,33 @@ describe('readReleaseVersions', () => {
         { branch: 'changeset-release/bad', sha: 'c' },
         { branch: 'changeset-release/empty', sha: 'd' },
       ]),
-      files: { a: '{"version":"2.0.0"}', c: 'not json', d: '{"version":""}' },
+      files: {
+        a: '{"version":"2.0.0"}', c: 'not json', d: '{"version":""}',
+        'refs/remotes/origin/main': '{"version":"1.9.0"}',
+        'refs/remotes/origin/none': '{"version":"1.9.0"}',
+        'refs/remotes/origin/bad': '{"version":"1.9.0"}',
+        'refs/remotes/origin/empty': '{"version":"1.9.0"}',
+      },
     });
     expect(await readReleaseVersions(refs)).toEqual(answered({ 'changeset-release/main': '2.0.0' }));
+  });
+
+  it('names no version where the branch root version is the one its base already carries (#3562)', async () => {
+    // THE #3562 SHAPE: a release PR that bumps only `@plot-pm/board` leaves the root at 2.35.0,
+    // which main already carries and v2.35.0 already tags.
+    const refs = refsOf({
+      tips: answered([{ branch: 'changeset-release/main', sha: '57855bf14' }]),
+      files: { '57855bf14': '{"version":"2.35.0"}', 'refs/remotes/origin/main': '{"version":"2.35.0"}' },
+    });
+    expect(await readReleaseVersions(refs)).toEqual(answered({}));
+  });
+
+  it('names the branch version where the base carries no root package.json, as on the census fixture', async () => {
+    const refs = refsOf({
+      tips: answered([{ branch: 'changeset-release/main', sha: 'a' }]),
+      files: { a: '{"version":"9.1.0"}' },
+    });
+    expect(await readReleaseVersions(refs)).toEqual(answered({ 'changeset-release/main': '9.1.0' }));
   });
 
   it('fails where the release branches cannot be listed', async () => {

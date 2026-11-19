@@ -2,16 +2,18 @@ import type { UnmergedValue } from '../entities/view-readings.js';
 import { answered, failed, type PortResult } from '../port-result.js';
 import type { Refs } from '../ports/refs.js';
 import { claimOnly } from '../rules/empty-claim.js';
+import { RELEASE_BRANCH } from '../rules/release-branch.js';
+import { releaseBranchVersion } from '../rules/release-version.js';
 
 const REMOTE = 'refs/remotes/origin/';
 
 /**
- * The version each release branch would ship, read from its own `package.json`.
+ * The version each release branch would ship, read from its own `package.json` and its base's.
  *
  * @param refs - the ref reader.
- * @returns release branch → the `version` its root `package.json` names. A
- *   branch whose file is missing, unparseable or names no version is absent.
- *   Fails where the release branches cannot be listed.
+ * @returns release branch → the version `releaseBranchVersion` names for it against
+ *   `origin/<base>`, where `<base>` is the branch name after `changeset-release/`. A branch with no
+ *   such version is absent. Fails where the release branches cannot be listed.
  */
 export const readReleaseVersions = async (refs: Refs): Promise<PortResult<Record<string, string>>> => {
   const tips = await refs.branchTips([`${REMOTE}changeset-release/`]);
@@ -20,12 +22,9 @@ export const readReleaseVersions = async (refs: Refs): Promise<PortResult<Record
   for (const { branch, sha } of tips.value) {
     const raw = await refs.showFile(sha, 'package.json');
     if (!raw.ok) continue;
-    try {
-      const version = (JSON.parse(raw.value) as { version?: unknown }).version;
-      if (typeof version === 'string' && version !== '') found[branch] = version;
-    } catch {
-      continue;
-    }
+    const base = await refs.showFile(`${REMOTE}${branch.replace(RELEASE_BRANCH, '')}`, 'package.json');
+    const version = releaseBranchVersion(raw.value, base.ok ? base.value : null);
+    if (version !== '') found[branch] = version;
   }
   return answered(found);
 };

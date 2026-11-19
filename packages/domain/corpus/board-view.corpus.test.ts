@@ -24,6 +24,7 @@ import type { PrIndexRow } from '../src/entities/pr-index.js';
 import { READING_KEYS, RepoSnapshotSchema, type ReadingKey } from '../src/entities/snapshot.js';
 import { claimOnly } from '../src/rules/empty-claim.js';
 import { HOST_BRANCH_URL_SCHEMES } from '../src/adapters/host/host-branch-urls.js';
+import { readReleaseVersions } from '../src/workflows/board-reads.js';
 import { fleetViewFrom, type BoardView } from '../src/workflows/board-view.js';
 import { compareField, describingAs, type Disagreement } from './compare.js';
 
@@ -54,28 +55,13 @@ const plain = (value: unknown): unknown => {
 const run = (box: Sandbox, args: string[]): string =>
   execFileSync('git', args, { cwd: box.repo, env: box.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
-/** `releaseVersions` in `packages/board/src/server/fleet.ts`, as it reads. */
-const boardReleaseVersions = (box: Sandbox): Map<string, string> => {
-  const found = new Map<string, string>();
-  const branches = run(box, ['for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin/changeset-release/*'])
-    .split('\n')
-    .map((l) => l.trim().replace(/^origin\//, ''))
-    .filter(Boolean);
-  for (const branch of branches) {
-    let raw = '';
-    try {
-      raw = run(box, ['show', `origin/${branch}:package.json`]);
-    } catch {
-      continue;
-    }
-    try {
-      const version = (JSON.parse(raw) as { version?: unknown }).version;
-      if (typeof version === 'string' && version) found.set(branch, version);
-    } catch {
-      continue;
-    }
-  }
-  return found;
+/**
+ * `releaseVersions` in `packages/board/src/server/fleet.ts`, as it reads: `readReleaseVersions`
+ * over an uncached `refsGit`, where the snapshot reads through the scan's cached refs.
+ */
+const boardReleaseVersions = async (box: Sandbox): Promise<Map<string, string>> => {
+  const read = await readReleaseVersions(refsGit({ repoRoot: box.repo, scriptDir: box.scriptsDir }));
+  return new Map(read.ok ? Object.entries(read.value) : []);
 };
 
 /** `unmergedBranches` in `packages/board/src/server/fleet.ts`, as it reads. */
@@ -233,7 +219,7 @@ describe.each(FIXTURES)('fleetViewFrom against the board on the census fixture h
     const unmerged = boardUnmerged(box, result.reading.main);
     const board: BoardSide = {
       result,
-      versions: boardReleaseVersions(box),
+      versions: await boardReleaseVersions(box),
       unmerged,
       claimOnly: await boardClaimOnly(box, result.reading.main, unmerged),
       questions: await workerQuestions(result.reading, box.repo),
