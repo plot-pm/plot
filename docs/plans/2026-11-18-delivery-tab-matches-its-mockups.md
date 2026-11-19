@@ -20,6 +20,7 @@
 - **Started:** 2026-11-19, Jan Wloka, `feature/delivery-visual-bottom`
 - **Started:** 2026-11-19, Jan Wloka, `feature/delivery-visual-fleet`
 - **Started:** 2026-11-19, Jan Wloka, `feature/delivery-visual-you`
+- **Started:** 2026-11-19, Jan Wloka, `feature/delivery-visual-work-items`
 
 ## Changelog
 
