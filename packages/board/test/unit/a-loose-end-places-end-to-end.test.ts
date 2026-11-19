@@ -118,3 +118,61 @@ describe('a planless branch or PR, from the row builder to the placement', () =>
     expect(at(MANIFEST).item?.reason).not.toBe('loose');
   });
 });
+
+describe('a deferred slice names its branch while its plan is not finished', () => {
+  // The scan admits no Released, Superseded or Rejected plan (`planIsFinished`),
+  // so a deferred slice of a finished plan reaches the board through the
+  // planless loop, the same population `loose-delete` passes `named` for.
+  const DEFERRED_DELIVERED = 'feature/deferred-in-a-delivered-plan';
+  const DEFERRED_APPROVED = 'bug/deferred-in-an-approved-plan';
+  const FINISHED = 'feature/one-pr-reader-per-machine-and';
+  const CLOSED_FINISHED = 'bug/pr-and-issue-reads-still-use';
+
+  const planned = (file: string, phase: string, branch: string) => ({
+    file,
+    phase,
+    slices: [{
+      name: 'Later', verdict: 'complete',
+      branches: [{ branch, state: 'deferred', deferred: true, claimed: '' }],
+    }],
+  });
+
+  const estate: FleetReading = {
+    main: 'main',
+    head: 'abc1234',
+    plans: [
+      planned('docs/plans/2026-10-01-delivered.md', 'delivered', DEFERRED_DELIVERED),
+      planned('docs/plans/2026-10-02-approved.md', 'approved', DEFERRED_APPROVED),
+    ],
+    summary: { plans: 2, waves: 2, branches: 2, claimed: 0, eligible: 0, blocked: 0, deferred: 2 },
+  } as FleetReading;
+
+  const all = [DEFERRED_DELIVERED, DEFERRED_APPROVED, FINISHED, CLOSED_FINISHED];
+  const closed = { number: 3358, head: CLOSED_FINISHED, state: 'CLOSED', draft: false, checks: 'none', mergeable: '', review: '', url: '' } as never;
+
+  const rowsOf = async () => {
+    const ages = new Map<string, number | null>(all.map((b) => [b, 600]));
+    const rows = rowsFromPulse(
+      estate, ages, 'plot', QUIET, new Map(), '', null, Date.now(),
+      null, null, null, null, new Map([[CLOSED_FINISHED, closed]]), '', null, new Set(all),
+    );
+    return withDesks(await withFixerInFlight(rows, repo()), desks);
+  };
+
+  it('keeps a deferred slice of a Delivered or an Approved plan out of loose', async () => {
+    const at = placed(await rowsOf());
+    expect(at(DEFERRED_DELIVERED).item?.reason).not.toBe('loose');
+    expect(at(DEFERRED_APPROVED).item?.reason).not.toBe('loose');
+  });
+
+  it('places the branch of a finished plan, which the scan does not admit, as loose', async () => {
+    const at = placed(await rowsOf());
+    expect(at(FINISHED).item).toMatchObject({ section: 'you', group: 'unblock', reason: 'loose', kind: 'branch' });
+  });
+
+  it('says the PR closed, not that none was ever opened, for a planless branch whose PR the host closed', async () => {
+    const rows = await rowsOf();
+    expect(rows.find((r) => r.branch === CLOSED_FINISHED)!.note).toMatch(/^PR closed without merging — last commit /);
+    expect(rows.find((r) => r.branch === FINISHED)!.note).toMatch(/^commits, no PR ever opened/);
+  });
+});

@@ -104,6 +104,7 @@ export * from './rules/missed-changes.js';
 export * from './rules/verdict.js';
 export * from './rules/restart-offer.js';
 export * from './rules/loose-delete.js';
+export * from './rules/plan-names-branch.js';
 export * from './rules/attention.js';
 export * from './rules/monitor-log.js';
 export * from './rules/budget-record.js';

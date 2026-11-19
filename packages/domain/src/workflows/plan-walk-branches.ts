@@ -17,9 +17,7 @@ import { encodeListingKey, type CarriedPrStates, type ReportedListingRow } from 
 import { mergeDetectOf, mergedBySubject, type MergeDetect } from '../rules/merge-subject.js';
 import { ownerOfRemote } from '../rules/remote-owner.js';
 import type { Estate } from './plan-walk-estate.js';
-
-/** The plan phases whose branches the stage does not read. */
-const SKIPPED_PHASES: ReadonlySet<string> = new Set(['released', 'rejected', 'superseded']);
+import { planIsFinished } from '../rules/plan-names-branch.js';
 
 /** How many merge commits the subject lookup walks, as the shell scan caps it. */
 const MERGE_WALK = 20000;
@@ -415,7 +413,7 @@ export const readBranchReadings = async (
     return !tipOf.has(name) && !openRow && indexMerged.has(name) ? 'MERGED' : listedPr;
   };
 
-  const live = estate.plans.filter((p) => !SKIPPED_PHASES.has(p.record.phase));
+  const live = estate.plans.filter((p) => !planIsFinished(p.record.phase));
   const sliceNames = namedSlices(
     estate.plans.map((p) => ({
       phase: p.record.phase,

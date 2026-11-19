@@ -8,15 +8,13 @@ import type { PlanRecord } from '../ports/plan-store.js';
 import type { BranchReading, BranchStageReadings, PrDetail } from './plan-walk-branches.js';
 import type { DeskReading, DeskStageReadings } from './plan-walk-desks.js';
 import type { Estate } from './plan-walk-estate.js';
+import { planIsFinished } from '../rules/plan-names-branch.js';
 
 /** The wire key the shell scan still emits for the per-plan slice list; the name belongs to that foreign process. */
 const WAVES_KEY = 'waves';
 
 /** The phases the scan lists only for a full pulse, never for an offer. */
 const TERMINAL_PHASES: ReadonlySet<string> = new Set(['delivered', 'released', 'rejected', 'superseded']);
-
-/** The phases whose plans leave the pulse entirely. */
-const LEFT_PHASES: ReadonlySet<string> = new Set(['released', 'rejected', 'superseded']);
 
 /** The answer of a stage that may have failed; the three stages the walk assembles. */
 export interface WalkStages {
@@ -299,7 +297,7 @@ export const planWalkAssembler = (estate: Estate, input: AssemblyInput): PlanWal
   };
 
   const add: PlanWalkAssembler['add'] = (record, readingOf, deskOf) => {
-    if (LEFT_PHASES.has(record.phase)) return answered(null);
+    if (planIsFinished(record.phase)) return answered(null);
     if (record.phase === 'delivered' && (record.type === 'docs' || record.type === 'infra')) return answered(null);
     summary.plans += 1;
 
