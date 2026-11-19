@@ -29,9 +29,8 @@ export interface SprintDeliveryGroup {
  */
 export const sprintDeliveryTitle = (scope: SprintDeliveryScope): string => {
   if (scope.kind === 'release') return RELEASE_DELIVERY_TITLE;
-  const [only] = scope.sprints;
-  if (scope.sprints.length !== 1 || only === undefined) return SPRINT_DELIVERY_TITLE;
-  return `${SPRINT_DELIVERY_TITLE} · ${only.title ?? only.slug}`;
+  const names = scope.sprints.map((s) => s.title ?? s.slug);
+  return names.length === 1 ? `${SPRINT_DELIVERY_TITLE} · ${names[0]}` : SPRINT_DELIVERY_TITLE;
 };
 
 /**

@@ -51,6 +51,10 @@ describe('sprintDeliveryGroups', () => {
       ['Beta sprint', ['p2', 'p3']],
     ]);
   });
+  it('names a group by the slug where the sprint has no title', () => {
+    const bare = { slug: 'bare', ownerHandle: 'jwloka', members: ['p1'] };
+    expect(sprintDeliveryGroups(deliveryScope(['bare'], jan, [bare]), approved)).toEqual([{ sprint: 'bare', name: 'bare', plans: ['p1'] }]);
+  });
   it('lists only approved plans', () => {
     expect(sprintDeliveryGroups(deliveryScope(['alpha'], jan, [alpha]), ['p2'])[0]!.plans).toEqual(['p2']);
   });
