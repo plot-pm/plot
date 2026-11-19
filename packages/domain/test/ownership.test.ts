@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ownership, isMineStrict, parsePersonDirectory, readerIsKnown, ticketSourceOf,
+  ownership, isMineStrict, parsePersonDirectory, readerIsKnown, ticketSourceOf, ticketSourceOfIndex,
   type OwnedRow, type Reader, type TicketSource,
 } from '../src/index.js';
 import { TICKET_SOURCES } from '../src/adapters/tracker/tracker-listers.js';
@@ -412,5 +412,35 @@ describe('isMineStrict keeps only what it can classify as the reader\'s', () => 
   it('keeps a synthesized desk whose state shows it is on this machine', () => {
     const row: OwnedRow = { kind: 'agent', identity: 'synthesized', state: 'running' };
     expect(isMineStrict(row, reader)).toBe(true);
+  });
+});
+
+describe('ticketSourceOfIndex reads the issue index source and connector', () => {
+  it('reads a tracker index from jira as jira', () => {
+    expect(ticketSourceOfIndex({ source: 'tracker', connector: 'jira' }, TICKET_SOURCES))
+      .toEqual({ service: 'jira', match: 'tracker-account', prefix: 'jira:' });
+  });
+
+  it('reads a tracker index from github as github', () => {
+    expect(ticketSourceOfIndex({ source: 'tracker', connector: 'github' }, TICKET_SOURCES))
+      .toEqual({ service: 'github', match: 'host-login' });
+  });
+
+  it('reads a git-host index from bitbucket as bitbucket', () => {
+    expect(ticketSourceOfIndex({ source: 'git-host', connector: 'bitbucket' }, TICKET_SOURCES))
+      .toEqual({ service: 'bitbucket', match: 'host-login' });
+  });
+
+  it('answers what ticketSourceOf answers for the same reading', () => {
+    expect(ticketSourceOfIndex({ source: 'tracker', connector: 'jira' }, TICKET_SOURCES))
+      .toEqual(ticketSourceOf({ ask: 'tracker', scheme: 'jira' }, 'github', TICKET_SOURCES));
+    expect(ticketSourceOfIndex({ source: 'git-host', connector: 'github' }, TICKET_SOURCES))
+      .toEqual(ticketSourceOf({ ask: 'git-host' }, 'github', TICKET_SOURCES));
+  });
+
+  it('answers null for a connector no lister names', () => {
+    expect(ticketSourceOfIndex({ source: 'tracker', connector: 'fixture' }, TICKET_SOURCES)).toBeNull();
+    expect(ticketSourceOfIndex({ source: 'git-host', connector: '' }, TICKET_SOURCES)).toBeNull();
+    expect(ticketSourceOfIndex({ source: 'tracker', connector: 'mute' }, { listers: [{ scheme: 'mute' }], hosts: [] })).toBeNull();
   });
 });
