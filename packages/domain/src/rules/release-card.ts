@@ -2,6 +2,7 @@ import { normalizeVersion } from '../entities/version.js';
 import { resolvePerson, samePerson, type Person, type PersonDirectory } from '../entities/person.js';
 import type { DeliveryInput, DeliveryReadings } from './delivery-placement.js';
 import type { PasskeyRegistration } from './passkey-settings.js';
+import { unsprintedPlans } from './release-plan-rows.js';
 import { releaseApprovable, type ReleaseApprovable, type ReleasePrReading } from './release-approvable.js';
 import { countSliceStatesOver, SLICE_STATES, type CountedSlice } from './slice-states.js';
 import type { BarSegment, SprintCardSprint } from './sprint-card.js';
@@ -16,6 +17,17 @@ export interface ReleaseRowReading {
   readonly version: string;
   /** `null` where the row carries no PR. */
   readonly pr: number | null;
+}
+
+/**
+ * The plans the Release delivery section lists and the slices it counts per plan, as `deliveryView` reads them.
+ * An `untargeted` card counts over these, so the card and the section read one set.
+ */
+export interface ReleaseCarried {
+  /** Every plan approved for delivery, in the order the section lists them. */
+  readonly approved: readonly string[];
+  /** The counted slices per plan key, `undefined` where a plan's merge answer is unread. */
+  readonly slicesByPlan: ReadonlyMap<string, readonly CountedSlice[] | undefined>;
 }
 
 /** `targeted`: Active sprints name the release. `untargeted`: a release row no sprint names. `none`: neither exists. */
@@ -36,7 +48,7 @@ export interface ReleaseCardView {
   readonly anchor: string;
   /** The version without its `v`, `''` for `none` and for a row whose version was not read. */
   readonly version: string;
-  /** `Release 2.35.0`, `Release 2.35.0 · no sprint targets it`, or `No release targeted`. */
+  /** `Release 2.35.0`, `Release 2.35.0 · no sprint targets it` for a row that carries no plan, or `No release targeted`. */
   readonly title: string;
   /** Five segments in `SLICE_STATES` order; `null` for `none` and where a named plan has no merge answer. */
   readonly bar: readonly BarSegment[] | null;
@@ -89,12 +101,18 @@ const peopleOf = (handles: readonly string[], directory: PersonDirectory): numbe
  * where any of them has no merge answer. It reads no reader, so every reader sees the same counts.
  * People are the distinct Owners, compared through `resolvePerson` and `samePerson`.
  *
+ * An `untargeted` card counts `unsprintedPlans` of `carried` over `carried.slicesByPlan`: where no
+ * Active sprint names a release, as after the sprint that named it closed, that is the plan set the
+ * Release delivery section counts. Its title is the version alone, and adds `· no sprint targets it`
+ * only where that set is empty. A PR that was not read changes `stateText` and keeps the bar.
+ *
  * @param sprints - the Active sprints.
  * @param rows - the release rows on the payload.
  * @param directory - the declared `People` spellings.
  * @param slicesByPlan - the counted slices per plan key.
  * @param readings - the work items and agents as measured, in Mine mode `all`.
  * @param input - the `Auto-review` key and the `Correction budget`.
+ * @param carried - the Release delivery section's plans and counted slices; absent reads as none.
  */
 export const releaseCards = (
   sprints: readonly ReleaseCardSprint[],
@@ -103,6 +121,7 @@ export const releaseCards = (
   slicesByPlan: ReadonlyMap<string, readonly CountedSlice[] | undefined>,
   readings: DeliveryReadings,
   input: DeliveryInput,
+  carried: ReleaseCarried = { approved: [], slicesByPlan: new Map() },
 ): ReleaseCardView[] => {
   const targets: { version: string; sprints: ReleaseCardSprint[] }[] = [];
   for (const sprint of sprints) {
@@ -135,6 +154,8 @@ export const releaseCards = (
       unboundReason: row === undefined ? `no release PR carries ${version}` : '',
     };
   });
+  const unsprinted = unsprintedPlans(sprints.map((s) => ({ release: s.release, members: s.members.map((m) => m.slug) })), carried.approved);
+  const carriedCounts = countSliceStatesOver(carried.slicesByPlan, unsprinted, readings, input);
   for (const row of rows) {
     if (bound.has(row.id)) continue;
     const version = bare(row.version);
@@ -146,11 +167,11 @@ export const releaseCards = (
       kind: 'untargeted',
       anchor: `release-card-${anchorPart}`,
       version,
-      title: `${version === '' ? 'Release (version not read)' : `Release ${version}`} · no sprint targets it`,
-      bar: SLICE_STATES.map((state) => ({ state, count: 0 })),
-      total: 0,
-      readingMissing: false,
-      missingText: '',
+      title: `${version === '' ? 'Release (version not read)' : `Release ${version}`}${unsprinted.length === 0 ? ' · no sprint targets it' : ''}`,
+      bar: carriedCounts === undefined ? null : SLICE_STATES.map((state) => ({ state, count: carriedCounts[state] })),
+      total: carriedCounts?.total ?? 0,
+      readingMissing: carriedCounts === undefined,
+      missingText: carriedCounts === undefined ? RELEASE_READING_MISSING : '',
       people: 0,
       peopleText: '',
       stateText: stateOf(row),

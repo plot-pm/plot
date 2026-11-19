@@ -16,6 +16,7 @@ import {
   sliceStateIn,
   type PlanRowFacts,
   type PlanSliceFact,
+  type ReleaseCarried,
   DELIVERY_LAYOUT,
   deliveryGroupAnchor,
   looseActions,
@@ -318,6 +319,8 @@ export interface DeliveryView {
   /** Every payload row the plan rows hold, for the section's pace mark. */
   releaseRows: AgentRow[];
   delivered: UnplacedView[];
+  /** The plans the section lists and the slices it counts per plan, for the release card no Active sprint names. */
+  releaseCarried: ReleaseCarried;
 }
 
 /** One plan row of the Release delivery section, with the item anchors its In flight lines link to. */
@@ -662,7 +665,7 @@ export const deliveryView = (
   const releasePlanCount = new Set(blocks.flatMap((b) => b.plans.map((p) => p.plan))).size;
   const releaseRows = blocks.flatMap((b) => b.plans.flatMap((p) => Object.values(p.itemIds).flatMap((id) => mapping.rowsByItem[id] ?? [])));
 
-  return { sections, notPlaced, releaseBlocks: blocks, releasePlanCount, releaseRows, delivered };
+  return { sections, notPlaced, releaseBlocks: blocks, releasePlanCount, releaseRows, delivered, releaseCarried: { approved, slicesByPlan } };
 };
 
 /** The Delivery scope as the section reads it: its kind and the sprints in scope. */

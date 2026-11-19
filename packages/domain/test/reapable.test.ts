@@ -267,10 +267,16 @@ describe('refDeletionProblems — a ref is not re-creatable', () => {
       expect(refRefusalsOf(deletable({ merge: 'not-merged' }))).toContain('no-merged-pr');
     });
 
-    it('keeps the ref when the host could not be asked', () => {
-      // Silence is never permission. The reading differs from `not-merged` and
-      // the verdict does not — the same direction `reapProblems` fails in.
-      expect(refRefusalsOf(deletable({ merge: 'unreachable' }))).toContain('no-merged-pr');
+    it('keeps the ref when the host could not be asked, under its own name', () => {
+      // Silence is never permission, and it is not unlanded work either (#3556).
+      const got = refRefusalsOf(deletable({ merge: 'unreachable' }));
+      expect(got).toContain('merge-unaskable');
+      expect(got).not.toContain('no-merged-pr');
+    });
+
+    it('keeps a merged ref when the open-PR lookup could not be asked', () => {
+      // The veto must not lapse when only its own lookup fails (#3556).
+      expect(refRefusalsOf(deletable({ openPrUnaskable: true }))).toEqual(['open-unaskable']);
     });
 
     it('keeps a ref an OPEN PR is using, even where an older PR merged', () => {

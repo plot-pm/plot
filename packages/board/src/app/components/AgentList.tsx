@@ -1190,12 +1190,13 @@ export function AgentList({
         // that follows it would call an unselected sprint's reading missing.
         const cardSprintOf = (s: FleetSprint) => ({ ...s, release: s.release ?? '', end: s.end ?? '', ownerHandle: s.ownerHandle ?? '', members: s.members ?? [] });
         const sprintCardView = sprintCardViewOf(sprintScope.sprints.map(cardSprintOf), reader, { ...mappingInput, rows: fleet.rows });
-        // THE RELEASE CARDS READ EVERY ROW TOO, and every reader sees the same cards.
-        // They read every Active sprint in both scopes: the to-do list's
-        // "Approve release" line reads them while the sprint card shows.
-        const releaseCardView = releaseCardsOf(activeSprints.map(cardSprintOf), reader.directory, { ...mappingInput, rows: fleet.rows });
         const placement = placeDelivery(mapping.readings, mapping.input);
         const view = placeMapping(mapping, fleet.slices, activeSprints, sprintScope, new Date(Date.now()));
+        // THE RELEASE CARDS READ EVERY ROW TOO, and every reader sees the same cards.
+        // They read every Active sprint in both scopes: the to-do list's
+        // "Approve release" line reads them while the sprint card shows. A card
+        // no Active sprint names counts the section's own plans and slices.
+        const releaseCardView = releaseCardsOf(activeSprints.map(cardSprintOf), reader.directory, { ...mappingInput, rows: fleet.rows }, view.releaseCarried);
         unplacedForFooter = view.notPlaced;
         const youHead = youHeaderOf({
           view, placement, reader, ticketAnswer: fleet.issueAnswer ?? null, phaseMap,

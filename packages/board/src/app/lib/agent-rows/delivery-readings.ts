@@ -12,6 +12,7 @@ import {
   releaseCards,
   releaseTargets,
   type ReleaseCardSprint,
+  type ReleaseCarried,
   type ReleaseCardView,
   type ReleaseTarget,
   type ReleaseTicketReading,
@@ -558,12 +559,14 @@ export interface ReleaseCardsOf {
  * @param sprints - the Active sprints.
  * @param directory - the declared `People` spellings; absent reads as none.
  * @param input - the payload's rows, unfiltered by the Sprint filter, and the rest of the Delivery tab's mapping input.
+ * @param carried - the Release delivery section's plans and counted slices (`DeliveryView.releaseCarried`), which a card no Active sprint names counts.
  * @returns the cards, in `releaseCards` order, and the rows they name.
  */
 export const releaseCardsOf = (
   sprints: readonly ReleaseCardSprint[],
   directory: PersonDirectory | undefined,
   input: DeliveryMapInput,
+  carried?: ReleaseCarried,
 ): ReleaseCardsOf => {
   const whole = deliveryMapping({ ...input, mode: 'all' });
   const rows: Record<string, AgentRow> = {};
@@ -572,6 +575,6 @@ export const releaseCardsOf = (
     if (row !== undefined) rows[item.id] = row;
     return { id: item.id, version: row?.version ?? '', pr: row?.pr?.number ?? null };
   });
-  const cards = releaseCards(sprints, readings, directory ?? {}, countedSlicesByPlan(whole.readings.items, input), whole.readings, whole.input);
+  const cards = releaseCards(sprints, readings, directory ?? {}, countedSlicesByPlan(whole.readings.items, input), whole.readings, whole.input, carried);
   return { cards, rows };
 };
