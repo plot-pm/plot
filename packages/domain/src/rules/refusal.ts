@@ -1,5 +1,6 @@
 import { boardSharePerHour } from './cadence.js';
 import type { SpendRate } from './budget-record.js';
+import type { HostRefusal } from '../ports/host.js';
 
 /**
  * Which limit a host refusal hit.
@@ -88,6 +89,25 @@ export const refusalKindOf = (kind: 'throttled' | 'secondary' | 'auth' | 'failed
   if (kind === 'secondary') return 'secondary';
   if (kind === 'auth') return 'auth';
   return refusalKind(said) ?? 'outage';
+};
+
+/**
+ * Names a connector refusal by its words alone, as the port's kind.
+ *
+ * A connector uses this where the reply carries no typed signal of its own: a
+ * GraphQL `errors` array, or a `403` with no `x-ratelimit-remaining` header.
+ * A spent quota is `throttled`, a burst `secondary`, a refused credential
+ * `auth`, and every other message `failed`.
+ *
+ * @param said - what the host said, verbatim.
+ * @returns the refusal kind.
+ */
+export const refusalKindOfWords = (said: string): HostRefusal['kind'] => {
+  const kind = refusalKind(said);
+  if (kind === 'quota') return 'throttled';
+  if (kind === 'secondary') return 'secondary';
+  if (kind === 'auth') return 'auth';
+  return 'failed';
 };
 
 /**

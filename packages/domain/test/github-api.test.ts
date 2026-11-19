@@ -342,6 +342,44 @@ describe('the rate-limit observations', () => {
     expect(answer.ok || answer.refusal).toEqual({ kind: 'throttled', said: 'API rate limit exceeded', waitMs: 0 });
   });
 
+  it('reads a GraphQL RATE_LIMIT error with the graphql_rate_limit code as throttled (measured 2026-11-19)', async () => {
+    const message = 'API rate limit already exceeded for user ID 870334.';
+    const stub = await stubApi((seen, res) =>
+      seen.path === '/user'
+        ? answering()(seen, res)
+        : json(res, 200, { errors: [{ type: 'RATE_LIMIT', code: 'graphql_rate_limit', message }] }, RATE('graphql', 0)),
+    );
+    const observed: LimitObservation[] = [];
+    const { api } = client(stub.url, { observe: (o) => observed.push(o), now: () => 1_788_003_000_000 });
+
+    const answer = await api.request(GRAPHQL);
+
+    expect(answer.ok || answer.refusal).toEqual({ kind: 'throttled', said: message, waitMs: 600_000 });
+    expect(observed).toEqual(['throttled']);
+  });
+
+  it('reads a GraphQL error that names a spent rate limit as throttled whatever its type', async () => {
+    const message = 'API rate limit already exceeded for user ID 870334.';
+    const stub = await stubApi((seen, res) =>
+      seen.path === '/user' ? answering()(seen, res) : json(res, 200, { errors: [{ message }] }),
+    );
+    const { api } = client(stub.url);
+
+    const answer = await api.request(GRAPHQL);
+
+    expect(answer.ok || answer.refusal).toEqual({ kind: 'throttled', said: message });
+  });
+
+  it('reads a 403 whose message names a spent rate limit as throttled when no remaining header came back', async () => {
+    const message = 'API rate limit already exceeded for user ID 870334.';
+    const stub = await stubApi((seen, res) => (seen.path === '/user' ? answering()(seen, res) : json(res, 403, { message })));
+    const { api } = client(stub.url);
+
+    const answer = await api.request(GRAPHQL);
+
+    expect(answer.ok || answer.refusal).toEqual({ kind: 'throttled', said: message });
+  });
+
   it('answers other refusals as failed, naming the status and the request', async () => {
     const stub = await stubApi((seen, res) =>
       seen.path === '/user' ? answering()(seen, res) : json(res, 502, { message: 'Server Error' }),

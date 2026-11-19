@@ -1,4 +1,5 @@
 import { refusalKind, resetApplies, prStatus } from '@plot-pm/domain';
+import { hostAnswer } from '@plot-pm/domain/rules/machine-health';
 import type { BoardStatus } from '@plot-pm/domain/rules/default-branch';
 import {
   type AgentRow,
@@ -164,89 +165,11 @@ export function hostCannotReportCi(rows: readonly AgentRow[]): boolean {
 }
 
 /**
- * Which clock the host-derived sections were read from.
- *
- * Four answers, because the board has four situations and printed one word for
- * two of them. `none` under WAITING ON A MACHINE was shown both when the host
- * had answered and reported nothing pending, and when the host had not been
- * asked at all — opposite situations wanting opposite responses, with the
- * reassuring one as the default.
- *
- * Measured 2026-08-18 from two screenshots of one board 22 seconds apart. At
- * `PR data 22s ago` the section read `none` and no row carried a status; at
- * `PR data 4s ago` the same board reported #57 `conflicts`, #196 `checks
- * failing` since the previous day, and #203 `CI running`. Nothing changed on
- * the host between them. A branch whose CI had been red overnight presented as
- * unremarkable, and the operator read the board as having LOST its state when
- * it had simply not yet fetched it.
- *
- * This is `docs/plans/2026-08-17-an-outage-is-not-an-answer.md`'s rule — a
- * failure to observe must not be reported as an observation — at the one
- * boundary that plan did not cross. An outage at least produces an error to
- * carry; a first fetch that has not happened produces nothing at all, which is
- * how it survived a plan written to catch exactly this shape.
- *
- * FOUR STATES, NOT THREE. `unreachable` is deliberately not folded into
- * `unasked`, and that was the plan's one open question. Both mean *no host
- * fact is on this board*, so one label would be defensible — but they want
- * different responses. `unasked` resolves itself in seconds and asks the reader
- * for nothing; `unreachable` will not resolve until somebody looks at the
- * error, and `an-outage-is-not-an-answer` is the plan that established an
- * outage must be visible AS an outage. Collapsing them would re-file a standing
- * fault as a passing one.
- *
- * The distinction costs nothing to compute, because the server already draws
- * it: `refreshPrs` leaves `prAt` untouched when the call throws (`fleet.ts`),
- * so a null age beside an error is a FIRST fetch that failed, while a null age
- * with no error is a fetch not yet made. The footer has read the pair this way
- * all along — `· no PR data yet` is already gated on both.
- *
- * A FIRST-LOAD STATE, NOT A STALENESS DISPLAY. Once the host has answered,
- * every later answer is `answered` no matter how old, because ordinary ageing
- * is what the footer reports (`PR data 111s ago`) and re-labelling every
- * section every 60 s would trade one misreading for a flicker. `prAgeSeconds`
- * is therefore tested against null and never against a threshold.
- *
- * THE SCAN'S OWN AGE IS NOT CONSULTED. `fleet.ageSeconds` dates the git scan,
- * which is cheap and runs every few seconds; `prAgeSeconds` dates the host,
- * which is metered and runs every 60. Conflating them into one page age is what
- * let a git-fresh board read as host-fresh, so a PR-derived field must never
- * borrow the scan's clock.
- *
- * Exported for test.
+ * How far the host answered the board's PR read, and the words for each state
+ * — the domain's `hostAnswer` rule (`rules/machine-health.ts`), re-exported for
+ * the board's views.
  */
-export type HostAnswer = 'answered' | 'unasked' | 'unreachable';
-
-/**
- * Read the host's answer state off a fleet.
- *
- * Reads ONLY the two PR fields. Passing the whole fleet would let a later edit
- * reach for `ageSeconds` and silently reintroduce the conflation this exists to
- * remove, so the parameter names exactly what it is allowed to see.
- */
-export function hostAnswer(
-  fleet: Pick<Fleet, 'prAgeSeconds' | 'prError'>,
-): HostAnswer {
-  if (fleet.prAgeSeconds !== null) return 'answered';
-  return fleet.prError ? 'unreachable' : 'unasked';
-}
-
-/**
- * What an empty host-fed section says when the host has not answered.
- *
- * EVIDENCE, NOT VERDICT. Each says what happened to the call and stops there:
- * no estimate, no retry count, and above all no *probably fine*. The rule the
- * scan's own outputs follow — scripts collect, humans conclude (Manifesto
- * Principle 3).
- *
- * Both must avoid the shape of the default hint (*nothing — a machine is
- * working*), which is a CLAIM about the machines. An empty section that still implies
- * something is running is the failure being corrected, whatever words it uses.
- */
-export const HOST_ANSWER_HINT: Record<Exclude<HostAnswer, 'answered'>, string> = {
-  unasked: 'not checked yet',
-  unreachable: 'could not reach the host',
-};
+export { HOST_ANSWER_HINT, hostAnswer, type HostAnswer } from '@plot-pm/domain/rules/machine-health';
 
 /**
  * The kind of a host failure — FOUR states, because there are two limits.
@@ -564,7 +487,7 @@ export type ScanHostVerdict = Fleet['summary']['host'];
  * Exported for test — the wording is the contract with the reader.
  */
 export function scanHostNote(
-  fleet: Pick<Fleet, 'summary'>,
+  fleet: Pick<Fleet, 'summary'> & Partial<Pick<Fleet, 'prNextInSeconds'>>,
 ): string | null {
   // `summary` is CAST rather than parsed on the client, so a payload from a
   // server that predates the field arrives as `undefined` here — the
@@ -572,9 +495,12 @@ export function scanHostNote(
   // save because it fires only at parse time. Guarded rather than assumed.
   const host = fleet.summary?.host;
   if (host === 'throttled') {
+    const when = resetPhrase(fleet.prNextInSeconds ?? null);
     return "Fleet scan blind: the git host's rate limit was spent, so no PR could be read."
       + ' Every branch below reads from local evidence alone and none was offered to'
-      + ' --next — the budget refills on a clock, so a later scan will say more.';
+      + ' --next — the budget refills on a clock'
+      + (when ? ` (refills in ~${when})` : '')
+      + ', so a later scan will say more.';
   }
   if (host === 'secondary') {
     return 'Fleet scan blind: the git host refused a burst, not a spent budget, so no PR'

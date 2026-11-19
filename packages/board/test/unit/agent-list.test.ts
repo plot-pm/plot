@@ -2329,6 +2329,14 @@ describe('the board says when it has not asked', () => {
     expect(HOST_ANSWER_HINT.unreachable).not.toBe(HOST_ANSWER_HINT.unasked);
   });
 
+  it('reads a first call refused by a rate limit as rate-limited, never unreachable (measured 2026-11-19)', () => {
+    // GraphQL was spent and REST and auth were fine; the Machine section read
+    // "host could not reach the host" and sent the reader to check the host.
+    expect(hostAnswer({ prAgeSeconds: null, prError: 'GraphQL: API rate limit already exceeded for user ID 870334.' })).toBe('rate-limited');
+    expect(hostAnswer({ prAgeSeconds: null, prError: 'You have exceeded a secondary rate limit' })).toBe('rate-limited');
+    expect(HOST_ANSWER_HINT['rate-limited']).not.toMatch(/could not reach/);
+  });
+
   it('keeps DATA that landed once, even while the latest refresh is failing', () => {
     // `refreshPrs` leaves `prAt` untouched when the call throws, deliberately:
     // a failure keeps the last good map rather than blanking it. So an error
@@ -2732,6 +2740,12 @@ describe('scanHostNote — the scan says when it could not ask', () => {
     expect(note).toContain('refills on a clock');
     // And it must not send the reader on the outage errand.
     expect(note).not.toContain('check the host');
+  });
+
+  it('names when a spent budget refills, where the reset is known', () => {
+    const note = scanHostNote({ ...at('throttled'), prNextInSeconds: 840 } as Fleet);
+    expect(note).toContain('refills in ~14 min');
+    expect(scanHostNote({ ...at('throttled'), prNextInSeconds: null } as Fleet)).not.toContain('refills in');
   });
 
   it('names an unreachable host, and says waiting will NOT help', () => {

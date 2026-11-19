@@ -89,6 +89,13 @@ describe('a walk refused mid-way is never whole', () => {
     expect((await listing.prListing({ state: 'open', limit: 10 })).refusal).toEqual({ kind: 'failed', said: 'GraphQL: Could not resolve to a Repository' });
   });
 
+  it('a GraphQL error naming a spent rate limit is a throttled refusal, never failed', async () => {
+    const { listing } = await listingOver(null, () => ({ status: 200, body: { data: null, errors: [{ message: 'API rate limit already exceeded for user ID 870334.' }] } }));
+    const answered = await listing.prListing({ state: 'merged', limit: 10 });
+    expect(answered.answer).toBe('failed');
+    expect(answered.refusal).toMatchObject({ kind: 'throttled', said: 'API rate limit already exceeded for user ID 870334.' });
+  });
+
   it('a rich-open listing whose second half fails keeps the open rows and names both states', async () => {
     const recorded = fixtures.get('all-rich-open');
     const { listing } = await listingOver('all-rich-open', (_body, index) => (index === 0 ? null : { status: 502, body: { message: 'Bad gateway' } }));

@@ -4,6 +4,7 @@ import {
   localSpenders,
   refusalKind,
   refusalKindOf,
+  refusalKindOfWords,
   refusalReport,
   resetApplies,
 } from '../src/rules/refusal.js';
@@ -201,5 +202,16 @@ describe('refusalKindOf', () => {
     expect(refusalKindOf('failed', 'You have exceeded a secondary rate limit')).toBe('secondary');
     expect(refusalKindOf('failed', 'HTTP 503')).toBe('outage');
     expect(refusalKindOf('failed', '')).toBe('outage');
+  });
+});
+
+describe('refusalKindOfWords — a connector refusal named by its words', () => {
+  it('names a spent GraphQL window throttled, a burst secondary, a 401 auth, and anything else failed', () => {
+    expect(refusalKindOfWords('GraphQL: API rate limit already exceeded for user ID 870334.')).toBe('throttled');
+    expect(refusalKindOfWords('API rate limit exceeded for user ID 1.')).toBe('throttled');
+    expect(refusalKindOfWords('You have exceeded a secondary rate limit.')).toBe('secondary');
+    expect(refusalKindOfWords('HTTP 401: Bad credentials')).toBe('auth');
+    expect(refusalKindOfWords('GraphQL: Could not resolve to a Repository')).toBe('failed');
+    expect(refusalKindOfWords('')).toBe('failed');
   });
 });
