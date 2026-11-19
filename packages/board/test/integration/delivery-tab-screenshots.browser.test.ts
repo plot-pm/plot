@@ -14,6 +14,9 @@ import { openCatalogue, type Catalogue } from '../catalogue/index.js';
  * `index.css` imports reached the built CSS. Where `PLOT_SCREENSHOT_DIR` is set,
  * it writes `<section>-light.png`, `<section>-dark.png` and `<section>-320.png`
  * there, and renders each mockup the section names to `<section>-mock-<n>.png`.
+ * The sprint card shows only under the «My sprint» chip, which also narrows You,
+ * Work items and the release section to the sprint, so the 1280 px runs shoot
+ * every section unfiltered and then `header-my-sprint-<theme>.png` with the chip on.
  */
 
 const MOCKUPS = fileURLToPath(new URL('../../../../docs/superpowers/specs/2026-11-16-delivery-tab-mockups/', import.meta.url));
@@ -64,9 +67,6 @@ describe('the Delivery tab in each theme and at 320 px (real browser renders the
   const openDelivery = async (width: number, colorScheme: 'light' | 'dark'): Promise<Page> => {
     const page = await cat.open('every-delivery-section', { tab: 'agents', viewport: { width, height: 900 }, colorScheme });
     await page.locator('[data-section="fleet"]').waitFor({ timeout: 10_000 });
-    // The sprint card shows only under the «My sprint» chip, and a click is no payload field.
-    const mySprint = page.locator('[data-chip="My sprint"]');
-    if (await mySprint.count() > 0 && await mySprint.isEnabled()) await mySprint.click();
     return page;
   };
 
@@ -104,6 +104,9 @@ describe('the Delivery tab in each theme and at 320 px (real browser renders the
       const page = await openDelivery(1280, scheme);
       try {
         for (const section of SECTIONS) await shoot(page, section, `${section.name}-${scheme}.png`);
+        await page.locator('[data-chip="My sprint"]').click();
+        await page.locator('[data-sprint-card]').waitFor({ timeout: 10_000 });
+        await shoot(page, SECTIONS[0], `header-my-sprint-${scheme}.png`);
       } finally {
         await page.close();
       }

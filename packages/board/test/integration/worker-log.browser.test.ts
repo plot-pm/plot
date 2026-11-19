@@ -402,7 +402,8 @@ describe('the worker log panel: offered by a WORKING row, four outcomes, four an
       // The menu must sit inside the viewport, or the click scrolls the page first.
       // Measured 2026-11-18: with the 64px release cards in the header, the menu's
       // bottom sat at 735px, below the default 720px fold.
-      await page.setViewportSize({ width: 1280, height: 900 });
+      // 900 became 1200 on 2026-11-19, when the Delivery sections took card padding and visible header rows and the Fleet row's menu button ended at 918.5px.
+      await page.setViewportSize({ width: 1280, height: 1200 });
       await makeScrollable(page, 60);
       await openPanel(page);
       await page.getByRole('button', { name: 'Close' }).click();
