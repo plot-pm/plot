@@ -213,9 +213,13 @@ export function hostCannotReportCi(rows: readonly AgentRow[]): boolean {
  * let a git-fresh board read as host-fresh, so a PR-derived field must never
  * borrow the scan's clock.
  *
+ * `rate-limited` is a failed first call whose error the domain's `refusalKind`
+ * reads as a spent quota or a burst (`hostErrorState`). A host that refused on
+ * its limit was reached, so it does not read `unreachable`.
+ *
  * Exported for test.
  */
-export type HostAnswer = 'answered' | 'unasked' | 'unreachable';
+export type HostAnswer = 'answered' | 'unasked' | 'unreachable' | 'rate-limited';
 
 /**
  * Read the host's answer state off a fleet.
@@ -228,7 +232,9 @@ export function hostAnswer(
   fleet: Pick<Fleet, 'prAgeSeconds' | 'prError'>,
 ): HostAnswer {
   if (fleet.prAgeSeconds !== null) return 'answered';
-  return fleet.prError ? 'unreachable' : 'unasked';
+  const state = hostErrorState(fleet.prError);
+  if (state === null) return 'unasked';
+  return state === 'unreachable' ? 'unreachable' : 'rate-limited';
 }
 
 /**
@@ -246,6 +252,7 @@ export function hostAnswer(
 export const HOST_ANSWER_HINT: Record<Exclude<HostAnswer, 'answered'>, string> = {
   unasked: 'not checked yet',
   unreachable: 'could not reach the host',
+  'rate-limited': 'rate-limited',
 };
 
 /**
@@ -564,7 +571,7 @@ export type ScanHostVerdict = Fleet['summary']['host'];
  * Exported for test — the wording is the contract with the reader.
  */
 export function scanHostNote(
-  fleet: Pick<Fleet, 'summary'>,
+  fleet: Pick<Fleet, 'summary'> & Partial<Pick<Fleet, 'prNextInSeconds'>>,
 ): string | null {
   // `summary` is CAST rather than parsed on the client, so a payload from a
   // server that predates the field arrives as `undefined` here — the
@@ -572,9 +579,12 @@ export function scanHostNote(
   // save because it fires only at parse time. Guarded rather than assumed.
   const host = fleet.summary?.host;
   if (host === 'throttled') {
+    const when = resetPhrase(fleet.prNextInSeconds ?? null);
     return "Fleet scan blind: the git host's rate limit was spent, so no PR could be read."
       + ' Every branch below reads from local evidence alone and none was offered to'
-      + ' --next — the budget refills on a clock, so a later scan will say more.';
+      + ' --next — the budget refills on a clock'
+      + (when ? ` (refills in ~${when})` : '')
+      + ', so a later scan will say more.';
   }
   if (host === 'secondary') {
     return 'Fleet scan blind: the git host refused a burst, not a spent budget, so no PR'

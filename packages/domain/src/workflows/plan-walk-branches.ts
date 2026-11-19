@@ -12,6 +12,7 @@ import {
   type WaitsReading,
 } from '../rules/branch-state.js';
 import { realCommits } from '../rules/empty-claim.js';
+import { refusalKindOfWords } from '../rules/refusal.js';
 import { encodeListingKey, type CarriedPrStates, type ReportedListingRow } from '../rules/scan-listing.js';
 import { mergeDetectOf, mergedBySubject, type MergeDetect } from '../rules/merge-subject.js';
 import { ownerOfRemote } from '../rules/remote-owner.js';
@@ -195,12 +196,16 @@ export interface BranchStageReadings {
 /**
  * Classifies a failed host list call into the reach the branch rule takes.
  *
+ * A `failed` or unnamed refusal is read by its words, so a spent quota or a
+ * burst a connector did not type still reads `throttled` or `secondary`.
+ *
  * @param kind - the refusal's kind, or `null` where the host named none.
  * @param said - what the connector said.
  * @returns the reach.
  */
 const reachOfRefusal = (kind: HostRefusal['kind'] | null, said: string): HostReach => {
-  if (kind === 'throttled' || kind === 'secondary') return kind;
+  const named = kind === 'failed' || kind === null ? refusalKindOfWords(said) : kind;
+  if (named === 'throttled' || named === 'secondary') return named;
   if (kind === 'auth') return 'unasked';
   return UNASKED_PATTERNS.some((pattern) => pattern.test(said)) ? 'unasked' : 'failed';
 };

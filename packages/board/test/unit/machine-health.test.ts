@@ -75,6 +75,12 @@ describe('machineHealth', () => {
     for (const h of [unasked, down]) expect(h.line).not.toMatch(/left|0 \//);
   });
 
+  it('shows a host that refused on a rate limit as rate-limited, never as unreachable', () => {
+    const limited = machineHealth(machine({ host: null }), 'rate-limited');
+    expect(limited.line).toContain('host rate-limited');
+    expect(limited.line).not.toContain('could not reach');
+  });
+
   it('says a budget is not reported when the record has no reading', () => {
     const h = machineHealth(machine({ host: { connector: 'github', buckets: [] } }));
     expect(h.line).toContain('GitHub budget not reported');
