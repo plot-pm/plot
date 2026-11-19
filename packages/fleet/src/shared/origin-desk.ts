@@ -11,6 +11,7 @@ import { planStoreRef } from '@plot-pm/domain/adapters/plan-store/plan-store-ref
 import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
 import { hostShell } from '@plot-pm/domain/adapters';
 import { planForBranch, plansMentioning } from '@plot-pm/domain/rules/plan-for-branch';
+import { planNamesBranch } from '@plot-pm/domain/rules/plan-names-branch';
 import { planSlug } from '@plot-pm/domain/rules/auto-dispatch';
 import { chooseSprintPlans, sliceBaseRef, SPRINT_BRANCH_PREFIX, type BasedPlan } from '@plot-pm/domain/rules/slice-base';
 import { deskRoot, deskRootPlacement } from '@plot-pm/domain/rules/desk-root';
@@ -60,13 +61,14 @@ export interface OriginDeskInput {
   host?: Pick<Host, 'prState' | 'prMerged'>;
 }
 
-/** Plan files under `planDir` on `ref` whose slices name `branch`. */
+/** Plan files under `planDir` on `ref` whose slices name `branch`, and that `keep` accepts. */
 const plansNaming = async (
   refs: Refs,
   context: { repoRoot: string; scriptDir: string },
   ref: string,
   planDir: string,
   branch: string,
+  keep: (record: PlanRecord) => boolean = () => true,
 ): Promise<PortResult<readonly PlanRecord[]>> => {
   const listing = await refs.listBlobs(ref, planDir);
   if (!listing.ok) return failed<readonly PlanRecord[]>();
@@ -81,7 +83,7 @@ const plansNaming = async (
   if (candidates.length === 0) return answered<readonly PlanRecord[]>([]);
   const records = await planStoreRef(refs, context, ref, planDir).readPlans(candidates);
   if (!records.ok) return failed<readonly PlanRecord[]>();
-  return answered(records.value.filter((record) => record.error === undefined && planForBranch([record], branch) !== undefined));
+  return answered(records.value.filter((record) => record.error === undefined && planForBranch([record], branch) !== undefined && keep(record)));
 };
 
 /** The plan reading for a record and its base. */
@@ -148,6 +150,26 @@ export const originPlanFor = async (
   branch: string,
 ): Promise<OriginPlanReading> => {
   const found = await originPlanBy(refs, context, (ref, planDir) => plansNaming(refs, context, ref, planDir, branch));
+  return found.kind === 'chosen' ? namedPlan(found.plan.record, branch, found.plan.base) : found;
+};
+
+/**
+ * The plan that names `branch` by `planNamesBranch`, read as {@link originPlanFor}
+ * reads it: a finished plan is skipped, so a plan that is not finished and also
+ * names the branch is found.
+ *
+ * @param refs - the ref reader.
+ * @param context - where the scripts live and which repository to parse in.
+ * @param branch - the branch to find.
+ * @returns the plan with its base, `none`, or `unreadable` where a listing failed.
+ */
+export const originNamingPlanFor = async (
+  refs: Refs,
+  context: { repoRoot: string; scriptDir: string },
+  branch: string,
+): Promise<OriginPlanReading> => {
+  const found = await originPlanBy(refs, context, (ref, planDir) =>
+    plansNaming(refs, context, ref, planDir, branch, (record) => planNamesBranch(record, branch)));
   return found.kind === 'chosen' ? namedPlan(found.plan.record, branch, found.plan.base) : found;
 };
 

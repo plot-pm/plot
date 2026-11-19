@@ -5,6 +5,7 @@ import type { PortResult } from '../port-result.js';
 import type { OriginPlanReading } from './origin-resume.js';
 import { isEmptyClaim, type CommitReading } from './empty-claim.js';
 import { SPRINT_BRANCH_PREFIX } from './slice-base.js';
+import { planIsFinished } from './plan-names-branch.js';
 
 /** Why the delete controller refuses a branch. */
 export type LooseDeleteRefusal =
@@ -31,7 +32,7 @@ export interface LooseDeleteReadings {
   readonly branch: string;
   /** The repository's default branch. */
   readonly defaultBranch: PortResult<string>;
-  /** The plan whose slice names the branch, on the default branch or a sprint branch. */
+  /** The plan whose slice names the branch, on the default branch or a sprint branch; a finished plan names none. */
   readonly plan: OriginPlanReading;
   /** Whether a worktree on this machine holds the branch. */
   readonly desk: PortResult<boolean>;
@@ -78,7 +79,8 @@ const closedWork = (readings: LooseDeleteReadings): boolean =>
  *
  * Refuses, in this order: an unattended caller; the default branch, a
  * `sprint/` integration branch and a `changeset-release/` branch (`protected`);
- * a branch a plan's slice names (`named`); a branch a desk on this machine or a
+ * a branch a slice of a plan that is not finished names, deferred or not
+ * (`named`, through {@link planIsFinished}); a branch a desk on this machine or a
  * registry manifest holds (`held`); a branch carrying a claim marker, which
  * `release-claim` gives up instead (`claimed`), unless the branch also holds
  * work whose PR the host closed unmerged; a host that cannot be asked
@@ -100,7 +102,7 @@ export const looseDelete = (readings: LooseDeleteReadings): LooseDeleteDecision 
   if (branch.startsWith(SPRINT_BRANCH_PREFIX)) return refuse('protected', `${branch} is a sprint integration branch`);
   if (branch.startsWith(RELEASE_BRANCH_PREFIX)) return refuse('protected', `${branch} is the release branch Changesets writes`);
   if (readings.plan.kind === 'unreadable') return refuse('unaskable', 'the plans that could name the branch cannot be read');
-  if (readings.plan.kind === 'named') return refuse('named', `${readings.plan.file} names ${branch} in a slice`);
+  if (readings.plan.kind === 'named' && !planIsFinished(readings.plan.phase)) return refuse('named', `${readings.plan.file} names ${branch} in a slice`);
   if (!readings.desk.ok) return refuse('unaskable', 'git cannot list the worktrees on this machine');
   if (readings.desk.value) return refuse('held', `a worktree on this machine holds ${branch}`);
   if (!readings.manifests.ok) return refuse('unaskable', 'the agent registry cannot be read');

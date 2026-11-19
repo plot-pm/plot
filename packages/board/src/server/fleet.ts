@@ -5864,6 +5864,18 @@ const closedReadings = (): QuietBranchReadings => ({
 });
 
 /**
+ * The note of a branch whose PR the host closed unmerged, with the age said
+ * second, in the shape `classifyGroup` gives the `wip` fallthrough.
+ *
+ * @param ageMinutes - minutes since the branch's last commit, or null.
+ * @returns the note.
+ */
+const closedPrNote = (ageMinutes: number | null): string => {
+  const said = quietNote(closedReadings());
+  return ageMinutes === null ? `${said}, age unknown` : `${said} — last commit ${humanAge(ageMinutes)} ago`;
+};
+
+/**
  * Which kind of quiet this ROW is in, or null where the question is not asked.
  *
  * The row-level counterpart to the two arms inside `classifyGroup`: it answers
@@ -8226,6 +8238,10 @@ export function rowsFromPulse(
     // `quietPlacement` has said `closed-pr` needs nobody since the kind
     // existed; this is the section catching up with that answer.
     const placed: WaitingGroup = prClosed ? 'done' : group;
+    // THE NOTE MOVES WITH THE KIND TOO. `classify` was handed no PR, so its
+    // note says *commits, no PR ever opened* for a branch whose PR the host
+    // closed; the closed reading states the sentence `quietKind` answers.
+    const shownNote = prClosed ? closedPrNote(ageMinutes) : note;
     // `hostUnasked` REACHES THIS PATH TOO, and that is the asymmetry :6585
     // already records as measured once: a fix applied at the plan-branch call
     // site alone leaves every loose branch still reading *"commits, no PR ever
@@ -8270,7 +8286,7 @@ export function rowsFromPulse(
       phase: null,
       group: placed,
       ageMinutes,
-      note,
+      note: shownNote,
       // No worktree was read for this row.
       question: null,
       branch,

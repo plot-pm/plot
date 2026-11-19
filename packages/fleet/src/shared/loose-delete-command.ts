@@ -4,7 +4,7 @@ import { answered, failed, looseDelete, type Caller, type Host, type LooseDelete
 import { hostShell, refsGit, refsRemoteGit, treesGit } from '@plot-pm/domain/adapters';
 import { pinnedTipsFile } from '@plot-pm/domain/adapters/pinned-tips/pinned-tips-file';
 import type { OriginPlanReading } from '@plot-pm/domain/rules/origin-resume';
-import { originPlanFor } from './origin-desk.js';
+import { originNamingPlanFor } from './origin-desk.js';
 import { resolveManifestDir } from './registry.js';
 
 /** The ports the delete controller reads and writes through; a test replaces each. */
@@ -13,7 +13,7 @@ export interface LooseDeletePorts {
   readonly refs: Pick<Refs, 'resolve' | 'remoteSha' | 'defaultBranch' | 'commitSubjects' | 'countAheadSync'>;
   readonly trees: Pick<Trees, 'forBranch' | 'deleteRemoteBranch'>;
   readonly pinnedTips: PinnedTips;
-  /** The plan whose slice names the branch, on the default branch or a sprint branch. */
+  /** The plan that names the branch by `planNamesBranch`, on the default branch or a sprint branch. */
   readonly plan: (branch: string) => Promise<OriginPlanReading>;
   /** The sessions of the registry manifests that name the branch, live or not. */
   readonly manifests: (branch: string) => Promise<PortResult<readonly string[]>>;
@@ -71,7 +71,7 @@ export const loosePorts = (repoRoot: string, scriptsDir: string): LooseDeletePor
     refs: { ...refs, remoteSha: refsRemoteGit(context).remoteSha },
     trees: treesGit(context),
     pinnedTips: pinnedTipsFile({ cwd: repoRoot }),
-    plan: (branch) => originPlanFor(refs, context, branch),
+    plan: (branch) => originNamingPlanFor(refs, context, branch),
     manifests: async (branch) => manifestsNaming(resolveManifestDir(repoRoot, { scriptsDir }), branch),
   };
 };
