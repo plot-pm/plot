@@ -46,6 +46,18 @@ export const planOpenQuestions = (text: string): OpenQuestions | null => {
 export const openQuestionsChip = (q: OpenQuestions | null | undefined): string | null =>
   q === null || q === undefined ? null : `${q.count} open`;
 
+/** The tone of the open-questions chip. */
+export type OpenQuestionsTone = 'warn' | 'neutral';
+
+/**
+ * The tone of the open-questions chip.
+ *
+ * @param q - the plan's open questions.
+ * @returns `warn` where a question is open, `neutral` where the count is 0, and `null` where `openQuestionsChip` is `null`.
+ */
+export const openQuestionsTone = (q: OpenQuestions | null | undefined): OpenQuestionsTone | null =>
+  q === null || q === undefined ? null : q.count > 0 ? 'warn' : 'neutral';
+
 /** The "+n more" link text for the questions beyond the first, or `null` where n is not above 0. */
 export const openQuestionsMore = (q: OpenQuestions | null | undefined): string | null =>
   q === null || q === undefined || q.count <= 1 ? null : `+${q.count - 1} more`;

@@ -58,7 +58,12 @@ export interface Cell {
 export interface CellPart {
   value: string;
   link: LinkTarget | null;
+  /** The reading behind a gate mark. Absent on a part that is no gate mark, such as the PR state or the unpushed count. */
+  outcome?: GateOutcome;
 }
+
+/** What a gate read as: `none` is a review nobody asked for, which differs from a gate nobody read (no part). */
+export type GateOutcome = 'pass' | 'pending' | 'fail' | 'none';
 
 /** One row in the seven columns. DO is `null` outside the You section. */
 export type RowCells = Record<RowColumn, Cell | null>;
@@ -257,21 +262,29 @@ export const gateMarks = (pr: PrReading): GateMarks => {
   return { ci: pr.ci === 'unread' ? null : `CI ${GATE_MARK[pr.ci]}`, review };
 };
 
+const CI_OUTCOME = { running: 'pending', failed: 'fail', passed: 'pass' } as const;
+const REVIEW_OUTCOME = { pending: 'pending', high: 'fail', passed: 'pass', none: 'none' } as const;
+
 /**
  * The Gates cell of a work item at a gate: one mark per gate, each linked to its own page.
  *
  * @param pr - the PR's gate readings, or `undefined` where none was read.
  * @param number - the PR number the links point at, or `undefined` where unknown.
- * @returns the cell, or `null` where neither gate was read.
+ * @returns the cell, or `null` where neither gate was read. Each part carries an `outcome` read from `pr`, never from the mark's glyph.
  */
 export const gatesCell = (pr: PrReading | undefined, number: number | undefined): Cell | null => {
   if (pr === undefined) return null;
   const marks = gateMarks(pr);
   const parts: CellPart[] = [
-    ...(marks.ci === null ? [] : [{ value: marks.ci, link: number === undefined ? null : { to: 'checks', pr: number } as const }]),
-    ...(marks.review === null ? [] : [{
+    ...(marks.ci === null || pr.ci === 'unread' ? [] : [{
+      value: marks.ci,
+      link: number === undefined ? null : { to: 'checks', pr: number } as const,
+      outcome: CI_OUTCOME[pr.ci],
+    }]),
+    ...(marks.review === null || pr.review === 'unread' ? [] : [{
       value: marks.review,
       link: number === undefined || pr.review === 'none' ? null : { to: 'review', pr: number } as const,
+      outcome: REVIEW_OUTCOME[pr.review],
     }]),
   ];
   if (parts.length === 0) return null;
