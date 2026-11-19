@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** bug-fixes-2-35-0
 - **Issue:**
@@ -21,6 +21,7 @@
 - **Started:** 2026-11-19, Jan Wloka, `feature/delivery-visual-fleet`
 - **Started:** 2026-11-19, Jan Wloka, `feature/delivery-visual-you`
 - **Started:** 2026-11-19, Jan Wloka, `feature/delivery-visual-work-items`
+- **Delivered:** 2026-11-19
 
 ## Changelog
 
