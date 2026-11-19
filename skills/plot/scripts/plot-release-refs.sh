@@ -107,9 +107,9 @@ die() { echo "plot-release-refs: $*" >&2; exit 2; }
 command -v git >/dev/null 2>&1 || die "git not found"
 git rev-parse --git-dir >/dev/null 2>&1 || die "not a git repository"
 
-# The SAME gate the reaper uses, sourced rather than re-derived. `pr_merged`
-# reads `mergedAt` on ANY PR (never `state`, never ancestry); `pr_open` answers
-# the veto in guard 3.
+# The SAME lookups the reaper uses, sourced rather than re-derived:
+# `_plot_merged_lookup` reads `mergedAt` on ANY PR (never `state`, never
+# ancestry), and `_plot_open_lookup` answers the open-PR veto.
 . "$script_dir/plot-pr-merged.sh"
 
 cfg() { bash "$script_dir/plot-config.sh" get "$1" "$2"; }
@@ -169,27 +169,17 @@ fi
 # that estate may hold dozens of trees. The answer cannot change underneath a
 # single run in a way that matters — a worktree created mid-run holds a branch
 # whose ref this run has not yet reached, and the next run sees it.
-#
-# THE TREE'S STATE IS COLLECTED TOO, and that is what the shared rule needed.
-# `finishedWith` answers four conditions from a worktree, and it answers them
-# `unknown` where there is none — so it has to be told whether one was found.
-# That is a reading, not a refusal: this script asks none of those four, and
-# passing the tree is what lets the rule say `unknown` instead of inventing
-# `false`. Git's own `prunable` distinguishes a listed tree whose directory is
-# gone from one that was never made; both are unaskable, and the rule keeps the
-# two words apart because an operator acts on them differently.
 checked_out=$(git worktree list --porcelain 2>/dev/null \
-                | awk '/^worktree /{wt=substr($0,10); pr="no"}
-                       /^prunable/{pr="yes"}
-                       /^branch refs\/heads\//{print substr($0,19) "\t" wt "\t" pr}')
+                | awk '/^worktree /{wt=substr($0,10)}
+                       /^branch refs\/heads\//{print substr($0,19) "\t" wt}')
 
-# The worktree holding a branch and whether git calls it prunable, or empty
-# when no tree holds it.
+# The worktree holding a branch, or empty when no tree holds it.
 worktree_of() {
-  printf '%s\n' "$checked_out" | awk -F'\t' -v b="$1" '$1 == b {print $2 "\t" $3; exit}'
+  printf '%s\n' "$checked_out" | awk -F'\t' -v b="$1" '$1 == b {print $2; exit}'
 }
 
 released=0; kept=0; deleted=0
+remote=$(git ls-remote --heads origin 2>/dev/null) || remote=unread
 printf '%-8s %-52s %s\n' "verdict" "branch" "why"
 
 # Branch and its deferred flag, one per line, from the plan's own parser.
@@ -205,115 +195,61 @@ while IFS=$'\t' read -r br deferred; do
   # `if` about whether a ref may go — only about which conditions it asks and
   # what to do with the answers.
   #
-  # `pr_merged` reads `mergedAt` on ANY PR (never `state`, never ancestry) and
-  # answers false when the host cannot be asked, so silence keeps the ref.
-  # `pr_open` is asked separately rather than derived from it: a branch carries
-  # both, and `changeset-release/main` is the measured case.
-  merge=not-merged
-  pr_merged "$br" && merge=merged
-
-  open_pr=false
-  pr_open "$br" && open_pr=true
-
-  # WHETHER A TREE HOLDS THE BRANCH, AND IN WHAT STATE. Three words, because
-  # the rule answers its four tree-sourced conditions `unknown` without one and
-  # `unknown` is a reading rather than a failure. `vanished` is git's own
-  # `prunable`: it reads like `absent` to every condition — there is equally
-  # nothing to measure — and stays a separate word because `git worktree prune`
-  # is the repair for one and not the other.
-  #
-  # NOTHING INSIDE THE TREE IS READ. A live pid, an uncommitted file and a
-  # `PLOT-BLOCKED` marker are the reaper's three conditions and this script
-  # asks none of them; measuring them here would put a refusal within one edit's
-  # reach of a licence written narrow on purpose. A checked-out branch keeps its
-  # ref whatever is going on inside it, which is guard 4 and needs no reading
-  # from the tree at all.
-  wt_line=$(worktree_of "$br")
-  wt=${wt_line%%$'\t'*}
-  prunable=${wt_line#*$'\t'}
-  tree=absent
-  if [ -n "$wt" ]; then
-    if [ "$prunable" = "yes" ] || [ ! -d "$wt" ]; then tree=vanished; else tree=present; fi
+  # A REF ORIGIN DOES NOT HOLD HAS NOTHING TO RELEASE, and asking the host about
+  # it only spends the limit. A listing that failed asks the host as before.
+  if [ "$remote" != unread ] && ! awk -v r="refs/heads/$br" '$2 == r {f=1} END {exit !f}' <<<"$remote"; then
+    printf '%-8s %-52s %s\n' "absent" "$br" "no remote ref — nothing to release"; continue
   fi
 
-  # THE DECISION. `packages/domain/src/rules/reapable.ts`, imported directly —
-  # the same shape and the same reason as `plot-reap.sh`: node 24 strips the
-  # types, so there is no build step between this script and the rule, and the
-  # JS arrives on STDIN from a QUOTED heredoc so the shell expands none of it.
-  #
-  # ONE RULE, TWO CALLERS, AND THE CALLERS STAY DIFFERENT. `finishedWith`
-  # STATES every condition that can hold a desk and JUDGES none of them; which
-  # conditions refuse a ref is this caller's half, and it names exactly the five
-  # this script has always asked. The reaper reads the same rule and names its
-  # own. Neither script gains the other's, which is what makes the difference
-  # visible instead of eliminating it.
-  #
-  # `unknown` PERMITS, AND THE ORDER OF THE TESTS IS THE ARGUMENT. Only the
-  # first two conditions are answerable without a tree, and 69% of branches have
-  # none. `=== "true"` is therefore the test at every guard: `unknown` falls
-  # through, exactly as this script behaved before the rule existed. That is
-  # deliberate and it is the caller's decision to make — the reaper reads the
-  # same `unknown` as *nothing to reap*.
+  # Each lookup answers `found`, `none` or `unaskable`. `merge` reads `mergedAt`
+  # on ANY PR (never `state`, never ancestry); the open PR is asked separately
+  # because a branch carries both, and `changeset-release/main` is the measured
+  # case. An `unaskable` answer from either keeps the ref under its own name.
+  merge=$(_plot_merged_lookup "$br")
+  open_pr=$(_plot_open_lookup "$br")
+
+  # WHETHER A WORKTREE HOLDS THE BRANCH. Nothing inside the tree is read: a live
+  # pid, an uncommitted file and a `PLOT-BLOCKED` marker are the reaper's
+  # conditions, and this script passes them empty so they never refuse. A
+  # checked-out branch keeps its ref whatever is going on inside it.
+  wt=$(worktree_of "$br")
+
+  # THE DECISION. `firstRefRefusal` in `packages/domain/src/rules/reapable.ts`,
+  # imported directly: node strips the types, so there is no build step between
+  # this script and the rule, and the JS arrives on STDIN from a QUOTED heredoc
+  # so the shell expands none of it. The rule names the first refusal in its
+  # own order; a host that could not be asked refuses as `merge-unaskable` or
+  # `open-unaskable`.
   #
   # A rule that cannot be asked REFUSES: node missing, the import failing, the
   # module throwing all leave `verdict` empty, and an empty verdict keeps the
-  # ref and says why. Silence is never permission on this path either — that is
-  # the module being absent, which is not the same reading as a condition
-  # answering `unknown`.
+  # ref and says why.
   verdict=$(PLOT_BRANCH="$br" PLOT_DEFAULT="$DEFAULT" PLOT_MERGE="$merge" \
             PLOT_GIVEN_UP="$deferred" PLOT_OPEN_PR="$open_pr" \
-            PLOT_TREE="$tree" \
             PLOT_CHECKED_OUT="$([ -n "$wt" ] && echo true || echo false)" \
             PLOT_RULE="$RULE_PATH" \
             node --input-type=module - <<'NODE_EOF' 2>/dev/null
-// An ABSOLUTE path derived from this script, never from the cwd: this runs
-// wherever the operator invoked it, and the reconcile suite runs it against
-// sandbox repos in the temp directory.
+// An ABSOLUTE path derived from this script, never from the cwd.
 //
-// NO APOSTROPHE MAY APPEAR ANYWHERE IN THIS BLOCK. bash 3.2 is /bin/bash on
-// macOS, and it is what the reconcile suite runs this script under when it
-// strips PATH. It parses the body of a quoted heredoc nested inside `$(...)`,
-// so one contraction opens a string that never closes and the whole file fails
-// to parse. The error reads `unexpected EOF` and names a line 30 further down,
-// which points nowhere near the apostrophe.
-const { finishedWith } = await import(process.env.PLOT_RULE);
-
-const held = finishedWith({
-  branch: process.env.PLOT_BRANCH,
-  defaultBranch: process.env.PLOT_DEFAULT,
-  // This script never looks at the main checkout as a tree; the branch test
-  // the rule makes is what catches the default branch.
+// NO APOSTROPHE MAY APPEAR ANYWHERE IN THIS BLOCK. bash 3.2 parses the body of
+// a quoted heredoc nested inside `$(...)`, so one contraction opens a string
+// that never closes and the whole file fails to parse.
+const { firstRefRefusal } = await import(process.env.PLOT_RULE);
+const e = process.env;
+const refusal = firstRefRefusal({
+  branch: e.PLOT_BRANCH,
+  defaultBranch: e.PLOT_DEFAULT,
   isMain: false,
-  // The three the reaper measures and this script does not. They are passed
-  // empty because the rule shape asks for them, and the tree reading below is
-  // what makes them honest: with no tree they answer `unknown`, and this
-  // caller reads none of the three either way.
   workerPid: null,
   dirtyPath: "",
   blockedMarker: false,
-  merge: process.env.PLOT_MERGE,
-  givenUp: process.env.PLOT_GIVEN_UP === "true",
-  openPr: process.env.PLOT_OPEN_PR === "true",
-  checkedOut: process.env.PLOT_CHECKED_OUT === "true",
-  tree: process.env.PLOT_TREE,
+  merge: { found: "merged", none: "not-merged" }[e.PLOT_MERGE] ?? "unreachable",
+  givenUp: e.PLOT_GIVEN_UP === "true",
+  openPr: e.PLOT_OPEN_PR === "found",
+  openPrUnaskable: e.PLOT_OPEN_PR === "unaskable",
+  checkedOut: e.PLOT_CHECKED_OUT === "true",
 });
-
-// THE FIVE GUARDS, in the order they have always been tested, and each
-// satisfied only by a condition answering `true`. `unknown` permits: it means
-// no evidence against deletion, which on this estate is the majority reading
-// and the one the script already acted on. `liveWorker`, `uncommittedChanges`
-// and `blockedMarker` are in `held` and are deliberately not consulted.
-const guards = [
-  ["given-up", held.givenUp, ""],
-  ["no-merged-pr", held.noMergedPr, ""],
-  ["open-pr", held.openPr, ""],
-  ["checked-out", held.checkedOut, ""],
-  ["on-default-branch", held.onDefaultBranch, process.env.PLOT_DEFAULT],
-];
-
-const refusal = guards.find(([, reading]) => reading === "true");
-
-process.stdout.write(refusal === undefined ? "delete\t" : `${refusal[0]}\t${refusal[2]}`);
+process.stdout.write(refusal === null ? "delete\t" : `${refusal.refusal}\t${refusal.detail}`);
 NODE_EOF
   )
 
@@ -324,7 +260,9 @@ NODE_EOF
     # produce is empty, and an empty refusal keeps the ref and says so.
     case "$refusal" in
       given-up)            why="deferred — a given-up branch keeps its ref" ;;
+      merge-unaskable)     why="the host could not be asked whether a PR merged" ;;
       no-merged-pr)        why="unlanded work — no merged PR" ;;
+      open-unaskable)      why="the host could not be asked for an open PR" ;;
       open-pr)             why="an open PR is using this branch" ;;
       checked-out)         why="checked out in a worktree — somebody is reading it" ;;
       on-default-branch)   why="the default branch — never deleted" ;;
