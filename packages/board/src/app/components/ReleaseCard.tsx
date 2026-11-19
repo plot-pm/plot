@@ -1,5 +1,6 @@
-import type { ReleaseCardView } from '@plot-pm/domain';
+import { linkIconKind, type ReleaseCardView } from '@plot-pm/domain';
 import type { AgentRow } from '../../contract/schema.js';
+import { LinkIcon } from './LinkIcon.js';
 import { ReleaseApprove } from './ReleaseApprove.js';
 import { SEGMENT_CLASS, SEGMENT_WORD } from './SprintCard.js';
 
@@ -21,7 +22,10 @@ export const ReleaseCard = ({ cards, rows }: { cards: readonly ReleaseCardView[]
         className="delivery-card min-w-0 space-y-2 text-[13px]"
       >
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-          <span data-release-card-title className="delivery-title min-w-0 break-words">{card.title}</span>
+          <span className="inline-flex min-w-0 items-baseline">
+            <LinkIcon kind={linkIconKind('release')} />
+            <span data-release-card-title className="delivery-title min-w-0 break-words">{card.title}</span>
+          </span>
           {card.stateText !== '' && <span data-release-card-state className="delivery-text-muted">{card.stateText}</span>}
           {card.peopleText !== '' && <span data-release-card-people className="delivery-text-muted tabular-nums">{card.peopleText}</span>}
         </div>

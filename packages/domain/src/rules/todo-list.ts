@@ -2,6 +2,7 @@ import type { IssueAnswer } from '../entities/issue.js';
 import { youCaseOf, type ItemKind, type YouMarker, type YouReason, type ItemPlacement } from './delivery-placement.js';
 import { reasonVerb, youKindWord } from './delivery-row-form.js';
 import { TICKETS_ANCHOR } from './tickets-section.js';
+import { linkIconKind, type LinkIconKind } from './link-icon.js';
 
 /** The marker words a line carries as text; a marker is never colour alone. */
 export const TODO_MARKER_WORDS: Record<YouMarker, string> = {
@@ -61,6 +62,8 @@ export interface TodoLine {
   /** The marker as words. */
   markerWords: string;
   anchor: string;
+  /** The kind of item the line's name leads to: the placed item's kind, or `release` for a release approval. */
+  icon: LinkIconKind | null;
 }
 
 export interface TodoList {
@@ -76,6 +79,8 @@ export interface TodoList {
   triageText: string;
   /** The DOM id the triage link scrolls to. */
   triageAnchor: string;
+  /** The kind of item the triage link leads to. */
+  triageIcon: LinkIconKind;
 }
 
 const capital = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
@@ -121,6 +126,7 @@ export const todoList = (input: TodoListInput): TodoList => {
     marker: e.marker,
     markerWords: TODO_MARKER_WORDS[e.marker],
     anchor: e.anchor,
+    icon: linkIconKind(e.kind ?? 'release'),
   }));
   const counts: Record<YouMarker, number> = { 'blocks-delivery': 0, input: 0, 'clean-up': 0 };
   for (const l of lines) counts[l.marker] += 1;
@@ -137,5 +143,6 @@ export const todoList = (input: TodoListInput): TodoList => {
     tickets,
     triageText: tickets === null ? 'Tickets assigned to you with no plan: not read' : `${plural(tickets, 'ticket', 'tickets')} assigned to you with no plan`,
     triageAnchor: TICKETS_ANCHOR,
+    triageIcon: 'ticket',
   };
 };

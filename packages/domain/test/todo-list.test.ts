@@ -88,4 +88,15 @@ describe('todoList verb and label', () => {
     }
     expect(t.lines.find((l) => l.id === 'a')).toMatchObject({ verb: 'Approve', label: 'a' });
   });
+
+  it('names the kind each line and the triage link lead to', () => {
+    const kinds: TodoItem[] = [
+      { placement: { ...you('p', 'plan-approval').placement, kind: 'plan' }, label: 'p', anchor: 'a-p' },
+      { placement: { ...you('b', 'loose').placement, kind: 'branch' }, label: 'b', anchor: 'a-b' },
+      { placement: { ...you('r', 'review-pr').placement, kind: 'pr' }, label: 'r', anchor: 'a-r' },
+    ];
+    const t = todoList({ items: kinds, ticketAnswer: 'answered', tickets: [], releases: [{ id: 'release:1.0.0', label: '1.0.0', anchor: 'rel' }] });
+    expect(Object.fromEntries(t.lines.map((l) => [l.id, l.icon]))).toEqual({ p: 'plan', b: 'branch', r: 'pr', 'release:1.0.0': 'release' });
+    expect(t.triageIcon).toBe('ticket');
+  });
 });

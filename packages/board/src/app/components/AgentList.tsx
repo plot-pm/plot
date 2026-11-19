@@ -62,12 +62,13 @@ import { TodoList } from './TodoList.js';
 import { todoListOf } from '../lib/agent-rows/todo-list.js';
 import { AutoDispatchSwitch, AutoSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
 import { FleetAgentHeader, FleetAgentRow } from './FleetAgentRow.js';
-import { RowCell, scrollToAnchor, type LinkHandlers } from './DeliveryRows.js';
+import { MasterAgentLine, RowCell, scrollToAnchor, type LinkHandlers } from './DeliveryRows.js';
 import { detailLines } from '../lib/agent-rows/delivery-link-targets.js';
 import { headerOf, itemRowFactsOf, rowFormsOf, switchesOf } from '../lib/agent-rows/delivery-row-facts.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { ReleasePersonCards } from './ReleasePersonCards.js';
-import { lineBody, LinePr, LineState, PhaseChip, PlanName, PlanStrip, PlanTableHead, PLAN_TRACKS, ReleaseLine } from './ReleasePlanParts.js';
+import { LinkIcon } from './LinkIcon.js';
+import { LinePr, LineSlice, LineState, PlanOwner, PhaseChip, PlanName, PlanStrip, PlanTableHead, PLAN_TRACKS, ReleaseLine } from './ReleasePlanParts.js';
 import { CleanUpBulkDelete, CleanUpMenu } from './CleanUpMenu.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
 import { checkoutHealthStatus } from '@plot-pm/domain/rules/checkout-health';
@@ -137,6 +138,7 @@ import {
   planBlockToggleKey,
   sectionGlyph,
   type BlockView,
+  type LinkView,
   type PlacedAgentView,
   type PlacedItemView,
   type PlanBlockView,
@@ -1122,35 +1124,7 @@ export function AgentList({
           plain text — the rule every row follows for an unrecognised host.
       */}
       {fleet.masterAgentBranch && (
-        <div className="flex items-center gap-2 px-3 py-2 text-sm" data-master-agent>
-          <span className="text-slate-500 dark:text-slate-400">Master Agent:</span>
-          <span className="flex items-center gap-1.5">
-            {/* The branch icon — same ⎇ glyph the tuple rows use for branches,
-                in the same muted style. A branch name alone reads as a label
-                rather than a kind of thing; the icon is what makes it clear. */}
-            <span
-              className="text-slate-400 dark:text-slate-500"
-              title="Branch"
-              aria-label="Branch"
-            >
-              ⎇
-            </span>
-            {fleet.branchUrlBase ? (
-              <a
-                href={`${fleet.branchUrlBase}${encodeURIComponent(fleet.masterAgentBranch)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-mono text-sm text-blue-600 hover:underline dark:text-blue-400"
-              >
-                {fleet.masterAgentBranch}
-              </a>
-            ) : (
-              <span className="font-mono text-sm text-slate-700 dark:text-slate-300">
-                {fleet.masterAgentBranch}
-              </span>
-            )}
-          </span>
-        </div>
+        <MasterAgentLine branch={fleet.masterAgentBranch} branchUrlBase={fleet.branchUrlBase} />
       )}
 
       {/* THE SECTIONS, spaced apart from each other and from nothing else.
@@ -1253,7 +1227,7 @@ export function AgentList({
           e.preventDefault();
           document.getElementById(anchor)?.scrollIntoView({ block: 'center' });
         };
-        const linkLine = (key: string, links: { label: string; anchor: string }[], arrow: string) =>
+        const linkLine = (key: string, links: LinkView[], arrow: string) =>
           links.length === 0 ? null : (
             <li key={key} role="row" data-delivery-link className="px-3 pb-1 text-xs text-slate-500 dark:text-slate-400">
               <span role="gridcell">
@@ -1261,6 +1235,7 @@ export function AgentList({
                 {links.map((l, i) => (
                   <span key={l.anchor}>
                     {i > 0 && ', '}
+                    <LinkIcon kind={l.icon ?? null} />
                     <a href={`#${l.anchor}`} onClick={scrollTo(l.anchor)} className="font-mono text-blue-600 hover:underline dark:text-blue-400">
                       {l.label}
                     </a>
@@ -1618,7 +1593,7 @@ export function AgentList({
                                   <span data-plan-phase><PhaseChip plan={plan} /></span>
                                   <PlanStrip plan={plan} />
                                   <span className="delivery-text-muted min-w-0">
-                                    {plan.owner !== '' && <span data-plan-owner><span className="sm:hidden">Owner </span>{plan.owner}</span>}
+                                    {plan.owner !== '' && <PlanOwner owner={plan.owner} />}
                                   </span>
                                   <span className="ml-auto sm:ml-0 sm:justify-self-end">
                                     <PlanActions
@@ -1640,13 +1615,10 @@ export function AgentList({
                                       <li key={line.slice} data-plan-line={line.heading} title={line.text} className="flex flex-wrap items-baseline gap-x-2">
                                         <span className="delivery-release-heading">{line.heading.replace('-', ' ')}</span>
                                         <LineState state={line.state} />
-                                        {line.link && plan.anchors[line.slice] !== undefined ? (
-                                          <button type="button" data-plan-line-link onClick={() => scrollToAnchor(plan.anchors[line.slice]!)} className="delivery-text-link hover:underline">
-                                            {lineBody(line)}
-                                          </button>
-                                        ) : (
-                                          <span>{lineBody(line)}</span>
-                                        )}
+                                        <LineSlice
+                                          line={line}
+                                          onJump={line.link && plan.anchors[line.slice] !== undefined ? () => scrollToAnchor(plan.anchors[line.slice]!) : undefined}
+                                        />
                                         {line.pr !== undefined && <LinePr pr={line.pr} url={cardPrOf(line.pr)?.url ?? null} />}
                                         {line.merged !== undefined && <span data-plan-line-merged className="delivery-text-muted">{line.merged}</span>}
                                         {line.start && card !== null && dispatch && (

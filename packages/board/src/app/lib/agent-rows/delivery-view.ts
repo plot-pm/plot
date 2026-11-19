@@ -34,6 +34,8 @@ import {
   type ItemPlacement,
   type LooseActions,
   type Unplaced,
+  linkIconKind,
+  type LinkIconKind,
 } from '@plot-pm/domain';
 import type { AgentRow, DraftPlan, FleetSprint, IssueRow, Slice } from '../../../contract/schema.js';
 import { agentLabel, draftItemId, sliceItemId, type DeliveryMapping, type RegistryAgent } from './delivery-readings.js';
@@ -183,6 +185,8 @@ export interface PlacedAgentView {
 export interface LinkView {
   label: string;
   anchor: string;
+  /** The kind of place the link leads to, for its icon; absent or `null` draws none. */
+  icon?: LinkIconKind | null;
 }
 
 /**
@@ -507,6 +511,10 @@ export const deliveryView = (
   const labelOfItem = (id: string): string =>
     itemLabel(id, mapping.rowsByItem[id] ?? [], mapping.draftsByItem[id] ?? null, mapping.ticketsByItem[id] ?? null);
   const labelOfAgent = (id: string): string => agentLabel(id, mapping.agentsById[id] ?? null);
+  const kindOfItem = (id: string): LinkIconKind | null => {
+    const item = placement.items.find((i) => i.id === id);
+    return item === undefined ? null : linkIconKind(item.kind);
+  };
 
   const itemViews = placement.items.map((p): PlacedItemView => ({
     placement: p,
@@ -515,7 +523,7 @@ export const deliveryView = (
     ticket: mapping.ticketsByItem[p.id] ?? null,
     label: labelOfItem(p.id),
     anchor: itemAnchor(p.id),
-    links: p.agents.map((a) => ({ label: labelOfAgent(a), anchor: agentAnchor(a) })),
+    links: p.agents.map((a) => ({ label: labelOfAgent(a), anchor: agentAnchor(a), icon: linkIconKind('agent') })),
     menu: rowMenuOf(p, mapping.rowsByItem[p.id] ?? [], looseActions(mapping.readings.items.find((i) => i.id === p.id) ?? { kind: 'slice' })),
   }));
   const agentViews = placement.agents.map((p): PlacedAgentView => ({
@@ -524,7 +532,9 @@ export const deliveryView = (
     row: p.actsOn === null ? null : ownRow(mapping.agentsById[p.id] ?? null) ?? rowOf(p.actsOn),
     label: labelOfAgent(p.id),
     anchor: agentAnchor(p.id),
-    links: p.actsOn !== null && p.linked ? [{ label: labelOfItem(p.actsOn), anchor: itemAnchor(p.actsOn) }] : [],
+    links: p.actsOn !== null && p.linked
+      ? [{ label: labelOfItem(p.actsOn), anchor: itemAnchor(p.actsOn), icon: kindOfItem(p.actsOn) }]
+      : [],
   }));
 
   // A plan's own row (its idea-branch PR) heads the plan beside its slices, so a
