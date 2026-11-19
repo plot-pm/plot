@@ -3,13 +3,11 @@ import { DELIVERY_LAYOUT } from '@plot-pm/domain';
 /** A section or a group of `DELIVERY_LAYOUT`: the keys a collapse toggle holds. */
 export type CollapseKey = string;
 
-const KNOWN_KEYS: ReadonlySet<string> = new Set(
-  DELIVERY_LAYOUT.filter(({ section }) => section !== 'release-delivery').flatMap(({ section, groups }) => [section, ...groups]),
-);
+const KNOWN_KEYS: ReadonlySet<string> = new Set(DELIVERY_LAYOUT.flatMap(({ section, groups }) => [section, ...groups]));
 
 /**
  * The keys that start collapsed: Free agents, which fold into one line.
- * The Release delivery section is always open: its plan rows are collapsed one by one.
+ * The Release delivery section starts open; its one key, `release-delivery`, holds its fold under both scope toggle states.
  *
  * A free agent owes nothing, so it needs no reading on arrival. Stored keys from the earlier vocabulary (`quiet`, `done`) are not in
  * `DELIVERY_LAYOUT` and fall away in `readCollapsed`.

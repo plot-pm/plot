@@ -1,5 +1,5 @@
 import { linkIconKind, type HeaderCountPart, type PlanLine } from '@plot-pm/domain';
-import type { PlanRowView, ReleaseBlockView } from '../lib/agent-rows/delivery-view.js';
+import type { PlanRowView, ReleaseBlockView, ReleaseHeaderView } from '../lib/agent-rows/delivery-view.js';
 import { isPlainPlanClick } from './PlanReference.js';
 import { SEGMENT_CLASS } from './SprintCard.js';
 import { LinkIcon } from './LinkIcon.js';
@@ -7,6 +7,7 @@ import { LinkIcon } from './LinkIcon.js';
 /** The hue of a Release header count, by key; a key not named here takes the body colour. */
 const COUNT_HUE: Readonly<Partial<Record<HeaderCountPart['key'], string>>> = {
   delivered: 'delivery-hue-green',
+  'at-a-gate': 'delivery-hue-amber',
   blocked: 'delivery-hue-red',
 };
 
@@ -50,6 +51,39 @@ export const ReleaseLine = ({ block }: { block: Pick<ReleaseBlockView, 'release'
     </p>
   );
 };
+
+/**
+ * The counts of the Release delivery header line: the one block's release or sprint, then each count's number in bold and its words.
+ *
+ * A count with an anchor is a button that calls `onJump` with the anchor and stops the click, so the header row it sits in does not
+ * also fold or open. A count of 0 has no anchor and is text.
+ */
+export const ReleaseHeaderCounts = ({ head, onJump }: { head: ReleaseHeaderView; onJump: (anchor: string) => void }) => (
+  <span data-release-header {...(head.title === '' ? {} : { title: head.title })} className="delivery-counts ml-2 flex flex-wrap items-baseline gap-x-3 font-normal">
+    {head.scope !== '' && <span data-release-header-scope className="delivery-release-label">{head.scope}</span>}
+    {head.counts.map((c) => {
+      const figure = <><b className={`delivery-count-n ${COUNT_HUE[c.key] ?? ''}`}>{c.count}</b> {c.words}</>;
+      return (
+        <span key={c.key} data-release-header-count={c.key}>
+          {c.anchor === null ? figure : (
+            <button
+              type="button"
+              data-release-header-link={c.key}
+              onClick={(e) => {
+                e.stopPropagation();
+                onJump(c.anchor!);
+              }}
+              onKeyDown={(e) => e.stopPropagation()}
+              className="hover:underline"
+            >
+              {figure}
+            </button>
+          )}
+        </span>
+      );
+    })}
+  </span>
+);
 
 /** The plan table's header row. */
 export const PlanTableHead = () => (

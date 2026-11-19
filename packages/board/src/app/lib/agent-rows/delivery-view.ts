@@ -8,6 +8,8 @@ import {
   planRoute,
   planRowFacts,
   releaseBlocks,
+  releaseDeliveryHeader,
+  type ReleaseDeliveryCount,
   releasePersonCards,
   sprintDeliveryGroups,
   sprintDeliveryTitle,
@@ -324,6 +326,8 @@ export interface DeliveryView {
   releaseBlocks: ReleaseBlockView[];
   /** The distinct plans the section lists, a plan under two sprint groups counted once. */
   releasePlanCount: number;
+  /** The section's header line, which stays when the section folds. */
+  releaseHeader: ReleaseHeaderView;
   /** Every payload row the plan rows hold, for the section's pace mark. */
   releaseRows: AgentRow[];
   delivered: UnplacedView[];
@@ -345,6 +349,20 @@ export interface PlanRowView extends PlanRowFacts {
   label: string;
 }
 
+/** One figure of the Release delivery header line, with the anchor of the plan row its link scrolls to. */
+export interface ReleaseHeaderCountView extends ReleaseDeliveryCount {
+  /** `releasePlanAnchor(target)`, or `null` for a count of 0. */
+  anchor: string | null;
+}
+
+/** The Release delivery section's header line: `releaseDeliveryHeader` with anchors. */
+export interface ReleaseHeaderView {
+  scope: string;
+  /** The one block's full header wording, ticket wording included, or `''` where the section holds several blocks or none. */
+  title: string;
+  counts: ReleaseHeaderCountView[];
+}
+
 /** One target release's block. */
 export interface ReleaseBlockView {
   release: string;
@@ -361,6 +379,7 @@ export interface ReleaseBlockView {
 }
 
 export const itemAnchor = (id: string): string => `delivery-item-${id}`;
+export const releasePlanAnchor = (plan: string): string => `delivery-plan-${plan}`;
 export const agentAnchor = (id: string): string => `delivery-agent-${id}`;
 
 const itemLabel = (id: string, rows: readonly AgentRow[], draft: DraftPlan | null, ticket: IssueRow | null = null, index: PlanIndex = new Map()): string => {
@@ -693,9 +712,15 @@ export const deliveryView = (
   });
   const blocks = scope.kind === 'my-sprint' ? sprintBlocks : releaseScoped;
   const releasePlanCount = new Set(blocks.flatMap((b) => b.plans.map((p) => p.plan))).size;
+  const head = releaseDeliveryHeader(sectionTitle, blocks.map((b) => ({ scope: b.sprint || b.release, rows: b.plans })));
+  const releaseHeader: ReleaseHeaderView = {
+    scope: head.scope,
+    title: blocks.length === 1 ? blocks[0]!.header : '',
+    counts: head.counts.map((c) => ({ ...c, anchor: c.target === null ? null : releasePlanAnchor(c.target) })),
+  };
   const releaseRows = blocks.flatMap((b) => b.plans.flatMap((p) => Object.values(p.itemIds).flatMap((id) => mapping.rowsByItem[id] ?? [])));
 
-  return { sections, notPlaced, releaseBlocks: blocks, releasePlanCount, releaseRows, delivered, releaseCarried: { approved, slicesByPlan } };
+  return { sections, notPlaced, releaseBlocks: blocks, releasePlanCount, releaseHeader, releaseRows, delivered, releaseCarried: { approved, slicesByPlan } };
 };
 
 /** The Delivery scope as the section reads it: its kind and the sprints in scope. */

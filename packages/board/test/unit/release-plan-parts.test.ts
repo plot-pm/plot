@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { PersonCard } from '@plot-pm/domain';
-import { lineBody, LineState, PhaseChip, PlanName, PLAN_TRACKS, PlanStrip, ReleaseLine } from '../../src/app/components/ReleasePlanParts.js';
+import { lineBody, LineState, PhaseChip, PlanName, PLAN_TRACKS, PlanStrip, ReleaseHeaderCounts, ReleaseLine } from '../../src/app/components/ReleasePlanParts.js';
 import { ReleasePersonCards } from '../../src/app/components/ReleasePersonCards.js';
 import { SEGMENT_CLASS } from '../../src/app/components/SprintCard.js';
 
@@ -59,6 +59,30 @@ describe('the Release header bar', () => {
     expect(html).toContain('<b class="delivery-count-n delivery-hue-green">2</b>');
     expect(html).toContain('<b class="delivery-count-n delivery-hue-red">1</b>');
     expect(html).not.toContain('1 ticket<');
+  });
+});
+
+describe('the Release delivery header line', () => {
+  const head = {
+    scope: '2.36.0', title: '2.36.0 · 8 plans',
+    counts: [
+      { key: 'plans' as const, count: 8, words: 'plans', target: 'p', anchor: 'delivery-plan-p' },
+      { key: 'at-a-gate' as const, count: 3, words: 'at a gate', target: 'q', anchor: 'delivery-plan-q' },
+      { key: 'blocked' as const, count: 0, words: 'blocked', target: null, anchor: null },
+    ],
+  };
+  it('links a non-zero count and prints a 0 count as text', () => {
+    const html = renderToStaticMarkup(createElement(ReleaseHeaderCounts, { head, onJump: () => {} }));
+    expect(html).toContain('<span data-release-header-scope="true" class="delivery-release-label">2.36.0</span>');
+    expect(html).toContain('data-release-header-link="plans"');
+    expect(html).toContain('<b class="delivery-count-n delivery-hue-amber">3</b> at a gate');
+    expect(html).not.toContain('data-release-header-link="blocked"');
+    expect(html).toContain('<span data-release-header-count="blocked"><b class="delivery-count-n delivery-hue-red">0</b> blocked</span>');
+  });
+  it('prints no scope where the section holds several blocks', () => {
+    const html = renderToStaticMarkup(createElement(ReleaseHeaderCounts, { head: { ...head, scope: '', title: '' }, onJump: () => {} }));
+    expect(html).not.toContain('data-release-header-scope');
+    expect(html).not.toContain('title=');
   });
 });
 
