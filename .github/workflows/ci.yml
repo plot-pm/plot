@@ -129,6 +129,9 @@ jobs:
       contracts: ${{ steps.map.outputs.contracts }}
       contracts_tests: ${{ steps.map.outputs.contracts_tests }}
       board: ${{ steps.map.outputs.board }}
+      # A Delivery-tab path changed: `board-integration` runs whatever
+      # `reuse_board` says and uploads the `delivery-screenshots` artifact.
+      delivery: ${{ steps.map.outputs.delivery }}
       domain: ${{ steps.map.outputs.domain }}
       fleet: ${{ steps.map.outputs.fleet }}
       e2e: ${{ steps.map.outputs.e2e }}
@@ -213,7 +216,7 @@ jobs:
           set -uo pipefail
           every() {
             echo "Every job runs: $1"
-            for key in corpus contracts board domain fleet e2e macos census; do echo "$key=true"; done >> "$GITHUB_OUTPUT"
+            for key in corpus contracts board delivery domain fleet e2e macos census; do echo "$key=true"; done >> "$GITHUB_OUTPUT"
             printf 'corpus_tests=\ncontracts_tests=\n' >> "$GITHUB_OUTPUT"
             echo "Every job runs: $1" >> "$GITHUB_STEP_SUMMARY"
             exit 0
@@ -1305,7 +1308,7 @@ jobs:
   board-integration:
     runs-on: ubuntu-latest
     needs: [select, gates]
-    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.select.outputs.board != 'false' && needs.select.outputs.reuse_board == '' }}
+    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.select.outputs.board != 'false' && (needs.select.outputs.reuse_board == '' || needs.select.outputs.delivery == 'true') }}
     # The longest legitimate run was measured at 606 s (10.1 min). Raised from
     # 15 to 20 on 2026-10-23 (#2392) for the install steps' step bounds below:
     # setup (checkout, pnpm install, board build, cache restore) ~45s, system
@@ -1540,7 +1543,19 @@ jobs:
       # none printed. 30 lets a red run finish and report every failure.
       - name: Board integration tests (vitest + Playwright)
         timeout-minutes: 30
+        env:
+          # Outside the private TMPDIR of `owned-run.sh`, so its leak check does not count the images.
+          PLOT_SCREENSHOT_DIR: ${{ github.event_name == 'pull_request' && needs.select.outputs.delivery == 'true' && format('{0}/delivery-screenshots', runner.temp) || '' }}
         run: ./scripts/owned-run.sh pnpm --filter @plot-pm/board exec vitest run
+
+      - name: Upload the Delivery tab screenshots
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.select.outputs.delivery == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: delivery-screenshots
+          path: ${{ runner.temp }}/delivery-screenshots
+          retention-days: 7
+          if-no-files-found: warn
 
   # ── Tier 1: the static gates, cheapest first. ───────────────────────────
   #

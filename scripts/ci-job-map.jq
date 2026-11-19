@@ -20,6 +20,7 @@ def under($p): . == $p or startswith($p + "/");
     contracts: $contract,
     contracts_tests: (if $all then "" else ($contracts | join(" ")) end),
     board: $board,
+    delivery: ($all or any($paths[]; under("packages/board/src/app") or under("packages/board/test/catalogue") or under("docs/superpowers/specs/2026-11-16-delivery-tab-mockups"))),
     domain: ($all or $domain),
     fleet: $fleet,
     e2e: ($all or $contract or $board or $domain or $fleet),

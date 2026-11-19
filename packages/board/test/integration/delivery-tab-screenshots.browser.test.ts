@@ -1,0 +1,166 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { type Page } from 'playwright';
+import { openCatalogue, type Catalogue } from '../catalogue/index.js';
+
+/**
+ * THE DELIVERY TAB, SECTION BY SECTION, IN BOTH THEMES.
+ *
+ * Every section of `every-delivery-section` opens in light and in dark at
+ * 1280 px and in one theme at 320 px. Each run asserts that the section renders,
+ * that the page has no horizontal scroll at 320 px, and that each stylesheet
+ * `index.css` imports reached the built CSS. Where `PLOT_SCREENSHOT_DIR` is set,
+ * it writes `<section>-light.png`, `<section>-dark.png` and `<section>-320.png`
+ * there, and renders each mockup the section names to `<section>-mock-<n>.png`.
+ */
+
+const MOCKUPS = fileURLToPath(new URL('../../../../docs/superpowers/specs/2026-11-16-delivery-tab-mockups/', import.meta.url));
+const OUT = process.env.PLOT_SCREENSHOT_DIR ?? '';
+
+type Section = {
+  /** The file-name stem of the section's images. */
+  name: string;
+  /** The elements the section's image covers; the image is their union box. */
+  selectors: readonly string[];
+  /** The mockup files the section is compared with. */
+  mockups: readonly string[];
+};
+
+const SECTIONS: readonly Section[] = [
+  { name: 'header', selectors: ['[data-tab-header]'], mockups: ['first-five-seconds-v2.html', 'you-section-v2.html'] },
+  { name: 'release', selectors: ['[data-section="release-delivery"]'], mockups: ['delivery-toggle-icons-v2.html', 'plan-slices.html'] },
+  { name: 'you', selectors: ['[data-section="you"]'], mockups: ['you-section-v2.html', 'section-header.html'] },
+  { name: 'work-items', selectors: ['[data-section="work-items"]'], mockups: ['work-items-v1.html'] },
+  { name: 'fleet', selectors: ['[data-section="fleet"]'], mockups: ['fleet-section-v3.html'] },
+  { name: 'bottom', selectors: ['[data-section="machine"]', '[data-section="tickets"]', '[data-footer-line]'], mockups: ['bottom-of-tab.html'] },
+  { name: 'tab', selectors: ['main'], mockups: ['section-header.html'] },
+];
+
+/** The rule each stylesheet carries, read from the element it styles. */
+const STYLESHEETS: ReadonlyArray<readonly [file: string, selector: string, property: string, expected: string]> = [
+  ['delivery.css', '[data-section="you"]', 'border-top-left-radius', '8px'],
+  ['delivery-header.css', '[data-tab-header]', '--delivery-section', 'header'],
+  ['delivery-release.css', '[data-section="release-delivery"]', '--delivery-section', 'release'],
+  ['delivery-you.css', '[data-section="you"]', '--delivery-section', 'you'],
+  ['delivery-work-items.css', '[data-section="work-items"]', '--delivery-section', 'work-items'],
+  ['delivery-fleet.css', '[data-section="fleet"]', '--delivery-section', 'fleet'],
+  ['delivery-bottom.css', '[data-footer-line]', '--delivery-section', 'bottom'],
+];
+
+describe('the Delivery tab in each theme and at 320 px (real browser renders the shipped artifact)', () => {
+  let cat: Catalogue;
+
+  beforeAll(async () => {
+    cat = await openCatalogue();
+    if (OUT !== '') mkdirSync(OUT, { recursive: true });
+  });
+
+  afterAll(async () => {
+    await cat?.close();
+  });
+
+  const openDelivery = async (width: number, colorScheme: 'light' | 'dark'): Promise<Page> => {
+    const page = await cat.open('every-delivery-section', { tab: 'agents', viewport: { width, height: 900 }, colorScheme });
+    await page.locator('[data-section="fleet"]').waitFor({ timeout: 10_000 });
+    // The sprint card shows only under the «My sprint» chip, and a click is no payload field.
+    const mySprint = page.locator('[data-chip="My sprint"]');
+    if (await mySprint.count() > 0 && await mySprint.isEnabled()) await mySprint.click();
+    return page;
+  };
+
+  /** The union box of a section's elements, in page coordinates. */
+  const boxOf = async (page: Page, section: Section) => {
+    const boxes = [];
+    for (const selector of section.selectors) {
+      const el = page.locator(selector).first();
+      await el.waitFor({ timeout: 10_000 });
+      await el.scrollIntoViewIfNeeded();
+      const box = await el.evaluate((node) => {
+        const r = node.getBoundingClientRect();
+        return { x: r.left + window.scrollX, y: r.top + window.scrollY, width: r.width, height: r.height };
+      });
+      boxes.push(box);
+    }
+    const x = Math.min(...boxes.map((b) => b.x));
+    const y = Math.min(...boxes.map((b) => b.y));
+    return {
+      x, y,
+      width: Math.max(...boxes.map((b) => b.x + b.width)) - x,
+      height: Math.max(...boxes.map((b) => b.y + b.height)) - y,
+    };
+  };
+
+  const shoot = async (page: Page, section: Section, file: string) => {
+    const clip = await boxOf(page, section);
+    expect(clip.width).toBeGreaterThan(0);
+    expect(clip.height).toBeGreaterThan(0);
+    if (OUT !== '') await page.screenshot({ path: join(OUT, file), clip, fullPage: true });
+  };
+
+  for (const scheme of ['light', 'dark'] as const) {
+    it(`renders every section at 1280 px in ${scheme}`, async () => {
+      const page = await openDelivery(1280, scheme);
+      try {
+        for (const section of SECTIONS) await shoot(page, section, `${section.name}-${scheme}.png`);
+      } finally {
+        await page.close();
+      }
+    });
+  }
+
+  it('renders every section at 320 px with no horizontal scroll', async () => {
+    const page = await openDelivery(320, 'dark');
+    try {
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+      for (const section of SECTIONS) await shoot(page, section, `${section.name}-320.png`);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('shows the column-header rows at 1280 px and hides them at 320 px', async () => {
+    const wide = await openDelivery(1280, 'light');
+    try {
+      const header = wide.locator('[data-section="work-items"] [role="row"]').filter({ has: wide.getByRole('columnheader') }).first();
+      await expect.poll(() => header.isVisible()).toBe(true);
+      expect(await wide.locator('[data-section="work-items"]').getByRole('columnheader', { name: 'Kind' }).first().isVisible()).toBe(true);
+    } finally {
+      await wide.close();
+    }
+    const narrow = await openDelivery(320, 'light');
+    try {
+      expect(await narrow.locator('[data-section="work-items"]').getByRole('columnheader').count()).toBe(0);
+    } finally {
+      await narrow.close();
+    }
+  });
+
+  it('loads each Delivery stylesheet into the built CSS', async () => {
+    const page = await openDelivery(1280, 'light');
+    try {
+      for (const [file, selector, property, expected] of STYLESHEETS) {
+        const value = await page.locator(selector).first()
+          .evaluate((el, p) => getComputedStyle(el).getPropertyValue(p).trim(), property);
+        expect(value, `${file}: ${property} on ${selector}`).toBe(expected);
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
+  it.runIf(OUT !== '')('renders each mockup the sections name', async () => {
+    const page = await cat.browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'dark' });
+    try {
+      for (const section of SECTIONS) {
+        for (const [n, mockup] of section.mockups.entries()) {
+          await page.setContent(readFileSync(join(MOCKUPS, mockup), 'utf8'), { waitUntil: 'load' });
+          await page.screenshot({ path: join(OUT, `${section.name}-mock-${n + 1}.png`), fullPage: true });
+        }
+      }
+    } finally {
+      await page.close();
+    }
+  });
+});

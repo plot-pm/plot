@@ -971,23 +971,27 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('costs no space on screen for the column names', async () => {
-    // The header is for the reader who cannot see the alignment — printing six
-    // words above every one of six groups would be chrome that never varies,
-    // and the alignment is what a sighted reader reads instead.
-    //
-    // Asserted on the rendered BOX rather than on `innerText`: `sr-only` hides
-    // by clipping an absolutely-positioned 1px box, which Chromium still
-    // reports in `innerText` (it is not `display: none`).
-    const page = await openAgents();
+  it('shows the column names from 640 px up and hides them below', async () => {
+    // The mockups draw a visible header row above every table. Below `sm` a row
+    // wraps into a card with its own `Kind:` prefix, so the header row is gone
+    // there rather than naming tracks the card does not have.
+    const wide = await openAgentsAt(1280);
     try {
-      const header = group(page, 'at-a-gate').getByRole('row').first();
+      const header = group(wide, 'at-a-gate').getByRole('row').first();
       await expect.poll(() => header.count()).toBe(1);
-      const box = await header.boundingBox();
-      expect(box?.width ?? 99).toBeLessThanOrEqual(1);
-      expect(box?.height ?? 99).toBeLessThanOrEqual(1);
+      await expect.poll(() => header.isVisible()).toBe(true);
+      expect(await header.getByRole('columnheader', { name: 'Kind' }).isVisible()).toBe(true);
+      // The marks track keeps its name for a screen reader and prints none.
+      expect(await header.getByRole('columnheader', { name: 'Marks' }).count()).toBe(1);
     } finally {
-      await page.close();
+      await wide.close();
+    }
+    const narrow = await openAgentsAt(320);
+    try {
+      await expect.poll(() => group(narrow, 'at-a-gate').count()).toBe(1);
+      expect(await group(narrow, 'at-a-gate').getByRole('columnheader').count()).toBe(0);
+    } finally {
+      await narrow.close();
     }
   });
 
