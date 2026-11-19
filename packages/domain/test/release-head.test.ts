@@ -9,6 +9,17 @@ const version = (path: string, from = '2.30.0', to = '2.31.0'): FileChange =>
 const skillVersion: FileChange = change('skills/plot/SKILL.md', {
   hunks: [{ section: 'metadata:', removed: ['  version: 0.19.0'], added: ['  version: 0.20.0'] }],
 });
+/** The `plot` marketplace entry's version and release-tag ref, replaced in one hunk as the sync writes them. */
+const marketplace = (ref = 'v2.31.0', to = '2.31.0'): FileChange =>
+  change('.claude-plugin/marketplace.json', {
+    hunks: [
+      {
+        section: '',
+        removed: ['      "version": "2.30.0",', '        "ref": "v2.30.0"'],
+        added: [`      "version": "${to}",`, `        "ref": "${ref}"`],
+      },
+    ],
+  });
 const versionStep: FileChange[] = [
   change('.changeset/a.md', { status: 'deleted' }),
   change('CHANGELOG.md', { hunks: [{ section: '', removed: [], added: ['## 2.31.0'] }] }),
@@ -16,7 +27,7 @@ const versionStep: FileChange[] = [
   version('package.json'),
   version('packages/board/package.json'),
   version('.claude-plugin/plugin.json'),
-  version('.claude-plugin/marketplace.json'),
+  marketplace(),
   skillVersion,
 ];
 
@@ -42,6 +53,81 @@ describe('releaseHeadVerdict', () => {
       hunks: [{ section: '', removed: ['  "version": "2.30.0",', '  "a": "1"'], added: ['  "version": "2.31.0",', '  "a": "2"'] }],
     });
     expect(releaseHeadVerdict([oneHunk])).toEqual({ read: 'foreign', path: 'package.json' });
+  });
+
+  it('passes a marketplace version and ref in separate hunks, as `git diff -U0` reads them', () => {
+    const split = change('.claude-plugin/marketplace.json', {
+      hunks: [
+        { section: '', removed: ['      "version": "2.30.0",'], added: ['      "version": "2.31.0",'] },
+        { section: '', removed: ['        "ref": "v2.30.0"'], added: ['        "ref": "v2.31.0"'] },
+      ],
+    });
+    expect(releaseHeadVerdict([version('package.json'), split])).toEqual({ read: 'clean' });
+  });
+
+  it('passes a marketplace.json that replaces its version line alone', () => {
+    expect(releaseHeadVerdict([version('.claude-plugin/marketplace.json')])).toEqual({ read: 'clean' });
+  });
+
+  it('refuses a marketplace ref that names anything but the tag of the version package.json writes', () => {
+    const pkg = version('package.json');
+    expect(releaseHeadVerdict([pkg, marketplace('v9.9.9')])).toEqual({ read: 'foreign', path: '.claude-plugin/marketplace.json' });
+    expect(releaseHeadVerdict([pkg, marketplace('main')]).read).toBe('foreign');
+    expect(releaseHeadVerdict([pkg, marketplace('2.31.0')]).read).toBe('foreign');
+  });
+
+  it('refuses a marketplace version and ref that agree with each other and not with package.json', () => {
+    const downgrade = [version('package.json', '2.30.0', '2.31.0'), marketplace('v2.10.0', '2.10.0')];
+    expect(releaseHeadVerdict(downgrade)).toEqual({ read: 'foreign', path: '.claude-plugin/marketplace.json' });
+  });
+
+  it('refuses a marketplace ref when package.json writes no version', () => {
+    expect(releaseHeadVerdict([marketplace()])).toEqual({ read: 'foreign', path: '.claude-plugin/marketplace.json' });
+  });
+
+  it('refuses a marketplace.json added, deleted, modified without a hunk, or losing a line', () => {
+    const path = '.claude-plugin/marketplace.json';
+    expect(releaseHeadVerdict([change(path, { status: 'added' })])).toEqual({ read: 'foreign', path });
+    expect(releaseHeadVerdict([change(path, { status: 'deleted' })]).read).toBe('foreign');
+    expect(releaseHeadVerdict([change(path)]).read).toBe('foreign');
+    const removedOnly = change(path, { hunks: [{ section: '', removed: ['        "ref": "v2.30.0"'], added: [] }] });
+    expect(releaseHeadVerdict([version('package.json'), removedOnly]).read).toBe('foreign');
+  });
+
+  it('refuses a marketplace ref when package.json writes a version that is not semver', () => {
+    expect(releaseHeadVerdict([version('package.json', '2.30.0', 'next'), marketplace('vnext', 'next')]).read).toBe('foreign');
+  });
+
+  it('refuses a marketplace line whose key or indentation changes', () => {
+    const pkg = version('package.json');
+    const keySwap = change('.claude-plugin/marketplace.json', {
+      hunks: [{ section: '', removed: ['      "version": "2.30.0",'], added: ['      "ref": "v2.31.0",'] }],
+    });
+    expect(releaseHeadVerdict([pkg, keySwap]).read).toBe('foreign');
+    const moved = change('.claude-plugin/marketplace.json', {
+      hunks: [{ section: '', removed: ['        "ref": "v2.30.0"'], added: ['      "ref": "v2.31.0"'] }],
+    });
+    expect(releaseHeadVerdict([pkg, moved]).read).toBe('foreign');
+  });
+
+  it('refuses a ref line in any file but marketplace.json', () => {
+    const pluginRef = change('.claude-plugin/plugin.json', {
+      hunks: [{ section: '', removed: ['  "version": "2.30.0",', '  "ref": "v2.30.0"'], added: ['  "version": "2.31.0",', '  "ref": "v2.31.0"'] }],
+    });
+    expect(releaseHeadVerdict([pluginRef])).toEqual({ read: 'foreign', path: '.claude-plugin/plugin.json' });
+  });
+
+  it('refuses a marketplace url line changed beside the version and ref', () => {
+    const urlSwap = change('.claude-plugin/marketplace.json', {
+      hunks: [
+        {
+          section: '',
+          removed: ['      "version": "2.30.0",', '        "url": "https://github.com/plot-pm/plot.git",', '        "ref": "v2.30.0"'],
+          added: ['      "version": "2.31.0",', '        "url": "https://example.com/fork.git",', '        "ref": "v2.31.0"'],
+        },
+      ],
+    });
+    expect(releaseHeadVerdict([urlSwap]).read).toBe('foreign');
   });
 
   it('refuses a SKILL.md body line, and a version line outside the metadata block', () => {
