@@ -82,6 +82,7 @@ import {
   type TicketPlan,
   typeOf,
   ticketSourceOf,
+  ticketSourceOfIndex,
   type Reader,
   type TicketSource,
   type PersonDirectory,
@@ -176,7 +177,7 @@ import { workerQuestions } from '@plot-pm/fleet/shared/worker-question';
 import { briefPath as briefPathOf } from '@plot-pm/fleet/shared/brief-path';
 import { briefReading } from './brief-ask-log.js';
 import { findingsFor } from './findings.js';
-import { heldIdentity, people } from './server-info.js';
+import { heldIdentity, knownReader, people } from './server-info.js';
 
 /**
  * How long a branch may sit without a commit before it reads as quiet rather
@@ -582,6 +583,12 @@ export interface CacheEntry {
    * last good value or `[]` for.
    */
   waiting: FleetWaiting | null;
+  /**
+   * The plan records the last plan read in this process answered, or null
+   * where none has answered. A `held` beat filters the issue index with these
+   * and reads no plan itself.
+   */
+  planMetas: PlanMeta[] | null;
   /**
    * The dispatcher's agent registry, re-read on every scan tick.
    *
@@ -1818,11 +1825,13 @@ async function planMetasFromWorkingTree(
  */
 async function ticketPlansOf(
   opts: BuildBoardOptions,
-  entry: Pick<CacheEntry, 'ideaPlans' | 'prs' | 'pulse' | 'lastComplete'>,
+  entry: Pick<CacheEntry, 'ideaPlans' | 'prs' | 'pulse' | 'lastComplete' | 'planMetas'>,
   refEntries?: readonly RefState[],
 ): Promise<Map<string, TicketPlan[]> | null> {
   const metas = await planMetasAtDefault(opts, entry, refEntries);
-  return metas === null ? null : ticketPlansOver(entry, metas);
+  if (metas === null) return null;
+  entry.planMetas = metas;
+  return ticketPlansOver(entry, metas);
 }
 
 /**
@@ -1883,10 +1892,11 @@ const ticketPlansOver = (
  */
 async function fleetPlanIndexOf(
   opts: BuildBoardOptions,
-  entry: Pick<CacheEntry, 'ideaPlans' | 'prs'>,
+  entry: Pick<CacheEntry, 'ideaPlans' | 'prs' | 'planMetas'>,
 ): Promise<Record<string, { file: string; issues: string[] }> | null> {
   const metas = await planMetasAtDefault(opts, entry);
   if (metas === null) return null;
+  entry.planMetas = metas;
   const plans: Record<string, { file: string; issues: string[] }> = {};
   for (const meta of metas) {
     const base = path.basename(meta.file, '.md');
@@ -2251,7 +2261,30 @@ const waitingOf = async (
   inboxAnswer: InboxAnswer | undefined = undefined,
 ): Promise<FleetWaiting> => {
   const [who, directory] = await Promise.all([heldIdentity(opts), people(opts)]);
-  const reader: Reader = { hostUser: who.hostUser, gitEmail: who.gitEmail, directory };
+  return waitingOver({ hostUser: who.hostUser, gitEmail: who.gitEmail, directory }, rows, plans, source, complete, inbox, inboxAnswer);
+};
+
+/**
+ * The wire shape for `FleetShape.waiting`, for a reader the caller already holds.
+ *
+ * @param reader - who is reading.
+ * @param rows - the open rows the read returned.
+ * @param plans - the plans naming each issue key.
+ * @param source - how this read's tickets name their assignees, or `null`.
+ * @param complete - whether `rows` is every open row.
+ * @param inbox - the reader's own open tickets, or `undefined` where no inbox read happened.
+ * @param inboxAnswer - how that inbox read ended; `undefined` where unknown.
+ * @returns the wire shape for `FleetShape.waiting`.
+ */
+const waitingOver = (
+  reader: Reader,
+  rows: readonly IssueIndexRow[],
+  plans: ReadonlyMap<string, readonly TicketPlan[]>,
+  source: import('@plot-pm/domain').TicketSource | null,
+  complete: boolean,
+  inbox: readonly IssueIndexRow[] | undefined,
+  inboxAnswer: InboxAnswer | undefined,
+): FleetWaiting => {
   const result = waitingTickets(rows, inbox, reader, source, complete, plans, inboxAnswer);
   return {
     tickets: result.tickets.map((t) => ({
@@ -2582,7 +2615,92 @@ const readIssuesFromStore = async (
     return;
   }
   const held = await issueStoreFor(opts.repoRoot).read();
-  if (!held.ok || held.value === null) {
+  await installIssueIndex(entry, held.ok ? held.value : null, {
+    expected: source.ask,
+    ticketSource: ticketSourceOf(source, entry.backend ?? '', TICKET_SOURCES),
+    plans: () => ticketPlansOf(opts, entry, refEntries),
+    plansError: 'plans could not be read, so no issue can be called unplanned',
+    waiting: (rows, plans, ticketSource, complete, inbox, inboxAnswer) =>
+      waitingOf(opts, rows, plans, ticketSource, complete, inbox, inboxAnswer),
+  });
+};
+
+/**
+ * Serves the inbox from the issue index fleetd writes while a live fleetd
+ * speaks another snapshot protocol, and starts no process.
+ *
+ * The same outcomes as {@link readIssuesFromStore}, from three inputs that
+ * cost no process:
+ *
+ * - The index's own `source` and `connector` name the source, so no `Tracker`
+ *   config read is made and no source mismatch is reported.
+ * - The plans are `entry.planMetas`, the last plan read this process answered.
+ *   Where none has answered, the read is `failed` and names why, and no row is
+ *   called unplanned.
+ * - The reader is the identity and `People` directory this process last read
+ *   ({@link knownReader}); where none is held, each ticket's owner is unknown.
+ *
+ * @param opts - the board's repo root.
+ * @param entry - the cache entry the inbox is installed into.
+ */
+const readHeldIssues = async (opts: BuildBoardOptions, entry: CacheEntry): Promise<void> => {
+  const held = await issueStoreFor(opts.repoRoot).read();
+  const index = held.ok ? held.value : null;
+  await installIssueIndex(entry, index, {
+    expected: null,
+    ticketSource: index === null ? null : ticketSourceOfIndex(index, TICKET_SOURCES),
+    plans: async () => (entry.planMetas === null ? null : ticketPlansOver(entry, entry.planMetas)),
+    plansError: 'no plan read has answered while fleetd speaks another snapshot protocol, so no issue can be called unplanned',
+    waiting: async (rows, plans, ticketSource, complete, inbox, inboxAnswer) =>
+      waitingOver(knownReader(opts), rows, plans, ticketSource, complete, inbox, inboxAnswer),
+  });
+};
+
+/** What {@link installIssueIndex} reads beside the index file. */
+interface IssueIndexReadings {
+  /** The source this board reads issues from, or null where the index's own `source` is taken. */
+  readonly expected: 'tracker' | 'git-host' | null;
+  /** How the index's tickets name their assignees, or `null`. */
+  readonly ticketSource: import('@plot-pm/domain').TicketSource | null;
+  /** The plans naming each issue key, or null where they cannot be read. */
+  readonly plans: () => Promise<Map<string, TicketPlan[]> | null>;
+  /** The `issueError` where `plans` answers null. */
+  readonly plansError: string;
+  /** The `waiting` shape for the index's rows. */
+  readonly waiting: (
+    rows: readonly IssueIndexRow[],
+    plans: ReadonlyMap<string, readonly TicketPlan[]>,
+    ticketSource: import('@plot-pm/domain').TicketSource | null,
+    complete: boolean,
+    inbox: readonly IssueIndexRow[] | undefined,
+    inboxAnswer: InboxAnswer | undefined,
+  ) => Promise<FleetWaiting>;
+}
+
+/**
+ * Installs the inbox an issue index holds into the cache entry.
+ *
+ * - A missing or unreadable index shows *the fleet has left no issue index to
+ *   read*, never an empty inbox.
+ * - An index whose `source` differs from `expected` shows no rows and names
+ *   the mismatch.
+ * - An `unsupported` index shows its reason.
+ * - Plans that cannot be read answer `failed` with `plansError`, and
+ *   `entry.issues` keeps its rows.
+ * - A `failed` index shows its kept rows under the failure line.
+ * - An answered index shows its rows minus the issues a plan names, at most
+ *   {@link ISSUE_LIMIT}.
+ *
+ * @param entry - the cache entry the inbox is installed into.
+ * @param index - the index file, or null where it is missing or unreadable.
+ * @param readings - the expected source, the ticket source, and the plan and waiting reads.
+ */
+const installIssueIndex = async (
+  entry: CacheEntry,
+  index: IssueIndex | null,
+  readings: IssueIndexReadings,
+): Promise<void> => {
+  if (index === null) {
     entry.issues = [];
     entry.issueAnswer = 'unsupported';
     entry.issueError = null;
@@ -2590,13 +2708,13 @@ const readIssuesFromStore = async (
     entry.waiting = null;
     return;
   }
-  const index = held.value;
-  entry.issueSets = index.source === source.ask ? setsOf(index) : null;
-  if (index.source !== source.ask) {
+  const matches = readings.expected === null || index.source === readings.expected;
+  entry.issueSets = matches ? setsOf(index) : null;
+  if (!matches) {
     entry.issues = [];
     entry.issueAnswer = 'failed';
     entry.issueError =
-      `the issue index holds issues from \`${index.source}\`, and this repository reads them from \`${source.ask}\``;
+      `the issue index holds issues from \`${index.source}\`, and this repository reads them from \`${readings.expected}\``;
     entry.issueAbsence = null;
     entry.waiting = null;
     return;
@@ -2609,10 +2727,10 @@ const readIssuesFromStore = async (
     entry.waiting = null;
     return;
   }
-  const plans = await ticketPlansOf(opts, entry, refEntries);
+  const plans = await readings.plans();
   if (plans === null) {
     entry.issueAnswer = 'failed';
-    entry.issueError = 'plans could not be read, so no issue can be called unplanned';
+    entry.issueError = readings.plansError;
     entry.issueAbsence = null;
     entry.waiting = null;
     return;
@@ -2628,9 +2746,7 @@ const readIssuesFromStore = async (
   }
   entry.issueAnswer = 'answered';
   entry.issueError = null;
-  const gitHostBackend = entry.backend ?? '';
-  const ticketSource = ticketSourceOf(source, gitHostBackend, TICKET_SOURCES);
-  entry.waiting = await waitingOf(opts, rows, plans, ticketSource, index.complete ?? true, index.inbox, index.inboxAnswer);
+  entry.waiting = await readings.waiting(rows, plans, readings.ticketSource, index.complete ?? true, index.inbox, index.inboxAnswer);
 };
 
 /**
@@ -2998,15 +3114,17 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
     }
     return;
   }
-  // ON `held`, THE PR ROWS fleetd'S READER LEFT IN THE STORE, AND NOTHING ELSE:
-  // no election, no reader start, no CI-run read and no issue read. A live
-  // fleetd on another snapshot protocol still owns every read (#3528).
+  // ON `held`, THE PR ROWS fleetd'S READER LEFT IN THE STORE AND THE ISSUE ROWS
+  // OF ITS ISSUE INDEX, BOTH FILE READS: no election, no reader start, no
+  // CI-run read and no host read. A live fleetd on another snapshot protocol
+  // still owns every read (#3528).
   if (opts.channelSnapshot !== undefined && boardSourceFor(opts, entry, await fleetdHeartbeatFor(opts), Date.now()) === 'held') {
     entry.prRunning = true;
     try {
       const key = await readerLockKey(opts, entry);
       if (key !== '') await readPrsFromStore(opts, entry, key, { runs: false });
       entry.prReader = 'fleet';
+      await readHeldIssues(opts, entry);
     } finally {
       entry.prRunning = false;
     }
@@ -3705,7 +3823,7 @@ export function freshCacheEntry(): CacheEntry {
     // a board that has not asked must not render an empty inbox as a clear
     // one, and must not stand in for a host it has not yet learned has no
     // issue read either. `createFromIssueVerdict` reads `null` as "pending".
-    issues: [], issueAnswer: null, issueError: null, issueAbsence: null, waiting: null, agents: [], registry: undefined,
+    issues: [], issueAnswer: null, issueError: null, issueAbsence: null, waiting: null, planMetas: null, agents: [], registry: undefined,
     // Undefined until the first refresh asks, which is NOT `unknown`: nothing
     // has been asked yet, so the header renders nothing rather than reporting a
     // reading that was never attempted.

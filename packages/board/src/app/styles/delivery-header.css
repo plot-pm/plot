@@ -7,3 +7,125 @@
 [data-tab-header] {
   --delivery-section: header;
 }
+
+/* Two columns from 768 px up, the to-do list first; stacked below. */
+[data-tab-header] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+[data-tab-header] > [data-tab-header-column] {
+  min-width: 0;
+  margin-block: 0;
+}
+@media (min-width: 768px) {
+  [data-tab-header] {
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  }
+}
+
+/* The to-do list: a header, one ruled line per item, the triage line. */
+[data-todo-header] {
+  margin-bottom: 0.25rem;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--card-meta);
+}
+[data-todo-line] {
+  column-gap: 0.625rem;
+  row-gap: 0.125rem;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--card-rule);
+  font-size: 13px;
+}
+[data-todo-line]:last-child {
+  border-bottom: 0;
+}
+[data-todo-name] {
+  column-gap: 0.625rem;
+  color: var(--card-body);
+}
+[data-todo-verb] {
+  min-width: 110px;
+  font-weight: 600;
+  color: var(--delivery-text, var(--card-body));
+}
+[data-todo-label] {
+  font-weight: 700;
+  color: var(--hue-blue);
+}
+[data-todo-name]:hover [data-todo-label] {
+  text-decoration: underline;
+}
+@media (max-width: 639.98px) {
+  [data-todo-verb] { min-width: 0; }
+}
+[data-todo-triage] {
+  padding-top: 0.5rem;
+  font-size: 13px;
+}
+
+/* The release card's bar and legend, in the five-state colour map of the sprint card. */
+[data-release-card-bar] {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--card-track);
+}
+[data-release-card-legend] {
+  font-size: 11px;
+  color: var(--card-body);
+}
+.delivery-release-swatch {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-right: 4px;
+  border-radius: 2px;
+}
+
+/* The Approve release button. */
+.delivery-approve {
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--card-primary);
+  color: var(--card-primary-text);
+}
+.delivery-approve:hover:not(:disabled) {
+  background: var(--card-primary-hover);
+}
+.delivery-approve:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* The filter chips: outlined when off, filled when on, dimmed when disabled. */
+.delivery-filter-chip {
+  padding: 3px 10px;
+  border: 1px solid var(--card-border);
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 500;
+  background: transparent;
+  color: var(--card-body);
+}
+.delivery-filter-chip:hover:not(:disabled) {
+  background: var(--card-band-strong);
+}
+.delivery-filter-chip[data-chip-on="1"] {
+  border-color: var(--hue-slate-dot);
+  background: var(--hue-slate-soft);
+  color: var(--card-title);
+  font-weight: 600;
+}
+.delivery-filter-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  color: var(--card-meta);
+}

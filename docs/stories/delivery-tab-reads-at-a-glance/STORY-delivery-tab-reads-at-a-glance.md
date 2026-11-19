@@ -2,7 +2,7 @@
 title: The Delivery tab reads at a glance
 author: jwloka
 issue: https://github.com/plot-pm/plot/issues/3468
-status: ready
+status: active
 created: 2026-11-16
 updated: 2026-11-16
 ---

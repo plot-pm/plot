@@ -18,22 +18,34 @@ export const ReleaseCard = ({ cards, rows }: { cards: readonly ReleaseCardView[]
         id={card.anchor}
         data-release-card={card.kind}
         data-release-card-version={card.version}
-        className="min-w-0 space-y-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900/40"
+        className="delivery-card min-w-0 space-y-2 text-[13px]"
       >
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-          <span data-release-card-title className="min-w-0 break-words font-semibold text-slate-800 dark:text-slate-100">{card.title}</span>
-          {card.stateText !== '' && <span data-release-card-state className="text-slate-500 dark:text-slate-400">{card.stateText}</span>}
-          {card.peopleText !== '' && <span data-release-card-people className="text-slate-500 tabular-nums dark:text-slate-400">{card.peopleText}</span>}
+          <span data-release-card-title className="delivery-title min-w-0 break-words">{card.title}</span>
+          {card.stateText !== '' && <span data-release-card-state className="delivery-text-muted">{card.stateText}</span>}
+          {card.peopleText !== '' && <span data-release-card-people className="delivery-text-muted tabular-nums">{card.peopleText}</span>}
         </div>
-        {card.readingMissing && <p data-release-card-missing className="text-slate-500 dark:text-slate-400">{card.missingText}</p>}
+        {card.readingMissing && <p data-release-card-missing className="delivery-text-muted">{card.missingText}</p>}
         {card.bar !== null && (
-          <div data-release-card-bar role="img" aria-label={card.bar.map((s) => `${s.count} ${SEGMENT_WORD[s.state]}`).join(', ')} className="flex h-2 w-full overflow-hidden rounded bg-slate-100 dark:bg-slate-800">
-            {card.bar.map((s) => (
-              s.count > 0 ? <span key={s.state} data-release-card-segment={s.state} data-count={s.count} style={{ flexGrow: s.count }} className={SEGMENT_CLASS[s.state]} /> : null
-            ))}
-          </div>
+          <>
+            <div data-release-card-bar role="img" aria-label={card.bar.map((s) => `${s.count} ${SEGMENT_WORD[s.state]}`).join(', ')} className="flex w-full overflow-hidden">
+              {card.bar.map((s) => (
+                s.count > 0 ? <span key={s.state} data-release-card-segment={s.state} data-count={s.count} style={{ flexGrow: s.count }} className={SEGMENT_CLASS[s.state]} /> : null
+              ))}
+            </div>
+            <p data-release-card-legend className="flex flex-wrap gap-x-2.5 gap-y-0.5">
+              {card.bar.map((s) => (
+                s.count > 0 ? (
+                  <span key={s.state} data-release-card-legend-item={s.state} className="inline-flex items-center tabular-nums">
+                    <span aria-hidden className={`delivery-release-swatch ${SEGMENT_CLASS[s.state]}`} />
+                    {s.count} {SEGMENT_WORD[s.state]}
+                  </span>
+                ) : null
+              ))}
+            </p>
+          </>
         )}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <ReleaseApprove card={card} row={card.rowId === null ? null : rows[card.rowId] ?? null} />
         </div>
       </div>

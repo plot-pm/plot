@@ -180,6 +180,7 @@ const rig = (
     fetchSha: async () => true,
     readChange: async (_tree, base) => { changeBases.push(base); return opts.change ?? CHANGE; },
     readText: (f) => files.get(f) ?? locks.get(f) ?? null,
+    listFiles: (dir) => [...files.keys()].filter((f) => path.dirname(f) === dir).map((f) => path.basename(f)),
     writeText: (f, t) => { written.push(f); files.set(f, t); },
     removeFile: (f) => { files.delete(f); },
     now: () => RUN,
@@ -330,6 +331,43 @@ describe('reviewPr', () => {
     expect(r.requests[0]!.role).toBe('reviewer');
     expect(r.requests[0]!.worktree).toBe(TREE);
     expect(r.removed).toEqual([TREE]);
+  });
+
+  describe('a new head whose change was already reviewed', () => {
+    const PASSED = '- [MEDIUM] a gap\nFindings: HIGH 0, MEDIUM 1, LOW 0\n';
+    const earlier = (verdict: string, diff: string) => new Map([
+      [`${REVIEWS}/7-${MOVED}.md`, verdict],
+      [`${REVIEWS}/7-${MOVED}.diff`, diff],
+    ]);
+
+    it('carries a passed verdict whose diff equals the current one and starts no reviewer', async () => {
+      const r = rig(null, { files: earlier(PASSED, DIFF) });
+      const out = await reviewPr(r.deps, '7');
+      expect(out.code).toBe(EXIT.ok);
+      expect(r.requests).toEqual([]);
+      expect(r.statuses).toEqual([{
+        sha: HEAD, state: 'success', context: 'plot/review',
+        description: `no HIGH findings; carried from bbbbbbb; run ${RUN}`,
+        targetUrl: 'https://github.com/o/r/pull/7',
+      }]);
+      expect(r.files.get(`${REVIEWS}/7-${HEAD}.md`)).toBe(PASSED);
+      expect(out.lines).toContain(`plot-review: the change of PR #7 at ${HEAD} equals the change reviewed at ${MOVED}; no reviewer ran`);
+      expect(out.lines.at(-1)).toBe(`plot-review: PR #7 ${HEAD} success, no HIGH findings, carried from ${MOVED}`);
+      expect(r.removed).toEqual([TREE]);
+    });
+
+    it('runs the reviewer where the earlier diff differs', async () => {
+      const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n', { files: earlier(PASSED, `${DIFF}+another line\n`) });
+      await reviewPr(r.deps, '7');
+      expect(r.requests).toHaveLength(1);
+      expect(r.statuses[0]!.description).toBe('no HIGH findings');
+    });
+
+    it('runs the reviewer where the earlier verdict has a HIGH finding', async () => {
+      const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n', { files: earlier(FINDINGS, DIFF) });
+      await reviewPr(r.deps, '7');
+      expect(r.requests).toHaveLength(1);
+    });
   });
 
   it('removes the tree when the run throws', async () => {
