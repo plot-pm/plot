@@ -39,7 +39,7 @@ This reverses one point of #3525. The tests that pin the always-open section cha
 
 ### Open Questions
 
-- [ ] Open by default (the mockups) or folded by default (the 2026-11-08 spec)? This plan says open.
+- [x] Open by default (the mockups) or folded by default (the 2026-11-08 spec)? Resolved: open by default (Jan Wloka, 2026-11-19).
 
 ## Slices
 
