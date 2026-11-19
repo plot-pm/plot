@@ -1,0 +1,9 @@
+/*
+ * RELEASE DELIVERY — the plan rows, the slice strip and the per-person cards.
+ *
+ * The rule below marks the file as loaded:
+ * the screenshot test reads `--delivery-section` from `[data-section="release-delivery"]`.
+ */
+[data-section="release-delivery"] {
+  --delivery-section: release;
+}

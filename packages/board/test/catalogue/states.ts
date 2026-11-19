@@ -1,4 +1,4 @@
-import { board, card, column, fleet, row, sprint, story, slice } from './build.js';
+import { agent, board, card, column, fleet, row, sprint, story, slice } from './build.js';
 import {
   BOARD_PHASES, ELIGIBLE_NOTE, RowKindSchema,
   type Board, type Fleet, type RowKind,
@@ -884,6 +884,129 @@ const aBoardThatCanAct = (): Scenario => ({
 });
 
 /**
+ * EVERY DELIVERY SECTION, EACH WITH CONTENT — the state the Delivery tab's
+ * screenshot test opens, so one page shows every section, group and header card.
+ *
+ * | what | fills | from |
+ * |---|---|---|
+ * | `changeset-release/main` | the ReleaseCard and the *Approve release* to-do | a `release` row |
+ * | `bed-a`, `bed-b` | Release delivery | merged one-slice plans in the reader's Active sprint |
+ * | `feature/ready-for-review` | You › Blocks delivery | green CI, review pending, `autoReview: false` |
+ * | `feature/which-mulch` | You › Blocks delivery, Fleet › Blocked | a `PLOT-BLOCKED` question and a `waiting` agent |
+ * | `feature/herb-spiral` | You › Input to the fleet | a Design-phase row |
+ * | `scratch/old-trellis` | You › Unblock | a loose branch: no plan, no desk, no agent |
+ * | `feature/rain-barrel` | Work items › At a gate, Fleet › Blocked | an open PR with CI pending |
+ * | `feature/seed-trays` | Work items › Being built, Fleet › Working | a claimed branch with a running agent |
+ * | `feature/cold-frame` | Work items › Queued | an open, unclaimed slice |
+ * | `s-free` | Fleet › Free | a running agent with no branch |
+ * | `machine` | the Machine line, amber | `tight` headroom and a host bucket at 8% |
+ * | tickets 41, 42 | Tickets | `issueAnswer: 'answered'`, both assigned to the reader |
+ *
+ * The header shows the ReleaseCard and not the SprintCard: the SprintCard needs
+ * the *My sprint* chip, which is a click and not a payload. The bucket keeps 400
+ * requests rather than 0, because an exhausted window blocks every running loop
+ * agent on the rate limit and empties Fleet › Working.
+ */
+const everyDeliverySection = (): Scenario => {
+  const ME = 'gardener';
+  const PR = 'https://github.com/tiny/garden/pull/';
+  type Pr = NonNullable<NonNullable<Parameters<typeof row>[0]>['pr']>;
+  const openPr = (number: number, over: Partial<Pr> = {}): Pr => ({
+    number, url: `${PR}${number}`, draft: false, state: 'green', open: true, ...over,
+  });
+  const deliveredSprint = {
+    slug: 'spring-planting', title: 'Spring planting', release: '', timebox: 'none' as const, timeboxLabel: '',
+    ownerHandle: ME,
+    counts: { total: 2, open: 0, wip: 0, done: 2, withdrawn: 0 },
+    members: ['bed-a', 'bed-b'].map((slug) => ({ slug, text: '', tier: 'must' as const, checked: false, known: true })),
+  };
+  // A MERGED ONE-SLICE PLAN is what Release delivery lists; it needs no row.
+  const merged = (plan: string) =>
+    slice({ plan, name: 'Beds', branches: [], verdict: 'complete', section: 'done', complete: true, planSliceCount: 1, merge: 'merged' });
+  const tickets = [
+    { number: 41, title: 'Slugs eat the lettuce seedlings', url: 'https://github.com/tiny/garden/issues/41', assignees: [ME], status: 'open', ageMinutes: 90 },
+    { number: 42, title: 'Compost bin lid will not close', url: 'https://github.com/tiny/garden/issues/42', assignees: [ME], status: 'open', ageMinutes: 600 },
+  ];
+  const rows = [
+    row({
+      kind: 'release', version: '2.7.0', plan: '', planFile: '', wave: '', state: 'open', group: 'waiting-on-you',
+      branch: 'changeset-release/main', branchUrl: `${GH}changeset-release/main`, ageMinutes: 12,
+      pr: openPr(300, {
+        headSha: 'abc1230', checksSha: 'abc1230', ciChecks: 'green',
+        plotReview: 'success', plotReviewSha: 'abc1230', plotReviewJudged: 'success', plotReviewCheckedSha: 'abc1230',
+      }),
+    }),
+    row({
+      branch: 'feature/ready-for-review', plan: 'review-plan', planFile: '2026-11-01-review-plan.md', wave: 'Review', state: 'wip', group: 'waiting-on-you',
+      branchUrl: `${GH}feature/ready-for-review`, ageMinutes: 5,
+      pr: openPr(131, { ciChecks: 'green', plotReview: 'pending' }),
+    }),
+    // THE QUESTION is what places it; the agent that asked it waits, so Fleet shows it blocked.
+    row({
+      branch: 'feature/which-mulch', plan: 'mulch-plan', planFile: '2026-11-01-mulch-plan.md', wave: 'Mulch', state: 'wip', group: 'waiting-on-you',
+      branchUrl: `${GH}feature/which-mulch`, ageMinutes: 40,
+      question: { firstLine: 'Bark or straw mulch for the paths?', askedAt: new Date(Date.now() - 40 * 60_000).toISOString() },
+    }),
+    row({
+      branch: 'feature/herb-spiral', plan: 'herb-spiral', planFile: '2026-11-01-herb-spiral.md', wave: 'Spiral', phase: 'Design', state: 'open', group: 'not-started',
+      branchUrl: `${GH}feature/herb-spiral`, ageMinutes: 300,
+    }),
+    // LOOSE: no plan names it, and `desk: false` says no worktree holds it.
+    row({
+      kind: 'branch', branch: 'scratch/old-trellis', plan: '', planFile: '', wave: '', state: 'open', group: 'not-started',
+      branchUrl: `${GH}scratch/old-trellis`, ageMinutes: 4000, desk: false, worker: 'none',
+    }),
+    row({
+      branch: 'feature/rain-barrel', plan: 'rain-barrel', planFile: '2026-11-01-rain-barrel.md', wave: 'Barrel', state: 'wip', group: 'working',
+      branchUrl: `${GH}feature/rain-barrel`, ageMinutes: 20, worker: 'running',
+      pr: openPr(140, { state: 'pending', ciChecks: 'pending' }),
+    }),
+    row({
+      branch: 'feature/seed-trays', plan: 'seed-trays', planFile: '2026-11-01-seed-trays.md', wave: 'Trays', state: 'wip', group: 'working',
+      branchUrl: `${GH}feature/seed-trays`, ageMinutes: 15, worker: 'running',
+    }),
+    row({
+      branch: 'feature/cold-frame', plan: 'cold-frame', planFile: '2026-11-01-cold-frame.md', wave: 'Frame', state: 'open', group: 'not-started',
+      branchUrl: `${GH}feature/cold-frame`, ageMinutes: 60,
+    }),
+  ];
+  return {
+    board: board({
+      server: { restartCommand: 'pnpm board', port: 4711, branch: 'main', repo: 'garden', hostUser: ME, people: { [ME]: ME } },
+      dispatch: { available: true, reason: '' },
+      columns: [
+        column({
+          phase: 'Development',
+          cards: ['review-plan', 'mulch-plan', 'rain-barrel', 'seed-trays', 'cold-frame'].map((slug) =>
+            card({ slug, title: slug, phase: 'Development', path: `docs/plans/2026-11-01-${slug}.md` })),
+        }),
+      ],
+    }),
+    fleet: fleet({
+      rows,
+      slices: [merged('bed-a'), merged('bed-b')],
+      // THE REGISTRY IS STATED, because two of its agents have no working row to derive from.
+      agents: [
+        agent({ session: 's-rain-barrel', branch: 'feature/rain-barrel', worktree: '/wt/plot-wt-rain-barrel', state: 'running' }),
+        agent({ session: 's-seed-trays', branch: 'feature/seed-trays', worktree: '/wt/plot-wt-seed-trays', state: 'running' }),
+        agent({ session: 's-which-mulch', branch: 'feature/which-mulch', worktree: '/wt/plot-wt-which-mulch', state: 'waiting' }),
+        agent({ session: 's-free', branch: '', worktree: '', state: 'running' }),
+      ],
+      autoReview: false,
+      sprints: [deliveredSprint],
+      machine: {
+        headroom: 'tight', load1: 7.8, cores: 8,
+        host: { connector: 'github', buckets: [{ bucket: 'core', limit: 5000, remaining: 400, resetAt: Date.now() + 30 * 60_000 }] },
+      },
+      issueAnswer: 'answered',
+      issues: tickets,
+      // `host-login` lets the reader's own login match an assignee, so both tickets read as theirs.
+      waiting: { tickets, shown: tickets.length, hidden: 0, unassigned: 0, assignedToOthers: 0, complete: true, notice: null, source: { service: 'github', match: 'host-login' } },
+    }),
+  };
+};
+
+/**
  * The catalogue itself.
  *
  * Each entry is a FUNCTION, so every `open()` gets a fresh payload and one
@@ -919,6 +1042,7 @@ export const SCENARIOS = {
   'a-story-with-and-without-a-file': aStoryWithAndWithoutAFile,
   'a-whole-small-estate': aWholeSmallEstate,
   'an-empty-estate': anEmptyEstate,
+  'every-delivery-section': everyDeliverySection,
 } satisfies Record<string, () => Scenario>;
 
 /** Every name the catalogue serves. */

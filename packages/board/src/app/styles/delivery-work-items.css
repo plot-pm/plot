@@ -1,0 +1,9 @@
+/*
+ * WORK ITEMS — the gate marks, the Where and By cells and the group columns.
+ *
+ * The rule below marks the file as loaded:
+ * the screenshot test reads `--delivery-section` from `[data-section="work-items"]`.
+ */
+[data-section="work-items"] {
+  --delivery-section: work-items;
+}

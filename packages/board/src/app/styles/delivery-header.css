@@ -1,0 +1,9 @@
+/*
+ * THE TAB HEADER — the to-do list, the release or sprint card and the fleet card, in two columns.
+ *
+ * The rule below marks the file as loaded:
+ * the screenshot test reads `--delivery-section` from `[data-tab-header]`.
+ */
+[data-tab-header] {
+  --delivery-section: header;
+}

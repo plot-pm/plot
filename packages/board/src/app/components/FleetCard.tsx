@@ -18,9 +18,9 @@ const STATE_WORDS: Record<FleetCardState, string> = {
 };
 
 const STATE_CLASS: Record<FleetCardState, string> = {
-  idle: 'text-slate-600 dark:text-slate-300',
-  working: 'text-emerald-700 dark:text-emerald-400',
-  blocked: 'text-amber-700 dark:text-amber-500',
+  idle: 'text-(--card-body)',
+  working: 'delivery-text-ok',
+  blocked: 'delivery-text-warn',
 };
 
 /**
@@ -43,10 +43,10 @@ export function FleetCard({
   return (
     <div
       data-fleet-card={card.state}
-      className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900/40"
+      className="delivery-card flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]"
     >
       <span data-fleet-card-state className={`font-semibold ${STATE_CLASS[card.state]}`}>{STATE_WORDS[card.state]}</span>
-      <span className="flex flex-wrap gap-x-3 text-slate-500 tabular-nums dark:text-slate-400">
+      <span className="delivery-text-muted flex flex-wrap gap-x-3 tabular-nums">
         <span data-fleet-card-count="free">free {card.free}</span>
         <span data-fleet-card-count="working">working {card.working}</span>
         <span data-fleet-card-count="blocked">blocked {card.blocked}</span>
@@ -62,7 +62,7 @@ export function FleetCard({
         type="button"
         data-fleet-card-link
         onClick={() => onJump('fleet-controls')}
-        className="ml-auto text-blue-600 hover:underline dark:text-blue-400"
+        className="delivery-text-link ml-auto"
       >
         Fleet controls ›
       </button>

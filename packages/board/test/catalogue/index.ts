@@ -51,6 +51,12 @@ export interface Catalogue {
        */
       reducedMotion?: 'reduce' | 'no-preference';
       /**
+       * The context's `prefers-color-scheme`, for a test that renders a page in
+       * each theme. `delivery-tab-screenshots.browser.test.ts` opens every
+       * Delivery section in light and in dark.
+       */
+      colorScheme?: 'light' | 'dark';
+      /**
        * Context permissions, for a test that reads what a control wrote.
        * `command-copy` asserts the Copy button's clipboard contents, which the
        * driver refuses without `clipboard-read`.
@@ -211,6 +217,7 @@ export const openCatalogue = async (): Promise<Catalogue> => {
     const context = await browser.newContext({
       viewport: opts.viewport ?? DEFAULT_VIEWPORT,
       ...(opts.reducedMotion ? { reducedMotion: opts.reducedMotion } : {}),
+      ...(opts.colorScheme ? { colorScheme: opts.colorScheme } : {}),
       ...(opts.permissions ? { permissions: [...opts.permissions] } : {}),
     });
     const page = await context.newPage();

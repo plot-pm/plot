@@ -1,0 +1,9 @@
+/*
+ * FLEET — the agent rows, the switches, the counts line and the Free line.
+ *
+ * The rule below marks the file as loaded:
+ * the screenshot test reads `--delivery-section` from `[data-section="fleet"]`.
+ */
+[data-section="fleet"] {
+  --delivery-section: fleet;
+}

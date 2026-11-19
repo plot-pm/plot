@@ -11,24 +11,24 @@ import {
 } from '../../contract/schema.js';
 
 const MACHINE_DOT_CLASS: Record<MachineDot, string> = {
-  green: 'bg-emerald-500',
-  amber: 'bg-amber-500',
-  red: 'bg-red-500',
-  grey: 'bg-slate-400',
+  green: 'delivery-hue-green',
+  amber: 'delivery-hue-amber',
+  red: 'delivery-hue-red',
+  grey: 'delivery-hue-slate',
 };
 
 /** The Machine section: one header line, and a Resource · Now · Effect table only where a resource limits the fleet. */
 const MachineSection = ({ machine }: { machine: MachineHealth }) => (
-  <div data-machine-line={machine.dot} className="px-3 text-sm text-slate-600 dark:text-slate-300">
+  <div data-machine-line={machine.dot} className="px-3 text-[13px] text-(--card-body)">
     <p className="flex flex-wrap items-center gap-x-1.5">
-      <span role="img" aria-label={machine.word} data-machine-dot={machine.dot} className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${MACHINE_DOT_CLASS[machine.dot]}`} />
+      <span role="img" aria-label={machine.word} data-machine-dot={machine.dot} className={`delivery-dot ${MACHINE_DOT_CLASS[machine.dot]}`} />
       <span className="font-medium">{machine.word}</span>
       {machine.line !== '' && <span>· {machine.line}</span>}
     </p>
     {machine.rows.length > 0 && (
       <table data-machine-rows className="mt-1 w-full text-left">
         <thead>
-          <tr className="text-xs text-slate-500"><th className="pr-3 font-normal">Resource</th><th className="pr-3 font-normal">Now</th><th className="font-normal">Effect</th></tr>
+          <tr className="delivery-text-muted text-xs"><th className="pr-3 font-normal">Resource</th><th className="pr-3 font-normal">Now</th><th className="font-normal">Effect</th></tr>
         </thead>
         <tbody>
           {machine.rows.map((r) => (
@@ -123,7 +123,7 @@ import {
   writeMineOnly,
   writeMineStrict,
 } from '../lib/agent-rows/mine-filter.js';
-import { deliveryScope, freeLine, mineMode, placeDelivery, planIndexOf, workItemCells, YOU_GROUP_MARKERS, type YouGroup, type YouMarker } from '@plot-pm/domain';
+import { deliveryScope, freeLine, mineMode, placeDelivery, planIndexOf, workItemCells, YOU_GROUP_MARKERS, type DeliverySection, type YouGroup, type YouMarker } from '@plot-pm/domain';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
 import { ActivityMark } from '../lib/agent-rows/marks.js';
 import { PlanActions } from '../lib/agent-rows/menus.js';
@@ -176,6 +176,33 @@ const YOU_MARKER_CLASS: Record<YouMarker, string> = {
   input: 'text-blue-600 dark:text-blue-400',
   'clean-up': 'text-slate-500 dark:text-slate-400',
 };
+
+/** The group heading each section draws: tagged in You, plain in Work items and Fleet. */
+const GROUP_HEADING_CLASS: Record<DeliverySection, string> = {
+  'release-delivery': 'delivery-group-plain',
+  you: 'delivery-group-tagged',
+  'work-items': 'delivery-group-plain',
+  fleet: 'delivery-group-plain',
+  machine: 'delivery-group-plain',
+};
+
+/** The colour of a header count's number, by section and count key; a count not named here takes the body colour. */
+const COUNT_HUE: Readonly<Partial<Record<DeliverySection, Readonly<Record<string, string>>>>> = {
+  'release-delivery': { delivered: 'delivery-hue-green', blocked: 'delivery-hue-red' },
+  you: { 'blocks-delivery': 'delivery-hue-red', 'input-to-the-fleet': 'delivery-hue-blue' },
+  'work-items': { 'at-a-gate': 'delivery-hue-amber', 'being-built': 'delivery-hue-blue' },
+  fleet: { working: 'delivery-hue-green', blocked: 'delivery-hue-amber' },
+};
+
+const countHue = (section: DeliverySection, key: string): string => COUNT_HUE[section]?.[key] ?? '';
+
+/** A header count: the number in bold, then its words. A count the board could not read shows its words only. */
+const CountWords = ({ count, words, hue }: { count: number | null; words: string; hue: string }) => (
+  <>
+    {count !== null && <><b className={`delivery-count-n ${hue}`}>{count}</b>{' '}</>}
+    {words}
+  </>
+);
 
 /**
  * The pid `spawnerStatus` is called with from this component, for both its
@@ -1495,36 +1522,44 @@ export function AgentList({
         };
         return (
           <>
-            <FleetCard
-              agents={placement.agents}
-              switches={{ ...switches, autoDispatch: fleetControlsOf(fleet).autoDispatch, parallelAgents: fleetControlsOf(fleet).parallelAgents }}
-              onJump={scrollToAnchor}
-            />
-            {sprintScope.statusCard === 'sprint'
-              ? <SprintCard view={sprintCardView} />
-              : <ReleaseCard cards={releaseCardView.cards} rows={releaseCardView.rows} />}
-            <TodoList todo={todoListOf(view, placement, fleet.issueAnswer ?? null, releaseCardView.cards)} onJump={scrollToAnchor} />
+            {/* THE TAB HEADER, in two columns: the to-do list, then the release
+                or sprint card above the fleet card. `delivery-header.css` lays them out. */}
+            <div data-tab-header className="space-y-4">
+              <div data-tab-header-column="todo">
+                <TodoList todo={todoListOf(view, placement, fleet.issueAnswer ?? null, releaseCardView.cards)} onJump={scrollToAnchor} />
+              </div>
+              <div data-tab-header-column="status" className="space-y-2">
+                {sprintScope.statusCard === 'sprint'
+                  ? <SprintCard view={sprintCardView} />
+                  : <ReleaseCard cards={releaseCardView.cards} rows={releaseCardView.rows} />}
+                <FleetCard
+                  agents={placement.agents}
+                  switches={{ ...switches, autoDispatch: fleetControlsOf(fleet).autoDispatch, parallelAgents: fleetControlsOf(fleet).parallelAgents }}
+                  onJump={scrollToAnchor}
+                />
+              </div>
+            </div>
             {view.sections.map((section) => {
               // THE HEADING CARRIES THE PACE OF THE ROWS BEHIND IT, folded or
               // open, read from the same `active` set the rows render from.
               const release = section.key === 'release-delivery';
               const sectionPace = groupPace(release ? view.releaseRows : section.rows, active);
               const { folded, header } = fold(section.key, release ? view.releasePlanCount : section.count, (
-                <h2 data-delivery-section={section.key} className="flex min-w-0 flex-1 items-baseline gap-1 text-base font-semibold text-slate-800 dark:text-slate-100">
+                <h2 data-delivery-section={section.key} className="delivery-title flex min-w-0 flex-1 items-baseline gap-1">
                   <svg aria-hidden="true" data-section-icon={section.icon} viewBox="0 0 16 16" width="16" height="16" fill="currentColor" className="inline-block shrink-0 self-center">
                     <path d={sectionGlyph(section)} />
                   </svg>{' '}
                   {section.label}
                   {section.key === 'you' && (
-                    <span data-you-header className="ml-2 flex flex-wrap items-baseline gap-x-2 text-sm font-normal text-slate-500">
+                    <span data-you-header className="delivery-counts ml-2">
                       {youHead.counts.map((c, i) => (
                         <span key={c.key} data-you-count={c.key}>
                           {i > 0 && <span aria-hidden="true">· </span>}
                           {c.anchor === null ? (
-                            <>{c.text}</>
+                            <CountWords count={c.count} words={c.words} hue={countHue(section.key, c.key)} />
                           ) : (
-                            <button type="button" data-you-count-link={c.key} onClick={() => scrollToAnchor(c.anchor!)} className="text-blue-600 hover:underline dark:text-blue-400">
-                              {c.text}
+                            <button type="button" data-you-count-link={c.key} onClick={() => scrollToAnchor(c.anchor!)} className="hover:underline">
+                              <CountWords count={c.count} words={c.words} hue={countHue(section.key, c.key)} />
                             </button>
                           )}
                         </span>
@@ -1536,7 +1571,7 @@ export function AgentList({
                             {e.anchor === null ? (
                               <>{e.text}</>
                             ) : (
-                              <button type="button" data-phase-strip-link={e.role} onClick={() => scrollToAnchor(e.anchor!)} className="text-blue-600 hover:underline dark:text-blue-400">
+                              <button type="button" data-phase-strip-link={e.role} onClick={() => scrollToAnchor(e.anchor!)} className="delivery-text-link">
                                 {e.text}
                               </button>
                             )}
@@ -1547,14 +1582,14 @@ export function AgentList({
                     </span>
                   )}
                   {section.key !== 'you' && section.summary.length > 0 && (
-                    <span data-section-summary className="ml-2 flex flex-wrap items-baseline gap-x-2 text-sm font-normal text-slate-500">
+                    <span data-section-summary className="delivery-counts ml-2">
                       {section.summary.map((c) => (
                         <span key={c.key} data-summary-count={c.key}>
                           {c.anchor === null ? (
-                            <>{c.text}</>
+                            <CountWords count={c.count} words={c.words} hue={countHue(section.key, c.key)} />
                           ) : (
-                            <button type="button" data-summary-link={c.key} onClick={() => scrollToAnchor(c.anchor!)} className="text-blue-600 hover:underline dark:text-blue-400">
-                              {c.text}
+                            <button type="button" data-summary-link={c.key} onClick={() => scrollToAnchor(c.anchor!)} className="hover:underline">
+                              <CountWords count={c.count} words={c.words} hue={countHue(section.key, c.key)} />
                             </button>
                           )}
                         </span>
@@ -1567,11 +1602,11 @@ export function AgentList({
                       )}
                     </span>
                   )}
-                  {release && <span className="ml-1 font-normal text-slate-500">({view.releasePlanCount})</span>}
+                  {release && <span className="delivery-text-muted ml-1 font-normal">({view.releasePlanCount})</span>}
                   {sectionPace && <ActivityMark pace={sectionPace} place="heading" />}
                   <span data-section-controls className="ml-auto">
                     {section.key === 'fleet' && (
-                      <span id="fleet-controls" data-fleet-control-column className="flex flex-wrap items-center gap-3">
+                      <span id="fleet-controls" data-fleet-control-column className="flex flex-wrap items-center gap-3 text-[13px] font-normal">
                         <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
                         <AutoSwitch name="autoReview" value={switches.autoReview} />
                         <AutoSwitch name="autoVerify" value={switches.autoVerify} />
@@ -1583,8 +1618,8 @@ export function AgentList({
                 </h2>
               ), release);
               return (
-                <section key={section.key} data-section={section.key} className="space-y-2">
-                  {header}
+                <section key={section.key} data-section={section.key} className="delivery-card space-y-2">
+                  <div className="delivery-head">{header}</div>
                   {release && view.releaseBlocks.map((block) => (
                     <div key={block.sprint || block.release || 'all'} data-release-block={block.release} {...(block.sprint === '' ? {} : { 'data-sprint-block': block.sprint })} className="space-y-1">
                       <p data-release-line className="px-3 text-sm text-slate-600 dark:text-slate-300">{block.header}</p>
@@ -1686,20 +1721,20 @@ export function AgentList({
                     if (freeGroup) {
                       return free === null ? null : (
                         <div key={group.key} id={groupAnchor(group.key)} data-group={group.key} className="space-y-1">
-                          <p data-free-line className="flex items-baseline gap-2 text-sm text-slate-700 dark:text-slate-200">
+                          <p data-free-line className="flex flex-wrap items-baseline gap-2 px-3 text-[13px] text-(--card-body)">
                             <span>{free.text}</span>
                             <button
                               type="button"
                               data-group-toggle={group.key}
                               aria-expanded={!collapsed.has(group.key)}
                               onClick={() => toggle(group.key)}
-                              className="text-blue-600 hover:underline dark:text-blue-400"
+                              className="delivery-text-link"
                             >
                               {collapsed.has(group.key) ? 'show' : 'hide'}
                             </button>
                           </p>
                           {!collapsed.has(group.key) && (
-                            <ul role="grid" aria-label={`${group.label} — agents`} className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
+                            <ul role="grid" aria-label={`${group.label} — agents`} className="delivery-grid">
                               <FleetAgentHeader blocked={false} />
                               {group.agents.flatMap(agentBody)}
                             </ul>
@@ -1708,7 +1743,7 @@ export function AgentList({
                       );
                     }
                     const g = fold(group.key, group.count, (
-                      <h3 data-delivery-group={group.key} className="flex flex-wrap items-baseline gap-1 text-sm font-medium text-slate-700 dark:text-slate-200">
+                      <h3 data-delivery-group={group.key} className={`flex flex-wrap items-baseline gap-1 ${GROUP_HEADING_CLASS[section.key]}`}>
                         {section.key === 'you' && (
                           <span
                             data-group-marker={YOU_GROUP_MARKERS[group.key as YouGroup].marker}
@@ -1719,13 +1754,13 @@ export function AgentList({
                           </span>
                         )}
                         {group.label}
-                        <span className="ml-1 font-normal text-slate-500">
+                        <span className="ml-1 font-normal normal-case tracking-normal">
                           ({group.count > 0 ? group.tally : group.hint})
                         </span>
                         {held.held.map((h) => (
-                          <span key={h.switch} data-group-held={h.switch} className="font-normal text-slate-500">
+                          <span key={h.switch} data-group-held={h.switch} className="font-normal normal-case tracking-normal">
                             · {h.name} off ·{' '}
-                            <button type="button" onClick={() => scrollToAnchor('fleet-controls')} className="text-blue-600 hover:underline dark:text-blue-400">
+                            <button type="button" onClick={() => scrollToAnchor('fleet-controls')} className="delivery-text-link">
                               {h.action} ›
                             </button>
                           </span>
@@ -1740,7 +1775,7 @@ export function AgentList({
                           <ul
                             role="grid"
                             aria-label={`${group.label} — agent branches`}
-                            className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40"
+                            className="delivery-grid"
                           >
                             <HeaderRow statusName={group.column ?? 'Status'} youColumns={section.key === 'you'} />
                             {group.blocks.flatMap(blockBody)}
@@ -1755,11 +1790,11 @@ export function AgentList({
               );
             })}
             {view.notPlaced.length > 0 && showUnplaced && (
-              <section id="unplaced-details" data-unplaced className="px-3 pt-2">
-                <p className="text-xs text-amber-600 dark:text-amber-500">
+              <section id="unplaced-details" data-unplaced className="delivery-card">
+                <p className="delivery-text-warn px-3 text-xs">
                   Shown here, in no section, because the reading the rule needs is missing.
                 </p>
-                <ul className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                <ul className="delivery-text-muted mt-1 px-3 text-xs">
                   {unplacedDetails(view.notPlaced).map((d, i) => (
                     <li key={d.id} data-unplaced-row data-unplaced-reason={view.notPlaced[i]?.reason}>{d.text}</li>
                   ))}
@@ -1768,7 +1803,7 @@ export function AgentList({
                   <ul
                     role="grid"
                     aria-label="Not placed — agent branches"
-                    className="mt-1 rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40"
+                    className="delivery-grid mt-1"
                   >
                     <HeaderRow />
                     {view.notPlaced.flatMap((u) => u.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} />))}
@@ -1831,14 +1866,14 @@ export function AgentList({
         });
         const np = fact.notPlaced;
         const dotClass: Record<string, string> = {
-          fresh: 'text-emerald-500', aging: 'text-amber-500', stale: 'text-rose-500', unknown: 'text-slate-400',
+          fresh: 'delivery-hue-green', aging: 'delivery-hue-amber', stale: 'delivery-hue-rose', unknown: 'delivery-hue-slate',
         };
         return (
           <>
-            <p data-footer-line className="px-3 text-xs text-slate-400 dark:text-slate-600">
+            <p data-footer-line className="delivery-text-muted px-3 text-xs">
               {fact.freshness.map((e) => (
                 <span key={e.key} data-freshness={e.key} data-freshness-state={e.state}>
-                  <span role="img" aria-label={e.word} className={dotClass[e.state]}>●</span>{' '}
+                  <span role="img" aria-label={e.word} className={`delivery-dot-glyph ${dotClass[e.state]}`}>●</span>{' '}
                   <span aria-hidden="true">{e.word}</span> · {e.text}
                   {e.next !== null && ` · ${e.next}`} ·{' '}
                 </span>
@@ -1853,7 +1888,7 @@ export function AgentList({
                     aria-expanded={showUnplaced}
                     aria-controls="unplaced-details"
                     onClick={() => setShowUnplaced((on) => !on)}
-                    className="underline decoration-dotted underline-offset-2 hover:text-slate-600 dark:hover:text-slate-400"
+                    className="underline decoration-dotted underline-offset-2 hover:text-(--card-body)"
                   >
                     details
                   </button>

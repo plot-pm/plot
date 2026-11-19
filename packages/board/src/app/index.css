@@ -1,4 +1,11 @@
 @import "tailwindcss";
+@import "./styles/delivery.css";
+@import "./styles/delivery-header.css";
+@import "./styles/delivery-release.css";
+@import "./styles/delivery-you.css";
+@import "./styles/delivery-work-items.css";
+@import "./styles/delivery-fleet.css";
+@import "./styles/delivery-bottom.css";
 
 /*
  * THE ACTIVITY MARK'S TRAVEL — the board's only hand-written keyframes.
@@ -84,7 +91,8 @@ body {
   --card-track: oklch(92.9% 0.013 255.508);
   --card-title: oklch(20.8% 0.042 265.755);
   --card-body: oklch(37.2% 0.044 257.287);
-  --card-meta: oklch(55.4% 0.046 257.417);
+  --card-meta: oklch(53% 0.046 257.417);
+  --card-rule: oklch(96.8% 0.007 247.896);
   --card-shadow: 0 1px 2px rgb(15 23 42 / 0.06), 0 1px 3px rgb(15 23 42 / 0.04);
   --card-shadow-raised: 0 4px 12px rgb(15 23 42 / 0.08), 0 2px 4px rgb(15 23 42 / 0.06);
   --card-primary: oklch(54.6% 0.245 262.881);
@@ -118,6 +126,9 @@ body {
   --hue-red: oklch(50.5% 0.213 27.518);
   --hue-red-dot: oklch(63.7% 0.237 25.331);
   --hue-red-soft: oklch(97.1% 0.013 17.38);
+  --hue-rose: oklch(51.4% 0.222 16.935);
+  --hue-rose-dot: oklch(64.5% 0.246 16.439);
+  --hue-rose-soft: oklch(96.9% 0.015 12.422);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -132,6 +143,7 @@ body {
     --card-title: oklch(98.4% 0.003 247.858);
     --card-body: oklch(86.9% 0.022 252.894);
     --card-meta: oklch(70.4% 0.04 256.788);
+    --card-rule: rgb(51 65 85 / 0.5);
     --card-shadow: 0 1px 2px rgb(0 0 0 / 0.4);
     --card-shadow-raised: 0 6px 16px rgb(0 0 0 / 0.5), 0 2px 4px rgb(0 0 0 / 0.4);
     --card-primary: oklch(62.3% 0.214 259.815);
@@ -165,6 +177,9 @@ body {
     --hue-red: oklch(80.8% 0.114 19.571);
     --hue-red-dot: oklch(70.4% 0.191 22.216);
     --hue-red-soft: rgb(127 29 29 / 0.4);
+    --hue-rose: oklch(81% 0.117 11.638);
+    --hue-rose-dot: oklch(71.2% 0.194 13.428);
+    --hue-rose-soft: rgb(136 19 55 / 0.4);
   }
 }
 

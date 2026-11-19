@@ -82,7 +82,7 @@ const map = ({ event = 'pull_request', asked = 'success', changed = '', selectio
   }
 };
 
-const JOBS = ['corpus', 'contracts', 'board', 'domain', 'fleet', 'e2e', 'macos', 'census'];
+const JOBS = ['corpus', 'contracts', 'board', 'delivery', 'domain', 'fleet', 'e2e', 'macos', 'census'];
 
 const answer = (over) =>
   JSON.stringify({ suites: [], checks: [], tests: [], corpus: false, corpusTests: [], untested: [], ...over });
@@ -213,7 +213,6 @@ for (const [job, output] of [
   ['census-head', 'census'],
   ['census-base', 'census'],
   ['helper-contracts', 'contracts'],
-  ['board-integration', 'board'],
 ]) {
   test(`${job} needs select and gates and runs unless select named it false or reused it`, () => {
     const head = jobBlock(job).split('\n    steps:')[0];
@@ -229,6 +228,30 @@ for (const [job, output] of [
     );
   });
 }
+
+test('board-integration needs select and gates, and a Delivery change runs it even where reuse_board is set', () => {
+  const head = jobBlock('board-integration').split('\n    steps:')[0];
+  assert.ok(head.includes('\n    needs: [select, gates]\n'), 'board-integration must say needs: [select, gates]');
+  assert.ok(
+    head.includes(
+      "    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.select.outputs.board != 'false' && (needs.select.outputs.reuse_board == '' || needs.select.outputs.delivery == 'true') }}",
+    ),
+    'board-integration must run when gates ended success and board is selected, unless reuse_board is set and no Delivery path changed',
+  );
+});
+
+test('a Delivery-tab path selects delivery, and another board path does not', () => {
+  for (const file of [
+    'packages/board/src/app/components/AgentList.tsx',
+    'packages/board/test/catalogue/states.ts',
+    'docs/superpowers/specs/2026-11-16-delivery-tab-mockups/fleet-section-v3.html',
+  ]) {
+    const out = map({ changed: `${file}\n`, selection: answer({ suites: ['.'], checks: [always] }) });
+    assert.equal(out.delivery, 'true', file);
+  }
+  const out = map({ changed: 'packages/board/src/server/board.ts\n', selection: answer({ suites: ['.'], checks: [always] }) });
+  assert.equal(out.delivery, 'false');
+});
 
 test('checks starts beside the split jobs, after gates, and runs unless cancelled', () => {
   const head = jobBlock('checks').split('\n    steps:')[0];
