@@ -670,6 +670,7 @@ export * from './rules/sprint-selection.js';
 export * from './rules/plan-ref-age.js';
 export * from './rules/sprint-item-destination.js';
 export * from './rules/release-branch.js';
+export * from './rules/release-version.js';
 export * from './rules/release-head.js';
 export * from './rules/release-prepare.js';
 export * from './rules/sprint-scope.js';

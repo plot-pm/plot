@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_PHASE_MAP, parsePhaseMap, TICKETS_ANCHOR, youHeader, deliveryGroupAnchor,
+  DEFAULT_PHASE_MAP, parsePhaseMap, TICKETS_ANCHOR, todoList, youHeader, deliveryGroupAnchor,
   type PhaseMap, type YouHeaderInput,
 } from '../src/index.js';
 
@@ -60,6 +60,35 @@ describe('youHeader counts', () => {
 
   it('links a ticket count of 0 nowhere', () => {
     expect(youHeader(base({ tickets: [] })).counts[3]!.anchor).toBeNull();
+  });
+});
+
+describe('youHeader release approvals', () => {
+  // THE #3562 SHAPE: the to-do list held one "Approve release" line, so its header read
+  // "You block 1 delivery", while the You row read "0 block delivery" from the empty group.
+  const release = { id: 'release-row:changeset-release/main', label: '2.35.1', anchor: 'release-card-2.35.1' };
+  const empty = [
+    { key: 'blocks-delivery', count: 0 },
+    { key: 'input-to-the-fleet', count: 0 },
+    { key: 'unblock', count: 5 },
+  ];
+
+  it('counts each release the cards owe an approval for under block delivery', () => {
+    const counts = youHeader(base({ groups: empty, releases: [release] })).counts;
+    expect(counts[0]!.text).toBe('1 block delivery');
+    expect(counts[0]!.anchor).toBe('release-card-2.35.1');
+  });
+
+  it('agrees with the to-do list header over the same release entries', () => {
+    const head = youHeader(base({ groups: empty, releases: [release] })).counts[0]!.count;
+    const todo = todoList({ items: [], ticketAnswer: 'answered', tickets: [], releases: [release] });
+    expect(head).toBe(todo.counts['blocks-delivery']);
+  });
+
+  it('keeps the group anchor where the group has rows', () => {
+    const counts = youHeader(base({ releases: [release] })).counts;
+    expect(counts[0]!.text).toBe('4 block delivery');
+    expect(counts[0]!.anchor).toBe(deliveryGroupAnchor('blocks-delivery'));
   });
 });
 

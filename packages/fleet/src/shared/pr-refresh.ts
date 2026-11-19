@@ -1616,7 +1616,8 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
       // `headSince` was older than `Checks wait` by the time the streak alone
       // was spent, so the slow path never got to run at all, and the row sat
       // `pending` until the next full read, as long as `PR_FULL_READ_MS` (24h).
-      // `failing` is included — a re-run can turn it green.
+      // `failing` is included — a re-run can turn it green — and so is `none`,
+      // which a check or status that reports after the read replaces.
       const askable = pending.filter((n) => (
         (entry.prPendingReaskStreak.get(n) ?? 0) < PR_PENDING_REASK_LIMIT
         || startedAt - (entry.prReaskAt.get(n) ?? 0) >= PR_PENDING_REASK_SLOW_MS
@@ -1658,7 +1659,7 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
               // moved — clears it, so a PR that starts failing is asked about
               // again exactly as a fresh pending one would be.
               const storedRow = stored?.rows.find((row) => row.number === pr.number);
-              const noProgress = (pr.checks === 'pending' || pr.checks === 'failing')
+              const noProgress = (pr.checks === 'pending' || pr.checks === 'failing' || pr.checks === 'none')
                 && storedRow !== undefined && storedRow.updatedAt === pr.updatedAt
                 && storedRow.checks === pr.checks && storedRow.headSha === pr.headSha;
               if (noProgress) {

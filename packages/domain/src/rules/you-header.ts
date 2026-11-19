@@ -67,6 +67,8 @@ export interface YouHeaderInput {
   /** The live stories, not Done or Archived. */
   stories: readonly StripStory[];
   plans: readonly StripPlan[];
+  /** The releases the release cards owe an approval for (`releaseTodoEntries`), the entries `todoList` reads; absent reads as none. */
+  releases?: readonly { anchor: string }[];
 }
 
 const GROUP_WORDS: Record<YouGroup, string> = {
@@ -91,7 +93,9 @@ const entryText = (name: string | null, count: number | null): string =>
 /**
  * The You header: one count per You group, the reader's tickets to triage, and the phase strip.
  *
- * A group count links to `deliveryGroupAnchor` where the group has rows, and nowhere otherwise.
+ * The `blocks-delivery` count adds one per release in `releases`, the entries `todoList` adds as
+ * `release-approval` lines, so the two counts agree. A group count links to `deliveryGroupAnchor`
+ * where the group has rows, to the first release's card where only releases count, and nowhere otherwise.
  * The ticket count is `null` while the tracker has not answered, and links to `TICKETS_ANCHOR`
  * where the Tickets section renders, which includes the absent reading.
  * The strip names its three phases from `map`: the phase holding a story status, the phase holding
@@ -99,20 +103,25 @@ const entryText = (name: string | null, count: number | null): string =>
  * keeps its count with no name. Every count leaves out an item whose ownership is `'theirs'`.
  * The story phase counts the tickets with no plan and the live stories no plan names.
  *
- * @param input - the group counts, tickets, phase map, stories and plans.
+ * @param input - the group counts, tickets, phase map, stories, plans and owed release approvals.
  * @returns the counts, the strip and the strip as a line.
  */
 export const youHeader = (input: YouHeaderInput): YouHeader => {
   const answered = input.ticketAnswer === 'answered';
   const tickets = answered ? input.tickets.filter((t) => !theirs(t.ownership)).length : null;
 
-  const counts: YouHeaderCount[] = input.groups.filter((g) => isYouGroup(g.key)).map((g) => ({
-    key: g.key,
-    count: g.count,
-    text: `${g.count} ${GROUP_WORDS[g.key as YouGroup]}`,
-    words: GROUP_WORDS[g.key as YouGroup],
-    anchor: g.count > 0 ? deliveryGroupAnchor(g.key) : null,
-  }));
+  const releases = input.releases ?? [];
+  const counts: YouHeaderCount[] = input.groups.filter((g) => isYouGroup(g.key)).map((g) => {
+    const owed = g.key === 'blocks-delivery' ? releases : [];
+    const count = g.count + owed.length;
+    return {
+      key: g.key,
+      count,
+      text: `${count} ${GROUP_WORDS[g.key as YouGroup]}`,
+      words: GROUP_WORDS[g.key as YouGroup],
+      anchor: g.count > 0 ? deliveryGroupAnchor(g.key) : owed[0]?.anchor ?? null,
+    };
+  });
   counts.push({
     key: 'tickets',
     count: tickets,

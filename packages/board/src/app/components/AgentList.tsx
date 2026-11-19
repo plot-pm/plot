@@ -1201,7 +1201,7 @@ export function AgentList({
         unplacedForFooter = view.notPlaced;
         const youHead = youHeaderOf({
           view, placement, reader, ticketAnswer: fleet.issueAnswer ?? null, phaseMap,
-          stories: stories ?? [], cards: cards ?? [],
+          stories: stories ?? [], cards: cards ?? [], releases: releaseCardView.cards,
         });
         // THE SEVEN COLUMNS' BY CELL AND THE HELD-GROUP HEADERS — domain properties, rendered here.
         const forms = rowFormsOf(mapping, placement, Date.now());
