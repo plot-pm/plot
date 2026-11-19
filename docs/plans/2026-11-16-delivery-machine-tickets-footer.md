@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** bug-fixes-2-35-0
 - **Issue:**
@@ -17,6 +17,7 @@
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-machine-line`
 - **Started:** 2026-11-17, Jan Wloka, `feature/delivery-tab-footer`
 - **Delivered:** 2026-11-19
+- **Released:** 2026-11-19, v2.35.0
 
 ## Changelog
 

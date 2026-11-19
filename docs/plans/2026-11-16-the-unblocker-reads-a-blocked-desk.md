@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** bug-fixes-2-35-0
 - **Issue:** #3320
@@ -13,6 +13,7 @@
 - **Approved:** 2026-11-16, Jan Wloka, plan-PR #3475 merged
 - **Started:** 2026-11-16, Jan Wloka, `bug/the-unblocker-reads-a-blocked-desk`
 - **Delivered:** 2026-11-17
+- **Released:** 2026-11-19, v2.35.0
 
 ## Changelog
 
