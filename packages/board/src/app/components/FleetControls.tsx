@@ -105,7 +105,7 @@ export function AutoDispatchSwitch({ value, readOnly = false }: { value: boolean
   };
 
   return (
-    <label className="flex items-center gap-1.5 text-xs font-normal normal-case tracking-normal text-slate-500 dark:text-slate-400">
+    <label className="delivery-fleet-switch flex items-center gap-1.5">
       <input
         type="checkbox"
         {...(readOnly ? { 'data-fleet-card-auto-dispatch': '' } : { 'data-fleet-auto-dispatch': '' })}
@@ -113,7 +113,6 @@ export function AutoDispatchSwitch({ value, readOnly = false }: { value: boolean
         disabled={busy || readOnly}
         aria-readonly={readOnly || undefined}
         onChange={() => void toggle()}
-        className="h-3.5 w-3.5 accent-slate-500"
       />
       auto-dispatch
     </label>
@@ -157,7 +156,7 @@ export function AutoSwitch({ name, value, readOnly = false }: { name: AutoSwitch
   };
 
   return (
-    <label className="flex items-center gap-1.5 text-xs font-normal normal-case tracking-normal text-slate-500 dark:text-slate-400">
+    <label className="delivery-fleet-switch flex items-center gap-1.5">
       <input
         type="checkbox"
         {...(readOnly ? { 'data-fleet-card-auto-switch': name } : { 'data-fleet-auto-switch': name })}
@@ -165,7 +164,6 @@ export function AutoSwitch({ name, value, readOnly = false }: { name: AutoSwitch
         disabled={busy || readOnly}
         aria-readonly={readOnly || undefined}
         onChange={() => void toggle()}
-        className="h-3.5 w-3.5 accent-slate-500"
       />
       {AUTO_SWITCHES[name]}
     </label>
@@ -232,7 +230,7 @@ export function ParallelAgentsStepper({ value, readOnly = false }: { value: numb
           void commit(count - 1);
         }
       }}
-      className="inline-flex items-center gap-1 text-xs font-normal normal-case tracking-normal text-slate-500 dark:text-slate-400"
+      className="delivery-fleet-stepper inline-flex items-center gap-1"
     >
       {/*
         THE LABEL LEADS AND THE WIDGET IS FLUSH RIGHT. The control sits in a
@@ -256,7 +254,7 @@ export function ParallelAgentsStepper({ value, readOnly = false }: { value: numb
         tabIndex={-1}
         disabled={busy || atFloor}
         onClick={() => void commit(count - 1)}
-        className="flex h-4 w-4 items-center justify-center rounded border border-slate-300 leading-none disabled:opacity-40 dark:border-slate-700"
+        className="delivery-fleet-step flex items-center justify-center leading-none"
       >
         −
       </button>}
@@ -270,7 +268,7 @@ export function ParallelAgentsStepper({ value, readOnly = false }: { value: numb
         tabIndex={-1}
         disabled={busy}
         onClick={() => void commit(count + 1)}
-        className="flex h-4 w-4 items-center justify-center rounded border border-slate-300 leading-none disabled:opacity-40 dark:border-slate-700"
+        className="delivery-fleet-step flex items-center justify-center leading-none"
       >
         +
       </button>}
@@ -333,7 +331,7 @@ export function WorkingCounts({
   if (!showRunning && !showHidden && !showRegistry) return null;
 
   return (
-    <span className="flex items-baseline gap-1.5 text-xs font-normal normal-case tracking-normal text-slate-500 dark:text-slate-400">
+    <span className="delivery-fleet-counts flex items-baseline gap-1.5">
       {showRunning && (
         <span
           data-fleet-working
@@ -346,7 +344,7 @@ export function WorkingCounts({
       {showHidden && (
         <span
           data-fleet-hidden-by-filter
-          className="tabular-nums text-amber-600 dark:text-amber-500"
+          className="delivery-text-warn tabular-nums"
           title={`${hiddenByFilter} live workers on plans outside the selected sprint filter`}
         >
           ({hiddenByFilter} hidden by filter)
@@ -356,13 +354,13 @@ export function WorkingCounts({
         <details data-row-details data-fleet-details className="relative">
           <summary
             aria-label="Registry details"
-            className={`cursor-pointer select-none ${registry.manifestCount === 0 ? 'text-amber-600 dark:text-amber-500' : 'text-slate-400 dark:text-slate-500'}`}
+            className={`cursor-pointer select-none ${registry.manifestCount === 0 ? 'delivery-text-warn' : 'delivery-text-muted'}`}
           >
             · details
           </summary>
           <span
             data-fleet-registry
-            className="absolute right-0 z-10 mt-1 block whitespace-nowrap rounded border border-slate-200 bg-white p-2 font-mono tabular-nums shadow-sm dark:border-slate-700 dark:bg-slate-900"
+            className="delivery-fleet-registry absolute right-0 z-10 mt-1 block whitespace-nowrap p-2 font-mono tabular-nums"
           >
             {registry.manifestCount} manifest{registry.manifestCount !== 1 ? 's' : ''}{registry.synthesizedCount > 0 && `, ${registry.synthesizedCount} synthesized`}
             {registry.directory !== '' && ` · ${registry.directory}`}
