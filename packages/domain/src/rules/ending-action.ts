@@ -210,6 +210,28 @@ export const isBoundEnding = (ending: EndingReason | null): boolean =>
  * positive value — a failed read must never point toward `release-claim`,
  * the destructive answer.
  */
+/**
+ * Whether {@link endingAction}'s `bound`/`unreadable`/`quiet` row reads a
+ * desk's three work readings — `commitBeyondClaim`, `prOpen` and `dirtyTree`.
+ *
+ * That row reads them only after its free-wait, merged and marker arms have
+ * passed. Where this answers `false` for a bound ending, the verdict is the
+ * same whatever the three readings say, so a caller asks neither git nor the
+ * host for them. A `nothing-done` ending reads two of them on its own row,
+ * which this does not cover.
+ *
+ * @param readings - the ending, the free-wait reading, the merge reading and the marker.
+ * @returns true for a bound ending with `freeWait` `false`, `prMerged` not
+ *   `'merged'` and no marker; false otherwise.
+ */
+export const boundWorkDecides = (
+  readings: Pick<EndingActionReadings, 'ending' | 'freeWait' | 'prMerged' | 'blockedMarker'>,
+): boolean =>
+  isBoundEnding(readings.ending) &&
+  readings.freeWait === false &&
+  readings.prMerged !== 'merged' &&
+  !readings.blockedMarker;
+
 const boundBranchHoldsWork = (readings: EndingActionReadings): boolean =>
   readings.commitBeyondClaim !== 'no' || readings.prOpen !== false || readings.dirtyTree !== 'no';
 
