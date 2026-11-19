@@ -16,6 +16,7 @@
 - **Started:** 2026-11-19, Jan Wloka, `feature/delivery-domain-fields`
 - **Started:** 2026-11-19, Jan Wloka, `feature/delivery-visual-primitives`
 - **Started:** 2026-11-19, Jan Wloka, `feature/delivery-visual-tab-header`
+- **Started:** 2026-11-19, Jan Wloka, `feature/delivery-visual-release`
 
 ## Changelog
 
