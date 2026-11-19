@@ -325,11 +325,12 @@ describe('deliveryMapping loose ends', () => {
   const claimed = { state: 'claimed', worker: 'elsewhere', group: 'quiet' };
 
   it('reads a planless wip branch with no desk and no agent as named false and held false', () => {
-    expect(loose([row({ branch: 'feature/x', ...wip, desk: false })])).toEqual({ named: false, held: false });
+    expect(loose([row({ branch: 'feature/x', ...wip, desk: false })])).toEqual({ named: false, held: false, claimOnly: false });
   });
 
   it('reads a claimed planless branch with no desk as not held: a claim nobody holds is what release gives up', () => {
-    expect(loose([row({ branch: 'feature/x', ...claimed, desk: false })])).toEqual({ named: false, held: false });
+    expect(loose([row({ branch: 'feature/x', ...claimed, desk: false, worker: 'none' })])).toEqual({ named: false, held: false, claimOnly: true, claimElsewhere: false });
+    expect(loose([row({ branch: 'feature/x', ...claimed, desk: false, worker: 'elsewhere' })])).toEqual({ named: false, held: false, claimOnly: true, claimElsewhere: true });
   });
 
   it('reads a branch a registry agent names as held', () => {
@@ -345,7 +346,7 @@ describe('deliveryMapping loose ends', () => {
   });
 
   it('leaves held absent where the desk was not read and nothing else holds the branch', () => {
-    expect(loose([row({ branch: 'feature/x', ...wip })])).toEqual({ named: false });
+    expect(loose([row({ branch: 'feature/x', ...wip })])).toEqual({ named: false, claimOnly: false });
   });
 
   it('reads a branch a plan names as named', () => {
@@ -358,13 +359,13 @@ describe('deliveryMapping loose ends', () => {
 
   it('carries the fixer mark of a PR whose record was read', () => {
     const open = { branch: 'feature/x', kind: 'pr', pr: pr({ ciChecks: 'green' }), ...wip, desk: false };
-    expect(loose([row({ ...open, fixerInFlight: true })])).toEqual({ named: false, held: false, fixing: true });
+    expect(loose([row({ ...open, fixerInFlight: true })])).toEqual({ named: false, held: false, claimOnly: false, fixing: true });
     expect(loose([row({ ...open, fixerInFlight: false })])).toMatchObject({ fixing: false });
   });
 
   it('reads a closed PR as closed with no fixer record, and an open PR with none as unread', () => {
     const base = { branch: 'feature/x', kind: 'pr', ...wip, desk: false };
-    expect(loose([row({ ...base, pr: pr({ state: 'closed' }) })])).toEqual({ named: false, held: false, closed: true });
+    expect(loose([row({ ...base, pr: pr({ state: 'closed' }) })])).toEqual({ named: false, held: false, claimOnly: false, closed: true });
     expect(loose([row({ ...base, pr: pr({ ciChecks: 'green' }) })])).toBeUndefined();
   });
 
