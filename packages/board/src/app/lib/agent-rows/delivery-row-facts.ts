@@ -144,6 +144,7 @@ export const agentRowFactsOf = (mapping: DeliveryMapping, id: string, now?: numb
   const row = entry !== undefined
     ? all.find((r) => r.branch === entry.branch && entry.branch !== '')
     : run?.pr !== undefined ? all.find((r) => r.pr?.number === run.pr) : undefined;
+  if (entry?.branch) facts.branch = entry.branch;
   if (row === undefined) return facts;
   if (row.branch !== '') facts.branch = row.branch;
   if (row.question !== null && row.question !== undefined) facts.question = row.branch;

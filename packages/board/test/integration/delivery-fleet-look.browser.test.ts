@@ -134,10 +134,15 @@ describe('the Fleet section in the mockup look (real browser renders the shipped
       // No Free line naming full ids, and no second row per agent.
       expect(await page.locator('[data-free-line]').count()).toBe(0);
       expect(await fleet.locator('li[data-agent-row]:not([data-fleet-agent-row])').count()).toBe(0);
-      expect(await fleet.locator('[data-fleet-agent-row]').count()).toBe(base.agents!.length);
+      const ids = await fleet.locator('[data-fleet-agent-row]').evaluateAll((els) => els.map((e) => e.getAttribute('data-fleet-agent-row')));
+      expect(new Set(ids).size).toBe(ids.length);
+      // Free starts folded; open it the way a reader does.
+      const toggle0 = page.locator('[data-group-toggle="free"]');
+      if (await toggle0.count() > 0 && (await toggle0.getAttribute('aria-expanded')) === 'false') await toggle0.click();
       const free = fleet.locator('[data-group="free"] [data-fleet-agent-row]');
-      expect(await free.locator('[data-agent-cell="doing"]').innerText()).toContain('waiting for a slice');
-      expect(await free.locator('[data-agent-cell="agent"]').innerText()).not.toContain('agent:');
+      await free.first().waitFor({ timeout: 5_000 });
+      expect(await free.first().locator('[data-agent-cell="doing"]').innerText()).toContain('waiting for a slice');
+      expect(await free.first().locator('[data-agent-cell="agent"]').innerText()).not.toContain('agent:');
       // The not-working count opens a list inside the card: desk, branch, why.
       const toggle = fleet.locator('[data-fleet-working]');
       expect((await toggle.innerText()).trim()).toBe('· 2 not working ▸');

@@ -552,7 +552,7 @@ export const AGENT_COLUMN_LABELS: Record<AgentColumn, string> = {
 
 /** One Fleet agent row. A cell nobody read is `null`. */
 export interface AgentRowCells extends Record<AgentColumn, Cell | null> {
-  /** The branch shown beneath the Acting on cell. */
+  /** The branch the agent works on, shown beneath the Acting on cell; `null` where none is read. */
   branch: Cell | null;
   /** The last commit subject shown after a loop agent's Doing now value. */
   doingDetail: string | null;
@@ -691,7 +691,7 @@ export const agentRowCells = (placement: AgentPlacement, facts: AgentRowFacts): 
     actingOn: on !== null
       ? link(facts.itemName ?? on, { to: 'item', id: on })
       : placement.actsOn === null && facts.desk !== undefined ? link(facts.desk) : null,
-    branch: on !== null && facts.branch !== undefined ? link(facts.branch, { to: 'branch', branch: facts.branch }) : null,
+    branch: facts.branch !== undefined ? link(facts.branch, { to: 'branch', branch: facts.branch }) : null,
     doing,
     doingDetail: !blocked && facts.lastCommit !== undefined && placement.role === 'loop' ? facts.lastCommit : null,
     doingLabel: blocked ? 'Waits on' : 'Doing now',

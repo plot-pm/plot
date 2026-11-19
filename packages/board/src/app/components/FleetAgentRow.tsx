@@ -65,7 +65,7 @@ export const FleetAgentRow = ({ id, cells, handlers, role, facts, run = null, hi
     <span role="gridcell" data-agent-cell="actingOn" className="delivery-truncate">
       <RowCell cell={cells.actingOn} handlers={handlers} />
       {cells.branch !== null && (
-        <span data-agent-branch className="delivery-truncate delivery-text-muted block">
+        <span data-agent-branch={cells.branch.value} className="delivery-truncate delivery-text-muted block">
           <RowCell cell={cells.branch} handlers={handlers} />
         </span>
       )}

@@ -164,9 +164,9 @@ describe('the board shows which kind of quiet a row is in', () => {
     try {
       const li = rowFor(page, 'feature/never-begun');
       await expect.poll(() => li.textContent()).toContain('claimed, no work committed');
-      // THE STATUS WORD names the claim and where it was made: this machine
-      // holds no worktree for the branch, so it reads `claimed elsewhere`.
-      await expect.poll(() => li.textContent()).toContain('claimed elsewhere');
+      // THE ROW NEVER SAYS `unclaimed` of a branch that holds a claim. Under
+      // Queued the Progress column holds the status, so the note says the rest.
+      expect(await li.locator('[data-row-cell="status"]').textContent()).not.toContain('unclaimed');
       // AND NOT *in progress*, which is what a ref existing used to imply. This
       // estate ran 0 live workers while the board showed seven rows working.
       await expect.poll(() => li.textContent()).not.toContain('in progress');

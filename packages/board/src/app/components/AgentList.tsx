@@ -1443,6 +1443,7 @@ export function AgentList({
         };
         // ONE ROW PER AGENT: the domain's cells, and the actions the branch row offers where the agent acts on a branch.
         const agentBody = (agent: PlacedAgentView) => [
+          <li key={`anchor-${agent.anchor}`} role="presentation" id={agent.anchor} className="h-0" />,
           forms.agents.get(agent.placement.id) !== undefined && (
             <FleetAgentRow
               key={`fleet-${agent.anchor}`}
@@ -1472,7 +1473,6 @@ export function AgentList({
               ) : null}
             />
           ),
-          <li key={`anchor-${agent.anchor}`} role="presentation" id={agent.anchor} className="h-0" />,
           linkLine(`links-${agent.anchor}`, agent.links, '→ acts on:'),
         ];
         const fold = (key: string, count: number, heading: React.ReactNode, always = false) => {

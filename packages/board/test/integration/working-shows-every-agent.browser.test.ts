@@ -151,9 +151,9 @@ describe('WORKING renders one row per LIVE registry entry', () => {
     const page = await openAgents();
     try {
       const working = group(page, 'working');
-      await expect.poll(() => working.locator('[data-branch="main"]').count()).toBe(1);
+      await expect.poll(() => working.locator('[data-agent-branch="main"]').count()).toBe(1);
       await expect.poll(() =>
-        group(page, 'blocked').locator('[data-branch="idea/recut-a"]').count()).toBe(1);
+        group(page, 'blocked').locator('[data-agent-branch="idea/recut-a"]').count()).toBe(1);
     } finally {
       await page.close();
     }
@@ -173,7 +173,7 @@ describe('WORKING renders one row per LIVE registry entry', () => {
       // is in the slice's branch list under Being built, which the reader opens.
       const own = group(page, 'being-built');
       await expandAgentFolds(page);
-      await expect.poll(() => working.locator('[data-branch="feature/landed"]').count()).toBe(1);
+      await expect.poll(() => working.locator('[data-agent-branch="feature/landed"]').count()).toBe(1);
       await expect.poll(() => own.locator('[data-branch="feature/landed"]').count())
         .toBeGreaterThan(0);
     } finally {
@@ -223,9 +223,9 @@ describe('WORKING renders one row per LIVE registry entry', () => {
     const page = await openAgents();
     try {
       const working = group(page, 'working');
-      await expect.poll(() => working.locator('[data-branch="idea/recut-b"]').count()).toBe(0);
-      await expect.poll(() => working.locator('[data-branch="idea/recut-c"]').count()).toBe(0);
-      await expect.poll(() => working.locator('[data-branch="idea/recut-d"]').count()).toBe(0);
+      await expect.poll(() => working.locator('[data-agent-branch="idea/recut-b"]').count()).toBe(0);
+      await expect.poll(() => working.locator('[data-agent-branch="idea/recut-c"]').count()).toBe(0);
+      await expect.poll(() => working.locator('[data-agent-branch="idea/recut-d"]').count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -240,10 +240,11 @@ describe('WORKING renders one row per LIVE registry entry', () => {
     try {
       const working = group(page, 'working');
       const rowText = (branch: string) =>
-        working.locator('li').filter({ has: page.locator(`[data-branch="${branch}"]`) })
+        working.locator('li').filter({ has: page.locator(`[data-agent-branch="${branch}"]`) })
           .last().textContent();
 
-      await expect.poll(() => rowText('feature/running')).toContain('running');
+      // The agent's one Fleet row names what it does now, in the domain's words.
+      await expect.poll(() => rowText('feature/running')).toContain('writing code');
       await expect.poll(() => rowText('feature/running')).not.toContain('someone is on it');
     } finally {
       await page.close();
