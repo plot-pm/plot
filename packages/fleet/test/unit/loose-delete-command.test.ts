@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, describe, expect, it } from 'vitest';
 import type { PortResult } from '@plot-pm/domain';
+import { hostShell } from '@plot-pm/domain/adapters';
 import { deleteLooseBranch, type LooseDeletePorts } from '../../src/shared/loose-delete-command.js';
 
 const TIP = 'a'.repeat(40);
@@ -116,6 +120,78 @@ describe('deleteLooseBranch', () => {
   it('keeps a CLOSED, unmerged PR deletable', async () => {
     const { outcome } = await run({ pr: ok({ number: 7, state: 'CLOSED' }) });
     expect(outcome.kind).toBe('deleted');
+  });
+
+  describe('a claimed branch whose work ended in a closed, unmerged PR', () => {
+    // The shape of feature/a-merged-pending-check-is-asked-again: a claim
+    // marker, then two commits of work, and PR #1425 closed with no merge.
+    const claimedWork = ok([
+      { subject: 'plot-fleet: the budget test counts the merged re-ask too', tree: 't3', parentTree: 't2' },
+      { subject: "plot-fleet: re-ask a merged PR's stored pending checks (#1418)", tree: 't2', parentTree: 't1' },
+      { subject: 'plot: claim feature/x', tree: 't1', parentTree: 't1' },
+    ]);
+    const closed = ok({ number: 1425, state: 'CLOSED' as const });
+
+    it('deletes it where the host answers not-merged', async () => {
+      const { outcome, calls } = await run({ commits: claimedWork, pr: closed, merged: ok('not-merged') });
+      expect(outcome.kind).toBe('deleted');
+      expect(calls).toEqual([`pin feature/x ${TIP}`, `delete feature/x ${TIP}`]);
+    });
+
+    it('refuses unaskable, not claimed, and deletes nothing where the merge reading answers unknown', async () => {
+      const { outcome, calls } = await run({ commits: claimedWork, pr: closed, merged: ok('unknown') });
+      expect(outcome).toMatchObject({ kind: 'refused', reason: 'unaskable' });
+      expect(calls).toEqual([]);
+    });
+
+    it('refuses unaskable and deletes nothing where the merge reading fails', async () => {
+      const { outcome, calls } = await run({ commits: claimedWork, pr: closed, merged: silent() });
+      expect(outcome).toMatchObject({ kind: 'refused', reason: 'unaskable' });
+      expect(calls).toEqual([]);
+    });
+  });
+
+  describe('through the shell host adapter', () => {
+    const roots: string[] = [];
+    afterAll(() => {
+      for (const root of roots) rmSync(root, { recursive: true, force: true });
+    });
+
+    /** A `plot-host.sh` that answers `pr-state` with a closed PR and `pr-merged` with `merged`'s word and exit. */
+    const hostAnswering = (mergedBody: string): LooseDeletePorts['host'] => {
+      const root = mkdtempSync(join(tmpdir(), 'plot-loose-host-'));
+      roots.push(root);
+      const scriptDir = join(root, 'scripts');
+      mkdirSync(scriptDir);
+      const file = join(scriptDir, 'plot-host.sh');
+      const pr = '{"number":1425,"state":"CLOSED","draft":false,"url":"","mergeCommit":"","head":"feature/x","base":"main","mergedAt":""}';
+      writeFileSync(file, `#!/usr/bin/env bash\ncase "$1" in\n  pr-state) printf '%s\\n' '${pr}' ;;\n  pr-merged) ${mergedBody} ;;\n  *) exit 1 ;;\nesac\n`);
+      chmodSync(file, 0o755);
+      return hostShell({ repoRoot: root, scriptDir });
+    };
+
+    const claimedWork = ok([
+      { subject: 'real work', tree: 't2', parentTree: 't1' },
+      { subject: 'plot: claim feature/x', tree: 't1', parentTree: 't1' },
+    ]);
+
+    it('refuses unaskable where pr-merged answers unknown after a GraphQL rate refusal', async () => {
+      // What `plot-host.sh pr-merged` printed on 2026-11-19 while GraphQL refused
+      // the account: `unknown` on stdout, the host's words on stderr, exit 0.
+      const host = hostAnswering(`echo 'plot-host: GraphQL: API rate limit already exceeded for user ID 870334.' >&2; echo unknown`);
+      expect(await host.prMerged('feature/x')).toEqual({ ok: true, value: 'unknown' });
+      const { outcome, calls } = await run({ commits: claimedWork, pr: await host.prState('feature/x'), merged: await host.prMerged('feature/x') });
+      expect(outcome).toMatchObject({ kind: 'refused', reason: 'unaskable' });
+      expect(calls).toEqual([]);
+    });
+
+    it('deletes where pr-merged answers not-merged for the closed PR', async () => {
+      const host = hostAnswering('echo not-merged');
+      const pr = await host.prState('feature/x');
+      expect(pr).toMatchObject({ ok: true, value: { number: 1425, state: 'CLOSED' } });
+      const { outcome } = await run({ commits: claimedWork, pr, merged: await host.prMerged('feature/x') });
+      expect(outcome.kind).toBe('deleted');
+    });
   });
 
   it('deletes nothing when the pin does not land', async () => {
