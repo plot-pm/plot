@@ -3,7 +3,170 @@
  *
  * The rule below marks the file as loaded:
  * the screenshot test reads `--delivery-section` from `[data-section="fleet"]`.
+ * Every colour is a `--card-*` or `--hue-*` token; a selector maps an existing
+ * key (`data-group`, `data-time-left-red`, `aria-readonly`) and decides nothing.
  */
 [data-section="fleet"] {
   --delivery-section: fleet;
+}
+
+/* The header line: the switches and the stepper, right-aligned, wrapping at narrow widths. */
+[data-fleet-control-column] {
+  justify-content: flex-end;
+  row-gap: 0.375rem;
+  column-gap: 0.75rem;
+}
+
+/* A switch: a native checkbox drawn as a track and a knob, beside its text label. */
+.delivery-fleet-switch {
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--card-body);
+  cursor: pointer;
+}
+.delivery-fleet-switch > input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex-shrink: 0;
+  width: 26px;
+  height: 14px;
+  margin: 0;
+  border-radius: 7px;
+  background: var(--card-track);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.delivery-fleet-switch > input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  background: var(--card-meta);
+  transition: transform 0.15s, background-color 0.15s;
+}
+.delivery-fleet-switch > input[type="checkbox"]:checked {
+  background: var(--card-primary);
+}
+.delivery-fleet-switch > input[type="checkbox"]:checked::after {
+  background: var(--card-surface);
+  transform: translateX(12px);
+}
+.delivery-fleet-switch > input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--card-primary);
+  outline-offset: 2px;
+}
+.delivery-fleet-switch > input[type="checkbox"]:disabled {
+  cursor: default;
+}
+/* A read-only switch (the fleet card's) is faded and takes no pointer, so it never reads as one a click toggles. */
+.delivery-fleet-switch:has(> input[aria-readonly="true"]) {
+  cursor: default;
+}
+.delivery-fleet-switch > input[aria-readonly="true"] {
+  opacity: 0.5;
+}
+
+/* The parallel-agents stepper: its label, the `−` and `+` buttons and the value between them. */
+.delivery-fleet-stepper {
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--card-body);
+}
+.delivery-fleet-step {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--card-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--card-body);
+  cursor: pointer;
+}
+.delivery-fleet-step:hover:not(:disabled) {
+  background: var(--card-band-strong);
+}
+.delivery-fleet-step:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The counts line under the header and its registry popover. */
+.delivery-fleet-counts {
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--card-meta);
+}
+.delivery-fleet-registry {
+  border: 1px solid var(--card-border);
+  border-radius: 0.25rem;
+  background: var(--card-surface);
+  color: var(--card-body);
+  box-shadow: var(--card-shadow);
+}
+
+/* The agent rows: a rule beneath each, the cells' secondary lines in the muted colour. */
+[data-fleet-agent-row] {
+  border-bottom: 1px solid var(--card-rule);
+  color: var(--card-body);
+}
+[data-fleet-agent-row] [data-agent-branch],
+[data-fleet-agent-row] [data-agent-detail] {
+  font-size: 12px;
+}
+
+/* The state dot before the agent id, coloured by the row's group. */
+[data-agent-cell="agent"] .delivery-dot {
+  margin-right: 6px;
+  vertical-align: middle;
+}
+[data-group="working"] [data-agent-cell="agent"] .delivery-dot {
+  background: var(--hue-green-dot);
+}
+[data-group="blocked"] [data-agent-cell="agent"] .delivery-dot {
+  background: var(--hue-amber-dot);
+}
+
+/* Tokens and Time left are right-aligned, in the rows and in their column headers. */
+[data-fleet-agent-row] > [data-agent-cell="tokens"],
+[data-fleet-agent-row] > [data-agent-cell="timeLeft"],
+[data-fleet-agent-header] > :nth-child(n + 5) {
+  text-align: right;
+  white-space: nowrap;
+}
+@media (max-width: 639.98px) {
+  [data-fleet-agent-row] > [data-agent-cell="tokens"],
+  [data-fleet-agent-row] > [data-agent-cell="timeLeft"] {
+    text-align: left;
+  }
+}
+
+/* The Time left bar: a 4 px track and a fill that drains, red where the domain says so. */
+[data-time-left-bar] {
+  display: block;
+  height: 4px;
+  margin-top: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--card-track);
+}
+[data-time-left-fill] {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+}
+[data-time-left-red="false"] > [data-time-left-fill] {
+  background: var(--hue-green-dot);
+}
+[data-time-left-red="true"] > [data-time-left-fill] {
+  background: var(--hue-red-dot);
 }
