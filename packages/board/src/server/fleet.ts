@@ -90,8 +90,8 @@ import {
   readEnding,
   serverPlanRefAgeSeconds,
   unworkedPlacement,
-  releaseBranchVersion,
 } from '@plot-pm/domain';
+import { readReleaseVersions } from '@plot-pm/domain/workflows/board-reads';
 // THE ONE ADAPTER THIS FILE CONSTRUCTS FOR ITSELF, and the reason it is here
 // rather than behind `BuildBoardOptions`: the cap is shared state on the
 // COMPUTER, not a fixture a caller substitutes — a board handed an in-memory
@@ -1396,51 +1396,18 @@ async function claimOnlyBranches(
  * `origin/changeset-release/main:package.json` reads `2.7.0` where `main` reads
  * `2.6.0`.
  *
- * ONE `git show` for the whole pulse, not one per row: release branches are rare
- * (this estate has exactly one) and the map is built from the refs already in
- * hand. The scan's cost discipline is the reason — `for-each-ref` earned its
- * comment for the same trade.
- *
- * "" on anything unreadable — a ref that has gone, a repo whose root package
- * carries no version, malformed JSON — and where the root version equals the
- * base branch's, which `releaseBranchVersion` reads as already released. The
- * row then names its PR number, which is
- * the honest fallback rather than an invented tag: the same rule the board
- * applies to a missing URL.
+ * It is `readReleaseVersions` over the board's refs, the reader fleetd's scan
+ * records, so the board and the snapshot answer from one rule. A branch is
+ * absent where its root `package.json` is unreadable or names no version, and
+ * where its root version equals the base branch's, which `releaseBranchVersion`
+ * reads as already released (#3562). The row then names its PR number, which
+ * is the honest fallback rather than an invented tag.
  */
 export const releaseVersions = async (opts: BuildBoardOptions): Promise<Map<string, string>> => {
-  const found = new Map<string, string>();
-  // THE REFS, not the plans — and the first version of this read the plans,
-  // which is why it found nothing on the live board while the mock looked right.
-  //
-  // `changeset-release/main` belongs to NO plan; that is precisely why it reaches
-  // the board through the planless-PR loop. Feeding this function
-  // `plans.flatMap(...waves...branches)` therefore passed a list that could never
-  // contain the one branch it exists to read, and the filter matched nothing.
-  //
-  // The mock HID it: `version` was set there by hand, so the fixture built to
-  // expose this shape was the reason it went unseen. Measured on the live board —
-  // `version: ""` on the only release row.
-  const refs = await run('git',
-    ['for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin/changeset-release/*'],
-    opts.repoRoot).catch(() => '');
-  const branches = refs.split('\n')
-    .map((l) => l.trim().replace(/^origin\//, ''))
-    .filter(Boolean);
-  const reader = refsFor(opts);
-  for (const branch of branches) {
-    // A release branch that vanished between the ref listing and this read is
-    // a race rather than a defect — it reads as *no version*, which is what
-    // the row then says. `showFile` reads through the board's object reader.
-    const shown = await reader.showFile(`origin/${branch}`, 'package.json');
-    if (!shown.ok) continue;
-    // The base's root version is the one already released: a release that bumps
-    // only a workspace package leaves the root as the base carries it (#3562).
-    const base = await reader.showFile(`origin/${branch.replace(RELEASE_BRANCH, '')}`, 'package.json');
-    const version = releaseBranchVersion(shown.value, base.ok ? base.value : null);
-    if (version !== '') found.set(branch, version);
-  }
-  return found;
+  // ONE READER WITH THE SNAPSHOT: `readReleaseVersions` is the path fleetd's
+  // scan records, so the board and the snapshot cannot answer differently.
+  const read = await readReleaseVersions(refsFor(opts));
+  return new Map(read.ok ? Object.entries(read.value) : []);
 };
 
 

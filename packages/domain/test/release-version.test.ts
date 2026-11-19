@@ -12,12 +12,17 @@ describe('releaseBranchVersion', () => {
 
   it.each([
     ['an unread branch file', null, '{"version":"2.35.0"}'],
-    ['an unread base file', '{"version":"2.36.0"}', null],
     ['malformed branch JSON', 'not json', '{"version":"2.35.0"}'],
-    ['malformed base JSON', '{"version":"2.36.0"}', 'not json'],
     ['a branch file with no version', '{}', '{"version":"2.35.0"}'],
-    ['a base file with no version', '{"version":"2.36.0"}', '{"name":"plot"}'],
   ])('names no version for %s', (_label, branch, base) => {
     expect(releaseBranchVersion(branch, base)).toBe('');
+  });
+
+  it.each([
+    ['an unread base file', null],
+    ['malformed base JSON', 'not json'],
+    ['a base file with no version', '{"name":"plot"}'],
+  ])('names the branch version where the base has released none: %s', (_label, base) => {
+    expect(releaseBranchVersion('{"version":"9.1.0"}', base)).toBe('9.1.0');
   });
 });

@@ -15,13 +15,14 @@ const rootVersion = (raw: string | null): string => {
  * branch. A release that bumps only a workspace package leaves the root version as the base
  * already carries it, and that version is already released, so it names no new release.
  *
+ * A base with no root version has released none, so the branch's version is new.
+ *
  * @param branch - the release branch's root `package.json` text, or `null` where it was not read.
  * @param base - the base branch's root `package.json` text, or `null` where it was not read.
- * @returns the branch's root `version`, or `''` where either file is unread, unparseable or names
- *   no version, and where both name the same version.
+ * @returns the branch's root `version`; `''` where the branch file is unread, unparseable or names
+ *   no version, and where the base names the same version.
  */
 export const releaseBranchVersion = (branch: string | null, base: string | null): string => {
   const next = rootVersion(branch);
-  const current = rootVersion(base);
-  return next === '' || current === '' || next === current ? '' : next;
+  return next === '' || next === rootVersion(base) ? '' : next;
 };

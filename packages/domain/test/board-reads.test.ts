@@ -52,12 +52,12 @@ describe('readReleaseVersions', () => {
     expect(await readReleaseVersions(refs)).toEqual(answered({}));
   });
 
-  it('names no version where the base root version cannot be read', async () => {
+  it('names the branch version where the base carries no root package.json, as on the census fixture', async () => {
     const refs = refsOf({
       tips: answered([{ branch: 'changeset-release/main', sha: 'a' }]),
-      files: { a: '{"version":"2.36.0"}' },
+      files: { a: '{"version":"9.1.0"}' },
     });
-    expect(await readReleaseVersions(refs)).toEqual(answered({}));
+    expect(await readReleaseVersions(refs)).toEqual(answered({ 'changeset-release/main': '9.1.0' }));
   });
 
   it('fails where the release branches cannot be listed', async () => {
