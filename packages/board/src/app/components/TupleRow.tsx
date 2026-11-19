@@ -697,8 +697,8 @@ export function TupleRowView({
       // The ring is `-inset` so it hugs the row without a track of its own, and
       // it is the same blue the board's highlighted card wears — one arrival
       // colour across both tabs.
-      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2 text-sm sm:grid ${tracks} sm:items-baseline sm:gap-x-3 ${
-        bordered ? 'border-t border-slate-100 dark:border-slate-800' : ''
+      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 delivery-row sm:grid ${tracks} sm:items-baseline sm:gap-x-3 ${
+        bordered ? 'delivery-row-ruled' : ''
       } ${highlighted ? 'rounded-sm ring-2 ring-inset ring-blue-500' : ''} data-[link-target]:bg-amber-100 dark:data-[link-target]:bg-amber-900/40`}
     >
       {/* SLOT 1 — THE MARKS TRACK, AND NOTHING ELSE.
@@ -747,7 +747,7 @@ export function TupleRowView({
       <span
         role="gridcell"
         data-row-cell="kind"
-        className="min-w-0 shrink-0 truncate text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400"
+        className="delivery-kind min-w-0 shrink-0 truncate"
       >
         <span className="sr-only sm:hidden">Kind: </span>
         <span data-tuple-kind-label={tuple.kind} data-kind={tuple.kind}>
@@ -847,7 +847,7 @@ export function TupleRowView({
       </span>
       {/* BY — who acts on the item; for an agent, who started it. Empty where
           nobody read it, never a default word. */}
-      <span role="gridcell" data-row-cell="by" className="relative flex min-w-0 items-baseline gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+      <span role="gridcell" data-row-cell="by" className="delivery-text-muted relative flex min-w-0 items-baseline gap-1.5 text-xs">
         {by !== undefined && by !== null && <span className="min-w-0 truncate">{by}</span>}
         {/* THE DETAILS POPOVER sits in this cell, so it costs the row no line of its own;
             it opens over the rows below. */}

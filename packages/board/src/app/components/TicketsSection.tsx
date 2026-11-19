@@ -77,8 +77,8 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
           </p>
           {props.notice !== null && <p data-waiting-notice className="px-3 text-xs text-slate-500 dark:text-slate-400">{props.notice}</p>}
           {props.hiddenSentence !== null && <p data-waiting-hidden-text className="px-3 text-xs text-slate-500 dark:text-slate-400">{props.hiddenSentence}</p>}
-          <ul role="grid" aria-label="Tickets" className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
-            <li role="row" className="sr-only max-sm:hidden">
+          <ul role="grid" aria-label="Tickets" className="delivery-grid">
+            <li role="row" className="hidden sm:grid grid-cols-[4.5rem_minmax(0,1fr)_auto_4.5rem] gap-x-3 px-3 delivery-thead">
               <span role="columnheader">Kind</span>
               <span role="columnheader">Ticket</span>
               <span role="columnheader">Do</span>

@@ -22,7 +22,7 @@ import {
   RELEASE_BRANCH,
 } from '../../../contract/schema.js';
 import { tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromSlice, planPrAggregate, statusTone, tupleAgeText, agentStateStatus, agentAvailability, shortSessionId, worktreeName, KIND_LABEL } from '../tuple-row.js';
-import { TICKET_TRACKS, TupleLinkView, TupleRowView } from '../../components/TupleRow.js';
+import { TICKET_TRACKS, TUPLE_TRACKS, TupleLinkView, TupleRowView } from '../../components/TupleRow.js';
 import { activityPace } from './activity.js';
 import { soleRowStatus, exceptionSummary } from './stuck.js';
 import { type PlanGroup, elsewhereNote, planWaitingDays, sliceKeyOf, sliceSummaryFor } from './sections.js';
@@ -446,13 +446,13 @@ export function HeaderRow({ statusName = 'Status', youColumns = false }: { statu
   if (youColumns) {
     // The You section's own column set: no Where, no By — every row there is the reader's.
     return (
-      <li role="row" data-you-header className="sr-only max-sm:hidden">
+      <li role="row" data-you-header className={`hidden sm:grid ${TUPLE_TRACKS} gap-x-3 px-3 delivery-thead`}>
         {YOU_COLUMNS.map((c) => <span key={c} role="columnheader">{YOU_COLUMN_LABELS[c]}</span>)}
       </li>
     );
   }
   return (
-    <li role="row" className="sr-only max-sm:hidden">
+    <li role="row" className={`hidden sm:grid ${TUPLE_TRACKS} gap-x-3 px-3 delivery-thead`}>
       {/* THE SIX SLOTS, and the header is where each is NAMED for a reader who
           cannot see the alignment.
 
@@ -469,7 +469,7 @@ export function HeaderRow({ statusName = 'Status', youColumns = false }: { statu
           PR, a branch's plan — and each link states its own `what` beside
           itself, so the column heads what they have in common rather than
           naming one kind's case for all of them. */}
-      <span role="columnheader">Marks</span>
+      <span role="columnheader"><span className="sr-only">Marks</span></span>
       <span role="columnheader">Kind</span>
       <span role="columnheader">Item</span>
       <span role="columnheader">Where</span>

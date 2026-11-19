@@ -3,7 +3,7 @@ import { RowCell, type LinkHandlers } from './DeliveryRows.js';
 
 /** The column header of a Fleet group's agent rows; `doing` reads `Waits on` in Blocked. */
 export const FleetAgentHeader = ({ blocked }: { blocked: boolean }) => (
-  <li role="row" data-fleet-agent-header className="sr-only max-sm:hidden">
+  <li role="row" data-fleet-agent-header className="hidden sm:grid grid-cols-[minmax(0,1.2fr)_5rem_minmax(0,1.5fr)_minmax(0,2fr)_4rem_5rem] gap-x-3 px-3 delivery-thead">
     <span role="columnheader">{AGENT_COLUMN_LABELS.agent}</span>
     <span role="columnheader">{AGENT_COLUMN_LABELS.role}</span>
     <span role="columnheader">{AGENT_COLUMN_LABELS.actingOn}</span>

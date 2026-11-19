@@ -184,3 +184,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* A dot drawn as the `●` glyph, where its line reads as text. */
+.delivery-dot-glyph { color: var(--delivery-dot, var(--card-track)); }
