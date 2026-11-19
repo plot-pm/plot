@@ -357,7 +357,7 @@ export const releaseDeliveryHeader = (name: string, blocks: readonly ReleaseDeli
   };
   const counts = headerCountParts(headerCounts(rows), strip).map((p): ReleaseDeliveryCount => ({
     ...p,
-    target: p.count === 0 ? null : rows.find((r) => holds(r, p.key))?.plan ?? null,
+    target: rows.find((r) => p.count > 0 && holds(r, p.key))?.plan ?? null,
   }));
   return { name, scope: blocks.length === 1 ? blocks[0]!.scope : '', counts };
 };
