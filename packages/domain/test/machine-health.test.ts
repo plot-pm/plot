@@ -112,6 +112,26 @@ describe('machineHealth — a strained host budget', () => {
   });
 });
 
+describe('machineHealth — other buckets and readings', () => {
+  it('lists a spent single-pool host by its name, waiting for the reset', () => {
+    const h = machineHealth(machine({ host: { connector: 'gitlab', buckets: [{ bucket: '', limit: 600, remaining: 0, resetAt: null }] } }));
+    expect(h.rows).toEqual([{ resource: 'gitlab', now: '0 / 600', effect: 'calls wait for the reset' }]);
+  });
+
+  it('orders an unknown bucket after GraphQL and REST', () => {
+    const h = machineHealth(machine({ host: github(
+      { bucket: 'search', limit: 30, remaining: 30, resetAt: null },
+      { bucket: 'core', limit: 5000, remaining: 3812, resetAt: null },
+      { bucket: 'graphql', limit: 5000, remaining: 4210, resetAt: null },
+    ) }));
+    expect(h.line).toBe('load 2.1 of 10 cores · GitHub GraphQL 4,210 / 5,000 left · REST 3,812 / 5,000 left · search 30 / 30 left');
+  });
+
+  it('shows the load alone where the cores are unknown', () => {
+    expect(machineHealth(machine({ cores: null, host: null })).line).toBe('load 2.1');
+  });
+});
+
 describe('machineHealth — a host that has not answered', () => {
   const spent = machine({ host: github({ bucket: 'graphql', limit: 5000, remaining: 0, resetAt: RESET }) });
 
