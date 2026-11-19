@@ -2,13 +2,18 @@
 import { describe, it, expect } from 'vitest';
 import {
   countSliceStatesOver,
+  headerCounts,
   parsePersonDirectory,
+  planRowFacts,
   placeDelivery,
   releaseCardApprovable,
+  releaseBlocks,
   releaseCards,
   releaseTodoEntries,
+  sliceStateIn,
   todoList,
   NO_RELEASE_TARGETED,
+  RELEASE_READING_MISSING,
   type CountedSlice,
   type DeliveryInput,
   type DeliveryReadings,
@@ -196,5 +201,64 @@ describe('the release to-do line', () => {
   it('owes no line for a card no row binds', () => {
     expect(releaseTodoEntries(cards([sprint({ release: '2.36.0' })], []))).toEqual([]);
     expect(releaseTodoEntries(cards([], []))).toEqual([]);
+  });
+});
+
+describe('releaseCards after the sprint closes', () => {
+  // The sprint that named 2.35.0 closed, so no Active sprint names a release; the release PR waits.
+  const carried = new Map<string, CountedSlice[]>([
+    ['a', [{ id: 'slice:a1', merge: 'merged' }, { id: 'slice:a2', merge: 'merged' }]],
+    ['b', [{ id: 'slice:b1', merge: 'merged' }]],
+    ['c', [{ id: 'slice:c1', merge: 'open' }]],
+  ]);
+  const approved = ['a', 'b', 'c'];
+  const readings: DeliveryReadings = { items: [{ id: 'slice:c1', kind: 'slice', ownership: 'mine', stage: 'queued' }], agents: [] };
+  const section = (sprints: ReleaseCardSprint[]) => {
+    const block = releaseBlocks(sprints.map((s) => ({ release: s.release, members: s.members.map((m) => m.slug) })), approved)
+      .find((b) => b.release === '')!;
+    const rows = block.plans.map((plan) => planRowFacts(plan, '', carried.get(plan)!.map((s) => ({
+      name: s.id, state: sliceStateIn(s, readings, input), linked: false, startable: false, waitsFor: '', begun: true,
+    }))));
+    return headerCounts(rows);
+  };
+  const after = (sprints: ReleaseCardSprint[], rows: ReleaseRowReading[]) =>
+    releaseCards(sprints, rows, directory, noPlans, readings, input, { approved, slicesByPlan: carried });
+
+  it('counts the plans the Release delivery section counts, from the same slices', () => {
+    const [card, ...rest] = after([], [releaseRow()]);
+    expect(rest).toEqual([]);
+    const want = section([]);
+    expect(card!.total).toBe(want.total);
+    expect(card!.bar!.find((s) => s.state === 'delivered')!.count).toBe(want.delivered);
+    expect(card!.total).toBe(4);
+    expect(card!.bar!.find((s) => s.state === 'not-started')!.count).toBe(1);
+    expect(card!.readingMissing).toBe(false);
+  });
+
+  it('titles the card by its version alone where it carries plans', () => {
+    const [card] = after([], [releaseRow()]);
+    expect(card).toMatchObject({ kind: 'untargeted', title: 'Release 2.35.0', stateText: 'release PR #300 open' });
+  });
+
+  it('keeps the counts where the release PR was not read, and says so in the state line', () => {
+    const [card] = after([], [releaseRow({ pr: null })]);
+    expect(card!.total).toBe(4);
+    expect(card).toMatchObject({ title: 'Release 2.35.0', stateText: 'release PR not read' });
+  });
+
+  it('leaves out the plans a sprint naming another release holds', () => {
+    const [, card] = after([sprint({ release: '2.36.0', members: [member('a')] })], [releaseRow()]);
+    expect(card).toMatchObject({ kind: 'untargeted', title: 'Release 2.35.0' });
+    expect(card!.total).toBe(2);
+  });
+
+  it('says the reading is missing where a carried plan has no merge answer', () => {
+    const [card] = releaseCards([], [releaseRow()], directory, noPlans, readings, input, { approved: [...approved, 'unread'], slicesByPlan: carried });
+    expect(card).toMatchObject({ bar: null, readingMissing: true, missingText: RELEASE_READING_MISSING });
+  });
+
+  it('names a release row that carries no plan as one no sprint targets', () => {
+    const [card] = releaseCards([], [releaseRow()], directory, noPlans, readings, input, { approved: [], slicesByPlan: carried });
+    expect(card).toMatchObject({ title: 'Release 2.35.0 · no sprint targets it', total: 0 });
   });
 });
