@@ -937,7 +937,8 @@ const EXPECTED_FILES = 95;
 // 689 → 690 on 2026-11-19: the one `it(` that shows the My sprint chip renaming and narrowing the Delivery section, in the new `sprint-delivery-scope.browser.test.ts` (92 → 93 files). Added, not moved.
 // 690 → 695 on 2026-11-19: the five `it(` in the new `delivery-tab-screenshots.browser.test.ts` (93 → 94 files). Added, not moved.
 // 695 → 699 on 2026-11-19: the four `it(` in the new `delivery-fleet-look.browser.test.ts` (94 → 95 files). Added, not moved.
-const EXPECTED_TESTS = 699;
+// 699 → 701 on 2026-11-19: the one `it(` that colours the You groups from the hue tokens, added to `delivery-tab-screenshots.browser.test.ts`, and the one that colours the open-questions chip by the domain tone, added to `draft-plan-row.browser.test.ts`. Added, not moved.
+const EXPECTED_TESTS = 701;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an
