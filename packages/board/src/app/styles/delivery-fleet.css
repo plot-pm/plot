@@ -98,7 +98,7 @@
   cursor: default;
 }
 
-/* The counts line under the header and its registry popover. */
+/* The counts line under the header, and the not-working list it opens inside the card. */
 .delivery-fleet-counts {
   font-size: 12px;
   font-weight: 400;
@@ -106,12 +106,16 @@
   letter-spacing: normal;
   color: var(--card-meta);
 }
-.delivery-fleet-registry {
-  border: 1px solid var(--card-border);
-  border-radius: 0.25rem;
-  background: var(--card-surface);
+[data-fleet-not-working] {
+  padding: 0.25rem 0 0.5rem;
   color: var(--card-body);
-  box-shadow: var(--card-shadow);
+}
+[data-fleet-not-working-entry] {
+  padding: 2px 0;
+  border-bottom: 1px solid var(--card-rule);
+}
+[data-fleet-not-working-why] {
+  color: var(--card-meta);
 }
 
 /* The agent rows: a rule beneath each, the cells' secondary lines in the muted colour. */
@@ -120,7 +124,9 @@
   color: var(--card-body);
 }
 [data-fleet-agent-row] [data-agent-branch],
-[data-fleet-agent-row] [data-agent-detail] {
+[data-fleet-agent-row] [data-agent-detail],
+[data-fleet-agent-row] [data-agent-idle],
+[data-fleet-agent-row] [data-row-note] {
   font-size: 12px;
 }
 

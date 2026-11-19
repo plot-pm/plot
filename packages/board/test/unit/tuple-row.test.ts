@@ -1149,8 +1149,14 @@ describe('slot 5 holds a value, never a sentence', () => {
       group: 'quiet', quietKind: 'abandoned', pr: null,
     })).status).toBe('abandoned');
     expect(tupleFromRow(row({
-      group: 'quiet', quietKind: 'orphaned-claim', pr: null,
-    })).status).toBe('unclaimed');
+      group: 'quiet', quietKind: 'orphaned-claim', pr: null, worker: 'none',
+    })).status).toBe('stale claim');
+  });
+
+  it('says a claim made where this machine holds no worktree is claimed elsewhere', () => {
+    expect(tupleFromRow(row({
+      group: 'quiet', quietKind: 'orphaned-claim', pr: null, worker: 'elsewhere',
+    })).status).toBe('claimed elsewhere');
   });
 
   it('keeps "someone is on it" for a Draft-plan fresh claim carrying orphaned-claim', () => {

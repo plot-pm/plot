@@ -215,7 +215,9 @@ const ownershipOfRows = (rows: readonly AgentRow[], reader: Reader): Ownership =
  * registry manifest or a running worker on the branch; a row whose desk was not
  * read and that nothing else holds leaves `held` absent. A claim commit is not a
  * hold: a claim nobody holds is what the release action gives up. `fixing` is the
- * fixer mark the server read for an open PR. A PR is asked only once the server
+ * fixer mark the server read for an open PR. `claimOnly` is the scan's `claimed`
+ * state, and `claimElsewhere` a claim-only branch with no worktree on this
+ * machine. A PR is asked only once the server
  * read its fixer record, so a PR whose record nobody read keeps the placement it had.
  */
 const looseOf = (rows: readonly AgentRow[], manifests: ReadonlySet<string>): WorkItemReading['loose'] => {
@@ -227,6 +229,9 @@ const looseOf = (rows: readonly AgentRow[], manifests: ReadonlySet<string>): Wor
   const loose: NonNullable<WorkItemReading['loose']> = { named };
   if (holds) loose.held = true;
   else if (rows.every((r) => r.desk === false)) loose.held = false;
+  // `claimed` is the scan's word for a branch whose only commits beyond the default branch are claim markers.
+  loose.claimOnly = rows.every((r) => r.state === 'claimed');
+  if (loose.claimOnly) loose.claimElsewhere = rows.every((r) => r.worker === 'elsewhere');
   if (first.pr === null) return loose;
   // No fixer runs on a closed PR, so the server reads none; the PR's state is the answer.
   if (isClosedPr(rows)) {

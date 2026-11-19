@@ -948,7 +948,8 @@ const EXPECTED_FILES = 98;
 // 704 → 708 on 2026-11-19: the four `it(` in the new `release-delivery-visual.browser.test.ts` (97 → 98 files). Added, not moved.
 // 708 → 712 on 2026-11-19: the four `it(` that check the Tickets card and the footer line from `delivery-bottom.css`, added to `tickets-section.browser.test.ts`. Added, not moved.
 // 712 → 714 on 2026-11-19: the one `it(` that colours the You groups from the hue tokens, added to `delivery-tab-screenshots.browser.test.ts`, and the one that colours the open-questions chip by the domain tone, added to `draft-plan-row.browser.test.ts`. Added, not moved.
-const EXPECTED_TESTS = 714;
+// 714 → 718 on 2026-11-19: the two `it(` that check a clean-up row's one menu holds Release on a claim-only branch and that the group deletes its quiet branches one by one, added to `loose-ends-show-under-unblock.browser.test.ts` beside the rewritten menu test; the one that checks one Fleet row per agent and the not-working list, added to `delivery-fleet-look.browser.test.ts`; and the one that checks the to-do lines share one grid, added to `delivery-tab-header.browser.test.ts`. Added, not moved.
+const EXPECTED_TESTS = 718;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

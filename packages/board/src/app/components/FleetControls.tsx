@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
+import { registryFact } from '@plot-pm/domain';
 import type { Fleet, RegistryInfo, Supervisor } from '../../contract/schema.js';
+import type { NotWorkingEntry } from '../lib/agent-rows/working-agents.js';
 
 /**
  * THE TWO SECTION-HEADER CONTROLS: a switch on NOT STARTED, a stepper on
@@ -290,86 +292,82 @@ export function ParallelAgentsStepper({ value, readOnly = false }: { value: numb
  * stating a fact neither the tally nor the rows already carry:
  *
  * - `N not working` — registry entries the section is NOT showing, because
- *   their worker is finished, stalled or gone. The section renders live agents
- *   only, so its tally is the live count and `N running` beside it would be one
- *   number twice; this is the figure that differs from it.
+ *   their worker is finished, stalled or gone. A click opens the list of them
+ *   inside the card: desk, branch, and why each stopped (`notWorkingEntries`).
  * - the filter gap — printed only when a filter WOULD hide a live worker.
- * - the manifest split — printed only when the counts disagree, which is the
- *   rule `RegistryInfo`'s annotation already followed: `3 manifests, 3 agents`
- *   says nothing. `0 manifests, 12 synthesized` said in one line what took ten
- *   minutes to diagnose.
+ * - the registry fact — `registryFact` in the domain, printed only where it
+ *   holds: `14 of 17 agents have no registry file`, or the warning where no
+ *   agent has one.
  *
  * NONE OF THE THREE IS PRINTED WHEN IT AGREES — a zero is an absence and is
  * rendered as one. A header that always prints every figure trains a reader to
  * skip the line, which is how a correct sentence sat in a chip for an hour on
  * 2026-09-09.
  */
-export function WorkingCounts({
-  notWorking,
+export const WorkingCounts = ({
+  notWorking = [],
   hiddenByFilter,
   registry,
 }: {
   /**
-   * Registry entries whose worker is not live — finished, stalled, exited. The
-   * section shows the live ones, so this is what it is not showing.
+   * Registry entries whose worker is not live — finished, stalled, exited,
+   * gone — with why each stopped. The section shows the live ones, so this is
+   * what it is not showing.
    */
-  notWorking?: number;
+  notWorking?: readonly NotWorkingEntry[];
   /** Live workers a sprint filter would hide if it were applied. */
   hiddenByFilter?: number;
-  /** The registry read, for the manifest split. */
+  /** The registry read, for the one fact about it that holds. */
   registry?: RegistryInfo;
-}) {
-  // Printed only when there are some. Zero entries not working is the ordinary
-  // state and the tally already said it, so `· 0 not working` is the redundant
-  // clause this slice removes rather than adds.
-  const showRunning = typeof notWorking === 'number' && notWorking > 0;
+}) => {
+  const [open, setOpen] = useState(false);
   const showHidden = typeof hiddenByFilter === 'number' && hiddenByFilter > 0;
-  // The rule `RegistryInfo`'s own annotation already carried, reused rather
-  // than reinvented: no manifests at all (the error case) or anything
-  // synthesized.
-  const showRegistry = !!registry && (registry.manifestCount === 0 || registry.synthesizedCount > 0);
-  if (!showRunning && !showHidden && !showRegistry) return null;
+  const fact = registry === undefined ? null : registryFact(registry);
+  if (notWorking.length === 0 && !showHidden && fact === null) return null;
 
   return (
-    <span className="delivery-fleet-counts flex items-baseline gap-1.5">
-      {showRunning && (
-        <span
-          data-fleet-working
-          className="tabular-nums"
-          title={`${notWorking} registry entr${notWorking === 1 ? 'y' : 'ies'} whose worker is finished, stalled or gone — this section shows the live ones`}
-        >
-          · {notWorking} not working
-        </span>
-      )}
-      {showHidden && (
-        <span
-          data-fleet-hidden-by-filter
-          className="delivery-text-warn tabular-nums"
-          title={`${hiddenByFilter} live workers on plans outside the selected sprint filter`}
-        >
-          ({hiddenByFilter} hidden by filter)
-        </span>
-      )}
-      {showRegistry && registry && (
-        <details data-row-details data-fleet-details className="relative">
-          <summary
-            aria-label="Registry details"
-            className={`cursor-pointer select-none ${registry.manifestCount === 0 ? 'delivery-text-warn' : 'delivery-text-muted'}`}
+    <div className="delivery-fleet-counts w-full min-w-0">
+      <span className="flex flex-wrap items-baseline gap-x-1.5">
+        {notWorking.length > 0 && (
+          <button
+            type="button"
+            data-fleet-working
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+            className="tabular-nums hover:underline"
           >
-            · details
-          </summary>
+            · {notWorking.length} not working {open ? '▾' : '▸'}
+          </button>
+        )}
+        {showHidden && (
           <span
-            data-fleet-registry
-            className="delivery-fleet-registry absolute right-0 z-10 mt-1 block whitespace-nowrap p-2 font-mono tabular-nums"
+            data-fleet-hidden-by-filter
+            className="delivery-text-warn tabular-nums"
+            title={`${hiddenByFilter} live workers on plans outside the selected sprint filter`}
           >
-            {registry.manifestCount} manifest{registry.manifestCount !== 1 ? 's' : ''}{registry.synthesizedCount > 0 && `, ${registry.synthesizedCount} synthesized`}
-            {registry.directory !== '' && ` · ${registry.directory}`}
+            ({hiddenByFilter} hidden by filter)
           </span>
-        </details>
+        )}
+        {fact !== null && (
+          <span data-fleet-registry-fact className={fact.warn ? 'delivery-text-warn' : undefined}>
+            · {fact.text}
+          </span>
+        )}
+      </span>
+      {open && notWorking.length > 0 && (
+        <ul data-fleet-not-working className="mt-1 grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] gap-x-3 text-xs">
+          {notWorking.map((e) => (
+            <li key={e.key} data-fleet-not-working-entry={e.why} className="col-span-3 grid grid-cols-subgrid items-baseline">
+              <span className="delivery-truncate font-mono" title={e.desk}>{e.desk === '' ? '—' : e.desk}</span>
+              <span className="delivery-truncate font-mono" title={e.branch}>{e.branch === '' ? '—' : e.branch}</span>
+              <span data-fleet-not-working-why>{e.why}</span>
+            </li>
+          ))}
+        </ul>
       )}
-    </span>
+    </div>
   );
-}
+};
 
 /**
  * WHETHER ANYTHING SUPERVISES THESE AGENTS — on its own line under the WORKING

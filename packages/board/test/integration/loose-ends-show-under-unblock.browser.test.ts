@@ -7,9 +7,9 @@ import { openCatalogue, scenario, fleet, row, board as buildBoard, type Catalogu
  * Whether a branch is loose is decided by `looseOf` in the domain and asserted in
  * `delivery-placement.test.ts` and `delivery-readings.test.ts`. This file proves
  * the result reaches the page: the row sits under You, carries the reason, and
- * shows a release and a delete button.
+ * offers its release and delete actions in its one `⋯` menu.
  */
-describe('a loose branch under You > Unblock', () => {
+describe('a loose branch under You > Clean up', () => {
   let cat: Catalogue;
 
   beforeAll(async () => {
@@ -20,24 +20,64 @@ describe('a loose branch under You > Unblock', () => {
     await cat?.close();
   });
 
-  it('shows the release and delete buttons and no reason line', async () => {
+  /** Opens the one `⋯` menu of the clean-up row of `branch` and returns the menu. */
+  const openMenu = async (page: import('playwright').Page, branch: string) => {
+    const trigger = page.locator(`[data-section="you"] [data-clean-up-menu][aria-label="Actions for ${branch}"]`);
+    await trigger.waitFor({ timeout: 15_000 });
+    await trigger.click();
+    const menu = page.locator('[data-section="you"] [role="menu"]');
+    await menu.waitFor({ timeout: 5_000 });
+    return menu;
+  };
+
+  it('puts Delete in the row\'s one menu, with no second line of links', async () => {
     const base = scenario('a-full-estate');
     const loose = row({
       branch: 'feature/nobody-wants-this', plan: '', wave: '', group: 'quiet', state: 'wip', worker: 'elsewhere', desk: false,
-      ageMinutes: 900, pr: null,
+      ageMinutes: 900, pr: null, branchUrl: 'https://github.com/tiny/garden/tree/feature/nobody-wants-this',
     });
     const page = await cat.open('a-full-estate', {
       tab: 'agents',
       over: { fleet: fleet({ ...base.fleet, rows: [...base.fleet.rows, loose] }) },
     });
     try {
-      await page.locator('[data-section="you"] [data-loose-actions]').waitFor({ timeout: 15_000 });
+      const menu = await openMenu(page, 'feature/nobody-wants-this');
       expect(await page.locator('[data-placement-reason]').count()).toBe(0);
-      const actions = page.locator('[data-section="you"] [data-loose-actions]');
-      expect(await actions.count()).toBe(1);
-      expect(await actions.locator('[data-release-claim]').count()).toBe(1);
-      expect(await actions.locator('[data-loose-delete]').count()).toBe(1);
-      expect(await actions.locator('[data-loose-delete]').getAttribute('aria-label')).toContain('feature/nobody-wants-this');
+      expect(await page.locator('[data-loose-actions]').count()).toBe(0);
+      expect(await page.locator('[data-section="you"] li[data-agent-row] [data-row-actions]').count()).toBe(1);
+      expect(await menu.locator('[data-open-link]').getAttribute('href')).toContain('feature/nobody-wants-this');
+      expect(await menu.locator('[data-release-claim]').count()).toBe(0);
+      const del = menu.locator('[data-loose-delete]');
+      expect(await del.getAttribute('aria-label')).toContain('feature/nobody-wants-this');
+      expect((await del.innerText()).trim()).toBe('Delete branch…');
+      await del.click();
+      const confirm = menu.locator('[data-loose-delete-confirm]');
+      expect(await confirm.innerText()).toContain('origin/feature/nobody-wants-this');
+      expect(await confirm.innerText()).toContain('refs/plot/reaped/feature/nobody-wants-this/');
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+
+  it('offers Release and no Delete on a claim-only branch, and says the claim belongs to another machine', async () => {
+    const base = scenario('a-full-estate');
+    const claim = row({
+      branch: 'bug/main-repair-ad63459de05f', plan: '', wave: '', group: 'quiet', state: 'claimed', worker: 'elsewhere', desk: false,
+      ageMinutes: 1_440, pr: null, quietKind: 'orphaned-claim', note: 'claimed, no work committed — claimed 1 day ago · claimed elsewhere',
+    });
+    const page = await cat.open('a-full-estate', {
+      tab: 'agents',
+      over: { fleet: fleet({ ...base.fleet, rows: [...base.fleet.rows, claim] }) },
+    });
+    try {
+      const menu = await openMenu(page, 'bug/main-repair-ad63459de05f');
+      expect(await page.locator('[data-section="you"] li[data-agent-row] [data-row-actions]').count()).toBe(1);
+      expect(await menu.locator('[data-release-claim]').count()).toBe(1);
+      expect(await menu.locator('[data-loose-delete]').count()).toBe(0);
+      expect(await menu.locator('[data-release-claim]').innerText()).toContain('another machine');
+      const li = page.locator('[data-section="you"] li[data-agent-row]').filter({ hasText: 'bug/main-repair-ad63459de05f' });
+      expect(await li.innerText()).toContain('claimed elsewhere');
+      expect(await li.innerText()).not.toContain('unclaimed');
     } finally {
       await page.close();
     }
@@ -54,17 +94,58 @@ describe('a loose branch under You > Unblock', () => {
       over: { fleet: fleet({ ...base.fleet, rows: [...base.fleet.rows, closed] }) },
     });
     try {
-      await page.locator('[data-section="you"] [data-loose-actions]').waitFor({ timeout: 15_000 });
-      const actions = page.locator('[data-section="you"] [data-loose-actions]');
-      expect(await actions.count()).toBe(1);
-      expect(await actions.locator('[data-loose-delete]').getAttribute('aria-label')).toContain('feature/closed-and-forgotten');
-      expect(await actions.locator('[data-release-claim]').count()).toBe(0);
+      const menu = await openMenu(page, 'feature/closed-and-forgotten');
+      expect(await menu.locator('[data-loose-delete]').getAttribute('aria-label')).toContain('feature/closed-and-forgotten');
+      expect(await menu.locator('[data-release-claim]').count()).toBe(0);
     } finally {
       await page.close();
     }
   }, 60_000);
 
-  it('marks the three You groups red, blue and grey "clean up"', async () => {
+  it('deletes the quiet branches of the group one by one and names each refusal', async () => {
+    const base = scenario('a-full-estate');
+    const loose = (branch: string) => row({
+      branch, plan: '', wave: '', group: 'quiet', state: 'wip', worker: 'elsewhere', desk: false, ageMinutes: 900, pr: null,
+    });
+    const claim = row({
+      branch: 'bug/claim-only', plan: '', wave: '', group: 'quiet', state: 'claimed', worker: 'elsewhere', desk: false,
+      ageMinutes: 1_440, pr: null, quietKind: 'orphaned-claim',
+    });
+    const page = await cat.open('a-full-estate', {
+      tab: 'agents',
+      over: { fleet: fleet({ ...base.fleet, rows: [...base.fleet.rows, loose('feature/quiet-a'), loose('feature/quiet-b'), claim] }) },
+    });
+    const posted: unknown[] = [];
+    try {
+      await page.route('**/api/loose-delete', (r) => {
+        const body = r.request().postDataJSON() as { branch: string };
+        posted.push(body);
+        if (body.branch === 'feature/quiet-a') {
+          r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, branch: body.branch, tip: 'abc', pin: 'refs/plot/reaped/feature/quiet-a/abc' }) });
+        } else {
+          r.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ ok: false, branch: body.branch, reason: 'claimed', detail: 'carries a claim marker' }) });
+        }
+      });
+      const bulk = page.locator('h3[data-delivery-group="unblock"] [data-clean-up-bulk-delete]');
+      await bulk.waitFor({ timeout: 15_000 });
+      expect((await bulk.innerText()).trim()).toBe('Delete 2 quiet branches…');
+      await bulk.click();
+      const confirm = page.locator('[data-clean-up-bulk-confirm]');
+      expect(await confirm.innerText()).toContain('feature/quiet-a, feature/quiet-b');
+      expect(await confirm.innerText()).not.toContain('bug/claim-only');
+      await page.locator('[data-clean-up-bulk-confirm-go]').click();
+      const results = page.locator('[data-clean-up-bulk-result]');
+      await expect.poll(() => results.count()).toBe(2);
+      expect(posted).toEqual([{ branch: 'feature/quiet-a' }, { branch: 'feature/quiet-b' }]);
+      expect(await results.nth(0).getAttribute('data-clean-up-bulk-result')).toBe('deleted');
+      expect(await results.nth(1).getAttribute('data-clean-up-bulk-result')).toBe('claimed');
+      expect(await results.nth(1).innerText()).toContain('refused: claimed');
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+
+  it('marks the three You groups red, blue and grey, and titles the third Clean up', async () => {
     const base = scenario('a-full-estate');
     const loose = row({
       branch: 'feature/nobody-wants-this', plan: '', wave: '', group: 'quiet', state: 'wip', worker: 'elsewhere', desk: false,
@@ -88,9 +169,9 @@ describe('a loose branch under You > Unblock', () => {
     try {
       const marker = (group: string) => page.locator(`h3[data-delivery-group="${group}"] [data-group-marker]`);
       await marker('unblock').waitFor({ timeout: 15_000 });
-      expect(await marker('unblock').innerText()).toContain('clean up');
-      expect(await marker('unblock').getAttribute('data-group-marker')).toBe('clean-up');
-      for (const [group, name] of [['blocks-delivery', 'blocks-delivery'], ['input-to-the-fleet', 'input']] as const) {
+      expect(await page.locator('h3[data-delivery-group="unblock"]').innerText()).toContain('Clean up');
+      expect(await page.locator('h3[data-delivery-group="unblock"]').innerText()).not.toContain('Unblock');
+      for (const [group, name] of [['unblock', 'clean-up'], ['blocks-delivery', 'blocks-delivery'], ['input-to-the-fleet', 'input']] as const) {
         expect(await marker(group).count()).toBe(1);
         expect(await marker(group).getAttribute('data-group-marker')).toBe(name);
         expect((await marker(group).innerText()).trim()).toBe('');
@@ -100,7 +181,7 @@ describe('a loose branch under You > Unblock', () => {
     }
   }, 60_000);
 
-  it('keeps a loose branch of unknown owner under Unblock when Mine hides unknown owners', async () => {
+  it('keeps a loose branch of unknown owner under Clean up when Mine hides unknown owners', async () => {
     const base = scenario('an-empty-estate');
     const loose = row({
       branch: 'feature/nobody-wants-this', plan: '', wave: '', group: 'quiet', state: 'wip', worker: 'elsewhere', desk: false,
@@ -114,15 +195,15 @@ describe('a loose branch under You > Unblock', () => {
       },
     });
     try {
-      const actions = page.locator('[data-section="you"] [data-loose-actions]');
-      await actions.waitFor({ timeout: 15_000 });
+      const trigger = page.locator('[data-section="you"] [data-clean-up-menu]');
+      await trigger.waitFor({ timeout: 15_000 });
       await page.locator('[data-chip^="Mine"]').click();
       const strict = page.locator('[data-mine-strict-toggle]');
       await expect.poll(async () => ((await strict.textContent()) ?? '').trim()).toBe('hide 1 unknown');
       await strict.click();
       await expect.poll(async () => ((await strict.textContent()) ?? '').trim()).toBe('show 1 unknown');
-      expect(await actions.count()).toBe(1);
-      expect(await actions.locator('[data-loose-delete]').getAttribute('aria-label')).toContain('feature/nobody-wants-this');
+      expect(await trigger.count()).toBe(1);
+      expect(await trigger.getAttribute('aria-label')).toContain('feature/nobody-wants-this');
     } finally {
       await page.close();
     }

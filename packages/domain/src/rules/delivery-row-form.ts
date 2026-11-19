@@ -147,6 +147,10 @@ export interface AgentRowFacts {
   question?: string;
   /** The Agent cell's tooltip for a desk no manifest names. */
   unnamedDesk?: string;
+  /** The desk the agent's worker runs in, shown in Acting on while the agent acts on no item. */
+  desk?: string;
+  /** Minutes since the agent's transcript last changed. */
+  idleMinutes?: number;
   /** The name of the work item the agent acts on. */
   itemName?: string;
   /** The branch the agent works on. */
@@ -223,6 +227,13 @@ const REASON_DO: Record<YouReason, { verb: string; action: string }> = {
   'agent-died': { verb: 'restart', action: 'restart' },
   loose: { verb: 'plan', action: 'create-plan' },
 };
+
+/**
+ * The word the Kind cell of a You row shows for an item kind: `PR` for a PR, the kind itself otherwise.
+ *
+ * @param kind - the placed item's kind.
+ */
+export const youKindWord = (kind: ItemKind): string => (kind === 'pr' ? 'PR' : kind);
 
 /** The verb a You reason offers in the DO column and the to-do list's lines. */
 export const reasonVerb = (reason: YouReason): string => REASON_DO[reason].verb;
@@ -549,6 +560,8 @@ export interface AgentRowCells extends Record<AgentColumn, Cell | null> {
   doingLabel: 'Doing now' | 'Waits on';
   /** The Agent cell's tooltip; `null` where the agent has nothing to add. */
   agentTitle: string | null;
+  /** `idle 4h`: the time since the agent's transcript last changed; `null` where nobody read it. */
+  idle: string | null;
   /** The Tokens cell's tooltip: the three counters the cell does not show; `null` with the cell. */
   tokensTitle: string | null;
   /** The Time left bar: the share left and whether it is red; `null` where the cell is `null`. */
@@ -611,7 +624,7 @@ const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' 
 
 /** What an agent does now, as a value; `null` for an agent that holds no work. */
 const doingValue = (placement: AgentPlacement, facts: AgentRowFacts): string | null => {
-  if (placement.actsOn === null) return null;
+  if (placement.actsOn === null) return placement.role === 'loop' && facts.running === true ? 'waiting for a slice' : null;
   switch (placement.role) {
     case 'loop':
       return facts.commits !== undefined && facts.commits > 0
@@ -649,8 +662,10 @@ const tokensTitle = (facts: AgentRowFacts): string | null => {
  * The six cells of a Fleet agent row: the agent, its role, the item it acts on,
  * what it does now or waits on, and the Tokens and Time left columns.
  *
- * Doing now is the activity the role names. A blocked agent's Doing now cell
- * holds the gate it waits on instead ({@link agentWaitsOn}).
+ * Doing now is the activity the role names. A running loop agent that acts on
+ * no item reads `waiting for a slice`. A blocked agent's Doing now cell holds
+ * the gate it waits on instead ({@link agentWaitsOn}). Acting on names the
+ * agent's desk while it acts on no item.
  *
  * Tokens shows the output tokens of the agent's last finished run, with input,
  * cache creation and cache read in `tokensTitle`; it is `null` for a running
@@ -673,7 +688,9 @@ export const agentRowCells = (placement: AgentPlacement, facts: AgentRowFacts): 
   return {
     agent: link(facts.name ?? placement.id, { to: 'agent', id: placement.id }),
     role: link(placement.role satisfies AgentRole),
-    actingOn: on !== null ? link(facts.itemName ?? on, { to: 'item', id: on }) : null,
+    actingOn: on !== null
+      ? link(facts.itemName ?? on, { to: 'item', id: on })
+      : placement.actsOn === null && facts.desk !== undefined ? link(facts.desk) : null,
     branch: on !== null && facts.branch !== undefined ? link(facts.branch, { to: 'branch', branch: facts.branch }) : null,
     doing,
     doingDetail: !blocked && facts.lastCommit !== undefined && placement.role === 'loop' ? facts.lastCommit : null,
@@ -681,27 +698,11 @@ export const agentRowCells = (placement: AgentPlacement, facts: AgentRowFacts): 
     tokens: tokensCell(facts),
     timeLeft: left === null ? null : link(timeLeftValue(left.leftMs)),
     agentTitle: facts.unnamedDesk ?? null,
+    idle: facts.idleMinutes === undefined ? null : `idle ${ageValue(facts.idleMinutes)}`,
     tokensTitle: tokensTitle(facts),
     timeLeftBar: left === null ? null : { fraction: left.fraction, red: left.red },
   };
 };
-
-/** The one line Free collapses into. */
-export interface FreeLine {
-  count: number;
-  names: string[];
-  /** `Free · 3 agents ready: a, b, c`; the component adds the `show` control. */
-  text: string;
-}
-
-/**
- * The Free group as one line.
- *
- * @param names - the names of the agents placed in Free.
- * @returns the line, or `null` for no agent: zero agents render no Free line.
- */
-export const freeLine = (names: readonly string[]): FreeLine | null =>
-  names.length === 0 ? null : { count: names.length, names: [...names], text: `Free · ${plural(names.length, 'agent')} ready: ${names.join(', ')}` };
 
 /** The switches that decide what the fleet starts by itself. */
 export interface DeliverySwitches {
