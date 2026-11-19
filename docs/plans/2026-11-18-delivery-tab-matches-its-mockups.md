@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 2
 - **Approved:** 2026-11-18, Jan Wloka, plan-PR #3531 merged
+- **Started:** 2026-11-19, Jan Wloka, `feature/delivery-domain-fields`
 
 ## Changelog
 
