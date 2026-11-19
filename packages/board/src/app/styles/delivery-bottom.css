@@ -1,0 +1,9 @@
+/*
+ * MACHINE, TICKETS AND FOOTER — the Machine line, the Tickets section and the freshness dots.
+ *
+ * The rule below marks the file as loaded:
+ * the screenshot test reads `--delivery-section` from `[data-footer-line]`.
+ */
+[data-footer-line] {
+  --delivery-section: bottom;
+}

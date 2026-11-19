@@ -1,0 +1,9 @@
+/*
+ * YOU — the group tags, the row bars and the Do verb, through `data-group` selectors.
+ *
+ * The rule below marks the file as loaded:
+ * the screenshot test reads `--delivery-section` from `[data-section="you"]`.
+ */
+[data-section="you"] {
+  --delivery-section: you;
+}

@@ -1,0 +1,186 @@
+/*
+ * THE DELIVERY TAB'S PRIMITIVES — the shapes every Delivery section draws from.
+ *
+ * Unlayered, and imported directly after `@import "tailwindcss";`, so a rule
+ * here outranks a utility that sets the same property. Every colour is a
+ * `--card-*` or `--hue-*` token from `index.css`, which defines each once for
+ * light and once under `prefers-color-scheme: dark`. A component picks a class
+ * from a lookup table over a domain field; no rule here decides a state.
+ *
+ * The section stylesheets (`delivery-{header,release,you,work-items,fleet,bottom}.css`)
+ * style their own section on top of these.
+ */
+
+/* A hue's three tokens under one name, for the chip, the dot and the count. */
+.delivery-hue-slate { --delivery-text: var(--hue-slate); --delivery-dot: var(--hue-slate-dot); --delivery-soft: var(--hue-slate-soft); }
+.delivery-hue-sky { --delivery-text: var(--hue-sky); --delivery-dot: var(--hue-sky-dot); --delivery-soft: var(--hue-sky-soft); }
+.delivery-hue-blue { --delivery-text: var(--hue-blue); --delivery-dot: var(--hue-blue-dot); --delivery-soft: var(--hue-blue-soft); }
+.delivery-hue-green { --delivery-text: var(--hue-green); --delivery-dot: var(--hue-green-dot); --delivery-soft: var(--hue-green-soft); }
+.delivery-hue-teal { --delivery-text: var(--hue-teal); --delivery-dot: var(--hue-teal-dot); --delivery-soft: var(--hue-teal-soft); }
+.delivery-hue-violet { --delivery-text: var(--hue-violet); --delivery-dot: var(--hue-violet-dot); --delivery-soft: var(--hue-violet-soft); }
+.delivery-hue-orange { --delivery-text: var(--hue-orange); --delivery-dot: var(--hue-orange-dot); --delivery-soft: var(--hue-orange-soft); }
+.delivery-hue-amber { --delivery-text: var(--hue-amber); --delivery-dot: var(--hue-amber-dot); --delivery-soft: var(--hue-amber-soft); }
+.delivery-hue-red { --delivery-text: var(--hue-red); --delivery-dot: var(--hue-red-dot); --delivery-soft: var(--hue-red-soft); }
+.delivery-hue-rose { --delivery-text: var(--hue-rose); --delivery-dot: var(--hue-rose-dot); --delivery-soft: var(--hue-rose-soft); }
+.delivery-tone-neutral { --delivery-text: var(--card-body); --delivery-dot: var(--card-meta); --delivery-soft: var(--card-band-strong); }
+.delivery-tone-warn { --delivery-text: var(--hue-amber); --delivery-dot: var(--hue-amber-dot); --delivery-soft: var(--hue-amber-soft); }
+.delivery-tone-alert { --delivery-text: var(--hue-red); --delivery-dot: var(--hue-red-dot); --delivery-soft: var(--hue-red-soft); }
+
+/* The section card. */
+.delivery-card {
+  background: var(--card-surface);
+  border: 1px solid var(--card-border);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  color: var(--card-body);
+}
+@media (max-width: 639.98px) {
+  .delivery-card { padding: 0.75rem; }
+}
+
+/* The header bar: title, glyph and counts on one wrapping line, a rule beneath. */
+.delivery-head {
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--card-border);
+}
+.delivery-title {
+  flex-wrap: wrap;
+  row-gap: 0.25rem;
+  font-size: 15px;
+  line-height: 1.4;
+  font-weight: 600;
+  color: var(--card-title);
+}
+.delivery-counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.875rem;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--card-meta);
+}
+.delivery-count-n {
+  margin-right: 3px;
+  font-weight: 700;
+  color: var(--delivery-text, var(--card-body));
+}
+
+/* Group headings: plain (Work items, Fleet) and tagged (You). */
+.delivery-group-plain {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--card-meta);
+}
+.delivery-group-tagged {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--card-body);
+}
+
+/* The chip: a hue's text on its soft colour. */
+.delivery-chip {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  font-size: 11px;
+  line-height: 1.45;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+  background: var(--delivery-soft, var(--card-band-strong));
+  color: var(--delivery-text, var(--card-body));
+}
+
+/* The dot: a 7 px circle in a hue's dot colour, always beside its state as words. */
+.delivery-dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: var(--delivery-dot, var(--card-track));
+}
+
+/* The strip: one 18 by 8 px block per slice, in the five-state colour map. */
+.delivery-strip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.delivery-strip-block {
+  display: inline-block;
+  width: 18px;
+  height: 8px;
+  border-radius: 2px;
+}
+.delivery-state-delivered { background: var(--hue-green-dot); }
+.delivery-state-at-a-gate { background: var(--hue-amber-dot); }
+.delivery-state-being-built { background: var(--hue-blue-dot); }
+.delivery-state-blocked { background: var(--hue-red-dot); }
+.delivery-state-not-started { background: var(--card-track); }
+
+/* The table: a group's grid inside the card loses its own border and radius. */
+.delivery-grid {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.delivery-thead {
+  align-items: baseline;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--card-border);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--card-meta);
+}
+.delivery-thead > [role="columnheader"] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The You header names five of the row's eight tracks: Kind, Item, Status, Do, Age. */
+.delivery-thead[data-you-header] > :nth-child(1) { grid-column: 2; }
+.delivery-thead[data-you-header] > :nth-child(2) { grid-column: 3 / 5; }
+.delivery-thead[data-you-header] > :nth-child(3) { grid-column: 5; }
+.delivery-thead[data-you-header] > :nth-child(4) { grid-column: 6 / 8; }
+.delivery-thead[data-you-header] > :nth-child(5) { grid-column: 8; }
+.delivery-row {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  font-size: 13px;
+}
+.delivery-row-ruled {
+  border-top: 1px solid var(--card-rule);
+}
+
+/* The kind cell, shared by You and Work items rows. */
+.delivery-kind {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--card-meta);
+}
+
+/* Text colours, named after `Tone` where a `Tone` value exists. */
+.delivery-text-muted { color: var(--card-meta); }
+.delivery-text-link { color: var(--hue-blue); }
+.delivery-text-ok { color: var(--hue-green); }
+.delivery-text-warn { color: var(--hue-amber); }
+.delivery-text-alert { color: var(--hue-red); }
+.delivery-text-link:hover { text-decoration: underline; }
+
+/* A cell that cannot hold its text cuts it at the end; the full text is its `title`. */
+.delivery-truncate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
