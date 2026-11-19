@@ -21,8 +21,8 @@ describe('the Gates cell', () => {
     const cell = gates({ ci: 'passed', review: 'high' });
     expect(cell?.value).toBe('CI ✓ · review ✗');
     expect(cell?.parts).toEqual([
-      { value: 'CI ✓', link: { to: 'checks', pr: 4 } },
-      { value: 'review ✗', link: { to: 'review', pr: 4 } },
+      { value: 'CI ✓', link: { to: 'checks', pr: 4 }, outcome: 'pass' },
+      { value: 'review ✗', link: { to: 'review', pr: 4 }, outcome: 'fail' },
     ]);
   });
 
@@ -30,22 +30,22 @@ describe('the Gates cell', () => {
     const cell = gates({ ci: 'failed', review: 'none' });
     expect(cell?.value).toBe('CI ✗ · review –');
     expect(cell?.parts).toEqual([
-      { value: 'CI ✗', link: { to: 'checks', pr: 4 } },
-      { value: 'review –', link: null },
+      { value: 'CI ✗', link: { to: 'checks', pr: 4 }, outcome: 'fail' },
+      { value: 'review –', link: null, outcome: 'none' },
     ]);
     expect(cell?.links).toEqual([{ to: 'checks', pr: 4 }]);
   });
 
   it.each([
-    ['pending', 'review ⟳'],
-    ['high', 'review ✗'],
-    ['passed', 'review ✓'],
-  ] as const)('reads review %s as %s linked to the PR', (review, mark) => {
-    expect(gates({ ci: 'unread', review })?.parts).toEqual([{ value: mark, link: { to: 'review', pr: 4 } }]);
+    ['pending', 'review ⟳', 'pending'],
+    ['high', 'review ✗', 'fail'],
+    ['passed', 'review ✓', 'pass'],
+  ] as const)('reads review %s as %s linked to the PR', (review, mark, outcome) => {
+    expect(gates({ ci: 'unread', review })?.parts).toEqual([{ value: mark, link: { to: 'review', pr: 4 }, outcome }]);
   });
 
   it('renders no review mark for an unread review and no CI mark for an unread CI', () => {
-    expect(gates({ ci: 'running', review: 'unread' })?.parts).toEqual([{ value: 'CI ⟳', link: { to: 'checks', pr: 4 } }]);
+    expect(gates({ ci: 'running', review: 'unread' })?.parts).toEqual([{ value: 'CI ⟳', link: { to: 'checks', pr: 4 }, outcome: 'pending' }]);
     expect(gates({ ci: 'unread', review: 'unread' })).toBeNull();
   });
 

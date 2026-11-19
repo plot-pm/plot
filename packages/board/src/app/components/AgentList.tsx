@@ -1170,7 +1170,7 @@ export function AgentList({
         // "Approve release" line reads them while the sprint card shows.
         const releaseCardView = releaseCardsOf(activeSprints.map(cardSprintOf), reader.directory, { ...mappingInput, rows: fleet.rows });
         const placement = placeDelivery(mapping.readings, mapping.input);
-        const view = placeMapping(mapping, fleet.slices, activeSprints, sprintScope);
+        const view = placeMapping(mapping, fleet.slices, activeSprints, sprintScope, new Date(Date.now()));
         unplacedForFooter = view.notPlaced;
         const youHead = youHeaderOf({
           view, placement, reader, ticketAnswer: fleet.issueAnswer ?? null, phaseMap,

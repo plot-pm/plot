@@ -14,6 +14,8 @@ export interface YouHeaderCount {
   /** The count; `null` where the reading behind it is absent, which is not `0`. */
   count: number | null;
   text: string;
+  /** What follows the number: `block delivery`. Holds no number; says the reading is missing where `count` is `null`. */
+  words: string;
   /** The DOM id the count scrolls to; `null` where nothing renders for it. */
   anchor: string | null;
 }
@@ -109,12 +111,14 @@ export const youHeader = (input: YouHeaderInput): YouHeader => {
     key: g.key,
     count: g.count,
     text: `${g.count} ${GROUP_WORDS[g.key as YouGroup]}`,
+    words: GROUP_WORDS[g.key as YouGroup],
     anchor: g.count > 0 ? deliveryGroupAnchor(g.key) : null,
   }));
   counts.push({
     key: 'tickets',
     count: tickets,
     text: tickets === null ? 'tickets to triage: not read' : `${tickets} tickets to triage`,
+    words: tickets === null ? 'tickets to triage: not read' : 'tickets to triage',
     anchor: tickets === null || tickets > 0 ? TICKETS_ANCHOR : null,
   });
 

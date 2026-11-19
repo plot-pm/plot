@@ -51,8 +51,12 @@ export interface TodoListInput {
 
 export interface TodoLine {
   id: string;
-  /** The verb capitalised, then the label: `Approve my-plan`. */
+  /** The verb capitalised, then the label: `Approve my-plan`; always `${verb} ${label}`. */
   text: string;
+  /** The verb alone, capitalised: `Approve`. */
+  verb: string;
+  /** The name the verb acts on: `my-plan`. */
+  label: string;
   marker: YouMarker;
   /** The marker as words. */
   markerWords: string;
@@ -109,6 +113,8 @@ export const todoList = (input: TodoListInput): TodoList => {
   const lines: TodoLine[] = entries.map((e) => ({
     id: e.id,
     text: `${capital(reasonVerb(e.reason))} ${e.label}`,
+    verb: capital(reasonVerb(e.reason)),
+    label: e.label,
     marker: e.marker,
     markerWords: TODO_MARKER_WORDS[e.marker],
     anchor: e.anchor,

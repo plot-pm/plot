@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   doneDetail,
+  headerCountParts,
   headerCounts,
   headerText,
   mergedFactOf,
@@ -127,5 +128,84 @@ describe('mergedFactOf', () => {
     expect(mergedFactOf(['feature/a'], index([row({})], false))).toBeUndefined();
     expect(mergedFactOf(['feature/a'], index([row({ state: 'OPEN' })]))).toBeUndefined();
     expect(mergedFactOf(['feature/b'], index([row({})]))).toBeUndefined();
+  });
+});
+
+describe('the relative merge time of a Done line', () => {
+  const NOW = new Date('2026-11-19T12:00:00Z');
+  const daysBefore = (n: number): string => new Date(NOW.getTime() - n * 86_400_000).toISOString();
+  const merged = (mergedAt: string | undefined) => planLines([slice('a', 'delivered', { merged: { pr: 5, ...(mergedAt === undefined ? {} : { mergedAt }) } })], NOW)[0]!;
+  it('is absent for no merge time, an empty one or one that does not parse', () => {
+    expect(merged(undefined).merged).toBeUndefined();
+    expect(merged('').merged).toBeUndefined();
+    expect(merged('not a date').merged).toBeUndefined();
+  });
+  it('is absent where the caller has no clock', () => {
+    expect(planLines([slice('a', 'delivered', { merged: { pr: 5, mergedAt: daysBefore(1) } })])[0]!.merged).toBeUndefined();
+  });
+  it('reads merged today for the same day, for equal times and for a merge ahead of the clock', () => {
+    expect(merged(daysBefore(0.1)).merged).toBe('merged today');
+    expect(merged(NOW.toISOString()).merged).toBe('merged today');
+    expect(merged(daysBefore(-1)).merged).toBe('merged today');
+  });
+  it('reads merged yesterday for one day', () => {
+    expect(merged(daysBefore(1)).merged).toBe('merged yesterday');
+  });
+  it('reads N days ago from 2 to 6 days and N weeks ago from 7 to 29', () => {
+    expect(merged(daysBefore(2)).merged).toBe('merged 2 days ago');
+    expect(merged(daysBefore(6)).merged).toBe('merged 6 days ago');
+    expect(merged(daysBefore(7)).merged).toBe('merged 1 weeks ago');
+    expect(merged(daysBefore(29)).merged).toBe('merged 4 weeks ago');
+  });
+  it('reads the locale date from 30 days', () => {
+    expect(merged(daysBefore(30)).merged).toBe(`merged ${new Date(daysBefore(30)).toLocaleDateString()}`);
+  });
+  it('keeps text with the ISO date', () => {
+    expect(merged('2026-11-17T08:00:00Z').text).toBe('✓ merged · a · #5 · 2026-11-17');
+  });
+});
+
+describe('the fields of a plan line', () => {
+  it('carries the slice state on every line', () => {
+    expect(planLines(five).map((l) => l.state)).toEqual(['delivered', 'at-a-gate', 'being-built', 'blocked', 'not-started']);
+  });
+  it('carries the merged PR on a Done line and a carried open PR on an In flight line', () => {
+    const lines = planLines([
+      slice('a', 'delivered', { merged: { pr: 9, mergedAt: '2026-11-01T00:00:00Z' } }),
+      slice('b', 'at-a-gate', { pr: 12 }),
+      slice('c', 'being-built'),
+    ]);
+    expect(lines.map((l) => l.pr)).toEqual([9, 12, undefined]);
+  });
+});
+
+describe('the phase of a plan row', () => {
+  it('gives a default phase its own name as the accent', () => {
+    expect(planRowFacts('p', '', five, { phase: 'Development' })).toMatchObject({ phase: 'Development', accent: 'Development' });
+  });
+  it('gives a declared phase the neutral accent', () => {
+    expect(planRowFacts('p', '', five, { phase: 'Shaping' })).toMatchObject({ phase: 'Shaping', accent: 'neutral' });
+  });
+  it('leaves phase and accent absent where no row names a phase', () => {
+    for (const phase of [null, undefined, ''] as const) {
+      const facts = planRowFacts('p', '', five, { phase });
+      expect('phase' in facts).toBe(false);
+      expect('accent' in facts).toBe(false);
+    }
+  });
+});
+
+describe('headerCountParts', () => {
+  const rows = [planRowFacts('p', '', five), planRowFacts('q', '', [slice('x', 'unread'), slice('y', 'delivered')])];
+  it('prints the figures headerText prints, with and without the strip', () => {
+    const counts = headerCounts(rows);
+    for (const strip of [undefined, { blocked: 1 }]) {
+      const joined = headerCountParts(counts, strip).map((p) => `${p.count} ${p.words}`).join(' · ');
+      expect(headerText(counts, '', strip)).toBe(joined);
+    }
+  });
+  it('prints unread only above 0 and blocked only with a strip', () => {
+    expect(headerCountParts(headerCounts([planRowFacts('p', '', five)])).map((p) => p.key)).toEqual(['plans', 'delivered']);
+    expect(headerCountParts(headerCounts(rows), { blocked: 0 }).map((p) => p.key)).toEqual(['plans', 'delivered', 'blocked', 'unread']);
   });
 });

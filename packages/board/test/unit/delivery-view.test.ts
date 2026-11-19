@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DELIVERY_LAYOUT, parsePersonDirectory } from '@plot-pm/domain';
+import { DELIVERY_LAYOUT, deliveryScope, parsePersonDirectory } from '@plot-pm/domain';
 import type { AgentRow, DraftPlan, Slice } from '../../src/contract/schema.js';
 import { deliveryMapping, sprintCardViewOf, type RegistryAgent } from '../../src/app/lib/agent-rows/delivery-readings.js';
 import { GLYPH_PATH } from '../../src/app/lib/glyphs.js';
@@ -256,5 +256,77 @@ describe('a Draft plan in You', () => {
     const items = ['a', 'b'].map(sliceItem).map((i) => ({ ...i, placement: { section: 'work-items', group: 'queued', id: i.anchor } }) as unknown as PlacedItemView);
     const blocks = nestItems('queued', [draftItem, ...items], undefined, false);
     expect(blocks.map((b) => b.kind).sort()).toEqual(['item', 'plan']);
+  });
+});
+
+describe('the domain fields the view passes on', () => {
+  const sliceOf = (plan: string, name: string, more: Record<string, unknown> = {}): Slice =>
+    ({ ...slice(name), plan, merge: 'open', ...more }) as Slice;
+  const place = (rows: AgentRow[], slices: Slice[], sprints: never[] = [], scope?: never, now?: Date) =>
+    placeMapping(deliveryMapping({
+      rows, slices, agents: [], drafts: [], reader: { hostUser: 'me' }, mode: 'all',
+      config: { autoReview: true, correctionBudget: 2 },
+    }), slices, sprints, scope, now);
+  const figures = (b: { counts: { count: number; words: string }[] }) => b.counts.map((c) => `${c.count} ${c.words}`);
+
+  it('gives every section count words that follow the number and hold none', () => {
+    const v = view([row({ branch: 'feature/a', plan: 'p', wave: 'A' })]);
+    for (const s of v.sections) for (const c of s.summary) expect(c.words).not.toMatch(/\d/);
+    const work = v.sections.find((s) => s.key === 'work-items')!.summary;
+    for (const c of work) expect(c.text).toBe(`${c.count} ${c.words}`);
+    const other = v.sections.find((s) => s.key === 'you')!.summary;
+    for (const c of other) expect(c.text).toBe(`${c.words} ${c.count}`);
+  });
+
+  it('sets counts on a release block equal to the figures its header prints', () => {
+    const slices = [sliceOf('p', 'A', { merge: 'merged', complete: true }), sliceOf('p', 'B')];
+    const v = place([row({ branch: 'feature/b', plan: 'p', wave: 'B', phase: 'Development' })], slices);
+    const b = v.releaseBlocks[0]!;
+    expect(b.counts.map((c) => c.key)).toEqual(['plans', 'delivered', 'blocked']);
+    expect(b.header).toBe(figures(b).join(' · '));
+  });
+
+  it('sets counts on a sprint block under the my-sprint scope, equal to its header figures', () => {
+    const slices = [sliceOf('p', 'A', { merge: 'merged', complete: true })];
+    const sprint = { slug: 's', title: 'Title s', release: '', ownerHandle: 'me', members: [{ slug: 'p' }] };
+    const reader = { hostUser: 'me', directory: parsePersonDirectory('me = Me') };
+    const scope = deliveryScope(['s'], reader, [sprint]);
+    const v = place([row({ branch: 'feature/p-a', plan: 'p', wave: 'A', phase: 'Testing', state: 'merged', group: 'done' })], slices, [sprint] as never[], scope as never);
+    const b = v.releaseBlocks[0]!;
+    expect(b.sprint).toBe('s');
+    expect(figures(b)).toEqual(['1 plan', '1 of 1 slices delivered', '0 blocked']);
+    expect(b.header).toContain(figures(b).join(' · '));
+  });
+
+  it('gives a plan row the phase and accent of its rows, and none where no row names one', () => {
+    const slices = [sliceOf('p', 'A'), sliceOf('q', 'A')];
+    const v = place([
+      row({ branch: 'feature/p-a', plan: 'p', wave: 'A', phase: 'Development' }),
+      row({ branch: 'feature/q-a', plan: 'q', wave: 'A', phase: null }),
+    ], slices);
+    const plans = v.releaseBlocks[0]!.plans;
+    expect(plans.find((p) => p.plan === 'p')).toMatchObject({ phase: 'Development', accent: 'Development' });
+    const q = plans.find((p) => p.plan === 'q')!;
+    expect('phase' in q).toBe(false);
+    expect('accent' in q).toBe(false);
+  });
+
+  it('reads the relative merge time against the clock it is given, and none without one', () => {
+    const slices = [sliceOf('p', 'A', { merge: 'merged', complete: true, mergedFact: { pr: 4, mergedAt: '2026-11-17T12:00:00Z' } })];
+    const rows = [row({ branch: 'feature/p-a', plan: 'p', wave: 'A', phase: 'Testing', state: 'merged', group: 'done' })];
+    const at = (now?: Date) => place(rows, slices, [], undefined, now).releaseBlocks[0]!.plans[0]!.lines[0]!;
+    expect(at(new Date('2026-11-19T12:00:00Z'))).toMatchObject({ state: 'delivered', pr: 4, merged: 'merged 2 days ago' });
+    expect(at().merged).toBeUndefined();
+  });
+
+  it('carries the open PR of an In flight slice and leaves pr absent where no row has one', () => {
+    const slices = [sliceOf('p', 'A'), sliceOf('p', 'B')];
+    const v = place([
+      row({ branch: 'feature/a', plan: 'p', wave: 'A', state: 'open', group: 'at-a-gate', pr: { number: 12, state: 'open', open: true } }),
+      row({ branch: 'feature/b', plan: 'p', wave: 'B' }),
+    ], slices);
+    const lines = v.releaseBlocks[0]!.plans[0]!.lines;
+    expect(lines.find((l) => l.slice === 'A')!.pr).toBe(12);
+    expect(lines.find((l) => l.slice === 'B')!.pr).toBeUndefined();
   });
 });

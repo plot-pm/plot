@@ -220,6 +220,14 @@ export interface PhaseColumn {
 const hasOwn = (record: object, key: string): boolean => Object.prototype.hasOwnProperty.call(record, key);
 
 /**
+ * The accent a phase's colour class keys on.
+ *
+ * @param name - a phase name.
+ * @returns the name itself for a default phase, `neutral` for any other.
+ */
+export const phaseAccent = (name: string): string => (hasOwn(PHASE_LEADERSHIP, name) ? name : 'neutral');
+
+/**
  * The columns of the plans board.
  *
  * One column per phase holding a plan state, in declared order.
@@ -233,7 +241,7 @@ export const phaseColumns = (map: PhaseMap): PhaseColumn[] =>
     return {
       name: entry.name,
       leadership: isDefault ? PHASE_LEADERSHIP[entry.name as keyof typeof PHASE_LEADERSHIP] : null,
-      accent: isDefault ? entry.name : 'neutral',
+      accent: phaseAccent(entry.name),
       checklist: entry.plan.includes('delivered'),
       releasedOnly: entry.plan.every((state) => state === 'released'),
     };

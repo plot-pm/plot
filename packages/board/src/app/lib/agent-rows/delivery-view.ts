@@ -1,5 +1,7 @@
 import {
+  headerCountParts,
   headerCounts,
+  type HeaderCountPart,
   headerText,
   releaseTicketWording,
   planRowFacts,
@@ -172,6 +174,8 @@ export interface SectionCount {
   count: number;
   /** What the header prints for the count: `3 queued` in Work items, `Queued 3` elsewhere. */
   text: string;
+  /** What follows the number in every section: `queued`, `Queued`. Holds no number. */
+  words: string;
   /** The anchor of the group's heading; `null` where the group has no rows and so renders no body. */
   anchor: string | null;
 }
@@ -188,6 +192,7 @@ export const summarise = (groups: readonly GroupView[], section?: DeliverySectio
     label: g.label,
     count: g.count,
     text: section === 'work-items' ? workGroupCountText(g.label, g.count) : section === 'fleet' ? fleetCountText(g.key, g.count) : `${g.label} ${g.count}`,
+    words: section === 'work-items' ? g.label.toLowerCase() : section === 'fleet' ? g.key : g.label,
     anchor: g.count > 0 ? groupAnchor(g.key) : null,
   }));
 
@@ -251,6 +256,8 @@ export interface ReleaseBlockView {
   /** The sprint's name where the scope holds several sprints, `''` otherwise. */
   name: string;
   header: string;
+  /** The header's figures, each with its words: the same figures `header` prints, apart from the ticket wording. */
+  counts: HeaderCountPart[];
   plans: PlanRowView[];
   /** One card per sprint owner of the release; empty where no sprint names the release. */
   cards: PersonCard[];
@@ -397,6 +404,7 @@ export const deliveryView = (
   slices?: Slice[],
   sprints: readonly Pick<FleetSprint, 'slug' | 'title' | 'release' | 'ownerHandle' | 'members'>[] = [],
   scope: DeliveryViewScope = { kind: 'release', sprints: [] },
+  now?: Date,
 ): DeliveryView => {
   const rowOf = (item: string): AgentRow | null => mapping.rowsByItem[item]?.[0] ?? null;
   const ownRow = (entry: RegistryAgent | null): AgentRow | null => {
@@ -499,6 +507,7 @@ export const deliveryView = (
     const state = sliceStateIn({ id, merge }, mapping.wholeReadings, mapping.input);
     const rows = mapping.rowsByItem[id] ?? [];
     const first = rows.find((r) => r.blockedBy !== null && r.blockedBy !== undefined);
+    const open = rows.find((r) => r.pr !== null && r.state !== 'merged' && r.pr.state !== 'closed' && r.pr.open !== false);
     return {
       name: slice.name,
       state,
@@ -507,6 +516,7 @@ export const deliveryView = (
       startable: rows.some(isStartable),
       waitsFor: first?.blockedBy ?? '',
       begun: rows.some((r) => !(isUnbegun(r) && r.branch === '')),
+      ...(open?.pr ? { pr: open.pr.number } : {}),
     };
   };
   // A delivered slice the pulse did not carry is still a slice of its plan: its row names both.
@@ -526,7 +536,8 @@ export const deliveryView = (
     const ids = Object.fromEntries(own.map((s) => [s.name, sliceItemId(s.plan, s.name)]));
     const anchors = Object.fromEntries(own.flatMap((s) => (placedItem.has(ids[s.name]!) ? [[s.name, itemAnchor(ids[s.name]!)] as const] : [])));
     const planFile = own.flatMap((x) => mapping.rowsByItem[ids[x.name]!] ?? []).find((r) => r.planFile !== '')?.planFile ?? '';
-    return { ...planRowFacts(plan, ownerOf(plan), facts), anchors, itemIds: ids, planFile };
+    const phase = own.flatMap((x) => mapping.rowsByItem[ids[x.name]!] ?? []).find((r) => r.phase !== null && r.phase !== '')?.phase ?? null;
+    return { ...planRowFacts(plan, ownerOf(plan), facts, { phase, ...(now === undefined ? {} : { now }) }), anchors, itemIds: ids, planFile };
   };
   const DRAFT_ID_PREFIX = draftItemId('');
   // The person cards' bars read the counted slices per plan, as the sprint card does (`countedSlicesByPlan`).
@@ -551,8 +562,9 @@ export const deliveryView = (
   const blockedOf = (plans: readonly PlanRowView[]): number => plans.reduce((n, p) => n + (p.strip.find((x) => x.state === 'blocked')?.count ?? 0), 0);
   const sprintBlocks = sprintGroups.map((g): ReleaseBlockView => {
     const plans = g.plans.map(planRow);
-    const header = sprintGroupHeader(g.name, sprintGroups.length > 1, headerText(headerCounts(plans), '', { blocked: blockedOf(plans) }));
-    return { release: '', sprint: g.sprint, name: sprintGroups.length > 1 ? g.name : '', header, plans, cards: [] };
+    const strip = { blocked: blockedOf(plans) };
+    const header = sprintGroupHeader(g.name, sprintGroups.length > 1, headerText(headerCounts(plans), '', strip));
+    return { release: '', sprint: g.sprint, name: sprintGroups.length > 1 ? g.name : '', header, counts: headerCountParts(headerCounts(plans), strip), plans, cards: [] };
   });
   const releaseScoped = releaseBlocks(sprints.map((sp) => ({ release: sp.release, members: sp.members.map((m) => m.slug) })), approved).map((b): ReleaseBlockView => {
     const plans = b.plans.filter((p) => approved.includes(p)).map(planRow);
@@ -562,7 +574,7 @@ export const deliveryView = (
     const wording = target === undefined || tickets === null ? null : releaseTicketWording(tickets, target.release, target.started);
     const header = headerText(headerCounts(plans), b.release, { blocked });
     const cards = releasePersonCards(sprints.map((sp) => ({ slug: sp.slug, title: sp.title ?? '', release: sp.release ?? '', ownerHandle: sp.ownerHandle ?? '', members: sp.members ?? [] })), b.release, mapping.directory ?? {}, slicesByPlan, mapping.wholeReadings, mapping.input);
-    return { release: b.release, sprint: '', name: '', plans, header: wording === null ? header : `${header} · ${wording}`, cards };
+    return { release: b.release, sprint: '', name: '', plans, counts: headerCountParts(headerCounts(plans), { blocked }), header: wording === null ? header : `${header} · ${wording}`, cards };
   });
   const blocks = scope.kind === 'my-sprint' ? sprintBlocks : releaseScoped;
   const releasePlanCount = new Set(blocks.flatMap((b) => b.plans.map((p) => p.plan))).size;
@@ -583,4 +595,5 @@ export const placeMapping = (
   slices?: Slice[],
   sprints: readonly Pick<FleetSprint, 'slug' | 'title' | 'release' | 'ownerHandle' | 'members'>[] = [],
   scope?: DeliveryViewScope,
-): DeliveryView => deliveryView(mapping, placeDelivery(mapping.readings, mapping.input), slices, sprints, scope);
+  now?: Date,
+): DeliveryView => deliveryView(mapping, placeDelivery(mapping.readings, mapping.input), slices, sprints, scope, now);

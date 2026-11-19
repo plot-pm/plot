@@ -1,5 +1,7 @@
 import type { PrIndex } from '../entities/pr-index.js';
 import { SLICE_STATES, type SliceState, type SliceStateCounts } from './slice-states.js';
+import { phaseAccent } from './workflow-phases.js';
+import { storyDateText } from './story-date.js';
 
 /** What the PR index says about a merged slice: the PR that landed it, or a commit the plan names. */
 export interface MergedFact {
@@ -43,6 +45,8 @@ export interface PlanSliceFact {
   readonly waitsFor: string;
   /** Whether the slice holds a branch or an agent, so it is a Work items row. */
   readonly begun: boolean;
+  /** The number of the slice's open PR, where a row of the slice already carries one. Absent where none was read. */
+  readonly pr?: number;
 }
 
 /** The three headings of an opened plan row, plus the slices no reading reached. */
@@ -119,24 +123,51 @@ export interface PlanLine {
   readonly link: boolean;
   /** Whether the line carries Start. */
   readonly start: boolean;
+  /** The slice's state, or `unread` where a reading it needs is absent. */
+  readonly state: PlanSliceFact['state'];
+  /** The slice's PR number: the merged PR on a Done line, a carried open PR otherwise. Absent where the row cannot say. */
+  readonly pr?: number;
+  /** `merged <relative time>` on a Done line with a parseable merge time and a clock; absent otherwise. */
+  readonly merged?: string;
 }
+
+/**
+ * The relative merge time of a Done line.
+ *
+ * @param mergedAt - the merge time as the host reported it.
+ * @param now - the clock reading, or `undefined` where the caller has none.
+ * @returns `merged today`, `merged yesterday`, `merged N days ago`, `merged N weeks ago` or `merged <locale date>`. `now` is clamped to `mergedAt` first, so a merge time ahead of the clock reads `merged today`. `undefined` where `now` is absent or `mergedAt` is empty, absent or unparseable.
+ */
+export const mergedWords = (mergedAt: string | undefined, now: Date | undefined): string | undefined => {
+  if (now === undefined) return undefined;
+  const at = mergedAt === undefined ? Number.NaN : new Date(mergedAt).getTime();
+  if (Number.isNaN(at)) return undefined;
+  return `merged ${storyDateText(mergedAt, new Date(Math.max(now.getTime(), at)))!}`;
+};
 
 /**
  * The lines of an opened plan row. Every slice appears once, under one heading.
  *
  * @param slices - the plan's slices, in the plan's order.
+ * @param now - the clock reading the relative merge time measures against; absent leaves `merged` off every line.
  */
-export const planLines = (slices: readonly PlanSliceFact[]): PlanLine[] =>
+export const planLines = (slices: readonly PlanSliceFact[], now?: Date): PlanLine[] =>
   slices.map((s): PlanLine => {
     const heading = headingOf(s.state);
     if (heading === 'done') {
-      return { heading, slice: s.name, text: `✓ merged · ${s.name}${doneDetail(s.merged)}`, link: false, start: false };
+      const merged = mergedWords(s.merged?.mergedAt, now);
+      const pr = s.merged?.pr ?? s.pr;
+      return {
+        heading, slice: s.name, text: `✓ merged · ${s.name}${doneDetail(s.merged)}`, link: false, start: false, state: s.state,
+        ...(pr === undefined ? {} : { pr }), ...(merged === undefined ? {} : { merged }),
+      };
     }
+    const pr = s.pr === undefined ? {} : { pr: s.pr };
     if (heading === 'to-do') {
       const waits = s.startable && s.waitsFor !== '' ? ` · waits for ${s.waitsFor}` : '';
-      return { heading, slice: s.name, text: `${s.name}${waits}`, link: false, start: s.startable };
+      return { heading, slice: s.name, text: `${s.name}${waits}`, link: false, start: s.startable, state: s.state, ...pr };
     }
-    return { heading, slice: s.name, text: s.name, link: s.linked, start: false };
+    return { heading, slice: s.name, text: s.name, link: s.linked, start: false, state: s.state, ...pr };
   });
 
 /** One plan as a collapsed row of the Release delivery section. */
@@ -149,6 +180,18 @@ export interface PlanRowFacts {
   readonly lines: PlanLine[];
   /** Slices with no reading, counted apart from the strip. */
   readonly unread: number;
+  /** The plan's workflow phase name. Absent where no row of the plan names one. */
+  readonly phase?: string;
+  /** The phase's accent: its own name for a default phase, `neutral` otherwise. Absent where `phase` is. */
+  readonly accent?: string;
+}
+
+/** What `planRowFacts` reads beside the slices. */
+export interface PlanRowReadings {
+  /** The plan's workflow phase name, or `null` where no row names one. */
+  readonly phase?: string | null;
+  /** The clock reading for the relative merge time. */
+  readonly now?: Date;
 }
 
 /**
@@ -157,15 +200,20 @@ export interface PlanRowFacts {
  * @param plan - the plan's slug.
  * @param owner - the plan's Owner handle, or `''`.
  * @param slices - the plan's slices.
+ * @param readings - the plan's phase name and the clock; a `null` or empty phase leaves `phase` and `accent` absent.
  */
-export const planRowFacts = (plan: string, owner: string, slices: readonly PlanSliceFact[]): PlanRowFacts => ({
-  plan,
-  owner,
-  strip: planStrip(slices),
-  stripText: stripText(slices),
-  lines: planLines(slices),
-  unread: slices.filter((s) => s.state === 'unread').length,
-});
+export const planRowFacts = (plan: string, owner: string, slices: readonly PlanSliceFact[], readings: PlanRowReadings = {}): PlanRowFacts => {
+  const phase = readings.phase === null || readings.phase === undefined || readings.phase === '' ? undefined : readings.phase;
+  return {
+    plan,
+    owner,
+    strip: planStrip(slices),
+    stripText: stripText(slices),
+    lines: planLines(slices, readings.now),
+    unread: slices.filter((s) => s.state === 'unread').length,
+    ...(phase === undefined ? {} : { phase, accent: phaseAccent(phase) }),
+  };
+};
 
 /** A sprint as the block rule reads it: its target release and the plans it names. */
 export interface SprintPlans {
@@ -217,6 +265,28 @@ export const headerCounts = (rows: readonly PlanRowFacts[]): ReleaseHeaderCounts
   const delivered = rows.reduce((n, r) => n + (r.strip.find((s) => s.state === 'delivered')?.count ?? 0), 0);
   return { plans: rows.length, delivered, total, unread: rows.reduce((n, r) => n + r.unread, 0) };
 };
+
+/** One figure of the header: its key, its number and the words that follow the number. */
+export interface HeaderCountPart {
+  readonly key: 'plans' | 'delivered' | 'blocked' | 'unread';
+  readonly count: number;
+  /** What follows the number; `${count} ${words}` is the figure as `headerText` prints it. */
+  readonly words: string;
+}
+
+/**
+ * The figures of the header, one per part `headerText` prints after the release.
+ *
+ * @param counts - the block's counts.
+ * @param strip - the five-state counts of the block; without it no `blocked` part is returned.
+ * @returns `plans`, `delivered`, `blocked` only where `strip` is given, and `unread` only above 0, so it agrees with `headerText` for the same arguments.
+ */
+export const headerCountParts = (counts: ReleaseHeaderCounts, strip?: Pick<SliceStateCounts, 'blocked'>): HeaderCountPart[] => [
+  { key: 'plans', count: counts.plans, words: counts.plans === 1 ? 'plan' : 'plans' },
+  { key: 'delivered', count: counts.delivered, words: `of ${counts.total} slices delivered` },
+  ...(strip === undefined ? [] : [{ key: 'blocked' as const, count: strip.blocked, words: 'blocked' }]),
+  ...(counts.unread > 0 ? [{ key: 'unread' as const, count: counts.unread, words: 'not read' }] : []),
+];
 
 /**
  * The header's wording.
