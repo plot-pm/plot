@@ -77,17 +77,11 @@ function ChipView({
       disabled={disabled}
       onClick={onToggle}
       title={disabled && showDisabledReason ? chip.disabledReason ?? undefined : undefined}
-      className={`shrink rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-        disabled
-          ? 'cursor-not-allowed border-slate-200 text-slate-400 opacity-50 dark:border-slate-700 dark:text-slate-500'
-          : chip.on
-            ? 'border-green-600 bg-green-600 text-white dark:border-green-500 dark:bg-green-600'
-            : 'border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800'
-      }`}
+      className="delivery-filter-chip shrink"
     >
       {chip.label}
       {!disabled && chip.on && (
-        <span className="ml-1 font-normal opacity-90">
+        <span className="ml-1 font-normal">
           {chip.hiddenCount === 1 ? '1 hidden' : `${chip.hiddenCount} hidden`}
         </span>
       )}
@@ -150,7 +144,7 @@ export function DeliveryFilters({
         <MineStrictToggle control={chips.mineStrict} onToggle={onToggleStrict} />
         <ChipView chip={chips.waitingOnMe} onToggle={() => {}} />
         {estateTotals && (
-          <span data-estate-totals className="ml-auto min-w-0 text-xs text-slate-500 dark:text-slate-400">
+          <span data-estate-totals className="delivery-text-muted ml-auto min-w-0 text-xs">
             {formatCounts(estateTotals, 'plans')}
           </span>
         )}
