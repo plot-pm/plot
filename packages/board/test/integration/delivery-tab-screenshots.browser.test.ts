@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Page } from 'playwright';
 import { openCatalogue, type Catalogue } from '../catalogue/index.js';
+import { expandAgentFolds } from '../helpers.mjs';
 
 /**
  * THE DELIVERY TAB, SECTION BY SECTION, IN BOTH THEMES.
@@ -152,6 +153,69 @@ describe('the Delivery tab in each theme and at 320 px (real browser renders the
       await page.close();
     }
   });
+
+  /** A token's value as the browser computes a colour, so it compares with `color` and `box-shadow`. */
+  const tokenColour = (page: Page, token: string) => page.evaluate((t) => {
+    const probe = document.createElement('span');
+    probe.style.color = `var(${t})`;
+    document.body.append(probe);
+    const colour = getComputedStyle(probe).color;
+    probe.remove();
+    return colour;
+  }, token);
+
+  const YOU_GROUPS = [
+    { group: 'blocks-delivery', token: '--hue-red' },
+    { group: 'input-to-the-fleet', token: '--hue-blue' },
+  ] as const;
+
+  for (const scheme of ['light', 'dark'] as const) {
+    it(`colours the You groups' tags, row bars and Do triggers from the hue tokens in ${scheme}`, async () => {
+      const page = await openDelivery(1280, scheme);
+      try {
+        await expandAgentFolds(page);
+        for (const { group, token } of YOU_GROUPS) {
+          const hue = await tokenColour(page, token);
+          const scope = page.locator(`[data-section="you"] [data-group="${group}"]`);
+          const marker = scope.locator('[data-group-marker]');
+          await marker.waitFor({ timeout: 10_000 });
+          // The computed colour, not the file: a `text-red-600` that wins leaves the file loaded and the tag wrong.
+          expect(await marker.evaluate((el) => getComputedStyle(el).color), `${group} tag`).toBe(hue);
+
+          const rows = scope.locator('[data-delivery-row]');
+          expect(await rows.count(), `${group} rows`).toBeGreaterThan(0);
+          const shadow = await rows.first().evaluate((el) => getComputedStyle(el).boxShadow);
+          expect(shadow, `${group} row bar`).toContain(hue);
+          expect(shadow, `${group} row bar`).toContain('3px 0px 0px');
+
+          // A You row's Do cell holds the `⋯` trigger; no You row renders `[data-row-do]`.
+          const trigger = scope.locator('[data-row-cell="do"] [aria-haspopup="menu"]:not([aria-disabled])');
+          if (group === 'blocks-delivery') expect(await trigger.count(), `${group} Do trigger`).toBeGreaterThan(0);
+          if (await trigger.count() > 0) {
+            expect(await trigger.first().evaluate((el) => getComputedStyle(el).color), `${group} Do`).toBe(hue);
+          }
+        }
+
+        // Unblock: a neutral tag and no bar. A rule on `[data-delivery-row]` alone would paint these too.
+        const unblock = page.locator('[data-section="you"] [data-group="unblock"]');
+        const unblockRows = unblock.locator('[data-delivery-row]');
+        expect(await unblockRows.count(), 'unblock rows').toBeGreaterThan(0);
+        for (const shadow of await unblockRows.evaluateAll((els) => els.map((el) => getComputedStyle(el).boxShadow))) {
+          expect(shadow, 'unblock row bar').toBe('none');
+        }
+        expect(await unblock.locator('[data-group-marker]').evaluate((el) => getComputedStyle(el).color))
+          .toBe(await tokenColour(page, '--card-meta'));
+
+        // The bar stays inside You: no Work items row carries it.
+        for (const shadow of await page.locator('[data-section="work-items"] [data-delivery-row]')
+          .evaluateAll((els) => els.map((el) => getComputedStyle(el).boxShadow))) {
+          expect(shadow, 'work-items row').toBe('none');
+        }
+      } finally {
+        await page.close();
+      }
+    });
+  }
 
   it.runIf(OUT !== '')('renders each mockup the sections name', async () => {
     const page = await cat.browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'dark' });

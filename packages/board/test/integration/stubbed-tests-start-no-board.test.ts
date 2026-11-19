@@ -947,7 +947,8 @@ const EXPECTED_FILES = 98;
 // 701 → 704 on 2026-11-19: the three `it(` in the new `delivery-tab-header.browser.test.ts` (96 → 97 files). Added, not moved.
 // 704 → 708 on 2026-11-19: the four `it(` in the new `release-delivery-visual.browser.test.ts` (97 → 98 files). Added, not moved.
 // 708 → 712 on 2026-11-19: the four `it(` that check the Tickets card and the footer line from `delivery-bottom.css`, added to `tickets-section.browser.test.ts`. Added, not moved.
-const EXPECTED_TESTS = 712;
+// 712 → 714 on 2026-11-19: the one `it(` that colours the You groups from the hue tokens, added to `delivery-tab-screenshots.browser.test.ts`, and the one that colours the open-questions chip by the domain tone, added to `draft-plan-row.browser.test.ts`. Added, not moved.
+const EXPECTED_TESTS = 714;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an
