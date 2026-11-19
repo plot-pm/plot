@@ -1,9 +1,75 @@
 /*
  * YOU — the group tags, the row bars and the Do verb, through `data-group` selectors.
  *
+ * Blocks delivery is red, Input to the fleet is blue, Unblock is neutral. These
+ * selectors are the one home of the group colour: unlayered, they outrank the
+ * Tailwind colour utilities the same elements still carry.
+ *
  * The rule below marks the file as loaded:
  * the screenshot test reads `--delivery-section` from `[data-section="you"]`.
  */
 [data-section="you"] {
   --delivery-section: you;
+}
+
+[data-section="you"] [data-group="blocks-delivery"] {
+  --you-group: var(--hue-red);
+  --you-group-soft: var(--hue-red-soft);
+}
+[data-section="you"] [data-group="input-to-the-fleet"] {
+  --you-group: var(--hue-blue);
+  --you-group-soft: var(--hue-blue-soft);
+}
+
+/* The group tag: a pill in the group's colour. The dot (`bg-current`) and the words stay beside it. */
+[data-section="you"] [data-group] [data-group-marker] {
+  padding: 1px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+[data-section="you"] [data-group="blocks-delivery"] [data-group-marker],
+[data-section="you"] [data-group="input-to-the-fleet"] [data-group-marker] {
+  background: var(--you-group-soft);
+  color: var(--you-group);
+}
+[data-section="you"] [data-group="unblock"] [data-group-marker] {
+  background: var(--card-band-strong);
+  color: var(--card-meta);
+}
+
+/*
+ * The row bar: 3 px inset, in the group's colour. A `box-shadow` leaves the
+ * row's tracks and padding alone. The ring variables keep the highlighted
+ * row's `ring-2 ring-inset`, which is also a `box-shadow`.
+ * Unblock rows carry no bar.
+ */
+[data-section="you"] [data-group="blocks-delivery"] [data-delivery-row],
+[data-section="you"] [data-group="input-to-the-fleet"] [data-delivery-row] {
+  box-shadow: inset 3px 0 0 var(--you-group), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000);
+}
+
+/*
+ * The Do verb in the group's colour. A You row's Do cell holds the `⋯` menu
+ * trigger; `[data-row-do]` renders in Work items rows only. A refused trigger
+ * (`aria-disabled`) keeps its dim colour.
+ */
+[data-section="you"] [data-group="blocks-delivery"] [data-row-cell="do"] [aria-haspopup="menu"]:not([aria-disabled]),
+[data-section="you"] [data-group="input-to-the-fleet"] [data-row-cell="do"] [aria-haspopup="menu"]:not([aria-disabled]),
+[data-section="you"] [data-group="blocks-delivery"] [data-row-do],
+[data-section="you"] [data-group="input-to-the-fleet"] [data-row-do] {
+  color: var(--you-group);
+  font-weight: 600;
+}
+
+/* The Draft plan row's rounds badge: a recorded count filled, an absent one dashed and italic. */
+[data-draft-plan-rounds][data-rounds="recorded"] {
+  background: var(--card-band-strong);
+  color: var(--card-body);
+}
+[data-draft-plan-rounds][data-rounds="absent"] {
+  background: transparent;
+  border: 1px dashed var(--card-meta);
+  color: var(--card-meta);
+  font-style: italic;
 }

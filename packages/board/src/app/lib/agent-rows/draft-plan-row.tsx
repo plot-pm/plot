@@ -1,9 +1,14 @@
 import { DRAFT_PLAN_NOTE, type Card, type DraftPlan } from '../../../contract/schema.js';
 import { tupleFromPlan } from '../tuple-row.js';
 import { TupleRowView } from '../../components/TupleRow.js';
-import { cn } from '../utils.js';
 import { draftRoundsText } from './working-agents.js';
-import { openQuestionsChip, openQuestionsMore, sliceCountChip, type PlanIndex } from '@plot-pm/domain';
+import { openQuestionsChip, openQuestionsMore, openQuestionsTone, sliceCountChip, type OpenQuestionsTone, type PlanIndex } from '@plot-pm/domain';
+
+/** The chip class of each open-questions tone. */
+const QUESTIONS_TONE_CLASS: Record<OpenQuestionsTone, string> = {
+  warn: 'delivery-tone-warn',
+  neutral: 'delivery-tone-neutral',
+};
 
 /**
  * A Draft plan with no branch, as a WAITING ON YOU row: the plan's name, its
@@ -14,7 +19,8 @@ import { openQuestionsChip, openQuestionsMore, sliceCountChip, type PlanIndex } 
  *
  * The rounds badge copies the Planning tab's two styles: a recorded count, 0
  * included, takes the filled badge, and an absent one the dashed italic badge,
- * so `not interrogated` and `0 rounds` never read alike.
+ * so `not interrogated` and `0 rounds` never read alike. `styles/delivery-you.css`
+ * colours both shapes by `data-rounds`.
  */
 export const DraftPlanRowView = (
   { draft, card, onOpenPlan, planIndex }: {
@@ -30,8 +36,8 @@ export const DraftPlanRowView = (
   const questions = draft.openQuestions ?? card?.openQuestions ?? null;
   const sliceChip = sliceCountChip(card?.sliceSummary?.slices);
   const questionChip = openQuestionsChip(questions);
+  const questionTone = openQuestionsTone(questions);
   const more = openQuestionsMore(questions);
-  const chipClass = 'shrink-0 rounded-full bg-slate-100 px-1.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300';
   return (
     <TupleRowView
       tuple={tupleFromPlan({
@@ -49,27 +55,24 @@ export const DraftPlanRowView = (
         <span
           data-draft-plan-rounds
           data-rounds={recorded ? 'recorded' : 'absent'}
-          className={cn(
-            'shrink-0 rounded-full bg-slate-100 px-1.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300',
-            recorded
-              ? ''
-              : 'border border-dashed border-slate-400 bg-transparent italic text-slate-600 dark:border-slate-500 dark:bg-transparent dark:text-slate-300',
-          )}
+          className="delivery-chip shrink-0"
           title={recorded
             ? `Interrogated: ${draftRoundsText(draft.rounds)} of /challenge-the-plan`
             : 'No Rounds: field — nobody has interrogated this plan'}
         >
           {draftRoundsText(draft.rounds)}
         </span>
-        {sliceChip !== null && <span data-draft-plan-slices className={chipClass}>{sliceChip}</span>}
-        {questionChip !== null && <span data-draft-plan-questions className={chipClass}>{questionChip}</span>}
+        {sliceChip !== null && <span data-draft-plan-slices className="delivery-chip delivery-tone-neutral shrink-0">{sliceChip}</span>}
+        {questionChip !== null && questionTone !== null && (
+          <span data-draft-plan-questions className={`delivery-chip ${QUESTIONS_TONE_CLASS[questionTone]} shrink-0`}>{questionChip}</span>
+        )}
         {questions?.first != null && (
-          <span data-draft-plan-first-question className="min-w-0 truncate text-slate-700 dark:text-slate-200" title={questions.first}>
+          <span data-draft-plan-first-question className="delivery-text-muted delivery-truncate" title={questions.first}>
             {questions.first}
-            {more !== null && <>{' '}<span data-draft-plan-more className="text-blue-600 dark:text-blue-400">{more}</span></>}
+            {more !== null && <>{' '}<span data-draft-plan-more className="delivery-text-link">{more}</span></>}
           </span>
         )}
-        <span data-draft-plan-note className="min-w-0 truncate text-slate-500 dark:text-slate-400">
+        <span data-draft-plan-note className="delivery-text-muted delivery-truncate">
           {DRAFT_PLAN_NOTE}
         </span>
       </>}
