@@ -85,6 +85,19 @@ describe('releaseHeadVerdict', () => {
     expect(releaseHeadVerdict([marketplace()])).toEqual({ read: 'foreign', path: '.claude-plugin/marketplace.json' });
   });
 
+  it('refuses a marketplace.json added, deleted, modified without a hunk, or losing a line', () => {
+    const path = '.claude-plugin/marketplace.json';
+    expect(releaseHeadVerdict([change(path, { status: 'added' })])).toEqual({ read: 'foreign', path });
+    expect(releaseHeadVerdict([change(path, { status: 'deleted' })]).read).toBe('foreign');
+    expect(releaseHeadVerdict([change(path)]).read).toBe('foreign');
+    const removedOnly = change(path, { hunks: [{ section: '', removed: ['        "ref": "v2.30.0"'], added: [] }] });
+    expect(releaseHeadVerdict([version('package.json'), removedOnly]).read).toBe('foreign');
+  });
+
+  it('refuses a marketplace ref when package.json writes a version that is not semver', () => {
+    expect(releaseHeadVerdict([version('package.json', '2.30.0', 'next'), marketplace('vnext', 'next')]).read).toBe('foreign');
+  });
+
   it('refuses a marketplace line whose key or indentation changes', () => {
     const pkg = version('package.json');
     const keySwap = change('.claude-plugin/marketplace.json', {
