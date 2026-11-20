@@ -73,6 +73,6 @@ describe('the issue listing per client', () => {
     const api = fakeClient(requests);
     await trackerGitHost('github', context, api).issueListChanged('2026-01-01T00:00:00Z', 30);
     await trackerGitHost('github', context, api).issueListChanged('2026-01-01T00:00:00Z', 30);
-    expect(requests.filter((r) => r.label === 'graphql, search types')).toHaveLength(1);
+    expect(requests.filter((r) => r.label === 'issue-list search types')).toHaveLength(1);
   });
 });
