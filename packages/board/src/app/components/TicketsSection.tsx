@@ -1,9 +1,10 @@
-import { useState } from 'react';
 import { planItReason, ticketsSection, TICKETS_ANCHOR } from '@plot-pm/domain';
 import type { DispatchInfo, IssueAnswer, IssueRow } from '../../contract/schema.js';
 import { artifactTuple, tupleAgeText } from '../lib/tuple-row.js';
 import { CreatePlanButton } from './CreatePlanButton.js';
+import { headerControl, SectionHead } from './SectionHead.js';
 import { LinkTupleView } from './TupleRow.js';
+import { ticketAnchor } from '../lib/agent-rows/delivery-view.js';
 
 /** The hooks a Tickets row's ticket segment carries, the same on an anchor and on text. */
 const TICKET_CONTROLS = [{ extraAttr: { link: { 'data-issue-link': '', 'data-issue-number': '' }, text: { 'data-issue-number': '' } } }];
@@ -32,6 +33,12 @@ export interface TicketsSectionViewProps {
   /** The sentence naming why the tracker gave no tickets; `''` where it answered. */
   absence: string;
   idea: DispatchInfo;
+  /** Whether the section is folded to its header line. */
+  folded: boolean;
+  onToggleFold: () => void;
+  /** Whether the rows behind `… n more · show` show; the Delivery tab holds it, so a jump can open it. */
+  foldOpen: boolean;
+  onToggleFoldOpen: () => void;
 }
 
 /**
@@ -42,8 +49,7 @@ export interface TicketsSectionViewProps {
  * Delivery tab's triage links scroll to.
  */
 export function TicketsSectionView(props: TicketsSectionViewProps) {
-  const { idea, issueAnswer = null } = props;
-  const [foldOpen, setFoldOpen] = useState(false);
+  const { idea, issueAnswer = null, foldOpen } = props;
   const section = ticketsSection<IssueRow>({
     answer: issueAnswer,
     assigned: props.assigned,
@@ -56,7 +62,13 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
   const reason = planItReason(issueAnswer, idea.available);
   return (
     <section id={TICKETS_ANCHOR} data-section="tickets" data-tickets-state={section.state} className="delivery-card space-y-2">
-      <div className="delivery-head flex flex-wrap items-baseline gap-x-3.5 gap-y-1">
+      <SectionHead
+        section="tickets"
+        label="Tickets"
+        folded={props.folded}
+        onToggle={props.onToggleFold}
+        summary={props.folded && section.state === 'rows' && section.rows.length === 0 ? <span data-section-empty className="delivery-text-muted">— none</span> : null}
+      >
         <h2 data-delivery-section="tickets" className="delivery-title flex items-baseline gap-1">
           Tickets
         </h2>
@@ -68,9 +80,10 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
                 <span aria-hidden>·</span>
                 <button
                   type="button"
+                  {...headerControl}
                   data-tickets-show-all
                   aria-expanded={props.showAll}
-                  onClick={props.onToggleShowAll}
+                  onClick={(e) => { e.stopPropagation(); props.onToggleShowAll(); }}
                   className={FOLD_CLASS}
                 >
                   show all
@@ -79,8 +92,8 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
             )}
           </p>
         )}
-      </div>
-      {section.state !== 'rows' ? (
+      </SectionHead>
+      {props.folded ? null : section.state !== 'rows' ? (
         <p data-tickets-absent={section.state} data-issue-error={section.state === 'failed' ? '' : undefined} data-issue-absence={section.state === 'unsupported' ? '' : undefined} className="delivery-text-muted px-3 text-[13px]">
           {props.absence !== '' ? props.absence : section.state === 'unasked' ? 'the tracker has not been read yet' : 'the tracker gave no answer'}
         </p>
@@ -98,6 +111,7 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
             {section.rows.map((issue) => (
               <li
                 key={issue.number}
+                id={ticketAnchor(issue.number)}
                 role="row"
                 data-issue-row={issue.number}
                 className={`${ROW_COLUMNS} delivery-row delivery-row-ruled items-baseline gap-x-3 px-3`}
@@ -122,7 +136,7 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
                     type="button"
                     data-tickets-fold
                     aria-expanded={foldOpen}
-                    onClick={() => setFoldOpen((open) => !open)}
+                    onClick={props.onToggleFoldOpen}
                     className={FOLD_CLASS}
                   >
                     {section.foldLabel}

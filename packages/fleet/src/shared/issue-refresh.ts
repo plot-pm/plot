@@ -18,7 +18,7 @@ import {
   type IssueSource,
   type PortResult,
 } from '@plot-pm/domain';
-import { TRACKER_LISTERS, trackerOfSource, type GithubApi, type JiraInProcess, type ShellContext } from '@plot-pm/domain/adapters';
+import { HOST_ISSUE_LISTERS, TRACKER_LISTERS, trackerOfSource, type GithubApi, type JiraInProcess, type ShellContext } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { IssueWriteSpool } from '@plot-pm/domain/ports/issue-write-spool';
 import type { ClosedIssues, IssueRead, TrackerSpender } from '@plot-pm/domain/ports/tracker';
@@ -412,7 +412,7 @@ const unaskableReason = (source: Exclude<IssueSource, { ask: 'nobody' }>, gitHos
 export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): Promise<void> => {
   const clock = world.now ?? Date.now;
   const startedAt = clock();
-  const source = issueSource({ declared: world.declaredTracker, gitHost: world.gitHost, listers: TRACKER_LISTERS });
+  const source = issueSource({ declared: world.declaredTracker, gitHost: world.gitHost, listers: TRACKER_LISTERS, hosts: HOST_ISSUE_LISTERS });
   if (source.ask === 'nobody') {
     state.issueError = source.reason;
     world.record?.('issues', failedOf(source.reason, startedAt));

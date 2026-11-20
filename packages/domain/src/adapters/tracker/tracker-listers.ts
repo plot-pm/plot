@@ -23,12 +23,13 @@ export const TRACKER_LISTERS: readonly IssueLister[] = [
 
 /**
  * The git hosts whose own issue list a repository with no declared tracker
- * reads, and how each writes its assignees: a GitHub or Bitbucket assignee is
- * a login on that host.
+ * reads — the reading `issueSource` takes as `hosts` — and how each writes its
+ * assignees: a GitHub assignee is a login on that host. Bitbucket Cloud keeps
+ * no issues, so a Bitbucket repository lists issues only from a declared
+ * tracker.
  */
 export const HOST_ISSUE_LISTERS: readonly HostIssueLister[] = [
   { backend: 'github', assignees: { service: 'github', match: 'host-login' } },
-  { backend: 'bitbucket', assignees: { service: 'bitbucket', match: 'host-login' } },
 ];
 
 /** The reading `ticketSourceOf` takes: every lister the adapters declare. */

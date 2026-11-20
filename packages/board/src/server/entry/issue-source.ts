@@ -4,8 +4,8 @@
 // `plot-movable.mjs`'s 1.2 KB. `tracker-listers.ts` exists for the same
 // measurement one layer down — `tracker-resolve.ts` re-exports the list and
 // imports three connectors, so importing it here would ship them.
-import { TRACKER_LISTERS } from '@plot-pm/domain/adapters/tracker/tracker-listers';
-import { bbIssueCommandMissing, issueSource } from '@plot-pm/domain/rules/issue-source';
+import { HOST_ISSUE_LISTERS, TRACKER_LISTERS } from '@plot-pm/domain/adapters/tracker/tracker-listers';
+import { issueSource } from '@plot-pm/domain/rules/issue-source';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
@@ -21,13 +21,10 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * git-host
  * plot-issue-source.mjs github < <(echo linear)
  * nobody	no connector lists issues from the declared tracker `linear`, and ...
- * # exit 0 for all three
+ * plot-issue-source.mjs bitbucket < /dev/null
+ * nobody	the git host `bitbucket` has no issue list to read; declare the issue tracker with ...
+ * # exit 0 for all four
  * # exit 2 — no git host named
- *
- * plot-issue-source.mjs --bb-issue-missing < <(echo plot)
- * lists no issue command — Quatico bb has none, unlike craftamap/bb — ...; declare `Tracker: jira <base URL>` with `Sprint owner: plot`
- * # an empty stdin instead gets the advice to declare the `Tracker` key
- * # the caller prepends its own `bb ${version}` ahead of this sentence
  * ```
  *
  * **Its own bundle, for the reason the ones before it give.** `plot-ask.mjs`
@@ -54,13 +51,6 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * all*. A non-zero exit here would say the question failed instead.
  */
 
-/**
- * The tracker scheme the `--bb-issue-missing` sentence suggests: the first
- * shipped lister that does not need a particular git host, so a Bitbucket
- * repository is never told to use a tracker only GitHub can list.
- */
-export const SUGGESTED_TRACKER = TRACKER_LISTERS.find((l) => l.onlyOnHost === undefined)?.scheme ?? '';
-
 /** The exit codes the caller reads. */
 export const EXIT = {
   /** The rule answered: one of `tracker`, `git-host` or `nobody`. */
@@ -82,21 +72,13 @@ export const run = (
   stdin: string,
   write: (s: string) => void = (s) => process.stdout.write(s),
 ): number => {
-  const [first = ''] = args;
-  // A second question this bundle answers, routed by flag rather than a
-  // second entry point: `bb_assert_issue_version` needs to know whether
-  // `Tracker` is declared before it can word its own refusal, and that
-  // reads the same `declared` value this entry already takes on stdin.
-  if (first === '--bb-issue-missing') {
-    write(`${bbIssueCommandMissing(stdin, SUGGESTED_TRACKER)}\n`);
-    return EXIT.ok;
-  }
-  const gitHost = first;
+  const [gitHost = ''] = args;
   if (gitHost.trim() === '') return EXIT.usage;
   const source = issueSource({
     declared: stdin,
     gitHost: gitHost.trim(),
     listers: TRACKER_LISTERS,
+    hosts: HOST_ISSUE_LISTERS,
   });
   // Tab-separated out. The caller is bash, and JSON would mean a `jq`
   // dependency on a path that has none.

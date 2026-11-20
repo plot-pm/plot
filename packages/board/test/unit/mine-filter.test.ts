@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { ticketsForReader, ownedFromTicket, readMineStrict, writeMineStrict } from '../../src/app/lib/agent-rows/mine-filter.js';
-import type { IssueRow, TicketLaneRow, TicketSourceShape } from '../../src/contract/schema.js';
-import { lanesForReader, ownership, type Reader } from '@plot-pm/domain';
+import {
+  agentsForReader, ownedFromTicket, readMineStrict, rowsForReader, ticketPlanOwners, ticketsForReader, writeMineStrict,
+  type PlanOwners,
+} from '../../src/app/lib/agent-rows/mine-filter.js';
+import { deliveryMapping, sliceItemId, ticketItemId, type DeliveryMapInput, type RegistryAgent } from '../../src/app/lib/agent-rows/delivery-readings.js';
+import type { AgentRow, IssueRow, TicketLaneRow, TicketSourceShape } from '../../src/contract/schema.js';
+import { lanesForReader, ownership, parsePersonDirectory, placeDelivery, type MineMode, type Reader } from '@plot-pm/domain';
 
 /**
  * `ticketsForReader` is a thin wrapper around the lenient
@@ -145,5 +149,141 @@ describe('readMineStrict / writeMineStrict', () => {
     const broken = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); } };
     expect(readMineStrict(broken)).toBe(false);
     expect(() => writeMineStrict(true, broken)).not.toThrow();
+  });
+});
+
+describe('the lenient Mine mode reads a row\'s own arm and its plan\'s arm', () => {
+  const me: Reader = { hostUser: 'jwloka', directory: parsePersonDirectory('jwloka = Jan Wloka; eins78 = Max Albrecht') };
+  const MODES: readonly MineMode[] = ['all', 'mine-and-unknown', 'mine'];
+  const mineOf = (assignee: string): PlanOwners => ({ assignee, author: '', approver: '' });
+
+  const branchRow = (branch: string, prAuthor: string, plan: PlanOwners): AgentRow => ({
+    branch, plan: 'p', wave: branch, kind: 'branch', phase: 'Development', state: 'wip', group: 'working',
+    worker: 'running', question: null, blockedBy: null,
+    pr: { number: branch.length, author: prAuthor, state: 'pending', open: true, ciChecks: 'pending' },
+    ...plan,
+  }) as unknown as AgentRow;
+
+  // Three cases the brief names, and a fourth: another person's PR on a plan
+  // that names nobody, which the plan arm must leave `theirs`.
+  const rowCases = [
+    { name: 'a PR of another person on a plan of the reader', row: branchRow('a', 'eins78', mineOf('jwloka')), keep: { all: true, 'mine-and-unknown': true, mine: false } },
+    { name: 'a PR of the reader on a plan of another person', row: branchRow('b', 'jwloka', mineOf('eins78')), keep: { all: true, 'mine-and-unknown': true, mine: true } },
+    { name: 'a PR of unknown owner on a plan of unknown owner', row: branchRow('c', '', mineOf('')), keep: { all: true, 'mine-and-unknown': true, mine: false } },
+    { name: 'a PR of another person on a plan that names nobody', row: branchRow('d', 'eins78', mineOf('')), keep: { all: true, 'mine-and-unknown': false, mine: false } },
+  ] as const;
+
+  describe('rowsForReader', () => {
+    for (const c of rowCases) {
+      for (const mode of MODES) {
+        it(`${c.keep[mode] ? 'keeps' : 'hides'} ${c.name} in the mode ${mode}`, () => {
+          expect(rowsForReader([c.row], me, mode)).toEqual(c.keep[mode] ? [c.row] : []);
+        });
+      }
+    }
+
+    it('returns the array itself in the mode all', () => {
+      const rows = rowCases.map((c) => c.row);
+      expect(rowsForReader(rows, me, 'all')).toBe(rows);
+    });
+  });
+
+  describe('deliveryMapping, through MINE to the DeliveryMine word', () => {
+    const shownIds = (rows: AgentRow[], mode: MineMode): string[] => {
+      const m = deliveryMapping({
+        rows, slices: [], agents: [], drafts: [], reader: me, mode, config: { autoReview: true, correctionBudget: 2 },
+      });
+      return placeDelivery(m.readings, m.input).items.map((i) => i.id);
+    };
+    for (const c of rowCases) {
+      for (const mode of MODES) {
+        it(`${c.keep[mode] ? 'keeps' : 'drops'} ${c.name} in the mode ${mode}`, () => {
+          const id = sliceItemId('p', c.row.wave);
+          if (c.keep[mode]) expect(shownIds([c.row], mode)).toContain(id);
+          else expect(shownIds([c.row], mode)).not.toContain(id);
+        });
+      }
+    }
+  });
+
+  describe('agentsForReader, joined to the row its branch names', () => {
+    const agentOn = (branch: string, state: string): RegistryAgent =>
+      ({ session: 's', branch, state, identity: 'declared', pid: 1 }) as unknown as RegistryAgent;
+    const rowByBranch = new Map<string, PlanOwners>([
+      ['feature/ours', mineOf('jwloka')],
+      ['feature/theirs', mineOf('eins78')],
+      ['feature/nobodys', mineOf('')],
+    ]);
+    // The agent arm answers `mine` for a desk on this machine and `unknown`
+    // for `elsewhere`; it never answers `theirs`.
+    const agentCases = [
+      { name: 'an agent elsewhere on a plan of the reader', agent: agentOn('feature/ours', 'elsewhere'), keep: { all: true, 'mine-and-unknown': true, mine: false } },
+      { name: 'an agent of the reader on a plan of another person', agent: agentOn('feature/theirs', 'running'), keep: { all: true, 'mine-and-unknown': true, mine: true } },
+      { name: 'an agent elsewhere on a plan of unknown owner', agent: agentOn('feature/nobodys', 'elsewhere'), keep: { all: true, 'mine-and-unknown': true, mine: false } },
+      { name: 'an agent elsewhere on a plan of another person', agent: agentOn('feature/theirs', 'elsewhere'), keep: { all: true, 'mine-and-unknown': false, mine: false } },
+      { name: 'an agent elsewhere whose branch joins no row', agent: agentOn('feature/unjoined', 'elsewhere'), keep: { all: true, 'mine-and-unknown': true, mine: false } },
+    ] as const;
+    for (const c of agentCases) {
+      for (const mode of MODES) {
+        it(`${c.keep[mode] ? 'keeps' : 'hides'} ${c.name} in the mode ${mode}`, () => {
+          expect(agentsForReader([c.agent], me, mode, rowByBranch)).toEqual(c.keep[mode] ? [c.agent] : []);
+        });
+      }
+    }
+
+    it('returns the array itself in the mode all', () => {
+      const agents = agentCases.map((c) => c.agent);
+      expect(agentsForReader(agents, me, 'all', rowByBranch)).toBe(agents);
+    });
+  });
+
+  describe('ticketsForReader and the ticket reading mineAllows reads', () => {
+    const plans = {
+      ours: { file: '2026-ours.md', issues: ['11'] },
+      theirs: { file: '2026-theirs.md', issues: ['12', '14'] },
+      nobodys: { file: '2026-nobodys.md', issues: ['13'] },
+    };
+    const cards: Record<string, PlanOwners> = {
+      '2026-ours.md': mineOf('jwloka'), '2026-theirs.md': mineOf('eins78'), '2026-nobodys.md': mineOf(''),
+    };
+    const planOwners = ticketPlanOwners(plans, (file) => cards[file]);
+    // `ticketsForReader` keeps its lenient answer in the strict mode; the
+    // Delivery ticket reading keeps the assignees' arm alone there.
+    const ticketCases = [
+      { name: 'a ticket of another person on a plan of the reader', t: ticket({ number: '#11', assignees: ['eins78'] }), tickets: { all: true, 'mine-and-unknown': true, mine: true }, delivery: { all: true, 'mine-and-unknown': true, mine: false } },
+      { name: 'a ticket of the reader on a plan of another person', t: ticket({ number: '12', assignees: ['jwloka'] }), tickets: { all: true, 'mine-and-unknown': true, mine: true }, delivery: { all: true, 'mine-and-unknown': true, mine: true } },
+      { name: 'a ticket of unknown owner on a plan of unknown owner', t: ticket({ number: '13', assignees: [] }), tickets: { all: true, 'mine-and-unknown': true, mine: true }, delivery: { all: true, 'mine-and-unknown': true, mine: false } },
+      { name: 'a ticket of another person on a plan of another person', t: ticket({ number: '14', assignees: ['eins78'] }), tickets: { all: true, 'mine-and-unknown': false, mine: false }, delivery: { all: true, 'mine-and-unknown': false, mine: false } },
+    ] as const;
+
+    for (const c of ticketCases) {
+      for (const mode of MODES) {
+        it(`ticketsForReader ${c.tickets[mode] ? 'keeps' : 'hides'} ${c.name} in the mode ${mode}`, () => {
+          expect(ticketsForReader([c.t], me, hostLoginSource, mode, planOwners)).toEqual(c.tickets[mode] ? [c.t] : []);
+        });
+
+        it(`the Delivery Tickets section ${c.delivery[mode] ? 'shows' : 'filters'} ${c.name} in the mode ${mode}`, () => {
+          const m = deliveryMapping({
+            rows: [], slices: [], agents: [], drafts: [], reader: me, mode, config: { autoReview: true, correctionBudget: 2 },
+            tickets: [c.t], ticketSource: hostLoginSource, ticketPlans: planOwners,
+          } satisfies DeliveryMapInput);
+          const ids = placeDelivery(m.readings, m.input).tickets.map((t) => t.id);
+          expect(ids).toEqual(c.delivery[mode] ? [ticketItemId(c.t.number)] : []);
+        });
+      }
+    }
+
+    it('hides a ticket of another person on the reader\'s plan where no plan map is given, as before', () => {
+      expect(ticketsForReader([ticketCases[0].t], me, hostLoginSource, 'mine-and-unknown')).toEqual([]);
+    });
+
+    it('returns the array itself in the mode all', () => {
+      const tickets = ticketCases.map((c) => c.t);
+      expect(ticketsForReader(tickets, me, hostLoginSource, 'all', planOwners)).toBe(tickets);
+    });
+
+    it('adds no owner for a plan whose card was not read', () => {
+      expect(ticketPlanOwners(plans, () => null).size).toBe(0);
+    });
   });
 });

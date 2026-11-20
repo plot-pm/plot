@@ -36,6 +36,7 @@ import {
   type SliceVerdict,
   type WorkerState,
   type SprintCounts,
+  type PlanTicketRow,
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
 import { listRecordBlobs } from '@plot-pm/domain/workflows/record-listing';
@@ -45,6 +46,7 @@ import type { BuildPort, ReaderState } from '@plot-pm/domain';
 import type { DetachedProcess } from '@plot-pm/domain/ports/detached';
 import { electReader, HEARTBEAT_STALE_MS, type ReaderClaim, type ReaderVerdict } from '@plot-pm/domain/rules/reader-election';
 import { PR_READ_BEAT_MS } from '@plot-pm/domain/rules/pr-status';
+import { isReviewIssueTitle } from '@plot-pm/domain/rules/review-issue';
 import type { ReaderLock } from '@plot-pm/domain/ports/reader-lock';
 import type { ProcessProbe } from '@plot-pm/domain/ports/process-probe';
 import { claimOnly, CLAIM_SUBJECT_PREFIX } from '@plot-pm/domain/rules/empty-claim';
@@ -111,7 +113,7 @@ import { fixerAttemptsFile } from '@plot-pm/domain/adapters/fixer-attempts/fixer
 import { fixerInFlight } from '@plot-pm/domain/rules/fixer-attempts';
 import type { PortResult } from '@plot-pm/domain';
 import type { Worktree } from '@plot-pm/domain/entities/worktree';
-import { fleetdHeartbeatFile, agentsFs, refsGit, shellContext, treesGit, planStoreRef, planStoreShell, processesFiles, issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
+import { fleetdHeartbeatFile, agentsFs, refsGit, shellContext, treesGit, planStoreRef, planStoreShell, processesFiles, issueIndexFile, readerLockIndexDir, HOST_ISSUE_LISTERS, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { CarriedListing } from '@plot-pm/domain/rules/scan-listing';
 import { fleetOwnsScan, ownedBridgeNote } from '@plot-pm/domain/rules/scan-owner';
@@ -949,6 +951,16 @@ export interface CacheEntry {
    * source each have no file age to show.
    */
   issueAt: number | null;
+  /**
+   * The plans that name each ticket, as the last issue pass's plan read
+   * answered them; null before the first answer and where that read failed.
+   */
+  ticketPlans: Map<string, TicketPlan[]> | null;
+  /**
+   * The issue keys the cards' `refutedIssues` name, as the last board build
+   * recorded them through {@link recordRefutedIssues}; empty before the first.
+   */
+  refutedIssues: ReadonlySet<string>;
 }
 
 /** The sets one read leaves, in the issue index's own shape. */
@@ -1974,6 +1986,7 @@ export async function ticketLaneData(opts: BuildBoardOptions): Promise<TicketLan
     declared: declared.ok ? declared.value : '',
     gitHost: entry.backend ?? '',
     listers: TRACKER_LISTERS,
+    hosts: HOST_ISSUE_LISTERS,
   });
   return {
     ticketSource: ticketSourceOf(source, entry.backend ?? '', TICKET_SOURCES),
@@ -2109,6 +2122,7 @@ export async function issuesClosedReading(opts: BuildBoardOptions): Promise<Issu
     declared: declared.ok ? declared.value : '',
     gitHost: entry.backend ?? '',
     listers: TRACKER_LISTERS,
+    hosts: HOST_ISSUE_LISTERS,
   });
   if (source.ask === 'nobody') {
     return { rows: [], asked: false, absence: issueAbsence(source.reason) };
@@ -2159,6 +2173,44 @@ export async function issuesClosedReading(opts: BuildBoardOptions): Promise<Issu
 }
 
 /**
+ * The board's issue row for one issue index row.
+ *
+ * @param row - the issue index row.
+ * @param now - epoch ms the age is measured from.
+ * @returns the row as `IssueRowSchema` shapes it, with no owner resolved.
+ */
+const issueRowOf = (row: IssueIndexRow, now: number) => {
+  const at = row.createdAt ? Date.parse(row.createdAt) : NaN;
+  return {
+    // A ticket, stated rather than left to the consumer's call site — see
+    // `IssueRowSchema.kind`. Every one of the seven kinds arrives the same
+    // way, which is what lets one row component read slot 2 from the data.
+    kind: 'ticket' as const,
+    number: issueKey(row.number),
+    title: row.title,
+    url: row.url,
+    // Null rather than 0 where the host gave no date: 0 would claim the
+    // issue was opened this instant.
+    ageMinutes: Number.isNaN(at) ? null : Math.max(0, Math.round((now - at) / 60_000)),
+    // The tracker's own word and the category it falls in — carried BOTH,
+    // because neither substitutes for the other: the name is what a person
+    // reads and the category is the stable vocabulary a board could decide
+    // on. Passed through untouched, empty included; the tracker's `''` for a
+    // state its own vocabulary has no word for is a fact, not a gap to fill.
+    status: row.status ?? '',
+    statusCategory: row.statusCategory ?? '',
+    // The tracker's own logins or accounts assigned — [] where the tracker
+    // states none, which `ticketsForReader` reads as "nobody's."
+    assignees: row.assignees ?? [],
+    // The tracker's own word, lowercased — `null` where it stated none.
+    // Owner is NOT resolved here: this inbox read carries no `source`/
+    // `directory`, and `null` says so honestly rather than guessing.
+    type: typeOf(row.type),
+    owner: null,
+  };
+};
+
+/**
  * The inbox rows of a set of open issues: those no plan references, at most
  * {@link ISSUE_LIMIT}, in the order given.
  *
@@ -2171,36 +2223,60 @@ const inboxOf = (rows: readonly IssueIndexRow[], referenced: ReadonlySet<string>
   rows
     .filter((row) => !referenced.has(issueKey(row.number)))
     .slice(0, ISSUE_LIMIT)
-    .map((row) => {
-      const at = row.createdAt ? Date.parse(row.createdAt) : NaN;
-      return {
-        // A ticket, stated rather than left to the consumer's call site — see
-        // `IssueRowSchema.kind`. Every one of the seven kinds arrives the same
-        // way, which is what lets one row component read slot 2 from the data.
-        kind: 'ticket' as const,
-        number: issueKey(row.number),
-        title: row.title,
-        url: row.url,
-        // Null rather than 0 where the host gave no date: 0 would claim the
-        // issue was opened this instant.
-        ageMinutes: Number.isNaN(at) ? null : Math.max(0, Math.round((now - at) / 60_000)),
-        // The tracker's own word and the category it falls in — carried BOTH,
-        // because neither substitutes for the other: the name is what a person
-        // reads and the category is the stable vocabulary a board could decide
-        // on. Passed through untouched, empty included; the tracker's `''` for a
-        // state its own vocabulary has no word for is a fact, not a gap to fill.
-        status: row.status ?? '',
-        statusCategory: row.statusCategory ?? '',
-        // The tracker's own logins or accounts assigned — [] where the tracker
-        // states none, which `ticketsForReader` reads as "nobody's."
-        assignees: row.assignees ?? [],
-        // The tracker's own word, lowercased — `null` where it stated none.
-        // Owner is NOT resolved here: this inbox read carries no `source`/
-        // `directory`, and `null` says so honestly rather than guessing.
-        type: typeOf(row.type),
-        owner: null,
-      };
-    });
+    .map((row) => issueRowOf(row, now));
+
+/**
+ * The rows the Tickets section's scope groups read: every open and closed row
+ * of `sets` whose key a plan names, whose title {@link isReviewIssueTitle}
+ * accepts, or whose key `refuted` holds. No {@link ISSUE_LIMIT} cut applies.
+ *
+ * An open row comes first, and a closed row with the same key is left out.
+ * Each row carries `complete` from the open set; a set with no `complete`
+ * flag counts as complete.
+ *
+ * @param sets - the open and closed sets the last issue read left, or null.
+ * @param plans - the plans naming each issue key, or null where unread.
+ * @param refuted - the issue keys the cards' `refutedIssues` name.
+ * @param now - epoch ms the ages are measured from.
+ * @returns the rows, open ones first, each set in its own order; `[]` where `sets` is null.
+ */
+export const planTicketRowsOf = (
+  sets: Pick<IssueSets, 'rows' | 'complete' | 'closed'> | null,
+  plans: ReadonlyMap<string, readonly TicketPlan[]> | null,
+  refuted: ReadonlySet<string>,
+  now: number,
+): PlanTicketRow[] => {
+  if (sets === null) return [];
+  const complete = sets.complete ?? true;
+  const kept = (row: IssueIndexRow): boolean => {
+    const key = issueKey(row.number);
+    return plans?.has(key) === true || isReviewIssueTitle(row.title) || refuted.has(key);
+  };
+  const seen = new Set<string>();
+  const out: PlanTicketRow[] = [];
+  const add = (rows: readonly IssueIndexRow[], state: 'open' | 'closed'): void => {
+    for (const row of rows) {
+      const key = issueKey(row.number);
+      if (seen.has(key) || !kept(row)) continue;
+      seen.add(key);
+      out.push({ ...issueRowOf(row, now), state, complete });
+    }
+  };
+  add(sets.rows ?? [], 'open');
+  add(sets.closed?.rows ?? [], 'closed');
+  return out;
+};
+
+/**
+ * Records the issue keys the cards of one board build name in `refutedIssues`,
+ * for {@link planTicketRowsOf} to keep on the next fleet payload.
+ *
+ * @param opts - the board's repo root and scripts directory.
+ * @param keys - the issue keys, in any spelling {@link issueKey} accepts.
+ */
+export const recordRefutedIssues = (opts: BuildBoardOptions, keys: Iterable<string>): void => {
+  ensureCache(opts).refutedIssues = new Set([...keys].map(issueKey));
+};
 
 /**
  * What WAITING ON YOU shows for one read: the domain's `waitingTickets`,
@@ -2272,6 +2348,8 @@ const waitingOver = (
     hidden: result.hidden,
     unassigned: result.unassigned,
     assignedToOthers: result.assignedToOthers,
+    unassignedKeys: [...result.unassignedKeys],
+    assignedToOthersKeys: [...result.assignedToOthersKeys],
     complete: result.complete,
     notice: result.notice,
     source,
@@ -2314,6 +2392,7 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
     declared: declared.ok ? declared.value : '',
     gitHost: entry.backend ?? '',
     listers: TRACKER_LISTERS,
+    hosts: HOST_ISSUE_LISTERS,
   });
   if (source.ask === 'nobody') {
     entry.issues = [];
@@ -2442,6 +2521,7 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
     ...(inboxOutcome.answer === undefined ? {} : { inboxAnswer: inboxOutcome.answer }),
   };
   const plans = await ticketPlansOf(opts, entry);
+  entry.ticketPlans = plans;
   if (plans === null) {
     // The plans could not be read, so "which of these is unplanned" has no
     // answer. Reporting the unfiltered list would surface issues that ARE
@@ -2537,6 +2617,7 @@ const offlineIssueRowsInto = async (
   const decision = offlineIssueRows({ memoryRows: kept?.rows ?? null, index, ownSource });
   if (decision.from !== 'index') return decision.from;
   const plans = await ticketPlansOf(opts, entry);
+  entry.ticketPlans = plans;
   if (plans === null) return 'memory'; // `issueAnswer` already reads `failed`; `entry.issues` is left as it was.
   entry.issues = inboxOf(decision.rows, new Set(plans.keys()), Date.now());
   const parsed = decision.at === null ? NaN : Date.parse(decision.at);
@@ -2571,6 +2652,7 @@ const readIssuesFromStore = async (
     declared: declared.ok ? declared.value : '',
     gitHost: entry.backend ?? '',
     listers: TRACKER_LISTERS,
+    hosts: HOST_ISSUE_LISTERS,
   });
   if (source.ask === 'nobody') {
     entry.issues = [];
@@ -2695,6 +2777,7 @@ const installIssueIndex = async (
     return;
   }
   const plans = await readings.plans();
+  entry.ticketPlans = plans;
   if (plans === null) {
     entry.issueAnswer = 'failed';
     entry.issueError = readings.plansError;
@@ -3807,7 +3890,7 @@ export function freshCacheEntry(): CacheEntry {
     // 0, so the first fetch happens immediately rather than a minute in.
     prNextAt: 0, prNextIsBackoff: false, prNextScheduled: true, prIntervalMs: PR_REFRESH_MS,
     issueNextAt: 0, issueNextIsBackoff: false, issueRequests: 0, issueBackoffUntil: null, issueConnector: null, issueAccount: null,
-    issueSets: null, issueAt: null,
+    issueSets: null, issueAt: null, ticketPlans: null, refutedIssues: new Set(),
     // Null, never 'github': "not yet asked" and "asked, and it is GitHub" are
     // different answers, and `resolveBackend` distinguishes them to ask once.
     backend: null,
@@ -4075,7 +4158,7 @@ export const issueUrlBaseFor = (opts: BuildBoardOptions, declaredTracker: string
   const entry = ensureCache(opts);
   const repo = entry.branchUrlBase.match(/^(.*\/)(?:tree|branch)\/$/)?.[1];
   if (repo === undefined || declaredTracker === null) return '';
-  const source = issueSource({ declared: declaredTracker, gitHost: entry.backend ?? '', listers: TRACKER_LISTERS });
+  const source = issueSource({ declared: declaredTracker, gitHost: entry.backend ?? '', listers: TRACKER_LISTERS, hosts: HOST_ISSUE_LISTERS });
   return source.ask === 'git-host' ? `${repo}issues/` : '';
 };
 
@@ -8991,6 +9074,9 @@ export async function buildFleet(
     waiting: entry.waiting,
     // The index's `releases`, for the Delivery tab's release line: no second read.
     releaseTickets: releaseTicketsOf(entry.issueSets),
+    // The scope groups' rows and plans, from the same sets and plan read: no second read.
+    planTicketRows: planTicketRowsOf(entry.issueSets, entry.ticketPlans, entry.refutedIssues, now),
+    ticketPlans: Object.fromEntries(entry.ticketPlans ?? []),
     // Beside `rows`, never derived from them: a row is a branch that mentions an
     // agent, this is an agent that mentions a branch. A running worker appears
     // in both and is not duplicated — the entities differ.

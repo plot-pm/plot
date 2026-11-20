@@ -33,6 +33,19 @@ export const reviewIssueTitle = (pr: number): string => `${TITLE_PREFIX}findings
 export const findOpenReviewIssue = (issues: readonly Issue[], pr: number): Issue | null =>
   issues.find((issue) => issue.title.startsWith(TITLE_PREFIX) && issue.title.endsWith(` on PR #${pr}`)) ?? null;
 
+/**
+ * Whether a title is a review finding ticket's title, for any PR.
+ *
+ * A title matches when it starts with `plot-review: ` and ends with
+ * ` on PR #<n>` for a PR number `<n>`: the same test as
+ * {@link findOpenReviewIssue}, with the PR number left open.
+ *
+ * @param title - the issue title.
+ * @returns true where the title has that prefix and that suffix.
+ */
+export const isReviewIssueTitle = (title: string): boolean =>
+  title.startsWith(TITLE_PREFIX) && / on PR #\d+$/.test(title);
+
 /** What a recorded verdict says about one finding. */
 export type FindingState = 'fixed' | 'not-reproduced' | 'wont-fix' | 'still-true';
 

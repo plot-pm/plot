@@ -84,6 +84,21 @@ describe('the scan reads the delivery commit of a Delivered plan', () => {
     expect(card?.verification).toEqual({ state: 'stale', refuted: 2, badge: '' });
   });
 
+  it('names the issue keys its refuted claims cite in refutedIssues', async () => {
+    const card = await cardOf('Delivered', { [`${REL}\tDelivered`]: DELIVERY });
+    expect(card?.refutedIssues).toEqual(['1712']);
+  });
+
+  it('carries no refuted issues for a Delivered plan with no Verification section', async () => {
+    const opts = estate('Delivered');
+    fs.writeFileSync(path.join(opts.repoRoot, REL), plan('Delivered').split('## Verification')[0] ?? '', 'utf8');
+    process.env.PLOT_REPO_ROOT = opts.repoRoot;
+    const board = await buildBoard({ ...opts, refs: refsFixture({ recordCommits: { [`${REL}\tDelivered`]: DELIVERY } }) });
+    const card = board.columns.flatMap((c) => c.cards).find((c) => c.slug === 'checked');
+    expect(card).toBeDefined();
+    expect(card?.refutedIssues).toEqual([]);
+  });
+
   it('attaches no verification to an Approved card', async () => {
     const card = await cardOf('Approved', { [`${REL}\tDelivered`]: DELIVERY });
     expect(card).toBeDefined();

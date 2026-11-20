@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ownership, isMineStrict, parsePersonDirectory, readerIsKnown, ticketSourceOf, ticketSourceOfIndex,
-  type OwnedRow, type Reader, type TicketSource,
+  ownership, isMineStrict, mineOwnership, parsePersonDirectory, readerIsKnown, ticketSourceOf, ticketSourceOfIndex,
+  type MineMode, type OwnedRow, type Ownership, type Reader, type TicketSource,
 } from '../src/index.js';
 import { TICKET_SOURCES } from '../src/adapters/tracker/tracker-listers.js';
 
@@ -224,9 +224,8 @@ describe('ticketSourceOf maps an IssueSource and a resolved backend to a TicketS
       .toEqual({ service: 'github', match: 'host-login' });
   });
 
-  it('reads a git-host source with a bitbucket backend as bitbucket', () => {
-    expect(ticketSourceOf({ ask: 'git-host' }, 'bitbucket', TICKET_SOURCES))
-      .toEqual({ service: 'bitbucket', match: 'host-login' });
+  it('answers null for a git-host source with a backend that keeps no issues', () => {
+    expect(ticketSourceOf({ ask: 'git-host' }, 'bitbucket', TICKET_SOURCES)).toBeNull();
   });
 
   it('answers null for a git-host source with an unresolved backend', () => {
@@ -426,9 +425,8 @@ describe('ticketSourceOfIndex reads the issue index source and connector', () =>
       .toEqual({ service: 'github', match: 'host-login' });
   });
 
-  it('reads a git-host index from bitbucket as bitbucket', () => {
-    expect(ticketSourceOfIndex({ source: 'git-host', connector: 'bitbucket' }, TICKET_SOURCES))
-      .toEqual({ service: 'bitbucket', match: 'host-login' });
+  it('answers null for a git-host index from a backend that keeps no issues', () => {
+    expect(ticketSourceOfIndex({ source: 'git-host', connector: 'bitbucket' }, TICKET_SOURCES)).toBeNull();
   });
 
   it('answers what ticketSourceOf answers for the same reading', () => {
@@ -442,5 +440,73 @@ describe('ticketSourceOfIndex reads the issue index source and connector', () =>
     expect(ticketSourceOfIndex({ source: 'tracker', connector: 'fixture' }, TICKET_SOURCES)).toBeNull();
     expect(ticketSourceOfIndex({ source: 'git-host', connector: '' }, TICKET_SOURCES)).toBeNull();
     expect(ticketSourceOfIndex({ source: 'tracker', connector: 'mute' }, { listers: [{ scheme: 'mute' }], hosts: [] })).toBeNull();
+  });
+});
+
+describe('mineOwnership combines the arms read for one row', () => {
+  const answers: readonly Ownership[] = ['mine', 'theirs', 'unknown'];
+  const expected: Record<Ownership, Record<Ownership, Ownership>> = {
+    mine: { mine: 'mine', theirs: 'mine', unknown: 'mine' },
+    theirs: { mine: 'mine', theirs: 'theirs', unknown: 'theirs' },
+    unknown: { mine: 'mine', theirs: 'theirs', unknown: 'unknown' },
+  };
+  for (const a of answers) {
+    for (const b of answers) {
+      it(`answers ${expected[a][b]} for the arms ${a} and ${b}`, () => {
+        expect(mineOwnership([a, b])).toBe(expected[a][b]);
+      });
+    }
+  }
+
+  it('answers unknown for no arm at all', () => {
+    expect(mineOwnership([])).toBe('unknown');
+  });
+});
+
+describe('the Mine modes over a row\'s own arm and its plan\'s arm', () => {
+  // The lenient mode keeps a row unless the combined answer is theirs; the
+  // strict mode reads the row's own arm alone, as before.
+  const keeps = (mode: MineMode, own: OwnedRow, plan: OwnedRow): boolean => {
+    if (mode === 'all') return true;
+    if (mode === 'mine') return isMineStrict(own, declared);
+    return mineOwnership([ownership(own, declared), ownership(plan, declared)]) !== 'theirs';
+  };
+  const cases: ReadonlyArray<{ name: string; own: OwnedRow; plan: OwnedRow; keep: Record<MineMode, boolean> }> = [
+    {
+      name: 'a PR of another person on a plan of the reader',
+      own: { kind: 'pr', author: 'eins78' },
+      plan: planOf({ assignee: 'jwloka' }),
+      keep: { all: true, 'mine-and-unknown': true, mine: false },
+    },
+    {
+      name: 'a PR of the reader on a plan of another person',
+      own: { kind: 'pr', author: 'jwloka' },
+      plan: planOf({ assignee: 'eins78' }),
+      keep: { all: true, 'mine-and-unknown': true, mine: true },
+    },
+    {
+      name: 'a PR of unknown owner on a plan of unknown owner',
+      own: { kind: 'pr', author: '' },
+      plan: planOf({}),
+      keep: { all: true, 'mine-and-unknown': true, mine: false },
+    },
+    {
+      name: 'a PR of another person on a plan that names nobody',
+      own: { kind: 'pr', author: 'eins78' },
+      plan: planOf({ assignee: '', author: undefined }),
+      keep: { all: true, 'mine-and-unknown': false, mine: false },
+    },
+  ];
+  for (const c of cases) {
+    for (const mode of ['all', 'mine-and-unknown', 'mine'] as const) {
+      it(`${c.keep[mode] ? 'keeps' : 'hides'} ${c.name} in the mode ${mode}`, () => {
+        expect(keeps(mode, c.own, c.plan)).toBe(c.keep[mode]);
+      });
+    }
+  }
+
+  it('reads a plan that names nobody as unknown, not theirs', () => {
+    expect(mineOwnership([ownership({ kind: 'pr', author: '' }, declared), ownership(planOf({}), declared)])).toBe('unknown');
+    expect(mineOwnership([ownership({ kind: 'pr', author: 'eins78' }, declared), ownership(planOf({}), declared)])).toBe('theirs');
   });
 });

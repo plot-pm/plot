@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Issue } from '../src/entities/issue.js';
-import { findOpenReviewIssue, readTicketVerdict, reviewIssueTitle, reviewTicketSettled, ticketStayOpenComment, TICKET_TRIAGE_MARKER } from '../src/rules/review-issue.js';
+import { findOpenReviewIssue, isReviewIssueTitle, readTicketVerdict, reviewIssueTitle, reviewTicketSettled, ticketStayOpenComment, TICKET_TRIAGE_MARKER } from '../src/rules/review-issue.js';
 
 const issue = (id: string, title: string): Issue => ({
   id, title, url: '', createdAt: null, body: null, status: 'open', statusCategory: 'To Do', closedAt: null,
@@ -30,6 +30,28 @@ describe('findOpenReviewIssue', () => {
 
   it('answers null for no issues', () => {
     expect(findOpenReviewIssue([], 7)).toBeNull();
+  });
+});
+
+describe('isReviewIssueTitle', () => {
+  it('matches the finding title of any PR', () => {
+    expect(isReviewIssueTitle('plot-review: findings on PR #1')).toBe(true);
+    expect(isReviewIssueTitle('plot-review: findings on PR #12')).toBe(true);
+    expect(isReviewIssueTitle(reviewIssueTitle(3583))).toBe(true);
+  });
+
+  it('does not match a plot-review title of another form', () => {
+    expect(isReviewIssueTitle('plot-review: revert of PR #12')).toBe(false);
+    expect(isReviewIssueTitle('plot-review: findings on PR #12 again')).toBe(false);
+  });
+
+  it('does not match a title with no PR number', () => {
+    expect(isReviewIssueTitle('plot-review: findings on PR #')).toBe(false);
+    expect(isReviewIssueTitle('plot-review: findings')).toBe(false);
+  });
+
+  it('does not match a title without the plot-review prefix', () => {
+    expect(isReviewIssueTitle('findings on PR #12')).toBe(false);
   });
 });
 

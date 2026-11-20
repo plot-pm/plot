@@ -54,7 +54,7 @@ Link tuples exist today. `TupleRow.tsx` (`packages/board/src/app/components/Tupl
 
 ### Tuples in every row
 
-- `feature/delivery-tuples-in-every-row` — every artifact in the Delivery sections, section headers and the Tickets section's rows drawn as a tuple from one view function, with unit tests for the segments of each row kind <!-- builds: tuples in every Delivery row and section header -->
+- `feature/delivery-tuples-in-every-row` — every artifact in the Delivery sections, section headers and the Tickets section's rows drawn as a tuple from one view function, with unit tests for the segments of each row kind <!-- builds: tuples in every Delivery row and section header --> → #3593
 
 ## Notes
 
