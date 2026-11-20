@@ -33,24 +33,28 @@ Today a section header answers in words and punctuation ("YOU BLOCK 1 DELIVERY �
 
   | Section | Folded summary |
   |---|---|
-  | Release delivery | segment bar of the release plans' slice states · "N plans" · red chip when any plan is blocked |
+  | Release delivery | segment bar of the release plans' slice states in the five `SLICE_STATES` (delivered, blocked, at a gate, being built, not started; `packages/domain/src/rules/slice-states.ts:9`) · "N plans" · red chip when any plan is blocked |
   | You | `● N blocks delivery` (red), `◆ N input` (amber), `⑂ N unblock` (grey) |
   | Work items | `◷ at a gate`, `▶ being built`, `≡ queued`; "oldest Nd" |
   | Fleet | agent circles coloured by state; "N working · M free"; chip "auto K of 4" (dispatch, review, verify, design) |
   | Machine | `✓ load ok`; an amber chip only for a limit past a threshold |
-  | Tickets | chips: assigned to me, others, unassigned; the hidden-by-filter count |
+  | Tickets | chips: assigned to me, others, unassigned; the hidden-by-filter count; plan 7 adds `◎ N delivered by the sprint` and `⚑ N found` |
   | Not placed | one amber chip "N not placed" |
 
-  A zero count shows grey. Where a section is empty, the summary is plan 2's empty-kind mark and sentence.
+  A zero count shows grey. An unread count shows the unread form, never 0. Where a section is empty, the summary is plan 2's empty-kind mark (`sectionEmptyKind`), with the scope and the hidden count it names, so a section that the scope or Mine empties never reads as clear while rows exist out of view. A unit test covers each section's empty summary in each scope × Mine cell below.
+- **Every chip that links opens its target first.** A summary chip or count that jumps to a group or row uses plan 2's reachability rule: the jump opens the target section and group, then scrolls. No chip calls `scrollToAnchor` (`packages/board/src/app/components/DeliveryRows.tsx:20-22`) directly.
 - **Domain properties, extending what exists.** The Release delivery line extends `releaseDeliveryHeader`, `headerCountParts` and `headerText` (`packages/domain/src/rules/release-plan-rows.ts:346,299,314`). The section views extend `delivery-view.ts` (`packages/board/src/app/lib/agent-rows/delivery-view.ts`). Tickets reads its counts from `ticketsSection` (`packages/domain/src/rules/tickets-section.ts:57`); Fleet from `fleetCard` (`packages/domain/src/rules/fleet-card.ts:24`); Machine from `machineHealth` (`packages/board/src/app/lib/agent-rows/machine-health.ts`). Every count, colour state and chip is a domain or view property with a unit test. New domain code is arrow functions with factual TSDoc.
-- **Scope and Mine.** The section summaries count what the sections show, so they follow both the scope selector (`DeliveryScopeKind`, `packages/domain/src/rules/delivery-scope.ts:8`: `release` or `my-sprint`) and the Mine filter, per the spec's table:
+- **Scope and Mine.** The section summaries count what the sections show, so they follow both the scope selector (`DeliveryScopeKind`, `packages/domain/src/rules/delivery-scope.ts:8`: `release` or `my-sprint`) and the Mine filter, with the three modes of `DeliveryMine` (`packages/domain/src/rules/delivery-placement.ts:32`) (operator decision, 2026-11-20):
 
-  | Scope | Mine off | Mine on |
-  |---|---|---|
-  | all active sprints (`release`) | every item of every active sprint | all items assigned to me, also those in no active sprint |
-  | `my-sprint` | every item of my sprint | only items assigned to me and contained in my sprint |
+  | Scope | Mine `off` | Mine `mine` | Mine `strict` |
+  |---|---|---|---|
+  | all active sprints (`release`) | every item; the `release` scope does not narrow rows today (`delivery-scope.ts:25-27`) | an item assigned to me or whose plan is mine (`ownership` with kind `plan`, `packages/domain/src/rules/ownership.ts:304-305`), plus today's rows of unknown owner, also in no active sprint | today's narrower rule, `isMineStrict` (`ownership.ts:326`) |
+  | `my-sprint` | every item of every active sprint I own | the `mine` rule, inside those sprints | the `strict` rule, inside those sprints |
 
-- **No new data sources.** Machine shows `headroom`, `load1`, `cores` and the host rate-limit buckets from `FleetMachineSchema` (`packages/board/src/contract/schema.ts:4475-4481`) only.
+  Mine applies to You, Work items, Fleet and Tickets; Release delivery reads Mine mode `all` (`releaseCards`, `packages/domain/src/rules/release-card.ts:113`), so only its scope varies. A unit test covers each section's summary in each of the six cells.
+- **My sprint with several sprints** (operator decision, 2026-11-20). Where the reader owns several active sprints, the summaries combine all of them, as `deliveryScope` already selects (`delivery-scope.ts:56-61`).
+- **The header and the summaries share their counts.** Plan 4's header reads Mine mode `off` and does not change with Mine; these summaries follow Mine. Both count through the same functions (`fleetCard`, `machineHealth`, the placement's group counts), and a unit test asserts that the header's You, Work items and Fleet numbers equal these summaries' numbers under Mine `off` over one fixture.
+- **No new external queries.** Machine shows `headroom`, `load1`, `cores` and the host rate-limit buckets from `FleetMachineSchema` (`packages/board/src/contract/schema.ts:4475-4481`) only.
 - **Heading spinner.** A folded header shows the activity spinner beside its title while any hidden row is active. Reuse `headingPace` and `groupPace` (`packages/board/src/app/lib/agent-rows/activity.ts:616,596`), which `AgentList.tsx:1555-1558` already calls for a section heading, and `ActivitySpinner` (`packages/board/src/app/lib/agent-rows/marks.tsx:21`, #3575). Extend it to Tickets and Not placed where their rows carry a pace.
 - **No hidden UI.** A zero counter shows grey; no chip disappears because its count is zero, except Machine's amber limit chip, which by the spec shows only past its threshold.
 - **Board tests.** Moving assertions into unit tests updates `stubbed-tests-start-no-board.test.ts` with the reason, as #3575 did.
@@ -63,10 +67,11 @@ Today a section header answers in words and punctuation ("YOU BLOCK 1 DELIVERY �
 
 ### Summaries
 
-- `feature/folded-sections-summarise-visually` <!-- waits: feature/every-delivery-section-folds --> — the folded summary of each of the seven sections as a domain or view property with unit tests, drawn in the summary slot plan 2 builds, zero counts grey, and the heading spinner on every folded section with active hidden rows <!-- builds: sectionSummary, the folded summary of each Delivery section -->
+- `feature/folded-sections-summarise-visually` <!-- waits: feature/every-delivery-section-folds, feature/delivery-section-empty-kinds --> — the folded summary of each of the seven sections as a domain or view property with unit tests in every scope × Mine cell, drawn in the summary slot plan 2 builds, a five-state Release delivery bar, zero counts grey and unread counts unread, empty summaries from `sectionEmptyKind` with their scope and hidden count, chips that jump through plan 2's reachability rule, and the heading spinner on every folded section with active hidden rows <!-- builds: sectionSummary, the folded summary of each Delivery section -->
 
 ## Notes
 
 - Created by `/plot-idea` in one batch with the other six plans of the sprint "Delivery UI Polish". Type `feature` came from the brief; the design question was answered no, because the design spec already exists outside the repository, so the plan starts in Draft.
-- Waits on plan 2's slice `feature/every-delivery-section-folds`, named in the `waits:` marker.
+- Waits on plan 2's slices `feature/every-delivery-section-folds` (the frame, the summary slot and the reachability rule) and `feature/delivery-section-empty-kinds` (the empty kind each empty summary shows), named in the `waits:` marker.
+- Amended 2026-11-20 after panel round 1 on plans 2, 4, 5 and 7, which carried three findings here: every jump opens its target first, the bar has five slice states, and an empty or hidden count names the scope and the Mine mode.
 - Plan 6 (`delivery-activity-has-three-signals`) owns the activity signals as a whole; this plan builds only the heading spinner the spec lists under the shared frame, and plan 6 waits on it.
