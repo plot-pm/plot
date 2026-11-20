@@ -82,7 +82,7 @@ No arm acts on a conflict. The fixer knows two finding kinds, `high` and `ci` (`
 
 ### Scope
 
-- `feature/the-fixer-scope-reads-every-open-pr` — `fixerScope` with its reasons, the owner reading from the worktree and the claim marker, the person-push hour read from `headSince`, `fixerPrNext` over the existing arms with a dead desk for an unowned branch, `readFixerPass` without the sprint scope, and the unit tests <!-- builds: fixerScope and fixerPrNext, the fixer's own scope and arm walk -->
+- `feature/the-fixer-scope-reads-every-open-pr` — `fixerScope` with its reasons, the owner reading from the worktree and the claim marker, the person-push hour read from `headSince`, `fixerPrNext` over the existing arms with a dead desk for an unowned branch, `readFixerPass` without the sprint scope, and the unit tests <!-- builds: fixerScope and fixerPrNext, the fixer's own scope and arm walk --> → #3600
 
 ### Conflict
 
