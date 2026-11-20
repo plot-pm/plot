@@ -59,6 +59,39 @@ describe('fixerPrompt', () => {
   });
 });
 
+describe('fixerPrompt for a conflict', () => {
+  const TIP = 'c'.repeat(40);
+  const conflict = { kind: 'conflict', base: 'main', baseTip: TIP } as const;
+
+  it('names the base and its tip, the merge, and the push as a fast-forward', () => {
+    const text = textOf(fixerPrompt({ ...base, evidence: conflict }));
+    expect(text).toContain(`conflicts with the base branch \`main\` at ${TIP}`);
+    expect(text).toContain('`git fetch origin main`');
+    expect(text).toContain('`git merge origin/main`');
+    expect(text).toContain('Never rebase');
+    expect(text).toContain('`git push origin HEAD:feature/x`');
+  });
+
+  it('names the restore of a generated bundle from the merge base', () => {
+    const text = textOf(fixerPrompt({ ...base, evidence: conflict }));
+    expect(text).toContain('`git checkout $(git merge-base HEAD MERGE_HEAD) -- <path>`');
+    expect(text).toContain('never commit a rebuild');
+    expect(text).toContain('Resolving a board artifact conflict');
+  });
+
+  it('names the stop on a protected path, a refused push and a State: line', () => {
+    const text = textOf(fixerPrompt({ ...base, evidence: conflict }));
+    expect(text).toContain('`.github/workflows/`, `.claude/`, `scripts/check-*.sh`');
+    expect(text).toContain('`rolePushViolation`');
+    expect(text).toContain('`plot-state-gate.sh`');
+  });
+
+  it('refuses a conflict with no base or no base tip', () => {
+    expect(fixerPrompt({ ...base, evidence: { ...conflict, base: '' } })).toEqual({ read: 'refused', why: 'no-base' });
+    expect(fixerPrompt({ ...base, evidence: { ...conflict, baseTip: ' ' } })).toEqual({ read: 'refused', why: 'no-base' });
+  });
+});
+
 describe('endedFixerAttempts', () => {
   const record: FixerAttemptsRecord = {
     v: 1,

@@ -88,7 +88,7 @@ interface WorldOptions {
   appendCalls?: { pr: number; headSha: string }[];
   markOk?: boolean;
   markCalls?: { pr: number; index: number; mark: FixerInFlight | null }[];
-  prState?: { number: number; state: 'OPEN' | 'MERGED' | 'CLOSED'; headSha?: string } | null | 'fail';
+  prState?: { number: number; state: 'OPEN' | 'MERGED' | 'CLOSED'; headSha?: string; mergeable?: 'mergeable' | 'conflicting' | 'unknown' } | null | 'fail';
   addOk?: boolean;
   /** The fixer definition `origin/<default>` holds; `null` where the file is not there. */
   roleText?: string | null;
@@ -96,6 +96,10 @@ interface WorldOptions {
   loads?: string[];
   /** Whether the default branch fetch completes; `false` fails it. */
   defaultFetchOk?: boolean;
+  /** What `resolve` answers for each ref; an absent ref fails. */
+  resolved?: Record<string, string>;
+  /** Every ref `resolve` was asked about. */
+  resolveCalls?: string[];
   /** The verdict file's text; `null` for a file that cannot be read. */
   verdictText?: string | null;
   verdictFiles?: string[];
@@ -147,7 +151,8 @@ const world = (opts: WorldOptions = {}): FixerTickWorld => {
       },
       fetch: async (_dir, branch) => {
         opts.loads?.push(`fetch ${String(branch)}`);
-        return branch === 'main' && opts.defaultFetchOk === false ? { ok: false, why: 'failed' } : { ok: true, value: undefined };
+        if (branch === 'main' && opts.defaultFetchOk === false) return { ok: false, why: 'failed' };
+        return { ok: true, value: undefined };
       },
       prune: async () => ({ ok: true, value: undefined }),
       removeOnly: async (dir) => {
@@ -226,6 +231,11 @@ const world = (opts: WorldOptions = {}): FixerTickWorld => {
     }),
     refs: () => ({
       defaultBranch: async () => ({ ok: true, value: 'main' }),
+      resolve: async (ref) => {
+        opts.resolveCalls?.push(ref);
+        const sha = opts.resolved?.[ref];
+        return sha === undefined ? { ok: false, why: 'failed' } : { ok: true, value: sha };
+      },
       commitSubjects: async (range) => {
         opts.claimRanges?.push(range);
         if (opts.claims === 'fail') return { ok: false, why: 'failed' };
@@ -1121,6 +1131,117 @@ describe('fixerTick reads the fixer scope', () => {
       { step: 'none', why: 'release-pr' },
       { step: 'none', why: 'base-out-of-scope' },
     ]);
+  });
+});
+
+describe('fixerTick on a conflicting PR', () => {
+  const TIP = 'c'.repeat(40);
+  const NEW_TIP = 'd'.repeat(40);
+  const conflictRow: PrIndexRow = { ...baseRow, mergeable: 'conflicting' };
+  const conflicting = { number: 7, state: 'OPEN' as const, headSha: HEAD, mergeable: 'conflicting' as const };
+  const deadDesk = (repoRoot: string): WorldOptions => ({ deskPath: path.join(repoRoot, 'desk'), workerState: 'failed', prState: conflicting });
+  const readRecord = async (w: FixerTickWorld, opts: ReturnType<typeof fixture>) => {
+    const read = await w.attempts(opts).read(7);
+    return read.ok ? read.value : 'unread';
+  };
+
+  it('fetches the base, reads its tip and records a conflict attempt on the head and tip', async () => {
+    const opts = fixture();
+    const starts: Started[] = [];
+    const loads: string[] = [];
+    const resolveCalls: string[] = [];
+    const w = world({ ...deadDesk(opts.repoRoot), resolved: { 'origin/main': TIP }, agentRunStarts: starts, loads, resolveCalls });
+    const [result] = await fixerTick([conflictRow], baseReadings, opts, w);
+    expect(result!.step).toEqual({ step: 'fixer', head: HEAD, evidence: 'conflict' });
+    expect(result!.started).toEqual({ started: true, pid: 9001 });
+    expect(loads[0]).toBe('fetch main');
+    expect(resolveCalls).toEqual(['origin/main']);
+    expect(starts[0]!.prompt).toContain('git merge origin/main');
+    const record = await readRecord(w, opts);
+    expect(record).toMatchObject({ attempts: [{ headSha: HEAD, finding: { kind: 'conflict', head: HEAD, baseTip: TIP } }] });
+  });
+
+  it.each([
+    ['the base tip does not resolve', {}],
+    ['the base fetch fails', { resolved: { 'origin/main': TIP }, defaultFetchOk: false }],
+    ['the base tip resolves empty', { resolved: { 'origin/main': '  ' } }],
+  ])('answers unread and starts nothing where %s', async (_name, over) => {
+    const opts = fixture();
+    const starts: Started[] = [];
+    const appendCalls: { pr: number; headSha: string }[] = [];
+    const w = world({ ...deadDesk(opts.repoRoot), ...over, agentRunStarts: starts, appendCalls });
+    const [result] = await fixerTick([conflictRow], baseReadings, opts, w);
+    expect(result!.step).toEqual({ step: 'hold', reason: 'unread' });
+    expect(result!.started).toBeUndefined();
+    expect(starts).toHaveLength(0);
+    expect(appendCalls).toHaveLength(0);
+  });
+
+  it('reads no base tip for a row that is not conflicting', async () => {
+    const opts = fixture();
+    const resolveCalls: string[] = [];
+    const loads: string[] = [];
+    await fixerTick([{ ...baseRow, mergeable: 'mergeable' }, baseRow], baseReadings, opts, world({ ...deadDesk(opts.repoRoot), resolveCalls, loads }));
+    expect(resolveCalls).toEqual([]);
+    expect(loads.filter((l) => l.startsWith('fetch'))).toEqual([]);
+  });
+
+  it('refuses not-conflicting where the host no longer answers conflicting, and leaves the record unchanged', async () => {
+    const opts = fixture();
+    const earlier: FixerAttemptsRecord = { v: 1, pr: 7, attempts: [{ headSha: OTHER_HEAD, finding: { kind: 'ci', runId: OTHER_HEAD } }] };
+    const starts: Started[] = [];
+    const addCalls: string[] = [];
+    const w = world({
+      ...deadDesk(opts.repoRoot),
+      prState: { ...conflicting, mergeable: 'unknown' },
+      attempts: earlier,
+      resolved: { 'origin/main': TIP },
+      agentRunStarts: starts,
+      addCalls,
+    });
+    const before = await readRecord(w, opts);
+    const [result] = await fixerTick([conflictRow], baseReadings, opts, w);
+    expect(result!.started).toEqual({ started: false, why: 'not-conflicting' });
+    expect(await readRecord(w, opts)).toEqual(before);
+    expect(before).toEqual(earlier);
+    expect(starts).toHaveLength(0);
+    expect(addCalls).toHaveLength(0);
+  });
+
+  it('holds a failed start on the same head and tip, and starts on a new base tip', async () => {
+    const opts = fixture();
+    const failed: FixerAttemptsRecord = {
+      v: 1,
+      pr: 7,
+      attempts: [{ headSha: HEAD, finding: { kind: 'conflict', head: HEAD, baseTip: TIP }, start: 'failed' }],
+    };
+    const held = world({ ...deadDesk(opts.repoRoot), attempts: failed, resolved: { 'origin/main': TIP } });
+    const [same] = await fixerTick([conflictRow], baseReadings, opts, held);
+    expect(same!.started).toEqual({ started: false, why: 'fixer-start-failed' });
+
+    const starts: Started[] = [];
+    const moved = world({ ...deadDesk(opts.repoRoot), attempts: failed, resolved: { 'origin/main': NEW_TIP }, agentRunStarts: starts });
+    const [next] = await fixerTick([conflictRow], baseReadings, opts, moved);
+    expect(next!.started).toEqual({ started: true, pid: 9001 });
+  });
+
+  it('does not hold a conflict step on a failed CI-red start on the same head', async () => {
+    const opts = fixture();
+    const failed: FixerAttemptsRecord = { v: 1, pr: 7, attempts: [{ headSha: HEAD, finding: { kind: 'ci', runId: HEAD }, start: 'failed' }] };
+    const starts: Started[] = [];
+    const w = world({ ...deadDesk(opts.repoRoot), attempts: failed, resolved: { 'origin/main': TIP }, agentRunStarts: starts });
+    const [result] = await fixerTick([conflictRow], baseReadings, opts, w);
+    expect(result!.started).toEqual({ started: true, pid: 9001 });
+  });
+
+  it('holds conflict-attempted once a conflict attempt ran on the head and tip', async () => {
+    const opts = fixture();
+    const ran: FixerAttemptsRecord = { v: 1, pr: 7, attempts: [{ headSha: HEAD, finding: { kind: 'conflict', head: HEAD, baseTip: TIP } }] };
+    const starts: Started[] = [];
+    const w = world({ ...deadDesk(opts.repoRoot), attempts: ran, resolved: { 'origin/main': TIP }, agentRunStarts: starts });
+    const [result] = await fixerTick([conflictRow], baseReadings, opts, w);
+    expect(result!.step).toEqual({ step: 'hold', reason: 'conflict-attempted' });
+    expect(starts).toHaveLength(0);
   });
 });
 
