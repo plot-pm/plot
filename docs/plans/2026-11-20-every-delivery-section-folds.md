@@ -90,7 +90,7 @@ Today only some sections fold, and an empty section looks like a folded one or l
 
 ### Fold
 
-- `feature/every-delivery-section-folds` — the reachability rule with `anchorOwner` and one jump for every link into a section that replaces `jumpToReleasePlan` and `expandSection`, with a disabled link where a filter hides the anchor, the shared section frame with a 28 px fold button that alone carries `aria-expanded`, header controls that stop propagation, `isFoldable`/`isFolded` for every section and group, fold guards on `WorkingCounts` and `MachineSection` with an `alert`-level `FleetAlert` kept visible, the `tickets` and `not-placed` keys with Not placed folded by default for new and stored fold sets and `showUnplaced` removed, `data-section-toggle`, and the `isCollapsible` comment and test rewritten for sections <!-- builds: anchorOwner and isFoldable, the reachability rule and the section fold rule -->
+- `feature/every-delivery-section-folds` — the reachability rule with `anchorOwner` and one jump for every link into a section that replaces `jumpToReleasePlan` and `expandSection`, with a disabled link where a filter hides the anchor, the shared section frame with a 28 px fold button that alone carries `aria-expanded`, header controls that stop propagation, `isFoldable`/`isFolded` for every section and group, fold guards on `WorkingCounts` and `MachineSection` with an `alert`-level `FleetAlert` kept visible, the `tickets` and `not-placed` keys with Not placed folded by default for new and stored fold sets and `showUnplaced` removed, `data-section-toggle`, and the `isCollapsible` comment and test rewritten for sections <!-- builds: anchorOwner and isFoldable, the reachability rule and the section fold rule --> → #3587
 
 ### Empty kinds
 
