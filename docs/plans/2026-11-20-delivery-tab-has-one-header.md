@@ -4,12 +4,13 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** feature
 - **Sprint:** delivery-ui-polish
 - **Review:** pr
 - **Impl:** own branches
 - **Rounds:** 3
+- **Approved:** 2026-11-20, Jan Wloka, plan-PR #3583 merged
 
 ## Changelog
 

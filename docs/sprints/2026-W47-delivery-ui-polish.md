@@ -23,7 +23,7 @@ Design spec (outside the repo): `/Users/jwloka/Quatico/Agentic-Tools/plot/docs/s
 - [ ] [delivery-link-tuples-everywhere] Every artifact on the Delivery tab is a linked tuple <!-- pr: #3583, branch: feature/delivery-tuple-vocabulary -->
 - [ ] [every-delivery-section-folds] Every Delivery section folds and says why it is empty <!-- pr: #3583, branch: feature/delivery-section-empty-kinds -->
 - [ ] [folded-sections-summarise-visually] A folded Delivery section shows what it holds in counters and bars <!-- pr: #3583, branch: feature/folded-sections-summarise-visually -->
-- [ ] [delivery-tab-has-one-header] The Delivery tab has one header in five groups
+- [ ] [delivery-tab-has-one-header] The Delivery tab has one header in five groups <!-- pr: #3583, branch: feature/delivery-header-release-group -->
 - [ ] [delivery-rows-act-from-one-place] Every Delivery row keeps its actions in one ⋯ menu in the last column
 - [ ] [tickets-show-what-the-sprint-delivers-and-found] The Tickets section shows what the sprint delivers and what it found
 
