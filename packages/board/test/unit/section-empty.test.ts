@@ -15,7 +15,7 @@ const ONE_SPRINT: EmptyScope = { kind: 'my-sprint', sprints: ['Sprint A'] };
 const TWO_SPRINTS: EmptyScope = { kind: 'my-sprint', sprints: ['Sprint A', 'Sprint B'] };
 
 const supervisor = (state: Supervisor['state'], detail = ''): Supervisor =>
-  ({ state, prominence: 'quiet', shown: true, label: state, detail });
+  ({ state, prominence: 'quiet', shown: state !== 'up', label: state, detail });
 
 const health = (word: string, line = '', rows: MachineHealth['rows'] = []): MachineHealth =>
   ({ dot: 'grey', word, line, rows });
@@ -55,8 +55,15 @@ describe('sectionEmptyKind — the table', () => {
     expect(fleet()).toEqual({ kind: 'clear', sentence: 'No agent runs.', note: null, hidden: null });
   });
 
+  it('Fleet up with a stale tick is unread and names the detail, never clear', () => {
+    const silent: Supervisor = { state: 'up', prominence: 'warn', shown: true, label: 'fleet silent for 25h', detail: 'has not ticked for 25h' };
+    expect(fleet({ supervisor: silent }))
+      .toEqual({ kind: 'unread', sentence: 'The fleet runs but has not ticked recently.', note: 'has not ticked for 25h', hidden: null });
+  });
+
   it('Fleet down is stopped', () => {
-    expect(fleet({ supervisor: supervisor('down') })).toEqual({ kind: 'stopped', sentence: 'The fleet is not running.', note: null, hidden: null });
+    expect(fleet({ supervisor: supervisor('down', 'Start it: /plot-fleet --start') }))
+      .toEqual({ kind: 'stopped', sentence: 'The fleet is not running.', note: 'Start it: /plot-fleet --start', hidden: null });
   });
 
   it('Fleet died is stopped and names the detail', () => {

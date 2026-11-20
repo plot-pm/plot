@@ -80,8 +80,10 @@ const notRead = (n: number): string => `${n} not read.`;
  *
  * An unread reading wins over clear: a section whose subjects sit in Not placed
  * with reason `unread`, a You section whose tracker read failed, and a Fleet
- * whose supervisor is not `up` never answer clear. A Fleet with no supervisor
- * reading answers stopped. Machine is empty only where its headroom is
+ * whose supervisor reading is shown never answer clear. A Fleet whose
+ * supervisor is not `up`, or that has no supervisor reading, answers stopped;
+ * an `up` supervisor with a stale tick answers unread. Every Fleet answer from
+ * a supervisor reading carries the reading's `detail` as its note. Machine is empty only where its headroom is
  * unmeasured and no resource limits the fleet; a measured Machine shows its
  * meters. Fleet and Machine never name the scope.
  *
@@ -112,9 +114,10 @@ export const sectionEmptyKind = (input: SectionEmptyInput): SectionEmpty | null 
       const hidden = hiddenOf(input.mine, input.hidden);
       const verdict = input.supervisor;
       if (verdict === null) return { kind: 'stopped', sentence: 'The fleet status is unknown.', note: null, hidden };
-      if (verdict.state === 'down') return { kind: 'stopped', sentence: 'The fleet is not running.', note: null, hidden };
+      if (verdict.state === 'down') return { kind: 'stopped', sentence: 'The fleet is not running.', note: verdict.detail, hidden };
       if (verdict.state === 'died') return { kind: 'stopped', sentence: 'The fleet stopped unexpectedly.', note: verdict.detail, hidden };
       if (verdict.state === 'unknown') return { kind: 'stopped', sentence: 'The fleet status is unknown.', note: verdict.detail, hidden };
+      if (verdict.shown) return { kind: 'unread', sentence: 'The fleet runs but has not ticked recently.', note: verdict.detail, hidden };
       if (input.unread > 0) return { kind: 'unread', sentence: notRead(input.unread), note: null, hidden };
       return { kind: 'clear', sentence: 'No agent runs.', note: null, hidden };
     }
