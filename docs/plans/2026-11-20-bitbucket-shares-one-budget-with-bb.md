@@ -12,6 +12,7 @@
 - **Approved:** 2026-11-20, Jan Wloka, plan-PR #3592 merged
 - **Started:** 2026-11-20, Jan Wloka, `bug/bitbucket-lists-all-states-in-one-request`
 - **Started:** 2026-11-20, Jan Wloka, `bug/bitbucket-predicts-800-an-hour`
+- **Started:** 2026-11-21, Jan Wloka, `bug/fleetd-counts-in-the-bb-ledger`
 
 ## Changelog
 
