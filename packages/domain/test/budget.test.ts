@@ -243,6 +243,19 @@ describe('unknown does not read as headroom', () => {
     expect(spendVerdict(guessed)).toBe('unknown');
   });
 
+  it('reports no headroom for a stated limit with no remaining count', () => {
+    // Bitbucket documents X-RateLimit-Limit and no X-RateLimit-Remaining: the
+    // ceiling is the connector's own word, and what is left is not known.
+    const stated = entryOf(
+      { connector: 'bitbucket', account: 'quatico', bucket: 'api' },
+      actualLimit({ connector: 'bitbucket', bucket: 'api', limit: 10_000, remaining: null, resetAt: null }),
+      NOW,
+    );
+    expect(stated).toMatchObject({ limit: 10_000, remaining: null, basis: 'actual' });
+    expect(headroom(stated)).toBeNull();
+    expect(spendVerdict(stated)).toBe('unknown');
+  });
+
   it('reports an empty record as unknown rather than as room', () => {
     expect(spendVerdict(null)).toBe('unknown');
   });

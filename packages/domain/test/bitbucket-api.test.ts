@@ -269,7 +269,7 @@ describe('credentials', () => {
 });
 
 describe('every request charges the shared ledger', () => {
-  it('appends one entry per request: connector bitbucket, bucket api, the workspace, predicted 1000 with no headers', async () => {
+  it('appends one entry per request: connector bitbucket, bucket api, the workspace, predicted 10000 with no headers', async () => {
     const stub = await stubApi((_seen, res) => json(res, 200, PAGE));
     const { api, entries } = client(stub.base);
 
@@ -283,11 +283,25 @@ describe('every request charges the shared ledger', () => {
     expect(afterSecond.at(-1)).toMatchObject({
       key: { connector: 'bitbucket', account: 'quatico', bucket: 'api' },
       spent: 1,
-      limit: 1000,
+      limit: 10_000,
       remaining: null,
       resetAt: null,
       basis: 'predicted',
     });
+  });
+
+  it('records the declared predicted limit where the reply states none, and the stated one over it', async () => {
+    let stated = false;
+    const stub = await stubApi((_seen, res) => json(res, 200, PAGE, stated ? { 'X-RateLimit-Limit': '5000' } : {}));
+    const { api, entries } = client(stub.base, { predictedLimit: 2000 });
+
+    await api.request(LIST);
+    stated = true;
+    await api.request(LIST);
+
+    const [declared, read] = await entries();
+    expect(declared).toMatchObject({ limit: 2000, remaining: null, basis: 'predicted' });
+    expect(read).toMatchObject({ limit: 5000, remaining: null, basis: 'actual' });
   });
 
   it('records basis actual with the window where the reply carries X-RateLimit-Limit and -Remaining', async () => {
@@ -299,6 +313,41 @@ describe('every request charges the shared ledger', () => {
     await api.request(LIST);
 
     expect((await entries()).at(-1)).toMatchObject({ limit: 1000, remaining: 997, resetAt: 1_788_003_600_000, basis: 'actual' });
+  });
+
+  it('records the stated limit as actual with remaining null where the reply carries X-RateLimit-Limit alone', async () => {
+    const stub = await stubApi((_seen, res) =>
+      json(res, 200, PAGE, { 'X-RateLimit-Limit': '10000', 'X-RateLimit-Resource': 'api', 'X-RateLimit-NearLimit': 'false' }),
+    );
+    const { api, entries } = client(stub.base);
+
+    await api.request(LIST);
+
+    expect((await entries()).at(-1)).toMatchObject({
+      key: { connector: 'bitbucket', account: 'quatico', bucket: 'api' },
+      limit: 10_000,
+      remaining: null,
+      resetAt: null,
+      basis: 'actual',
+    });
+  });
+
+  it('keeps a stated reset beside a stated limit with no remaining count', async () => {
+    const stub = await stubApi((_seen, res) => json(res, 200, PAGE, { 'X-RateLimit-Limit': '10000', 'X-RateLimit-Reset': '1788003600' }));
+    const { api, entries } = client(stub.base);
+
+    await api.request(LIST);
+
+    expect((await entries()).at(-1)).toMatchObject({ limit: 10_000, remaining: null, resetAt: 1_788_003_600_000, basis: 'actual' });
+  });
+
+  it('records the prediction where X-RateLimit-Limit is not a number, whatever X-RateLimit-Remaining says', async () => {
+    const stub = await stubApi((_seen, res) => json(res, 200, PAGE, { 'X-RateLimit-Limit': 'many', 'X-RateLimit-Remaining': '5' }));
+    const { api, entries } = client(stub.base);
+
+    await api.request(LIST);
+
+    expect((await entries()).at(-1)).toMatchObject({ limit: 10_000, remaining: null, resetAt: null, basis: 'predicted' });
   });
 
   it('records actual with no reset where the reply names none, and charges PLOT_BUDGET_ACCOUNT where it is set', async () => {

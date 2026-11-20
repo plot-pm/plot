@@ -7378,16 +7378,25 @@ test('host: limit exits 3 where the host could not be asked at all', () => {
 });
 
 test('host: limit answers bitbucket from experience, tagged predicted', () => {
-  // Bitbucket meters and sends no `X-RateLimit-*`. A PREDICTION IS NOT A
-  // FAILURE — the adapter is telling the truth about what it knows, and a
-  // caller reads the basis to decide how much to trust it.
+  // `bb` shows the script no `X-RateLimit-*`. A PREDICTION IS NOT A FAILURE —
+  // the adapter is telling the truth about what it knows, and a caller reads
+  // the basis to decide how much to trust it.
   const stubs = makeStubs();
-  const out = JSON.parse(run(['limit'], { env: { PLOT_HOST: 'bitbucket' }, stubs }).trim());
+  writeFileSync(path.join(stubs.dir, 'CLAUDE.md'), '## Plot Config\n\n- **Git host:** bitbucket\n');
+  const out = JSON.parse(run(['limit'], { env: { PLOT_HOST: 'bitbucket', PLOT_REPO_ROOT: stubs.dir }, stubs }).trim());
   assert.equal(out.connector, 'bitbucket');
   assert.equal(out.basis, 'predicted');
-  assert.ok(out.limit > 0, 'a prediction carries a ceiling');
+  assert.equal(out.limit, 10000, 'with no Host rate limit key the prediction is 10000');
   assert.equal(out.remaining, null, 'a connector reporting no limit reports no spend either');
   assert.equal(argvOf(stubs.bbArgv), null, 'bb has nothing to answer — do not ask it');
+});
+
+test('host: limit and the budget record answer the Host rate limit key for bitbucket', () => {
+  const stubs = makeStubs();
+  writeFileSync(path.join(stubs.dir, 'CLAUDE.md'), '## Plot Config\n\n- **Host rate limit:** 2000\n');
+  const out = JSON.parse(run(['limit'], { env: { PLOT_HOST: 'bitbucket', PLOT_REPO_ROOT: stubs.dir }, stubs }).trim());
+  assert.equal(out.limit, 2000);
+  assert.equal(out.basis, 'predicted');
 });
 
 test('host: ci-limit answers jenkins predicted, and it is a separate axis', () => {

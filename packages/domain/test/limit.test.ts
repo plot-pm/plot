@@ -137,6 +137,11 @@ describe('a refusal corrects the prediction it disproved', () => {
     expect(correctForRefusal(measured, 'throttled')).toEqual(measured);
   });
 
+  it('leaves a stated ACTUAL limit with no remaining count alone', () => {
+    const stated = actualLimit({ connector: 'bitbucket', bucket: 'api', limit: 10_000, remaining: null, resetAt: null });
+    expect(correctForRefusal(stated, 'throttled')).toEqual(stated);
+  });
+
   it('leaves an UNKNOWN reading alone, having nothing to correct', () => {
     const nothing = unknownLimit('trello');
     expect(correctForRefusal(nothing, 'throttled')).toEqual(nothing);

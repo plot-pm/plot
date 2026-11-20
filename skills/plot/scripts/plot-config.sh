@@ -230,6 +230,12 @@
 #                       repository has no projects* and changes nothing about
 #                       the query, so adoption omits the key instead.
 #   Git host            github | bitbucket            (resolves gh vs bb)
+#   Host rate limit     the git host's hourly request limit, as a positive
+#                       whole number in digits (`2000`). Read for Bitbucket
+#                       only: the budget record and `plot-host.sh limit`
+#                       predict it where a reply states no `X-RateLimit-Limit`,
+#                       and a stated limit outranks it. Absent or not a whole
+#                       number = 10000, Atlassian's scaled cap.
 #   CI                  jenkins | github-actions | none — which CI system this
 #                       project uses. Recorded by /plot-board-setup; not yet
 #                       read by the board.

@@ -89,6 +89,12 @@ describe('boundFromLimit', () => {
     expect(boundFromLimit(predictedLimit('bitbucket', 'api', 1000))).toBe(1);
   });
 
+  it('derives one from a stated limit that carries no remaining count', () => {
+    const stated = actualLimit({ connector: 'bitbucket', bucket: 'api', limit: 10_000, remaining: null, resetAt: null });
+    // 10000 an hour at four seconds a call is 11 at once.
+    expect(boundFromLimit(stated)).toBe(11);
+  });
+
   it('lands below the eight that was refused on 2026-08-27', () => {
     const github = actualLimit({
       connector: 'github',
