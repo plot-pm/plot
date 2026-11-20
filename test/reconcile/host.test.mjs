@@ -41,6 +41,12 @@ process.on('exit', () => {
   for (const dir of trackTemp.paths ?? []) rmSync(dir, { recursive: true, force: true });
 });
 
+// Every spawn here that spreads `process.env` without `budgetEnvFor` inherits
+// this private budget home, so a direct `node --test` run outside
+// `owned-run.sh` never appends to the operator's `~/.plot/state/budget.tsv`.
+// `budgetEnvFor` and `jenkinsHome` still override it per stub.
+process.env.PLOT_BUDGET_HOME = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-budget-')));
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const adapter = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-host.sh');
 
@@ -1215,6 +1221,19 @@ test('host: pr-state lookup miss yields state NONE, exit 0', () => {
     env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
   }));
   assert.equal(out.state, 'NONE');
+});
+
+test('host: a spawn that spreads process.env alone writes the file\'s own budget record, never HOME\'s', () => {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-')));
+  const home = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-home-')));
+  writeFileSync(path.join(dir, 'gh'), '#!/usr/bin/env bash\nexit 1\n');
+  chmodSync(path.join(dir, 'gh'), 0o755);
+  execFileSync('bash', [adapter, 'pr-state', 'feature/nope'], {
+    encoding: 'utf8',
+    env: { ...process.env, HOME: home, PATH: `${dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(existsSync(path.join(home, '.plot', 'state', 'budget.tsv')), false);
+  assert.ok(existsSync(path.join(process.env.PLOT_BUDGET_HOME, 'budget.tsv')));
 });
 
 test('host: invalid PLOT_HOST exits nonzero without calling either CLI', () => {
