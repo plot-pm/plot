@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { PersonCard } from '@plot-pm/domain';
+import type { PersonCard, PlanLinkKey } from '@plot-pm/domain';
 import { lineBody, LineState, PhaseChip, PlanName, PLAN_TRACKS, PlanStrip, ReleaseHeaderCounts, ReleaseLine } from '../../src/app/components/ReleasePlanParts.js';
 import { ReleasePersonCards } from '../../src/app/components/ReleasePersonCards.js';
+import { TicketHrefContext } from '../../src/app/components/PlanTicketKeys.js';
 import { SEGMENT_CLASS } from '../../src/app/components/SprintCard.js';
 
 const strip = (over: Partial<Parameters<typeof PlanStrip>[0]['plan']> = {}) =>
@@ -109,15 +110,27 @@ describe('the person cards', () => {
 });
 
 describe('the Plan cell', () => {
-  const cell = (href: string, open = false, label = 'red-hold') => renderToStaticMarkup(createElement(PlanName, {
-    plan: { plan: 'red-hold', label, planFile: '2026-11-09-red-hold.md', href }, open, onToggle: () => {},
-  }));
+  const cell = (href: string, open = false, label = 'red-hold', keys: PlanLinkKey[] = []) => renderToStaticMarkup(createElement(
+    TicketHrefContext.Provider,
+    { value: (key: string) => (/^\d+$/.test(key) ? `https://github.com/o/r/issues/${key}` : undefined) },
+    createElement(PlanName, { plan: { plan: 'red-hold', label, keys, planFile: '2026-11-09-red-hold.md', href }, open, onToggle: () => {} }),
+  ));
+  const keys = [{ key: '3489', text: '#3489' }, { key: '2531', text: '#2531' }];
 
-  it('prints the label, the ticket keys before the slug, as the link text and title', () => {
-    const html = cell('/plan/2026-11-09-red-hold.md', false, '#3489 #2531 red-hold');
+  it('links each ticket key to its ticket before the plan link, which prints the slug alone', () => {
+    const html = cell('/plan/2026-11-09-red-hold.md', false, '#3489 #2531 red-hold', keys);
+    expect(html).toContain('<a href="https://github.com/o/r/issues/3489" target="_blank" rel="noreferrer" data-title-number="true" data-ticket-link="3489"');
+    expect(html).toContain('<a href="https://github.com/o/r/issues/2531" target="_blank" rel="noreferrer" data-title-number="true" data-ticket-link="2531"');
     expect(html).toContain('data-plan-link="red-hold" title="#3489 #2531 red-hold"');
-    expect(html).toContain('>#3489 #2531 red-hold</a>');
-    expect(cell('', false, 'ABC-123 red-hold')).toContain('<span title="ABC-123 red-hold" class="delivery-truncate">ABC-123 red-hold</span>');
+    expect(html).toMatch(/data-plan-link="red-hold"[^>]*>red-hold<\/a>/);
+    expect(html.indexOf('data-ticket-link="2531"')).toBeLessThan(html.indexOf('data-plan-link'));
+  });
+
+  it('prints a key with no address as muted text, never as a link', () => {
+    const html = cell('', false, 'ABC-123 red-hold', [{ key: 'ABC-123', text: 'ABC-123' }]);
+    expect(html).toContain('<span class="font-normal tabular-nums text-(--card-meta)" data-title-number="true">ABC-123</span>');
+    expect(html).not.toContain('data-ticket-link');
+    expect(html).toContain('<span title="ABC-123 red-hold" class="delivery-truncate">red-hold</span>');
   });
 
   it('links the plan name to its route and keeps the toggle on the chevron alone', () => {

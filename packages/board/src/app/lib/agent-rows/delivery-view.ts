@@ -40,6 +40,7 @@ import {
   type LinkIconKind,
   planReference,
   type PlanIndex,
+  type PlanLinkKey,
 } from '@plot-pm/domain';
 import type { AgentRow, DraftPlan, FleetSprint, IssueRow, Slice } from '../../../contract/schema.js';
 import { agentLabel, draftItemId, sliceItemId, type DeliveryMapping, type RegistryAgent } from './delivery-readings.js';
@@ -345,8 +346,10 @@ export interface PlanRowView extends PlanRowFacts {
   planFile: string;
   /** The plan name's link target, `planRoute(planFile)`; `''` where no row names a plan file. */
   href: string;
-  /** The plan name as the link prints it: `planReference`'s label, the ticket keys before the slug. */
+  /** The plan name with its ticket keys, `planReference`'s label: the cell's `title`. */
   label: string;
+  /** The plan's ticket keys, each linked to its ticket before the plan link, which prints `plan` alone. */
+  keys: readonly PlanLinkKey[];
 }
 
 /** One figure of the Release delivery header line, with the anchor of the plan row its link scrolls to. */
@@ -670,8 +673,8 @@ export const deliveryView = (
     const planFile = rows.find((r) => (r.planFile ?? '') !== '')?.planFile ?? '';
     const phase = rows.find((r) => r.phase !== null && r.phase !== '')?.phase ?? null;
     const href = planFile === '' ? '' : planRoute(planFile);
-    const { label } = planReference({ file: planFile || undefined, slug: plan }, planIndex);
-    return { ...planRowFacts(plan, ownerOf(plan, rows), facts, { phase, ...(now === undefined ? {} : { now }) }), anchors, itemIds: ids, planFile, href, label };
+    const { label, keys } = planReference({ file: planFile || undefined, slug: plan }, planIndex);
+    return { ...planRowFacts(plan, ownerOf(plan, rows), facts, { phase, ...(now === undefined ? {} : { now }) }), anchors, itemIds: ids, planFile, href, label, keys };
   };
   const DRAFT_ID_PREFIX = draftItemId('');
   // The person cards' bars read the counted slices per plan, as the sprint card does (`countedSlicesByPlan`).

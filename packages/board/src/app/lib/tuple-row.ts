@@ -17,7 +17,7 @@
 // half of why the collapse was cheap: the hard decisions were testable without
 // a browser, and the browser only had to confirm a layout.
 import { GLYPH_PATH } from './glyphs.js';
-import { isAgentFree, planIndexOf, planRefOfRow, planReference, releaseStageViewOf, supervisionCauseWord, type PlanIndex } from '@plot-pm/domain';
+import { isAgentFree, planIndexOf, planRefOfRow, planReference, releaseStageViewOf, supervisionCauseWord, type PlanIndex, type PlanLinkKey } from '@plot-pm/domain';
 import type { PlanRef } from '@plot-pm/domain';
 import { withLivenessBasis } from '@plot-pm/domain/rules/worker-liveness';
 import type { AgentEntry, AgentRow, IssueRow, RowKind, SliceVerdict } from '../../contract/schema.js';
@@ -71,6 +71,12 @@ export interface TupleLink {
    * git-host or board URL with nothing to open as a modal.
    */
   file?: string;
+  /**
+   * A plan link's ticket keys, which render before the link, each as its own link to its ticket.
+   *
+   * Only a `what: 'plan'` link sets this; its `label` is then the slug alone.
+   */
+  keys?: readonly PlanLinkKey[];
 }
 
 /**
@@ -482,7 +488,8 @@ function planTupleLink(ref: PlanRef | null, index: PlanIndex): TupleLink | null 
   const answer = planReference(ref, index);
   return {
     what: 'plan',
-    label: answer.label,
+    label: answer.slug,
+    keys: answer.keys,
     href: answer.href ?? '',
     internal: true,
     // `href` is `/plan/<encoded basename>` or `''`; decoding its one segment

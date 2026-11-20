@@ -1,6 +1,7 @@
 import { linkIconKind, type HeaderCountPart, type PlanLine } from '@plot-pm/domain';
 import type { PlanRowView, ReleaseBlockView, ReleaseHeaderView } from '../lib/agent-rows/delivery-view.js';
 import { isPlainPlanClick } from './PlanReference.js';
+import { PlanTicketKeys } from './PlanTicketKeys.js';
 import { SEGMENT_CLASS } from './SprintCard.js';
 import { LinkIcon } from './LinkIcon.js';
 
@@ -96,11 +97,12 @@ export const PlanTableHead = () => (
 /**
  * The Plan cell: the ▸ toggle, which opens and closes the slice lines, then the plan name.
  *
- * The name is `plan.label`, the plan's ticket keys before its slug, and links to `plan.href`. A plain click calls `onOpenPlan` and, where it answers `true`, keeps the page; a
- * modified click or another button keeps the browser's own handling. Where `href` is `''`, the name is plain text.
+ * Each of the plan's ticket keys is its own link to its ticket, and the slug after them links to `plan.href`. A plain click on
+ * the slug calls `onOpenPlan` and, where it answers `true`, keeps the page; a modified click or another button keeps the browser's
+ * own handling. Where `href` is `''`, the slug is plain text. The `title` carries `plan.label`, the keys and the slug.
  */
 export const PlanName = ({ plan, open, onToggle, onOpenPlan }: {
-  plan: Pick<PlanRowView, 'plan' | 'label' | 'planFile' | 'href'>;
+  plan: Pick<PlanRowView, 'plan' | 'label' | 'keys' | 'planFile' | 'href'>;
   open: boolean;
   onToggle: () => void;
   onOpenPlan?: ((planFile: string) => boolean) | undefined;
@@ -117,22 +119,24 @@ export const PlanName = ({ plan, open, onToggle, onOpenPlan }: {
       <span aria-hidden="true" className={`inline-block w-4 shrink-0 text-center transition-transform ${open ? 'rotate-90' : ''}`}>▸</span>
     </button>
     <LinkIcon kind={linkIconKind('plan')} />
-    {plan.href === ''
-      ? <span title={plan.label} className="delivery-truncate">{plan.label}</span>
-      : (
-        <a
-          href={plan.href}
-          data-plan-link={plan.plan}
-          title={plan.label}
-          onClick={(e) => {
-            if (!isPlainPlanClick(e) || onOpenPlan?.(plan.planFile) !== true) return;
-            e.preventDefault();
-          }}
-          className="delivery-truncate delivery-text-link hover:underline"
-        >
-          {plan.label}
-        </a>
-      )}
+    <PlanTicketKeys keys={plan.keys}>
+      {plan.href === ''
+        ? <span title={plan.label} className="delivery-truncate">{plan.plan}</span>
+        : (
+          <a
+            href={plan.href}
+            data-plan-link={plan.plan}
+            title={plan.label}
+            onClick={(e) => {
+              if (!isPlainPlanClick(e) || onOpenPlan?.(plan.planFile) !== true) return;
+              e.preventDefault();
+            }}
+            className="delivery-truncate delivery-text-link hover:underline"
+          >
+            {plan.plan}
+          </a>
+        )}
+    </PlanTicketKeys>
   </span>
 );
 

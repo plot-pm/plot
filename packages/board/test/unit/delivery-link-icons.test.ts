@@ -49,7 +49,7 @@ describe('LinkIcon', () => {
 
 describe('the Release delivery links', () => {
   it('leads the plan name with the plan icon', () => {
-    const m = html(createElement(PlanName, { plan: { plan: 'red-hold', planFile: 'x.md', href: '/plan/x.md' }, open: false, onToggle: () => {} }));
+    const m = html(createElement(PlanName, { plan: { plan: 'red-hold', label: 'red-hold', keys: [], planFile: 'x.md', href: '/plan/x.md' }, open: false, onToggle: () => {} }));
     expect(iconBefore(m, 'data-plan-link')).toBe('plan');
   });
 
