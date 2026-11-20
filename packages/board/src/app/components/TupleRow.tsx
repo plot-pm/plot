@@ -111,11 +111,8 @@ export const TICKET_TRACKS =
  * SLOT 1's CELL — the marks track, and it is declared HERE because the tuple is
  * what renders it.
  *
- * `AgentList.tsx` re-exports it as `ACTIVITY_MARK_PLACE.row`, which is the name
- * the fleet's suites already assert on and the name `ActivityMark` reads for
- * its `heading` sibling. One string, two names, and the direction of the
- * dependency is the point: the ROW owns where its marks sit, and the section
- * borrows that answer for the heading it draws above them.
+ * `activity.ts` re-exports it as `ACTIVITY_MARK_PLACE.row`, which is the name
+ * the fleet's suites assert on. The ROW owns where its marks sit.
  *
  * Every clause is load-bearing and was paid for:
  *
@@ -578,6 +575,7 @@ export function TupleRowView({
   beside = null,
   ageTitle,
   statusExtra = null,
+  statusLead = null,
   onNameClick,
   iconTone,
   statusAttr,
@@ -647,6 +645,8 @@ export function TupleRowView({
   ageTitle?: string;
   /** What a kind adds beside its status word — a draft badge, a note. */
   statusExtra?: ReactNode;
+  /** What precedes the status word in slot 5 — the activity spinner. */
+  statusLead?: ReactNode;
   /** Makes slot 3's name a control, where it opens a panel rather than a URL. */
   onNameClick?: () => void;
   /** Colours the kind glyph, for a variant worth telling apart — see `KindIcon`. */
@@ -833,6 +833,7 @@ export function TupleRowView({
         data-tuple-status
         className="flex min-w-0 items-baseline gap-2 truncate text-xs text-slate-500 dark:text-slate-400"
       >
+        {statusLead}
         {tuple.status && !(gatesReplaceStatus && gates !== undefined) && (
           // COLOUR REINFORCES THE WORD, never replaces it — see `statusTone`,
           // whose palette this restores from the `PrCell` the collapse deleted.

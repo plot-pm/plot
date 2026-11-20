@@ -371,11 +371,11 @@ describe('the acting buttons carry a spinner while they act', () => {
 // held one test: the WORKING dot — `[data-live-dot]`, a static emerald mark on
 // every such row — was present, pulsing, and not the button's marker.
 //
-// That dot went on 2026-08-22. It sat a pixel from `ActivityMark`'s travelling
+// That dot went on 2026-08-22. It sat a pixel from the activity mark's
 // dot, so a WORKING row showed two and read as one smudge, and what it said
 // (*this row is in WORKING*) the section heading already says once.
 //
 // Its claim survives whole in `acting-spinner.test.ts`, which reads the source:
 // the ROW's marker and the BUTTON's spinner must never be unified, because a
-// click ends in seconds and a row does not — and `ActivityMark` measures no end
+// click ends in seconds and a row does not — and `ActivitySpinner` measures no end
 // either, so the argument transfers intact.

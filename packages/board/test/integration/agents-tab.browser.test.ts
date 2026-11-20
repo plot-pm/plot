@@ -1613,13 +1613,13 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   /** The live indicator inside one row, by the branch that row names. */
   // `liveDot` and `animating` stood here until 2026-08-22, reading
   // `[data-live-dot]` — a static emerald dot drawn on every WORKING row. It is
-  // gone: it sat a pixel from `ActivityMark`'s travelling dot, so a WORKING row
+  // gone: it sat a pixel from the activity mark's dot, so a WORKING row
   // showed two dots and read as one smudge, and what it said (*this row is in
   // WORKING*) the section heading already says once.
   //
   // Six tests went with it. What they guarded — a mark that appears on the
   // right rows and on no others, animates, survives `motion-reduce`, and
-  // announces nothing — is asserted of `ActivityMark` in
+  // announces nothing — is asserted of `ActivitySpinner` in
   // `activity-mark.browser.test.ts`, against a mark that reports a PROCESS
   // rather than an address.
 
@@ -1645,10 +1645,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // STILL MEANS NO PROCESS, which is what the mark says since 2026-08-22.
       // It read `[data-live-dot]` — a mark meaning *this row is in WORKING*,
       // and the row's group is exactly what this test is about, so the check
-      // was nearly a tautology. `[data-activity-mark]` asks the harder
+      // was nearly a tautology. `[data-activity-spinner]` asks the harder
       // question: nothing is RUNNING here, claim or no claim.
       expect(await rowFor(page, 'feature/claimed-but-quiet')
-        .locator('[data-activity-mark]').count()).toBe(0);
+        .locator('[data-activity-spinner]').count()).toBe(0);
     } finally {
       await page.close();
     }
