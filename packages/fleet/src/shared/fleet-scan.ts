@@ -102,6 +102,12 @@ export interface ScanState {
   listingIntervalMs: number;
   /** How many branches the last listing swept. */
   listingBranches: number;
+  /**
+   * The rows the last Bitbucket read's walks read, which price the next
+   * Bitbucket read. A delta keeps the last full read's `all`. Absent or null
+   * where no Bitbucket read has landed.
+   */
+  listingWalked?: BitbucketWalked | null;
   /** Age in ms of a reused listing on the latest scan, or null where it fetched. */
   listingReusedAgeMs: number | null;
   /**
@@ -145,6 +151,7 @@ export const freshScanState = (): ScanState => ({
   listingAt: null,
   listingIntervalMs: LISTING_REFRESH_MS,
   listingBranches: 0,
+  listingWalked: null,
   listingReusedAgeMs: null,
   listingHeld: null,
   backoffUntil: null,
@@ -231,22 +238,37 @@ export interface ScanOptions {
   onLine?: (line: string) => void;
 }
 
+/** The page length `bb_state_listing` and `bb_window_listing` ask Bitbucket for. */
+const BB_LIST_PAGELEN = 50;
+
+/** The rows the last Bitbucket listing's walks read, before any row was kept or dropped. */
+export interface BitbucketWalked {
+  /** Rows the all-state walk read, or null where the last read made none. */
+  all: number | null;
+  /** Rows the open walk read. */
+  open: number;
+}
+
+/** Requests a Bitbucket walk of `rows` rows sends: one per {@link BB_LIST_PAGELEN} rows, at least one. */
+const bitbucketWalkPages = (rows: number): number => Math.max(1, Math.ceil(Math.max(0, rows) / BB_LIST_PAGELEN));
+
 /**
  * Requests one fleet-scan listing spends on `backend`.
  *
- * Bitbucket's two modes have genuinely different request shapes rather than a
- * smooth function of row count, so `window` names which one `scanOnce` is
- * about to make before it makes it: a `full` read sweeps every tracked branch
- * under three states (`branches x 3`), and a `delta` read asks one unbranched
- * `--state open --rich` plus one windowed `--state all --since`, at most 4
- * requests (1 open page, up to 3 windowed pages at `BB_LIST_PAGELEN`). GitHub's
- * `gh pr list` pages at 100 rows per request: one `--state open` call plus
- * `ceil(rows / 100)` calls for `--state all`, so the cost is
- * `1 + max(1, ceil(rows / 100))`. `rows` absent (no adopted listing yet) prices
- * as 2 — the first listing is always permitted, so this price decides nothing.
+ * `window` names which read `scanOnce` is about to make before it makes it. A
+ * Bitbucket `full` read walks every state and every open pull request, so it
+ * costs ⌈R / 50⌉ + ⌈O / 50⌉, where R and O are the rows the last read's
+ * all-state and open walks read before the tracked-branch filter. A `delta`
+ * read walks every open pull request and asks one windowed request, so it
+ * costs ⌈O / 50⌉ + 1. Every walk costs at least 1. GitHub's `gh pr list` pages
+ * at 100 rows per request: one `--state open` call plus `ceil(rows / 100)`
+ * calls for `--state all`, so the cost is `1 + max(1, ceil(rows / 100))`. A
+ * listing with no count to price from costs 2 — the first listing is always
+ * permitted, so this price decides nothing.
  *
  * @param backend - the configured host.
- * @param branches - how many branches the scan tracks (Bitbucket only).
+ * @param walked - the rows the last Bitbucket read's walks read, or null where
+ *   none was read (Bitbucket only).
  * @param rows - how many branch lines the last adopted GitHub listing held, or
  *   null where none has been adopted yet.
  * @param window - which read Bitbucket is about to make; ignored on GitHub.
@@ -254,14 +276,14 @@ export interface ScanOptions {
  */
 export const scanListingCost = (
   backend: string,
-  branches: number,
+  walked: BitbucketWalked | null,
   rows: number | null,
   window: ScanListingWindow = { kind: 'full' },
 ): number => {
   if (backend === 'bitbucket') {
-    if (window.kind === 'delta') return 4;
-    const swept = Math.max(0, Math.trunc(branches)) * 3;
-    return swept > 0 ? swept : 3;
+    if (walked === null) return 2;
+    if (window.kind === 'delta') return bitbucketWalkPages(walked.open) + 1;
+    return walked.all === null ? 2 : bitbucketWalkPages(walked.all) + bitbucketWalkPages(walked.open);
   }
   if (rows === null) return 2;
   return 1 + githubListingPages(rows);
@@ -575,25 +597,16 @@ const readGithubListing = async (
 };
 
 /**
- * `bb_state_listing`/`bb_window_listing` page at this length — the unbranched
- * open call cannot claim a page whole at or above it, so {@link
- * readBitbucketListing} never trusts one that large as a delta's open half.
- */
-const BB_LIST_PAGELEN = 50;
-
-/**
  * Reads the Bitbucket PR listing through the host, folded against the listing
  * the last host read held — the sibling of {@link readGithubListing}.
  *
- * A full read sweeps every tracked branch (`pr-list --branch <name>...`,
- * dispatching to `bb_branch_sweep`); a delta asks one unbranched
- * `--state open --rich` plus one windowed `--state all --since`
- * (`bb_window_listing`). The open call is capped at {@link BB_LIST_PAGELEN}
- * minus one: a page that reads at the cap cannot prove itself whole (see
- * `pr_list_report_complete`'s `count < limit` test), so it carries no
- * whole-page notice and `foldScanListing` refuses it on its own — no count
- * check is needed here beyond the `--limit` that produces that refusal. A
- * refused delta is asked again as a full sweep, the same retry
+ * A full read walks `pr-list --state open --rich` and `pr-list --state all`,
+ * both with {@link scanPrListLimit} as `--limit`, and keeps only the rows of
+ * `branches`; with no tracked branch it keeps every row. A delta walks the
+ * same open listing and asks one windowed `--state all --since`
+ * (`bb_window_listing`). A walk claims its state whole where it reached the
+ * last page under the limit, so a delta with 50 or more open pull requests
+ * folds. A refused delta is asked again as a full read, the same retry
  * {@link readGithubListing} makes.
  *
  * @param host - the git host connector.
@@ -605,9 +618,9 @@ const BB_LIST_PAGELEN = 50;
  *   already told before this call was made.
  * @param onCall - called once per real `pr-list` call made — the scan's own
  *   tally of requests spent, since a refused delta retries as a full read.
- * @returns the rendered listing, the listing to hold for the next read, and
- *   the window actually read; or null where the full read was refused too or
- *   a row has no branch name.
+ * @returns the rendered listing, the listing to hold for the next read, the
+ *   window actually read, and the rows its walks read; or null where the full
+ *   read was refused too or a row has no branch name.
  */
 const readBitbucketListing = async (
   host: Host,
@@ -616,15 +629,22 @@ const readBitbucketListing = async (
   now: number,
   window: ScanListingWindow,
   onCall: (refusal?: string) => void,
-): Promise<{ rendered: string; next: CarriedListing; window: ScanListingWindow } | null> => {
+): Promise<{ rendered: string; next: CarriedListing; window: ScanListingWindow; walked: BitbucketWalked } | null> => {
+  const limit = scanPrListLimit();
+  const tracked = new Set(branches);
+  const onTracked = (answer: ScanListingAnswer): ScanListingAnswer =>
+    tracked.size === 0 ? answer : { ...answer, rows: answer.rows.filter((row) => tracked.has(row.head)) };
+  let walked: BitbucketWalked = { all: null, open: 0 };
   const full = async (): Promise<ScanListingFold> => {
-    const open = await askPrListing(host, { state: 'open', rich: true, branches }, onCall);
-    const rest = await askPrListing(host, { state: 'all', branches }, onCall);
-    return foldScanListing(null, open, rest);
+    const open = await askPrListing(host, { state: 'open', rich: true, limit }, onCall);
+    const rest = await askPrListing(host, { state: 'all', limit }, onCall);
+    walked = { all: rest.rows.length, open: open.rows.length };
+    return foldScanListing(null, onTracked(open), onTracked(rest));
   };
   const delta = async (since: string): Promise<ScanListingFold> => {
-    const open = await askPrListing(host, { state: 'open', rich: true, limit: BB_LIST_PAGELEN - 1 }, onCall);
+    const open = await askPrListing(host, { state: 'open', rich: true, limit }, onCall);
     const rest = await askPrListing(host, { state: 'all', since }, onCall);
+    walked = { all: null, open: open.rows.length };
     return foldScanListing(held, open, rest);
   };
 
@@ -639,6 +659,7 @@ const readBitbucketListing = async (
   return {
     rendered,
     window,
+    walked,
     next: {
       rows: folded.rows,
       complete: folded.complete,
@@ -986,7 +1007,7 @@ export const scanOnce = async (
       intervalMs: LISTING_REFRESH_MS,
       costPerListing: scanListingCost(
         backend,
-        state.listingBranches,
+        state.listingWalked ?? null,
         state.listing === '' ? null : listedRowCount(state.listing),
         bitbucketWindow,
       ),
@@ -1042,6 +1063,7 @@ export const scanOnce = async (
       state.listing = read.rendered;
       state.listingAt = Date.now();
       state.listingBranches = branches.length;
+      state.listingWalked = { all: read.walked.all ?? state.listingWalked?.all ?? null, open: read.walked.open };
     } else {
       listingRefused = true;
     }
