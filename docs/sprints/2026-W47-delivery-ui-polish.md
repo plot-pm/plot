@@ -4,14 +4,14 @@
 
 ## Status
 
-- **State:** Planning
-- **Start:** YYYY-MM-DD
-- **End:** YYYY-MM-DD
+- **State:** Active
+- **Start:** 2026-11-20
+- **End:** 2026-11-21
 - **Owner:** jwloka
 <!-- Optional. The version this sprint is working toward, named before it is
      cut. With it, /plot-release refuses to cut past an unfinished Must Have
      and asks about unfinished Should Haves. Without it, nothing changes. -->
-<!-- - **Release:** <version> -->
+- **Release:** 2.36.0
 
 ## Sprint Goal
 
