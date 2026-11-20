@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { planStoreShell } from '../src/adapters/plan-store/plan-store-shell.js';
@@ -116,6 +120,58 @@ const wireSlices = (raw: Record<string, unknown>): RawSlice[] => {
   return [];
 };
 
+/**
+ * One plan whose slice list carries an unread branch item: a non-claim list
+ * item naming a token with a configured branch prefix.
+ *
+ * The estate may legitimately carry none of this field — reconcile 24c blocks
+ * delivery on such an item, so a plan's author removes it. This synthetic plan
+ * keeps the comparison of `unreadBranchItems` non-vacuous for that case. Both
+ * readers still parse the same file, so the fixture problem does not arise:
+ * the plan states no expected reading, and the two sides must agree on it.
+ */
+const UNREAD_BRANCH_ITEM_PLAN = `# An unread branch item
+
+## Status
+
+- **State:** Approved
+- **Type:** bug
+
+## Slices
+
+### Absorbing (Branch: bug/the-absorbing-slice, PR: #1)
+- the slice's work. Absorbs bug/the-absorbed-slice from another plan.
+`;
+
+/**
+ * Reads one synthetic plan through both readers and lists where they disagree.
+ *
+ * @returns the adapter's records and every field disagreement.
+ */
+const readSyntheticPlan = async (
+  body: string,
+): Promise<{ plans: readonly PlanRecord[]; found: Disagreement[] }> => {
+  const dir = mkdtempSync(join(tmpdir(), 'plot-plan-store-corpus-'));
+  try {
+    const file = join(dir, '2026-11-20-an-unread-branch-item.md');
+    writeFileSync(file, body);
+    const wire = readPlanMeta(estate, [file]);
+    const read = await planStoreShell(shellContext(ROOT)).readPlans([file]);
+    if (!isAnswered(read)) throw new Error(`the adapter could not read the synthetic plan: ${read.why}`);
+    const found: Disagreement[] = [];
+    compareField(found, file, 'records', read.value.length, wire.length);
+    for (const plan of read.value) {
+      const raw = wire.find((one) => String(one.file) === plan.file) ?? {};
+      for (const [portField, wireField] of FIELDS) {
+        compareField(found, plan.file, `${String(portField)}/${wireField}`, plan[portField], raw[wireField]);
+      }
+    }
+    return { plans: read.value, found };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+};
+
 let files: string[];
 let adapted: readonly PlanRecord[];
 let production: Record<string, unknown>[];
@@ -232,7 +288,7 @@ describe('the PlanStore adapter agrees with plot-plan-meta.sh', () => {
     expect([...unexpected].sort()).toEqual([]);
   });
 
-  it('carries the fields the estate actually populates, so this is not vacuous', () => {
+  it('carries the fields the estate actually populates, so this is not vacuous', async () => {
     // Every comparison above passes if both sides read `''` everywhere. These
     // assert the corpus exercises the fields: a plan with slices, a plan with
     // PRs, a plan with each transition record.
@@ -245,7 +301,13 @@ describe('the PlanStore adapter agrees with plot-plan-meta.sh', () => {
     expect(adapted.some((plan) => plan.startedRaw.length > 0)).toBe(true);
     expect(adapted.some((plan) => plan.sprint !== '')).toBe(true);
     expect(adapted.some((plan) => plan.story !== '')).toBe(true);
-    expect(adapted.some((plan) => plan.unreadBranchItems.length > 0)).toBe(true);
+    if (adapted.some((plan) => plan.unreadBranchItems.length > 0)) {
+      expect(adapted.some((plan) => plan.unreadBranchItems.length > 0)).toBe(true);
+    } else {
+      const synthetic = await readSyntheticPlan(UNREAD_BRANCH_ITEM_PLAN);
+      expect(synthetic.found.map(describeDisagreement)).toEqual([]);
+      expect(synthetic.plans.some((plan) => plan.unreadBranchItems.length > 0)).toBe(true);
+    }
     // And the legacy spelling really is what the parser emits, which is why the
     // adapter's tolerance for it is load-bearing rather than defensive.
     expect(production.some((raw) => Array.isArray(raw.waves))).toBe(true);
