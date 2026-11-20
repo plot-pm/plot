@@ -718,6 +718,21 @@ describe('a worktree with no manifest is listed — absence of a record is not a
     });
     assert.equal(info.synthesizedCount, 2);
     assert.equal(info.checkoutCount, 0);
+    assert.equal(info.unreadCount, 0);
+  });
+
+  it('counts a desk whose state nobody could read as unread, and not as a checkout', async () => {
+    const { info } = await readAgentRegistryWithInfo(root, home, {
+      worktrees: worktrees([
+        { path: '/wt/unread', branch: 'bug/unread' },
+        { path: '/wt/fleet', branch: 'feature/fleet' },
+        { path: '/wt/by-hand', branch: 'bug/by-hand' },
+      ]),
+      liveness: fakeLiveness({ '/wt/unread': 'unknown', '/wt/fleet': 'running', '/wt/by-hand': 'none' }),
+    });
+    assert.equal(info.synthesizedCount, 3);
+    assert.equal(info.checkoutCount, 1);
+    assert.equal(info.unreadCount, 1);
   });
 
   it('a manifest-backed entry still carries its branch, and an empty checkout', async () => {

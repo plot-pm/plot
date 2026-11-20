@@ -4201,6 +4201,12 @@ export const RegistryInfoSchema = z.object({
    * a person's worktree. `registryFact` leaves them out of both of its counts.
    */
   checkoutCount: z.number().int(),
+  /**
+   * How many of the synthesized entries have the state `unknown`, because the
+   * worker-state read gave no answer for their desk. `registryFact` leaves
+   * them out of both of its counts. A payload without the field reads 0.
+   */
+  unreadCount: z.number().int().default(0),
 });
 export type RegistryInfo = z.infer<typeof RegistryInfoSchema>;
 

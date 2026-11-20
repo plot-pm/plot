@@ -44,21 +44,68 @@ export interface RegistryFact {
   warn: boolean;
 }
 
+/** The registry counts that {@link registryFact} reads. */
+export interface RegistryCounts {
+  /** The manifests the registry read. */
+  manifestCount: number;
+  /** The entries synthesized from a desk with no manifest. */
+  synthesizedCount: number;
+  /** The synthesized desks where no worker ran ({@link isAgentDesk}). */
+  checkoutCount: number;
+  /** The synthesized desks whose state nobody could read (`unknown`); absent reads as 0. */
+  unreadCount?: number;
+}
+
 /**
- * The one fact about the registry the Fleet card prints, shown only where it holds.
+ * The one fact about the registry file that the Fleet card prints, shown only where it holds.
  *
- * @param registry - the manifest count, the count of entries synthesized from a desk with no manifest,
- *   and how many of those synthesized desks are checkouts where no worker ran ({@link isAgentDesk}).
- * @returns `N of M agents have no registry file` where some agent has none, a warning where agents run
- *   and no agent has one, and `null` where every agent has a registry file or no agent runs.
+ * Only a desk whose state was read counts. A checkout where no worker ran and a desk whose state is
+ * `unknown` are out of both counts: the first is no agent, and for the second the registry has no
+ * reading that says what it is ({@link workingCounts} names those).
+ *
+ * @param registry - the registry counts.
+ * @returns `N of M agents have no registry file` where some agent with a read state has none, a warning
+ *   where agents run and no agent has one, and `null` where every such agent has a registry file or none runs.
  */
-export const registryFact = (
-  registry: { manifestCount: number; synthesizedCount: number; checkoutCount: number },
-): RegistryFact | null => {
-  const unregistered = registry.synthesizedCount - registry.checkoutCount;
+export const registryFact = (registry: RegistryCounts): RegistryFact | null => {
+  const unregistered = registry.synthesizedCount - registry.checkoutCount - (registry.unreadCount ?? 0);
   const total = registry.manifestCount + unregistered;
-  if (unregistered === 0) return null;
+  if (unregistered <= 0) return null;
   if (registry.manifestCount === 0) return { text: `0 of ${total} agents have a registry file`, warn: true };
   const verb = unregistered === 1 ? 'has' : 'have';
   return { text: `${unregistered} of ${total} agents ${verb} no registry file`, warn: false };
+};
+
+/** The facts the Fleet card's WORKING header prints about the entries it does not show. */
+export interface WorkingCounts<T> {
+  /** The entries whose agent stopped; the header's `N not working` counts these and no other. */
+  stopped: T[];
+  /** The registry file fact ({@link registryFact}), or `null`. */
+  registry: RegistryFact | null;
+  /** `the board could not read the state of K worktrees`, as a warning, or `null` where every state was read. */
+  unread: RegistryFact | null;
+}
+
+/**
+ * Splits the not-working entries into stopped agents and desks whose state nobody could read.
+ *
+ * An `unread` entry is no failure and no proof of a missing agent, so it is in neither the stopped
+ * count nor the registry fact, and the header names it in its own sentence.
+ *
+ * @param entries - the entries the header does not show, each with its {@link NotWorkingReason}.
+ * @param registry - the registry counts, or `undefined` where the payload carries none.
+ * @returns the stopped entries in input order, the registry fact, and the unread fact.
+ */
+export const workingCounts = <T extends { why: NotWorkingReason }>(
+  entries: readonly T[],
+  registry: RegistryCounts | undefined,
+): WorkingCounts<T> => {
+  const stopped = entries.filter((e) => e.why !== 'unread');
+  const unreadCount = entries.length - stopped.length;
+  const noun = unreadCount === 1 ? 'worktree' : 'worktrees';
+  return {
+    stopped,
+    registry: registry === undefined ? null : registryFact(registry),
+    unread: unreadCount === 0 ? null : { text: `the board could not read the state of ${unreadCount} ${noun}`, warn: true },
+  };
 };
