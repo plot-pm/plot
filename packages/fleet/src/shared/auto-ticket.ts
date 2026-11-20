@@ -25,11 +25,35 @@ import {
   ticketRecordFile,
   trackerForIssues,
 } from '@plot-pm/domain/adapters';
-import { reviewVerdictPath, readFixerPass, type FixerPassReading } from './auto-fixer.js';
-import { runLogOf, type ActOptions } from './action-log.js';
+import { sprintScopeRef } from '@plot-pm/domain/adapters/sprint-scope-ref';
+import { reviewVerdictPath, readFixerPass } from './auto-fixer.js';
+import { refsOf, runLogOf, scriptsOf, type ActOptions } from './action-log.js';
 
 /** The readings one tick hands {@link ticketTick} besides the PR's own. */
 export type TicketTickReadings = Omit<SlicePrNextReadings, 'row' | 'desk' | 'fixer' | 'ticket'>;
+
+/** What one ticket pass acts on. */
+export interface TicketPassReading {
+  readonly rows: readonly PrIndexRow[];
+  readonly readings: TicketTickReadings;
+}
+
+/**
+ * Reads what one ticket pass acts on: {@link readFixerPass}'s reading plus the
+ * active sprint's scope at `origin/<default>`, where the default branch reading
+ * names no branch, `origin/main`.
+ *
+ * @param opts - where the fleet acts.
+ * @param now - epoch milliseconds.
+ * @returns the reading, or `null` where {@link readFixerPass} gives nothing to act on.
+ */
+export const readTicketPass = async (opts: ActOptions, now: number): Promise<TicketPassReading | null> => {
+  const pass = await readFixerPass(opts, now);
+  if (pass === null) return null;
+  const branch = pass.readings.defaultBranch?.branch ?? 'main';
+  const scope = await sprintScopeRef(refsOf(opts), scriptsOf(opts), `origin/${branch}`);
+  return { rows: pass.rows, readings: { ...pass.readings, scope } };
+};
 
 /** What the ticket tick reads and acts through; a test replaces each. */
 export interface TicketTickWorld {
@@ -273,7 +297,7 @@ export const ticketTick = async (
  * @param logged - the refusals already logged, kept by the caller for the daemon's life.
  * @param now - epoch milliseconds.
  * @param world - the ports the tick acts through.
- * @param read - reads the rows and readings; {@link readFixerPass} by default.
+ * @param read - reads the rows and readings; {@link readTicketPass} by default.
  * @returns the tick's results, or `null` where nothing was read to act on.
  */
 export const runAutoTicketPass = async (
@@ -281,7 +305,7 @@ export const runAutoTicketPass = async (
   logged: Set<string>,
   now: number = Date.now(),
   world: TicketTickWorld = defaultTicketTickWorld,
-  read: (opts: ActOptions, now: number) => Promise<FixerPassReading | null> = readFixerPass,
+  read: (opts: ActOptions, now: number) => Promise<TicketPassReading | null> = readTicketPass,
 ): Promise<TicketTickResult[] | null> => {
   const reading = await read(opts, now);
   if (reading === null) return null;
