@@ -930,9 +930,9 @@ PR_LIST_PARTIAL_RC=7
 # Run ONE `pr-list` over several host states, printing what answered.
 #
 # THE BITBUCKET ASYMMETRY THIS EXISTS FOR. `bb pr list` has no `all` state, so
-# `bb_states_for all` expands to three and the arm must call `bb` once per
-# state. GitHub takes `--state all` in a single call and can never reach this
-# shape: there, a failure means nothing was printed.
+# `bb_states_for all` names the three states in one comma-joined token, and the
+# Bitbucket commands send them in one request. GitHub takes `--state all` in a
+# single call. Either way the loop runs once per token.
 #
 # ONE MECHANISM FOR THREE CALL SITES, and that is the point rather than a
 # tidy-up — `pr_list_call`'s own header makes the argument: *"a fix applied by
@@ -1037,6 +1037,13 @@ bb_query_state() { # $1=adapter state word → Bitbucket's
     *) die "bb_query_state: unknown state '$1'" ;;
   esac
 }
+
+# The states of one request, comma-joined adapter words, as `state=` parameters
+# (`state=OPEN&state=MERGED`) or as one `q=` clause
+# (`(state="OPEN" OR state="MERGED")`, encoded). `q=` overrides a `state=`
+# parameter, so a query carries its states inside the clause.
+bb_state_params() { local _w _p=""; for _w in ${1//,/ }; do _p="${_p:+$_p&}state=$(bb_query_state "$_w")"; done; printf '%s' "$_p"; }
+bb_state_clause() { local _w _c=""; for _w in ${1//,/ }; do _c="${_c:+$_c OR }state=%22$(bb_query_state "$_w")%22"; done; printf '%%28%s%%29' "$_c"; }
 
 # Percent-encode one value for a URL query string.
 #
@@ -1173,12 +1180,12 @@ _bb_paged_walk() {
     if [ -z "$_next" ]; then _path=""; elif [[ "$_next" == "$BB_API_BASE"/* ]]; then _path="${_next#"$BB_API_BASE"}"
     else echo "plot-host: $_label: next page '$_next' is outside $BB_API_BASE; refusing to read past it" >&2; return 3; fi
   done
-  jq -c -s 'map(.values // []) | add // []' < "$_spool"
+  jq -c -s "map(.values // []) | add // [] | $BB_STATE_RANK" < "$_spool"
 }
 
-bb_branch_query() { # $1=branch $2=adapter state; rest=global bb args → values[]
+bb_branch_query() { # $1=branch $2=comma-joined adapter states; rest=global bb args → values[]
   local _br="$1" _st="$2" _q; shift 2
-  _q="state=$(url_encode "\"$(bb_query_state "$_st")\"") AND source.branch.name=$(url_encode "\"$_br\"")"
+  _q="$(bb_state_clause "$_st") AND source.branch.name=$(url_encode "\"$_br\"")"
   # THE WINDOW COMPOSES WITH THE STATE FILTER AND NEVER REPLACES IT. Bitbucket
   # takes ONE `q=` parameter, so a second one would silently win or lose
   # depending on the host's parsing — and either way the state clause this query
@@ -1200,7 +1207,7 @@ bb_branch_query() { # $1=branch $2=adapter state; rest=global bb args → values
   # passes the path to curl verbatim and an unencoded space would truncate the
   # request line. THE LEADING SLASH on the path: see the block header above —
   # without it this is a 403 that reads as a scope error.
-  _bb_paged_walk "/repositories/{ws}/{repo}/pullrequests?q=${_q// /%20}&pagelen=50" "bitbucket pr-list state=$_st" "a join against this page may read older branches as 'no PR' (#333)" "" "$@"
+  _bb_paged_walk "/repositories/{ws}/{repo}/pullrequests?q=${_q// /%20}&pagelen=50&fields=$BB_LIST_FIELDS" "bitbucket pr-list state=$_st" "a join against this page may read older branches as 'no PR' (#333)" "" "$@"
 }
 
 # HOW MANY PAGES `bb_branch_query` WILL WALK BEFORE REPORTING "possibly
@@ -1220,6 +1227,16 @@ bb_branch_query() { # $1=branch $2=adapter state; rest=global bb args → values
 # across an entire repository, not one branch). A branch that still exceeds
 # it gets the truncation report rather than a silent prefix.
 BB_BRANCH_QUERY_PAGE_CAP=20
+
+# The `fields` filter every listing request sends: the envelope keys the walk
+# reads (`page` with `values` is how `envelopeNextFor` knows an envelope) and
+# every pull-request field a row projection reads. The domain holds the same
+# list as `BITBUCKET_LIST_FIELDS`.
+BB_LIST_FIELDS="next,size,page,pagelen,values.id,values.title,values.state,values.draft,values.updated_on,values.links.html.href,values.author.nickname,values.source.branch.name,values.source.commit.hash,values.destination.branch.name,values.merge_commit.hash"
+# One request answers several states in update order, so the rows are put in
+# state rank — open, merged, declined, superseded — and keep the server's order
+# within a state. `sort_by` is stable.
+BB_STATE_RANK='sort_by({"OPEN":0,"MERGED":1,"DECLINED":2,"SUPERSEDED":3}[.state] // 4)'
 
 # Ask about EVERY tracked branch in one state, printing one combined array.
 #
@@ -1294,7 +1311,7 @@ bb_branch_sweep() { # global bb args… --state <s> --json → one JSON array
   # An EMPTY spool — every branch answered `[]` — makes `add` yield `null`, so
   # the fallback keeps the contract that this prints a JSON ARRAY, which is
   # what the caller's `.[]` needs.
-  _acc="$(jq -c -s 'add // []' < "$_spool")" || { rm -f "$_spool"; return 3; }
+  _acc="$(jq -c -s "add // [] | $BB_STATE_RANK" < "$_spool")" || { rm -f "$_spool"; return 3; }
   rm -f "$_spool"
   printf '%s' "$_acc"
 }
@@ -1346,9 +1363,9 @@ bb_window_listing() { # global bb args… --state <s> --json → one JSON array
   done
   [ -n "$_st" ] || die "bb_window_listing: no --state"
   [ -n "$PR_LIST_SINCE" ] || die "bb_window_listing: no window"
-  _q="state=$(url_encode "\"$(bb_query_state "$_st")\"") AND updated_on>=$(url_encode "\"$PR_LIST_SINCE\"")"
+  _q="$(bb_state_clause "$_st") AND updated_on>=$(url_encode "\"$PR_LIST_SINCE\"")"
   _q="${_q// /%20}"
-  _path="/repositories/{ws}/{repo}/pullrequests?q=${_q}&pagelen=50"
+  _path="/repositories/{ws}/{repo}/pullrequests?q=${_q}&pagelen=50&fields=$BB_LIST_FIELDS"
   plot_tmpfile _spool host-window || return 3
   while [ -n "$_path" ]; do
     _page="$(bb ${_args[@]+"${_args[@]}"} api "$_path")" \
@@ -1372,14 +1389,14 @@ bb_window_listing() { # global bb args… --state <s> --json → one JSON array
   done
   # Distinct by id: a pull request updated while the walk runs can move between
   # pages and arrive twice.
-  _rows="$(jq -c -s 'add // [] | unique_by(.id)' < "$_spool")" || { rm -f "$_spool"; return 3; }
+  _rows="$(jq -c -s "add // [] | unique_by(.id) | $BB_STATE_RANK" < "$_spool")" || { rm -f "$_spool"; return 3; }
   rm -f "$_spool"
   local _got; _got="$(jq 'length' <<<"$_rows")" || return 3
   if [ "$_got" -lt "$_size" ] 2>/dev/null; then
     echo "bitbucket window state=$_st is short ($_got of $_size matches after $_pages pages); refusing it rather than printing it as whole" >&2
     return 3
   fi
-  echo "plot-host: bitbucket pr-list state=$_st window complete ($_got matches, every page read) — this window holds every pull request the host has in this state since the stamp" >&2
+  for _st in ${_st//,/ }; do echo "plot-host: bitbucket pr-list state=$_st window complete ($_got matches, every page read) — this window holds every pull request the host has in this state since the stamp" >&2; done
   printf '%s' "$_rows"
 }
 
@@ -1413,12 +1430,14 @@ bb_window_listing() { # global bb args… --state <s> --json → one JSON array
 # merged 5, declined 2) and 3 through this path at one page each, and both
 # return the same 67 rows (3 open, 50 merged, 14 declined).
 #
-# THE STATES STAY SEPARATE CALLS. One `state=` union over the three returns the
-# 50 most recently updated rows across all of them: measured on the same
-# repository, 50 of 67 rows, 12 of 14 declined PRs lost, and an open PR survives
-# only if it was updated recently. That is the 2026-08-18 failure
-# `bb_states_for` records, reached through the page cap instead of through a
-# flag.
+# THE STATES GO IN ONE REQUEST, and the walk to the limit is what keeps them
+# whole. One `state=` union returns the rows of every state in update order,
+# so one page of 50 holds the 50 most recently updated rows: measured
+# 2026-09-29 on `quatico/quaweb-website`, 50 of 67 rows, 12 of 14 declined PRs
+# lost. The walk follows `next` to `PR_LIST_LIMIT` rows, so a limit above the
+# repository's row count reads every state to its end, and the stopping page's
+# `next` decides every state's completeness at once. The rows come back in
+# state rank (`BB_STATE_RANK`).
 #
 # A CLEAN STOP AT THE LIMIT EXITS 0, NEVER 3. `_bb_paged_walk`'s header draws
 # the line: a row-limit stop answered exactly what the caller asked for, so it
@@ -1435,7 +1454,7 @@ bb_window_listing() { # global bb args… --state <s> --json → one JSON array
 # `bb_branch_query`: `pr_list_call` classifies once, so a `429` on any page
 # still reads as a rate limit.
 bb_state_listing() { # global bb args… --state <s> --json → one JSON array
-  local _st="" _args=()
+  local _st="" _args=() _rows
   while [ $# -gt 0 ]; do
     case "$1" in
       --state) _st="${2:?}"; shift 2 ;;
@@ -1444,9 +1463,10 @@ bb_state_listing() { # global bb args… --state <s> --json → one JSON array
     esac
   done
   [ -n "$_st" ] || die "bb_state_listing: no --state"
-  _bb_paged_walk "/repositories/{ws}/{repo}/pullrequests?state=$(bb_query_state "$_st")&pagelen=$BB_LIST_PAGELEN" \
+  _rows="$(_bb_paged_walk "/repositories/{ws}/{repo}/pullrequests?$(bb_state_params "$_st")&pagelen=$BB_LIST_PAGELEN&fields=$BB_LIST_FIELDS" \
     "bitbucket pr-list state=$_st" "a join against this page may read older branches as 'no PR' (#333)" \
-    "${PR_LIST_LIMIT:-$BB_LIST_PAGELEN}" ${_args[@]+"${_args[@]}"}
+    "${PR_LIST_LIMIT:-$BB_LIST_PAGELEN}" ${_args[@]+"${_args[@]}"})" || return $?
+  jq -c "$BB_STATE_RANK" <<<"$_rows"
 }
 
 # The branches a sweep asks about, newline-or-space separated. Empty means the
@@ -1522,10 +1542,10 @@ PR_SWEEP_ASKED=0
 # COST regression rather than a wrong one. So withholding the line is always
 # safe and is what a partial sweep does.
 #
-# EVERY STATE MUST HAVE ANSWERED. A sweep asks each branch once per state, and a
-# branch's absence is only established when every state was asked about it: a
-# merged pull request missed because the `merged` state failed reads exactly
-# like a branch that never had one. So the claim is made on the STATES' tally,
+# EVERY STATE MUST HAVE ANSWERED. A sweep asks each branch once over every
+# state, and a branch's absence is only established when every state was asked
+# about it: a merged pull request missed because the `merged` state failed reads
+# exactly like a branch that never had one. So the claim is made on the STATES' tally,
 # which `pr_list_states` already keeps, rather than on a per-branch count that
 # would have to be reconciled with it.
 #
@@ -1540,7 +1560,7 @@ pr_sweep_report() { # $1=states answered $2=states asked
 
 pr_list_states() { # $1=backend $2=limit $3=states $4=jq-program; rest=the host command
   local backend="$1" limit="$2" states="$3" jq_prog="$4"; shift 4
-  local _s _raw _rc _err _tmp _ok=0 _failed=0 _first_rc=0 _failed_states="" BB_LIST_NEXT=""
+  local _s _w _raw _rc _err _tmp _ok=0 _failed=0 _first_rc=0 _failed_states="" BB_LIST_NEXT=""
   # A GLOBAL FOR `PR_LIST_SINCE`'S REASON: `bb_state_listing` runs inside the
   # command substitution below, its own subshell, so a parameter cannot reach
   # it any other way. Read only by `bb_state_listing` — `bb_branch_sweep` and
@@ -1596,8 +1616,8 @@ pr_list_states() { # $1=backend $2=limit $3=states $4=jq-program; rest=the host 
     # `size`, so an answer that reaches this line is whole. Only Bitbucket sets
     # `PR_LIST_SINCE`; the GitHub arm carries its window as `--search`.
     [ -n "$PR_LIST_BRANCHES" ] || [ -n "$PR_LIST_SINCE" ] \
-      || pr_list_report_truncation "$backend" "$limit" "$_s" \
-      "$(jq 'length' <<<"$_raw" 2>/dev/null || echo 0)" "$BB_LIST_NEXT"
+      || for _w in ${_s//,/ }; do pr_list_report_truncation "$backend" "$limit" "$_w" \
+      "$(jq 'length' <<<"$_raw" 2>/dev/null || echo 0)" "$BB_LIST_NEXT"; done
     [ -z "$PR_LIST_BIND_FN" ] || "$PR_LIST_BIND_FN" "$_raw"
     printf '%s' "$_raw" | jq -c ${PR_LIST_JQ_ARGS[@]+"${PR_LIST_JQ_ARGS[@]}"} "$jq_prog"
   done
@@ -2615,19 +2635,13 @@ merger_gh() { GH_TOKEN="${merger_token:-${GH_TOKEN-}}" gh "$@"; }
 # then rejects `--state all` and `--state closed` outright, so every
 # history-wide query failed with an invalid --state error.
 #
-# `all` becomes SEPARATE CALLS, not repeated flags. `bb` 1.0.0 accepts
+# `all` becomes ONE COMMA-JOINED TOKEN, `open,merged,declined`, and the
+# listing sends it as repeated `state=` parameters on `bb api` (or one `q=`
+# clause), never as repeated `--state` flags: `bb` 1.0.0 accepts
 # `--state open --state merged` and silently keeps only the last — measured
-# 2026-08-18: that pair returned 50 PRs, all MERGED, with the 3 open ones
-# gone. No error, a plausible list. One call per state avoids depending on a
-# `bb` fix, and the three states partition the set (74 PRs, 74 unique ids,
-# 0 duplicates on the repo measured).
-#
-# bb 1.9.0 honours repeated `--state` and sends one union request, and the
-# states still stay separate. The union returns the 50 most recently updated
-# rows across all three states: measured 2026-09-29 on
-# `quatico/quaweb-website`, 50 of 67 rows, 12 of 14 declined PRs lost. The cost
-# is cut per state instead, by `bb_state_listing`'s `pagelen=50`: 8 requests
-# become 3 there, with all 67 rows kept.
+# 2026-08-18. `pr_list_states` loops once over the token, and
+# `bb_state_listing` walks `next` until every state is read, so a union no
+# longer loses the declined rows past its first page.
 #
 # `superseded` is deliberately NOT part of `all`: such a PR is replaced by a
 # newer one for the same branch, and a board with one row per branch would
@@ -2635,8 +2649,8 @@ merger_gh() { GH_TOKEN="${merger_token:-${GH_TOKEN-}}" gh "$@"; }
 # A caller wanting it asks for it by name.
 bb_states_for() {
   case "$1" in
-    all)     printf 'open\nmerged\ndeclined\n' ;;
-    settled) printf 'merged\ndeclined\n' ;; # terminal only — no `open` sweep
+    all)     printf 'open,merged,declined\n' ;;
+    settled) printf 'merged,declined\n' ;; # terminal only — no `open` sweep
     closed)  printf 'declined\n' ;;
     open|merged|declined|superseded) printf '%s\n' "$1" ;;
     *) die "unknown --state '$1' for the bitbucket backend (open|merged|closed|declined|superseded|all|settled)" ;;
@@ -4078,45 +4092,20 @@ case "$op" in
         # arrived is evidence, an list that never arrived is not. The `jq` NONE
         # below is therefore kept (it reads a real answer) while the failure path
         # goes through `host_miss_or_fail` like the others.
-        # One call per state, walked newest-relevant first: an open PR for a
-        # branch outranks a merged one, which outranks a declined one.
-        #
-        # STOP AT THE FIRST STATE THAT ANSWERS. Because the ordering already
-        # decides the winner, a later state can never overturn an earlier one —
-        # so asking for it is pure cost. And the cost is not small: measured
-        # against a real Bitbucket on 2026-08-18, one `bb` call takes ~10s, so
-        # walking all three unconditionally made every branch lookup ~26s. The
-        # board's fleet scan calls this once per branch and exceeded its own
-        # timeout on a five-branch plan.
-        #
-        # A declined-only or PR-less branch still pays for all three; those are
-        # the cases where the third call is the one carrying the answer.
-        #
-        # ASK THE HOST FOR THE BRANCH; DO NOT PAGE FURTHER. `bb_branch_query`
-        # replaces each state's whole-repository page with the per-branch REST
-        # filter, costing one request per state asked instead of one page that
-        # cannot see past its first 50 rows — `pr-merged`'s header has the
-        # measurement. `bb_states_for all` still expands to three calls because
-        # `bb pr list` (and this REST filter) has no `all` state.
+        # ONE REQUEST FOR THE BRANCH OVER EVERY STATE. `bb_branch_query` puts
+        # open, merged and declined in one `q=` clause and returns the rows in
+        # state rank, so the first row is the answer: an open PR for a branch
+        # outranks a merged one, which outranks a declined one. A branch with
+        # several pull requests pages past the first 50 rows only where it has
+        # more than 50.
         #
         # NO "FULL PAGE, NO MATCH" GUARD HERE, unlike the single-state arms
-        # below. The loop breaks on the first non-empty page, and every row in
-        # it already matches `$ref` — `bb_branch_query` filtered server-side —
-        # so a full page is 50 real answers, never a truncated non-match. The
-        # condition the other arms guard against cannot occur in this walk.
-        out=""; bb_rc=0
+        # below. Every row already matches `$ref` — `bb_branch_query` filtered
+        # server-side — so a full page is 50 real answers, never a truncated
+        # non-match.
         bb_all_states="$(bb_states_for all)" || exit 1
-        for _s in $bb_all_states; do
-          if _part="$(bb_branch_query "$ref" "$_s" ${repo_args[@]+"${repo_args[@]}"} 2>"$HOST_ERR")"; then
-            out="$out$_part"
-            [ "$(jq 'length' <<<"$_part")" -gt 0 ] && break
-          else
-            bb_rc=1; break
-          fi
-        done
-        if [ "$bb_rc" = 0 ]; then
+        if out="$(bb_branch_query "$ref" "$bb_all_states" ${repo_args[@]+"${repo_args[@]}"} 2>"$HOST_ERR")"; then
           rm -f "$HOST_ERR"
-          out="$(jq -c -s 'add // []' <<<"$out")"
           # THE BRANCH ARM CARRIES `mergeCommit` TOO, and it is the path that
           # matters most: `plot-pr-state.sh:33` asks `pr-state "idea/${SLUG}"` —
           # a branch, not a number — and `:47` reads `.mergeCommit // empty`
@@ -4799,9 +4788,8 @@ case "$op" in
       bb_cmd=(bb_state_listing ${repo_args[@]+"${repo_args[@]}"})
       if [ -n "$branches" ]; then
         # A SWEEP'S COST IS THE CALLER'S WORKING SET, and it is reported so the
-        # caller can check the claim it is about to be handed. Branches × states
-        # — 11 branches over 3 states is 33 exact queries, against 3 listings
-        # that answer for 50 of 902 rows.
+        # caller can check the claim it is about to be handed: one exact query
+        # per branch, every state in its one `q=` clause.
         for _b in $branches; do PR_SWEEP_ASKED=$((PR_SWEEP_ASKED + 1)); done
         bb_cmd=(bb_branch_sweep ${repo_args[@]+"${repo_args[@]}"})
       elif [ -n "$PR_LIST_SINCE" ]; then
@@ -4848,10 +4836,9 @@ case "$op" in
           # `broken`.
           #
           # ONE CAP COVERS `--state all`. `pr_list_states` calls
-          # `$PR_LIST_BIND_FN` once per state (open, merged, declined), and
-          # each call starts at `SHA_LOOKUPS_PER_PASS`. Bitbucket's `state=`
-          # filter returns only rows of that state, so only the open call holds
-          # OPEN rows and only it can name any: the pass spends at most 5.
+          # `$PR_LIST_BIND_FN` once for the one request that asks every state,
+          # and the bind names OPEN rows only: the pass spends at most
+          # `SHA_LOOKUPS_PER_PASS`.
           _bb_jen_bind() { local s n named_file; plot_tmpfile named_file host-bbprlist-named; s="$(jenkins_bind_rows pr-list "$jen_map" "$(jq -c '[.[] | select(.state == "OPEN") | {headRefName:.source.branch.name,headRefOid:.source.commit.hash,updatedAt:.updated_on}]' <<<"$1")" "$named_file" "$_bound_shas")"; n="$(jq -R -c -s 'split("\n") | map(select(length > 0))' <"$named_file")"; PR_LIST_JQ_ARGS=(--argjson jmap "$jen_map" --arg jstatus "$jen_status" --argjson shamap "${s:-null}" --argjson named "${n:-[]}"); } # $1 = this state's raw Bitbucket rows
           PR_LIST_BIND_FN=_bb_jen_bind
           pr_list_states bitbucket "$limit" "$bb_states" '.[] |

@@ -13,12 +13,45 @@ export const BITBUCKET_BRANCH_QUERY_PAGE_CAP = 20;
 /** The `git --version` text the mergeability reading is given: `Refs.conflictPaths` answers a git older than 2.38 as a failure, so the version check is the port's. */
 const PORT_GIT_VERSION = 'git version 2.38.0';
 
-/** The states `--state` names, in the order `plot-host.sh` asks them. */
+/** The states `--state` names, in the rank order of a listing's rows. */
 const STATES: Readonly<Record<string, readonly string[]>> = {
   open: ['open'],
   merged: ['merged'],
   all: ['open', 'merged', 'declined'],
   settled: ['merged', 'declined'],
+};
+
+/**
+ * The `fields` filter every listing request sends (`BB_LIST_FIELDS` in
+ * `plot-host.sh`): the envelope keys the walk reads (`next`, `size`, `page`,
+ * `pagelen`) and every pull-request field that `bitbucketPlainRow`,
+ * `bitbucketRichRow` and `bitbucketPrState` read.
+ */
+export const BITBUCKET_LIST_FIELDS = [
+  'next',
+  'size',
+  'page',
+  'pagelen',
+  'values.id',
+  'values.title',
+  'values.state',
+  'values.draft',
+  'values.updated_on',
+  'values.links.html.href',
+  'values.author.nickname',
+  'values.source.branch.name',
+  'values.source.commit.hash',
+  'values.destination.branch.name',
+  'values.merge_commit.hash',
+].join(',');
+
+/** The rank of a row's state: a listing orders its rows open, merged, declined, superseded, as one request per state did. */
+const STATE_RANK: Readonly<Record<string, number>> = { OPEN: 0, MERGED: 1, DECLINED: 2, SUPERSEDED: 3 };
+
+/** Rows in state rank, server order kept within a state (`plot-host.sh`'s `BB_STATE_RANK`). */
+const byStateRank = (prs: readonly BitbucketPullRequest[]): BitbucketPullRequest[] => {
+  const rank = (pr: BitbucketPullRequest): number => STATE_RANK[String(pr.state)] ?? 4;
+  return [...prs].sort((a, b) => rank(a) - rank(b));
 };
 
 /**
@@ -73,37 +106,43 @@ const urlEncode = (raw: string): string =>
     })
     .join('');
 
-/** The path of a plain state listing: `pullrequests?state=<S>&pagelen=50`. */
-const statePath = (state: string): string =>
-  `/repositories/{ws}/{repo}/pullrequests?state=${state.toUpperCase()}&pagelen=${BITBUCKET_REQUEST_PAGELEN}`;
+/** The states of one request as its labels and messages name them: `open,merged,declined`. */
+const joined = (states: readonly string[]): string => states.join(',');
+
+/** The path of a plain listing: `pullrequests?state=<S1>&state=<S2>…&pagelen=50&fields=…`. */
+const statePath = (states: readonly string[]): string =>
+  `/repositories/{ws}/{repo}/pullrequests?${states.map((state) => `state=${state.toUpperCase()}`).join('&')}&pagelen=${BITBUCKET_REQUEST_PAGELEN}&fields=${BITBUCKET_LIST_FIELDS}`;
 
 /**
- * The path of a `q=` query: the state clause, an optional branch clause and an
+ * The path of a `q=` query: the states as `(state="A" OR state="B")`, because
+ * `q=` overrides a `state=` parameter, an optional branch clause and an
  * optional `updated_on>=` window clause joined by `AND`, spaces as `%20`.
  */
-const queryPath = (state: string, branch: string | null, since: string | undefined): string => {
-  let q = `state=${urlEncode(`"${state.toUpperCase()}"`)}`;
+const queryPath = (states: readonly string[], branch: string | null, since: string | undefined): string => {
+  let q = `%28${states.map((state) => `state=${urlEncode(`"${state.toUpperCase()}"`)}`).join(' OR ')}%29`;
   if (branch !== null) q += ` AND source.branch.name=${urlEncode(`"${branch}"`)}`;
   if (since !== undefined) q += ` AND updated_on>=${urlEncode(`"${since}"`)}`;
-  return `/repositories/{ws}/{repo}/pullrequests?q=${q.replaceAll(' ', '%20')}&pagelen=${BITBUCKET_REQUEST_PAGELEN}`;
+  return `/repositories/{ws}/{repo}/pullrequests?q=${q.replaceAll(' ', '%20')}&pagelen=${BITBUCKET_REQUEST_PAGELEN}&fields=${BITBUCKET_LIST_FIELDS}`;
 };
 
 /**
  * Builds the in-process Bitbucket PR listing over one client and one `Refs`.
  *
- * Each state is asked as `plot-host.sh` asks it: a plain listing walks `next`
- * up to the limit (50 where none is given), a window (`since`) reads every
- * page and refuses a read that holds fewer distinct rows than the server's
- * `size`, and a sweep (`branches`) asks each branch and state once and reads
- * up to {@link BITBUCKET_BRANCH_QUERY_PAGE_CAP} pages. A `next` link outside
- * the API base is a refusal. `all` asks open, merged and declined.
+ * Every state of a call goes in one request, as `plot-host.sh` asks it: a
+ * plain listing walks `next` up to the limit (50 where none is given), a
+ * window (`since`) reads every page and refuses a read that holds fewer
+ * distinct rows than the server's `size`, and a sweep (`branches`) asks each
+ * branch once and reads up to {@link BITBUCKET_BRANCH_QUERY_PAGE_CAP} pages.
+ * A `next` link outside the API base is a refusal. `all` asks open, merged
+ * and declined. Every request sends {@link BITBUCKET_LIST_FIELDS}, and the
+ * rows come back in state rank, server order kept within a state.
  *
- * Completeness follows the shell: a plain state is `whole` only where a limit
- * was given and the walk saw the end; a window state is `whole` after a full
- * read; a sweep claims no state and is `whole` for the asked state where every
- * state answered. A refusal answers the rows read so far, `possibly-truncated`
- * for every state of the call, the refusal, and `partial`; a refusal before
- * any page answered is `failed` with no rows.
+ * Completeness follows the shell: a plain walk claims every state of the call
+ * `whole` only where a limit was given and the walk saw the end; a window
+ * claims every state `whole` after a full read; a sweep claims no state and is
+ * `whole` for the asked state where it answered. A refusal answers the rows
+ * read so far, `possibly-truncated` for every state of the call, the refusal,
+ * and `partial`; a refusal before any page answered is `failed` with no rows.
  *
  * An open row's `mergeable` is read through `refs` over `origin/<base>`, as
  * the scan's fetch left it, and cached in memory by head and base SHA. A base
@@ -126,14 +165,14 @@ export const bitbucketPrListing = (api: BitbucketApi, refs: Pick<Refs, 'resolve'
 
   const fetchPage = async (path: string, label: string) => api.request({ method: 'GET', path, label });
 
-  const plainState = async (state: string, query: PrListingQuery): Promise<StateRead> => {
+  const plainState = async (states: readonly string[], query: PrListingQuery): Promise<StateRead> => {
     const limit = query.limit ?? BITBUCKET_REQUEST_PAGELEN;
     const prs: BitbucketPullRequest[] = [];
     const pages: ListedPage[] = [];
-    let path = statePath(state);
+    let path = statePath(states);
     for (;;) {
-      const answer = await fetchPage(path, `pr-list state=${state.toUpperCase()}, page ${pages.length + 1}`);
-      if (!answer.ok) return { prs: prs.slice(0, limit), claim: 'doubted', refusal: answer.refusal, pages: pages.length };
+      const answer = await fetchPage(path, `pr-list state=${joined(states).toUpperCase()}, page ${pages.length + 1}`);
+      if (!answer.ok) return { prs: byStateRank(prs.slice(0, limit)), claim: 'doubted', refusal: answer.refusal, pages: pages.length };
       const values = valuesOf(answer.reply.body);
       prs.push(...values);
       pages.push({ rows: values.length, envelopeNext: envelopeNextFor(answer.reply.body) });
@@ -145,21 +184,21 @@ export const bitbucketPrListing = (api: BitbucketApi, refs: Pick<Refs, 'resolve'
           : pagePossiblyTruncated({ limit, rows, paging: { kind: 'fixed-page', pageLength: BITBUCKET_REQUEST_PAGELEN }, envelopeNext: step.envelopeNext })
             ? 'doubted'
             : 'whole';
-        return { prs: prs.slice(0, limit), claim, refusal: null, pages: pages.length };
+        return { prs: byStateRank(prs.slice(0, limit)), claim, refusal: null, pages: pages.length };
       }
       const next = api.nextPath(nextOf(answer.reply.body));
-      if (!next.ok) return { prs: prs.slice(0, limit), claim: 'doubted', refusal: next.refusal, pages: pages.length };
+      if (!next.ok) return { prs: byStateRank(prs.slice(0, limit)), claim: 'doubted', refusal: next.refusal, pages: pages.length };
       path = next.path;
     }
   };
 
-  const windowState = async (state: string, since: string): Promise<StateRead> => {
+  const windowState = async (states: readonly string[], since: string): Promise<StateRead> => {
     const rows: BitbucketPullRequest[] = [];
     let size = 0;
     let pages = 0;
-    let path = queryPath(state, null, since);
+    let path = queryPath(states, null, since);
     while (path !== '') {
-      const answer = await fetchPage(path, `pr-list state=${state.toUpperCase()} window, page ${pages + 1}`);
+      const answer = await fetchPage(path, `pr-list state=${joined(states).toUpperCase()} window, page ${pages + 1}`);
       if (!answer.ok) return { prs: distinct(rows), claim: 'doubted', refusal: answer.refusal, pages };
       pages += 1;
       rows.push(...valuesOf(answer.reply.body));
@@ -173,23 +212,23 @@ export const bitbucketPrListing = (api: BitbucketApi, refs: Pick<Refs, 'resolve'
     }
     const prs = distinct(rows);
     if (prs.length < size) {
-      const said = `bitbucket window state=${state} is short (${prs.length} of ${size} matches after ${pages} pages); refusing it rather than printing it as whole`;
+      const said = `bitbucket window state=${joined(states)} is short (${prs.length} of ${size} matches after ${pages} pages); refusing it rather than printing it as whole`;
       return { prs, claim: 'doubted', refusal: { kind: 'failed', said }, pages };
     }
     return { prs, claim: 'whole', refusal: null, pages };
   };
 
-  const sweepState = async (state: string, branches: readonly string[], since: string | undefined): Promise<StateRead> => {
+  const sweepState = async (states: readonly string[], branches: readonly string[], since: string | undefined): Promise<StateRead> => {
     const prs: BitbucketPullRequest[] = [];
     let pages = 0;
     for (const branch of branches) {
-      let path = queryPath(state, branch, since);
+      let path = queryPath(states, branch, since);
       for (let page = 1; path !== ''; page += 1) {
         if (page > BITBUCKET_BRANCH_QUERY_PAGE_CAP) {
-          const said = `bitbucket pr-list state=${state} possibly truncated (${prs.length} rows, page cap ${BITBUCKET_BRANCH_QUERY_PAGE_CAP} reached) — a join against this page may read older branches as 'no PR' (#333)`;
+          const said = `bitbucket pr-list state=${joined(states)} possibly truncated (${prs.length} rows, page cap ${BITBUCKET_BRANCH_QUERY_PAGE_CAP} reached) — a join against this page may read older branches as 'no PR' (#333)`;
           return { prs, claim: 'none', refusal: { kind: 'failed', said }, pages };
         }
-        const answer = await fetchPage(path, `pr-list state=${state.toUpperCase()} branch ${branch}, page ${page}`);
+        const answer = await fetchPage(path, `pr-list state=${joined(states).toUpperCase()} branch ${branch}, page ${page}`);
         if (!answer.ok) return { prs, claim: 'none', refusal: answer.refusal, pages };
         pages += 1;
         prs.push(...valuesOf(answer.reply.body));
@@ -200,14 +239,14 @@ export const bitbucketPrListing = (api: BitbucketApi, refs: Pick<Refs, 'resolve'
         path = next.path;
       }
     }
-    return { prs, claim: 'none', refusal: null, pages };
+    return { prs: byStateRank(prs), claim: 'none', refusal: null, pages };
   };
 
-  /** Rows distinct by id, ascending, as the shell's `unique_by(.id)` orders them. */
+  /** Rows distinct by id, ascending, then in state rank, as the shell's `unique_by(.id) | BB_STATE_RANK` orders them. */
   const distinct = (rows: readonly BitbucketPullRequest[]): BitbucketPullRequest[] => {
     const byId = new Map<unknown, BitbucketPullRequest>();
     for (const row of rows) if (!byId.has(row.id)) byId.set(row.id, row);
-    return [...byId.values()].sort((a, b) => Number(a.id) - Number(b.id));
+    return byStateRank([...byId.values()].sort((a, b) => Number(a.id) - Number(b.id)));
   };
 
   const mergeableOf = async (head: string, base: string): Promise<MergeableReading> => {
@@ -258,30 +297,22 @@ export const bitbucketPrListing = (api: BitbucketApi, refs: Pick<Refs, 'resolve'
     const states = STATES[query.state] ?? [query.state];
     const branches = query.branches ?? [];
     const rich = query.rich === true || query.richOpen === true;
-    const claimed = new Set<string>();
-    const doubted = new Set<string>();
+    const read = branches.length > 0
+      ? await sweepState(states, branches, query.since)
+      : query.since !== undefined
+        ? await windowState(states, query.since)
+        : await plainState(states, query);
     const rows: PrListingRow[] = [];
-    let answeredStates = 0;
-    let pages = 0;
-    for (const state of states) {
-      const read = branches.length > 0
-        ? await sweepState(state, branches, query.since)
-        : query.since !== undefined
-          ? await windowState(state, query.since)
-          : await plainState(state, query);
-      pages += read.pages;
-      for (const pr of read.prs) rows.push(await project(pr, rich));
-      if (read.claim === 'whole') claimed.add(state);
-      if (read.claim === 'doubted') doubted.add(state);
-      if (read.refusal !== null) {
-        const complete: Record<string, PrListingCompleteness> = {};
-        for (const each of states) complete[each] = 'possibly-truncated';
-        complete[query.state] = 'possibly-truncated';
-        return { answer: pages === 0 ? 'failed' : 'partial', rows: pages === 0 ? [] : rows, complete, refusal: read.refusal };
-      }
-      answeredStates += 1;
+    for (const pr of read.prs) rows.push(await project(pr, rich));
+    if (read.refusal !== null) {
+      const complete: Record<string, PrListingCompleteness> = {};
+      for (const each of states) complete[each] = 'possibly-truncated';
+      complete[query.state] = 'possibly-truncated';
+      return { answer: read.pages === 0 ? 'failed' : 'partial', rows: read.pages === 0 ? [] : rows, complete, refusal: read.refusal };
     }
-    const sweep = sweepComplete({ branches: branches.length, statesAnswered: answeredStates, statesAsked: states.length });
+    const claimed = new Set(read.claim === 'whole' ? states : []);
+    const doubted = new Set(read.claim === 'doubted' ? states : []);
+    const sweep = sweepComplete({ branches: branches.length, statesAnswered: 1, statesAsked: 1 });
     return { answer: 'answered', rows, complete: listingWords({ claimed, doubted, sweep }, query.state), refusal: null };
   };
 
