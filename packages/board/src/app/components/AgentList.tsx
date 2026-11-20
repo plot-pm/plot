@@ -119,6 +119,7 @@ import {
   readMineStrict,
   agentsForReader,
   readerFrom,
+  ticketPlanOwners,
   ticketsForReader,
   writeMineOnly,
   writeMineStrict,
@@ -641,7 +642,7 @@ export function AgentList({
   // rule. That arm answers `mine` or `unknown` (or, under the strict mode,
   // keeps only `mine`) — a worker stays a fact about the fleet otherwise. The
   // call is what lets the rule, rather than this component, decide that.
-  const ownAgents = agentsForReader(fleet?.agents ?? [], reader, mode);
+  const ownAgents = agentsForReader(fleet?.agents ?? [], reader, mode, rowByBranch);
   const workingRows = workingAgentRows(ownAgents, rowByBranch);
   // THE FLEET'S OWN VERIFY RUNS — a run ON A PLAN, not on a branch. `halted`,
   // `running` and `rows` come from `.plot/state/auto-verify-in-flight.json` as
@@ -862,7 +863,7 @@ export function AgentList({
   // so this call needs no second host read. `fleet.issues` stays the fallback
   // for an older server with no `waiting` field.
   const waitingBlock = waitingView(fleet.waiting, fleet.issues, showEveryTicket, (tickets) =>
-    ticketsForReader(tickets, reader, fleet.waiting?.source ?? null, mode),
+    ticketsForReader(tickets, reader, fleet.waiting?.source ?? null, mode, ticketPlanOwners(fleet.plans ?? {}, (f) => cardForPlanFile?.(f))),
   );
   const filteredIssues = waitingBlock.tickets;
 
@@ -1178,6 +1179,7 @@ export function AgentList({
           config: { autoReview: fleet.autoReview, correctionBudget: fleet.correctionBudget },
           tickets: fleet.issueAnswer === 'answered' ? fleet.waiting?.tickets : null,
           ticketSource: fleet.waiting?.source ?? null,
+          ticketPlans: ticketPlanOwners(fleet.plans ?? {}, (f) => cardForPlanFile?.(f)),
           releases: sprintReleases(activeSprints, scopeSelection),
           sprints: (fleet.sprints ?? []).map((s) => ({ release: s.release, started: s.start ?? '' })),
           releaseTickets: fleet.releaseTickets,

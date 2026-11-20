@@ -233,7 +233,7 @@ describe('a row with no PR is owned by its plan\'s assignee, author or approver'
     expect(rowsForReader([unnamed], jwloka, 'mine-and-unknown')).toHaveLength(1);
   });
 
-  it('keeps a PR row whose author is another person hidden, and the reader\'s shown, whatever the plan fields say', () => {
+  it('keeps a PR row of another person on the reader\'s plan in the lenient mode only, and the reader\'s PR in both', () => {
     const theirs = row({
       kind: 'branch', branch: 'feature/a-branch', pr: { number: 1, author: 'ckehl' },
       assignee: 'jwloka', author: 'jwloka', approver: 'jwloka',
@@ -244,7 +244,8 @@ describe('a row with no PR is owned by its plan\'s assignee, author or approver'
     });
     expect(ownedFromRow(theirs)).toEqual({ kind: 'pr', author: 'ckehl' });
     expect(ownedFromRow(mine)).toEqual({ kind: 'pr', author: 'jwloka' });
-    expect(rowsForReader([theirs, mine], jwloka, 'mine-and-unknown')).toEqual([mine]);
+    expect(rowsForReader([theirs, mine], jwloka, 'mine-and-unknown')).toEqual([theirs, mine]);
+    expect(rowsForReader([theirs, mine], jwloka, 'mine')).toEqual([mine]);
   });
 
   it('keeps a row whose assignee, author and approver are all undefined, as an older payload sends', () => {
