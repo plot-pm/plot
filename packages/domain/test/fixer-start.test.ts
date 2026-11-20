@@ -83,7 +83,7 @@ describe('fixerPrompt for a conflict', () => {
     const text = textOf(fixerPrompt({ ...base, evidence: conflict }));
     expect(text).toContain('`.github/workflows/`, `.claude/`, `scripts/check-*.sh`');
     expect(text).toContain('`rolePushViolation`');
-    expect(text).toContain('`plot-state-gate.sh`');
+    expect(text).toContain('plot-state-gate.sh refuses the commit');
   });
 
   it('refuses a conflict with no base or no base tip', () => {

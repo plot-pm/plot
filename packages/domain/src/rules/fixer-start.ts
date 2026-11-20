@@ -88,7 +88,7 @@ export const fixerPrompt = (input: FixerPromptInput): FixerPrompt => {
       `6. Commit the merge, then push it with \`git push origin HEAD:${branch}\`.`,
       '',
       'The role gate refuses a push that forces, deletes, or names another branch (`rolePushViolation` in `role-gate.ts`). Where your push is refused, stop and report the refusal; do not retry it another way.',
-      'Where a conflict sits on a `State:` line, `plot-state-gate.sh` refuses the commit. Stop and report it; do not retry.',
+      'Where a conflict sits on a `State:` line, the state gate plot-state-gate.sh refuses the commit. Stop and report it; do not retry.',
     );
   } else {
     const named = evidence.failingChecks.filter((name) => name.trim() !== '');
