@@ -42,7 +42,7 @@ const fleet = (): Fleet => {
       identity: 'manifest', worktree: '/desks/running', relaunches: 0,
       startedAt: new Date(Date.now() - 90 * 60_000).toISOString(),
     }],
-    registry: { directory: '/reg', manifestCount: 4, synthesizedCount: 1 },
+    registry: { directory: '/reg', manifestCount: 4, synthesizedCount: 1, checkoutCount: 0 },
     issues: [], issueAnswer: 'answered', issueError: null,
     summary: { plans: 1, waves: 2, branches: rows.length, claimed: 1, eligible: 1, blocked: 0, deferred: 0 },
     stuck: { stuck: 0, artifact: 0, conflict: 0, unpushed: 0, ci: 0 },

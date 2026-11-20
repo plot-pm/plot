@@ -16,7 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  parseManifest, readAgentRegistry, gitWorktrees, deskCleanliness, deskLiveness, AGENT_MANIFEST_DIR,
+  parseManifest, readAgentRegistry, readAgentRegistryWithInfo, gitWorktrees, deskCleanliness, deskLiveness, AGENT_MANIFEST_DIR,
 } from '../../src/shared/registry.js';
 import { execFileSync } from 'node:child_process';
 import { AgentStateSchema as DomainAgentStateSchema, LIVE_STATES, type AgentState as DomainAgentState } from '@plot-pm/domain';
@@ -690,6 +690,34 @@ describe('a worktree with no manifest is listed — absence of a record is not a
     assert.equal(got[0].branch, '', 'no manifest named this agent, so it holds no branch');
     assert.equal(got[0].checkout, 'feature/orphan', 'the desk is checked out here, display only');
     assert.equal(got[0].state, 'waiting', 'classified like any other entry');
+  });
+
+  it('counts a desk where no worker ran as a checkout, and a desk where one ran as an agent', async () => {
+    // A person's worktree has no `.plot-worker.pid`, so its state is `none`.
+    // The row stays; the registry fact leaves it out of its counts.
+    const { entries, info } = await readAgentRegistryWithInfo(root, home, {
+      worktrees: worktrees([
+        { path: '/wt/by-hand', branch: 'bug/by-hand' },
+        { path: '/wt/fleet', branch: 'feature/fleet' },
+      ]),
+      liveness: fakeLiveness({ '/wt/by-hand': 'none', '/wt/fleet': 'failed' }),
+    });
+    assert.deepEqual(entries.map((e) => e.worktree).sort(), ['/wt/by-hand', '/wt/fleet']);
+    assert.equal(info.manifestCount, 0);
+    assert.equal(info.synthesizedCount, 2);
+    assert.equal(info.checkoutCount, 1);
+  });
+
+  it('counts no checkout where every unregistered desk ran a worker', async () => {
+    const { info } = await readAgentRegistryWithInfo(root, home, {
+      worktrees: worktrees([
+        { path: '/wt/a', branch: 'feature/a' },
+        { path: '/wt/b', branch: 'feature/b' },
+      ]),
+      liveness: fakeLiveness({ '/wt/a': 'running', '/wt/b': 'stalled' }),
+    });
+    assert.equal(info.synthesizedCount, 2);
+    assert.equal(info.checkoutCount, 0);
   });
 
   it('a manifest-backed entry still carries its branch, and an empty checkout', async () => {

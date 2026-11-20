@@ -4156,6 +4156,11 @@ export const RegistryInfoSchema = z.object({
    * manifest for. A synthesized entry has `session: ''` and no drop action.
    */
   synthesizedCount: z.number().int(),
+  /**
+   * How many of the synthesized entries are checkouts where no worker ran —
+   * a person's worktree. `registryFact` leaves them out of both of its counts.
+   */
+  checkoutCount: z.number().int(),
 });
 export type RegistryInfo = z.infer<typeof RegistryInfoSchema>;
 

@@ -12,6 +12,7 @@ import { deskBranchMerged, mergedDeskState } from '@plot-pm/domain/rules/merged-
 import { deskManifest, manifestDirectory, type ManifestReading } from '@plot-pm/domain/rules/desk-manifest';
 import { deskProcessState, deskWorker, type ManifestWorkerReading } from '@plot-pm/domain/rules/desk-worker';
 import { deskClean } from '@plot-pm/domain/rules/desk-clean';
+import { isAgentDesk } from '@plot-pm/domain/rules/fleet-not-working';
 
 /**
  * What the registry can say about an agent's liveness — one fact, computed once
@@ -752,6 +753,11 @@ export interface RegistryInfo {
   manifestCount: number;
   /** How many entries were synthesized from worktrees with no manifest. */
   synthesizedCount: number;
+  /**
+   * How many of the synthesized entries are checkouts where no worker ran —
+   * `isAgentDesk` answers `false` for their state. A person's worktree is one.
+   */
+  checkoutCount: number;
 }
 
 /**
@@ -842,7 +848,7 @@ export async function readAgentRegistryWithInfo(
   const workerReadings: ManifestWorkerReading[] = out
     .filter((e) => e.worktree)
     .map((e, i) => ({ worktree: e.worktree, worktreeReal: manifestReadings[i]!.worktreeReal, pid: e.pid }));
-  let synthesizedCount = 0;
+  const synthesized: AgentEntry[] = [];
   // The branch each desk has checked out, by the path git lists it under — the
   // branch `mergedDeskState`'s merge fact is read for.
   const deskBranches = new Map<string, string>();
@@ -867,8 +873,9 @@ export async function readAgentRegistryWithInfo(
         manifests: manifestReadings,
       });
       if (named.kind !== 'unnamed') continue;
-      out.push(synthesizeEntry(wt));
-      synthesizedCount++;
+      const entry = synthesizeEntry(wt);
+      out.push(entry);
+      synthesized.push(entry);
     }
   }
   const log = opts.log ?? ((line: string) => process.stderr.write(`${line}\n`));
@@ -880,6 +887,9 @@ export async function readAgentRegistryWithInfo(
       ?? entry.branch,
   });
   await placeWorkers(out, workerReadings, opts.deskPid ?? readDeskPid);
+  // Counted before the settled drop below, like the manifests: the registry
+  // fact is about what the read SAW, and the state is final from here on.
+  const checkoutCount = synthesized.filter((e) => !isAgentDesk(e.state)).length;
   // Drop settled workers: session ended AND worktree clean. A worker with either
   // condition outstanding — live session OR dirty/unpushed — stays visible.
   const filtered = await dropSettledWorkers(
@@ -893,7 +903,7 @@ export async function readAgentRegistryWithInfo(
   const entries = filtered.sort((a, b) => (b.startedAt || '').localeCompare(a.startedAt || ''));
   return {
     entries,
-    info: { directory: dir, manifestCount, synthesizedCount },
+    info: { directory: dir, manifestCount, synthesizedCount: synthesized.length, checkoutCount },
   };
 }
 
