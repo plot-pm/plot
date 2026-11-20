@@ -1,7 +1,7 @@
 // Runs every role's fragment through the real `agentRunCommand` and the real
 // `boundedRunProcess` against a fake `claude` that models CLI 2.1.231: it reads
 // `--agents` as JSON text only, and refuses unless that JSON names `--agent`.
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, afterAll } from 'vitest';
@@ -67,7 +67,7 @@ const agentsFile = (name: string, json: string, file = 'agents.json'): string =>
 };
 
 afterAll(() => {
-  // root is under the OS temp dir; vitest teardown leaves removal to the owned run
+  rmSync(root, { recursive: true, force: true });
 });
 
 describe('roleCommand through the real runner', () => {

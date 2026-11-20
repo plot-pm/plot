@@ -6,6 +6,9 @@ import path from 'node:path';
 
 import { refsGit } from '../src/adapters/refs/refs-git.js';
 import { refsRemoteGit } from '../src/adapters/refs/refs-remote-git.js';
+import { tempDirs } from './fixtures/temp-dirs.js';
+
+const tempDir = tempDirs();
 
 /**
  * `remoteTip` against a REAL remote, the way `refs-git-reads.test.ts` tests
@@ -66,7 +69,7 @@ describe('refsRemoteGit.remoteTip', () => {
 
   it('answers `unknown`, never `other`, when the remote cannot be reached', async () => {
     const unreachable = refsRemoteGit({
-      repoRoot: fs.mkdtempSync(path.join(os.tmpdir(), 'plot-remote-tip-unreachable-')),
+      repoRoot: tempDir('plot-remote-tip-unreachable-'),
       scriptDir: '/nonexistent/scripts',
     });
     // A REMOTE NAMED `origin` THAT DOES NOT EXIST: `git ls-remote` fails

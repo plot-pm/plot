@@ -15,6 +15,9 @@ import { isAnswered, type PortResult } from '../src/port-result.js';
 import type { IssueRead, StatusOutcome, StatusWrite, Tracker } from '../src/ports/tracker.js';
 import type { Issue } from '../src/entities/issue.js';
 import type { LimitReading } from '../src/entities/limit.js';
+import { tempDirs } from './fixtures/temp-dirs.js';
+
+const tempDir = tempDirs();
 
 /**
  * A MOCKED TRACKER FAILS ON DEMAND.
@@ -289,7 +292,7 @@ describe('a status reaches the tracker it was told about', () => {
     // ASSERTED: A JIRA PROJECT'S STATUS UPDATES REACH JIRA. The connector is
     // handed a PR and a status; it resolves the issue and the script performs
     // the one write this port allows.
-    const log = join(mkdtempSync(join(tmpdir(), 'plot-tracker-log-')), 'written');
+    const log = join(tempDir('plot-tracker-log-'), 'written');
     roots.push(log);
     const context = scriptsThat({
       'plot-host.sh': `
@@ -364,7 +367,7 @@ describe('a status reaches the tracker it was told about', () => {
     // The two connectors write through DIFFERENT APIs under DIFFERENT
     // credentials, which is why the port has two rather than one arm with a
     // branch. This one's write never reaches `plot-host.sh` at all.
-    const log = join(mkdtempSync(join(tmpdir(), 'plot-board-log-')), 'written');
+    const log = join(tempDir('plot-board-log-'), 'written');
     roots.push(log);
     const context = scriptsThat({
       'plot-host.sh': 'exit 1',
@@ -411,7 +414,7 @@ describe('a status reaches the tracker it was told about', () => {
   });
 
   it('writes against the issue a caller named, not one mined from the address', async () => {
-    const log = join(mkdtempSync(join(tmpdir(), 'plot-tracker-log-')), 'written');
+    const log = join(tempDir('plot-tracker-log-'), 'written');
     roots.push(log);
     const context = scriptsThat({
       'plot-host.sh': `
@@ -430,7 +433,7 @@ describe('a status reaches the tracker it was told about', () => {
   });
 
   it('still mines the address where no issue was named', async () => {
-    const log = join(mkdtempSync(join(tmpdir(), 'plot-tracker-log-')), 'written');
+    const log = join(tempDir('plot-tracker-log-'), 'written');
     roots.push(log);
     const context = scriptsThat({
       'plot-host.sh': `printf '%s\\n' "$2" > "${log}"; echo written`,
@@ -446,7 +449,7 @@ describe('a status reaches the tracker it was told about', () => {
   it('answers no-target for an issue-only write on GitHub, and never calls the board script', async () => {
     // This arm's subject is a pull request. An empty address handed to
     // `plot-update-board.sh` would ask it to move a PR that does not exist.
-    const marker = join(mkdtempSync(join(tmpdir(), 'plot-board-marker-')), 'called');
+    const marker = join(tempDir('plot-board-marker-'), 'called');
     roots.push(marker);
     const context = scriptsThat({
       'plot-config.sh': 'echo acme/7',

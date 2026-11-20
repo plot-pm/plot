@@ -1,13 +1,15 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { connect, createServer, type Socket } from 'node:net';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { startChannel, type RunningChannel } from '../src/adapters/channel/channel-socket.js';
 import { decode, type ChannelMessage } from '../src/entities/channel-message.js';
 import type { Finding } from '../src/entities/finding.js';
+import { tempDirs } from './fixtures/temp-dirs.js';
+
+const tempDir = tempDirs();
 
 /**
  * The channel's TRANSPORT, which is all this file asserts.
@@ -82,7 +84,7 @@ const peer = (address: string) => {
 };
 
 let channel: RunningChannel | undefined;
-const addressIn = (): string => join(mkdtempSync(join(tmpdir(), 'plot-channel-')), 'sock');
+const addressIn = (): string => join(tempDir('plot-channel-'), 'sock');
 
 afterEach(async () => {
   await channel?.stop();
@@ -382,7 +384,7 @@ describe('the channel socket — the boundary, not the protocol', () => {
   });
 
   it('leaves a path it cannot read alone, and the bind reports it', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'plot-channel-'));
+    const dir = tempDir('plot-channel-');
     const file = join(dir, 'file');
     writeFileSync(file, '');
     try {
@@ -394,7 +396,7 @@ describe('the channel socket — the boundary, not the protocol', () => {
   });
 
   it('names the byte length of a socket path too long to bind', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'plot-channel-'));
+    const dir = tempDir('plot-channel-');
     const address = join(dir, `${'a'.repeat(120)}.sock`);
     try {
       const failure = startChannel({ address });

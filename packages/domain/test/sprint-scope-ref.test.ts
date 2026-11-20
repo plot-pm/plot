@@ -80,6 +80,12 @@ const repoWith = (
   return dir;
 };
 
+/** Removes a repository made by {@link repoWith} and its bare origin, by the paths `repoWith` made. */
+const removeRepo = (dir: string): void => {
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(`${dir}-origin.git`, { recursive: true, force: true });
+};
+
 /** Reads the scope of a repository at `origin/main`. */
 const scopeOf = (dir: string) =>
   sprintScopeRef(refsGit({ repoRoot: dir, scriptDir: path.join(dir, 'scripts') }), scriptsConfig('docs/sprints'), 'origin/main');
@@ -94,8 +100,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  if (repo) fs.rmSync(repo, { recursive: true, force: true });
-  if (repo) fs.rmSync(`${repo}-origin.git`, { recursive: true, force: true });
+  if (repo) removeRepo(repo);
 });
 
 const refs = () => refsGit({ repoRoot: repo, scriptDir: path.join(repo, 'scripts') });
@@ -143,7 +148,7 @@ describe('sprintScopeRef — reads the committed ref, never the working tree', (
     try {
       expect(await scopeOf(empty)).toEqual({ read: 'none', why: 'no-active-sprint' });
     } finally {
-      fs.rmSync(empty, { recursive: true, force: true });
+      removeRepo(empty);
     }
   });
 
@@ -156,7 +161,7 @@ describe('sprintScopeRef — reads the committed ref, never the working tree', (
     try {
       expect(await scopeOf(two)).toEqual({ read: 'none', why: 'multiple-active-sprints' });
     } finally {
-      fs.rmSync(two, { recursive: true, force: true });
+      removeRepo(two);
     }
   });
 
@@ -169,7 +174,7 @@ describe('sprintScopeRef — reads the committed ref, never the working tree', (
     try {
       expect(await scopeOf(escaping)).toEqual({ read: 'none', why: 'sprint-link-escapes' });
     } finally {
-      fs.rmSync(escaping, { recursive: true, force: true });
+      removeRepo(escaping);
     }
   });
 
@@ -180,7 +185,7 @@ describe('sprintScopeRef — reads the committed ref, never the working tree', (
     try {
       expect(await scopeOf(dangling)).toEqual({ read: 'none', why: 'sprint-link-missing' });
     } finally {
-      fs.rmSync(dangling, { recursive: true, force: true });
+      removeRepo(dangling);
     }
   });
 });

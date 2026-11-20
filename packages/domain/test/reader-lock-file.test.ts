@@ -8,6 +8,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readerLockFile, readerLockIndexDir, READER_LOCK_HOME_ENV } from '../src/adapters/reader-lock/reader-lock-file.js';
 import { isAnswered, type PortResult } from '../src/port-result.js';
 import { READER_STALE_MS, type ReaderClaim } from '../src/rules/reader-election.js';
+import { tempDirs } from './fixtures/temp-dirs.js';
+
+const tempDir = tempDirs();
 
 const answer = <T>(result: PortResult<T>): T => {
   expect(isAnswered(result)).toBe(true);
@@ -18,7 +21,7 @@ const answer = <T>(result: PortResult<T>): T => {
 let home: string;
 
 beforeEach(() => {
-  home = mkdtempSync(join(tmpdir(), 'plot-reader-lock-'));
+  home = tempDir('plot-reader-lock-');
 });
 
 afterEach(() => {

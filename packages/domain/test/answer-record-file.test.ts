@@ -1,5 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -7,6 +6,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { answerRecordFile, decodeAnswerRow } from '../src/adapters/answer-record/answer-record-file.js';
 import { isAnswered, type PortResult } from '../src/port-result.js';
 import type { AnswerRecord } from '../src/ports/answer-record.js';
+import { tempDirs } from './fixtures/temp-dirs.js';
+
+const tempDir = tempDirs();
 
 const answer = <T>(result: PortResult<T>): T => {
   expect(isAnswered(result)).toBe(true);
@@ -30,7 +32,7 @@ const row = (over: Partial<AnswerRecord> = {}): AnswerRecord => ({
 let home = '';
 
 beforeEach(() => {
-  home = mkdtempSync(join(tmpdir(), 'plot-answer-record-'));
+  home = tempDir('plot-answer-record-');
 });
 
 describe('the record is empty until an answer is given', () => {
@@ -121,7 +123,7 @@ describe('decodeAnswerRow', () => {
 
 describe('the error paths', () => {
   it('reads no rows and refuses the append where the git common dir cannot be found', async () => {
-    const outside = mkdtempSync(join(tmpdir(), 'plot-answer-record-nogit-'));
+    const outside = tempDir('plot-answer-record-nogit-');
     const store = answerRecordFile({ cwd: outside, env: {} });
     expect(answer(await store.rowsFor(WORKTREE, ASKED_AT))).toEqual([]);
     expect((await store.append(row())).ok).toBe(false);

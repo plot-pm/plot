@@ -65,7 +65,7 @@ describe('stage directories', () => {
     const dir = makeStageDir('plot-stage-unit-');
     made.push(dir);
     assert.ok(path.basename(dir).startsWith('plot-stage-unit-'));
-    assert.equal(path.dirname(dir), os.tmpdir());
+    assert.equal(path.dirname(dir), path.resolve(os.tmpdir()));
     removeStageDir(dir);
     assert.equal(fs.existsSync(dir), false);
     assert.deepEqual(removeLiveStageDirs(), []);

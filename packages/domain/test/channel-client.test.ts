@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { connect, type Socket } from 'node:net';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { startChannel, type RunningChannel } from '../src/adapters/channel/channel-socket.js';
 import { findingsIn, subscribe, type Subscribed } from '../src/adapters/channel/channel-client.js';
 import type { ChannelMessage } from '../src/entities/channel-message.js';
 import type { Finding } from '../src/entities/finding.js';
+import { tempDirs } from './fixtures/temp-dirs.js';
+
+const tempDir = tempDirs();
 
 /**
  * The SUBSCRIBER's half of the transport, against the real listener.
@@ -56,7 +57,7 @@ const until = async (holds: () => boolean, ms = 2000): Promise<void> => {
 let channel: RunningChannel | undefined;
 const opened: Subscribed[] = [];
 
-const socketPath = (): string => join(mkdtempSync(join(tmpdir(), 'plot-client-')), 'c.sock');
+const socketPath = (): string => join(tempDir('plot-client-'), 'c.sock');
 
 afterEach(async () => {
   for (const s of opened.splice(0)) s.close();
