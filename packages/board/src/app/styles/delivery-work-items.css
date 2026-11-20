@@ -37,7 +37,7 @@
   color: inherit;
 }
 
-/* THE WHERE CELL: the PR link, and the branch beneath it in the muted colour. */
+/* THE WHERE CELL: one link tuple per line, the branch segment in the muted colour. */
 [data-section="work-items"] [data-row-cell="where"] {
   flex-direction: column;
   align-items: flex-start;
