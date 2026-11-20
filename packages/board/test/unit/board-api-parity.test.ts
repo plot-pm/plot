@@ -10,8 +10,11 @@ import type { RepoSnapshot } from '@plot-pm/domain/entities/snapshot';
 import { freshWalkCache } from '@plot-pm/domain/workflows/plan-walk-cache';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-/** Every process start made through `node:child_process`, one command line per start. */
-const starts = vi.hoisted(() => ({ lines: [] as string[] }));
+/**
+ * Every process start made through `node:child_process`, one command line per
+ * start, and each asynchronous child that has not exited yet.
+ */
+const starts = vi.hoisted(() => ({ lines: [] as string[], live: new Map<number, string>() }));
 
 vi.mock('node:child_process', async (importOriginal) => {
   const real = await importOriginal<typeof import('node:child_process')>();
@@ -20,7 +23,16 @@ vi.mock('node:child_process', async (importOriginal) => {
   const wrap = <F extends (...a: never[]) => unknown>(name: string, fn: F): F => {
     const wrapped = ((...a: unknown[]) => {
       starts.lines.push(`${name} ${line(a[0], a[1])}`);
-      return (fn as unknown as (...b: unknown[]) => unknown)(...a);
+      const made = (fn as unknown as (...b: unknown[]) => unknown)(...a);
+      // A CHILD THAT OUTLIVES ITS TEST writes into the sandbox after `remove`:
+      // it holds the sandbox's `PLOT_BUDGET_HOME`, and its budget append
+      // creates `home/budget.tsv` again. The teardown waits for these.
+      if (made instanceof real.ChildProcess && made.pid !== undefined && made.exitCode === null) {
+        const pid = made.pid;
+        starts.live.set(pid, `${name} ${line(a[0], a[1])}`);
+        made.once('exit', () => starts.live.delete(pid));
+      }
+      return made;
     }) as unknown as F;
     for (const key of Reflect.ownKeys(fn)) {
       if (key === 'length' || key === 'name') continue;
@@ -76,9 +88,32 @@ const tmp = (prefix: string): string => {
   return dir;
 };
 
+/** A child that runs one of Plot's scripts; a census stub worker runs none and ends in `box.remove`. */
+const PLOT_SCRIPT = /\/plot-[\w-]+\.(?:sh|mjs)\b/;
+const SCRIPTS_END_MS = 60_000;
+
+/**
+ * Waits, for at most {@link SCRIPTS_END_MS}, until no Plot script a test
+ * started still runs, and answers the command lines of those that still do.
+ *
+ * `stopFleetRefresh` stops the clocks and leaves a started read running. On a
+ * census sandbox with desks, `plot-fleetctl.sh --status` asks
+ * `plot-host.sh pr-state` once per desk branch, and each ask appends to
+ * `$PLOT_BUDGET_HOME/budget.tsv` with `mkdir -p`. Removed before it ends, the
+ * sandbox comes back as `plot-census-*` holding `home/budget.tsv`, and
+ * owned-run.sh fails `board-integration` on it.
+ */
+const scriptsEnded = async (): Promise<string[]> => {
+  const running = (): string[] => [...starts.live.values()].filter((l) => PLOT_SCRIPT.test(l));
+  const deadline = Date.now() + SCRIPTS_END_MS;
+  while (running().length > 0 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
+  return running();
+};
+
 afterEach(async () => {
   stopFleetRefresh();
   starts.lines.length = 0;
+  const stillRunning = await scriptsEnded();
   for (const [name, value] of Object.entries(savedEnv)) {
     if (value === undefined) delete process.env[name];
     else process.env[name] = value;
@@ -86,7 +121,8 @@ afterEach(async () => {
   }
   for (const box of boxes.splice(0)) await box.remove();
   for (const dir of made.splice(0)) removeTree(dir);
-});
+  if (stillRunning.length > 0) throw new Error(`still running ${SCRIPTS_END_MS} ms after the test: ${stillRunning.join('; ')}`);
+}, SCRIPTS_END_MS + 30_000);
 
 const git = (cwd: string, ...args: string[]): string =>
   realExecFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], {
