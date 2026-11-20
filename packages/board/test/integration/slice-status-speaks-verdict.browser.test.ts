@@ -54,7 +54,7 @@ describe('a wave row speaks its own verdict in the status slot', () => {
     const page = await cat.open('a-done-wave', { tab: 'agents' });
     await page.locator('[data-delivery-section="release-delivery"]').waitFor({ timeout: 10_000 });
     // DONE is folded by default — unfold it to see the wave rows.
-    const doneToggle = page.locator('[data-group-toggle="release-delivery"]');
+    const doneToggle = page.locator('[data-section-toggle="release-delivery"]');
     if ((await doneToggle.count()) > 0 && (await doneToggle.getAttribute('aria-expanded')) === 'false') {
       await doneToggle.click();
     }

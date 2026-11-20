@@ -1261,27 +1261,6 @@ export function App() {
     return () => cancelAnimationFrame(id);
   }, [validHighlight, tab, lanes, board, showReleased]);
 
-  // Scroll to a revealed branch's row once it exists — the Delivery-tab twin of
-  // the plan-card scroll above. Keyed on `revealNonce` so a repeated reveal of
-  // the same branch fires again; `highlightBranch` is read for the target but
-  // does not gate the re-run.
-  //
-  // Deferred a frame for the same reason: `setTab('delivery')` has to render the
-  // list before `#agent-row-<branch>` is in the document. The dependency on
-  // `fleet` re-runs it when a not-yet-rendered branch arrives in a later pulse —
-  // a reveal fired before its row was in the fleet lands the moment it is.
-  useEffect(() => {
-    if (!highlightBranch || tab !== 'delivery') return;
-    const smooth = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    const id = requestAnimationFrame(() => {
-      document.getElementById(`agent-row-${highlightBranch}`)?.scrollIntoView({
-        block: 'center',
-        behavior: smooth ? 'smooth' : 'auto',
-      });
-    });
-    return () => cancelAnimationFrame(id);
-  }, [highlightBranch, revealNonce, tab, fleet]);
-
   return (
     <TicketHrefContext.Provider value={ticketHref}>
     <div className="mx-auto min-h-screen max-w-[1600px] px-4 py-4">
@@ -1529,6 +1508,7 @@ export function App() {
               // branch half, and the row it reveals wears the ring below.
               onRevealBranch={revealBranch}
               highlightBranch={highlightBranch}
+              revealNonce={revealNonce}
               // WHO IS READING, for the "only my work" filter. It rides on the
               // BOARD payload while the rows ride on the fleet, and the two are
               // fetched separately — so this is `undefined` until the first board

@@ -22,6 +22,7 @@ const handlers: LinkHandlers = {
   onPlan: () => undefined,
   onReveal: () => undefined,
   onAct: () => undefined,
+  onJump: () => undefined,
 };
 
 const render = (cell: Cell | null): string => renderToStaticMarkup(createElement(RowCell, { cell, handlers }));
@@ -72,5 +73,14 @@ describe('RowCell', () => {
 
   it('renders nothing for a cell nobody read', () => {
     expect(render(null)).toBe('');
+  });
+
+  it('shows an anchor link a filter hides as a disabled button that names the filter', () => {
+    const hiding: LinkHandlers = { ...handlers, hiddenReason: (id) => (id === 'delivery-item-x' ? 'hidden by Mine' : null) };
+    const cell: Cell = { value: 'x', links: [{ to: 'item', id: 'x' }] };
+    const html = renderToStaticMarkup(createElement(RowCell, { cell, handlers: hiding }));
+    expect(html).toMatch(/<button type="button" data-row-link="true" disabled="" data-hidden-reason="hidden by Mine" title="hidden by Mine"/);
+    expect(html).not.toContain('href=');
+    expect(renderToStaticMarkup(createElement(RowCell, { cell, handlers }))).toContain('href="#delivery-item-x"');
   });
 });
