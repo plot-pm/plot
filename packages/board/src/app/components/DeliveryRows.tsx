@@ -82,7 +82,7 @@ const cellControl = (resolved: ResolvedLink, handlers: LinkHandlers): SegmentCon
     case 'href':
       return { extraAttr: hook };
     case 'anchor':
-      return { extraAttr: hook, onFollow: () => scrollToAnchor(resolved.id) };
+      return { extraAttr: hook, onFollow: () => handlers.onJump(resolved.id) };
     case 'plan':
       return { extraAttr: hook, onActivate: () => handlers.onPlan(resolved.planFile) };
     case 'reveal':
@@ -94,12 +94,14 @@ const cellControl = (resolved: ResolvedLink, handlers: LinkHandlers): SegmentCon
 
 /**
  * A cell link: the tuple of its artifact from `cellArtifact`, or the plain link where the target names no kind of
- * place or the click is an action. With `bare`, the segment draws no glyph.
+ * place, the click is an action, or a filter hides the anchor (the disabled button says why). With `bare`, the
+ * segment draws no glyph.
  */
 const CellLink = ({ target, label, handlers, bare }: { target: LinkTarget; label: string; handlers: LinkHandlers; bare: boolean }) => {
   const resolved = resolveLink(target, handlers.context);
   const artifact = cellArtifact(target, resolved, label);
-  if (artifact === null) return <Linked resolved={resolved} handlers={handlers}>{label}</Linked>;
+  const hidden = resolved.kind === 'anchor' && (handlers.hiddenReason?.(resolved.id) ?? null) !== null;
+  if (artifact === null || hidden) return <Linked resolved={resolved} handlers={handlers}>{label}</Linked>;
   const segments = artifactTuple(artifact, () => undefined).map((s) => (bare ? { ...s, icon: false } : s));
   return <LinkTupleView segments={segments} controls={[cellControl(resolved, handlers)]} />;
 };

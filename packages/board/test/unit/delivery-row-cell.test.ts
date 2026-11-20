@@ -82,4 +82,19 @@ describe('RowCell', () => {
     expect(html).not.toContain('href=');
     expect(renderToStaticMarkup(createElement(RowCell, { cell, handlers }))).toContain('href="#delivery-item-x"');
   });
+
+  it.each([
+    { to: 'agent', id: 'fix-f3a1' },
+    { to: 'slice', id: 'red-hold' },
+  ] as const)('shows a $to tuple link a filter hides as the disabled button, and as a tuple where it shows', (target) => {
+    const hiding: LinkHandlers = { ...handlers, hiddenReason: () => 'hidden by Mine' };
+    const cell: Cell = { value: target.id, links: [target] };
+    const hidden = renderToStaticMarkup(createElement(RowCell, { cell, handlers: hiding }));
+    expect(hidden).toMatch(/<button type="button" data-row-link="true" disabled="" data-hidden-reason="hidden by Mine" title="hidden by Mine"/);
+    expect(hidden).not.toContain('href=');
+    expect(hidden).not.toContain('data-tuple-link');
+    const shown = renderToStaticMarkup(createElement(RowCell, { cell, handlers }));
+    expect(shown).toContain('data-tuple-link');
+    expect(shown).toMatch(/href="#[^"]+"/);
+  });
 });
