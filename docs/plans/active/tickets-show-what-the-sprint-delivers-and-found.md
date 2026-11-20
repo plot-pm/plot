@@ -1,0 +1,1 @@
+../2026-11-20-tickets-show-what-the-sprint-delivers-and-found.md

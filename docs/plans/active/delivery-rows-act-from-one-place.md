@@ -1,0 +1,1 @@
+../2026-11-20-delivery-rows-act-from-one-place.md
