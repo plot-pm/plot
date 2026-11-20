@@ -50,7 +50,7 @@ export interface TupleLink {
    * icon comes from `KIND_ICON_PATH[what]`, so a missing value is a wrong glyph
    * rather than a missing one — the kind of error that looks like a design.
    */
-  what: 'plan' | 'branch' | 'pr' | 'ticket' | 'wave' | 'worktree';
+  what: 'plan' | 'branch' | 'pr' | 'ticket' | 'wave' | 'worktree' | 'release' | 'story' | 'sprint';
   label: string;
   href: string;
   /**
@@ -148,6 +148,8 @@ export interface TupleRow {
   tally?: string;
   /** Slot 4 — the related things, each linked and each saying what it is. */
   links: TupleLink[];
+  /** Whether slot 4 draws `links` as link tuples, grouped by `linkTuplesOf`. */
+  linksAsTuples?: boolean;
   /** Slot 5 — where this stands. One slot, whatever the kind. */
   status: string;
   /** Slot 6 — how long, and which clock where that is not the rule. */
@@ -212,6 +214,9 @@ export const LINK_ICON_PATH: Record<TupleLink['what'], string> = {
   ticket: KIND_ICON_PATH.ticket,
   wave: KIND_ICON_PATH.wave,
   worktree: GLYPH_PATH.worktree,
+  release: GLYPH_PATH.release,
+  story: GLYPH_PATH.story,
+  sprint: GLYPH_PATH.sprint,
 };
 
 /**
@@ -271,6 +276,86 @@ export function splitBranch(
     tail: branch.slice(branch.length - tailChars),
   };
 }
+
+/**
+ * One segment of a link tuple: one linked name inside the tuple's bordered pill.
+ *
+ * `href` is "" where the payload holds no address, and the segment is then text.
+ */
+export interface TupleSegment {
+  what: TupleLink['what'];
+  label: string;
+  href: string;
+  /** Whether the address is a plan file the board serves, as on `TupleLink`. */
+  internal?: boolean;
+  /** A plan segment's own file, as on `TupleLink`. */
+  file?: string;
+  /** The tracker key a ticket segment links to; absent on every other segment. */
+  ticketKey?: string;
+  /** Whether the segment shows its kind's glyph. A ticket segment after another ticket segment shows none. */
+  icon: boolean;
+  /**
+   * How the label gives way in a narrow slot: `whole` never truncates, `middle` keeps `tail` and clips `head`, and
+   * `end` clips at the end.
+   */
+  fit: 'whole' | 'middle' | 'end';
+  /** The part of the label that may clip. The whole label where `fit` is not `middle`. */
+  head: string;
+  /** The part of the label that never clips. "" where `fit` is not `middle`, or where the label is short. */
+  tail: string;
+}
+
+/**
+ * The segment a link draws as.
+ *
+ * A PR number never truncates; a branch folds in the middle, through `splitBranch`; every other label clips at the
+ * end.
+ *
+ * @param link - the link, without its ticket keys.
+ * @param tailChars - the branch tail budget, `BRANCH_TAIL_CHARS` by default.
+ */
+export const segmentOf = (link: TupleLink, tailChars: number = BRANCH_TAIL_CHARS): TupleSegment => {
+  const plain = { what: link.what, label: link.label, href: link.href, internal: link.internal, file: link.file };
+  if (link.what === 'branch') return { ...plain, icon: true, fit: 'middle', ...splitBranch(link.label, tailChars) };
+  return { ...plain, icon: true, fit: link.what === 'pr' ? 'whole' : 'end', head: link.label, tail: '' };
+};
+
+/**
+ * Group a row's links into link tuples, each a list of segments in the order they draw.
+ *
+ * A PR and the branch right after it form one tuple, PR first. A plan link with ticket keys forms one tuple of one
+ * ticket segment per key, then the plan segment. Every other link is a tuple of its own.
+ *
+ * A ticket segment's label is the printed key and never truncates. Its `href` is `ticketHref(key)`, or "" where that
+ * answers nothing, so an unresolved key stays text.
+ *
+ * @param links - slot 4's links, in their row order.
+ * @param ticketHref - resolves a tracker key to its address, or `undefined` where the board holds none.
+ * @param tailChars - the branch tail budget, `BRANCH_TAIL_CHARS` by default.
+ * @returns the tuples, in the order of `links`.
+ */
+export const linkTuplesOf = (
+  links: readonly TupleLink[],
+  ticketHref: (key: string) => string | undefined,
+  tailChars: number = BRANCH_TAIL_CHARS,
+): TupleSegment[][] => {
+  const tuples: TupleSegment[][] = [];
+  for (let i = 0; i < links.length; i += 1) {
+    const link = links[i];
+    const next = links[i + 1];
+    if (link.what === 'pr' && next?.what === 'branch') {
+      tuples.push([segmentOf(link, tailChars), segmentOf(next, tailChars)]);
+      i += 1;
+      continue;
+    }
+    const tickets = (link.keys ?? []).map(({ key, text }, n): TupleSegment => ({
+      what: 'ticket', label: text, href: ticketHref(key) ?? '', ticketKey: key,
+      icon: n === 0, fit: 'whole', head: text, tail: '',
+    }));
+    tuples.push([...tickets, segmentOf(link, tailChars)]);
+  }
+  return tuples;
+};
 
 /**
  * Minutes as the board says them: `45m`, `3h`, `2d`, `5mo`.
@@ -1489,6 +1574,7 @@ export function tupleFromSlice(facts: SliceRowFacts, index: PlanIndex = EMPTY_PL
     kind: 'wave',
     kindLabel: KIND_LABEL.wave,
     name: { what: 'plan', label: facts.name || UNNAMED_SLICE_LABEL, href: '' },
+    linksAsTuples: true,
     // SLOT 4 HOLDS WHAT THE SLICE CONTAINS, and only that. Its branches, and
     // nothing pointing the other way.
     //

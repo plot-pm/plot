@@ -23,11 +23,12 @@
 // hardcoded because the three call sites disagree about all four, and a
 // component that guessed would be the fourth fill site this slice exists to
 // remove.
-import type { MouseEvent, ReactNode } from 'react';
-import { PlanTicketKeys } from './PlanTicketKeys.js';
-import type { TupleLink, TupleRow as TupleRowData } from '../lib/tuple-row.js';
+import { useContext, type MouseEvent, type ReactNode } from 'react';
+import { PlanTicketKeys, TicketHrefContext } from './PlanTicketKeys.js';
+import type { TupleLink, TupleRow as TupleRowData, TupleSegment } from '../lib/tuple-row.js';
 import { splitBranch, KIND_ICON_PATH,
   LINK_ICON_PATH,
+  linkTuplesOf,
   statusTone,
 } from '../lib/tuple-row.js';
 import type { RowKind } from '../../contract/schema.js';
@@ -255,15 +256,60 @@ function valueAttr(link: TupleLink): Record<string, string> {
  * which is what `truncate` alone does, and why this is a branch of the label
  * rather than the shape of every label.
  */
-function BranchLabel({ name }: { name: string }) {
-  const { head, tail } = splitBranch(name);
-  return (
-    <span aria-hidden className="flex min-w-0 font-mono text-[13px] max-sm:flex-wrap max-sm:break-all">
-      <span className="truncate">{head}</span>
-      {tail && <span className="shrink-0">{tail}</span>}
-    </span>
-  );
-}
+const BranchLabel = ({ name }: { name: string }) => <FoldedLabel {...splitBranch(name)} />;
+
+/** A branch name as its two halves: `head` clips, `tail` never does. Both halves are `aria-hidden`. */
+const FoldedLabel = ({ head, tail }: { head: string; tail: string }) => (
+  <span aria-hidden className="flex min-w-0 font-mono text-[13px] max-sm:flex-wrap max-sm:break-all">
+    <span className="truncate">{head}</span>
+    {tail && <span className="shrink-0">{tail}</span>}
+  </span>
+);
+
+/** A segment's label, clipped as its `fit` says. */
+const SegmentLabel = ({ segment }: { segment: TupleSegment }) => (
+  segment.fit === 'middle' ? <FoldedLabel head={segment.head} tail={segment.tail} />
+    : <span className={segment.fit === 'whole' ? 'shrink-0 whitespace-nowrap tabular-nums' : 'min-w-0 truncate'}>{segment.label}</span>
+);
+
+/**
+ * The classes of one segment inside a link tuple: its padding, its tone and whether it may shrink.
+ *
+ * A linked ticket segment takes the violet ticket tone; every other link is blue, and a segment with no address is
+ * slate text.
+ */
+const segmentClass = (segment: TupleSegment): string => {
+  const tone = !segment.href ? 'text-slate-600 dark:text-slate-300'
+    : segment.what === 'ticket' ? 'bg-(--hue-violet-soft) text-(--hue-violet) hover:underline'
+      : 'text-blue-600 hover:underline dark:text-blue-400';
+  return `flex items-center gap-1 px-1.5 py-1 ${segment.fit === 'whole' ? 'shrink-0' : 'min-w-0'} ${tone}`;
+};
+
+/** The hooks a ticket segment carries: `data-title-number` on either shape, and `data-ticket-link` on a link. */
+const ticketAttr = (segment: TupleSegment): Record<string, string> => (
+  segment.ticketKey === undefined ? {}
+    : { 'data-title-number': '', ...(segment.href ? { 'data-ticket-link': segment.ticketKey } : {}) }
+);
+
+/**
+ * A link tuple: one bordered pill holding its segments in order, each drawn by `TupleLinkView`.
+ *
+ * @param segments - one tuple from `linkTuplesOf`.
+ * @param onOpenPlan - opens an internal plan link as a modal, as on `TupleLinkView`.
+ */
+export const LinkTupleView = ({ segments, onOpenPlan }: {
+  segments: readonly TupleSegment[];
+  onOpenPlan?: (planFile: string) => boolean;
+}) => (
+  <span
+    data-link-tuple
+    className="-my-1 inline-flex min-w-0 max-w-full items-stretch divide-x divide-slate-200 overflow-hidden rounded-md border border-slate-200 dark:divide-slate-700 dark:border-slate-700"
+  >
+    {segments.map((segment) => (
+      <TupleLinkView key={`${segment.what}:${segment.label}`} link={segment} showWhat onOpenPlan={onOpenPlan} />
+    ))}
+  </span>
+);
 
 /** The glyph of what a link points at, from `LINK_ICON_PATH`; its title names the kind in a word. */
 const WhatIcon = ({ what }: { what: TupleLink['what'] }) => (
@@ -317,7 +363,8 @@ export function TupleLinkView({
   extraAttr,
   onActivate,
 }: {
-  link: TupleLink;
+  /** The link, or one segment of a link tuple, which then draws with the segment's fit, tone and padding. */
+  link: TupleLink | TupleSegment;
   /** Whether to print what the link points at beside it. */
   showWhat?: boolean;
   /** Opens an internal plan link as a modal, where the board has the card. */
@@ -348,7 +395,8 @@ export function TupleLinkView({
 }) {
   // A plan link with ticket keys: the glyph, each key as its own link to its
   // ticket, then the plan link, which prints the slug alone.
-  if (link.keys !== undefined && link.keys.length > 0) {
+  const segment = 'fit' in link ? link : undefined;
+  if (!('fit' in link) && link.keys !== undefined && link.keys.length > 0) {
     const { keys, ...plain } = link;
     return (
       <span className="flex min-w-0 items-baseline gap-1">
@@ -361,7 +409,7 @@ export function TupleLinkView({
   }
   const label = (
     <>
-      {showWhat && (
+      {showWhat && (segment?.icon ?? true) && (
         // THE ICON SAYS WHAT IT POINTS AT, where a 10px uppercase word used to.
         //
         // `link.what` is `plan | branch | pr | ticket` — and every one of those
@@ -380,7 +428,7 @@ export function TupleLinkView({
         // alone.
         <WhatIcon what={link.what} />
       )}
-      {link.what === 'branch' ? <BranchLabel name={link.label} /> : (
+      {segment ? <SegmentLabel segment={segment} /> : link.what === 'branch' ? <BranchLabel name={link.label} /> : (
         <span className="min-w-0 truncate">{link.label}</span>
       )}
     </>
@@ -411,12 +459,13 @@ export function TupleLinkView({
       <span
         data-tuple-text={link.what}
         {...valueAttr(link)}
+        {...(segment ? ticketAttr(segment) : {})}
         {...extraAttr?.text}
         // The same reason as on the anchor above: a folded branch name is two
         // `aria-hidden` spans, and this is where the unfolded one rides.
         aria-label={linkLabel(link)}
         title={`${link.what}: ${link.label}`}
-        className="flex min-w-0 items-baseline gap-1 text-slate-600 dark:text-slate-300"
+        className={segment ? segmentClass(segment) : 'flex min-w-0 items-baseline gap-1 text-slate-600 dark:text-slate-300'}
       >
         {label}
       </span>
@@ -452,6 +501,7 @@ export function TupleLinkView({
       // whole, on the element that carries the destination.
       aria-label={linkLabel(link)}
       {...valueAttr(link)}
+      {...(segment ? ticketAttr(segment) : {})}
       {...extraAttr?.link}
       onClick={handle}
       // An EXTERNAL link opens a new tab; an internal one navigates in place,
@@ -474,7 +524,7 @@ export function TupleLinkView({
       // negative margin gives the space back to the layout — the text does not
       // move and the line box is the height it was, which is what keeps a row
       // at 35-36 px and the marks beside it in line.
-      className="-my-1 flex min-w-0 items-baseline gap-1 py-1 text-blue-600 hover:underline dark:text-blue-400"
+      className={segment ? segmentClass(segment) : '-my-1 flex min-w-0 items-baseline gap-1 py-1 text-blue-600 hover:underline dark:text-blue-400'}
     >
       {label}
     </a>
@@ -705,6 +755,7 @@ export function TupleRowView({
   /** The chip that stands in slot 2 for the kind word, where the kind has a role to show. */
   kindChip?: ReactNode;
 }) {
+  const ticketHref = useContext(TicketHrefContext);
   return (
     <li
       role="row"
@@ -807,14 +858,22 @@ export function TupleRowView({
         data-row-cell="where"
         className="flex w-full min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1 text-xs sm:w-auto"
       >
-        {tuple.links.map((link) => (
-          <TupleLinkView
-            key={`${link.what}:${link.label}`}
-            link={link}
-            showWhat
-            onOpenPlan={onOpenPlan}
-          />
-        ))}
+        {tuple.linksAsTuples
+          ? linkTuplesOf(tuple.links, ticketHref).map((segments) => (
+            <LinkTupleView
+              key={segments.map((s) => `${s.what}:${s.label}`).join('|')}
+              segments={segments}
+              onOpenPlan={onOpenPlan}
+            />
+          ))
+          : tuple.links.map((link) => (
+            <TupleLinkView
+              key={`${link.what}:${link.label}`}
+              link={link}
+              showWhat
+              onOpenPlan={onOpenPlan}
+            />
+          ))}
         {aside}
       </span>
       {/* SLOT 5 — WHERE THIS STANDS. One slot whatever the kind: `conflicts`,
