@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** bug-fixes-2-35-0
 - **Issue:** #3489, #2531
@@ -13,6 +13,7 @@
 - **Approved:** 2026-11-17, Jan Wloka, plan-PR #3494 merged
 - **Started:** 2026-11-17, Jan Wloka, `bug/approve-and-deliver-run-without-a-board`
 - **Delivered:** 2026-11-17
+- **Released:** 2026-11-19, v2.35.0
 
 ## Changelog
 
