@@ -1550,6 +1550,7 @@ export function App() {
               // above: rides on the BOARD payload, undefined until the first
               // board lands, which `spawnerStatus` reads as "unknown".
               spawnContract={board?.spawnContract}
+              passkey={passkey}
             />
           ) : (
             <p className="text-sm text-slate-500">Loading…</p>

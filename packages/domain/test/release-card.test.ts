@@ -14,6 +14,7 @@ import {
   todoList,
   NO_RELEASE_TARGETED,
   RELEASE_READING_MISSING,
+  TODO_MARKER_WORDS,
   type CountedSlice,
   type DeliveryInput,
   type DeliveryReadings,
@@ -21,7 +22,7 @@ import {
   type ReleaseRowReading,
   type WorkItemReading,
 } from '../src/index.js';
-import type { ReleasePrReading } from '../src/rules/release-approvable.js';
+import { APPROVE_PENDING, APPROVE_REGISTER_FIRST, type ReleasePrReading } from '../src/rules/release-approvable.js';
 
 const input: DeliveryInput = { mine: 'off', autoReview: true, correctionBudget: 2 };
 const directory = parsePersonDirectory('jwloka = Jan Wloka; eins78 = Max Albrecht');
@@ -179,14 +180,14 @@ describe('the release to-do line', () => {
     const all = cards([sprint()], [releaseRow()]);
     const todo = todoList({
       items: placement.items.map((p) => ({ placement: p, label: p.id, anchor: `delivery-item-${p.id}` })),
-      releases: releaseTodoEntries(all),
+      releases: releaseTodoEntries(all, { 'row:release': ready }, { registered: true }),
       ticketAnswer: 'answered',
       tickets: [],
     });
     const release = todo.lines.filter((l) => l.text.startsWith('Approve release'));
     expect(release).toEqual([{ id: 'release:2.35.0', text: 'Approve release 2.35.0',
       verb: 'Approve release',
-      label: '2.35.0', marker: 'blocks-delivery', markerWords: 'blocks delivery', anchor: all[0]!.anchor, icon: 'release' }]);
+      label: '2.35.0', reason: '', marker: 'blocks-delivery', markerWords: 'blocks delivery', anchor: all[0]!.anchor, icon: 'release' }]);
     expect(todo.lines[0]).toBe(release[0]);
     expect(todo.counts['blocks-delivery'] + todo.counts.input + todo.counts['clean-up']).toBe(todo.lines.length);
     expect(todo.header).toBe('You block 2 deliveries');
@@ -195,12 +196,60 @@ describe('the release to-do line', () => {
   it('labels the line of a row whose version was not read, and names a row with no PR as not read', () => {
     const all = cards([], [releaseRow({ version: '', pr: null })]);
     expect(all[0]!.stateText).toBe('release PR not read');
-    expect(releaseTodoEntries(all)).toEqual([{ id: 'release-row:row:release', label: '(version not read)', anchor: 'release-card-row-row-release' }]);
+    expect(releaseTodoEntries(all, {}, { registered: true })).toEqual([{
+      id: 'release-row:row:release', label: '(version not read)', anchor: 'release-card-row-row-release',
+      blocks: false, reason: 'The board has not read the release PR yet',
+    }]);
   });
 
   it('owes no line for a card no row binds', () => {
-    expect(releaseTodoEntries(cards([sprint({ release: '2.36.0' })], []))).toEqual([]);
-    expect(releaseTodoEntries(cards([], []))).toEqual([]);
+    expect(releaseTodoEntries(cards([sprint({ release: '2.36.0' })], []), {}, { registered: true })).toEqual([]);
+    expect(releaseTodoEntries(cards([], []), {}, { registered: true })).toEqual([]);
+  });
+});
+
+describe('the release to-do line blocks delivery only where the approval can run', () => {
+  const short = HEAD.slice(0, 9);
+  const all = () => cards([sprint()], [releaseRow()]);
+  const lineOf = (pr: ReleasePrReading | null, held: { registered: boolean } | null) => {
+    const todo = todoList({ items: [], ticketAnswer: 'answered', tickets: [], releases: releaseTodoEntries(all(), pr === null ? {} : { 'row:release': pr }, held) });
+    return { todo, line: todo.lines[0]! };
+  };
+
+  it('marks an approvable release blocks delivery and counts it', () => {
+    expect(releaseTodoEntries(all(), { 'row:release': ready }, { registered: true })).toEqual([{
+      id: 'release:2.35.0', label: '2.35.0', anchor: all()[0]!.anchor, blocks: true, reason: '',
+    }]);
+    const { todo, line } = lineOf(ready, { registered: true });
+    expect(line).toMatchObject({ text: 'Approve release 2.35.0', marker: 'blocks-delivery', reason: '' });
+    expect(todo.counts['blocks-delivery']).toBe(1);
+    expect(todo.header).toBe('You block 1 delivery');
+  });
+
+  it.each([
+    ['CI has not reported', { ...ready, ciChecks: undefined, checksSha: undefined }, { registered: true }, `CI has not reported on ${short}`],
+    ['CI still runs', { ...ready, ciChecks: 'pending' as const }, { registered: true }, `CI is still running on ${short}`],
+    ['no review', { ...ready, plotReview: undefined, plotReviewSha: undefined, plotReviewJudged: undefined, plotReviewCheckedSha: undefined }, { registered: true }, `No review on ${short} yet`],
+    ['no passkey registered', ready, { registered: false }, APPROVE_REGISTER_FIRST],
+    ['the passkey unread', ready, null, APPROVE_PENDING],
+    ['the PR unread', null, { registered: true }, 'The board has not read the release PR yet'],
+  ])('keeps a release whose approval cannot run as a waiting line, not counted, where %s', (_name, pr, held, reason) => {
+    const { todo, line } = lineOf(pr as ReleasePrReading | null, held);
+    expect(line).toMatchObject({
+      id: 'release:2.35.0', verb: 'Approve release', label: '2.35.0', reason,
+      text: `Approve release 2.35.0 · ${reason}`, marker: 'waits', markerWords: TODO_MARKER_WORDS.waits,
+    });
+    expect(todo.counts['blocks-delivery']).toBe(0);
+    expect(todo.counts.waits).toBe(1);
+    expect(todo.header).toBe('You block nothing');
+  });
+
+  it('lists a waiting release after every marker that counts', () => {
+    const todo = todoList({
+      items: [{ placement: placeDelivery({ items: [{ id: 'p', kind: 'plan', ownership: 'mine', phase: 'draft' }], agents: [] }, input).items[0]!, label: 'p', anchor: 'a-p' }],
+      ticketAnswer: 'answered', tickets: [], releases: releaseTodoEntries(all(), { 'row:release': ready }, null),
+    });
+    expect(todo.lines.at(-1)!.marker).toBe('waits');
   });
 });
 

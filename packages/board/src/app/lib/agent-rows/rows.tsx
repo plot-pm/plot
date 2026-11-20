@@ -1,6 +1,7 @@
 import { useState, type MouseEvent, type ReactNode } from 'react';
 import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
 import type { DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
+import type { PasskeyRegistration } from '@plot-pm/domain/rules/passkey-settings';
 import { planIndexOf, planReference, planRefOfIssue, type PlanIndex } from '@plot-pm/domain';
 import {
   type AgentRow,
@@ -359,6 +360,11 @@ export interface AgentListProps {
     gateNumber: number | null;
     gatePath: string;
   } | null;
+  /**
+   * The passkey registration answer App reads on load and after a Settings change; `null` or absent
+   * while unread. The to-do list's release lines read it to decide whether an approval can run.
+   */
+  passkey?: PasskeyRegistration | null;
 }
 
 /**
