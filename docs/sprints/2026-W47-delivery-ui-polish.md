@@ -34,7 +34,7 @@ Design spec (outside the repo): `/Users/jwloka/Quatico/Agentic-Tools/plot/docs/s
      left the sprint; the plan's own state then says whether it was withdrawn. -->
 
 ### Should Have
-- [ ] [delivery-activity-has-three-signals] Delivery activity shows as three signals with fixed meanings
+- [ ] [delivery-activity-has-three-signals] Delivery activity shows as three signals with fixed meanings <!-- pr: #3583, branch: feature/delivery-activity-signals -->
 
 <!-- add items here -->
 
