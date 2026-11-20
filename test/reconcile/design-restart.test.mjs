@@ -87,7 +87,7 @@ const pushSpecBranch = (repo, { written = false } = {}) => {
 /** A `gh` stub answering `pr view`/`pr list` and the REST `POST pulls` create for one fixed PR state. */
 const makeGhStub = ({
   prView = null, // null | { number, state, isDraft, url, mergeCommit }
-  mergedAt = null, // null | an ISO string, for `pr list --head ... --json mergedAt`
+  mergedAt = null, // null | an ISO string, for the REST `pulls?head=` read `pr-merged` makes
   createUrl = 'https://example.invalid/pr/99',
 } = {}) => {
   const stubDir = track(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-design-restart-stub-')));
@@ -108,6 +108,8 @@ if [ "$1" = pr ] && [ "$2" = view ]; then
   ${viewBody}
 elif [ "$1" = pr ] && [ "$2" = list ]; then
   ${listBody}
+elif [ "$1" = api ] && [[ "$2" == */pulls\?* ]]; then
+  printf 'HTTP/2 200\r\n\r\n%s' '${JSON.stringify(mergedAt === null ? [] : [{ number: 7, state: 'closed', merged_at: mergedAt, updated_at: mergedAt, head: { ref: 'b', sha: null }, base: { ref: 'main' } }])}'
 elif [ "$1" = api ] && [ "$2" = -X ] && [ "$3" = POST ] && [[ "$4" == */pulls ]]; then
   printf '%s' '{"html_url":"${createUrl}"}'
 elif [ "$1" = repo ] && [ "$2" = view ]; then

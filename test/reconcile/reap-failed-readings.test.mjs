@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { restPullsAsPrList } from './rest-pulls-shim.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scriptsSrc = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -56,6 +57,7 @@ const stubGh = (tmp, prs, { defaultBranch = '' } = {}) => {
   fs.mkdirSync(bin, { recursive: true });
   fs.writeFileSync(path.join(bin, 'gh'), `#!/usr/bin/env node
 const argv = process.argv.slice(2);
+${restPullsAsPrList}
 if (argv[0] === 'repo' && argv[1] === 'view' && ${JSON.stringify(defaultBranch)} !== '') {
   process.stdout.write(${JSON.stringify(defaultBranch)} + '\\n');
   process.exit(0);

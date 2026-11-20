@@ -399,6 +399,13 @@ function run(args, { env = {}, stubs }) {
   });
 }
 
+/** One REST `pulls` row, as the `pr-merged` family reads it; `over` replaces any field. */
+const restRow = (over = {}) => ({
+  number: 1, title: '', state: 'closed', draft: false, html_url: 'u', updated_at: '2026-01-01T00:00:00Z',
+  merged_at: null, merge_commit_sha: null, user: { login: 'a' }, head: { ref: 'b', sha: null }, base: { ref: 'main' },
+  ...over,
+});
+
 const argvOf = (file) => (existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n') : null);
 
 test('host: PLOT_HOST env resolves the backend', () => {
@@ -884,13 +891,13 @@ test('host: pr-merged still answers not-merged for a genuine PR lookup miss', ()
 // PR's `mergedAt` and asks with no base filter, so such a PR reads as merged.
 test('host: pr-merged reads a PR merged into an integration branch as merged, and asks with no base filter', () => {
   const stubs = makeStubs({ ghJson: JSON.stringify([
-    { mergedAt: '2026-11-07T10:00:00Z', baseRefName: 'sprint/card-alignment' },
+    restRow({ number: 1, merged_at: '2026-11-07T10:00:00Z', base: { ref: 'sprint/card-alignment' } }),
   ]) });
   const res = runAllowFail(['pr-merged', 'feature/one-card-grammar'], { env: { PLOT_HOST: 'github' }, stubs });
   assert.equal(res.code, 0, res.stderr);
   assert.equal(res.stdout.trim(), 'merged');
   assert.deepEqual(argvOf(stubs.ghArgv), [
-    'pr', 'list', '--head', 'feature/one-card-grammar', '--state', 'all', '--limit', '100', '--json', 'mergedAt',
+    'api', 'repos/{owner}/{repo}/pulls?state=all&per_page=100&page=1&head={owner}:feature/one-card-grammar', '--include',
   ]);
 });
 
@@ -898,13 +905,13 @@ test('host: pr-merged reads a PR merged into an integration branch as merged, an
 // empty, so a silent CLI failure must fail rather than read as a lookup miss.
 test('host: pr-merged-heads prints only the heads of merged PRs', () => {
   const stubs = makeStubs({ ghJson: JSON.stringify([
-    { mergedAt: '2026-10-01T00:00:00Z', headRefOid: 'aaa111' },
-    { mergedAt: null, headRefOid: 'bbb222' },
+    restRow({ number: 2, merged_at: '2026-10-01T00:00:00Z', head: { ref: 'feature/x', sha: 'aaa111' } }),
+    restRow({ number: 1, merged_at: null, head: { ref: 'feature/x', sha: 'bbb222' } }),
   ]) });
   const out = run(['pr-merged-heads', 'feature/x'], { env: { PLOT_HOST: 'github' }, stubs });
   assert.equal(out.trim(), 'aaa111');
   assert.deepEqual(argvOf(stubs.ghArgv), [
-    'pr', 'list', '--head', 'feature/x', '--state', 'all', '--limit', '100', '--json', 'mergedAt,headRefOid',
+    'api', 'repos/{owner}/{repo}/pulls?state=all&per_page=100&page=1&head={owner}:feature/x', '--include',
   ]);
 });
 
@@ -7538,25 +7545,27 @@ test('host: pr-state over REST names the head and binds the checks to it', () =>
 });
 test('host: a GraphQL-only op stays on GraphQL even under PLOT_HOST_FORCE_REST', () => {
   // THE ROUTER ANSWERS FOR WHAT THIS SCRIPT HAS, NOT FOR WHAT GITHUB OFFERS.
-  // GitHub serves `pr list` over REST perfectly well; this script has not
-  // written that path. Answering `rest` for `pr-merged` would name a route
-  // that does not exist, and the op would then either take the GraphQL path
-  // anyway — making the router decorative — or fail.
-  //
-  // So the honest answer is `graphql`, and the force switch does not move it.
-  // Writing the missing REST paths is new capability and belongs to no slice
-  // in this plan.
-  const stubs = makeStubsRateAware({
-    graphqlRemaining: 0,
-    graphqlJson: JSON.stringify([{ mergedAt: '2026-09-01T00:00:00Z' }]),
-  });
-  const out = run(['pr-merged', 'some-branch'], {
-    env: { PLOT_HOST: 'github', PLOT_HOST_FORCE_REST: '1' },
-    stubs,
-  });
-  assert.equal(out.trim(), 'merged');
+  // `issue-view` has no REST path here, so the force switch does not move it.
+  const stubs = makeStubsRateAware({ graphqlRemaining: 0 });
+  run(['issue-view', '5'], { env: { PLOT_HOST: 'github', PLOT_HOST_FORCE_REST: '1' }, stubs });
   const calls = callsOf(stubs.callsFile);
-  assert.ok(calls.some((c) => c.startsWith('pr list')), 'the only route it has');
+  assert.ok(calls.some((c) => c.startsWith('issue view 5')), 'the only route it has');
+});
+
+test('host: pr-merged reads REST with GraphQL unspent, and never asks gh pr list', () => {
+  // The `pr-merged` family is REST-only: one REST page costs what one GraphQL
+  // call did, and a spent GraphQL budget must not make it answer `unknown`.
+  for (const graphqlRemaining of [5000, 0]) {
+    const stubs = makeStubsRateAware({
+      graphqlRemaining,
+      restJson: JSON.stringify([restRow({ number: 3, merged_at: '2026-09-01T00:00:00Z' })]),
+    });
+    const out = run(['pr-merged', 'some-branch'], { env: { PLOT_HOST: 'github' }, stubs });
+    assert.equal(out.trim(), 'merged');
+    const calls = callsOf(stubs.callsFile);
+    assert.ok(calls.some((c) => c.startsWith('api repos/{owner}/{repo}/pulls?state=all&per_page=100&page=1&head={owner}:some-branch')), calls.join('\n'));
+    assert.ok(!calls.some((c) => c.startsWith('pr ')), `no GraphQL call: ${calls.join('\n')}`);
+  }
 });
 
 test('host: a GraphQL-only op spends no budget read to be routed', () => {
@@ -9676,8 +9685,8 @@ function makeGhPrMergedStub() {
     path.join(dir, 'gh'),
     `#!/usr/bin/env bash
 printf '%s\\n' "$@" >> ${JSON.stringify(argvFile)}
-if [[ "$*" == *"--state all"* ]]; then
-  printf '%s' '[{"mergedAt":"2026-01-01T00:00:00Z"}]'
+if [[ "$*" == *"/pulls?state=all"* ]]; then
+  printf '%s' '${JSON.stringify([restRow({ number: 4, merged_at: '2026-01-01T00:00:00Z' })])}'
 elif [[ "$*" == *"--state open"* ]]; then
   printf '%s' '[{"number":5,"title":"t","state":"OPEN","headRefName":"feature/x","isDraft":false,"url":"u","updatedAt":"x","author":{"login":"a"},"headRefOid":"${'c'.repeat(40)}","mergedAt":null}]'
 fi
@@ -11563,31 +11572,27 @@ function makeGhPagingStub(totalMerged, targetIndex, targetNumber, targetSha, tar
   // page whose width is less than or equal to that index never includes it —
   // the exact shape a fixed `--limit 100` leaves silently incomplete past 100
   // merged PRs.
+  // REST pages: `per_page` and `page` from the `pulls?` URL, newest first.
   const body = `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> ${JSON.stringify(callsFile)}
-limit=""
-prev=""
-for a in "$@"; do
-  if [ "$prev" = "--limit" ]; then limit="$a"; fi
-  prev="$a"
-done
 node -e '
-  const limit = Number(process.argv[1]);
+  const q = new URLSearchParams(process.argv[1].slice(process.argv[1].indexOf("?") + 1));
+  const per = Number(q.get("per_page") || 30);
+  const from = (Number(q.get("page") || 1) - 1) * per;
   const total = ${totalMerged};
-  const n = Math.min(limit, total);
   const rows = [];
-  for (let i = 0; i < n; i++) {
+  for (let i = from; i < Math.min(from + per, total); i++) {
     const isTarget = i === ${targetIndex};
     const number = isTarget ? ${targetNumber} : 90000 - i;
     rows.push({
-      number,
-      mergedAt: isTarget ? ${JSON.stringify(targetMergedAt)} : "2026-09-01T00:00:00Z",
-      mergeCommit: { oid: isTarget ? ${JSON.stringify(targetSha)} : "decoy" + i },
-      baseRefName: "main",
+      number, state: "closed", updated_at: "2026-09-01T00:00:00Z", head: { ref: "b", sha: null },
+      merged_at: isTarget ? ${JSON.stringify(targetMergedAt)} : "2026-09-01T00:00:00Z",
+      merge_commit_sha: isTarget ? ${JSON.stringify(targetSha)} : "decoy" + i,
+      base: { ref: "main" },
     });
   }
   process.stdout.write(JSON.stringify(rows));
-' "$limit"
+' "$2"
 `;
   writeFileSync(path.join(dir, 'gh'), body);
   chmodSync(path.join(dir, 'gh'), 0o755);

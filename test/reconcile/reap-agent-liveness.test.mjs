@@ -30,6 +30,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { restPullsAsPrList } from './rest-pulls-shim.mjs';
 import { readPid, record, signalOwn } from './own-process.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -111,16 +112,20 @@ const desk = (repo, branch, wrapperPid, { pruned = true } = {}) => {
   return { wt, head };
 };
 
-/** A `gh` answering `pr list` from a table; `failHeads` fails any call asking for `headRefOid`. */
+/**
+ * A `gh` answering `pr list` and REST `pulls?head=` from a table. `failHeads` fails
+ * the read `pr-merged-heads` makes: `pr-merged` makes the same REST read, so the
+ * stub tells them apart by the `plot-host.sh` op in its parent's argv.
+ */
 const stubGh = (tmp, prs, { failHeads = false, log = '' } = {}) => {
   const bin = path.join(tmp, 'bin');
   fs.mkdirSync(bin, { recursive: true });
   fs.writeFileSync(path.join(bin, 'gh'), `#!/usr/bin/env node
 const argv = process.argv.slice(2);
+if (${failHeads} && / pr-merged-heads /.test(require('node:child_process').execFileSync('ps', ['-o', 'args=', '-p', String(process.ppid)], { encoding: 'utf8' }))) { process.exit(1); }
+${restPullsAsPrList}
 if (${JSON.stringify(log)}) { require('node:fs').appendFileSync(${JSON.stringify(log)}, argv.join(' ') + '\\n'); }
 if (argv[0] !== 'pr' || argv[1] !== 'list') { process.exit(1); }
-const json = argv[argv.indexOf('--json') + 1] || '';
-if (${failHeads} && json.includes('headRefOid')) { process.exit(1); }
 const table = ${JSON.stringify(prs)};
 const head = argv[argv.indexOf('--head') + 1];
 const state = argv[argv.indexOf('--state') + 1];

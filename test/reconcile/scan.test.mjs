@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { restPullsAsPrList } from './rest-pulls-shim.mjs';
 
 // Every directory this file creates, removed after its last test by the exact
 // path mkdtempSync returned — never by a glob over the shared temp directory.
@@ -4590,11 +4591,11 @@ exit 0
 
 /**
  * Runs the section-6 scan with a `gh` stub that answers both `pr view` (the
- * plan's own PR) and `pr list --head <branch>` (`pr-merge-dest`, one call per
- * hop) from a fixed table, `hops`: `{ [branch]: [{ number, base, sha, at }] }`
+ * plan's own PR) and the REST `pulls?head=<owner>:<branch>` read (`pr-merge-dest`,
+ * one call per hop) from a fixed table, `hops`: `{ [branch]: [{ number, base, sha, at }] }`
  * or one such object. A branch absent from the table answers `pr list` with
- * `[]` — a dead end. `failList` makes every `pr list` call fail as a server
- * error. Returns the scan's stdout and the stub's argv log.
+ * `[]` — a dead end. `failList` makes every `pr list` and `gh api` call fail as
+ * a server error. Returns the scan's stdout and the stub's argv log.
  */
 function runChainScan(planSha, planBase, hops, { failList = false } = {}) {
   const bin = scratch('plot-scan-s6-chain-');
@@ -4602,8 +4603,13 @@ function runChainScan(planSha, planBase, hops, { failList = false } = {}) {
   fs.writeFileSync(path.join(bin, 'gh'), `#!/usr/bin/env node
 const fs = require('node:fs');
 const hops = ${JSON.stringify(hops)};
-const argv = process.argv.slice(2).join(' ');
-fs.appendFileSync(${JSON.stringify(argvLog)}, argv + '\\n');
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(argvLog)}, args.join(' ') + '\\n');
+if (${JSON.stringify(failList)} && args[0] === 'api') { process.stderr.write('HTTP 500: server error'); process.exit(1); }
+{ const argv = args;
+${restPullsAsPrList}
+}
+const argv = args.join(' ');
 if (argv.includes('pr view')) {
   const n = argv.match(/pr view (\\d+)/)[1];
   process.stdout.write(JSON.stringify({
@@ -4682,7 +4688,7 @@ test('scan: a PR merged into a living develop resolves directly, never through a
       `a merge commit in the clone resolves directly:\n${sections['6']}`);
     assert.doesNotMatch(sections['6'], /v1\.0\.0|via develop/,
       `the direct path must not read an older develop PR:\n${sections['6']}`);
-    assert.doesNotMatch(argv, /pr list .*--head develop/,
+    assert.doesNotMatch(argv, /pulls\?\S*head=[^:&]*:develop\b/,
       `the direct path must not walk:\n${argv}`);
   } finally {
     git(s6Repo, 'tag', '-d', 'v1.0.0');
@@ -4723,7 +4729,7 @@ test('scan: a chain deeper than the bound ends too-deep, never a loop', () => {
   assert.match(sections['6'],
     /2026-03-01-one\.md — delivered, PR #101 merged into 'chain-0' → cannot resolve \(too-deep at 'chain-5'\)/,
     `an over-depth chain must end in a named finding, not a hang:\n${sections['6']}`);
-  const plan101Hops = argv.split('\n').filter((l) => /--head chain-/.test(l));
+  const plan101Hops = argv.split('\n').filter((l) => /pulls\?\S*head=[^:&]*:chain-/.test(l));
   assert.equal(plan101Hops.length, 15, `five host calls per plan, three plans:\n${argv}`);
 });
 

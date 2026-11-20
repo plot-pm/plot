@@ -2486,8 +2486,9 @@ graphql_budget_spent() {
 # no longer costs a call to establish — the record is a file.
 gh_route() { # $1=op → graphql|rest
   case "${1:-}" in
-    # REST-only: no GraphQL route exists to choose, so nothing is consulted.
-    limit|pr-create|pr-body)
+    # REST-only: no GraphQL route exists to choose, so nothing is consulted. The
+    # `pr-merged` family reads REST through `gh_head_prs`, at one page per 100 PRs.
+    limit|pr-create|pr-body|pr-merged|pr-merge-commit|pr-merge-dest|pr-merged-heads)
       printf 'rest\n'
       ;;
     # Both transports implemented — the ops where the reasons apply.
@@ -2583,14 +2584,21 @@ gh_pr_list_routed() {
     pages="$pages$(gh_api_harvest "repos/$repo/pulls?state=${state/merged/closed}&per_page=100&page=$page${since:+&sort=updated&direction=desc}${head_args[1]:+&head=${repo%%/*}:${head_args[1]}}")" || return
     page="$(jq -s --arg st "$state" --arg s "$since" --argjson n "$n" --argjson p "$page" "$sel"'if (.[-1] | length) == 100 and ([.[][] | select(keep)] | length) < $n and .[-1][-1].updated_at > $s then $p + 1 else 0 end' <<<"$pages")" || return
   done
-  jq -cs --arg st "$state" --arg s "$since" --argjson n "$n" "$sel"'[.[][] | select(keep)] | sort_by(-.number) | .[:$n] | map({number, title, state: (if .merged_at then "MERGED" else (.state | ascii_upcase) end), headRefName: .head.ref, baseRefName: .base.ref, isDraft: (.draft // false), url: .html_url, updatedAt: .updated_at, author: {login: (.user.login // "")}, headRefOid: .head.sha, mergedAt: .merged_at})' <<<"$pages"
+  jq -cs --arg st "$state" --arg s "$since" --argjson n "$n" "$sel"'[.[][] | select(keep)] | sort_by(-.number) | .[:$n] | map({number, title, state: (if .merged_at then "MERGED" else (.state | ascii_upcase) end), headRefName: .head.ref, baseRefName: .base.ref, isDraft: (.draft // false), url: .html_url, updatedAt: .updated_at, author: {login: (.user.login // "")}, headRefOid: .head.sha, mergedAt: .merged_at, mergeCommit: (if .merged_at then {oid: .merge_commit_sha} else null end)})' <<<"$pages"
 }
+
+# EVERY PR WHOSE HEAD IS BRANCH `$ref`, any state and every page, over REST, in the
+# array `gh pr list --json` prints. REST's `head=` takes `owner:branch`, the owner
+# of `--repo` or of the remote. `mergeCommit` is set only where `merged_at` is,
+# because REST fills `merge_commit_sha` with a test-merge sha on an open PR. A
+# failed page prints nothing and leaves the CLI's words in `$HOST_ERR`.
+gh_head_prs() { state=all since='' limit=100000 rich=0 route=rest gh_pr_list_routed 2>"$HOST_ERR" && rm -f "$HOST_ERR"; }
 
 # THE ARGUMENTS OF `pr-merged`, `pr-merge-commit`, `pr-merge-dest` and
 # `pr-merged-heads`: a branch, then `--repo <owner/repo>` at most. Sets `ref` and
 # `repo_args`; a missing branch or any other argument ends the script.
 op_branch_args() {
-  ref="${1:?$op needs a branch}"; shift; repo_args=()
+  ref="${1:?$op needs a branch}"; shift; repo_args=(); head_args=(--head "$ref")
   while [ $# -gt 0 ]; do
     case "$1" in
       --repo) repo_args=(-R "${2:?}"); shift 2 ;;
@@ -4259,11 +4267,9 @@ case "$op" in
     # NO REMOTE, NO PR: no repository holds one, so nothing merged, whatever gh's auth says.
     if [ ${#repo_args[@]} -eq 0 ] && [ -z "$(git remote 2>/dev/null)" ]; then echo "not-merged"; else
       if [ "$be" = "github" ]; then
-        # --state all, because a merged PR reports CLOSED and the default `open`
-        # would hide every one of them. --limit 100 rather than 1: the newest PR
-        # is not the merge, exactly as the state is not the merge.
-        if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json mergedAt 2>"$HOST_ERR")"; then
-          rm -f "$HOST_ERR"
+        # Every state, because a merged PR reports CLOSED; every page, because
+        # the newest PR is not the merge, exactly as the state is not the merge.
+        if out="$(gh_head_prs)"; then
           jq -e 'any(.[]; .mergedAt != null)' >/dev/null 2>&1 <<<"$out" && echo "merged" || echo "not-merged"
         else
           host_err
@@ -4317,25 +4323,14 @@ case "$op" in
     # the first sha: one `number<TAB>base<TAB>sha<TAB>mergedAt` line each, read
     # off the same payload. `plot-release-chain.mjs` asks it once per hop of a
     # release-chain walk, where under-reading is a silent wrong hop rather than
-    # a cheap prefilter (#2238) — so GitHub's `--limit` grows and the query
-    # re-asks until a page returns short of it, same proof as
-    # `pr_list_report_truncation`. Bitbucket's arm already pages in full via
+    # a cheap prefilter (#2238) — so GitHub's `gh_head_prs` reads every page,
+    # until a page returns short of 100. Bitbucket's arm already pages in full via
     # `_bb_paged_walk` (#2484); its `mergedAt` is `updated_on` as in `pr-list`,
     # since the endpoint carries no real merge timestamp (#2202).
     op_branch_args "$@"
     if [ "$op" = pr-merge-dest ]; then pick='.[] | [.n, .b, .s, .t] | @tsv'; else pick='first.s // empty'; fi
     if [ "$be" = "github" ]; then
-      limit=100
-      # A page as long as `--limit` may have been cut, so the limit doubles and
-      # the query re-asks. The loop ends one of two ways: a short page, after
-      # which `$HOST_ERR` is gone, or a failed call, which leaves `$HOST_ERR`
-      # in place because the redirect creates it before `gh` runs.
-      while out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit "$limit" --json number,mergedAt,mergeCommit,baseRefName 2>"$HOST_ERR")"; do
-        rm -f "$HOST_ERR"
-        [ "$(jq 'length' <<<"$out")" -lt "$limit" ] && break
-        limit=$((limit * 2))
-      done
-      if [ -e "$HOST_ERR" ]; then
+      if ! out="$(gh_head_prs)"; then
         host_err
         # A lookup miss is an answer: no PR, so no merge commit. Anything else
         # is the question failing, and silence must not read as "carried
@@ -4368,20 +4363,19 @@ case "$op" in
     # `plot-reap.mjs` asks it only for a branch already known merged, to tell a
     # pushed commit from one made after the merge once the remote ref is gone.
     #
-    # `--state all` and `--limit 100` for `pr-merged`'s own two reasons: a
-    # merged PR reports CLOSED, and the newest PR is not the merge.
+    # Every state and every page for `pr-merged`'s own two reasons: a merged PR
+    # reports CLOSED, and the newest PR is not the merge.
     #
     # A FAILURE WITH NO MESSAGE IS A FAILURE HERE, unlike `pr-state`: an empty
     # answer makes the caller fall back to a patch-id reading, so silence must
     # not stand in for *no merged head*. Only a recognised lookup miss is empty.
     op_branch_args "$@"
     if [ "$be" = "github" ]; then
-      if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json mergedAt,headRefOid 2>"$HOST_ERR")"; then
-        rm -f "$HOST_ERR"
+      if out="$(gh_head_prs)"; then
         jq -r '.[] | select(.mergedAt != null and .headRefOid != null) | .headRefOid' <<<"$out" || exit 3
       else
         host_err
-        [ -n "$err" ] && is_lookup_miss "$err" || die3 "${err:-gh pr list failed}"
+        [ -n "$err" ] && is_lookup_miss "$err" || die3 "${err:-the pulls read failed}"
       fi
     else
       bb_require_json

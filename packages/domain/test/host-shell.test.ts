@@ -1268,10 +1268,10 @@ describe('a cross-repo reference finds the host it lives on', () => {
   });
 
   it('asks the other backend for a merged branch on a clean not-merged', async () => {
-    // `pr-merged`'s GitHub arm reads `gh pr list --head … --json mergedAt`, an array.
+    // `pr-merged`'s GitHub arm reads the REST `pulls?head=<owner>:<branch>` rows, an array.
     const { host } = checkoutWhose(
       'bitbucket',
-      { json: '[{"mergedAt":"2026-10-20T00:00:00Z"}]' },
+      { json: '[{"number":1,"state":"closed","merged_at":"2026-10-20T00:00:00Z","updated_at":"2026-10-20T00:00:00Z","head":{"ref":"feature/lives-on-github","sha":null},"base":{"ref":"main"}}]' },
       { fail: 'no pull requests found for feature/lives-on-github' },
     );
     expect(await host.prMerged('feature/lives-on-github', { repo: REPO })).toEqual({ ok: true, value: 'merged' });
