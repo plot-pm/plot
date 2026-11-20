@@ -533,6 +533,13 @@ export const CardSchema = z.object({
     badge: z.string().default(''),
   }).optional(),
   /**
+   * The issue ids the `Claim-<n> refuted` lines of the plan's `## Verification`
+   * section name, in file order, from the same `refutedClaims` reading as
+   * `verification`. `[]` wherever `verification` is absent, and for a refuted
+   * line that names no issue.
+   */
+  refutedIssues: z.array(z.string()).default([]),
+  /**
    * What this plan's slices cost, summed over the ones measured on THIS
    * machine, with the unmeasured ones counted beside the sum.
    *
@@ -3815,11 +3822,44 @@ export const FleetWaitingSchema = z.object({
   hidden: z.number().default(0),
   unassigned: z.number().default(0),
   assignedToOthers: z.number().default(0),
+  /** The keys of the hidden rows `unassigned` counts. */
+  unassignedKeys: z.array(z.string()).default([]),
+  /** The keys of the hidden rows `assignedToOthers` counts. */
+  assignedToOthersKeys: z.array(z.string()).default([]),
   complete: z.boolean().default(true),
   notice: z.string().nullable().default(null),
   source: TicketSourceSchema.nullable().default(null),
 });
 export type FleetWaiting = z.infer<typeof FleetWaitingSchema>;
+
+/**
+ * One open or closed issue that a plan names, that carries a review finding
+ * title, or that a card's `refutedIssues` names: an {@link IssueRow} with the
+ * set it came from.
+ *
+ * `state` is `closed` for a row of the issue read's closed set, which holds
+ * the last 14 days. A ticket closed earlier is absent, and absent is not
+ * closed. `complete` is the open set's flag: `false` where the read's own cap
+ * stopped before every open row was read.
+ */
+export const PlanTicketRowSchema = IssueRowSchema.extend({
+  state: z.enum(['open', 'closed']),
+  complete: z.boolean().default(true),
+});
+export type PlanTicketRow = z.infer<typeof PlanTicketRowSchema>;
+
+/**
+ * One plan that names a ticket, with the slice counts `ticketPhase` reads.
+ * `merged` is `null` where no pulse holds the plan, never `0`.
+ */
+export const TicketPlanSchema = z.object({
+  slug: z.string(),
+  title: z.string(),
+  story: z.string(),
+  state: z.string(),
+  total: z.number(),
+  merged: z.number().nullable(),
+});
 
 /**
  * How the registry answers *is this agent still running?* — one fact per pulse.
@@ -4915,6 +4955,19 @@ export const FleetShape = z.object({
    * an older server renders the line with slice counts only.
    */
   releaseTickets: ReleaseTicketsSchema.nullable().optional(),
+  /**
+   * The issues the Tickets section's scope groups read, from the same open and
+   * closed sets as `releaseTickets`, with no `ISSUE_LIMIT` cut: each row a plan
+   * names, each row whose title is a review finding title, and each row a
+   * card's `refutedIssues` names. `[]` where no issue read holds rows.
+   */
+  planTicketRows: z.array(PlanTicketRowSchema).default([]),
+  /**
+   * The plans that name each ticket, keyed by issue key, from the same plan
+   * read that marks `waiting` rows planned. `{}` where the plans could not be
+   * read or no issue read has run.
+   */
+  ticketPlans: z.record(z.string(), z.array(TicketPlanSchema)).default({}),
   /**
    * The two fleet controls, SHARED across every board reading this repo.
    *
