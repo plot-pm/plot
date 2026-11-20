@@ -1038,12 +1038,11 @@ bb_query_state() { # $1=adapter state word → Bitbucket's
   esac
 }
 
-# The states of one request, comma-joined adapter words, as `state=` parameters
-# (`state=OPEN&state=MERGED`) or as one `q=` clause
-# (`(state="OPEN" OR state="MERGED")`, encoded). `q=` overrides a `state=`
-# parameter, so a query carries its states inside the clause.
-bb_state_params() { local _w _p=""; for _w in ${1//,/ }; do _p="${_p:+$_p&}state=$(bb_query_state "$_w")"; done; printf '%s' "$_p"; }
-bb_state_clause() { local _w _c=""; for _w in ${1//,/ }; do _c="${_c:+$_c OR }state=%22$(bb_query_state "$_w")%22"; done; printf '%%28%s%%29' "$_c"; }
+# The states of one request, comma-joined adapter words, each as `$3<STATE>$4`
+# and joined by `$2`: `state=` parameters (`state=OPEN&state=MERGED`) or the
+# terms of one `q=` clause (`state="OPEN" OR state="MERGED"`, encoded). `q=`
+# overrides a `state=` parameter, so a query carries its states in the clause.
+bb_state_terms() { local _w _t=""; for _w in ${1//,/ }; do _t="${_t:+$_t$2}$3$(bb_query_state "$_w")$4"; done; printf '%s' "$_t"; }
 
 # Percent-encode one value for a URL query string.
 #
@@ -1185,7 +1184,7 @@ _bb_paged_walk() {
 
 bb_branch_query() { # $1=branch $2=comma-joined adapter states; rest=global bb args → values[]
   local _br="$1" _st="$2" _q; shift 2
-  _q="$(bb_state_clause "$_st") AND source.branch.name=$(url_encode "\"$_br\"")"
+  _q="%28$(bb_state_terms "$_st" ' OR ' state=%22 %22)%29 AND source.branch.name=$(url_encode "\"$_br\"")"
   # THE WINDOW COMPOSES WITH THE STATE FILTER AND NEVER REPLACES IT. Bitbucket
   # takes ONE `q=` parameter, so a second one would silently win or lose
   # depending on the host's parsing — and either way the state clause this query
@@ -1363,7 +1362,7 @@ bb_window_listing() { # global bb args… --state <s> --json → one JSON array
   done
   [ -n "$_st" ] || die "bb_window_listing: no --state"
   [ -n "$PR_LIST_SINCE" ] || die "bb_window_listing: no window"
-  _q="$(bb_state_clause "$_st") AND updated_on>=$(url_encode "\"$PR_LIST_SINCE\"")"
+  _q="%28$(bb_state_terms "$_st" ' OR ' state=%22 %22)%29 AND updated_on>=$(url_encode "\"$PR_LIST_SINCE\"")"
   _q="${_q// /%20}"
   _path="/repositories/{ws}/{repo}/pullrequests?q=${_q}&pagelen=50&fields=$BB_LIST_FIELDS"
   plot_tmpfile _spool host-window || return 3
@@ -1454,7 +1453,7 @@ bb_window_listing() { # global bb args… --state <s> --json → one JSON array
 # `bb_branch_query`: `pr_list_call` classifies once, so a `429` on any page
 # still reads as a rate limit.
 bb_state_listing() { # global bb args… --state <s> --json → one JSON array
-  local _st="" _args=() _rows
+  local _st="" _args=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --state) _st="${2:?}"; shift 2 ;;
@@ -1463,10 +1462,10 @@ bb_state_listing() { # global bb args… --state <s> --json → one JSON array
     esac
   done
   [ -n "$_st" ] || die "bb_state_listing: no --state"
-  _rows="$(_bb_paged_walk "/repositories/{ws}/{repo}/pullrequests?$(bb_state_params "$_st")&pagelen=$BB_LIST_PAGELEN&fields=$BB_LIST_FIELDS" \
+  # `pipefail` makes a failed walk the pipeline's code; `jq` over no input prints nothing.
+  _bb_paged_walk "/repositories/{ws}/{repo}/pullrequests?$(bb_state_terms "$_st" '&' state=)&pagelen=$BB_LIST_PAGELEN&fields=$BB_LIST_FIELDS" \
     "bitbucket pr-list state=$_st" "a join against this page may read older branches as 'no PR' (#333)" \
-    "${PR_LIST_LIMIT:-$BB_LIST_PAGELEN}" ${_args[@]+"${_args[@]}"})" || return $?
-  jq -c "$BB_STATE_RANK" <<<"$_rows"
+    "${PR_LIST_LIMIT:-$BB_LIST_PAGELEN}" ${_args[@]+"${_args[@]}"} | jq -c "$BB_STATE_RANK"
 }
 
 # The branches a sweep asks about, newline-or-space separated. Empty means the
