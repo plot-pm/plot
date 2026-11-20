@@ -1452,7 +1452,8 @@ describe('a row resolves its plan reference through the index, not its own field
     );
     expect(t.name).toEqual({
       what: 'plan',
-      label: '#9 an-adopting-repo-installs-its-gates',
+      label: 'an-adopting-repo-installs-its-gates',
+      keys: [{ key: '9', text: '#9' }],
       href: '/plan/2026-09-09-an-adopting-repo-installs-its-gates.md',
       internal: true,
       file: '2026-09-09-an-adopting-repo-installs-its-gates.md',
@@ -1477,7 +1478,8 @@ describe('a row resolves its plan reference through the index, not its own field
       { plan: 'a-plan', planFile: '2026-08-20-a-plan.md', issues: [], phase: 'Design', waitingDays: 3 },
       index,
     );
-    expect(t.name.label).toBe('#42 a-plan');
+    expect(t.name.label).toBe('a-plan');
+    expect(t.name.keys).toEqual([{ key: '42', text: '#42' }]);
     expect(t.name.href).toBe('/plan/2026-08-20-a-plan.md');
   });
 
@@ -1493,12 +1495,13 @@ describe('a row resolves its plan reference through the index, not its own field
       },
       index,
     );
-    expect(t.links.map((l) => l.label)).toContain('#7 lonely-plan');
+    expect(t.links.map((l) => [l.keys, l.label])).toContainEqual([[{ key: '7', text: '#7' }], 'lonely-plan']);
   });
 
   it('falls through to an empty index with no caller-supplied one, resolving only what the facts themselves name', () => {
     const t = tupleFromPlan({ plan: 'a-plan', planFile: '2026-08-20-a-plan.md', issues: ['3'], phase: 'Design', waitingDays: null });
-    expect(t.name.label).toBe('#3 a-plan');
+    expect(t.name.label).toBe('a-plan');
+    expect(t.name.keys).toEqual([{ key: '3', text: '#3' }]);
     expect(t.name.href).toBe('/plan/2026-08-20-a-plan.md');
   });
 

@@ -46,7 +46,8 @@ describe('panels show the plan reference prefix', () => {
       cards: [withIssue], phases: ['Development'], onClose: () => {},
     }));
     expect(html).toContain('data-plan-ref');
-    expect(html).toContain('#1089 one-ticket');
+    expect(html).toContain('data-title-number="true">#1089</span>');
+    expect(html).toContain('<span class="min-w-[8ch] truncate">one-ticket</span></a>');
     expect(html).toContain('href="/plan/2026-11-01-one-ticket.md"');
   });
 
@@ -60,7 +61,7 @@ describe('panels show the plan reference prefix', () => {
       onClose: () => {}, onOpenPlan: () => true,
       planIndex: planIndexOf({ cards: [withIssue] }),
     }));
-    expect(html).toContain('#1089');
+    expect(html).toContain('data-title-number="true">#1089</span>');
     expect(html).toContain('href="/plan/2026-11-01-one-ticket.md"');
     const gone = html.slice(html.indexOf('gone') - 200, html.indexOf('gone') + 80);
     expect(gone).not.toContain('<a ');

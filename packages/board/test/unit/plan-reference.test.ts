@@ -3,30 +3,45 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { planReference, planIndexOf, type PlanReferenceAnswer } from '@plot-pm/domain';
 import { PlanReference, isPlainPlanClick } from '../../src/app/components/PlanReference.js';
+import { TicketHrefContext } from '../../src/app/components/PlanTicketKeys.js';
 
 const render = (answer: PlanReferenceAnswer, file?: string, onOpenPlan?: (file: string) => boolean): string =>
   renderToStaticMarkup(createElement(PlanReference, { answer, file, onOpenPlan }));
 
+const withTickets = (answer: PlanReferenceAnswer, ticketHref: (key: string) => string | undefined): string =>
+  renderToStaticMarkup(createElement(TicketHrefContext.Provider, { value: ticketHref }, createElement(PlanReference, { answer, file: answer.href ?? undefined })));
+
 describe('PlanReference', () => {
-  it('never truncates the prefix — it carries shrink-0, the slug carries truncate', () => {
+  it('never truncates a key — it carries shrink-0, the slug carries truncate', () => {
     const answer = planReference({ slug: 'a-plan', file: 'a-plan.md', issues: ['1089'] }, planIndexOf({}));
     const html = render(answer);
-    expect(html).toContain('class="shrink-0 whitespace-pre">#1089 </span>');
+    expect(html).toContain('<span class="shrink-0 whitespace-pre"><span class="font-normal tabular-nums text-(--card-meta)" data-title-number="true">#1089</span> </span>');
     expect(html).toContain('truncate');
   });
 
-  it('keeps two plans sharing an issue key distinguishable: an 8ch floor and the full label in title/aria-label', () => {
+  it('links each ticket key to its ticket, apart from the plan link, which prints the slug alone', () => {
+    const answer = planReference({ slug: 'a-plan', file: 'a-plan.md', issues: ['3489', 'ABC-123'] }, planIndexOf({}));
+    const html = withTickets(answer, (key) => (key === '3489' ? 'https://github.com/o/r/issues/3489' : undefined));
+    expect(html).toContain('<a href="https://github.com/o/r/issues/3489" target="_blank" rel="noreferrer" data-title-number="true" data-ticket-link="3489"');
+    expect(html).toContain('<span class="font-normal tabular-nums text-(--card-meta)" data-title-number="true">ABC-123</span>');
+    const plan = html.slice(html.indexOf('aria-label="Plan a-plan"'));
+    expect(plan).toContain('<span class="min-w-[8ch] truncate">a-plan</span></a>');
+    expect(plan).not.toContain('#3489');
+    expect(html.indexOf('data-ticket-link')).toBeLessThan(html.indexOf('data-tuple-link="plan"'));
+  });
+
+  it('keeps two plans sharing an issue key distinguishable: an 8ch floor and the full label in title', () => {
     const answer = planReference({ slug: 'a-very-long-plan-slug-name', file: 'a.md' }, planIndexOf({ cards: [{ slug: 'a-very-long-plan-slug-name', title: 'Plan title', path: 'a.md', issues: ['42'] }] }));
     const html = render(answer);
     expect(html).toContain('min-w-[8ch]');
     expect(html).toContain('title="#42 a-very-long-plan-slug-name — Plan title"');
-    expect(html).toContain('aria-label="Plan #42 a-very-long-plan-slug-name"');
+    expect(html).toContain('aria-label="Plan a-very-long-plan-slug-name"');
   });
 
   it('starts the accessible name with the visible text', () => {
     const answer = planReference({ slug: 'a', issues: ['7'] }, planIndexOf({}));
     const html = render(answer);
-    expect(html).toContain('aria-label="Plan #7 a"');
+    expect(html).toContain('aria-label="Plan a"');
   });
 
   it('renders a real anchor with no href where the reference resolved one', () => {
@@ -51,7 +66,8 @@ describe('PlanReference', () => {
     const index = planIndexOf({ fleetPlans: { 'a-plan': { file: '2026-11-01-a-plan.md', issues: ['1089'] } } });
     const answer = planReference({ slug: 'a-plan' }, index);
     const html = render(answer, '2026-11-01-a-plan.md');
-    expect(html).toContain('#1089 a-plan');
+    expect(html).toContain('>#1089</span>');
+    expect(html).toContain('>a-plan</span></a>');
     expect(html).toContain('href="/plan/2026-11-01-a-plan.md"');
   });
 });

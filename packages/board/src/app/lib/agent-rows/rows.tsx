@@ -37,6 +37,7 @@ import { sliceRowReading } from './slice-reading.js';
 import { ActivityMark, BlockedByMark, ChangeMark, StuckCell, UnpushedMark } from './marks.js';
 import { BranchMenu, IssueRowActions, PlanActions, ResliceMenu, SliceActions } from './menus.js';
 import { WorkerLogModal } from '../../components/WorkerLogModal.js';
+import { PlanTicketKeys } from '../../components/PlanTicketKeys.js';
 import { DispatchLogModal } from '../../components/DispatchLogModal.js';
 import { ChangedFilesModal } from '../../components/ChangedFilesModal.js';
 
@@ -393,16 +394,19 @@ export function PlanLink({
     e.preventDefault();
   };
   const answer = planReference({ file: planFile || undefined, slug: plan || undefined }, planIndex);
-  if (!answer.href) return <>{answer.label}</>;
   return (
-    <a
-      href={answer.href}
-      onClick={handle}
-      rel="noreferrer"
-      className="text-blue-600 hover:underline dark:text-blue-400"
-    >
-      {answer.label}
-    </a>
+    <PlanTicketKeys keys={answer.keys}>
+      {!answer.href ? answer.slug : (
+        <a
+          href={answer.href}
+          onClick={handle}
+          rel="noreferrer"
+          className="text-blue-600 hover:underline dark:text-blue-400"
+        >
+          {answer.slug}
+        </a>
+      )}
+    </PlanTicketKeys>
   );
 }
 
@@ -2604,7 +2608,8 @@ export function IssueRowView(
         <TupleLinkView
           link={{
             what: 'plan',
-            label: answer.label,
+            label: answer.slug,
+            keys: answer.keys,
             href: answer.href ?? '',
             internal: true,
             file: answer.href !== null ? decodeURIComponent(answer.href.replace(/^\/plan\//, '')) : undefined,

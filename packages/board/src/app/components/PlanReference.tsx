@@ -1,5 +1,6 @@
 import type { MouseEvent } from 'react';
 import type { PlanReferenceAnswer } from '@plot-pm/domain';
+import { PlanTicketKeys } from './PlanTicketKeys.js';
 
 /** The keys a plain click checks before it may be intercepted — matches `TupleRow.tsx`'s own anchor handler. */
 interface ClickModifiers {
@@ -31,11 +32,12 @@ export const isPlainPlanClick = (e: ClickModifiers): boolean =>
  * another button is never intercepted, and the component never sets
  * `target`. Without an `href`, a `<span>` carrying the same text.
  *
- * The prefix is `shrink-0` so it is never the part an ellipsis eats; the slug
- * is `truncate` with a floor of 8 visible characters, so two plans sharing an
- * issue key still read apart by their first 8 slug characters in a narrow
- * column. The `title` attribute and the accessible name always carry the
- * full label and the plan's title, even where the visible text is cut.
+ * The plan's ticket keys come first, each its own link to its ticket
+ * (`PlanTicketKeys`), and `shrink-0` so an ellipsis never eats one; the plan
+ * link after them prints the slug alone, `truncate` with a floor of 8 visible
+ * characters, so two plans sharing an issue key still read apart by their
+ * first 8 slug characters in a narrow column. The `title` attribute carries
+ * the full label and the plan's title, even where the visible text is cut.
  *
  * @param answer - the resolved reference, from `planReference`.
  * @param file - the plan's file, passed to `onOpenPlan` on a plain click; `undefined` where the reference named none.
@@ -50,22 +52,17 @@ export function PlanReference({
   file?: string;
   onOpenPlan?: (file: string) => boolean;
 }) {
-  const { prefix } = answer;
-  // `planReference` builds `label` as exactly `prefix + slug`, so slicing off
-  // the prefix's own length recovers the slug.
-  const slug = answer.label.slice(prefix.length);
   const title = answer.title ? `${answer.label} — ${answer.title}` : answer.label;
-  const content = (
-    <>
-      {prefix && <span className="shrink-0 whitespace-pre">{prefix}</span>}
-      <span className="min-w-[8ch] truncate">{slug}</span>
-    </>
-  );
+  const content = <span className="min-w-[8ch] truncate">{answer.slug}</span>;
 
   if (!answer.href) {
     return (
-      <span data-tuple-text="plan" data-plan-ref title={title} aria-label={`Plan ${answer.label}`} className="flex min-w-0 items-baseline">
-        {content}
+      <span className="flex min-w-0 items-baseline">
+        <PlanTicketKeys keys={answer.keys}>
+          <span data-tuple-text="plan" data-plan-ref title={title} aria-label={`Plan ${answer.slug}`} className="flex min-w-0 items-baseline">
+            {content}
+          </span>
+        </PlanTicketKeys>
       </span>
     );
   }
@@ -81,16 +78,20 @@ export function PlanReference({
   };
 
   return (
-    <a
-      href={answer.href}
-      data-tuple-link="plan"
-      data-plan-ref
-      title={title}
-      aria-label={`Plan ${answer.label}`}
-      onClick={handleClick}
-      className="flex min-w-0 items-baseline text-blue-600 hover:underline dark:text-blue-400"
-    >
-      {content}
-    </a>
+    <span className="flex min-w-0 items-baseline">
+      <PlanTicketKeys keys={answer.keys}>
+        <a
+          href={answer.href}
+          data-tuple-link="plan"
+          data-plan-ref
+          title={title}
+          aria-label={`Plan ${answer.slug}`}
+          onClick={handleClick}
+          className="flex min-w-0 items-baseline text-blue-600 hover:underline dark:text-blue-400"
+        >
+          {content}
+        </a>
+      </PlanTicketKeys>
+    </span>
   );
 }

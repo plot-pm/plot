@@ -152,12 +152,24 @@ export const ticketKeyText = (key: string | number): string | null => {
   return null;
 };
 
+/** One ticket key a plan link prints. */
+export interface PlanLinkKey {
+  /** The key as a tracker lookup takes it: `3489` or `ABC-123`, with no leading `#`. */
+  key: string;
+  /** The key as the link prints it: `#3489` or `ABC-123`. */
+  text: string;
+}
+
 /** What `planLinkLabel` answers. */
 export interface PlanLinkLabel {
   /** The printed keys, each followed by one space: `#3489 #2531 `; `''` where no key prints. */
   prefix: string;
   /** `prefix` followed by the slug: `#3489 #2531 a-plan`, or the slug alone. */
   label: string;
+  /** The printed keys in order, each its own part, so a view can link each key to its ticket. */
+  keys: readonly PlanLinkKey[];
+  /** The slug the plan link prints after the keys. */
+  slug: string;
 }
 
 /**
@@ -168,16 +180,17 @@ export interface PlanLinkLabel {
  *
  * @param slug - the plan's slug.
  * @param issues - the keys the plan's `Issue:` field names.
- * @returns the label and the prefix it starts with.
+ * @returns the label, the prefix it starts with, the keys as separate parts and the slug.
  */
 export const planLinkLabel = (slug: string, issues: readonly (string | number)[]): PlanLinkLabel => {
-  const keys = normalizedIssues(issues).flatMap((key) => {
+  const keys = normalizedIssues(issues).flatMap((key): PlanLinkKey[] => {
     const text = ticketKeyText(key);
-    return text === null ? [] : [text];
+    return text === null ? [] : [{ key: normalizedIssueKey(key).trim(), text }];
   });
-  if (keys.length === 0) return { prefix: '', label: slug };
-  const prefix = `${keys.join(' ')} `;
-  return { prefix, label: slug === '' ? keys.join(' ') : `${prefix}${slug}` };
+  if (keys.length === 0) return { prefix: '', label: slug, keys, slug };
+  const texts = keys.map((k) => k.text).join(' ');
+  const prefix = `${texts} `;
+  return { prefix, label: slug === '' ? texts : `${prefix}${slug}`, keys, slug };
 };
 
 /** Names a plan, by its file, its slug, or both; may carry its own issue keys. */
@@ -194,6 +207,10 @@ export interface PlanReferenceAnswer {
   label: string;
   /** {@link planLinkLabel}'s prefix: the printed keys and a space, `''` where no key prints. */
   prefix: string;
+  /** {@link planLinkLabel}'s keys: each printed key with the bare key its ticket link resolves. */
+  keys: readonly PlanLinkKey[];
+  /** The plan's slug, the text of the plan link after the keys. */
+  slug: string;
   issues: readonly string[];
   title: string;
   href: string | null;
@@ -259,10 +276,12 @@ export const planReference = (ref: PlanRef, index: PlanIndex): PlanReferenceAnsw
   const issues = normalizedIssues(entry?.issues ?? ref.issues ?? []);
   const title = entry?.title ?? '';
   const href = file !== null && file !== '' ? planRoute(file) : null;
-  const { label, prefix } = planLinkLabel(slug, issues);
+  const { label, prefix, keys } = planLinkLabel(slug, issues);
   return {
     label,
     prefix,
+    keys,
+    slug,
     issues,
     title,
     href,
