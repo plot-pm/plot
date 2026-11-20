@@ -8,6 +8,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { decodeRunLogLine, runLogFile } from '../src/adapters/run-log/run-log-file.js';
 import { isAnswered, type PortResult } from '../src/port-result.js';
 import type { RunLogLine } from '../src/ports/run-log.js';
+import { tempDirs } from './fixtures/temp-dirs.js';
+
+const tempDir = tempDirs();
 
 const answer = <T>(result: PortResult<T>): T => {
   expect(isAnswered(result)).toBe(true);
@@ -29,7 +32,7 @@ const line = (over: Partial<RunLogLine> = {}): RunLogLine => ({
 let home = '';
 
 beforeEach(() => {
-  home = mkdtempSync(join(tmpdir(), 'plot-run-log-'));
+  home = tempDir('plot-run-log-');
 });
 
 describe('append and read', () => {

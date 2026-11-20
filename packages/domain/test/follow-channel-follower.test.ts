@@ -89,7 +89,7 @@ const run = (root: string) => {
 describe('the follower', () => {
   it('prints a welcome and a published finding as two JSON lines, and exits 0 when the channel closes', async () => {
     const root = repoRoot();
-    const address = join(root, '.plot', 'fleet.sock');
+    const address = bindableChannelAddress(root);
     channel = await startChannel({ address });
     const out = run(root);
 
@@ -111,7 +111,7 @@ describe('the follower', () => {
 
   it('lets exactly one of two followers in one repository claim a reading, and a later welcome claims nothing', async () => {
     const root = repoRoot();
-    const address = join(root, '.plot', 'fleet.sock');
+    const address = bindableChannelAddress(root);
     channel = await startChannel({ address });
     const first = run(root);
     const second = run(root);
@@ -139,7 +139,7 @@ describe('the follower', () => {
 
   it('removes a lease older than a day when it starts, so a crashed claimer blocks nothing for long', async () => {
     const root = repoRoot();
-    const address = join(root, '.plot', 'fleet.sock');
+    const address = bindableChannelAddress(root);
     const leases = join(root, '.plot', 'state', 'follow-leases');
     channel = await startChannel({ address });
     const out = run(root);

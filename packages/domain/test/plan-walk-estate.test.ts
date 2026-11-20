@@ -1,5 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
@@ -13,6 +12,9 @@ import { answered, failed, isAnswered } from '../src/port-result.js';
 import type { Refs, TreeBlob } from '../src/ports/refs.js';
 import { estatePlans } from '../src/rules/plan-walk-estate.js';
 import { readEstate, type EstateInput } from '../src/workflows/plan-walk-estate.js';
+import { tempDirs } from './fixtures/temp-dirs.js';
+
+const tempDir = tempDirs();
 
 const REPO_ROOT = new URL('../../..', import.meta.url).pathname;
 
@@ -138,7 +140,7 @@ describe('readEstate — one snapshot, parsed by object name', () => {
   });
 
   it('reads the checkout\'s plan directory where the default branch does not resolve', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'plot-estate-worktree-'));
+    const root = tempDir('plot-estate-worktree-');
     mkdirSync(join(root, 'docs/plans/active'), { recursive: true });
     writeFileSync(join(root, 'docs/plans/b.md'), planText('feature/b'));
     writeFileSync(join(root, 'docs/plans/a.md'), planText('feature/a'));
@@ -158,7 +160,7 @@ describe('readEstate — one snapshot, parsed by object name', () => {
   it('reads a checkout with no plan directory as no plans, and fails where the directory cannot be listed', async () => {
     const refs = world({ shas: {} });
     const store = planStoreRef(refs, shellContext(REPO_ROOT), 'origin/main', 'docs/plans');
-    const empty = await readEstate(refs, store, INPUT, planStoreShell({ ...shellContext(REPO_ROOT), repoRoot: mkdtempSync(join(tmpdir(), 'plot-estate-noplans-')) }));
+    const empty = await readEstate(refs, store, INPUT, planStoreShell({ ...shellContext(REPO_ROOT), repoRoot: tempDir('plot-estate-noplans-') }));
     expect(isAnswered(empty) && empty.value.plans).toEqual([]);
     const unlistable = { ...planStoreFixture(), listDir: async () => failed<readonly string[]>() };
     expect((await readEstate(refs, store, INPUT, unlistable)).ok).toBe(false);
@@ -256,7 +258,7 @@ describe('readEstate — one snapshot, parsed by object name', () => {
 
 describe('planStoreRef — readPlans passes the repository’s configured prefixes', () => {
   it('reads Branch prefixes from the repository it parses in', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'plot-estate-config-'));
+    const root = tempDir('plot-estate-config-');
     writeFileSync(join(root, 'CLAUDE.md'), '# P\n\n## Plot Config\n\n- **Branch prefixes:** wip/, spike/\n');
     const refs = refsFixture({
       shas: { 'origin/main': 'm1' },

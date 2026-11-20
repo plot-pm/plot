@@ -1,5 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -10,6 +9,9 @@ import {
 } from '../src/adapters/fresh-agent-record/fresh-agent-record-file.js';
 import { isAnswered, type PortResult } from '../src/port-result.js';
 import type { FreshAgentRecord } from '../src/ports/fresh-agent-record.js';
+import { tempDirs } from './fixtures/temp-dirs.js';
+
+const tempDir = tempDirs();
 
 const answer = <T>(result: PortResult<T>): T => {
   expect(isAnswered(result)).toBe(true);
@@ -31,7 +33,7 @@ const row = (over: Partial<FreshAgentRecord> = {}): FreshAgentRecord => ({
 let home = '';
 
 beforeEach(() => {
-  home = mkdtempSync(join(tmpdir(), 'plot-fresh-agent-'));
+  home = tempDir('plot-fresh-agent-');
 });
 
 describe('the record is empty until a session is started', () => {
@@ -147,7 +149,7 @@ describe('the record is keyed on the plan and the branch', () => {
 
 describe('the error paths', () => {
   it('reads no rows and refuses the append where the git common dir cannot be found', async () => {
-    const outside = mkdtempSync(join(tmpdir(), 'plot-fresh-agent-nogit-'));
+    const outside = tempDir('plot-fresh-agent-nogit-');
     const store = freshAgentRecordFile({ cwd: outside, env: {} });
     expect(answer(await store.rowsFor(PLAN, 'feature/x'))).toEqual([]);
     expect((await store.append(row())).ok).toBe(false);

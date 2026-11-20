@@ -1,6 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -19,6 +18,9 @@ import {
 } from '../src/entities/budget.js';
 import { isAnswered, type PortResult } from '../src/port-result.js';
 import { readWindow } from '../src/rules/budget-record.js';
+import { tempDirs } from './fixtures/temp-dirs.js';
+
+const tempDir = tempDirs();
 
 /**
  * The record ON DISK — the half of this slice that a pure test cannot see.
@@ -56,13 +58,10 @@ const entry = (at: number, over: Partial<BudgetEntry> = {}): BudgetEntry => ({
 let home = '';
 
 beforeEach(() => {
-  home = mkdtempSync(join(tmpdir(), 'plot-budget-'));
+  home = tempDir('plot-budget-');
 });
 
 afterEach(() => {
-  // Left in the temp directory deliberately: `trash` is the repo's rule for
-  // files a person might want back, and `mkdtemp` output under the OS temp
-  // directory is the OS's to reap.
   home = '';
 });
 
@@ -102,7 +101,7 @@ describe('the record lives on the computer, not in a checkout', () => {
   });
 
   it('prefers an explicit home over the environment', () => {
-    const other = mkdtempSync(join(tmpdir(), 'plot-budget-other-'));
+    const other = tempDir('plot-budget-other-');
     const path = answer(budgetFile({ home, env: { [BUDGET_HOME_ENV]: other } }).location());
     expect(path.startsWith(home)).toBe(true);
   });

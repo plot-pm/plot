@@ -1,6 +1,5 @@
 import { execFile } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -8,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { slotsFile, slotsFixture, SLOTS_HOME_ENV } from '../src/adapters/index.js';
 import { isAnswered, type PortResult } from '../src/port-result.js';
 import { CLAIM_STALE_MS, heldSlots, slotVerdict } from '../src/rules/concurrency.js';
+import { tempDirs } from './fixtures/temp-dirs.js';
+
+const tempDir = tempDirs();
 
 /**
  * The cap ON DISK — the half of this slice a pure test cannot see.
@@ -29,7 +31,7 @@ const answer = <T>(result: PortResult<T>): T => {
 let home: string;
 
 beforeEach(() => {
-  home = mkdtempSync(join(tmpdir(), 'plot-slots-'));
+  home = tempDir('plot-slots-');
 });
 
 afterEach(() => {

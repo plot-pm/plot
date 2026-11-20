@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import path from 'node:path';
+
+import { tempDirs } from './fixtures/temp-dirs.js';
+
+const tempDir = tempDirs();
 
 const HELPER = new URL('../src/adapters/entry-exit.ts', import.meta.url).pathname;
 
@@ -17,7 +20,7 @@ const HELPER = new URL('../src/adapters/entry-exit.ts', import.meta.url).pathnam
  * the script ever runs.
  */
 const scriptFile = (body: string): string => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'entry-exit-test-'));
+  const dir = tempDir('entry-exit-test-');
   const file = path.join(dir, 'script.mjs');
   writeFileSync(file, `import { endEntry } from ${JSON.stringify(HELPER)};\n${body}`);
   return file;
