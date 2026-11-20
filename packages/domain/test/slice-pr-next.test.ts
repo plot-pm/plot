@@ -80,7 +80,7 @@ describe('slicePrNext', () => {
   it('acts on a slice PR into a sprint branch: green selects the review, failing selects the fixer', () => {
     // The row carries no base branch; the sprint scope names the head, so the arms read only the rollup.
     const sprintScope = { read: 'scope', sprint: {} as Sprint, slugs: ['x'], branches: ['infra/sprint-slice'] } as const;
-    const fixerFresh = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, pushedHead: false } as const;
+    const fixerFresh = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, conflictExhausted: false, conflictTried: false, pushedHead: false } as const;
     const green = row({ head: 'infra/sprint-slice', ciChecks: 'green' });
     expect(reviewArm(readings({ row: green, scope: sprintScope }))).toEqual({ step: 'review', head: HEAD });
     const failing = row({ head: 'infra/sprint-slice', ciChecks: 'failing', checksSha: HEAD });
@@ -170,9 +170,9 @@ describe('slicePrNext', () => {
   });
 
   it('holds on a live fixer mark over an otherwise green new head, before the review arm', () => {
-    const fixer = { read: 'record', inFlight: true, highExhausted: false, ciExhausted: false, pushedHead: false } as const;
+    const fixer = { read: 'record', inFlight: true, highExhausted: false, ciExhausted: false, conflictExhausted: false, conflictTried: false, pushedHead: false } as const;
     expect(slicePrNext(readings({ fixer }))).toEqual({ step: 'hold', reason: 'fixer-in-flight' });
-    expect(slicePrNext(readings({ fixer: { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, pushedHead: false } }))).toEqual({
+    expect(slicePrNext(readings({ fixer: { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, conflictExhausted: false, conflictTried: false, pushedHead: false } }))).toEqual({
       step: 'review',
       head: HEAD,
     });
@@ -217,7 +217,7 @@ describe('slicePrNext', () => {
   describe('arm order with a real verdict reading', () => {
     it("the HIGH arm's accepted success survives a failure verdict file", () => {
       const r = row({ plotReview: 'failure', plotReviewSha: HEAD });
-      const fixer = { read: 'record', inFlight: false, highExhausted: true, ciExhausted: false, pushedHead: false } as const;
+      const fixer = { read: 'record', inFlight: false, highExhausted: true, ciExhausted: false, conflictExhausted: false, conflictTried: false, pushedHead: false } as const;
       const ticket = { read: 'record', ticket: 'opened', id: '#9', coversHead: true } as const;
       const verdict = { read: 'verdict', state: 'failure', description: 'HIGH 1' } as const;
       expect(slicePrNext(readings({ row: r, fixer, ticket, verdict }))).toEqual({
@@ -233,11 +233,11 @@ describe('slicePrNext', () => {
   describe('the HIGH arm (#2903)', () => {
     it('starts the fixer for a HIGH after two CI-red attempts', () => {
       const r = row({ plotReview: 'failure', plotReviewSha: HEAD });
-      const fixer = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: true, pushedHead: false } as const;
+      const fixer = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: true, conflictExhausted: false, conflictTried: false, pushedHead: false } as const;
       expect(highArm(readings({ row: r, fixer }))).toEqual({ step: 'fixer', head: HEAD, evidence: 'high' });
     });
 
-    const fixerFresh = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, pushedHead: false } as const;
+    const fixerFresh = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, conflictExhausted: false, conflictTried: false, pushedHead: false } as const;
 
     it('starts the fixer for a HIGH bound to the current head', () => {
       const r = row({ plotReview: 'failure', plotReviewSha: HEAD });
@@ -256,7 +256,7 @@ describe('slicePrNext', () => {
 
     describe('with the attempts spent', () => {
       const r = row({ plotReview: 'failure', plotReviewSha: HEAD });
-      const fixer = { read: 'record', inFlight: false, highExhausted: true, ciExhausted: true, pushedHead: false } as const;
+      const fixer = { read: 'record', inFlight: false, highExhausted: true, ciExhausted: true, conflictExhausted: false, conflictTried: false, pushedHead: false } as const;
       const none = { read: 'record', ticket: 'none' } as const;
 
       it('asks for a ticket where none is recorded', () => {
@@ -319,7 +319,7 @@ describe('slicePrNext', () => {
   });
 
   describe('the CI-red arm (#2903)', () => {
-    const fixerFresh = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, pushedHead: false } as const;
+    const fixerFresh = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, conflictExhausted: false, conflictTried: false, pushedHead: false } as const;
     const ciRedRow = row({ ciChecks: 'failing', checksSha: HEAD });
 
     it('starts the fixer once the desk is dead', () => {
@@ -352,7 +352,7 @@ describe('slicePrNext', () => {
     });
 
     it('starts the fixer on a red head the fixer record proves fixer-pushed', () => {
-      const fixer = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, pushedHead: true } as const;
+      const fixer = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, conflictExhausted: false, conflictTried: false, pushedHead: true } as const;
       for (const why of ['elsewhere', 'live'] as const) {
         expect(ciRedArm(readings({ row: ciRedRow, fixer, desk: { dead: false, why } }))).toEqual({
           step: 'fixer',
@@ -374,7 +374,7 @@ describe('slicePrNext', () => {
 
     it('holds once the attempts budget is spent on a dead desk with CI still red', () => {
       const desk = { dead: true } as const;
-      const fixer = { read: 'record', inFlight: false, highExhausted: true, ciExhausted: true, pushedHead: false } as const;
+      const fixer = { read: 'record', inFlight: false, highExhausted: true, ciExhausted: true, conflictExhausted: false, conflictTried: false, pushedHead: false } as const;
       expect(slicePrNext(readings({ row: ciRedRow, fixer, desk }))).toEqual({ step: 'hold', reason: 'ci-red-attempts-spent' });
     });
 

@@ -1,4 +1,5 @@
 import type { DefaultBranchReading } from '../entities/default-branch.js';
+import { MergeabilitySchema } from '../entities/pr.js';
 import type { PrIndexRow } from '../entities/pr-index.js';
 import type { HostBackend } from '../ports/host.js';
 import { baseBranchRed, defaultBranchAgeMs, holdsApply } from './default-branch.js';
@@ -16,19 +17,38 @@ import type { TicketReading } from './ticket.js';
 export type SiblingReading = { read: 'unread' } | { read: 'record' };
 
 /**
- * The fixer's attempts record, read down to the answers `highArm` and
- * `ciRedArm` need from it (#2903): `fixerInFlight`, `fixerAttemptsExhausted`
- * for each finding kind and `fixerPushedHead` are computed once, by the caller
- * that holds the raw record, and carried here as plain values — these arms are
- * pure functions and cannot read `FixerAttemptsStore` themselves.
+ * The word the PR index stores in `mergeable` for a PR whose head conflicts
+ * with its base: `MergeabilitySchema`'s own `conflicting`.
+ */
+export const MERGEABLE_CONFLICTING = MergeabilitySchema.enum.conflicting;
+
+/**
+ * The fixer's attempts record, read down to the answers `highArm`,
+ * `ciRedArm` and `conflictArm` need from it (#2903): `fixerInFlight`,
+ * `fixerAttemptsExhausted` for each finding kind, `fixerConflictTried` and
+ * `fixerPushedHead` are computed once, by the caller that holds the raw
+ * record, and carried here as plain values — these arms are pure functions
+ * and cannot read `FixerAttemptsStore` themselves.
  *
- * `highExhausted` and `ciExhausted` are the two budgets, counted apart.
- * `pushedHead` is true where the record proves the fixer pushed the row's
- * current head.
+ * `highExhausted`, `ciExhausted` and `conflictExhausted` are the three
+ * budgets, counted apart. `conflictTried` is true where a conflict attempt on
+ * the row's current head and the read base tip exists. `pushedHead` is true
+ * where the record proves the fixer pushed the row's current head.
  */
 export type FixerReading =
   | { read: 'unread' }
-  | { read: 'record'; inFlight: boolean; highExhausted: boolean; ciExhausted: boolean; pushedHead: boolean };
+  | {
+      read: 'record';
+      inFlight: boolean;
+      highExhausted: boolean;
+      ciExhausted: boolean;
+      conflictExhausted: boolean;
+      conflictTried: boolean;
+      pushedHead: boolean;
+    };
+
+/** The tip of a PR's base branch as the fixer tick read it after a fetch. */
+export type BaseTipReading = { read: 'tip'; sha: string } | { read: 'unread' };
 
 /** The review verdict file `reviews/<pr>-<headSha>.md` as read through `reviewVerdict`. */
 export type VerdictReading =
@@ -102,6 +122,8 @@ export interface SlicePrNextReadings {
    */
   readonly correctionsSpentExhausted?: boolean;
   readonly fixer?: FixerReading;
+  /** The tip of the row's base branch, for `conflictArm`; absent reads as unread. */
+  readonly baseTip?: BaseTipReading;
   readonly ticket?: TicketReading;
   readonly repair?: SiblingReading;
   /**
@@ -135,6 +157,8 @@ export type HoldReason =
   | 'review-writer-unchecked'
   | 'fixer-in-flight'
   | 'ci-red-attempts-spent'
+  | 'conflict-attempted'
+  | 'conflict-attempts-spent'
   | 'default-branch-red'
   | 'base-branch-red'
   | 'default-branch-stale'
@@ -163,7 +187,7 @@ export type SlicePrStep =
     }
   | { step: 'merge'; head: string }
   | { step: 'hold'; reason: HoldReason }
-  | { step: 'fixer'; head: string; evidence: 'high' | 'ci-red' }
+  | { step: 'fixer'; head: string; evidence: 'high' | 'ci-red' | 'conflict' }
   | { step: 'ticket'; head: string };
 
 const none = (why: string): SlicePrStep => ({ step: 'none', why });
@@ -311,15 +335,48 @@ export const highArm = (readings: ArmReadings): SlicePrStep => {
  *   `hold`, a `fixer` step, or `none`.
  */
 export const ciRedArm = (readings: ArmReadings): SlicePrStep => {
-  const { row, desk, correctionsSpentExhausted, fixer } = readings;
+  const { row, fixer } = readings;
   if (fixer === undefined) return none('fixer-not-built');
   if (fixer.read === 'unread') return hold('unread');
   if (row === null || row.headSha === undefined || row.ciChecks === undefined) return none('not-asked');
   if (row.ciChecks !== 'failing' || row.checksSha !== row.headSha) return none('no-ci-red');
   if (fixer.ciExhausted) return hold('ci-red-attempts-spent');
-  const deskGone = desk.dead || correctionsSpentExhausted === true || fixer.pushedHead;
-  if (!deskGone) return none('desk-alive');
+  if (!deskGone(readings, fixer)) return none('desk-alive');
   return { step: 'fixer', head: row.headSha, evidence: 'ci-red' };
+};
+
+/**
+ * Whether the desk that owned the PR is gone, as {@link ciRedArm} and
+ * {@link conflictArm} read it: dead, ended `corrections-spent` with its fresh
+ * session spent, or superseded by a head the fixer itself pushed.
+ */
+const deskGone = (readings: ArmReadings, fixer: Extract<FixerReading, { read: 'record' }>): boolean =>
+  readings.desk.dead || readings.correctionsSpentExhausted === true || fixer.pushedHead;
+
+/**
+ * A conflict between the PR's head and its base starts the fixer once the desk
+ * that owned it is gone.
+ *
+ * Answers, in order: `none('no-conflict')` where `row.mergeable` is not
+ * {@link MERGEABLE_CONFLICTING}; an `unread` hold where the fixer record or
+ * `readings.baseTip` is unread or absent; `conflict-attempted` where an attempt
+ * on this head and base tip exists; `conflict-attempts-spent` where the
+ * conflict budget is spent; `none('desk-alive')` where the desk is not gone by
+ * {@link ciRedArm}'s reading; otherwise a `fixer` step with `evidence: 'conflict'`.
+ *
+ * @param readings - the PR's readings.
+ * @returns an `unread` hold, a conflict hold, a `fixer` step, or `none`.
+ */
+export const conflictArm = (readings: ArmReadings): SlicePrStep => {
+  const { row, fixer, baseTip } = readings;
+  if (row === null || row.headSha === undefined || row.mergeable !== MERGEABLE_CONFLICTING) return none('no-conflict');
+  if (fixer === undefined) return none('fixer-not-built');
+  if (fixer.read === 'unread') return hold('unread');
+  if (baseTip === undefined || baseTip.read === 'unread') return hold('unread');
+  if (fixer.conflictTried) return hold('conflict-attempted');
+  if (fixer.conflictExhausted) return hold('conflict-attempts-spent');
+  if (!deskGone(readings, fixer)) return none('desk-alive');
+  return { step: 'fixer', head: row.headSha, evidence: 'conflict' };
 };
 
 /**
@@ -397,7 +454,7 @@ export const mergeArm = (readings: SlicePrNextReadings): SlicePrStep => {
       if (verdict === null || verdict.verdict === 'not-named') return hold('base-branch-red');
       if (verdict.verdict === 'refused') return hold(verdict.reason);
     }
-    if (row.mergeable === 'CONFLICTING') return hold('conflicting');
+    if (row.mergeable === MERGEABLE_CONFLICTING) return hold('conflicting');
     const own = mergeIdentity(readings.backend, readings.mergerApp);
     if (own.identity === 'hold') return hold(own.reason);
     return { step: 'merge', head: row.headSha };
@@ -431,7 +488,7 @@ export const mergeArm = (readings: SlicePrNextReadings): SlicePrStep => {
   if (!covered || (newestMerged !== null && !(mergedAt <= askedAt))) {
     return hold('merge-in-flight');
   }
-  if (row.mergeable === 'CONFLICTING') return hold('conflicting');
+  if (row.mergeable === MERGEABLE_CONFLICTING) return hold('conflicting');
   const identity = mergeIdentity(readings.backend, readings.mergerApp);
   if (identity.identity === 'hold') return hold(identity.reason);
   return { step: 'merge', head: row.headSha };
@@ -498,8 +555,10 @@ export type FixerPrNextReadings = Omit<SlicePrNextReadings, 'scope'> & {
  * Asks `fixerScope` in place of {@link guardArm}: a PR out of scope answers
  * `none` with the scope's reason, and `person-pushed-recently` carries the
  * time left as `leftMs`. A PR in scope then walks {@link reviewRunArm},
- * {@link fixerInFlightArm}, {@link highArm} and {@link ciRedArm}, and the first
- * answer that is not `none` wins; with none, `ciRedArm`'s `none` is returned.
+ * {@link fixerInFlightArm}, {@link highArm}, {@link conflictArm} and
+ * {@link ciRedArm}, and the first answer that is not `none` wins; with none,
+ * `ciRedArm`'s `none` is returned. `conflictArm` runs before `ciRedArm`
+ * because the host runs no pull-request checks on a conflicting merge ref.
  * For `owner: 'none'` the arms read the desk as `{ dead: true }`; for
  * `owner: 'desk'` they read `readings.desk`.
  *
@@ -527,7 +586,7 @@ export const fixerPrNext = (readings: FixerPrNextReadings): SlicePrStep => {
     desk: scope.owner === 'none' ? { dead: true } : readings.desk,
   };
   let last: SlicePrStep = none('no-arm-answered');
-  for (const arm of [reviewRunArm, fixerInFlightArm, highArm, ciRedArm]) {
+  for (const arm of [reviewRunArm, fixerInFlightArm, highArm, conflictArm, ciRedArm]) {
     last = arm(walked);
     if (!isNone(last)) return last;
   }

@@ -4,10 +4,14 @@ import { roleRunAlive, type PidCheck } from './role-run-alive.js';
 /** The most characters of review findings a fixer prompt carries; the rest is cut with a note. */
 export const FIXER_FINDINGS_MAX = 60_000;
 
-/** What the fixer is started to answer: the review's findings, or the failing CI checks. */
+/**
+ * What the fixer is started to answer: the review's findings, the failing CI
+ * checks, or a conflict with the base branch `base` at the tip `baseTip`.
+ */
 export type FixerEvidence =
   | { readonly kind: 'high'; readonly findings: string }
-  | { readonly kind: 'ci-red'; readonly failingChecks: readonly string[] };
+  | { readonly kind: 'ci-red'; readonly failingChecks: readonly string[] }
+  | { readonly kind: 'conflict'; readonly base: string; readonly baseTip: string };
 
 /** The PR a fixer works on and the evidence it answers. */
 export interface FixerPromptInput {
@@ -23,7 +27,9 @@ export interface FixerPromptInput {
 }
 
 /** The prompt for one fixer run, or why none is built. */
-export type FixerPrompt = { read: 'prompt'; text: string } | { read: 'refused'; why: 'no-branch' | 'no-head' | 'findings-empty' };
+export type FixerPrompt =
+  | { read: 'prompt'; text: string }
+  | { read: 'refused'; why: 'no-branch' | 'no-head' | 'findings-empty' | 'no-base' };
 
 /**
  * The prompt a fixer run starts with.
@@ -33,10 +39,15 @@ export type FixerPrompt = { read: 'prompt'; text: string } | { read: 'refused'; 
  * `git push origin HEAD:<branch>` and never with force. A HIGH run carries the
  * review findings verbatim, cut at {@link FIXER_FINDINGS_MAX} characters with
  * a note; a CI-red run names the failing checks, or says the index named none.
+ * A conflict run names the base and its tip, says to merge `origin/<base>`
+ * into the head and never to rebase, to restore a generated bundle from
+ * `git merge-base HEAD MERGE_HEAD` rather than rebuild it, and to stop and
+ * report a conflict in a path the role gate protects, a refused push or a
+ * `State:` line the state gate refuses.
  *
  * @param input - the PR, its branch and head, and the evidence.
- * @returns the prompt; `refused` for an empty branch or head, or HIGH findings
- *   that hold no text.
+ * @returns the prompt; `refused` for an empty branch, head or conflict base,
+ *   or HIGH findings that hold no text.
  */
 export const fixerPrompt = (input: FixerPromptInput): FixerPrompt => {
   const { pr, url, branch, head, evidence } = input;
@@ -62,6 +73,22 @@ export const fixerPrompt = (input: FixerPromptInput): FixerPrompt => {
       '--- review findings ---',
       text,
       '--- end of review findings ---',
+    );
+  } else if (evidence.kind === 'conflict') {
+    const base = evidence.base.trim();
+    if (base === '' || evidence.baseTip.trim() === '') return { read: 'refused', why: 'no-base' };
+    lines.push(
+      `${head} conflicts with the base branch \`${base}\` at ${evidence.baseTip}. Merge the base into the branch:`,
+      '',
+      `1. Fetch the base with \`git fetch origin ${base}\`.`,
+      `2. Merge it with \`git merge origin/${base}\`. Never rebase, and never force-push: the merge adds one commit and the push is a fast-forward.`,
+      '3. Resolve every conflict, so that both sides keep what they changed.',
+      '4. A generated bundle is marked `-merge` in `.gitattributes`. Never edit it and never commit a rebuild. Restore it from the merge base with `git checkout $(git merge-base HEAD MERGE_HEAD) -- <path>` (docs/definition-of-done.md, "Resolving a board artifact conflict").',
+      '5. Where a conflict sits in a path the role gate protects (`.github/workflows/`, `.claude/`, `scripts/check-*.sh`), stop: abort the merge with `git merge --abort` and report the path.',
+      `6. Commit the merge, then push it with \`git push origin HEAD:${branch}\`.`,
+      '',
+      'The role gate refuses a push that forces, deletes, or names another branch (`rolePushViolation` in `role-gate.ts`). Where your push is refused, stop and report the refusal; do not retry it another way.',
+      'Where a conflict sits on a `State:` line, `plot-state-gate.sh` refuses the commit. Stop and report it; do not retry.',
     );
   } else {
     const named = evidence.failingChecks.filter((name) => name.trim() !== '');

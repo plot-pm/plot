@@ -139,14 +139,14 @@ describe('fixerReadingOf', () => {
       read: 'record',
       inFlight: false,
       highExhausted: false,
-      ciExhausted: false,
+      ciExhausted: false, conflictExhausted: false, conflictTried: false,
       pushedHead: false,
     });
   });
 
   it('splits the budgets and reads a pushed head only for a non-empty head', () => {
     const r = record({ attempts: [{ ...ci(1), pushedSha: 'p' }, ci(2)] });
-    expect(fixerReadingOf(r, 'p')).toMatchObject({ highExhausted: false, ciExhausted: true, pushedHead: true });
+    expect(fixerReadingOf(r, 'p')).toMatchObject({ highExhausted: false, ciExhausted: true, conflictExhausted: false, conflictTried: false, pushedHead: true });
     expect(fixerReadingOf(r, '')).toMatchObject({ pushedHead: false });
   });
 });

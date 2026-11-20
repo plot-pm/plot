@@ -15,12 +15,18 @@ export const FIXER_ATTEMPTS_VERSION = 1;
  * finding can be told from two on different ones.
  *
  * A HIGH review carries the findings' hash; a CI-red start carries the run id
- * it answered. Neither is derived here — the caller computes it and the
- * record only keeps what it was given.
+ * it answered; a conflict start carries the PR's head and the base tip it
+ * conflicted with, because a conflict is a fact about those two commits. None
+ * is derived here — the caller computes it and the record only keeps what it
+ * was given.
+ *
+ * A build that predates the `conflict` arm reads a record holding one as
+ * unreadable, and holds every fixer on that PR.
  */
 export const FixerFindingSchema = z.union([
   z.object({ kind: z.literal('high'), hash: z.string().min(1) }).strict(),
   z.object({ kind: z.literal('ci'), runId: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal('conflict'), head: z.string().min(1), baseTip: z.string().min(1) }).strict(),
 ]);
 export type FixerFinding = z.infer<typeof FixerFindingSchema>;
 
