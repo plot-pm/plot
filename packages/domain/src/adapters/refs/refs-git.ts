@@ -418,6 +418,11 @@ export const stagedEntriesOf = (stdout: string): readonly StagedEntry[] =>
  * auto-review, auto-merge or fixer step) would otherwise fetch once per PR on
  * every idle pass. The reading carries `fetch_failed: false`.
  *
+ * It asks the host about no pull request: the branch stage walks offline, so
+ * the reading carries `host: 'unasked'` and no branch holds a PR state. A
+ * merge commit on the default branch still asks the backend once, for the
+ * merge subject's form.
+ *
  * @param context - where the scripts and the repository are.
  * @param refs - the ref reader the stages read through.
  * @returns the pulse.
@@ -452,7 +457,7 @@ const walkPulse = async (context: ShellContext, refs: Refs) => {
     mainBranch, stateBranch, planDir, activeDir, deliveredDir, prefixes: prefixes.length > 0 ? prefixes : ['idea', 'feature', 'bug', 'docs', 'infra'],
   });
   const host = hostForReads(context);
-  const branches = estate.ok ? await readBranchReadings(refs, host, estate.value, { mainBranch, planDir }) : estate;
+  const branches = estate.ok ? await readBranchReadings(refs, host, estate.value, { mainBranch, planDir, offline: true }) : estate;
   const desks = branches.ok
     ? await readDeskReadings(trees, agentsFs(context), processesFiles(context), branches.value)
     : branches;

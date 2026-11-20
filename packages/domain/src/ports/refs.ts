@@ -485,7 +485,10 @@ export interface Refs {
    * derives every plan's slice verdicts together, and asking per plan would
    * re-walk the same refs once per plan.
    *
-   * @returns the pulse, as the scan derives it.
+   * Reads git only: it asks the host about no pull request, so every branch
+   * reading carries no PR state and the reading's `host` is `unasked`.
+   *
+   * @returns the pulse, as the scan derives it from git alone.
    */
   pulse(): Promise<PortResult<FleetReading>>;
 
