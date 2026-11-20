@@ -98,3 +98,5 @@ Today the Tickets section (`TicketsSectionView`, `packages/board/src/app/compone
   - **Missing refuted keys** (estate 2): on an answered read, leave out a key the closed rows hold; show a key `planTicketRows` lacks as key + plan, no state word; unit cases.
   - **Hints and both-kinds tickets** (user 2, 3): name each new group's empty hint as a `scopeTickets` output; a ticket both delivered and found uses `plan-named` for Create plan in Found too.
   - **Smaller**: a second browser `it(` that opens both groups and sees one row each; `findOpenReviewIssue` takes the domain `Issue[]`; when `ticketPlansOf` answers `null` (`fleet.ts:1798`), ship `ticketPlans: {}` with `issueAnswer: failed`.
+
+- **Strict mode is one rule for every ticket** (operator decision, 2026-11-20: "use isMineStrict for both, keep it consistent"). The scope groups read `isMineStrict` in the strict mode, and so does the "no plan" group: plan 5's slice `feature/mine-means-mine-or-my-plan` changes `ticketsForReader` to read `isMineStrict` in the strict mode, replacing today's lenient answer. The three groups therefore agree on which tickets the strict mode keeps.
