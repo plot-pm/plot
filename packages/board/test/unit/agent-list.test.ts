@@ -17,7 +17,7 @@ import {
   isUnpushed,
   coldState,
 } from '../../src/app/components/AgentList.js';
-import { CARD_BELOW_PX, COLLAPSED_BY_DEFAULT, isCollapsible, readCollapsed, writeCollapsed } from '../../src/app/lib/agent-rows/collapse.js';
+import { CARD_BELOW_PX, COLLAPSED_BY_DEFAULT, isCollapsible, isFoldable, isFolded, readCollapsed, writeCollapsed } from '../../src/app/lib/agent-rows/collapse.js';
 import { MINE_ONLY_BY_DEFAULT, readMineOnly, rowsForReader, writeMineOnly } from '../../src/app/lib/agent-rows/mine-filter.js';
 import { ACTIVITY_MARK_PLACE, ActivityEcho, CHANGE_MARK_MS, ChangeMarks, LOCK_ECHO_MS, activeRowKeys, activityPace, changedRows, groupPace, headingPace, isUnreadable, sameWatched, type WatchedState, watchedState } from '../../src/app/lib/agent-rows/activity.js';
 import { isActive, isLive, soleRowStatus } from '../../src/app/lib/agent-rows/stuck.js';
@@ -1380,8 +1380,8 @@ describe('isStartable — which NOT STARTED rows offer work', () => {
 });
 
 describe('which groups start collapsed', () => {
-  it('folds Free agents and leaves every other section and group open', () => {
-    expect([...COLLAPSED_BY_DEFAULT]).toEqual(['free']);
+  it('folds Free agents and Not placed, and leaves every other section and group open', () => {
+    expect([...COLLAPSED_BY_DEFAULT]).toEqual(['free', 'not-placed']);
   });
 
   it('reads Release delivery as open where nothing is stored', () => {
@@ -1389,30 +1389,94 @@ describe('which groups start collapsed', () => {
   });
 
   it('reads a stored fold of Release delivery as folded', () => {
-    const stored = { getItem: () => JSON.stringify(['release-delivery']) };
+    const stored = { getItem: (k: string) => (k === 'plot-board:agents:collapsed' ? JSON.stringify(['release-delivery']) : JSON.stringify(COLLAPSED_BY_DEFAULT)) };
     expect([...readCollapsed(stored)]).toEqual(['release-delivery']);
   });
 
   it('gives a set stored under the earlier vocabulary the new default, not an empty set', () => {
     const stored = { getItem: () => JSON.stringify(['quiet', 'done']) };
-    expect([...readCollapsed(stored)]).toEqual(['free']);
+    expect([...readCollapsed(stored)]).toEqual(['free', 'not-placed']);
   });
 
   it('keeps an empty stored set empty: a reader who opened everything', () => {
-    expect([...readCollapsed({ getItem: () => '[]' })]).toEqual([]);
+    const stored = { getItem: (k: string) => (k === 'plot-board:agents:collapsed' ? '[]' : JSON.stringify(COLLAPSED_BY_DEFAULT)) };
+    expect([...readCollapsed(stored)]).toEqual([]);
   });
 
   it('keeps the current keys of a mixed stored set and drops the stale ones', () => {
-    expect([...readCollapsed({ getItem: () => JSON.stringify(['quiet', 'you']) })]).toEqual(['you']);
+    const stored = { getItem: (k: string) => (k === 'plot-board:agents:collapsed' ? JSON.stringify(['quiet', 'you']) : JSON.stringify(COLLAPSED_BY_DEFAULT)) };
+    expect([...readCollapsed(stored)]).toEqual(['you']);
+  });
+});
+
+describe('a new default reaches a stored set once', () => {
+  const store = (initial: Record<string, string> = {}) => {
+    const map = new Map(Object.entries(initial));
+    return { getItem: (k: string) => map.get(k) ?? null, setItem: (k: string, v: string) => { map.set(k, v); } };
+  };
+
+  it('reads a stored ["free"] with no record as free and not-placed', () => {
+    const s = store({ 'plot-board:agents:collapsed': '["free"]' });
+    expect([...readCollapsed(s)]).toEqual(['free', 'not-placed']);
+  });
+
+  it('reads a stored ["free"] whose record holds not-placed as free only', () => {
+    const s = store({ 'plot-board:agents:collapsed': '["free"]', 'plot-board:agents:collapsed-defaults': '["free","not-placed"]' });
+    expect([...readCollapsed(s)]).toEqual(['free']);
+  });
+
+  it('reads the default where nothing is stored', () => {
+    expect([...readCollapsed(store())]).toEqual(['free', 'not-placed']);
+  });
+
+  it('keeps a section open that the reader opened after the default joined', () => {
+    const s = store({ 'plot-board:agents:collapsed': '["free"]' });
+    const first = readCollapsed(s);
+    first.delete('not-placed');
+    writeCollapsed(first, s);
+    expect([...readCollapsed(s)]).toEqual(['free']);
+  });
+});
+
+describe('isFoldable / isFolded — sections and groups', () => {
+  it('gives every section a fold control, also an empty one', () => {
+    expect(isFoldable('section', 0)).toBe(true);
+    expect(isFoldable('section', 3)).toBe(true);
+  });
+
+  it('gives a group a fold control only where it has rows', () => {
+    expect(isFoldable('group', 0)).toBe(false);
+    expect(isFoldable('group', 2)).toBe(true);
+  });
+
+  it('folds an empty section whose key is stored', () => {
+    expect(isFolded('section', 'machine', 0, new Set(['machine']))).toBe(true);
+  });
+
+  it('never folds an empty group, even with its key stored', () => {
+    expect(isFolded('group', 'free', 0, new Set(['free']))).toBe(false);
+  });
+
+  it('never folds the Fleet working and blocked groups', () => {
+    expect(isFolded('group', 'working', 4, new Set(['working']))).toBe(false);
+    expect(isFolded('group', 'blocked', 1, new Set(['blocked']))).toBe(false);
+  });
+
+  it('folds a group with rows whose key is stored, and opens one whose key is not', () => {
+    expect(isFolded('group', 'free', 2, new Set(['free']))).toBe(true);
+    expect(isFolded('group', 'free', 2, new Set())).toBe(false);
+  });
+
+  it('opens anything the caller marks always open', () => {
+    expect(isFolded('section', 'you', 1, new Set(['you']), true)).toBe(false);
   });
 });
 
 describe('isCollapsible — an empty group hides nothing', () => {
   it('offers no control on an empty group', () => {
-    // The header renders `rows.length > 0 ? '(N)' : hint`, so folding an empty
-    // group would hide the hint — the explanation for the emptiness, and the
-    // one thing in there worth reading. A control on a group with nothing to
-    // hide is an offer that leads nowhere.
+    // A group header renders `rows.length > 0 ? '(N)' : hint`, so folding an
+    // empty group would hide the hint, which explains the emptiness. A section
+    // is not a group: `isFoldable` gives every section a control.
     expect(isCollapsible(0)).toBe(false);
   });
 
@@ -1437,11 +1501,12 @@ describe('readCollapsed / writeCollapsed — persistence, and its default', () =
     // The load-bearing half: a first visit has no stored value, and treating
     // that as "nothing collapsed" ships the crowded view to everyone who has
     // not yet clicked a header.
-    expect([...readCollapsed(store())]).toEqual(['free']);
+    expect([...readCollapsed(store())]).toEqual(['free', 'not-placed']);
   });
 
   it('survives a reload — what was written comes back', () => {
     const s = store();
+    readCollapsed(s);
     writeCollapsed(new Set(['working'] as const), s);
     expect([...readCollapsed(s)]).toEqual(['working']);
   });
@@ -1451,6 +1516,7 @@ describe('readCollapsed / writeCollapsed — persistence, and its default', () =
     // every group and meant it, and re-applying the default over that would
     // undo their choice on every reload.
     const s = store();
+    readCollapsed(s);
     writeCollapsed(new Set(), s);
     expect([...readCollapsed(s)]).toEqual([]);
   });
@@ -1460,14 +1526,14 @@ describe('readCollapsed / writeCollapsed — persistence, and its default', () =
     // were folded is a worse answer than one that simply forgets.
     for (const raw of ['not json', '{"quiet":true}', '"quiet"', '17']) {
       expect([...readCollapsed(store({ 'plot-board:agents:collapsed': raw })).values()].sort())
-        .toEqual(['free']);
+        .toEqual(['free', 'not-placed']);
     }
   });
 
   it('drops a stored key no group answers to', () => {
     // Stale state from a renamed group would fold nothing while looking like it
     // had — a set that disagrees with the rendered sections.
-    const s = store({ 'plot-board:agents:collapsed': '["you","gone-group"]' });
+    const s = store({ 'plot-board:agents:collapsed': '["you","gone-group"]', 'plot-board:agents:collapsed-defaults': '["free","not-placed"]' });
     expect([...readCollapsed(s)]).toEqual(['you']);
   });
 
@@ -1478,8 +1544,9 @@ describe('readCollapsed / writeCollapsed — persistence, and its default', () =
     // not a query parameter, and the browser-level assertion that the URL is
     // unchanged by toggling lives in the integration test.
     const s = store();
+    readCollapsed(s);
     writeCollapsed(new Set(['quiet'] as const), s);
-    expect(s.read().map(([k]) => k)).toEqual(['plot-board:agents:collapsed']);
+    expect(s.read().map(([k]) => k).sort()).toEqual(['plot-board:agents:collapsed', 'plot-board:agents:collapsed-defaults']);
   });
 });
 

@@ -3,10 +3,16 @@ import { DELIVERY_LAYOUT } from '@plot-pm/domain';
 /** A section or a group of `DELIVERY_LAYOUT`: the keys a collapse toggle holds. */
 export type CollapseKey = string;
 
-const KNOWN_KEYS: ReadonlySet<string> = new Set(DELIVERY_LAYOUT.flatMap(({ section, groups }) => [section, ...groups]));
+/** The sections the tab renders after the `DELIVERY_LAYOUT` sections: Tickets and Not placed. */
+export const EXTRA_SECTION_KEYS: readonly CollapseKey[] = ['tickets', 'not-placed'];
+
+const KNOWN_KEYS: ReadonlySet<string> = new Set([
+  ...DELIVERY_LAYOUT.flatMap(({ section, groups }) => [section, ...groups]),
+  ...EXTRA_SECTION_KEYS,
+]);
 
 /**
- * The keys that start collapsed: Free agents, which fold into one line.
+ * The keys that start collapsed: Free agents, which fold into one line, and Not placed, which starts as one header line.
  * The Release delivery section starts open; its one key, `release-delivery`, holds its fold under both scope toggle states.
  *
  * A free agent owes nothing, so it needs no reading on arrival. Stored keys from the earlier vocabulary (`quiet`, `done`) are not in
@@ -14,7 +20,7 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set(DELIVERY_LAYOUT.flatMap(({ secti
  *
  * Exported for test.
  */
-export const COLLAPSED_BY_DEFAULT: CollapseKey[] = ['free'];
+export const COLLAPSED_BY_DEFAULT: CollapseKey[] = ['free', 'not-placed'];
 
 /**
  * Where the collapse state lives.
@@ -37,6 +43,39 @@ export const COLLAPSED_BY_DEFAULT: CollapseKey[] = ['free'];
  */
 const COLLAPSE_KEY = 'plot-board:agents:collapsed';
 
+/** The keys of `COLLAPSED_BY_DEFAULT` already applied to this reader's stored set. */
+const DEFAULTS_KEY = 'plot-board:agents:collapsed-defaults';
+
+/**
+ * Adds each default key the record does not hold to a stored set, once, and writes the record.
+ *
+ * A reader who opens such a section afterwards keeps it open: the record then holds the key, so the next read adds nothing.
+ */
+const withNewDefaults = (kept: Set<CollapseKey>, storage: Partial<Pick<Storage, 'getItem' | 'setItem'>> | undefined): Set<CollapseKey> => {
+  let applied: string[] = [];
+  try {
+    const raw = storage?.getItem?.(DEFAULTS_KEY) ?? null;
+    const parsed: unknown = raw === null ? [] : JSON.parse(raw);
+    if (Array.isArray(parsed)) applied = parsed.filter((k): k is string => typeof k === 'string');
+  } catch {
+    return kept;
+  }
+  const missing = COLLAPSED_BY_DEFAULT.filter((k) => !applied.includes(k));
+  if (missing.length === 0) return kept;
+  for (const k of missing) kept.add(k);
+  recordDefaults(storage);
+  return kept;
+};
+
+/** Records every default key as applied. Silent on failure, as `writeCollapsed` is. */
+const recordDefaults = (storage: Partial<Pick<Storage, 'setItem'>> | undefined): void => {
+  try {
+    storage?.setItem?.(DEFAULTS_KEY, JSON.stringify(COLLAPSED_BY_DEFAULT));
+  } catch {
+    // The defaults are added again on the next read, which folds nothing the reader opened since.
+  }
+};
+
 /**
  * Read the stored collapse set, falling back to the default where nothing is
  * stored.
@@ -53,15 +92,20 @@ const COLLAPSE_KEY = 'plot-board:agents:collapsed';
  *
  * Exported for test.
  */
-export function readCollapsed(storage?: Pick<Storage, 'getItem'>): Set<CollapseKey> {
+export function readCollapsed(storage?: Partial<Pick<Storage, 'getItem' | 'setItem'>>): Set<CollapseKey> {
   const fallback = new Set(COLLAPSED_BY_DEFAULT);
+  let store: Partial<Pick<Storage, 'getItem' | 'setItem'>> | undefined;
   let raw: string | null = null;
   try {
-    raw = (storage ?? globalThis.localStorage)?.getItem(COLLAPSE_KEY) ?? null;
+    store = storage ?? globalThis.localStorage;
+    raw = store?.getItem?.(COLLAPSE_KEY) ?? null;
   } catch {
     return fallback;
   }
-  if (raw === null) return fallback;
+  if (raw === null) {
+    recordDefaults(store);
+    return fallback;
+  }
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return fallback;
@@ -71,8 +115,12 @@ export function readCollapsed(storage?: Pick<Storage, 'getItem'>): Set<CollapseK
     const kept = parsed.filter((k): k is CollapseKey => typeof k === 'string' && KNOWN_KEYS.has(k));
     // A stored set from the earlier vocabulary holds no current key: it is
     // stale, not a reader who opened everything, so the default applies.
-    if (kept.length === 0 && parsed.length > 0) return fallback;
-    return new Set(kept);
+    if (kept.length === 0 && parsed.length > 0) {
+      recordDefaults(store);
+      return fallback;
+    }
+    // A default key added since this set was stored joins it once.
+    return withNewDefaults(new Set(kept), store);
   } catch {
     return fallback;
   }
@@ -91,7 +139,7 @@ export function writeCollapsed(
 }
 
 /**
- * Can this group be collapsed at all?
+ * Can this GROUP be collapsed at all? A section always can: see `isFoldable`.
  *
  * An EMPTY group never can. It hides nothing, and its header does not read
  * `(0)` — it reads the group's hint (*still thinking, or dead?*), which is the
@@ -107,6 +155,39 @@ export function writeCollapsed(
 export function isCollapsible(rowCount: number): boolean {
   return rowCount > 0;
 }
+
+/** Whether a fold control folds a section or a group of one. */
+export type FoldLevel = 'section' | 'group';
+
+/** The Fleet groups that never fold: an agent at work or at a gate is what the section is read for. */
+export const ALWAYS_OPEN_GROUPS: readonly CollapseKey[] = ['working', 'blocked'];
+
+/**
+ * Whether a section or group has a fold control.
+ *
+ * @param level - `section` or `group`.
+ * @param rowCount - the rows the section or group holds.
+ * @returns `true` for every section, also an empty one, and for a group with rows; `false` for an empty group (see `isCollapsible`).
+ */
+export const isFoldable = (level: FoldLevel, rowCount: number): boolean => level === 'section' || isCollapsible(rowCount);
+
+/**
+ * Whether a section or group renders folded.
+ *
+ * @param level - `section` or `group`.
+ * @param key - the collapse key of the section or group.
+ * @param rowCount - the rows it holds.
+ * @param collapsed - the reader's collapse set.
+ * @param always - `true` where it never folds; defaults to `true` for `ALWAYS_OPEN_GROUPS`.
+ * @returns `true` where it is foldable, not always open, and `collapsed` holds its key. A stored key folds an empty section.
+ */
+export const isFolded = (
+  level: FoldLevel,
+  key: CollapseKey,
+  rowCount: number,
+  collapsed: ReadonlySet<CollapseKey>,
+  always: boolean = level === 'group' && ALWAYS_OPEN_GROUPS.includes(key),
+): boolean => !always && isFoldable(level, rowCount) && collapsed.has(key);
 
 /**
  * Where the row stops being a row.
