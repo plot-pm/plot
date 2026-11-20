@@ -420,6 +420,13 @@ describe('the conflict arm', () => {
     }
   });
 
+  it('answers none with no row, with no head, and before the fixer is built', () => {
+    const { headSha: _head, ...headless } = conflicting;
+    expect(conflictArm(readings({ row: null, fixer: fresh, desk: dead, baseTip: tip }))).toEqual({ step: 'none', why: 'no-conflict' });
+    expect(conflictArm(readings({ row: headless, fixer: fresh, desk: dead, baseTip: tip }))).toEqual({ step: 'none', why: 'no-conflict' });
+    expect(conflictArm(readings({ row: conflicting, desk: dead, baseTip: tip }))).toEqual({ step: 'none', why: 'fixer-not-built' });
+  });
+
   it('holds unread on an unread fixer record, an unread base tip, or no base tip', () => {
     expect(conflictArm(readings({ row: conflicting, fixer: { read: 'unread' }, desk: dead, baseTip: tip }))).toEqual({ step: 'hold', reason: 'unread' });
     expect(conflictArm(readings({ row: conflicting, fixer: fresh, desk: dead, baseTip: { read: 'unread' } }))).toEqual({ step: 'hold', reason: 'unread' });
