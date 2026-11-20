@@ -356,6 +356,33 @@ describe('refreshDefaultBranch', () => {
     expect(r.stored()?.failingRuns).toEqual([]);
   });
 
+  it('keeps the settled red through a re-run of the red head until that head reads green', async () => {
+    const r = rig();
+    r.runs('a1', [run('ci', 'failure')]);
+    await refreshDefaultBranch(r.world);
+    // The re-run puts the red commit's runs back to queued, then in progress.
+    for (const [t, status] of [[REASK_MS, 'queued'], [2 * REASK_MS, 'in_progress']] as const) {
+      r.clock(t);
+      r.runs('a1', [run('ci', null, status)]);
+      expect(await refreshDefaultBranch(r.world)).toBe('asked');
+      expect(r.stored()).toMatchObject({ headSha: 'a1', head: 'pending', settled: { sha: 'a1', state: 'red' } });
+      // A pending answer is a host answer: it renews askedAt, so the hold does not age out mid-run.
+      expect(r.stored()?.askedAt).toBe(new Date(T0 + t).toISOString());
+      expect(defaultBranchRed(r.stored(), r.world.now(), WAIT)).toBe(true);
+    }
+    // A re-run cancelled with nothing failed folds unknown and keeps the red.
+    r.clock(3 * REASK_MS);
+    r.runs('a1', [run('ci', 'cancelled')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.stored()).toMatchObject({ head: 'unknown', settled: { sha: 'a1', state: 'red' } });
+    expect(defaultBranchRed(r.stored(), r.world.now(), WAIT)).toBe(true);
+    r.clock(4 * REASK_MS);
+    r.runs('a1', [run('ci', 'success')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.stored()?.settled).toEqual({ sha: 'a1', state: 'green' });
+    expect(defaultBranchRed(r.stored(), r.world.now(), WAIT)).toBe(false);
+  });
+
   it('keeps the settled red while a newer HEAD is pending', async () => {
     const r = rig();
     r.runs('a1', [run('ci', 'failure')]);

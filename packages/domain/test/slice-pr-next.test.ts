@@ -443,6 +443,11 @@ describe('the merge arm', () => {
     expect(merging({ defaultBranch: red })).toEqual({ step: 'hold', reason: 'default-branch-red' });
   });
 
+  it.each(['pending', 'unknown'] as const)('holds default-branch-red while a re-run of the red head reads %s', (head) => {
+    const rerun = reading({ head, settled: { sha: TIP, state: 'red' } });
+    expect(merging({ defaultBranch: rerun })).toEqual({ step: 'hold', reason: 'default-branch-red' });
+  });
+
   it('holds default-branch-stale where defaultBranchRed lifts its own hold on the same reading', () => {
     const old = reading({ settled: { sha: TIP, state: 'red' }, askedAt: '2026-10-30T09:00:00Z' });
     expect(defaultBranchRed(old, NOW, 3_600_000)).toBe(false);
