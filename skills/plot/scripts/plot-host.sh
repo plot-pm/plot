@@ -1235,7 +1235,7 @@ BB_LIST_FIELDS="next,size,page,pagelen,values.id,values.title,values.state,value
 # One request answers several states in update order, so the rows are put in
 # state rank — open, merged, declined, superseded — and keep the server's order
 # within a state. `sort_by` is stable.
-BB_STATE_RANK='sort_by({"OPEN":0,"MERGED":1,"DECLINED":2,"SUPERSEDED":3}[.state] // 4)'
+BB_STATE_RANK='sort_by({"OPEN":0,"MERGED":1,"DECLINED":2,"SUPERSEDED":3}[.state // ""] // 4)'
 
 # Ask about EVERY tracked branch in one state, printing one combined array.
 #
