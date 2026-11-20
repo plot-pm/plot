@@ -953,7 +953,8 @@ const EXPECTED_FILES = 99;
 // 714 → 718 on 2026-11-19: the two `it(` that check a clean-up row's one menu holds Release on a claim-only branch and that the group deletes its quiet branches one by one, added to `loose-ends-show-under-unblock.browser.test.ts` beside the rewritten menu test; the one that checks one Fleet row per agent and the not-working list, added to `delivery-fleet-look.browser.test.ts`; and the one that checks the to-do lines share one grid, added to `delivery-tab-header.browser.test.ts`. Added, not moved.
 // 718 → 722 on 2026-11-19: the four `it(` in the new `release-delivery-fold.browser.test.ts` (98 → 99 files). Added, not moved.
 // 722 → 719 on 2026-11-20: the activity mark became a braille spinner in the Status cell, so the travelling dot, its track and its glow are gone. `activity-mark.browser.test.ts` lost four `it(` that asserted only those: the travel returning to its start, the dot resting at one end under reduced motion, one track carrying one dot, and the unpushed mark set apart by glow. Two `it(` merged into others in the same file: the pace ratio into the exact 80 ms and 220 ms durations, and the local-signals-not-group check into the same test, whose fixture differs only in `localDirty`; `activityPace` is pinned in `test/unit/agent-list.test.ts`. `group-activity.browser.test.ts` gains one, for an open section showing no heading spinner.
-const EXPECTED_TESTS = 719;
+// 719 → 721 on 2026-11-20: the two `it(` that check a slice's PR and branch draw as one bordered link tuple with the branch named in full in its title, and that a ticket segment takes the `--hue-violet` colour, added to `tuple-row.browser.test.ts`. Added, not moved.
+const EXPECTED_TESTS = 721;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an
