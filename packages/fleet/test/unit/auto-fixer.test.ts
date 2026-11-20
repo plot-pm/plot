@@ -43,6 +43,7 @@ const FINDINGS = '**HIGH 1: nothing calls fixerTick.**\n';
 const baseRow: PrIndexRow = {
   number: 7,
   head: 'feature/x',
+  base: 'main',
   state: 'OPEN',
   draft: false,
   checks: 'green',
@@ -56,7 +57,8 @@ const ciRedRow: PrIndexRow = { ...baseRow, ciChecks: 'failing', checksSha: HEAD,
 
 const baseReadings: FixerTickReadings = {
   newestMerged: null,
-  scope: { read: 'scope', sprint: {} as never, slugs: ['x'], branches: ['feature/x'] },
+  defaultBranchName: 'main',
+  claimStaleMs: 24 * 3_600_000,
   reviewRun: null,
   reviewStarts: null,
   verdict: { read: 'absent' },
@@ -67,8 +69,14 @@ const baseReadings: FixerTickReadings = {
 };
 
 interface WorldOptions {
-  /** `forBranch`'s answer; a worktree present on this machine, or none. */
-  deskPath?: string | null;
+  /** `forBranch`'s answer; a worktree present on this machine, none, or a failed listing. */
+  deskPath?: string | null | 'fail';
+  /** The commits `commitSubjects` answers; one fresh claim marker by default, so the branch is desk-owned. */
+  claims?: { at: number; subject: string; tree: string; parentTree: string }[] | 'fail';
+  /** Every range `commitSubjects` was asked about. */
+  claimRanges?: string[];
+  /** The branches the registry's manifests name; none by default. */
+  manifests?: string[] | 'fail';
   workerState?: 'running' | 'waiting' | 'finished' | 'failed' | 'ended' | 'none' | 'elsewhere' | 'fail';
   endingText?: string | null;
   freshRows?: number;
@@ -121,9 +129,11 @@ const world = (opts: WorldOptions = {}): FixerTickWorld => {
   return {
     trees: () => ({
       forBranch: async () =>
-        opts.deskPath === undefined || opts.deskPath === null
-          ? { ok: true, value: null }
-          : { ok: true, value: { path: opts.deskPath, branch: 'feature/x', detached: false } },
+        opts.deskPath === 'fail'
+          ? { ok: false, why: 'failed' }
+          : opts.deskPath === undefined || opts.deskPath === null
+            ? { ok: true, value: null }
+            : { ok: true, value: { path: opts.deskPath, branch: 'feature/x', detached: false } },
       // Behaves like `git worktree add --detach`: refuses a target that exists
       // and is not empty, and leaves a `.git` file in the tree it creates.
       add: async (dir, start) => {
@@ -208,8 +218,19 @@ const world = (opts: WorldOptions = {}): FixerTickWorld => {
       rowsFor: async () => ({ ok: true, value: Array.from({ length: opts.freshRows ?? 0 }, () => ({}) as never) }),
     }),
     readEndingFile: () => (opts.endingText === undefined ? null : opts.endingText),
+    agents: () => ({
+      declared: async () =>
+        opts.manifests === 'fail'
+          ? { ok: false, why: 'failed' }
+          : { ok: true, value: (opts.manifests ?? []).map((branch) => ({ branch }) as never) },
+    }),
     refs: () => ({
       defaultBranch: async () => ({ ok: true, value: 'main' }),
+      commitSubjects: async (range) => {
+        opts.claimRanges?.push(range);
+        if (opts.claims === 'fail') return { ok: false, why: 'failed' };
+        return { ok: true, value: opts.claims ?? [{ at: NOW, subject: 'plot: claim feature/x', tree: 't', parentTree: 't' }] };
+      },
       showFile: async (ref, file) => {
         opts.loads?.push(`read ${ref}:${file}`);
         const text = opts.roleText === undefined ? FIXER_MD : opts.roleText;
@@ -874,10 +895,7 @@ describe('fixerTick bounds the fixer', () => {
     expect(JSON.stringify(opts.runLog.lines.filter((l) => l.step === 'fixer-end'))).not.toContain('bound');
   });
 
-  const bothInScope: FixerTickReadings = {
-    ...baseReadings,
-    scope: { read: 'scope', sprint: {} as never, slugs: ['x', 'y'], branches: ['feature/x', 'feature/y'] },
-  };
+  const bothInScope: FixerTickReadings = baseReadings;
 
   it('holds a second PR as fixer-busy while the first fixer runs, then starts it once the first has ended', async () => {
     const opts = fixture();
@@ -1039,6 +1057,70 @@ describe('fixerTick records a failed start', () => {
     const fresh = world({ attempts: (await w.attempts(opts).read(7)).ok ? ((await w.attempts(opts).read(7)) as { value: FixerAttemptsRecord }).value : 'none', prState: { number: 7, state: 'OPEN', headSha: OTHER_HEAD } });
     const [next] = await fixerTick([newHead], baseReadings, opts, fresh, logged);
     expect(next!.started).toMatchObject({ started: true });
+  });
+});
+
+describe('fixerTick reads the fixer scope', () => {
+  const HOUR = 3_600_000;
+  const work = { at: NOW - 2 * HOUR, subject: 'fix: a thing', tree: 't2', parentTree: 't' };
+  const deskless: PrIndexRow = { ...ciRedRow, headSince: new Date(NOW - 2 * HOUR).toISOString() };
+
+  it('starts a fixer on a red PR no agent owns once its head stands for an hour', async () => {
+    const starts: Started[] = [];
+    const claimRanges: string[] = [];
+    const [result] = await fixerTick([deskless], baseReadings, fixture(), world({ claims: [work], agentRunStarts: starts, claimRanges }));
+    expect(result!.step).toEqual({ step: 'fixer', head: HEAD, evidence: 'ci-red' });
+    expect(result!.started).toEqual({ started: true, pid: 9001 });
+    expect(claimRanges).toEqual(['origin/main..origin/feature/x']);
+  });
+
+  it('holds a red PR no agent owns while a person pushed its head within the hour', async () => {
+    const starts: Started[] = [];
+    const recent: PrIndexRow = { ...ciRedRow, headSince: new Date(NOW - 10 * 60_000).toISOString() };
+    const [result] = await fixerTick([recent], baseReadings, fixture(), world({ claims: [work], agentRunStarts: starts }));
+    expect(result!.step).toEqual({ step: 'none', why: 'person-pushed-recently', leftMs: 50 * 60_000 });
+    expect(starts).toHaveLength(0);
+  });
+
+  it('reads a manifest naming the branch as an agent owning it', async () => {
+    const recent: PrIndexRow = { ...ciRedRow, headSince: new Date(NOW - 10 * 60_000).toISOString() };
+    const [result] = await fixerTick([recent], baseReadings, fixture(), world({ claims: [work], manifests: ['feature/x'] }));
+    expect(result!.step).not.toMatchObject({ why: 'person-pushed-recently' });
+  });
+
+  it.each([
+    ['the worktree listing', { deskPath: 'fail' as const }],
+    ['the registry', { manifests: 'fail' as const }],
+    ['the claim commits', { claims: 'fail' as const }],
+  ])('answers owner-unread and starts nothing where %s cannot be read', async (_name, over) => {
+    const starts: Started[] = [];
+    const [result] = await fixerTick([deskless], baseReadings, fixture(), world({ ...over, agentRunStarts: starts }));
+    expect(result!.step).toEqual({ step: 'none', why: 'owner-unread' });
+    expect(starts).toHaveLength(0);
+  });
+
+  it('answers base-unread for a row with no base, and reads no claim commits', async () => {
+    const claimRanges: string[] = [];
+    const { base: _base, ...bare } = ciRedRow;
+    const [result] = await fixerTick([bare], baseReadings, fixture(), world({ claimRanges }));
+    expect(result!.step).toEqual({ step: 'none', why: 'base-unread' });
+    expect(claimRanges).toHaveLength(0);
+  });
+
+  it('answers base-unread where the default branch name is unread', async () => {
+    const { defaultBranchName: _name, ...unread } = baseReadings;
+    const [result] = await fixerTick([ciRedRow], unread, fixture(), world());
+    expect(result!.step).toEqual({ step: 'none', why: 'base-unread' });
+  });
+
+  it('leaves a release PR and a PR into another base out of scope', async () => {
+    const release: PrIndexRow = { ...ciRedRow, number: 8, head: 'changeset-release/main' };
+    const other: PrIndexRow = { ...ciRedRow, number: 9, base: 'release/1' };
+    const results = await fixerTick([release, other], baseReadings, fixture(), world());
+    expect(results.map((r) => r.step)).toEqual([
+      { step: 'none', why: 'release-pr' },
+      { step: 'none', why: 'base-out-of-scope' },
+    ]);
   });
 });
 

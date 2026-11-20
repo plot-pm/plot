@@ -5,6 +5,7 @@ import { baseBranchRed, defaultBranchAgeMs, holdsApply } from './default-branch.
 import { mergeIdentity, type MergerAppReading } from './merge-identity.js';
 import { repairMergeVerdict, repairNamesPr, type RepairMergeReading } from './repair-pr.js';
 import type { DeskDeadAnswer } from './desk-dead.js';
+import { fixerScope, type FixerOwner } from './fixer-scope.js';
 import { trustedReview } from './pr-index.js';
 import { reviewStartAllowed, type ReviewStart } from './review-run.js';
 import { settledPast, type UnsettledReading } from './settled-past.js';
@@ -125,6 +126,9 @@ export interface SlicePrNextReadings {
   readonly now: number;
 }
 
+/** The readings an arm that does not read the sprint scope takes. */
+export type ArmReadings = Omit<SlicePrNextReadings, 'scope'>;
+
 /** Why a hold holds. An open string set: a sibling plan adds its own. */
 export type HoldReason =
   | 'review-in-flight'
@@ -147,7 +151,8 @@ export type HoldReason =
 
 /** The one step the fleet takes on an open slice PR. */
 export type SlicePrStep =
-  | { step: 'none'; why: string }
+  /** `leftMs` is the time left of the quiet hour, set with {@link fixerPrNext}'s `person-pushed-recently`. */
+  | { step: 'none'; why: string; leftMs?: number }
   | { step: 'review'; head: string }
   | {
       step: 'write-status';
@@ -193,7 +198,7 @@ export const guardArm = (readings: SlicePrNextReadings): SlicePrStep | null => {
  * @param readings - the PR's readings.
  * @returns a `review-in-flight` hold, or `none`.
  */
-export const reviewRunArm = (readings: SlicePrNextReadings): SlicePrStep => {
+export const reviewRunArm = (readings: ArmReadings): SlicePrStep => {
   const { row, reviewRun } = readings;
   if (reviewRun !== null && reviewRun.live && reviewRun.head === row?.headSha) return hold('review-in-flight');
   return none('no-review-run');
@@ -239,7 +244,7 @@ export const restatusArm = (readings: SlicePrNextReadings): SlicePrStep => {
  * @param readings - the PR's readings.
  * @returns a `fixer-in-flight` hold, an `unread` hold, or `none`.
  */
-export const fixerInFlightArm = (readings: SlicePrNextReadings): SlicePrStep => {
+export const fixerInFlightArm = (readings: ArmReadings): SlicePrStep => {
   const { fixer } = readings;
   if (fixer === undefined) return none('fixer-not-built');
   if (fixer.read === 'unread') return hold('unread');
@@ -262,7 +267,7 @@ export const fixerInFlightArm = (readings: SlicePrNextReadings): SlicePrStep => 
  * @returns an `unread` hold while the fixer or ticket record is unread, a
  *   `ticket-pending` hold, a `fixer`, `ticket` or `write-status` step, or `none`.
  */
-export const highArm = (readings: SlicePrNextReadings): SlicePrStep => {
+export const highArm = (readings: ArmReadings): SlicePrStep => {
   const { row, fixer, ticket } = readings;
   if (ticket?.read === 'unread') return hold('unread');
   if (fixer === undefined) return none('fixer-not-built');
@@ -305,7 +310,7 @@ export const highArm = (readings: SlicePrNextReadings): SlicePrStep => {
  * @returns an `unread` hold while the fixer record is unread, a budget-spent
  *   `hold`, a `fixer` step, or `none`.
  */
-export const ciRedArm = (readings: SlicePrNextReadings): SlicePrStep => {
+export const ciRedArm = (readings: ArmReadings): SlicePrStep => {
   const { row, desk, correctionsSpentExhausted, fixer } = readings;
   if (fixer === undefined) return none('fixer-not-built');
   if (fixer.read === 'unread') return hold('unread');
@@ -475,4 +480,56 @@ export const slicePrNext = (readings: SlicePrNextReadings): SlicePrStep => {
     if (!isNone(answer)) return answer;
   }
   return review;
+};
+
+/**
+ * Everything {@link fixerPrNext} reads about one open PR, as values: the
+ * readings {@link slicePrNext} takes without the sprint scope, and the owner
+ * of the head branch.
+ */
+export type FixerPrNextReadings = Omit<SlicePrNextReadings, 'scope'> & {
+  /** The owner of the head branch, from `fixerOwner`. */
+  readonly owner: FixerOwner;
+};
+
+/**
+ * The fixer's next step for one open PR.
+ *
+ * Asks `fixerScope` in place of {@link guardArm}: a PR out of scope answers
+ * `none` with the scope's reason, and `person-pushed-recently` carries the
+ * time left as `leftMs`. A PR in scope then walks {@link reviewRunArm},
+ * {@link fixerInFlightArm}, {@link highArm} and {@link ciRedArm}, and the first
+ * answer that is not `none` wins; with none, `ciRedArm`'s `none` is returned.
+ * For `owner: 'none'` the arms read the desk as `{ dead: true }`; for
+ * `owner: 'desk'` they read `readings.desk`.
+ *
+ * {@link restatusArm}, {@link reviewArm} and {@link mergeArm} are not walked:
+ * writing a review status, starting a review and merging belong to the review
+ * and merge passes, which keep {@link slicePrNext} and the sprint scope.
+ *
+ * A fork PR is not told apart from a branch PR: the row carries no head
+ * repository.
+ *
+ * @param readings - everything read of the PR, as values.
+ * @returns the step.
+ */
+export const fixerPrNext = (readings: FixerPrNextReadings): SlicePrStep => {
+  const scope = fixerScope({
+    row: readings.row,
+    defaultBranchName: readings.defaultBranchName,
+    owner: readings.owner,
+    pushedHead: readings.fixer?.read === 'record' && readings.fixer.pushedHead,
+    now: readings.now,
+  });
+  if (!scope.in) return scope.why === 'person-pushed-recently' ? { step: 'none', why: scope.why, leftMs: scope.leftMs } : none(scope.why);
+  const walked: ArmReadings = {
+    ...readings,
+    desk: scope.owner === 'none' ? { dead: true } : readings.desk,
+  };
+  let last: SlicePrStep = none('no-arm-answered');
+  for (const arm of [reviewRunArm, fixerInFlightArm, highArm, ciRedArm]) {
+    last = arm(walked);
+    if (!isNone(last)) return last;
+  }
+  return last;
 };
