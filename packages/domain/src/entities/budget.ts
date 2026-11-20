@@ -152,8 +152,7 @@ const label = (value: string | undefined): string => {
  */
 export const budgetCallerOf = (declared: string | undefined, script: string | undefined): string => {
   if (declared !== undefined && declared.trim() !== '') return label(declared);
-  const name = (script ?? '').split('/').pop() ?? '';
-  return label(name);
+  return label((script ?? '').replace(/^.*\//, ''));
 };
 
 /**
@@ -168,7 +167,8 @@ export const budgetCallerOf = (declared: string | undefined, script: string | un
  */
 export const budgetOpOf = (requestLabel: string): string =>
   label(
-    (requestLabel.split(',')[0] ?? '')
+    requestLabel
+      .replace(/,[\s\S]*$/, '')
       .split(/\s+/)
       .filter((word) => word !== '' && !/\d/.test(word))
       .join('-'),
