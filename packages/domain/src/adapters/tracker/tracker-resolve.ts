@@ -11,7 +11,7 @@ import { githubInProcessReads, githubIssueComment, trackerGithub } from './track
 import { githubIssueClose, githubIssueLabel, githubPlanStateWrite } from './tracker-plan-state.js';
 import { trackerJira, type JiraInProcess } from './tracker-jira.js';
 import { trackerNone } from './tracker-none.js';
-import { TRACKER_LISTERS } from './tracker-listers.js';
+import { HOST_ISSUE_LISTERS, TRACKER_LISTERS } from './tracker-listers.js';
 
 // RE-EXPORTED FROM ITS OWN MODULE, so every importer of this file is unchanged
 // while a shell entry can import the list without the connectors below it.
@@ -189,7 +189,7 @@ export const trackerOfSource = (
 /**
  * Who answers this repository's open-issue list, resolved to a `Tracker`.
  *
- * Reads {@link issueSource} over {@link TRACKER_LISTERS} and resolves the
+ * Reads {@link issueSource} over {@link TRACKER_LISTERS} and {@link HOST_ISSUE_LISTERS}, and resolves the
  * answer through {@link trackerOfSource}.
  *
  * @param declared - the `Tracker` config key's value, verbatim.
@@ -199,7 +199,7 @@ export const trackerOfSource = (
  */
 export const trackerForIssues = (declared: string, gitHost: string, context: ShellContext): Tracker =>
   trackerOfSource(
-    issueSource({ declared, gitHost, listers: TRACKER_LISTERS } satisfies IssueSourceReading),
+    issueSource({ declared, gitHost, listers: TRACKER_LISTERS, hosts: HOST_ISSUE_LISTERS } satisfies IssueSourceReading),
     declared,
     gitHost,
     context,

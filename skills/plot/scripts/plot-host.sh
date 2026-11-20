@@ -356,9 +356,8 @@
 #                                 a usage error naming `--paged`, checked before
 #                                 any curl. `--limit 100` still answers; the
 #                                 guard is `>`, not `>=`. EXIT 4 where the closed read
-#                                 cannot be asked at all: Bitbucket (`bb issue
-#                                 list` prints no closing date) and Jira with no
-#                                 `Ticket prefixes`, both before any bb or curl.
+#                                 cannot be asked at all: Jira with no
+#                                 `Ticket prefixes`, before any curl.
 #                                 Open issues:
 #                                 {"number":N,"title":"…","url":"…",
 #                                  "createdAt":"…","status":"…",
@@ -371,16 +370,10 @@
 #                                 BOTH, because neither substitutes for the
 #                                 other: the name is what a person reads, the
 #                                 category is what a board decides on. EVERY
-#                                 backend answers both — GitHub derives them
-#                                 from the `--state` this op asks for, jira
-#                                 reads .fields.status, and bitbucket maps the
-#                                 state badge it already parses. A Jira-only
-#                                 field is what this adapter exists to prevent.
-#                                 `statusCategory` is "" where the tracker's
-#                                 vocabulary has no word for it — bitbucket's
-#                                 ON HOLD/INVALID/DUPLICATE/WONTFIX. Empty is
-#                                 an honest answer; an invented category files
-#                                 abandoned work beside finished work.
+#                                 source answers both — GitHub derives them
+#                                 from the `--state` this op asks for, and jira
+#                                 reads .fields.status. A Jira-only field is
+#                                 what this adapter exists to prevent.
 #                                 READ-ONLY. Plot writes no label, no assignee
 #                                 and no close-on-merge, because a copy of
 #                                 tracker state ages into a lie. The two
@@ -388,23 +381,14 @@
 #                                 `url` is "" when the host omits it, and a
 #                                 consumer renders the number as plain text
 #                                 rather than inventing an address — the rule
-#                                 pr-list's `url` already follows. On bitbucket
-#                                 `url` and `createdAt` are BOTH "": `bb issue
-#                                 list` prints neither.
-#                                 BITBUCKET NOW ANSWERS by parsing `bb issue
-#                                 list` (no --json), pinned to bb 0.6.0. EXIT 4
-#                                 narrows rather than disappears: it is the
-#                                 tracker-DISABLED case (bb answers 404/410),
-#                                 and a bb whose `--help` lists no `issue`
-#                                 command (Quatico bb), both of
-#                                 which stay *this host cannot answer* where an
-#                                 empty list would say *there are none*. A call
-#                                 that failed on an enabled tracker, or any error
-#                                 wording this adapter does not recognise, exits
-#                                 3 — guessing 4 would turn a broken call into a
-#                                 confident "no tickets". A failed lookup exits
-#                                 non-zero with an empty stdout, never a silent
-#                                 empty list — an outage is not an answer.
+#                                 pr-list's `url` already follows.
+#                                 BITBUCKET IS EXIT 4 with no `Tracker`
+#                                 declared: Bitbucket Cloud keeps no issues, so
+#                                 `issueSource` answers `nobody` and the
+#                                 sentence names the `Tracker` key. A failed
+#                                 lookup exits non-zero with an empty stdout,
+#                                 never a silent empty list — an outage is not
+#                                 an answer.
 #                                 JIRA ANSWERS when `Tracker: jira` is declared,
 #                                 through the REST API (no CLI), DISPATCHED ON
 #                                 `Tracker` and INDEPENDENT of `Git host` — a
@@ -430,12 +414,9 @@
 #                                 one issue somebody chose — a call whose cadence
 #                                 is a human's.
 #                                 Same three outcomes as issue-list, same codes:
-#                                 BITBUCKET NOW ANSWERS via `bb issue view`
-#                                 (pinned to 0.6.0); `url` comes from the view's
-#                                 footer. EXIT 4 is the tracker-DISABLED case
-#                                 or a bb with no `issue` command,
-#                                 EXIT 3 a lookup that failed or an unrecognised
-#                                 error. An issue that does not exist is a
+#                                 EXIT 4 where issue-list exits 4 (Bitbucket
+#                                 with no `Tracker`), EXIT 3 a lookup that
+#                                 failed. An issue that does not exist is a
 #                                 FAILURE here, not an empty body: the caller
 #                                 named a number it read off this same adapter,
 #                                 so its absence is a fact worth surfacing rather
@@ -765,16 +746,14 @@ PR_STATE_OF='{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.
 # NOT A RETRY, for the reason exit 5 states: whether to wait is the caller's
 # decision, and this adapter reports rather than reacts.
 
-# WHICH FAILURE, read off the wording — the same shape `bb_issue_exit_code`
-# uses, and for the same reason: the exit code cannot split these cases. `gh`
-# exits 1 for a rate limit and for a 503 alike, and puts the whole difference
-# in its stderr.
+# WHICH FAILURE, read off the wording, because the exit code cannot split these
+# cases. `gh` exits 1 for a rate limit and for a 503 alike, and puts the whole
+# difference in its stderr.
 #
 # THE SPLIT FALLS ONE WAY ONLY. An unrecognised error is never given the more
 # specific name. `throttled` counsels patience, and patience does not fix an
 # outage — so anything this does not recognise stays `failed`, which counsels
-# looking. That is the same direction `bb_issue_exit_code` refuses to guess in,
-# where an unrecognised error must be 3 rather than 4.
+# looking.
 #
 # THREE ANSWERS, BECAUSE THE TWO LIMITS ARE TWO CEILINGS. This returned
 # `throttled` for every match of one regex until 2026-09-02, so *"API rate
@@ -2664,104 +2643,14 @@ bb_states_for() {
   esac
 }
 
-# --- Bitbucket issue support (bb issue list / view) -------------------------
+# --- bb output -----------------------------------------------------------------
 #
-# `bb` gained issue commands, and this adapter refused them for a year on the
-# strength of a message that was true when written and stopped being true after
-# an upstream release. The two ops now ANSWER for Bitbucket by parsing `bb`'s
-# text — it has no `--json` for issues — and the parse is DECLARED against the
-# format it targets so a column reshuffle upstream fails loudly rather than
-# mis-reading a title.
-#
-# Everything below was MEASURED against the installed CLI on 2026-08-26:
-#
-#   $ bb --version   → bb version 0.6.0
-#   $ bb issue list  (row)  #%03d <STATE>  <title>   by <reporter>
-#   $ bb issue list  (head)  :: Showing N of M issues in ORG/SLUG
-#   $ bb issue view  (line 1, bold) <title>
-#   $ bb issue list  (error) An error occurred: <message>   ← on STDOUT, ANSI
-#
-# The format is craftamap/bb's, read from its source at the 0.6.0 tag
-# (cmd/commands/issue/{list,view}): the row is printed with literal spaces, not
-# a tabwriter, and the ID is zero-padded to three digits.
-BB_ISSUE_VERSION="0.6.0"
-
-# Strip ANSI SGR escapes. `bb` colours everything — the ID green, the state
-# badge on a coloured background, the reporter grey — and an unstripped line
-# carries `\033[...m` runs that would land inside a parsed title. `bb` also
-# writes its ERRORS coloured, on stdout, so the same stripper runs before the
-# error text is matched: an ANSI-wrapped "An error occurred" must be recognised
-# as an error, not parsed as an issue (the trap the GitHub arm's stdout-is-data
-# shape walks straight into).
+# Strip ANSI SGR escapes. `bb` colours its output, and an unstripped line
+# carries `\033[...m` runs that would land inside a parsed value.
 bb_strip_ansi() {
   # ESC [ ... <final-byte>. LC_ALL=C so the byte class is bytes, not locale
-  # graphemes — the escape is 7-bit regardless of the title's encoding.
+  # graphemes — the escape is 7-bit regardless of the text's encoding.
   LC_ALL=C sed $'s/\033\\[[0-9;]*[A-Za-z]//g'
-}
-
-# `bb` prints failure as `... An error occurred: <message>` on STDOUT and exits
-# 1 for EVERYTHING — a disabled tracker, a network outage, "Are you sure this is
-# a bitbucket repo?". The exit code cannot split them, so this matches the
-# WORDING, and the split falls one way only:
-#
-#   recognised "tracker cannot be asked" wording → exit 4 (cannot be asked)
-#   ANY other error text                         → exit 3 (the call failed)
-#
-# Guessing 4 from an unrecognised message would turn a broken call into a
-# confident "you have no tickets" — the exact failure this branch exists to fix
-# — so an unrecognised error MUST be 3. Bitbucket answers 404/410 for a repo
-# whose issue tracker is disabled (and for a repo that is not a Bitbucket repo
-# at all); both are *this host cannot be asked about issues*, which is what 4
-# means. Reads the already-stripped, already-lowercased error text.
-bb_issue_exit_code() {
-  local err="$1"
-  LC_ALL=C grep -qiE 'are you sure this is a bitbucket repo|\b40[34]\b|not found|no issue tracker|issue tracker.*(disabled|not enabled)|repository not found' <<<"$err" && echo 4 || echo 3
-}
-
-# Assert the format the parse below was written against. `bb` puts its version
-# on stdout as `bb version X.Y.Z (sha)`; a version this parse was not tested on
-# fails LOUDLY rather than silently mis-reading a column that may have moved.
-# `PLOT_BB_SKIP_VERSION_CHECK` exists for the test harness, whose stub bb has no
-# meaningful version — the parse is exercised against captured fixture text.
-#
-# A VERSION MISMATCH IS NOT ALWAYS A MOVED FORMAT. Two products share the name
-# `bb` (see the capability check below), and Quatico `bb` — 1.9.0 measured
-# 2026-10-01 — has no `issue` command at all: `bb --help` lists `pr …`,
-# `source …` and `api`. Telling it to update would suggest a fix that does not
-# exist, so a mismatch first asks `bb --help` what the CLI offers. A help text
-# that lists a `pr` command and no `issue` command is a bb that cannot be asked
-# about issues, which is exit 4 — the same answer as a disabled tracker. Any
-# other help text keeps the refusal below, exit 3. Exits 4 or 3; 0 passes.
-#
-# The `Tracker` advice below fits only where nobody declared one — asked of
-# the domain (`--bb-issue-missing`) rather than re-read here, since this is
-# the same declared value `issue_source` already read. A failed ask keeps
-# the advice: naming `Tracker` to a repository that declared one is
-# harmless, dropping it for one that has not would hide the fix.
-bb_assert_issue_version() {
-  [ -n "${PLOT_BB_SKIP_VERSION_CHECK:-}" ] && return 0
-  local v="$(bb --version 2>/dev/null | bb_strip_ansi | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
-  if [ "$v" != "$BB_ISSUE_VERSION" ]; then
-    if bb_lacks_issue_command; then
-      local missing="$(tracker_raw | node "$here/board/plot-issue-source.mjs" --bb-issue-missing 2>/dev/null)"
-      [ -n "$missing" ] || missing="bb lists no issue command — Quatico bb has none, unlike craftamap/bb — so this repository's issues cannot be read through it; declare the issue tracker with the \`Tracker\` config key"
-      echo "plot-host: bb ${v:-unknown} $missing" >&2
-      return 4
-    fi
-    echo "plot-host: bb issue parse targets $BB_ISSUE_VERSION but found '${v:-unknown}' — refusing to mis-read a format that may have moved" >&2
-    return 3
-  fi
-  return 0
-}
-
-# Whether `bb --help` lists commands and `issue` is not one of them. A help
-# that lists no `pr` command either is not a command listing this can read, so
-# it answers *not proven* (1) and the caller keeps its exit-3 refusal: guessing
-# 4 from unreadable help would turn a broken bb into *no issue tracker*.
-bb_lacks_issue_command() {
-  local help; help="$(bb --help 2>&1 | bb_strip_ansi)" || return 1
-  grep -qE '^[[:space:]]+pr([[:space:]]|$)' <<<"$help" || return 1
-  ! grep -qE '^[[:space:]]+issues?([[:space:]]|$)' <<<"$help"
 }
 
 # --- bb capability check (--json support) ------------------------------------
@@ -3288,8 +3177,8 @@ jira_ask() { local raw rc; raw="$(jira_curl "$@")"; rc=$?; jira_check "$raw" "$r
 # THE PAGE LENGTH IS A READING, NEVER A CONSTANT THE RULE NAMES. The listing
 # asks `pagelen=$BB_LIST_PAGELEN` through `bb api`, and the length holds only
 # where that `bb` passes the query through unchanged, so it is read per version
-# from `BB_LIST_PAGE_VERSIONS` — pinned like `BB_ISSUE_VERSION`. A version
-# nobody measured has no length, and every non-empty page under it stays
+# from `BB_LIST_PAGE_VERSIONS`. A version nobody measured has no length, and
+# every non-empty page under it stays
 # possibly truncated: the rule never calls a page complete it cannot prove. A
 # future length of 100 is a new table entry, never a page of 50 read as short.
 #
@@ -5522,65 +5411,12 @@ case "$op" in
         gh_fail
       fi
     else
-      # `bb issue list` — measured against bb 0.6.0. Three things the GitHub arm
-      # cannot be copied for, each invisible while it works (see the helpers up
-      # top): (1) `bb` prints errors to STDOUT, so stdout is NOT unconditionally
-      # data; (2) it has no `--limit`, so the caller's bound is honoured HERE,
-      # after parsing; (3) the list carries no per-issue URL, so `url` is "" —
-      # the same answer the header documents for a host that omits it.
-      #
-      # A CLOSED OR CHANGED READ IS EXIT 4: `bb issue list` prints no closing or
-      # update date, so there is nothing honest to return for either. It runs
-      # before any `bb` command.
-      { [ "$state" = open ] && [ -z "$label" ] && [ -z "$title_has" ]; } || { echo "plot-host: bitbucket cannot list closed or changed issues, issues by label, or issues by title" >&2; exit 4; }
-      bb_assert_issue_version || exit $?
-      # `--state new,open` is bb's own default for `issue list` and is what
-      # "open tracker issues" means; stated explicitly so a bb default change
-      # cannot silently widen it. bb has no `all` for issues, so this is ONE
-      # call (the request-budget comment in fleet.ts counts exactly this).
-      raw="$(bb issue list --state new --state open 2>&1)"; rc=$?
-      raw="$(bb_strip_ansi <<<"$raw")"
-      # bb's error is on stdout, now folded into `raw`. Report it and choose
-      # 4-vs-3 from its wording — never parse it as an issue (Done-when 6).
-      [ "$rc" -eq 0 ] || { echo "plot-host: $raw" >&2; exit "$(bb_issue_exit_code "$(tr '[:upper:]' '[:lower:]' <<<"$raw")")"; }
-      # A row is `#NNN <STATE> <title>   by <reporter>`. Anchor on the `#NNN`
-      # prefix (the header line ` :: Showing …` has none and is skipped for
-      # free), lift the number, strip the known state badge word, then drop the
-      # trailing `   by <reporter>` on its three-space separator. The state
-      # vocabulary is bb 0.6.0's issue states — pinned by the version assert.
-      count=0
-      while IFS= read -r line; do
-        [[ "$line" =~ ^#0*([0-9]+)[[:space:]]+(.*)$ ]] || continue
-        num="${BASH_REMATCH[1]}"; rest="${BASH_REMATCH[2]}"
-        # Lift the leading state badge word (NEW/OPEN/RESOLVED/…), then strip
-        # it and its padding; the title starts after it. The badge was parsed
-        # here before and THROWN AWAY to recover the title — it is captured
-        # now rather than fetched, so this costs no extra call. ONE
-        # vocabulary, matched once: a second copy in a mapping table is a list
-        # that drifts from the one that strips.
-        state=""
-        if [[ "$rest" =~ ^(NEW|OPEN|ON\ HOLD|INVALID|RESOLVED|DUPLICATE|WONTFIX|CLOSED)[[:space:]]+(.*)$ ]]; then
-          state="${BASH_REMATCH[1]}"; rest="${BASH_REMATCH[2]}"
-        fi
-        # Map the badge onto the three-value category the board groups on.
-        # NEW/OPEN are unstarted; RESOLVED/CLOSED are finished. The rest —
-        # ON HOLD, INVALID, DUPLICATE, WONTFIX — get "" DELIBERATELY: they are
-        # terminal-without-being-done or started-without-progressing, and
-        # neither is a Jira category. Empty says *this vocabulary has no word
-        # for it*, which a board can render; inventing `Done` for WONTFIX
-        # would file abandoned work beside finished work.
-        # Drop the trailing reporter: bb prints three spaces then `by <name>`.
-        title="$(sed -E 's/[[:space:]]{2,}by [^[:space:]].*$//' <<<"$rest")"
-        # `url` is "" — bb issue list prints none; a consumer renders the number
-        # as plain text, the rule the header states.
-        jq -cn --argjson number "$num" --arg title "$title" --arg status "$state" \
-          '{number:$number,title:$title,url:"",createdAt:"",status:$status,
-            statusCategory:({NEW:"To Do",OPEN:"To Do",RESOLVED:"Done",CLOSED:"Done"}[$status] // "")}'
-        count=$((count + 1))
-        # Honour the caller's --limit HERE: bb has no --limit, so a bound the
-        # caller asked for is enforced by the adapter after parsing (Done-when 7).
-        [ -z "$limit" ] || [ "$count" -lt "$limit" ] || break
-      done <<<"$raw"
+      # BITBUCKET CLOUD KEEPS NO ISSUES. `issueSource` answers `nobody` for it
+      # above, so this arm runs only where an older `plot-issue-source.mjs`
+      # still answers `git-host`. Exit 4 with empty stdout: *this host cannot
+      # be asked*, never an empty list.
+      echo "plot-host: the git host \`$be\` has no issue list to read; declare the issue tracker with the \`Tracker\` config key" >&2
+      exit 4
     fi
     ;;
 
@@ -5609,7 +5445,7 @@ case "$op" in
       # is the right shape — see the Jira helpers up top for the full reasoning.
       #
       # A missing issue is a FAILURE, not an empty body — exactly as the GitHub
-      # and Bitbucket arms treat it: the caller named a key it read off this same
+      # arm treats it: the caller named a key it read off this same
       # adapter, so its absence (Jira answers 404) means the tracker moved under
       # the board. jira_check turns that 404 into exit 3 with empty stdout.
       jira_require_config
@@ -5639,58 +5475,12 @@ case "$op" in
         gh_fail
       fi
     else
-      # `bb issue view <n>` — measured against bb 0.6.0. The output, once ANSI
-      # is stripped, is:
-      #
-      #   <title>
-      #   <STATE> • <reporter> opened <createdOn>
-      #   Type: … • Priority: … • Assignee: …
-      #   [Component/Milestone/Version — conditional]
-      #   <body, rendered markdown, possibly many lines>
-      #   [comments…]
-      #   View this issue on Bitbucket.org: <url>
-      #
-      # The same error discipline as issue-list: bb writes failures to stdout
-      # and exits 1 for everything, so match the wording for 4-vs-3 and never
-      # parse an error as an issue.
-      bb_assert_issue_version || exit $?
-      raw="$(bb issue view "$num" 2>&1)"; rc=$?
-      raw="$(bb_strip_ansi <<<"$raw")"
-      [ "$rc" -eq 0 ] || { echo "plot-host: $raw" >&2; exit "$(bb_issue_exit_code "$(tr '[:upper:]' '[:lower:]' <<<"$raw")")"; }
-      # Title is the first line. URL is lifted from the footer, which is bb's
-      # only place that prints one for a viewed issue — so the contract's `url`
-      # is real here even though issue-list's is "".
-      title="$(sed -n '1p' <<<"$raw")"
-      url="$(grep -oE 'https?://[^[:space:]]+' <<<"$(grep -F 'View this issue on Bitbucket' <<<"$raw")" | head -1)"
-      # Line 2 is `<STATE> • <reporter> opened <createdOn>` — the same badge
-      # word `issue-list` strips from its own row, read here instead of
-      # discarded. The five finished words close it; ON HOLD, NEW, OPEN and any
-      # state this vocabulary has no word for stay open, as issue-list leaves them.
-      bb_state="$(sed -n '2p' <<<"$raw" | sed -E 's/^[[:space:]]*([A-Z ]+)[[:space:]]*•.*$/\1/; s/[[:space:]]+$//')"
-      case "$bb_state" in RESOLVED|CLOSED|INVALID|DUPLICATE|WONTFIX) state=closed ;; *) state=open ;; esac
-      # Body is the block between the metadata head and the footer. The head is
-      # the title + the two fixed meta lines (state, Type:) plus an optional
-      # Component/Milestone/Version line; the tail is the footer. This is the
-      # problem statement /plot-idea receives, read once per human click. It is
-      # a best-effort lift of rendered markdown, not a byte-exact round-trip:
-      # bb has no --json for issues, so the version pin is what keeps it honest.
-      body="$(awk '
-        NR==1 { next }                                   # title
-        NR==2 { next }                                   # state • reporter
-        /^Type: / { seen_type=1; next }                  # Type/Priority/Assignee
-        /^(Component|Milestone|Version): / && !started { next }
-        /^View this issue on Bitbucket/ { exit }         # footer ends the body
-        { started=1; print }
-      ' <<<"$raw" | sed -e 's/[[:space:]]*$//' )"
-      # Trim leading/trailing blank lines the render leaves around the body.
-      # Portable (no `tac`): awk buffers, then prints from the first non-blank
-      # line to the last one seen.
-      body="$(awk '
-        { lines[NR]=$0; if ($0 ~ /[^[:space:]]/) { if (!first) first=NR; last=NR } }
-        END { for (i=first; i<=last; i++) print lines[i] }
-      ' <<<"$body")"
-      jq -cn --argjson number "$num" --arg title "$title" --arg body "$body" --arg url "$url" --arg state "$state" \
-        '{number:$number,title:$title,body:$body,url:$url,state:$state}'
+      # BITBUCKET CLOUD KEEPS NO ISSUES. `issueSource` answers `nobody` for it
+      # above, so this arm runs only where an older `plot-issue-source.mjs`
+      # still answers `git-host`. Exit 4 with empty stdout: *this host cannot
+      # be asked*, never an empty list.
+      echo "plot-host: the git host \`$be\` has no issue list to read; declare the issue tracker with the \`Tracker\` config key" >&2
+      exit 4
     fi
     ;;
 

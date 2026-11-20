@@ -111,7 +111,7 @@ import { fixerAttemptsFile } from '@plot-pm/domain/adapters/fixer-attempts/fixer
 import { fixerInFlight } from '@plot-pm/domain/rules/fixer-attempts';
 import type { PortResult } from '@plot-pm/domain';
 import type { Worktree } from '@plot-pm/domain/entities/worktree';
-import { fleetdHeartbeatFile, agentsFs, refsGit, shellContext, treesGit, planStoreRef, planStoreShell, processesFiles, issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
+import { fleetdHeartbeatFile, agentsFs, refsGit, shellContext, treesGit, planStoreRef, planStoreShell, processesFiles, issueIndexFile, readerLockIndexDir, HOST_ISSUE_LISTERS, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { CarriedListing } from '@plot-pm/domain/rules/scan-listing';
 import { fleetOwnsScan, ownedBridgeNote } from '@plot-pm/domain/rules/scan-owner';
@@ -1974,6 +1974,7 @@ export async function ticketLaneData(opts: BuildBoardOptions): Promise<TicketLan
     declared: declared.ok ? declared.value : '',
     gitHost: entry.backend ?? '',
     listers: TRACKER_LISTERS,
+    hosts: HOST_ISSUE_LISTERS,
   });
   return {
     ticketSource: ticketSourceOf(source, entry.backend ?? '', TICKET_SOURCES),
@@ -2109,6 +2110,7 @@ export async function issuesClosedReading(opts: BuildBoardOptions): Promise<Issu
     declared: declared.ok ? declared.value : '',
     gitHost: entry.backend ?? '',
     listers: TRACKER_LISTERS,
+    hosts: HOST_ISSUE_LISTERS,
   });
   if (source.ask === 'nobody') {
     return { rows: [], asked: false, absence: issueAbsence(source.reason) };
@@ -2314,6 +2316,7 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
     declared: declared.ok ? declared.value : '',
     gitHost: entry.backend ?? '',
     listers: TRACKER_LISTERS,
+    hosts: HOST_ISSUE_LISTERS,
   });
   if (source.ask === 'nobody') {
     entry.issues = [];
@@ -2571,6 +2574,7 @@ const readIssuesFromStore = async (
     declared: declared.ok ? declared.value : '',
     gitHost: entry.backend ?? '',
     listers: TRACKER_LISTERS,
+    hosts: HOST_ISSUE_LISTERS,
   });
   if (source.ask === 'nobody') {
     entry.issues = [];
@@ -4075,7 +4079,7 @@ export const issueUrlBaseFor = (opts: BuildBoardOptions, declaredTracker: string
   const entry = ensureCache(opts);
   const repo = entry.branchUrlBase.match(/^(.*\/)(?:tree|branch)\/$/)?.[1];
   if (repo === undefined || declaredTracker === null) return '';
-  const source = issueSource({ declared: declaredTracker, gitHost: entry.backend ?? '', listers: TRACKER_LISTERS });
+  const source = issueSource({ declared: declaredTracker, gitHost: entry.backend ?? '', listers: TRACKER_LISTERS, hosts: HOST_ISSUE_LISTERS });
   return source.ask === 'git-host' ? `${repo}issues/` : '';
 };
 
