@@ -1965,7 +1965,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // 2000 became 2100 on 2026-11-18, when the release cards (64px) joined the
       // Delivery header and the footer's bottom read 2013px on CI.
       // 2100 became 2400 on 2026-11-19, when the Delivery sections took card padding and visible header rows and the footer's bottom read 2282px on CI.
-      await page.setViewportSize({ width: 1280, height: 2400 });
+      // 2400 became 2600 on 2026-11-20, when empty groups took a "— none" heading and empty sections took a dashed frame (+151px measured on macOS) and the footer's bottom read 2404px on CI.
+      await page.setViewportSize({ width: 1280, height: 2600 });
       await page.route('**/api/fleet', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(many) }));
       await page.goto(`${cat.mock.baseURL}?tab=agents`);
