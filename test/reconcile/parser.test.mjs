@@ -3010,22 +3010,15 @@ test('plan-meta: a missing file carries an empty unread_branch_items', () => {
   assert.deepEqual(JSON.parse(out).unread_branch_items, []);
 });
 
-test('plan-meta: every plan in docs/plans gives the measured count — 2, both in 2026-08-20-a-row-is-a-tuple.md', () => {
-  // Measured 2026-10-28: the panel's "1-2 borderline hits in 601 plans" case.
-  // Both are heading-dialect, non-claim list items naming another branch in
-  // prose ("Absorbs bug/…", "Absorbs feature/…"), inside `## Slices`.
+test('plan-meta: every plan in docs/plans gives the measured count — 0', () => {
+  // The two former hits named absorbed slices by their prefixed branch names
+  // in 2026-08-20-a-row-is-a-tuple.md; those items now name the slices
+  // without the prefix. A new hit in a real plan fails here first.
   const files = readdirSync(path.join(repoRoot, 'docs', 'plans')).filter((f) => f.endsWith('.md'));
-  let total = 0;
   const hits = [];
   for (const f of files) {
     const meta = parseFile(realPlan(f));
-    total += meta.unread_branch_items.length;
-    if (meta.unread_branch_items.length > 0) hits.push(f);
+    if (meta.unread_branch_items.length > 0) hits.push(`${f}: ${meta.unread_branch_items.map((i) => i.branch).join(', ')}`);
   }
-  assert.equal(total, 2);
-  assert.deepEqual(hits, ['2026-08-20-a-row-is-a-tuple.md']);
-  const meta = parseFile(realPlan('2026-08-20-a-row-is-a-tuple.md'));
-  assert.deepEqual(meta.unread_branch_items.map((i) => i.branch).sort(), [
-    'bug/one-column-one-kind-of-fact', 'feature/the-row-leads-with-its-subject',
-  ]);
+  assert.deepEqual(hits, []);
 });
