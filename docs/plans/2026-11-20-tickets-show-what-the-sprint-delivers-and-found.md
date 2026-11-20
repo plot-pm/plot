@@ -73,7 +73,7 @@ Today the Tickets section (`TicketsSectionView`, `packages/board/src/app/compone
 
 ### Payload
 
-- `feature/scope-ticket-rows-in-the-payload` — `isReviewIssueTitle` with its unit test, the `planTicketRows` fleet field over `entry.issueSets` open and closed rows, uncapped, the `ticketPlans` fleet field from `ticketPlansOf`, the `unassignedKeys` and `assignedToOthersKeys` waiting fields, and the card's `refutedIssues` from `refutedClaims` where `card.verification` is filled, each with its server test <!-- builds: planTicketRows, ticketPlans and refutedIssues, the payload fields the scope groups read -->
+- `feature/scope-ticket-rows-in-the-payload` — `isReviewIssueTitle` with its unit test, the `planTicketRows` fleet field over `entry.issueSets` open and closed rows, uncapped, the `ticketPlans` fleet field from `ticketPlansOf`, the `unassignedKeys` and `assignedToOthersKeys` waiting fields, and the card's `refutedIssues` from `refutedClaims` where `card.verification` is filled, each with its server test <!-- builds: planTicketRows, ticketPlans and refutedIssues, the payload fields the scope groups read --> → #3588
 
 ### Tickets of the scope
 
