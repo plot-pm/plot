@@ -1,3 +1,4 @@
+import { CI_WORKFLOW_DIR } from '../adapters/ci-workflow-path.js';
 import type { FixerAttemptsRecord } from '../entities/fixer-attempts.js';
 import { roleRunAlive, type PidCheck } from './role-run-alive.js';
 
@@ -84,7 +85,7 @@ export const fixerPrompt = (input: FixerPromptInput): FixerPrompt => {
       `2. Merge it with \`git merge origin/${base}\`. Never rebase, and never force-push: the merge adds one commit and the push is a fast-forward.`,
       '3. Resolve every conflict, so that both sides keep what they changed.',
       '4. A generated bundle is marked `-merge` in `.gitattributes`. Never edit it and never commit a rebuild. Restore it from the merge base with `git checkout $(git merge-base HEAD MERGE_HEAD) -- <path>` (docs/definition-of-done.md, "Resolving a board artifact conflict").',
-      '5. Where a conflict sits in a path the role gate protects (`.github/workflows/`, `.claude/`, `scripts/check-*.sh`), stop: abort the merge with `git merge --abort` and report the path.',
+      `5. Where a conflict sits in a path the role gate protects (\`${CI_WORKFLOW_DIR}\`, \`.claude/\`, \`scripts/check-*.sh\`), stop: abort the merge with \`git merge --abort\` and report the path.`,
       `6. Commit the merge, then push it with \`git push origin HEAD:${branch}\`.`,
       '',
       'The role gate refuses a push that forces, deletes, or names another branch (`rolePushViolation` in `role-gate.ts`). Where your push is refused, stop and report the refusal; do not retry it another way.',
