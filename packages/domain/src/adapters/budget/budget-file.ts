@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
-import { encodeEntry, withinLineCap, type BudgetEntry } from '../../entities/budget.js';
+import { budgetCallerOf, encodeEntry, withinLineCap, type BudgetEntry } from '../../entities/budget.js';
 import type { BudgetRecord } from '../../ports/budget.js';
 import { rotationDue } from '../../rules/budget-rotation.js';
 
@@ -21,6 +21,13 @@ import { rotationDue } from '../../rules/budget-rotation.js';
  * be measuring their GitHub budget.
  */
 export const BUDGET_HOME_ENV = 'PLOT_BUDGET_HOME';
+
+/**
+ * The environment variable that names the process role a ledger line is charged
+ * to, such as `fleetd`, `board` or `reader.<pid>`. Where it is unset, a line
+ * names the running script's file name.
+ */
+export const CALLER_ENV = 'PLOT_CALLER';
 
 /** The record's directory under the home directory, mirroring per-checkout `.plot/state/`. */
 const HOME_SUBDIR = join('.plot', 'state');
@@ -73,6 +80,8 @@ export interface BudgetFileOptions {
   now?: () => number;
   /** The pid the rotation lock's owner line names; defaults to `process.pid`. */
   pid?: number;
+  /** The running script's path, for an entry that names no caller; defaults to `process.argv[1]`. */
+  script?: string;
 }
 
 /**
@@ -259,6 +268,9 @@ const maybeRotate = async (home: string, now: number, pid: number): Promise<void
  * rewrote the record from a reader's live set, and it lost 59 of 600
  * concurrent appends when measured.
  *
+ * An entry that names no caller is charged to `$PLOT_CALLER`, or else to the
+ * running script's file name.
+ *
  * @param options - an explicit home or environment, for tests.
  * @returns a `BudgetRecord` backed by two generations per computer.
  */
@@ -277,7 +289,9 @@ export const budgetFile = (options: BudgetFileOptions = {}): BudgetRecord => {
     append: async (entry: BudgetEntry): Promise<PortResult<void>> => {
       const path = pathOf();
       if (path === null) return failed<void>();
-      const line = encodeEntry(entry);
+      const env = options.env ?? process.env;
+      const caller = entry.caller ?? budgetCallerOf(env[CALLER_ENV], options.script ?? process.argv[1]);
+      const line = encodeEntry({ ...entry, caller });
       // REFUSED, NOT TRUNCATED. Shortening the line would write a spend against
       // a key nobody can read back, which is worse than not recording it.
       if (!withinLineCap(line)) return failed<void>();

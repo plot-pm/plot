@@ -20,6 +20,7 @@ import {
   boundedRunProcess,
   buildShell,
   budgetFile,
+  CALLER_ENV,
   deskFs,
   hostShell,
   processExec,
@@ -2837,6 +2838,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   // `--self-check` runs `selfCheck` and starts no loop.
   // The bundle sits in `scripts/board/`; the helper scripts are one level up.
   const scriptDir = dirname(new URL('.', import.meta.url).pathname.replace(/\/$/, ''));
+  // Every ledger line this loop and its children write names `worker`.
+  process.env[CALLER_ENV] = 'worker';
   void endEntry(process.argv.includes('--self-check') ? await selfCheck(process.env, scriptDir) : await main(process.env, scriptDir));
 }
 /* v8 ignore stop */

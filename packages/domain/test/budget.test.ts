@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 
 import {
+  budgetCallerOf,
   budgetKeyOf,
+  budgetOpOf,
   decodeEntry,
   encodeEntry,
   entryOf,
@@ -117,8 +119,39 @@ describe('the format holds one line per call, inside the measured atomicity cap'
   });
 
   it('round-trips every field', () => {
-    const original = entry(GITHUB, NOW, { spent: 3, remaining: 0, basis: 'actual' });
+    const original = entry(GITHUB, NOW, { spent: 3, remaining: 0, basis: 'actual', caller: 'fleetd', op: 'pr-merged' });
     expect(decodeEntry(encodeEntry(original))).toEqual(original);
+  });
+
+  it('writes a b2 line whose last two fields are the caller and the operation', () => {
+    const line = encodeEntry(entry(GITHUB, NOW, { caller: 'reader.4242', op: 'pr-list' }));
+    const fields = line.replace(/\n$/, '').split('\t');
+    expect(fields).toHaveLength(12);
+    expect(fields[0]).toBe('b2');
+    expect(fields.slice(10)).toEqual(['reader.4242', 'pr-list']);
+  });
+
+  it('writes unknown where the entry names no caller and no operation', () => {
+    const line = encodeEntry(entry(GITHUB, NOW));
+    expect(line.replace(/\n$/, '').split('\t').slice(10)).toEqual(['unknown', 'unknown']);
+  });
+
+  it('reads a b1 line, with no caller and no operation', () => {
+    const read = decodeEntry('b1\tgithub\tjwloka\tgraphql\t1\t1\t5000\t4000\t-\tactual');
+    expect(read).toEqual({
+      key: { connector: 'github', account: 'jwloka', bucket: 'graphql' },
+      at: 1,
+      spent: 1,
+      limit: 5000,
+      remaining: 4000,
+      resetAt: null,
+      basis: 'actual',
+    });
+  });
+
+  it('keeps a caller or an operation inside the line cap', () => {
+    const line = encodeEntry(entry(GITHUB, NOW, { caller: 'x'.repeat(400), op: 'y'.repeat(400) }));
+    expect(withinLineCap(line)).toBe(true);
   });
 
   it('writes an absent number as absent rather than as zero', () => {
@@ -141,7 +174,9 @@ describe('the format holds one line per call, inside the measured atomicity cap'
   });
 
   it('skips a line from a format it does not know', () => {
+    expect(decodeEntry('b3\tgithub\tjwloka\tgraphql\t1\t1\t1\t1\t1\tactual\tfleetd\tpr-list')).toBeNull();
     expect(decodeEntry('b2\tgithub\tjwloka\tgraphql\t1\t1\t1\t1\t1\tactual')).toBeNull();
+    expect(decodeEntry('b1\tgithub\tjwloka\tgraphql\t1\t1\t1\t1\t1\tactual\tfleetd\tpr-list')).toBeNull();
   });
 
   it('never lets a key part add a field or a line', () => {
@@ -514,5 +549,28 @@ describe('the newest live entry among several', () => {
     const read = readWindow([encodeEntry(first), encodeEntry(second)], GITHUB, NOW);
     expect(read.live).toHaveLength(2);
     expect(latest(read)?.remaining).toBe(3000);
+  });
+});
+
+describe('a ledger line names its caller and its operation', () => {
+  it('names the declared caller first', () => {
+    expect(budgetCallerOf('fleetd', '/x/plot-ask.mjs')).toBe('fleetd');
+  });
+
+  it('names the running script where no caller is declared', () => {
+    expect(budgetCallerOf(undefined, '/x/skills/plot/scripts/board/plot-ask.mjs')).toBe('plot-ask.mjs');
+    expect(budgetCallerOf('  ', '/x/plot-ask.mjs')).toBe('plot-ask.mjs');
+  });
+
+  it('names unknown where neither is known', () => {
+    expect(budgetCallerOf(undefined, undefined)).toBe('unknown');
+  });
+
+  it('names an operation by the label words that hold no digit, up to the first comma', () => {
+    expect(budgetOpOf('pr 123 comments, page 2')).toBe('pr-comments');
+    expect(budgetOpOf('graphql, page 3')).toBe('graphql');
+    expect(budgetOpOf('actions run 55 jobs')).toBe('actions-run-jobs');
+    expect(budgetOpOf('user')).toBe('user');
+    expect(budgetOpOf('42')).toBe('unknown');
   });
 });

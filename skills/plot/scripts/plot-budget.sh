@@ -37,9 +37,13 @@
 # real, and a contract test is the answer to it rather than a slower appender.
 #
 # THE FORMAT IS `packages/domain/src/entities/budget.ts`'s AND NOT THIS FILE'S.
-# Ten tab-separated fields behind a `b1` marker:
+# Twelve tab-separated fields behind a `b2` marker:
 #
-#   b1 <connector> <account> <bucket> <at-ms> <spent> <limit> <remaining> <reset-ms> <basis>
+#   b2 <connector> <account> <bucket> <at-ms> <spent> <limit> <remaining> <reset-ms> <basis> <caller> <op>
+#
+# `caller` is `$PLOT_CALLER`, or else the file name of the script that started
+# `plot-host.sh`; `op` is the host operation. A reader also accepts the ten-field
+# `b1` line, which has neither.
 #
 # `-` is the absent marker, and ABSENT IS NOT ZERO: a `remaining` of 0 means
 # the bucket is spent and every call is refused, while `-` means the connector
@@ -398,7 +402,7 @@ budget_maybe_rotate() {
 
 # Appends one line: what a call spent, and what the response said.
 #
-#   budget_append <connector> <account> <bucket> <spent> <limit> <remaining> <reset-seconds> <basis>
+#   budget_append <connector> <account> <bucket> <spent> <limit> <remaining> <reset-seconds> <basis> [op]
 #
 # `limit`, `remaining` and `reset` may be empty or `-` where the connector did
 # not report them; `reset` is epoch SECONDS in, epoch MILLISECONDS on disk,
@@ -432,7 +436,7 @@ budget_append() {
   fi
 
   path="$(budget_path)" || return 0
-  line="$(printf 'b1\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' \
+  line="$(printf 'b2\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' \
     "$(budget_clean "$connector")" \
     "$(budget_clean "$account")" \
     "$(budget_clean "$bucket")" \
@@ -441,7 +445,8 @@ budget_append() {
     "$(budget_num "$limit")" \
     "$(budget_num "$remaining")" \
     "$reset_ms" \
-    "$basis")"
+    "$basis" \
+    "$(budget_clean "${PLOT_CALLER:-$(ps -o args= -p "$PPID" 2>/dev/null | awk '{ n = $1; for (i = 1; i <= NF; i++) if ($i ~ /[.](sh|mjs|js)$/) { n = $i; break } } END { sub(/.*\//, "", n); print (n == "" ? "unknown" : substr(n, 1, 64)) }')}")" "$(budget_clean "${9:-unknown}")")"
 
   # MEASURED IN BYTES, NOT CHARACTERS, and the newline counts. `LC_ALL=C wc -c`
   # counts what the kernel writes; a UTF-8 account name costs more than its
@@ -604,7 +609,8 @@ budget_rate_pass() {
       # measured machine load rather than the ledger.
       if ($0 == "") next
       total++
-      if (NF != 10 || $1 != "b1") { unreadable++; next }
+      # A `b1` line has 10 fields and a `b2` line 12; any other shape is unreadable.
+      if (index(" 10b1 12b2 ", " " NF $1 " ") == 0) { unreadable++; next }
       if ($2 != want_c || $3 != want_a) next
       if (want_b != "" && $4 != want_b) next
       at = $5 + 0

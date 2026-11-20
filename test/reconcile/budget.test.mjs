@@ -145,6 +145,15 @@ test('budget: every host call appends exactly one line', () => {
   assert.ok(callCount(stub) > 0, 'the stub saw no call at all — the test proves nothing');
 });
 
+test('budget: a host call names its caller and its operation', () => {
+  const home = makeHome();
+  const stub = makeGh({ json: '{"number":1,"state":"OPEN","isDraft":false,"url":"u"}' });
+  runHost(['pr-state', '1'], { home, stub, env: { PLOT_CALLER: 'board' } });
+  const lines = recordLines(home);
+  assert.ok(lines.length > 0, 'the call left no line');
+  for (const line of lines) assert.deepEqual(line.split('\t').slice(10), ['board', 'pr-state']);
+});
+
 test('budget: a refused call is recorded too', () => {
   // A REFUSAL COSTS QUOTA. GitHub debits the request before it decides to
   // refuse it, so a record that omits refusals under-counts exactly when the
@@ -188,20 +197,48 @@ test('budget: an unwritable record does not fail the call', () => {
 
 // --- the shell writes the format the domain decodes -------------------------
 
-test('budget: the line carries the ten fields behind the b1 marker', () => {
-  // THE FORMAT IS `budget.ts`'s AND NOT THIS FILE'S. Ten tab-separated fields
-  // behind a `b1` marker, which is what `decodeEntry` requires — it returns
-  // null for any other field count or marker, and a null reads as a torn line.
+test('budget: the line carries the twelve fields behind the b2 marker', () => {
+  // THE FORMAT IS `budget.ts`'s AND NOT THIS FILE'S. Twelve tab-separated
+  // fields behind a `b2` marker, the last two the caller and the operation.
   const home = makeHome();
-  inBudget(home, 'budget_append github jwloka graphql 1 5000 4854 1788269670 actual');
+  inBudget(home, 'budget_append github jwloka graphql 1 5000 4854 1788269670 actual pr-merged', { PLOT_CALLER: 'fleetd' });
   const [line] = recordLines(home);
   const fields = line.split('\t');
-  assert.equal(fields.length, 10);
-  assert.deepEqual(fields.slice(0, 4), ['b1', 'github', 'jwloka', 'graphql']);
+  assert.equal(fields.length, 12);
+  assert.deepEqual(fields.slice(0, 4), ['b2', 'github', 'jwloka', 'graphql']);
   assert.equal(fields[5], '1');
   assert.equal(fields[6], '5000');
   assert.equal(fields[7], '4854');
   assert.equal(fields[9], 'actual');
+  assert.deepEqual(fields.slice(10), ['fleetd', 'pr-merged']);
+});
+
+test('budget: with no PLOT_CALLER the line names the script that started the writer, and unknown for no op', () => {
+  const home = makeHome();
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-budget-caller-')));
+  const parent = path.join(dir, 'plot-some-caller.sh');
+  writeFileSync(parent, `bash -c '. "${budget}"; budget_append github jwloka graphql 1 - - - unknown'\n`);
+  const env = { ...process.env, PLOT_BUDGET_HOME: home };
+  delete env.PLOT_CALLER;
+  const res = spawnSync('bash', [parent], { encoding: 'utf8', env });
+  assert.equal(res.status, 0, res.stderr);
+  assert.deepEqual(recordLines(home)[0].split('\t').slice(10), ['plot-some-caller.sh', 'unknown']);
+});
+
+test('budget: the reader counts a b1 line and a b2 line in one window', () => {
+  const home = makeHome();
+  const now = Date.now();
+  writeFileSync(
+    path.join(home, 'budget.tsv'),
+    `b1\tgithub\tjwloka\tgraphql\t${now}\t1\t-\t-\t-\tunknown\n` +
+      `b2\tgithub\tjwloka\tgraphql\t${now}\t2\t-\t-\t-\tunknown\tfleetd\tpr-list\n` +
+      `b2\tgithub\tjwloka\tgraphql\t${now}\t4\t-\t-\t-\tunknown\n`,
+  );
+  const res = inBudget(home, 'budget_rate github jwloka graphql');
+  assert.equal(res.code, 0, res.stderr);
+  const rate = JSON.parse(res.stdout);
+  assert.equal(rate.spent, 3, 'the b1 and the twelve-field b2 line count; the ten-field b2 line does not');
+  assert.equal(rate.unreadable, 1);
 });
 
 test('budget: an absent number is written as the absent marker, never as zero', () => {
@@ -258,10 +295,10 @@ test('budget: a tab in a key part cannot add a field', () => {
   // replaced rather than escaped — an escape scheme costs every reader a
   // decoder, and no connector spells its name with whitespace.
   const home = makeHome();
-  inBudget(home, "budget_append github $'a\\tb' $'c\\nd' 1 - - - unknown");
+  inBudget(home, "budget_append github $'a\\tb' $'c\\nd' 1 - - - unknown $'e\\tf'", { PLOT_CALLER: 'g\th' });
   const lines = recordLines(home);
   assert.equal(lines.length, 1);
-  assert.equal(lines[0].split('\t').length, 10);
+  assert.equal(lines[0].split('\t').length, 12);
 });
 
 // --- the line cap is the atomicity guarantee --------------------------------
@@ -283,12 +320,12 @@ test('budget: a line at the cap is written', () => {
   // and not the boundary. This pins that the appender does not refuse a line it
   // is allowed to write.
   const home = makeHome();
-  // 10 fields, 9 tabs, marker `b1`, and the fixed tail; the account is padded
+  // 12 fields, 11 tabs, marker `b2`, and the fixed tail; the account is padded
   // so the whole line lands exactly on the cap.
-  const fixed = ['b1', 'github', '', 'api', '1788269670000', '1', '-', '-', '-', 'unknown'].join('\t')
+  const fixed = ['b2', 'github', '', 'api', '1788269670000', '1', '-', '-', '-', 'unknown', 't', 'unknown'].join('\t')
     .length + 1;
   const pad = 'a'.repeat(MAX_LINE_BYTES - fixed);
-  inBudget(home, `budget_append github ${pad} api 1 - - - unknown`);
+  inBudget(home, `budget_append github ${pad} api 1 - - - unknown`, { PLOT_CALLER: 't' });
   const lines = recordLines(home);
   assert.equal(lines.length, 1);
   assert.ok(
@@ -310,7 +347,7 @@ test('budget: concurrent appenders never tear a line, at lines near the cap', ()
   const writers = 6;
   // A key long enough that each line lands just under the cap, which is the
   // only length at which the guarantee is under any strain at all.
-  const fixed = ['b1', 'github', '', 'api', '1788269670000', '1', '5000', '4854', '-', 'actual']
+  const fixed = ['b2', 'github', '', 'api', '1788269670000', '1', '5000', '4854', '-', 'actual', 't', 'unknown']
     .join('\t').length + 1;
   const pad = MAX_LINE_BYTES - fixed - 2;
 
@@ -323,7 +360,7 @@ test('budget: concurrent appenders never tear a line, at lines near the cap', ()
           `acct="w${index}$(printf 'a%.0s' $(seq 1 ${pad - 2}))"\n` +
           `for i in $(seq 1 ${each}); do budget_append github "$acct" api 1 5000 4854 - actual; done`,
       ],
-      { encoding: 'utf8', env: { ...process.env, PLOT_BUDGET_HOME: home } },
+      { encoding: 'utf8', env: { ...process.env, PLOT_BUDGET_HOME: home, PLOT_CALLER: 't' } },
     ),
   );
   for (const proc of procs) assert.equal(proc.status, 0, proc.stderr);
@@ -331,14 +368,14 @@ test('budget: concurrent appenders never tear a line, at lines near the cap', ()
   const lines = recordLines(home);
   assert.equal(lines.length, each * writers, 'a line was lost or split');
 
-  // NEITHER INTERLEAVED: every line has exactly ten fields and the `b1` marker,
+  // NEITHER INTERLEAVED: every line has exactly twelve fields and the `b2` marker,
   // and each writer's tag appears exactly `each` times. A torn write leaves one
   // line short of a field and another carrying two writers' halves.
   const perWriter = new Map();
   for (const line of lines) {
     const fields = line.split('\t');
-    assert.equal(fields.length, 10, `torn line: ${JSON.stringify(line)}`);
-    assert.equal(fields[0], 'b1', `torn line: ${JSON.stringify(line)}`);
+    assert.equal(fields.length, 12, `torn line: ${JSON.stringify(line)}`);
+    assert.equal(fields[0], 'b2', `torn line: ${JSON.stringify(line)}`);
     assert.ok(
       Buffer.byteLength(line + '\n') <= MAX_LINE_BYTES,
       `line over the cap: ${Buffer.byteLength(line + '\n')}`,

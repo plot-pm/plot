@@ -76,7 +76,7 @@ describe('a client actual line routes the shell', () => {
       slots: slotsFile({ home: budgetHome }),
     });
     expect((await api.request({ method: 'POST', path: '/graphql', body: { query: '{}' }, label: 'graphql' })).ok).toBe(true);
-    expect(readFileSync(join(budgetHome, 'budget.tsv'), 'utf8')).toMatch(/\tgithub\tsomeone\tgraphql\t\d+\t1\t5000\t0\t\d+\tactual$/m);
+    expect(readFileSync(join(budgetHome, 'budget.tsv'), 'utf8')).toMatch(/\tgithub\tsomeone\tgraphql\t\d+\t1\t5000\t0\t\d+\tactual\t[^\t]+\tgraphql$/m);
 
     const calls = join(root, 'gh.calls');
     writeFileSync(

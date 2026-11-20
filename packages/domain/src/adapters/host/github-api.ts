@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 
+import { budgetOpOf } from '../../entities/budget.js';
 import type { BudgetRecord } from '../../ports/budget.js';
 import type { HostRefusal, LimitObservation } from '../../ports/host.js';
 import type { Slots } from '../../ports/slots.js';
@@ -243,6 +244,7 @@ export const githubApi = (options: GithubApiOptions): GithubApi => {
     },
     ...(request.body === undefined ? {} : { body: request.body }),
     connector: GITHUB_CONNECTOR,
+    op: budgetOpOf(request.label),
     account,
     spend: (reply) => {
       const headers = reply?.headers ?? {};

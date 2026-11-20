@@ -437,7 +437,7 @@ describe('an SDK run’s records, through the file adapters', () => {
 
   it('appends one budget entry per rate_limit_event the run observed', async () => {
     const budgetHome = join(root, 'budget-home');
-    const record = budgetFile({ home: budgetHome });
+    const record = budgetFile({ home: budgetHome, env: {}, script: '/x/plot-worker-loop.mjs' });
 
     const outcome = await recordRunLimits(record, sdkResult('session-limits', 1, 1), 1_791_300_000_000);
 
@@ -453,6 +453,8 @@ describe('an SDK run’s records, through the file adapters', () => {
         remaining: 0.86,
         resetAt: 1_791_302_400_000,
         basis: 'actual',
+        caller: 'plot-worker-loop.mjs',
+        op: 'unknown',
       },
       {
         key: { connector: 'claude', account: 'jan@example.com', bucket: 'seven_day' },
@@ -462,6 +464,8 @@ describe('an SDK run’s records, through the file adapters', () => {
         remaining: 0,
         resetAt: 1_791_475_200_000,
         basis: 'actual',
+        caller: 'plot-worker-loop.mjs',
+        op: 'unknown',
       },
     ]);
   });

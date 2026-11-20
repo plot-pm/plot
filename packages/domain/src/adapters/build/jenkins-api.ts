@@ -3,6 +3,7 @@ import { constants } from 'node:fs';
 import { open, readFile, rename, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { budgetOpOf } from '../../entities/budget.js';
 import type { BudgetRecord } from '../../ports/budget.js';
 import type { Slots } from '../../ports/slots.js';
 import { bitbucketBudgetAccount } from '../../rules/bitbucket-budget-account.js';
@@ -467,11 +468,12 @@ export const jenkinsApi = (options: JenkinsApiOptions): JenkinsApi => {
     return { ok: true, source: environment === '' ? 'store' : 'environment', dir: environment === '' ? dir : null, realm };
   };
 
-  const callOf = (path: string, headers: Record<string, string>): ConnectorCall => ({
+  const callOf = (path: string, headers: Record<string, string>, label: string): ConnectorCall => ({
     url: new URL(`${url}${path.startsWith('/') ? '' : '/'}${path}`),
     method: 'GET',
     headers: { ...headers, Accept: 'application/json', 'User-Agent': 'plot' },
     connector: JENKINS_CONNECTOR,
+    op: budgetOpOf(label),
     account,
     spend: () => ({ bucket: JENKINS_BUCKET, limit: JENKINS_PREDICTED_LIMIT, remaining: null, resetAt: null, basis: 'predicted' }),
   });
@@ -486,7 +488,7 @@ export const jenkinsApi = (options: JenkinsApiOptions): JenkinsApi => {
     const headers: Record<string, string> = { Authorization: `Bearer ${got.bearer.token}` };
     const pair = await basic();
     if (pair !== null) headers['X-Jenkins-Authorization'] = `Basic ${pair}`;
-    const sent = await transport.exchange(callOf(request.path, headers));
+    const sent = await transport.exchange(callOf(request.path, headers, request.label));
     if (!('reply' in sent)) {
       const said = sent.timedOut
         ? `no answer from ${instanceKey} within ${transport.boundMs / 1000} s (${request.label})`

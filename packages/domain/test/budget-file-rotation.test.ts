@@ -19,6 +19,8 @@ const entry = (at: number): BudgetEntry => ({
   remaining: 4999,
   resetAt: null,
   basis: 'actual',
+  caller: 'fleetd',
+  op: 'pr-list',
 });
 
 let home = '';
