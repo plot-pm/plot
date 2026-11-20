@@ -258,9 +258,9 @@ function valueAttr(link: TupleLink): Record<string, string> {
  */
 const BranchLabel = ({ name }: { name: string }) => <FoldedLabel {...splitBranch(name)} />;
 
-/** A branch name as its two halves: `head` clips, `tail` never does. Both halves are `aria-hidden`. */
-const FoldedLabel = ({ head, tail }: { head: string; tail: string }) => (
-  <span aria-hidden className="flex min-w-0 font-mono text-[13px] max-sm:flex-wrap max-sm:break-all">
+/** A branch name as its two halves: `head` clips, `tail` never does. Both halves are `aria-hidden`. With `wraps`, a small screen wraps the name instead. */
+const FoldedLabel = ({ head, tail, wraps = true }: { head: string; tail: string; wraps?: boolean }) => (
+  <span aria-hidden className={`flex min-w-0 font-mono text-[13px]${wraps ? ' max-sm:flex-wrap max-sm:break-all' : ''}`}>
     <span className="truncate">{head}</span>
     {tail && <span className="shrink-0">{tail}</span>}
   </span>
@@ -268,7 +268,7 @@ const FoldedLabel = ({ head, tail }: { head: string; tail: string }) => (
 
 /** A segment's label, clipped as its `fit` says. */
 const SegmentLabel = ({ segment }: { segment: TupleSegment }) => (
-  segment.fit === 'middle' ? <FoldedLabel head={segment.head} tail={segment.tail} />
+  segment.fit === 'middle' ? <FoldedLabel head={segment.head} tail={segment.tail} wraps={false} />
     : <span className={segment.fit === 'whole' ? 'shrink-0 whitespace-nowrap tabular-nums' : 'min-w-0 truncate'}>{segment.label}</span>
 );
 
@@ -282,7 +282,7 @@ const segmentClass = (segment: TupleSegment): string => {
   const tone = !segment.href ? 'text-slate-600 dark:text-slate-300'
     : segment.what === 'ticket' ? 'bg-(--hue-violet-soft) text-(--hue-violet) hover:underline'
       : 'text-blue-600 hover:underline dark:text-blue-400';
-  return `flex items-center gap-1 px-1.5 py-1 ${segment.fit === 'whole' ? 'shrink-0' : 'min-w-0'} ${tone}`;
+  return `flex items-center gap-1 px-1.5 py-0.5 ${segment.fit === 'whole' ? 'shrink-0' : 'min-w-0'} ${tone}`;
 };
 
 /** The hooks a ticket segment carries: `data-title-number` on either shape, and `data-ticket-link` on a link. */
@@ -303,7 +303,7 @@ export const LinkTupleView = ({ segments, onOpenPlan }: {
 }) => (
   <span
     data-link-tuple
-    className="-my-1 inline-flex min-w-0 max-w-full items-stretch divide-x divide-slate-200 overflow-hidden rounded-md border border-slate-200 dark:divide-slate-700 dark:border-slate-700"
+    className="inline-flex min-w-0 max-w-full items-stretch divide-x divide-slate-200 overflow-hidden rounded-md border border-slate-200 dark:divide-slate-700 dark:border-slate-700"
   >
     {segments.map((segment) => (
       <TupleLinkView key={`${segment.what}:${segment.label}`} link={segment} showWhat onOpenPlan={onOpenPlan} />
