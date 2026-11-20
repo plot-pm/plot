@@ -441,6 +441,18 @@ describe('the activity spinner stays on the row\'s first line', () => {
     expect(tall.height).toBeGreaterThan(short.height + 15);
   });
 
+  it('sits on the branch name\'s line on a row carrying a status line', async () => {
+    // The containment claim on the tall row: a spinner centred on the whole
+    // row lands in the gap between the two lines, outside the branch box.
+    const page = await open();
+    await expect.poll(() => spinnerIn(page, 'feature/two-lines').count()).toBe(1);
+    const spinner = await rectOf(spinnerIn(page, 'feature/two-lines'));
+    const branch = (await rowFor(page, 'feature/two-lines')
+      .locator('[data-branch]').first().boundingBox())!;
+    expect(midY(spinner)).toBeGreaterThanOrEqual(branch.y);
+    expect(midY(spinner)).toBeLessThanOrEqual(branch.y + branch.height);
+  });
+
   it('sits in the row\'s top half on a row carrying a status line', async () => {
     const page = await open();
     await expect.poll(() => spinnerIn(page, 'feature/two-lines').count()).toBe(1);
