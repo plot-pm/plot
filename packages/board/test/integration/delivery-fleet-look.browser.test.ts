@@ -123,7 +123,7 @@ describe('the Fleet section in the mockup look (real browser renders the shipped
         fleet: {
           ...base,
           agents: [...base.agents!, stopped('gone1', 'feature/old-a', 'stalled'), stopped('gone2', 'feature/old-b', 'elsewhere')],
-          registry: { directory: '/very/long/path/to/the/agent/registry', manifestCount: 3, synthesizedCount: 14 },
+          registry: { directory: '/very/long/path/to/the/agent/registry', manifestCount: 3, synthesizedCount: 14, checkoutCount: 0 },
         } as Fleet,
       },
       viewport: { width: 1280, height: 900 },
