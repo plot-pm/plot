@@ -8,6 +8,7 @@
 - **Type:** feature
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -73,7 +74,7 @@ No arm acts on a conflict. The fixer knows two finding kinds, `high` and `ci` (`
 
 ### Open Questions
 
-- [ ] Should auto-review also widen to the fixer's scope? Today the review runs only on sprint-scope PRs (`auto-review.ts:218`), so `highArm` fires on a widened PR only where a `plot/review` failure already exists. This plan keeps review and merge as they are; a widened review would also widen the review spend.
+- [x] Auto-review widens to the fixer's scope (operator decision, 2026-11-20). Slice 4 builds it; the merge arm stays on the sprint scope.
 
 ## Slices
 
@@ -89,6 +90,10 @@ No arm acts on a conflict. The fixer knows two finding kinds, `high` and `ci` (`
 
 - `feature/the-fixer-row-names-its-finding` — `RoleRun.finding` from the in-flight attempt, `agentRowFactsOf` reading it before the PR-state inference, and "fixing conflict ✗" <!-- builds: RoleRun.finding, the fixer kind on the Delivery row --> <!-- waits: feature/the-fixer-merges-the-base-into-a-conflicting-pr -->
 
+### Review
+
+- `feature/the-review-reads-the-fixer-scope` — `reviewPrNext`: `repairNamesPr` first, as `guardArm` does today, then the fixer's scope rule (renamed for both roles), then `reviewRunArm`, `restatusArm` and `reviewArm`; auto-review calls it instead of `slicePrNext`, the merge arm keeps `slicePrNext` and the sprint scope, with a test that proves merge still answers `out-of-scope`; the domain and fleet test cells the testability verdict names <!-- builds: reviewPrNext, the review arm walk over the fixer scope --> <!-- waits: feature/the-fixer-scope-reads-every-open-pr -->
+
 ## Notes
 
 - Created by `/plot-idea` on 2026-11-20 from the operator's requirement. Type `feature`, review `pr`, implementation `own branches`, and the design question was answered no, so the plan starts in Draft.
@@ -96,3 +101,15 @@ No arm acts on a conflict. The fixer knows two finding kinds, `high` and `ci` (`
 - The repair and revert branches are out by name because their roles own them and claim them (`packages/fleet/src/shared/repair-start.ts:214`); a claimed branch alone would make them `owner: 'desk'`, and a dead repair desk would then get a second writer.
 - `fixerAdmission` admits one fixer at a time across the machine, so a wider scope makes a queue, not more concurrent fixers. The tick walks the rows in index order.
 - Pre-flight, 2026-11-20: no plan file and no branch has the slug; no Draft, Design or Approved plan shares three significant title words; `plot-deliverable-search.sh` found nothing named `fixerScope`, `fixerPrNext`, `conflictArm` or `personPushedRecently`.
+
+- **Operator decisions (2026-11-20).** A PR that carries the label `plot:hands-off` gets no review, no fixer and no conflict repair from the fleet, and the board names `hands-off` as its hold reason; removing the label ends the opt-out. On a PR owned by no agent, the fixer acts on HIGH review findings, red CI and conflicts once the quiet hour has passed; lower findings stay review comments. `idea/*` plan PRs stay out of the fixer and review scope.
+- **Panel round 1 builder notes (unanimous `amend`, no reject; full text in `.plot/panels/2026-11-20-the-fleet-fixes-every-red-or-conflicting-pr/panel.md`).**
+  - Only fleet evidence makes `owner: 'desk'`: a registry manifest or the claim marker. A worktree made by hand, with no worker records, is `owner: 'none'` and waits the hour (`deskDeadFromWorkerState`, `auto-fixer.ts:164-176,371-374`). Slice 1.
+  - A pure `fixerOwner` rule answers `desk`, `none` or `unread`; a failed `forBranch` or `commitSubjects` read is `unread` and starts nothing, with one `fixerTick` test (`auto-fixer.ts:372-373`). Slice 1.
+  - A claimed branch with no desk on this machine (`elsewhere`, `auto-fixer.ts:374`) becomes fixable once its claim is older than `Claim stale after` and the quiet hour has passed. Slice 1.
+  - Every hold reason (`person-pushed-recently` with the time left, `hands-off`, `repair-owned`, `base-out-of-scope`, `conflict-attempted`, `owner-unread`) reaches the run log and the Delivery row as a row property with unit tests (`auto-fixer.ts:378-381`). Slice 3.
+  - Each slice names its `auto-fixer.test.ts` cells: `:59` passes `scope`, which slice 1 removes; the world's `refs` pick needs `commitSubjects` (`auto-fixer.ts:63`); `:650` and `:665` change reason. The failed-start hold keys on head and base tip (`auto-fixer.ts:383`). Slices 1 and 2.
+  - `not-conflicting` refuses before the attempt is written, so GitHub's `UNKNOWN` window after a base move spends no attempt; reuse `MergeabilitySchema` (`entities/pr.ts:21`); the merge-word fix also updates `slice-pr-next.test.ts:655,709`. Slice 2.
+  - The conflict brief cites `rolePushViolation` (`role-gate.ts:192-236`) and stops when its push is refused; a `State:` conflict stops at `plot-state-gate.sh` and is reported, not retried. Slice 2.
+  - `readFixerPass` must not default the base to `'main'` (`auto-fixer.ts:675`), so `base-unread` can fire. A 60-minute boundary cell. State whether `fixerPrNext` drops `restatusArm`. An older board hides a `conflict` run silently while `FIXER_ATTEMPTS_VERSION` stays 1; `fixerReadingOf` gets base-tip cells. Fork PRs carry no head-repository field and are out of scope until one exists. Slice 3 names `delivery-row-adapter.test.ts`.
+  - Review widening (slice 4): review spend grows under the unchanged budget (`REVIEW_START_BUDGET` 3 per head, `REVIEW_BOUND_MS` 1 h); a spent HIGH now opens tickets for PRs no plan names (`slice-pr-next.ts:275-287`); the review re-ask needs no change (`pr-refresh.ts:1596-1604`).
