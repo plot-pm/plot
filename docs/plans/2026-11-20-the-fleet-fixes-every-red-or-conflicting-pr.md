@@ -87,7 +87,7 @@ No arm acts on a conflict. The fixer knows two finding kinds, `high` and `ci` (`
 
 ### Conflict
 
-- `feature/the-fixer-merges-the-base-into-a-conflicting-pr` — the `conflict` finding with its base tip, `conflictArm` before `ciRedArm`, the `not-conflicting` re-ask, the conflict brief with the merge-base restore and the protected-path stop, the merge arm's `conflicting` word, and the tests <!-- builds: conflictArm, the fixer's conflict finding --> <!-- waits: feature/the-fixer-scope-reads-every-open-pr -->
+- `feature/the-fixer-merges-the-base-into-a-conflicting-pr` — the `conflict` finding with its base tip, `conflictArm` before `ciRedArm`, the `not-conflicting` re-ask, the conflict brief with the merge-base restore and the protected-path stop, the merge arm's `conflicting` word, and the tests <!-- builds: conflictArm, the fixer's conflict finding --> <!-- waits: feature/the-fixer-scope-reads-every-open-pr --> → #3603
 
 ### Board
 
