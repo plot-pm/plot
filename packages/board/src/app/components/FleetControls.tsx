@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
-import { registryFact } from '@plot-pm/domain';
+import { workingCounts } from '@plot-pm/domain';
 import type { Fleet, RegistryInfo, Supervisor } from '../../contract/schema.js';
 import type { NotWorkingEntry } from '../lib/agent-rows/working-agents.js';
 
@@ -294,10 +294,13 @@ export function ParallelAgentsStepper({ value, readOnly = false }: { value: numb
  * - `N not working` — registry entries the section is NOT showing, because
  *   their worker is finished, stalled or gone. A click opens the list of them
  *   inside the card: desk, branch, and why each stopped (`notWorkingEntries`).
+ *   An entry whose state nobody read is not in it (`workingCounts`).
  * - the filter gap — printed only when a filter WOULD hide a live worker.
  * - the registry fact — `registryFact` in the domain, printed only where it
  *   holds: `14 of 17 agents have no registry file`, or the warning where no
  *   agent has one.
+ * - the unread fact — `the board could not read the state of 13 worktrees`,
+ *   amber, printed only where a state read gave no answer.
  *
  * NONE OF THE THREE IS PRINTED WHEN IT AGREES — a zero is an absence and is
  * rendered as one. A header that always prints every figure trains a reader to
@@ -322,13 +325,13 @@ export const WorkingCounts = ({
 }) => {
   const [open, setOpen] = useState(false);
   const showHidden = typeof hiddenByFilter === 'number' && hiddenByFilter > 0;
-  const fact = registry === undefined ? null : registryFact(registry);
-  if (notWorking.length === 0 && !showHidden && fact === null) return null;
+  const { stopped, registry: fact, unread } = workingCounts(notWorking, registry);
+  if (stopped.length === 0 && !showHidden && fact === null && unread === null) return null;
 
   return (
     <div className="delivery-fleet-counts w-full min-w-0">
       <span className="flex flex-wrap items-baseline gap-x-1.5">
-        {notWorking.length > 0 && (
+        {stopped.length > 0 && (
           <button
             type="button"
             data-fleet-working
@@ -336,7 +339,7 @@ export const WorkingCounts = ({
             onClick={() => setOpen((v) => !v)}
             className="tabular-nums hover:underline"
           >
-            · {notWorking.length} not working {open ? '▾' : '▸'}
+            · {stopped.length} not working {open ? '▾' : '▸'}
           </button>
         )}
         {showHidden && (
@@ -353,10 +356,15 @@ export const WorkingCounts = ({
             · {fact.text}
           </span>
         )}
+        {unread !== null && (
+          <span data-fleet-registry-unread className="delivery-text-warn">
+            · {unread.text}
+          </span>
+        )}
       </span>
-      {open && notWorking.length > 0 && (
+      {open && stopped.length > 0 && (
         <ul data-fleet-not-working className="mt-1 grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] gap-x-3 text-xs">
-          {notWorking.map((e) => (
+          {stopped.map((e) => (
             <li key={e.key} data-fleet-not-working-entry={e.why} className="col-span-3 grid grid-cols-subgrid items-baseline">
               <span className="delivery-truncate font-mono" title={e.desk}>{e.desk === '' ? '—' : e.desk}</span>
               <span className="delivery-truncate font-mono" title={e.branch}>{e.branch === '' ? '—' : e.branch}</span>
