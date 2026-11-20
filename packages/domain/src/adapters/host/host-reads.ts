@@ -1,7 +1,7 @@
 import { answered, failed, unaskable } from '../../port-result.js';
 import type { Host, HostRefusal, PrListingState } from '../../ports/host.js';
 import { HOST_TRANSPORT_ENV, hostTransportOf, shellReasonOf, type HostTransportChoice } from '../../rules/host-transport.js';
-import { declaredHostLimit, HOST_RATE_LIMIT_KEY } from '../../rules/declared-host-limit.js';
+import { declaredHostLimit, declaredHostLimitOrNull, HOST_RATE_LIMIT_KEY } from '../../rules/declared-host-limit.js';
 import { refsGit } from '../refs/refs-git.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { runProcess } from '../run-script.js';
@@ -235,11 +235,13 @@ export const hostReadsFor = async (
       return said.ok ? said.value.trim() : null;
     });
   if (basis.backend === 'bitbucket') {
+    const rateLimit = await config(HOST_RATE_LIMIT_KEY);
     const bitbucket = (options.bitbucketClient ?? bitbucketApi)({
       origin: await originOf(),
       env,
       observe: (observed) => shell.observe(observed),
-      predictedLimit: declaredHostLimit(await config(HOST_RATE_LIMIT_KEY)),
+      predictedLimit: declaredHostLimit(rateLimit),
+      declaredLimit: declaredHostLimitOrNull(rateLimit),
     });
     const source = await bitbucket.credentialSource();
     const picked = hostTransportOf({ ...reading, tokenSource: source, noCredential: BITBUCKET_NO_CREDENTIAL });

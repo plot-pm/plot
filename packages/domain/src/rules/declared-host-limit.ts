@@ -21,3 +21,15 @@ const DECLARED = /^[1-9][0-9]*$/;
  */
 export const declaredHostLimit = (value: string): number =>
   DECLARED.test(value) ? Number(value) : DEFAULT_PREDICTED_HOST_LIMIT;
+
+/**
+ * The hourly request limit the `Host rate limit` key declares, with no default.
+ *
+ * Reads the value by the rule of {@link declaredHostLimit}.
+ *
+ * @param value - the key's value, or `''` where the key is unset.
+ * @returns the declared limit, or null where the key is unset or does not read
+ *   as a limit.
+ */
+export const declaredHostLimitOrNull = (value: string): number | null =>
+  DECLARED.test(value) ? Number(value) : null;
