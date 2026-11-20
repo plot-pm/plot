@@ -5,6 +5,7 @@ import type { BudgetRecord } from '../../ports/budget.js';
 import type { HostRefusal, LimitObservation } from '../../ports/host.js';
 import type { Slots } from '../../ports/slots.js';
 import { bitbucketBudgetAccount } from '../../rules/bitbucket-budget-account.js';
+import { DEFAULT_PREDICTED_HOST_LIMIT } from '../../rules/declared-host-limit.js';
 import { envFileCandidates, pickEnvFile, type EnvFileRead } from '../../rules/env-file.js';
 import { remoteSlug } from '../../rules/remote-slug.js';
 import {
@@ -27,9 +28,6 @@ export const BITBUCKET_CONNECTOR = 'bitbucket';
 
 /** The bucket every ledger entry this client writes carries, as `budget_bucket` names it. */
 export const BITBUCKET_BUCKET = 'api';
-
-/** The hourly limit a reply with no rate-limit headers records, as `budget_reading` predicts it. */
-export const PREDICTED_LIMIT = 1000;
 
 /** The two variables the client reads its credential from, in the order the Basic header joins them. */
 export const BITBUCKET_CREDENTIAL_VARS = ['BB_EMAIL', 'BB_TOKEN'] as const;
@@ -83,6 +81,8 @@ export interface BitbucketApiOptions {
   now?: () => number;
   /** The per-request bound; defaults to `REQUEST_BOUND_MS`. */
   boundMs?: number;
+  /** The hourly limit a reply with no numeric `X-RateLimit-Limit` records; defaults to `DEFAULT_PREDICTED_HOST_LIMIT`. */
+  predictedLimit?: number;
   /** How often a caller at the slot bound asks again; defaults to `SLOT_POLL_MS`. */
   pollMs?: number;
   /** How long a caller waits for a slot before it proceeds; defaults to `SLOT_WAIT_MAX_MS`. */
@@ -158,9 +158,12 @@ const CREDENTIAL_FIX =
  * `{ws}` and `{repo}` in a request path as `bb api` replaces them. Every
  * request takes one host slot where the ledger licenses a bound, and appends
  * one `BudgetEntry` with connector `bitbucket`, bucket `api` and the
- * workspace as the account. A reply with `X-RateLimit-Limit` and
- * `X-RateLimit-Remaining` records basis `actual`; any other records basis
- * `predicted` with limit 1000. A `429` answers `throttled` with the
+ * workspace as the account. A reply with a numeric `X-RateLimit-Limit`
+ * records basis `actual` with that limit, with `X-RateLimit-Remaining` and
+ * `X-RateLimit-Reset` where the reply carries them and null where it does not;
+ * any other reply records basis `predicted` with `options.predictedLimit`,
+ * 10000 where it is unset. The bucket is
+ * `api` whatever `X-RateLimit-Resource` names. A `429` answers `throttled` with the
  * `Retry-After` wait; an unanswered request answers `failed`.
  *
  * @param options - the origin and the seams.
@@ -171,6 +174,7 @@ export const bitbucketApi = (options: BitbucketApiOptions): BitbucketApi => {
   const base = bitbucketApiBase(env);
   const slug = options.origin === null ? null : remoteSlug(options.origin, 'bitbucket.org');
   const account = bitbucketBudgetAccount(options.origin, env['PLOT_BUDGET_ACCOUNT']);
+  const predicted = options.predictedLimit ?? DEFAULT_PREDICTED_HOST_LIMIT;
   const top = options.top === undefined ? (env['PLOT_REPO_ROOT'] ?? null) : options.top;
   const commonDir = options.commonDir === undefined ? (env['PLOT_GIT_COMMON_DIR'] ?? null) : options.commonDir;
   const readText = options.readText ?? readTextFile;
@@ -228,10 +232,10 @@ export const bitbucketApi = (options: BitbucketApiOptions): BitbucketApi => {
     spend: (reply) => {
       const headers = reply?.headers ?? {};
       const limit = headerNumber(headers['x-ratelimit-limit']);
-      const remaining = headerNumber(headers['x-ratelimit-remaining']);
-      if (limit === null || remaining === null) {
-        return { bucket: BITBUCKET_BUCKET, limit: PREDICTED_LIMIT, remaining: null, resetAt: null, basis: 'predicted' };
+      if (limit === null) {
+        return { bucket: BITBUCKET_BUCKET, limit: predicted, remaining: null, resetAt: null, basis: 'predicted' };
       }
+      const remaining = headerNumber(headers['x-ratelimit-remaining']);
       const reset = headerNumber(headers['x-ratelimit-reset']);
       return { bucket: BITBUCKET_BUCKET, limit, remaining, resetAt: reset === null ? null : reset * 1000, basis: 'actual' };
     },

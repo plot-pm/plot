@@ -3665,8 +3665,8 @@ budget_bucket() {
 #              a guess as a measurement. `unknown` is the honest word, and
 #              `unknown` is NEVER read as free — `headroom()` returns null for
 #              it by construction.
-#   bitbucket  `predicted 1000` — the adapter's own number from experience, the
-#              same one `limit` reports, and it costs nothing to state.
+#   bitbucket  `predicted` — the `Host rate limit` key, else 10000, the same
+#              number `limit` reports; `declaredHostLimit` is its duplicate.
 #
 # A CALL THAT HARVESTED ITS OWN HEADERS OVERRIDES THIS, and that is the whole
 # of what slice 7 adds: `gh_api_harvest` puts the response's own
@@ -3680,7 +3680,7 @@ budget_reading() { # $1=backend → "<limit>\t<remaining>\t<reset>\t<basis>"
   # bash answers `printf: -\: invalid option` and writes nothing. Measured
   # 2026-09-02, that broke the GitHub arm — the common path — in 10 host tests.
   case "$1" in
-    bitbucket) printf '%s\t%s\t%s\t%s\n' 1000 - - predicted ;;
+    bitbucket) printf '%s\t%s\t%s\t%s\n' "$(bash "$here/plot-config.sh" get "Host rate limit" "" 2>/dev/null | grep -xE '[1-9][0-9]*' || echo 10000)" - - predicted ;;
     *) printf '%s\t%s\t%s\t%s\n' - - - unknown ;;
   esac
 }
@@ -5924,15 +5924,15 @@ case "$op" in
         die3 "limit: could not read the host's rate-limit headers"
       fi
     elif [ "$be" = "bitbucket" ]; then
-      # Bitbucket meters, and sends no `X-RateLimit-*`. So the number is this
-      # adapter's, from experience — 1000 requests/hour for an authenticated
-      # account — and it is tagged `predicted` because that is what it is.
+      # `bb` shows this script no response headers, so the number is this
+      # adapter's prediction — the `Host rate limit` key, else 10000 requests an
+      # hour, Atlassian's scaled cap — and it is tagged `predicted` because it is one.
       #
       # A PREDICTION IS NOT A LIE AND NOT A FAILURE. It is answered: the adapter
       # is telling the truth about what it knows. A caller reads the basis and
       # decides how much to trust it; a `throttled` observed during the session
       # is what corrects it.
-      echo '{"connector":"bitbucket","bucket":"api","limit":1000,"remaining":null,"reset":null,"basis":"predicted"}'
+      echo "{\"connector\":\"bitbucket\",\"bucket\":\"api\",\"limit\":$(budget_reading bitbucket | cut -f1),\"remaining\":null,\"reset\":null,\"basis\":\"predicted\"}"
     fi
     ;;
 

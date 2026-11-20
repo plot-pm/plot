@@ -1,6 +1,7 @@
 import { answered, failed, unaskable } from '../../port-result.js';
 import type { Host, HostRefusal, PrListingState } from '../../ports/host.js';
 import { HOST_TRANSPORT_ENV, hostTransportOf, shellReasonOf, type HostTransportChoice } from '../../rules/host-transport.js';
+import { declaredHostLimit, HOST_RATE_LIMIT_KEY } from '../../rules/declared-host-limit.js';
 import { refsGit } from '../refs/refs-git.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { runProcess } from '../run-script.js';
@@ -78,7 +79,7 @@ export interface HostReadsOptions {
    * client passes it.
    */
   readonly jenkins?: JenkinsReads;
-  /** Reads one `## Plot Config` key for the Jenkins job; defaults to `plot-config.sh`. */
+  /** Reads one `## Plot Config` key for the Jenkins job and the `Host rate limit`; defaults to `plot-config.sh`. */
   readonly config?: (key: string) => Promise<string>;
 }
 
@@ -206,17 +207,18 @@ export const hostReadsFor = async (
 ): Promise<HostReads> => {
   const env = options.env ?? process.env;
   const shell = options.shell ?? hostShell(context);
+  const config =
+    options.config ??
+    (async (key: string): Promise<string> => {
+      const said = await runProcess('bash', [scriptPath(context, 'plot-config.sh'), 'get', key, ''], { cwd: context.repoRoot });
+      return said.code === 0 ? said.stdout.trim() : '';
+    });
   const inProcessCi = options.jenkins !== undefined && basis.ci.trim().toLowerCase() === 'jenkins';
   const ci: CiBuildReader | undefined = inProcessCi
     ? jenkinsBuildReader({
         reads: options.jenkins as JenkinsReads,
         env,
-        config:
-          options.config ??
-          (async (key) => {
-            const said = await runProcess('bash', [scriptPath(context, 'plot-config.sh'), 'get', key, ''], { cwd: context.repoRoot });
-            return said.code === 0 ? said.stdout.trim() : '';
-          }),
+        config,
         defaultBranch: async () => {
           const found = await refsGit(context).defaultBranch();
           return found.ok ? found.value : '';
@@ -233,7 +235,12 @@ export const hostReadsFor = async (
       return said.ok ? said.value.trim() : null;
     });
   if (basis.backend === 'bitbucket') {
-    const bitbucket = (options.bitbucketClient ?? bitbucketApi)({ origin: await originOf(), env, observe: (observed) => shell.observe(observed) });
+    const bitbucket = (options.bitbucketClient ?? bitbucketApi)({
+      origin: await originOf(),
+      env,
+      observe: (observed) => shell.observe(observed),
+      predictedLimit: declaredHostLimit(await config(HOST_RATE_LIMIT_KEY)),
+    });
     const source = await bitbucket.credentialSource();
     const picked = hostTransportOf({ ...reading, tokenSource: source, noCredential: BITBUCKET_NO_CREDENTIAL });
     if (picked.transport === 'shell') return { choice: picked, api: null, host: shell };
