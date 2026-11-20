@@ -12,6 +12,7 @@
 - **Rounds:** 3
 - **Approved:** 2026-11-20, Jan Wloka, plan-PR #3583 merged
 - **Started:** 2026-11-20, Jan Wloka, `feature/every-delivery-section-folds`
+- **Started:** 2026-11-20, Jan Wloka, `feature/delivery-section-empty-kinds`
 
 ## Changelog
 
@@ -94,7 +95,7 @@ Today only some sections fold, and an empty section looks like a folded one or l
 
 ### Empty kinds
 
-- `feature/delivery-section-empty-kinds` — `sectionEmptyKind` per section with its input, predicate, kind and sentence, the unread frame with `issueNote`'s last-good-reading age and no Retry, the scope and the hidden count in the sentence, counted from the rows the section shows, with fixture-count cells per scope and Mine mode, no scope for Fleet and Machine, the frame only where `sectionEmptyKind` answers non-null, and empty groups rendered as "— none" with their hint <!-- builds: sectionEmptyKind, the empty kind and sentence of each Delivery section -->
+- `feature/delivery-section-empty-kinds` — `sectionEmptyKind` per section with its input, predicate, kind and sentence, the unread frame with `issueNote`'s last-good-reading age and no Retry, the scope and the hidden count in the sentence, counted from the rows the section shows, with fixture-count cells per scope and Mine mode, no scope for Fleet and Machine, the frame only where `sectionEmptyKind` answers non-null, and empty groups rendered as "— none" with their hint <!-- builds: sectionEmptyKind, the empty kind and sentence of each Delivery section --> → #3596
 
 ## Notes
 

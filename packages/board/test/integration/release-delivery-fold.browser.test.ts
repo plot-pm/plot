@@ -6,7 +6,7 @@ import { type Fleet, type FleetSprint, type Slice } from '../../src/contract/sch
 /**
  * THE RELEASE DELIVERY SECTION FOLDS TO ITS HEADER LINE.
  *
- * The whole header row is the toggle, open by default. Folded, the section shows
+ * The 28 px button and a click anywhere else on the header row toggle it, open by default. Folded, the section shows
  * no plan rows and no column headers, and the counts stay. A non-zero count opens
  * the section and scrolls to its plan row; a 0 count is text. The fold is one
  * stored key, the same under the My sprint chip, and a plan row keeps its own fold.
@@ -51,19 +51,20 @@ describe('the Release delivery section folds to its header line', () => {
     await page.locator(`${RELEASE} [data-plan-row]`).first().waitFor({ timeout: 15_000 });
     return page;
   };
-  const toggle = (page: Page) => page.locator('[data-group-toggle="release-delivery"]');
+  const toggle = (page: Page) => page.locator('[data-section-toggle="release-delivery"]');
   const expanded = (page: Page) => toggle(page).getAttribute('aria-expanded');
-  // The row's left edge is the ▾ glyph, clear of the count links.
-  const clickRow = (page: Page) => toggle(page).click({ position: { x: 4, y: 8 } });
+  // A click on the section title, clear of the count links, toggles the fold as the button does.
+  const clickRow = (page: Page) => page.locator('h2[data-delivery-section="release-delivery"] svg[data-section-icon]').click();
+  const chevronTurned = async (page: Page) => (await toggle(page).locator('[data-section-chevron]').getAttribute('class'))?.includes('rotate-90');
 
   it('starts open with nothing stored, and folds to its counts with no plan rows and no column headers', async () => {
     const page = await open();
     try {
       expect(await expanded(page)).toBe('true');
-      expect(await toggle(page).locator('span[aria-hidden]').first().textContent()).toBe('▾');
+      expect(await chevronTurned(page)).toBe(true);
       await clickRow(page);
       await expect.poll(() => expanded(page)).toBe('false');
-      expect(await toggle(page).locator('span[aria-hidden]').first().textContent()).toBe('▸');
+      expect(await chevronTurned(page)).toBe(false);
       expect(await page.locator(`${RELEASE} [data-plan-row]`).count()).toBe(0);
       expect(await page.locator(`${RELEASE} [data-plan-thead]`).count()).toBe(0);
       expect(await page.locator(`${RELEASE} [data-release-header-count="plans"]`).textContent()).toBe('2 plans');
@@ -104,6 +105,8 @@ describe('the Release delivery section folds to its header line', () => {
       expect(await page.locator(`${RELEASE} [data-release-header-count="at-a-gate"] button`).count()).toBe(0);
       await page.locator(`${RELEASE} [data-release-header-link="plans"]`).click();
       await expect.poll(() => expanded(page)).toBe('true');
+      await page.locator(`${RELEASE} [data-release-header-link="plans"]`).click();
+      expect(await expanded(page)).toBe('true');
       await expect.poll(() => page.locator('#delivery-plan-plan-mine[data-link-target]').count(), { timeout: 5_000 }).toBe(1);
     } finally {
       await page.close();

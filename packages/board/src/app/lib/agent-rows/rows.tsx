@@ -23,7 +23,8 @@ import { tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromSlice, planPrAggr
 import { TICKET_TRACKS, TUPLE_TRACKS, TupleLinkView, TupleRowView } from '../../components/TupleRow.js';
 import { activityPace } from './activity.js';
 import { soleRowStatus, exceptionSummary } from './stuck.js';
-import { type PlanGroup, elsewhereNote, planWaitingDays, sliceKeyOf, sliceSummaryFor } from './sections.js';
+import { type PlanGroup, elsewhereNote, planWaitingDays, sliceSummaryFor } from './sections.js';
+import type { Jump } from './delivery-view.js';
 import { roundsBadgeClass, roundsBadgeText, roundsRecorded } from '../../components/PlanCard.js';
 import { cn } from '../utils.js';
 import { machineNote, noteWithoutPr } from './host-notes.js';
@@ -315,6 +316,8 @@ export interface AgentListProps {
    * selection, so the page clears it on the next interaction.
    */
   highlightBranch?: string;
+  /** Counts the reveals, so a repeated reveal of the same branch scrolls again. */
+  revealNonce?: number;
   /**
    * Who is reading — the two identity fields `/api/board`'s `server` carries,
    * and its `People` directory, for the "only my work" filter to compare each
@@ -1017,8 +1020,7 @@ export function SliceRow({
   planHeaded = false,
   menuCard,
   menuDispatch,
-  slices,
-  onExpandSection,
+  onJump,
   planIndex,
   by,
   gates,
@@ -1034,15 +1036,8 @@ export function SliceRow({
   group: SliceGroup;
   /** The plan this slice slices — for the row's test hook, not for a link. */
   plan: string;
-  /**
-   * The payload's slices, carried through so a BLOCKED slice row can resolve which
-   * SECTION its blocker sits in — `BlockedByMark` unfolds that section before it
-   * scrolls. Undefined on a cast payload from a pre-#349 server; the mark then
-   * assumes an open section and queries as it always did.
-   */
-  slices?: Slice[];
-  /** Unfold one collapsed section — passed to `BlockedByMark`. */
-  onExpandSection?: (section: WaitingGroup) => void;
+  /** The Delivery tab's one jump — passed to `BlockedByMark`. */
+  onJump?: Jump;
   /** The plan's approval clock, inherited where the slice has no tip of its own. */
   waitingDays: number | null;
   /** Whether the branches beneath are showing — null where there is no fold. */
@@ -1393,19 +1388,7 @@ export function SliceRow({
             </span>
           )}
           {group.blockedBy ? (
-            <BlockedByMark
-              plan={plan}
-              wave={group.blockedBy}
-              // WHICH SECTION the blocker sits in — read from the payload's own
-              // slice, keyed by plan+name the same way `openSlices` keys. Null
-              // where the payload named no such slice (a cast pre-#349 pulse),
-              // and the mark then queries an assumed-open section as before.
-              section={
-                slices?.find((w) => sliceKeyOf(w.plan, w.name) === sliceKeyOf(plan, group.blockedBy!))
-                  ?.section ?? null
-              }
-              onExpandSection={onExpandSection}
-            />
+            <BlockedByMark plan={plan} wave={group.blockedBy} onJump={onJump} />
           ) : null}
         </>
       }

@@ -170,4 +170,51 @@ describe('the Delivery tab renders the five sections', () => {
       await page.close();
     }
   }, 60_000);
+
+  it('leaves the fold unchanged on a click on a header count or switch', async () => {
+    const page = await cat.open('a-full-estate', { tab: 'agents' });
+    try {
+      const toggle = page.locator('[data-section-toggle="fleet"]');
+      await toggle.waitFor({ timeout: 15_000 });
+      expect(await toggle.getAttribute('aria-expanded')).toBe('true');
+      await page.locator('h2[data-delivery-section="fleet"] [data-summary-link]').first().click();
+      expect(await toggle.getAttribute('aria-expanded')).toBe('true');
+      await page.locator('[data-fleet-control-column]').click({ position: { x: 1, y: 1 } });
+      expect(await toggle.getAttribute('aria-expanded')).toBe('true');
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+
+  it('renders no machine line in a folded Machine section', async () => {
+    const page = await cat.open('a-full-estate', { tab: 'agents' });
+    try {
+      const machine = page.locator('[data-section="machine"]');
+      await machine.locator('[data-machine-line]').waitFor({ timeout: 15_000 });
+      await page.locator('[data-section-toggle="machine"]').click();
+      await expect.poll(() => page.locator('[data-section-toggle="machine"]').getAttribute('aria-expanded')).toBe('false');
+      expect(await machine.locator('[data-machine-line]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+
+  it('opens a folded section on a You count link and marks the target', async () => {
+    const page = await cat.open('a-full-estate', { tab: 'agents' });
+    try {
+      const link = page.locator('h2[data-delivery-section="you"] [data-you-count-link]').first();
+      await link.waitFor({ timeout: 15_000 });
+      const key = await link.getAttribute('data-you-count-link');
+      const section = key === 'tickets' ? 'tickets' : 'you';
+      const toggle = page.locator(`[data-section-toggle="${section}"]`);
+      await toggle.click();
+      await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('false');
+      await link.click();
+      await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('true');
+      const target = key === 'tickets' ? '#tickets[data-link-target]' : `[data-group="${key}"][data-link-target]`;
+      await page.locator(target).first().waitFor({ state: 'attached', timeout: 5_000 });
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
 });

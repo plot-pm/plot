@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { DELIVERY_LAYOUT, deliveryScope, parsePersonDirectory, planIndexOf } from '@plot-pm/domain';
 import type { AgentRow, DraftPlan, Slice } from '../../src/contract/schema.js';
-import { deliveryMapping, sprintCardViewOf, type RegistryAgent } from '../../src/app/lib/agent-rows/delivery-readings.js';
+import { deliveryMapping, sliceItemId, sprintCardViewOf, type RegistryAgent } from '../../src/app/lib/agent-rows/delivery-readings.js';
 import { GLYPH_PATH } from '../../src/app/lib/glyphs.js';
-import { bulkDeleteWords, cleanUpBranches, deleteWords, releaseWords, groupAnchor, nestItems, placeMapping, planBlockShown, summarise, type PlacedItemView } from '../../src/app/lib/agent-rows/delivery-view.js';
+import { anchorOwner, FLEET_CONTROLS_ANCHOR, itemAnchor, releasePlanAnchor, sectionAnchor, ticketAnchor, UNPLACED_ANCHOR, bulkDeleteWords, cleanUpBranches, deleteWords, releaseWords, groupAnchor, nestItems, placeMapping, planBlockShown, summarise, type PlacedItemView } from '../../src/app/lib/agent-rows/delivery-view.js';
 
 const row = (over: Record<string, unknown>): AgentRow => ({
   branch: '', plan: '', wave: '', kind: 'branch', phase: 'Development', state: 'wip',
@@ -444,5 +444,83 @@ describe('the clean-up words', () => {
     expect(w.label).toBe('Delete 2 quiet branches…');
     expect(w.confirm).toContain('a, b');
     expect(w.confirm).toContain('refs/plot/reaped/');
+  });
+});
+
+describe('anchorOwner — which section and group a jump opens', () => {
+  const working = row({ branch: 'feature/a', plan: 'p', wave: 'A' });
+  const v = view([working], [agent({ session: 'x', branch: 'feature/a' })]);
+  const item = v.sections.flatMap((s) => s.groups.flatMap((g) => g.items))[0]!;
+  const fleetAgent = v.sections.flatMap((s) => s.groups.flatMap((g) => g.agents))[0]!;
+  const itemHome = v.sections.flatMap((s) => s.groups.filter((g) => g.items.includes(item)).map((g) => [s.key, g.key]))[0]!;
+
+  it('answers every section anchor with its section, the two extra sections included', () => {
+    for (const key of [...DELIVERY_LAYOUT.map((l) => l.section), 'tickets', 'not-placed'] as const) {
+      expect(anchorOwner(sectionAnchor(key), v)).toEqual({ section: key, group: null, plan: null, hidden: null, reason: null });
+    }
+  });
+
+  it('answers every group anchor with the section DELIVERY_LAYOUT puts it in', () => {
+    for (const layout of DELIVERY_LAYOUT) {
+      for (const group of layout.groups) {
+        expect(anchorOwner(groupAnchor(group), v)).toMatchObject({ section: layout.section, group });
+      }
+    }
+  });
+
+  it('answers an item anchor with the section and group its placement names', () => {
+    expect(anchorOwner(item.anchor, v)).toMatchObject({ section: itemHome[0], group: itemHome[1], hidden: null });
+  });
+
+  it('answers an agent anchor with its Fleet group', () => {
+    expect(anchorOwner(fleetAgent.anchor, v)).toMatchObject({ section: 'fleet', group: fleetAgent.placement.group });
+  });
+
+  it('answers an agent row anchor with the first group that renders the branch', () => {
+    expect(anchorOwner('agent-row-feature/a', v)).toMatchObject({ section: itemHome[0], group: itemHome[1] });
+  });
+
+  it('answers the slice item BlockedByMark targets with its group', () => {
+    expect(anchorOwner(itemAnchor(sliceItemId('p', 'A')), v)).toMatchObject({ section: itemHome[0], group: itemHome[1] });
+  });
+
+  it('answers a delivered slice and a plan row anchor with the Release delivery plan row', () => {
+    const delivered = view([row({ branch: 'feature/a', plan: 'p', wave: 'A', phase: 'Testing', state: 'merged', group: 'done' })]);
+    expect(anchorOwner(releasePlanAnchor('p'), delivered)).toEqual({ section: 'release-delivery', group: null, plan: 'p', hidden: null, reason: null });
+    expect(anchorOwner(itemAnchor(sliceItemId('p', 'A')), delivered)).toMatchObject({ section: 'release-delivery', plan: 'p' });
+  });
+
+  it('answers tickets, fleet-controls and unplaced-details with their sections', () => {
+    expect(anchorOwner('tickets', v)).toMatchObject({ section: 'tickets', group: null });
+    expect(anchorOwner(FLEET_CONTROLS_ANCHOR, v)).toMatchObject({ section: 'fleet', group: null });
+    expect(anchorOwner(UNPLACED_ANCHOR, v)).toMatchObject({ section: 'not-placed', group: null });
+  });
+
+  it('marks a Tickets row behind the inner fold, and leaves a shown one plain', () => {
+    const folded = new Set([ticketAnchor(9)]);
+    expect(anchorOwner(ticketAnchor(9), v, { foldedTickets: folded })).toMatchObject({ section: 'tickets', hidden: 'inner-fold' });
+    expect(anchorOwner(ticketAnchor(3), v, { foldedTickets: folded })).toMatchObject({ section: 'tickets', hidden: null });
+  });
+
+  it('answers null for an anchor no section owns', () => {
+    expect(anchorOwner('plan-some-slug', v)).toBeNull();
+    expect(anchorOwner('delivery-section-nowhere', v)).toBeNull();
+    expect(anchorOwner(itemAnchor('branch:feature/none'), v)).toBeNull();
+  });
+
+  it('answers filter where the whole readings hold the item and the shown placement does not', () => {
+    const theirs = row({ branch: 'feature/t', plan: 'q', wave: 'A', assignee: 'them' });
+    const input = {
+      rows: [theirs], slices: [{ ...slice('A'), plan: 'q' } as Slice], agents: [], drafts: [], reader: { hostUser: 'me' },
+      config: { autoReview: true, correctionBudget: 2 },
+    };
+    const shown = placeMapping(deliveryMapping({ ...input, mode: 'mine' }), input.slices);
+    const whole = placeMapping(deliveryMapping({ ...input, mode: 'all' }), input.slices);
+    const anchor = itemAnchor(sliceItemId('q', 'A'));
+    expect(anchorOwner(anchor, shown)).toBeNull();
+    expect(anchorOwner(anchor, shown, { wider: [{ view: whole, by: 'mine' }] }))
+      .toMatchObject({ hidden: 'filter', reason: 'hidden by Mine' });
+    expect(anchorOwner(anchor, shown, { wider: [{ view: shown, by: 'mine' }, { view: whole, by: 'scope' }] }))
+      .toMatchObject({ hidden: 'filter', reason: 'hidden by the scope' });
   });
 });
