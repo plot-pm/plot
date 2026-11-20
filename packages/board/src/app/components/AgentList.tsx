@@ -67,7 +67,7 @@ import { detailLines } from '../lib/agent-rows/delivery-link-targets.js';
 import { headerOf, itemRowFactsOf, rowFormsOf, switchesOf } from '../lib/agent-rows/delivery-row-facts.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { ReleasePersonCards } from './ReleasePersonCards.js';
-import { LinkIcon } from './LinkIcon.js';
+import { LinkTupleView } from './TupleRow.js';
 import { LinePr, LineSlice, LineState, PlanOwner, PhaseChip, PlanName, PlanStrip, PlanTableHead, PLAN_TRACKS, ReleaseHeaderCounts, ReleaseLine } from './ReleasePlanParts.js';
 import { CleanUpBulkDelete, CleanUpMenu } from './CleanUpMenu.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
@@ -108,7 +108,7 @@ import { chipReadings } from '../lib/agent-rows/chip-readings.js';
 // slots are answered once, in `tuple-row.ts`, for every kind. So a new kind
 // costs a projection and no rendering at all, which is what the deleted three
 // could never do.
-import { splitBranch } from '../lib/tuple-row.js';
+import { artifactTuple, splitBranch, tupleWhatOf } from '../lib/tuple-row.js';
 // RE-EXPORTED, not redefined. `splitBranch` moved to the module that owns the
 // slot rules when the collapse deleted `BranchName`; the unit suite imports it
 // from here, and a second definition is exactly the drift this slice removed.
@@ -1259,15 +1259,24 @@ export function AgentList({
             <li key={key} role="row" data-delivery-link className="px-3 pb-1 text-xs text-slate-500 dark:text-slate-400">
               <span role="gridcell">
                 {arrow}{' '}
-                {links.map((l, i) => (
-                  <span key={l.anchor}>
-                    {i > 0 && ', '}
-                    <LinkIcon kind={l.icon ?? null} />
-                    <a href={`#${l.anchor}`} onClick={scrollTo(l.anchor)} className="font-mono text-blue-600 hover:underline dark:text-blue-400">
-                      {l.label}
-                    </a>
-                  </span>
-                ))}
+                {links.map((l, i) => {
+                  const what = tupleWhatOf(l.icon ?? null);
+                  return (
+                    <span key={l.anchor}>
+                      {i > 0 && ' '}
+                      {what === null ? (
+                        <a href={`#${l.anchor}`} onClick={scrollTo(l.anchor)} className="font-mono text-blue-600 hover:underline dark:text-blue-400">
+                          {l.label}
+                        </a>
+                      ) : (
+                        <LinkTupleView
+                          segments={artifactTuple({ what, label: l.label, href: `#${l.anchor}` }, () => undefined)}
+                          controls={[{ onFollow: () => document.getElementById(l.anchor)?.scrollIntoView({ block: 'center' }) }]}
+                        />
+                      )}
+                    </span>
+                  );
+                })}
               </span>
             </li>
           );

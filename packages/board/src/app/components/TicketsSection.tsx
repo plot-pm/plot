@@ -1,9 +1,12 @@
 import { useState } from 'react';
-import { linkIconKind, planItReason, ticketsSection, TICKETS_ANCHOR } from '@plot-pm/domain';
+import { planItReason, ticketsSection, TICKETS_ANCHOR } from '@plot-pm/domain';
 import type { DispatchInfo, IssueAnswer, IssueRow } from '../../contract/schema.js';
-import { tupleAgeText } from '../lib/tuple-row.js';
+import { artifactTuple, tupleAgeText } from '../lib/tuple-row.js';
 import { CreatePlanButton } from './CreatePlanButton.js';
-import { LinkIcon } from './LinkIcon.js';
+import { LinkTupleView } from './TupleRow.js';
+
+/** The hooks a Tickets row's ticket segment carries, the same on an anchor and on text. */
+const TICKET_CONTROLS = [{ extraAttr: { link: { 'data-issue-link': '', 'data-issue-number': '' }, text: { 'data-issue-number': '' } } }];
 
 /** The button class of a fold control: a link-looking button that stays in the tab order. */
 const FOLD_CLASS = 'delivery-text-link';
@@ -100,18 +103,11 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
                 className={`${ROW_COLUMNS} delivery-row delivery-row-ruled items-baseline gap-x-3 px-3`}
               >
                 <span role="gridcell" className="delivery-kind">Ticket</span>
-                <span role="gridcell" className="flex min-w-0 items-baseline" title={`${issue.number}: ${issue.title}`}>
-                  <LinkIcon kind={linkIconKind('ticket')} />
-                  {issue.url !== '' ? (
-                    <a href={issue.url} target="_blank" rel="noreferrer" data-issue-link className="delivery-text-link inline-block min-h-6 min-w-0 max-w-full truncate align-middle leading-6">
-                      <span data-issue-number>{issue.number}</span>: {issue.title}
-                    </a>
-                  ) : (
-                    <span className="delivery-truncate"><span data-issue-number>{issue.number}</span>: {issue.title}</span>
-                  )}
+                <span role="gridcell" className="flex min-w-0 items-center gap-1.5" title={`${issue.number}: ${issue.title}`}>
+                  <LinkTupleView segments={artifactTuple({ what: 'ticket', label: `${issue.number}`, href: issue.url }, () => undefined)} controls={TICKET_CONTROLS} />
+                  <span className="delivery-truncate">{issue.title}</span>
                 </span>
                 <span role="gridcell" data-tickets-do data-plan-it-reason={reason ?? undefined} className="delivery-text-link inline-flex items-baseline">
-                  <LinkIcon kind={linkIconKind('plan')} />
                   <CreatePlanButton issue={issue} idea={idea} issueAnswer={issueAnswer} label="Plan it ›" />
                 </span>
                 <span role="gridcell" className="delivery-text-muted sm:text-right">
