@@ -48,7 +48,7 @@ Link tuples exist today. `TupleRow.tsx` (`packages/board/src/app/components/Tupl
 
 ### Tuple vocabulary
 
-- `feature/delivery-tuple-vocabulary` — the tuple's segment kinds extended to every kind `linkIconKind` names, the missing Octicons in `GLYPH_PATH`, the PR+branch tuple with both segments linked, ticket segments in their own colour, and numbers that never truncate <!-- builds: TupleLink kinds release, story, slice and sprint, and the PR+branch tuple -->
+- `feature/delivery-tuple-vocabulary` — the tuple's segment kinds extended to every kind `linkIconKind` names, the missing Octicons in `GLYPH_PATH`, the PR+branch tuple with both segments linked, ticket segments in their own colour, and numbers that never truncate <!-- builds: TupleLink kinds release, story, slice and sprint, and the PR+branch tuple --> → #3584
 
 ### Tuples in every row
 
