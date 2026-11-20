@@ -136,7 +136,7 @@ Counted from the code on `origin/main` at `21ae2c638`, for a repository with N =
 ### Listing and prediction
 
 - `bug/bitbucket-lists-all-states-in-one-request` — every Bitbucket listing asks all its states in one paginated request with a `fields` filter, fleetd's full read stops sweeping per branch, `pr-list --branch` and `pr-state` ask one request per branch, the delta's open half walks every page, `scanListingCost` and `PR_REQUESTS_PER_REFRESH` price the new requests, and a test asserts the request count per pass for 1, 53 and 200 branches <!-- builds: the all-state Bitbucket listing request in plot-host.sh and bitbucket-pr-listing.ts -->
-- `bug/bitbucket-predicts-800-an-hour` — `DEFAULT_PREDICTED_HOST_LIMIT` and `budget_reading`'s Bitbucket arm answer 800, the corpus pair agrees and proves the empty case, and every comment, doc and test that names 10000 as the default changes <!-- builds: DEFAULT_PREDICTED_HOST_LIMIT 800, the Bitbucket default prediction -->
+- `bug/bitbucket-predicts-800-an-hour` — `DEFAULT_PREDICTED_HOST_LIMIT` and `budget_reading`'s Bitbucket arm answer 800, the corpus pair agrees and proves the empty case, and every comment, doc and test that names 10000 as the default changes <!-- builds: DEFAULT_PREDICTED_HOST_LIMIT 800, the Bitbucket default prediction --> → #3599
 
 ### Shared ledger
 
