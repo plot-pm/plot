@@ -17,6 +17,7 @@ import {
   type DeliveryInput,
   type WorkItemReading,
 } from '../src/rules/delivery-placement.js';
+import { mineOwnership, type Ownership } from '../src/rules/ownership.js';
 
 const input = (over: Partial<DeliveryInput> = {}): DeliveryInput => ({
   mine: 'off',
@@ -387,6 +388,25 @@ describe('tickets', () => {
     expect(place(items, { mine: 'strict' }).tickets).toEqual([]);
     expect(place(items, { mine: 'strict' }).unplaced.map((u) => u.reason)).toEqual(['filtered', 'filtered']);
   });
+
+  // The board maps a ticket's reading under `mine` to the combined answer of
+  // its assignees and its plans, and under `strict` to its assignees alone.
+  const ticketCases: ReadonlyArray<{ name: string; own: Ownership; plan: Ownership; shown: Record<'off' | 'mine' | 'strict', boolean> }> = [
+    { name: 'a ticket of another person on a plan of the reader', own: 'theirs', plan: 'mine', shown: { off: true, mine: true, strict: false } },
+    { name: 'a ticket of the reader on a plan of another person', own: 'mine', plan: 'theirs', shown: { off: true, mine: true, strict: true } },
+    { name: 'a ticket of unknown owner on a plan of unknown owner', own: 'unknown', plan: 'unknown', shown: { off: true, mine: true, strict: false } },
+  ];
+  for (const c of ticketCases) {
+    for (const mine of ['off', 'mine', 'strict'] as const) {
+      it(`${c.shown[mine] ? 'shows' : 'filters'} ${c.name} in the Mine mode ${mine}`, () => {
+        const ownership = mine === 'mine' ? mineOwnership([c.own, c.plan]) : c.own;
+        const p = place([ticket({ id: 'ticket:t', ownership })], { mine });
+
+        expect(p.tickets.map((t) => t.id)).toEqual(c.shown[mine] ? ['ticket:t'] : []);
+        expect(p.unplaced).toEqual(c.shown[mine] ? [] : [{ id: 'ticket:t', subject: 'item', reason: 'filtered' }]);
+      });
+    }
+  }
 
   it('does not place a closed ticket', () => {
     const p = place([ticket({ id: 'ticket:closed', delivered: true })]);
