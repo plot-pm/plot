@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { type AgentRow, type WaitingGroup } from '../../../contract/schema.js';
+import { type AgentRow } from '../../../contract/schema.js';
+import { sliceItemId } from './delivery-readings.js';
+import { itemAnchor, type Jump } from './delivery-view.js';
 import { ACTIVITY_MARK_PLACE, type ActivityPace } from './activity.js';
 import { stuckEvidence, stuckWord } from './stuck.js';
 
@@ -278,21 +280,15 @@ export function StuckCell({
 export function BlockedByMark({
   plan,
   wave,
-  section,
-  onExpandSection,
+  onJump,
 }: {
   plan: string;
   wave: string;
   /**
-   * The SECTION the blocking slice sits in — the payload's own `Slice.section`,
-   * resolved by the slice row before it renders this. Null where the payload
-   * carries no slice to answer (a pre-#349 server casts `waves` and never fills
-   * it), in which case the blocker is assumed to be in an open section and the
-   * query below finds it as it always did.
+   * The Delivery tab's one jump: it opens the section, group and plan row that hold the slice's item, then
+   * finds the row. Absent outside the Delivery tab, where the mark finds the row in what is mounted.
    */
-  section?: WaitingGroup | null;
-  /** Unfold `section` before scrolling — see `expandSection` in `AgentList`. */
-  onExpandSection?: (section: WaitingGroup) => void;
+  onJump?: Jump;
 }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLSpanElement>(null);
@@ -308,13 +304,9 @@ export function BlockedByMark({
   // with a flash rather than a persistent highlight: the reader asked *which
   // slice*, and the answer is a glance, not a new state to dismiss.
   //
-  // THE SELECTOR IS UNCHANGED — it already searches the whole document with both
-  // attributes in one query, so it crosses sections already. What silenced it was
-  // a FOLDED section: its rows are removed from the tree, not hidden, so there is
-  // nothing to find. So the mark opens the blocker's section first, then defers a
-  // frame — expanding is a `setState`, and the row does not mount until React
-  // commits, the same reason `App.scrollToStoryLane` waits a frame after
-  // switching to lanes.
+  // The selector searches the whole document with both attributes in one query,
+  // so it crosses sections. A FOLDED section removes its rows from the tree, so
+  // the jump opens the folds that hold the slice's item before it looks.
   const scrollToTarget = (target: HTMLElement) => {
     const smooth = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     target.scrollIntoView({ block: 'center', behavior: smooth ? 'smooth' : 'auto' });
@@ -324,37 +316,26 @@ export function BlockedByMark({
     window.setTimeout(() => target.classList.remove('ring-2', 'ring-amber-400'), 1200);
   };
 
+  // Two shapes: a slice row under its plan's list, and a WORKING agent row,
+  // which names its plan on itself because its grid holds every plan.
+  const findSlice = () => {
+    const p = CSS.escape(plan);
+    const w = CSS.escape(wave);
+    return document.querySelector<HTMLElement>(
+      `[data-slice-list="${p}"] [data-slice-row="${w}"], [data-slice-row="${w}"][data-slice-plan="${p}"]`,
+    );
+  };
+
   const goToSlice = () => {
-    if (section && onExpandSection) onExpandSection(section);
-    // Find the row, then scroll and flash. The selector is unchanged — one
-    // query, both attributes, document-wide, so it crosses sections already.
-    // What blocked it was a FOLDED section, whose rows are removed from the tree
-    // rather than hidden: after `onExpandSection` there is a row to find, but not
-    // synchronously. Expanding is a `setState`, and React does not always commit
-    // the (large) re-render by the very next frame, so a single `rAF` can still
-    // run before the row mounts. So this retries across a few frames until the
-    // row exists, then acts — the same *wait for the row to be in the document*
-    // that `App`'s effect-based `revealBranch` does, kept local here.
-    let framesLeft = 10;
-    const find = () => {
-      // Two shapes: a slice row under its plan's list, and a WORKING agent row,
-      // which names its plan on itself because its grid holds every plan.
-      const p = CSS.escape(plan);
-      const w = CSS.escape(wave);
-      const target = document.querySelector<HTMLElement>(
-        `[data-slice-list="${p}"] [data-slice-row="${w}"], [data-slice-row="${w}"][data-slice-plan="${p}"]`,
-      );
-      if (target) {
-        scrollToTarget(target);
-        return;
-      }
-      // Still unreachable after the frames run out — filtered out, or on another
-      // tab. Never silent: the mark already NAMES the slice in its label and
-      // panel, so the reader keeps that answer; only the jump could not be made.
-      if (framesLeft-- > 0) window.requestAnimationFrame(find);
-    };
-    window.requestAnimationFrame(find);
     setOpen(false);
+    // The jump opens the folds that hold the slice's item and retries until the row mounts. An unreached row
+    // is never silent: the mark already names the slice in its label and panel.
+    if (onJump !== undefined) {
+      onJump(itemAnchor(sliceItemId(plan, wave)), { find: findSlice, show: scrollToTarget });
+      return;
+    }
+    const target = findSlice();
+    if (target) scrollToTarget(target);
   };
 
   return (

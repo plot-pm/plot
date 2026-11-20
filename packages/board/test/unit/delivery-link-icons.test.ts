@@ -112,6 +112,7 @@ describe('the Tickets section', () => {
   const m = html(createElement(TicketsSectionView, {
     issueAnswer: 'answered', assigned: [issue], others: [], unassigned: 0, hidden: 0, showAll: false, onToggleShowAll: () => {},
     hiddenSentence: null, notice: null, absence: '', idea: { available: true, reason: '' },
+    folded: false, onToggleFold: () => {}, foldOpen: false, onToggleFoldOpen: () => {},
   }));
 
   it('leads each ticket link with the ticket icon', () => {
@@ -136,6 +137,7 @@ describe('the cell links and the Master Agent line', () => {
     onPlan: () => undefined,
     onReveal: () => undefined,
     onAct: () => undefined,
+    onJump: () => undefined,
   };
   const cell = (c: Parameters<typeof RowCell>[0]['cell']) => html(createElement(RowCell, { cell: c, handlers }));
 

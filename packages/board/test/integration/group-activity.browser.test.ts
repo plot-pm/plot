@@ -131,7 +131,7 @@ describe('a group heading carries the activity of the rows behind it', () => {
     page.locator(`[data-group="${key}"], [data-section="${key}"]`);
 
   const toggleFor = (page: Page, key: string) =>
-    page.locator(`[data-group-toggle="${key}"]`);
+    page.locator(`[data-section-toggle="${key}"], [data-group-toggle="${key}"]`);
 
   /** The heading of a group or section: an h3 for a group, an h2 for a section. */
   const headingFor = (page: Page, key: string) =>
@@ -362,7 +362,7 @@ describe('a collapsed heading shows the strongest pace its rows state', () => {
   }
 
   const toggleFor = (page: Page, key: string) =>
-    page.locator(`[data-group-toggle="${key}"]`);
+    page.locator(`[data-section-toggle="${key}"], [data-group-toggle="${key}"]`);
 
   const fold = async (page: Page, key: string) => {
     await toggleFor(page, key).waitFor({ timeout: 10_000 });

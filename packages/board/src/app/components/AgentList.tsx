@@ -113,7 +113,7 @@ import { splitBranch } from '../lib/tuple-row.js';
 // slot rules when the collapse deleted `BranchName`; the unit suite imports it
 // from here, and a second definition is exactly the drift this slice removed.
 export { splitBranch };
-import { isCollapsible, readCollapsed, writeCollapsed } from '../lib/agent-rows/collapse.js';
+import { isFoldable, isFolded, readCollapsed, writeCollapsed } from '../lib/agent-rows/collapse.js';
 import {
   readMineOnly,
   readMineStrict,
@@ -124,7 +124,7 @@ import {
   writeMineOnly,
   writeMineStrict,
 } from '../lib/agent-rows/mine-filter.js';
-import { deliveryScope, mineMode, placeDelivery, planIndexOf, workItemCells, YOU_GROUP_MARKERS, type DeliverySection, type YouGroup, type YouMarker } from '@plot-pm/domain';
+import { deliveryScope, mineMode, placeDelivery, ticketsSection, planIndexOf, workItemCells, YOU_GROUP_MARKERS, type DeliverySection, type YouGroup, type YouMarker } from '@plot-pm/domain';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace, headingPace } from '../lib/agent-rows/activity.js';
 import { ActivitySpinner } from '../lib/agent-rows/marks.js';
 import { BranchMenu, BrokenAgentMenu, PlanActions } from '../lib/agent-rows/menus.js';
@@ -132,20 +132,29 @@ import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
 import { deliveryMapping, rateLimitOf, releaseCardsOf, sprintCardViewOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
 import { ReleaseCard } from './ReleaseCard.js';
 import {
+  anchorOwner,
   cleanUpBranches,
   groupAnchor,
   placeMapping,
   planBlockShown,
   planBlockToggleKey,
   releasePlanAnchor,
+  FLEET_CONTROLS_ANCHOR,
+  UNPLACED_ANCHOR,
+  sectionAnchor,
   sectionGlyph,
+  ticketAnchor,
+  type AnchorContext,
   type BlockView,
+  type DeliveryView,
+  type Jump,
   type LinkView,
   type PlacedAgentView,
   type PlacedItemView,
   type PlanBlockView,
   type SliceBlockView,
   type UnplacedView,
+  type WiderView,
 } from '../lib/agent-rows/delivery-view.js';
 import { shrinkNote } from '../lib/agent-rows/actions.js';
 import { footerFact, unplacedDetails } from '../lib/agent-rows/footer-fact.js';
@@ -157,6 +166,7 @@ import { rowKey } from '../lib/agent-rows/row-identity.js';
 // their marks and their menus are declared next door.
 import { splitTicketRows, waitingView } from '../lib/agent-rows/waiting-view.js';
 import { TicketsSectionView } from './TicketsSection.js';
+import { headerControl, SectionHead } from './SectionHead.js';
 import { youHeaderOf } from '../lib/agent-rows/you-header.js';
 import { StartWorkButton } from './StartWorkButton.js';
 import { HeaderRow, IssueRowView, PlanRow, Row, SliceRow, type AgentListProps } from '../lib/agent-rows/rows.js';
@@ -443,6 +453,7 @@ export function AgentList({
   onStarting,
   onRevealBranch,
   highlightBranch = '',
+  revealNonce = 0,
   server,
   defaultBranch,
   checkoutClean,
@@ -499,7 +510,6 @@ export function AgentList({
   };
   // The plan rows of Release delivery are collapsed one by one; the reader's opened plans.
   const [openReleasePlans, setOpenReleasePlans] = useState<Set<string>>(() => new Set());
-  const [allPlansOpen, setAllPlansOpen] = useState(false);
   const toggleReleasePlan = (plan: string) =>
     setOpenReleasePlans((prev) => {
       const next = new Set(prev);
@@ -507,34 +517,70 @@ export function AgentList({
       else next.add(plan);
       return next;
     });
-  // Opens Release delivery where the reader folded it, and persists that.
-  const openReleaseDelivery = () => {
+  // The Tickets rows behind `… n more · show`; held here so a jump to a hidden ticket can open them.
+  const [ticketsFoldOpen, setTicketsFoldOpen] = useState(false);
+  // Opens the given sections and groups where the reader folded them, and persists that.
+  const openKeys = (keys: readonly string[]) =>
     setCollapsed((prev) => {
-      if (!prev.has(RELEASE_DELIVERY)) return prev;
+      if (!keys.some((key) => prev.has(key))) return prev;
       const next = new Set(prev);
-      next.delete(RELEASE_DELIVERY);
+      for (const key of keys) next.delete(key);
       writeCollapsed(next);
       return next;
     });
-  };
-  // A blocker mark opens the section and the plan rows its blocker sits behind: a
-  // delivered slice shows under its plan row in Release delivery, collapsed until opened.
-  const expandSection = (section: string) => {
-    if (section !== 'done') return;
-    openReleaseDelivery();
-    setAllPlansOpen(true);
-  };
-  // A header count opens the section, then scrolls once its plan row is mounted:
-  // a folded section renders no rows, and opening it is a `setState`.
-  const jumpToReleasePlan = (anchor: string) => {
-    openReleaseDelivery();
+  // The view and context of the last render, which the jump reads; the footer and the reveal effect sit outside it.
+  const jumpState = useRef<{ view: DeliveryView | null; context: AnchorContext }>({ view: null, context: {} });
+  // The one jump of the tab: opens the section, group and plan row that hold the anchor, then scrolls once it is
+  // mounted. Opening is a `setState`, so it retries for 10 frames, then falls back to the plan row and the section.
+  const jump: Jump = (anchor, options = {}) => {
+    const { view, context } = jumpState.current;
+    const owner = view === null ? null : anchorOwner(anchor, view, context);
+    if (owner?.hidden === 'filter') return;
+    if (owner !== null) {
+      openKeys(owner.group === null ? [owner.section] : [owner.section, owner.group]);
+      if (owner.plan !== null) setOpenReleasePlans((prev) => (prev.has(owner.plan!) ? prev : new Set(prev).add(owner.plan!)));
+      if (owner.hidden === 'inner-fold') setTicketsFoldOpen(true);
+    }
+    const find = options.find ?? (() => document.getElementById(anchor));
+    const show = options.show ?? (() => scrollToAnchor(anchor));
     let framesLeft = 10;
-    const find = () => {
-      if (document.getElementById(anchor) !== null) scrollToAnchor(anchor);
-      else if (framesLeft-- > 0) requestAnimationFrame(find);
+    const land = () => {
+      const el = find();
+      if (el !== null) {
+        show(el);
+        options.done?.();
+        return;
+      }
+      if (framesLeft-- > 0) {
+        requestAnimationFrame(land);
+        return;
+      }
+      const fallbacks = [anchor, owner?.plan != null ? releasePlanAnchor(owner.plan) : null, owner !== null ? sectionAnchor(owner.section) : null];
+      const fallback = fallbacks.find((id) => id !== null && document.getElementById(id) !== null);
+      if (fallback != null) scrollToAnchor(fallback);
+      options.done?.();
     };
-    requestAnimationFrame(find);
+    land();
   };
+
+  // Scrolls to a revealed branch's row through the jump, so a folded section or group opens first. Keyed on
+  // `revealNonce`, so a repeated reveal of the same branch fires again. The `fleet` dependency lands a reveal whose
+  // row arrives in a later pulse; once landed, a pulse does not scroll again.
+  const revealed = useRef('');
+  useEffect(() => {
+    const key = `${revealNonce}:${highlightBranch}`;
+    if (highlightBranch === '' || revealed.current === key) return;
+    const smooth = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const id = requestAnimationFrame(() =>
+      jump(`agent-row-${highlightBranch}`, {
+        show: (el) => {
+          el.scrollIntoView({ block: 'center', behavior: smooth ? 'smooth' : 'auto' });
+          revealed.current = key;
+        },
+      }),
+    );
+    return () => cancelAnimationFrame(id);
+  }, [highlightBranch, revealNonce, fleet]);
 
   // Whether the reader asked to see only their own work.
   //
@@ -683,7 +729,6 @@ export function AgentList({
   // back, the effect re-runs and resets the count, so a recovered view ticks
   // from the payload that just arrived rather than from where the frozen one
   // left off.
-  const [showUnplaced, setShowUnplaced] = useState(false);
   // Set while the sections render, read by the footer below them: one `notPlaced` array feeds the count and the list.
   let unplacedForFooter: UnplacedView[] = [];
   const [tick, setTick] = useState(0);
@@ -1202,6 +1247,7 @@ export function AgentList({
         // no Active sprint names counts the section's own plans and slices.
         const releaseCardView = releaseCardsOf(activeSprints.map(cardSprintOf), reader.directory, { ...mappingInput, rows: fleet.rows }, view.releaseCarried);
         unplacedForFooter = view.notPlaced;
+        const unplacedFolded = isFolded('section', 'not-placed', view.notPlaced.length, collapsed);
         const youHead = youHeaderOf({
           view, placement, reader, ticketAnswer: fleet.issueAnswer ?? null, phaseMap,
           stories: stories ?? [], cards: cards ?? [],
@@ -1230,6 +1276,8 @@ export function AgentList({
           onPlan: (file) => { onOpenPlan?.(file); },
           onReveal: (branch) => onRevealBranch?.(branch),
           onAct: () => undefined,
+          onJump: (anchor) => jump(anchor),
+          hiddenReason: (anchor) => hiddenReason(anchor),
         };
         const byCell = (cells: { by: Parameters<typeof RowCell>[0]['cell'] } | undefined) =>
           cells?.by ? <RowCell cell={cells.by} handlers={linkHandlers} /> : undefined;
@@ -1254,24 +1302,60 @@ export function AgentList({
         const slices = fleet.slices;
         const issues = fleet.issueAnswer === 'answered' ? filteredIssues : [];
         const ticketSplit = splitTicketRows(issues, placement.tickets, placement.unplaced);
-        const scrollTo = (anchor: string) => (e: { preventDefault: () => void }) => {
-          e.preventDefault();
-          document.getElementById(anchor)?.scrollIntoView({ block: 'center' });
+        const ticketInput = {
+          answer: fleet.issueAnswer ?? null,
+          assigned: ticketSplit.assigned,
+          others: ticketSplit.others,
+          unassigned: fleet.waiting?.unassigned ?? null,
+          hidden: fleet.waiting?.hidden ?? 0,
+          showAll: showEveryTicket,
+        };
+        // THE JUMP'S CONTEXT: the Tickets rows behind the inner fold, and the views a filter narrows. The
+        // wider views are built only when a jump misses the shown view, and only for a filter that is on.
+        const ticketsShown = (foldOpen: boolean) => new Set(ticketsSection({ ...ticketInput, foldOpen }).rows.map((t) => ticketAnchor(t.number)));
+        const unfolded = ticketsShown(false);
+        const foldedTickets = new Set([...ticketsShown(true)].filter((anchor) => !unfolded.has(anchor)));
+        const now = new Date(Date.now());
+        let wider: WiderView[] | null = null;
+        const context: AnchorContext = {
+          foldedTickets,
+          get wider() {
+            if (wider !== null) return wider;
+            wider = [];
+            const widen = (input: typeof mappingInput) => placeMapping(deliveryMapping(input), fleet.slices, activeSprints, sprintScope, now, planIndex);
+            if (mode !== 'all') wider.push({ view: widen({ ...mappingInput, mode: 'all' }), by: 'mine' });
+            if (sprintFilterOn) wider.push({ view: widen({ ...mappingInput, mode: 'all', rows: fleet.rows }), by: 'scope' });
+            return wider;
+          },
+        };
+        jumpState.current = { view, context };
+        const hiddenReason = (anchor: string) => {
+          const owner = anchorOwner(anchor, view, context);
+          return owner?.hidden === 'filter' ? owner.reason : null;
         };
         const linkLine = (key: string, links: LinkView[], arrow: string) =>
           links.length === 0 ? null : (
             <li key={key} role="row" data-delivery-link className="px-3 pb-1 text-xs text-slate-500 dark:text-slate-400">
               <span role="gridcell">
                 {arrow}{' '}
-                {links.map((l, i) => (
-                  <span key={l.anchor}>
-                    {i > 0 && ', '}
-                    <LinkIcon kind={l.icon ?? null} />
-                    <a href={`#${l.anchor}`} onClick={scrollTo(l.anchor)} className="font-mono text-blue-600 hover:underline dark:text-blue-400">
-                      {l.label}
-                    </a>
-                  </span>
-                ))}
+                {links.map((l, i) => {
+                  const hidden = hiddenReason(l.anchor);
+                  return (
+                    <span key={l.anchor}>
+                      {i > 0 && ', '}
+                      <LinkIcon kind={l.icon ?? null} />
+                      {hidden !== null ? (
+                        <button type="button" disabled data-hidden-reason={hidden} title={hidden} className="cursor-not-allowed font-mono">
+                          {l.label}
+                        </button>
+                      ) : (
+                        <a href={`#${l.anchor}`} onClick={(e) => { e.preventDefault(); jump(l.anchor); }} className="font-mono text-blue-600 hover:underline dark:text-blue-400">
+                          {l.label}
+                        </a>
+                      )}
+                    </span>
+                  );
+                })}
               </span>
             </li>
           );
@@ -1295,7 +1379,7 @@ export function AgentList({
           highlighted: r.branch === highlightBranch,
           showSprintSlug,
           planIndex,
-          onExpandSection: expandSection,
+          onJump: jump,
           details: detailLines([r], null),
         });
         const anchorOf = (item: PlacedItemView) => (
@@ -1362,8 +1446,7 @@ export function AgentList({
                   planHeaded={block.headed}
                   menuCard={start ? undefined : (cardForPlanFile?.(block.planFile) ?? null)}
                   menuDispatch={start ? undefined : dispatch}
-                  slices={slices}
-                  onExpandSection={expandSection}
+                  onJump={jump}
                   planIndex={planIndex}
                   by={byItem(s.item)}
                   gates={gatesOrGroupItem(s.item)}
@@ -1481,11 +1564,10 @@ export function AgentList({
           ),
           linkLine(`links-${agent.anchor}`, agent.links, '→ acts on:'),
         ];
-        const isFolded = (key: string, count: number, always = false) =>
-          !always && isCollapsible(count) && collapsed.has(key);
+        const groupFolded = (key: string, count: number, always = false) => isFolded('group', key, count, collapsed, always);
         const fold = (key: string, count: number, heading: React.ReactNode, always = false) => {
-          const foldable = !always && isCollapsible(count);
-          const folded = isFolded(key, count, always);
+          const foldable = !always && isFoldable('group', count);
+          const folded = groupFolded(key, count, always);
           return { folded, header: (
             <div className="flex items-center gap-2">
               {foldable && (
@@ -1509,31 +1591,6 @@ export function AgentList({
             </div>
           ) };
         };
-        // Release delivery's whole header row is its toggle, open by default: folded, the
-        // section is that one line, and the counts in it stay. A section with no plan hides
-        // nothing, so it has no toggle.
-        const releaseFold = (heading: React.ReactNode) => {
-          const folded = isFolded(RELEASE_DELIVERY, view.releasePlanCount);
-          if (!isCollapsible(view.releasePlanCount)) return { folded, header: <div className="flex items-center gap-2">{heading}</div> };
-          return { folded, header: (
-            <div
-              role="button"
-              tabIndex={0}
-              data-group-toggle={RELEASE_DELIVERY}
-              aria-expanded={!folded}
-              onClick={() => toggle(RELEASE_DELIVERY)}
-              onKeyDown={(e) => {
-                if (e.key !== 'Enter' && e.key !== ' ') return;
-                e.preventDefault();
-                toggle(RELEASE_DELIVERY);
-              }}
-              className="flex cursor-pointer items-center gap-2"
-            >
-              <span aria-hidden className="inline-block w-4 text-center text-base leading-none text-slate-500">{folded ? '▸' : '▾'}</span>
-              {heading}
-            </div>
-          ) };
-        };
         // A plan two sprint blocks list carries its anchor on its first row only.
         const anchoredPlans = new Set<string>();
         return (
@@ -1542,7 +1599,7 @@ export function AgentList({
                 or sprint card above the fleet card. `delivery-header.css` lays them out. */}
             <div data-tab-header className="space-y-4">
               <div data-tab-header-column="todo">
-                <TodoList todo={todoListOf(view, placement, fleet.issueAnswer ?? null, releaseTodoEntriesOf(releaseCardView.cards, releaseCardView.rows, passkey))} onJump={scrollToAnchor} />
+                <TodoList todo={todoListOf(view, placement, fleet.issueAnswer ?? null, releaseTodoEntriesOf(releaseCardView.cards, releaseCardView.rows, passkey))} onJump={(anchor) => jump(anchor)} />
               </div>
               <div data-tab-header-column="status" className="space-y-2">
                 {sprintScope.statusCard === 'sprint'
@@ -1551,17 +1608,16 @@ export function AgentList({
                 <FleetCard
                   agents={placement.agents}
                   switches={{ ...switches, autoDispatch: fleetControlsOf(fleet).autoDispatch, parallelAgents: fleetControlsOf(fleet).parallelAgents }}
-                  onJump={scrollToAnchor}
+                  onJump={(anchor) => jump(anchor)}
                 />
               </div>
             </div>
             {view.sections.map((section) => {
               // A collapsed heading shows the pace of the rows it hides.
-              const release = section.key === 'release-delivery';
-              const sectionPace = headingPace(
-                groupPace(release ? view.releaseRows : section.rows, active),
-                release ? isFolded(RELEASE_DELIVERY, view.releasePlanCount) : isFolded(section.key, section.count),
-              );
+              const release = section.key === RELEASE_DELIVERY;
+              const sectionCount = release ? view.releasePlanCount : section.count;
+              const folded = isFolded('section', section.key, sectionCount, collapsed);
+              const sectionPace = headingPace(groupPace(release ? view.releaseRows : section.rows, active), folded);
               const heading = (
                 <h2 data-delivery-section={section.key} className="delivery-title flex min-w-0 flex-1 items-baseline gap-1">
                   <svg aria-hidden="true" data-section-icon={section.icon} viewBox="0 0 16 16" width="16" height="16" fill="currentColor" className="inline-block shrink-0 self-center">
@@ -1569,14 +1625,14 @@ export function AgentList({
                   </svg>{' '}
                   {section.label}
                   {section.key === 'you' && (
-                    <span data-you-header className="delivery-counts ml-2">
+                    <span {...headerControl} data-you-header className="delivery-counts ml-2">
                       {youHead.counts.map((c, i) => (
                         <span key={c.key} data-you-count={c.key}>
                           {i > 0 && <span aria-hidden="true">· </span>}
                           {c.anchor === null ? (
                             <CountWords count={c.count} words={c.words} hue={countHue(section.key, c.key)} />
                           ) : (
-                            <button type="button" data-you-count-link={c.key} onClick={() => scrollToAnchor(c.anchor!)} className="hover:underline">
+                            <button type="button" data-you-count-link={c.key} onClick={() => jump(c.anchor!)} className="hover:underline">
                               <CountWords count={c.count} words={c.words} hue={countHue(section.key, c.key)} />
                             </button>
                           )}
@@ -1589,7 +1645,7 @@ export function AgentList({
                             {e.anchor === null ? (
                               <>{e.text}</>
                             ) : (
-                              <button type="button" data-phase-strip-link={e.role} onClick={() => scrollToAnchor(e.anchor!)} className="delivery-text-link">
+                              <button type="button" data-phase-strip-link={e.role} onClick={() => jump(e.anchor!)} className="delivery-text-link">
                                 {e.text}
                               </button>
                             )}
@@ -1600,13 +1656,13 @@ export function AgentList({
                     </span>
                   )}
                   {section.key !== 'you' && section.summary.length > 0 && (
-                    <span data-section-summary className="delivery-counts ml-2">
+                    <span {...headerControl} data-section-summary className="delivery-counts ml-2">
                       {section.summary.map((c) => (
                         <span key={c.key} data-summary-count={c.key}>
                           {c.anchor === null ? (
                             <CountWords count={c.count} words={c.words} hue={countHue(section.key, c.key)} />
                           ) : (
-                            <button type="button" data-summary-link={c.key} onClick={() => scrollToAnchor(c.anchor!)} className="hover:underline">
+                            <button type="button" data-summary-link={c.key} onClick={() => jump(c.anchor!)} className="hover:underline">
                               <CountWords count={c.count} words={c.words} hue={countHue(section.key, c.key)} />
                             </button>
                           )}
@@ -1620,11 +1676,11 @@ export function AgentList({
                       )}
                     </span>
                   )}
-                  {release && <ReleaseHeaderCounts head={view.releaseHeader} onJump={jumpToReleasePlan} />}
+                  {release && <ReleaseHeaderCounts head={view.releaseHeader} onJump={(anchor) => jump(anchor)} />}
                   {sectionPace && <ActivitySpinner pace={sectionPace} />}
-                  <span data-section-controls className="ml-auto">
+                  <span {...headerControl} data-section-controls className="ml-auto">
                     {section.key === 'fleet' && (
-                      <span id="fleet-controls" data-fleet-control-column className="flex flex-wrap items-center gap-3 text-[13px] font-normal">
+                      <span id={FLEET_CONTROLS_ANCHOR} data-fleet-control-column className="flex flex-wrap items-center gap-3 text-[13px] font-normal">
                         <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
                         <AutoSwitch name="autoReview" value={switches.autoReview} />
                         <AutoSwitch name="autoVerify" value={switches.autoVerify} />
@@ -1635,10 +1691,16 @@ export function AgentList({
                   </span>
                 </h2>
               );
-              const { folded, header } = release ? releaseFold(heading) : fold(section.key, section.count, heading);
+              // Folded, the header keeps its counts; an empty section says so, and a loud supervisor alert stays.
+              const summary = !folded ? null
+                : section.key === 'fleet' && fleet.supervisor?.prominence === 'alert' ? <FleetAlert supervisor={fleet.supervisor} />
+                : sectionCount === 0 ? <span data-section-empty className="delivery-text-muted">— none</span>
+                : null;
               return (
                 <section key={section.key} data-section={section.key} className="delivery-card space-y-2">
-                  <div className="delivery-head">{header}</div>
+                  <SectionHead section={section.key} label={section.label} folded={folded} onToggle={() => toggle(section.key)} summary={summary}>
+                    {heading}
+                  </SectionHead>
                   {release && !folded && view.releaseBlocks.map((block) => (
                     <div key={block.sprint || block.release || 'all'} data-release-block={block.release} {...(block.sprint === '' ? {} : { 'data-sprint-block': block.sprint })} className="space-y-1">
                       {view.releaseBlocks.length > 1 && <ReleaseLine block={block} />}
@@ -1647,7 +1709,7 @@ export function AgentList({
                         <PlanTableHead />
                         <ul role="list" aria-label={`${section.label} — plans`} data-delivered className="delivery-grid">
                           {block.plans.map((plan, i) => {
-                            const open = allPlansOpen || openReleasePlans.has(plan.plan);
+                            const open = openReleasePlans.has(plan.plan);
                             const card = plan.planFile === '' ? null : cardForPlanFile?.(plan.planFile) ?? null;
                             const anchored = !anchoredPlans.has(plan.plan);
                             anchoredPlans.add(plan.plan);
@@ -1682,7 +1744,7 @@ export function AgentList({
                                         <LineState state={line.state} />
                                         <LineSlice
                                           line={line}
-                                          onJump={line.link && plan.anchors[line.slice] !== undefined ? () => scrollToAnchor(plan.anchors[line.slice]!) : undefined}
+                                          onJump={line.link && plan.anchors[line.slice] !== undefined ? () => jump(plan.anchors[line.slice]!) : undefined}
                                         />
                                         {line.pr !== undefined && <LinePr pr={line.pr} url={cardPrOf(line.pr)?.url ?? null} />}
                                         {line.merged !== undefined && <span data-plan-line-merged className="delivery-text-muted">{line.merged}</span>}
@@ -1700,7 +1762,7 @@ export function AgentList({
                       </div>
                     </div>
                   ))}
-                  {section.key === 'fleet' && (
+                  {section.key === 'fleet' && !folded && (
                     <div className="flex flex-wrap items-center gap-2 px-3">
                       <WorkingCounts
                         notWorking={agentsNotWorking}
@@ -1710,12 +1772,12 @@ export function AgentList({
                       <FleetAlert supervisor={fleet?.supervisor} />
                     </div>
                   )}
-                  {section.key === 'machine' && (
+                  {section.key === 'machine' && !folded && (
                     <MachineSection machine={machineHealth(fleet.machine, hostAnswer(fleet))} />
                   )}
                   {!folded && section.groups.filter((group) => group.count > 0).map((group) => {
                     const fleetOpen = section.key === 'fleet' && (group.key === 'working' || group.key === 'blocked');
-                    const groupMark = headingPace(groupPace(group.rows, active), isFolded(group.key, group.count, fleetOpen));
+                    const groupMark = headingPace(groupPace(group.rows, active), groupFolded(group.key, group.count, fleetOpen));
                     const held = headerOf(
                       group.label, section.key, group.key,
                       placement.items.filter((p) => p.section === section.key && p.group === group.key),
@@ -1739,7 +1801,7 @@ export function AgentList({
                         {held.held.map((h) => (
                           <span key={h.switch} data-group-held={h.switch} className="font-normal normal-case tracking-normal">
                             · {h.name} off ·{' '}
-                            <button type="button" onClick={() => scrollToAnchor('fleet-controls')} className="delivery-text-link">
+                            <button type="button" onClick={() => jump(FLEET_CONTROLS_ANCHOR)} className="delivery-text-link">
                               {h.action} ›
                             </button>
                           </span>
@@ -1769,25 +1831,35 @@ export function AgentList({
                 </section>
               );
             })}
-            {view.notPlaced.length > 0 && showUnplaced && (
-              <section id="unplaced-details" data-unplaced className="delivery-card">
-                <p className="delivery-text-warn px-3 text-xs">
-                  Shown here, in no section, because the reading the rule needs is missing.
-                </p>
-                <ul className="delivery-text-muted mt-1 px-3 text-xs">
-                  {unplacedDetails(view.notPlaced).map((d, i) => (
-                    <li key={d.id} data-unplaced-row data-unplaced-reason={view.notPlaced[i]?.reason}>{d.text}</li>
-                  ))}
-                </ul>
-                {view.notPlaced.some((u) => u.rows.length > 0) && (
-                  <ul
-                    role="grid"
-                    aria-label="Not placed — agent branches"
-                    className="delivery-grid mt-1"
-                  >
-                    <HeaderRow />
-                    {view.notPlaced.flatMap((u) => u.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} />))}
-                  </ul>
+            {view.notPlaced.length > 0 && (
+              <section id={UNPLACED_ANCHOR} data-unplaced data-section="not-placed" className="delivery-card space-y-2">
+                <SectionHead section="not-placed" label="Not placed" folded={unplacedFolded} onToggle={() => toggle('not-placed')}>
+                  <h2 data-unplaced-title className="delivery-title flex min-w-0 flex-1 items-baseline gap-1">
+                    Not placed — agent branches
+                    <span className="delivery-counts ml-2">{view.notPlaced.length}</span>
+                  </h2>
+                </SectionHead>
+                {!unplacedFolded && (
+                  <>
+                    <p className="delivery-text-warn px-3 text-xs">
+                      Shown here, in no section, because the reading the rule needs is missing.
+                    </p>
+                    <ul className="delivery-text-muted mt-1 px-3 text-xs">
+                      {unplacedDetails(view.notPlaced).map((d, i) => (
+                        <li key={d.id} data-unplaced-row data-unplaced-reason={view.notPlaced[i]?.reason}>{d.text}</li>
+                      ))}
+                    </ul>
+                    {view.notPlaced.some((u) => u.rows.length > 0) && (
+                      <ul
+                        role="grid"
+                        aria-label="Not placed — agent branches"
+                        className="delivery-grid mt-1"
+                      >
+                        <HeaderRow />
+                        {view.notPlaced.flatMap((u) => u.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} />))}
+                      </ul>
+                    )}
+                  </>
                 )}
               </section>
             )}
@@ -1805,6 +1877,10 @@ export function AgentList({
               notice={waitingBlock.notice}
               absence={fleet.issueAnswer === 'failed' ? issueNote(fleet) ?? '' : fleet.issueAnswer === 'unsupported' ? fleet.issueAbsence ?? '' : ''}
               idea={idea ?? { available: false, reason: 'this board has not said whether it can create plans' }}
+              folded={collapsed.has('tickets')}
+              onToggleFold={() => toggle('tickets')}
+              foldOpen={ticketsFoldOpen}
+              onToggleFoldOpen={() => setTicketsFoldOpen((open) => !open)}
             />
             {/* THE FLEET'S HALTED LINES. A design or verify run is a Fleet row with its role chip. */}
             {(haltedLine || specHaltedLine) && (
@@ -1865,9 +1941,9 @@ export function AgentList({
                   <button
                     type="button"
                     data-unplaced-toggle
-                    aria-expanded={showUnplaced}
-                    aria-controls="unplaced-details"
-                    onClick={() => setShowUnplaced((on) => !on)}
+                    aria-expanded={!collapsed.has('not-placed')}
+                    aria-controls={UNPLACED_ANCHOR}
+                    onClick={() => (collapsed.has('not-placed') ? jump(UNPLACED_ANCHOR) : toggle('not-placed'))}
                     className="underline decoration-dotted underline-offset-2 hover:text-(--card-body)"
                   >
                     details

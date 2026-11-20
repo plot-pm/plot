@@ -1741,7 +1741,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     try {
       await expect.poll(() => groupRows(page, 'working').count()).toBeGreaterThan(0);
       expect(await groupRows(page, 'queued').count()).toBeGreaterThan(0);
-      expect(await page.locator('[data-group-toggle="release-delivery"]').getAttribute('aria-expanded')).toBe('true');
+      expect(await page.locator('[data-section-toggle="release-delivery"]').getAttribute('aria-expanded')).toBe('true');
       expect(await page.locator('[data-release-block] li[data-plan-row]').count()).toBeGreaterThan(0);
       // And the actionable end is untouched.
       expect(await groupRows(page, 'input-to-the-fleet').count()).toBeGreaterThan(0);
@@ -1871,7 +1871,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expect.poll(() => planRows().count(), { timeout: 15_000 }).toBe(before + 1);
       expect(await heading(page, 'release-delivery').textContent()).toContain(`${before + 1} plans`);
       // …and the section stays open with no slice rows.
-      expect(await page.locator('[data-group-toggle="release-delivery"]').getAttribute('aria-expanded')).toBe('true');
+      expect(await page.locator('[data-section-toggle="release-delivery"]').getAttribute('aria-expanded')).toBe('true');
       expect(await page.locator('[data-release-block] [data-slice-row]').count()).toBe(0);
     } finally {
       await page.close();
@@ -1909,7 +1909,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // EVERY WORKING ROW LANDS IN QUEUED, which grows while the reader's group changes nothing.
       await expect.poll(() => group(page, 'queued').locator('li[data-tuple-kind]').count(),
         { timeout: 15_000 }).toBeGreaterThan(queuedBefore);
-      expect(await page.locator('[data-group-toggle="release-delivery"]').getAttribute('aria-expanded')).toBe('true');
+      expect(await page.locator('[data-section-toggle="release-delivery"]').getAttribute('aria-expanded')).toBe('true');
       expect(await releaseRows().count()).toBe(opened);
       // And Being built, now empty, has lost its control rather than folding.
       expect(await group(page, 'being-built').locator('[data-group-toggle]').count()).toBe(0);
@@ -4777,7 +4777,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       ],
     }));
     try {
-      for (const toggle of await page.locator('[data-group-toggle]').all()) {
+      for (const toggle of await page.locator('[data-section-toggle], [data-group-toggle]').all()) {
         if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
       }
       const verifyRows = page.locator('[data-role-run="verify"]');

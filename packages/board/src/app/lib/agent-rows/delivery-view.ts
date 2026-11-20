@@ -41,6 +41,7 @@ import {
   planReference,
   type PlanIndex,
   type PlanLinkKey,
+  TICKETS_ANCHOR,
 } from '@plot-pm/domain';
 import type { AgentRow, DraftPlan, FleetSprint, IssueRow, Slice } from '../../../contract/schema.js';
 import { agentLabel, draftItemId, sliceItemId, type DeliveryMapping, type RegistryAgent } from './delivery-readings.js';
@@ -741,3 +742,120 @@ export const placeMapping = (
   now?: Date,
   planIndex?: PlanIndex,
 ): DeliveryView => deliveryView(mapping, placeDelivery(mapping.readings, mapping.input), slices, sprints, scope, now, planIndex);
+
+/** The Delivery tab's sections: the five of `DELIVERY_LAYOUT`, then Tickets and Not placed. */
+export type TabSection = DeliverySection | 'tickets' | 'not-placed';
+
+const TAB_SECTIONS: readonly TabSection[] = [...DELIVERY_LAYOUT.map((l) => l.section), 'tickets', 'not-placed'];
+
+/** The anchor of a section's header line. */
+export const sectionAnchor = (key: TabSection): string => `delivery-section-${key}`;
+
+/** The anchor of one Tickets row. */
+export const ticketAnchor = (number: string | number): string => `delivery-ticket-${number}`;
+
+/** The anchor of the Fleet switches in the Fleet header line. */
+export const FLEET_CONTROLS_ANCHOR = 'fleet-controls';
+
+/** The anchor of the Not placed section. */
+export const UNPLACED_ANCHOR = 'unplaced-details';
+
+/** Where an anchor sits: the section and group a jump must open first, and why it may stay hidden. */
+export interface AnchorOwner {
+  section: TabSection;
+  /** The group inside the section; `null` where the anchor sits in no group. */
+  group: string | null;
+  /** The Release delivery plan row that holds the anchor; `null` outside one. */
+  plan: string | null;
+  /**
+   * `filter`: the scope or Mine hides the anchor, and no open makes it mount.
+   * `inner-fold`: a Tickets row behind `… n more · show`, which the jump opens too.
+   */
+  hidden: 'filter' | 'inner-fold' | null;
+  /** The words of a disabled link, `hidden by Mine` or `hidden by the scope`; `null` unless `hidden` is `filter`. */
+  reason: string | null;
+}
+
+/** A view wider than the shown one, and the filter whose removal gives it. */
+export interface WiderView {
+  view: DeliveryView;
+  by: 'mine' | 'scope';
+}
+
+/** What `anchorOwner` reads beyond the shown view. */
+export interface AnchorContext {
+  /** The wider views, narrowest first: the view without Mine, then the view without the scope. */
+  wider?: readonly WiderView[];
+  /** The Tickets row anchors behind the inner fold. */
+  foldedTickets?: ReadonlySet<string>;
+}
+
+const owner = (section: TabSection, group: string | null = null, plan: string | null = null): AnchorOwner =>
+  ({ section, group, plan, hidden: null, reason: null });
+
+const ownerInView = (anchor: string, view: DeliveryView): AnchorOwner | null => {
+  const sectionKey = anchor.startsWith('delivery-section-') ? anchor.slice('delivery-section-'.length) : null;
+  if (sectionKey !== null) return TAB_SECTIONS.includes(sectionKey as TabSection) ? owner(sectionKey as TabSection) : null;
+  if (anchor === TICKETS_ANCHOR || anchor.startsWith('delivery-ticket-')) return owner('tickets');
+  if (anchor === FLEET_CONTROLS_ANCHOR) return owner('fleet');
+  if (anchor === UNPLACED_ANCHOR) return owner('not-placed');
+  for (const layout of DELIVERY_LAYOUT) {
+    const group = layout.groups.find((g) => groupAnchor(g) === anchor);
+    if (group !== undefined) return owner(layout.section, group);
+  }
+  const branch = anchor.startsWith('agent-row-') ? anchor.slice('agent-row-'.length) : null;
+  for (const section of view.sections) {
+    for (const group of section.groups) {
+      const item = group.items.find((i) => i.anchor === anchor || (branch !== null && i.rows.some((r) => r.branch === branch)));
+      if (item !== undefined) return owner(section.key, group.key);
+      const agent = group.agents.find((a) => a.anchor === anchor || (branch !== null && a.entry !== null && a.entry.branch === branch));
+      if (agent !== undefined) return owner(section.key, group.key);
+    }
+  }
+  // A delivered slice shows under its plan row; any other slice of the plan renders in its group or nowhere.
+  const delivered = new Set(view.delivered.map((d) => itemAnchor(d.id)));
+  for (const block of view.releaseBlocks) {
+    for (const plan of block.plans) {
+      if (releasePlanAnchor(plan.plan) === anchor || (delivered.has(anchor) && Object.values(plan.itemIds).some((id) => itemAnchor(id) === anchor))) {
+        return owner('release-delivery', null, plan.plan);
+      }
+    }
+  }
+  const unplaced = view.notPlaced.find((u) => itemAnchor(u.id) === anchor || agentAnchor(u.id) === anchor || (branch !== null && u.rows.some((r) => r.branch === branch)));
+  return unplaced === undefined ? null : owner('not-placed');
+};
+
+/**
+ * The section, group and plan row that hold an anchor of the Delivery tab.
+ *
+ * @param anchor - an element id: a section, group, item, plan row, agent, `agent-row-<branch>`, Tickets row, `tickets`,
+ *   `fleet-controls` or `unplaced-details` anchor.
+ * @param view - the shown view.
+ * @param context - the wider views and the Tickets rows behind the inner fold.
+ * @returns the owner in the shown view; else the owner in the first wider view that holds the anchor, with
+ *   `hidden: 'filter'`; else `null`, where no section owns the anchor and a jump only scrolls.
+ */
+export const anchorOwner = (anchor: string, view: DeliveryView, context: AnchorContext = {}): AnchorOwner | null => {
+  const shown = ownerInView(anchor, view);
+  if (shown !== null) {
+    return shown.section === 'tickets' && context.foldedTickets?.has(anchor) === true ? { ...shown, hidden: 'inner-fold' } : shown;
+  }
+  for (const wider of context.wider ?? []) {
+    const found = ownerInView(anchor, wider.view);
+    if (found !== null) return { ...found, hidden: 'filter', reason: wider.by === 'mine' ? 'hidden by Mine' : 'hidden by the scope' };
+  }
+  return null;
+};
+
+/** How a jump finds and shows its target where the anchor's own element is not the target. */
+export interface JumpOptions {
+  /** The element to show; the anchor's element where absent. */
+  find?: () => HTMLElement | null;
+  /** Shows the found element; `scrollToAnchor` where absent. */
+  show?: (el: HTMLElement) => void;
+  /** Runs once the jump has scrolled to the target or to a fallback. */
+  done?: () => void;
+}
+
+/** Opens the section, group and plan row that hold `anchor`, then scrolls to it once it is mounted. */
+export type Jump = (anchor: string, options?: JumpOptions) => void;
