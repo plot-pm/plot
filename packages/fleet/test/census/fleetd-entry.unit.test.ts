@@ -112,7 +112,7 @@ describe.each(['github'] as const)('the fleetd census entry on a %s fixture', (h
   it('asks the stub host CLI, never the network', () => {
     const log = readFileSync(box.stubLog, 'utf8');
 
-    expect(log).toMatch(/^gh pr list/m);
+    expect(log).toMatch(/^gh api repos\/\{owner\}\/\{repo\}\/pulls\?/m);
   });
 
   it('leaves every stub worker alive: fleetd does not end a live desk', () => {
