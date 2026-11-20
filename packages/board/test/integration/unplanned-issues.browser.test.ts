@@ -195,9 +195,9 @@ describe('an unplanned issue appears in the ticket list', () => {
   });
 
   it('says WHY a list cannot be asked, and never that it could not be read', async () => {
-    // #1131: Quatico `bb` has no issue command, so the adapter exits 4 with a
-    // reason. The reason is shown as an absence, not as an outage.
-    const absence = 'Open issues are not listed: bb 1.9.0 lists no issue command';
+    // A Bitbucket repository with no `Tracker` has no issue list to ask. The
+    // reason is shown as an absence, not as an outage.
+    const absence = 'Open issues are not listed: the git host `bitbucket` has no issue list to read';
     const page = await open(fleet({ issues: [], issueAnswer: 'unsupported', issueAbsence: absence }));
     try {
       const notice = page.locator('section#tickets [data-issue-absence]');

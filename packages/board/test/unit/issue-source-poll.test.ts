@@ -9,7 +9,7 @@ import { rmTree } from '../helpers.mjs';
 // connector lists is not asked at all, and an adapter that cannot be asked
 // hands the board its reason.
 
-const QUATICO = "plot-host: bb 1.9.0 lists no issue command — Quatico bb has none, unlike craftamap/bb — so this repository's issues cannot be read through it; declare the issue tracker with the `Tracker` config key";
+const UNASKABLE = 'plot-host: issues are disabled for this repository';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -64,17 +64,32 @@ describe('the issue poll asks the source the domain names', () => {
     );
   });
 
-  it('keeps the adapter’s reason where the git host cannot be asked (exit 4)', async () => {
-    const dir = scripts('', 4, QUATICO);
+  it('asks nobody for a Bitbucket repository with no tracker, and names the `Tracker` key', async () => {
+    const dir = scripts('', 0);
     const entry = freshCacheEntry();
     entry.backend = 'bitbucket';
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(hostCalls(dir)).toEqual([]);
+    expect(entry.issueAnswer).toBe('unsupported');
+    expect(entry.issueError).toBeNull();
+    expect(entry.issueAbsence).toBe(
+      'Open issues are not listed: the git host `bitbucket` has no issue list to read; declare the issue tracker with the `Tracker` config key',
+    );
+  });
+
+  it('keeps the adapter’s reason where the git host cannot be asked (exit 4)', async () => {
+    const dir = scripts('', 4, UNASKABLE);
+    const entry = freshCacheEntry();
+    entry.backend = 'github';
 
     await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
 
     expect(hostCalls(dir)).toEqual(['issue-list --paged --limit 1000']);
     expect(entry.issueAnswer).toBe('unsupported');
     expect(entry.issueError).toBeNull();
-    expect(entry.issueAbsence).toMatch(/^Open issues are not listed: bb 1\.9\.0 lists no issue command/);
+    expect(entry.issueAbsence).toBe('Open issues are not listed: issues are disabled for this repository');
     expect(entry.issueAbsence).not.toMatch(/could not be read/);
   });
 

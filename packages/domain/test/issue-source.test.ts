@@ -1,43 +1,81 @@
 import { describe, expect, it } from 'vitest';
 
-import { bbIssueCommandMissing, issueAbsence, issueSource, sprintOwner, type IssueLister } from '../src/rules/issue-source.js';
+import {
+  issueAbsence, issueSource, sprintOwner, type HostIssueLister, type IssueLister,
+} from '../src/rules/issue-source.js';
 
-// The vendor table is a reading the caller supplies; the adapters hold the real
-// one beside the tracker connectors.
+// The vendor tables are readings the caller supplies; the adapters hold the
+// real ones beside the tracker connectors.
 const listers: readonly IssueLister[] = [
   { scheme: 'jira' },
   { scheme: 'github-issues', onlyOnHost: 'github' },
 ];
+const hosts: readonly HostIssueLister[] = [
+  { backend: 'github', assignees: { service: 'github', match: 'host-login' } },
+];
 
 describe('who answers the open-issue list', () => {
-  it.each(['github', 'bitbucket'])('asks the %s git host where no tracker is declared', (gitHost) => {
-    expect(issueSource({ declared: '', gitHost, listers })).toEqual({ ask: 'git-host' });
-    expect(issueSource({ declared: '   ', gitHost, listers })).toEqual({ ask: 'git-host' });
+  it('asks the git host where no tracker is declared and the host keeps issues', () => {
+    expect(issueSource({ declared: '', gitHost: 'github', listers, hosts })).toEqual({ ask: 'git-host' });
+    expect(issueSource({ declared: '   ', gitHost: 'github', listers, hosts })).toEqual({ ask: 'git-host' });
   });
 
-  it.each(['github', 'bitbucket'])('asks the %s git host where the tracker is declared `plot`, same as none', (gitHost) => {
-    expect(issueSource({ declared: 'plot', gitHost, listers })).toEqual({ ask: 'git-host' });
-    expect(issueSource({ declared: 'Plot', gitHost, listers })).toEqual({ ask: 'git-host' });
-    expect(issueSource({ declared: 'plot extra', gitHost, listers })).toEqual({ ask: 'git-host' });
+  it('asks the git host where the tracker is declared `plot`, same as none', () => {
+    expect(issueSource({ declared: 'plot', gitHost: 'github', listers, hosts })).toEqual({ ask: 'git-host' });
+    expect(issueSource({ declared: 'Plot', gitHost: 'github', listers, hosts })).toEqual({ ask: 'git-host' });
+    expect(issueSource({ declared: 'plot extra', gitHost: 'github', listers, hosts })).toEqual({ ask: 'git-host' });
+  });
+
+  it('asks an unresolved git host, which the caller resolves when it asks', () => {
+    expect(issueSource({ declared: '', gitHost: '', listers, hosts })).toEqual({ ask: 'git-host' });
+  });
+
+  it('answers nobody for a git host with no issue list, and tells an empty declaration to declare a tracker', () => {
+    // Bitbucket Cloud keeps no issues, so the adapters' host table omits it.
+    expect(issueSource({ declared: '', gitHost: 'bitbucket', listers, hosts })).toEqual({
+      ask: 'nobody',
+      reason: 'the git host `bitbucket` has no issue list to read; declare the issue tracker with the `Tracker` config key',
+    });
+  });
+
+  it('names the working pair where `Tracker: plot` is declared on a git host with no issue list', () => {
+    expect(issueSource({ declared: 'plot', gitHost: 'bitbucket', listers, hosts })).toEqual({
+      ask: 'nobody',
+      reason:
+        'the git host `bitbucket` has no issue list to read; ' +
+        'declare `Tracker: jira <base URL>` with `Sprint owner: plot`',
+    });
+  });
+
+  it('suggests only a tracker that lists from any git host, and asks for a declaration where none does', () => {
+    const hostBound: readonly IssueLister[] = [{ scheme: 'github-issues', onlyOnHost: 'github' }];
+    const none = issueSource({ declared: 'plot', gitHost: 'bitbucket', listers: hostBound, hosts });
+    expect(none.ask === 'nobody' && none.reason).toMatch(/declare the issue tracker with the `Tracker` config key$/);
+    expect(none.ask === 'nobody' && none.reason).not.toMatch(/Sprint owner/);
+  });
+
+  it('never names bb or a CLI version in the reason', () => {
+    const none = issueSource({ declared: '', gitHost: 'bitbucket', listers, hosts });
+    expect(none.ask === 'nobody' && none.reason).not.toMatch(/\bbb\b|craftamap|issue command/);
   });
 
   it('never falls back to the git host for a scheme that only starts with `plot`', () => {
-    expect(issueSource({ declared: 'plotter', gitHost: 'github', listers }).ask).toBe('nobody');
-    expect(issueSource({ declared: 'plot-x', gitHost: 'github', listers }).ask).toBe('nobody');
+    expect(issueSource({ declared: 'plotter', gitHost: 'github', listers, hosts }).ask).toBe('nobody');
+    expect(issueSource({ declared: 'plot-x', gitHost: 'github', listers, hosts }).ask).toBe('nobody');
   });
 
   it('asks a listed tracker, and not the git host, where it is declared', () => {
     // The issue's case: a Bitbucket repository whose tickets live in Jira.
-    expect(issueSource({ declared: 'jira https://acme.atlassian.net', gitHost: 'bitbucket', listers }))
+    expect(issueSource({ declared: 'jira https://acme.atlassian.net', gitHost: 'bitbucket', listers, hosts }))
       .toEqual({ ask: 'tracker', scheme: 'jira' });
-    expect(issueSource({ declared: 'Jira', gitHost: 'github', listers }))
+    expect(issueSource({ declared: 'Jira', gitHost: 'github', listers, hosts }))
       .toEqual({ ask: 'tracker', scheme: 'jira' });
   });
 
   it('asks a host-bound tracker only on its own git host', () => {
-    expect(issueSource({ declared: 'github-issues', gitHost: 'github', listers }))
+    expect(issueSource({ declared: 'github-issues', gitHost: 'github', listers, hosts }))
       .toEqual({ ask: 'tracker', scheme: 'github-issues' });
-    expect(issueSource({ declared: 'github-issues', gitHost: 'bitbucket', listers })).toEqual({
+    expect(issueSource({ declared: 'github-issues', gitHost: 'bitbucket', listers, hosts })).toEqual({
       ask: 'nobody',
       reason:
         'the declared tracker `github-issues` lists issues only where the git host is `github`, ' +
@@ -46,27 +84,30 @@ describe('who answers the open-issue list', () => {
   });
 
   it('never falls back to the git host for a tracker no connector lists', () => {
-    expect(issueSource({ declared: 'linear https://linear.app/acme', gitHost: 'bitbucket', listers })).toEqual({
+    expect(issueSource({ declared: 'linear https://linear.app/acme', gitHost: 'bitbucket', listers, hosts })).toEqual({
       ask: 'nobody',
       reason: 'no connector lists issues from the declared tracker `linear`, and the git host is not asked in its place',
     });
   });
 
-  it('reads the table it is given, and holds no list of its own', () => {
-    expect(issueSource({ declared: 'jira', gitHost: 'bitbucket', listers: [] }).ask).toBe('nobody');
-    expect(issueSource({ declared: 'acme', gitHost: 'bitbucket', listers: [{ scheme: 'acme' }] }))
+  it('reads the tables it is given, and holds no list of its own', () => {
+    expect(issueSource({ declared: 'jira', gitHost: 'bitbucket', listers: [], hosts }).ask).toBe('nobody');
+    expect(issueSource({ declared: 'acme', gitHost: 'bitbucket', listers: [{ scheme: 'acme' }], hosts }))
       .toEqual({ ask: 'tracker', scheme: 'acme' });
+    expect(issueSource({ declared: '', gitHost: 'github', listers, hosts: [] }).ask).toBe('nobody');
+    expect(issueSource({ declared: '', gitHost: 'acme', listers, hosts: [{ backend: 'acme', assignees: { service: 'acme', match: 'host-login' } }] }))
+      .toEqual({ ask: 'git-host' });
   });
 });
 
 describe('the sentence an unaskable issue list shows', () => {
   it('names the reason the script gave, without the script prefix', () => {
-    expect(issueAbsence('plot-host: bb 1.9.0 lists no issue command'))
-      .toBe('Open issues are not listed: bb 1.9.0 lists no issue command');
+    expect(issueAbsence('plot-host: the git host `bitbucket` has no issue list to read'))
+      .toBe('Open issues are not listed: the git host `bitbucket` has no issue list to read');
   });
 
   it('names the reason the rule gave', () => {
-    const none = issueSource({ declared: 'linear', gitHost: 'github', listers });
+    const none = issueSource({ declared: 'linear', gitHost: 'github', listers, hosts });
     expect(none.ask === 'nobody' && issueAbsence(none.reason)).toMatch(
       /^Open issues are not listed: no connector lists issues from the declared tracker `linear`/,
     );
@@ -78,38 +119,6 @@ describe('the sentence an unaskable issue list shows', () => {
 
   it('never reads as a list that could not be read', () => {
     expect(issueAbsence('plot-host: anything')).not.toMatch(/could not be read|incomplete/);
-  });
-});
-
-describe('the sentence a bb with no issue command shows', () => {
-  it('keeps the advice to declare `Tracker` where the repository declared none', () => {
-    expect(bbIssueCommandMissing('', 'jira')).toMatch(/declare the issue tracker with the `Tracker` config key/);
-    expect(bbIssueCommandMissing('   ', 'jira')).toMatch(/declare the issue tracker with the `Tracker` config key/);
-  });
-
-  it('names the working configuration where `Tracker: plot` is declared', () => {
-    // `Tracker: plot` is the issue's case — the same value `issueSource` reads
-    // as "ask the git host" — and the git host cannot list issues here, so the
-    // message names the pair that moves the repository to a tracker that can.
-    expect(bbIssueCommandMissing('plot', 'jira')).toMatch(/Tracker: jira <base URL>/);
-    expect(bbIssueCommandMissing('plot', 'jira')).toMatch(/Sprint owner: plot/);
-  });
-
-  it('does not gain the pair where the repository already declared an external `Tracker`', () => {
-    // A repository tracking elsewhere, e.g. Jira, has already made the
-    // declaration the pair would ask it to make — adding it would mislead.
-    expect(bbIssueCommandMissing('jira https://acme.atlassian.net', 'jira')).not.toMatch(/Tracker/);
-  });
-
-  it('names the scheme the caller suggests, and asks for a declaration when it suggests none', () => {
-    expect(bbIssueCommandMissing('plot', 'linear')).toMatch(/Tracker: linear <base URL>/);
-    expect(bbIssueCommandMissing('plot', '')).toMatch(/declare the issue tracker with the `Tracker` config key/);
-    expect(bbIssueCommandMissing('plot', '')).not.toMatch(/Sprint owner/);
-  });
-
-  it('states the same reason regardless of the declaration', () => {
-    expect(bbIssueCommandMissing('plot', 'jira')).toMatch(/^lists no issue command/);
-    expect(bbIssueCommandMissing('', 'jira')).toMatch(/^lists no issue command/);
   });
 });
 

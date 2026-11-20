@@ -26,6 +26,8 @@ export interface IssueSourceReading {
   readonly gitHost: string;
   /** The schemes a connector lists issues from, as the adapters declare them. */
   readonly listers: readonly IssueLister[];
+  /** The git hosts that keep an issue list of their own, as the adapters declare them. */
+  readonly hosts: readonly HostIssueLister[];
 }
 
 /**
@@ -33,8 +35,8 @@ export interface IssueSourceReading {
  *
  * `tracker` is a declared tracker whose connector lists issues; `git-host` is a
  * repository that declared no tracker, whose git host lists its own issues;
- * `nobody` is a declared tracker that no connector lists here, and carries the
- * sentence that says why.
+ * `nobody` is a declared tracker that no connector lists here, or a git host
+ * with no issue list, and carries the sentence that says why.
  */
 export type IssueSource =
   | { readonly ask: 'tracker'; readonly scheme: string }
@@ -59,19 +61,50 @@ const trackerScheme = (declared: string): string =>
   declared.trim().split(/\s+/, 1).join('').toLowerCase();
 
 /**
+ * The reason for a repository that declared no external tracker on a git host
+ * with no issue list of its own.
+ *
+ * An empty declaration is told to declare a tracker. A declaration of
+ * {@link NO_EXTERNAL_TRACKER} is told the working pair instead:
+ * `Tracker: <suggested> <base URL>` makes the issue list readable, and
+ * `Sprint owner: plot` keeps `/plot-sprint` operating, which a declared
+ * external tracker alone would hand to that tracker. The suggestion is the
+ * first lister that reads from any git host; with none, both declarations are
+ * told to declare a tracker.
+ *
+ * @param reading - the declared `Tracker` value, the git host's backend, and
+ *   the listers a suggestion is chosen from.
+ * @param scheme - the declared scheme: `''` or {@link NO_EXTERNAL_TRACKER}.
+ * @returns the reason an {@link issueSource} `nobody` answer carries.
+ */
+const hostHasNoIssues = (reading: IssueSourceReading, scheme: string): string => {
+  const base = `the git host \`${reading.gitHost}\` has no issue list to read`;
+  const suggested = reading.listers.find((l) => l.onlyOnHost === undefined)?.scheme ?? '';
+  return scheme === NO_EXTERNAL_TRACKER && suggested !== ''
+    ? `${base}; declare \`Tracker: ${suggested} <base URL>\` with \`Sprint owner: plot\``
+    : `${base}; declare the issue tracker with the \`Tracker\` config key`;
+};
+
+/**
  * Decides who answers a repository's open-issue list.
  *
  * A declared tracker is never answered by the git host in its place: a list
  * from the wrong service is wrong about every row. A repository that declared
- * no tracker, or declared {@link NO_EXTERNAL_TRACKER}, asks its git host.
+ * no tracker, or declared {@link NO_EXTERNAL_TRACKER}, asks its git host where
+ * `hosts` names that host, and answers `nobody` where it does not. An
+ * unresolved git host (`''`) is asked: the caller resolves it when it asks.
  *
- * @param reading - the declared `Tracker` value, the git host's backend, and
- *   the schemes a connector lists.
+ * @param reading - the declared `Tracker` value, the git host's backend, the
+ *   schemes a connector lists, and the git hosts that keep issues.
  * @returns the source to ask, or `nobody` with the reason no list exists.
  */
 export const issueSource = (reading: IssueSourceReading): IssueSource => {
   const scheme = trackerScheme(reading.declared);
-  if (scheme === '' || scheme === NO_EXTERNAL_TRACKER) return { ask: 'git-host' };
+  if (scheme === '' || scheme === NO_EXTERNAL_TRACKER) {
+    return reading.gitHost === '' || reading.hosts.some((h) => h.backend === reading.gitHost)
+      ? { ask: 'git-host' }
+      : { ask: 'nobody', reason: hostHasNoIssues(reading, scheme) };
+  }
   const lister = reading.listers.find((l) => l.scheme === scheme);
   if (lister === undefined) {
     return {
@@ -144,38 +177,4 @@ export const sprintOwner = (declaredSprintOwner: string, declaredTracker: string
   if (owner === NO_EXTERNAL_TRACKER) return { owns: 'plot' };
   const scheme = trackerScheme(declaredTracker);
   return scheme === '' || scheme === NO_EXTERNAL_TRACKER ? { owns: 'plot' } : { owns: 'external', scheme };
-};
-
-/**
- * The stderr sentence for a Bitbucket `bb` with no issue command.
- *
- * An empty `declared` (no `Tracker` key) is told to declare one. A `declared`
- * of `plot` — the same value {@link issueSource} reads as "ask the git host"
- * — is told the working pair instead: `Tracker: <suggested> <base URL>` keeps
- * the issue list readable, and `Sprint owner: plot` keeps `/plot-sprint`
- * operating without that pair handing sprints to the newly-declared tracker.
- * With no `suggested` scheme, it is told to declare one, as an empty
- * `declared` is.
- * A `declared` naming an external tracker already made that declaration, so
- * neither remedy is added.
- *
- * Starts with "lists", not "bb lists": the caller already wrote `bb
- * ${version}` ahead of this sentence, so a leading "bb" here would repeat it.
- *
- * @param declared - the `Tracker` key's value, verbatim; `''` where none is declared.
- * @param suggested - the tracker scheme the pair names, chosen by the caller from the
- *   connectors it ships; `''` where it suggests none.
- * @returns the sentence `plot-host.sh` appends after `bb ${version}` on stderr before exiting 4.
- */
-export const bbIssueCommandMissing = (declared: string, suggested: string): string => {
-  const base = 'lists no issue command — Quatico bb has none, unlike craftamap/bb — ' +
-    "so this repository's issues cannot be read through it";
-  const trimmed = declared.trim();
-  const declareOne = `${base}; declare the issue tracker with the \`Tracker\` config key`;
-  if (trimmed === '') return declareOne;
-  const scheme = trackerScheme(declared);
-  if (scheme !== NO_EXTERNAL_TRACKER) return base;
-  return suggested === ''
-    ? declareOne
-    : `${base}; declare \`Tracker: ${suggested} <base URL>\` with \`Sprint owner: plot\``;
 };

@@ -599,22 +599,6 @@ describe('the incremental issue read', () => {
       return { index: await onDisk(store), state, firstState, calls: second.argv() };
     };
 
-    it('reads whole every pass on a Bitbucket git host, with no changed-read failure recorded', async () => {
-      const { index, state, firstState, calls } = await twoPasses(
-        { gitHost: 'bitbucket' },
-        { stderr: 'plot-host: bitbucket cannot list closed or changed issues', code: 4 },
-        3,
-      );
-      expect(calls.some((call) => call.includes('--state changed'))).toBe(true);
-      expect(index?.rows?.map((row) => row.number)).toEqual(['1', '2', '3']);
-      expect(index?.at).toBe(new Date(NOW + 120_000).toISOString());
-      expect(index?.failedAt).toBeUndefined();
-      expect(index?.reason).toBeUndefined();
-      expect(index?.passesSinceFull).toBe(0);
-      expect(index?.requests).toBe(1);
-      expect(state.issueError).toBe(firstState.issueError);
-    });
-
     it('reads whole every pass on Jira with no Ticket prefixes, with no error', async () => {
       const { index, state, calls } = await twoPasses({ declaredTracker: 'jira https://x.invalid' }, { rows: 0 }, 3);
       expect(calls.some((call) => call.startsWith('issue-list --paged'))).toBe(true);
@@ -916,26 +900,38 @@ describe('a source that cannot be asked (M3)', () => {
     expect(state.issueNextAt).toBe(NOW + 120_000);
   });
 
+  it('asks no host for a Bitbucket repository with no tracker, and names the `Tracker` key', async () => {
+    const { dir, argv } = fakeHost({ rows: 1 });
+    const store = issueIndexFile({ home: storeHome() });
+    const state = freshIssueState();
+    await refreshIssueIndex(worldOf(dir, store, { gitHost: 'bitbucket' }), state);
+    expect(await onDisk(store)).toBeNull();
+    expect(argv()).toEqual([]);
+    expect(state.issueError).toBe(
+      'the git host `bitbucket` has no issue list to read; declare the issue tracker with the `Tracker` config key',
+    );
+  });
+
   it('keeps a reason sentence, never the word unsupported, where the git host cannot list issues', async () => {
     const { dir } = fakeHost({ code: 4 });
     const store = issueIndexFile({ home: storeHome() });
     const state = freshIssueState();
-    await refreshIssueIndex(worldOf(dir, store, { gitHost: 'bitbucket' }), state);
+    await refreshIssueIndex(worldOf(dir, store, { gitHost: 'github' }), state);
     const index = await onDisk(store);
     expect(index?.answer).toBe('unsupported');
-    expect(index?.reason).toBe('the git host `bitbucket` lists no issues');
+    expect(index?.reason).toBe('the git host `github` lists no issues');
     expect(index?.backoffUntil).toBeNull();
     expect(state.issueError).toBeNull();
   });
 
   it('keeps the sentence the exit 4 stated over its own substitute, and leaves issueError null — unsupported is not a failure', async () => {
-    const { dir } = fakeHost({ stderr: 'plot-host: bitbucket has no issue listing', code: 4 });
+    const { dir } = fakeHost({ stderr: 'plot-host: issues are disabled for this repository', code: 4 });
     const store = issueIndexFile({ home: storeHome() });
     const state = freshIssueState();
-    await refreshIssueIndex(worldOf(dir, store, { gitHost: 'bitbucket' }), state);
+    await refreshIssueIndex(worldOf(dir, store, { gitHost: 'github' }), state);
     const index = await onDisk(store);
     expect(index?.answer).toBe('unsupported');
-    expect(index?.reason).toBe('bitbucket has no issue listing');
+    expect(index?.reason).toBe('issues are disabled for this repository');
     expect(state.issueError).toBeNull();
     expect(index?.backoffUntil).toBeNull();
   });

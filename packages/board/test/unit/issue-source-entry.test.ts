@@ -91,16 +91,23 @@ describe('the issue-source entry answers who lists a repository\'s issues', () =
   });
 });
 
-describe('the issue-source entry answers the bb-issue-missing sentence', () => {
+describe('the issue-source entry answers nobody for a Bitbucket repository with no external tracker', () => {
+  it('names the `Tracker` key for an empty stdin', () => {
+    const { code, stdout } = ask(['bitbucket'], '');
+    expect(code).toBe(EXIT.ok);
+    expect(stdout).toBe(
+      'nobody\tthe git host `bitbucket` has no issue list to read; declare the issue tracker with the `Tracker` config key\n',
+    );
+  });
+
   it('names the working pair for a `plot` stdin', () => {
-    const { stdout } = ask(['--bb-issue-missing'], 'plot');
+    const { stdout } = ask(['bitbucket'], 'plot');
+    expect(stdout).toMatch(/^nobody\t/);
     expect(stdout).toContain('Tracker: jira <base URL>');
     expect(stdout).toContain('Sprint owner: plot');
   });
 
-  it('names the `Tracker` key for an empty stdin', () => {
-    const { stdout } = ask(['--bb-issue-missing'], '');
-    expect(stdout).toContain('`Tracker` config key');
-    expect(stdout).not.toContain('Sprint owner: plot');
+  it('names the declared tracker for a Bitbucket repository tracking in Jira', () => {
+    expect(ask(['bitbucket'], 'jira https://acme.atlassian.net').stdout).toBe('tracker\tjira\n');
   });
 });

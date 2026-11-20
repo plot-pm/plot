@@ -224,9 +224,8 @@ describe('ticketSourceOf maps an IssueSource and a resolved backend to a TicketS
       .toEqual({ service: 'github', match: 'host-login' });
   });
 
-  it('reads a git-host source with a bitbucket backend as bitbucket', () => {
-    expect(ticketSourceOf({ ask: 'git-host' }, 'bitbucket', TICKET_SOURCES))
-      .toEqual({ service: 'bitbucket', match: 'host-login' });
+  it('answers null for a git-host source with a backend that keeps no issues', () => {
+    expect(ticketSourceOf({ ask: 'git-host' }, 'bitbucket', TICKET_SOURCES)).toBeNull();
   });
 
   it('answers null for a git-host source with an unresolved backend', () => {
@@ -426,9 +425,8 @@ describe('ticketSourceOfIndex reads the issue index source and connector', () =>
       .toEqual({ service: 'github', match: 'host-login' });
   });
 
-  it('reads a git-host index from bitbucket as bitbucket', () => {
-    expect(ticketSourceOfIndex({ source: 'git-host', connector: 'bitbucket' }, TICKET_SOURCES))
-      .toEqual({ service: 'bitbucket', match: 'host-login' });
+  it('answers null for a git-host index from a backend that keeps no issues', () => {
+    expect(ticketSourceOfIndex({ source: 'git-host', connector: 'bitbucket' }, TICKET_SOURCES)).toBeNull();
   });
 
   it('answers what ticketSourceOf answers for the same reading', () => {
