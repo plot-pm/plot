@@ -19,9 +19,10 @@
 //
 // A pass is done once no direct child, no in-process HTTP request, no supervision tick and no scan
 // that fleetd's bridge (`.plot/state/last-pulse.json`) marks `running` has been
-// in flight for 300 ms of the real clock; a `running` mark holds a pass for at
-// most 120 s. A safety-net pass first waits, for at most 120 s, until the bridge
-// records a scan that started on its last beat and ended.
+// in flight for 300 ms of the real clock, counted from the advance at the
+// earliest; a `running` mark holds a pass for at most 120 s. The first pass and
+// a safety-net pass first wait, for at most 120 s, until the bridge records a
+// scan that started on their last beat and ended.
 //
 // fleetd's `sleep` waits on the manual clock, so a product that ticks on
 // `--interval` (60 s) ticks once in each pass, and a product that waits on
@@ -337,13 +338,30 @@ const pass = async (beats: number = beatsPerPass): Promise<void> => {
   // scan that starts on a trigger decides once per advance. A pass longer than a
   // census pass stops one beat short, settles, and fires the last beat, where the
   // safety net is due; the pass then waits for the read that beat started.
+  //
+  // THE QUIET WINDOW STARTS AGAIN AT EACH ADVANCE: a beat starts its first child
+  // or request only after its own in-process reads. Counted from the settle
+  // before the advance, the window has already passed, and the first poll can
+  // place the mark before any beat has started work.
+  //
+  // THE FIRST PASS WAITS FOR THE START READ: the safety net is due at start, so
+  // the first beat runs a full read, and no bridge exists yet to mark it
+  // `running`. A gap between two of its children longer than the quiet window
+  // would otherwise place the mark inside the read.
   if (beats > beatsPerPass) {
     clock?.advance(beats - 1);
+    lastSettled = performance.now();
     await quiet();
     const lastBeatAt = Date.now();
     clock?.advance(1);
+    lastSettled = performance.now();
     await scanEnded(lastBeatAt);
-  } else clock?.advance(beats);
+  } else {
+    const beatAt = Date.now();
+    clock?.advance(beats);
+    lastSettled = performance.now();
+    if (passes === 1) await scanEnded(beatAt);
+  }
   await quiet();
   mark(`pass-${passes}`);
   say(`pass ${passes} done ticks=${ticks - ticksAtMark}`);
