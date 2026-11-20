@@ -68,7 +68,7 @@ export interface YouHeaderInput {
   stories: readonly StripStory[];
   plans: readonly StripPlan[];
   /** The releases the release cards owe an approval for (`releaseTodoEntries`), the entries `todoList` reads; absent reads as none. */
-  releases?: readonly { anchor: string }[];
+  releases?: readonly { anchor: string; blocks: boolean }[];
 }
 
 const GROUP_WORDS: Record<YouGroup, string> = {
@@ -93,9 +93,9 @@ const entryText = (name: string | null, count: number | null): string =>
 /**
  * The You header: one count per You group, the reader's tickets to triage, and the phase strip.
  *
- * The `blocks-delivery` count adds one per release in `releases`, the entries `todoList` adds as
- * `release-approval` lines, so the two counts agree. A group count links to `deliveryGroupAnchor`
- * where the group has rows, to the first release's card where only releases count, and nowhere otherwise.
+ * The `blocks-delivery` count adds one per release in `releases` whose `blocks` is true, the entries
+ * `todoList` marks `blocks-delivery`, so the two counts agree. A group count links to `deliveryGroupAnchor`
+ * where the group has rows, to the first counted release's card where only releases count, and nowhere otherwise.
  * The ticket count is `null` while the tracker has not answered, and links to `TICKETS_ANCHOR`
  * where the Tickets section renders, which includes the absent reading.
  * The strip names its three phases from `map`: the phase holding a story status, the phase holding
@@ -110,7 +110,7 @@ export const youHeader = (input: YouHeaderInput): YouHeader => {
   const answered = input.ticketAnswer === 'answered';
   const tickets = answered ? input.tickets.filter((t) => !theirs(t.ownership)).length : null;
 
-  const releases = input.releases ?? [];
+  const releases = (input.releases ?? []).filter((r) => r.blocks);
   const counts: YouHeaderCount[] = input.groups.filter((g) => isYouGroup(g.key)).map((g) => {
     const owed = g.key === 'blocks-delivery' ? releases : [];
     const count = g.count + owed.length;
