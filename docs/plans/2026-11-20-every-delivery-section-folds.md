@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Rounds:** 3
 - **Approved:** 2026-11-20, Jan Wloka, plan-PR #3583 merged
+- **Started:** 2026-11-20, Jan Wloka, `feature/every-delivery-section-folds`
 
 ## Changelog
 
