@@ -153,7 +153,7 @@ describe('the Agents tab names the master agent branch', () => {
       expect(await link.count()).toBe(1);
       expect(await link.getAttribute('href'))
         .toBe(`${urlBase}${encodeURIComponent(branch)}`);
-      expect(await link.textContent()).toBe(branch);
+      expect(await link.evaluate((a) => [...a.querySelectorAll(':scope > span')].map((s) => s.textContent).join(''))).toBe(branch);
     } finally {
       await page.close();
     }

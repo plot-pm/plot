@@ -275,14 +275,14 @@ const SegmentLabel = ({ segment }: { segment: TupleSegment }) => (
 /**
  * The classes of one segment inside a link tuple: its padding, its tone and whether it may shrink.
  *
- * A linked ticket segment takes the violet ticket tone; every other link is blue, and a segment with no address is
+ * A segment is at least 24 px tall (`min-h-6`), the pointer target size `row-withholds.browser.test.ts` measures. A linked ticket segment takes the violet ticket tone; every other link is blue, and a segment with no address is
  * slate text.
  */
 const segmentClass = (segment: TupleSegment): string => {
   const tone = !segment.href ? 'text-slate-600 dark:text-slate-300'
     : segment.what === 'ticket' ? 'bg-(--hue-violet-soft) text-(--hue-violet) hover:underline'
       : 'text-blue-600 hover:underline dark:text-blue-400';
-  return `flex items-center gap-1 px-1.5 py-0.5 ${segment.fit === 'whole' ? 'shrink-0' : 'min-w-0'} ${tone}`;
+  return `flex min-h-6 items-center gap-1 px-1.5 py-0.5 ${segment.fit === 'whole' ? 'shrink-0' : 'min-w-0'} ${tone}`;
 };
 
 /** The hooks a ticket segment carries: `data-title-number` on either shape, and `data-ticket-link` on a link. */
@@ -304,6 +304,8 @@ export interface SegmentControl {
 /**
  * A link tuple: one bordered pill holding its segments in order, each drawn by `TupleLinkView`.
  *
+ * The pill is 26 px tall and takes 22 px of its line (`-my-0.5`), so a one-line row stays within 40 px.
+ *
  * @param segments - one tuple from `linkTuplesOf` or `artifactTuple`.
  * @param onOpenPlan - opens an internal plan link as a modal, as on `TupleLinkView`.
  * @param controls - what the call site adds to each segment, by the segment's index; absent where it adds nothing.
@@ -315,7 +317,7 @@ export const LinkTupleView = ({ segments, onOpenPlan, controls }: {
 }) => (
   <span
     data-link-tuple
-    className="inline-flex min-w-0 max-w-full items-stretch divide-x divide-slate-200 overflow-hidden rounded-md border border-slate-200 align-middle dark:divide-slate-700 dark:border-slate-700"
+    className="inline-flex min-w-0 max-w-full items-stretch divide-x divide-slate-200 overflow-hidden -my-0.5 rounded-md border border-slate-200 align-middle dark:divide-slate-700 dark:border-slate-700"
   >
     {segments.map((segment, i) => (
       <TupleLinkView
