@@ -16,7 +16,7 @@ import { ACTING_CLASS } from '../../src/app/components/ui/ActingSpinner.js';
  *
  * | Indicator          | Means                                | Lives for |
  * |--------------------|--------------------------------------|-----------|
- * | `ActivityMark` row | a process runs, end unknown          | hours     |
+ * | `ActivitySpinner`  | a process runs, end unknown          | hours     |
  * | Spinner on button  | an answer is coming                  | seconds   |
  *
  * This repo has no component-test seat — vitest runs `environment: 'node'`, with
@@ -47,57 +47,39 @@ const src = (rel: string) =>
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
 
 const SPINNER = src('components/ui/ActingSpinner.tsx');
-// THE MARKS' OWN MODULE. `ActivityMark` was declared in `AgentList.tsx` until
-// `the-components-leave-the-shell` moved every mark into
-// `lib/agent-rows/marks.tsx`; the scan follows the component, since a path that
-// no longer holds it yields an empty slice that satisfies every assertion below.
+// The row's marks live in `lib/agent-rows/marks.tsx`.
 const AGENT_LIST = src('lib/agent-rows/marks.tsx');
+// The row spinner's frames and its reduced-motion frame live in `index.css`.
+const INDEX_CSS = fs.readFileSync(path.resolve(here, '../../src/app/index.css'), 'utf8');
 const START_WORK = src('components/StartWorkButton.tsx');
 const APPROVE = src('components/ApproveButton.tsx');
 
 /**
- * The ROW's marker body — and nothing around it.
- *
- * It was `LiveDot` until 2026-08-22, a static dot on every WORKING row. That
- * one is gone: it sat a pixel from `ActivityMark`'s travelling dot, so a
- * WORKING row drew two dots and read as one smudge, and what it said (*this row
- * is in WORKING*) the section heading already says once.
- *
- * `ActivityMark` is the row's marker now, and this suite's claim survives the
- * swap intact — arguably better. The claim is that the ROW's marker and the
- * BUTTON's spinner must not be unified, because a click ends in seconds and a
- * row does not; `ActivityMark` measures a process whose end is just as unknown.
+ * The ROW's marker body — `ActivitySpinner`, the braille glyph a row shows in
+ * its Status cell while a process runs on it.
  */
-function rowMarkerBody(): string {
-  const from = AGENT_LIST.indexOf('function ActivityMark(');
+const rowMarkerBody = (): string => {
+  const from = AGENT_LIST.indexOf('const ActivitySpinner =');
   expect(from).toBeGreaterThan(-1);
-  return AGENT_LIST.slice(from, AGENT_LIST.indexOf('\n}', from));
-}
+  return AGENT_LIST.slice(from, AGENT_LIST.indexOf('\n);', from));
+};
 
 describe('the two indicators are different markers making different claims', () => {
   it('the BUTTON spins — rotation, because a click ends', () => {
-    // A click resolves in seconds: the request returns and the pulse confirms.
-    // Rotation is honest there in a way it is not on a row.
     expect(SPINNER).toMatch(/\banimate-spin\b/);
   });
 
-  it('the ROW TRAVELS — no rotation, because a row does not end', () => {
-    // `working-rows-show-motion` chose this deliberately: *rotation implies
-    // progress toward completion, which nothing here measures*. That is still
-    // the claim; only the motion has changed. The row's marker pulsed while it
-    // was `LiveDot` and travels now that it is `ActivityMark` — a dot sliding
-    // along a track, which states extent without implying an end.
-    const dot = rowMarkerBody();
-    expect(dot).toMatch(/animate-travel-(fast|slow)/);
-    expect(dot).not.toMatch(/\banimate-spin\b/);
+  it('the ROW cycles braille frames from CSS and does not rotate', () => {
+    const mark = rowMarkerBody();
+    expect(mark).toMatch(/activity-spinner activity-spinner-\$\{pace\}/);
+    expect(mark).not.toMatch(/\banimate-spin\b/);
+    expect(INDEX_CSS).toMatch(/@keyframes activity-spinner\b/);
   });
 
   it('and neither borrows the other\'s test hook', () => {
-    // The hook a unifying change would collapse. `data-activity-mark` is
-    // already asserted by the Agents tab suite; a spinner wearing it would
-    // inherit those assertions while changing what the row claims.
     expect(SPINNER).toMatch(/data-acting-spinner/);
-    expect(SPINNER).not.toMatch(/data-activity-mark/);
+    expect(SPINNER).not.toMatch(/data-activity-spinner/);
+    expect(rowMarkerBody()).toMatch(/data-activity-spinner/);
     expect(rowMarkerBody()).not.toMatch(/data-acting-spinner/);
   });
 });
@@ -118,8 +100,11 @@ describe('motion-reduce stops the animation and keeps the marker', () => {
     expect(SPINNER).not.toMatch(/matchMedia/);
   });
 
-  it('the row keeps the same pattern, untouched', () => {
-    expect(rowMarkerBody()).toMatch(/motion-reduce:animate-none/);
+  it('the row stops its frames on a static glyph under reduced motion', () => {
+    const reduced = /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/.exec(INDEX_CSS);
+    expect(reduced, 'no reduced-motion block in index.css').not.toBeNull();
+    expect(reduced![1]).toMatch(/\.activity-spinner::before\s*\{[^}]*content: "⠿"[^}]*animation: none/);
+    expect(rowMarkerBody()).not.toMatch(/prefers-reduced-motion|matchMedia/);
   });
 });
 

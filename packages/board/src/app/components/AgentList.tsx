@@ -124,8 +124,8 @@ import {
   writeMineStrict,
 } from '../lib/agent-rows/mine-filter.js';
 import { deliveryScope, mineMode, placeDelivery, planIndexOf, workItemCells, YOU_GROUP_MARKERS, type DeliverySection, type YouGroup, type YouMarker } from '@plot-pm/domain';
-import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
-import { ActivityMark } from '../lib/agent-rows/marks.js';
+import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace, headingPace } from '../lib/agent-rows/activity.js';
+import { ActivitySpinner } from '../lib/agent-rows/marks.js';
 import { BranchMenu, BrokenAgentMenu, PlanActions } from '../lib/agent-rows/menus.js';
 import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
 import { deliveryMapping, rateLimitOf, releaseCardsOf, sprintCardViewOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
@@ -1477,9 +1477,11 @@ export function AgentList({
           ),
           linkLine(`links-${agent.anchor}`, agent.links, '→ acts on:'),
         ];
+        const isFolded = (key: string, count: number, always = false) =>
+          !always && isCollapsible(count) && collapsed.has(key);
         const fold = (key: string, count: number, heading: React.ReactNode, always = false) => {
           const foldable = !always && isCollapsible(count);
-          const folded = foldable && collapsed.has(key);
+          const folded = isFolded(key, count, always);
           return { folded, header: (
             <div className="flex items-center gap-2">
               {foldable && (
@@ -1507,7 +1509,7 @@ export function AgentList({
         // section is that one line, and the counts in it stay. A section with no plan hides
         // nothing, so it has no toggle.
         const releaseFold = (heading: React.ReactNode) => {
-          const folded = isCollapsible(view.releasePlanCount) && collapsed.has(RELEASE_DELIVERY);
+          const folded = isFolded(RELEASE_DELIVERY, view.releasePlanCount);
           if (!isCollapsible(view.releasePlanCount)) return { folded, header: <div className="flex items-center gap-2">{heading}</div> };
           return { folded, header: (
             <div
@@ -1550,10 +1552,12 @@ export function AgentList({
               </div>
             </div>
             {view.sections.map((section) => {
-              // THE HEADING CARRIES THE PACE OF THE ROWS BEHIND IT, folded or
-              // open, read from the same `active` set the rows render from.
+              // A collapsed heading shows the pace of the rows it hides.
               const release = section.key === 'release-delivery';
-              const sectionPace = groupPace(release ? view.releaseRows : section.rows, active);
+              const sectionPace = headingPace(
+                groupPace(release ? view.releaseRows : section.rows, active),
+                release ? isFolded(RELEASE_DELIVERY, view.releasePlanCount) : isFolded(section.key, section.count),
+              );
               const heading = (
                 <h2 data-delivery-section={section.key} className="delivery-title flex min-w-0 flex-1 items-baseline gap-1">
                   <svg aria-hidden="true" data-section-icon={section.icon} viewBox="0 0 16 16" width="16" height="16" fill="currentColor" className="inline-block shrink-0 self-center">
@@ -1613,7 +1617,7 @@ export function AgentList({
                     </span>
                   )}
                   {release && <ReleaseHeaderCounts head={view.releaseHeader} onJump={jumpToReleasePlan} />}
-                  {sectionPace && <ActivityMark pace={sectionPace} place="heading" />}
+                  {sectionPace && <ActivitySpinner pace={sectionPace} />}
                   <span data-section-controls className="ml-auto">
                     {section.key === 'fleet' && (
                       <span id="fleet-controls" data-fleet-control-column className="flex flex-wrap items-center gap-3 text-[13px] font-normal">
@@ -1706,13 +1710,13 @@ export function AgentList({
                     <MachineSection machine={machineHealth(fleet.machine, hostAnswer(fleet))} />
                   )}
                   {!folded && section.groups.filter((group) => group.count > 0).map((group) => {
-                    const groupMark = groupPace(group.rows, active);
+                    const fleetOpen = section.key === 'fleet' && (group.key === 'working' || group.key === 'blocked');
+                    const groupMark = headingPace(groupPace(group.rows, active), isFolded(group.key, group.count, fleetOpen));
                     const held = headerOf(
                       group.label, section.key, group.key,
                       placement.items.filter((p) => p.section === section.key && p.group === group.key),
                       switches,
                     );
-                    const fleetOpen = section.key === 'fleet' && (group.key === 'working' || group.key === 'blocked');
                     const g = fold(group.key, group.count, (
                       <h3 data-delivery-group={group.key} className={`flex flex-wrap items-baseline gap-1 ${GROUP_HEADING_CLASS[section.key]}`}>
                         {section.key === 'you' && (
@@ -1736,7 +1740,7 @@ export function AgentList({
                             </button>
                           </span>
                         ))}
-                        {groupMark && <ActivityMark pace={groupMark} place="heading" />}
+                        {groupMark && <ActivitySpinner pace={groupMark} />}
                         {section.key === 'you' && group.key === 'unblock' && <CleanUpBulkDelete branches={cleanUpBranches(group.items)} />}
                       </h3>
                     ), fleetOpen);

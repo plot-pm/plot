@@ -1,126 +1,44 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { type AgentRow, type WaitingGroup } from '../../../contract/schema.js';
 import { ACTIVITY_MARK_PLACE, type ActivityPace } from './activity.js';
 import { stuckEvidence, stuckWord } from './stuck.js';
 
-export function ActivityMark({ pace, place = 'row', inTrack = false }: { pace: ActivityPace; place?: 'row' | 'heading'; inTrack?: boolean }) {
-  const fast = pace === 'fast';
-  return (
-    <span
-      aria-hidden
-      data-activity-mark
-      data-activity-pace={pace}
-      // Each pace says what it actually knows. The fast one names its local-only
-      // limit; the slow one names the gap it is reporting — *claimed, and nobody
-      // observed* is a different statement from *someone is writing*, and a
-      // single shared title would flatten the two speeds back into one fact.
-      title={fast
-        ? 'A write is in progress in this checkout'
-        : 'Claimed, and no write observed in this checkout'}
-      // Beside the live dot in the row's left padding rather than in a track of
-      // its own — the same reasoning `LiveDot` documents, and the reason the
-      // six columns do not move to make room for a mark most rows never carry.
-      //
-      // At the row's very edge (`left-0`), where `LiveDot` sits at `left-1`
-      // with a 6px dot. The track is 12px wide and 2px tall, so it passes UNDER
-      // the dot rather than colliding with it: two marks, two meanings, and a
-      // row carrying both still shows both.
-      //
-      // ALIGNED TO THE ROW'S FIRST LINE, not to the row's centre — and the
-      // mechanism is chosen so that no pixel has to be guessed. The mark used to
-      // carry `sm:top-1/2 sm:-translate-y-1/2`, which centres it on the whole
-      // ROW. That rested on an assumption which has since broken: *the row is
-      // `py-2` around ONE line of `text-sm`*, so centring on the row and
-      // centring on the line were the same pixel. The stuck cell then landed as
-      // its own line beneath the columns (`sm:col-start-3 sm:col-end-[-1]`),
-      // and a row carrying a status line is roughly twice as tall — so `top-1/2`
-      // put the mark BETWEEN the two lines instead of beside the branch name.
-      //
-      // The mark belongs to the BRANCH, and the branch is on line one whatever
-      // else the row grows beneath it. So the mark is given the FIRST LINE'S
-      // OWN BOX to sit in: `sm:top-2` is the row's `py-2` padding — where the
-      // first line begins — and `sm:h-5` is one line box of `text-sm`. The track
-      // then centres itself inside that box with `items-center`, which is what
-      // keeps this honest: the line's height is stated once, and nothing
-      // downstream has to know a magic offset.
-      //
-      // Measured rather than assumed: the row's first line box runs 18.6px from
-      // the row's own top edge on a real page, so a hand-computed `top-4.5`
-      // would be right today and wrong the moment the type scale moves. A box
-      // that IS the line does not have that failure mode.
-      //
-      // The pairing that matters: `top-1/2` looks correct on every single-line
-      // row and is wrong on exactly the rows carrying the most information.
-      // Anything measuring itself against the ROW's height is suspect; this
-      // measured itself against the row and meant the line.
-      // In the marks TRACK the parent cell already positions and sizes; the
-      // mark is then just a 12px box in the flow. Outside it (the heading) the
-      // placement map still applies.
-      className={inTrack ? 'relative flex h-2 w-3 shrink-0 items-center' : ACTIVITY_MARK_PLACE[place]}
-    >
-      {/* The TRACK the dot rides: a faint 2px rule, centred on the line box by
-          the flex above. Dim on purpose — what reads from a distance is a
-          bright point moving against a dim line, so the track marks the extent
-          of the travel without competing with the thing that travels.
-
-          It is `relative` because the dot is positioned against IT rather than
-          against the line box: the dot's reach is a fraction of the track, and
-          measuring it against anything else would decouple the two. */}
-      <span
-        data-activity-track
-        className="relative h-0.5 w-full rounded-full bg-emerald-500/25 dark:bg-emerald-400/25"
-      >
-        <span
-          data-activity-dot
-          // `--tw-travel` is the reach, read by the shared `travel` keyframes:
-          // the track is 12px and the dot is 6px, so 6px of travel takes the dot
-          // from flush-left to flush-right and back without ever leaving the
-          // track. Set here rather than baked into the keyframes so the two stay
-          // tied to each other — a wider track changes one number, not two.
-          style={{ '--tw-travel': '0.375rem' } as CSSProperties}
-          // The glow is an explicit `shadow-[...]` in the mark's own emerald
-          // rather than a `shadow-*` scale step, because the scale's shadows are
-          // neutral greys for lifting a surface off the page — a drop shadow,
-          // not a light. Two rings: a tight one that thickens the dot's edge and
-          // a wide, faint one that spreads. It is what carries the mark across a
-          // room, and it does NOT depend on the travel — see `motion-reduce`
-          // below, which stops the movement and leaves everything else standing.
-          //
-          // `-top-0.5` centres the 6px dot on the 2px track it rides.
-          className={`absolute -top-0.5 left-0 h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_4px_1px_rgba(16,185,129,0.9),0_0_10px_3px_rgba(16,185,129,0.5)] motion-reduce:animate-none dark:bg-emerald-400 dark:shadow-[0_0_4px_1px_rgba(52,211,153,0.9),0_0_12px_4px_rgba(52,211,153,0.55)] ${
-            fast ? 'animate-travel-fast' : 'animate-travel-slow'
-          }`}
-        />
-      </span>
-    </span>
-  );
-}
+/**
+ * The activity spinner: one braille glyph that cycles while a process runs on
+ * the row, placed in the Status cell before the status word.
+ *
+ * The frames come from the `activity-spinner` keyframes in `index.css`, so the
+ * page runs no timer. `pace` selects the frame rate: `fast` (80 ms per frame)
+ * where an agent writes in this checkout, `slow` (220 ms per frame) where the
+ * row is claimed and no write is observed. Under `prefers-reduced-motion:
+ * reduce` the glyph stops on the static frame `⠿` and stays visible.
+ *
+ * The glyph is `aria-hidden`: the status word carries the fact in words. The
+ * `title` names the local-only limit of each pace.
+ *
+ * @param pace - the row's or heading's pace, from `activityPace` or `groupPace`.
+ */
+export const ActivitySpinner = ({ pace }: { pace: ActivityPace }) => (
+  <span
+    aria-hidden
+    data-activity-spinner
+    data-activity-pace={pace}
+    title={pace === 'fast'
+      ? 'A write is in progress in this checkout'
+      : 'Claimed, and no write observed in this checkout'}
+    className={`activity-spinner activity-spinner-${pace} inline-block w-[1ch] shrink-0 font-mono text-emerald-600 dark:text-emerald-400`}
+  />
+);
 
 /**
  * The mark a row wears while it holds commits nobody else can see.
  *
- * **STILLNESS IS THE MESSAGE.** The activity mark says *someone is writing
- * here* and carries a travelling dot and a glow to say it; this says the
- * opposite — someone wrote, stopped, and the result never left the machine. So
- * it is separated from the activity mark by FORM and by the ABSENCE OF THE
- * GLOW, never by motion: adding movement here would say the one thing that is
- * measurably untrue.
+ * The mark is a flat emerald rule in the row's marks track and does not move:
+ * it reports work that stopped and never left the machine. The activity
+ * spinner in the Status cell reports work in progress; a row can carry both.
  *
- * That makes it the only one of the four marks with nothing animated at all,
- * which is why `motion-reduce` needs no clause: there is nothing to reduce. The
- * glow's absence is doing the work, and a reduced-motion rule that dimmed it
- * would take the distinction with it.
- *
- * **A BAR, WHERE THE ACTIVITY MARK IS A DOT ON A TRACK.** Same 12px left-edge
- * slot, same emerald family, and the two are still told apart at a glance:
- * one is a bright point with a halo, the other a flat rule with none. A row
- * carrying both shows both — they occupy the same slot at different heights,
- * the way the track already passes under `LiveDot`.
- *
- * **It is NOT `[data-live-dot]`, NOT `[data-change-mark]`, NOT
- * `[data-activity-mark]` and NOT `[data-stuck-cue]`.** Five marks, five
- * meanings, and no mark implemented by modifying another — the precedent #180
- * set and every slice since has kept.
+ * It is not `[data-change-mark]`, `[data-activity-spinner]` or
+ * `[data-stuck-cue]`: each mark is its own element with its own meaning.
  *
  * The title carries the same local-only limit its field does: this is what THIS
  * checkout can see, and a branch worked on elsewhere reports nothing here.
@@ -136,17 +54,9 @@ export function UnpushedMark({ ahead, inTrack = false }: { ahead: number; inTrac
       // carries phase, plan, branch, note, PR and age — and the mark's job is
       // to say *there is something here*, which the reader then opens.
       title={`${ahead} commit${ahead === 1 ? '' : 's'} in this checkout that the remote has not seen`}
-      // The same left-edge slot and the same first-line alignment as the
-      // activity mark — reusing its placement map rather than restating the
-      // string, so a change to the row's padding moves both marks together
-      // instead of moving one and stranding the other.
+      // Outside a marks track the mark takes the row's marks-cell placement.
       className={inTrack ? 'relative flex h-1 w-3 shrink-0 items-center' : ACTIVITY_MARK_PLACE.row}
     >
-      {/* A flat rule at FULL opacity where the activity track sits at 25%, and
-          with no dot riding it. Against the activity mark the difference reads
-          without a legend: a solid bar means work that has stopped, a dim track
-          with a bright point on it means work in progress. No shadow — the glow
-          is the activity mark's alone and is what "someone is here" means. */}
       <span className="h-0.5 w-full rounded-full bg-emerald-600/70 dark:bg-emerald-400/60" />
     </span>
   );
@@ -190,12 +100,12 @@ export function ChangeMark() {
  * rendered on every row whose group was `working`.
  *
  * It went for two reasons, and the screenshot that reported it shows both. It
- * sat one pixel from `ActivityMark`'s travelling dot, so a WORKING row drew TWO
+ * sat one pixel from the activity mark's dot, so a WORKING row drew TWO
  * dots side by side and the eye read one smudge rather than two marks. And what
  * it said — *this row is in WORKING* — is what the section heading above it
  * already says, once, instead of once per row.
  *
- * What it was FOR survives in the mark that replaced it: `ActivityMark` is
+ * What it was FOR survives in the mark that replaced it: `ActivitySpinner` is
  * drawn when `isActive` finds a process, which is the question a reader
  * scanning WORKING actually has. `isLive` remains, and still answers *which
  * section is this row in* for `groupPace`; it no longer licenses a mark.

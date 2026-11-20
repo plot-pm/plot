@@ -19,7 +19,7 @@ import {
 } from '../../src/app/components/AgentList.js';
 import { CARD_BELOW_PX, COLLAPSED_BY_DEFAULT, isCollapsible, readCollapsed, writeCollapsed } from '../../src/app/lib/agent-rows/collapse.js';
 import { MINE_ONLY_BY_DEFAULT, readMineOnly, rowsForReader, writeMineOnly } from '../../src/app/lib/agent-rows/mine-filter.js';
-import { ACTIVITY_MARK_PLACE, ActivityEcho, CHANGE_MARK_MS, ChangeMarks, LOCK_ECHO_MS, activeRowKeys, activityPace, changedRows, groupPace, isUnreadable, sameWatched, type WatchedState, watchedState } from '../../src/app/lib/agent-rows/activity.js';
+import { ACTIVITY_MARK_PLACE, ActivityEcho, CHANGE_MARK_MS, ChangeMarks, LOCK_ECHO_MS, activeRowKeys, activityPace, changedRows, groupPace, headingPace, isUnreadable, sameWatched, type WatchedState, watchedState } from '../../src/app/lib/agent-rows/activity.js';
 import { isActive, isLive, soleRowStatus } from '../../src/app/lib/agent-rows/stuck.js';
 import { elsewhereNote, groupByPlan, planGroupShape, rowsBySection, sectionTally, showPlanHeading, tallyLabel, unfilteredNote, type PlanGroup, type SectionTally, sliceKeyOf, sliceSection, slicesElsewhere } from '../../src/app/lib/agent-rows/sections.js';
 import { countdown } from '../../src/app/lib/agent-rows/actions.js';
@@ -995,54 +995,28 @@ describe('a process is marked in EVERY section, and writing is not a process', (
 });
 
 describe('the activity marker leaves the other marks alone', () => {
-  // THE MARKS' OWN MODULE. All four lived in `AgentList.tsx` until
-  // `the-components-leave-the-shell` moved them out; the scan follows them,
-  // because a path that no longer holds the marks is a scan that matches
-  // nothing and passes forever.
   const source = readFileSync(
     new URL('../../src/app/lib/agent-rows/marks.tsx', import.meta.url), 'utf8');
 
   it('keeps isLive reading the GROUP, exactly as before', () => {
-    // The dot means *in the WORKING group* and lives for hours; the activity
-    // mark means *someone is writing here*. Two questions, two marks — and the
-    // cheap way to build the second is to repaint the first.
     expect(isLive(row({ group: 'working' }))).toBe(true);
     expect(isLive(row({ group: 'quiet', localDirty: true, localLocked: true }))).toBe(false);
     expect(isLive(row({ group: 'working', localDirty: false }))).toBe(true);
   });
 
-  it('renders two distinct marks, neither defined in terms of the other', () => {
-    // Read out of the source: each hook exists and is its own element. An
-    // implementation that made activity a variant of the flash would still pass
-    // every predicate assertion above.
-    expect(source).toContain('data-change-mark');
-    expect(source).toContain('data-activity-mark');
-    // The change mark keeps its own channel — full-row wash, amber, pulsing.
+  it('renders the spinner and the change mark as two distinct elements', () => {
+    expect(source).toMatch(/^\s*data-change-mark$/m);
+    expect(source).toMatch(/^\s*data-activity-spinner$/m);
     expect(source).toContain('absolute inset-0 animate-pulse bg-amber-300/25');
-    // ONE BAR, ONE DOT, and no third mark beside it. `data-live-dot` was a
-    // static green dot on every WORKING row, drawn at `left-1` — one pixel from
-    // the travelling dot at `left-0`, so a WORKING row showed two dots and read
-    // as one smudge. Reported from a screenshot of that overlap, and what it
-    // said (*this row is in WORKING*) is what the section heading says once.
-    // Asked of the ATTRIBUTE as JSX writes it, not of the word: three comments
-    // still name `[data-live-dot]` to say what they are deliberately NOT, and a
-    // bare `not.toContain` would fail on the prose that explains the removal.
     expect(source).not.toMatch(/^\s*data-live-dot$/m);
-    // The activity mark's own dot rides its own track — the pairing that keeps
-    // "one bar, one dot" honest, since a bar with no dot and a dot with no bar
-    // would each pass a hook-existence check.
-    expect(source).toContain('data-activity-track');
-    expect(source).toContain('data-activity-dot');
+    // The travelling dot and its track are gone with the old mark.
+    expect(source).not.toMatch(/data-activity-(mark|track|dot)/);
   });
 
   it('names its own limit in the accessible description', () => {
-    // A reader who takes an unmarked row for an idle one has been misled by a
-    // marker that was technically correct: every signal here is local, so an
-    // agent on another machine produces no mark HERE, ever. The marker says so
-    // rather than letting absence speak for itself.
     expect(source).toContain('A write is in progress in this checkout');
+    expect(source).toContain('Claimed, and no write observed in this checkout');
   });
-
 });
 
 /**
@@ -1247,367 +1221,84 @@ describe('groupPace — the heading states the strongest pace its rows state', (
 });
 
 /**
- * THE MARK'S APPEARANCE, read out of the source.
+ * The activity spinner's appearance, read out of the source and the stylesheet.
  *
- * The rendered half — the glow's computed `box-shadow`, the travel actually
- * running at two rates, its survival under `prefers-reduced-motion`, the six
- * tracks not moving — lives in `test/integration/activity-mark.browser.test.ts`,
- * because only a page can answer it. What is here is the half a string can state
- * exactly: which utilities each element carries, and which it must not.
- *
- * `className` is isolated from the component rather than searched for across the
- * file, and that is the whole point of the helper below: this file contains four
- * marks and each names the other three in its own doc comment, so a plain
- * `indexOf` would walk from a comment into the wrong element's class list and
- * assert one mark's geometry against another's.
+ * The rendered half — the glyph cycling at two rates, its static frame under
+ * `prefers-reduced-motion`, its place in the Status cell — lives in
+ * `test/integration/activity-mark.browser.test.ts`.
  */
-describe('the activity mark is a track with a travelling dot', () => {
-  // THE MARKS' OWN MODULE — see the note on the describe above. The four marks
-  // the docstring discusses are now `lib/agent-rows/marks.tsx`, and the
-  // confusion this helper guards against is between them, wherever they live.
+describe('the activity spinner is one braille glyph cycling in CSS', () => {
   const source = readFileSync(
     new URL('../../src/app/lib/agent-rows/marks.tsx', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../../src/app/index.css', import.meta.url), 'utf8');
+  const spinner = (() => {
+    const from = source.indexOf('export const ActivitySpinner =');
+    return from < 0 ? '' : source.slice(from, source.indexOf('\n);', from));
+  })();
+  const rule = (selector: string): string => {
+    const at = css.indexOf(`${selector} {`);
+    expect(at, `no ${selector} rule in index.css`).toBeGreaterThan(-1);
+    return css.slice(at, css.indexOf('}', at));
+  };
 
-  /**
-   * The `className` string of the JSX element carrying `data-<hook>`.
-   *
-   * Anchored on the hook as a JSX ATTRIBUTE — alone on its line — rather than on
-   * any mention of the string. Every mark in this file names the other three in
-   * its doc comment (*deliberately NOT `[data-live-dot]`*), and those mentions
-   * come FIRST in the file, so a plain `indexOf` would walk from a comment into
-   * the wrong element's class list and assert one mark's geometry against
-   * another's. That is not hypothetical: it is what the first draft of this
-   * helper did.
-   */
-  function classesOf(hook: string): string {
-    const at = source.search(new RegExp(`^\\s*data-${hook}\\s*$`, 'm'));
-    expect(at, `no data-${hook} JSX attribute in marks.tsx`).toBeGreaterThan(-1);
-    const after = source.slice(at);
-    // BOTH forms, and the second is not a nicety. The activity dot picks its
-    // travel utility from the pace, so its class list is a TEMPLATE literal —
-    // and a `className="…"`-only matcher does not fail on it, it walks past
-    // into the next element in the file and asserts that one's classes under
-    // this one's name. That is precisely the confusion this helper exists to
-    // prevent, so whichever form comes FIRST after the hook is the one taken.
-    const quoted = /className="([^"]*)"/.exec(after);
-    const templated = /className=\{`([^`]*)`/.exec(after);
-    // The THIRD form, and it exists for the same reason the second does. The
-    // activity mark hangs in two places — the row's left padding and a group
-    // heading — so its class list is a LOOKUP (`className={ACTIVITY_MARK_PLACE[place]}`)
-    // rather than a literal. A matcher that knew only the first two forms does
-    // not fail on it: it walks past into the travelling dot below and returns
-    // THAT element's classes under the mark's name, which is precisely the
-    // confusion this helper exists to prevent. Measured — it did.
-    const looked = /className=\{([A-Z_]+)\[/.exec(after);
-    const resolved = looked
-      ? ({ index: looked.index, 1: placementsOf(looked[1]).join(' ') } as unknown as RegExpExecArray)
-      : null;
-    const match = [quoted, templated, resolved]
-      .filter((m): m is RegExpExecArray => m !== null)
-      .sort((a, b) => a.index - b.index)[0];
-    expect(match, `no className after data-${hook}`).not.toBeUndefined();
-    return match![1];
-  }
-
-  /**
-   * Every class list a placement table can produce, as one string.
-   *
-   * The mark's geometry assertions are about what it NEVER carries — no
-   * `animate-*`, no `inset-0` — and those must hold at EVERY placement rather
-   * than at whichever one the table happens to list first. Joining them is what
-   * makes a `not.toContain` mean *in none of them*.
-   */
-  function placementsOf(name: string): string[] {
-    const table = new RegExp(`const ${name} = \\{([\\s\\S]*?)\\n\\} as const;`).exec(source);
-    expect(table, `no ${name} table in marks.tsx`).not.toBeNull();
-    const out = [...table![1].matchAll(/^\s{2}\w+: '([^']*)',$/gm)].map((m) => m[1]);
-    expect(out.length, `no placements parsed out of ${name}`).toBeGreaterThan(1);
-    return out;
-  }
-
-  it('reads each mark\'s OWN class list, not the next one in the file', () => {
-    // The helper's own guard, and the reason it exists. Every assertion below
-    // is worthless if this walks into a neighbour: the marks are adjacent in
-    // the source and each names the others in its comment. Two marks whose
-    // geometry cannot be confused pin it — a full-row wash and a 12px track.
-    //
-    // `live-dot` was the third of these until 2026-08-22 and is gone: a static
-    // dot beside the travelling one made a WORKING row show two dots a pixel
-    // apart. The remaining pair still cannot be confused, which is all this
-    // guard needs.
-    expect(classesOf('change-mark')).toContain('absolute inset-0');
-    expect(classesOf('activity-track')).toContain('w-full');
-    expect(classesOf('activity-mark')).not.toContain('inset-0');
-    // The template-literal case, which is where this helper failed once: the
-    // activity dot's class list is built from the pace, and a matcher that only
-    // knew `className="…"` silently returned the CHANGE MARK's classes under
-    // the dot's name. Pinned on a class only the dot has.
-    expect(classesOf('activity-dot')).toContain('rounded-full');
-    expect(classesOf('activity-dot')).not.toContain('inset-0');
+  it('is aria-hidden, monospace and emerald, and carries its pace as data', () => {
+    expect(spinner, 'no ActivitySpinner in marks.tsx').not.toBe('');
+    expect(spinner).toMatch(/^\s*aria-hidden$/m);
+    expect(spinner).toContain('data-activity-pace={pace}');
+    expect(spinner).toContain('font-mono');
+    expect(spinner).toContain('text-emerald-600 dark:text-emerald-400');
+    expect(spinner).toContain('activity-spinner activity-spinner-${pace}');
   });
 
-  it('hangs in the row\'s padding and FLOWS in a heading', () => {
-    // Two placements, one mark. Everything the mark IS — the track, the dot,
-    // the glow, the travel, the paces, the titles — is shared; only where it
-    // hangs differs, because the two hosts have different geometry.
-    //
-    // THE assertion, and the failure it guards is not cosmetic: the row's
-    // placement is `sm:absolute`, which positions against the nearest
-    // positioned ancestor. The `<h2>` has NONE. Reusing the row's string in a
-    // heading would not sit the mark slightly wrong — it would hang it off
-    // whatever ancestor happened to be `relative` and land it elsewhere on the
-    // page. A class-name assertion on a shared string cannot see that.
-    // The row placement is no longer absolute at all — it is a grid cell. What
-    // the heading assertion below protects is unchanged: a heading has no
-    // positioned ancestor, so it must never borrow a positioned placement.
-    expect(ACTIVITY_MARK_PLACE.row).not.toContain('absolute');
-    expect(ACTIVITY_MARK_PLACE.heading).not.toContain('absolute');
-    // And the heading's mark is not positioned by any other route either.
-    expect(ACTIVITY_MARK_PLACE.heading).not.toMatch(/\b(fixed|sticky|top-|left-|-translate-)/);
+  it('cycles the ten braille frames in order, holding each one', () => {
+    const frames = /@keyframes activity-spinner \{([\s\S]*?)\n\}/.exec(css);
+    expect(frames, 'no @keyframes activity-spinner in index.css').not.toBeNull();
+    const glyphs = [...frames![1].matchAll(/content: "(.)"/g)].map((m) => m[1]).join('');
+    expect(glyphs).toBe('⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏');
+    expect(rule('.activity-spinner::before')).toContain('step-end');
   });
 
-  it('keeps the ROW\'s placement exactly as the wave before it left it', () => {
-    // A shared component gaining a second caller is the moment the first
-    // caller's geometry quietly changes. The row's placement is pinned whole,
-    // not by fragments: `sm:top-2` and `h-5` together are what put the mark on
-    // the row's FIRST LINE rather than at its centre, which is the fix a
-    // two-line row needed and which a partial assertion would let slip back.
-    // IN A TRACK, not in the padding. This asserted `sm:absolute sm:left-0`
-    // until the marks earned a column of their own: `left-0` is the ROW's edge,
-    // which sits outside the section's border, so every mark straddled the
-    // panel edge — and two marks on one row overlapped, because absolute boxes
-    // do not make room for each other. Measured on screen with the activity
-    // track and the unpushed bar on one branch.
-    //
-    // The cell that holds them is unconditional while its contents are not, so
-    // a row with no marks still occupies the track and the six columns beside
-    // it do not shift. That is the alignment `agent-rows-line-up` paid for, now
-    // held by a track rather than by keeping the marks outside the grid.
-    // NO padding of its own — the row already carries `py-2`, and a second pair
-    // here made every row as tall as a two-line one (both measured at 60px).
-    // The height comes from the row's content; `self-stretch` only takes it.
-    // `items-start` SINCE THE TRACK WIDENED, and the change is measured. The
-    // marks track went from 1rem to 1.5rem with the tuple, and a CENTRED 12px
-    // mark in a 24px cell lands at 35px — to the RIGHT of the live dot at 33px,
-    // which sits at `sm:left-1` of this same cell. Two marks in the wrong order
-    // read as one smeared pair, which is what the track was cut to prevent.
-    // The marks LEAD the row, so they start where the cell starts.
-    expect(ACTIVITY_MARK_PLACE.row).toBe(
+  it('runs at exactly two rates: 220 ms and 80 ms per frame', () => {
+    expect(rule('.activity-spinner::before')).toMatch(/animation: activity-spinner 2\.2s step-end infinite/);
+    expect(rule('.activity-spinner-fast::before')).toContain('animation-duration: 0.8s');
+  });
+
+  it('shows the static frame under reduced motion and never hides the glyph', () => {
+    const reduced = /@media \(prefers-reduced-motion: reduce\) \{\s*\.activity-spinner::before \{([^}]*)\}/.exec(css);
+    expect(reduced, 'no reduced-motion rule for .activity-spinner').not.toBeNull();
+    expect(reduced![1]).toContain('content: "⠿"');
+    expect(reduced![1]).toContain('animation: none');
+    expect(reduced![1]).not.toMatch(/display: none|visibility: hidden|opacity: 0/);
+  });
+
+  it('uses no JavaScript timer', () => {
+    expect(spinner).not.toMatch(/setInterval|setTimeout|requestAnimationFrame|useEffect/);
+  });
+
+  it('leaves the travel keyframes behind', () => {
+    expect(css).not.toMatch(/@keyframes travel|animate-travel/);
+  });
+});
+
+describe('headingPace — a heading shows the pace only while collapsed', () => {
+  it('passes the rows\' pace through while folded', () => {
+    expect(headingPace('fast', true)).toBe('fast');
+    expect(headingPace('slow', true)).toBe('slow');
+    expect(headingPace(null, true)).toBeNull();
+  });
+
+  it('shows nothing while open, because the rows show their own spinners', () => {
+    expect(headingPace('fast', false)).toBeNull();
+    expect(headingPace('slow', false)).toBeNull();
+  });
+});
+
+describe('the marks cell — where UnpushedMark sits outside a track', () => {
+  it('is the tuple\'s marks cell, in the flow, aligned to the first line', () => {
+    const mark = ACTIVITY_MARK_PLACE.row;
+    expect(mark).toBe(
       'relative flex w-full shrink-0 flex-col items-start justify-start gap-1 self-stretch pt-0.5');
-    // STILL NO `py-`, and the guard is worded exactly right: SYMMETRIC vertical
-    // padding is what made every row as tall as a two-line one. `pt-0.5` is
-    // top-only, 2px, inside a `self-stretch` cell whose height comes from the
-    // row — and it was measured rather than reasoned about, because reasoning
-    // got this wrong once: single-line rows stay at 37px with it, and only the
-    // agent row is taller (56px), from its own wrapped slot 4.
-    expect(ACTIVITY_MARK_PLACE.row).not.toMatch(/\bpy-/);
-  });
-
-  it('gives the heading a box that fits a heading', () => {
-    // The heading is `text-xs`; the row's 20px line box would stretch it and
-    // push the section's own words apart. `self-center` because the heading
-    // aligns on `items-baseline` and a track carries no text to align.
-    expect(ACTIVITY_MARK_PLACE.heading).toContain('self-center');
-    expect(ACTIVITY_MARK_PLACE.heading).not.toContain('h-5');
-  });
-
-  it('travels at exactly two rates, and no third', () => {
-    // THE rule of this wave, pinned as strings: two utilities, chosen by the
-    // pace and nothing else. The failure this guards is a gradient — a speed
-    // keyed to commit freshness — which is a scale nobody can read (*was that
-    // four minutes or forty?*) changing continuously, and which would pass any
-    // assertion that only checks "the dot moves".
-    expect(source).toContain('animate-travel-fast');
-    expect(source).toContain('animate-travel-slow');
-    // The dot's class list carries one of the two and is otherwise still: no
-    // `animate-pulse` or `animate-ping` smuggled in beside the travel, which
-    // would put this mark back into the channel the other three already hold.
-    const dot = classesOf('activity-dot');
-    expect(dot).toMatch(/animate-travel-(fast|slow)/);
-    expect(dot).not.toMatch(/animate-(pulse|ping|spin|bounce)/);
-    // And the TRACK does not animate at all. Only the dot moves; a track that
-    // pulsed underneath it would be a fifth thing blinking on the row.
-    expect(classesOf('activity-mark')).not.toMatch(/animate-/);
-  });
-
-  it('keeps the mark and the dot under motion-reduce, and stops only the travel', () => {
-    // Both halves, and the fifth time this repo has written the rule. Hiding
-    // the element under reduced motion passes a motion-only assertion and takes
-    // the MARKER along with the movement.
-    //
-    // `animate-none` and NOT `hidden`, `invisible` or `opacity-0`: each of those
-    // would stop the travel and lose the mark, which is exactly the defect.
-    const dot = classesOf('activity-dot');
-    expect(dot).toContain('motion-reduce:animate-none');
-    expect(dot).not.toMatch(/motion-reduce:(hidden|invisible|opacity-0)/);
-    // The glow is NOT reduced with the motion. It is what the mark is seen by,
-    // and under reduced motion it is the only thing left — a
-    // `motion-reduce:shadow-none` would leave a bare dot on a faint line.
-    expect(dot).not.toContain('motion-reduce:shadow');
-  });
-
-  it('never fills, completes or arrives', () => {
-    // The constraint that makes travel acceptable at all. Rotation and
-    // traversal were refused twice in this repo because they *imply progress
-    // toward completion, which nothing here measures*; a dot that returns
-    // promises no destination and reports a RATE instead.
-    //
-    // The keyframes are where "returns to its start" is enforced, so they are
-    // read out of the stylesheet rather than inferred from the class name — a
-    // one-way `travel` would carry exactly the same utility name.
-    const css = readFileSync(
-      new URL('../../src/app/index.css', import.meta.url), 'utf8');
-    const frames = /@keyframes travel\s*\{([\s\S]*?)\n  \}/.exec(css);
-    expect(frames, 'no @keyframes travel in index.css').not.toBeNull();
-    const body = frames![1];
-    // Starts and ends at the same place — stated on BOTH ends, because a frame
-    // set with only `0%` and `50%` also "returns" and would leave the property
-    // undefined at the close.
-    expect(body).toMatch(/0%\s*\{\s*transform:\s*translateX\(0\)/);
-    expect(body).toMatch(/100%\s*\{\s*transform:\s*translateX\(0\)/);
-    // Nothing that fills or completes: the progress vocabulary this repo
-    // refused, named so a later "improvement" fails rather than lands.
-    expect(body).not.toMatch(/\bwidth\b|\bscaleX\b|stroke-dash/);
-    // And the cycle carries the return itself rather than borrowing it from
-    // `alternate`, which spends half its time running backwards.
-    expect(css).not.toMatch(/--animate-travel-(fast|slow):[^;]*alternate/);
-  });
-
-  it('glows in its own colour, in both themes', () => {
-    // The glow is what carries the mark across a room, so it is not optional
-    // decoration — and under reduced motion it is all that is left. An emerald
-    // `shadow-[…]` rather than a step on the neutral shadow scale: those are
-    // greys for lifting a surface off the page, and a grey blur around a 6px
-    // dot reads as a smudge rather than a light.
-    //
-    // On the DOT, which is what glows. The track behind it is deliberately dim.
-    const dot = classesOf('activity-dot');
-    expect(dot).toMatch(/shadow-\[[^\]]*rgba\(16,\s*185,\s*129/);
-    expect(dot).toMatch(/dark:shadow-\[[^\]]*rgba\(52,\s*211,\s*153/);
-  });
-
-  it('is a horizontal TRACK carrying a dot, not a bar and not a bare dot', () => {
-    // The shape the travel needed: a short rule the dot can ride. The mark used
-    // to be `h-5 w-1`, a vertical stroke; turning the axis is the change.
-    // Stated against `LiveDot`'s own geometry so the two cannot drift into one
-    // shape — that is a 6px round dot at a fixed x.
-    const track = classesOf('activity-track');
-    expect(track).toContain('h-0.5');
-    expect(track).toContain('w-full');
-    // `relative`, because the dot inside is positioned against IT — the dot's
-    // reach is a fraction of the track, and a track that were not the
-    // containing block would decouple the two.
-    expect(track).toContain('relative');
-    // AND THE DOT IS THE TRACK'S OWN, not a second mark beside it. `LiveDot`
-    // used to sit one pixel away at `left-1`; the screenshot that reported the
-    // overlap is why it is gone. What rides the track is `data-activity-dot`,
-    // and nothing else is drawn next to it.
-    expect(classesOf('activity-dot')).toContain('h-1.5 w-1.5');
-    expect(classesOf('activity-dot')).toContain('absolute');
-  });
-
-  it('gives the mark the FIRST LINE\'S OWN BOX rather than a computed offset', () => {
-    // How the alignment is made honest. The outer element is one line box tall
-    // (`h-5` = 20px of `text-sm`) starting at the row's own `py-2`, and the
-    // track centres itself inside it. The line's height is therefore stated
-    // ONCE and no pixel downstream has to be guessed.
-    //
-    // The alternative — a hand-computed `top-4.5` — is right today and wrong the
-    // moment the type scale moves, which is exactly the failure mode that put
-    // the mark between two lines in the first place. Measured: the first line
-    // box begins 18.6px below the row's top edge, not the 8px or 10px a reader
-    // would derive from the padding alone.
-    // The cell answers this now: `self-stretch` takes the row's own height and
-    // `justify-start` puts the marks at its TOP — the first line, which is what
-    // this test is named for. No number is stated at all, which is the strongest
-    // form of the same rule, since the line height it used to name (`h-5`) was
-    // itself a value that could go stale.
-    //
-    // It read `justify-center` until 2026-08-20, and centring across a
-    // `self-stretch` cell is *the first line* only while the row is one line
-    // tall — see the sibling test for the measurement that separated them.
-    //
-    // `justify-*`, not `items-*`, and the pairing is worth stating because the
-    // two were conflated here. In a `flex-col` the MAIN axis is vertical, so
-    // `justify-*` is what places the stack and `items-*` decides where it sits
-    // horizontally — a different question, answered `items-start` above for a
-    // measured reason. An assertion on `items-center` was reading the cross axis
-    // while claiming the main one.
-    const mark = ACTIVITY_MARK_PLACE.row;
-    expect(mark).toContain('self-stretch');
-    expect(mark).toContain('justify-start');
-    expect(mark).toContain('flex-col');
-    // And no hand-computed offset, which is the failure mode this guards.
-    expect(mark).not.toMatch(/\btop-\d/);
-  });
-
-  it('renders the dot as its own element inside the track', () => {
-    // Three elements, and the hooks prove it: a single element that was both
-    // the track and the traveller would have to move the track itself, which is
-    // the implementation where the mark drifts away from its own x.
-    expect(source).toContain('data-activity-track');
-    expect(source).toContain('data-activity-dot');
-    const dot = classesOf('activity-dot');
-    expect(dot).toContain('absolute');
-    expect(dot).toContain('h-1.5 w-1.5');
-  });
-
-  it('has a track of its own, and the cell holds it whether or not a mark is in it', () => {
-    // A SEVENTH TRACK, reversing wave 1's placement — and the reversal is the
-    // point. That wave hung the mark in the row's padding (`sm:absolute
-    // sm:left-0`) so six columns would not move in to reserve room for a mark
-    // most rows never carry. That argument held while there was ONE mark.
-    //
-    // There are now five, and a row can wear several: measured on screen, the
-    // activity track and the unpushed bar overlapped, because absolute boxes
-    // make no room for each other — and `left-0` is the ROW's edge, which sits
-    // outside the section's border, so every mark straddled the panel edge.
-    //
-    // In the track they stack in the flow. The cost was paid in the phase
-    // column, which gave up 1rem: see the breakpoint arithmetic further down.
-    const mark = ACTIVITY_MARK_PLACE.row;
-    expect(mark).not.toContain('absolute');
-    expect(mark).toContain('flex-col');
-    // The CELL is unconditional while its contents are not — that is what keeps
-    // a markless row's six other cells from shifting one column left.
-    expect(mark).toContain('w-full');
-  });
-
-  it('aligns to the row\'s FIRST LINE, not to the row\'s centre', () => {
-    // The defect fixed in the commit before this one, pinned as a string. The
-    // mark used to carry `sm:top-1/2 sm:-translate-y-1/2`, which centres it on
-    // the whole ROW — correct only while the assumption its comment stated
-    // held: *the row is `py-2` around ONE line of `text-sm`*. The stuck cell
-    // broke that by landing as its own line beneath the six columns, and a
-    // centred mark on a two-line row sits BETWEEN the lines rather than beside
-    // the branch name.
-    //
-    // Now a CELL rather than an offset, which answers the same question without
-    // arithmetic: `self-stretch` makes the box the full height of the row.
-    //
-    // AND `justify-start`, which this asserted as `justify-center` until
-    // 2026-08-20 — while its own TITLE said *first line*. The two agreed only
-    // for as long as rows were one line tall: centring in a one-line cell IS
-    // the first line. On a row that wraps they diverge, and centring puts the
-    // mark exactly where this test says it must not go — between the lines.
-    //
-    // Which is the scenario the comment above already cites: *"the stuck cell
-    // broke that by landing as its own line beneath the six columns."* Measured
-    // on the mock, an agent row 56px tall against 37px for its neighbours, its
-    // activity dot at y=24 while the name sat at y=9. With `justify-start` the
-    // dot is at y=11 — the line it belongs to.
-    //
-    // The title was right and the class was wrong.
-    const mark = ACTIVITY_MARK_PLACE.row;
-    expect(mark).toContain('self-stretch');
-    expect(mark).toContain('justify-start');
-    expect(mark).not.toContain('justify-center');
-    // Every positioned form is GONE. Asserted negatively because leaving one
-    // behind would fight the cell: a stray `translate-y` on the parent is a
-    // transform the dot's own `translateX` travel would have to fight.
-    expect(mark).not.toContain('sm:top-1/2');
-    expect(mark).not.toContain('-translate-y-1/2');
-    expect(mark).not.toContain('sm:left-0');
+    expect(mark).not.toMatch(/\bpy-|\babsolute\b|\btop-\d|-translate-y-1\/2/);
   });
 });
 

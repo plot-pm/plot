@@ -17,15 +17,13 @@ import type { AgentRow, Fleet } from '../../src/contract/schema.js';
  * is moving*. QUIET's own purpose is *"go check whether this died"*, so the one
  * group whose job is surfacing possible deaths was folded shut showing a number.
  *
- * `groupPace` is a pure function and is pinned in `test/unit/agent-list.test.ts`,
- * along with the two placement strings. None of that can answer what is here:
+ * `groupPace` and `headingPace` are pure functions pinned in
+ * `test/unit/agent-list.test.ts`. None of that can answer what is here:
  *
  * - that the mark renders on a heading whose rows are NOT IN THE DOM at all,
  *   which is the whole point and which a unit test cannot state;
- * - that it survives expanding, rather than vanishing at the moment of opening;
- * - that in a heading it FLOWS rather than escaping to a positioned ancestor —
- *   the failure a shared `sm:absolute` would cause, invisible to a class-name
- *   assertion and to any test that never renders the heading;
+ * - that an expanded heading drops the spinner and its rows carry it;
+ * - that in a heading it flows as text, inside the heading's own box;
  * - that the toggle button's accessible name does not gain the mark's `title`;
  * - that the tally `(4)` still says what it always said.
  *
@@ -147,7 +145,14 @@ describe('a group heading carries the activity of the rows behind it', () => {
   };
 
   const markInHeading = (page: Page, key: string) =>
-    headingFor(page, key).locator('[data-activity-mark]');
+    headingFor(page, key).locator('[data-activity-spinner]');
+
+  /** The spinner glyph's resolved `::before` style. */
+  const glyphOf = (locator: ReturnType<typeof markInHeading>) =>
+    locator.first().evaluate((el) => {
+      const s = getComputedStyle(el, '::before');
+      return { content: s.content, animationName: s.animationName, animationDuration: s.animationDuration };
+    });
 
   // ── A folded PLAN speaks for its branches ─────────────────────────────────
 
@@ -205,104 +210,78 @@ describe('a group heading carries the activity of the rows behind it', () => {
   // ── The reported case ──────────────────────────────────────────────────────
 
   it('marks a COLLAPSED group whose row is being written to', async () => {
-    // THE assertion, and the case no test covered before this wave. The row is
-    // not merely hidden — it is REMOVED from the tree, so the heading is the
-    // only thing on the page that can say anything about it.
+    // The row is removed from the tree, so the heading is the only thing on the
+    // page that can say anything about it.
     const page = await open();
     await fold(page, 'queued');
     expect(await toggleFor(page, 'queued').getAttribute('aria-expanded')).toBe('false');
-    // The row really is absent, which is what makes the heading's mark the
-    // only signal. If the row were merely visually hidden this suite would be
-    // asserting something much weaker than it claims.
-    //
-    // EVERY KIND, because absence has to be. `li[data-agent-row]` is stamped by
-    // the branch-row renderer alone, so a collapsed group holding a plan head
-    // and a wave row would satisfy it while showing two rows.
     expect(await sectionFor(page, 'queued').locator('li[data-tuple-kind]').count()).toBe(0);
     await expect.poll(() => markInHeading(page, 'queued').count()).toBe(1);
   });
 
   it('leaves a collapsed group with NO active row unmarked', async () => {
-    // The negative, and it is what makes the positive mean anything: a heading
-    // that always shows the mark says nothing at all. Release delivery holds no
-    // active row here, so folded it carries no mark.
     const page = await open();
     await page.locator('[data-delivery-section="release-delivery"]').waitFor({ timeout: 10_000 });
-    // The header row is the toggle; its left edge is the ▾ glyph, clear of the count links.
     await toggleFor(page, 'release-delivery').click({ position: { x: 4, y: 8 } });
     await expect.poll(() => toggleFor(page, 'release-delivery').getAttribute('aria-expanded')).toBe('false');
     expect(await markInHeading(page, 'release-delivery').count()).toBe(0);
   });
 
-  it('keeps the mark when the group is EXPANDED', async () => {
-    // Hiding it on expand was considered — the rows show it themselves, so the
-    // heading repeats them — and rejected because the mark would then vanish at
-    // the moment of opening, which reads as *it stopped*. A marker that
-    // disappears when you look closer is worse than one that repeats itself.
+  it('drops the heading spinner when the group is EXPANDED, and the row carries it', async () => {
+    // An open heading shows nothing: its rows show their own spinners in their
+    // Status cells, so the heading would only say it twice.
     const page = await open();
+    await fold(page, 'queued');
     await expect.poll(() => markInHeading(page, 'queued').count()).toBe(1);
-    await fold(page, 'queued');
     await toggleFor(page, 'queued').click();
-    await expect.poll(() =>
-      toggleFor(page, 'queued').getAttribute('aria-expanded')).toBe('true');
-    // The rows are now on the page AND the heading still carries the mark.
-    // EVERY ROW THE SECTION SHOWS, not its branch rows. QUIET's rows group
-    // under plan heads and wave rows, and a plan of one branch renders no
-    // branch row at all — so `li[data-agent-row]` counted 0 and this read as
-    // *expanding revealed nothing* when it had revealed a whole group. What
-    // the assertion is for is that the rows ARE on the page once opened.
-    expect(await sectionFor(page, 'queued').locator('li[data-tuple-kind]').count())
-      .toBeGreaterThan(0);
-    expect(await markInHeading(page, 'queued').count()).toBe(1);
-  });
-
-  it('agrees with the row beneath it once both are visible', async () => {
-    // The heading is derived from the same `active` set the rows are rendered
-    // from, so agreement is structural. Stated on the page because that is
-    // where a drift would actually be seen: the heading's pace and its active
-    // row's pace are the same word.
-    const page = await open();
-    await fold(page, 'queued');
-    await toggleFor(page, 'queued').click();
+    await expect.poll(() => toggleFor(page, 'queued').getAttribute('aria-expanded')).toBe('true');
     await expect.poll(() =>
       sectionFor(page, 'queued').locator('li[data-tuple-kind]').count()).toBeGreaterThan(0);
-    // THE MARKED ROW BENEATH THE HEADING, found by the mark rather than by the
-    // branch. Measured after expanding: QUIET holds a plan head and a wave row,
-    // and NEITHER carries `[data-branch]` — the wave names its wave and links
-    // the branch as an artifact, so a filter keyed on the branch attribute
-    // matches nothing and the poll times out on a row that is right there.
-    //
-    // The claim is about AGREEMENT — the heading's pace equals its rows' — so
-    // the row to compare against is the marked one, whatever kind it is.
+    expect(await markInHeading(page, 'queued').count()).toBe(0);
+    await expect.poll(() => sectionFor(page, 'queued')
+      .locator('li[data-tuple-kind] [data-row-cell="status"] [data-activity-spinner]').count())
+      .toBeGreaterThan(0);
+  });
+
+  it('states the same pace folded as the row states open', async () => {
+    const page = await open();
+    await fold(page, 'queued');
+    await expect.poll(() => markInHeading(page, 'queued').count()).toBe(1);
+    const folded = await markInHeading(page, 'queued').getAttribute('data-activity-pace');
+    await toggleFor(page, 'queued').click();
     const rowMark = sectionFor(page, 'queued')
-      .locator('li[data-tuple-kind] [data-activity-mark]');
+      .locator('li[data-tuple-kind] [data-activity-spinner]');
     await expect.poll(() => rowMark.count()).toBeGreaterThan(0);
-    expect(await markInHeading(page, 'queued').getAttribute('data-activity-pace'))
-      .toBe(await rowMark.first().getAttribute('data-activity-pace'));
+    expect(await rowMark.first().getAttribute('data-activity-pace')).toBe(folded);
+  });
+
+  it('shows no heading spinner on an open SECTION, so nothing wraps onto its own line', async () => {
+    // The You card's heading holds the stage line (`Discovery 20 → Design 0
+    // → …`); a spinner after it wrapped onto a line of its own.
+    const page = await open();
+    for (const key of ['you', 'fleet', 'release-delivery']) {
+      const heading = page.locator(`[data-delivery-section="${key}"]`);
+      if ((await heading.count()) === 0) continue;
+      const toggle = toggleFor(page, key);
+      if ((await toggle.count()) > 0 && (await toggle.getAttribute('aria-expanded')) === 'false') continue;
+      expect(await heading.locator('[data-activity-spinner]').count(), `${key} heading`).toBe(0);
+    }
   });
 
   // ── Where it sits ─────────────────────────────────────────────────────────
 
-  it('FLOWS in the heading rather than escaping to a positioned ancestor', async () => {
-    // The failure a shared `sm:absolute` would cause, and the reason this claim
-    // needs a page. The row's placement positions against the row's own
-    // `relative` box; an `<h2>` has no positioned ancestor, so the row's string
-    // reused here would hang the mark off whatever ancestor happened to be
-    // positioned and land it somewhere else entirely — a defect no class-name
-    // assertion can see.
+  it('flows in the heading as text', async () => {
     const page = await open();
+    await fold(page, 'queued');
     await expect.poll(() => markInHeading(page, 'queued').count()).toBe(1);
     const position = await markInHeading(page, 'queued')
       .evaluate((el) => getComputedStyle(el).position);
-    expect(position).toBe('relative');
+    expect(position).toBe('static');
   });
 
   it('sits INSIDE its own heading, beside the words', async () => {
-    // Stated in geometry rather than in the DOM alone: an absolutely positioned
-    // mark can be a descendant of the heading in the tree and render across the
-    // page. Its box must be within its heading's box, and to the right of the
-    // tally it follows.
     const page = await open();
+    await fold(page, 'queued');
     await expect.poll(() => markInHeading(page, 'queued').count()).toBe(1);
     const mark = (await markInHeading(page, 'queued').boundingBox())!;
     const heading = (await headingFor(page, 'queued').boundingBox())!;
@@ -310,20 +289,14 @@ describe('a group heading carries the activity of the rows behind it', () => {
     expect(mark.x + mark.width).toBeLessThanOrEqual(heading.x + heading.width + 0.5);
     expect(mark.y).toBeGreaterThanOrEqual(heading.y - 0.5);
     expect(mark.y + mark.height).toBeLessThanOrEqual(heading.y + heading.height + 0.5);
-    // And it really has a box — a mark collapsed to zero width would satisfy
-    // every containment assertion above while being invisible.
     expect(mark.width).toBeGreaterThan(0);
     expect(mark.height).toBeGreaterThan(0);
   });
 
   it('does not push the heading onto a second line', async () => {
-    // The mark is added to a heading that already holds a caret, an icon, a
-    // label and a tally. A section whose heading wrapped would cost a row of
-    // vertical space on a view whose entire complaint was crowding.
     const page = await open();
+    await fold(page, 'queued');
     await expect.poll(() => markInHeading(page, 'queued').count()).toBe(1);
-    // An empty group renders no heading, so the bound is the heading's own
-    // line height: one line is under 1.5 of it, a wrapped second line is not.
     const heading = headingFor(page, 'queued');
     const marked = (await heading.boundingBox())!;
     const line = await heading.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
@@ -333,11 +306,8 @@ describe('a group heading carries the activity of the rows behind it', () => {
   // ── What it says, and to whom ─────────────────────────────────────────────
 
   it('says nothing to a screen reader, and nothing to the toggle\'s name', async () => {
-    // The mark lives INSIDE the toggle button, so its `title` would otherwise
-    // join the button's accessible name — a reader would hear "quiet 2 a write
-    // is in progress in this checkout". `aria-hidden` is what prevents it, and
-    // this is the assertion that would catch its removal.
     const page = await open();
+    await fold(page, 'queued');
     await expect.poll(() => markInHeading(page, 'queued').count()).toBe(1);
     expect(await markInHeading(page, 'queued').getAttribute('aria-hidden')).toBe('true');
     const name = await toggleFor(page, 'queued')
@@ -346,56 +316,30 @@ describe('a group heading carries the activity of the rows behind it', () => {
   });
 
   it('leaves the tally saying exactly what it always said', async () => {
-    // The tally separates ABSENT from EMPTY — a distinction this board paid for —
-    // and that job is not being extended by the activity mark. No `active`, no
-    // `(1, 1 active)`: the reader opening a group needs to know whether opening
-    // it is worth it, not whether it is one row or three.
-    //
-    // `(1)`, not `(3)`: the three rows share plan `plant-tomatoes` and wave
-    // `w`, so they are one work item, and no agent acts on it, so it sits under
-    // Work items › Queued. The heading counts the item, not its branches —
-    // `a-section-counts-what-it-shows`. The toggle button holds only the caret,
-    // so the tally is read from the group's own heading.
     const page = await open();
+    await fold(page, 'queued');
     await expect.poll(() => toggleFor(page, 'queued').count()).toBe(1);
     const text = await page.locator('h3[data-delivery-group="queued"]').innerText();
     expect(text).toContain('(1)');
     expect(text).not.toMatch(/active|\(\d+\s*,/);
   });
 
-  it('carries the same glow the rows carry, not a heading-only variant', async () => {
-    // A group heading says what its rows say, so it must say it in the SAME
-    // mark. The glow is what the mark is read by at a distance, and a heading
-    // that rendered a duller one would be a second design wearing one name.
+  it('cycles the same braille frames the rows cycle', async () => {
     const page = await open();
+    await fold(page, 'queued');
     await expect.poll(() => markInHeading(page, 'queued').count()).toBe(1);
-    const shadow = await markInHeading(page, 'queued')
-      .locator('[data-activity-dot]')
-      .evaluate((el) => getComputedStyle(el).boxShadow);
-    expect(shadow).not.toBe('none');
-    expect(shadow).toMatch(/rgba\(16,\s*185,\s*129,\s*0\.9\)\s+0px\s+0px\s+4px/);
+    const glyph = await glyphOf(markInHeading(page, 'queued'));
+    expect(glyph.animationName).toBe('activity-spinner');
+    expect(glyph.content).toMatch(/^"[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]"$/);
   });
 });
 
 /**
- * THE PACE A HEADING STATES — the strongest one its rows state, never stronger.
- *
- * A group holding one written-to row among merely-claimed ones is a group where
- * something is demonstrably happening, so its heading travels FAST. A group
- * holding only claimed rows travels SLOW — *unknown, never nobody*, the same
- * ordering every mark on this board keeps.
- *
- * The rule is pinned as a pure function in the unit suite. What needs a page is
- * that the heading's mark resolves to the same two durations the rows' do, so a
- * reader reads one vocabulary rather than two.
+ * The pace a collapsed heading states: the strongest one its rows state. A
+ * group holding one written-to row among claimed ones is `fast`; a group
+ * holding only claimed rows is `slow`.
  */
-describe('a heading travels at the strongest pace its rows state', () => {
-  // THE STATE IS SERVED, NOT SPAWNED AND STUBBED.
-  //
-  // This file started `board-server.mjs` over the tiny-garden fixture only to
-  // serve `index.html`: it never read `/api/board`, and stubbed `/api/fleet`
-  // itself. The mock serves the same built client and answers both payloads by
-  // name, so the test states its own input instead of inheriting an estate.
+describe('a collapsed heading shows the strongest pace its rows state', () => {
   let cat: Catalogue;
 
   beforeAll(async () => {
@@ -417,16 +361,31 @@ describe('a heading travels at the strongest pace its rows state', () => {
     return page;
   }
 
+  const toggleFor = (page: Page, key: string) =>
+    page.locator(`[data-group-toggle="${key}"]`);
+
+  const fold = async (page: Page, key: string) => {
+    await toggleFor(page, key).waitFor({ timeout: 10_000 });
+    if ((await toggleFor(page, key).getAttribute('aria-expanded')) === 'true') await toggleFor(page, key).click();
+    await expect.poll(() => toggleFor(page, key).getAttribute('aria-expanded')).toBe('false');
+  };
+
   const headingMark = (page: Page, key: string) =>
     page.locator(`[data-delivery-group="${key}"], [data-delivery-section="${key}"]`)
-      .locator('[data-activity-mark]');
+      .locator('[data-activity-spinner]');
 
-  it('travels FAST for a group holding one measured row among claimed ones', async () => {
-    // THE ordering assertion. An implementation reporting the WEAKEST pace — or
-    // keeping the last row's answer — lets one measured write hide behind two
-    // unobserved claims, and the fast row is precisely the reason to open the
-    // group. The written-to row is LAST so an implementation stopping at the
-    // first live row it meets fails here rather than passing by luck.
+  /** The key of the section that holds the `working` group. */
+  const sectionOfWorking = async (page: Page) => {
+    const section = page.locator('section[data-section]')
+      .filter({ has: page.locator('[data-group="working"]') });
+    await section.first().waitFor({ timeout: 10_000 });
+    return (await section.first().getAttribute('data-section'))!;
+  };
+
+  const durationOf = (locator: ReturnType<typeof headingMark>) =>
+    locator.first().evaluate((el) => getComputedStyle(el, '::before').animationDuration);
+
+  it('is FAST for a group holding one measured row among claimed ones', async () => {
     const page = await open([
       row({ branch: 'feature/claimed-a', group: 'quiet', branchUrl: `${GH}feature/claimed-a` }),
       row({ branch: 'feature/claimed-b', group: 'quiet', branchUrl: `${GH}feature/claimed-b` }),
@@ -435,45 +394,38 @@ describe('a heading travels at the strongest pace its rows state', () => {
         branchUrl: `${GH}feature/writing`,
       }),
     ]);
+    await fold(page, 'queued');
     await expect.poll(() => headingMark(page, 'queued').count()).toBe(1);
     expect(await headingMark(page, 'queued').getAttribute('data-activity-pace')).toBe('fast');
   });
 
-  it('travels SLOW for a group holding only CLAIMED rows', async () => {
-    // The weaker claim, and the board is licensed to make it: the fleet placed
-    // these rows in WORKING and this checkout observed nothing local. Absence
-    // is not falsehood, so the heading says *unknown*, never *nobody*.
-    //
-    // WORKING rather than QUIET, because `isLive` is what produces the slow
-    // pace and it reads `group === 'working'`.
+  it('is SLOW for a section holding only CLAIMED rows', async () => {
+    // The `working` group never folds, so its section's heading speaks for it.
     const page = await open([
       row({ branch: 'feature/claimed', group: 'working', note: 'claimed, no known worker' }),
     ]);
-    await expect.poll(() => headingMark(page, 'working').count()).toBe(1);
-    expect(await headingMark(page, 'working').getAttribute('data-activity-pace')).toBe('slow');
+    const key = await sectionOfWorking(page);
+    await fold(page, key);
+    await expect.poll(() => headingMark(page, key).count()).toBe(1);
+    expect(await headingMark(page, key).getAttribute('data-activity-pace')).toBe('slow');
   });
 
-  it('resolves to the same two durations the rows use', async () => {
-    // One vocabulary, read at two levels. A heading whose "fast" resolved to a
-    // different duration than a row's "fast" would teach the reader two scales
-    // for one word.
+  it('resolves to the same frame duration the row uses', async () => {
     const page = await open([
       row({
-        branch: 'feature/writing', group: 'working', worker: 'running', localDirty: true,
+        branch: 'feature/writing', group: 'quiet', worker: 'running', localDirty: true,
         branchUrl: `${GH}feature/writing`,
       }),
     ]);
-    await expect.poll(() => headingMark(page, 'working').count()).toBe(1);
-    const durationOf = (locator: ReturnType<typeof headingMark>) =>
-      locator.locator('[data-activity-dot]')
-        .evaluate((el) => getComputedStyle(el).animationDuration);
-    const heading = await durationOf(headingMark(page, 'working'));
-    const inRow = await page.locator('li[data-tuple-kind]')
+    await fold(page, 'queued');
+    await expect.poll(() => headingMark(page, 'queued').count()).toBe(1);
+    const heading = await durationOf(headingMark(page, 'queued'));
+    await toggleFor(page, 'queued').click();
+    const inRow = page.locator('li[data-tuple-kind]')
       .filter({ has: page.locator('[data-branch="feature/writing"]') }).last()
-      .locator('[data-activity-mark]')
-      .locator('[data-activity-dot]')
-      .evaluate((el) => getComputedStyle(el).animationDuration);
-    expect(heading).toBe(inRow);
+      .locator('[data-activity-spinner]');
+    await expect.poll(() => inRow.count()).toBe(1);
+    expect(heading).toBe(await durationOf(inRow));
     expect(Number.parseFloat(heading)).toBeGreaterThan(0);
   });
 });

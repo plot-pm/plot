@@ -34,7 +34,7 @@ const EMPTY_PLAN_INDEX: PlanIndex = planIndexOf({});
 import { noteShown, YOU_COLUMNS, YOU_COLUMN_LABELS } from '@plot-pm/domain';
 import { type SliceGroup, groupedNote, sliceDissent } from './slices.js';
 import { sliceRowReading } from './slice-reading.js';
-import { ActivityMark, BlockedByMark, ChangeMark, StuckCell, UnpushedMark } from './marks.js';
+import { ActivitySpinner, BlockedByMark, ChangeMark, StuckCell, UnpushedMark } from './marks.js';
 import { BranchMenu, IssueRowActions, PlanActions, ResliceMenu, SliceActions } from './menus.js';
 import { WorkerLogModal } from '../../components/WorkerLogModal.js';
 import { DispatchLogModal } from '../../components/DispatchLogModal.js';
@@ -751,18 +751,10 @@ export function PlanRow({
         // hides nothing, so its branch is right there flashing.
         marked && expanded === false ? <ChangeMark /> : null
       }
+      // The FAST pace: a plan row shows a spinner only where one of its
+      // branches, folded or not, is in `active`.
+      statusLead={active ? <ActivitySpinner pace="fast" /> : null}
       marks={
-        // Always the FAST pace, because `active` is the only thing that reaches
-        // this row: NOT STARTED is where plan rows are drawn, and its branches
-        // are by definition not in WORKING, so the slow pace has no case to
-        // state here. A plan row shows a mark exactly when one of its branches
-        // is being written to — including one folded out of sight, which is the
-        // case the mark most needs to reach.
-        // THE FOLD AND THE ACTIVITY MARK SHARE THIS TRACK, and they can:
-        // the fold belongs to the plan row only, the mark appears on it only
-        // while a branch is being written to, and both are facts about THIS row
-        // rather than about its content. The kind icon left this track on
-        // 2026-08-20 precisely so it could hold what belongs to the row.
         <>
           {foldable ? (
             // THE FOLD LIVES IN THE MARKS TRACK, at the row's leading edge and
@@ -811,7 +803,6 @@ export function PlanRow({
             </span>
           </button>
           ) : null}
-          {active ? <ActivityMark pace="fast" inTrack /> : null}
         </>
       }
       // THE PHASE KEEPS ITS `data-phase` HOOK, on the slot that now holds it.
@@ -1544,6 +1535,7 @@ export function SliceRow({
           ) : null}
         </>
       }
+      statusLead={active ? <ActivitySpinner pace="fast" /> : null}
       marks={
         <>
           {foldable ? (
@@ -1573,7 +1565,6 @@ export function SliceRow({
               </span>
             </button>
           ) : null}
-          {active ? <ActivityMark pace="fast" inTrack /> : null}
           {soleRow && isUnpushed(soleRow) ? <UnpushedMark ahead={soleRow.localAhead} inTrack /> : null}
         </>
       }
@@ -2083,6 +2074,7 @@ export function Row({
           ? 'Approved this long ago, and nobody has started it'
           : undefined
       }
+      statusLead={active ? <ActivitySpinner pace={activityPace(row)} /> : null}
       marks={
         <>
           {/* THE CHANGE MARK IS NOT HERE ANY MORE — it is passed as `extra`,
@@ -2102,26 +2094,6 @@ export function Row({
               meeting: *"A tint across the ROW rather than a badge in a cell …
               marking the whole line is what makes the arrival legible at its new
               location."* */}
-          {/* TWO ENTRY PATHS, and they are not the same claim. `active` is the
-              fleet's answer for the whole list at once — `isActive` in this
-              pulse, or a lock seen in a recent one still echoing — and it
-              travels FAST. `isLive` adds the rows the fleet places in WORKING
-              while observing no local signal: claimed, and nobody knows. Those
-              travel SLOW. */}
-          {/* ONE BAR, ONE DOT — and the dot is the mark's own, riding its track.
-              `LiveDot` used to sit beside it at `left-1`, so every WORKING row
-              drew two dots a pixel apart: a static green one saying *this row is
-              in WORKING*, and a travelling one saying *a process is on it*.
-              Reported from a screenshot of exactly that overlap.
-              `LiveDot` is gone; the section heading already says which section a
-              row is in, once, instead of once per row.
-
-              `isLive` is gone from this condition too, for the same reason it
-              stopped licensing a mark: WORKING is an ADDRESS, not a process. A
-              row sits there for hours while an agent works, while an agent has
-              crashed, or while it waits on a human — `isActive` is what
-              distinguishes those, and `active` is that answer. */}
-          {active && <ActivityMark pace={activityPace(row)} inTrack />}
           {/* FINISHED WORK NOBODY ELSE CAN SEE — a separate question, asked
               separately. Not an `else`: a row can be written to AND hold
               unpushed commits at the same moment, and either shape would lose

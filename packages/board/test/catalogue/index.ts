@@ -45,8 +45,8 @@ export interface Catalogue {
       viewport?: { width: number; height: number };
       /**
        * The context's `prefers-reduced-motion`, for a test whose subject is an
-       * animation. `activity-mark.browser.test.ts` asserts both halves — that a
-       * mark travels, and that it does not when motion is reduced — so the
+       * animation. `activity-mark.browser.test.ts` asserts both halves — that the
+       * spinner cycles, and that it holds a static frame when motion is reduced — so the
        * setting has to be a page-open parameter rather than a fixed default.
        */
       reducedMotion?: 'reduce' | 'no-preference';

@@ -552,108 +552,46 @@ export class ChangeMarks {
 }
 
 /**
- * How fast the activity mark's dot travels — and the fact each speed states.
- *
- * TWO, and no third. Both are things the board can defend from what it
- * observed; a gradient keyed to commit freshness would be a scale nobody can
- * read (*was that four minutes or forty?*) changing continuously, which is
- * motion in place of information.
+ * The activity spinner's frame rate, and the fact each rate states: `fast`
+ * where an agent writes in this checkout, `slow` where a row is claimed and no
+ * write is observed.
  */
 export type ActivityPace = 'fast' | 'slow';
 
 /**
- * Which pace a row's mark travels at.
+ * The pace of a row's activity spinner.
  *
- * **The speed is a FACT, not a decoration**, and this is the whole rule:
+ * | Row | Pace |
+ * |---|---|
+ * | `localDirty` or `localLocked` | `fast` |
+ * | neither | `slow` |
  *
- * | Row | Pace | Because |
- * |---|---|---|
- * | `local_dirty` or `local_locked` | fast | someone is writing, measured |
- * | in WORKING, neither signal | slow | claimed; nobody knows |
+ * Callers show a spinner only where `isActive` holds; this answers the pace.
+ * Both local fields default to `false` and are observed only on this machine,
+ * so `slow` means *no write observed here*, not *nobody is writing*.
  *
- * `isActive` is the fast half and is UNTOUCHED — it is the same predicate
- * `activity-shows-itself` settled, still meaning *someone is writing here*.
- * What this adds is a second, weaker reading beside it: a row the fleet places
- * in WORKING while observing no local signal at all. That row is claimed and
- * unobserved, and *slow* is the honest rendering of it — moving, because
- * something is supposed to be happening; slowly, because nothing confirms it.
- *
- * **The negative that keeps this honest:** absence is not falsehood. Both local
- * fields are `.default(false)` in the contract, and a scan that could not
- * observe a worktree reports absence rather than cleanliness — so a slow dot
- * says *unknown*, never *nobody*. That is exactly why the slow case is bounded
- * by WORKING membership rather than applied to every row: outside WORKING there
- * is no claim to be unobserved about.
- *
- * Exported for test: an implementation that graded speed by commit age, or that
- * gave every WORKING row the fast pace, passes any assertion that only checks
- * "the dot moves".
+ * @param row - the row's process, PR, state and local worktree signals.
+ * @returns `fast` where the worktree shows a write, otherwise `slow`.
  */
 export function activityPace(
-  // `state` travels because `isActive` reads it: a merged branch is not active,
-  // so it has no pace either. The narrow Pick is what surfaced that — a wider
-  // signature would have compiled and quietly graded a finished branch.
   row: Pick<AgentRow, 'worker' | 'pr' | 'state' | 'localDirty' | 'localLocked'>,
 ): ActivityPace {
-  // THE TWO SPEEDS ARE THE TWO QUESTIONS, and this is where they separate.
-  //
-  // `isActive` decides whether a dot appears AT ALL, and it asks about the
-  // PROCESS: an agent in a live state, or CI running. The pace then asks a
-  // second question of the same row — *is that process actually doing
-  // something* — and the worktree is the only evidence of it the board has: a
-  // held lock is a write in progress this instant, uncommitted work is a write
-  // that has happened.
-  //
-  // So a claimed branch whose agent is thinking travels SLOW, and the moment it
-  // writes a file the same dot travels FAST. Two facts, one mark, no second
-  // symbol to learn — which is the shape the operator asked for: *ActivityMark
-  // starts when a process runs and flickers faster when real work happens*.
-  //
-  // A row with no process has no pace, because it has no dot; callers gate on
-  // `isActive` first and this returns `slow` for it either way.
   return row.localLocked || row.localDirty ? 'fast' : 'slow';
 }
 
 /**
- * The pace a GROUP HEADING travels at, or `null` where it carries no mark.
+ * The pace a group's rows state together, or `null` where none carries a
+ * spinner.
  *
- * **A group's heading says what its rows say, one level up** — and a collapsed
- * group is the case this exists for. QUIET and DONE are in
- * `COLLAPSED_BY_DEFAULT` and the choice is persisted in `localStorage`, so they
- * stay folded across sessions; a folded heading reports `(4)`, which is a STOCK
- * count. It says *four rows are in here*, never *one of them is moving*. QUIET's
- * own comment names its purpose as *"go check whether this died"* — a group
- * whose whole job is to surface possible deaths, folded shut, showing a number.
+ * Returns `fast` where any row is in `active`, otherwise `slow` where any row
+ * is live (`isLive`), otherwise `null`. The strongest pace wins, so one
+ * measured write is not hidden behind unobserved claims. It reads the same
+ * `active` set the rows render from, so a heading cannot disagree with its
+ * rows.
  *
- * **Binary, and derived at render.** At least one row is active, or none is. No
- * second figure beside the tally: `(4)` exists to separate ABSENT from EMPTY, a
- * distinction this board paid for, and `(4, 2 active)` dilutes the one job that
- * number has. The reader opening a group does not need to know whether it is one
- * row or three — they need to know whether opening it is worth it.
- *
- * **The strongest pace any row states, and never stronger.** A group holding one
- * written-to row among three merely-claimed ones is a group where something is
- * demonstrably happening, so the heading travels FAST. A group holding only
- * claimed rows travels SLOW — the same *unknown, never nobody* ordering the row
- * marks keep, because a heading that reported the WEAKEST pace would let one
- * measured write hide behind three unobserved claims.
- *
- * The two inputs are the two entry paths a row has, and they are not one claim:
- * `active` is the fleet's answer for the whole list at once (`isActive` in this
- * pulse, or a lock still echoing from a recent one) and travels fast; `isLive`
- * adds the rows the fleet places in WORKING while observing nothing local, and
- * those travel slow. Reading only the first would leave every WORKING group
- * unmarked while its rows carried marks — a heading disagreeing with the rows
- * beneath it, which is the one thing this must not do.
- *
- * **It CANNOT disagree with its rows**, and that is structural rather than
- * tested: it takes the same `active` set and the same `isLive` the rows are
- * rendered from, at the same render. A stored count or a separately-maintained
- * flag is what drifts; this has nothing to drift from.
- *
- * Exported for test: an implementation returning the weakest pace, or reading
- * only `active`, passes every assertion that merely checks *the heading has a
- * mark*.
+ * @param rows - the group's rows.
+ * @param active - the keys of the rows the fleet reports active (`isActive`,
+ *   or a lock still echoing from a recent pulse).
  */
 export function groupPace(
   rows: AgentRow[],
@@ -668,130 +606,20 @@ export function groupPace(
 }
 
 /**
- * The mark a row wears while something is being written to it — a short track
- * with a glowing dot travelling out and back.
+ * The pace a section or group heading shows: the rows' pace while the heading
+ * is collapsed, and `null` while it is open, because the open rows show their
+ * own spinners.
  *
- * **The dot must never ARRIVE, and that is the only reason travel is acceptable
- * here.** Rotation and traversal were refused twice in this repo, both times for
- * one reason: they *"imply progress toward completion, which nothing here
- * measures"*. An agent in WORKING may finish in five minutes or five hours. A
- * dot that goes out and comes back promises no destination — it reports a RATE,
- * not a distance. Anything that fills, completes or arrives reintroduces exactly
- * what was refused, so the keyframes end where they began and the track has no
- * far marker to reach.
- *
- * **Two speeds, both earned.** Fast where `local_dirty` or `local_locked` — an
- * agent demonstrably writing. Slow where the row is merely in WORKING — claimed,
- * and the board does not know whether anyone is there. The reader learns one
- * rule and both states are ones the board can defend. See `activityPace`.
- *
- * **This reverses the slice before it, and the reversal is the point.** That slice
- * gave the mark the smallest honest rendering — a static glowing bar — so the
- * marker could be proven to read the right thing before it got loud, and argued
- * that a fifth moving element at a fifth scale would compete with the four
- * already on the row. What changed is not the ordering principle but the mark's
- * SHAPE: the other four move in place (`animate-pulse` twice, `animate-ping`
- * once, plus the change-mark's wash), and travel along a track is a channel none
- * of them uses. Motion is still scarce; this spends it on an axis nothing else
- * holds, rather than adding a fifth thing blinking.
- *
- * **A TRACK, so the travel has somewhere to happen.** The bar became a horizontal
- * rule where the vertical stroke was, and the dot rides it. The track is faint on
- * its own and the dot carries the glow, so what reads from a distance is a bright
- * point moving against a dim line — the distance problem the bar was widened for,
- * answered by movement instead of by mass.
- *
- * **`motion-reduce` keeps the track AND the dot and stops only the travel.** Both
- * halves, and this is the fifth time this repo has written the rule: hiding the
- * element under reduced motion passes a motion-only assertion and takes the
- * MARKER along with the movement. The dot rests at one end, still glowing, still
- * in place. Under reduced motion the two speeds collapse into one appearance and
- * that is correct — *speed* is the thing being removed, so it cannot be the only
- * carrier of the distinction. The row's note already says which state it is in,
- * in words.
- *
- * **`aria-hidden`, like every other mark on this row.** The row's note carries
- * the fact in words, and a screen reader must not hear it twice — and must never
- * hear a speed. The mark is decoration on top of information and never the
- * carrier of it.
- *
- * **The `title` names the marker's own limit, and that is a requirement rather
- * than a nicety.** Every signal behind the fast pace is local: `fleet.ts` is
- * explicit that `local_dirty` is *"true only on the machine doing the looking,
- * and false is what every branch elsewhere reports"*, and `local_locked` reads
- * `.git/index.lock` in a local worktree. An agent on another machine therefore
- * produces no fast mark HERE, ever. A reader who took an unmarked row for an idle
- * one would have been misled by a marker that was technically correct, so each
- * pace says what it actually knows rather than letting the motion speak alone.
- *
- * Deliberately NOT `[data-live-dot]`, NOT `[data-change-mark]` and NOT
- * `[data-stuck-cue]`: four marks, four meanings, and no mark implemented by
- * modifying another. A row can carry several at once, and then it carries
- * several.
- *
- * **`place` is WHERE the mark hangs, and it is a prop because the two callers
- * have genuinely different geometry — not because the mark has two designs.**
- * Everything the mark IS — the track, the dot, the glow, the travel, the two
- * paces, the titles, `aria-hidden` — is identical either way, and that is the
- * point: a group heading says what its rows say, so it must say it in the same
- * marks.
- *
- * | `place` | Where | Why |
- * |---|---|---|
- * | `row` | the first grid track, in the flow | the marks have a column of their own; nothing straddles the border |
- * | `heading` | inline, in the heading's flex | the heading has no `relative` box and no grid to stay out of |
- *
- * The row placement USED to read `sm:absolute sm:left-0 sm:top-2`, hanging in
- * the row's left padding to keep six columns from moving for a mark most rows
- * never carry. That argument was sound while there was one mark and it stayed
- * measurable — 2 of 56 rows carry one. What broke it is the other side of the
- * trade: `left-0` is the row's edge and the section's border sits inside it, so
- * a mark wide enough to be seen was clipped in half, and two marks on one row
- * overlapped because absolute boxes do not make room for each other. A clipped
- * mark is not a cheaper mark.
- *
- * The heading placement is still NOT the row's string, and for its own reason:
- * `sm:absolute` positions against the nearest positioned ancestor, and the
- * `<h2>` has none — so a bolted-on override would not sit the mark slightly
- * wrong, it would escape to whatever ancestor happened to be `relative` and
- * land somewhere else on the page entirely. That is a failure a class-name
- * assertion cannot see and a screenshot finds late.
+ * @param pace - the rows' pace, from `groupPace`.
+ * @param folded - whether the heading hides its rows.
+ */
+export const headingPace = (pace: ActivityPace | null, folded: boolean): ActivityPace | null =>
+  folded ? pace : null;
+
+/**
+ * Where the marks of a row sit outside a marks track: the row's marks cell,
+ * `MARKS_CELL`.
  */
 export const ACTIVITY_MARK_PLACE = {
-  // IN THE FIRST TRACK, not hanging in the row's padding. `sm:absolute
-  // sm:left-0` put the mark at the row's edge — which is OUTSIDE the section's
-  // border, so every mark straddled the panel edge, and two marks on one row
-  // overlapped because absolute boxes do not make room for each other.
-  //
-  // In the flow they stack: `flex-col` with a small gap, centred in a 1.5rem
-  // column. `h-full` rather than `h-5` so a two-line row (one carrying a stuck
-  // status) centres its marks against the whole cell.
-  // NO padding of its own. The ROW already carries `py-2`, and adding a second
-  // pair here made every row as tall as a two-line one — measured, a plain row
-  // and a row with a status line both came out at 60px, which would have made
-  // every alignment assertion below hold on the defect too.
-  //
-  // `self-stretch` still takes the row's full height so the marks centre
-  // against whatever the row grew to; the height comes from the row's content,
-  // never from this cell.
-  // THE TUPLE'S OWN CELL, borrowed rather than restated — see `MARKS_CELL`.
-  // The row is what renders this track, so the row is what owns the string; a
-  // second copy here is how a heading's marks and a row's marks come to sit
-  // differently, which is the drift this whole slice exists to remove.
   row: MARKS_CELL,
-  // In a HEADING the mark simply FLOWS. The `<h2>` is a flex row and the mark
-  // takes its place after the tally like any other child — there is no grid
-  // here to stay out of, and no `relative` box to hang in.
-  //
-  // `self-center` because the heading aligns on `items-baseline` and a track
-  // carries no text to align — on the baseline it would sit low against the
-  // words, the same reason `LiveDot` documents for itself. `h-3` rather than
-  // the row's `h-5`: the heading is `text-xs` and a 20px box would stretch it.
-  //
-  // NO `sm:absolute`, and that is the load-bearing difference. The row's
-  // placement positions against the row's own `relative` box; the heading has
-  // no positioned ancestor, so reusing the row's string would not sit the mark
-  // slightly wrong — it would hang it off whatever ancestor happened to be
-  // positioned and land it somewhere else on the page entirely.
-  heading: 'relative flex h-3 w-3 shrink-0 items-center self-center',
 } as const;
