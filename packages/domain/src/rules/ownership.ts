@@ -126,6 +126,23 @@ const personFieldOwnership = (field: string | undefined, reader: Reader): Owners
 };
 
 /**
+ * Whose a row is, from several ownership arms read for it.
+ *
+ * An arm is one answer of {@link ownership}: the row's own (a PR author, an
+ * agent, a ticket's assignees) or the plan's (its assignee, author and
+ * approver).
+ *
+ * @param arms - the answers of the arms read for the row.
+ * @returns `mine` where any arm answers `mine`; `theirs` where none answers
+ *   `mine` and one answers `theirs`; `unknown` otherwise, including for an
+ *   empty list.
+ */
+export const mineOwnership = (arms: readonly Ownership[]): Ownership => {
+  if (arms.includes('mine')) return 'mine';
+  return arms.includes('theirs') ? 'theirs' : 'unknown';
+};
+
+/**
  * Whose a plan is, by its assignee, author and approver.
  *
  * `mine` where any of the three resolves to the reader. `theirs` only where
@@ -134,11 +151,7 @@ const personFieldOwnership = (field: string | undefined, reader: Reader): Owners
  */
 const planOwnership = (
   fields: ReadonlyArray<string | undefined>, reader: Reader,
-): Ownership => {
-  const readings = fields.map((field) => personFieldOwnership(field, reader));
-  if (readings.includes('mine')) return 'mine';
-  return readings.includes('theirs') ? 'theirs' : 'unknown';
-};
+): Ownership => mineOwnership(fields.map((field) => personFieldOwnership(field, reader)));
 
 /**
  * Whether a `tracker-account` assignee list names the reader, through a

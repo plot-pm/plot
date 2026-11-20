@@ -28,7 +28,7 @@ import type { PersonDirectory } from '@plot-pm/domain/entities/person';
 import { personCommentHolds } from '@plot-pm/domain/rules/person-comment';
 import { ticketMarkOf, ticketRecordOf } from '@plot-pm/domain/rules/sprint-ticket-record';
 import type { AgentEntry, AgentRow, DraftPlan, IssueRow, ReleaseTickets, Slice, TicketSourceShape } from '../../../contract/schema.js';
-import { ownedFromCard, ownedFromRow, ownedFromTicket } from './mine-filter.js';
+import { ownedFromCard, ownedFromRow, ownedFromTicket, plansOfTicket, rowMineOwnership, ticketMineOwnership, type PlanOwners } from './mine-filter.js';
 import { sliceKeyOf } from './sections.js';
 import { SLICE_LINKING_KINDS } from './slices.js';
 
@@ -60,6 +60,8 @@ export interface DeliveryMapInput {
   tickets?: readonly IssueRow[] | null | undefined;
   /** How the tickets name their assignees; `null` where unknown. */
   ticketSource?: TicketSourceShape | null | undefined;
+  /** The owners of the plans whose `Issue:` names each ticket, from `ticketPlanOwners`; absent reads as no plan. */
+  ticketPlans?: ReadonlyMap<string, readonly PlanOwners[]> | undefined;
   /** The target releases of the selected sprints; absent where the Sprint filter is off. */
   releases?: readonly string[] | undefined;
   /** The Active sprints' `Release:` and `Start:` values; absent reads as no target release. */
@@ -298,15 +300,26 @@ export const sprintReleases = (
 };
 
 /**
- * One ticket reading per ticket the server chose. Ownership comes from the
- * assignees and the source; `planned` and `releases` are copied as the wire
- * states them, and a ticket the tracker categorises `Done` is `delivered`.
+ * One ticket reading per ticket the server chose. Under the lenient Mine mode
+ * ownership combines the assignees' arm and the arms of the plans that name the
+ * ticket (`ticketMineOwnership`); under every other mode it is the assignees'
+ * arm alone. `planned` and `releases` are copied as the wire states them, and a
+ * ticket the tracker categorises `Done` is `delivered`.
  */
-const ticketItem = (ticket: IssueRow, source: TicketSourceShape | null, reader: Reader): WorkItemReading => {
+const ticketItem = (
+  ticket: IssueRow,
+  source: TicketSourceShape | null,
+  reader: Reader,
+  mode: MineMode,
+  plans: readonly PlanOwners[],
+): WorkItemReading => {
+  const assignees = { assignees: ticket.assignees ?? [] };
   const item: WorkItemReading = {
     id: ticketItemId(ticket.number),
     kind: 'ticket',
-    ownership: ownership(ownedFromTicket({ assignees: ticket.assignees ?? [] }, source), reader),
+    ownership: mode === 'mine-and-unknown'
+      ? ticketMineOwnership(assignees, source, plans, reader)
+      : ownership(ownedFromTicket(assignees, source), reader),
   };
   if (ticket.planned === true) item.planned = true;
   if (ticket.releases !== undefined) item.releases = ticket.releases;
@@ -359,7 +372,7 @@ const mapReadings = (input: DeliveryMapInput): DeliveryMapping => {
 
   const ticketsByItem: Record<string, IssueRow> = {};
   for (const ticket of input.tickets ?? []) {
-    const reading = ticketItem(ticket, input.ticketSource ?? null, input.reader);
+    const reading = ticketItem(ticket, input.ticketSource ?? null, input.reader, input.mode, plansOfTicket(input.ticketPlans, ticket.number));
     ticketsByItem[reading.id] = ticket;
     items.push(reading);
   }
@@ -441,7 +454,9 @@ const mapReadings = (input: DeliveryMapInput): DeliveryMapping => {
  *
  * `input.rows` and `input.drafts` are the payload's, not filtered by Mine. The
  * mode `all` keeps every row. `mine-and-unknown` drops a row or Draft plan that
- * is `'theirs'`. `mine` also drops one whose owner is `'unknown'`, except where
+ * is `'theirs'`, where a row's answer combines its PR arm and its plan's arm
+ * (`rowMineOwnership`) and a ticket's combines its assignees and the plans that
+ * name it. `mine` reads a row's single arm (`ownedFromRow`) and also drops one whose owner is `'unknown'`, except where
  * `placeDelivery`, given every row, puts its item under You. So You lists the
  * same items in every Mine mode, and the mode narrows Work items only.
  *
@@ -463,9 +478,11 @@ export const deliveryMapping = (input: DeliveryMapInput): DeliveryMapping => {
     placeDelivery(whole.readings, whole.input).items.filter((p) => p.section === 'you').map((p) => p.id),
   );
   const keeps = (id: string, o: Ownership): boolean => o === 'mine' || (o === 'unknown' && (input.mode === 'mine-and-unknown' || you.has(id)));
+  const rowOwnership = (r: AgentRow): Ownership =>
+    input.mode === 'mine-and-unknown' ? rowMineOwnership(r, input.reader) : ownership(ownedFromRow(r), input.reader);
   const narrowed = mapReadings({
     ...input,
-    rows: input.rows.filter((r) => keeps(itemIdOfRow(r), ownership(ownedFromRow(r), input.reader))),
+    rows: input.rows.filter((r) => keeps(itemIdOfRow(r), rowOwnership(r))),
     drafts: input.drafts.filter((d) => keeps(draftItemId(d.plan), ownership(ownedFromCard(d), input.reader))),
   });
   return { ...narrowed, wholeReadings: whole.readings };

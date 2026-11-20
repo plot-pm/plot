@@ -1,4 +1,4 @@
-import { isMineStrict, ownedTicket, ownership, readerIsKnown, type MineMode, type OwnedRow, type Reader } from '@plot-pm/domain';
+import { isMineStrict, mineOwnership, ownedTicket, ownership, readerIsKnown, type MineMode, type OwnedRow, type Ownership, type Reader } from '@plot-pm/domain';
 import { type AgentEntry, type AgentRow, type Board, type Card, type DraftPlan, type IssueRow, type TicketSourceShape } from '../../../contract/schema.js';
 
 /**
@@ -120,8 +120,9 @@ export const writeMineStrict = (on: boolean, storage?: Pick<Storage, 'setItem'>)
  *
  * A row with a PR is a `pr` row and matches on the author's handle, whatever
  * its plan fields say — the PR author is a host handle compared exactly, the
- * plan fields are free text resolved through `People`, and the two arms are
- * deliberately not merged. A row without a PR but with a plan naming an
+ * plan fields are free text resolved through `People`. This is the one arm the
+ * strict mode reads; the lenient mode reads both arms through
+ * {@link rowMineOwnership}. A row without a PR but with a plan naming an
  * assignee, author or approver is a `plan` row, resolved the same way the
  * Discovery card's `assignee`/`author`/`approver` fields are. A row with
  * neither — including a `build` row: a build of `main` belongs to nobody in
@@ -134,7 +135,7 @@ export const writeMineStrict = (on: boolean, storage?: Pick<Storage, 'setItem'>)
  *
  * Every field here is `''` where the plan (or the host, for `pr.author`) did
  * not answer, and `undefined` on a payload the client cast from an older
- * server. Both reach {@link ownsLeniently} as unknown, which shows the row —
+ * server. Both reach the rule as unknown, which the lenient mode shows —
  * so the values are passed through here rather than normalised, the way
  * {@link ownedFromCard} already does.
  */
@@ -165,6 +166,89 @@ export const ownedFromAgent = (agent: Pick<AgentEntry, 'identity' | 'state'>): O
 export const ownedFromCard = (card: Pick<Card, 'assignee' | 'author' | 'approver'>): OwnedRow =>
   ({ kind: 'plan', assignee: card.assignee, author: card.author, approver: card.approver });
 
+/** The fields of a plan that name its owners: a card, a Draft plan, or the plan fields of a branch row. */
+export type PlanOwners = Pick<Card, 'assignee' | 'author' | 'approver'>;
+
+/**
+ * Whose a branch row is under the lenient «Mine» mode: its PR author's arm and
+ * its plan's arm, combined by `mineOwnership`.
+ *
+ * A row with no PR contributes no PR arm. A plan that names nobody answers
+ * `unknown`, so a row of unknown owner on such a plan stays `unknown`.
+ *
+ * @param row - the row's PR and the assignee, author and approver of its plan.
+ * @param reader - who is reading.
+ * @returns `mine` where either arm is the reader's, `theirs` where neither is
+ *   and one is another person's, `unknown` otherwise.
+ */
+export const rowMineOwnership = (
+  row: Pick<AgentRow, 'pr' | 'assignee' | 'author' | 'approver'>,
+  reader: Reader,
+): Ownership => mineOwnership([
+  ...(row.pr ? [ownership({ kind: 'pr', author: row.pr.author }, reader)] : []),
+  ownership(ownedFromCard(row), reader),
+]);
+
+/**
+ * Whose a ticket is under the lenient «Mine» mode: its assignees' arm and the
+ * arm of each plan whose `Issue:` names it, combined by `mineOwnership`.
+ *
+ * @param ticket - the ticket's assignees.
+ * @param source - how this read's tickets name their assignees, or `null`.
+ * @param plans - the owners of the plans that name the ticket; empty where none does.
+ * @param reader - who is reading.
+ * @returns `mine` where any arm is the reader's, `theirs` where none is and
+ *   one is another person's, `unknown` otherwise.
+ */
+export const ticketMineOwnership = (
+  ticket: Pick<IssueRow, 'assignees'>,
+  source: TicketSourceShape | null,
+  plans: readonly PlanOwners[],
+  reader: Reader,
+): Ownership => mineOwnership([
+  ownership(ownedFromTicket(ticket, source), reader),
+  ...plans.map((plan) => ownership(ownedFromCard(plan), reader)),
+]);
+
+/** A ticket key with no leading `#`, the spelling the fleet payload's `plans` carry. */
+const issueKeyOf = (key: string): string => key.replace(/^#/, '');
+
+/**
+ * The owners of the plans that name each ticket, keyed by ticket key.
+ *
+ * @param plans - the fleet payload's `plans`: each plan's file and the tickets its `Issue:` names.
+ * @param cardOf - the plan card of a plan file, or `null`/`undefined` where none is read.
+ * @returns per ticket key without a leading `#`, the owners of each plan whose
+ *   card was read. A plan with no card adds nothing.
+ */
+export const ticketPlanOwners = (
+  plans: Readonly<Record<string, { file: string; issues?: readonly string[] }>>,
+  cardOf: (planFile: string) => PlanOwners | null | undefined,
+): ReadonlyMap<string, readonly PlanOwners[]> => {
+  const owners = new Map<string, PlanOwners[]>();
+  for (const plan of Object.values(plans)) {
+    const card = cardOf(plan.file);
+    if (!card) continue;
+    for (const issue of plan.issues ?? []) {
+      const key = issueKeyOf(issue);
+      if (key !== '') (owners.get(key) ?? owners.set(key, []).get(key)!).push(card);
+    }
+  }
+  return owners;
+};
+
+/**
+ * The owners of the plans that name one ticket.
+ *
+ * @param planOwners - the map {@link ticketPlanOwners} builds, or `undefined` where none was given.
+ * @param number - the ticket's key.
+ * @returns the owners, or `[]` where no plan names the ticket.
+ */
+export const plansOfTicket = (
+  planOwners: ReadonlyMap<string, readonly PlanOwners[]> | undefined,
+  number: string,
+): readonly PlanOwners[] => planOwners?.get(issueKeyOf(number)) ?? [];
+
 /**
  * Who is reading, as the ownership rule wants it — the identity fields
  * `ServerInfo` carries, and the `People` directory beside them.
@@ -192,10 +276,10 @@ export { readerIsKnown };
  * that happens to admit everything: the identity of the array is what lets the
  * caller's `rowsBySection` memoise, and an unfiltered view must cost nothing.
  *
- * `mine-and-unknown` hides a row only where {@link ownsLeniently} answers
- * false — which it does only for a row somebody ELSE owns; a row whose owner
- * cannot be determined stays. `mine` keeps only a row {@link isMineStrict}
- * answers true for.
+ * `mine-and-unknown` hides a row only where {@link rowMineOwnership} answers
+ * `theirs`: neither the PR nor the plan is the reader's, and one is another
+ * person's. A row whose owner cannot be determined stays. `mine` keeps only a
+ * row {@link isMineStrict} answers true for over {@link ownedFromRow}.
  */
 export const rowsForReader = <T extends Pick<AgentRow, 'pr' | 'assignee' | 'author' | 'approver'>>(
   rows: T[],
@@ -203,8 +287,8 @@ export const rowsForReader = <T extends Pick<AgentRow, 'pr' | 'assignee' | 'auth
   mode: MineMode,
 ): T[] => {
   if (mode === 'all') return rows;
-  const owns = mode === 'mine' ? isMineStrict : ownsLeniently;
-  return rows.filter((r) => owns(ownedFromRow(r), reader));
+  if (mode === 'mine') return rows.filter((r) => isMineStrict(ownedFromRow(r), reader));
+  return rows.filter((r) => rowMineOwnership(r, reader) !== 'theirs');
 };
 
 /**
@@ -229,18 +313,28 @@ export const draftsForReader = (drafts: DraftPlan[], reader: Reader, mode: MineM
  * «Mine» mode.
  *
  * `all` returns the array untouched, for the reason {@link rowsForReader}
- * gives. `mine-and-unknown` hides an agent only where {@link ownsLeniently}
- * answers false for {@link ownedFromAgent}; `mine` keeps only an agent
- * {@link isMineStrict} answers true for.
+ * gives. `mine-and-unknown` hides an agent only where neither the agent arm
+ * ({@link ownedFromAgent}) nor the plan of the row its `branch` joins is the
+ * reader's and one is another person's, combined by `mineOwnership`. An agent
+ * whose branch joins no row reads its agent arm alone. `mine` keeps only an
+ * agent {@link isMineStrict} answers true for over its agent arm.
+ *
+ * @param rowByBranch - the branch rows by branch name, the join the caller
+ *   already holds; absent where the caller has none.
  */
-export const agentsForReader = <T extends Pick<AgentEntry, 'identity' | 'state'>>(
+export const agentsForReader = <T extends Pick<AgentEntry, 'identity' | 'state'> & Partial<Pick<AgentEntry, 'branch'>>>(
   agents: T[],
   reader: Reader,
   mode: MineMode,
+  rowByBranch?: ReadonlyMap<string, PlanOwners>,
 ): T[] => {
   if (mode === 'all') return agents;
-  const owns = mode === 'mine' ? isMineStrict : ownsLeniently;
-  return agents.filter((a) => owns(ownedFromAgent(a), reader));
+  if (mode === 'mine') return agents.filter((a) => isMineStrict(ownedFromAgent(a), reader));
+  return agents.filter((a) => {
+    const row = a.branch ? rowByBranch?.get(a.branch) : undefined;
+    const arms = [ownership(ownedFromAgent(a), reader), ...(row ? [ownership(ownedFromCard(row), reader)] : [])];
+    return mineOwnership(arms) !== 'theirs';
+  });
 };
 
 /**
@@ -248,7 +342,7 @@ export const agentsForReader = <T extends Pick<AgentEntry, 'identity' | 'state'>
  * `ownedTicket` — the mapping Discovery's `lanesForReader` uses too.
  *
  * `source` is `null` where the board could not resolve how this read's
- * tickets name their assignees — {@link ownsLeniently} then sees
+ * tickets name their assignees — the rule then sees
  * `{ source: null }` on the `ticket` arm, which `ticketOwnership` answers
  * `unknown` for, same as an unassigned row. Either way the row stays visible
  * with the filter on.
@@ -261,11 +355,12 @@ export const ownedFromTicket = (row: Pick<IssueRow, 'assignees'>, source: Ticket
  * name their assignees, and the effective «Mine» mode.
  *
  * `all` returns the array untouched, for the reason {@link rowsForReader}
- * gives. Otherwise a ticket is hidden only where {@link ownsLeniently} answers
- * false for {@link ownedFromTicket} — an unassigned ticket, or one whose owner
- * cannot be determined because `source` is `null`, stays visible.
+ * gives. Otherwise a ticket is hidden only where {@link ticketMineOwnership}
+ * answers `theirs`: neither its assignees nor a plan whose `Issue:` names it
+ * is the reader's, and one is another person's. An unassigned ticket, or one
+ * whose owner cannot be determined because `source` is `null`, stays visible.
  *
- * **This filter always uses the lenient `ownsLeniently` rule, never the
+ * **This filter always uses the lenient rule, never the
  * strict one — `mine` mode does not sharpen it.** The panel decided *the box
  * wins*: this view shows every open ticket, narrowed only by the
  * `mine-and-unknown` answer, so an unassigned ticket comes back here even
@@ -276,12 +371,15 @@ export const ownedFromTicket = (row: Pick<IssueRow, 'assignees'>, source: Ticket
  * `waitingTickets` already chose to show, the same way `rowsForReader`
  * narrows the sprint-filtered rows.
  */
-export const ticketsForReader = <T extends Pick<IssueRow, 'assignees'>>(
+export const ticketsForReader = <T extends Pick<IssueRow, 'assignees'> & Partial<Pick<IssueRow, 'number'>>>(
   tickets: T[],
   reader: Reader,
   source: TicketSourceShape | null,
   mode: MineMode,
-): T[] => (mode === 'all' ? tickets : tickets.filter((t) => ownsLeniently(ownedFromTicket(t, source), reader)));
+  planOwners?: ReadonlyMap<string, readonly PlanOwners[]>,
+): T[] => (mode === 'all'
+  ? tickets
+  : tickets.filter((t) => ticketMineOwnership(t, source, plansOfTicket(planOwners, t.number ?? ''), reader) !== 'theirs'));
 
 /**
  * The board with only the plan cards that stay in view, how many cards the
