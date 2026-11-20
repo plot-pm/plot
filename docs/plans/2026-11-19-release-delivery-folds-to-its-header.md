@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-19, jwloka, plan-PR #3565 merged
 - **Started:** 2026-11-19, Jan Wloka, `feature/release-delivery-folds-to-its-header`
 - **Delivered:** 2026-11-20
+- **Released:** 2026-11-20, v2.35.1
 
 ## Changelog
 
