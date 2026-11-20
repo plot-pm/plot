@@ -1,0 +1,1 @@
+../2026-11-20-folded-sections-summarise-visually.md

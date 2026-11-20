@@ -1,0 +1,1 @@
+../2026-11-20-every-delivery-section-folds.md

@@ -1,0 +1,1 @@
+../2026-11-20-delivery-activity-has-three-signals.md
