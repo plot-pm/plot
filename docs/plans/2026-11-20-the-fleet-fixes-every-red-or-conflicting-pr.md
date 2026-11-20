@@ -11,6 +11,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-20, Jan Wloka, plan-PR #3597 merged
 - **Started:** 2026-11-20, Jan Wloka, `feature/the-fixer-scope-reads-every-open-pr`
+- **Started:** 2026-11-21, Jan Wloka, `feature/the-fixer-merges-the-base-into-a-conflicting-pr`
 
 ## Changelog
 
