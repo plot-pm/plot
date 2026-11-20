@@ -294,7 +294,7 @@ const ticketAttr = (segment: TupleSegment): Record<string, string> => (
 /** What a call site adds to one segment of a link tuple: the hooks it stamps and what a click does. */
 export interface SegmentControl {
   /** Attributes for the segment, as `extraAttr` on `TupleLinkView`. */
-  extraAttr?: { link?: Record<string, string>; text?: Record<string, string> };
+  extraAttr?: { link?: Record<string, string | undefined>; text?: Record<string, string | undefined> };
   /** Makes a segment with no address into a button, as `onActivate` on `TupleLinkView`. */
   onActivate?: () => void;
   /** Replaces a plain primary click on an in-page anchor, as `onFollow` on `TupleLinkView`. */
@@ -402,7 +402,7 @@ export function TupleLinkView({
    * it is building. Passed as a pair, one for each answer: the attribute for a
    * link and the attribute for the same name with no address.
    */
-  extraAttr?: { link?: Record<string, string>; text?: Record<string, string> };
+  extraAttr?: { link?: Record<string, string | undefined>; text?: Record<string, string | undefined> };
   /**
    * Makes a name with NO ADDRESS into a control.
    *

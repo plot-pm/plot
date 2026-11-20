@@ -69,9 +69,15 @@ const Linked = ({ resolved, handlers, children }: { resolved: ResolvedLink; hand
   }
 };
 
-/** What a click on a cell's tuple segment does, by where `resolveLink` placed it; the hook is `data-row-link`. */
-const cellControl = (resolved: ResolvedLink, handlers: LinkHandlers): SegmentControl | undefined => {
-  const hook = { link: { 'data-row-link': '' }, text: { 'data-row-link': '' } };
+/**
+ * What a click on a cell's tuple segment does, by where `resolveLink` placed it; the hook is `data-row-link`.
+ *
+ * A cell's branch segment carries no `data-branch`: that hook names the row a branch belongs to, and a cell that only
+ * mentions a branch is not that row.
+ */
+const cellControl = (resolved: ResolvedLink, handlers: LinkHandlers): SegmentControl => {
+  const attrs = { 'data-row-link': '', 'data-branch': undefined };
+  const hook = { link: attrs, text: attrs };
   switch (resolved.kind) {
     case 'href':
       return { extraAttr: hook };
@@ -82,7 +88,7 @@ const cellControl = (resolved: ResolvedLink, handlers: LinkHandlers): SegmentCon
     case 'reveal':
       return { extraAttr: hook, onActivate: () => handlers.onReveal(resolved.branch) };
     default:
-      return undefined;
+      return { extraAttr: { link: { 'data-branch': undefined }, text: { 'data-branch': undefined } } };
   }
 };
 
