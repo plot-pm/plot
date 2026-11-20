@@ -328,6 +328,9 @@ const ENDPOINT: Record<ControllerAction, string> = {
   'story-status': 'POST /api/story-status {"slug":"<slug>","status":"<status>"}',
 };
 
+/** The release bundle with its arguments in the order `plot-deliver.mjs` parses them. */
+const RELEASE_BUNDLE = (scriptDir: string): string => `${shellQuote(`${scriptDir}/board/plot-deliver.mjs`)} --release <version> <slug>`;
+
 /** The request body of the spike mode of `approve`. */
 const SPIKE_ENDPOINT = 'POST /api/approve {"slug":"<slug>","spike":true}';
 
@@ -344,7 +347,9 @@ export const carriesSpikeFlag = (command: string): boolean =>
  * The refusal for a controller-owned action called with no controller receipt.
  * It names the board-free command first where the action has one (`dispatch`,
  * `approve`, `deliver`, `restart`, `release-approve`), the board's route as the
- * button, and the receipt escape last.
+ * button, and the receipt escape last. For `release`, which has no board-free
+ * command, the receipt and `plot-deliver.mjs --release <version> <slug>` are
+ * the shell route, and the text names both.
  *
  * @param action - the action the command runs; `loose-delete`, `needs-design`,
  *   `supersede` and `story-status` have no receipt escape and take {@link finalControllerRefusal} instead.
@@ -356,7 +361,7 @@ export const carriesSpikeFlag = (command: string): boolean =>
 export const controllerRefusal = (action: Exclude<ControllerAction, 'loose-delete' | 'needs-design' | 'supersede' | 'story-status'>, scriptDir: string, spike = false): string => {
   const owner = action === 'release' ? 'deliver' : action === 'restart' ? 'dispatch' : action;
   const named = action === 'release-approve' ? 'plot-ask.mjs release-approve' : `plot-${owner}.sh`;
-  const lines = [`plot-controller-gate: ${named} is a controller-owned action.`, '', '  Call the controller instead:'];
+  const lines = [`plot-controller-gate: ${named} is a controller-owned action.`, '', action === 'release' ? "  The board's Release button sends:" : '  Call the controller instead:'];
   if (action === 'dispatch') {
     lines.push(`      node ${shellQuote(`${scriptDir}/board/plot-dispatch-command.mjs`)} <slug>`);
     lines.push(`    which runs with no board. With the board up, ${ENDPOINT[action]} is its button, and /plot-dispatch asks it.`);
@@ -373,13 +378,17 @@ export const controllerRefusal = (action: Exclude<ControllerAction, 'loose-delet
     lines.push(`    With the board up, ${spike && action === 'approve' ? SPIKE_ENDPOINT : ENDPOINT[action]} is its button, and /plot-${action} asks it.`);
   } else {
     lines.push(`      ${ENDPOINT[action]}`);
-    lines.push(`    which is the board's button, and /plot-${owner} asks it.`);
+    lines.push(`    once a person clicks it, and /plot-${owner} asks it. The gate refuses that request from a shell.`);
   }
   lines.push(
     '',
-    '  Or, if you accept the bypass, run these as TWO calls, in this order:',
+    action === 'release'
+      ? '  From a shell, run these as TWO calls, in this order:'
+      : '  Or, if you accept the bypass, run these as TWO calls, in this order:',
     `      1. bash ${shellQuote(`${scriptDir}/plot-state-receipt.sh`)} --unowned-action ${action} ${action === 'restart' ? '<branch>' : '<slug>'} "<reason>"`,
-    `      2. the ${action} command you meant`,
+    action === 'release'
+      ? `      2. node ${RELEASE_BUNDLE(scriptDir)}`
+      : `      2. the ${action} command you meant`,
     '    A chained `receipt && command` is checked before either runs, and is refused. The receipt stays until the',
     '    action exits 0.',
     '',
@@ -401,7 +410,8 @@ export type FinalAction = 'release-approve' | 'release' | 'restart' | 'loose-del
  * board's button for `release`/`restart`, `plot-ask.mjs release-approve`'s
  * own bundle for `release-approve` — and offers no receipt bypass: a receipt
  * written by the very call this refuses (`plot-ask.mjs`'s `main.ts:220`)
- * would otherwise clear the gate guarding it.
+ * would otherwise clear the gate guarding it. For `release` it also names the
+ * shell route {@link controllerRefusal} admits: the receipt, then the bundle.
  *
  * @param action - the action the command runs.
  * @param scriptDir - the absolute directory holding the plot scripts.
@@ -419,7 +429,7 @@ export const finalControllerRefusal = (action: FinalAction, scriptDir: string): 
   }
   const bundle =
     action === 'release'
-      ? `node ${shellQuote(`${scriptDir}/board/plot-deliver.mjs`)} --release <slug> <version>`
+      ? `node ${RELEASE_BUNDLE(scriptDir)}`
       : action === 'loose-delete'
         ? `node ${shellQuote(`${scriptDir}/board/plot-loose-delete-command.mjs`)} <branch>`
         : action === 'needs-design'
@@ -429,6 +439,17 @@ export const finalControllerRefusal = (action: FinalAction, scriptDir: string): 
             : action === 'story-status'
               ? `node ${shellQuote(`${scriptDir}/board/plot-story-status.mjs`)} <slug> <status>`
               : `node ${shellQuote(`${scriptDir}/board/plot-restart-command.mjs`)} <branch>`;
+  if (action === 'release') {
+    return [
+      `plot-controller-gate: ${ENDPOINT[action]} is a controller-owned action.`,
+      '',
+      "  Use the board's button, which asks that route once a person has clicked it. No receipt bypasses",
+      '  this refusal. From a shell, run these as TWO calls, in this order:',
+      `      1. bash ${shellQuote(`${scriptDir}/plot-state-receipt.sh`)} --unowned-action release <slug> "<reason>"`,
+      `      2. ${bundle}`,
+      '    A chained `receipt && command` is refused.',
+    ].join('\n');
+  }
   return [
     `plot-controller-gate: ${ENDPOINT[action]} is a controller-owned action.`,
     '',

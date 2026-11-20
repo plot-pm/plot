@@ -127,6 +127,9 @@ describe('delivery view nesting', () => {
         config: { autoReview: true, correctionBudget: 2 },
       }), slices, [], undefined, undefined, index);
       expect(v.releaseBlocks[0]!.plans.map((p) => p.label)).toEqual(['#3489 #2531 p1', 'ABC-123 p2', 'p3']);
+      expect(v.releaseBlocks[0]!.plans.map((p) => p.keys)).toEqual([
+        [{ key: '3489', text: '#3489' }, { key: '2531', text: '#2531' }], [{ key: 'ABC-123', text: 'ABC-123' }], [],
+      ]);
       expect(planView(rows, slices).releaseBlocks[0]!.plans.map((p) => p.label)).toEqual(['p1', 'p2', 'p3']);
     });
 

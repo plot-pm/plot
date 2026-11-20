@@ -26,7 +26,8 @@ const render = (number: number, title: string): string =>
 describe('a ticket row names its plan', () => {
   it('a ticket whose plan exists shows the plan label and links to it', () => {
     const html = render(3006, 'Two test teardowns turn main red');
-    expect(html).toContain('#3006 two-test-teardowns-turn-main-red');
+    expect(html).toContain('data-title-number="true">#3006</span>');
+    expect(html).toMatch(/data-tuple-link="plan"[^>]*><span class="min-w-0 truncate">two-test-teardowns-turn-main-red<\/span><\/a>/);
     expect(html).toContain('href="/plan/2026-11-01-two-test-teardowns-turn-main-red.md"');
   });
 
