@@ -56,11 +56,10 @@ describe('RowCell', () => {
     expect(html).toContain('class="text-blue-600 hover:underline dark:text-blue-400"');
   });
 
-  it('draws a link that leads somewhere in the link colour, with no dark: utility', () => {
+  it('draws a link that leads somewhere as a tuple segment in the link colour', () => {
     const html = render({ value: '#7', links: [{ to: 'pr', pr: 7 }] });
-    expect(html).toContain('data-row-link');
-    expect(html).toContain('class="delivery-text-link"');
-    expect(html).not.toContain('dark:');
+    expect(html).toMatch(/<a href="https:\/\/github\.com\/tiny\/garden\/pull\/7" data-tuple-link="pr"[^>]*data-row-link=""[^>]*class="[^"]*text-blue-600 hover:underline/);
+    expect(html).not.toContain('delivery-text-link');
   });
 
   it('still renders the role chip, the name and the attempt for an agent cell, as Fleet reads them', () => {
