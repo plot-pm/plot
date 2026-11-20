@@ -9,7 +9,7 @@
 - **Sprint:** delivery-ui-polish
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
