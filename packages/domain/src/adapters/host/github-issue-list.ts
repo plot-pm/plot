@@ -131,7 +131,7 @@ export const githubIssueList = (api: GithubApi): GithubIssueList => {
   let searchType: Promise<{ type: string } | { refusal: HostRefusal }> | null = null;
 
   const askSearchType = async (): Promise<{ type: string } | { refusal: HostRefusal }> => {
-    const answer = await api.request({ method: 'POST', path: '/graphql', body: { query: SEARCH_TYPES_QUERY }, label: 'graphql, search types' });
+    const answer = await api.request({ method: 'POST', path: '/graphql', body: { query: SEARCH_TYPES_QUERY }, label: 'issue-list search types' });
     if (!answer.ok) return { refusal: answer.refusal };
     const errors = graphqlErrors(answer.reply);
     if (errors !== null) return { refusal: { kind: 'failed', said: errors } };
@@ -175,7 +175,7 @@ export const githubIssueList = (api: GithubApi): GithubIssueList => {
           query.state === 'open'
             ? { ...base, limit: wanted, ...(cursor === undefined ? {} : { endCursor: cursor }) }
             : { ...base, limit: first, ...(cursor === undefined ? {} : { after: cursor, perPage: wanted }) };
-        const answer = await api.request({ method: 'POST', path: '/graphql', body: { query: graphqlQuery, variables }, label: `graphql, page ${page}` });
+        const answer = await api.request({ method: 'POST', path: '/graphql', body: { query: graphqlQuery, variables }, label: `issue-list ${query.state} graphql, page ${page}` });
         if (!answer.ok) return { ok: false, refusal: answer.refusal };
         const errors = graphqlErrors(answer.reply);
         if (errors !== null) return { ok: false, refusal: { kind: 'failed', said: errors } };

@@ -182,7 +182,7 @@ export const githubPrListing = (api: GithubApi, ci?: CiBuildReader): GithubPrLis
   let searchType: Promise<{ type: string } | { refusal: HostRefusal }> | null = null;
 
   const askSearchType = async (): Promise<{ type: string } | { refusal: HostRefusal }> => {
-    const answer = await api.request({ method: 'POST', path: '/graphql', body: { query: SEARCH_TYPES_QUERY }, label: 'graphql, search types' });
+    const answer = await api.request({ method: 'POST', path: '/graphql', body: { query: SEARCH_TYPES_QUERY }, label: 'pr-list search types' });
     if (!answer.ok) return { refusal: answer.refusal };
     const errors = graphqlErrors(answer.reply);
     if (errors !== null) return { refusal: { kind: 'failed', said: errors } };
@@ -201,6 +201,7 @@ export const githubPrListing = (api: GithubApi, ci?: CiBuildReader): GithubPrLis
     const fragment = rich ? RICH_FRAGMENT : PLAIN_FRAGMENT;
     let base: Record<string, unknown>;
     let query: string;
+    const shape = since === undefined ? `pr-list ${state} graphql` : `pr-list ${state} since graphql`;
     if (since === undefined) {
       const [owner, repo] = slug.split('/');
       base = { owner, repo, state: LIST_STATES[state] };
@@ -218,7 +219,7 @@ export const githubPrListing = (api: GithubApi, ci?: CiBuildReader): GithubPrLis
     let cursor: unknown = undefined;
     for (let page = 1; ; page += 1) {
       const variables = { ...base, limit: pageLimit, ...(cursor === undefined ? {} : { endCursor: cursor }) };
-      const answer = await api.request({ method: 'POST', path: '/graphql', body: { query, variables }, label: `graphql, page ${page}` });
+      const answer = await api.request({ method: 'POST', path: '/graphql', body: { query, variables }, label: `${shape}, page ${page}` });
       if (!answer.ok) return { prs, ended: false, pages: page - 1, refusal: answer.refusal };
       const errors = graphqlErrors(answer.reply);
       if (errors !== null) return { prs, ended: false, pages: page - 1, refusal: { kind: 'failed', said: errors } };
