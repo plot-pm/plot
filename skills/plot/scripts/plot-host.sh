@@ -3554,7 +3554,7 @@ budget_bucket() {
 #              a guess as a measurement. `unknown` is the honest word, and
 #              `unknown` is NEVER read as free — `headroom()` returns null for
 #              it by construction.
-#   bitbucket  `predicted` — the `Host rate limit` key, else 10000, the same
+#   bitbucket  `predicted` — the `Host rate limit` key, else 800, the same
 #              number `limit` reports; `declaredHostLimit` is its duplicate.
 #
 # A CALL THAT HARVESTED ITS OWN HEADERS OVERRIDES THIS, and that is the whole
@@ -3569,7 +3569,7 @@ budget_reading() { # $1=backend → "<limit>\t<remaining>\t<reset>\t<basis>"
   # bash answers `printf: -\: invalid option` and writes nothing. Measured
   # 2026-09-02, that broke the GitHub arm — the common path — in 10 host tests.
   case "$1" in
-    bitbucket) printf '%s\t%s\t%s\t%s\n' "$(bash "$here/plot-config.sh" get "Host rate limit" "" 2>/dev/null | grep -xE '[1-9][0-9]*' || echo 10000)" - - predicted ;;
+    bitbucket) printf '%s\t%s\t%s\t%s\n' "$(bash "$here/plot-config.sh" get "Host rate limit" "" 2>/dev/null | grep -xE '[1-9][0-9]*' || echo 800)" - - predicted ;;
     *) printf '%s\t%s\t%s\t%s\n' - - - unknown ;;
   esac
 }
@@ -5715,8 +5715,8 @@ case "$op" in
       fi
     elif [ "$be" = "bitbucket" ]; then
       # `bb` shows this script no response headers, so the number is this
-      # adapter's prediction — the `Host rate limit` key, else 10000 requests an
-      # hour, Atlassian's scaled cap — and it is tagged `predicted` because it is one.
+      # adapter's prediction — the `Host rate limit` key, else 800 requests an
+      # hour, the ceiling `bb` keeps — and it is tagged `predicted` because it is one.
       #
       # A PREDICTION IS NOT A LIE AND NOT A FAILURE. It is answered: the adapter
       # is telling the truth about what it knows. A caller reads the basis and

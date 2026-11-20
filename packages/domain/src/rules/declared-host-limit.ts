@@ -2,7 +2,7 @@
 export const HOST_RATE_LIMIT_KEY = 'Host rate limit';
 
 /** The predicted hourly limit where the key is unset or does not read as a limit. */
-export const DEFAULT_PREDICTED_HOST_LIMIT = 10_000;
+export const DEFAULT_PREDICTED_HOST_LIMIT = 800;
 
 /** A limit the key may declare: a positive whole number with no leading zero. */
 const DECLARED = /^[1-9][0-9]*$/;

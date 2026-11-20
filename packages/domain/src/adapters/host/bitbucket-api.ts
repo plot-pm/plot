@@ -162,7 +162,7 @@ const CREDENTIAL_FIX =
  * records basis `actual` with that limit, with `X-RateLimit-Remaining` and
  * `X-RateLimit-Reset` where the reply carries them and null where it does not;
  * any other reply records basis `predicted` with `options.predictedLimit`,
- * 10000 where it is unset. The bucket is
+ * 800 where it is unset. The bucket is
  * `api` whatever `X-RateLimit-Resource` names. A `429` answers `throttled` with the
  * `Retry-After` wait; an unanswered request answers `failed`.
  *

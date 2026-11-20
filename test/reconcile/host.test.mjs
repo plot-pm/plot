@@ -7117,7 +7117,7 @@ test('host: limit answers bitbucket from experience, tagged predicted', () => {
   const out = JSON.parse(run(['limit'], { env: { PLOT_HOST: 'bitbucket', PLOT_REPO_ROOT: stubs.dir }, stubs }).trim());
   assert.equal(out.connector, 'bitbucket');
   assert.equal(out.basis, 'predicted');
-  assert.equal(out.limit, 10000, 'with no Host rate limit key the prediction is 10000');
+  assert.equal(out.limit, 800, 'with no Host rate limit key the prediction is 800');
   assert.equal(out.remaining, null, 'a connector reporting no limit reports no spend either');
   assert.equal(argvOf(stubs.bbArgv), null, 'bb has nothing to answer — do not ask it');
 });
