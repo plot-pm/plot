@@ -99,7 +99,7 @@ Today actions sit in different columns per section, some rows hold buttons and s
 
 ### Mine rule
 
-- `feature/mine-means-mine-or-my-plan` — `mineOwnership` in the domain, the lenient Mine mode over the row's own arm and its plan's arm in `rowsForReader`, `deliveryMapping`, `agentsForReader`, `ticketsForReader` and the ticket reading that `mineAllows` reads, the strict mode unchanged, and unit tests for every `MineMode` and `DeliveryMine` cell of each filter <!-- builds: mineOwnership, the Mine rule assigned to me or my plan in every Delivery filter -->
+- `feature/mine-means-mine-or-my-plan` — `mineOwnership` in the domain, the lenient Mine mode over the row's own arm and its plan's arm in `rowsForReader`, `deliveryMapping`, `agentsForReader`, `ticketsForReader` and the ticket reading that `mineAllows` reads, the strict mode unchanged, and unit tests for every `MineMode` and `DeliveryMine` cell of each filter <!-- builds: mineOwnership, the Mine rule assigned to me or my plan in every Delivery filter --> → #3590
 
 ### Row menu column
 
