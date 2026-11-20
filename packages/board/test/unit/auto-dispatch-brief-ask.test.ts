@@ -103,12 +103,18 @@ function fixture(
 
   // THE SAME WRITER, ENDING AS A HARNESS DOES AT THE ACCOUNT'S USAGE LIMIT: the
   // limit line on stdout and a non-zero status. The reset is a time of day, which
-  // the rule resolves to the next such instant within 24 hours.
+  // the rule resolves to the next such instant within 24 hours. The stated hour
+  // is two hours after this fixture's own hour in UTC, so the reset lies 1-2 h
+  // ahead whenever the test runs. A fixed hour falls inside the rule's
+  // past-reset grace once a day and then resolves to `now`.
+  const resetHour24 = (new Date().getUTCHours() + 2) % 24;
+  const resetHour12 = resetHour24 % 12 === 0 ? 12 : resetHour24 % 12;
+  const resetText = `${resetHour12}${resetHour24 < 12 ? 'am' : 'pm'} (Etc/UTC)`;
   const limited = path.join(scriptsDir, 'stub-limited-brief-writer.sh');
   fs.writeFileSync(
     limited,
     `#!/usr/bin/env bash\n{ printf 'ARGC=%s\\n' "$#"; for a in "$@"; do printf 'ARG=%s\\n' "$a"; done; printf 'END\\n'; } >> ${JSON.stringify(askMarker)}\n` +
-      `echo "You've hit your session limit · resets 11pm (Europe/Berlin)"\nexit 1\n`,
+      `echo "You've hit your session limit · resets ${resetText}"\nexit 1\n`,
     { mode: 0o755 },
   );
 
