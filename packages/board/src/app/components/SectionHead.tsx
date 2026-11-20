@@ -1,5 +1,12 @@
 import type { ReactNode, SyntheticEvent } from 'react';
 import { sectionAnchor, type TabSection } from '../lib/agent-rows/delivery-view.js';
+import { EMPTY_MARK, hiddenByMineWords, SCOPE_OFF_WORDS, type EmptyKind, type SectionEmpty } from '../lib/agent-rows/section-empty.js';
+
+const EMPTY_MARK_CLASS: Readonly<Record<EmptyKind, string>> = {
+  clear: 'delivery-text-ok',
+  unread: 'delivery-text-warn',
+  stopped: 'delivery-text-muted',
+};
 
 /** Keeps a click or key on a header control from reaching the header row, which toggles the fold. */
 const stop = (e: SyntheticEvent) => e.stopPropagation();
@@ -51,4 +58,37 @@ export const SectionHead = ({ section, label, folded, onToggle, children, summar
     {children}
     <span data-section-summary-slot className="flex items-center gap-2">{summary}</span>
   </div>
+);
+
+export interface SectionEmptyFrameProps {
+  section: TabSection;
+  empty: SectionEmpty;
+  /** Turns Mine off: the setter the Mine chip calls. Absent where the frame offers no Mine button. */
+  onMine?: () => void;
+  /** Sets the scope to the release: the setter the scope toggle calls. Absent where the frame offers no scope button. */
+  onScopeOff?: () => void;
+  /** Data attributes the frame element carries beside its own. */
+  attrs?: Readonly<Record<`data-${string}`, string>>;
+  /** Data attributes the note carries. */
+  noteAttrs?: Readonly<Record<`data-${string}`, string>>;
+}
+
+/** The dashed frame an open section with no rows shows: the kind's mark, the sentence, the note and the filter buttons. */
+export const SectionEmptyFrame = ({ section, empty, onMine, onScopeOff, attrs, noteAttrs }: SectionEmptyFrameProps) => (
+  <div {...attrs} data-section-empty-frame={section} data-empty-kind={empty.kind} className="delivery-empty">
+    <span aria-hidden="true" data-empty-mark className={EMPTY_MARK_CLASS[empty.kind]}>{EMPTY_MARK[empty.kind]}</span>
+    <span data-empty-sentence>{empty.sentence}</span>
+    {empty.hidden !== null && onMine !== undefined && (
+      <button type="button" data-empty-hidden onClick={onMine} className="delivery-text-link">· {hiddenByMineWords(empty.hidden)}</button>
+    )}
+    {onScopeOff !== undefined && (
+      <button type="button" data-empty-scope onClick={onScopeOff} className="delivery-text-link">· {SCOPE_OFF_WORDS}</button>
+    )}
+    {empty.note !== null && <span {...noteAttrs} data-empty-note className="basis-full text-xs">{empty.note}</span>}
+  </div>
+);
+
+/** The mark of an empty kind as the folded summary slot shows it. */
+export const SectionEmptyMark = ({ empty }: { empty: SectionEmpty }) => (
+  <span data-section-empty={empty.kind} title={empty.sentence} className={EMPTY_MARK_CLASS[empty.kind]}>{EMPTY_MARK[empty.kind]}</span>
 );
