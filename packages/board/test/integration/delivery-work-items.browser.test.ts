@@ -61,7 +61,7 @@ describe('the Work items section in the mockup look (real browser renders the sh
     });
   }
 
-  it('puts the branch beneath the PR link in the Where cell, in the muted colour', async () => {
+  it('draws the PR and its branch as one tuple in the Where cell, the branch in the muted colour', async () => {
     const page = await open('dark');
     try {
       const where = page.locator('[data-section="work-items"] [data-row-cell="where"]')
@@ -69,18 +69,21 @@ describe('the Work items section in the mockup look (real browser renders the sh
         .filter({ has: page.locator('[data-tuple-link="branch"]') })
         .first();
       const read = await where.evaluate((cell) => {
-        const pr = cell.querySelector('[data-tuple-link="pr"]')!.getBoundingClientRect();
+        const prLink = cell.querySelector('[data-tuple-link="pr"]')!;
+        const pr = prLink.getBoundingClientRect();
         const branch = cell.querySelector('[data-tuple-link="branch"]')!;
+        const sameTuple = prLink.closest('[data-link-tuple]') !== null && prLink.closest('[data-link-tuple]') === branch.closest('[data-link-tuple]');
         const probe = document.createElement('span');
         probe.style.color = 'var(--card-meta)';
         cell.appendChild(probe);
         const meta = getComputedStyle(probe).color;
         probe.remove();
-        return { prTop: pr.top, prHeight: pr.height, prLeft: pr.left, branch: branch.getBoundingClientRect(), colour: getComputedStyle(branch).color, meta };
+        return { sameTuple, prTop: pr.top, prRight: pr.right, branch: branch.getBoundingClientRect(), colour: getComputedStyle(branch).color, meta };
       });
-      // Beneath, not beside: the branch starts lower by about one line and at the same left edge.
-      expect(read.branch.top).toBeGreaterThan(read.prTop + read.prHeight / 3);
-      expect(read.branch.left).toBeCloseTo(read.prLeft, 0);
+      // One tuple: the branch is the PR's next segment, on the same line and to its right.
+      expect(read.sameTuple).toBe(true);
+      expect(read.branch.top).toBeCloseTo(read.prTop, 0);
+      expect(read.branch.left).toBeGreaterThanOrEqual(read.prRight);
       expect(read.colour).toBe(read.meta);
     } finally {
       await page.close();
