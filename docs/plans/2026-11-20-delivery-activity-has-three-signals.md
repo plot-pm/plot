@@ -6,6 +6,7 @@
 
 - **State:** Draft
 - **Type:** feature
+- **Sprint:** delivery-ui-polish
 - **Review:** pr
 - **Impl:** own branches
 
