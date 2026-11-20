@@ -3234,7 +3234,12 @@ export const run = async (
     (await hostReadsFor(
       { repoRoot, scriptDir: scriptsDir },
       { backend: probedHost, ci: declaredCi },
-      jenkinsApi === undefined ? {} : { jenkins: jenkinsReads(jenkinsApi) },
+      {
+        // The held config answers: a PR refresh starts no `plot-config.sh`
+        // while CLAUDE.md and AGENTS.md are unchanged.
+        config: (key) => readConfigAsync({ repoRoot, scriptsDir }, key, ''),
+        ...(jenkinsApi === undefined ? {} : { jenkins: jenkinsReads(jenkinsApi) }),
+      },
     ));
   // The status line and the start line carry the Jenkins transport beside the
   // host's, so `--status` names both.
