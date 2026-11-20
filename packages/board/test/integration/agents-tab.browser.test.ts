@@ -1764,7 +1764,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('renders an EMPTY group no heading and no body, and keeps its 0 in the header line', async () => {
+  it('renders an EMPTY group its heading with "— none" and no body, and keeps its 0 in the header line', async () => {
     const page = await openAgents();
     try {
       // Fleet › Blocked holds no agent in this fixture.
@@ -1772,8 +1772,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expect.poll(() => count.count()).toBe(1);
       expect(await count.textContent()).toContain('0');
       expect(await count.locator('[data-summary-link]').count()).toBe(0);
-      expect(await group(page, 'blocked').count()).toBe(0);
-      expect(await heading(page, 'blocked').count()).toBe(0);
+      expect(await heading(page, 'blocked').count()).toBe(1);
+      expect(await heading(page, 'blocked').locator('[data-group-none]').textContent()).toBe('— none');
+      expect(await group(page, 'blocked').locator('ul').count()).toBe(0);
     } finally {
       await page.close();
     }

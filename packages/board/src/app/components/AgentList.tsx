@@ -1725,7 +1725,13 @@ export function AgentList({
                     {heading}
                   </SectionHead>
                   {!folded && empty !== null && (
-                    <SectionEmptyFrame section={section.key} empty={empty} onMine={toggleMineOnly} onScopeOff={onScopeOff(section.key)} />
+                    <SectionEmptyFrame
+                      section={section.key}
+                      empty={empty}
+                      onMine={toggleMineOnly}
+                      onScopeOff={onScopeOff(section.key)}
+                      {...(section.key === 'machine' ? { attrs: { 'data-machine-line': machine.dot, 'data-machine-dot': machine.dot } } : {})}
+                    />
                   )}
                   {release && content && view.releaseBlocks.map((block) => (
                     <div key={block.sprint || block.release || 'all'} data-release-block={block.release} {...(block.sprint === '' ? {} : { 'data-sprint-block': block.sprint })} className="space-y-1">
