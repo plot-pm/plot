@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import esbuild from 'esbuild';
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { type Browser, type Page } from 'playwright';
 import { launchBrowser } from '../catalogue/index.js';
@@ -9,6 +10,7 @@ import {
   type TupleRow,
   tupleFromSlice,
 } from '../../src/app/lib/tuple-row.js';
+import { planIndexOf } from '@plot-pm/domain';
 import { AgentRowSchema, IssueRowSchema, RowKindSchema, type AgentRow } from '../../src/contract/schema.js';
 import { TUPLE_TRACKS } from '../../src/app/components/TupleRow.js';
 
@@ -722,5 +724,99 @@ createRoot(document.getElementById('root')).render(
     const text = await status.innerText();
     expect(text.indexOf('Discovery')).toBeGreaterThanOrEqual(0);
     expect(text.indexOf('Discovery')).toBeLessThan(text.indexOf('green'));
+  });
+});
+
+/**
+ * A SLICE'S PR AND BRANCH DRAW AS ONE LINK TUPLE.
+ *
+ * `linkTuplesOf` (unit suite `test/unit/link-tuples.test.ts`) decides the
+ * segments. This block proves the page shows them: one bordered pill holding
+ * both anchors, the branch's full name in its `title`, and a ticket segment in
+ * the `--hue-violet` token's colour. The colour and the border exist only with
+ * the shipped stylesheet, so the harness loads the `<style>` the built client
+ * (`dist/client/index.html`) inlines, and provides `TicketHrefContext` the way
+ * `App.tsx` does.
+ */
+const LINK_TUPLE_HARNESS = `
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { TupleRowView } from ${JSON.stringify(path.resolve(here, '../../src/app/components/TupleRow.tsx'))};
+import { TicketHrefContext } from ${JSON.stringify(path.resolve(here, '../../src/app/components/PlanTicketKeys.tsx'))};
+
+const tuple = window.__TUPLE__;
+createRoot(document.getElementById('root')).render(
+  React.createElement(
+    TicketHrefContext.Provider,
+    { value: (key) => 'https://host/issues/' + key },
+    React.createElement('ul', { role: 'rowgroup' }, React.createElement(TupleRowView, { tuple, menu: null })),
+  ),
+);
+`;
+
+describe('a slice\'s PR and branch draw as one link tuple', () => {
+  const LONG_BRANCH = 'feature/the-delivery-tab-draws-every-link-as-one-tuple-pill';
+  let browser: Browser;
+  let page: Page;
+
+  beforeAll(async () => {
+    const index = planIndexOf({
+      cards: [{ slug: 'red-hold', title: '', issues: ['3512'], path: 'docs/plans/2026-07-01-red-hold.md' }],
+    });
+    const tuple = tupleFromSlice({
+      name: 'w', branches: [{ branch: LONG_BRANCH, branchUrl: `https://host/tree/${LONG_BRANCH}` }],
+      solePr: { number: 3581, url: 'https://host/pull/3581' },
+      solePlan: { slug: 'red-hold', file: '2026-07-01-red-hold.md' },
+      outstanding: null, ageMinutes: null, waitingDays: null,
+    }, index);
+    const built = await esbuild.build({
+      stdin: { contents: LINK_TUPLE_HARNESS, resolveDir: path.resolve(here, '../..'), loader: 'tsx' },
+      bundle: true, format: 'esm', write: false, jsx: 'automatic',
+      absWorkingDir: path.resolve(here, '../..'),
+    });
+    const html = readFileSync(path.resolve(here, '../../dist/client/index.html'), 'utf8');
+    const styles = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join('\n');
+    browser = await launchBrowser();
+    page = await (await browser.newContext({ viewport: { width: 1200, height: 400 } })).newPage();
+    await page.setContent('<div id="root"></div>');
+    await page.addStyleTag({ content: styles });
+    await page.evaluate((t) => {
+      (window as never as { __TUPLE__: unknown }).__TUPLE__ = t;
+    }, tuple);
+    await page.addScriptTag({ content: built.outputFiles[0].text, type: 'module' });
+    await page.locator('[data-link-tuple]').first().waitFor({ timeout: 10_000 });
+  }, 60_000);
+
+  afterAll(async () => {
+    await browser?.close();
+  });
+
+  it('shows one bordered tuple holding the PR and branch anchors, the branch named in full in its title', async () => {
+    const tuple = page.locator('[data-link-tuple]').filter({ has: page.locator('[data-tuple-link="pr"]') });
+    expect(await tuple.count()).toBe(1);
+    expect(await tuple.locator('a[data-tuple-link="pr"]').getAttribute('href')).toBe('https://host/pull/3581');
+    const branch = tuple.locator('a[data-tuple-link="branch"]');
+    expect(await branch.getAttribute('href')).toBe(`https://host/tree/${LONG_BRANCH}`);
+    expect(await branch.getAttribute('title')).toContain(LONG_BRANCH);
+    const border = await tuple.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { width: s.borderTopWidth, style: s.borderTopStyle };
+    });
+    expect(border).toEqual({ width: '1px', style: 'solid' });
+  });
+
+  it('draws the ticket segment in the violet token\'s colour', async () => {
+    const ticket = page.locator('[data-link-tuple] a[data-ticket-link="3512"]');
+    expect(await ticket.getAttribute('href')).toBe('https://host/issues/3512');
+    const read = await ticket.evaluate((el) => {
+      const probe = document.createElement('span');
+      probe.style.color = 'var(--hue-violet)';
+      el.parentElement!.appendChild(probe);
+      const violet = getComputedStyle(probe).color;
+      probe.remove();
+      return { colour: getComputedStyle(el).color, violet };
+    });
+    expect(read.violet).not.toBe('');
+    expect(read.colour).toBe(read.violet);
   });
 });
