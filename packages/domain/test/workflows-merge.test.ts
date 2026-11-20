@@ -198,6 +198,13 @@ describe('merge — the controller for a PR merge', () => {
     expect(refusalOf(readings({ defaultBranch: reading('red') }))).toBe('default-branch-red');
   });
 
+  it.each(['pending', 'unknown'] as const)('refuses default-branch-red while a re-run of the red tip reads %s, for every caller', (head) => {
+    // A re-run puts the red commit's runs back to queued; the settled part still names it red.
+    const rerun: DefaultBranchReading = { ...reading('red'), head, headSince: '2026-10-09T22:00:00Z' };
+    expect(refusalOf(readings({ defaultBranch: rerun, defaultBranchTip: OTHER }))).toBe('default-branch-red');
+    expect(refusalOf(readings({ caller: 'fleetd', defaultBranch: rerun, defaultBranchTip: OTHER }))).toBe('default-branch-red');
+  });
+
   it('names the branch and its settled sha when the default branch is red', () => {
     const out = merge(readings({ defaultBranch: reading('red') }), { pr: 42, sha: HEAD, ...CLOCK });
     expect(out.outcome).toBe('refused');
