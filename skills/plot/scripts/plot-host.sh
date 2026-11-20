@@ -1042,7 +1042,7 @@ bb_query_state() { # $1=adapter state word → Bitbucket's
 # and joined by `$2`: `state=` parameters (`state=OPEN&state=MERGED`) or the
 # terms of one `q=` clause (`state="OPEN" OR state="MERGED"`, encoded). `q=`
 # overrides a `state=` parameter, so a query carries its states in the clause.
-bb_state_terms() { local _w _t=""; for _w in ${1//,/ }; do _t="${_t:+$_t$2}$3$(bb_query_state "$_w")$4"; done; printf '%s' "$_t"; }
+bb_state_terms() { local _w _t=""; for _w in ${1//,/ }; do _t="${_t:+$_t$2}$3$(bb_query_state "$_w")${4-}"; done; printf '%s' "$_t"; }
 
 # Percent-encode one value for a URL query string.
 #

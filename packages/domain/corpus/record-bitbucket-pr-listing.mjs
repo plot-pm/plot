@@ -113,7 +113,11 @@ const jenkinsSpec = ({ refused = false }) => {
   return { colours, builds, failing: refused ? [] : ['feature/change-4'] };
 };
 
-/** The stub `bb`: answers `bb api <path>` from the dataset and appends each exchange to a log. */
+/**
+ * The stub `bb`: answers `bb api <path>` from the dataset and appends each exchange to a log.
+ * It reads every `state=` parameter, or every `state="X"` term of `q=`, and keeps only the
+ * keys a `fields` filter names, as Bitbucket does.
+ */
 const STUB = String.raw`
 import { appendFileSync, readFileSync } from 'node:fs';
 const [data, log, ...argv] = process.argv.slice(2);
@@ -123,18 +127,18 @@ if (at === -1) { console.error('stub bb: only api is answered'); process.exit(1)
 const path = argv[at + 1];
 const url = new URL('https://x' + path);
 const q = url.searchParams.get('q');
-let state = url.searchParams.get('state');
+let states = url.searchParams.getAll('state');
 let branch = null;
 let since = null;
 if (q !== null) {
-  state = /state="(\w+)"/.exec(q)?.[1] ?? null;
+  states = [...q.matchAll(/state="(\w+)"/g)].map((m) => m[1]);
   branch = /source\.branch\.name="([^"]*)"/.exec(q)?.[1] ?? null;
   since = /updated_on>="([^"]*)"/.exec(q)?.[1] ?? null;
 }
 const pagelen = Number(url.searchParams.get('pagelen') ?? 10);
 const page = Number(url.searchParams.get('page') ?? 1);
 const matches = dataset
-  .filter((row) => state === null || row.state === state)
+  .filter((row) => states.length === 0 || states.includes(row.state))
   .filter((row) => branch === null || row.source.branch.name === branch)
   .filter((row) => since === null || row.updated_on >= since)
   .sort((a, b) => (a.updated_on < b.updated_on ? 1 : -1));
@@ -144,7 +148,19 @@ if (page * pagelen < matches.length) {
   const raw = path.replace('{ws}/{repo}', ${JSON.stringify(SLUG)}).replace(/&page=\d+/, '');
   body.next = ${JSON.stringify(BASE)} + raw + '&page=' + (page + 1);
 }
-const stdout = JSON.stringify(body);
+const pick = (value, paths) => {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((each) => pick(each, paths));
+  const out = {};
+  for (const head of new Set(paths.map((p) => p.split('.')[0]))) {
+    if (!Object.hasOwn(value, head)) continue;
+    const rest = paths.filter((p) => p.split('.')[0] === head).map((p) => p.split('.').slice(1).join('.'));
+    out[head] = rest.includes('') ? value[head] : pick(value[head], rest);
+  }
+  return out;
+};
+const fields = url.searchParams.get('fields');
+const stdout = JSON.stringify(fields === null ? body : pick(body, fields.split(',')));
 appendFileSync(log, JSON.stringify({ argv, path, stdout }) + '\n');
 process.stdout.write(stdout);
 `;
