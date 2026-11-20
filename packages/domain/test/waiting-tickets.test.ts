@@ -32,6 +32,15 @@ describe('waitingTickets, the default (a matched GitHub reader)', () => {
     expect(result.notice).toBeNull();
   });
 
+  it('names the keys of the hidden rows that unassigned and assignedToOthers count', () => {
+    const rows = [row('1', { assignees: ['jwloka'] }), row('2', { assignees: [] }), row('3', { assignees: ['eins78'] }), row('4')];
+    const result = waitingTickets(rows, undefined, reader, GITHUB, true);
+    expect(result.unassignedKeys).toEqual(['2', '4']);
+    expect(result.assignedToOthersKeys).toEqual(['3']);
+    expect(result.unassignedKeys).toHaveLength(result.unassigned);
+    expect(result.assignedToOthersKeys).toHaveLength(result.assignedToOthers);
+  });
+
   it('a row with no createdAt gets a null ageMinutes and sorts as oldest', () => {
     const rows = [row('undated', { assignees: ['jwloka'], createdAt: undefined }), row('dated', { assignees: ['jwloka'] })];
     const result = waitingTickets(rows, undefined, reader, GITHUB, true);

@@ -107,7 +107,7 @@ import { processProbeSystem } from '@plot-pm/domain/adapters/process-probe/proce
 import { dispatchLogExists } from './dispatch.js';
 import { planFactsOf, type CardFields, type PlanFactsExtras } from './plan-facts.js';
 import { storyFactsOf, ticketStoriesOf, type StoryFactsContext } from './story-facts.js';
-import { branchUrlBaseFor, issueUrlBaseFor, prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
+import { branchUrlBaseFor, issueUrlBaseFor, prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor, recordRefutedIssues } from './fleet.js';
 import { extractTopics, type StoryDocument } from './topics.js';
 import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
 
@@ -3034,6 +3034,8 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs, served?: Boar
       // phase — and a truncating column must be able to tell that apart from a
       // card built by a server too old to have looked.
       phaseDate: phaseDateOf(deliverable ? 'delivered' : meta.phase, meta),
+      // Filled beside `verification` below, from the same reading; `[]` wherever it is absent.
+      refutedIssues: [],
     };
     const delivered = reads.delivered.get(relPath);
     if (delivered !== undefined) {
@@ -3044,8 +3046,10 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs, served?: Boar
         verifiedRaw: meta.verified_raw,
       };
       const state = verificationOf(plan, delivered.deliveryCommit);
-      const refuted = refutedClaims(delivered.text).length;
+      const claims = refutedClaims(delivered.text);
+      const refuted = claims.length;
       card.verification = { state, refuted, badge: refutedBadge(state, refuted) };
+      card.refutedIssues = claims.flatMap((c) => (c.issue === null ? [] : [c.issue]));
     }
     if (meta.sprint) card.sprint = meta.sprint;
     if (meta.story) card.story = meta.story;
@@ -3167,6 +3171,8 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs, served?: Boar
     });
     cards.push(card);
   }
+  // The fleet payload keeps the issue rows these keys name in `planTicketRows`.
+  recordRefutedIssues(opts, cards.flatMap((c) => c.refutedIssues));
 
   // THE SPRINTS FIRST, then the stories: a story's card facts link the sprints
   // its plans name. The sprint estate and the release directory need nothing

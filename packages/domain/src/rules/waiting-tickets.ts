@@ -37,6 +37,10 @@ export interface WaitingTickets {
   readonly unassigned: number;
   /** Of `hidden`, how many carry an assignee — just not one this answers selected. */
   readonly assignedToOthers: number;
+  /** The keys of the rows `unassigned` counts, in `rows` order. */
+  readonly unassignedKeys: readonly string[];
+  /** The keys of the rows `assignedToOthers` counts, in `rows` order. */
+  readonly assignedToOthersKeys: readonly string[];
   /** Whether the rows given were every open row, or the read's own cap stopped first. */
   readonly complete: boolean;
   /** The sentence naming why the reader is unmatched, or why none is assigned; `null` for a matched reader. */
@@ -166,6 +170,8 @@ export const waitingTickets = (
       .map(({ row, rowPlans }) => ({ row, unplanned: rowPlans.length === 0, phase: ticketPhase(rowPlans) }));
     const picked = new Set(selected.map((row) => row.number));
     const hiddenRows = rows.filter((row) => !picked.has(row.number) && !finished(row));
+    const unassignedRows = hiddenRows.filter((row) => (row.assignees ?? []).length === 0);
+    const assignedRows = hiddenRows.filter((row) => (row.assignees ?? []).length > 0);
     return {
       tickets: [
         ...phased.filter(({ unplanned }) => unplanned),
@@ -175,8 +181,10 @@ export const waitingTickets = (
         .map(({ row, phase }) => toWaitingTicket(row, now, source, reader, keepsTrackerState ? null : phase?.label ?? null, (plans.get(row.number) ?? []).length > 0)),
       shown: phased.length,
       hidden: hiddenRows.length,
-      unassigned: hiddenRows.filter((row) => (row.assignees ?? []).length === 0).length,
-      assignedToOthers: hiddenRows.filter((row) => (row.assignees ?? []).length > 0).length,
+      unassigned: unassignedRows.length,
+      assignedToOthers: assignedRows.length,
+      unassignedKeys: unassignedRows.map((row) => row.number),
+      assignedToOthersKeys: assignedRows.map((row) => row.number),
       complete,
       notice,
     };
