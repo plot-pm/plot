@@ -9,6 +9,10 @@ export interface LinkHandlers {
   onPlan: (planFile: string) => void;
   onReveal: (branch: string) => void;
   onAct: (action: string, id: string) => void;
+  /** Opens the folds that hold an anchor, then scrolls to it. */
+  onJump: (anchor: string) => void;
+  /** Why a filter hides an anchor ("hidden by Mine"), or `null` where it shows. */
+  hiddenReason?: (anchor: string) => string | null;
 }
 
 /**
@@ -39,17 +43,22 @@ const Linked = ({ resolved, handlers, children }: { resolved: ResolvedLink; hand
       return <span>{children}</span>;
     case 'href':
       return <a data-row-link href={resolved.href} target="_blank" rel="noopener noreferrer" className={TARGET_CLASS}>{children}</a>;
-    case 'anchor':
+    case 'anchor': {
+      const hidden = handlers.hiddenReason?.(resolved.id) ?? null;
+      if (hidden !== null) {
+        return <button type="button" data-row-link disabled data-hidden-reason={hidden} title={hidden} className="delivery-text-muted cursor-not-allowed">{children}</button>;
+      }
       return (
         <a
           data-row-link
           href={`#${resolved.id}`}
-          onClick={(e) => { e.preventDefault(); scrollToAnchor(resolved.id); }}
+          onClick={(e) => { e.preventDefault(); handlers.onJump(resolved.id); }}
           className={TARGET_CLASS}
         >
           {children}
         </a>
       );
+    }
     case 'plan':
       return <button type="button" data-row-link onClick={() => handlers.onPlan(resolved.planFile)} className={TARGET_CLASS}>{children}</button>;
     case 'reveal':

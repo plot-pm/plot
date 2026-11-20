@@ -129,7 +129,7 @@ describe('a deliverable plan carries Deliver, and no other plan does', () => {
     });
     await page.locator('[data-delivery-section="release-delivery"]').waitFor({ timeout: 10_000 });
     // DONE is collapsed by default — the same click a reader makes to see inside.
-    const doneToggle = page.locator('[data-group-toggle="release-delivery"]');
+    const doneToggle = page.locator('[data-section-toggle="release-delivery"]');
     if ((await doneToggle.count()) > 0 && (await doneToggle.getAttribute('aria-expanded')) === 'false') await doneToggle.click();
     return page;
   }

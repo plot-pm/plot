@@ -846,3 +846,16 @@ export const anchorOwner = (anchor: string, view: DeliveryView, context: AnchorC
   }
   return null;
 };
+
+/** How a jump finds and shows its target where the anchor's own element is not the target. */
+export interface JumpOptions {
+  /** The element to show; the anchor's element where absent. */
+  find?: () => HTMLElement | null;
+  /** Shows the found element; `scrollToAnchor` where absent. */
+  show?: (el: HTMLElement) => void;
+  /** Runs once the jump has scrolled to the target or to a fallback. */
+  done?: () => void;
+}
+
+/** Opens the section, group and plan row that hold `anchor`, then scrolls to it once it is mounted. */
+export type Jump = (anchor: string, options?: JumpOptions) => void;
