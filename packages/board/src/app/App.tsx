@@ -19,6 +19,7 @@ import { sanitizeSelection } from '@plot-pm/domain/rules/sprint-selection';
 import { StoriesTab } from './components/StoriesTab.js';
 import { StoryModal } from './components/StoryModal.js';
 import { boardLinksOf } from './lib/plan.js';
+import { TicketHrefContext, type TicketHref } from './components/PlanTicketKeys.js';
 import { BLOCKED_REASON, UnreachableOverlay } from './components/UnreachableOverlay.js';
 import { MultiSelect } from './components/ui/MultiSelect.js';
 import { listenForEvents, pollWhileShown } from './lib/event-listener.js';
@@ -1085,6 +1086,8 @@ export function App() {
 
   /** The board's lookups for the items a Discovery card names. */
   const discoveryLinks = useMemo(() => (board ? boardLinksOf(board) : undefined), [board]);
+  // Every plan link below links its ticket keys through the same lookup the cards use.
+  const ticketHref = useMemo<TicketHref>(() => (key) => discoveryLinks?.ticketHref(key), [discoveryLinks]);
   /** Each ticket's card facts by id, for the agent rows' menus. */
   const ticketFacts = useMemo(() => ticketFactsOf(board?.tickets), [board?.tickets]);
 
@@ -1280,6 +1283,7 @@ export function App() {
   }, [highlightBranch, revealNonce, tab, fleet]);
 
   return (
+    <TicketHrefContext.Provider value={ticketHref}>
     <div className="mx-auto min-h-screen max-w-[1600px] px-4 py-4">
       <header className="mb-4 flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-bold tracking-tight">Plot</h1>
@@ -1680,5 +1684,6 @@ export function App() {
         />
       )}
     </div>
+    </TicketHrefContext.Provider>
   );
 }

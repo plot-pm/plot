@@ -38,11 +38,14 @@ describe('planRouteOfDocLink', () => {
 
 describe('planLinkLabel', () => {
   it('prints the slug alone where the plan names no issue', () => {
-    expect(planLinkLabel('templates-show-named-identifiers', [])).toEqual({ prefix: '', label: 'templates-show-named-identifiers' });
+    expect(planLinkLabel('templates-show-named-identifiers', [])).toEqual({ prefix: '', label: 'templates-show-named-identifiers', keys: [], slug: 'templates-show-named-identifiers' });
   });
 
   it('prints one GitHub key with its hash before the slug', () => {
-    expect(planLinkLabel('a-quoted-separator-splits-nothing', ['3495'])).toEqual({ prefix: '#3495 ', label: '#3495 a-quoted-separator-splits-nothing' });
+    expect(planLinkLabel('a-quoted-separator-splits-nothing', ['3495'])).toEqual({
+      prefix: '#3495 ', label: '#3495 a-quoted-separator-splits-nothing',
+      keys: [{ key: '3495', text: '#3495' }], slug: 'a-quoted-separator-splits-nothing',
+    });
   });
 
   it('prints several keys in their order, one space apart', () => {
@@ -59,8 +62,18 @@ describe('planLinkLabel', () => {
   });
 
   it('drops a malformed key and keeps the well-formed ones', () => {
-    expect(planLinkLabel('a-plan', ['', '#', 'TBD', 'see ticket', 'abc-12', '#12a'])).toEqual({ prefix: '', label: 'a-plan' });
+    expect(planLinkLabel('a-plan', ['', '#', 'TBD', 'see ticket', 'abc-12', '#12a'])).toEqual({ prefix: '', label: 'a-plan', keys: [], slug: 'a-plan' });
     expect(planLinkLabel('a-plan', ['TBD', '3495']).label).toBe('#3495 a-plan');
+  });
+
+  it('answers each printed key as its own part, the bare key beside the text, so a view can link each one', () => {
+    const answer = planLinkLabel('a-plan', ['#3489', 'ABC-123', 'TBD']);
+    expect(answer.keys).toEqual([{ key: '3489', text: '#3489' }, { key: 'ABC-123', text: 'ABC-123' }]);
+    expect(answer.slug).toBe('a-plan');
+  });
+
+  it('prints the keys alone where the plan has no slug', () => {
+    expect(planLinkLabel('', ['3489'])).toEqual({ prefix: '#3489 ', label: '#3489', keys: [{ key: '3489', text: '#3489' }], slug: '' });
   });
 });
 
@@ -110,6 +123,8 @@ describe('planReference', () => {
     const answer = planReference({ slug: 'a', issues: [1085, '1086', '#1101'] }, planIndexOf({}));
     expect(answer.label).toBe('#1085 #1086 #1101 a');
     expect(answer.issues).toEqual(['1085', '1086', '1101']);
+    expect(answer.keys.map((k) => k.key)).toEqual(['1085', '1086', '1101']);
+    expect(answer.slug).toBe('a');
   });
 
   it('prefixes a bare Jira key as stored', () => {

@@ -24,6 +24,7 @@
 // component that guessed would be the fourth fill site this slice exists to
 // remove.
 import type { MouseEvent, ReactNode } from 'react';
+import { PlanTicketKeys } from './PlanTicketKeys.js';
 import type { TupleLink, TupleRow as TupleRowData } from '../lib/tuple-row.js';
 import { splitBranch, KIND_ICON_PATH,
   LINK_ICON_PATH,
@@ -267,6 +268,22 @@ function BranchLabel({ name }: { name: string }) {
   );
 }
 
+/** The glyph of what a link points at, from `LINK_ICON_PATH`; its title names the kind in a word. */
+const WhatIcon = ({ what }: { what: TupleLink['what'] }) => (
+  <svg
+    aria-hidden
+    data-tuple-what={what}
+    viewBox="0 0 16 16"
+    width="12"
+    height="12"
+    fill="currentColor"
+    className="shrink-0 self-center text-slate-400 dark:text-slate-500"
+  >
+    <title>{what}</title>
+    <path d={LINK_ICON_PATH[what]} />
+  </svg>
+);
+
 /**
  * What a link ANNOUNCES — the kind of thing, then its name.
  *
@@ -332,6 +349,19 @@ export function TupleLinkView({
    */
   onActivate?: () => void;
 }) {
+  // A plan link with ticket keys: the glyph, each key as its own link to its
+  // ticket, then the plan link, which prints the slug alone.
+  if (link.keys !== undefined && link.keys.length > 0) {
+    const { keys, ...plain } = link;
+    return (
+      <span className="flex min-w-0 items-baseline gap-1">
+        {showWhat && <WhatIcon what={link.what} />}
+        <PlanTicketKeys keys={keys}>
+          <TupleLinkView link={plain} onOpenPlan={onOpenPlan} extraAttr={extraAttr} onActivate={onActivate} />
+        </PlanTicketKeys>
+      </span>
+    );
+  }
   const label = (
     <>
       {showWhat && (
@@ -351,18 +381,7 @@ export function TupleLinkView({
         // recognition must not DEPEND on decoding a symbol. Slot 2 states the
         // row's own kind in a word regardless, so the row is never iconography
         // alone.
-        <svg
-          aria-hidden
-          data-tuple-what={link.what}
-          viewBox="0 0 16 16"
-          width="12"
-          height="12"
-          fill="currentColor"
-          className="shrink-0 self-center text-slate-400 dark:text-slate-500"
-        >
-          <title>{link.what}</title>
-          <path d={LINK_ICON_PATH[link.what]} />
-        </svg>
+        <WhatIcon what={link.what} />
       )}
       {link.what === 'branch' ? <BranchLabel name={link.label} /> : (
         <span className="min-w-0 truncate">{link.label}</span>

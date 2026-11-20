@@ -221,8 +221,15 @@ describe('release-approve and the HTTP routes refuse with no receipt escape', ()
       const answer = await ask(r, command);
       expect(answer.code).toBe(EXIT.refuse);
       expect(answer.warned).toMatch(/board/i);
-      expect(answer.warned).not.toContain('plot-state-receipt.sh');
-      expect(answer.warned).not.toContain('unowned-action');
+      expect(answer.warned).toContain('No receipt bypasses');
+      if (/\/api\/release(?!-)/.test(command)) {
+        // The release route's one shell route is the bundle behind a receipt; naming it closes the loop with the bundle's own refusal.
+        expect(answer.warned).toContain('--unowned-action release <slug>');
+        expect(answer.warned).toContain('plot-deliver.mjs --release <version> <slug>');
+      } else {
+        expect(answer.warned).not.toContain('plot-state-receipt.sh');
+        expect(answer.warned).not.toContain('unowned-action');
+      }
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

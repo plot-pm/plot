@@ -160,7 +160,7 @@ export const budgetCallerOf = (declared: string | undefined, script: string | un
  *
  * Keeps the label up to its first comma and drops every word that holds a
  * digit, so `pr 123 comments, page 2` names `pr-comments` and
- * `graphql, page 3` names `graphql`.
+ * `issue-list open graphql, page 3` names `issue-list-open-graphql`.
  *
  * @param requestLabel - a connector client's request label.
  * @returns the words joined by `-`, or {@link UNKNOWN_CALLER} where none remains.

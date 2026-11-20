@@ -81,7 +81,7 @@ describe('a walk refused mid-way is never whole', () => {
   it('a walk refused on its first page answers failed with no rows', async () => {
     const { listing } = await listingOver(null, () => ({ status: 502, body: { message: 'Bad gateway' } }));
     const answered = await listing.prListing({ state: 'open', limit: 10 });
-    expect(answered).toEqual({ answer: 'failed', rows: [], complete: { open: 'possibly-truncated' }, refusal: { kind: 'failed', said: 'HTTP 502: Bad gateway (graphql, page 1)' } });
+    expect(answered).toEqual({ answer: 'failed', rows: [], complete: { open: 'possibly-truncated' }, refusal: { kind: 'failed', said: 'HTTP 502: Bad gateway (pr-list open graphql, page 1)' } });
   });
 
   it('a GraphQL error is a refusal with the messages as gh prints them', async () => {

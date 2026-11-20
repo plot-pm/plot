@@ -70,7 +70,7 @@ describe('a plan row names its ticket (real browser renders the shipped artifact
   const open = async (): Promise<{ page: Page; errors: string[] }> => {
     const page = await cat.open('an-empty-estate', {
       over: {
-        board: buildBoard({ columns: [column({ phase: 'Development', cards: PLANS.map(cardOf) })] }),
+        board: buildBoard({ columns: [column({ phase: 'Development', cards: PLANS.map(cardOf) })], issueUrlBase: 'https://github.com/o/garden/issues/' }),
         fleet: olderDraft(buildFleet({ rows: PLANS.map((p) => row(p.slug)), draftPlans: DRAFTS })),
       },
       tab: 'agents',
@@ -85,24 +85,33 @@ describe('a plan row names its ticket (real browser renders the shipped artifact
     page.locator(`li[data-plan-row="${plan}"] [data-tuple-link="plan"]`);
   const draftName = (page: Page, plan: string) =>
     page.locator(`[data-draft-plan-row="${plan}"] [data-tuple-link="plan"]`);
+  const keysOf = (page: Page, rowSelector: string) => page.locator(`${rowSelector} [data-title-number]`);
 
-  it('prints the tracker keys before the slug on a plan row', async () => {
+  it('links each tracker key to its ticket before the plan link, which prints the slug alone', async () => {
     const { page } = await open();
     try {
       await expect.poll(() => planName(page, 'one-ticket').count(), { timeout: 10_000 }).toBe(1);
-      expect((await planName(page, 'one-ticket').textContent())?.trim()).toBe('#1089 one-ticket');
-      expect((await planName(page, 'two-tickets').textContent())?.trim()).toBe('#1090 #1091 two-tickets');
-      expect((await planName(page, 'jira-ticket').textContent())?.trim()).toBe('EWZKUS-3430 jira-ticket');
-      // The prefix sits inside the plan link, and the link still opens the plan.
+      expect((await planName(page, 'one-ticket').textContent())?.trim()).toBe('one-ticket');
+      expect((await planName(page, 'two-tickets').textContent())?.trim()).toBe('two-tickets');
+      expect((await planName(page, 'jira-ticket').textContent())?.trim()).toBe('jira-ticket');
       expect(await planName(page, 'one-ticket').getAttribute('href')).toContain('2026-09-30-one-ticket.md');
+      const two = keysOf(page, 'li[data-plan-row="two-tickets"]');
+      // Each key link names its new tab to a screen reader, as the card's ticket number does.
+      expect(await two.allTextContents()).toEqual(['#1090 (opens in a new tab)', '#1091 (opens in a new tab)']);
+      expect(await two.nth(1).getAttribute('href')).toBe('https://github.com/o/garden/issues/1091');
+      // A Jira key has no address on the git host, so it is muted text and no link.
+      const jira = keysOf(page, 'li[data-plan-row="jira-ticket"]');
+      expect(await jira.allTextContents()).toEqual(['EWZKUS-3430']);
+      expect(await jira.first().evaluate((el) => el.tagName)).toBe('SPAN');
     } finally { await page.close(); }
   });
 
-  it('prints the prefix on a Draft plan row the same way', async () => {
+  it('links the key on a Draft plan row the same way', async () => {
     const { page } = await open();
     try {
       await expect.poll(() => draftName(page, 'drafted-ticket').count(), { timeout: 10_000 }).toBe(1);
-      expect((await draftName(page, 'drafted-ticket').textContent())?.trim()).toBe('#1104 drafted-ticket');
+      expect((await draftName(page, 'drafted-ticket').textContent())?.trim()).toBe('drafted-ticket');
+      expect(await keysOf(page, '[data-draft-plan-row="drafted-ticket"]').first().getAttribute('href')).toBe('https://github.com/o/garden/issues/1104');
     } finally { await page.close(); }
   });
 

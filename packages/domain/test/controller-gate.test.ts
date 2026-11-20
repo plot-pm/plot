@@ -366,11 +366,21 @@ describe('finalControllerRefusal', () => {
     expect(text).not.toContain('unowned-action');
   });
 
-  it('names the board button and the deliver bundle for release, with no receipt bypass', () => {
+  it('names the board button for release, and the receipt and bundle as the shell route', () => {
     const text = finalControllerRefusal('release', dir);
     expect(text).toContain('POST /api/release');
-    expect(text).toContain(`node ${dir}/board/plot-deliver.mjs --release`);
-    expect(text).not.toContain('plot-state-receipt.sh');
+    expect(text).toContain('No receipt bypasses');
+    expect(text).toContain(`1. bash ${dir}/plot-state-receipt.sh --unowned-action release <slug> "<reason>"`);
+    expect(text).toContain(`2. node ${dir}/board/plot-deliver.mjs --release <version> <slug>`);
+  });
+
+  it('the two release refusals name one shell route, so neither sends an agent to the other', () => {
+    const http = finalControllerRefusal('release', dir);
+    const bundle = controllerRefusal('release', dir);
+    const route = [`--unowned-action release <slug>`, `node ${dir}/board/plot-deliver.mjs --release <version> <slug>`];
+    for (const text of [http, bundle]) for (const part of route) expect(text).toContain(part);
+    expect(bundle).toContain('The gate refuses that request from a shell.');
+    expect(bundle).not.toContain('Call the controller instead:\n      POST /api/release');
   });
 
   it('names the board button and the restart bundle for restart, with no receipt bypass', () => {
@@ -479,9 +489,10 @@ describe('the refusal texts', () => {
     expect(text).toContain('POST /api/approve {"slug":"<slug>","spike":true}');
   });
 
-  it('names the release route and no command for release', () => {
+  it('names the release button and the release bundle, and no command', () => {
     const text = controllerRefusal('release', dir);
     expect(text).toContain('POST /api/release {"slug":"<slug>","version":"<version>"}');
+    expect(text).toContain(`2. node ${dir}/board/plot-deliver.mjs --release <version> <slug>`);
     expect(text).not.toContain('-command.mjs');
   });
 
@@ -489,7 +500,7 @@ describe('the refusal texts', () => {
     for (const action of ['dispatch', 'approve', 'deliver', 'release', 'restart', 'release-approve'] as const) {
       const text = controllerRefusal(action, dir);
       expect(text).not.toContain('board is not running');
-      expect(text).toContain('Or, if you accept the bypass');
+      expect(text).toContain(action === 'release' ? 'From a shell, run these as TWO calls' : 'Or, if you accept the bypass');
     }
   });
 
