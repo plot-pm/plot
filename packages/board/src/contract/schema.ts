@@ -4505,6 +4505,8 @@ export const RoleRunSchema = z.object({
   stopped: z.object({ reason: z.string(), restart: z.string(), log: z.string() }).optional(),
   /** A fixer run's attempt on the finding it answers, from 1; absent from an older server and from every other role. */
   attempt: z.number().int().positive().optional(),
+  /** A fixer run's kind of finding, read from its in-flight attempt; absent from an older server and from every other role. */
+  finding: z.enum(['high', 'ci', 'conflict']).optional(),
 });
 export type RoleRunPayload = z.infer<typeof RoleRunSchema>;
 

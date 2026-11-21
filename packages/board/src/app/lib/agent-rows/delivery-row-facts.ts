@@ -116,6 +116,7 @@ export const agentRowFactsOf = (mapping: DeliveryMapping, id: string, now?: numb
   const run = mapping.runsById[id];
   const facts: AgentRowFacts = { rateLimit: mapping.rateLimit };
   if (run?.attempt !== undefined) facts.fixerAttempt = run.attempt;
+  if (run?.finding !== undefined) facts.fixerFinding = run.finding;
   if (entry !== undefined && !identityWasDeclared(entry)) {
     facts.unnamedDesk = unnamedDeskLabel({ checkout: entry.checkout ?? '', live: isLiveState(entry.state) });
   }
@@ -155,8 +156,11 @@ export const agentRowFactsOf = (mapping: DeliveryMapping, id: string, now?: numb
     if (checks !== '') facts.pr.checksUrl = checks;
     if (row.pr.url) facts.pr.url = row.pr.url;
     if (row.pr.headSha) facts.reviewHead = row.pr.headSha.slice(0, 7);
-    if (facts.pr.ci === 'failed') facts.fixerFinding = 'ci';
-    else if (facts.pr.review === 'high') facts.fixerFinding = 'high';
+    // An older server sends no `finding`; only then is it inferred from the PR.
+    if (run?.finding === undefined) {
+      if (facts.pr.ci === 'failed') facts.fixerFinding = 'ci';
+      else if (facts.pr.review === 'high') facts.fixerFinding = 'high';
+    }
   }
   return facts;
 };

@@ -1,4 +1,4 @@
-import type { FixerAttemptsRecord } from '../entities/fixer-attempts.js';
+import type { FixerAttemptsRecord, FixerFinding } from '../entities/fixer-attempts.js';
 import type { AgentRole } from './delivery-placement.js';
 import { fixerAttemptsSpent } from './fixer-attempts.js';
 import { reviewRunLive, type ReviewRunEntry } from './review-run.js';
@@ -24,6 +24,8 @@ export interface RoleRun {
    * the run's own start included, from 1. Absent on every other run and where no attempt counts.
    */
   attempt?: number;
+  /** Present on a fixer run: the kind of finding its in-flight attempt answers. Absent on every other run. */
+  finding?: FixerFinding['kind'];
 }
 
 /** What a pass recorded about a run that stopped or failed. */
@@ -79,7 +81,7 @@ const parseTime = (iso: string): number | null => {
  * only where an attempt carries an `inFlight` mark; the attempt record alone is
  * not a run, and an unreadable record shows no agent. A design or verify run
  * carries no start time. A design or verify run that a pass recorded as stopped
- * or failed, and that is not running again, is a run with a `stopped` fact. A fixer run carries `attempt`, counted by `fixerAttemptsSpent` on the kind of finding the in-flight attempt answers. The approver has no source and never appears.
+ * or failed, and that is not running again, is a run with a `stopped` fact. A fixer run carries `attempt`, counted by `fixerAttemptsSpent` on the kind of finding the in-flight attempt answers. A fixer run carries `finding`, the kind of finding the in-flight attempt answers. The approver has no source and never appears.
  *
  * @param readings - what each state file said.
  * @returns one run per live source entry, in the order reviewer, fixer, design, verify.
@@ -101,6 +103,7 @@ export const roleRuns = (readings: RoleReadings): RoleRun[] => {
       role: 'fixer',
       pr,
       startedAt: parseTime(current.inFlight.startedAt),
+      finding: current.finding.kind,
       ...(spent > 0 ? { attempt: spent } : {}),
     });
   }
