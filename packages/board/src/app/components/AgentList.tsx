@@ -143,6 +143,7 @@ import {
   UNPLACED_ANCHOR,
   sectionAnchor,
   sectionGlyph,
+  sectionHiddenCounts,
   ticketAnchor,
   type AnchorContext,
   type BlockView,
@@ -166,7 +167,8 @@ import { rowKey } from '../lib/agent-rows/row-identity.js';
 // their marks and their menus are declared next door.
 import { splitTicketRows, waitingView } from '../lib/agent-rows/waiting-view.js';
 import { TicketsSectionView } from './TicketsSection.js';
-import { headerControl, SectionHead } from './SectionHead.js';
+import { headerControl, SectionEmptyFrame, SectionEmptyMark, SectionHead } from './SectionHead.js';
+import { deliveryEmpties, offersScopeOff } from '../lib/agent-rows/section-empty.js';
 import { youHeaderOf } from '../lib/agent-rows/you-header.js';
 import { StartWorkButton } from './StartWorkButton.js';
 import { HeaderRow, IssueRowView, PlanRow, Row, SliceRow, type AgentListProps } from '../lib/agent-rows/rows.js';
@@ -1310,6 +1312,27 @@ export function AgentList({
           hidden: fleet.waiting?.hidden ?? 0,
           showAll: showEveryTicket,
         };
+        // THE EMPTY KINDS AND THE MINE-HIDDEN COUNTS — view properties, rendered here.
+        const wholePlacement = mode === 'all' ? placement : placeDelivery(mapping.wholeReadings, { ...mapping.input, mine: 'off' });
+        const hiddenCounts = sectionHiddenCounts({
+          shown: placement.items,
+          whole: wholePlacement.items,
+          agents: { total: fleet.agents?.length ?? 0, kept: ownAgents.length },
+          tickets: { before: waitingView(fleet.waiting, fleet.issues, showEveryTicket, (t) => t).tickets.length, after: filteredIssues.length },
+        });
+        const emptyScope = { kind: sprintScope.kind, sprints: sprintScope.sprints.map((s) => s.title || s.slug) };
+        const machine = machineHealth(fleet.machine, hostAnswer(fleet));
+        const empties = deliveryEmpties(view, {
+          hidden: hiddenCounts,
+          scope: emptyScope,
+          mine: mapping.input.mine,
+          issueAnswer: fleet.issueAnswer ?? null,
+          issueNote: issueNote(fleet) ?? fleet.issueError ?? null,
+          supervisor: fleet.supervisor ?? null,
+          headroom: fleet.machine?.headroom ?? 'unmeasured',
+          health: machine,
+        });
+        const onScopeOff = (section: DeliverySection | 'tickets') => (offersScopeOff(section, sprintScope.kind) ? toggleMySprintChip : undefined);
         // THE JUMP'S CONTEXT: the Tickets rows behind the inner fold, and the views a filter narrows. The
         // wider views are built only when a jump misses the shown view, and only for a filter that is on.
         const ticketsShown = (foldOpen: boolean) => new Set(ticketsSection({ ...ticketInput, foldOpen }).rows.map((t) => ticketAnchor(t.number)));
@@ -1622,6 +1645,8 @@ export function AgentList({
               const release = section.key === RELEASE_DELIVERY;
               const sectionCount = release ? view.releasePlanCount : section.count;
               const folded = isFolded('section', section.key, sectionCount, collapsed);
+              const empty = empties[section.key];
+              const content = !folded && empty === null;
               const sectionPace = headingPace(groupPace(release ? view.releaseRows : section.rows, active), folded);
               const heading = (
                 <h2 data-delivery-section={section.key} className="delivery-title flex min-w-0 flex-1 items-baseline gap-1">
@@ -1699,14 +1724,23 @@ export function AgentList({
               // Folded, the header keeps its counts; an empty section says so, and a loud supervisor alert stays.
               const summary = !folded ? null
                 : section.key === 'fleet' && fleet.supervisor?.prominence === 'alert' ? <FleetAlert supervisor={fleet.supervisor} />
-                : sectionCount === 0 ? <span data-section-empty className="delivery-text-muted">— none</span>
+                : empty !== null ? <SectionEmptyMark empty={empty} />
                 : null;
               return (
                 <section key={section.key} data-section={section.key} className="delivery-card space-y-2">
                   <SectionHead section={section.key} label={section.label} folded={folded} onToggle={() => toggle(section.key)} summary={summary}>
                     {heading}
                   </SectionHead>
-                  {release && !folded && view.releaseBlocks.map((block) => (
+                  {!folded && empty !== null && (
+                    <SectionEmptyFrame
+                      section={section.key}
+                      empty={empty}
+                      onMine={toggleMineOnly}
+                      onScopeOff={onScopeOff(section.key)}
+                      {...(section.key === 'machine' ? { attrs: { 'data-machine-line': machine.dot, 'data-machine-dot': machine.dot } } : {})}
+                    />
+                  )}
+                  {release && content && view.releaseBlocks.map((block) => (
                     <div key={block.sprint || block.release || 'all'} data-release-block={block.release} {...(block.sprint === '' ? {} : { 'data-sprint-block': block.sprint })} className="space-y-1">
                       {view.releaseBlocks.length > 1 && <ReleaseLine block={block} />}
                       <ReleasePersonCards cards={block.cards} />
@@ -1767,7 +1801,7 @@ export function AgentList({
                       </div>
                     </div>
                   ))}
-                  {section.key === 'fleet' && !folded && (
+                  {section.key === 'fleet' && content && (
                     <div className="flex flex-wrap items-center gap-2 px-3">
                       <WorkingCounts
                         notWorking={agentsNotWorking}
@@ -1777,10 +1811,10 @@ export function AgentList({
                       <FleetAlert supervisor={fleet?.supervisor} />
                     </div>
                   )}
-                  {section.key === 'machine' && !folded && (
-                    <MachineSection machine={machineHealth(fleet.machine, hostAnswer(fleet))} />
+                  {section.key === 'machine' && content && (
+                    <MachineSection machine={machine} />
                   )}
-                  {!folded && section.groups.filter((group) => group.count > 0).map((group) => {
+                  {content && section.groups.map((group) => {
                     const fleetOpen = section.key === 'fleet' && (group.key === 'working' || group.key === 'blocked');
                     const groupMark = headingPace(groupPace(group.rows, active), groupFolded(group.key, group.count, fleetOpen));
                     const held = headerOf(
@@ -1801,7 +1835,7 @@ export function AgentList({
                         )}
                         {group.label}
                         <span className="ml-1 font-normal normal-case tracking-normal">
-                          ({group.count > 0 ? group.tally : group.hint})
+                          {group.count > 0 ? `(${group.tally})` : <><span data-group-none>— none</span> ({group.hint})</>}
                         </span>
                         {held.held.map((h) => (
                           <span key={h.switch} data-group-held={h.switch} className="font-normal normal-case tracking-normal">
@@ -1880,7 +1914,8 @@ export function AgentList({
               onToggleShowAll={() => setShowEveryTicket((on) => !on)}
               hiddenSentence={waitingBlock.hidden}
               notice={waitingBlock.notice}
-              absence={fleet.issueAnswer === 'failed' ? issueNote(fleet) ?? '' : fleet.issueAnswer === 'unsupported' ? fleet.issueAbsence ?? '' : ''}
+              absence={fleet.issueAnswer === 'failed' ? issueNote(fleet) ?? fleet.issueError ?? '' : fleet.issueAnswer === 'unsupported' ? fleet.issueAbsence ?? '' : ''}
+              filters={{ scope: emptyScope, mine: mapping.input.mine, mineHidden: hiddenCounts.tickets, onMine: toggleMineOnly, onScopeOff: onScopeOff('tickets') }}
               idea={idea ?? { available: false, reason: 'this board has not said whether it can create plans' }}
               folded={collapsed.has('tickets')}
               onToggleFold={() => toggle('tickets')}
