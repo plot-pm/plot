@@ -1,30 +1,23 @@
-import { useEffect, useState } from 'react';
-import type { PasskeyRegistration } from '@plot-pm/domain/rules/passkey-settings';
-import { releaseCardApprovable, type ReleaseCardView } from '@plot-pm/domain/rules/release-card';
+import { useState } from 'react';
+import type { ReleaseApprovable } from '@plot-pm/domain/rules/release-approvable';
 import type { AgentRow } from '../../contract/schema.js';
-import { readRegistration } from '../lib/passkey-client.js';
-import { approveRelease, releaseReadingOf } from '../lib/release-approve.js';
+import { approveRelease } from '../lib/release-approve.js';
 
 /**
- * A release card's "Approve release" button.
+ * The Release group's "Approve release" button.
  *
- * The button always shows. `releaseCardApprovable` decides whether it is enabled and,
- * where it is not, the reason this renders beside it. The click approves the bound
- * row's own PR number and head, and the server re-reads both before it merges.
+ * The button always shows. `button` comes from `releaseStatusLine`, which also writes the
+ * status line, so the button and the line cannot disagree; the reason is the button's title.
+ * The click approves the bound row's own PR number and head, and the server re-reads both
+ * before it merges. `onDone` runs after every click, so the group re-reads the passkey.
  */
-export const ReleaseApprove = ({ card, row }: { card: Pick<ReleaseCardView, 'rowId' | 'unboundReason'>; row: AgentRow | null }) => {
-  const [held, setHeld] = useState<PasskeyRegistration | null>(null);
+export const ReleaseApprove = ({ button, row, onDone }: { button: ReleaseApprovable; row: AgentRow | null; onDone: () => void }) => {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    void readRegistration().then(setHeld);
-  }, []);
-
   const pr = row?.pr ?? null;
-  const answer = releaseCardApprovable(card, releaseReadingOf(pr), held);
 
   const click = async () => {
-    if (busy || answer.state !== 'enabled' || pr === null || pr.headSha === undefined) return;
+    if (busy || button.state !== 'enabled' || pr === null || pr.headSha === undefined) return;
     const { number, headSha } = pr;
     setBusy(true);
     setMessage('');
@@ -34,23 +27,22 @@ export const ReleaseApprove = ({ card, row }: { card: Pick<ReleaseCardView, 'row
       setMessage(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
-      void readRegistration().then(setHeld);
+      onDone();
     }
   };
 
   return (
-    <span className="flex min-w-0 flex-wrap items-center gap-2" data-testid="release-approve">
+    <span className="flex min-w-0 flex-col items-end gap-1" data-testid="release-approve">
       <button
         type="button"
-        disabled={answer.state === 'disabled' || busy}
-        title={answer.reason || undefined}
+        disabled={button.state === 'disabled' || busy}
+        title={button.reason || undefined}
         onClick={click}
         className="delivery-approve"
       >
         Approve release
       </button>
-      {answer.reason && <span className="delivery-text-muted text-xs" data-testid="release-approve-reason">{answer.reason}</span>}
-      {message && <span className="text-xs" data-testid="release-approve-message">{message}</span>}
+      {message && <span className="max-w-48 break-words text-right text-xs" data-testid="release-approve-message">{message}</span>}
     </span>
   );
 };

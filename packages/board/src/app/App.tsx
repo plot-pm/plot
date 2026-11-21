@@ -1531,6 +1531,7 @@ export function App() {
               // board lands, which `spawnerStatus` reads as "unknown".
               spawnContract={board?.spawnContract}
               passkey={passkey}
+              lastRelease={board?.lastRelease ?? null}
             />
           ) : (
             <p className="text-sm text-slate-500">Loading…</p>

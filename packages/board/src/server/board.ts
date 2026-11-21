@@ -75,6 +75,7 @@ import {
   answered,
   planOpenQuestions,
   type OpenQuestions,
+  lastRelease,
 } from '@plot-pm/domain';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 import type { GateContractReader } from '@plot-pm/domain/ports/gate-contract';
@@ -3228,6 +3229,7 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs, served?: Boar
     issueUrlBase: issueBase,
     phaseMapRefusal,
     phaseMap: phaseMap.map((entry) => ({ name: entry.name, plan: [...entry.plan], story: [...entry.story] })),
+    lastRelease: lastRelease(metas.map((m) => m.released_raw)),
     // WHERE THE PLANS ABOVE CAME FROM. Reported on every board, not only a
     // broken one: "these came from origin/main" is a fact a reader needs stated
     // rather than inferred from the absence of a warning, and its absence is
