@@ -47,6 +47,11 @@ const unreadItem = { subject: 'item' as const, reason: 'unread' };
 const unreadAgent = { subject: 'agent' as const, reason: 'unread' };
 
 describe('deliveryHeader — You', () => {
+  it('counts 0 for a You number the placement does not name', () => {
+    const you = deliveryHeader(input({ you: { ...input().you, counts: [{ key: 'tickets', count: 4 }] } })).you;
+    expect(you.numbers.map((n) => n.count)).toEqual([0, 0, 0]);
+    expect(you.kind).toBe('counts');
+  });
   it('shows the three numbers with their tones, the oldest wait and the triage count', () => {
     const you = deliveryHeader(input()).you;
     expect(you.numbers).toEqual([
@@ -201,6 +206,24 @@ describe('deliveryHeader — Machine', () => {
   it('names an unasked host and shows no budget figure', () => {
     const meters = deliveryHeader(input({ hostAnswer: 'unasked' })).machine.meters;
     expect(meters.slice(1)).toEqual([{ key: 'host', label: 'host', share: null, text: 'host not checked yet', tone: 'grey' }]);
+  });
+  it('reads red where the host is rate-limited and no budget is recorded', () => {
+    const meters = deliveryHeader(input({ hostAnswer: 'rate-limited', machine: { headroom: 'clear', load1: 1, cores: 4, host: null } })).machine.meters;
+    expect(meters[1]).toMatchObject({ key: 'host', share: null, tone: 'red' });
+  });
+  it('shows the budgets where the host is rate-limited and a budget is recorded', () => {
+    const meters = deliveryHeader(input({ hostAnswer: 'rate-limited' })).machine.meters;
+    expect(meters.map((m) => m.label)).toEqual(['load', 'GraphQL', 'REST']);
+  });
+  it('reads "API not recorded" where the host records no bucket', () => {
+    const meters = deliveryHeader(input({ machine: { headroom: 'clear', load1: 1, cores: 4, host: { connector: 'github', buckets: [] } } })).machine.meters;
+    expect(meters.slice(1)).toEqual([{ key: 'api', label: 'API', share: null, text: 'API not recorded', tone: 'grey' }]);
+  });
+  it('names a bucket that is not split by its own word', () => {
+    const meters = deliveryHeader(input({
+      machine: { headroom: 'clear', load1: 1, cores: 4, host: { connector: 'github', buckets: [{ bucket: 'search', limit: 30, remaining: 30, resetAt: null }] } },
+    })).machine.meters;
+    expect(meters[1]).toMatchObject({ key: 'search', label: 'search', text: 'search 30 / 30 left', tone: 'green', share: 0 });
   });
   it('reads unread where the machine reading is absent', () => {
     expect(deliveryHeader(input({ machine: null })).machine.kind).toBe('unread');
