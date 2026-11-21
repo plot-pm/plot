@@ -41,7 +41,7 @@ const pr = (number: number, author: string) =>
  *                             by «Only my work», never by the sprint
  *   `infra/bump`              a PR naming no plan — exempt, shown, MARKED
  *   `changeset-release/main`  the release row — no row in Work items: its
- *                             release card in the header shows it, whatever
+ *                             Release group in the header shows it, whatever
  *                             the Sprint filter
  *   `feature/elsewhere`       a PR under a plan no selected sprint names — hidden
  *   `loose/ref`               a plan-less branch with no PR — hidden today, and
@@ -163,15 +163,15 @@ describe('a sprint view says what it hid', () => {
   it('hides no row the exemption showed before', async () => {
     const page = await open();
     try {
-      // The release row has no row: its card in the header shows it while
-      // the toggle is off, and the sprint card replaces it while it is on.
-      await expect.poll(() => page.locator('[data-release-card="untargeted"]').count()).toBe(1);
+      // The release row has no row: the header's Release group shows it while
+      // the toggle is off, and names the sprint instead while it is on.
+      await expect.poll(() => page.locator('[data-release-group="untargeted"]').count()).toBe(1);
       await sprintOnly(page);
       const shown = await branches(page);
       // The exempt set is shown with the filter on.
       expect(shown).toContain(EXEMPT_PR);
       expect(shown).not.toContain(RELEASE);
-      expect(await page.locator(`[data-sprint-card-sprint="${SPRINT}"]`).count()).toBe(1);
+      expect(await page.locator(`[data-release-group-sprint="${SPRINT}"]`).count()).toBe(1);
       // And the filter still filters.
       expect(shown).not.toContain(ELSEWHERE);
       expect(shown).not.toContain(LOOSE);

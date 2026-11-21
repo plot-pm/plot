@@ -106,7 +106,7 @@ describe('the delivery tab renders one chip row', () => {
       // sits under a plan the sprint does not list.
       expect(await chip(page, 'My sprint').textContent()).toContain('1 hidden');
 
-      // The sprint line is gone: the sprint card is the one sprint report.
+      // The sprint line is gone: the Release group is the one sprint report.
       expect(await page.locator('[data-sprint-report]').count()).toBe(0);
 
       const totals = page.locator('[data-estate-totals]');
@@ -117,7 +117,7 @@ describe('the delivery tab renders one chip row', () => {
     }
   });
 
-  it('the My sprint toggle switches the status card and the rows', async () => {
+  it('the My sprint toggle switches the Release group\'s scope and the rows', async () => {
     const page = await open(1400);
     try {
       const toggle = chip(page, 'My sprint');
@@ -125,17 +125,17 @@ describe('the delivery tab renders one chip row', () => {
       expect(await page.locator('[data-chip="This sprint"]').count()).toBe(0);
       expect(await toggle.getAttribute('disabled')).toBeNull();
       const outside = page.locator('[data-branch="feature/outside"]');
-      const sprintCard = page.locator(`[data-sprint-card-sprint="${SPRINT}"]`);
-      const releaseCard = page.locator('[data-release-card]');
+      const sprintCard = page.locator(`[data-release-group-sprint="${SPRINT}"]`);
+      const releaseCard = page.locator('[data-release-group-scope="release"]');
 
-      // Off: the release scope — every row, the release cards, no sprint card.
+      // Off: the release scope — every row, the group over all sprints, no sprint named.
       await expect.poll(() => outside.count()).toBeGreaterThan(0);
       await expect.poll(() => releaseCard.count()).toBeGreaterThan(0);
       expect(await sprintCard.count()).toBe(0);
 
       await toggle.click();
       await expect.poll(() => toggle.getAttribute('data-chip-on')).toBe('1');
-      // On: the owned sprint — its card replaces the release cards, and the
+      // On: the owned sprint — the group names it and reads only it, and the
       // row under a plan the sprint does not list leaves You and Work items.
       await expect.poll(() => sprintCard.count()).toBe(1);
       expect(await releaseCard.count()).toBe(0);
