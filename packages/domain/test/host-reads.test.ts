@@ -4,6 +4,7 @@ import { BITBUCKET_NO_CREDENTIAL, type BitbucketApi, type BitbucketApiOptions } 
 import type { GithubApi, GithubApiOptions, GithubRequest } from '../src/adapters/host/github-api.js';
 import { hostFixture } from '../src/adapters/host/host-fixture.js';
 import { hostReadsFor, hostWithListing } from '../src/adapters/host/host-reads.js';
+import { hostShell } from '../src/adapters/host/host-shell.js';
 import { apiForReads, hostForReads } from '../src/adapters/host/process-host-reads.js';
 import type { JenkinsReads } from '../src/adapters/build/jenkins-api.js';
 import type { Host, LimitObservation, PrListing } from '../src/ports/host.js';
@@ -282,6 +283,47 @@ describe('hostReadsFor', () => {
     const reads = await hostReadsFor(context, github, { env: {}, shell, client: fakeClient(null, seen) });
     expect(seen.options?.origin).toBeNull();
     expect(reads.choice.transport).toBe('shell');
+  });
+});
+
+describe('the composed prsOfCommit', () => {
+  const sha = 'a'.repeat(40);
+
+  it('asks the GitHub client in-process, not the shell', async () => {
+    const shell = shellHost();
+    const seen = { options: null as GithubApiOptions | null, requests: [] as GithubRequest[] };
+    const reads = await hostReadsFor(context, github, { env: { GH_TOKEN: 'fixture' }, shell, origin: async () => 'git@github.com:o/r.git', client: fakeClient('GH_TOKEN', seen) });
+    await reads.host.prsOfCommit(sha);
+    expect(seen.requests.map((r) => r.path)).toEqual([`/repos/o/r/commits/${sha}/pulls?per_page=100&page=1`]);
+  });
+
+  it('asks the Bitbucket client in-process, not the shell', async () => {
+    const paths: string[] = [];
+    const client = (): BitbucketApi => ({
+      base: 'http://stub/2.0',
+      slug: 'ws/repo',
+      account: 'ws',
+      credentialSource: async () => 'environment',
+      nextPath: () => ({ ok: false, refusal: { kind: 'failed', said: 'no next' } }),
+      request: async (request) => {
+        paths.push(request.path);
+        return { ok: true, reply: { status: 200, headers: {}, body: { values: [] } } };
+      },
+    });
+    const reads = await hostReadsFor(context, { backend: 'bitbucket', ci: 'github-actions' }, { env: {}, shell: shellHost(), origin: async () => 'git@bitbucket.org:ws/repo.git', bitbucketClient: client });
+    expect(await reads.host.prsOfCommit(sha)).toEqual({ ok: true, value: [] });
+    expect(paths).toEqual([`/repositories/{ws}/{repo}/commit/${sha}/pullrequests?pagelen=50`]);
+  });
+
+  it('answers unaskable on the shell transport, and asks no client', async () => {
+    const seen = { options: null as GithubApiOptions | null, requests: [] as GithubRequest[] };
+    const reads = await hostReadsFor(context, github, {
+      env: { PLOT_HOST_TRANSPORT: 'shell', GH_TOKEN: 'fixture' },
+      shell: hostShell(context),
+      client: fakeClient('GH_TOKEN', seen),
+    });
+    expect(await reads.host.prsOfCommit(sha)).toMatchObject({ ok: false, why: 'unaskable' });
+    expect(seen.requests).toEqual([]);
   });
 });
 
