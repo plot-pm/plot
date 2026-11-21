@@ -132,7 +132,7 @@ describe('releaseStatusLine', () => {
     const line = releaseStatusLine(groupOf(two, rows), { 'row:10': ready, 'row:9': ready }, { registered: true });
     expect(line.slot.version).toBe('2.9.0');
     expect(line.text).toBe('Release PR #309 ready');
-    expect(line.others).toEqual([{ key: 'release:2.10.0', version: '2.10.0', pr: 310 }]);
+    expect(line.others).toEqual([{ key: 'release:2.10.0', version: '2.10.0', rowId: 'row:10', pr: 310 }]);
     expect(line.more).toBe('+1 more ready');
   });
 

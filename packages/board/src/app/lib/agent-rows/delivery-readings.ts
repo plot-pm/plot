@@ -10,7 +10,10 @@ import {
   type MineMode,
   type Ownership,
   releaseCards,
+  releaseGroup,
   releaseTargets,
+  type LastRelease,
+  type ReleaseGroupView,
   type ReleaseCardSprint,
   type ReleaseCarried,
   type ReleaseCardView,
@@ -25,10 +28,12 @@ import {
   type WorkItemReading,
 } from '@plot-pm/domain';
 import type { PersonDirectory } from '@plot-pm/domain/entities/person';
+import type { ReleasePrReading } from '@plot-pm/domain/rules/release-approvable';
 import { personCommentHolds } from '@plot-pm/domain/rules/person-comment';
 import { ticketMarkOf, ticketRecordOf } from '@plot-pm/domain/rules/sprint-ticket-record';
 import type { AgentEntry, AgentRow, DraftPlan, IssueRow, ReleaseTickets, Slice, TicketSourceShape } from '../../../contract/schema.js';
 import { ownedFromCard, ownedFromRow, ownedFromTicket, plansOfTicket, rowMineOwnership, ticketMineOwnership, type PlanOwners } from './mine-filter.js';
+import { releaseReadingOf } from '../release-approve.js';
 import { sliceKeyOf } from './sections.js';
 import { SLICE_LINKING_KINDS } from './slices.js';
 
@@ -594,4 +599,59 @@ export const releaseCardsOf = (
   });
   const cards = releaseCards(sprints, readings, directory ?? {}, countedSlicesByPlan(whole.readings.items, input), whole.readings, whole.input, carried);
   return { cards, rows };
+};
+
+/** The Release group, the release rows it binds, and each bound row's PR reading. */
+export interface ReleaseGroupOf {
+  group: ReleaseGroupView;
+  /** By work item id. */
+  rows: Record<string, AgentRow>;
+  /** Each release row's PR reading, by work item id, for `releaseStatusLine`. */
+  prReading: Record<string, ReleasePrReading | null>;
+}
+
+/**
+ * The Delivery tab header's Release group over the sprints in scope, read from every row the payload carries.
+ *
+ * Maps `input` in mode `all`, as `releaseCardsOf` does, so the group ignores the Mine mode. The
+ * unknown-owner warnings are `sprintCards`' over the same sprints.
+ *
+ * @param scope - the scope kind and its sprints: every Active sprint for `release`, the reader's selected ones for `my-sprint`.
+ * @param reader - who is reading.
+ * @param input - the payload's rows, unfiltered by the Sprint filter, and the rest of the Delivery tab's mapping input.
+ * @param carried - the Release delivery section's plans and counted slices (`DeliveryView.releaseCarried`).
+ * @param last - the payload's `lastRelease`.
+ * @returns the group, its rows and their PR readings.
+ */
+export const releaseGroupOf = (
+  scope: { kind: 'release' | 'my-sprint'; sprints: readonly (ReleaseCardSprint & SprintCardSprint)[] },
+  reader: Reader,
+  input: DeliveryMapInput,
+  carried: ReleaseCarried | undefined,
+  last: LastRelease | null,
+): ReleaseGroupOf => {
+  const whole = deliveryMapping({ ...input, mode: 'all' });
+  const rows: Record<string, AgentRow> = {};
+  const prReading: Record<string, ReleasePrReading | null> = {};
+  const readings = whole.readings.items.filter((item) => item.kind === 'release').map((item) => {
+    const row = whole.rowsByItem[item.id]?.[0];
+    if (row !== undefined) rows[item.id] = row;
+    prReading[item.id] = releaseReadingOf(row?.pr ?? null);
+    return { id: item.id, version: row?.version ?? '', pr: row?.pr?.number ?? null };
+  });
+  const directory = reader.directory ?? {};
+  const slicesByPlan = countedSlicesByPlan(whole.readings.items, input);
+  const group = releaseGroup({
+    scope: scope.kind,
+    sprints: scope.sprints,
+    cards: releaseCards(scope.sprints, readings, directory, slicesByPlan, whole.readings, whole.input, carried),
+    rows: readings,
+    directory,
+    slicesByPlan,
+    readings: whole.readings,
+    input: whole.input,
+    unknownOwners: sprintCards(scope.sprints, reader, slicesByPlan, whole.readings, whole.input).unknownOwners,
+    lastRelease: last,
+  });
+  return { group, rows, prReading };
 };

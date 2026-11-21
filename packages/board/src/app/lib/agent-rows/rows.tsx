@@ -368,6 +368,8 @@ export interface AgentListProps {
    * while unread. The to-do list's release lines read it to decide whether an approval can run.
    */
   passkey?: PasskeyRegistration | null;
+  /** The board payload's `lastRelease`; `null` or absent where no record parses or no board has landed. */
+  lastRelease?: { tag: string; date: string } | null;
 }
 
 /**

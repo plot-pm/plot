@@ -62,6 +62,8 @@ export type ReleaseGroupSprint = Pick<SprintCardSprint, 'slug' | 'title' | 'rele
 /** One release the group can approve: a card of the group and the release row it binds. */
 export interface ReleaseCandidate {
   readonly key: string;
+  /** The card's anchor, which the to-do list's "Approve release" line jumps to. */
+  readonly anchor: string;
   /** The version without its `v`, `''` where not read. */
   readonly version: string;
   /** The bound release row's work item id, `null` where none binds. */
@@ -147,7 +149,7 @@ export const releaseGroup = (group: ReleaseGroupInput): ReleaseGroupView => {
     : `${sprints.length === 1 ? 'my sprint' : 'my sprints'} · ${names.join(', ')}`;
   const prOf = (rowId: string | null): number | null => group.rows.find((r) => r.id === rowId)?.pr ?? null;
   const candidates = (cards.length > 0 ? cards : group.cards.filter((c) => c.kind === 'none')).map((c) => ({
-    key: c.key, version: c.version, rowId: c.rowId, pr: prOf(c.rowId), unboundReason: c.unboundReason,
+    key: c.key, anchor: c.anchor, version: c.version, rowId: c.rowId, pr: prOf(c.rowId), unboundReason: c.unboundReason,
   }));
   return {
     scope,
@@ -158,7 +160,7 @@ export const releaseGroup = (group: ReleaseGroupInput): ReleaseGroupView => {
     bar,
     total: bar === null ? 0 : bar.reduce((n, s) => n + s.count, 0),
     readingMissing,
-    candidates: candidates.length > 0 ? candidates : [{ key: 'release:none', version: '', rowId: null, pr: null, unboundReason: 'no release PR exists' }],
+    candidates: candidates.length > 0 ? candidates : [{ key: 'release:none', anchor: 'release-card-none', version: '', rowId: null, pr: null, unboundReason: 'no release PR exists' }],
     unknownOwners: group.unknownOwners,
   };
 };
@@ -167,6 +169,8 @@ export const releaseGroup = (group: ReleaseGroupInput): ReleaseGroupView => {
 export interface ReleaseReadyOther {
   readonly key: string;
   readonly version: string;
+  /** The bound release row's work item id. */
+  readonly rowId: string;
   readonly pr: number;
 }
 
@@ -213,7 +217,7 @@ export const releaseStatusLine = (
   const bound = group.candidates.filter((c) => c.rowId !== null).sort(byVersion);
   const slot = ready[0] ?? bound[0] ?? group.candidates[0]!;
   const button = releaseCardApprovable(slot, readingOf(slot), passkey);
-  const others = ready.filter((c) => c !== slot).map((c) => ({ key: c.key, version: c.version, pr: c.pr! }));
+  const others = ready.filter((c) => c !== slot).map((c) => ({ key: c.key, version: c.version, rowId: c.rowId!, pr: c.pr! }));
   const readyLine = ready[0] === slot ? `Release PR #${slot.pr} ready` : null;
   const text = group.readingMissing ? RELEASE_READING_MISSING
     : button.state === 'enabled' ? readyLine!
