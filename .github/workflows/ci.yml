@@ -751,6 +751,7 @@ jobs:
             test/reconcile/gates-launcher.test.mjs \
             test/reconcile/host-cli-gate.test.mjs \
             test/reconcile/no-bundle-diff-gate.test.mjs \
+            test/reconcile/repo-root-gate.test.mjs \
             test/reconcile/script-name-gate.test.mjs \
             test/reconcile/state-gate.test.mjs \
             test/reconcile/temp-paths-gate.test.mjs
@@ -2054,6 +2055,15 @@ jobs:
       # a person. Measured 2026-10-02: #1196 carried one onto main.
       - name: No desk marker is tracked
         run: ./scripts/check-desk-markers.sh
+
+      # THE REPOSITORY ROOT HOLDS ONLY WHAT PLOT SHIPS. A top-level entry that
+      # `scripts/repo-root.allowed` does not name is a stray, and the plugin
+      # installs from a tag of this repository. Measured 2026-11-21: 6 of the
+      # 36 tracked root entries were scratch files and a browser-snapshot
+      # folder. A new top-level entry adds its line to the allow-list in the
+      # same pull request.
+      - name: The root holds only what Plot ships
+        run: ./scripts/check-repo-root.sh
 
       # THE HELPER TABLE STAYS OUT OF `CLAUDE.md`. Every session, worker and
       # subagent loads that file on its first request; measured 2026-10-02, the
