@@ -74,7 +74,7 @@ Adopters have different tastes, so Plot adds no gate, no config key and no lint 
 
 ### Templates and skill text
 
-- `docs/templates-name-their-identifiers` — plan and story templates, story-tracking wording, four named decision citations, one changeset
+- `docs/templates-name-their-identifiers` — plan and story templates, story-tracking wording, four named decision citations, one changeset → #3615
 
 ## Notes
 
