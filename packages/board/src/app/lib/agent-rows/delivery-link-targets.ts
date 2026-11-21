@@ -1,4 +1,5 @@
-import type { LinkTarget } from '@plot-pm/domain';
+import { linkIconKind, type LinkTarget } from '@plot-pm/domain';
+import { tupleWhatOf, type TupleLink } from '../tuple-row.js';
 import type { AgentRow } from '../../../contract/schema.js';
 import type { RegistryAgent } from './delivery-readings.js';
 import { sliceItemId } from './delivery-readings.js';
@@ -80,6 +81,24 @@ export const resolveLink = (target: LinkTarget, ctx: LinkContext): ResolvedLink 
     case 'person':
       return { kind: 'none' };
   }
+};
+
+/**
+ * The artifact a cell link draws as a tuple: the target's kind, the label, and the address `resolveLink` found.
+ *
+ * An `href` arm keeps its address and an `anchor` arm links `#<id>`. A `plan`, `reveal` or `none` arm has no address,
+ * so its segment is text; the call site makes the first two a button.
+ *
+ * @param target - the target the domain named.
+ * @param resolved - where `resolveLink` placed it.
+ * @param label - the words the link shows.
+ * @returns the artifact, or `null` where the target names no kind of place or the click is an action.
+ */
+export const cellArtifact = (target: LinkTarget, resolved: ResolvedLink, label: string): TupleLink | null => {
+  const what = tupleWhatOf(linkIconKind(target));
+  if (what === null || resolved.kind === 'act') return null;
+  const href = resolved.kind === 'href' ? resolved.href : resolved.kind === 'anchor' ? `#${resolved.id}` : '';
+  return { what, label, href };
 };
 
 /** The short label a second or later link of one cell shows. */

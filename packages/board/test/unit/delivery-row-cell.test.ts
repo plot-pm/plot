@@ -57,11 +57,10 @@ describe('RowCell', () => {
     expect(html).toContain('class="text-blue-600 hover:underline dark:text-blue-400"');
   });
 
-  it('draws a link that leads somewhere in the link colour, with no dark: utility', () => {
+  it('draws a link that leads somewhere as a tuple segment in the link colour', () => {
     const html = render({ value: '#7', links: [{ to: 'pr', pr: 7 }] });
-    expect(html).toContain('data-row-link');
-    expect(html).toContain('class="delivery-text-link"');
-    expect(html).not.toContain('dark:');
+    expect(html).toMatch(/<a href="https:\/\/github\.com\/tiny\/garden\/pull\/7" data-tuple-link="pr"[^>]*data-row-link=""[^>]*class="[^"]*text-blue-600 hover:underline/);
+    expect(html).not.toContain('delivery-text-link');
   });
 
   it('still renders the role chip, the name and the attempt for an agent cell, as Fleet reads them', () => {
@@ -82,5 +81,20 @@ describe('RowCell', () => {
     expect(html).toMatch(/<button type="button" data-row-link="true" disabled="" data-hidden-reason="hidden by Mine" title="hidden by Mine"/);
     expect(html).not.toContain('href=');
     expect(renderToStaticMarkup(createElement(RowCell, { cell, handlers }))).toContain('href="#delivery-item-x"');
+  });
+
+  it.each([
+    { to: 'agent', id: 'fix-f3a1' },
+    { to: 'slice', id: 'red-hold' },
+  ] as const)('shows a $to tuple link a filter hides as the disabled button, and as a tuple where it shows', (target) => {
+    const hiding: LinkHandlers = { ...handlers, hiddenReason: () => 'hidden by Mine' };
+    const cell: Cell = { value: target.id, links: [target] };
+    const hidden = renderToStaticMarkup(createElement(RowCell, { cell, handlers: hiding }));
+    expect(hidden).toMatch(/<button type="button" data-row-link="true" disabled="" data-hidden-reason="hidden by Mine" title="hidden by Mine"/);
+    expect(hidden).not.toContain('href=');
+    expect(hidden).not.toContain('data-tuple-link');
+    const shown = renderToStaticMarkup(createElement(RowCell, { cell, handlers }));
+    expect(shown).toContain('data-tuple-link');
+    expect(shown).toMatch(/href="#[^"]+"/);
   });
 });

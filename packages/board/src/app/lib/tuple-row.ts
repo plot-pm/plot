@@ -18,7 +18,7 @@
 // a browser, and the browser only had to confirm a layout.
 import { GLYPH_PATH } from './glyphs.js';
 import { isAgentFree, planIndexOf, planRefOfRow, planReference, releaseStageViewOf, supervisionCauseWord, type PlanIndex, type PlanLinkKey } from '@plot-pm/domain';
-import type { PlanRef } from '@plot-pm/domain';
+import type { LinkIconKind, PlanRef } from '@plot-pm/domain';
 import { withLivenessBasis } from '@plot-pm/domain/rules/worker-liveness';
 import type { AgentEntry, AgentRow, IssueRow, RowKind, SliceVerdict } from '../../contract/schema.js';
 
@@ -50,7 +50,7 @@ export interface TupleLink {
    * icon comes from `KIND_ICON_PATH[what]`, so a missing value is a wrong glyph
    * rather than a missing one — the kind of error that looks like a design.
    */
-  what: 'plan' | 'branch' | 'pr' | 'ticket' | 'wave' | 'worktree' | 'release' | 'story' | 'sprint';
+  what: 'plan' | 'branch' | 'pr' | 'ticket' | 'wave' | 'worktree' | 'release' | 'story' | 'sprint' | 'agent' | 'build' | 'external';
   label: string;
   href: string;
   /**
@@ -148,8 +148,6 @@ export interface TupleRow {
   tally?: string;
   /** Slot 4 — the related things, each linked and each saying what it is. */
   links: TupleLink[];
-  /** Whether slot 4 draws `links` as link tuples, grouped by `linkTuplesOf`. */
-  linksAsTuples?: boolean;
   /** Slot 5 — where this stands. One slot, whatever the kind. */
   status: string;
   /** Slot 6 — how long, and which clock where that is not the rule. */
@@ -217,7 +215,34 @@ export const LINK_ICON_PATH: Record<TupleLink['what'], string> = {
   release: GLYPH_PATH.release,
   story: GLYPH_PATH.story,
   sprint: GLYPH_PATH.sprint,
+  agent: GLYPH_PATH.agent,
+  build: GLYPH_PATH.build,
+  external: GLYPH_PATH.external,
 };
+
+/** The tuple kind each link icon kind draws as. A slice is `wave`, the kind the tuple rows already use for it. */
+const TUPLE_WHAT: Readonly<Record<LinkIconKind, TupleLink['what']>> = {
+  plan: 'plan',
+  slice: 'wave',
+  branch: 'branch',
+  pr: 'pr',
+  ticket: 'ticket',
+  story: 'story',
+  sprint: 'sprint',
+  release: 'release',
+  worktree: 'worktree',
+  agent: 'agent',
+  build: 'build',
+  external: 'external',
+};
+
+/**
+ * The tuple kind of a link whose target `linkIconKind` named.
+ *
+ * @param kind - the icon kind of the link's target.
+ * @returns the segment kind, or `null` where the target names no kind of place.
+ */
+export const tupleWhatOf = (kind: LinkIconKind | null): TupleLink['what'] | null => (kind === null ? null : TUPLE_WHAT[kind]);
 
 /**
  * How many characters of a branch name are kept at the TAIL when the slot is
@@ -308,8 +333,8 @@ export interface TupleSegment {
 /**
  * The segment a link draws as.
  *
- * A PR number never truncates; a branch folds in the middle, through `splitBranch`; every other label clips at the
- * end.
+ * A PR or ticket number never truncates; a branch folds in the middle, through `splitBranch`; every other label clips
+ * at the end.
  *
  * @param link - the link, without its ticket keys.
  * @param tailChars - the branch tail budget, `BRANCH_TAIL_CHARS` by default.
@@ -317,8 +342,25 @@ export interface TupleSegment {
 export const segmentOf = (link: TupleLink, tailChars: number = BRANCH_TAIL_CHARS): TupleSegment => {
   const plain = { what: link.what, label: link.label, href: link.href, internal: link.internal, file: link.file };
   if (link.what === 'branch') return { ...plain, icon: true, fit: 'middle', ...splitBranch(link.label, tailChars) };
-  return { ...plain, icon: true, fit: link.what === 'pr' ? 'whole' : 'end', head: link.label, tail: '' };
+  return { ...plain, icon: true, fit: link.what === 'pr' || link.what === 'ticket' ? 'whole' : 'end', head: link.label, tail: '' };
 };
+
+/**
+ * The tuple one artifact draws as on the Delivery tab: its segments, in order.
+ *
+ * A plan or story with ticket keys answers one ticket segment per key, then its own segment. Every other artifact
+ * answers its own segment alone. An artifact with an empty `href` answers a text segment.
+ *
+ * @param artifact - the artifact's kind, label, address and, for a plan or story, its ticket keys.
+ * @param ticketHref - resolves a tracker key to its address, or `undefined` where the board holds none.
+ * @param tailChars - the branch tail budget, `BRANCH_TAIL_CHARS` by default.
+ * @returns the segments of the one tuple.
+ */
+export const artifactTuple = (
+  artifact: TupleLink,
+  ticketHref: (key: string) => string | undefined,
+  tailChars: number = BRANCH_TAIL_CHARS,
+): TupleSegment[] => linkTuplesOf([artifact], ticketHref, tailChars)[0];
 
 /**
  * Group a row's links into link tuples, each a list of segments in the order they draw.
@@ -1574,7 +1616,6 @@ export function tupleFromSlice(facts: SliceRowFacts, index: PlanIndex = EMPTY_PL
     kind: 'wave',
     kindLabel: KIND_LABEL.wave,
     name: { what: 'plan', label: facts.name || UNNAMED_SLICE_LABEL, href: '' },
-    linksAsTuples: true,
     // SLOT 4 HOLDS WHAT THE SLICE CONTAINS, and only that. Its branches, and
     // nothing pointing the other way.
     //

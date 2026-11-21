@@ -566,7 +566,10 @@ describe('a browser test that stubs its own state starts no board', () => {
 // and 320 px. It serves its state through the catalogue and starts no board.
 // 98 → 99 on 2026-11-19: `release-delivery-fold.browser.test.ts`, for the Release delivery section folding to its header line, its
 // count links and its one stored fold under the My sprint chip. It serves its state through the catalogue and starts no board.
-const EXPECTED_FILES = 99;
+// 99 → 100 on 2026-11-20: `delivery-tuples.browser.test.ts`, for a section header, a Tickets row, the release card and a release
+// delivery plan row drawn as bordered link tuples, and no horizontal scroll at 320 px. It serves its state through the catalogue
+// and starts no board.
+const EXPECTED_FILES = 100;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -956,8 +959,9 @@ const EXPECTED_FILES = 99;
 // 719 → 721 on 2026-11-20: the two `it(` that check a slice's PR and branch draw as one bordered link tuple with the branch named in full in its title, and that a ticket segment takes the `--hue-violet` colour, added to `tuple-row.browser.test.ts`. Added, not moved.
 // 721 → 724 on 2026-11-20: the three `it(` added to `delivery-tab-sections.browser.test.ts` for the section folds: a click on a header count or switch leaves the fold unchanged, a folded Machine section renders no machine line, and a You count link opens its folded section and marks the target. Added, not moved.
 // 724 → 725 on 2026-11-20: the `it(` added to `delivery-fleet-look.browser.test.ts` for a header whose only not-working entries are unread: the amber unread sentence shows, with no registry fact and no not-working toggle. Added, not moved.
-// 725 → 726 on 2026-11-20: the one `it(` that checks an empty Fleet section shows its stopped frame and an empty Work items group shows "— none", added to `unplanned-issues.browser.test.ts`. Added, not moved.
-const EXPECTED_TESTS = 726;
+// 725 → 730 on 2026-11-20: the five `it(` in the new `delivery-tuples.browser.test.ts` (99 → 100 files): four surfaces drawn as link tuples, and one 320 px check run in light and dark. Added, not moved.
+// 730 → 731 on 2026-11-21: the one `it(` that checks an empty Fleet section shows its stopped frame and an empty Work items group shows "— none", added to `unplanned-issues.browser.test.ts`. Added, not moved.
+const EXPECTED_TESTS = 731;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an
