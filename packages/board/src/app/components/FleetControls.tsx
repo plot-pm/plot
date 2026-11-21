@@ -76,7 +76,7 @@ async function postControls(
  * `aria-checked` contract rebuilt by hand. The label text carries the meaning
  * (*Auto-dispatch*) so the control is not a naked box a reader must guess at.
  */
-export function AutoDispatchSwitch({ value, readOnly = false }: { value: boolean; readOnly?: boolean }) {
+export function AutoDispatchSwitch({ value }: { value: boolean }) {
   // The local echo, seeded from the server and re-seeded by every poll UNLESS a
   // write is in flight — see the effect below.
   const [checked, setChecked] = useState(value);
@@ -93,7 +93,6 @@ export function AutoDispatchSwitch({ value, readOnly = false }: { value: boolean
   }, [value]);
 
   const toggle = async () => {
-    if (readOnly) return;
     const next = !checked;
     setChecked(next); // optimistic
     setBusy(true);
@@ -110,10 +109,9 @@ export function AutoDispatchSwitch({ value, readOnly = false }: { value: boolean
     <label className="delivery-fleet-switch flex items-center gap-1.5">
       <input
         type="checkbox"
-        {...(readOnly ? { 'data-fleet-card-auto-dispatch': '' } : { 'data-fleet-auto-dispatch': '' })}
-        checked={readOnly ? value : checked}
-        disabled={busy || readOnly}
-        aria-readonly={readOnly || undefined}
+        data-fleet-auto-dispatch
+        checked={checked}
+        disabled={busy}
         onChange={() => void toggle()}
       />
       auto-dispatch
@@ -136,7 +134,7 @@ export type AutoSwitchName = keyof typeof AUTO_SWITCHES;
  * `/api/fleet-controls` like the auto-dispatch switch, and rolls back where the
  * server refuses.
  */
-export function AutoSwitch({ name, value, readOnly = false }: { name: AutoSwitchName; value: boolean; readOnly?: boolean }) {
+export function AutoSwitch({ name, value }: { name: AutoSwitchName; value: boolean }) {
   const [checked, setChecked] = useState(value);
   const [busy, setBusy] = useState(false);
   const writing = useRef(false);
@@ -146,7 +144,6 @@ export function AutoSwitch({ name, value, readOnly = false }: { name: AutoSwitch
   }, [value]);
 
   const toggle = async () => {
-    if (readOnly) return;
     const next = !checked;
     setChecked(next);
     setBusy(true);
@@ -161,10 +158,9 @@ export function AutoSwitch({ name, value, readOnly = false }: { name: AutoSwitch
     <label className="delivery-fleet-switch flex items-center gap-1.5">
       <input
         type="checkbox"
-        {...(readOnly ? { 'data-fleet-card-auto-switch': name } : { 'data-fleet-auto-switch': name })}
-        checked={readOnly ? value : checked}
-        disabled={busy || readOnly}
-        aria-readonly={readOnly || undefined}
+        data-fleet-auto-switch={name}
+        checked={checked}
+        disabled={busy}
         onChange={() => void toggle()}
       />
       {AUTO_SWITCHES[name]}
@@ -186,7 +182,7 @@ export function AutoSwitch({ name, value, readOnly = false }: { name: AutoSwitch
  * expected interaction — a reader who lands on it with Tab can change it without
  * reaching for the two buttons.
  */
-export function ParallelAgentsStepper({ value, readOnly = false }: { value: number; readOnly?: boolean }) {
+export function ParallelAgentsStepper({ value }: { value: number }) {
   const [count, setCount] = useState(value);
   const [busy, setBusy] = useState(false);
   const writing = useRef(false);
@@ -196,7 +192,6 @@ export function ParallelAgentsStepper({ value, readOnly = false }: { value: numb
   }, [value]);
 
   const commit = async (next: number) => {
-    if (readOnly) return;
     // The floor lives here as well as on the server: a control that let the
     // value reach 0 and relied on the endpoint to raise it would flash a 0 the
     // fleet never runs at.
@@ -216,12 +211,11 @@ export function ParallelAgentsStepper({ value, readOnly = false }: { value: numb
   return (
     <span
       role="spinbutton"
-      {...(readOnly ? { 'data-fleet-card-parallel-agents': '' } : { 'data-fleet-parallel-agents': '' })}
-      aria-readonly={readOnly || undefined}
-      aria-label={readOnly ? 'agent limit, read-only' : 'parallel agents cap'}
-      aria-valuenow={readOnly ? value : count}
+      data-fleet-parallel-agents
+      aria-label="parallel agents cap"
+      aria-valuenow={count}
       aria-valuemin={MIN_PARALLEL_AGENTS}
-      aria-valuetext={`${readOnly ? value : count} agents cap`}
+      aria-valuetext={`${count} agents cap`}
       tabIndex={0}
       onKeyDown={(e) => {
         if (e.key === 'ArrowUp') {
@@ -244,7 +238,7 @@ export function ParallelAgentsStepper({ value, readOnly = false }: { value: numb
       <span aria-hidden className="mr-0.5">
         parallel agents
       </span>
-      {!readOnly && <button
+      <button
         type="button"
         data-fleet-parallel-decrement
         // `aria-hidden` on the two adjusters: the spinbutton itself carries the
@@ -259,11 +253,11 @@ export function ParallelAgentsStepper({ value, readOnly = false }: { value: numb
         className="delivery-fleet-step flex items-center justify-center leading-none"
       >
         −
-      </button>}
-      <span {...(readOnly ? {} : { 'data-fleet-parallel-value': '' })} className="min-w-[1.5ch] text-center tabular-nums">
-        {readOnly ? value : count}
+      </button>
+      <span data-fleet-parallel-value className="min-w-[1.5ch] text-center tabular-nums">
+        {count}
       </span>
-      {!readOnly && <button
+      <button
         type="button"
         data-fleet-parallel-increment
         aria-hidden
@@ -273,7 +267,7 @@ export function ParallelAgentsStepper({ value, readOnly = false }: { value: numb
         className="delivery-fleet-step flex items-center justify-center leading-none"
       >
         +
-      </button>}
+      </button>
     </span>
   );
 }

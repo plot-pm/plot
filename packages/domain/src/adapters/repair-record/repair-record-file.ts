@@ -3,20 +3,21 @@ import { dirname, join } from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
 import { decodeRepairRecord, encodeRepairRecord, type RepairRecord } from '../../entities/repair-record.js';
+import type { StateHome } from '../../entities/state-home.js';
 import type { RepairRecordStore } from '../../ports/repair-record.js';
 import { baseRepairPath, validBase } from '../default-branch/default-branch-file.js';
 
-/** Where the record lives under a repository root. */
-export const repairRecordPath = (repoRoot: string): string =>
-  join(repoRoot, '.plot', 'state', 'repair-record.json');
+/** Where the record lives under a state home. */
+export const repairRecordPath = (home: StateHome): string =>
+  join(home, '.plot', 'state', 'repair-record.json');
 
 /**
  * Keeps the repair record in `.plot/state/repair-record.json`.
  *
- * @param repoRoot - the repository the file belongs to.
+ * @param home - the state home the file lives under.
  * @returns a `RepairRecordStore` over that one file.
  */
-export const repairRecordFile = (repoRoot: string): RepairRecordStore => repairRecordAt(repairRecordPath(repoRoot));
+export const repairRecordFile = (home: StateHome): RepairRecordStore => repairRecordAt(repairRecordPath(home));
 
 /**
  * Keeps one repair record in the file at `path`, read and written whole.
@@ -61,16 +62,16 @@ export const repairRecordAt = (path: string, accepts: (record: RepairRecord) => 
  * A base that {@link validBase} refuses has no file: it reads as no record and
  * refuses a write. A file whose `branch` is not `base` reads as no record.
  *
- * @param repoRoot - the repository the file belongs to.
+ * @param home - the state home the file lives under.
  * @param base - the base branch the record is kept for.
  * @returns a `RepairRecordStore` over that one file.
  */
-export const baseRepairFile = (repoRoot: string, base: string): RepairRecordStore => {
+export const baseRepairFile = (home: StateHome, base: string): RepairRecordStore => {
   if (!validBase(base)) {
     return {
       read: async () => answered<RepairRecord | null>(null),
       write: async () => failed<void>(),
     };
   }
-  return repairRecordAt(baseRepairPath(repoRoot, base), (record) => record.branch === base);
+  return repairRecordAt(baseRepairPath(home, base), (record) => record.branch === base);
 };

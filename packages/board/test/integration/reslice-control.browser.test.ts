@@ -16,8 +16,8 @@ import { type AgentRow, type Fleet, type Board } from '../../src/contract/schema
  * sole branch) both declined to give a menu.
  *
  *   - a wave the board reports `unsliced-wave` offers *Slice this wave*.
- *   - a wave that is NOT tangled offers no such item — its branch menu is intact
- *     but carries nothing reslice-shaped.
+ *   - a wave that is NOT tangled lists the item disabled, with the reason the
+ *     slice holds one branch, and renders no reslice button.
  *   - where the server REFUSES (`reslice.available === false`), the item is still
  *     reachable and NAMES the refusal: a refusal is not an absence.
  *
@@ -134,37 +134,42 @@ describe('the unsliced wave carries Slice this wave, and no other row does', () 
     return page;
   }
 
-  const resliceMenuButton = (page: Page, wave: string) =>
-    page.locator(`[data-reslice-actions="${wave}"]`);
+  const sliceMenu = (page: Page, wave: string) =>
+    page.locator(`[data-slice-actions="${wave}"]`);
+
+  /** Opens the `⋯` of the slice row `wave` and returns its *Slice this plan* item. */
+  const resliceItem = async (page: Page, wave: string) => {
+    const trigger = sliceMenu(page, wave);
+    await expect.poll(() => trigger.count(), { timeout: 10_000 }).toBe(1);
+    await trigger.click();
+    const item = page.locator('[data-menu-item="reslice"]');
+    await expect.poll(() => item.count()).toBe(1);
+    return item;
+  };
 
   it('offers Slice this wave on the unsliced wave row', async () => {
-    // The `⋯` this row had none of before. Opening it reveals the one item the
-    // tangle offers, its accessible name naming the act.
+    // Opening the tangle's `⋯` reveals the enabled item, its accessible name naming the act.
     const page = await open();
     try {
-      const btn = resliceMenuButton(page, 'Implementation');
-      await expect.poll(() => btn.count(), { timeout: 10_000 }).toBe(1);
-      await btn.click();
-      const menu = page.locator('[role="menu"]').filter({ has: page.locator('[data-reslice="tangled"]') });
-      await expect.poll(() => menu.getByRole('button', { name: /Slice this plan/ }).count()).toBe(1);
+      const item = await resliceItem(page, 'Implementation');
+      expect(await item.getAttribute('aria-disabled')).toBe(null);
+      const button = item.getByRole('button', { name: /Slice this plan/ });
+      await expect.poll(() => button.count()).toBe(1);
+      expect(await button.getAttribute('data-reslice')).toBe('tangled');
     } finally {
       await page.close();
     }
   });
 
   it('offers it NOWHERE the wave is not tangled', async () => {
-    // `neat` is a clean single-branch wave: its own menu is intact (Open), but no
-    // reslice control exists on it. The `data-reslice-actions` hook is the ONLY
-    // DOM home for the item, so its absence off the tangle proves the scoping.
+    // `neat` is a clean single-branch wave. Its menu lists the fixed slice item set, so *Slice this plan* is
+    // present and disabled with its reason, and the `data-reslice` button exists only on the tangle.
     const page = await open();
     try {
-      // The tangle's control is present…
-      await expect
-        .poll(() => resliceMenuButton(page, 'Implementation').count(), { timeout: 10_000 })
-        .toBe(1);
-      // …and it is the ONLY reslice control on the page: `neat` offers none.
-      expect(await page.locator('[data-reslice-actions]').count()).toBe(1);
-      expect(await page.locator('[data-reslice-actions="w1"]').count()).toBe(0);
+      const item = await resliceItem(page, 'w1');
+      expect(await item.getAttribute('aria-disabled')).toBe('true');
+      expect(await item.getAttribute('data-menu-reason')).toBe('the slice holds one branch');
+      expect(await page.locator('[data-reslice]').count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -172,21 +177,16 @@ describe('the unsliced wave carries Slice this wave, and no other row does', () 
 
   it('NAMES the refusal where the server will not reslice', async () => {
     // A refusal is not an absence. With `reslice.available === false` the `⋯`
-    // still opens — the item always applies to a tangled wave — and the button
-    // inside carries the server's reason rather than a dead control.
+    // still opens, and the item is listed disabled with the server's reason as
+    // its visible text rather than as a dead control.
     const reason = 'reslicing runs the /plot-reslice SKILL, which no script can do';
     const page = await open(fleet(), board({ reslice: { available: false, reason } }));
     try {
-      const btn = resliceMenuButton(page, 'Implementation');
-      await expect.poll(() => btn.count(), { timeout: 10_000 }).toBe(1);
-      await btn.click();
-      const control = page.locator('[data-reslice="tangled"]');
-      await expect.poll(() => control.count()).toBe(1);
-      // Disabled for assistive tech, and its refusal is stated — the sr-only span
-      // and the title both carry the reason a dimmed control would otherwise hide.
-      await expect.poll(() => control.getAttribute('aria-disabled')).toBe('true');
-      await expect.poll(() => control.getAttribute('title')).toBe(reason);
-      await expect.poll(() => control.textContent()).toContain(reason);
+      const item = await resliceItem(page, 'Implementation');
+      expect(await item.getAttribute('aria-disabled')).toBe('true');
+      expect(await item.getAttribute('data-menu-reason')).toBe(reason);
+      expect(await item.textContent()).toContain(reason);
+      expect(await page.locator('[data-reslice]').count()).toBe(0);
     } finally {
       await page.close();
     }

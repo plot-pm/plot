@@ -1,5 +1,5 @@
 /*
- * THE TAB HEADER — the to-do list, the release or sprint card and the fleet card, in two columns.
+ * THE TAB HEADER — one card of five groups: Release, You, Work items, Fleet and Machine. It never folds.
  *
  * The rule below marks the file as loaded:
  * the screenshot test reads `--delivery-section` from `[data-tab-header]`.
@@ -8,76 +8,94 @@
   --delivery-section: header;
 }
 
-/* Two columns from 768 px up, the to-do list first; stacked below. */
+/* The groups sit in one row with a vertical rule between them, and wrap below a group's minimum width. */
 [data-tab-header] {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.75rem;
-  align-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  row-gap: 0.75rem;
+  overflow-x: hidden;
 }
-[data-tab-header] > [data-tab-header-column] {
-  min-width: 0;
-  margin-block: 0;
+.delivery-header-group {
+  flex: 1 1 11rem;
+  padding-inline: 0.75rem;
+  border-left: 1px solid var(--card-rule);
 }
-@media (min-width: 768px) {
-  [data-tab-header] {
-    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+.delivery-header-group[data-header-group="release"] {
+  flex: 2 1 16rem;
+  padding-left: 0;
+  border-left: 0;
+}
+@media (max-width: 639.98px) {
+  .delivery-header-group,
+  .delivery-header-group[data-header-group="release"] {
+    flex-basis: 100%;
+    padding-inline: 0;
+    border-left: 0;
   }
 }
-
-/* The to-do list: a header, one ruled line per item, the triage line. */
-[data-todo-header] {
-  margin-bottom: 0.25rem;
+.delivery-header-label {
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--card-meta);
 }
-[data-todo-lines] {
-  column-gap: 0.625rem;
-}
-[data-todo-line] {
-  column-gap: 0.625rem;
-  row-gap: 0.125rem;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--card-rule);
-  font-size: 13px;
-}
-[data-todo-line]:last-child {
-  border-bottom: 0;
-}
-[data-todo-name] {
-  column-gap: 0.625rem;
-  color: var(--card-body);
-}
-[data-todo-verb] {
-  min-width: 110px;
-  font-weight: 600;
-  color: var(--delivery-text, var(--card-body));
-}
-[data-todo-label] {
-  font-weight: 700;
-  color: var(--hue-blue);
-}
-[data-todo-name]:hover [data-todo-label] {
-  text-decoration: underline;
-}
-@media (max-width: 639.98px) {
-  [data-todo-verb] { min-width: 0; }
-}
-[data-todo-triage] {
-  padding-top: 0.5rem;
-  font-size: 13px;
+[data-tab-header] :is(.delivery-hue-red, .delivery-hue-amber, .delivery-hue-green) {
+  color: var(--delivery-text);
 }
 
-/* The release card's bar and legend, in the five-state colour map of the sprint card. */
-[data-release-card-bar] {
+/* The Fleet group's circles, one per agent, coloured by its group. */
+.delivery-header-circle {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+}
+.delivery-header-circle-working { background: var(--hue-green-dot); }
+.delivery-header-circle-blocked { background: var(--hue-amber-dot); }
+.delivery-header-circle-free { background: var(--card-track); }
+
+/* The Machine group's meters: a track and a fill in the meter's tone. */
+.delivery-header-meter {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--card-track);
+  overflow: hidden;
+}
+.delivery-header-meter-fill {
+  display: block;
+  height: 100%;
+}
+.delivery-header-meter-green { background: var(--hue-green-dot); }
+.delivery-header-meter-amber { background: var(--hue-amber-dot); }
+.delivery-header-meter-red { background: var(--hue-red-dot); }
+.delivery-header-meter-grey,
+.delivery-header-meter-plain { background: var(--card-meta); }
+
+/*
+ * The Release group: its text in the first column and the release slot in the second. The slot's
+ * column is as wide as the button and the slot sits at the group's top right, so no text length or
+ * state moves the button.
+ */
+.delivery-release-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 0.75rem;
+  align-items: start;
+}
+.delivery-release-slot {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+/* The Release group's bar, grey where no segment draws, and its legend, in the five-state colour map. */
+[data-release-group-bar] {
   height: 6px;
   border-radius: 3px;
   background: var(--card-track);
 }
-[data-release-card-legend] {
+[data-release-group-legend] {
   font-size: 11px;
   color: var(--card-body);
 }
@@ -90,10 +108,11 @@
   border-radius: 2px;
 }
 
-/* The Approve release button. */
+/* The Approve release button. A disabled button keeps its size and shows a dashed outline. */
 .delivery-approve {
-  padding: 5px 12px;
-  border: 0;
+  padding: 4px 11px;
+  border: 1px solid var(--card-primary);
+  white-space: nowrap;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 600;
@@ -105,7 +124,10 @@
 }
 .delivery-approve:disabled {
   cursor: not-allowed;
-  opacity: 0.5;
+  border-style: dashed;
+  border-color: var(--card-meta);
+  background: transparent;
+  color: var(--card-meta);
 }
 
 /* The filter chips: outlined when off, filled when on, dimmed when disabled. */

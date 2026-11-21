@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** docs
 - **Sprint:** delivery-ui-polish
 - **Review:** in-session
@@ -12,6 +12,7 @@
 - **Rounds:** 3
 - **Approved:** 2026-11-21, jwloka, in-session
 - **Started:** 2026-11-21, Jan Wloka, `docs/templates-name-their-identifiers`
+- **Delivered:** 2026-11-21
 
 ## Changelog
 

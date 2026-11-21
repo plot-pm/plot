@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3609 merged
+- **Started:** 2026-11-21, Jan Wloka, `bug/merge-reads-the-main-checkouts-state`
 
 ## Changelog
 
@@ -150,7 +151,7 @@ The layering rule holds in every slice: a controller or an entry calls the domai
 
 ### Merge state home
 
-- `bug/merge-reads-the-main-checkouts-state` — `StateHome`, `stateHomeOf` and its two adapters, the four state-file adapters taking a `StateHome`, and every board and fleetd caller `tsc` names, with the worktree entry test <!-- builds: stateHomeOf, the main checkout's state home -->
+- `bug/merge-reads-the-main-checkouts-state` — `StateHome`, `stateHomeOf` and its two adapters, the four state-file adapters taking a `StateHome`, and every board and fleetd caller `tsc` names, with the worktree entry test <!-- builds: stateHomeOf, the main checkout's state home --> → #3624
 
 ### Repair-start decision
 

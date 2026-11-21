@@ -15,6 +15,18 @@ describe('planOpenQuestions', () => {
   it('ignores a heading inside a code fence', () => {
     expect(planOpenQuestions('```\n## Open Points\n- [ ] x\n```\n')).toBeNull();
   });
+  it('drops one leading named identifier from the first line', () => {
+    expect(planOpenQuestions('## Open Points\n- [ ] [question-row-text] Does the row show it?\n')).toEqual({ count: 1, first: 'Does the row show it?' });
+    expect(planOpenQuestions('## Open Points\n- [ ] ⏸️ `[question-row-text]` Does the row show it?\n')).toEqual({ count: 1, first: '⏸️ Does the row show it?' });
+  });
+  it('leaves an unnamed line whole, including a leading bracket of ordinary text', () => {
+    expect(planOpenQuestions('## Open Points\n- [ ] Does the row show it?\n')).toEqual({ count: 1, first: 'Does the row show it?' });
+    expect(planOpenQuestions('## Open Points\n- [ ] [x] stays\n')).toEqual({ count: 1, first: '[x] stays' });
+    expect(planOpenQuestions('## Open Points\n- [ ] [the spec](docs/spec.md) says so\n')).toEqual({ count: 1, first: '[the spec](docs/spec.md) says so' });
+  });
+  it('counts a bare name as open and returns the name itself', () => {
+    expect(planOpenQuestions('## Open Points\n- [ ] [question-checklist-line-first-token]\n- [ ] second\n')).toEqual({ count: 2, first: '[question-checklist-line-first-token]' });
+  });
 });
 
 describe('chips', () => {

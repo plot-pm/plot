@@ -255,6 +255,16 @@ describe('releaseDeliveryHeader', () => {
     expect(releaseDeliveryHeader('Release delivery', []).scope).toBe('');
   });
 
+  it('carries all five states in the bar, a count of 0 included, and counts the plans with a blocked slice', () => {
+    const head = releaseDeliveryHeader('Release delivery', [{ scope: '', rows: [done, gated, open, gated] }]);
+    expect(head.bar.map((s) => s.state)).toEqual(['delivered', 'blocked', 'at-a-gate', 'being-built', 'not-started']);
+    expect(head.bar.reduce((n, s) => n + s.count, 0)).toBe(1 + 2 + five.length);
+    expect(head.blockedPlans).toBe(1);
+    const quiet = releaseDeliveryHeader('Release delivery', [{ scope: '', rows: [done] }]);
+    expect(quiet.bar.map((s) => s.count)).toEqual([1, 0, 0, 0, 0]);
+    expect(quiet.blockedPlans).toBe(0);
+  });
+
   it('counts a plan two blocks list once', () => {
     const head = releaseDeliveryHeader('Sprint delivery', [{ scope: 's1', rows: [done, gated] }, { scope: 's2', rows: [gated] }]);
     expect(head.counts.slice(0, 3).map((c) => c.count)).toEqual([2, 2, 1]);

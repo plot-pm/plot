@@ -540,15 +540,15 @@ commit, not three.
 
 ## Open Points Tracking
 
-Deferred questions are tracked as a plain text section appended to the plan file:
+Deferred questions are tracked as a plain text section appended to the plan file. Each line is `` - [ ] `[question-<name>]` <question> ``: a descriptive name with the `question-` prefix, in square brackets, as inline code, so another place can cite the point without a number. A name is unique within the plan and stays fixed once another place cites it.
 
 ```markdown
 ## Open Points
 
-- [ ] [Technical] How to handle token refresh race conditions? — *deferred: discuss with the team*
-- [ ] [Domain] What authorization rules apply to admin users? — *deferred: leave question for Egemen*
-- [ ] [UX] What happens when session expires mid-form-fill? — *deferred: I don't know*
-- [x] [Security] Where are credentials stored? — *answered round 3: Vault with rotation*
+- [ ] `[question-token-refresh-race]` How to handle token refresh race conditions? — *Technical; deferred: discuss with the team*
+- [ ] `[question-admin-authorization]` What authorization rules apply to admin users? — *Domain; deferred: leave question for Egemen*
+- [ ] `[question-session-expiry-mid-form]` What happens when session expires mid-form-fill? — *UX; deferred: I don't know*
+- [x] `[question-credential-storage]` Where are credentials stored? — *Security; answered round 3: Vault with rotation*
 ```
 
 **Tracking rules:**
@@ -659,7 +659,7 @@ The pass reads every source with `git show <commit>:<path>`, never from the work
 
 1. **List the claims.** Walk the plan and list every claim it takes from outside itself: spec or design ids, existing code and config (names, signatures, paths, defaults), other plans (what they build, what state they are in), and the environment (versions, intervals, limits).
 2. **Check each claim at the commit.** Read the source with `git show <commit>:<path>`. A claim only a live system answers gets the mark `live check`. The pass runs nothing to answer it.
-3. **Write each contradiction into `### Open Questions`.** One checkbox entry per contradiction, with three parts: the quoted source line (`path:line` at the commit), the plan line that makes the claim, and a severity. A single line at the end of the section names the commit read and counts the claims found consistent and marked `live check`.
+3. **Write each contradiction into `### Open Questions`.** One checkbox entry per contradiction, written `` - [ ] `[question-<name>]` <question> ``, with three parts: the quoted source line (`path:line` at the commit), the plan line that makes the claim, and a severity. A single line at the end of the section names the commit read and counts the claims found consistent and marked `live check`.
 4. **List the claims found consistent.** Name every claim checked and found fine, and every `live check` claim, under that same closing line. Without this list nobody can compute a false-positive rate, and nobody can see what the pass did not look at. Keep untested flags apart from refuted ones when a person later judges the flags.
 
 ### Severity scale

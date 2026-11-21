@@ -185,7 +185,8 @@ interface WriteReport {
 
 /** The three outcomes of asking the host for the plan PR. */
 interface PlanPr {
-  number: number;
+  /** The PR's number; null where no plan PR was read. */
+  number: number | null;
   state: string;
   draft: boolean;
   /** The head the host reported; absent where it named none. */
@@ -333,7 +334,7 @@ const readPlanPr = async (ctx: Context, branch: string): Promise<PlanPr> => {
   }
   const pr = lookup.value;
   if (pr === null || (pr.state !== 'MERGED' && pr.state !== 'OPEN' && pr.state !== 'CLOSED')) {
-    return { number: 0, state: 'NONE', draft: false };
+    return { number: null, state: 'NONE', draft: false };
   }
   const head = pr.state === 'OPEN' ? await readHeadOf(ctx, branch, pr.headSha ?? '') : null;
   return { number: pr.number, state: pr.state, draft: pr.draft, headSha: head?.sha ?? pr.headSha, url: pr.url };
@@ -462,7 +463,8 @@ interface RefusalContext {
   phase: string;
   review: string;
   prBranch: string;
-  prNumber: number;
+  /** The plan PR's number; null where no plan PR was read. */
+  prNumber: number | null;
   /** The own-repo open rows that could not be read while looking for the plan. */
   unreadOpen: readonly UnreadPr[];
 }
@@ -531,7 +533,8 @@ interface WriteRequest {
   today: string;
   channel: string;
   people: readonly string[];
-  prNumber: number;
+  /** The plan PR's number; null where no plan PR was read, which annotates `pr: none`. */
+  prNumber: number | null;
   dirs: Dirs;
   /** Records `Spike approved:` and clears the spike branch's hold instead of approving the plan. */
   spike?: boolean;
@@ -888,7 +891,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
   // sha it settles on is the ONE sha that serves the record read below, the
   // `plot/review` status write and the merge's `--match-head` pin.
   let prBranch = sameBranch ? await sameBranchOf(ctx, slug) : `idea/${slug}`;
-  let pr: PlanPr = { number: 0, state: 'NONE', draft: false };
+  let pr: PlanPr = { number: null, state: 'NONE', draft: false };
   let prRoute: 'named' | 'open' | 'merged' | undefined;
   let prBlob = '';
   let prRivals: readonly { number: number; file: string; blob: string }[] = [];
@@ -1002,7 +1005,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
       // reads the host to pin its PR, so that failure waits on the verdict.
       if (!inCheckout) throw err;
       hostRefusal = err;
-      pr = { number: 0, state: 'OPEN', draft: false };
+      pr = { number: null, state: 'OPEN', draft: false };
     }
   }
   const person = args.spike || approvalArm({ phase, review }) === 'person';
@@ -1024,7 +1027,8 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
     sprintFile: '',
     approvedRecord: plan?.approvedRaw ?? '',
     pr: {
-      number: pr.number,
+      // The domain's reading names no PR with 0, and its state says which.
+      number: pr.number ?? 0,
       state: pr.state === 'MERGED' || pr.state === 'OPEN' || pr.state === 'CLOSED' ? pr.state : 'NONE',
       draft: pr.draft,
       branch: prBranch,
@@ -1057,7 +1061,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
         ? `a person approves the spike of '${slug}' on every review channel.\n  Refusing under PLOT_UNATTENDED=1: there is nobody here to name. Approve it from a session: /plot-approve ${slug} --spike --who <handle>`
         : inSession
         ? `plan '${slug}' declares 'Review: in-session' — the reviewer is a human in the room.\n  Refusing under PLOT_UNATTENDED=1: there is nobody here to name. Approve it from a session: /plot-approve ${slug}`
-        : `plan '${slug}' is in the Design phase — a person approves it (D10), whatever its 'Review:' channel declares.\n  Refusing under PLOT_UNATTENDED=1: there is nobody here to name. Approve it from a session: /plot-approve ${slug} --who <handle>`,
+        : `plan '${slug}' is in the Design phase — a person approves it [decision-fleet-writes-design-specs], whatever its 'Review:' channel declares.\n  Refusing under PLOT_UNATTENDED=1: there is nobody here to name. Approve it from a session: /plot-approve ${slug} --who <handle>`,
     );
   }
   if (verdict.outcome === 'refused') {
@@ -1081,7 +1085,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
   }
   // The merge is irreversible, so a PR that would land on another branch than
   // the one the approval books on refuses before it.
-  if (!inSession && !sameBranch && pr.state === 'OPEN') {
+  if (!inSession && !sameBranch && pr.state === 'OPEN' && pr.number !== null) {
     await refuseForeignBase(ctx, pr.number, main, target);
   }
 
@@ -1320,7 +1324,7 @@ const bookApproval = async (
     request: (root: string) => WriteRequest;
     args: Args;
     inSession: boolean;
-    prNumber: number;
+    prNumber: number | null;
     who: string;
   },
   write: Printer,

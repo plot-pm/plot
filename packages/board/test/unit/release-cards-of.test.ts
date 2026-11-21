@@ -1,8 +1,8 @@
-// The board's release card adapter: release rows from every payload row, bound to cards, whatever the reader.
+// The board's release card and Release group adapters: release rows from every payload row, bound to cards and the group, whatever the reader.
 import { describe, it, expect } from 'vitest';
-import { parsePersonDirectory, placeDelivery } from '@plot-pm/domain';
+import { NO_RELEASE_TARGETED, parsePersonDirectory, placeDelivery, releaseStatusLine } from '@plot-pm/domain';
 import type { AgentRow, Slice } from '../../src/contract/schema.js';
-import { deliveryMapping, releaseCardsOf, type DeliveryMapInput } from '../../src/app/lib/agent-rows/delivery-readings.js';
+import { deliveryMapping, releaseCardsOf, releaseGroupOf, type DeliveryMapInput } from '../../src/app/lib/agent-rows/delivery-readings.js';
 import { releaseTodoEntriesOf, todoListOf } from '../../src/app/lib/agent-rows/todo-list.js';
 import { youHeaderOf } from '../../src/app/lib/agent-rows/you-header.js';
 import { placeMapping } from '../../src/app/lib/agent-rows/delivery-view.js';
@@ -98,5 +98,35 @@ describe('releaseCardsOf', () => {
     expect(unregistered.todo.header).toBe('You block nothing');
     expect(unregistered.you.counts.find((c) => c.key === 'blocks-delivery')?.count).toBe(0);
     expect(head2(null).todo.lines[0]!.marker).toBe('waits');
+  });
+});
+
+describe('releaseGroupOf', () => {
+  const groupSprint = (release: string, members: string[] = [], slug = `s-${release}`) => ({
+    ...sprint(release, members), slug, title: `Sprint ${release}`, end: '', ownerHandle: 'jwloka',
+  });
+
+  it('binds the release row, hands back its row and its PR reading, and reads the status line from them', () => {
+    const release = releaseRow('2.35.0', 300);
+    const { group, rows, prReading } = releaseGroupOf({ kind: 'release', sprints: [groupSprint('2.35.0')] }, reader, input({ rows: [release] }), undefined, null);
+    const [candidate] = group.candidates;
+    expect(rows[candidate!.rowId!]).toBe(release);
+    expect(prReading[candidate!.rowId!]?.headSha).toBe('a'.repeat(40));
+    expect(releaseStatusLine(group, prReading, { registered: true }).text).toBe('CI has not reported on aaaaaaaaa');
+  });
+
+  it('draws the same bar for two readers and every Mine mode', () => {
+    const over = { rows: [row('a', 'feature/a'), row('b', 'feature/b')], slices: [slice('a'), slice('b')] };
+    const scope = { kind: 'release' as const, sprints: [groupSprint('2.35.0', ['a', 'b'])] };
+    const mine = releaseGroupOf(scope, reader, input({ ...over, mode: 'mine' }), undefined, null);
+    const theirs = releaseGroupOf(scope, { hostUser: 'eins78' }, input({ ...over, mode: 'strict', reader: { hostUser: 'eins78' } }), undefined, null);
+    expect(mine.group.bar).toEqual(theirs.group.bar);
+    expect(mine.group.total).toBe(2);
+  });
+
+  it('names the last release where no release is targeted', () => {
+    const { group } = releaseGroupOf({ kind: 'release', sprints: [] }, reader, input({}), undefined, { tag: 'v2.34.0', date: '2026-11-01' });
+    expect(group.kind).toBe('none');
+    expect(group.title).toBe(`${NO_RELEASE_TARGETED} · last v2.34.0 2026-11-01`);
   });
 });

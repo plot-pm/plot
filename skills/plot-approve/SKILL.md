@@ -125,7 +125,9 @@ approvals unless the user explicitly rules).
 > - **`Review: pr`** — the approval is the PR's non-draft state, a fact
 >   `plot-approve.sh` reads for itself. Proceed; the script's own refusals are
 >   unchanged. **Exception: a plan in the Design phase.** A person approves a
->   Design plan (D10) on every channel, so `Review: pr` refuses like
+>   Design plan on every channel: the fleet writes its spec, and approval stays
+>   a person's act (`[decision-fleet-writes-design-specs]` in the archived
+>   story `plot-works-in-five-phases`). So `Review: pr` refuses like
 >   `in-session`: `plot-approve.sh` needs `--who <handle>` and refuses under
 >   `PLOT_UNATTENDED=1`.
 >   `PLOT-UNASKED: Approve <slug> in Design phase? — refused — a person approves a Design plan; phase unchanged`

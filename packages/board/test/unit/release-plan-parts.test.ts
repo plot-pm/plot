@@ -5,7 +5,7 @@ import type { PersonCard, PlanLinkKey } from '@plot-pm/domain';
 import { lineBody, LineState, PhaseChip, PlanName, PLAN_TRACKS, PlanStrip, ReleaseHeaderCounts, ReleaseLine } from '../../src/app/components/ReleasePlanParts.js';
 import { ReleasePersonCards } from '../../src/app/components/ReleasePersonCards.js';
 import { TicketHrefContext } from '../../src/app/components/PlanTicketKeys.js';
-import { SEGMENT_CLASS } from '../../src/app/components/SprintCard.js';
+import { SEGMENT_CLASS } from '../../src/app/lib/agent-rows/state-classes.js';
 
 const strip = (over: Partial<Parameters<typeof PlanStrip>[0]['plan']> = {}) =>
   renderToStaticMarkup(createElement(PlanStrip, { plan: { strip: [], stripText: '', unread: 0, ...over } }));
@@ -44,8 +44,8 @@ describe('the Phase chip', () => {
 });
 
 describe('the plan table', () => {
-  it('gives the actions track a fixed width, so the header and the rows share every track', () => {
-    expect(PLAN_TRACKS.split('_').at(-1)).toBe('1.25rem]');
+  it('gives the actions track the shared menu width, so the header and the rows share every track', () => {
+    expect(PLAN_TRACKS.split('_').at(-1)).toBe('var(--delivery-menu-track)]');
   });
 });
 

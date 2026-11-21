@@ -10,6 +10,15 @@ export const SLICE_STATES = ['delivered', 'blocked', 'at-a-gate', 'being-built',
 
 export type SliceState = (typeof SLICE_STATES)[number];
 
+/** The words a bar, a legend or a strip shows for each slice state. */
+export const SLICE_STATE_WORDS: Readonly<Record<SliceState, string>> = {
+  delivered: 'delivered',
+  'at-a-gate': 'at a gate',
+  'being-built': 'being built',
+  blocked: 'blocked',
+  'not-started': 'not started',
+};
+
 /** One counted slice: the id of its work item and the merge answer of the pulse. */
 export interface CountedSlice {
   readonly id: string;

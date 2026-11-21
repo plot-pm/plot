@@ -13,6 +13,7 @@
 - **Approved:** 2026-11-20, Jan Wloka, plan-PR #3583 merged
 - **Started:** 2026-11-20, Jan Wloka, `feature/mine-means-mine-or-my-plan`
 - **Started:** 2026-11-21, Jan Wloka, `feature/delivery-row-menu-column`
+- **Started:** 2026-11-21, Jan Wloka, `feature/delivery-you-rows-verb-first`
 
 ## Changelog
 
@@ -104,7 +105,7 @@ Today actions sit in different columns per section, some rows hold buttons and s
 
 ### Row menu column
 
-- `feature/delivery-row-menu-column` <!-- waits: feature/delivery-tuples-in-every-row --> — one ⋯ per row in a fixed last column across every Delivery section with an empty cell for a row with no action, `rowMenuOf` grown to `{action, label, enabled, reason, confirm}` items per row kind with unit tests, `PlanActions`, `ResliceMenu`, `SliceActions` and `BranchMenu` rendered from those items with a fixed item set per row kind and a trigger that never shows disabled, confirmation where an action confirms today and on destructive items, the same-x browser test, and `IssueRowActions` rendered from the Tickets row kind's items in place of the bare *Plan it ›* <!-- builds: rowMenu, the one ⋯ menu of a Delivery row -->
+- `feature/delivery-row-menu-column` <!-- waits: feature/delivery-tuples-in-every-row --> — one ⋯ per row in a fixed last column across every Delivery section with an empty cell for a row with no action, `rowMenuOf` grown to `{action, label, enabled, reason, confirm}` items per row kind with unit tests, `PlanActions`, `ResliceMenu`, `SliceActions` and `BranchMenu` rendered from those items with a fixed item set per row kind and a trigger that never shows disabled, confirmation where an action confirms today and on destructive items, the same-x browser test, and `IssueRowActions` rendered from the Tickets row kind's items in place of the bare *Plan it ›* <!-- builds: rowMenu, the one ⋯ menu of a Delivery row --> → #3622
 
 ### You rows
 

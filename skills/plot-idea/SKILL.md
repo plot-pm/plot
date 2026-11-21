@@ -278,7 +278,7 @@ data model, a changed contract, or an architecture the slices depend on.
 > **Smaller models:** don't recommend — ask the question in plain words
 > and write `State: Draft` unless the user says yes.
 
-> **Unattended (`PLOT_UNATTENDED=1`):** do not stop. Only an explicit answer counts: a line `Design: yes` or `Design: no` in the prompt. **Do not infer it from the title** or the description — a person decides design, and the fleet never does (D3 in `DESIGN-phases.md`). Any other prompt gives no answer: write `State: Draft` and continue to step 6.
+> **Unattended (`PLOT_UNATTENDED=1`):** do not stop. Only an explicit answer counts: a line `Design: yes` or `Design: no` in the prompt. **Do not infer it from the title** or the description — a person decides design, and the fleet never does (`[decision-person-decides-design]` in the Decisions table of the archived story `plot-works-in-five-phases`). Any other prompt gives no answer: write `State: Draft` and continue to step 6.
 > `PLOT-UNASKED: Does this plan carry significant design decisions? — default — proceeded; State: Draft`
 
 ### 6. Create the Plan

@@ -143,26 +143,19 @@ describe('the Delivery tab renders the five sections', () => {
     }
   }, 60_000);
 
-  it('shows above the cards, marks every line in words, and its links scroll to the row and the Tickets section', async () => {
+  it('shows the header above the sections, and its links open the You section and the Tickets section', async () => {
     const page = await cat.open('a-full-estate', { tab: 'agents' });
     try {
-      const list = page.locator('[data-todo-list]');
-      await list.waitFor({ timeout: 15_000 });
-      const [listY, cardY] = await Promise.all([
-        list.evaluate((el) => el.getBoundingClientRect().top + window.scrollY),
+      const header = page.locator('[data-tab-header]');
+      await header.locator('[data-header-group="you"]').waitFor({ timeout: 15_000 });
+      const [headerY, cardY] = await Promise.all([
+        header.evaluate((el) => el.getBoundingClientRect().top + window.scrollY),
         page.locator('[data-delivery-section]').first().evaluate((el) => el.getBoundingClientRect().top + window.scrollY),
       ]);
-      expect(listY).toBeLessThan(cardY);
-      const lines = page.locator('[data-todo-line]');
-      const n = await lines.count();
-      for (let i = 0; i < n; i++) {
-        expect(await lines.nth(i).locator('[data-todo-marker]').innerText()).toMatch(/^(blocks delivery|input|clean up)$/);
-      }
-      if (n > 0) {
-        await lines.first().locator('[data-todo-name]').click();
-        expect(await page.locator('[data-section="you"]').first().isVisible()).toBe(true);
-      }
-      await page.locator('[data-todo-triage-link]').click();
+      expect(headerY).toBeLessThan(cardY);
+      await header.locator('[data-header-open="you"]').click();
+      expect(await page.locator('[data-section="you"]').first().isVisible()).toBe(true);
+      await header.locator('[data-header-triage]').click();
       await page.locator('#tickets').waitFor({ state: 'attached', timeout: 5_000 });
       await page.setViewportSize({ width: 320, height: 800 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
@@ -213,6 +206,41 @@ describe('the Delivery tab renders the five sections', () => {
       await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('true');
       const target = key === 'tickets' ? '#tickets[data-link-target]' : `[data-group="${key}"][data-link-target]`;
       await page.locator(target).first().waitFor({ state: 'attached', timeout: 5_000 });
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+  it('opens a folded section on a summary chip link and marks the target group', async () => {
+    const page = await cat.open('a-full-estate', { tab: 'agents' });
+    try {
+      const toggle = page.locator('[data-section-toggle="work-items"]');
+      await toggle.waitFor({ timeout: 15_000 });
+      await toggle.click();
+      await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('false');
+      const summary = page.locator('[data-section="work-items"] [data-section-summary-parts]');
+      await summary.waitFor({ timeout: 5_000 });
+      expect(await summary.locator('[data-summary-chip]').count()).toBeGreaterThan(0);
+      const chip = summary.locator('[data-summary-chip-link]').first();
+      const key = await chip.getAttribute('data-summary-chip');
+      await chip.click();
+      await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('true');
+      await page.locator(`[data-group="${key}"][data-link-target]`).first().waitFor({ state: 'attached', timeout: 5_000 });
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+
+  it('keeps the activity spinner and shows the agent circles in a folded Fleet heading', async () => {
+    const page = await cat.open('a-full-estate', { tab: 'agents' });
+    try {
+      const toggle = page.locator('[data-section-toggle="fleet"]');
+      await toggle.waitFor({ timeout: 15_000 });
+      await toggle.click();
+      await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('false');
+      const fleetSection = page.locator('[data-section="fleet"]');
+      await fleetSection.locator('[data-summary-circles]').waitFor({ timeout: 5_000 });
+      expect(await fleetSection.locator('[data-summary-circle]').count()).toBeGreaterThan(0);
+      expect(await fleetSection.locator('h2 [data-activity-spinner]').count()).toBe(1);
     } finally {
       await page.close();
     }

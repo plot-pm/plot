@@ -3,7 +3,15 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, existsSync, r
 import { tmpdir } from 'node:os';
 import { execFileSync, spawn } from 'node:child_process';
 import { realpathSync } from 'node:fs';
-import { refusedSlicesFixture, runLogFixture, answerRecordFile, ANSWER_RECORD_HOME_ENV, channelAddressFor } from '@plot-pm/domain/adapters';
+import {
+  refusedSlicesFixture,
+  runLogFixture,
+  answerRecordFile,
+  ANSWER_RECORD_HOME_ENV,
+  channelAddressFor,
+  transcriptDirFor,
+  TRANSCRIPT_HOME_ENV,
+} from '@plot-pm/domain/adapters';
 import type { AgentRun, AgentRunEnd, AgentRunRequest, AgentRunResult } from '@plot-pm/domain/ports/agent-run';
 import { UNBLOCKER_BOUND_SECONDS, unblockerDue } from '@plot-pm/domain/rules/unblocker-due';
 import { QUESTION_MAX } from '../../src/shared/worker-question.js';
@@ -3153,6 +3161,7 @@ describe('queueWorldForRepo — the refused reading', () => {
   it('reads `checksWaitMs` through the thunk it is given, once per ask', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'plot-checks-wait-thunk-'));
     try {
+      execFileSync('git', ['init', '-q', dir], { stdio: 'ignore' });
       const reading = {
         // The literal `DefaultBranchReadingSchema.v` requires — see
         // `DEFAULT_BRANCH_VERSION` in `@plot-pm/domain/entities/default-branch`,
@@ -3452,7 +3461,11 @@ describe('unblockPortsFor — the role run the unblocker gets', () => {
       finalText,
     } as unknown as AgentRunResult);
 
-  const setup = (end: AgentRunEnd, finalText: string, over: { fetchOk?: boolean; originText?: string } = {}) => {
+  const setup = (
+    end: AgentRunEnd,
+    finalText: string,
+    over: { fetchOk?: boolean; originText?: string; onRun?: (request: AgentRunRequest) => void } = {},
+  ) => {
     const repoRoot = mkdtempSync(join(tmpdir(), 'plot-unblock-run-repo-'));
     const scriptsDir = mkdtempSync(join(tmpdir(), 'plot-unblock-run-scripts-'));
     dirs.push(repoRoot, scriptsDir);
@@ -3483,6 +3496,7 @@ describe('unblockPortsFor — the role run the unblocker gets', () => {
         return {
           run: async (request: AgentRunRequest) => {
             seen.request = request;
+            over.onRun?.(request);
             return ranResult(end, finalText);
           },
         } as unknown as AgentRun;
@@ -3524,6 +3538,28 @@ describe('unblockPortsFor — the role run the unblocker gets', () => {
     expect(seen.fragment).toContain(join(repoRoot, '.plot', 'state', 'unblocker', 'settings.json'));
     const agents = JSON.parse(readFileSync(join(repoRoot, '.plot', 'state', 'unblocker', 'agents.json'), 'utf8'));
     expect(agents.unblocker.prompt).toBe('Origin body.');
+  });
+
+  it('records the transcript the run started in the desk`s gitdir, and no transcript that was there before', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'plot-unblock-run-home-'));
+    dirs.push(home);
+    process.env[TRANSCRIPT_HOME_ENV] = home;
+    try {
+      let transcripts = '';
+      const { repoRoot, ports, write } = setup({ answer: 'ran', handBack: null }, 'ANSWER\nyes', {
+        onRun: () => writeFileSync(join(transcripts, 'sess-unblocker.jsonl'), '{}\n'),
+      });
+      mkdirSync(join(repoRoot, '.git'));
+      transcripts = transcriptDirFor(repoRoot, home);
+      mkdirSync(transcripts, { recursive: true });
+      writeFileSync(join(transcripts, 'sess-asking.jsonl'), '{}\n');
+
+      await applyUnblockDecisions([write], ports);
+
+      expect(readFileSync(join(repoRoot, '.git', 'plot-role-sessions'), 'utf8')).toBe('sess-unblocker\n');
+    } finally {
+      delete process.env[TRANSCRIPT_HOME_ENV];
+    }
   });
 
   it('fetches the default branch before it reads the role file', async () => {

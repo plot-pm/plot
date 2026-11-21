@@ -6,7 +6,6 @@ import { readFileSync } from 'node:fs';
 import {
   UNNAMED_SLICE,
   noActionReason,
-  menuState,
   openTarget,
   offersOpen,
   openLabel,
@@ -2844,12 +2843,12 @@ describe('TUPLE_TRACKS — one grid, and where its width goes', () => {
   };
 
   it('lays out the seven columns, with the marks lane before them', () => {
-    // `[marks, kind, item, where, status, do, by, age]` — the Delivery tab's
+    // `[marks, kind, item, where, status, by, age, do]` — the Delivery tab's
     // seven columns in the design's order, after the marks lane. The DO track
-    // holds the row's menu; BY sizes to who acts and holds nothing where
-    // nobody was read.
+    // is last and holds the row's menu at the shared width; BY sizes to who
+    // acts and holds nothing where nobody was read.
     expect(tracks()).toEqual(
-      ['1.5rem', '4.5rem', 'minmax(12rem,auto)', '1fr', '8rem', '1.25rem', 'minmax(0rem,auto)', '4.5rem']);
+      ['1.5rem', '4.5rem', 'minmax(12rem,auto)', '1fr', '8rem', 'minmax(0rem,auto)', '4.5rem', 'var(--delivery-menu-track)']);
   });
 
   it('flexes the LINKS track and no other', () => {
@@ -2913,7 +2912,11 @@ describe('TUPLE_TRACKS — one grid, and where its width goes', () => {
     // 12rem floor, unchanged from the fixed-12rem grid this replaced: `minmax`
     // did not move the breakpoint math, which is what let the 508/604/36 numbers
     // come out identical after the 2026-08-23 change (see `TUPLE_TRACKS`).
+    // The menu track's width is `--delivery-menu-track`, read from `delivery.css`.
+    const css = readFileSync(new URL('../../src/app/styles/delivery.css', import.meta.url), 'utf8');
+    const MENU_TRACK_REM = Number.parseFloat(/--delivery-menu-track:\s*([\d.]+)rem/.exec(css)?.[1] ?? 'NaN');
     const floorRem = (t: string) => {
+      if (t === 'var(--delivery-menu-track)') return MENU_TRACK_REM;
       const minmax = /^minmax\(([\d.]+)rem,/.exec(t);
       return minmax ? Number.parseFloat(minmax[1]) : Number.parseFloat(t);
     };
@@ -3382,137 +3385,6 @@ describe("a row's actions all live in its menu", () => {
     // And it does NOT enter the menu, which is where the action is allowed.
     expect(names).not.toContain('IssueRowActions');
   });
-});
-
-/**
- * WHETHER THE MENU EXISTS, and whether anything in it can act — two questions,
- * and the board asked only the second until 2026-08-18.
- */
-describe('menuState — a refusal is not an absence', () => {
-  // NO `canApprove` / `approveWillAct`. The plan-level act left the branch menu
-  // for the plan head (`PlanActions`), so a branch row's menu no longer computes
-  // it and this state no longer carries its flag. What remains is what a branch
-  // row can genuinely do.
-  const none = {
-    canStart: false, canResolve: false, hasRun: false,
-    hasLog: false, hasStatus: false, hasOpen: false,
-    hasChangedFiles: false, serverWillAct: false,
-  };
-
-  it('renders no menu at all on a row with nothing to offer', () => {
-    // The measured defect: the `⋯` rendered on every row, so two of six WAITING
-    // ON YOU rows carried a control that opened nothing.
-    expect(menuState(none)).toEqual({ present: false, enabled: false });
-  });
-
-  it('keeps the menu present but disabled where the server refuses', () => {
-    // There IS something to do here — you simply cannot do it from this
-    // binding. Rendering nothing would report a healthy row, which is the
-    // worse lie: the reason has to stay reachable.
-    expect(menuState({ ...none, canResolve: true })).toEqual({
-      present: true, enabled: false,
-    });
-    expect(menuState({ ...none, canStart: true })).toEqual({
-      present: true, enabled: false,
-    });
-  });
-
-  it('enables the run link without asking whether the server will act', () => {
-    // NAVIGATION, so it carries no guard: there is no rerun route here, and
-    // opening the host's page is not a write. It reads the same over Tailscale
-    // as it does at the machine — which is why a row with only a run is
-    // enabled on a binding that refuses every dispatch.
-    expect(menuState({ ...none, hasRun: true })).toEqual({
-      present: true, enabled: true,
-    });
-  });
-
-  it('asks about ANY item, never one named item', () => {
-    // The defect this gate had in its first form: `enabled` was `canStart &&
-    // serverWillAct`, so a menu opened only where Start work was possible. Both
-    // dispatching acts on a branch row (Start work, the conflict dispatch)
-    // answer to the SAME `serverWillAct` binding, so the gate must ask about
-    // whichever one is present rather than a single named item.
-    expect(menuState({ ...none, canStart: true, serverWillAct: true }).enabled).toBe(true);
-    expect(menuState({ ...none, canResolve: true, serverWillAct: true }).enabled).toBe(true);
-    // A read item enables on no binding at all — navigation is not an act.
-    expect(menuState({ ...none, hasOpen: true }).enabled).toBe(true);
-  });
-
-  it('never enables a menu it does not render', () => {
-    // THE INVARIANT, over every combination rather than the four spot checks
-    // above. `enabled && !present` would put an openable menu behind a button
-    // that is not there — one line of reasoning across four disjuncts, and
-    // exactly the kind that gets re-derived wrongly in a later edit.
-    const bools = [false, true];
-    // A sampled sweep rather than a full 2^10 grid: the invariant is per-disjunct
-    // (`enabled → present`), so every input is exercised at both values against a
-    // `none` baseline, plus a handful of combinations. The exhaustive nested loop
-    // it replaced grew a dimension with every new item; the property it proves did
-    // not, so it does not need the cartesian product to stay honest.
-    const keys = [
-      'canStart', 'canResolve', 'hasRun', 'hasLog', 'hasStatus',
-      'hasOpen', 'hasChangedFiles', 'serverWillAct',
-    ] as const;
-    const cases: (typeof none)[] = [{ ...none }];
-    for (const key of keys)
-      for (const v of bools) cases.push({ ...none, [key]: v });
-    // A few with an act flag AND its will-act partner, so `enabled` is reached.
-    cases.push({ ...none, canStart: true, serverWillAct: true });
-    cases.push({ ...none, canResolve: true, serverWillAct: true });
-    for (const c of cases) {
-      const state = menuState(c);
-      expect(
-        !state.enabled || state.present,
-        `enabled without present: ${JSON.stringify(c)}`,
-      ).toBe(true);
-    }
-  });
-
-  // A READ, so it carries no guard — the same argument the run link makes one
-  // test up, and the reason both join `enabled` without a `WillAct` term. A row
-  // whose only offer is its log is still worth opening on a binding that
-  // refuses every dispatch: looking at a log is not acting.
-  it('enables the worker log without asking whether the server will act', () => {
-    expect(menuState({ ...none, hasLog: true })).toEqual({
-      present: true, enabled: true,
-    });
-  });
-
-  // The dispatcher-log `Status` entry, added by
-  // `the-button-claims-only-what-it-knows`. A READ like the worker log and the
-  // run link, so it enables the menu on any binding — looking at what the
-  // dispatcher did is not acting. It is the durable home for what the Start work
-  // button used to hand back as a transient path.
-  it('enables the Status entry without asking whether the server will act', () => {
-    expect(menuState({ ...none, hasStatus: true })).toEqual({
-      present: true, enabled: true,
-    });
-  });
-
-  it('gives a changed-file list a menu, and it needs no server', () => {
-    // The purest READ in the menu: the paths came in on the pulse that drew the
-    // row, so there is no route to refuse and no binding to consult. It enables
-    // on its own, exactly like the two log items and the run link.
-    expect(menuState({ ...none, hasChangedFiles: true })).toEqual({
-      present: true, enabled: true,
-    });
-  });
-  // THE MOTIVATING DEFECT, in one line: a row that carried nothing else used to
-  // render no menu at all. Open is navigation the row already has the address
-  // for, so it makes the menu present — and enabled, because navigation is not
-  // an act the server can refuse.
-  it('renders and enables a menu for a row whose only item is Open', () => {
-    expect(menuState({ ...none, hasOpen: true })).toEqual({
-      present: true, enabled: true,
-    });
-  });
-
-  // Approve is NOT tested here any longer: it is a plan-level act that left the
-  // branch menu for the plan head (`PlanActions`), so `menuState` — which
-  // answers for a BRANCH row's menu — no longer carries its flag. The plan
-  // head's menu is covered by the browser test `plan-head-controls.browser.test.ts`,
-  // which exercises the real render.
 });
 
 // A branch row names its wave BESIDE ITS BRANCH NAME, and the gate is now a

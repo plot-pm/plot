@@ -12,6 +12,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3613 merged
 - **Started:** 2026-11-21, Jan Wloka, `bug/an-approval-with-no-pr-writes-no-pr-key`
+- **Started:** 2026-11-21, Jan Wloka, `bug/a-delivery-row-carries-its-plan-state`
 
 ## Changelog
 
@@ -135,7 +136,7 @@ All evidence is on origin/main `b21961602`.
 
 ### Sprint annotation
 
-- `bug/an-approval-with-no-pr-writes-no-pr-key` — `annotateSprintItem` delegates to `withSprintAnnotation`, which gains `'none'`; an approval with no plan PR writes `pr: none` and rewrites `pr: #0`; the unit, agreement and approve tests <!-- builds: withSprintAnnotation's pr: none -->
+- `bug/an-approval-with-no-pr-writes-no-pr-key` — `annotateSprintItem` delegates to `withSprintAnnotation`, which gains `'none'`; an approval with no plan PR writes `pr: none` and rewrites `pr: #0`; the unit, agreement and approve tests <!-- builds: withSprintAnnotation's pr: none --> → #3623
 
 ### Plan state
 

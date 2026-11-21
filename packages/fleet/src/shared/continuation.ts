@@ -551,39 +551,110 @@ const deskEnding = (worktree: string): ReturnType<typeof readEnding> => {
   return readEnding(text);
 };
 
+/** The file in a desk's own gitdir that lists the transcript handles role runs started there. */
+const ROLE_SESSIONS_FILENAME = 'plot-role-sessions';
+
 /**
- * The newest non-subagent transcript's own handle for this desk, or `''`.
- *
- * A blocked desk's manifest is gone — the whole premise of a `write` verdict
- * — so the conversation to resume cannot be read off it. The runtime still
- * keeps the transcript under `~/.claude/projects/<slug>/<handle>.jsonl`, named
- * by `transcriptDirFor`, and a subagent's own file (`agent-*`) is excluded for
- * the reason `Transcript.quietSeconds` excludes it: it is a true statement
- * about the wrong process. The newest by mtime is the conversation the loop
- * most recently wrote, which is the one a continuation should resume.
+ * The desk's role-session record: a file in the desk's own gitdir, outside
+ * the tree, so it never reads as unlanded work. `undefined` where the desk
+ * has no `.git`.
  */
-const resumeIdFromTranscript = (worktree: string): string => {
+const roleSessionsFile = (worktree: string): string | undefined => {
+  const dotGit = path.join(worktree, '.git');
+  try {
+    if (fs.statSync(dotGit).isDirectory()) return path.join(dotGit, ROLE_SESSIONS_FILENAME);
+    const named = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(dotGit, 'utf8'));
+    return named === null ? undefined : path.join(path.resolve(worktree, named[1].trim()), ROLE_SESSIONS_FILENAME);
+  } catch {
+    return undefined;
+  }
+};
+
+/** The handles a role run started on this desk, read from its record; empty where none is readable. */
+const roleSessions = (worktree: string): Set<string> => {
+  const file = roleSessionsFile(worktree);
+  if (file === undefined) return new Set();
+  try {
+    return new Set(fs.readFileSync(file, 'utf8').split('\n').filter((line) => line !== ''));
+  } catch {
+    return new Set();
+  }
+};
+
+/** The transcripts in this desk's transcript directory, `agent-*` excluded, with their mtimes. */
+const deskTranscripts = (worktree: string): { handle: string; mtimeMs: number }[] => {
   const home = process.env[TRANSCRIPT_HOME_ENV] ?? os.homedir();
   const dir = transcriptDirFor(worktree, home);
   let names: string[];
   try {
     names = fs.readdirSync(dir);
   } catch {
-    return '';
+    return [];
   }
-  let newest = '';
-  let newestMs = -1;
+  const found: { handle: string; mtimeMs: number }[] = [];
   for (const name of names) {
     if (!name.endsWith('.jsonl') || name.startsWith('agent-')) continue;
     try {
-      const mtimeMs = fs.statSync(path.join(dir, name)).mtimeMs;
-      if (mtimeMs > newestMs) {
-        newestMs = mtimeMs;
-        newest = name.slice(0, -'.jsonl'.length);
-      }
+      found.push({ handle: name.slice(0, -'.jsonl'.length), mtimeMs: fs.statSync(path.join(dir, name)).mtimeMs });
     } catch {
       continue;
     }
+  }
+  return found;
+};
+
+/**
+ * The transcript handles in this desk's transcript directory now, `agent-*`
+ * excluded. A role run reads it before and after it runs, and records the
+ * difference with {@link recordRoleSessions}.
+ *
+ * @param worktree - the desk's absolute path.
+ * @returns the handles; empty where the directory does not exist.
+ */
+export const deskTranscriptHandles = (worktree: string): Set<string> =>
+  new Set(deskTranscripts(worktree).map((t) => t.handle));
+
+/**
+ * Appends the handles a role run started on this desk to the desk's
+ * role-session record, so {@link resumeIdFromTranscript} never answers one.
+ * A record that cannot be written is skipped: the continuation then falls
+ * back as it would with no record.
+ *
+ * @param worktree - the desk's absolute path.
+ * @param handles - the transcript handles the role run started.
+ */
+export const recordRoleSessions = (worktree: string, handles: Iterable<string>): void => {
+  const lines = [...handles].map((handle) => `${handle}\n`).join('');
+  const file = roleSessionsFile(worktree);
+  if (lines === '' || file === undefined) return;
+  try {
+    fs.appendFileSync(file, lines);
+  } catch {
+    /* an unwritable record leaves the fallback as it was */
+  }
+};
+
+/**
+ * The newest transcript's own handle for this desk that neither a subagent
+ * nor a role run wrote, or `''`.
+ *
+ * A blocked desk's manifest is gone — the whole premise of a `write` verdict
+ * — so the conversation to resume cannot be read off it. The runtime still
+ * keeps the transcript under `~/.claude/projects/<slug>/<handle>.jsonl`, named
+ * by `transcriptDirFor`. A subagent's own file (`agent-*`) is excluded for
+ * the reason `Transcript.quietSeconds` excludes it, and a handle the desk's
+ * role-session record names is excluded because a role run (the unblocker)
+ * runs with the desk as its working directory and is not the asking agent.
+ * `''` makes the caller start a new conversation.
+ */
+const resumeIdFromTranscript = (worktree: string): string => {
+  const roles = roleSessions(worktree);
+  let newest = '';
+  let newestMs = -1;
+  for (const { handle, mtimeMs } of deskTranscripts(worktree)) {
+    if (roles.has(handle) || mtimeMs <= newestMs) continue;
+    newestMs = mtimeMs;
+    newest = handle;
   }
   return newest;
 };

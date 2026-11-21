@@ -10,6 +10,7 @@ import {
   releaseBlocks,
   releaseDeliveryHeader,
   type ReleaseDeliveryCount,
+  type ReleaseDeliveryHeader,
   releasePersonCards,
   sprintDeliveryGroups,
   sprintDeliveryTitle,
@@ -43,7 +44,18 @@ import {
   type PlanLinkKey,
   TICKETS_ANCHOR,
 } from '@plot-pm/domain';
-import type { AgentRow, DraftPlan, FleetSprint, IssueRow, Slice } from '../../../contract/schema.js';
+import type { AgentRow, Card, DispatchInfo, DraftPlan, FleetSprint, IssueAnswer, IssueRow, Slice } from '../../../contract/schema.js';
+import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
+import { createFromIssueVerdict } from '@plot-pm/domain/rules/create-from-issue';
+import { createPlanRefusal } from '../card-presentation.js';
+import { armedLabel as approveConfirm } from '../../components/ApproveButton.js';
+import { armedLabel as deliverConfirm } from '../../components/DeliverButton.js';
+import { armedLabel as createPlanConfirm } from '../../components/CreatePlanButton.js';
+import { armedLabel as createStoryConfirm } from '../../components/CreateStoryButton.js';
+import { armedLabel as needsDesignConfirm } from '../../components/NeedsDesignButton.js';
+import { armedLabel as resliceConfirm } from '../../components/ResliceButton.js';
+import { startRefusal } from '../../components/StartWorkButton.js';
+import { changedFilesLabel } from './actions.js';
 import { agentLabel, draftItemId, sliceItemId, type DeliveryMapping, type RegistryAgent } from './delivery-readings.js';
 import { itemRowFactsOf } from './delivery-row-facts.js';
 import { isStartable, isUnbegun } from './row-identity.js';
@@ -96,7 +108,8 @@ export interface PlacedItemView {
 
 /**
  * The `⋯` menu a row of an item carries. A loose item's row carries only the clean-up menu, built from
- * `looseActions`, so no Quiet-section reading of the row (`quietKind`) can add a second Release.
+ * `looseActions`, so no Quiet-section reading of the row (`quietKind`) can add a second Release. A plan,
+ * slice, branch or Tickets row carries `items`: the fixed item set of its kind.
  */
 export type RowMenuView =
   | {
@@ -107,20 +120,239 @@ export type RowMenuView =
     release: LooseActions['release'];
     delete: boolean;
   }
-  | { kind: 'row' };
+  | { kind: 'row' }
+  | {
+    kind: 'items';
+    items: RowMenuItem[];
+    /** `enabled` while the list holds an item, `none` for an empty list: the trigger never shows disabled. */
+    trigger: 'enabled' | 'none';
+  };
+
+/** The actions a plan, slice, branch or Tickets row's `⋯` lists. */
+export type RowMenuAction =
+  | 'approve' | 'needs-design' | 'deliver' | 'implement' | 'dispatch' | 'start-work' | 'reslice'
+  | 'open' | 'release-claim' | 'resolve-conflict' | 'write-brief' | 'open-run' | 'worker-log' | 'status' | 'changed-files'
+  | 'create-plan' | 'create-story' | 'open-issue';
+
+/** One item of a row's `⋯` menu. */
+export interface RowMenuItem {
+  action: RowMenuAction;
+  label: string;
+  /** Whether the item acts on a click; a disabled item stays listed with its `reason`. */
+  enabled: boolean;
+  /** The missing criterion in words; `null` where the item is enabled. */
+  reason: string | null;
+  /** The sentence the item shows before it acts; `null` for an item that acts on one click. */
+  confirm: string | null;
+}
+
+/** The plan row's facts, read by the renderer from the card and the board's bindings. */
+export interface PlanMenuFacts {
+  kind: 'plan';
+  plan: string;
+  /** The plan's card; `null` where the row's plan has none. */
+  card: Card | null;
+  /** `isDraft(card)`. */
+  isDraft: boolean;
+  /** `card.controls.needsDesign`. */
+  needsDesign: boolean;
+  /** `card.deliverable`. */
+  deliverable: boolean;
+  /** `hasEligibleWork(card)`. */
+  hasEligible: boolean;
+  /** The one slice folded into the row; `null` where the plan has none to start alone. */
+  soleSlice: string | null;
+  approve?: DispatchInfo;
+  deliver?: DispatchInfo;
+  implement?: DispatchInfo;
+  dispatch?: DispatchInfo;
+}
+
+/** The branch row's facts: the flags `menuState` reads, with the words and addresses of each item. */
+export interface BranchMenuFacts {
+  kind: 'branch';
+  branch: string;
+  card: Card | null;
+  /** `openTarget(row)`: the PR page or the branch on the host; `''` where the host gave none. */
+  openUrl: string;
+  /** `openLabel(row)`. */
+  openLabel: string;
+  /** `offersReleaseClaim(row.quietKind)` on a Quiet row. */
+  releaseClaim: boolean;
+  /** `isStartable(row)`. */
+  startable: boolean;
+  /** `row.stuck.state === 'conflict'`. */
+  conflict: boolean;
+  /** `needsBrief(row)`. */
+  needsBrief: boolean;
+  /** The last run's address; `''` where the row carries none. */
+  runUrl: string;
+  /** `runLinkLabel(row)`. */
+  runLabel: string;
+  /** `showsWorkerLog(row)`. */
+  hasLog: boolean;
+  /** `card.hasDispatchLog`. */
+  hasStatus: boolean;
+  /** The count of changed files a failing check lists; `null` where `offersChangedFiles` is false. */
+  changedFiles: number | null;
+  dispatch?: DispatchInfo;
+  implement?: DispatchInfo;
+}
+
+/** The slice row's facts: its own two acts, and the branch items of its one branch. */
+export interface SliceMenuFacts {
+  kind: 'slice';
+  wave: string;
+  /** The plan's slug, which a reslice names. */
+  slug: string;
+  card: Card | null;
+  /** Whether the fleet reads the slice as eligible to start. */
+  eligible: boolean;
+  /** Whether the board reports the slice `unsliced-wave`. */
+  unsliced: boolean;
+  dispatch?: DispatchInfo;
+  reslice?: DispatchInfo;
+  /** The facts of the slice's one branch; `null` where the slice holds several or none. */
+  branch: Omit<BranchMenuFacts, 'kind' | 'card' | 'dispatch' | 'startable'> | null;
+}
+
+/** The Tickets row's facts. */
+export interface TicketMenuFacts {
+  kind: 'ticket';
+  issue: IssueRow;
+  idea: DispatchInfo;
+  story: DispatchInfo;
+  issueAnswer: IssueAnswer | null;
+  /** The ticket's card facts; `undefined` where the row carries none. */
+  facts?: CardFacts;
+}
+
+/** What `rowMenuOf` reads: a placed item, or the facts of one plan, slice, branch or Tickets row. */
+export type RowMenuInput =
+  | { kind: 'placed'; placement: ItemPlacement | null; rows: readonly AgentRow[]; actions: LooseActions }
+  | PlanMenuFacts
+  | SliceMenuFacts
+  | BranchMenuFacts
+  | TicketMenuFacts;
+
+const item = (action: RowMenuAction, label: string, reason: string | null, confirm: string | null = null): RowMenuItem =>
+  ({ action, label, enabled: reason === null, reason, confirm });
+
+/** The first refusal of `reasons`, or `null` where none refuses. */
+const firstReason = (...reasons: (string | null | undefined | false)[]): string | null =>
+  reasons.find((r): r is string => typeof r === 'string' && r !== '') ?? null;
+
+/** Why a binding will not act, or `null` where it will. */
+const bindingReason = (binding: DispatchInfo | undefined, act: string): string | null => {
+  if (binding === undefined) return `this board has not said whether it can ${act}`;
+  return binding.available ? null : binding.reason || `this board will not ${act}`;
+};
+
+const NO_CARD = 'no plan card for this row';
+const NO_BRANCH = 'the slice has no single branch';
+
+const planItems = (f: PlanMenuFacts): RowMenuItem[] => {
+  const { card } = f;
+  const noCard = card === null ? NO_CARD : null;
+  const eligible = f.hasEligible ? null : 'no branch is eligible to start';
+  return [
+    item('approve', 'Approve', firstReason(noCard, !f.isDraft && 'the plan is not a Draft', bindingReason(f.approve, 'approve')),
+      card === null ? null : approveConfirm(card)),
+    item('needs-design', 'Needs design',
+      firstReason(noCard, !f.needsDesign && 'only a Draft plan goes to design', bindingReason(f.approve, 'move a plan to design')),
+      card === null ? null : needsDesignConfirm(card)),
+    item('deliver', 'Deliver', firstReason(noCard, !f.deliverable && 'not every slice has merged', bindingReason(f.deliver, 'deliver')),
+      deliverConfirm(f.plan)),
+    item('implement', 'Implement', firstReason(noCard, eligible, bindingReason(f.implement, 'implement'))),
+    item('dispatch', 'Dispatch', firstReason(noCard, eligible, bindingReason(f.dispatch, 'dispatch'))),
+    item('start-work', f.soleSlice === null ? 'Start work' : `Start work on ${f.soleSlice}`,
+      firstReason(noCard, f.soleSlice === null && 'the plan has no single slice to start', startReason(card, f.dispatch))),
+  ];
+};
+
+/** Why Start work refuses for a card, or `null` where it acts. */
+const startReason = (card: Card | null, dispatch: DispatchInfo | undefined): string | null => {
+  if (card === null) return NO_CARD;
+  return bindingReason(dispatch, 'dispatch') ?? startRefusal(card, dispatch as DispatchInfo) ?? null;
+};
+
+/** The branch items after Start work, in menu order. */
+const branchTail = (f: SliceMenuFacts['branch'], card: Card | null, implement: DispatchInfo | undefined, dispatch: DispatchInfo | undefined): RowMenuItem[] => {
+  const none = f === null ? NO_BRANCH : null;
+  return [
+    item('resolve-conflict', 'Resolve conflict',
+      firstReason(none, f !== null && !f.conflict && 'the branch has no merge conflict', card === null ? NO_CARD : null, bindingReason(dispatch, 'dispatch'))),
+    item('write-brief', 'Write brief',
+      firstReason(none, f !== null && !f.needsBrief && 'the branch needs no brief', card === null ? NO_CARD : null, bindingReason(implement, 'implement'))),
+    item('open-run', f?.runLabel || 'Open last run', firstReason(none, f !== null && f.runUrl === '' && 'no run to open')),
+    item('worker-log', 'Show the agent', firstReason(none, f !== null && !f.hasLog && 'no agent works on this branch')),
+    item('status', 'Status', firstReason(none, f !== null && !f.hasStatus && 'no dispatcher log for this plan')),
+    item('changed-files', f?.changedFiles == null ? 'Changed files' : changedFilesLabel(f.changedFiles),
+      firstReason(none, f !== null && f.changedFiles === null && 'no failing check lists changed files')),
+  ];
+};
+
+/** The branch items before Start work: Open and Release claim. */
+const branchHead = (f: SliceMenuFacts['branch']): RowMenuItem[] => {
+  const none = f === null ? NO_BRANCH : null;
+  return [
+    item('open', f?.openLabel || 'Open', firstReason(none, f !== null && f.openUrl === '' && 'no address')),
+    item('release-claim', 'Release claim', firstReason(none, f !== null && !f.releaseClaim && 'the branch holds no orphaned claim'),
+      f === null ? null : releaseWords(f.branch, 'here').confirm),
+  ];
+};
+
+const branchItems = (f: BranchMenuFacts): RowMenuItem[] => [
+  ...branchHead(f),
+  item('start-work', 'Start work', firstReason(!f.startable && 'the branch is not startable', startReason(f.card, f.dispatch))),
+  ...branchTail(f, f.card, f.implement, f.dispatch),
+];
+
+const sliceItems = (f: SliceMenuFacts): RowMenuItem[] => [
+  item('start-work', 'Start work', firstReason(!f.eligible && 'the slice is not eligible to start', startReason(f.card, f.dispatch))),
+  item('reslice', 'Slice this plan', firstReason(!f.unsliced && 'the slice holds one branch', bindingReason(f.reslice, 'reslice')),
+      resliceConfirm(f.slug)),
+  ...branchHead(f.branch),
+  ...branchTail(f.branch, f.card, f.branch?.implement, f.dispatch),
+];
+
+const ticketItems = (f: TicketMenuFacts): RowMenuItem[] => {
+  const verdict = createFromIssueVerdict(f.idea, f.issueAnswer, 'plan');
+  const story = createFromIssueVerdict(f.story, f.issueAnswer, 'story');
+  const refused = (v: typeof verdict) => (v.kind === 'refused' ? v.reason : null);
+  const pending = f.issueAnswer === null ? 'the tracker has not been read yet' : null;
+  return [
+    item('create-plan', 'Create plan',
+      firstReason(refused(verdict), createPlanRefusal(f.facts), pending),
+      createPlanConfirm(f.issue)),
+    item('create-story', 'Create story', firstReason(refused(story), pending), createStoryConfirm(f.issue)),
+    item('open-issue', 'Open on host', f.issue.url === '' ? 'no address' : null),
+  ];
+};
+
+const itemsView = (items: RowMenuItem[]): RowMenuView => ({ kind: 'items', items, trigger: items.length > 0 ? 'enabled' : 'none' });
 
 /**
- * The menu of one placed item's row.
+ * The menu of one row.
  *
- * @param placement - what the rule placed.
- * @param rows - the payload rows of the item.
- * @param actions - what `looseActions` offers for the item.
- * @returns the clean-up menu for an item under You with the reason `loose`, else the row's own menu.
+ * @param input - a placed item (`placement`, its payload `rows`, and what `looseActions` offers), or the facts of a
+ *   plan, slice, branch or Tickets row.
+ * @returns for a placed item, the clean-up menu under You with the reason `loose`, else `{ kind: 'row' }`; for a plan,
+ *   slice, branch or Tickets row, the fixed item set of its kind, each item enabled or disabled with its reason.
  */
-export const rowMenuOf = (placement: ItemPlacement | null, rows: readonly AgentRow[], actions: LooseActions): RowMenuView => {
-  const first = rows[0];
-  if (placement?.section !== 'you' || placement.reason !== 'loose' || first === undefined) return { kind: 'row' };
-  return { kind: 'clean-up', branch: first.branch, open: first.pr?.url || first.branchUrl || '', release: actions.release, delete: actions.delete };
+export const rowMenuOf = (input: RowMenuInput): RowMenuView => {
+  switch (input.kind) {
+    case 'plan': return itemsView(planItems(input));
+    case 'slice': return itemsView(sliceItems(input));
+    case 'branch': return itemsView(branchItems(input));
+    case 'ticket': return itemsView(ticketItems(input));
+    case 'placed': {
+      const { placement, rows, actions } = input;
+      const first = rows[0];
+      if (placement?.section !== 'you' || placement.reason !== 'loose' || first === undefined) return { kind: 'row' };
+      return { kind: 'clean-up', branch: first.branch, open: first.pr?.url || first.branchUrl || '', release: actions.release, delete: actions.delete };
+    }
+  }
 };
 
 /** The words a clean-up action shows: its menu label and the confirmation it asks before it acts. */
@@ -365,6 +597,9 @@ export interface ReleaseHeaderView {
   /** The one block's full header wording, ticket wording included, or `''` where the section holds several blocks or none. */
   title: string;
   counts: ReleaseHeaderCountView[];
+  /** `releaseDeliveryHeader`'s five-state bar and the plans with a blocked slice, for the folded summary. */
+  bar: ReleaseDeliveryHeader['bar'];
+  blockedPlans: number;
 }
 
 /** One target release's block. */
@@ -556,7 +791,7 @@ export const deliveryView = (
     label: labelOfItem(p.id),
     anchor: itemAnchor(p.id),
     links: p.agents.map((a) => ({ label: labelOfAgent(a), anchor: agentAnchor(a), icon: linkIconKind('agent') })),
-    menu: rowMenuOf(p, mapping.rowsByItem[p.id] ?? [], looseActions(mapping.readings.items.find((i) => i.id === p.id) ?? { kind: 'slice' })),
+    menu: rowMenuOf({ kind: 'placed', placement: p, rows: mapping.rowsByItem[p.id] ?? [], actions: looseActions(mapping.readings.items.find((i) => i.id === p.id) ?? { kind: 'slice' }) }),
   }));
   const agentViews = placement.agents.map((p): PlacedAgentView => ({
     placement: p,
@@ -721,6 +956,8 @@ export const deliveryView = (
     scope: head.scope,
     title: blocks.length === 1 ? blocks[0]!.header : '',
     counts: head.counts.map((c) => ({ ...c, anchor: c.target === null ? null : releasePlanAnchor(c.target) })),
+    bar: head.bar,
+    blockedPlans: head.blockedPlans,
   };
   const releaseRows = blocks.flatMap((b) => b.plans.flatMap((p) => Object.values(p.itemIds).flatMap((id) => mapping.rowsByItem[id] ?? [])));
 

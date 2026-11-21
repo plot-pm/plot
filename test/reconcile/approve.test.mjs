@@ -326,7 +326,7 @@ test('approve: Approved: fills the placeholder rather than appending after the l
 });
 
 test('approve: a plan in Design is approvable by a named person — flips to Approved and records in-session', () => {
-  // Design plans are approved by a person (D10) whatever `Review:` declares: the
+  // Design plans are approved by a person (`[decision-fleet-writes-design-specs]`) whatever `Review:` declares: the
   // plan PR is still merged, and the record names the person and the channel.
   makeRepo(PLAN({ phase: 'Design' }));
   const { code, out } = run(['approve-me', '--who', 'jwloka']);
@@ -356,7 +356,7 @@ test('approve: a Design plan refuses under PLOT_UNATTENDED=1 with the Design wor
   const { code, err } = run(['approve-me', '--who', 'jwloka'], { expectFail: true, env: { PLOT_UNATTENDED: '1' } });
   assert.equal(code, 1);
   assert.match(err, /Design phase/, err);
-  assert.match(err, /D10/, err);
+  assert.match(err, /\[decision-fleet-writes-design-specs\]/, err);
   assert.notEqual(hostState().state, 'MERGED');
 });
 

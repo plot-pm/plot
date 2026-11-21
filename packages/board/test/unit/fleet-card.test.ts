@@ -5,8 +5,8 @@ import { fleetCard } from '@plot-pm/domain/rules/fleet-card';
 import type { AgentRow, Slice } from '../../src/contract/schema.js';
 import { deliveryMapping, type RegistryAgent } from '../../src/app/lib/agent-rows/delivery-readings.js';
 import { placeMapping } from '../../src/app/lib/agent-rows/delivery-view.js';
-import { placeDelivery } from '@plot-pm/domain';
-import { FleetCard } from '../../src/app/components/FleetCard.js';
+import { deliveryHeader, placeDelivery } from '@plot-pm/domain';
+import { DeliveryHeader } from '../../src/app/components/DeliveryHeader.js';
 import { AutoDispatchSwitch, AutoSwitch, ParallelAgentsStepper } from '../../src/app/components/FleetControls.js';
 
 const row = (over: Record<string, unknown>): AgentRow => ({
@@ -31,7 +31,7 @@ const mapping = (agents: RegistryAgent[], releases?: string[]) => deliveryMappin
   ...(releases ? { releases, sprints: [] } : {}),
 } as Parameters<typeof deliveryMapping>[0]);
 
-describe('the fleet card counts what the Fleet header counts', () => {
+describe('the header Fleet group counts what the Fleet section counts', () => {
   const agents = [
     agent({ session: 'x', branch: 'feature/a' }),
     agent({ session: 'y', branch: '' }),
@@ -50,34 +50,28 @@ describe('the fleet card counts what the Fleet header counts', () => {
   }
 });
 
-describe('the card switches are read-only', () => {
-  it('renders disabled checkboxes with the Fleet body’s values and no stepper buttons', () => {
-    const html = renderToStaticMarkup(createElement(FleetCard, {
-      agents: [{ group: 'working' }],
-      switches: { autoDispatch: true, autoReview: false, autoVerify: true, autoDesign: false, parallelAgents: 4 },
+describe('the Fleet section owns the only switches', () => {
+  it('renders the writable switches with the Fleet body selectors and the stepper buttons', () => {
+    expect(renderToStaticMarkup(createElement(AutoDispatchSwitch, { value: true }))).toMatch(/data-fleet-auto-dispatch="true" checked=""/);
+    const verify = renderToStaticMarkup(createElement(AutoSwitch, { name: 'autoVerify', value: true }));
+    expect(verify).toContain('data-fleet-auto-switch="autoVerify"');
+    expect(verify).not.toContain('disabled');
+    const stepper = renderToStaticMarkup(createElement(ParallelAgentsStepper, { value: 7 }));
+    expect(stepper).toContain('aria-valuenow="7"');
+    expect(stepper).toContain('data-fleet-parallel-increment');
+    expect(stepper).toContain('data-fleet-parallel-decrement');
+  });
+
+  it('leaves no read-only copy in the header', () => {
+    const html = renderToStaticMarkup(createElement(DeliveryHeader, {
+      header: deliveryHeader({
+        you: { counts: [], ages: [], releases: [], ticketNote: null }, work: { groups: [], ages: [] }, unplaced: [],
+        agents: [{ group: 'working' }], supervisor: { state: 'up', label: 'fleet running', shown: false },
+        switches: { dispatch: true, review: false, verify: true, design: false }, parallelAgents: 4, machine: null, hostAnswer: 'answered',
+      }),
+      release: null,
       onJump: () => {},
     }));
-    expect(html).toContain('data-fleet-card="working"');
-    expect(html).toContain('data-fleet-card-link');
-    const boxes = [...html.matchAll(/<input[^>]*>/g)].map((m) => m[0]);
-    expect(boxes).toHaveLength(4);
-    for (const b of boxes) expect(b).toContain('disabled');
-    expect(boxes.map((b) => b.includes('checked'))).toEqual([true, false, true, false]);
-    expect(html).toContain('aria-valuenow="4"');
-    expect(html).not.toContain('data-fleet-parallel-increment');
-    expect(html).not.toContain('data-fleet-parallel-decrement');
-  });
-
-  it('shows the same value as the writable switch for one payload', () => {
-    const rw = renderToStaticMarkup(createElement(AutoSwitch, { name: 'autoVerify', value: true }));
-    const ro = renderToStaticMarkup(createElement(AutoSwitch, { name: 'autoVerify', value: true, readOnly: true }));
-    expect(rw.includes('checked')).toBe(ro.includes('checked'));
-    expect(renderToStaticMarkup(createElement(AutoDispatchSwitch, { value: false, readOnly: true }))).not.toContain('checked');
-    expect(renderToStaticMarkup(createElement(ParallelAgentsStepper, { value: 7, readOnly: true }))).toContain('aria-valuenow="7"');
-  });
-
-  it('leaves the Fleet body’s selectors on the writable components only', () => {
-    expect(renderToStaticMarkup(createElement(AutoDispatchSwitch, { value: true }))).toContain('data-fleet-auto-dispatch');
-    expect(renderToStaticMarkup(createElement(AutoDispatchSwitch, { value: true, readOnly: true }))).not.toContain('data-fleet-auto-dispatch=');
+    expect(html).not.toMatch(/data-fleet-card|<input|role="spinbutton"/);
   });
 });

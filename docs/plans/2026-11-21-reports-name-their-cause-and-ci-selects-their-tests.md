@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3611 merged
+- **Started:** 2026-11-21, Jan Wloka, `bug/a-failed-sibling-tag-read-is-cannot-tell`
 
 ## Changelog
 
@@ -112,7 +113,7 @@ Building is not the gap. CI builds the bundles from the pull request's source be
 
 ### Sibling tag read
 
-- `bug/a-failed-sibling-tag-read-is-cannot-tell` — `resolvePlanRelease` sends a sibling's failed `tagsContaining` to `resolveRelease`, with the fake-port cells and the absent-sha reconcile test <!-- builds: the sibling tag-read refusal in resolvePlanRelease -->
+- `bug/a-failed-sibling-tag-read-is-cannot-tell` — `resolvePlanRelease` sends a sibling's failed `tagsContaining` to `resolveRelease`, with the fake-port cells and the absent-sha reconcile test <!-- builds: the sibling tag-read refusal in resolvePlanRelease --> → #3626
 
 ### Jenkins sha read
 

@@ -25,8 +25,8 @@ const you = (reason: Extract<ItemPlacement, { section: 'you' }>['reason'], group
 const facts: ItemRowFacts = { plan: 'the-plan', slice: 'first', branch: 'feature/x', pr: 12, ciRun: '#901', ageMinutes: 125 };
 
 describe('the seven columns', () => {
-  it('are KIND, ITEM, WHERE, STATUS, DO, BY, AGE in that order', () => {
-    expect([...ROW_COLUMNS]).toEqual(['kind', 'item', 'where', 'status', 'do', 'by', 'age']);
+  it('are KIND, ITEM, WHERE, STATUS, BY, AGE, DO in that order', () => {
+    expect([...ROW_COLUMNS]).toEqual(['kind', 'item', 'where', 'status', 'by', 'age', 'do']);
     const cells = itemRowCells(work('queued'), facts)!;
     expect(Object.keys(cells)).toEqual([...ROW_COLUMNS]);
   });
@@ -468,10 +468,10 @@ describe('the remaining branches', () => {
 });
 
 describe('the You column set', () => {
-  it('is KIND, ITEM, STATUS, DO, AGE, and ROW_COLUMNS stays the seven', async () => {
+  it('is KIND, ITEM, STATUS, AGE, DO, and ROW_COLUMNS stays the seven with DO last', async () => {
     const { YOU_COLUMNS, youRowCells } = await import('../src/rules/delivery-row-form.js');
-    expect([...YOU_COLUMNS]).toEqual(['kind', 'item', 'status', 'do', 'age']);
-    expect([...ROW_COLUMNS]).toEqual(['kind', 'item', 'where', 'status', 'do', 'by', 'age']);
+    expect([...YOU_COLUMNS]).toEqual(['kind', 'item', 'status', 'age', 'do']);
+    expect([...ROW_COLUMNS]).toEqual(['kind', 'item', 'where', 'status', 'by', 'age', 'do']);
     const cells = youRowCells(you('draft-plan', 'input-to-the-fleet', [], 'plan'), { plan: 'p', ageMinutes: 60 })!;
     expect(Object.keys(cells)).toEqual([...YOU_COLUMNS]);
     expect(cells.do?.value).toBe('open ›');

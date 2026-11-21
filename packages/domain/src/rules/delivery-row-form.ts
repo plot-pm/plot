@@ -15,11 +15,11 @@ import { timeLeft, timeLeftValue } from './agent-time-left.js';
 import { FIXER_ATTEMPTS_BUDGET } from './fixer-attempts.js';
 
 /** The seven columns of a Delivery row, in the order they render. */
-export const ROW_COLUMNS = ['kind', 'item', 'where', 'status', 'do', 'by', 'age'] as const;
+export const ROW_COLUMNS = ['kind', 'item', 'where', 'status', 'by', 'age', 'do'] as const;
 export type RowColumn = (typeof ROW_COLUMNS)[number];
 
 /** The five columns of a You row, in the order they render. Every You row is the reader's, so there is no By column. */
-export const YOU_COLUMNS = ['kind', 'item', 'status', 'do', 'age'] as const;
+export const YOU_COLUMNS = ['kind', 'item', 'status', 'age', 'do'] as const;
 export type YouColumn = (typeof YOU_COLUMNS)[number];
 
 /** The header of each You column. */
@@ -530,9 +530,9 @@ export const itemRowCells = (placement: ItemPlacement, facts: ItemRowFacts): Row
     item: itemCell,
     where,
     status,
-    do: doCell,
     by,
     age: ageCell(facts.ageMinutes),
+    do: doCell,
   };
 };
 
@@ -851,5 +851,5 @@ export const youRowCells = (placement: ItemPlacement, facts: ItemRowFacts): YouR
   const status = row.status === null || row.status.value === REASON_STATUS[placement.reason]
     ? { value: base, links: [] }
     : { ...row.status, value: row.status.value.replace(REASON_STATUS[placement.reason], base) };
-  return { kind: row.kind, item: row.item, status, do: row.do, age: row.age };
+  return { kind: row.kind, item: row.item, status, age: row.age, do: row.do };
 };

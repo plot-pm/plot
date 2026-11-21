@@ -46,7 +46,7 @@ export interface CreatePlanButtonProps {
   issueAnswer: IssueAnswer | null;
   /** Why the ticket's card facts refuse *Create plan*; `''` or absent where they allow it. */
   factsRefusal?: string;
-  /** The idle label; `Create plan` unless a caller names the control otherwise (the Tickets section's `Plan it ›`). */
+  /** The idle label; `Create plan` unless a caller names the control otherwise. */
   label?: string;
 }
 

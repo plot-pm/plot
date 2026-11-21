@@ -56,10 +56,8 @@ const MachineSection = ({ machine }: { machine: MachineHealth }) => (
 function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents: number; working?: number } {
   return fleet.fleetControls ?? FLEET_CONTROLS_DEFAULT;
 }
-import { FleetCard } from './FleetCard.js';
-import { SprintCard } from './SprintCard.js';
-import { TodoList } from './TodoList.js';
-import { releaseTodoEntriesOf, todoListOf } from '../lib/agent-rows/todo-list.js';
+import { DeliveryHeader } from './DeliveryHeader.js';
+import { deliveryHeaderOf } from '../lib/agent-rows/delivery-header.js';
 import { AutoDispatchSwitch, AutoSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
 import { FleetAgentHeader, FleetAgentRow } from './FleetAgentRow.js';
 import { MasterAgentLine, RowCell, scrollToAnchor, type LinkHandlers } from './DeliveryRows.js';
@@ -129,8 +127,8 @@ import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRow
 import { ActivitySpinner } from '../lib/agent-rows/marks.js';
 import { BranchMenu, BrokenAgentMenu, PlanActions } from '../lib/agent-rows/menus.js';
 import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
-import { deliveryMapping, rateLimitOf, releaseCardsOf, sprintCardViewOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
-import { ReleaseCard } from './ReleaseCard.js';
+import { deliveryMapping, rateLimitOf, releaseCardsOf, releaseGroupOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
+import { ReleaseGroup } from './ReleaseGroup.js';
 import {
   anchorOwner,
   cleanUpBranches,
@@ -167,7 +165,9 @@ import { rowKey } from '../lib/agent-rows/row-identity.js';
 // their marks and their menus are declared next door.
 import { splitTicketRows, waitingView } from '../lib/agent-rows/waiting-view.js';
 import { TicketsSectionView } from './TicketsSection.js';
-import { headerControl, SectionEmptyFrame, SectionEmptyMark, SectionHead } from './SectionHead.js';
+import { headerControl, SectionEmptyFrame, SectionHead } from './SectionHead.js';
+import { SectionSummary } from './SectionSummary.js';
+import { sectionSummariesOf } from '../lib/agent-rows/section-summary.js';
 import { deliveryEmpties, offersScopeOff } from '../lib/agent-rows/section-empty.js';
 import { youHeaderOf } from '../lib/agent-rows/you-header.js';
 import { StartWorkButton } from './StartWorkButton.js';
@@ -180,7 +180,7 @@ import { specRows } from '../lib/agent-rows/spec-row.js';
 // These moved out of this file when the row estate was split into three
 // modules; the unit suite and `App.tsx` import them from here, and a second
 // definition is exactly the drift the split removed.
-export { menuState, noActionReason, offersOpen, openLabel, openTarget, runLinkLabel, showsWorkerLog, storyRefusal } from '../lib/agent-rows/menus.js';
+export { noActionReason, offersOpen, openLabel, openTarget, runLinkLabel, showsWorkerLog, storyRefusal } from '../lib/agent-rows/menus.js';
 export { inferredPlanName, isReleaseBranch, isUnpushed, rowSubject, startableNote } from '../lib/agent-rows/rows.js';
 export type { AgentListProps };
 
@@ -461,6 +461,7 @@ export function AgentList({
   checkoutClean,
   spawnContract,
   passkey = null,
+  lastRelease = null,
 }: AgentListProps) {
   // THE BOARD'S PLAN INDEX — every card and draft plan, keyed by file
   // basename and by slug, built once here and threaded to every row builder
@@ -1237,19 +1238,23 @@ export function AgentList({
           checksUrlOf: (planFile: string, pr: number) => cardForPlanFile?.(planFile)?.prs.find((p) => p.number === pr)?.checksUrl ?? '',
         };
         const mapping = deliveryMapping(mappingInput);
-        // THE SPRINT CARD READS EVERY ROW: the Sprint filter hides rows, and a card
-        // that follows it would call an unselected sprint's reading missing.
         const cardSprintOf = (s: FleetSprint) => ({ ...s, release: s.release ?? '', end: s.end ?? '', ownerHandle: s.ownerHandle ?? '', members: s.members ?? [] });
-        const sprintCardView = sprintCardViewOf(sprintScope.sprints.map(cardSprintOf), reader, { ...mappingInput, rows: fleet.rows });
         const placement = placeDelivery(mapping.readings, mapping.input);
         const view = placeMapping(mapping, fleet.slices, activeSprints, sprintScope, new Date(Date.now()), planIndex);
         // THE RELEASE CARDS READ EVERY ROW TOO, and every reader sees the same cards.
-        // They read every Active sprint in both scopes: the to-do list's
-        // "Approve release" line reads them while the sprint card shows. A card
-        // no Active sprint names counts the section's own plans and slices.
+        // They read every Active sprint in both scopes, because the to-do list's
+        // "Approve release" line reads them. A card no Active sprint names counts
+        // the section's own plans and slices.
         const releaseCardView = releaseCardsOf(activeSprints.map(cardSprintOf), reader.directory, { ...mappingInput, rows: fleet.rows }, view.releaseCarried);
+        // THE RELEASE GROUP READS EVERY ROW over the scope's sprints: the Sprint filter hides
+        // rows, and a group that follows it would call an unselected sprint's reading missing.
+        const releaseGroupView = releaseGroupOf(
+          { kind: sprintScope.kind, sprints: sprintScope.sprints.map(cardSprintOf) },
+          reader, { ...mappingInput, rows: fleet.rows }, view.releaseCarried, lastRelease,
+        );
         unplacedForFooter = view.notPlaced;
         const unplacedFolded = isFolded('section', 'not-placed', view.notPlaced.length, collapsed);
+        const unplacedPace = headingPace(groupPace(view.notPlaced.flatMap((u) => u.rows), active), unplacedFolded);
         const youHead = youHeaderOf({
           view, placement, reader, ticketAnswer: fleet.issueAnswer ?? null, phaseMap,
           stories: stories ?? [], cards: cards ?? [],
@@ -1339,6 +1344,13 @@ export function AgentList({
         const unfolded = ticketsShown(false);
         const foldedTickets = new Set([...ticketsShown(true)].filter((anchor) => !unfolded.has(anchor)));
         const now = new Date(Date.now());
+        // THE FOLDED SUMMARIES — view properties over the rows each section shows, rendered here.
+        const summaries = sectionSummariesOf({
+          mappingInput, fleet, reader, phaseMap, stories: stories ?? [], cards: cards ?? [],
+          releases: releaseCardView.cards, releaseRows: releaseCardView.rows, passkey,
+          slices: fleet.slices, sprints: activeSprints, scope: sprintScope, now, planIndex,
+          tickets: { issues: filteredIssues, before: waitingView(fleet.waiting, fleet.issues, showEveryTicket, (t) => t).tickets.length, showAll: showEveryTicket },
+        });
         let wider: WiderView[] | null = null;
         const context: AnchorContext = {
           foldedTickets,
@@ -1623,23 +1635,16 @@ export function AgentList({
         const anchoredPlans = new Set<string>();
         return (
           <>
-            {/* THE TAB HEADER, in two columns: the to-do list, then the release
-                or sprint card above the fleet card. `delivery-header.css` lays them out. */}
-            <div data-tab-header className="space-y-4">
-              <div data-tab-header-column="todo">
-                <TodoList todo={todoListOf(view, placement, fleet.issueAnswer ?? null, releaseTodoEntriesOf(releaseCardView.cards, releaseCardView.rows, passkey))} onJump={(anchor) => jump(anchor)} />
-              </div>
-              <div data-tab-header-column="status" className="space-y-2">
-                {sprintScope.statusCard === 'sprint'
-                  ? <SprintCard view={sprintCardView} />
-                  : <ReleaseCard cards={releaseCardView.cards} rows={releaseCardView.rows} />}
-                <FleetCard
-                  agents={placement.agents}
-                  switches={{ ...switches, autoDispatch: fleetControlsOf(fleet).autoDispatch, parallelAgents: fleetControlsOf(fleet).parallelAgents }}
-                  onJump={(anchor) => jump(anchor)}
-                />
-              </div>
-            </div>
+            {/* THE TAB HEADER: one card of five groups that never folds. `delivery-header.css` lays it out. */}
+            <DeliveryHeader
+              header={deliveryHeaderOf({
+                mappingInput, fleet, reader, phaseMap, stories: stories ?? [], cards: cards ?? [],
+                releases: releaseCardView.cards, releaseRows: releaseCardView.rows, passkey,
+                slices: fleet.slices, sprints: activeSprints, scope: sprintScope, now: new Date(Date.now()), planIndex,
+              })}
+              release={<ReleaseGroup view={releaseGroupView} />}
+              onJump={(anchor) => jump(anchor)}
+            />
             {view.sections.map((section) => {
               // A collapsed heading shows the pace of the rows it hides.
               const release = section.key === RELEASE_DELIVERY;
@@ -1721,11 +1726,10 @@ export function AgentList({
                   </span>
                 </h2>
               );
-              // Folded, the header keeps its counts; an empty section says so, and a loud supervisor alert stays.
+              // Folded, the header keeps its counts and adds the section's summary; a loud supervisor alert stays.
               const summary = !folded ? null
                 : section.key === 'fleet' && fleet.supervisor?.prominence === 'alert' ? <FleetAlert supervisor={fleet.supervisor} />
-                : empty !== null ? <SectionEmptyMark empty={empty} />
-                : null;
+                : <SectionSummary summary={summaries[section.key]} onJump={(anchor) => jump(anchor)} />;
               return (
                 <section key={section.key} data-section={section.key} className="delivery-card space-y-2">
                   <SectionHead section={section.key} label={section.label} folded={folded} onToggle={() => toggle(section.key)} summary={summary}>
@@ -1761,7 +1765,7 @@ export function AgentList({
                                   <span className="delivery-text-muted min-w-0">
                                     {plan.owner !== '' && <PlanOwner owner={plan.owner} />}
                                   </span>
-                                  <span className="ml-auto sm:ml-0 sm:justify-self-end">
+                                  <span data-row-cell="do" className="ml-auto sm:ml-0 sm:justify-self-end">
                                     <PlanActions
                                       plan={plan.plan}
                                       card={card}
@@ -1872,10 +1876,17 @@ export function AgentList({
             })}
             {view.notPlaced.length > 0 && (
               <section id={UNPLACED_ANCHOR} data-unplaced data-section="not-placed" className="delivery-card space-y-2">
-                <SectionHead section="not-placed" label="Not placed" folded={unplacedFolded} onToggle={() => toggle('not-placed')}>
+                <SectionHead
+                  section="not-placed"
+                  label="Not placed"
+                  folded={unplacedFolded}
+                  onToggle={() => toggle('not-placed')}
+                  summary={unplacedFolded ? <SectionSummary summary={summaries['not-placed']} onJump={(anchor) => jump(anchor)} /> : null}
+                >
                   <h2 data-unplaced-title className="delivery-title flex min-w-0 flex-1 items-baseline gap-1">
                     Not placed — agent branches
                     <span className="delivery-counts ml-2">{view.notPlaced.length}</span>
+                    {unplacedPace && <ActivitySpinner pace={unplacedPace} />}
                   </h2>
                 </SectionHead>
                 {!unplacedFolded && (
@@ -1917,7 +1928,10 @@ export function AgentList({
               absence={fleet.issueAnswer === 'failed' ? issueNote(fleet) ?? fleet.issueError ?? '' : fleet.issueAnswer === 'unsupported' ? fleet.issueAbsence ?? '' : ''}
               filters={{ scope: emptyScope, mine: mapping.input.mine, mineHidden: hiddenCounts.tickets, onMine: toggleMineOnly, onScopeOff: onScopeOff('tickets') }}
               idea={idea ?? { available: false, reason: 'this board has not said whether it can create plans' }}
+              story={story ?? { available: false, reason: 'this board has not said whether it can create stories' }}
+              facts={ticketFacts}
               folded={collapsed.has('tickets')}
+              summary={<SectionSummary summary={summaries.tickets} onJump={(anchor) => jump(anchor)} />}
               onToggleFold={() => toggle('tickets')}
               foldOpen={ticketsFoldOpen}
               onToggleFoldOpen={() => setTicketsFoldOpen((open) => !open)}

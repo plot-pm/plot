@@ -97,17 +97,15 @@ describe('the Fleet section in the mockup look (real browser renders the shipped
     });
   }
 
-  it('keeps the fleet card switches disabled and faded, and the Fleet header switches live', async () => {
+  it('shows the header Fleet marks as text, and the Fleet section switches live', async () => {
     const page = await open('light');
     try {
-      await page.locator('[data-fleet-card]').waitFor({ timeout: 10_000 });
-      const card = page.locator('[data-fleet-card-auto-switch]').first();
+      await page.locator('[data-tab-header] [data-header-marks]').waitFor({ timeout: 10_000 });
+      expect(await page.locator('[data-tab-header] [data-header-mark]').count()).toBeGreaterThan(0);
+      expect(await page.locator('[data-tab-header] input, [data-tab-header] [role="spinbutton"]').count()).toBe(0);
       const live = page.locator('[data-fleet-auto-switch]').first();
-      expect(await card.isDisabled()).toBe(true);
       expect(await live.isDisabled()).toBe(false);
-      const opacity = (sel: string) => page.locator(sel).first().evaluate((el) => getComputedStyle(el).opacity);
-      expect(Number(await opacity('[data-fleet-card-auto-switch]'))).toBeLessThan(1);
-      expect(await opacity('[data-fleet-auto-switch]')).toBe('1');
+      expect(await live.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
     } finally {
       await page.close();
     }

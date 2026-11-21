@@ -13,6 +13,7 @@ import { askOnce } from '../../src/server/entry/ask.js';
 import { boardQueryFor, mockEstate, realEstate } from '../../src/server/estate.js';
 import { stopFleetRefresh } from '../../src/server/fleet.js';
 import { removeTree } from '../rm-tree.mjs';
+import { gitStateHome } from '../state-home-root.js';
 
 /**
  * THE BOARD READS THE DEFAULT-BRANCH READING FROM THE ESTATE THE PROCESS CHOSE
@@ -89,7 +90,7 @@ const repoWithRedReading = async () => {
     '# Estate\n\n## Status\n\n- **Phase:** Approved\n- **Type:** feature\n',
     'utf8',
   );
-  const wrote = await defaultBranchFile(repoRoot).write(RED);
+  const wrote = await defaultBranchFile(gitStateHome(repoRoot)).write(RED);
   expect(wrote.ok).toBe(true);
   return { repoRoot, scriptsDir: scriptsWithSilentHost() };
 };
