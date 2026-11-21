@@ -327,9 +327,9 @@ const wait = (branch: string, note: string): Decision<AgentLoopDetail> =>
  * A decision that ends the loop, with its `loop-end` write appended last.
  *
  * @param resumeId - the handle the loop was resuming or about to resume;
- *   carried only for `unstarted`, which is the one ending a later
- *   continuation must resume the SAME conversation for rather than
- *   whichever transcript file is newest on disk.
+ *   carried by every ending a later continuation resumes, so the
+ *   continuation resumes that conversation rather than whichever
+ *   transcript file is newest on disk.
  */
 const end = (
   worktree: string,
@@ -862,14 +862,14 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
   if (exit !== null && exit.answer === 'turn-limit') {
     return end(worktree, branch, 'turn-limit', 'agent', 'the run reached Agent max turns', 0, [
       blockedDeclaration(worktree, branch, 'the run reached Agent max turns'),
-    ]);
+    ], readings.resumeId);
   }
 
   // ROW 9c — an SDK run reached `Agent max spend`.
   if (exit !== null && exit.answer === 'spend-limit') {
     return end(worktree, branch, 'spend-limit', 'agent', 'the run reached Agent max spend', 0, [
       blockedDeclaration(worktree, branch, 'the run reached Agent max spend'),
-    ]);
+    ], readings.resumeId);
   }
 
   // From here `exit` is `ran`, or the prompt has already run in an earlier
@@ -880,7 +880,7 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
   if (exit !== null && (exit.answer === 'ran' || exit.answer === 'dropped') && readings.markerWritten) {
     return end(worktree, branch, 'blocked', 'agent', 'the agent declared itself blocked', 0, [
       blockedDeclaration(worktree, branch, readings.markerText),
-    ]);
+    ], readings.resumeId);
   }
 
   // ROW 10c — the turn ended with its background work dropped.
@@ -890,7 +890,7 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
   if (exit !== null && exit.answer === 'ran' && readings.handBack === 'blocked') {
     return end(worktree, branch, 'blocked', 'agent', 'the agent handed back blocked', 0, [
       blockedDeclaration(worktree, branch, readings.handBackSummary || 'the agent handed back blocked'),
-    ]);
+    ], readings.resumeId);
   }
 
   // ROW 10b — the agent handed back `checks`. Its commits are not pushed yet,
