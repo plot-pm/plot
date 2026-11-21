@@ -11,7 +11,7 @@
 
 ## Changelog
 
-- A new page, `docs/automation-spectrum.md` ("What runs by itself"), opens with two tiers: Plot without a fleet, which needs only the plugin, and the fleet, which an operator runs with a supervisor, role agents and the merge loop. It lists every station from an approved plan to a release with the key or command that decides whether a person or the fleet acts, its default, and what Plot's own repository sets.
+- A new page, `docs/automation-spectrum.md` ("What runs by itself"), opens with two tiers: Plot without a fleet, which needs the plugin and no fleet setup, and the fleet, which an operator runs with a supervisor, role agents and the merge loop. It lists every station from an approved plan to a release with the key or command that decides whether a person or the fleet acts, its default, and what Plot's own repository sets.
 - The page states that deliver, the fixer, the merge arm and the release tick have no switch of their own while the supervisor runs, and that on Bitbucket no key holds the merge arm. These steps come as a bundle with the supervisor. This plan adds no switch and changes no default.
 - The README, the merge-queue skill, the intro and the fleet user test no longer say that a person must merge or that Plot never merges. They say that a team chooses who lands a slice, and they link the page. The fleet user test opens with a dated banner.
 - The README no longer says that `CI: jenkins` has no connector, and it names the page as the list of keys that switch automation on.
@@ -25,7 +25,7 @@
 
 Plot ships with a merge arm. fleetd merges one passed slice PR per pass since 2.30.0 (`CHANGELOG.md:1331`, #2961), as the Merger App since 2.31.0 (`CHANGELOG.md:906`, #3085), and it holds a PR that carries an unanswered comment of a person since 2.34.0 (`CHANGELOG.md:257`, #3461). On 2026-11-21, `app/plot-merger` is the merger of 341 of the newest 400 merged pull requests of this repository (`gh pr list --state merged --limit 400 --json mergedBy`).
 
-The decision is recorded and approved: "Only the release waits for a person" (`docs/stories/archived/the-fleet-delivers-a-scope-alone/DESIGN-delivery-loop.md:14`, `:166`; `fleetd merges on GitHub only with a declared Merger app` at `:175`). The plans that built the merge arm updated none of the documents below. A search on 2026-11-21 of `docs/plans/`, and of issue and pull request titles for "autonomous merger" and "MANIFESTO merge", finds no item that proposes to correct them. Two plans of 2026-09-07 name `docs/fleet-user-test.md` and propose no change to its merge row.
+The decision is recorded and approved: "Only the release waits for a person" (`docs/stories/archived/the-fleet-delivers-a-scope-alone/DESIGN-delivery-loop.md:14`, `:166`; `fleetd merges on GitHub only with a declared Merger app` at `:175`). The documents below still carry the lines quoted, and the plans that built the merge arm name none of them. A search on 2026-11-21 of `docs/plans/`, and of issue and pull request titles for "autonomous merger" and "MANIFESTO merge", finds no item that proposes to correct them. Two plans of 2026-09-07 name `docs/fleet-user-test.md` and propose no change to its merge row.
 
 A reader who trusts these documents learns the opposite of what runs. Each line below is quoted from `origin/main` at `532a0e6c6` (2026-11-21), and the file in parentheses contradicts it.
 
@@ -58,7 +58,7 @@ A reader who trusts these documents learns the opposite of what runs. Each line 
 
 **Two tiers.** The page makes one distinction visible before any table: Plot is usable without the fleet, and the fleet is a separate part with its own setup.
 
-- **Tier one, Plot without a fleet.** Plans, approval, the board, and a person who implements or starts agents by hand. It needs the plugin and a `## Plot Config` section and nothing else. Every station has a by-hand path, and tier one uses only that path.
+- **Tier one, Plot without a fleet.** Plans, approval, the board, and a person who implements or starts agents by hand. It needs the plugin and a `## Plot Config` section, and no supervisor, role agent or `Worker command`. The board is optional: it adds the once-per-repository `/plot-board-setup`, git 2.42 or later and the Node major that `.nvmrc` pins, and it starts no agent. Every station has a by-hand path, and tier one uses only that path.
 - **Tier two, the fleet.** A supervisor (fleetd), role agents and the merge loop, run by an operator. It has its own setup (the Worker command, the three Apps, a ruleset, an active sprint, a supervisor unit) and it needs an operator who runs it.
 - **The bundle.** Inside tier two, only some steps have a key. Deliver, the fixer, the merge arm and the release tick have none while the supervisor runs, so they come as a bundle with the supervisor. The page says so plainly, and it names the only ways back to a person (the section "The two global levers" below). The page uses the words of the repository, "the fleet" and "the supervisor", and gives tier two no product name.
 - **Where the by-hand path stays open.** Approval of a plan and the approval of a release stay with a person in both tiers.
@@ -123,8 +123,8 @@ A reader who trusts these documents learns the opposite of what runs. Each line 
 ### Open Questions
 
 - [ ] `[question-manifesto-go]` Do both maintainers approve the manifesto change, part 1 and, if wanted, part 2? The slice `docs/manifesto-names-the-merge-arm` starts only after both record a go, in a comment on the slice's PR or in this plan's PR. Part 2 changes the stated pacing posture.
-- [ ] `[question-readme-merging-section]` The README section on merging states the principle "merging stays yours" and the row "Never accelerate". Moving "merging" and "fanning out" to "Your choice, off by default" changes what the README promises. The plan recommends the same condition as the manifesto for that section of the slice `docs/readme-describes-what-runs`, with the rest of the slice free to start. The plan review decides.
-- [ ] `[question-bundle-publication]` The page publishes that deliver, the fixer, the merge arm and the release tick run whenever fleetd runs, with no switch of their own, and that the only ways back to a person are the Merger app key, the sprint scope, `--start-agents` and `--stop`. A later change that adds a switch changes a default, and it is a plan of its own.
+- [ ] `[question-readme-merging-section]` The README section on merging states the principle "merging stays yours" and the row "Never accelerate". Moving "merging" and "fanning out" to "Your choice, off by default" changes what the README promises. The plan recommends the same condition as the manifesto for that section of the slice `docs/readme-describes-what-runs`, with the rest of the slice free to start. The plan review decides. If the review adopts the condition, the edit of that section moves from the README slice into the Manifesto slice, and the README slice carries the rest.
+- [x] `[decision-bundle-is-published]` The page publishes that deliver, the fixer, the merge arm and the release tick run whenever fleetd runs, with no switch of their own, and that the only ways back to a person are the Merger app key, the sprint scope, `--start-agents` and `--stop`. A later change that adds a switch changes a default, and it is a plan of its own. (owner decision, 2026-11-21)
 - [ ] `[question-page-drift]` The README claimed that `plot-config.sh` "cannot drift" while 29 keys were missing from it. The slice `docs/automation-spectrum-page` adds a contract test that reads the keys and defaults of the page. Should the page be generated from the declarations of the keys (a larger plan), or kept by hand with the test?
 - [ ] `[question-multi-repo-line]` `skills/plot/README.md:123` says "No multi-repo support". The plan template has a form for a slice in another repository. Is a plan in one repository with slices in another supported end to end? The line stays until a maintainer confirms.
 - [ ] `[question-fleet-user-test-retire]` `docs/fleet-user-test.md` stays largely stale after the banner. A rewrite is out of scope. Should the file be retired once a current guide for the fleet replaces it?
@@ -132,7 +132,7 @@ A reader who trusts these documents learns the opposite of what runs. Each line 
 
 ## Slices
 
-Waves follow the rule that a wave holds one branch. The page comes first because every other slice links it. The two slices that wait on another pull request carry a `waits:` annotation, and the slice that waits on a decision of people comes last, so that no slice stands behind it.
+Waves follow the rule that a wave holds one branch. The page comes first because every other slice links it. The two slices that wait on another pull request carry a `waits:` annotation, and the slice that waits on a decision of people comes last, so that no slice stands behind it. If `[question-readme-merging-section]` adopts the same condition, the README section moves into that last slice.
 
 ### Page
 
@@ -157,14 +157,15 @@ Waves follow the rule that a wave holds one branch. The page comes first because
 ## Acceptance
 
 - `docs/automation-spectrum.md` exists, and its first two `##` sections are "Plot without a fleet" and "The fleet".
-- The section "Plot without a fleet" of `docs/automation-spectrum.md` states that this tier needs no setup beyond the plugin and a `## Plot Config` section, and the section "The fleet" states that it needs a supervisor, role agents and an operator who runs them.
+- The section "Plot without a fleet" of `docs/automation-spectrum.md` states that this tier needs the plugin and a `## Plot Config` section and no supervisor, role agent or `Worker command`, and that the board adds `/plot-board-setup` and the pinned Node major. The section "The fleet" states that it needs a supervisor, role agents and an operator who runs them.
 - The station table of `docs/automation-spectrum.md` has 14 rows, numbered 0 to 13, and each row names a switch, a default and what Plot's own `CLAUDE.md` sets.
 - `docs/automation-spectrum.md` states that deliver, the fixer, the merge arm and the release tick have no switch of their own while the supervisor runs, and that on Bitbucket no key holds the merge arm.
 - `docs/automation-spectrum.md` states what Plot's own repository sets for the fixer's scope, the Merger app and the Merge checks, and the station 7 row names the three finding kinds: HIGH, red head and conflict.
 - `node --test test/reconcile/automation-spectrum.test.mjs` passes, and it fails when a key of the "Switch" column occurs in none of `packages/fleet/src`, `packages/domain/src` and `skills/plot/scripts`.
 - `grep -n "no autonomous merger" skills/plot/MANIFESTO.md` returns only a line that starts with `>`, inside the dated correction note.
 - `grep -rn "no autonomous merger" README.md skills/plot-merge-queue docs/fleet-user-test.md docs/automation-spectrum.md CLAUDE.md AGENTS.md` returns nothing.
-- `grep -n "1.0.0-beta" CLAUDE.md AGENTS.md skills/plot/MANIFESTO.md` returns nothing.
+- `grep -n "1.0.0-beta" CLAUDE.md AGENTS.md` returns nothing.
+- `grep -n "1.0.0-beta" skills/plot/MANIFESTO.md` returns nothing.
 - `grep -n "No automated test suite" skills/plot/README.md` returns nothing.
 - `grep -n "no connector yet" README.md` returns nothing.
 - `grep -n "has no endpoint" CLAUDE.md AGENTS.md` returns nothing.
@@ -174,8 +175,8 @@ Waves follow the rule that a wave holds one branch. The page comes first because
 - `skills/plot/docs/quickstart.md` contains `/plugin marketplace add plot-pm/plot`, `/plugin install plot@plot-marketplace` and `/plot-init`, and a link to `docs/automation-spectrum.md`.
 - `grep -cF "<key>" skills/plot/scripts/plot-config.sh` returns at least 1 for each of the 29 keys named under "Motivation".
 - `grep -n "not yet read by the board" skills/plot/scripts/plot-config.sh` returns nothing.
-- `skills/plot/MANIFESTO.md` holds a note that starts `> **Corrected 2026-11-`, quotes the replaced sentence and links `docs/automation-spectrum.md`.
-- `./scripts/check-agents-md.sh` exits 0, and `./scripts/check-shell-lines.sh pr` exits 0 on the branch of `docs/plot-config-lists-every-key`.
+- `skills/plot/MANIFESTO.md` holds a note that starts with `> **Corrected` and the merge date of its slice, quotes the replaced sentence and links `docs/automation-spectrum.md`.
+- `./scripts/check-agents-md.sh` exits 0.
 - Every relative link in `README.md`, `docs/automation-spectrum.md`, `docs/fleet-user-test.md`, `skills/plot/README.md`, `skills/plot/docs/quickstart.md` and `skills/plot/MANIFESTO.md` resolves to a file in the repository.
 
 ## Notes
@@ -192,4 +193,4 @@ Waves follow the rule that a wave holds one branch. The page comes first because
 - Out of scope: a change of any default or behavior; a switch for deliver, the fixer, the merge arm or the release tick; the 185 open "plot-review: findings" issues and other plan prose; the Node version at `skills/plot/units/README.md:33` and `:96` (it says Node 24, `.nvmrc` holds 26); a rewrite of `docs/fleet-user-test.md` as a current protocol.
 - Definition of done, per slice: run `node skills/plot/scripts/board/plot-local-checks.mjs` and the commands it prints; `pnpm test`; `pnpm run validate`; `pnpm run test:contracts` (CI runs it); a changeset for a slice that touches `skills/`; `./scripts/check-agents-md.sh` for the slice that edits `CLAUDE.md`; `./scripts/check-shell-lines.sh pr` for the `plot-config.sh` slice; `scripts/check-no-bundle-diff.sh`. Each stale statement of "Motivation" is either changed or named in the pull request description as deliberately kept.
 - A reviewer reads the plan of the fixer and the open pull requests again before the page merges, and moves the rows 6, 7 and 8 if a slice of that plan has merged.
-- If the go for the manifesto slice is withheld, the plan is amended in a plan pull request: the slice is marked deferred and its two acceptance lines are struck.
+- If the go for the manifesto slice is withheld, a plan pull request amends the plan: it marks the slice deferred, strikes the last Changelog entry and the three acceptance lines about `skills/plot/MANIFESTO.md` (the two greps and the dated note), and drops the manifesto from the link check.
