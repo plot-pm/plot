@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { LinkIconKind, ReleaseCardView, TodoList as TodoListFact } from '@plot-pm/domain';
+import { deliveryHeader, type LinkIconKind, type ReleaseCardView } from '@plot-pm/domain';
 import { readFileSync } from 'node:fs';
 import { IssueRowSchema } from '../../src/contract/schema.js';
 import { LinkIcon, LINK_GLYPH } from '../../src/app/components/LinkIcon.js';
 import { GLYPH_PATH } from '../../src/app/lib/glyphs.js';
 import { LinePr, LineSlice, PlanName, PlanOwner } from '../../src/app/components/ReleasePlanParts.js';
-import { TodoList } from '../../src/app/components/TodoList.js';
+import { DeliveryHeader } from '../../src/app/components/DeliveryHeader.js';
 import { ReleaseCard } from '../../src/app/components/ReleaseCard.js';
 import { TicketsSectionView } from '../../src/app/components/TicketsSection.js';
 import { MasterAgentLine, RowCell, type LinkHandlers } from '../../src/app/components/DeliveryRows.js';
@@ -103,29 +103,15 @@ describe('the Release delivery links', () => {
   });
 });
 
-describe('the to-do list links', () => {
-  const todo: TodoListFact = {
-    lines: [
-      { id: 'b', text: 'Merge feature/x', verb: 'Merge', label: 'feature/x', reason: '', marker: 'clean-up', markerWords: 'clean up', anchor: 'b', icon: 'branch' },
-      { id: 'p', text: 'Approve red-hold', verb: 'Approve', label: 'red-hold', reason: '', marker: 'blocks-delivery', markerWords: 'blocks delivery', anchor: 'p', icon: 'plan' },
-      { id: 'r', text: 'Approve release 2.35.0', verb: 'Approve release', label: '2.35.0', reason: '', marker: 'blocks-delivery', markerWords: 'blocks delivery', anchor: 'r', icon: 'release' },
-    ],
-    counts: { 'blocks-delivery': 2, input: 0, 'clean-up': 1, waits: 0 },
-    header: 'You block 2 deliveries · 1 to clean up',
-    tickets: 1,
-    triageText: '1 ticket assigned to you with no plan',
-    triageAnchor: 'tickets',
-    triageIcon: 'ticket',
-  };
-  const m = html(createElement(TodoList, { todo, onJump: () => {} }));
-
-  it('leads each line\'s name with the icon of the item it names', () => {
-    expect(iconBefore(m, 'title="feature/x"')).toBe('branch');
-    expect(iconBefore(m, 'title="red-hold"')).toBe('plan');
-    expect(iconBefore(m, 'title="2.35.0"')).toBe('release');
+describe('the header links', () => {
+  const header = deliveryHeader({
+    you: { counts: [{ key: 'tickets', count: 1 }], ages: [], releases: [], ticketNote: null }, work: { groups: [], ages: [] }, unplaced: [],
+    agents: [], supervisor: null, switches: { dispatch: false, review: false, verify: false, design: false }, parallelAgents: null,
+    machine: null, hostAnswer: 'unasked',
   });
+  const m = html(createElement(DeliveryHeader, { header, release: null, onJump: () => {} }));
 
-  it('leads the triage link with the ticket icon', () => {
+  it('leads the You group\'s triage link with the ticket icon', () => {
     expect(iconBefore(m, 'triage ›')).toBe('ticket');
   });
 });

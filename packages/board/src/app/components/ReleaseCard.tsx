@@ -3,7 +3,8 @@ import type { AgentRow } from '../../contract/schema.js';
 import { artifactTuple } from '../lib/tuple-row.js';
 import { LinkTupleView } from './TupleRow.js';
 import { ReleaseApprove } from './ReleaseApprove.js';
-import { SEGMENT_CLASS, SEGMENT_WORD } from './SprintCard.js';
+import { SLICE_STATE_WORDS as SEGMENT_WORD } from '@plot-pm/domain';
+import { SEGMENT_CLASS } from '../lib/agent-rows/state-classes.js';
 
 /**
  * The Delivery tab header's release cards: one per release the Active sprints
