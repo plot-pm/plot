@@ -1,0 +1,1 @@
+../2026-11-21-shell-scripts-refuse-a-second-mode-and-name-the-fetch.md
