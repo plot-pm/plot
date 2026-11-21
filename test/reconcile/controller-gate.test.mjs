@@ -497,6 +497,14 @@ test('controller gate: a loop body that is not all readers keeps its word list (
   }
 });
 
+test('controller gate: a git -C read passes, and a git run option in a loop body is a run', () => {
+  const dir = repo();
+  const read = run(dir, 'git -C . grep -n "A branch dispatch (--restart <branch>) starts a worker on any command." origin/main -- skills/plot/scripts/plot-dispatch.sh');
+  assert.equal(read.status, 0, `a git -C read must pass (stderr: ${read.stderr})`);
+  const loop = run(dir, 'for f in plot-deliver.sh; do git diff --ext-diff -- $f; done');
+  assert.equal(loop.status, 2, `--ext-diff in a loop body must block (stderr: ${loop.stderr})`);
+});
+
 test('controller gate: a submodule is not a desk (H4)', () => {
   const tmp = scratch('plot-controller-gate-submodule-');
   const sh = (cwd, c) => execSync(c, { cwd, stdio: 'pipe' });

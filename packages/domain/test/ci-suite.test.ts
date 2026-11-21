@@ -60,6 +60,10 @@ describe('controllerInvocation', () => {
       ['git grep -l, a pathspec glob', "git grep -l plot-dispatch.sh -- '*.sh'"],
       ['git grep -n, a named pathspec', 'git grep -n x -- skills/plot/scripts/plot-deliver.sh'],
       ['cat', 'cat plot-approve.sh'],
+      ['git -C . grep, a quoted pattern', 'git -C . grep -n "A branch dispatch (--restart <branch>) starts a worker on any command." origin/main -- skills/plot/scripts/plot-dispatch.sh'],
+      ['git -C <dir> diff', 'git -C /tmp/x diff -- plot-deliver.sh'],
+      ['git -C . log piped into head', 'git -C . log --oneline -- skills/plot/scripts/plot-deliver.sh | head'],
+      ['git --no-pager log', 'git --no-pager log -1 -- plot-approve.sh'],
     ])('%s', (_label, command) => {
       expect(controllerInvocation(command)).toBeNull();
     });
@@ -118,6 +122,9 @@ describe('controllerInvocation', () => {
       ['--open-files-in-pager=', 'git grep --open-files-in-pager=skills/plot/scripts/plot-dispatch.sh x', 'dispatch'],
       ['--output=', 'git show -1 --output=skills/plot/scripts/plot-dispatch.sh', 'dispatch'],
       ['--textconv', 'git diff --textconv -- skills/plot/scripts/plot-dispatch.sh', 'dispatch'],
+      ['-C . with --ext-diff', 'git -C . diff --ext-diff -- plot-deliver.sh', 'deliver'],
+      ['-c diff.external=', 'git -c diff.external=x diff -- plot-deliver.sh', 'deliver'],
+      ['-C . then -c core.pager=', 'git -C . -c core.pager=cat log -- plot-deliver.sh', 'deliver'],
     ] as const)('%s', (_label, command, action) => {
       expect(controllerInvocation(command)).toBe(action);
     });
@@ -355,6 +362,9 @@ describe('a word list is data only when every body command is a reader (#1341)',
     ['for f in plot-deliver.sh; do grep x `bash $f s`; done', 'deliver'],
     ['for f in plot-deliver.sh; do diff <(bash $f s) x; done', 'deliver'],
     ['for f in plot-deliver.sh; do git commit -m $f; done', 'deliver'],
+    ['for f in plot-deliver.sh; do git diff --ext-diff -- $f; done', 'deliver'],
+    ['for f in plot-deliver.sh; do git log --textconv -- $f; done', 'deliver'],
+    ['for f in plot-deliver.sh; do X=1 cat $f; done', 'deliver'],
   ])('%s answers %s', (command, action) => {
     expect(controllerInvocation(command)).toBe(action);
   });
@@ -441,6 +451,9 @@ describe('a process-table read is a read (#2530)', () => {
     ['pgrep -f $(plot-approve.mjs x)', 'approve'],
     ['for f in plot-approve.sh; do sed "1e $f slug" /dev/null; done', 'approve'],
     ['for f in plot-approve.mjs; do pgrep -f "$f" | xargs kill; done', 'approve'],
+    ['while X=pgrep plot-approve.mjs x; do break; done', 'approve'],
+    ['for f in plot-approve.mjs; do X=pgrep $f x; done', 'approve'],
+    ['while $(echo pgrep) plot-approve.mjs x; do break; done', 'approve'],
   ] as const)('%s stays a run', (command, action) => {
     expect(controllerInvocation(command)).toBe(action);
   });
@@ -450,7 +463,32 @@ describe('a process-table read is a read (#2530)', () => {
   });
 
   it('the merge path sees the same answer', () => {
-    expect(unpinnedMerges('while pgrep -f "gh pr merge 12" >/dev/null; do sleep 1; done')).toEqual([]);
+    expect(unpinnedMerges('while pgrep -f plot-host.sh pr-merge; do sleep 1; done')).toEqual([]);
+  });
+});
+
+describe('a gated name inside program text is a run', () => {
+  it.each([
+    [`awk 'BEGIN{system("plot-approve.sh x")}'`, 'approve'],
+    [`python3 -c 'import os; os.system("plot-approve.sh x")'`, 'approve'],
+    [`node -e 'require("child_process").execSync("plot-deliver.sh x")'`, 'deliver'],
+    [`node -e "require('fs').readFileSync('skills/plot/scripts/plot-deliver.sh','utf8')"`, 'deliver'],
+    ['bash -c "plot-deliver.sh x"', 'deliver'],
+  ] as const)('%s answers %s', (command, action) => {
+    expect(controllerInvocation(command)).toBe(action);
+  });
+});
+
+describe('a citation in a message is not a run', () => {
+  it.each([
+    "gh pr comment 12 --body 'see skills/plot/scripts/plot-deliver.sh:120 for the guard'",
+    "gh issue comment 3145 --body 'The fix is in `plot-deliver.sh` now'",
+    "gh api repos/o/r/issues -f body='`plot-approve.mjs` refuses'",
+    "printf '%s\\n' plot-deliver.sh:12",
+    'echo plot-deliver.sh:12',
+    `grep -n 'system("plot-approve.sh x")' README.md`,
+  ])('%s answers null', (command) => {
+    expect(controllerInvocation(command)).toBeNull();
   });
 });
 
