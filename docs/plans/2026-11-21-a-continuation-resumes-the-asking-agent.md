@@ -49,7 +49,7 @@ Two defects combine:
 
 ### Resume
 
-- `bug/a-continuation-resumes-the-asking-agent` — blocked endings record the asking session, and the transcript fallback skips role runs <!-- builds: resumeId on blocked endings, role-run exclusion in resumeIdFromTranscript -->
+- `bug/a-continuation-resumes-the-asking-agent` — blocked endings record the asking session, and the transcript fallback skips role runs <!-- builds: resumeId on blocked endings, role-run exclusion in resumeIdFromTranscript --> → #3619
 
 ## Notes
 
