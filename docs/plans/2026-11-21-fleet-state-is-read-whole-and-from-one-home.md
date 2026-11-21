@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3609 merged
+- **Started:** 2026-11-21, Jan Wloka, `bug/merge-reads-the-main-checkouts-state`
 
 ## Changelog
 
