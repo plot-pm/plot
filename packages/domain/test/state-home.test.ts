@@ -12,6 +12,10 @@ describe('stateHomeOf', () => {
     expect(stateHomeOf('/r/.git/')).toEqual({ home: '/r' });
   });
 
+  it('answers the filesystem root for a `.git` directory at the root', () => {
+    expect(stateHomeOf('/.git')).toEqual({ home: '/' });
+  });
+
   it('answers unread for a bare repository', () => {
     expect(stateHomeOf('/r/.bare')).toEqual({ unread: true });
   });
