@@ -120,3 +120,7 @@ part2.txt
 
 # Brainstorm mockups from the superpowers visual companion
 .superpowers/
+
+# Playwright MCP page snapshots belong to one machine; committed by mistake
+# in 223b5e73d, never tracked again
+.playwright-mcp/
