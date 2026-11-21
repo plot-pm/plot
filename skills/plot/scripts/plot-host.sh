@@ -2666,160 +2666,6 @@ bb_strip_ansi() {
   LC_ALL=C sed $'s/\033\\[[0-9;]*[A-Za-z]//g'
 }
 
-# --- bb capability check (--json support) ------------------------------------
-#
-# TWO TOOLS SHARE THE NAME `bb`. craftamap/bb is a Go binary that does NOT
-# support `--json` for PR commands. Quatico's `bb` (a shell wrapper) does.
-# Their version numbers name different products: craftamap 0.6.0 is not
-# "older than" Quatico 1.0.0 — they are unrelated.
-#
-# The adapter passes `--json` to `bb pr list`. Against craftamap that is
-# `Error: unknown flag: --json`, swallowed by any 2>/dev/null, and jq exits 0
-# on empty input — so every Bitbucket PR list reads as *no PRs*.
-#
-# Worse: craftamap 0.6.0 panics (SIGSEGV) under an HTTP 429. A segfaulting CLI
-# is indistinguishable from a quiet one when stderr is discarded.
-#
-# The capability is per-FLAG, not per-version. On one machine, on one day:
-#   plugin cache (bb 1.0.0)  : --json yes, checks no
-#   plugin marketplace (1.9.0): --json yes, checks yes
-#   craftamap fallback (0.6.0): --json NO
-#
-# So: CHECK THE CAPABILITY, ONCE PER RUN. `BB_CAP_*` are cached on first call.
-# A bb without `--json` exits 3 with the reason naming WHICH bb answered.
-
-# Cached capability state — empty until first call to bb_require_json.
-BB_CAP_CHECKED=""
-BB_CAP_IDENTITY=""    # "craftamap/0.6.0" or "quatico/1.2.3" or "unknown/<ver>"
-BB_CAP_PROBE_RC=""    # the exit code `bb pr list --help --json` returned
-BB_CAP_PROBE_MATCH="" # the line that matched a rejection pattern, if one did
-
-# Identify which bb is on PATH. Returns a string like "quatico/1.9.0" or
-# "craftamap/0.6.0" or "unknown/<version>" or "unknown/unknown".
-#
-# The identification is BEHAVIOURAL, not by reading a vendor field that may not
-# exist: craftamap/bb prints `bb version X.Y.Z (sha)` and Quatico's prints
-# `bb version X.Y.Z` (no sha) with a distinctive banner. The shape decides.
-bb_identify() {
-  local ver_out ver_stripped
-  ver_out="$(bb --version 2>&1)" || {
-    # bb not found or exited non-zero — cannot proceed
-    echo "unknown/unavailable"
-    return
-  }
-  ver_stripped="$(bb_strip_ansi <<<"$ver_out")"
-
-  local version; version="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<<"$ver_stripped" | head -1)"
-  [ -z "$version" ] && version="unknown"
-
-  # craftamap/bb includes a git sha in parentheses: `bb version 0.6.0 (abc1234)`
-  # Quatico's does not — it prints only `bb version X.Y.Z`.
-  if grep -qE '\([0-9a-f]+\)' <<<"$ver_stripped"; then
-    echo "craftamap/$version"
-  elif grep -qi 'quatico\|plugin' <<<"$ver_stripped"; then
-    echo "quatico/$version"
-  else
-    # Unknown provenance — report the version so a human can tell
-    echo "unknown/$version"
-  fi
-}
-
-# Test whether the bb on PATH supports `--json` for PR commands.
-# Returns 0 if it does, non-zero otherwise.
-#
-# The test is BEHAVIOURAL: call `bb pr list --json --help` (or similar) and
-# see if it rejects `--json`. We cannot rely on version numbers because two
-# products share the name and their versions are unrelated.
-#
-# Note: `bb pr list --json --state open` would contact the network; we want a
-# purely local check. craftamap's `bb pr list --help --json` exits 1 with
-# "unknown flag: --json" on stderr (and sometimes stdout). Quatico's accepts it.
-bb_test_json_support() {
-  # Ask for help with --json — a bb that does not understand it will complain.
-  # Capture both streams since bb writes errors to stdout.
-  local out rc
-  out="$(bb pr list --help --json 2>&1)"; rc=$?
-
-  # WHAT WAS TESTED, kept for the refusal below. The diagnostic names the
-  # command, its exit code and the line that matched — three observations a
-  # reader can reproduce — rather than a provenance verdict `bb_identify`
-  # cannot determine. A message that guesses wrong costs more than one that
-  # says less.
-  BB_CAP_PROBE_RC="$rc"; BB_CAP_PROBE_MATCH=""
-
-  # THE MEASUREMENT ANSWERS FIRST, AND THE TEXT ONLY WHEN IT IS ABSENT.
-  #
-  # `rc = 0` proves the flag PARSED: no CLI accepts an unknown flag and exits 0.
-  # That is a measurement. The grep below is a heuristic over prose, and asking
-  # the heuristic first is what issue #668 is.
-  #
-  # bb 1.9.0 documents that the flag is cheap — "a bare `--json`, costs nothing
-  # extra" — and `--json.*not` matched `--json, costs no`t`hing`, so a bb that
-  # WORKS was rejected for explaining the flag it supports. The bug therefore
-  # scaled with documentation quality: bb 1.0.0 lacks the sentence and passed.
-  [ "$rc" = 0 ] && return 0
-
-  # ANCHORED TO THE FLAG, WITH NO `.*` BRIDGE, so prose cannot reach them.
-  # These are what a CLI actually prints when it rejects a flag — Cobra, getopt
-  # and Go's `flag` respectively. craftamap 0.6.0 exits NON-ZERO on `--json`, so
-  # it never reached the early return above and its exact message still matches.
-  if grep -qiE 'unknown flag: --json|unknown option .?--json|flag provided but not defined: -?-json' <<<"$out"; then
-    BB_CAP_PROBE_MATCH="$(grep -iEm1 'unknown flag: --json|unknown option .?--json|flag provided but not defined: -?-json' <<<"$out")"
-    return 1
-  fi
-
-  # A "not a bitbucket repo" error is about the repo, not the flag.
-  grep -qiE 'not a bitbucket repo|repository not found' <<<"$out" && return 0
-
-  # AN UNRECOGNISED FAILURE ACCEPTS, and this is a behaviour change the plan
-  # argued for in round 1. Refusing on wording outside the three formats above
-  # is the same mistake as the bug this function is fixing, one arm along: a
-  # guess refusing a CLI that may work. A help call failing for some other
-  # reason is likelier an environment problem, and letting it through means the
-  # first real call fails with BB'S OWN ERROR — more accurate than any guess
-  # made here.
-  #
-  # The cost is stated rather than hidden: a genuinely incapable `bb` with
-  # unfamiliar wording now produces a downstream error instead of one clear
-  # message. That is the direction to fail, because the other direction is #668.
-  return 0
-}
-
-# Require that bb supports --json. Called once before the first bb PR call.
-# Exits 3 with a diagnostic if bb cannot do what the adapter needs.
-# Caches the result so subsequent calls are free.
-bb_require_json() {
-  # Skip check if already done
-  [ -n "$BB_CAP_CHECKED" ] && return 0
-  BB_CAP_CHECKED=1
-
-  # Allow tests to skip this (their stubs may not implement --help)
-  if [ -n "${PLOT_BB_SKIP_CAP_CHECK:-}" ]; then
-    BB_CAP_IDENTITY="stub/test"
-    return 0
-  fi
-
-  BB_CAP_IDENTITY="$(bb_identify)"
-
-  if ! bb_test_json_support; then
-    # THE OBSERVATION FIRST, THE IDENTITY WHERE ONE IS KNOWN.
-    #
-    # The plan asked for the observation and for dropping the provenance CLAIM
-    # — `bb_identify` answers `unknown/<ver>` for Quatico's bb, so a message
-    # resting on it advised a working install to reinstall itself.
-    #
-    # But identity is not always unknown: craftamap reports a real version, and
-    # `host.test.mjs:1761` asserts the diagnostic names it. Both are right, and
-    # they do not conflict — an identity that IS determinable is a fact worth
-    # printing, and `bb_identify` already answers `unknown/<ver>` rather than
-    # inventing one where it is not. So this reports what was tested AND who
-    # answered, and it no longer tells anyone what to install.
-    die3 "bb ($BB_CAP_IDENTITY): bb pr list --help --json exited ${BB_CAP_PROBE_RC:-?}${BB_CAP_PROBE_MATCH:+, matched: $BB_CAP_PROBE_MATCH} — this bb does not support --json for PR commands"
-  fi
-
-  return 0
-}
-
 # --- Jira issue support (REST, no CLI) --------------------------------------
 #
 # `Tracker` is a `## Plot Config` key INDEPENDENT of `Git host`: a Bitbucket
@@ -3232,13 +3078,24 @@ BB_LIST_PAGELEN=50
 # space-separated. `adapters/host/listing-paging.ts` holds the same table.
 BB_LIST_PAGE_VERSIONS="1.9.0"
 
+# The version the `bb` on PATH prints, read at most once per process into
+# `BB_VERSION`; `bb_list_page_length` is its one reader. Empty where `bb
+# --version` prints no version.
+BB_VERSION=""
+BB_VERSION_READ=""
+bb_read_version() {
+  [ -n "$BB_VERSION_READ" ] && return 0
+  BB_VERSION_READ=1
+  BB_VERSION="$(bb --version 2>/dev/null | bb_strip_ansi | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+}
+
 # The page length the answering `bb` lists by, or nothing where its version is
-# not in BB_LIST_PAGE_VERSIONS. Reads the version `bb_require_json` recorded,
-# so it costs no `bb` call; a skipped capability check records no version.
+# not in BB_LIST_PAGE_VERSIONS. Reads `BB_VERSION`, which the caller reads first
+# with `bb_read_version`.
 bb_list_page_length() {
-  local v="${BB_CAP_IDENTITY#*/}"
+  [ -n "$BB_VERSION" ] || return 0
   case " $BB_LIST_PAGE_VERSIONS " in
-    *" $v "*) printf '%s\n' "$BB_LIST_PAGELEN" ;;
+    *" $BB_VERSION "*) printf '%s\n' "$BB_LIST_PAGELEN" ;;
   esac
 }
 
@@ -3298,7 +3155,7 @@ pr_list_report_truncation() {
     # A walk whose last page named no further page is complete; one that
     # stopped with a further page named or rows trimmed is not; an unread
     # envelope is complete only below a measured page length.
-    [ -n "$next" ] || len="$(bb_list_page_length)"
+    [ -n "$next" ] || { bb_read_version; len="$(bb_list_page_length)"; }
     if [ "$next" = "0" ] || { [ -n "$len" ] && [ "$count" -lt "$len" ] 2>/dev/null; }; then pr_list_report_complete "$be" "$limit" "$state" "$count"; return 0; fi
   fi
   # Named per state so a caller can resolve exactly the states that were
@@ -3491,8 +3348,8 @@ budget_account() {
       who="$(awk '/^[[:space:]]+user:/ {print $2; exit}' "${GH_CONFIG_DIR:-$HOME/.config/gh}/hosts.yml" 2>/dev/null)"
       ;;
     bitbucket)
-      # `bb_identify` already resolves who bb is, and it caches; but it runs a
-      # `bb` call, which is the thing being counted. The remote's owner is the
+      # Asking `bb` who is logged in would spend a `bb` call, which is the
+      # thing being counted. The remote's owner is the
       # free approximation and is the half of the key that groups correctly:
       # two checkouts of one workspace share a budget.
       who="$(git config --get remote.origin.url 2>/dev/null | sed -E 's#^.*[:/]([^/]+)/[^/]+(\.git)?$#\1#')"
@@ -3952,12 +3809,6 @@ case "$op" in
     if [ "$be" = "github" ]; then
       _db=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null || true)
     else
-      # `--json` IS A CAPABILITY, NOT A GIVEN. Two products share the name `bb`
-      # and craftamap's rejects the flag (see `bb_require_json`) — against it
-      # this call emits `unknown flag: --json`, `jq` reads non-JSON, and the arm
-      # would answer nothing while exiting 0. This call was unguarded while it
-      # was unreachable; asking the host makes it live.
-      bb_require_json
       _db=$(bb repo view --json 2>/dev/null | jq -r '.mainbranch.name // empty' 2>/dev/null || true)
     fi
     # `null` is what `jq` prints for an absent field and it is not a branch name.
@@ -3977,9 +3828,8 @@ case "$op" in
     # THE BITBUCKET ARM IS NOT EXPOSED. `budget_account bitbucket` answers the
     # remote's owner segment, which is the WORKSPACE: on a team workspace every
     # contributor gets the same word, and it matches no PR author. Measured
-    # 2026-09-25, neither `bb` stores a username for free. Quatico's keeps only
-    # the Atlassian email, in the Keychain. craftamap's keeps an email in
-    # `configuration.toml`. A Bitbucket PR author carries a nickname, an
+    # 2026-09-25, `bb` stores no username for free: it keeps only the
+    # Atlassian email, in the Keychain. A Bitbucket PR author carries a nickname, an
     # account id and a uuid, and never an email. So this backend has no answer,
     # and exit 4 says so.
     #
@@ -4052,8 +3902,6 @@ case "$op" in
           '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
       fi
     else
-      # Establish that bb supports --json BEFORE calling it — Done-when 5.
-      bb_require_json
       # THE SAME KEY SET AS THE GITHUB ARM, INCLUDING `mergeCommit`. This arm
       # dropped that key on all four of its paths until 2026-09-18, and the
       # consumer reads it as `.mergeCommit // empty` — where `jq` cannot tell an
@@ -4153,7 +4001,6 @@ case "$op" in
           miss_or_unknown "$err"
         fi
       else
-        bb_require_json
         # ASK THE HOST FOR THE BRANCH; DO NOT PAGE FURTHER. `bb pr list --state
         # merged` returns one fixed page of 50, newest first, and a branch whose
         # merge is older than that page reads as unmerged — measured 2026-10-20
@@ -4220,7 +4067,6 @@ case "$op" in
                | {n: .number, b: (.baseRefName // ""), s: .mergeCommit.oid, t: .mergedAt}) | '"$pick" <<<"$out"
       fi
     else
-      bb_require_json
       # ASK THE HOST FOR THE BRANCH; DO NOT PAGE FURTHER — `pr-merged`'s header
       # states the measurement and the cost. Bitbucket names the merge commit
       # `merge_commit.hash` on a merged PR.
@@ -4255,7 +4101,6 @@ case "$op" in
         [ -n "$err" ] && is_lookup_miss "$err" || die3 "${err:-the pulls read failed}"
       fi
     else
-      bb_require_json
       # ASK THE HOST FOR THE BRANCH; DO NOT PAGE FURTHER — `pr-merged`'s header
       # states the measurement and the cost. Bitbucket names the merged head
       # `source.commit.hash`.
@@ -4347,7 +4192,7 @@ case "$op" in
     # Bitbucket's merge endpoint takes no head precondition (measured 2026-10-18,
     # see plan Notes), so the pin is enforced by re-reading the head via bb_state_row
     # right before merging; it matches by prefix, 7+ hex (domain's sameCommit).
-    elif [ -n "$pin" ]; then bb_require_json; head_out="$(bb pr view "$num" --json 2>"$HOST_ERR")" || { host_err; die3 "$err"; }; rm -f "$HOST_ERR"; head_sha="$(bb_state_row "$head_out" | jq -r '.headSha // ""')"; head_l="$(printf '%s' "$head_sha" | tr '[:upper:]' '[:lower:]')"; pin_l="$(printf '%s' "$pin" | tr '[:upper:]' '[:lower:]')"; [[ "$head_l" =~ ^[0-9a-f]{7,}$ && "$pin_l" =~ ^[0-9a-f]{7,}$ ]] && { [[ "$head_l" == "$pin_l"* ]] || [[ "$pin_l" == "$head_l"* ]]; } || { echo "plot-host: pr-merge --match-head: head-moved — PR #$num is at ${head_sha:-unknown}, caller read $pin; nothing was merged" >&2; exit 1; }; args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash); [ "$delbranch" = 1 ] && args+=(--delete-branch); bb "${args[@]}"
+    elif [ -n "$pin" ]; then head_out="$(bb pr view "$num" --json 2>"$HOST_ERR")" || { host_err; die3 "$err"; }; rm -f "$HOST_ERR"; head_sha="$(bb_state_row "$head_out" | jq -r '.headSha // ""')"; head_l="$(printf '%s' "$head_sha" | tr '[:upper:]' '[:lower:]')"; pin_l="$(printf '%s' "$pin" | tr '[:upper:]' '[:lower:]')"; [[ "$head_l" =~ ^[0-9a-f]{7,}$ && "$pin_l" =~ ^[0-9a-f]{7,}$ ]] && { [[ "$head_l" == "$pin_l"* ]] || [[ "$pin_l" == "$head_l"* ]]; } || { echo "plot-host: pr-merge --match-head: head-moved — PR #$num is at ${head_sha:-unknown}, caller read $pin; nothing was merged" >&2; exit 1; }; args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash); [ "$delbranch" = 1 ] && args+=(--delete-branch); bb "${args[@]}"
     else
       echo "plot-host: pr-merge: bitbucket needs --match-head <sha>; nothing was merged" >&2
       exit 1
@@ -4754,8 +4599,6 @@ case "$op" in
       # The REST endpoint takes no such flag either; `--limit` is honoured by
       # `bb_state_listing` following `next` (see its header), not by anything
       # Bitbucket's API does on its own.
-      # Establish that bb supports --json BEFORE calling it — Done-when 5.
-      bb_require_json
       # Resolve the states BEFORE the loop. `for s in $(bb_states_for …)` runs
       # the helper in a subshell, where `die` exits that subshell only: the
       # loop would then iterate an empty list and the command would succeed
@@ -5585,7 +5428,7 @@ case "$op" in
     # GitHub reads `GET pulls/<n>` over REST; Bitbucket reads `description`.
     if [ $# -eq 0 ]; then
       if [ "$be" = "github" ]; then gh_api_harvest "repos/$(gh_origin_slug)/pulls/$num" | jq -r '.body // ""'
-      else bb_require_json; bb pr view "$num" --json | jq -r '.description // ""'; fi
+      else bb pr view "$num" --json | jq -r '.description // ""'; fi
       exit
     fi
     pr_text_args pr-body "$@"

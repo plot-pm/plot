@@ -82,13 +82,12 @@ const unreachableCheckout = (): string => {
 
 /** `plot-host.sh pr-list` answering through the stub `bb`. */
 const shellListing = async (dir: string, checkout: string, fixture: BitbucketListingFixture): Promise<PrListing> => {
-  const names = ['PATH', 'PLOT_HOST', 'PLOT_CI', 'PLOT_BUDGET_OFF', 'PLOT_BB_SKIP_CAP_CHECK'] as const;
+  const names = ['PATH', 'PLOT_HOST', 'PLOT_CI', 'PLOT_BUDGET_OFF'] as const;
   const saved = Object.fromEntries(names.map((name) => [name, process.env[name]]));
   process.env.PATH = `${dir}:${saved.PATH}`;
   process.env.PLOT_HOST = 'bitbucket';
   process.env.PLOT_CI = 'github-actions';
   process.env.PLOT_BUDGET_OFF = '1';
-  process.env.PLOT_BB_SKIP_CAP_CHECK = '1';
   try {
     return await hostShell({ repoRoot: checkout, scriptDir: join(ROOT, 'skills/plot/scripts') }).prListing(fixture.query);
   } finally {
