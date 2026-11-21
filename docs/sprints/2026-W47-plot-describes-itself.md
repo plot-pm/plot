@@ -30,8 +30,8 @@ The sprint delivers two plans. One plan makes the documents describe the automat
 - [ ] [plots-documents-describe-the-automation-that-runs] Plot's documents describe the automation that runs (plan PR #3631)
 - [ ] [a-guide-leads-from-install-to-the-first-autonomous-run] A guide leads from install to the first autonomous run (plan PR #3633)
 - [ ] [#3634](https://github.com/plot-pm/plot/pull/3634) The `Worker bound` and `Slice max runs` comments match the code
-- [ ] The root-entry gate lists the entries the repository root may hold (branch `infra/root-entries-are-allow-listed`)
-- [ ] The board environment documentation covers the environment and remote access (branch `docs/board-environment-and-remote-access`)
+- [ ] [#3637](https://github.com/plot-pm/plot/pull/3637) The root-entry gate lists the entries the repository root may hold
+- [ ] [#3635](https://github.com/plot-pm/plot/pull/3635) The board environment documentation covers the environment and remote access
 
 ### Should Have
 
@@ -54,6 +54,7 @@ The sprint delivers two plans. One plan makes the documents describe the automat
 - This sprint runs on a second operator's fleet.
 - Verification of delivered plans (`/plot-deliver --verify`) runs on each plan of the sprint as a trial.
 - The sprint's close judges whether verification stays on.
+- Start this sprint only when no other sprint is active: the fleet reads no scope while `docs/sprints/active/` holds more than one sprint.
 
 ### Scope Changes
 
