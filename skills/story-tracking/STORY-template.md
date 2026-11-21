@@ -47,14 +47,16 @@ this block preserves the founding choices that are easy to lose.}
 
 ## Open Points
 
-- ⏸️ {Questions needing resolution}
-- ✅ {Resolved question} → See Decisions
+<!-- A point that another place refers to gets a name with a short prefix for its kind (decision-, question-, risk-, bug-, task-), not a number. The name follows the marker, is unique within this story, and stays fixed once another place cites it. -->
+
+- ⏸️ `[question-…]` {Questions needing resolution}
+- ✅ `[question-…]` {Resolved question} → See Decisions
 
 ## Decisions
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
-| {YYYY-MM-DD} | {What was decided} | {Why — include who confirmed if relevant} |
+| {YYYY-MM-DD} | `[decision-…]` {What was decided} | {Why — include who confirmed if relevant} |
 
 ## Key Findings
 

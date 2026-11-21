@@ -322,8 +322,9 @@ export const dependentsOf = (
 };
 
 /**
- * Whether a plan that waits on `plan` has not delivered yet (decision D14: a
- * person delivers a tracer plan alone only when it has no such dependent).
+ * Whether a plan that waits on `plan` has not delivered yet
+ * (`[decision-person-delivers-lone-tracer]`: a person delivers a tracer plan
+ * alone only when it has no such dependent).
  *
  * A dependent reads delivered at phase `delivered` or `released`. A plan absent
  * from `plans` is not a dependent, so a pulse that drops released plans answers
