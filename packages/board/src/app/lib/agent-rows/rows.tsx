@@ -37,7 +37,7 @@ import { noteShown, YOU_COLUMNS, YOU_COLUMN_LABELS } from '@plot-pm/domain';
 import { type SliceGroup, groupedNote, sliceDissent } from './slices.js';
 import { sliceRowReading } from './slice-reading.js';
 import { ActivitySpinner, BlockedByMark, ChangeMark, StuckCell, UnpushedMark } from './marks.js';
-import { BranchMenu, IssueRowActions, PlanActions, ResliceMenu, SliceActions } from './menus.js';
+import { BranchMenu, IssueRowActions, PlanActions, SliceActions, type SliceMenuOwn } from './menus.js';
 import { WorkerLogModal } from '../../components/WorkerLogModal.js';
 import { PlanTicketKeys } from '../../components/PlanTicketKeys.js';
 import { DispatchLogModal } from '../../components/DispatchLogModal.js';
@@ -481,9 +481,9 @@ export function HeaderRow({ statusName = 'Status', youColumns = false }: { statu
       <span role="columnheader">Item</span>
       <span role="columnheader">Where</span>
       <span role="columnheader" data-column-header>{statusName}</span>
-      <span role="columnheader">Do</span>
       <span role="columnheader">By</span>
       <span role="columnheader">Age</span>
+      <span role="columnheader">Do</span>
     </li>
   );
 }
@@ -1152,6 +1152,13 @@ export function SliceRow({
   // `you` is the amber tone the board uses for *this needs a decision*, which is
   // exactly what an eligible slice is.
   const reading = sliceRowReading(group.verdict, group.rows);
+  const sliceOwn: SliceMenuOwn = {
+    wave: group.wave || '(unnamed)',
+    slug: plan,
+    eligible: reading.dispatch,
+    unsliced: group.rows[0]?.stuck?.state === 'unsliced-wave',
+    reslice,
+  };
   // A HELD SLICE SPEAKS FIRST, ahead of the sole row and the grouped count: its
   // branches all wait on an open `waits:`, so neither a count nor a verdict
   // sentence about starting is true of it.
@@ -1455,78 +1462,27 @@ export function SliceRow({
           {briefRow ? <BriefLine row={briefRow} /> : null}
         </>
       }
-      // START WORK, ON THE SLICE THAT CAN BE STARTED — and it went missing when
-      // the branch rows did.
-      //
-      // The control lived in a branch row's `RowActions`, so replacing those
-      // rows with slice rows took the action with them: NOT STARTED offered
-      // nothing to click. Reported from a screenshot.
-      //
-      // The plan warned that a dispatch control on a PLAN row *"would have to
-      // guess which of the plan's slices it meant"*, and one level down the same
-      // worry does not apply — because `StartWorkButton` takes a **`Card`** and
-      // a `dispatch` binding, NOT a branch. Dispatch is a plan-level act:
-      // `plot-dispatch.sh` fans out the eligible slice, which is this row. There
-      // is nothing to guess.
-      //
-      // ONLY where the verdict is `eligible`. A blocked slice offers no control
-      // at all rather than a disabled one — `isStartable`'s own rule: *"a button
-      // whose usual state is 'you cannot' teaches people to ignore buttons"*,
-      // and the note beside it already says an earlier slice has to land first.
-      // AND THE BRANCH'S MENU WHERE THIS ROW IS A BRANCH'S ROW.
-      //
-      // `SliceActions` above dispatches the SLICE and is gated on
-      // `verdict === 'eligible'` for its own good reason. That gate was also,
-      // accidentally, the gate on whether this row had ANY menu — so a slice of
-      // one branch, which is what most plans are, lost Review, Open and the
-      // worker log entirely. Measured: every slice row had zero menus of any
-      // kind while every branch row had one.
-      //
-      // Only for a SOLE branch. Where a slice holds several, each keeps its own
-      // row and its own menu, and a branch menu here would have to guess which
-      // branch it meant — the same argument that keeps dispatch off the plan
-      // row one level up.
+      // ONE MENU PER SLICE ROW. A slice with one branch renders that branch's menu with the slice's own acts
+      // (Start work, Slice this plan) at its head; any other slice renders the slice's acts alone. Each item that
+      // cannot run is listed disabled with its reason (`rowMenuOf`).
       menu={
-        <>
-          {reading.dispatch && card && dispatch ? (
-            <SliceActions
-              wave={group.wave || '(unnamed)'}
-              card={card}
-              dispatch={dispatch}
-              pulse={pulse}
-              onStarting={onStarting}
-            />
-          ) : null}
-          {/* THE UNSLICED SLICE'S ONE ACT — the menu this row had none of before.
-              A slice the scan reports `unsliced-wave` is `blocked` (several live
-              branches, no single one to dispatch) and holds more than one branch
-              (so no `soleRow`), which left it with neither of the two menus
-              above. It gets its OWN, because the errand it offers — spawn
-              `/plot-reslice` — belongs to no other slice. The state lives on the
-              slice's rows, read from `rows[0]` where its `StuckCell` reads it. */}
-          {group.rows[0]?.stuck?.state === 'unsliced-wave' && reslice ? (
-            <ResliceMenu
-              wave={group.wave || '(unnamed)'}
-              slug={plan}
-              reslice={reslice}
-              onActing={onStarting}
-            />
-          ) : null}
-          {soleRow ? (
-            <BranchMenu
-              row={soleRow}
-              card={menuCard ?? card ?? null}
-              dispatch={menuDispatch ?? dispatch}
-              implement={implement}
-              pulse={pulse}
-              onStarting={onStarting}
-              continueWith={continueWith}
-              restartWith={restartWith}
-              onOpenPlan={onOpenPlan}
-              onRevealBranch={onRevealBranch}
-            />
-          ) : null}
-        </>
+        soleRow ? (
+          <BranchMenu
+            row={soleRow}
+            card={menuCard ?? card ?? null}
+            dispatch={menuDispatch ?? dispatch}
+            implement={implement}
+            pulse={pulse}
+            onStarting={onStarting}
+            continueWith={continueWith}
+            restartWith={restartWith}
+            onOpenPlan={onOpenPlan}
+            onRevealBranch={onRevealBranch}
+            slice={sliceOwn}
+          />
+        ) : (
+          <SliceActions slice={sliceOwn} card={card ?? null} dispatch={dispatch} pulse={pulse} onStarting={onStarting} />
+        )
       }
       statusLead={active ? <ActivitySpinner pace="fast" /> : null}
       marks={

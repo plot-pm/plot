@@ -179,7 +179,7 @@ import { specRows } from '../lib/agent-rows/spec-row.js';
 // These moved out of this file when the row estate was split into three
 // modules; the unit suite and `App.tsx` import them from here, and a second
 // definition is exactly the drift the split removed.
-export { menuState, noActionReason, offersOpen, openLabel, openTarget, runLinkLabel, showsWorkerLog, storyRefusal } from '../lib/agent-rows/menus.js';
+export { noActionReason, offersOpen, openLabel, openTarget, runLinkLabel, showsWorkerLog, storyRefusal } from '../lib/agent-rows/menus.js';
 export { inferredPlanName, isReleaseBranch, isUnpushed, rowSubject, startableNote } from '../lib/agent-rows/rows.js';
 export type { AgentListProps };
 
@@ -1756,7 +1756,7 @@ export function AgentList({
                                   <span className="delivery-text-muted min-w-0">
                                     {plan.owner !== '' && <PlanOwner owner={plan.owner} />}
                                   </span>
-                                  <span className="ml-auto sm:ml-0 sm:justify-self-end">
+                                  <span data-row-cell="do" className="ml-auto sm:ml-0 sm:justify-self-end">
                                     <PlanActions
                                       plan={plan.plan}
                                       card={card}
@@ -1912,6 +1912,8 @@ export function AgentList({
               absence={fleet.issueAnswer === 'failed' ? issueNote(fleet) ?? fleet.issueError ?? '' : fleet.issueAnswer === 'unsupported' ? fleet.issueAbsence ?? '' : ''}
               filters={{ scope: emptyScope, mine: mapping.input.mine, mineHidden: hiddenCounts.tickets, onMine: toggleMineOnly, onScopeOff: onScopeOff('tickets') }}
               idea={idea ?? { available: false, reason: 'this board has not said whether it can create plans' }}
+              story={story ?? { available: false, reason: 'this board has not said whether it can create stories' }}
+              facts={ticketFacts}
               folded={collapsed.has('tickets')}
               onToggleFold={() => toggle('tickets')}
               foldOpen={ticketsFoldOpen}

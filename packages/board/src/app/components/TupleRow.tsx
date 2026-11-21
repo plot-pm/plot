@@ -35,14 +35,17 @@ import type { RowKind } from '../../contract/schema.js';
 
 /**
  * The tuple's tracks — the marks lane and the Delivery tab's seven columns,
- * KIND, ITEM, WHERE, STATUS, DO, BY, AGE. Slot 3 (the NAME) is floor-and-grow,
+ * KIND, ITEM, WHERE, STATUS, BY, AGE, DO. Slot 3 (the NAME) is floor-and-grow,
  * slot 4 (the links) is the flexible one, and BY takes only the width of what
  * it holds.
  *
  * ```
- * 1.5rem  4.5rem  minmax(12rem,auto)  1fr    8rem    1.25rem  minmax(0rem,auto)  4.5rem
- * marks   kind    item                where  status  do       by                 age
+ * 1.5rem  4.5rem  minmax(12rem,auto)  1fr    8rem    minmax(0rem,auto)  4.5rem  var(--delivery-menu-track)
+ * marks   kind    item                where  status  by                 age     do
  * ```
+ *
+ * DO is the last track in every Delivery grid, so the `⋯` sits at one x in every
+ * section. `--delivery-menu-track` (1.25rem, `delivery.css`) is its one width.
  *
  * **Slot 3 is `minmax(12rem, auto)`: 12rem is the floor, and it grows into the
  * slack slot 4 is not using.** The name is the row's most identifying value, and
@@ -89,7 +92,7 @@ import type { RowKind } from '../../contract/schema.js';
  * line — the one part of `agent-rows-line-up` this change keeps.
  */
 export const TUPLE_TRACKS =
-  'grid-cols-[1.5rem_4.5rem_minmax(12rem,auto)_1fr_8rem_1.25rem_minmax(0rem,auto)_4.5rem]';
+  'grid-cols-[1.5rem_4.5rem_minmax(12rem,auto)_1fr_8rem_minmax(0rem,auto)_4.5rem_var(--delivery-menu-track)]';
 
 /**
  * A TICKET ROW's tracks: the title gives way, the plan name keeps a floor.
@@ -106,7 +109,7 @@ export const TUPLE_TRACKS =
  * 216 px, and 7.5rem + 6rem is 216 px.
  */
 export const TICKET_TRACKS =
-  'grid-cols-[1.5rem_4.5rem_minmax(7.5rem,1fr)_minmax(6rem,auto)_8rem_1.25rem_minmax(0rem,auto)_4.5rem]';
+  'grid-cols-[1.5rem_4.5rem_minmax(7.5rem,1fr)_minmax(6rem,auto)_8rem_minmax(0rem,auto)_4.5rem_var(--delivery-menu-track)]';
 
 /**
  * SLOT 1's CELL — the marks track, and it is declared HERE because the tuple is
@@ -936,24 +939,6 @@ export function TupleRowView({
         {statusExtra}
         {gates}
       </span>
-      {/* THE MENU — per kind, and passed in. The tuple says what a row IS; the
-          menu says what can be DONE to it, and a kind with nothing to offer is
-          handed nothing rather than a `⋯` that opens an empty list.
-
-          THE CELL IS UNCONDITIONAL AND THE MENU INSIDE IT IS NOT — the same
-          split the marks track makes, and for the same reason. A row whose kind
-          offers nothing must still occupy the track, or every row that does
-          offer something lands its six preceding cells one column adrift of it.
-          That alignment is what the grid is for.
-          
-          So the three menu components — `RowActions`, `PlanActions`,
-          `IssueRowActions` — render their button and their popup and NOT a cell
-          of their own: this is the cell, and a nested one is something the grid
-          role does not admit. Each keeps its own `relative` box, which is what
-          floats the popup out over the rows below. */}
-      <span role="gridcell" data-row-cell="do" className="relative flex w-5 shrink-0 items-center justify-end">
-        {menu}
-      </span>
       {/* BY — who acts on the item; for an agent, who started it. Empty where
           nobody read it, never a default word. */}
       <span role="gridcell" data-row-cell="by" className="delivery-text-muted relative flex min-w-0 items-baseline gap-1.5 text-xs">
@@ -988,6 +973,25 @@ export function TupleRowView({
           </span>
         )}
         {tuple.age.text}
+      </span>
+      {/* THE MENU — per kind, and passed in. The tuple says what a row IS; the
+          menu says what can be DONE to it, and a kind with nothing to offer is
+          handed nothing rather than a `⋯` that opens an empty list.
+
+          THE CELL IS UNCONDITIONAL AND THE MENU INSIDE IT IS NOT — the same
+          split the marks track makes, and for the same reason. A row whose kind
+          offers nothing must still occupy the track, or every row that does
+          offer something lands its six preceding cells one column adrift of it.
+          That alignment is what the grid is for. It is the LAST cell, so the
+          `⋯` keeps one x in every section.
+          
+          So the three menu components — `RowActions`, `PlanActions`,
+          `IssueRowActions` — render their button and their popup and NOT a cell
+          of their own: this is the cell, and a nested one is something the grid
+          role does not admit. Each keeps its own `relative` box, which is what
+          floats the popup out over the rows below. */}
+      <span role="gridcell" data-row-cell="do" className="relative flex w-5 shrink-0 items-center justify-end">
+        {menu}
       </span>
       {extra}
     </li>

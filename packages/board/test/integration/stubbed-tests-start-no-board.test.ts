@@ -569,7 +569,9 @@ describe('a browser test that stubs its own state starts no board', () => {
 // 99 → 100 on 2026-11-20: `delivery-tuples.browser.test.ts`, for a section header, a Tickets row, the release card and a release
 // delivery plan row drawn as bordered link tuples, and no horizontal scroll at 320 px. It serves its state through the catalogue
 // and starts no board.
-const EXPECTED_FILES = 100;
+// 100 → 101 on 2026-11-21: `row-menu-column.browser.test.ts`, for every Delivery row's Do cell sitting last at one x in every
+// section, light and dark, and no horizontal scroll at 320 px. It serves its state through the catalogue and starts no board.
+const EXPECTED_FILES = 101;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -962,7 +964,8 @@ const EXPECTED_FILES = 100;
 // 725 → 730 on 2026-11-20: the five `it(` in the new `delivery-tuples.browser.test.ts` (99 → 100 files): four surfaces drawn as link tuples, and one 320 px check run in light and dark. Added, not moved.
 // 730 → 731 on 2026-11-21: the one `it(` that checks an empty Fleet section shows its stopped frame and an empty Work items group shows "— none", added to `unplanned-issues.browser.test.ts`. Added, not moved.
 // 731 → 732 on 2026-11-21: `delivery-tab-header.browser.test.ts` checks the one Delivery header in five `it(` where it checked the two-column header and the to-do list in four: the reading groups side by side with a rule at 1280 px, stacked at 320 px, a non-zero blocks-delivery number in --hue-red, no fold in the header, and `open ›` opening a folded section. The to-do-line and fleet-card assertions in `release-approve`, `delivery-tab-sections`, `delivery-fleet-look` and `fleet-settings` moved to the header's groups and the Fleet section's switches, one `it(` for one. Added, not moved.
-const EXPECTED_TESTS = 732;
+// 732 → 734 on 2026-11-21: the two `it.each(` in the new `row-menu-column.browser.test.ts` (100 → 101 files): the Do cell last at one x in every section, and no horizontal scroll at 320 px, each run in light and dark. Added, not moved.
+const EXPECTED_TESTS = 734;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

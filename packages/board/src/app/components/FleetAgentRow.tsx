@@ -6,13 +6,14 @@ import { RowCell, type LinkHandlers } from './DeliveryRows.js';
 
 /** The column header of a Fleet group's agent rows; `doing` reads `Waits on` in Blocked. */
 export const FleetAgentHeader = ({ blocked }: { blocked: boolean }) => (
-  <li role="row" data-fleet-agent-header className="hidden sm:grid grid-cols-[minmax(0,1.2fr)_5rem_minmax(0,1.5fr)_minmax(0,2fr)_4rem_6rem_2.5rem] gap-x-3 px-3 delivery-thead">
+  <li role="row" data-fleet-agent-header className="hidden sm:grid grid-cols-[minmax(0,1.2fr)_5rem_minmax(0,1.5fr)_minmax(0,2fr)_4rem_6rem_1rem_var(--delivery-menu-track)] gap-x-3 px-3 delivery-thead">
     <span role="columnheader">{AGENT_COLUMN_LABELS.agent}</span>
     <span role="columnheader">{AGENT_COLUMN_LABELS.role}</span>
     <span role="columnheader">{AGENT_COLUMN_LABELS.actingOn}</span>
     <span role="columnheader">{blocked ? 'Waits on' : AGENT_COLUMN_LABELS.doing}</span>
     <span role="columnheader">{AGENT_COLUMN_LABELS.tokens}</span>
     <span role="columnheader">{AGENT_COLUMN_LABELS.timeLeft}</span>
+    <span role="columnheader"><span className="sr-only">Details</span></span>
     <span role="columnheader"><span className="sr-only">Actions</span></span>
   </li>
 );
@@ -22,7 +23,8 @@ const DASH = '—';
 /**
  * The six cells of one Fleet agent: Agent · Role · Acting on · Doing now (Waits
  * on in Blocked) · Tokens · Time left, with the idle time beneath Time left,
- * and the row's `⋯` menu. Every value comes from `agentRowCells`; this
+ * the details popover, and the row's `⋯` menu in the last track, whose width
+ * is `--delivery-menu-track`. Every value comes from `agentRowCells`; this
  * component decides nothing. It is the agent's one row.
  *
  * @param id - the agent's placement id.
@@ -55,7 +57,7 @@ export const FleetAgentRow = ({ id, cells, handlers, role, facts, run = null, hi
     {...(facts.availability !== '' ? { 'data-agent-availability': facts.availability } : {})}
     {...(facts.undeclared ? { 'data-agent-undeclared': '' } : {})}
     {...(run !== null ? { 'data-role-run': run.role } : {})}
-    className="delivery-row grid grid-cols-[minmax(0,1.2fr)_5rem_minmax(0,1.5fr)_minmax(0,2fr)_4rem_6rem_2.5rem] items-baseline gap-x-3 px-3 max-sm:grid-cols-1"
+    className="delivery-row grid grid-cols-[minmax(0,1.2fr)_5rem_minmax(0,1.5fr)_minmax(0,2fr)_4rem_6rem_1rem_var(--delivery-menu-track)] items-baseline gap-x-3 px-3 max-sm:grid-cols-1"
   >
     <span role="gridcell" data-agent-cell="agent" title={cells.agentTitle ?? undefined} className="delivery-truncate">
       <span aria-hidden="true" data-agent-dot className="delivery-dot" />
@@ -105,7 +107,7 @@ export const FleetAgentRow = ({ id, cells, handlers, role, facts, run = null, hi
         </span>
       )}
     </span>
-    <span role="gridcell" data-row-cell="do" className="relative flex shrink-0 items-center justify-end gap-1">
+    <span role="gridcell" data-agent-cell="details" className="relative flex shrink-0 items-center justify-end">
       {details.length > 0 && (
         <details data-row-details className="relative shrink-0">
           <summary aria-label="Details" className="cursor-pointer select-none list-none text-xs">ⓘ</summary>
@@ -114,6 +116,8 @@ export const FleetAgentRow = ({ id, cells, handlers, role, facts, run = null, hi
           </ul>
         </details>
       )}
+    </span>
+    <span role="gridcell" data-row-cell="do" className="relative flex w-5 shrink-0 items-center justify-end">
       {menu}
     </span>
   </li>

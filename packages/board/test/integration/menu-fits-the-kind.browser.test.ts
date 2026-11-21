@@ -142,6 +142,8 @@ describe('the menu fits the kind, and every row has one', () => {
       await expect
         .poll(() => rowFor(page, 'feature/needs-review').locator('a[data-open-link]').textContent())
         .toBe('Review');
+      // Every kind lists its fixed item set, so the open menu covers the rows below: close it first.
+      await page.keyboard.press('Escape');
 
       await openMenu(page, 'feature/orphan');
       await expect

@@ -149,13 +149,25 @@ describe('the Tickets card and the footer line (real browser renders the shipped
     return colour;
   }, token);
 
-  it('draws the Do cell in --hue-blue and the footer rule in --card-border', async () => {
+  it('draws each row\'s ⋯ menu in the last cell and the footer rule in --card-border', async () => {
     const page = await open(1280);
     try {
-      const doCell = page.locator('section#tickets [data-tickets-do]').first();
-      await doCell.waitFor({ timeout: 10_000 });
-      expect(await doCell.evaluate((el) => getComputedStyle(el).color)).toBe(await tokenColour(page, '--hue-blue'));
-      expect(await doCell.evaluate((el) => getComputedStyle(el).fontWeight)).toBe('600');
+      const row = page.locator('section#tickets [data-issue-row]').first();
+      await row.waitFor({ timeout: 10_000 });
+      expect(await page.locator('section#tickets [data-tickets-do]').count()).toBe(0);
+      expect(await row.evaluate((el) => el.lastElementChild?.getAttribute('data-row-cell'))).toBe('do');
+      const trigger = row.locator('[data-row-cell="do"] [data-issue-actions]');
+      expect(await trigger.count()).toBe(1);
+      expect(await trigger.getAttribute('aria-disabled')).toBe(null);
+      // An item that cannot run stays listed, its reason on `data-menu-reason`: this board cannot create plans.
+      await trigger.click();
+      const createPlan = row.locator('[data-menu-item="create-plan"]');
+      await createPlan.waitFor({ timeout: 10_000 });
+      expect(await createPlan.getAttribute('aria-disabled')).toBe('true');
+      expect(await createPlan.getAttribute('data-menu-reason')).toBe('this board cannot create plans');
+      const openIssue = row.locator('[data-menu-item="open-issue"]');
+      expect(await openIssue.getAttribute('aria-disabled')).toBe(null);
+      expect(await openIssue.locator('a').getAttribute('href')).toBe('https://github.com/tiny/garden/issues/41');
       const footer = page.locator('[data-footer-line]');
       expect(await footer.evaluate((el) => getComputedStyle(el).borderTopColor)).toBe(await tokenColour(page, '--card-border'));
       expect(await footer.evaluate((el) => getComputedStyle(el).display)).toBe('flex');
