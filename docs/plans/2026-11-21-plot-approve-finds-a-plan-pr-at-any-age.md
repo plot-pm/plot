@@ -91,7 +91,7 @@ The check sits in `approve` because approval is the last step before dispatch an
 
 ### Host
 
-- `bug/the-host-names-the-prs-of-a-commit` — `Host.prsOfCommit(sha)` on the port answering `readonly Pr[]`, `prs-of-commit.ts` with the GitHub and Bitbucket readers and `hostWithPrsOfCommit`, the wiring in `hostReadsFor` at both backends, Bitbucket's `unaskable` on 202 and 404, the shell's `unaskable`, the fixture, and the tests <!-- builds: Host.prsOfCommit, the PRs a host associates with one commit -->
+- `bug/the-host-names-the-prs-of-a-commit` — `Host.prsOfCommit(sha)` on the port answering `readonly Pr[]`, `prs-of-commit.ts` with the GitHub and Bitbucket readers and `hostWithPrsOfCommit`, the wiring in `hostReadsFor` at both backends, Bitbucket's `unaskable` on 202 and 404, the shell's `unaskable`, the fixture, and the tests <!-- builds: Host.prsOfCommit, the PRs a host associates with one commit --> → #3625
 
 ### Approve route
 
