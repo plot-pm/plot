@@ -115,6 +115,25 @@ describe('releaseGroup scope', () => {
   it('keeps a release row no sprint names under release scope', () => {
     expect(groupOf([], rows, 'release').candidates.map((c) => c.rowId)).toEqual(['row:37']);
   });
+
+  it('reads no sprint and no release row as no bar and one disabled candidate', () => {
+    const group = groupOf([], [], 'release');
+    expect(group.readingMissing).toBe(false);
+    expect(group.bar).toBeNull();
+    expect(group.candidates).toEqual([{ key: 'release:none', anchor: 'release-card-none', version: '', rowId: null, pr: null, unboundReason: 'no release PR exists' }]);
+    const bare = releaseGroup({
+      scope: 'release', sprints: [], rows: [], directory, slicesByPlan: plans, readings, input, unknownOwners: [], lastRelease: null, cards: [],
+    });
+    expect(bare.candidates.map((c) => c.key)).toEqual(['release:none']);
+  });
+
+  it('titles a release row whose version was not read', () => {
+    expect(groupOf([], [{ id: 'row:x', version: '', pr: 40 }], 'release').title).toBe('Release (version not read)');
+  });
+
+  it('names a sprint by its slug where its title is blank', () => {
+    expect(groupOf([sprint({ slug: 'blank', title: '  ' })], [], 'my-sprint').scopeLine).toBe('my sprint · blank');
+  });
 });
 
 describe('releaseStatusLine', () => {
@@ -208,7 +227,30 @@ describe('lastRelease', () => {
     expect(compareSemver('v1.0.0-beta.3', 'v1.0.0-beta.10')).toBeLessThan(0);
   });
 
+  it('keeps the earlier date of two records for one version', () => {
+    expect(lastRelease(['2026-11-02, v2.35.0', '2026-11-01, 2.35.0'])).toEqual({ tag: 'v2.35.0', date: '2026-11-01' });
+    expect(lastRelease(['2026-11-01, v2.35.0', '2026-11-02, 2.35.0'])).toEqual({ tag: 'v2.35.0', date: '2026-11-01' });
+  });
+
   it('skips an unparseable record', () => {
     expect(lastRelease(['soon, v3.0.0', '2026-11-01, next', '2026-10-01, v2.0.0'])).toEqual({ tag: 'v2.0.0', date: '2026-10-01' });
+  });
+});
+
+describe('compareSemver', () => {
+  it('orders pre-release identifiers by semver precedence', () => {
+    expect(compareSemver('v1.0.0-beta.10', 'v1.0.0-beta.3')).toBeGreaterThan(0);
+    expect(compareSemver('v1.0.0-1', 'v1.0.0-alpha')).toBeLessThan(0);
+    expect(compareSemver('v1.0.0-alpha', 'v1.0.0-1')).toBeGreaterThan(0);
+    expect(compareSemver('v1.0.0-alpha', 'v1.0.0-beta')).toBeLessThan(0);
+    expect(compareSemver('v1.0.0-beta', 'v1.0.0-alpha')).toBeGreaterThan(0);
+    expect(compareSemver('v1.0.0-beta', 'v1.0.0-beta.1')).toBeLessThan(0);
+    expect(compareSemver('1.0.0-rc.1', 'v1.0.0-rc.1')).toBe(0);
+  });
+
+  it('sorts a version that does not parse below every one that does', () => {
+    expect(compareSemver('next', 'v0.0.1')).toBeLessThan(0);
+    expect(compareSemver('v0.0.1', 'next')).toBeGreaterThan(0);
+    expect(compareSemver('next', 'soon')).toBe(0);
   });
 });

@@ -116,7 +116,7 @@ export interface ReleaseGroupInput {
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
 
 const sum = (bars: readonly (readonly BarSegment[])[]): BarSegment[] =>
-  SLICE_STATES.map((state) => ({ state, count: bars.reduce((n, bar) => n + (bar.find((s) => s.state === state)?.count ?? 0), 0) }));
+  SLICE_STATES.map((state, i) => ({ state, count: bars.reduce((n, bar) => n + bar[i]!.count, 0) }));
 
 /**
  * The Release group: one title, scope line, bar and set of candidates over every sprint in scope.
