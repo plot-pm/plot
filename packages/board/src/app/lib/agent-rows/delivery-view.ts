@@ -10,6 +10,7 @@ import {
   releaseBlocks,
   releaseDeliveryHeader,
   type ReleaseDeliveryCount,
+  type ReleaseDeliveryHeader,
   releasePersonCards,
   sprintDeliveryGroups,
   sprintDeliveryTitle,
@@ -365,6 +366,9 @@ export interface ReleaseHeaderView {
   /** The one block's full header wording, ticket wording included, or `''` where the section holds several blocks or none. */
   title: string;
   counts: ReleaseHeaderCountView[];
+  /** `releaseDeliveryHeader`'s five-state bar and the plans with a blocked slice, for the folded summary. */
+  bar: ReleaseDeliveryHeader['bar'];
+  blockedPlans: number;
 }
 
 /** One target release's block. */
@@ -721,6 +725,8 @@ export const deliveryView = (
     scope: head.scope,
     title: blocks.length === 1 ? blocks[0]!.header : '',
     counts: head.counts.map((c) => ({ ...c, anchor: c.target === null ? null : releasePlanAnchor(c.target) })),
+    bar: head.bar,
+    blockedPlans: head.blockedPlans,
   };
   const releaseRows = blocks.flatMap((b) => b.plans.flatMap((p) => Object.values(p.itemIds).flatMap((id) => mapping.rowsByItem[id] ?? [])));
 
