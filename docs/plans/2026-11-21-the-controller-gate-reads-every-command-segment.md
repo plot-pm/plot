@@ -100,7 +100,7 @@ A changeset `'plot': patch` names the plan; neither slice bumps a skill.
 
 ### Segment
 
-- `bug/the-controller-gate-reads-a-loop-body-as-a-segment` — the loop body asks `isReadSegment`, `isProcessRead` refuses an assignment or a code-running word, `gluedScript` splits program text for the `RUNS_TEXT` programs only, `gitSubcommand` skips `-C <dir>` and `--no-pager` and not `-c`, the merge-path test reads an unquoted form, and the red and guard rows above <!-- builds: gitSubcommand, the git subcommand past -C and --no-pager -->
+- `bug/the-controller-gate-reads-a-loop-body-as-a-segment` — the loop body asks `isReadSegment`, `isProcessRead` refuses an assignment or a code-running word, `gluedScript` splits program text for the `RUNS_TEXT` programs only, `gitSubcommand` skips `-C <dir>` and `--no-pager` and not `-c`, the merge-path test reads an unquoted form, and the red and guard rows above <!-- builds: gitSubcommand, the git subcommand past -C and --no-pager --> → #3627
 
 ### Reserved word
 
