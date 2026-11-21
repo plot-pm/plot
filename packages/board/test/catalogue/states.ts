@@ -885,11 +885,11 @@ const aBoardThatCanAct = (): Scenario => ({
 
 /**
  * EVERY DELIVERY SECTION, EACH WITH CONTENT — the state the Delivery tab's
- * screenshot test opens, so one page shows every section, group and header card.
+ * screenshot test opens, so one page shows every section and header group.
  *
  * | what | fills | from |
  * |---|---|---|
- * | `changeset-release/main` | the ReleaseCard and the *Approve release* to-do | a `release` row |
+ * | `changeset-release/main` | the Release group's slot and the *Approve release* to-do | a `release` row |
  * | `bed-a`, `bed-b` | Release delivery | merged one-slice plans in the reader's Active sprint |
  * | `feature/ready-for-review` | You › Blocks delivery | green CI, review pending, `autoReview: false` |
  * | `feature/which-mulch` | You › Blocks delivery, Fleet › Blocked | a `PLOT-BLOCKED` question and a `waiting` agent |
@@ -902,8 +902,8 @@ const aBoardThatCanAct = (): Scenario => ({
  * | `machine` | the Machine line, amber | `tight` headroom and a host bucket at 8% |
  * | tickets 41, 42 | Tickets | `issueAnswer: 'answered'`, both assigned to the reader |
  *
- * The header shows the ReleaseCard and not the SprintCard: the SprintCard needs
- * the *My sprint* chip, which is a click and not a payload. The bucket keeps 400
+ * The header's Release group reads the release scope and not the my-sprint scope:
+ * the my-sprint scope needs the *My sprint* chip, which is a click and not a payload. The bucket keeps 400
  * requests rather than 0, because an exhausted window blocks every running loop
  * agent on the rate limit and empties Fleet › Working.
  */
