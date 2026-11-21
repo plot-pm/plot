@@ -289,12 +289,14 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
     // resolve from the sandbox repository's common git dir, as on an
     // operator's machine. An override skips the `git rev-parse --git-common-dir`
     // that P3 and P4 count.
+    // NO OPERATOR BB STATE: with BB_STATE_DIR and XDG_STATE_HOME gone, `bb`'s
+    // ledger resolves under the sandbox's HOME, never a person's own.
     // NO INHERITED UNIT: a CI runner that systemd started passes its own
     // `INVOCATION_ID` to every step, and a fleetd started by hand would read it
     // as `supervised: systemd`. Only `startFleetd`'s `supervisor: 'systemd'`
     // gives fleetd a unit of its own.
     for (const key of [
-      'BITBUCKET_API_BASE', 'BB_EMAIL', 'BB_TOKEN',
+      'BITBUCKET_API_BASE', 'BB_EMAIL', 'BB_TOKEN', 'BB_STATE_DIR', 'XDG_STATE_HOME', 'BB_HOURLY_LIMIT',
       'PLOT_HOST', 'PLOT_HOST_TRANSPORT', 'PLOT_TRACKER', 'PLOT_UNATTENDED', 'PLOT_BOARD_PORT', 'PORT', 'PLOT_PR_INDEX_HOME', 'PLOT_ISSUE_INDEX_HOME',
       ...SYSTEMD_UNIT_VARS,
     ]) {

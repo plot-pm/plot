@@ -1,13 +1,14 @@
 import { spawnSync } from 'node:child_process';
 import http from 'node:http';
 import net from 'node:net';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { budgetFile } from '../src/adapters/budget/budget-file.js';
+import { bbAccountKey, bbLedgerFile } from '../src/adapters/host/bb-ledger-file.js';
 import {
   BITBUCKET_NO_CREDENTIAL,
   bitbucketApi,
@@ -17,6 +18,7 @@ import {
 import { slotsFile } from '../src/adapters/slots/slots-file.js';
 import { decodeEntry, type BudgetEntry } from '../src/entities/budget.js';
 import type { LimitObservation } from '../src/ports/host.js';
+import { bbHourStamp, bbPauseFileName, bbRequestFileName } from '../src/rules/bb-ledger.js';
 import { hostTransportOf } from '../src/rules/host-transport.js';
 
 /** One request the stub server saw. */
@@ -74,11 +76,12 @@ const stubApi = async (handler: Handler) => {
   return { seen, base: `http://127.0.0.1:${(server.address() as net.AddressInfo).port}/2.0` };
 };
 
-/** The client under test, against a private ledger and slot directory, with no `.env` unless one is written. */
+/** The client under test, against a private ledger, `bb` state and slot directory, with no `.env` unless one is written. */
 const client = (base: string, over: Partial<BitbucketApiOptions> = {}) => {
   const home = join(root, 'budget');
   const budget = budgetFile({ home });
   const slots = slotsFile({ home, isAlive: () => true });
+  const ledger = bbLedgerFile({ env: { BB_STATE_DIR: join(root, 'bb') }, log: () => undefined, ...(over.now === undefined ? {} : { now: over.now }) });
   const api = bitbucketApi({
     origin: 'git@bitbucket.org:quatico/portal.git',
     env: { BITBUCKET_API_BASE: base, BB_EMAIL: 'me@example.test', BB_TOKEN: 'fixture-token' },
@@ -86,6 +89,7 @@ const client = (base: string, over: Partial<BitbucketApiOptions> = {}) => {
     commonDir: join(root, 'main', '.git'),
     budget,
     slots,
+    ledger,
     pollMs: 20,
     ...over,
   });
@@ -269,7 +273,7 @@ describe('credentials', () => {
 });
 
 describe('every request charges the shared ledger', () => {
-  it('appends one entry per request: connector bitbucket, bucket api, the workspace, predicted 800 with no headers', async () => {
+  it("appends one entry per request: connector bitbucket, bucket api, the workspace, predicted from bb's ledger with no headers", async () => {
     const stub = await stubApi((_seen, res) => json(res, 200, PAGE));
     const { api, entries } = client(stub.base);
 
@@ -284,23 +288,23 @@ describe('every request charges the shared ledger', () => {
       key: { connector: 'bitbucket', account: 'quatico', bucket: 'api' },
       spent: 1,
       limit: 800,
-      remaining: null,
+      remaining: 798,
       resetAt: null,
       basis: 'predicted',
     });
   });
 
-  it('records the declared predicted limit where the reply states none, and the stated one over it', async () => {
+  it("records bb's ceiling, never raised by a declared limit, where the reply states none, and the stated one over it", async () => {
     let stated = false;
     const stub = await stubApi((_seen, res) => json(res, 200, PAGE, stated ? { 'X-RateLimit-Limit': '5000' } : {}));
-    const { api, entries } = client(stub.base, { predictedLimit: 2000 });
+    const { api, entries } = client(stub.base, { predictedLimit: 2000, declaredLimit: 2000 });
 
     await api.request(LIST);
     stated = true;
     await api.request(LIST);
 
     const [declared, read] = await entries();
-    expect(declared).toMatchObject({ limit: 2000, remaining: null, basis: 'predicted' });
+    expect(declared).toMatchObject({ limit: 800, remaining: 799, basis: 'predicted' });
     expect(read).toMatchObject({ limit: 5000, remaining: null, basis: 'actual' });
   });
 
@@ -347,7 +351,7 @@ describe('every request charges the shared ledger', () => {
 
     await api.request(LIST);
 
-    expect((await entries()).at(-1)).toMatchObject({ limit: 800, remaining: null, resetAt: null, basis: 'predicted' });
+    expect((await entries()).at(-1)).toMatchObject({ limit: 800, remaining: 799, resetAt: null, basis: 'predicted' });
   });
 
   it('records actual with no reset where the reply names none, and charges PLOT_BUDGET_ACCOUNT where it is set', async () => {
@@ -363,14 +367,15 @@ describe('every request charges the shared ledger', () => {
 });
 
 describe('the answers', () => {
-  it('maps a 429 with Retry-After to throttled with the wait, and observes it', async () => {
+  it("maps a 429 to throttled with the wait of bb's pause it starts, and observes it", async () => {
     const stub = await stubApi((_seen, res) => json(res, 429, { type: 'error', error: { message: 'Rate limit for this resource has been exceeded' } }, { 'Retry-After': '30' }));
     const observed: LimitObservation[] = [];
-    const { api } = client(stub.base, { observe: (o) => observed.push(o) });
+    const { api } = client(stub.base, { observe: (o) => observed.push(o), now: () => NOW_MS });
 
     const answer = await api.request(LIST);
 
-    expect(answer.ok || answer.refusal).toEqual({ kind: 'throttled', said: 'Rate limit for this resource has been exceeded', waitMs: 30_000 });
+    // bb's first pause is 300 s, and a Retry-After shorter than that does not shorten it.
+    expect(answer.ok || answer.refusal).toEqual({ kind: 'throttled', said: 'Rate limit for this resource has been exceeded', waitMs: 300_000 });
     expect(observed).toEqual(['throttled']);
   });
 
@@ -404,5 +409,160 @@ describe('the answers', () => {
     const refused = client('http://127.0.0.1:1/2.0').api;
     const down = await refused.request(LIST);
     expect(down.ok || down.refusal).toMatchObject({ kind: 'failed', said: expect.stringMatching(/^no answer from 127\.0\.0\.1:1: /) });
+  });
+});
+
+const NOW_S = 1_788_000_123;
+const NOW_MS = NOW_S * 1000;
+const EMAIL = 'me@example.test';
+const KEY = bbAccountKey(EMAIL);
+const requestFile = (): string => join(root, 'bb', bbRequestFileName(KEY, bbHourStamp(NOW_S)));
+const pauseFile = (): string => join(root, 'bb', bbPauseFileName(KEY));
+const requestLines = (): string => (existsSync(requestFile()) ? readFileSync(requestFile(), 'utf8') : '');
+
+/** The client over the default file ledger in `<root>/bb`, with `BB_HOURLY_LIMIT` as given. */
+const ledgered = (base: string, hourly: string | undefined, over: Partial<BitbucketApiOptions> = {}) =>
+  client(base, {
+    env: {
+      BITBUCKET_API_BASE: base,
+      BB_EMAIL: EMAIL,
+      BB_TOKEN: 'fixture-token',
+      BB_STATE_DIR: join(root, 'bb'),
+      ...(hourly === undefined ? {} : { BB_HOURLY_LIMIT: hourly }),
+    },
+    ledger: undefined,
+    now: () => NOW_MS,
+    ...over,
+  });
+
+describe("bb's request ledger", () => {
+  it('appends one byte-exact request line per exchange before it sends', async () => {
+    const stub = await stubApi((_seen, res) => json(res, 200, PAGE));
+    const { api } = ledgered(stub.base, undefined);
+
+    await api.request(LIST);
+    await api.request(LIST);
+
+    expect(requestLines()).toBe(`${NOW_S}\n${NOW_S}\n`);
+    expect(stub.seen).toHaveLength(2);
+  });
+
+  it('refuses at the ceiling in bb\'s words, sends nothing, appends no line and records no BudgetEntry', async () => {
+    mkdirSync(join(root, 'bb'), { recursive: true });
+    writeFileSync(requestFile(), `${NOW_S - 10}\n${NOW_S - 5}\n`);
+    const stub = await stubApi((_seen, res) => json(res, 200, PAGE));
+    const { api, entries } = ledgered(stub.base, '2');
+
+    const answer = await api.request(LIST);
+
+    expect(answer.ok || answer.refusal).toEqual({
+      kind: 'throttled',
+      said: 'rate limited — 2 requests in the last hour from this machine; next request at 11:41:53Z (in 3590 s)',
+      waitMs: 3_590_000,
+    });
+    expect(stub.seen).toEqual([]);
+    expect(requestLines()).toBe(`${NOW_S - 10}\n${NOW_S - 5}\n`);
+    expect(await entries()).toEqual([]);
+  });
+
+  it("refuses during bb's pause, sends nothing and records no BudgetEntry", async () => {
+    mkdirSync(join(root, 'bb'), { recursive: true });
+    writeFileSync(pauseFile(), `${NOW_S + 100} 300\n`);
+    const stub = await stubApi((_seen, res) => json(res, 200, PAGE));
+    const { api, entries } = ledgered(stub.base, undefined);
+
+    const answer = await api.request(LIST);
+
+    expect(answer.ok || answer.refusal).toMatchObject({
+      kind: 'throttled',
+      said: expect.stringMatching(/^rate limited — bb paused until \S+ after Bitbucket refused a request \(in 100 s\)$/),
+      waitMs: 100_000,
+    });
+    expect(stub.seen).toEqual([]);
+    expect(requestLines()).toBe('');
+    expect(await entries()).toEqual([]);
+  });
+
+  it('guards and counts the second exchange after a 401', async () => {
+    let calls = 0;
+    const stub = await stubApi((_seen, res) => (calls++ === 0 ? json(res, 401, UNAUTHORIZED) : json(res, 200, PAGE)));
+    const counted = ledgered(stub.base, undefined).api;
+
+    expect((await counted.request(LIST)).ok).toBe(true);
+    expect(requestLines()).toBe(`${NOW_S}\n${NOW_S}\n`);
+
+    rmSync(join(root, 'bb'), { recursive: true, force: true });
+    calls = 0;
+    const capped = ledgered(stub.base, '1').api;
+    const answer = await capped.request(LIST);
+
+    expect(answer.ok || answer.refusal).toMatchObject({ kind: 'throttled', said: expect.stringMatching(/^rate limited — 1 requests/) });
+    expect(stub.seen).toHaveLength(3);
+  });
+
+  it('writes the pause after a 429 as one byte-exact line', async () => {
+    const stub = await stubApi((_seen, res) => json(res, 429, 'slow down', { 'Retry-After': '30' }));
+    const { api } = ledgered(stub.base, undefined);
+
+    await api.request(LIST);
+
+    expect(readFileSync(pauseFile(), 'utf8')).toBe(`${NOW_S + 300} 300\n`);
+    expect(readdirSync(join(root, 'bb')).filter((name) => name.startsWith('pause-'))).toEqual([bbPauseFileName(KEY)]);
+  });
+
+  it.each([
+    [null, 2000],
+    [500, 500],
+    [5000, 2000],
+  ])('takes ceiling %s → %i from BB_HOURLY_LIMIT=2000 and the declared limit', async (declaredLimit, ceiling) => {
+    const stub = await stubApi((_seen, res) => json(res, 200, PAGE));
+    const { api, entries } = ledgered(stub.base, '2000', { declaredLimit });
+
+    await api.request(LIST);
+
+    expect((await entries()).at(-1)).toMatchObject({ limit: ceiling, remaining: ceiling - 1, basis: 'predicted' });
+  });
+
+  it('reads BB_HOURLY_LIMIT and BB_STATE_DIR from the main checkout\'s .env where the environment holds none', async () => {
+    mkdirSync(join(root, 'main'), { recursive: true });
+    writeFileSync(join(root, 'main', '.env'), `BB_HOURLY_LIMIT=40\nBB_STATE_DIR=${join(root, 'bb')}\n`);
+    const stub = await stubApi((_seen, res) => json(res, 200, PAGE));
+    const { api, entries } = client(stub.base, {
+      env: { BITBUCKET_API_BASE: stub.base, BB_EMAIL: EMAIL, BB_TOKEN: 't', BB_HOURLY_LIMIT: '' },
+      ledger: undefined,
+      now: () => NOW_MS,
+    });
+
+    await api.request(LIST);
+
+    expect(requestLines()).toBe(`${NOW_S}\n`);
+    expect((await entries()).at(-1)).toMatchObject({ limit: 40, remaining: 39 });
+  });
+
+  it("refuses every request as failed in bb's words where BB_HOURLY_LIMIT is not a whole number", async () => {
+    const stub = await stubApi((_seen, res) => json(res, 200, PAGE));
+    const { api } = ledgered(stub.base, 'abc');
+
+    const answer = await api.request(LIST);
+
+    expect(answer.ok || answer.refusal).toEqual({ kind: 'failed', said: "error: BB_HOURLY_LIMIT must be a whole number, got 'abc'" });
+    expect(stub.seen).toEqual([]);
+  });
+
+  it('sends and records the prediction where the state directory cannot be used', async () => {
+    writeFileSync(join(root, 'bb'), 'a file, not a directory');
+    const stub = await stubApi((_seen, res) => json(res, 200, PAGE));
+    const lines: string[] = [];
+    const { api, entries } = client(stub.base, {
+      ledger: bbLedgerFile({ env: { BB_STATE_DIR: join(root, 'bb') }, log: (line) => lines.push(line) }),
+    });
+
+    expect((await api.request(LIST)).ok).toBe(true);
+    expect((await api.request(LIST)).ok).toBe(true);
+
+    expect(stub.seen).toHaveLength(2);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^warning: bb-ledger cannot keep its request count in /);
+    expect((await entries()).at(-1)).toMatchObject({ limit: 800, remaining: null, basis: 'predicted' });
   });
 });
