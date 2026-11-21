@@ -484,7 +484,7 @@ describe('a role run', () => {
     return { name: 'fixer' as const, agentsFile, settingsFile };
   };
 
-  it('maps the role to agent, agents, settings and user settings only', async () => {
+  it('maps the role to agent, agents, settings, user settings only and no MCP server', async () => {
     captured.messages = [resultMessage()];
     await ended({ roleAgent: await role() });
     const options = captured.options as Record<string, unknown>;
@@ -492,6 +492,7 @@ describe('a role run', () => {
     expect(options.agents).toEqual({ fixer: { description: 'd', prompt: 'p' } });
     expect(options.settings).toBe(join(dir, 'fixer-settings.json'));
     expect(options.settingSources).toEqual(['user']);
+    expect(options.strictMcpConfig).toBe(true);
   });
 
   it('keeps the hand-back protocol on request.role, not the role agent', async () => {

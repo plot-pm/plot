@@ -1,17 +1,17 @@
 // `composeContinuation` — what it writes for a marker-driven reply versus a
 // fresh start that never had a question to answer.
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import { execFileSync, type spawn as SpawnFn } from 'node:child_process';
 import { describe, expect, it, afterEach } from 'vitest';
-import { composeContinuation, continueOnDesk } from '../../src/shared/continuation.js';
+import { composeContinuation, continueOnDesk, deskTranscriptHandles, recordRoleSessions } from '../../src/shared/continuation.js';
 import { markerReading } from '../../src/shared/worker-question.js';
 import { ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
 import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-write';
-import { answerRecordFile, ANSWER_RECORD_HOME_ENV } from '@plot-pm/domain/adapters';
+import { answerRecordFile, ANSWER_RECORD_HOME_ENV, transcriptDirFor, TRANSCRIPT_HOME_ENV } from '@plot-pm/domain/adapters';
 import { isAnswered } from '@plot-pm/domain';
 import { removeTree } from '../rm-tree.mjs';
 import { readManifestFields } from '../../src/server/entry/worker-loop.js';
@@ -720,5 +720,101 @@ describe('continueOnDesk — a desk the loop ended corrections-spent', () => {
     } finally {
       delete process.env[ANSWER_RECORD_HOME_ENV];
     }
+  });
+});
+
+describe('continueOnDesk — a continuation resumes the asking agent, never a role run', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    delete process.env[ANSWER_RECORD_HOME_ENV];
+    delete process.env[TRANSCRIPT_HOME_ENV];
+    removeAll(dirs.splice(0));
+  });
+
+  // Writes what the wrapper would: a new agent pid and the stamp naming it.
+  const fakeSpawn = ((_cmd: string, _args: readonly string[], o: { cwd: string; env: Record<string, string | undefined> }) => {
+    const child = new EventEmitter();
+    writeFileSync(join(o.cwd, '.plot-worker.pid'), '424245');
+    const manifest = o.env.PLOT_MANIFEST_FILE ?? '';
+    writeFileSync(manifest, JSON.stringify({ ...JSON.parse(readFileSync(manifest, 'utf8')), pid: '424245' }));
+    queueMicrotask(() => child.emit('exit', 0));
+    return child;
+  }) as unknown as typeof SpawnFn;
+
+  // A linked desk: its `.git` file names a private gitdir, as `git worktree add` writes it.
+  const blockedDesk = (ending: Record<string, string>) => {
+    const worktree = mkdtempSync(join(tmpdir(), 'plot-continue-asking-'));
+    const gitDir = mkdtempSync(join(tmpdir(), 'plot-continue-asking-gitdir-'));
+    const manifestDir = mkdtempSync(join(tmpdir(), 'plot-continue-asking-manifests-'));
+    const recordHome = mkdtempSync(join(tmpdir(), 'plot-continue-asking-record-'));
+    const transcriptHome = mkdtempSync(join(tmpdir(), 'plot-continue-asking-home-'));
+    dirs.push(worktree, gitDir, manifestDir, recordHome, transcriptHome);
+    writeFileSync(join(worktree, '.git'), `gitdir: ${gitDir}\n`);
+    writeFileSync(join(worktree, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which ledger does fleetd count in?\n');
+    writeFileSync(
+      join(worktree, ENDING_FILENAME),
+      JSON.stringify({ reason: 'blocked', actor: 'agent', branch: 'feature/x', detail: 'the agent declared itself blocked', ...ending }),
+      'utf8',
+    );
+    process.env[ANSWER_RECORD_HOME_ENV] = recordHome;
+    process.env[TRANSCRIPT_HOME_ENV] = transcriptHome;
+    const transcripts = transcriptDirFor(worktree, transcriptHome);
+    mkdirSync(transcripts, { recursive: true });
+    return { worktree, manifestDir, transcripts };
+  };
+
+  const transcript = (dir: string, handle: string, secondsAgo: number) => {
+    const file = join(dir, `${handle}.jsonl`);
+    writeFileSync(file, '{}\n');
+    const at = Date.now() / 1000 - secondsAgo;
+    utimesSync(file, at, at);
+  };
+
+  // The unblocker's run, as `unblockPortsFor` records it: the handles it added to the desk's transcript directory.
+  const roleRun = (worktree: string, transcripts: string, handle: string) => {
+    const before = deskTranscriptHandles(worktree);
+    transcript(transcripts, handle, 0);
+    recordRoleSessions(worktree, [...deskTranscriptHandles(worktree)].filter((h) => !before.has(h)));
+  };
+
+  const continued = async (worktree: string, manifestDir: string) => {
+    const result = await continueOnDesk({
+      opts: { repoRoot: worktree, scriptsDir: '/s', manifestDir },
+      branch: 'feature/x',
+      worktree,
+      main: '',
+      previousPid: '',
+      caller: 'person',
+      answer: 'count it in the bb ledger',
+      readCfg: (_opts, key, fallback) => (key === 'Worker command' ? 'true' : fallback),
+      spawn: fakeSpawn,
+    });
+    expect(result.kind).toBe('started');
+    const written = readdirSync(manifestDir).filter((f) => f.endsWith('.json'));
+    expect(written).toHaveLength(1);
+    return (await readManifestFields(join(manifestDir, written[0] ?? ''))).resumeId;
+  };
+
+  it('resumes the session the ending recorded, although a role transcript is newest', async () => {
+    const { worktree, manifestDir, transcripts } = blockedDesk({ resumeId: 'sess-asking' });
+    transcript(transcripts, 'sess-asking', 600);
+    roleRun(worktree, transcripts, 'sess-unblocker');
+    expect(await continued(worktree, manifestDir)).toBe('sess-asking');
+  });
+
+  it('with no recorded session, resumes the newest transcript a role run did not write', async () => {
+    const { worktree, manifestDir, transcripts } = blockedDesk({});
+    transcript(transcripts, 'sess-earlier', 1200);
+    transcript(transcripts, 'sess-asking', 600);
+    roleRun(worktree, transcripts, 'sess-unblocker');
+    expect(await continued(worktree, manifestDir)).toBe('sess-asking');
+  });
+
+  it('with no recorded session and only a role transcript, starts a new conversation', async () => {
+    const { worktree, manifestDir, transcripts } = blockedDesk({});
+    roleRun(worktree, transcripts, 'sess-unblocker');
+    const resumeId = await continued(worktree, manifestDir);
+    expect(resumeId).not.toBe('sess-unblocker');
+    expect(resumeId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   });
 });

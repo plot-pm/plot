@@ -12,6 +12,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3613 merged
 - **Started:** 2026-11-21, Jan Wloka, `bug/an-approval-with-no-pr-writes-no-pr-key`
+- **Started:** 2026-11-21, Jan Wloka, `bug/a-delivery-row-carries-its-plan-state`
 
 ## Changelog
 

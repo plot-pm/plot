@@ -500,11 +500,17 @@ describe('the row says what it knows', () => {
       // The other half, and the one an over-eager implementation loses: approve
       // is the plan's act only while the plan is Draft. `plot-approve.sh`
       // refuses every other phase, so a row offering it would be inviting a
-      // refusal.
+      // refusal. The row lists its kind's fixed items, so Approve is there,
+      // disabled with a reason, and no Approve button exists.
       for (const plan of ['strawberry-netting']) {
         const planRow = grid(page, 'Input to the fleet').locator(`li[data-plan-row="${plan}"]`);
         await expect.poll(() => planRow.count()).toBe(1);
-        await expect.poll(() => planRow.locator('[data-plan-actions]').count()).toBe(0);
+        await planRow.locator('[data-plan-actions]').click();
+        const approve = planRow.locator('[role="menu"] [data-menu-item="approve"]');
+        await expect.poll(() => approve.count()).toBe(1);
+        expect(await approve.getAttribute('aria-disabled')).toBe('true');
+        expect(await approve.getAttribute('data-menu-reason')).not.toBe('');
+        expect(await planRow.locator('[role="menu"]').getByRole('button', { name: /approve/i }).count()).toBe(0);
       }
     } finally {
       await page.close();

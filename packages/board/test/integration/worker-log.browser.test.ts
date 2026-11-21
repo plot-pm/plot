@@ -403,7 +403,8 @@ describe('the worker log panel: offered by a WORKING row, four outcomes, four an
       // Measured 2026-11-18: with the 64px release cards in the header, the menu's
       // bottom sat at 735px, below the default 720px fold.
       // 900 became 1200 on 2026-11-19, when the Delivery sections took card padding and visible header rows and the Fleet row's menu button ended at 918.5px.
-      await page.setViewportSize({ width: 1280, height: 1200 });
+      // 1200 became 1400 on 2026-11-21, when every kind's menu listed its fixed item set and the Fleet menu's worker-log item ended at 1209px.
+      await page.setViewportSize({ width: 1280, height: 1400 });
       await makeScrollable(page, 60);
       await openPanel(page);
       await page.getByRole('button', { name: 'Close' }).click();

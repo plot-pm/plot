@@ -133,7 +133,7 @@ describe('the Tickets section', () => {
   const issue = IssueRowSchema.parse({ number: '3468', title: 'The Delivery tab reads at a glance', url: 'https://h/issues/3468', state: 'open' });
   const m = html(createElement(TicketsSectionView, {
     issueAnswer: 'answered', assigned: [issue], others: [], unassigned: 0, hidden: 0, showAll: false, onToggleShowAll: () => {},
-    hiddenSentence: null, notice: null, absence: '', idea: { available: true, reason: '' },
+    hiddenSentence: null, notice: null, absence: '', idea: { available: true, reason: '' }, story: { available: true, reason: '' },
     folded: false, onToggleFold: () => {}, foldOpen: false, onToggleFoldOpen: () => {},
   }));
 
@@ -143,10 +143,11 @@ describe('the Tickets section', () => {
     expect(tupleAround(m, 'data-issue-link')).not.toContain('The Delivery tab reads at a glance');
   });
 
-  it('draws Plan it as an action, with no artifact icon', () => {
-    const doCell = m.slice(m.indexOf('data-tickets-do'));
-    expect(iconBefore(doCell, 'Plan it')).toBeNull();
-    expect(tupleAround(doCell, 'Plan it')).toBeNull();
+  it('draws the row\'s ⋯ menu in the last cell, with no artifact icon and no bare Plan it', () => {
+    const doCell = m.slice(m.indexOf('data-row-cell="do"'));
+    expect(doCell).toContain('data-issue-actions="3468"');
+    expect(tupleAround(doCell, 'data-issue-actions')).toBeNull();
+    expect(m).not.toContain('Plan it');
   });
 });
 

@@ -6,15 +6,15 @@ import {
   prIndexFile,
   refsFixture,
   refsGit,
-  defaultBranchFile,
 } from '@plot-pm/domain/adapters';
-import type { Host, PlanStore, Refs } from '@plot-pm/domain';
+import type { Host, PlanStore, Refs, StateHomeAnswer } from '@plot-pm/domain';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 
 import type { EstateSource, FleetStateQuery } from './controllers/fleet-state.js';
 import { realEstateSource } from './controllers/fleet-state.js';
 import type { BuildBoardOptions } from './board.js';
+import { defaultBranchIn, stateHomeFor } from './state-home.js';
 import { mockCards, mockFleet, mockPlans, mockPulse, mockRequested } from './mock-fleet.js';
 
 /**
@@ -69,6 +69,8 @@ export interface Estate {
 export interface EstateOptions {
   repoRoot: string;
   scriptsDir: string;
+  /** The state home resolved at start. Absent means resolved from `repoRoot`. */
+  stateHome?: StateHomeAnswer;
 }
 
 /**
@@ -85,7 +87,7 @@ export const realEstate = (opts: EstateOptions): Estate => {
     refs: refsGit(context),
     host: hostShell(context),
     prIndex: prIndexFile({ cwd: opts.repoRoot }),
-    defaultBranch: defaultBranchFile(opts.repoRoot),
+    defaultBranch: defaultBranchIn(stateHomeFor(opts)),
     source: realEstateSource,
   };
 };

@@ -8,6 +8,7 @@ import { baseBranchFile, baseBranchNames, baseBranchPath, removeBaseBranch, base
 import { baseRepairFile } from '../src/adapters/repair-record/repair-record-file.js';
 import { REPAIR_RECORD_VERSION, type RepairRecord } from '../src/entities/repair-record.js';
 import { DEFAULT_BRANCH_VERSION, type DefaultBranchReading } from '../src/entities/default-branch.js';
+import type { StateHome } from '../src/entities/state-home.js';
 
 const reading: DefaultBranchReading = {
   v: DEFAULT_BRANCH_VERSION,
@@ -21,9 +22,9 @@ const reading: DefaultBranchReading = {
   at: '2026-10-10T10:00:00.000Z',
 };
 
-let root: string;
+let root: StateHome;
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'default-branch-file-'));
+  root = mkdtempSync(join(tmpdir(), 'default-branch-file-')) as StateHome;
 });
 afterEach(() => {
   rmSync(root, { recursive: true, force: true });

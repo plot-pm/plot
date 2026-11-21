@@ -3,12 +3,12 @@ import { realEstate } from '../estate.js';
 import { hostReadsFor } from '@plot-pm/domain/adapters';
 import { checkNamesOf, checksWaitMsOf } from '@plot-pm/domain/rules/default-branch';
 import { buildShell } from '@plot-pm/domain/adapters/build/build-resolve';
-import { repairRecordFile } from '@plot-pm/domain/adapters/repair-record/repair-record-file';
 import { refsRemoteGit } from '@plot-pm/domain/adapters/refs/refs-remote-git';
 import { callerOf, type Caller } from '@plot-pm/domain/workflows/decision';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import type { MergePorts } from './merge.js';
 import { stateSyncGateFor } from './state-sync-gate.js';
+import { repairRecordIn, stateHomeFor } from '../state-home.js';
 import type { FinishContext } from './release-finish.js';
 
 /**
@@ -59,7 +59,7 @@ export const mergePortsFor = async (
     // CI connector that asks the red commit's runs again. It reads through the
     // composed client, which lists a `<workflow>/<job>` check's jobs; the
     // script lists none, and the red commit would fold `unknown`.
-    repair: repairRecordFile(opts.repoRoot),
+    repair: repairRecordIn(stateHomeFor(opts)),
     build: await buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }, api ?? undefined),
     checks: checkNamesOf(await readConfigAsync(opts, 'Default branch checks', '')),
     mergeChecks: checkNamesOf(await readConfigAsync(opts, 'Merge checks', '')),

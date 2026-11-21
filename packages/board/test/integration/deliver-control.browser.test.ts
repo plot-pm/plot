@@ -16,11 +16,10 @@ import { type AgentRow, type Board, type Fleet } from '../../src/contract/schema
  * a control that cannot render passes every assertion that never mounts it.
  *
  *   - a plan whose card is `deliverable` offers *Deliver* on its plan-head menu.
- *   - a plan that is NOT deliverable (no `deliverable` bit) offers no such item —
- *     its plan row is intact but its menu carries nothing deliver-shaped, and on
- *     a plan with no draft act it has no `⋯` at all.
+ *   - a plan that is NOT deliverable (no `deliverable` bit) lists Deliver
+ *     disabled with its reason, and carries no `data-deliver` control.
  *   - where the server REFUSES (`deliver.available === false`), the item is still
- *     reachable and NAMES the refusal: a refusal is not an absence.
+ *     listed and NAMES the refusal: a refusal is not an absence.
  *
  * The DELIVERABLE PLAN IS ALL MERGED, so its branches land in DONE and render as
  * WAVE ROWS under a plan head — the `data-plan-actions` menu this control joins.
@@ -151,23 +150,23 @@ describe('a deliverable plan carries Deliver, and no other plan does', () => {
   });
 
   it('offers it NOWHERE the plan is not deliverable', async () => {
-    // `other` carries no `deliverable` bit and has no draft act, so it has no
-    // plan-actions menu at all — even though every branch merged and it sits in
-    // DONE beside `landed`. `data-deliver` is the ONLY DOM home for the control,
-    // so its absence off the deliverable plan proves the scoping.
+    // `other` carries no `deliverable` bit, even though every branch merged and it
+    // sits in DONE beside `landed`. Its menu lists Deliver disabled with a reason,
+    // so `data-deliver`, the enabled control's only DOM home, is on `landed` alone.
     const page = await open();
     try {
-      // `landed` has the menu button; `other` has none at all — no draft act and
-      // no `deliverable` bit means no `⋯`.
       await expect
         .poll(() => planMenuButton(page, 'landed').count(), { timeout: 10_000 })
         .toBe(1);
-      expect(await page.locator('[data-plan-actions="other"]').count()).toBe(0);
-      // Opening `landed`'s menu reveals its deliver control; and it is the ONLY
-      // deliver control on the page — `other` has no menu to hold one.
+      await planMenuButton(page, 'other').click();
+      const item = page.locator('[role="menu"] [data-menu-item="deliver"]');
+      await expect.poll(() => item.count()).toBe(1);
+      expect(await item.getAttribute('aria-disabled')).toBe('true');
+      expect(await item.getAttribute('data-menu-reason')).not.toBe('');
+      expect(await page.locator('[data-deliver="other"]').count()).toBe(0);
+      await page.keyboard.press('Escape');
       await planMenuButton(page, 'landed').click();
       await expect.poll(() => page.locator('[data-deliver="landed"]').count()).toBe(1);
-      expect(await page.locator('[data-deliver="other"]').count()).toBe(0);
       expect(await page.locator('[data-deliver]').count()).toBe(1);
     } finally {
       await page.close();
@@ -177,24 +176,20 @@ describe('a deliverable plan carries Deliver, and no other plan does', () => {
   it('NAMES the refusal where the server will not deliver', async () => {
     // A refusal is not an absence. With `deliver.available === false` the plan is
     // still deliverable — the card's bit is unchanged — so the `⋯` still opens and
-    // the button inside carries the server's reason rather than a dead control.
+    // lists Deliver with the server's reason rather than a dead control.
     const reason = 'delivering runs the /plot-deliver SKILL, which no script can do';
     const page = await open(fleet(), board({ deliver: { available: false, reason } }));
     try {
       const btn = planMenuButton(page, 'landed');
       await expect.poll(() => btn.count(), { timeout: 10_000 }).toBe(1);
       await btn.click();
-      const control = page.locator('[data-deliver="landed"]');
-      await expect.poll(() => control.count()).toBe(1);
-      // Disabled for assistive tech, and its refusal is stated — the control's
-      // description is a tooltip carrying the reason, shown on focus, never a title.
-      await expect.poll(() => control.getAttribute('aria-disabled')).toBe('true');
-      expect(await control.getAttribute('title')).toBeNull();
-      const reasonId = await control.getAttribute('aria-describedby');
-      await control.focus();
-      const tip = page.locator(`[id="${reasonId}"]`);
-      expect(await tip.isVisible()).toBe(true);
-      expect(await tip.textContent()).toBe(reason);
+      // A refused item is listed without a button, and the server's reason is its stated reason.
+      const item = page.locator('[role="menu"] [data-menu-item="deliver"]');
+      await expect.poll(() => item.count()).toBe(1);
+      expect(await item.getAttribute('aria-disabled')).toBe('true');
+      expect(await item.getAttribute('data-menu-reason')).toBe(reason);
+      expect(await item.textContent()).toContain(reason);
+      expect(await page.locator('[data-deliver="landed"]').count()).toBe(0);
     } finally {
       await page.close();
     }

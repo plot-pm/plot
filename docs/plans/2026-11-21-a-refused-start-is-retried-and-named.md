@@ -12,6 +12,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3614 merged
 - **Started:** 2026-11-21, Jan Wloka, `bug/the-brief-ask-test-owns-its-clock`
+- **Started:** 2026-11-21, Jan Wloka, `bug/a-refused-brief-is-asked-again`
 
 ## Changelog
 

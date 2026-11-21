@@ -74,7 +74,7 @@ describe('the Delivery tab rows', () => {
       const orders = await page.locator('li[data-delivery-row]').evaluateAll((els) =>
         els.map((e) => [...e.querySelectorAll(':scope > [data-row-cell]')].map((c) => c.getAttribute('data-row-cell'))));
       expect(orders.length).toBeGreaterThan(0);
-      for (const o of orders) expect(o).toEqual(['kind', 'item', 'where', 'status', 'do', 'by', 'age']);
+      for (const o of orders) expect(o).toEqual(['kind', 'item', 'where', 'status', 'by', 'age', 'do']);
     } finally {
       await page.close();
     }

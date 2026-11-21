@@ -577,6 +577,24 @@ export interface Host {
   prConversation(number: number): Promise<PortResult<PrConversationReading>>;
 
   /**
+   * The PRs the host associates with one commit, whatever their age.
+   *
+   * A row carries `number`, `head`, `headSha`, `base`, `state`, `mergedAt`,
+   * `mergeCommit`, `draft`, `url` and `author` as the host names them. The
+   * fields the endpoint does not carry read as not asked: `mergeable` and
+   * `checks` are `unknown`, `review` is `''` and `failingChecks` is empty.
+   *
+   * @param sha - the full commit sha to ask about.
+   * @returns the PRs; an empty list where the host was asked and associates
+   *   none. `unaskable` where this host cannot be asked (the shell transport),
+   *   or where the host has not indexed the commit's PR links yet (Bitbucket
+   *   HTTP 202 or 404), with the reason. `failed` where the request was
+   *   refused or the answer did not parse, with the reason in
+   *   {@link lastRefusal}. A failed read is never an empty list.
+   */
+  prsOfCommit(sha: string): Promise<PortResult<readonly Pr[]>>;
+
+  /**
    * The login the Review app's `plot/review` statuses carry: `<slug>[bot]`.
    *
    * Reads `Review app` from the default branch's committed config
