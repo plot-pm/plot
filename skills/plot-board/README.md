@@ -166,6 +166,10 @@ Untracked and unignored is the worst of both: it shows up in `git status`, and a
 `git add -A` in a worker's worktree carries a console log into the repo — the
 failure `.gitignore` already records for `.plot-worker.log`.
 
+## Environment and access
+
+[`SKILL.md`](SKILL.md#environment-and-access) documents the board's address and access variables (`PORT`, `HOST`, `PLOT_BOARD_ORIGINS`, `PLOT_BOARD_ALLOW_REMOTE_WRITES`, `PLOT_BOARD_MOCK`, `PLOT_REPO_ROOT`, `PLOT_SCRIPTS_DIR`), the exposure of the write routes and the route to another machine. The statements there come from `plot-boardctl.sh` and the `board` script of `package.json` (how each sets `PORT`) and from these files in `packages/board/src/server/`: `index.ts` (`PORT`, `HOST`, `PLOT_REPO_ROOT`, `PLOT_SCRIPTS_DIR`, the bind addresses, the `WRITE_ROUTES` table), `write-gate.ts` (the write gate and `PLOT_BOARD_ALLOW_REMOTE_WRITES`), `dispatch.ts` (`PLOT_BOARD_ORIGINS` and the same-origin check), `passkey.ts` (the passkey routes and the `localhost` relying party) and `estate.ts` (`PLOT_BOARD_MOCK`).
+
 ## Testing
 
 `test/reconcile/boardctl.test.mjs` drives the script against fabricated
