@@ -48,7 +48,8 @@ export type RoleCommand = { read: 'command'; command: string } | { read: 'refuse
  * which the CLI refuses. The fragment needs a bash runner.
  *
  * The fragment loads user settings only (`--setting-sources user`, so nothing
- * from the reviewed or fixed tree applies), selects the role with `--agent`,
+ * from the reviewed or fixed tree applies), loads no MCP server
+ * (`--strict-mcp-config` with no `--mcp-config`), selects the role with `--agent`,
  * and bounds the session with `--max-turns`: the `maxTurns` key inside
  * `--agents` bounds only a sub-agent a session spawns, not a session started
  * as the role (measured 2026-10-29: `maxTurns: 1` ran to 4 and 6 turns;
@@ -75,6 +76,7 @@ export const roleCommand = (role: RoleAgentRef, maxTurns: number, tools: readonl
     '-p',
     '--setting-sources',
     'user',
+    '--strict-mcp-config',
     '--agent',
     role.name,
     '--agents',
