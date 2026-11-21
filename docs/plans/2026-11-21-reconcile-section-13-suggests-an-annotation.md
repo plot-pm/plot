@@ -11,6 +11,7 @@
 - **Story:**
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -62,3 +63,28 @@ Board impact: none expected. Verify that `packages/board` does not parse the com
 ## Notes
 
 Created unattended from issue #3586. Type, Review and Impl answered from the prompt and `Plan PRs: required`; State stays Draft.
+
+## Open Points
+
+- [ ] [Domain] Option 1 or option 2? An unchecked box over a Delivered plan is `done` to `plot-sprint-release.sh:72-79`, is ticked by `deliver.ts:248` and is ticked by `/plot-sprint close` step 2a, so option 1 keeps a state that no other command keeps. Estate and contradiction jurors favour option 2. — *panel: amend, round 1*
+- [ ] [Domain] Annotation syntax: "any HTML comment" is refuted, because `/plot-approve` writes `<!-- pr: #N, branch: x -->` on every approved item (`sprint-annotation.ts:44-48`). If option 1 stays, the syntax is an `open: <reason>` field inside the item's existing comment, and the reason needs a defined end because `annotateSprintItem` splices into the first `<!--`. — *panel: amend, round 1*
+- [ ] [Domain] An unshipped `Release:` suppresses the finding by itself: four jurors say no, because it contradicts `scoreItem`'s `done` and close step 2a. The plan's claim that `plot-sprint-release.sh` knows whether the release shipped is false; the tag lookup is the scan's own section 17 loop and section 17 skips Closed sprints. — *panel: amend, round 1*
+- [ ] [Technical] A kept-open item needs no footer counter: nothing under `packages/` reads `stale_tally=`, and a new counter breaks the literal summary assertion at `scan.test.mjs:298`. — *panel: amend, round 1*
+- [ ] [Technical] Cost: `check-shell-lines.sh pr` has zero headroom, so option 1 must remove as many shell lines as it adds. The plan states no offset. — *panel: amend, round 1*
+- [ ] [Technical] Duplicated rule: `packages/domain/src/workflows/reconcile.ts:125-130` holds `staleTally` and `sprint-tally-stale`, and the board decodes it (`entry/reconcile.ts:170`). The plan says the board reads neither. Name the domain rule and update it, or state that it is dead. — *panel: amend, round 1*
+- [ ] [Deliverable] Rewrite the Changelog and the slice to one outcome, drop "if chosen", and name both header comments of section 13. "Related: #3489" is the consumer's number; in this repo #3489 is `approve-and-deliver-run-without-a-board`. — *panel: amend, round 1*
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "domain": true,
+    "ux": {"happyPath": false, "edgeCases": false, "errors": false, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": true, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
