@@ -2,9 +2,11 @@ import { planItReason, ticketsSection, TICKETS_ANCHOR } from '@plot-pm/domain';
 import type { DispatchInfo, IssueAnswer, IssueRow } from '../../contract/schema.js';
 import { artifactTuple, tupleAgeText } from '../lib/tuple-row.js';
 import { CreatePlanButton } from './CreatePlanButton.js';
-import { headerControl, SectionHead } from './SectionHead.js';
+import { headerControl, SectionEmptyFrame, SectionEmptyMark, SectionHead } from './SectionHead.js';
 import { LinkTupleView } from './TupleRow.js';
 import { ticketAnchor } from '../lib/agent-rows/delivery-view.js';
+import { sectionEmptyKind, type EmptyScope } from '../lib/agent-rows/section-empty.js';
+import type { DeliveryMine } from '@plot-pm/domain';
 
 /** The hooks a Tickets row's ticket segment carries, the same on an anchor and on text. */
 const TICKET_CONTROLS = [{ extraAttr: { link: { 'data-issue-link': '', 'data-issue-number': '' }, text: { 'data-issue-number': '' } } }];
@@ -39,7 +41,19 @@ export interface TicketsSectionViewProps {
   /** Whether the rows behind `… n more · show` show; the Delivery tab holds it, so a jump can open it. */
   foldOpen: boolean;
   onToggleFoldOpen: () => void;
+  /** The filters the empty frame names: the scope, the Mine mode, the tickets Mine hides and the setters. */
+  filters?: TicketsFilters;
 }
+
+interface TicketsFilters {
+  scope: EmptyScope;
+  mine: DeliveryMine;
+  mineHidden: number;
+  onMine?: () => void;
+  onScopeOff?: () => void;
+}
+
+const NO_FILTERS: TicketsFilters = { scope: { kind: 'release', sprints: [] }, mine: 'off', mineHidden: 0 };
 
 /**
  * The Delivery tab's Tickets section: the tickets no plan names, with *Plan it ›* in Do.
@@ -60,6 +74,17 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
     foldOpen,
   });
   const reason = planItReason(issueAnswer, idea.available);
+  const filters = props.filters ?? NO_FILTERS;
+  const empty = sectionEmptyKind({
+    section: 'tickets',
+    state: section.state,
+    count: section.rows.length,
+    note: section.state === 'failed' && props.absence !== '' ? props.absence : null,
+    absence: section.state === 'unsupported' && props.absence !== '' ? props.absence : null,
+    scope: filters.scope,
+    mine: filters.mine,
+    hidden: filters.mineHidden,
+  });
   return (
     <section id={TICKETS_ANCHOR} data-section="tickets" data-tickets-state={section.state} className="delivery-card space-y-2">
       <SectionHead
@@ -67,7 +92,7 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
         label="Tickets"
         folded={props.folded}
         onToggle={props.onToggleFold}
-        summary={props.folded && section.state === 'rows' && section.rows.length === 0 ? <span data-section-empty className="delivery-text-muted">— none</span> : null}
+        summary={props.folded && empty !== null ? <SectionEmptyMark empty={empty} /> : null}
       >
         <h2 data-delivery-section="tickets" className="delivery-title flex items-baseline gap-1">
           Tickets
@@ -93,10 +118,19 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
           </p>
         )}
       </SectionHead>
-      {props.folded ? null : section.state !== 'rows' ? (
-        <p data-tickets-absent={section.state} data-issue-error={section.state === 'failed' ? '' : undefined} data-issue-absence={section.state === 'unsupported' ? '' : undefined} className="delivery-text-muted px-3 text-[13px]">
-          {props.absence !== '' ? props.absence : section.state === 'unasked' ? 'the tracker has not been read yet' : 'the tracker gave no answer'}
-        </p>
+      {props.folded ? null : empty !== null ? (
+        <>
+          {section.state === 'rows' && props.notice !== null && <p data-waiting-notice className="delivery-text-muted px-3 text-xs">{props.notice}</p>}
+          {section.state === 'rows' && props.hiddenSentence !== null && <p data-waiting-hidden-text className="delivery-text-muted px-3 text-xs">{props.hiddenSentence}</p>}
+          <SectionEmptyFrame
+            section="tickets"
+            empty={empty}
+            onMine={filters.onMine}
+            onScopeOff={filters.onScopeOff}
+            attrs={section.state === 'rows' ? {} : { 'data-tickets-absent': section.state }}
+            noteAttrs={section.state === 'failed' ? { 'data-issue-error': '' } : section.state === 'unsupported' ? { 'data-issue-absence': '' } : {}}
+          />
+        </>
       ) : (
         <>
           {props.notice !== null && <p data-waiting-notice className="delivery-text-muted px-3 text-xs">{props.notice}</p>}

@@ -177,6 +177,20 @@
 .delivery-text-alert { color: var(--hue-red); }
 .delivery-text-link:hover { text-decoration: underline; }
 
+/* The frame an open section with no rows shows: a dashed border, a mark and one sentence. */
+.delivery-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin: 6px 12px 0;
+  padding: 12px;
+  border: 1px dashed var(--card-border);
+  border-radius: 8px;
+  color: var(--card-meta);
+  font-size: 12.5px;
+}
+
 /* A cell that cannot hold its text cuts it at the end; the full text is its `title`. */
 .delivery-truncate {
   min-width: 0;

@@ -859,3 +859,47 @@ export interface JumpOptions {
 
 /** Opens the section, group and plan row that hold `anchor`, then scrolls to it once it is mounted. */
 export type Jump = (anchor: string, options?: JumpOptions) => void;
+
+/** What `sectionHiddenCounts` reads: the placements and the counts before and after Mine. */
+export interface SectionHiddenInput {
+  /** The items of the shown placement. */
+  shown: readonly Pick<ItemPlacement, 'id' | 'section'>[];
+  /** The items of the placement of `wholeReadings`, which Mine does not narrow. */
+  whole: readonly Pick<ItemPlacement, 'id' | 'section'>[];
+  /** `fleet.agents` and the agents `agentsForReader` keeps. */
+  agents: { total: number; kept: number };
+  /** The tickets `ticketsForReader` takes and the tickets it returns. */
+  tickets: { before: number; after: number };
+}
+
+/** How many subjects Mine hides from each section that Mine narrows. */
+export interface SectionHiddenCounts {
+  you: number;
+  'work-items': number;
+  fleet: number;
+  tickets: number;
+}
+
+/**
+ * The Mine-hidden count of each section, counted from the subjects each section shows.
+ *
+ * For You and Work items, the count is the items the whole placement puts in
+ * the section and the shown placement does not. For Fleet, it is the agents
+ * Mine drops; for Tickets, the tickets Mine drops. `fleet.waiting.hidden`, the
+ * tickets *show all* reveals, is not an input.
+ *
+ * @param input - the placements and the counts before and after Mine.
+ * @returns one count per section; 0 where Mine hides nothing.
+ */
+export const sectionHiddenCounts = (input: SectionHiddenInput): SectionHiddenCounts => {
+  const items = (section: DeliverySection): number => {
+    const shown = new Set(input.shown.filter((p) => p.section === section).map((p) => p.id));
+    return input.whole.filter((p) => p.section === section && !shown.has(p.id)).length;
+  };
+  return {
+    you: items('you'),
+    'work-items': items('work-items'),
+    fleet: Math.max(0, input.agents.total - input.agents.kept),
+    tickets: Math.max(0, input.tickets.before - input.tickets.after),
+  };
+};

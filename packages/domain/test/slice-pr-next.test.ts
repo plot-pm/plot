@@ -5,7 +5,9 @@ import type { Sprint } from '../src/entities/sprint.js';
 import { defaultBranchRed } from '../src/rules/default-branch.js';
 import type { DefaultBranchReading } from '../src/entities/default-branch.js';
 import type { RepairMergeReading } from '../src/rules/repair-pr.js';
-import { ciRedArm, highArm, mergeArm, nextMerge, restatusArm, reviewArm, slicePrNext, type SlicePrNextReadings } from '../src/rules/slice-pr-next.js';
+import type { FixerAttemptsRecord } from '../src/entities/fixer-attempts.js';
+import { fixerReadingOf } from '../src/rules/fixer-attempts.js';
+import { ciRedArm, conflictArm, fixerPrNext, highArm, mergeArm, nextMerge, restatusArm, reviewArm, slicePrNext, type SlicePrNextReadings } from '../src/rules/slice-pr-next.js';
 
 const HEAD = 'a'.repeat(40);
 const OLD = 'b'.repeat(40);
@@ -80,7 +82,7 @@ describe('slicePrNext', () => {
   it('acts on a slice PR into a sprint branch: green selects the review, failing selects the fixer', () => {
     // The row carries no base branch; the sprint scope names the head, so the arms read only the rollup.
     const sprintScope = { read: 'scope', sprint: {} as Sprint, slugs: ['x'], branches: ['infra/sprint-slice'] } as const;
-    const fixerFresh = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, pushedHead: false } as const;
+    const fixerFresh = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, conflictExhausted: false, conflictTried: false, pushedHead: false } as const;
     const green = row({ head: 'infra/sprint-slice', ciChecks: 'green' });
     expect(reviewArm(readings({ row: green, scope: sprintScope }))).toEqual({ step: 'review', head: HEAD });
     const failing = row({ head: 'infra/sprint-slice', ciChecks: 'failing', checksSha: HEAD });
@@ -170,9 +172,9 @@ describe('slicePrNext', () => {
   });
 
   it('holds on a live fixer mark over an otherwise green new head, before the review arm', () => {
-    const fixer = { read: 'record', inFlight: true, highExhausted: false, ciExhausted: false, pushedHead: false } as const;
+    const fixer = { read: 'record', inFlight: true, highExhausted: false, ciExhausted: false, conflictExhausted: false, conflictTried: false, pushedHead: false } as const;
     expect(slicePrNext(readings({ fixer }))).toEqual({ step: 'hold', reason: 'fixer-in-flight' });
-    expect(slicePrNext(readings({ fixer: { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, pushedHead: false } }))).toEqual({
+    expect(slicePrNext(readings({ fixer: { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, conflictExhausted: false, conflictTried: false, pushedHead: false } }))).toEqual({
       step: 'review',
       head: HEAD,
     });
@@ -217,7 +219,7 @@ describe('slicePrNext', () => {
   describe('arm order with a real verdict reading', () => {
     it("the HIGH arm's accepted success survives a failure verdict file", () => {
       const r = row({ plotReview: 'failure', plotReviewSha: HEAD });
-      const fixer = { read: 'record', inFlight: false, highExhausted: true, ciExhausted: false, pushedHead: false } as const;
+      const fixer = { read: 'record', inFlight: false, highExhausted: true, ciExhausted: false, conflictExhausted: false, conflictTried: false, pushedHead: false } as const;
       const ticket = { read: 'record', ticket: 'opened', id: '#9', coversHead: true } as const;
       const verdict = { read: 'verdict', state: 'failure', description: 'HIGH 1' } as const;
       expect(slicePrNext(readings({ row: r, fixer, ticket, verdict }))).toEqual({
@@ -233,11 +235,11 @@ describe('slicePrNext', () => {
   describe('the HIGH arm (#2903)', () => {
     it('starts the fixer for a HIGH after two CI-red attempts', () => {
       const r = row({ plotReview: 'failure', plotReviewSha: HEAD });
-      const fixer = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: true, pushedHead: false } as const;
+      const fixer = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: true, conflictExhausted: false, conflictTried: false, pushedHead: false } as const;
       expect(highArm(readings({ row: r, fixer }))).toEqual({ step: 'fixer', head: HEAD, evidence: 'high' });
     });
 
-    const fixerFresh = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, pushedHead: false } as const;
+    const fixerFresh = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, conflictExhausted: false, conflictTried: false, pushedHead: false } as const;
 
     it('starts the fixer for a HIGH bound to the current head', () => {
       const r = row({ plotReview: 'failure', plotReviewSha: HEAD });
@@ -256,7 +258,7 @@ describe('slicePrNext', () => {
 
     describe('with the attempts spent', () => {
       const r = row({ plotReview: 'failure', plotReviewSha: HEAD });
-      const fixer = { read: 'record', inFlight: false, highExhausted: true, ciExhausted: true, pushedHead: false } as const;
+      const fixer = { read: 'record', inFlight: false, highExhausted: true, ciExhausted: true, conflictExhausted: false, conflictTried: false, pushedHead: false } as const;
       const none = { read: 'record', ticket: 'none' } as const;
 
       it('asks for a ticket where none is recorded', () => {
@@ -319,7 +321,7 @@ describe('slicePrNext', () => {
   });
 
   describe('the CI-red arm (#2903)', () => {
-    const fixerFresh = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, pushedHead: false } as const;
+    const fixerFresh = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, conflictExhausted: false, conflictTried: false, pushedHead: false } as const;
     const ciRedRow = row({ ciChecks: 'failing', checksSha: HEAD });
 
     it('starts the fixer once the desk is dead', () => {
@@ -352,7 +354,7 @@ describe('slicePrNext', () => {
     });
 
     it('starts the fixer on a red head the fixer record proves fixer-pushed', () => {
-      const fixer = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, pushedHead: true } as const;
+      const fixer = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, conflictExhausted: false, conflictTried: false, pushedHead: true } as const;
       for (const why of ['elsewhere', 'live'] as const) {
         expect(ciRedArm(readings({ row: ciRedRow, fixer, desk: { dead: false, why } }))).toEqual({
           step: 'fixer',
@@ -374,7 +376,7 @@ describe('slicePrNext', () => {
 
     it('holds once the attempts budget is spent on a dead desk with CI still red', () => {
       const desk = { dead: true } as const;
-      const fixer = { read: 'record', inFlight: false, highExhausted: true, ciExhausted: true, pushedHead: false } as const;
+      const fixer = { read: 'record', inFlight: false, highExhausted: true, ciExhausted: true, conflictExhausted: false, conflictTried: false, pushedHead: false } as const;
       expect(slicePrNext(readings({ row: ciRedRow, fixer, desk }))).toEqual({ step: 'hold', reason: 'ci-red-attempts-spent' });
     });
 
@@ -401,6 +403,94 @@ describe('slicePrNext', () => {
       const { headSha: _h, ...noHead } = row({ ciChecks: 'failing' });
       expect(ciRedArm(readings({ row: null, fixer: fixerFresh, desk }))).toEqual({ step: 'none', why: 'not-asked' });
       expect(ciRedArm(readings({ row: noHead, fixer: fixerFresh, desk }))).toEqual({ step: 'none', why: 'not-asked' });
+    });
+  });
+});
+
+describe('the conflict arm', () => {
+  const TIP = 'c'.repeat(40);
+  const fresh = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, conflictExhausted: false, conflictTried: false, pushedHead: false } as const;
+  const conflicting = row({ mergeable: 'conflicting' });
+  const dead = { dead: true } as const;
+  const tip = { read: 'tip', sha: TIP } as const;
+
+  it('answers none on a row that is not conflicting', () => {
+    for (const mergeable of ['mergeable', 'unknown', 'CONFLICTING', undefined]) {
+      expect(conflictArm(readings({ row: row({ mergeable }), fixer: fresh, desk: dead, baseTip: tip }))).toEqual({ step: 'none', why: 'no-conflict' });
+    }
+  });
+
+  it('answers none with no row, with no head, and before the fixer is built', () => {
+    const { headSha: _head, ...headless } = conflicting;
+    expect(conflictArm(readings({ row: null, fixer: fresh, desk: dead, baseTip: tip }))).toEqual({ step: 'none', why: 'no-conflict' });
+    expect(conflictArm(readings({ row: headless, fixer: fresh, desk: dead, baseTip: tip }))).toEqual({ step: 'none', why: 'no-conflict' });
+    expect(conflictArm(readings({ row: conflicting, desk: dead, baseTip: tip }))).toEqual({ step: 'none', why: 'fixer-not-built' });
+  });
+
+  it('holds unread on an unread fixer record, an unread base tip, or no base tip', () => {
+    expect(conflictArm(readings({ row: conflicting, fixer: { read: 'unread' }, desk: dead, baseTip: tip }))).toEqual({ step: 'hold', reason: 'unread' });
+    expect(conflictArm(readings({ row: conflicting, fixer: fresh, desk: dead, baseTip: { read: 'unread' } }))).toEqual({ step: 'hold', reason: 'unread' });
+    expect(conflictArm(readings({ row: conflicting, fixer: fresh, desk: dead }))).toEqual({ step: 'hold', reason: 'unread' });
+  });
+
+  it('holds conflict-attempted where this head and base tip had an attempt', () => {
+    expect(conflictArm(readings({ row: conflicting, fixer: { ...fresh, conflictTried: true }, desk: dead, baseTip: tip }))).toEqual({
+      step: 'hold',
+      reason: 'conflict-attempted',
+    });
+  });
+
+  it('holds conflict-attempts-spent once the conflict budget is spent', () => {
+    expect(conflictArm(readings({ row: conflicting, fixer: { ...fresh, conflictExhausted: true }, desk: dead, baseTip: tip }))).toEqual({
+      step: 'hold',
+      reason: 'conflict-attempts-spent',
+    });
+  });
+
+  it("answers none('desk-alive') for a desk that is not gone", () => {
+    expect(conflictArm(readings({ row: conflicting, fixer: fresh, desk: { dead: false, why: 'live' }, baseTip: tip }))).toEqual({
+      step: 'none',
+      why: 'desk-alive',
+    });
+  });
+
+  it('starts the fixer with conflict evidence once the desk is gone', () => {
+    expect(conflictArm(readings({ row: conflicting, fixer: fresh, desk: dead, baseTip: tip }))).toEqual({ step: 'fixer', head: HEAD, evidence: 'conflict' });
+    expect(conflictArm(readings({ row: conflicting, fixer: { ...fresh, pushedHead: true }, desk: { dead: false, why: 'live' }, baseTip: tip }))).toEqual({
+      step: 'fixer',
+      head: HEAD,
+      evidence: 'conflict',
+    });
+  });
+
+  it('answers conflict, not ci-red, through fixerPrNext on a conflicting row with red CI', () => {
+    const red = row({ base: 'main', mergeable: 'conflicting', ciChecks: 'failing', checksSha: HEAD, headSince: new Date(NOW - 7_200_000).toISOString() });
+    const { scope: _s, ...rest } = readings({ row: red, fixer: fresh, desk: dead, baseTip: tip, defaultBranchName: 'main' });
+    expect(fixerPrNext({ ...rest, owner: 'none' })).toEqual({ step: 'fixer', head: HEAD, evidence: 'conflict' });
+  });
+
+  describe('one attempt per head and base tip, two per PR', () => {
+    const OTHER_TIP = 'd'.repeat(40);
+    const THIRD_TIP = 'e'.repeat(40);
+    const attempt = (baseTip: string) => ({ headSha: HEAD, finding: { kind: 'conflict', head: HEAD, baseTip } }) as const;
+    const record = (...tips: string[]): FixerAttemptsRecord => ({ v: 1, pr: 7, attempts: tips.map(attempt) });
+    const step = (r: FixerAttemptsRecord | 'none', sha: string) =>
+      conflictArm(readings({ row: conflicting, fixer: fixerReadingOf(r, HEAD, sha), desk: dead, baseTip: { read: 'tip', sha } }));
+
+    it('starts the first attempt', () => {
+      expect(step('none', TIP)).toEqual({ step: 'fixer', head: HEAD, evidence: 'conflict' });
+    });
+
+    it('holds a second conflict on the same head and base tip', () => {
+      expect(step(record(TIP), TIP)).toEqual({ step: 'hold', reason: 'conflict-attempted' });
+    });
+
+    it('starts a second attempt once the base tip moved', () => {
+      expect(step(record(TIP), OTHER_TIP)).toEqual({ step: 'fixer', head: HEAD, evidence: 'conflict' });
+    });
+
+    it('holds a third as spent', () => {
+      expect(step(record(TIP, OTHER_TIP), THIRD_TIP)).toEqual({ step: 'hold', reason: 'conflict-attempts-spent' });
     });
   });
 });
@@ -537,7 +627,7 @@ describe('the merge arm', () => {
   });
 
   it('holds conflicting', () => {
-    expect(merging({ row: { ...passed, mergeable: 'CONFLICTING' } })).toEqual({ step: 'hold', reason: 'conflicting' });
+    expect(merging({ row: { ...passed, mergeable: 'conflicting' } })).toEqual({ step: 'hold', reason: 'conflicting' });
   });
 
   it('holds merger-app-missing for an absent key on GitHub', () => {
@@ -595,7 +685,7 @@ describe('the merge arm', () => {
       expect(into({ baseReading: baseRed({ branch: 'sprint/other' }) })).toEqual({ step: 'merge', head: HEAD });
     });
     it('still holds conflicting and a missing merger app on the sprint path', () => {
-      expect(into({ row: { ...sprintRow, mergeable: 'CONFLICTING' } })).toEqual({ step: 'hold', reason: 'conflicting' });
+      expect(into({ row: { ...sprintRow, mergeable: 'conflicting' } })).toEqual({ step: 'hold', reason: 'conflicting' });
       expect(into({ mergerApp: { read: 'unread' } })).toMatchObject({ step: 'hold' });
     });
     it('gives the named repair PR into a sprint branch no admission on a red base', () => {
@@ -652,7 +742,7 @@ describe('the merge arm', () => {
       expect(into({ repairMerge: main })).toEqual({ step: 'hold', reason: 'base-branch-red' });
     });
     it('still holds conflicting after admission', () => {
-      expect(into({ baseRepairMerge: baseRepairMerge(), row: { ...sprintRow, mergeable: 'CONFLICTING' } })).toEqual({ step: 'hold', reason: 'conflicting' });
+      expect(into({ baseRepairMerge: baseRepairMerge(), row: { ...sprintRow, mergeable: 'conflicting' } })).toEqual({ step: 'hold', reason: 'conflicting' });
     });
     it('admits nothing for a base reading that is not red', () => {
       expect(into({ baseReading: null, baseRepairMerge: baseRepairMerge() })).toEqual({ step: 'merge', head: HEAD });
@@ -706,7 +796,7 @@ describe('the merge arm', () => {
     });
 
     it('keeps the remaining holds on the admitted PR', () => {
-      expect(onRed({ row: { ...passed, head: REPAIR_BRANCH, mergeable: 'CONFLICTING' } })).toEqual({ step: 'hold', reason: 'conflicting' });
+      expect(onRed({ row: { ...passed, head: REPAIR_BRANCH, mergeable: 'conflicting' } })).toEqual({ step: 'hold', reason: 'conflicting' });
       expect(onRed({ defaultBranch: reading({ settled: { sha: TIP, state: 'red' }, headSha: 'd'.repeat(40) }) })).toEqual({ step: 'hold', reason: 'merge-in-flight' });
       expect(onRed({ defaultBranch: reading({ settled: { sha: TIP, state: 'red' }, askedAt: '2026-10-30T09:00:00Z' }) })).toEqual({ step: 'hold', reason: 'default-branch-stale' });
     });
