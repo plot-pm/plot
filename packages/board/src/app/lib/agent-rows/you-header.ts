@@ -1,7 +1,6 @@
 import {
   DEFAULT_PHASE_MAP,
   ownership,
-  releaseTodoEntries,
   youHeader,
   type DeliveryPlacement,
   type PhaseMap,
@@ -9,7 +8,9 @@ import {
   type ReleaseCardView,
   type YouHeader,
 } from '@plot-pm/domain';
-import type { Board, Card, StoryCard } from '../../../contract/schema.js';
+import type { PasskeyRegistration } from '@plot-pm/domain/rules/passkey-settings';
+import type { AgentRow, Board, Card, StoryCard } from '../../../contract/schema.js';
+import { releaseTodoEntriesOf } from './todo-list.js';
 import { ownedFromCard } from './mine-filter.js';
 import type { DeliveryView } from './delivery-view.js';
 
@@ -30,6 +31,10 @@ export interface YouHeaderReadings {
   cards: readonly Card[];
   /** The release cards; the header counts the approvals they owe, as the to-do list does. Absent reads as none. */
   releases?: readonly ReleaseCardView[];
+  /** The rows the release cards bind, by `rowId`; absent reads as none read. */
+  releaseRows?: Readonly<Record<string, AgentRow>>;
+  /** The passkey registration answer; `null` or absent while unread. */
+  passkey?: PasskeyRegistration | null;
 }
 
 /** The You header the Delivery tab renders: the domain's counts over the payload's readings. */
@@ -54,6 +59,6 @@ export const youHeaderOf = (r: YouHeaderReadings): YouHeader => {
       ownership: ownership(ownedFromCard(c), r.reader),
       anchor: anchorOf(c.slug),
     })),
-    releases: releaseTodoEntries(r.releases ?? []),
+    releases: releaseTodoEntriesOf(r.releases ?? [], r.releaseRows ?? {}, r.passkey ?? null),
   });
 };

@@ -277,6 +277,7 @@ const FIELD_SOURCES: Readonly<Record<string, Source>> = {
   listingAt: SCANNER,
   listingIntervalMs: SCANNER,
   listingBranches: SCANNER,
+  listingWalked: SCANNER,
   listingReusedAgeMs: SCANNER,
   listingHeld: SCANNER,
   backoffUntil: SCANNER,

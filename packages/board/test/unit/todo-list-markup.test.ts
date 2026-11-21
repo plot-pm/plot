@@ -6,7 +6,7 @@ import { TodoList, TODO_MARKER_CLASS } from '../../src/app/components/TodoList.j
 
 const todo = (over: Partial<TodoListFact>): TodoListFact => ({
   lines: [],
-  counts: { 'blocks-delivery': 0, input: 0, 'clean-up': 0 },
+  counts: { 'blocks-delivery': 0, input: 0, 'clean-up': 0, waits: 0 },
   header: 'You block nothing',
   tickets: 0,
   triageText: '0 tickets assigned to you have no plan',
@@ -29,8 +29,8 @@ describe('the to-do list markup', () => {
 
   it('renders the verb and the label apart, keeps the line text, and marks the line with its hue class', () => {
     const html = render(todo({
-      lines: [{ id: 'a', text: 'Approve my-plan', verb: 'Approve', label: 'my-plan', marker: 'blocks-delivery', markerWords: 'blocks delivery', anchor: 'x' }],
-      counts: { 'blocks-delivery': 1, input: 0, 'clean-up': 0 },
+      lines: [{ id: 'a', text: 'Approve my-plan', verb: 'Approve', label: 'my-plan', reason: '', marker: 'blocks-delivery', markerWords: 'blocks delivery', anchor: 'x' }],
+      counts: { 'blocks-delivery': 1, input: 0, 'clean-up': 0, waits: 0 },
     }));
     expect(html).toMatch(/<li data-todo-line="blocks-delivery" class="[^"]*\bdelivery-hue-red\b/);
     const name = /<button[^>]*data-todo-name[^>]*>(.*?)<\/button>/.exec(html)![1];
@@ -40,10 +40,23 @@ describe('the to-do list markup', () => {
     expect(html).toMatch(/<span data-todo-marker="true"[^>]*>blocks delivery<\/span>/);
   });
 
-  it('maps every marker to a hue class and draws no Tailwind colour utility', () => {
-    expect(TODO_MARKER_CLASS).toEqual({ 'blocks-delivery': 'delivery-hue-red', input: 'delivery-hue-blue', 'clean-up': 'delivery-tone-neutral' });
+  it('renders a waiting line grey with its reason after the label', () => {
     const html = render(todo({
-      lines: [{ id: 'b', text: 'Interrogate p', verb: 'Interrogate', label: 'p', marker: 'input', markerWords: 'input', anchor: 'y' }],
+      lines: [{ id: 'r', text: 'Approve release 2.35.2 · CI is still running on aaaaaaaaa', verb: 'Approve release', label: '2.35.2',
+        reason: 'CI is still running on aaaaaaaaa', marker: 'waits', markerWords: 'waits', anchor: 'z', icon: 'release' }],
+      counts: { 'blocks-delivery': 0, input: 0, 'clean-up': 0, waits: 1 },
+    }));
+    expect(html).toMatch(/<li data-todo-line="waits" class="[^"]*\bdelivery-hue-slate\b/);
+    const name = /<button[^>]*data-todo-name[^>]*>(.*?)<\/button>/.exec(html)![1];
+    expect(text(name)).toBe('Approve release 2.35.2 · CI is still running on aaaaaaaaa');
+    expect(html).toMatch(/<span data-todo-reason="true"[^>]*> · CI is still running on aaaaaaaaa<\/span>/);
+    expect(html).toMatch(/<span data-todo-marker="true"[^>]*>waits<\/span>/);
+  });
+
+  it('maps every marker to a hue class and draws no Tailwind colour utility', () => {
+    expect(TODO_MARKER_CLASS).toEqual({ 'blocks-delivery': 'delivery-hue-red', input: 'delivery-hue-blue', 'clean-up': 'delivery-tone-neutral', waits: 'delivery-hue-slate' });
+    const html = render(todo({
+      lines: [{ id: 'b', text: 'Interrogate p', verb: 'Interrogate', label: 'p', reason: '', marker: 'input', markerWords: 'input', anchor: 'y' }],
     }));
     expect(html).not.toMatch(/dark:|slate-|blue-\d|red-\d/);
   });

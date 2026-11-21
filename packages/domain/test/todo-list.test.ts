@@ -79,13 +79,14 @@ describe('a clean-up line', () => {
 
 describe('todoList verb and label', () => {
   it('rejoins to text for every line, releases included', () => {
-    const t = ask({ releases: [{ id: 'release:2.0', label: '2.0', anchor: 'release-card' }] });
+    const t = ask({ releases: [{ id: 'release:2.0', label: '2.0', anchor: 'release-card', blocks: true, reason: '' }, { id: 'release:3.0', label: '3.0', anchor: 'release-card-3', blocks: false, reason: 'CI is failing on aaaaaaaaa' }] });
     expect(t.lines.some((l) => l.id === 'release:2.0')).toBe(true);
     for (const l of t.lines) {
       expect(l.verb).not.toBe('');
       expect(l.label).not.toBe('');
-      expect(`${l.verb} ${l.label}`).toBe(l.text);
+      expect(l.reason === '' ? `${l.verb} ${l.label}` : `${l.verb} ${l.label} · ${l.reason}`).toBe(l.text);
     }
+    expect(t.lines.find((l) => l.id === 'release:3.0')!.text).toBe('Approve release 3.0 · CI is failing on aaaaaaaaa');
     expect(t.lines.find((l) => l.id === 'a')).toMatchObject({ verb: 'Approve', label: 'a' });
   });
 
@@ -95,7 +96,7 @@ describe('todoList verb and label', () => {
       { placement: { ...you('b', 'loose').placement, kind: 'branch' }, label: 'b', anchor: 'a-b' },
       { placement: { ...you('r', 'review-pr').placement, kind: 'pr' }, label: 'r', anchor: 'a-r' },
     ];
-    const t = todoList({ items: kinds, ticketAnswer: 'answered', tickets: [], releases: [{ id: 'release:1.0.0', label: '1.0.0', anchor: 'rel' }] });
+    const t = todoList({ items: kinds, ticketAnswer: 'answered', tickets: [], releases: [{ id: 'release:1.0.0', label: '1.0.0', anchor: 'rel', blocks: true, reason: '' }] });
     expect(Object.fromEntries(t.lines.map((l) => [l.id, l.icon]))).toEqual({ p: 'plan', b: 'branch', r: 'pr', 'release:1.0.0': 'release' });
     expect(t.triageIcon).toBe('ticket');
   });

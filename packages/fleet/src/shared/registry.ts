@@ -758,6 +758,8 @@ export interface RegistryInfo {
    * `isAgentDesk` answers `false` for their state. A person's worktree is one.
    */
   checkoutCount: number;
+  /** How many of the synthesized entries have the state `unknown`: the worker-state read gave no answer for their desk. */
+  unreadCount: number;
 }
 
 /**
@@ -890,6 +892,7 @@ export async function readAgentRegistryWithInfo(
   // Counted before the settled drop below, like the manifests: the registry
   // fact is about what the read SAW, and the state is final from here on.
   const checkoutCount = synthesized.filter((e) => !isAgentDesk(e.state)).length;
+  const unreadCount = synthesized.filter((e) => e.state === 'unknown').length;
   // Drop settled workers: session ended AND worktree clean. A worker with either
   // condition outstanding — live session OR dirty/unpushed — stays visible.
   const filtered = await dropSettledWorkers(
@@ -903,7 +906,7 @@ export async function readAgentRegistryWithInfo(
   const entries = filtered.sort((a, b) => (b.startedAt || '').localeCompare(a.startedAt || ''));
   return {
     entries,
-    info: { directory: dir, manifestCount, synthesizedCount: synthesized.length, checkoutCount },
+    info: { directory: dir, manifestCount, synthesizedCount: synthesized.length, checkoutCount, unreadCount },
   };
 }
 

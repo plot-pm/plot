@@ -49,6 +49,9 @@ process.env.PLOT_BUDGET_HOME = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-h
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const adapter = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-host.sh');
+// The `fields` filter every Bitbucket listing request carries (`BB_LIST_FIELDS`).
+const BB_FIELDS = 'next,size,page,pagelen,values.id,values.title,values.state,values.draft,values.updated_on,values.links.html.href,values.author.nickname,values.source.branch.name,values.source.commit.hash,values.destination.branch.name,values.merge_commit.hash';
+const BB_ALL_STATES = 'state=OPEN&state=MERGED&state=DECLINED';
 
 // `fail` makes a stub exit non-zero with a chosen stderr message — the ONLY
 // way to reproduce the case this adapter now has to tell apart, because `gh`
@@ -206,12 +209,12 @@ const mergeCallsOf = (log) => (existsSync(log) ? readFileSync(log, 'utf8').trim(
 //
 // Also handles the capability check (--version, --help --json) like the
 // adapter now expects.
-// A STATE MAY ALSO FAIL, which is the shape #912 is made of. `bb pr list` has
-// no `all` state, so the adapter calls once per state and some calls can fail
-// while others answer — a partial answer, which no single-call host can
-// produce. A `perState` value may therefore be either a payload string or
-// `{ fail: '<stderr text>', code: N }`, so a test can say *this state throttled
-// and the others answered* without a second stub.
+// A STATE MAY ALSO FAIL, which is the shape #912 is made of. A `perState`
+// value may be either a payload string or `{ fail: '<stderr text>', code: N }`.
+// One request asks every state it names (`state=OPEN&state=MERGED`, or
+// `(state="OPEN" OR state="MERGED")` inside `q=`), so the stub answers the
+// asked states' payloads joined in the order asked, and fails the whole
+// request where any asked state fails.
 function makeStrictBbStub({ json = '[]', perState = null, version = 'bb version 1.9.0' } = {}) {
   const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-bb-')));
   const callsFile = path.join(dir, 'bb.calls');
@@ -229,32 +232,41 @@ function makeStrictBbStub({ json = '[]', perState = null, version = 'bb version 
 if [[ "$*" == *"--version"* ]]; then echo '${version}'; exit 0; fi
 if [[ "$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
 printf '%s\\n' "$*" >> "${callsFile}"
-state=open
+states=""
 page=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --state) state="$2"; shift 2 ;;
+    --state) states="$2"; shift 2 ;;
     --limit) echo "unknown flag: --limit" >&2; exit 1 ;;
-    # The plain listing: \`bb api …/pullrequests?state=<S>&pagelen=50\`. Its
-    # state is Bitbucket's upper-case word, and its answer is a raw page.
+    # The plain listing: \`bb api …/pullrequests?state=<S1>&state=<S2>&pagelen=50\`.
+    # Its states are Bitbucket's upper-case words, and its answer is a raw page.
     */pullrequests\\?state=*)
-      state="\${1#*\\?state=}"; state="\$(printf '%s' "\${state%%&*}" | tr '[:upper:]' '[:lower:]')"; page=1; shift ;;
-    # The per-branch query: \`bb api …/pullrequests?q=state=%22<S>%22…\`. The \`=\`
-    # inside the \`q=\` clauses is a literal bash character, never passed through
-    # \`url_encode\` — only its value is — so the state word sits between a
-    # literal \`state=%22\` and the next \`%22\`.
+      for kv in \$(printf '%s' "\${1#*\\?}" | tr '&' ' '); do case "\$kv" in state=*) states="\$states \${kv#state=}" ;; esac; done; page=1; shift ;;
+    # The per-branch query: \`bb api …/pullrequests?q=%28state=%22<S1>%22 OR …%29…\`.
+    # The \`=\` inside the \`q=\` clauses is a literal bash character, never
+    # passed through \`url_encode\` — only its value is — so each state word
+    # sits between a literal \`state=%22\` and the next \`%22\`.
     */pullrequests\\?q=*)
-      state="\${1#*state=%22}"; state="\${state%%%22*}"; state="\$(printf '%s' "\$state" | tr '[:upper:]' '[:lower:]')"; page=1; shift ;;
+      q="\${1#*\\?q=}"; q="\${q%%&*}"
+      while [[ "\$q" == *state=%22* ]]; do q="\${q#*state=%22}"; states="\$states \${q%%%22*}"; done; page=1; shift ;;
     *) shift ;;
   esac
 done
-if [ "$page" = 1 ]; then printf '{"values":'; fi
-trap '[ "$page" = 1 ] && printf "}"' EXIT
-case "$state" in
-  open|merged|declined|superseded) ;;
-  *) echo "error: invalid --state '\${state}' (must be open, merged, declined, or superseded)" >&2; exit 1 ;;
-esac
-${cases ? `case "$state" in\n${cases}\n    *) printf '%s' '[]' ;;\nesac` : `printf '%s' '${json.replace(/'/g, `'\\''`)}'`}
+states="\$(printf '%s' "\${states:-open}" | tr '[:upper:]' '[:lower:]')"
+one() {
+${cases ? `case "$1" in\n${cases}\n    *) printf '%s' '[]' ;;\nesac` : `printf '%s' '${json.replace(/'/g, `'\\''`)}'`}
+}
+out=""
+for state in \$states; do
+  case "$state" in
+    open|merged|declined|superseded) ;;
+    *) echo "error: invalid --state '\${state}' (must be open, merged, declined, or superseded)" >&2; exit 1 ;;
+  esac
+  part="\$(one "\$state")" || exit \$?
+  ${cases ? '' : 'out="$part"; break'}
+  out="\$(jq -c -n --argjson a "\${out:-[]}" --argjson b "\$part" '\$a + \$b')"
+done
+if [ "$page" = 1 ]; then printf '{"values":%s}' "\${out:-[]}"; else printf '%s' "\${out:-[]}"; fi
 `;
   writeFileSync(path.join(dir, 'bb'), body);
   chmodSync(path.join(dir, 'bb'), 0o755);
@@ -1209,7 +1221,7 @@ test('host: pr-list bitbucket flattens to number/title/state/head/headSha/draft'
     number: 3, title: 'A', state: 'OPEN', head: 'feature/a', draft: true, url: '', updatedAt: '',
     headSha: '0123456789ab', mergedAt: '', author: '', base: '',
   });
-  assert.deepEqual(argvOf(stubs.bbArgv), ['api', '/repositories/{ws}/{repo}/pullrequests?state=OPEN&pagelen=50']);
+  assert.deepEqual(argvOf(stubs.bbArgv), ['api', `/repositories/{ws}/{repo}/pullrequests?state=OPEN&pagelen=50&fields=${BB_FIELDS}`]);
 });
 
 test('host: pr-state lookup miss yields state NONE, exit 0', () => {
@@ -1986,7 +1998,7 @@ test('host: run-for-sha exits 4 when gh run view fails, never reporting an unacq
 // while sending the caller's GitHub word unchanged on the way in. These run
 // against makeStrictBbStub, which refuses what bb 1.0.0 refuses.
 
-test('host: pr-list --state all issues one bb call per real state', () => {
+test('host: pr-list --state all asks every real state in one bb call', () => {
   const bb = makeStrictBbStub({
     perState: {
       open: '[{"id":1,"title":"O","state":"OPEN","source":{"branch":{"name":"feature/o"}}}]',
@@ -2005,13 +2017,10 @@ test('host: pr-list --state all issues one bb call per real state', () => {
   assert.deepEqual(rows.map((r) => r.number).sort(), [1, 2, 3]);
 
   const calls = callsOf(bb.callsFile);
-  assert.equal(calls.length, 3, 'one call per state, not one call with three flags');
-  for (const s of ['OPEN', 'MERGED', 'DECLINED']) {
-    assert.ok(calls.some((c) => c.includes(`pullrequests?state=${s}&pagelen=50`)), `${s} asked at pagelen=50`);
-  }
-  assert.ok(calls.every((c) => (c.match(/state=/g) ?? []).length === 1), 'each call carries exactly one state');
+  assert.equal(calls.length, 1, 'one call carries every state');
+  assert.ok(calls[0].includes(`pullrequests?${BB_ALL_STATES}&pagelen=50&fields=${BB_FIELDS}`), 'every state asked at pagelen=50 with the fields filter');
   assert.ok(!calls.some((c) => c.includes('pr list')), 'bb pr list walks 10-row pages');
-  assert.ok(!calls.some((c) => /all/i.test(c)), 'bb has no `all` state');
+  assert.ok(!calls.some((c) => /state=all/i.test(c)), 'bb has no `all` state');
 });
 
 // A `bb api` stub that answers `/pullrequests` the way Bitbucket does: the
@@ -2033,9 +2042,14 @@ if [ "$1" != "api" ]; then echo "stub: only bb api is served" >&2; exit 9; fi
 query="\${2#*\\?}"
 states="$(printf '%s' "$query" | tr '&' '\\n' | sed -n 's/^state=//p' | jq -R . | jq -sc .)"
 pagelen="$(printf '%s' "$query" | tr '&' '\\n' | sed -n 's/^pagelen=//p')"
-jq -c --argjson states "$states" --argjson pagelen "\${pagelen:-10}" '
-  [ .[] | select(.state as $s | $states | index($s)) ] | sort_by(.updated_on) | reverse
-  | { size: length, pagelen: ([$pagelen, 50] | min), values: .[:([$pagelen, 50] | min)] }
+page="$(printf '%s' "$query" | tr '&' '\\n' | sed -n 's/^page=//p')"
+jq -c --argjson states "$states" --argjson pagelen "\${pagelen:-10}" --argjson page "\${page:-1}" --arg path "\${2%%\\?*}" --arg query "$query" '
+  ([$pagelen, 50] | min) as $len
+  | [ .[] | select(.state as $s | $states | index($s)) ] | sort_by(.updated_on) | reverse
+  | { size: length, page: $page, pagelen: $len, values: .[(($page - 1) * $len):($page * $len)] }
+  | if .size > $page * $len
+    then . + { next: ("https://api.bitbucket.org/2.0" + $path + "?" + ($query | sub("&page=[0-9]+"; "")) + "&page=" + (($page + 1) | tostring)) }
+    else . end
 ' ${JSON.stringify(rowsFile)}
 `);
   chmodSync(path.join(dir, 'bb'), 0o755);
@@ -2055,9 +2069,11 @@ const mergeHeavyPrs = () => {
   ];
 };
 
-test('host: a merge-heavy --state all keeps every open and declined row in three requests', () => {
+test('host: a merge-heavy --state all walks to its limit and keeps every open and declined row', () => {
+  // One union of states: the walk follows `next` to the limit, so a row older
+  // than the 50th merged one is on a later page, never crowded out.
   const bb = makeBitbucketPagesStub(mergeHeavyPrs());
-  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'all'], {
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'all', '--limit', '300'], {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
   });
@@ -2066,15 +2082,26 @@ test('host: a merge-heavy --state all keeps every open and declined row in three
   const count = (st) => rows.filter((r) => r.state === st).length;
   assert.equal(count('OPEN'), 3, 'an open PR older than the 50th merged one is not crowded out');
   assert.equal(count('CLOSED'), 2, 'nor is a declined one');
-  assert.equal(count('MERGED'), 50, 'merged answers one page of 50, as bb pr list did');
-  assert.equal(callsOf(bb.callsFile).length, 3, 'one request per state, where bb pr list walked 10-row pages');
+  assert.equal(count('MERGED'), 60);
+});
+
+test('host: a merge-heavy --state all with no --limit reads one page and claims nothing', () => {
+  const bb = makeBitbucketPagesStub(mergeHeavyPrs());
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'all'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim().split('\n').length, 50);
+  assert.equal(callsOf(bb.callsFile).length, 1, 'one request for every state');
+  assert.equal(truncationReports(res.stderr).length, 0, 'no --limit owes no completeness claim');
 });
 
 test('host: a full merged page is still reported as possibly truncated, and names its state', () => {
-  // The detector's rule is unchanged: under an ignored --limit it reports every
-  // non-empty state, since a listing of this shape cannot prove its total.
+  // A walk that stops at its limit with a further page named proves no total,
+  // so every asked state is reported.
   const bb = makeBitbucketPagesStub(mergeHeavyPrs());
-  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'all', '--limit', '300'], {
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'all', '--limit', '50'], {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
   });
@@ -2102,7 +2129,9 @@ const runPrList = (bb, args = ['pr-list', '--state', 'all']) =>
     env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
   });
 
-test('host: pr-list keeps the states that answered when one fails, and exits partial', () => {
+test('host: pr-list whose one request fails is a whole failure, never partial', () => {
+  // ONE REQUEST ASKS EVERY STATE, so a failed request answers no state: no row
+  // reaches stdout and the code is the failure's own, never the partial code.
   const bb = makeStrictBbStub({
     perState: {
       open: '[{"id":358,"title":"O","state":"OPEN","source":{"branch":{"name":"feature/o"}}}]',
@@ -2111,37 +2140,15 @@ test('host: pr-list keeps the states that answered when one fails, and exits par
     },
   });
   const r = runPrList(bb);
+  assert.equal(r.stdout.trim(), '', 'a failed request prints no row');
+  assert.notEqual(r.status, 0);
+  assert.notEqual(r.status, PARTIAL_RC, 'no state answered, so the answer is not partial');
+  assert.match(r.stderr, /no state answered/);
 
-  // THE ROWS SURVIVE. This is the whole defect: they were already on stdout and
-  // the exit code threw them away.
-  const rows = r.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
-  assert.deepEqual(rows.map((x) => x.number).sort(), [300, 358],
-    'the states that answered were discarded with the one that did not');
-
-  // NOT 0, AND THAT IS LOAD-BEARING. `plot-fleet-scan.sh` reads this code
-  // directly and branches on `rc -ne 0`; exiting 0 would report a complete
-  // reading over a page missing a whole state, and would re-create the silent
-  // empty list fixed on 2026-08-30.
-  assert.equal(r.status, PARTIAL_RC, 'a partial answer must have its own code');
-  assert.notEqual(r.status, 0, 'exiting 0 makes every existing reader report ok');
-  for (const taken of [3, 4, 5, 6]) {
-    assert.notEqual(r.status, taken,
-      `${taken} already means something else, so a partial answer cannot reuse it`);
-  }
-
-  // NAMED, NEVER SILENT. A short list with no reason given is the quiet wrong
-  // answer in a new place.
-  assert.match(r.stderr, /declined/, 'the failed state is not named');
-
-  // THE HOST'S REASON COMES FIRST. A reader acts on WHY the state failed; the
-  // bookkeeping of WHICH one is context for it. Caught by the contract suite
-  // 2026-09-18: an earlier draft printed `state 'open' failed` ahead of the
-  // host's sentence, and `plot-reconcile-scan.sh` — which reads the first
-  // stderr line into its error field — showed that instead of `HTTP 429`.
-  // A message describing the wrong thing is #912's own failure mode.
+  // THE HOST'S REASON COMES FIRST. `plot-reconcile-scan.sh` reads the first
+  // stderr line into its error field.
   const firstLine = r.stderr.trim().split('\n')[0];
-  assert.match(firstLine, /rate limit/i,
-    'the host’s reason was buried under this helper’s own bookkeeping');
+  assert.match(firstLine, /rate limit/i, 'the host’s reason is the first stderr line');
 });
 
 test('host: pr-list where NO state answers keeps the code it has today, by kind', () => {
@@ -2258,9 +2265,8 @@ test('host: pr-list --state settled sends bb merged and declined, never open', (
   });
   assert.equal(res.status, 0, res.stderr);
   const calls = callsOf(bb.callsFile);
-  assert.equal(calls.length, 2, 'merged and declined only — no open sweep');
-  assert.ok(calls.some((c) => c.includes('state=MERGED')));
-  assert.ok(calls.some((c) => c.includes('state=DECLINED')));
+  assert.equal(calls.length, 1, 'merged and declined in one request — no open sweep');
+  assert.ok(calls[0].includes('state=MERGED&state=DECLINED&'));
   assert.ok(!calls.some((c) => c.includes('state=OPEN')), 'settled never asks bb about open');
 });
 
@@ -2290,19 +2296,16 @@ test('host: pr-state by branch resolves without bb rejecting the call', () => {
   assert.equal(out.state, 'OPEN');
 });
 
-// --- pr-state stops asking once it has an answer ---------------------------
+// --- pr-state asks once ------------------------------------------------------
 //
-// Resolving one branch to one PR walked all three states unconditionally, so
-// every lookup cost three network round trips whether or not the first one
-// answered. Measured against a real Bitbucket on 2026-08-18: ~10s per `bb`
-// call, so 25.7s per pr-state — and the board's fleet scan, which calls it
-// once per branch, exceeded its own timeout on a five-branch plan.
+// Resolving one branch to one PR asks every state in one request. Measured
+// against a real Bitbucket on 2026-08-18: ~10s per `bb` call, so a lookup
+// that asked each state in turn took up to 25.7s.
 //
-// The states are walked open → merged → declined and the filter takes the
-// FIRST match, so a later state can never overturn an earlier one. Stopping
-// at the first hit is therefore free: same answer, fewer calls.
+// The rows arrive ranked open → merged → declined and the filter takes the
+// FIRST match, so a later state can never overturn an earlier one.
 
-test('host: pr-state stops at the first state that answers', () => {
+test('host: pr-state answers the open PR before a merged one, in one request', () => {
   const bb = makeStrictBbStub({
     perState: {
       open: '[{"id":4,"state":"OPEN","source":{"branch":{"name":"feature/a"}},"links":{"html":{"href":"https://example.test/pr/4"}}}]',
@@ -2316,12 +2319,12 @@ test('host: pr-state stops at the first state that answers', () => {
   // The open PR wins, as it did before — this is a cost fix, not a behaviour one.
   assert.equal(out.number, 4);
   assert.equal(out.state, 'OPEN');
-  assert.equal(callsOf(bb.callsFile).length, 1, 'must not ask merged/declined once open answered');
+  assert.equal(callsOf(bb.callsFile).length, 1, 'one request carries every state');
 });
 
 // The saving must not cost coverage: a branch whose only PR was declined is
-// still found, it just pays for all three calls.
-test('host: pr-state still reaches a declined PR, at full cost', () => {
+// still found, in the same one request.
+test('host: pr-state still reaches a declined PR, in one request', () => {
   const bb = makeStrictBbStub({
     perState: {
       declined: '[{"id":7,"state":"DECLINED","source":{"branch":{"name":"feature/d"}},"links":{"html":{"href":"https://example.test/pr/7"}}}]',
@@ -2333,19 +2336,19 @@ test('host: pr-state still reaches a declined PR, at full cost', () => {
   }));
   assert.equal(out.number, 7);
   assert.equal(out.state, 'CLOSED');
-  assert.equal(callsOf(bb.callsFile).length, 3);
+  assert.equal(callsOf(bb.callsFile).length, 1);
 });
 
-// A branch with no PR at all is the other full-cost case, and it must still
-// report NONE rather than treating the empty first page as a transport failure.
-test('host: pr-state reports NONE after exhausting every state', () => {
+// A branch with no PR at all must report NONE rather than treating the empty
+// first page as a transport failure.
+test('host: pr-state reports NONE when no state answers', () => {
   const bb = makeStrictBbStub({ json: '[]' });
   const out = JSON.parse(execFileSync('bash', [adapter, 'pr-state', 'feature/nope'], {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
   }));
   assert.equal(out.state, 'NONE');
-  assert.equal(callsOf(bb.callsFile).length, 3);
+  assert.equal(callsOf(bb.callsFile).length, 1);
 });
 
 // --- the BRANCH arm carries mergeCommit as well ----------------------------
@@ -2372,8 +2375,8 @@ test('host: pr-state by branch carries the merge commit on bitbucket', () => {
   assert.equal(out.mergeCommit, '0f1e2d3');
   // The hash comes from the page already fetched. A second `bb` invocation to
   // re-ask for it would double the cost of a call measured at ~10s.
-  assert.equal(callsOf(bb.callsFile).length, 2,
-    'open then merged — and no third call to fetch the hash');
+  assert.equal(callsOf(bb.callsFile).length, 1,
+    'one request — and no second call to fetch the hash');
 });
 
 // The branch arm's NONE literal is the fourth copy of the shape, and the one
@@ -6082,11 +6085,14 @@ test('host: bitbucket reports a non-empty --limit page as possibly truncated', (
   assert.ok(lines.every((r) => typeof r.number === 'number' && r.head), 'PR rows keep their shape');
   assert.ok(!lines.some((r) => r.truncated === true),
     'no stdout sentinel — a phantom PrRecord would corrupt fleet.ts');
-  // The report is on stderr, names the state, and carries the count.
+  // The report is on stderr, once for each state the one request asked, and
+  // carries the request's row count: a stopped walk doubts every state in it.
   const reports = truncationReports(res.stderr);
-  assert.equal(reports.length, 1, 'exactly the truncated state is reported');
-  assert.match(reports[0], /merged/, 'the report names which state was truncated');
-  assert.match(reports[0], /\b50\b/, 'the report carries how many rows came back');
+  assert.equal(reports.length, 3, 'every state of the truncated request is reported');
+  for (const s of ['open', 'merged', 'declined']) {
+    assert.ok(reports.some((r) => r.includes(`state=${s} possibly truncated`)), `the report names ${s}`);
+  }
+  assert.ok(reports.every((r) => /\b50\b/.test(r)), 'the report carries how many rows came back');
 });
 
 test('host: bitbucket truncation is detected against the ignored limit, not the constant 50', () => {
@@ -6103,8 +6109,8 @@ test('host: bitbucket truncation is detected against the ignored limit, not the 
   });
   assert.equal(res.status, 0, res.stderr);
   const reports = truncationReports(res.stderr);
-  assert.equal(reports.length, 1, 'a 100-row page is truncated too — the detector must not name 50');
-  assert.match(reports[0], /\b100\b/);
+  assert.equal(reports.length, 3, 'a 100-row page is truncated too — the detector must not name 50');
+  assert.ok(reports.every((r) => /\b100\b/.test(r)));
 });
 
 // #1137. Quatico bb prints its version as `bb 1.9.0`, and its listing asks
@@ -6128,13 +6134,13 @@ test('host: a measured bb page shorter than its length is complete, with no trun
 test('host: a measured bb page AT its length keeps the truncation report', () => {
   const bb = makeStrictBbStub({
     version: 'bb 1.9.0',
-    perState: { open: bbFullPage(20, 'OPEN'), merged: bbFullPage(50), declined: '[]' },
+    perState: { open: bbFullPage(20, 'OPEN'), merged: bbFullPage(30), declined: '[]' },
   });
   const res = listAll(bb);
   assert.equal(res.status, 0, res.stderr);
   const reports = truncationReports(res.stderr);
-  assert.equal(reports.length, 1, 'only the full page is reported');
-  assert.match(reports[0], /state=merged possibly truncated \(50 rows/);
+  assert.equal(reports.length, 3, 'the one full page doubts every state it asked');
+  assert.match(reports[1], /state=merged possibly truncated \(50 rows/);
 });
 
 test('host: an unmeasured bb version keeps the report on a short page', () => {
@@ -6147,7 +6153,7 @@ test('host: an unmeasured bb version keeps the report on a short page', () => {
   const res = listAll(bb);
   assert.equal(res.status, 0, res.stderr);
   const reports = truncationReports(res.stderr);
-  assert.equal(reports.length, 1);
+  assert.equal(reports.length, 3);
   assert.match(reports[0], /state=open possibly truncated \(20 rows/);
 });
 
@@ -6308,24 +6314,21 @@ test('host: bitbucket an empty page that still names next stops the walk and rep
   assert.equal(callsOf(bb.callsFile).filter((c) => c.includes('api')).length, 1, 'the empty page ends the walk');
 });
 
-test('host: bitbucket a page-2 failure during --state all fails only merged, with no partial rows', () => {
-  // HTTP 429 on page 2 of the merged walk must fail that state's whole answer
-  // (no partial array printed) and exit 7 — PR_LIST_PARTIAL_RC, "some states
-  // answered, some did not" — once open and declined still answer. This is
-  // the regression `_bb_paged_walk`'s existing page-2 failure rule already
-  // guards for `bb_branch_query`; the row-limit mode must not weaken it.
-  const openRows = [restPr(100, 'feature/open-1', 'OPEN')];
-  const declinedRows = [restPr(200, 'feature/declined-1', 'DECLINED')];
-  const mergedPages = [
-    Array.from({ length: 50 }, (_, i) => restPr(5000 - i, `feature/pr-${5000 - i}`, 'MERGED')),
+test('host: bitbucket a page-2 failure during --state all fails the whole listing, with no partial rows', () => {
+  // HTTP 429 on page 2 of the one request that carries every state must fail
+  // the whole answer: no partial array printed, and never exit 7
+  // (PR_LIST_PARTIAL_RC), because no state answered on its own. This is the
+  // regression `_bb_paged_walk`'s page-2 failure rule already guards for
+  // `bb_branch_query`; the row-limit mode must not weaken it.
+  const pages = [
+    [restPr(100, 'feature/open-1', 'OPEN'),
+      ...Array.from({ length: 49 }, (_, i) => restPr(5000 - i, `feature/pr-${5000 - i}`, 'MERGED'))],
     Array.from({ length: 50 }, (_, i) => restPr(4950 - i, `feature/pr-${4950 - i}`, 'MERGED')),
   ];
   const bb = makeSweepBbStub({
     prs: {
-      [stateListingKey('OPEN')]: openRows,
-      [stateListingKey('DECLINED')]: declinedRows,
-      [stateListingKey('MERGED')]: {
-        pages: mergedPages, failAt: 2, said: 'error: HTTP 429 — rate limited', code: 5,
+      [`pullrequests?${BB_ALL_STATES}&pagelen`]: {
+        pages, failAt: 2, said: 'error: HTTP 429 — rate limited', code: 5,
       },
     },
   });
@@ -6333,12 +6336,11 @@ test('host: bitbucket a page-2 failure during --state all fails only merged, wit
     encoding: 'utf8',
     env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
   });
-  assert.equal(res.status, 7, res.stderr);
-  const lines = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
-  assert.ok(lines.some((r) => r.state === 'OPEN'), 'open still answered');
-  assert.ok(lines.some((r) => r.state === 'CLOSED'), 'declined still answered, as the adapter\'s own "CLOSED" word');
-  assert.ok(!lines.some((r) => r.state === 'MERGED'), 'no partial merged array — the failed state prints nothing');
-  assert.match(res.stderr, /missing: merged/);
+  assert.notEqual(res.status, 0, res.stderr);
+  assert.notEqual(res.status, 7, 'one request answers whole or not at all');
+  assert.equal(res.stdout.trim(), '', 'no partial rows from page 1');
+  assert.match(res.stderr, /no state answered/);
+  assert.equal(callsOf(bb.callsFile).length, 2, 'page 1, then the failed page 2');
 });
 
 test('host: bitbucket with no --limit still asks exactly one page of the plain listing', () => {
@@ -6363,7 +6365,7 @@ test('host: bb_branch_query at its page cap still exits 3, unaffected by the row
   // parameter — a regression check that threading the new 4th positional
   // through did not disturb the existing page-cap mode's own exit code.
   const branch = 'feature/x';
-  const key = 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx';
+  const key = '%22%29%20AND%20source.branch.name=%22feature%2Fx';
   const headFor = (id) => ({ ...restPr(id, branch, 'MERGED'), source: { branch: { name: branch }, commit: { hash: `sha${id}` } } });
   const pages = Array.from({ length: 21 }, (_, p) => Array.from({ length: 50 }, (_, i) => headFor(7000 + p * 100 + i)));
   const bb = makeSweepBbStub({ prs: { [key]: { pages } } });
@@ -6375,12 +6377,9 @@ test('host: bb_branch_query at its page cap still exits 3, unaffected by the row
   assert.match(res.stderr, /page cap 20/);
 });
 
-test('host: only a non-empty state is reported, and it is named', () => {
-  // Per-state granularity. A full page cannot prove its total, so that state
-  // is reported. The state that returned NOTHING had nothing to hide and is
-  // not reported. So `merged` (full) is named and `declined`/`open`
-  // (empty) are silent — a per-call flag would report all three, and a future
-  // caller would re-fetch the two empty states for nothing.
+test('host: one request that may be truncated reports every state it asked, and names each', () => {
+  // ONE REQUEST ASKS EVERY STATE, so a full page proves no total for any of
+  // them: each asked state is reported by name, with the request's row count.
   const bb = makeStrictBbStub({
     perState: { open: '[]', merged: bbFullPage(50), declined: '[]' },
   });
@@ -6390,9 +6389,8 @@ test('host: only a non-empty state is reported, and it is named', () => {
   });
   assert.equal(res.status, 0, res.stderr);
   const reports = truncationReports(res.stderr);
-  assert.equal(reports.length, 1, 'only the non-empty state is reported');
-  assert.match(reports[0], /merged/, 'the report names which state');
-  assert.doesNotMatch(reports[0], /declined/, 'an empty state is not reported');
+  assert.deepEqual(reports.map((r) => r.match(/state=(\w+)/)[1]), ['open', 'merged', 'declined']);
+  assert.ok(reports.every((r) => /\(50 rows/.test(r)), 'each report carries the request’s row count');
 });
 
 test('host: the stdout stream stays a clean PR list an untouched scan can join', () => {
@@ -6527,7 +6525,7 @@ test('host: --rich reports truncation too and keeps the rich rows clean', () => 
     env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
   });
   assert.equal(res.status, 0, res.stderr);
-  assert.equal(truncationReports(res.stderr).length, 1, '--rich must report truncation too');
+  assert.equal(truncationReports(res.stderr).length, 3, '--rich must report truncation too, once per asked state');
   const lines = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   assert.equal(lines.length, 50);
   assert.ok(lines.every((r) => r.checks === 'unknown'), 'rich rows still normalize');
@@ -7117,7 +7115,7 @@ test('host: limit answers bitbucket from experience, tagged predicted', () => {
   const out = JSON.parse(run(['limit'], { env: { PLOT_HOST: 'bitbucket', PLOT_REPO_ROOT: stubs.dir }, stubs }).trim());
   assert.equal(out.connector, 'bitbucket');
   assert.equal(out.basis, 'predicted');
-  assert.equal(out.limit, 10000, 'with no Host rate limit key the prediction is 10000');
+  assert.equal(out.limit, 800, 'with no Host rate limit key the prediction is 800');
   assert.equal(out.remaining, null, 'a connector reporting no limit reports no spend either');
   assert.equal(argvOf(stubs.bbArgv), null, 'bb has nothing to answer — do not ask it');
 });
@@ -8488,7 +8486,7 @@ test('host: a branch whose merged PR is older than the first page is found', () 
   // one call. The stub refuses `bb pr list` entirely, so a page-widening fix
   // cannot pass this.
   const branch = 'feature/ki-anwendungen-unter-angebote';
-  const bb = makeSweepBbStub({ prs: { [`MERGED%22%20AND%20source.branch.name=%22feature%2Fki`]: [restPr(902, branch)] } });
+  const bb = makeSweepBbStub({ prs: { [`%22%29%20AND%20source.branch.name=%22feature%2Fki`]: [restPr(902, branch)] } });
   const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'all', '--limit', '1000', '--rich',
     '--branch', branch, '--branch', 'feature/no-pr-here'], {
     encoding: 'utf8',
@@ -8580,25 +8578,24 @@ test('host: an honest absence is a complete answer, not a failure', () => {
 
 test('host: a refused sweep is distinguishable from an empty one', () => {
   // The other half, and one without the other passes a fix that reads every
-  // outage as "no PR". The `merged` state refuses; the rows of the states that
-  // answered survive on stdout, the exit code is the PARTIAL one, and the
-  // completeness claim is WITHHELD — absence is no longer derivable for a
-  // branch whose merged query never ran.
+  // outage as "no PR". The query for one branch refuses; one request carries
+  // every state for a branch, so no state answered whole, the exit code is the
+  // failure's own, no row is printed and the completeness claim is WITHHELD —
+  // absence is not derivable for a branch whose query never ran.
   const bb = makeSweepBbStub({
-    prs: { 'OPEN%22%20AND%20source.branch.name=%22live': [restPr(5, 'live', 'OPEN')] },
-    fail: { MERGED: { said: 'error: HTTP 500 — server error', code: 1 } },
+    prs: { '%22%29%20AND%20source.branch.name=%22live': [restPr(5, 'live', 'OPEN')] },
+    fail: { 'source.branch.name=%22other': { said: 'error: HTTP 500 — server error', code: 1 } },
   });
   const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'all', '--limit', '1000', '--rich',
     '--branch', 'live', '--branch', 'other'], {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
   });
-  assert.equal(res.status, 7, 'a partial sweep exits PR_LIST_PARTIAL_RC, never 0');
-  const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
-  assert.equal(rows.length, 1, 'the states that answered still serve their rows');
-  assert.equal(rows[0].number, 5);
-  assert.ok(!sweepComplete(res.stderr), 'a partial sweep makes NO completeness claim');
-  assert.match(res.stderr, /missing: merged/, 'and it names which state went unanswered');
+  assert.notEqual(res.status, 0, 'a refused sweep never exits 0');
+  assert.notEqual(res.status, 7, 'one request per branch answers whole or not at all');
+  assert.equal(res.stdout.trim(), '', 'no row of a partial sweep is printed');
+  assert.ok(!sweepComplete(res.stderr), 'a refused sweep makes NO completeness claim');
+  assert.match(res.stderr, /no state answered/);
 });
 
 test('host: a totally refused sweep keeps the failure code, never the partial one', () => {
@@ -8639,13 +8636,14 @@ test('host: the host failure text survives the sweep and is classified once', ()
 test('host: sweep calls are proportional to tracked branches, not to PR history', () => {
   // THE COST PROPERTY, stated with both measured numbers. The repository holds
   // 886 merged pull requests and the board tracks 11 branches; the sweep makes
-  // branches × states calls and NOT ONE MORE, so its cost is constant in pull
-  // request count. A fix that is correct and still scales with PR history fails
-  // here: the stub serves 886 merged PRs and the call count stays 33.
+  // one call per branch, with every state in it, and NOT ONE MORE, so its cost
+  // is constant in pull request count. A fix that is correct and still scales
+  // with PR history fails here: the stub serves 886 merged PRs and the call
+  // count stays 11.
   const eleven = Array.from({ length: 11 }, (_, i) => `feature/branch-${i}`);
   // Every one of the 886 lives on one branch, so a listing would return them all.
   const many = Array.from({ length: 886 }, (_, i) => restPr(1000 + i, eleven[0]));
-  const bb = makeSweepBbStub({ prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fbranch-0': many } });
+  const bb = makeSweepBbStub({ prs: { '%22%29%20AND%20source.branch.name=%22feature%2Fbranch-0': many } });
   const args = ['pr-list', '--state', 'all', '--limit', '1000', '--rich'];
   for (const b of eleven) args.push('--branch', b);
   const res = spawnSync('bash', [adapter, ...args], {
@@ -8654,7 +8652,7 @@ test('host: sweep calls are proportional to tracked branches, not to PR history'
   });
   assert.equal(res.status, 0, res.stderr);
   const calls = sweepCalls(bb.callsFile);
-  assert.equal(calls.length, 33, '11 branches × 3 states = 33 calls, whatever the PR history holds');
+  assert.equal(calls.length, 11, '11 branches = 11 calls, whatever the PR history holds');
   assert.equal(res.stdout.trim().split('\n').filter(Boolean).length, 886,
     'and every row the host had for a tracked branch is served');
 });
@@ -8677,7 +8675,7 @@ test('host: a payload larger than one argv slot still reaches stdout', () => {
   // SIZE rather than the mechanism: a future accumulator that reintroduces an
   // argv hop fails here regardless of how it spells it.
   const branch = 'feature/huge';
-  const key = 'MERGED%22%20AND%20source.branch.name=%22feature%2Fhuge';
+  const key = '%22%29%20AND%20source.branch.name=%22feature%2Fhuge';
   // Padded titles take one branch's payload well past 128 KB on its own, so the
   // limit is crossed by a SINGLE query rather than by the total.
   const rows = Array.from({ length: 400 }, (_, i) => ({
@@ -8713,7 +8711,7 @@ test('host: the sweep states its completeness, and names both counts', () => {
   const line = res.stderr.split('\n').find((l) => /sweep complete/.test(l));
   assert.ok(line, 'a whole sweep says so');
   assert.match(line, /3 branches asked/, 'it names how many branches it asked about');
-  assert.match(line, /3 of 3 states answered/, 'and how many states answered');
+  assert.match(line, /1 of 1 states answered/, 'and that the one request carrying every state answered');
 });
 
 test('host: a sweep makes no page-truncation claim', () => {
@@ -8722,7 +8720,7 @@ test('host: a sweep makes no page-truncation claim', () => {
   // from eleven branches is a complete answer, not a short one — so running the
   // detector here would print "possibly truncated" immediately before the arm
   // states the answer was whole, which is the adapter contradicting itself.
-  const bb = makeSweepBbStub({ prs: { 'MERGED%22%20AND%20source.branch.name=%22a': [restPr(1, 'a')] } });
+  const bb = makeSweepBbStub({ prs: { '%22%29%20AND%20source.branch.name=%22a': [restPr(1, 'a')] } });
   const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'all', '--limit', '1000', '--rich',
     '--branch', 'a', '--branch', 'b'], {
     encoding: 'utf8',
@@ -8746,7 +8744,7 @@ test('host: naming no branch leaves the listing exactly as it was', () => {
   });
   assert.equal(res.status, 0, res.stderr);
   assert.equal(res.stdout.trim().split('\n').filter(Boolean).length, 50, 'the listing still serves its page');
-  assert.equal(truncationReports(res.stderr).length, 1, 'and the page detector still fires on it');
+  assert.equal(truncationReports(res.stderr).length, 3, 'and the page detector still fires once per asked state');
   assert.ok(!sweepComplete(res.stderr), 'a listing makes no sweep claim');
 });
 
@@ -8770,10 +8768,10 @@ test('host: the GitHub arm is untouched by --branch', () => {
   assert.equal(rows[0].number, 7, 'its rows are unchanged');
 });
 
-test('host: a settled sweep with every state answered claims 2 of 2, never 3 of 3', () => {
+test('host: a settled sweep asks merged and declined in one request per branch, never open', () => {
   // THE SPEND THIS SLICE REMOVES. `settled` drops `open` from the Bitbucket
-  // sweep, so a whole answer is two states, not the `all` sweep's three — a
-  // claim still reading "3 of 3" would mean the `open` sweep never left.
+  // sweep, and the two settled states go in one request, so a whole answer is
+  // one request per branch whose clause never names `open`.
   const bb = makeSweepBbStub();
   const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'settled', '--limit', '1000', '--rich',
     '--branch', 'a', '--branch', 'b'], {
@@ -8784,13 +8782,17 @@ test('host: a settled sweep with every state answered claims 2 of 2, never 3 of 
   const line = res.stderr.split('\n').find((l) => /sweep complete/.test(l));
   assert.ok(line, 'a whole settled sweep says so');
   assert.match(line, /2 branches asked/, 'it names how many branches it asked about');
-  assert.match(line, /2 of 2 states answered/, 'merged and declined only — never 3 of 3');
+  assert.match(line, /1 of 1 states answered/, 'one request carries both settled states');
+  const calls = sweepCalls(bb.callsFile).filter((c) => c.includes('pullrequests'));
+  assert.equal(calls.length, 2, 'one request per branch');
+  assert.ok(calls.every((c) => c.includes('%28state=%22MERGED%22%20OR%20state=%22DECLINED%22%29')), 'merged and declined in one clause');
+  assert.ok(!calls.some((c) => c.includes('OPEN')), 'settled never asks about open');
 });
 
-test('host: a settled sweep with one failed state claims nothing', () => {
+test('host: a settled sweep whose request fails claims nothing', () => {
   // THE DANGEROUS FAILURE MODE THE PLAN NAMES: a merged branch misread as
-  // `open` and redispatched. `declined` fails here, so only `merged` answered
-  // — a partial settled sweep, and partial means silent.
+  // `open` and redispatched. The one request carrying `merged` and `declined`
+  // fails, so no state answered, and a failed sweep is silent.
   const bb = makeSweepBbStub({
     fail: { DECLINED: { said: 'error: HTTP 500 — server error', code: 1 } },
   });
@@ -8799,9 +8801,10 @@ test('host: a settled sweep with one failed state claims nothing', () => {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
   });
-  assert.equal(res.status, 7, 'a partial sweep exits PR_LIST_PARTIAL_RC, never 0');
-  assert.ok(!sweepComplete(res.stderr), 'a partial settled sweep makes NO completeness claim');
-  assert.match(res.stderr, /missing: declined/, 'and it names which state went unanswered');
+  assert.notEqual(res.status, 0, 'a failed sweep never exits 0');
+  assert.notEqual(res.status, 7, 'and never reads as a partial answer');
+  assert.ok(!sweepComplete(res.stderr), 'a failed settled sweep makes NO completeness claim');
+  assert.match(res.stderr, /no state answered/);
 });
 
 test('host: a settled sweep over no branches claims nothing', () => {
@@ -8821,7 +8824,7 @@ test('host: the sweep emits every --rich field the arm promises', () => {
   // THE PLAN'S DECISIVE RISK, resolved in its favour by the adapter lens and
   // pinned here: the REST envelope must supply what `--rich` emits, or the
   // slice scopes down and says which field it dropped. Nothing was dropped.
-  const bb = makeSweepBbStub({ prs: { 'MERGED%22%20AND%20source.branch.name=%22a': [restPr(11, 'a')] } });
+  const bb = makeSweepBbStub({ prs: { '%22%29%20AND%20source.branch.name=%22a': [restPr(11, 'a')] } });
   const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'merged', '--limit', '1000', '--rich',
     '--branch', 'a'], {
     encoding: 'utf8',
@@ -8849,7 +8852,7 @@ test('host: the sweep folds DECLINED into CLOSED, as the listing does', () => {
   // The state mapping is the arm's, not the endpoint's, and both paths must
   // produce one vocabulary — a consumer joining rows from either cannot be made
   // to tell which path produced them.
-  const bb = makeSweepBbStub({ prs: { 'DECLINED%22%20AND%20source.branch.name=%22a': [restPr(12, 'a', 'DECLINED')] } });
+  const bb = makeSweepBbStub({ prs: { '%22%29%20AND%20source.branch.name=%22a': [restPr(12, 'a', 'DECLINED')] } });
   const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'declined', '--limit', '1000', '--rich',
     '--branch', 'a'], {
     encoding: 'utf8',
@@ -9033,13 +9036,13 @@ test('host: a bitbucket LISTING narrows through q=, and says nothing about ignor
   assert.equal(calls.length, 1, 'one request answers the window');
   const call = calls[0];
   assert.match(call, /^api \/repositories\/\{ws\}\/\{repo\}\/pullrequests\?q=/, 'the REST path, with its leading slash');
-  assert.match(call, /q=state=%22MERGED%22%20AND%20updated_on>=%222026-09-20T18%3A42%3A10Z%22/,
+  assert.match(call, /q=%28state=%22MERGED%22%29%20AND%20updated_on>=%222026-09-20T18%3A42%3A10Z%22/,
     'the state and the window are two terms of one q=, the stamp encoded');
   assert.equal(call.match(/q=/g).length, 1, 'exactly one q= parameter');
   // BITBUCKET LETS q= SILENTLY OVERRIDE state=, so a state beside the filter
   // would look like it works while discarding the state.
   assert.ok(!/[?&]state=/.test(call), 'no state= parameter beside q=');
-  assert.ok(!/source\.branch\.name/.test(call), 'a listing carries no branch clause');
+  assert.ok(!/q=[^&]*source\.branch\.name/.test(call), 'a listing carries no branch clause');
   assert.equal(res.stdout.trim().split('\n').length, 3, 'every row in the window is printed');
 });
 
@@ -9110,16 +9113,16 @@ test('host: a next page outside the API base is refused', () => {
   assert.equal(sweepCalls(bb.callsFile).length, 1, 'the foreign URL is never requested');
 });
 
-test('host: a windowed --state all asks once per state, each state inside its own q=', () => {
-  // `pr_list_states` owns the loop; the window sits in its slot and adds none.
+test('host: a windowed --state all asks once, every state inside one q=', () => {
+  // `pr_list_states` hands every state to one request; the window adds none.
   const bb = makeWindowBbStub({ pages: [[]] });
   const res = runWindow(bb, ['--rich', '--state', 'all', '--since', '2026-09-20T18:42:10Z']);
   assert.equal(res.status, 0, res.stderr);
   const calls = sweepCalls(bb.callsFile);
-  assert.equal(calls.length, 3);
-  for (const s of ['OPEN', 'MERGED', 'DECLINED']) {
-    assert.ok(calls.some((c) => c.includes(`q=state=%22${s}%22%20AND%20updated_on>=`)), `${s} asked inside q=`);
-  }
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0].includes('q=%28state=%22OPEN%22%20OR%20state=%22MERGED%22%20OR%20state=%22DECLINED%22%29%20AND%20updated_on>='),
+    'every state asked inside one q=');
+  assert.ok(calls[0].includes(`&fields=${BB_FIELDS}`), 'with the fields filter');
 });
 
 test('host: a windowed --state all that every state answers is a clean delta', () => {
@@ -9142,53 +9145,42 @@ test('host: a windowed --state all that every state answers is a clean delta', (
   assert.doesNotMatch(res.stderr, /missing:/, 'no state is reported missing');
   assert.doesNotMatch(res.stderr, /answered [0-9]+ of/, 'no partial tally');
   assert.doesNotMatch(res.stderr, /ignores --since/, 'the window was applied');
-  // Each state narrowed through `bb_window_listing`, so this is a delta and not
+  // The states narrowed through `bb_window_listing`, so this is a delta and not
   // a full listing wearing a window's name.
   const calls = sweepCalls(bb.callsFile);
-  assert.equal(calls.length, 3, 'one windowed request per state');
+  assert.equal(calls.length, 1, 'one windowed request carries every state');
   for (const c of calls) {
     assert.match(c, /updated_on>=%222026-09-20T18%3A42%3A10Z%22/, 'each call carries the window');
   }
   // And the rows arrived, so the fold has something to merge.
   const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
-  assert.equal(rows.length, 6, 'three states, two rows each');
+  assert.equal(rows.length, 2, 'the one request\'s two rows');
 });
 
-test('host: one unanswered state makes a windowed --state all partial, not whole', () => {
-  // THE OTHER SIDE OF THE SAME JOIN. A state that did not answer means rows
-  // exist the store has never seen, and the window would never see them either
-  // because they did not change — so the answer must reach the board as
-  // partial, whatever the window said. `answerKind` then says `partial` and the
-  // store is marked not whole, which is what stops the next refresh narrowing.
-  //
-  // The stub answers page 1 for the first state asked and 404s afterwards, so
-  // one state answers and the others do not.
+test('host: an unanswered windowed --state all is a failure, never whole', () => {
+  // THE OTHER SIDE OF THE SAME JOIN. A request that did not answer means rows
+  // may exist the store has never seen, and the window would never see them
+  // either because they did not change — so the answer must never reach the
+  // board as whole. One request carries every state, so it fails whole: the
+  // exit code is the failure's own, never 7, and no row is printed.
   const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-window-partial-')));
   const callsFile = path.join(dir, 'bb.calls');
-  const payload = path.join(dir, 'page.json');
-  writeFileSync(payload, JSON.stringify({
-    size: 1, page: 1, pagelen: 50, values: [restPr(900, 'feature/w900')],
-  }));
   writeFileSync(path.join(dir, 'bb'), `#!/usr/bin/env bash
 if [[ "$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
 if [[ "$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
 printf '%s\\n' "$*" >> ${JSON.stringify(callsFile)}
-if [ "$(grep -c . ${JSON.stringify(callsFile)})" -gt 1 ]; then
-  echo "error: HTTP 500 — the state did not answer" >&2; exit 1
-fi
-cat ${JSON.stringify(payload)}
+echo "error: HTTP 500 — the request did not answer" >&2; exit 1
 `);
   chmodSync(path.join(dir, 'bb'), 0o755);
 
   const res = runWindow({ dir }, ['--rich', '--state', 'all', '--limit', '1000',
     '--since', '2026-09-20T18:42:10Z']);
-  // 7 is the partial code, and it is NOT the outage code: one state answered,
-  // so its rows are real and must not be dropped — #912.
-  assert.equal(res.status, 7, `a partial answer keeps its own code: ${res.stderr}`);
-  assert.match(res.stderr, /answered 1 of 3 states/, 'the tally the board reads as partial');
-  assert.match(res.stderr, /missing:/, 'and it names what is missing');
-  // The rows that did arrive are still printed, which is what the fold merges.
-  assert.equal(res.stdout.trim().split('\n').filter(Boolean).length, 1);
+  assert.notEqual(res.status, 0, res.stderr);
+  assert.notEqual(res.status, 7, 'no state answered on its own, so nothing is partial');
+  assert.match(res.stderr, /no state answered/);
+  assert.doesNotMatch(res.stderr, /window complete/, 'and no completeness claim');
+  assert.equal(res.stdout.trim(), '');
+  assert.equal(callsOf(callsFile).length, 1, 'one request');
 });
 
 test('host: a windowed state the host refuses keeps the host\'s own words', () => {
@@ -9207,9 +9199,9 @@ echo "error: HTTP 429 — Rate limit for this resource has been exceeded" >&2; e
   assert.match(res.stderr, /Rate limit for this resource has been exceeded/);
 });
 
-test('host: a bitbucket listing with no window asks one page per state', () => {
+test('host: a bitbucket listing with no window asks one page', () => {
   // No window, nothing to narrow: one `bb api` request for the state at
-  // `pagelen=50`, no `q=`, and no window notice.
+  // `pagelen=50` with the fields filter, no `q=`, and no window notice.
   const bb = makeStrictBbStub({ json: '[]' });
   const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--state', 'open'], {
     encoding: 'utf8',
@@ -9218,7 +9210,7 @@ test('host: a bitbucket listing with no window asks one page per state', () => {
   assert.equal(res.status, 0, res.stderr);
   assert.doesNotMatch(res.stderr, /since/i);
   const calls = callsOf(bb.callsFile);
-  assert.deepEqual(calls, ['api /repositories/{ws}/{repo}/pullrequests?state=OPEN&pagelen=50']);
+  assert.deepEqual(calls, [`api /repositories/{ws}/{repo}/pullrequests?state=OPEN&pagelen=50&fields=${BB_FIELDS}`]);
   assert.ok(!calls.some((c) => c.includes('q=')), 'and the REST window is not');
 });
 
@@ -11072,7 +11064,7 @@ test('host: a Jira issue-open the server rejects with a 4xx still records one bu
 test('host: pr-merged finds a branch merged past the first page', () => {
   const branch = 'feature/ewzkus-3845-contractaccount-bykey-tracer';
   const bb = makeSweepBbStub({
-    prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fewzkus-3845': [restPr(3644, branch, 'MERGED')] },
+    prs: { '%22%29%20AND%20source.branch.name=%22feature%2Fewzkus-3845': [restPr(3644, branch, 'MERGED')] },
   });
   const res = spawnSync('bash', [adapter, 'pr-merged', branch], {
     encoding: 'utf8',
@@ -11131,7 +11123,7 @@ test('host: pr-merged reads a full 50-row page with no next as complete, not tru
   // is hit, never on size alone — must stay silent.
   const branch = 'feature/x';
   const fifty = Array.from({ length: 50 }, (_, i) => restPr(2000 + i, branch, 'MERGED'));
-  const bb = makeSweepBbStub({ prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx': fifty.map((r) => ({ ...r, state: 'OPEN' })) } });
+  const bb = makeSweepBbStub({ prs: { '%22%29%20AND%20source.branch.name=%22feature%2Fx': fifty.map((r) => ({ ...r, state: 'OPEN' })) } });
   const res = spawnSync('bash', [adapter, 'pr-merged', branch], {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
@@ -11146,7 +11138,7 @@ test('host: pr-merged finds a branch merged only on a second page', () => {
   // PRs across two pages, the match on page 2 — a single-page implementation
   // serves only page 1's 50 rows and never sees it.
   const branch = 'feature/x';
-  const key = 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx';
+  const key = '%22%29%20AND%20source.branch.name=%22feature%2Fx';
   const pageOne = Array.from({ length: 50 }, (_, i) => restPr(3000 + i, branch, 'OPEN'));
   const pageTwo = [restPr(3644, branch, 'MERGED')];
   const bb = makeSweepBbStub({ prs: { [key]: { pages: [pageOne, pageTwo] } } });
@@ -11176,7 +11168,7 @@ test('host: pr-merged request carries exactly one q= with both state and the bra
 test('host: pr-merge-commit prints the hash for a branch merged past the first page', () => {
   const branch = 'feature/ewzkus-3845-contractaccount-bykey-tracer';
   const row = { ...restPr(3644, branch, 'MERGED'), merge_commit: { hash: 'deadbee' } };
-  const bb = makeSweepBbStub({ prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fewzkus-3845': [row] } });
+  const bb = makeSweepBbStub({ prs: { '%22%29%20AND%20source.branch.name=%22feature%2Fewzkus-3845': [row] } });
   const res = spawnSync('bash', [adapter, 'pr-merge-commit', branch], {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
@@ -11206,7 +11198,7 @@ test('host: pr-merge-commit exits 3 on a non-miss failure and on a full page wit
 
   const branch = 'feature/x';
   const fifty = Array.from({ length: 50 }, (_, i) => restPr(2000 + i, branch, 'MERGED'));
-  const full = makeSweepBbStub({ prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx': fifty } });
+  const full = makeSweepBbStub({ prs: { '%22%29%20AND%20source.branch.name=%22feature%2Fx': fifty } });
   const resFull = spawnSync('bash', [adapter, 'pr-merge-commit', branch], {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${full.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
@@ -11218,7 +11210,7 @@ test('host: pr-merge-commit exits 3 on a non-miss failure and on a full page wit
   assert.equal(resFull.stdout.trim(), '');
 
   const branch2 = 'feature/y';
-  const key2 = 'MERGED%22%20AND%20source.branch.name=%22feature%2Fy';
+  const key2 = '%22%29%20AND%20source.branch.name=%22feature%2Fy';
   const pageOne = Array.from({ length: 50 }, (_, i) => restPr(4000 + i, branch2, 'MERGED'));
   const failed2 = makeSweepBbStub({ prs: { [key2]: { pages: [pageOne, []], failAt: 2, said: 'error: HTTP 429 — rate limited', code: 1 } } });
   const resFailPage2 = spawnSync('bash', [adapter, 'pr-merge-commit', branch2], {
@@ -11237,7 +11229,7 @@ test('host: pr-merge-dest prints number, destination, merge commit and merge tim
     merge_commit: { hash },
   });
   const bb = makeSweepBbStub({
-    prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fewzkus-3845': [row(3644, 'deadbee'), row(3701, 'cafe001')] },
+    prs: { '%22%29%20AND%20source.branch.name=%22feature%2Fewzkus-3845': [row(3644, 'deadbee'), row(3701, 'cafe001')] },
   });
   const res = spawnSync('bash', [adapter, 'pr-merge-dest', branch], {
     encoding: 'utf8',
@@ -11279,7 +11271,7 @@ test('host: pr-merge-dest exits 3 on a non-miss failure and on a full page with 
 
   const branch = 'feature/x';
   const fifty = Array.from({ length: 50 }, (_, i) => restPr(2000 + i, branch, 'MERGED'));
-  const full = makeSweepBbStub({ prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx': fifty } });
+  const full = makeSweepBbStub({ prs: { '%22%29%20AND%20source.branch.name=%22feature%2Fx': fifty } });
   const resFull = spawnSync('bash', [adapter, 'pr-merge-dest', branch], {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${full.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
@@ -11290,7 +11282,7 @@ test('host: pr-merge-dest exits 3 on a non-miss failure and on a full page with 
   assert.equal(resFull.stdout.trim(), '');
 
   const branch2 = 'feature/y';
-  const key2 = 'MERGED%22%20AND%20source.branch.name=%22feature%2Fy';
+  const key2 = '%22%29%20AND%20source.branch.name=%22feature%2Fy';
   const pageOne = Array.from({ length: 50 }, (_, i) => restPr(4000 + i, branch2, 'MERGED'));
   const failed2 = makeSweepBbStub({ prs: { [key2]: { pages: [pageOne, []], failAt: 2, said: 'error: HTTP 429 — rate limited', code: 1 } } });
   const resFailPage2 = spawnSync('bash', [adapter, 'pr-merge-dest', branch2], {
@@ -11399,7 +11391,7 @@ test('host: pr-merge-commit on GitHub exits 3 on a non-miss failure, never print
 test('host: pr-merged-heads prints the head for a branch merged past the first page', () => {
   const branch = 'feature/ewzkus-3845-contractaccount-bykey-tracer';
   const row = { ...restPr(3644, branch, 'MERGED'), source: { branch: { name: branch }, commit: { hash: 'ccc333' } } };
-  const bb = makeSweepBbStub({ prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fewzkus-3845': [row] } });
+  const bb = makeSweepBbStub({ prs: { '%22%29%20AND%20source.branch.name=%22feature%2Fewzkus-3845': [row] } });
   const res = spawnSync('bash', [adapter, 'pr-merged-heads', branch], {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
@@ -11429,7 +11421,7 @@ test('host: pr-merged-heads exits 3 on a non-miss failure and on a full page wit
 
   const branch = 'feature/x';
   const fifty = Array.from({ length: 50 }, (_, i) => restPr(2000 + i, branch, 'MERGED'));
-  const full = makeSweepBbStub({ prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx': fifty } });
+  const full = makeSweepBbStub({ prs: { '%22%29%20AND%20source.branch.name=%22feature%2Fx': fifty } });
   const resFull = spawnSync('bash', [adapter, 'pr-merged-heads', branch], {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${full.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
@@ -11441,7 +11433,7 @@ test('host: pr-merged-heads exits 3 on a non-miss failure and on a full page wit
   assert.equal(resFull.stdout.trim(), '');
 
   const branch2 = 'feature/y';
-  const key2 = 'MERGED%22%20AND%20source.branch.name=%22feature%2Fy';
+  const key2 = '%22%29%20AND%20source.branch.name=%22feature%2Fy';
   const pageOne = Array.from({ length: 50 }, (_, i) => restPr(5000 + i, branch2, 'MERGED'));
   const failed2 = makeSweepBbStub({ prs: { [key2]: { pages: [pageOne, []], failAt: 2, said: 'error: HTTP 429 — rate limited', code: 1 } } });
   const resFailPage2 = spawnSync('bash', [adapter, 'pr-merged-heads', branch2], {
@@ -11456,7 +11448,7 @@ test('host: pr-merged-heads prints all 51 heads across two pages, not just the f
   // The brief's first required scenario, verbatim: a single-page implementation
   // prints 50 and exits 0; the fix must follow `next` and print 51.
   const branch = 'feature/x';
-  const key = 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx';
+  const key = '%22%29%20AND%20source.branch.name=%22feature%2Fx';
   const headFor = (id) => ({ ...restPr(id, branch, 'MERGED'), source: { branch: { name: branch }, commit: { hash: `sha${id}` } } });
   const pageOne = Array.from({ length: 50 }, (_, i) => headFor(6000 + i));
   const pageTwo = [headFor(6050)];
@@ -11477,7 +11469,7 @@ test('host: pr-merged-heads reports possibly truncated and exits non-zero when t
   // `BB_BRANCH_QUERY_PAGE_CAP` (20) must report truncation on stderr and exit
   // non-zero — never return the prefix it already read with exit 0.
   const branch = 'feature/x';
-  const key = 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx';
+  const key = '%22%29%20AND%20source.branch.name=%22feature%2Fx';
   const headFor = (id) => ({ ...restPr(id, branch, 'MERGED'), source: { branch: { name: branch }, commit: { hash: `sha${id}` } } });
   // 21 full 50-row pages: the cap (20) stops the walk before a 21st page, which
   // never needs to exist, so no `next` is given on page 20.
@@ -11495,11 +11487,10 @@ test('host: pr-merged-heads reports possibly truncated and exits non-zero when t
 
 test('host: pr-state by branch finds a PR merged past the first page', () => {
   const branch = 'feature/ewzkus-3845-contractaccount-bykey-tracer';
-  const key = (s) => `${s}%22%20AND%20source.branch.name=%22feature%2Fewzkus-3845`;
+  const key = '%22%29%20AND%20source.branch.name=%22feature%2Fewzkus-3845';
   const bb = makeSweepBbStub({
     prs: {
-      [key('OPEN')]: [],
-      [key('MERGED')]: [{ ...restPr(3644, branch, 'MERGED'), links: { html: { href: 'https://bitbucket.org/x/3644' } } }],
+      [key]: [{ ...restPr(3644, branch, 'MERGED'), links: { html: { href: 'https://bitbucket.org/x/3644' } } }],
     },
   });
   const res = spawnSync('bash', [adapter, 'pr-state', branch], {
@@ -11512,7 +11503,7 @@ test('host: pr-state by branch finds a PR merged past the first page', () => {
   assert.equal(out.state, 'MERGED');
 });
 
-test('host: pr-state by branch reports NONE only once every state answered, never on a failure', () => {
+test('host: pr-state by branch reports NONE only once its request answered, never on a failure', () => {
   const bb = makeSweepBbStub();
   const miss = spawnSync('bash', [adapter, 'pr-state', 'feature/no-pr-here'], {
     encoding: 'utf8',
@@ -11520,7 +11511,7 @@ test('host: pr-state by branch reports NONE only once every state answered, neve
   });
   assert.equal(miss.status, 0, miss.stderr);
   assert.equal(JSON.parse(miss.stdout).state, 'NONE');
-  assert.equal(sweepCalls(bb.callsFile).length, 3, 'all three states asked before answering NONE');
+  assert.equal(sweepCalls(bb.callsFile).length, 1, 'one request asks every state before answering NONE');
 
   const failed = makeSweepBbStub({ fail: { pullrequests: { said: 'error: HTTP 500 — server error', code: 1 } } });
   const res = spawnSync('bash', [adapter, 'pr-state', 'feature/x'], {
@@ -11532,15 +11523,15 @@ test('host: pr-state by branch reports NONE only once every state answered, neve
 });
 
 test('host: pr-state by branch resolves a full page of real matches, not an error', () => {
-  // `pr-state`'s branch walk stops at the first state whose page is non-empty
-  // (`bb_branch_query` already filtered to this branch, so every row matches),
-  // so a 50-row OPEN page is 50 real answers, not a truncated non-match — the
+  // `pr-state`'s branch query asks every state in one request and takes the
+  // first row (`bb_branch_query` already filtered to this branch, so every row
+  // matches), so a 50-row OPEN page is 50 real answers, not a truncated non-match — the
   // "full page, cannot prove absence" guard belongs to the single-state arms
   // below, where a full page can genuinely hide whether a MERGED row exists
   // beyond row 50. Here the first row still answers correctly.
   const branch = 'feature/x';
   const fifty = Array.from({ length: 50 }, (_, i) => ({ ...restPr(2000 - i, branch, 'OPEN'), links: { html: { href: `https://bitbucket.org/x/${2000 - i}` } } }));
-  const key = 'OPEN%22%20AND%20source.branch.name=%22feature%2Fx';
+  const key = '%22%29%20AND%20source.branch.name=%22feature%2Fx';
   const bb = makeSweepBbStub({ prs: { [key]: fifty } });
   const res = spawnSync('bash', [adapter, 'pr-state', branch], {
     encoding: 'utf8',
@@ -11549,16 +11540,20 @@ test('host: pr-state by branch resolves a full page of real matches, not an erro
   assert.equal(res.status, 0, res.stderr);
   const out = JSON.parse(res.stdout);
   assert.equal(out.state, 'OPEN');
-  assert.equal(sweepCalls(bb.callsFile).length, 1, 'stops at the first state — a full matching page still answers');
+  assert.equal(sweepCalls(bb.callsFile).length, 1, 'one request — a full matching page still answers');
 });
 
 test('host: pr-state by branch still resolves open-before-merged with the branch query', () => {
   const branch = 'feature/a';
-  const key = (s) => `${s}%22%20AND%20source.branch.name=%22feature%2Fa`;
+  // The host answers newest first, so the merged row arrives ahead of the open
+  // one; the state rank puts the open row first.
+  const key = '%22%29%20AND%20source.branch.name=%22feature%2Fa';
   const bb = makeSweepBbStub({
     prs: {
-      [key('OPEN')]: [{ ...restPr(4, branch, 'OPEN'), links: { html: { href: 'https://bitbucket.org/x/4' } } }],
-      [key('MERGED')]: [{ ...restPr(9, branch, 'MERGED'), links: { html: { href: 'https://bitbucket.org/x/9' } } }],
+      [key]: [
+        { ...restPr(9, branch, 'MERGED'), links: { html: { href: 'https://bitbucket.org/x/9' } } },
+        { ...restPr(4, branch, 'OPEN'), links: { html: { href: 'https://bitbucket.org/x/4' } } },
+      ],
     },
   });
   const state = spawnSync('bash', [adapter, 'pr-state', branch], {
@@ -11569,7 +11564,7 @@ test('host: pr-state by branch still resolves open-before-merged with the branch
   const out = JSON.parse(state.stdout);
   assert.equal(out.number, 4, 'the open PR still outranks the older merged one');
   assert.equal(out.state, 'OPEN');
-  assert.equal(sweepCalls(bb.callsFile).length, 1, 'stops at the first state that answers');
+  assert.equal(sweepCalls(bb.callsFile).length, 1, 'one request carries every state');
 
   const merged = spawnSync('bash', [adapter, 'pr-merged', branch], {
     encoding: 'utf8',
@@ -11586,12 +11581,11 @@ test('host: pr-state by branch request carries exactly one q= with both state an
     env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
   });
   const calls = sweepCalls(bb.callsFile);
-  assert.equal(calls.length, 3, 'no PR in any state — all three are asked');
-  for (const [i, state] of ['OPEN', 'MERGED', 'DECLINED'].entries()) {
-    assert.equal((calls[i].match(/\?q=/g) || []).length, 1, 'exactly one q= parameter');
-    assert.match(calls[i], new RegExp(`state=%22${state}%22`));
-    assert.match(calls[i], /source\.branch\.name=%22feature%2Fki-anwendungen-unter-angebote%22/);
-  }
+  assert.equal(calls.length, 1, 'no PR in any state — one request asks all three');
+  assert.equal((calls[0].match(/\?q=/g) || []).length, 1, 'exactly one q= parameter');
+  assert.match(calls[0], /q=%28state=%22OPEN%22%20OR%20state=%22MERGED%22%20OR%20state=%22DECLINED%22%29%20AND%20/);
+  assert.match(calls[0], /source\.branch\.name=%22feature%2Fki-anwendungen-unter-angebote%22/);
+  assert.ok(calls[0].endsWith(`&fields=${BB_FIELDS}`), 'with the fields filter');
 });
 
 // A repository with more open PRs than one page: the repo-wide listing is a

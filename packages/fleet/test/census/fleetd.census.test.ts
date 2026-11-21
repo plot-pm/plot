@@ -157,7 +157,7 @@ const tokenRequests = (box: Sandbox): number => (box.api?.requests() ?? []).filt
 
 /** The stub `jen api`, `jen job view` and `jen job list` calls in the stub log so far: the Jenkins reads the shell makes. */
 const jenReadsLogged = (box: Sandbox): number =>
-  existsSync(box.stubLog) ? readFileSync(box.stubLog, 'utf8').split('\n').filter((l) => /^jen (api|job view|job list)\b/.test(l)).length : 0;
+  existsSync(box.stubLog) ? readFileSync(box.stubLog, 'utf8').split('\n').filter((l) => /^jen (?:-I \S+ )?(api|job view|job list)\b/.test(l)).length : 0;
 
 /** The `checks` word of every row in the sandbox's PR store, as `number:word` sorted by number; empty where the store holds none. */
 const storedChecks = (box: Sandbox): string[] => {

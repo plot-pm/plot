@@ -123,7 +123,7 @@ describe('the Fleet section in the mockup look (real browser renders the shipped
         fleet: {
           ...base,
           agents: [...base.agents!, stopped('gone1', 'feature/old-a', 'stalled'), stopped('gone2', 'feature/old-b', 'elsewhere')],
-          registry: { directory: '/very/long/path/to/the/agent/registry', manifestCount: 3, synthesizedCount: 14, checkoutCount: 0 },
+          registry: { directory: '/very/long/path/to/the/agent/registry', manifestCount: 3, synthesizedCount: 14, checkoutCount: 0, unreadCount: 0 },
         } as Fleet,
       },
       viewport: { width: 1280, height: 900 },
@@ -159,6 +159,34 @@ describe('the Fleet section in the mockup look (real browser renders the shipped
       const list = await fleet.locator('[data-fleet-not-working]').boundingBox();
       expect(list!.x).toBeGreaterThanOrEqual(card!.x);
       expect(list!.x + list!.width).toBeLessThanOrEqual(card!.x + card!.width + 1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('names desks whose state nobody read in their own amber sentence, and counts none of them as not working', async () => {
+    const base = fleetWithBars();
+    const unread = (n: number) =>
+      ({ ...base.agents![0]!, session: '', identity: 'synthesized', branch: '', worktree: `/wt/hand-${n}`, state: 'unknown', startedAt: '' });
+    const page = await cat.open('every-delivery-section', {
+      tab: 'agents',
+      over: {
+        fleet: {
+          ...base,
+          agents: [...base.agents!, unread(1), unread(2), unread(3)],
+          registry: { directory: '/reg', manifestCount: 3, synthesizedCount: 3, checkoutCount: 0, unreadCount: 3 },
+        } as Fleet,
+      },
+      viewport: { width: 1280, height: 900 },
+    });
+    try {
+      const fleet = page.locator('[data-section="fleet"]');
+      const sentence = fleet.locator('[data-fleet-registry-unread]');
+      await sentence.waitFor({ timeout: 10_000 });
+      expect((await sentence.innerText()).trim()).toBe('· the board could not read the state of 3 worktrees');
+      expect(await sentence.evaluate((el) => el.classList.contains('delivery-text-warn'))).toBe(true);
+      expect(await fleet.locator('[data-fleet-registry-fact]').count()).toBe(0);
+      expect(await fleet.locator('[data-fleet-working]').count()).toBe(0);
     } finally {
       await page.close();
     }

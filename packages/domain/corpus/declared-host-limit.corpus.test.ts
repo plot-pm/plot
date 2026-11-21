@@ -62,6 +62,7 @@ afterAll(() => {
 describe('declaredHostLimit agrees with plot-host.sh budget_reading bitbucket', () => {
   it('exercises a declared limit and the default, so this is not vacuous', () => {
     expect(shellValues).toContain('10000');
+    expect(shellValues).toContain('800');
     expect(shellValues).toContain('2000');
   });
 

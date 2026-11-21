@@ -1,11 +1,12 @@
-import type { TodoList as TodoListFact, YouMarker } from '@plot-pm/domain';
+import type { TodoList as TodoListFact, TodoMarker } from '@plot-pm/domain';
 import { LinkIcon } from './LinkIcon.js';
 
-/** The hue of each marker, for its tag and its verb: blocks delivery red, input blue, clean up the body colour. */
-export const TODO_MARKER_CLASS: Record<YouMarker, string> = {
+/** The hue of each marker, for its tag and its verb: blocks delivery red, input blue, clean up the body colour, waits grey. */
+export const TODO_MARKER_CLASS: Record<TodoMarker, string> = {
   'blocks-delivery': 'delivery-hue-red',
   input: 'delivery-hue-blue',
   'clean-up': 'delivery-tone-neutral',
+  waits: 'delivery-hue-slate',
 };
 
 /** The Delivery tab header's to-do list: every line, the header and the triage line are the domain's. */
@@ -29,7 +30,8 @@ export const TodoList = ({ todo, onJump }: { todo: TodoListFact; onJump: (anchor
               {' '}
               <span className="flex min-w-0 items-baseline">
                 <LinkIcon kind={l.icon} />
-                <span data-todo-label className="delivery-truncate min-w-0" title={l.label}>{l.label}</span>
+                <span data-todo-label className="delivery-truncate min-w-0" title={l.reason === '' ? l.label : `${l.label} · ${l.reason}`}>{l.label}</span>
+                {l.reason !== '' && <span data-todo-reason className="delivery-text-muted delivery-truncate min-w-0">{' · '}{l.reason}</span>}
               </span>
             </button>
           </li>

@@ -235,7 +235,8 @@
 #                       only: the budget record and `plot-host.sh limit`
 #                       predict it where a reply states no `X-RateLimit-Limit`,
 #                       and a stated limit outranks it. Absent or not a whole
-#                       number = 10000, Atlassian's scaled cap.
+#                       number = 800, the ceiling `bb` keeps. No client sends an
+#                       access token today, so a value above 800 has no effect.
 #   CI                  jenkins | github-actions | none — which CI system this
 #                       project uses. Recorded by /plot-board-setup; not yet
 #                       read by the board.

@@ -158,7 +158,7 @@ describe('hostReadsFor', () => {
       expect(shell.calls).not.toContain('prListing');
     });
 
-    it('hands the client the Host rate limit key as its predicted limit, and 10000 where the key is unset', async () => {
+    it('hands the client the Host rate limit key as its predicted limit, and 800 where the key is unset', async () => {
       const declared = { options: null as BitbucketApiOptions | null, paths: [] as string[] };
       await hostReadsFor(context, bitbucket('github-actions'), {
         env: {},
@@ -176,10 +176,10 @@ describe('hostReadsFor', () => {
         config: async () => '',
       });
       expect(declared.options?.predictedLimit).toBe(2000);
-      expect(unset.options?.predictedLimit).toBe(10_000);
+      expect(unset.options?.predictedLimit).toBe(800);
     });
 
-    it('reads the settled state in-process as merged plus declined', async () => {
+    it('reads the settled state in-process as merged plus declined, in one request', async () => {
       const shell = shellHost();
       const seen = { options: null as BitbucketApiOptions | null, paths: [] as string[] };
       const reads = await hostReadsFor(context, bitbucket('github-actions'), {
@@ -190,7 +190,8 @@ describe('hostReadsFor', () => {
       });
       await reads.host.prList('settled', 50);
       expect(shell.calls).toEqual([]);
-      expect(seen.paths).toHaveLength(2);
+      expect(seen.paths).toHaveLength(1);
+      expect(seen.paths[0]).toContain('state=MERGED&state=DECLINED');
     });
 
     it('keeps the shell where no credential resolves, and says why', async () => {

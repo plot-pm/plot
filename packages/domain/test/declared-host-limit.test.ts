@@ -7,12 +7,12 @@ describe('declaredHostLimit', () => {
     expect(declaredHostLimit('2000')).toBe(2000);
   });
 
-  it('answers 10000 where the key is unset', () => {
+  it('answers 800 where the key is unset', () => {
     expect(declaredHostLimit('')).toBe(DEFAULT_PREDICTED_HOST_LIMIT);
-    expect(DEFAULT_PREDICTED_HOST_LIMIT).toBe(10_000);
+    expect(DEFAULT_PREDICTED_HOST_LIMIT).toBe(800);
   });
 
-  it.each(['0', '010', '-5', '10,000', '10000/h', ' 10000', '1e4', 'many'])('answers 10000 for %j', (value) => {
-    expect(declaredHostLimit(value)).toBe(10_000);
+  it.each(['0', '010', '-5', '10,000', '10000/h', ' 10000', '1e4', 'many'])('answers 800 for %j', (value) => {
+    expect(declaredHostLimit(value)).toBe(800);
   });
 });

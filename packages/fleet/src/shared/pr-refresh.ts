@@ -204,9 +204,9 @@ export const PR_BACKOFF_MAX_MS = 120_000;
  * The number the cadence above was missing. `PR_REFRESH_MS` reasons about a
  * refresh as a unit — "60 s between refreshes" — and that reasoning is only
  * about spending if a refresh is one request. On GitHub the PR list is one
- * call. On Bitbucket it is three: `plot-host.sh` expands `--state all` into
- * `open`, `merged` and `declined` because `bb` has no `all` state, so the one
- * call this file makes fans out into three round trips before it returns.
+ * call. On Bitbucket it is one too: `plot-host.sh` asks `open`, `merged` and
+ * `declined` in one paginated request, and a walk past its first page sends
+ * one more request per 50 pull requests.
  *
  * `issue-list` used to cost ZERO on Bitbucket — the adapter exited 4 before
  * touching the network — and this table counted only `pr-list` on that basis.
@@ -223,8 +223,8 @@ export const PR_BACKOFF_MAX_MS = 120_000;
  * `bitbucket.org/quatico/ekzweb` (issue #226):
  *
  *     GitHub      1 request  → refresh every  60 s → 60 requests / hour
- *     Bitbucket   3 requests → refresh every 180 s → 60 requests / hour
- *                 (3 for pr-list --state all; the issue read runs on its own gate)
+ *     Bitbucket   1 request  → refresh every  60 s → 60 requests / hour
+ *                 (1 for pr-list --state all; the issue read runs on its own gate)
  *
  * Before the cadence stretched, an un-throttled 60 s tick spent 4 × 60 = 240
  * Bitbucket requests an hour. A board left open a working day made ~1400
@@ -256,45 +256,25 @@ export const PR_REQUESTS_PER_REFRESH: Record<string, number> = {
   // measurement treats the refresh as one unit there. The issue reads run on
   // their own gate (`issueIntervalMs`) and are not part of this cost.
   github: 1,
-  // Three for `pr-list --state all` (open, merged, declined — `bb` has no `all`
-  // state). The issue read runs on its own gate and is not part of this cost.
-  // Do not "fix" the three by inventing an `all` — it would fabricate an answer
-  // the host cannot give.
+  // One for `pr-list --state all`: the Bitbucket arm asks open, merged and
+  // declined in one request (`state=OPEN&state=MERGED&state=DECLINED`) and
+  // follows `next`. The issue read runs on its own gate and is not part of
+  // this cost.
   //
-  // THREE IS THE COST OF THE CALL THIS FILE MAKES, and since #333 that is a
-  // statement about a call SHAPE rather than about the backend. `pr-list` now
-  // takes a repeatable `--branch`: given branches, the Bitbucket arm asks its
-  // REST endpoint about each one by name — branches × states queries, exact and
-  // complete — and given none it lists as before. `refreshPrs` below passes
-  // none, so it still makes three listings, and three is what it spends.
+  // ONE IS THE FIRST PAGE, and the number counts requests per refresh as the
+  // GitHub row does. A walk past the first page sends one more request per 50
+  // pull requests; a windowed refresh (`--since`) asks `updated_on>=` and is
+  // one page unless more than 50 pull requests changed in the window.
   //
-  // WHOEVER MOVES THIS FILE ONTO THE SWEEP MUST CHANGE THIS NUMBER, and the
-  // arithmetic is `branches × 3` rather than a constant. On the repository
-  // measured 2026-09-20 that is 11 × 3 = 33 against today's 3, which takes
-  // the interval from 180 s to roughly half an hour — so such a change is a
-  // cadence decision, not a call-site edit. `plot-fleet-scan.sh` pays that cost
-  // deliberately: it runs on an operator's command, not on a 5 s timer, and it
-  // is the caller whose join the truncation actually breaks.
+  // `refreshPrs` passes no `--branch`. A sweep asks one request per branch
+  // (`bb_branch_sweep`), so whoever moves this file onto the sweep must change
+  // this number to the branch count; that is a cadence decision, not a
+  // call-site edit.
   //
   // UNDER-DECLARING IS THE FAILURE NAMED ABOVE, and over-declaring is its
   // mirror: stretching this board's cadence for queries it never issues would
   // slow every refresh to pay for nothing.
-  //
-  // A DELTA CHANGED WHAT EACH REQUEST COSTS AND NOT HOW MANY ARE MADE, so this
-  // number is unchanged by the `--since` slice. The Bitbucket arm still calls
-  // once per state, whether or not a window narrows each
-  // call: a windowed listing goes through `bb_window_listing`, which asks REST
-  // with `updated_on>=` and walks its pages, so it narrows but still spends one
-  // call per state. GitHub likewise makes one call with `--search` exactly as
-  // it made one without.
-  //
-  // WHAT A CHEAPER CALL BUYS IS LATENCY, NOT BUDGET, and conflating the two is
-  // how a table like this goes wrong. 29 811 ms became 943 ms because the host
-  // stopped assembling 933 rows; it is still one request against the same quota
-  // and must still be spaced as one. Lowering this to "pay for" a faster call
-  // would tighten the cadence against a limit that never moved — the ~1400
-  // requests and account-wide `HTTP 429` this table's own header records.
-  bitbucket: 3,
+  bitbucket: 1,
 };
 
 /**
