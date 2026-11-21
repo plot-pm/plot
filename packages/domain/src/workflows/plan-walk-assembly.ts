@@ -9,6 +9,7 @@ import type { BranchReading, BranchStageReadings, PrDetail } from './plan-walk-b
 import type { DeskReading, DeskStageReadings } from './plan-walk-desks.js';
 import type { Estate } from './plan-walk-estate.js';
 import { planIsFinished } from '../rules/plan-names-branch.js';
+import type { BbThrottleCause } from '../rules/bb-ledger.js';
 
 /** The wire key the shell scan still emits for the per-plan slice list; the name belongs to that foreign process. */
 const WAVES_KEY = 'waves';
@@ -469,6 +470,8 @@ export interface FleetReadingHeader {
   planDir: string;
   /** The host word the summary carries. */
   host: string;
+  /** The cause of a `throttled` host word, carried as `summary.hostCause`; absent elsewhere. */
+  hostCause?: BbThrottleCause;
   /** The merge-detection word the summary carries. */
   mergeDetect: string;
   /** The wall clock in epoch seconds, for `changed_at`. */
@@ -590,5 +593,6 @@ export const fleetReading = (
     prereq_missing: assembly.summary.prereqMissing,
     merge_detect: header.mergeDetect,
     host: header.host,
+    ...(header.host === 'throttled' && header.hostCause !== undefined ? { hostCause: header.hostCause } : {}),
   },
 });

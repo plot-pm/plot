@@ -1,3 +1,4 @@
+import { bbThrottleCause, bbThrottleTime, type BbThrottleCause } from './bb-ledger.js';
 import { refusalKind, type RefusalKind } from './refusal.js';
 
 /**
@@ -159,6 +160,14 @@ export interface PrStatus {
   backoffInSeconds: number | null;
   /** How many spenders the record accounts for, or null where it cannot say. */
   spenders: number | null;
+  /**
+   * Where a spent quota came from, or null where the kind is not `quota`:
+   * `ceiling` is this machine's hourly ceiling in `bb`'s ledger, `paused` is
+   * `bb`'s pause after a 429, and `host` is the host's own refusal.
+   */
+  throttleCause: BbThrottleCause | null;
+  /** The `HH:MM:SSZ` a `ceiling` or `paused` refusal names, or null where it names none. */
+  throttleTime: string | null;
   /** `plot-host`'s own notices, kept separate from `cause` for a diagnostics view. */
   notices: HostNotice[];
   /**
@@ -209,6 +218,8 @@ export const prStatus = (input: PrStatusInput): PrStatus => {
     cause: kind === null ? null : remainder,
     backoffInSeconds,
     spenders: kind === 'secondary' ? input.spenders : null,
+    throttleCause: kind === 'quota' && remainder !== null ? bbThrottleCause(remainder) : null,
+    throttleTime: kind === 'quota' && remainder !== null ? bbThrottleTime(remainder) : null,
     notices,
     stale,
   };

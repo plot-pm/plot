@@ -480,6 +480,7 @@ const walkPulse = async (context: ShellContext, refs: Refs) => {
       fetchError: '',
       planDir,
       host: branches.ok ? branches.value.hostReach : 'failed',
+      ...(branches.ok && branches.value.hostCause !== undefined ? { hostCause: branches.value.hostCause } : {}),
       mergeDetect: 'unaskable',
       nowSeconds: Math.floor(Date.now() / 1000),
     }, conflicts),

@@ -351,6 +351,24 @@ export function prStatusEntry(
         ' — it clears in seconds; close a board rather than wait.'
       );
     }
+    if (status.kind === 'quota' && status.throttleCause === 'ceiling') {
+      return (
+        `${levelWord}: this machine's hourly Bitbucket ceiling is spent` +
+        (status.throttleTime ? `, next request at ${status.throttleTime}` : '') +
+        (when ? ` (in ~${when})` : '') +
+        ageSuffix +
+        ' — the two groups above that depend on it may be incomplete.'
+      );
+    }
+    if (status.kind === 'quota' && status.throttleCause === 'paused') {
+      return (
+        `${levelWord}: bb is paused after Bitbucket refused a request` +
+        (status.throttleTime ? `, until ${status.throttleTime}` : '') +
+        (when ? ` (in ~${when})` : '') +
+        ageSuffix +
+        ' — the two groups above that depend on it may be incomplete.'
+      );
+    }
     if (status.kind === 'quota') {
       return (
         `${levelWord}: the host's rate limit is spent` +
@@ -494,6 +512,22 @@ export function scanHostNote(
   // `fleetControls` lesson from 2026-08-22, which a Zod `.default()` does not
   // save because it fires only at parse time. Guarded rather than assumed.
   const host = fleet.summary?.host;
+  if (host === 'throttled' && fleet.summary?.hostCause === 'ceiling') {
+    const when = resetPhrase(fleet.prNextInSeconds ?? null);
+    return "Fleet scan blind: this machine's hourly Bitbucket ceiling is spent, so no PR could be read."
+      + ' Every branch below reads from local evidence alone and none was offered to'
+      + ' --next — the ceiling frees a request as each request of the last hour ages out'
+      + (when ? ` (next request in ~${when})` : '')
+      + ', so a later scan will say more.';
+  }
+  if (host === 'throttled' && fleet.summary?.hostCause === 'paused') {
+    const when = resetPhrase(fleet.prNextInSeconds ?? null);
+    return 'Fleet scan blind: bb is paused after Bitbucket refused a request, so no PR could be read.'
+      + ' Every branch below reads from local evidence alone and none was offered to'
+      + ' --next — the pause ends on a clock'
+      + (when ? ` (ends in ~${when})` : '')
+      + ', so a later scan will say more.';
+  }
   if (host === 'throttled') {
     const when = resetPhrase(fleet.prNextInSeconds ?? null);
     return "Fleet scan blind: the git host's rate limit was spent, so no PR could be read."
