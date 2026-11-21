@@ -45,6 +45,11 @@ describe('releaseSummary', () => {
     expect(chipOf(parts, 'unread')).toMatchObject({ text: '! 1 not read', tone: 'amber' });
     expect(chipOf(releaseSummary({ bar, blockedPlans: 0, counts }), 'unread')).toBeUndefined();
   });
+
+  it('says 1 plan in the singular, and 0 plans where the line names no count', () => {
+    expect(releaseSummary({ bar, blockedPlans: 0, counts: [{ key: 'plans', count: 1, words: 'plan', target: null }] })).toContainEqual({ kind: 'text', key: 'plans', text: '1 plan' });
+    expect(releaseSummary({ bar, blockedPlans: 0, counts: [] })).toContainEqual({ kind: 'text', key: 'plans', text: '0 plans' });
+  });
 });
 
 describe('youSummary and workSummary', () => {
@@ -71,6 +76,12 @@ describe('youSummary and workSummary', () => {
     });
     expect(chips(parts).map((c) => [c.key, c.tone])).toEqual([['at-a-gate', 'amber'], ['being-built', 'zero'], ['queued', 'blue']]);
     expect(parts.at(-1)).toEqual({ kind: 'text', key: 'oldest', text: 'oldest 2d' });
+  });
+
+  it('gives a key it does not know no icon, and Work items no oldest text where no item has an age', () => {
+    expect(chipOf(youSummary({ numbers: [num('other', 2, 'other', 'amber')], unread: null }), 'other')).toMatchObject({ text: ' 2 other', tone: 'amber' });
+    const parts = workSummary({ numbers: [num('other', 2, 'other', 'amber')], unread: null, oldest: null });
+    expect(parts).toEqual([{ kind: 'chip', key: 'other', text: ' 2 other', count: 2, tone: 'blue' }]);
   });
 });
 
@@ -133,6 +144,10 @@ describe('ticketsSummary and notPlacedSummary', () => {
       ['? unassigned', 'unread'],
       ['1 hidden by filter', 'grey'],
     ]);
+  });
+
+  it('counts the unassigned tickets where the read carries them', () => {
+    expect(chipOf(ticketsSummary({ state: 'rows', assigned: 0, others: 0, unassigned: 3, hidden: 0 }), 'unassigned')).toMatchObject({ text: '3 unassigned', count: 3, tone: 'grey' });
   });
 
   it('gives no count while the tracker gave no rows', () => {
