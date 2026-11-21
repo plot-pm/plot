@@ -435,8 +435,9 @@ const stateGate: Gate = {
         return { parentText: parent.ok ? parent.value : null, pickedText: picked.ok ? picked.value : null };
       };
 
-      // A squash of the state ref's tip (D14) carries lifecycle writes the state
-      // ref already took under their receipts, so its tree equals the tip's.
+      // A squash of the state ref's tip (`[decision-gate-accepts-state-tip-squash]`,
+      // plan `state-branch`) carries lifecycle writes the state ref already took
+      // under their receipts, so its tree equals the tip's.
       let squash = false;
       const stateKey = await scripts.config('State branch', '');
       if (stateKey.ok && stateKey.value.trim() !== '') {

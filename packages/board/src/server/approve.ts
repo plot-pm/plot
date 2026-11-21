@@ -329,7 +329,7 @@ export async function handleApprove(
       json(409, {
         error: facts.review === 'in-session'
           ? `plan '${slug}' declares 'Review: in-session' — the configured Approve command would run /plot-approve unattended, which refuses this channel by its own rule (nobody is in the room to approve it). Approve it from a session, or remove the 'Approve command' key so the board runs plot-approve.sh --who directly.`
-          : `plan '${slug}' is in the Design phase — a person approves it (D10), whatever its 'Review:' channel declares. The configured Approve command would run /plot-approve unattended, which refuses it (nobody is in the room to approve it). Approve it from a session, or remove the 'Approve command' key so the board runs plot-approve.sh --who directly.`,
+          : `plan '${slug}' is in the Design phase — a person approves it [decision-fleet-writes-design-specs], whatever its 'Review:' channel declares. The configured Approve command would run /plot-approve unattended, which refuses it (nobody is in the room to approve it). Approve it from a session, or remove the 'Approve command' key so the board runs plot-approve.sh --who directly.`,
       });
       return;
     }

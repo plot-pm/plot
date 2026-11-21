@@ -7,13 +7,27 @@ export interface OpenQuestions {
 const HEADING = /^#{2,3}\s+(Open Questions|Open Points)\s*$/i;
 const ANY_HEADING = /^#{1,6}\s/;
 const UNCHECKED = /^\s*[-*]\s+\[ \]\s+(.*\S)\s*$/;
+const NAMED = /^((?:[⏸️✅]+\s+)?)(`?)\[[a-z]+(?:-[a-z0-9]+)+\]\2(?:\s+|$)/u;
+
+/**
+ * An Open Points line without its leading `[kind-name]` identifier.
+ *
+ * @param line - the text after the `- [ ]` checkbox.
+ * @returns the line with one identifier removed after an optional `⏸️`/`✅` marker, or the line unchanged where it carries no identifier or nothing follows it.
+ */
+const withoutName = (line: string): string => {
+  const named = NAMED.exec(line);
+  if (named === null) return line;
+  const rest = line.slice(named[0].length);
+  return rest === '' ? line : `${named[1]!}${rest}`;
+};
 
 /**
  * The unchecked `- [ ]` items under a plan's `### Open Questions` and
  * `## Open Points` headings, in document order.
  *
  * @param text - the plan file's text.
- * @returns the count and the first item's text, or `null` where the plan has neither heading. A plan with a heading and every item checked returns a count of 0, which is not the same answer as `null`.
+ * @returns the count and the first item's text without a leading `[kind-name]` identifier, or `null` where the plan has neither heading. A plan with a heading and every item checked returns a count of 0, which is not the same answer as `null`.
  */
 export const planOpenQuestions = (text: string): OpenQuestions | null => {
   let inSection = false;
@@ -39,7 +53,8 @@ export const planOpenQuestions = (text: string): OpenQuestions | null => {
     const item = UNCHECKED.exec(line);
     if (item !== null) items.push(item[1]!);
   }
-  return found ? { count: items.length, first: items[0] ?? null } : null;
+  const first = items[0];
+  return found ? { count: items.length, first: first === undefined ? null : withoutName(first) } : null;
 };
 
 /** The chip text for the open questions: `n open`, or `null` where the plan has no count to show. */
