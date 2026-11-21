@@ -346,7 +346,8 @@ export const plotPathSetOf = (opts: ActOptions): readonly string[] => {
  * @param mergerApp - holds whether the `Merger app` key is usable, and reads it
  *   again before a merge; a reader of its own by default. A caller that runs
  *   many passes passes one reader, so the check runs once per process.
- * @returns the tick's result, or `null` where nothing was read to act on.
+ * @returns the tick's result, or `null` where nothing was read to act on,
+ *   including where the state home is unread.
  */
 export const runAutoMergePass = async (
   opts: ActOptions,

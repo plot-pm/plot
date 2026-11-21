@@ -3153,6 +3153,7 @@ describe('queueWorldForRepo — the refused reading', () => {
   it('reads `checksWaitMs` through the thunk it is given, once per ask', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'plot-checks-wait-thunk-'));
     try {
+      execFileSync('git', ['init', '-q', dir], { stdio: 'ignore' });
       const reading = {
         // The literal `DefaultBranchReadingSchema.v` requires — see
         // `DEFAULT_BRANCH_VERSION` in `@plot-pm/domain/entities/default-branch`,

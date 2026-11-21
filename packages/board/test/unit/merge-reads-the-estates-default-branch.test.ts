@@ -11,6 +11,7 @@ import { defaultBranchFile } from '@plot-pm/domain/adapters';
 
 import type { MergePorts } from '../../src/server/entry/merge.js';
 import { removeTree } from '../rm-tree.mjs';
+import { gitStateHome } from '../state-home-root.js';
 
 /**
  * `plot-ask.mjs merge` READS THE DEFAULT-BRANCH STORE OF THE REAL ESTATE
@@ -86,7 +87,7 @@ afterEach(() => {
 const repoWithRedReading = async (): Promise<string> => {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-merge-estate-repo-'));
   made.push(repoRoot);
-  expect((await defaultBranchFile(repoRoot).write(RED)).ok).toBe(true);
+  expect((await defaultBranchFile(gitStateHome(repoRoot)).write(RED)).ok).toBe(true);
   process.env.PLOT_REPO_ROOT = repoRoot;
   process.env.PLOT_SCRIPTS_DIR = REAL_SCRIPTS;
   return repoRoot;

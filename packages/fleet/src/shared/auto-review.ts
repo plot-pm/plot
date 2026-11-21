@@ -203,7 +203,7 @@ export const readRepairReview = async (
  *
  * @param opts - where the fleet acts.
  * @param now - epoch milliseconds.
- * @returns the reading, or `null` where the host, the index or the open rows give nothing to act on.
+ * @returns the reading, or `null` where the host, the index, the open rows or the state home give nothing to act on.
  */
 export const readReviewPass = async (opts: ActOptions, now: number): Promise<ReviewPassReading | null> => {
   const backend = await hostOf(opts).backend();
