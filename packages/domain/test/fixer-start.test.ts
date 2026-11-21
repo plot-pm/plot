@@ -74,7 +74,8 @@ describe('fixerPrompt for a conflict', () => {
 
   it('names the restore of a generated bundle from the merge base', () => {
     const text = textOf(fixerPrompt({ ...base, evidence: conflict }));
-    expect(text).toContain('`git checkout $(git merge-base HEAD MERGE_HEAD) -- <path>`');
+    expect(text).toContain('`git restore --staged --worktree --source="$(git merge-base origin/main HEAD MERGE_HEAD)" -- <path>`');
+    expect(text).not.toContain('git merge-base HEAD MERGE_HEAD');
     expect(text).toContain('never commit a rebuild');
     expect(text).toContain('Resolving a board artifact conflict');
   });

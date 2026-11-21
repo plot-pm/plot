@@ -42,7 +42,7 @@ export type FixerPrompt =
  * a note; a CI-red run names the failing checks, or says the index named none.
  * A conflict run names the base and its tip, says to merge `origin/<base>`
  * into the head and never to rebase, to restore a generated bundle from
- * `git merge-base HEAD MERGE_HEAD` rather than rebuild it, and to stop and
+ * `git merge-base origin/<base> HEAD MERGE_HEAD` rather than rebuild it, and to stop and
  * report a conflict in a path the role gate protects, a refused push or a
  * `State:` line the state gate refuses.
  *
@@ -84,7 +84,7 @@ export const fixerPrompt = (input: FixerPromptInput): FixerPrompt => {
       `1. Fetch the base with \`git fetch origin ${base}\`.`,
       `2. Merge it with \`git merge origin/${base}\`. Never rebase, and never force-push: the merge adds one commit and the push is a fast-forward.`,
       '3. Resolve every conflict, so that both sides keep what they changed.',
-      '4. A generated bundle is marked `-merge` in `.gitattributes`. Never edit it and never commit a rebuild. Restore it from the merge base with `git checkout $(git merge-base HEAD MERGE_HEAD) -- <path>` (docs/definition-of-done.md, "Resolving a board artifact conflict").',
+      `4. A generated bundle is marked \`-merge\` in \`.gitattributes\`. Never edit it and never commit a rebuild. Restore it from the merge base the merge commit will have, with \`git restore --staged --worktree --source="$(git merge-base origin/${base} HEAD MERGE_HEAD)" -- <path>\` (docs/definition-of-done.md, "Resolving a board artifact conflict").`,
       `5. Where a conflict sits in a path the role gate protects (\`${CI_WORKFLOW_DIR}\`, \`.claude/\`, \`scripts/check-*.sh\`), stop: abort the merge with \`git merge --abort\` and report the path.`,
       `6. Commit the merge, then push it with \`git push origin HEAD:${branch}\`.`,
       '',
