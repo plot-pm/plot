@@ -39,7 +39,7 @@ Design spec (outside the repo): `/Users/jwloka/Quatico/Agentic-Tools/plot/docs/s
 <!-- add items here -->
 
 ### Could Have
-- [ ] [templates-show-named-identifiers] Templates show named identifiers
+- [x] [templates-show-named-identifiers] Templates show named identifiers
 
 <!-- add items here -->
 
