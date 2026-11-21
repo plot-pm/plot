@@ -8,7 +8,7 @@
 - **Type:** docs
 - **Review:** pr
 - **Impl:** same branch
-- **Rounds:** 2
+- **Rounds:** 3
 
 ## Changelog
 
@@ -54,6 +54,11 @@ Adopters have different tastes, so Plot adds no gate, no config key and no lint 
 - [ ] `[question-checklist-line-first-token]` `UNCHECKED` in `plan-open-questions.ts:9` captures the whole line after `- [ ] `, so the name is part of the board's first-question text and of the "n open" count source. Is a name followed by a sentence the intended shape, or does a bare name with no sentence count as an open point? *(interview round 2: technical)*
 - [ ] `[question-challenge-skill-writes-points]` `challenge-the-plan/SKILL.md:514-525` tells the skill to append deferred items to Open Points and `:630` to write contradictions as checkbox entries. Does the skill adopt the prefix convention, or do the plans it writes keep unnamed lines beside the template's named ones? *(interview round 2: domain)*
 - [ ] `[question-adopter-evidence]` The Motivation rests on one measured case, "D14" in `plot-deliver`. How many plans and stories under `docs/` already carry a legend-bound code, and does a count change the decision between a convention and no change? *(interview round 2: trade-offs)*
+- [ ] `[question-d10-name-fits-definition]` The D10 definition (`STORY-plot-works-in-five-phases.md:86`) is mainly about the fleet commissioning a spec for a Design plan, and ends with "Approval stays a person's act". Both `[decision-person-approves-plans]` and `[decision-person-approves-design-plans]` name only that last sentence. Does the name follow the definition's subject? *(panel round 3: deliverable)*
+- [ ] `[question-template-reading-tests]` Four tests read the plan templates: `parser.test.mjs:2593-2605`, `skills-say-slices.test.mjs:63,83`, `approve-record-outside-comments.test.mjs:46` and `started-record-outside-comments.test.mjs:3`. The Notes name only `story-record.ts`. Does the plan run them and record the result? *(panel round 3: estate)*
+- [ ] `[question-existing-adopter-templates]` `plot-init/SKILL.md:605-606` copies the shipped plan template once into an adopter's `.plot/templates/plan.md`. An existing adopter's copy never receives the convention. Does the plan say so? *(panel round 3: contradiction, cost)*
+- [ ] `[question-interrogate-reads-open-points]` `interrogate.ts:39` and `contract/schema.ts` also name Open Points. Do they join the readers that `[question-open-points-row-text]` checks? *(panel round 3: estate)*
+- [ ] `[question-adopter-evidence-path-set]` The round-3 counts of files carrying a legend-bound D-code differ: 24 under `docs/stories` and `docs/plans`, 41 with `skills/` added. Which path set does `[question-adopter-evidence]` count? *(panel round 3: estate, cost)*
 
 ## Slices
 
@@ -67,10 +72,11 @@ Adopters have different tastes, so Plot adds no gate, no config key and no lint 
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 2,
+  "round": 3,
   "questionHistory": [
     {"q": "Panel round 1 (estate, contradiction, deliverable, cost): unanimous amend; findings recorded as Open Points", "a": "unattended, no answers", "category": "panel"},
-    {"q": "Interview round 2 (unattended): name uniqueness and rename, first-line token against planOpenQuestions, challenge-the-plan skill's own Open Points lines, adopter evidence", "a": "unattended, no answers; recorded as Open Points", "category": "domain"}
+    {"q": "Interview round 2 (unattended): name uniqueness and rename, first-line token against planOpenQuestions, challenge-the-plan skill's own Open Points lines, adopter evidence", "a": "unattended, no answers; recorded as Open Points", "category": "domain"},
+    {"q": "Panel round 3 (estate, contradiction, deliverable, cost): unanimous amend; five new Open Points (D10 name fit, template-reading tests, existing adopter templates, interrogate readers, adopter count path set)", "a": "unattended, no answers", "category": "panel"}
   ],
   "deferredItems": [],
   "categoriesCovered": {
