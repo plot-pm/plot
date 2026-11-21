@@ -446,6 +446,15 @@ describe('prConversation', () => {
   });
 });
 
+describe('prsOfCommit', () => {
+  it('answers unaskable and runs no script', async () => {
+    const context = hostThat(`touch "$(dirname "$0")/ran"; exit 0`);
+    const answer = await hostShell(context).prsOfCommit('a'.repeat(40));
+    expect(answer).toMatchObject({ ok: false, why: 'unaskable' });
+    expect(existsSync(join(context.scriptDir, 'ran'))).toBe(false);
+  });
+});
+
 describe('prReview statuses', () => {
   it('passes the statuses the script reports through to the reading', async () => {
     const reading = {

@@ -156,8 +156,15 @@ describe('the plan row carries the sole wave’s actions', () => {
       await expect.poll(() => planRow(page, 'beans').count(), { timeout: 10_000 }).toBe(1);
       // The wave row IS present — a one-wave plan's wave is still a wave.
       await expect.poll(() => page.locator('li[data-slice-row="Solo"]').count()).toBe(1);
-      // The wave row has NO Start-work control — the plan row carries it.
-      expect(await page.locator('li[data-slice-row="Solo"] [data-slice-actions]').count()).toBe(0);
+      // The wave row's Start work does not act — the plan row carries it. The wave
+      // row lists its kind's fixed items, so Start work is there, disabled.
+      const solo = page.locator('li[data-slice-row="Solo"]');
+      await solo.locator('[data-slice-actions]').click();
+      const soloStart = solo.locator('[role="menu"] [data-menu-item="start-work"]');
+      await expect.poll(() => soloStart.count()).toBe(1);
+      expect(await soloStart.getAttribute('aria-disabled')).toBe('true');
+      expect(await solo.locator('[role="menu"]').getByRole('button', { name: /Start work/ }).count()).toBe(0);
+      await page.keyboard.press('Escape');
 
       // ONE menu trigger on the plan row, not two.
       const triggers = planRow(page, 'beans').locator('button[aria-haspopup="menu"]');

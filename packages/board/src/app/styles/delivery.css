@@ -26,6 +26,14 @@
 .delivery-tone-warn { --delivery-text: var(--hue-amber); --delivery-dot: var(--hue-amber-dot); --delivery-soft: var(--hue-amber-soft); }
 .delivery-tone-alert { --delivery-text: var(--hue-red); --delivery-dot: var(--hue-red-dot); --delivery-soft: var(--hue-red-soft); }
 
+/*
+ * The `⋯` track: the last track of every Delivery grid has this width, so the
+ * row menu sits at one x in every section. A row with no action keeps the cell.
+ */
+:root {
+  --delivery-menu-track: 1.25rem;
+}
+
 /* The section card. */
 .delivery-card {
   background: var(--card-surface);
@@ -145,11 +153,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* The You header names five of the row's eight tracks: Kind, Item, Status, Do, Age. */
+/* The You header names five of the row's eight tracks: Kind, Item, Status, Age, Do. */
 .delivery-thead[data-you-header] > :nth-child(1) { grid-column: 2; }
 .delivery-thead[data-you-header] > :nth-child(2) { grid-column: 3 / 5; }
-.delivery-thead[data-you-header] > :nth-child(3) { grid-column: 5; }
-.delivery-thead[data-you-header] > :nth-child(4) { grid-column: 6 / 8; }
+.delivery-thead[data-you-header] > :nth-child(3) { grid-column: 5 / 7; }
+.delivery-thead[data-you-header] > :nth-child(4) { grid-column: 7; }
 .delivery-thead[data-you-header] > :nth-child(5) { grid-column: 8; }
 .delivery-row {
   padding-top: 0.5rem;

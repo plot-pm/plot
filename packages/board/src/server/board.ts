@@ -1,3 +1,4 @@
+import type { StateHomeAnswer } from '@plot-pm/domain';
 import type { SnapshotLink } from '@plot-pm/domain/rules/snapshot-link';
 import type { HeldSnapshot } from '@plot-pm/domain/rules/snapshot-sync';
 import { createHash } from 'node:crypto';
@@ -96,7 +97,6 @@ import {
   scriptsConfigCached,
   sliceSpendFile,
   treesGit,
-  defaultBranchFile,
   gateContractFile,
   readerLockFile,
   TRACKER_PROJECT_KEY_SCHEMES,
@@ -110,6 +110,7 @@ import { planFactsOf, type CardFields, type PlanFactsExtras } from './plan-facts
 import { storyFactsOf, ticketStoriesOf, type StoryFactsContext } from './story-facts.js';
 import { branchUrlBaseFor, issueUrlBaseFor, prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor, recordRefutedIssues } from './fleet.js';
 import { extractTopics, type StoryDocument } from './topics.js';
+import { defaultBranchIn, stateHomeFor } from './state-home.js';
 import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
 
 /**
@@ -122,6 +123,8 @@ import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dir
 export interface BuildBoardOptions {
   repoRoot: string;
   scriptsDir: string;
+  /** The state home this process resolved at start. Absent means resolved from `repoRoot` on first use. */
+  stateHome?: StateHomeAnswer;
   /**
    * Where ref questions are answered from. Absent means this repository.
    *
@@ -470,7 +473,7 @@ export const spendRecordFor = (opts: BuildBoardOptions): SliceSpendRecord =>
  * filesystem.
  */
 export const defaultBranchStoreFor = (opts: BuildBoardOptions): DefaultBranchStore =>
-  opts.defaultBranchStore ?? defaultBranchFile(opts.repoRoot);
+  opts.defaultBranchStore ?? defaultBranchIn(stateHomeFor(opts));
 
 /**
  * Where this board reads the gate's own `--spawn-contract` answer from.

@@ -444,17 +444,21 @@ describe('a stuck branch says so in its row', () => {
     }
   });
 
-  it('renders NO menu button on a row with nothing to do', async () => {
-    // A `⋯` that opens nothing is a control that lies, and it was measured
-    // lying on two of six WAITING ON YOU rows. The row already says what it is;
-    // an absent control claims nothing.
+  it('lists every item but Open disabled on a row with nothing to do', async () => {
+    // A row lists its kind's fixed items, and an item that cannot run is listed
+    // disabled with its reason. A row with nothing to do therefore opens a menu
+    // in which only Open, navigation to the branch on the host, acts.
     const page = await open();
     try {
       await expand(page, 'queued');
       // `feature/local-only` is unpushed: no run, no dispatchable conflict, not
-      // startable, not approvable. Nothing to offer, so no button.
+      // startable, not approvable.
       const r = rowFor(page, 'feature/local-only');
-      expect(await r.locator('[data-row-actions]').count()).toBe(0);
+      await r.locator('[data-row-actions]').click();
+      const menu = r.locator('[role="menu"]');
+      await expect.poll(() => menu.locator('[data-menu-item]').count()).toBeGreaterThan(0);
+      expect(await menu.locator('[data-menu-item]:not([aria-disabled="true"])').evaluateAll((els) => els.map((e) => e.getAttribute('data-menu-item')))).toEqual(['open']);
+      expect(await menu.locator('button').count()).toBe(0);
       // The row is still a row, and still says what is wrong.
       expect(await r.locator('[data-branch]').count()).toBe(1);
       expect(await r.locator('[data-stuck]').innerText()).toMatch(/unpushed/i);
@@ -469,9 +473,9 @@ describe('a stuck branch says so in its row', () => {
     try {
       await expand(page, 'queued');
       const row = rowFor(page, 'feature/local-only');
-      // No action anywhere — and since the actions moved, that means no menu
-      // BUTTON at all rather than a dimmed one that opens nothing.
-      expect(await row.locator('[data-row-actions]').count()).toBe(0);
+      // No action: the row's menu holds no button, only the Open link.
+      await row.locator('[data-row-actions]').click();
+      expect(await row.locator('[role="menu"] button').count()).toBe(0);
       expect(await row.locator('[data-stuck-link]').count()).toBe(0);
       expect(await row.locator('[data-stuck-cue]').count()).toBe(0);
       // But it DOES say what is wrong.
@@ -531,17 +535,13 @@ describe('a stuck branch says so in its row', () => {
       // The menu button itself is no longer the carrier of the dispatch refusal
       // — Open is enabled — so it opens.
       await menu.click();
-      // The conflict dispatch is the StartWorkButton inside the menu, refused
-      // here and naming why. `aria-disabled`, never the native attribute — so it
-      // keeps its place in the tab order and the reason stays reachable.
-      const resolve = row.getByRole('button', { name: /Dispatch|Start work/i });
-      await expect.poll(() => resolve.count()).toBeGreaterThan(0);
-      expect(await resolve.first().getAttribute('aria-disabled')).toBe('true');
-      // The refusal is the button's description, in the shared tooltip.
-      const reasonId = await resolve.first().getAttribute('aria-describedby');
-      const refusal = await page.locator(`[id="${reasonId}"]`).textContent();
-      expect(refusal ?? '').toMatch(/localhost|worktree|machine/i);
-      expect(await resolve.first().evaluate((el) => (el as HTMLButtonElement).disabled)).toBe(false);
+      // The conflict dispatch is the Resolve-conflict item inside the menu,
+      // listed disabled and naming why, with no button that could act.
+      const resolve = row.locator('[role="menu"] [data-menu-item="resolve-conflict"]');
+      await expect.poll(() => resolve.count()).toBe(1);
+      expect(await resolve.getAttribute('aria-disabled')).toBe('true');
+      expect(await resolve.getAttribute('data-menu-reason') ?? '').toMatch(/localhost|worktree|machine/i);
+      expect(await resolve.locator('button').count()).toBe(0);
     } finally {
       await page.close();
     }

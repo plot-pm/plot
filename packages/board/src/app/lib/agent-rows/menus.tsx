@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPlanRefusal } from '../card-presentation.js';
 import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
 import { ACTION_TIMEOUT_MS } from '../bounded-fetch.js';
@@ -27,9 +27,9 @@ import { StartWorkButton } from '../../components/StartWorkButton.js';
 import { ACTING_CLASS, ActingSpinner } from '../../components/ui/ActingSpinner.js';
 import { WriteBriefButton } from '../../components/WriteBriefButton.js';
 import { offersChangedFiles } from './stuck.js';
-import { changedFilesLabel } from './actions.js';
 import { isStartable, needsBrief } from './row-identity.js';
 import { WorkerLogModal } from '../../components/WorkerLogModal.js';
+import { rowMenuOf, type BranchMenuFacts, type RowMenuItem, type RowMenuView, type SliceMenuFacts } from './delivery-view.js';
 import { DispatchLogModal } from '../../components/DispatchLogModal.js';
 import { ChangedFilesModal } from '../../components/ChangedFilesModal.js';
 
@@ -221,125 +221,97 @@ export function storyRefusal(story: DispatchInfo, issueAnswer: IssueAnswer | nul
   return storyRefusalReason(story, issueAnswer);
 }
 
+/** The class an enabled item's link or button wears. */
+const ITEM_LINK = 'text-xs font-medium text-blue-600 hover:underline dark:text-blue-400';
+
 /**
- * What a row's menu holds, and therefore whether it exists at all.
+ * Renders one row's `⋯` and its popup from a {@link RowMenuView} of kind `items`.
  *
- * **Two questions, and the old code asked only one.** `enabled` is *can
- * something in here act right now*; `present` is *is there anything in here at
- * all*. They came apart the moment the menu learned to refuse: a row whose one
- * act the server declines has an item, a reason, and nothing it can do — and
- * collapsing that into a single flag forces a choice between a control that
- * lies and a reason nobody can reach.
+ * The cell renders at a fixed width whether or not it holds a trigger, so the `⋯` sits at the same x on every row.
+ * The trigger renders only where `view.trigger` is `'enabled'`, and it is never disabled. Each item renders as a
+ * `menuitem` carrying `data-menu-item`: an enabled item renders `render(item)`, and a disabled item renders its label
+ * with `aria-disabled` and its reason as `data-menu-reason` and as visible text.
  *
- * **A REFUSAL IS NOT AN ABSENCE.** A declined act still renders the button,
- * `aria-disabled`, with the reason on it. Only a row with no item at all
- * renders none — the empty `⋯` that was measured lying on two of six WAITING ON
- * YOU rows.
- *
- * The run link joins `enabled` without a `willAct` term because it is
- * NAVIGATION: there is no rerun route on this server, so opening the host's
- * page is not a write and reads the same over Tailscale as it does at the
- * machine. The two dispatching items ask whether the server will act because
- * they ask the server to act.
- *
- * Exported for test, and the invariant is the reason: `enabled` must never be
- * true while `present` is false, or the board renders an openable menu with no
- * button to open it. That is one line of reasoning about four disjuncts, which
- * is exactly the kind that survives a refactor by being re-derived wrongly.
+ * @param view - The menu `rowMenuOf` returned. Any other kind renders the empty cell.
+ * @param trigger - The data attribute the trigger carries (its value is the attribute's value) and its accessible label.
+ * @param render - The control for an enabled item, or `null` for a label alone.
  */
-export function menuState(items: {
-  canStart: boolean;
-  canResolve: boolean;
-  /**
-   * This row needs its brief written before it can be dispatched — see
-   * {@link needsBrief}.
-   *
-   * Joins `enabled` with `implementWillAct`, for the same reason `canStart`
-   * joins with `serverWillAct`: it asks the server to spawn `/plot-implement`,
-   * which is a write.
-   */
-  canWriteBrief: boolean;
-  hasRun: boolean;
-  /**
-   * This row is an agent, so it has a log to offer — see {@link showsWorkerLog}.
-   *
-   * Joins `enabled` without a `WillAct` term, for the reason the run link does:
-   * it is a READ, and reads are not refused. The two dispatching items ask
-   * whether the server will act because they ask the server to act; opening a
-   * log asks it only to look.
-   */
-  hasLog: boolean;
-  /**
-   * A dispatcher log exists for this row's plan, so a `Status` entry can read
-   * it — the durable home for what the Start work button's transient message
-   * used to point at and then destroy.
-   *
-   * Joins `enabled` without a `WillAct` term, for the reason `hasLog` and the
-   * run link do: it is a READ. Opening the dispatcher's own words asks the
-   * server only to look, never to act.
-   */
-  hasStatus: boolean;
-  /**
-   * This row's failing check has a changed-file list to show — see
-   * {@link offersChangedFiles}.
-   *
-   * Joins `enabled` without a `WillAct` term, and it is the purest READ in this
-   * menu: the paths are already on the row, so opening them asks the server
-   * nothing at all — not even to look, which is what separates it from the two
-   * log items. A refusal is impossible here because there is nobody to refuse.
-   */
-  hasChangedFiles: boolean;
-  /**
-   * This row has an address to OPEN — its PR page or its branch on the host.
-   *
-   * **The item that makes the menu fit EVERY kind.** The measured defect was
-   * two rows of three with no `⋯` at all — a plain PR awaiting review offered
-   * nothing, so its menu was absent and the reader had no route to it. Open is
-   * navigation to a fact the row already carries (`openTarget`), so it joins
-   * `enabled` without a `WillAct` term for the reason the run link and the log
-   * do: opening a page the row already names is not an act the server refuses.
-   */
-  hasOpen: boolean;
-  /**
-   * This row is an orphaned claim, which offers Release claim — see
-   * {@link offersReleaseClaim}. Joins `enabled` without a `WillAct` term: the
-   * route refuses a live agent or an open PR itself and says why in the item.
-   */
-  hasReleaseClaim?: boolean;
-  // APPROVE AND COMMISSION DESIGN ARE NOT HERE, and their absence is the point.
-  // Both are PLAN-level acts — approving a plan, or sending it to design — and a
-  // branch row is never the honest place for either: a branch BLOCKED by an
-  // earlier slice is in `waiting-on-you` when its plan is Draft, so any gate that
-  // put them on a row would put them on a row whose own available act is not its
-  // own. They live on the plan head (`PlanActions`), gated on the card's
-  // `isDraft` alone. So this menu — the BRANCH row's menu — no longer carries
-  // their flags: a disjunct that can never be true is a second rule asserting
-  // the row offers a plan act, which is exactly the drift this file removes
-  // rather than leaves unreachable.
-  serverWillAct: boolean;
-  /** Whether `/api/implement` will act — the gate for `canWriteBrief`. */
-  implementWillAct: boolean;
-}): { present: boolean; enabled: boolean } {
-  const {
-    canStart, canResolve, canWriteBrief, hasRun, hasLog, hasStatus, hasOpen,
-    hasChangedFiles, serverWillAct, implementWillAct, hasReleaseClaim = false,
-  } = items;
-  return {
-    present:
-      canStart || canResolve || canWriteBrief || hasRun || hasLog || hasStatus || hasOpen ||
-      hasChangedFiles || hasReleaseClaim,
-    enabled:
-      (canStart && serverWillAct) ||
-      (canResolve && serverWillAct) ||
-      (canWriteBrief && implementWillAct) ||
-      hasRun ||
-      hasLog ||
-      hasStatus ||
-      hasOpen ||
-      hasChangedFiles ||
-      hasReleaseClaim,
-  };
-}
+export const ItemMenu = ({
+  view,
+  trigger,
+  render,
+}: {
+  view: RowMenuView;
+  trigger: { label: string } & Record<`data-${string}`, string>;
+  render: (item: RowMenuItem) => ReactNode;
+}) => {
+  const [open, setOpen] = useState(false);
+  const menu = useRef<HTMLDivElement>(null);
+  // Close on Escape and on a click outside the popup. The click listener runs on CAPTURE, so a panel an item
+  // opens has to be mounted by the row: this menu unmounts before a bubbled click from inside it fires.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    const onDown = (e: MouseEvent) => {
+      if (menu.current && e.target instanceof Node && menu.current.contains(e.target)) return;
+      setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('click', onDown, true);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('click', onDown, true);
+    };
+  }, [open]);
+  const items = view.kind === 'items' && view.trigger === 'enabled' ? view.items : [];
+  const { label, ...attrs } = trigger;
+  return (
+    <div data-row-menu className="relative w-5 shrink-0 text-right" onClick={(e) => e.stopPropagation()}>
+      {items.length > 0 && (
+        <button
+          type="button"
+          {...attrs}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label={label}
+          title={label}
+          onClick={() => setOpen((v) => !v)}
+          className="-my-1 -mr-0.5 inline-flex h-6 w-6 items-center justify-center rounded text-xs leading-none text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+        >
+          ⋯
+        </button>
+      )}
+      {open && items.length > 0 && (
+        <div
+          role="menu"
+          ref={menu}
+          className="absolute right-0 z-10 mt-1 min-w-max max-w-[18rem] rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+        >
+          {items.map((item) => {
+            const control = item.enabled ? render(item) : null;
+            return item.enabled && control !== null ? (
+              <div key={item.action} role="menuitem" data-menu-item={item.action} className="px-2 py-1 text-left">
+                {control}
+              </div>
+            ) : (
+              <div
+                key={item.action}
+                role="menuitem"
+                aria-disabled="true"
+                data-menu-item={item.action}
+                data-menu-reason={item.reason ?? ''}
+                className="px-2 py-1 text-left text-xs text-slate-400 dark:text-slate-500"
+              >
+                <span className="font-medium">{item.label}</span>
+                {item.reason && <span className="block whitespace-normal text-[11px]">{item.reason}</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
 
 /**
  * Where a stuck row's actions used to live — and the note explaining why the
@@ -448,6 +420,7 @@ export function BranchMenu({
   restartWith,
   onOpenPlan,
   onRevealBranch,
+  slice,
 }: {
   row: AgentRow;
   card: Card | null;
@@ -466,6 +439,8 @@ export function BranchMenu({
   restartWith?: DispatchInfo;
   onOpenPlan?: (planFile: string) => boolean;
   onRevealBranch?: (branch: string) => void;
+  /** The slice this branch stands for on a slice row with one branch; see `RowActions`. */
+  slice?: SliceMenuOwn;
 }) {
   const [logOpen, setLogOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
@@ -483,6 +458,7 @@ export function BranchMenu({
         onOpenLog={() => setLogOpen(true)}
         onOpenStatus={() => setStatusOpen(true)}
         onOpenChangedFiles={() => setFilesOpen(true)}
+        slice={slice}
       />
       {logOpen && (
         <WorkerLogModal
@@ -519,6 +495,7 @@ export function RowActions({
   onOpenLog,
   onOpenStatus,
   onOpenChangedFiles,
+  slice,
 }: {
   row: AgentRow;
   card: Card | null;
@@ -561,55 +538,9 @@ export function RowActions({
    * that opened it.
    */
   onOpenChangedFiles?: () => void;
+  /** The slice this row stands for, where the row is a slice row with one branch: its acts join the menu. */
+  slice?: SliceMenuOwn;
 }) {
-  const [open, setOpen] = useState(false);
-  // The menu's own box, so a click inside it can be told from a click outside.
-  // See the close-on-outside-click effect below for why propagation cannot do
-  // this job.
-  const menu = useRef<HTMLDivElement>(null);
-  const canStart = Boolean(card && dispatch && isStartable(row));
-  // WRITE BRIEF — the act a row offers where it needs its brief written.
-  //
-  // `needsBrief(row)` is the predicate: this branch is otherwise startable but
-  // lacks the specification a worker reads first. The button calls
-  // `/api/implement`, which runs `/plot-implement`, which writes the brief.
-  // Same route as the plan head's Implement button, different label because the
-  // reader's question is different: "I need this branch's brief" rather than
-  // "prepare the whole slice".
-  //
-  // Needs a card (for the slug) and an implement binding (for availability).
-  const canWriteBrief = Boolean(card && implement && needsBrief(row));
-  // Whether `/api/implement` will act — the same question Implement asks, read
-  // from the same binding.
-  const implementWillAct = implement?.available ?? false;
-  // THE OTHER ACT A ROW CAN OFFER, and the reason this menu had to stop asking
-  // only about starting.
-  //
-  // APPROVE IS NOT HERE ANY LONGER — it belongs to the PLAN, and a branch row is
-  // never the honest place for it. Every gate tried on this row failed the same
-  // way: `isDraft(card)` alone put Approve on a branch BLOCKED by an earlier
-  // slice (its plan is genuinely Draft, so the card said yes) and adding
-  // `waitingOn === 'you'` did not fix it — a blocked branch of a Draft plan
-  // reads `waiting-on-you` too, so the button came back on a row whose own
-  // available act is not its own. No narrowing makes a plan-level act correct on
-  // a branch row, so the act moved to the plan head (`PlanActions`, gated on the
-  // card's `isDraft` alone) and the row-level twin is deleted rather than
-  // repaired. The plan's head is *one board, two answers*: the plan row offers
-  // Approve, the branch row beneath it does not.
-  //
-  // The menu opens only if something inside it could ACT.
-  //
-  // `canStart` answers "is this row startable"; it does not answer "will the
-  // server act", and the two came apart the moment the board learned to dim.
-  // Without this the three-dot menu still opened on a frozen page and still
-  // offered `Start work` on data minutes old — the exact invitation this slice
-  // exists to withdraw, and one that a scrim alone does not reach, because a
-  // keyboard reader never touches the scrim.
-  //
-  // The reason travels to the control, so the dimmed menu explains itself
-  // rather than reading as a bug. Same pattern the row already uses for a row
-  // with nothing to do.
-  const serverWillAct = dispatch?.available ?? false;
   // THE RUN THIS ROW LAST HAD, and the one condition this move deliberately
   // WIDENED. It used to be reachable only while `stuck.state === 'ci-failing'`,
   // so the route to a run existed exactly as long as the row was red and was
@@ -636,34 +567,9 @@ export function RowActions({
   // one too, is a change to what the server SENDS rather than to what this
   // renders, and it belongs to whichever plan wants it.
   const runUrl = row.stuck?.runHistory.find((r) => r.url)?.url ?? '';
-  // THE CONFLICT, through the route that already exists — the same
-  // `/api/dispatch` a Start work click uses, with the same script deciding
-  // which branch and whether the slice is open. Moving it here added no route
-  // and granted the board no new authority.
-  //
-  // Unlike the run link this asks for a card and a dispatch verdict, because a
-  // dispatch needs a plan to name and an answer about whether the server acts.
-  // `actionReachable` asks the same question for the cue, and the two must keep
-  // agreeing: a cue pointing at a menu without this item is the defect that
-  // function was written to remove, in its second form.
-  const canResolve = Boolean(
-    row.stuck?.state === 'conflict' && card && dispatch,
-  );
-  // OPEN — the item that makes the menu fit every WAITING ON YOU row, and the
-  // two QUIET kinds operator decision B (2026-11-03) moved there without taking
-  // it away. It is navigation to a fact the row already carries (`openTarget`:
-  // the PR page, or the branch on the host), so it needs no card, no dispatch
-  // verdict and no fetch — the same shape as the run link. A PR row's Open
-  // reads *Review*, because opening a PR is what reviewing it is; a branch
-  // row's reads *Open*.
-  //
-  // `offersOpen` scopes it to WAITING ON YOU plus `abandoned`/`orphaned-claim`
-  // in QUIET, and that scope is load-bearing: a plain `quiet` or `done` row has
-  // an address too, but nothing to do — and an Open item there is the empty
-  // menu `one-place-for-what-a-row-can-do` removed, one section over. Where
-  // there is no address (a merged branch, a host with no PR url) there is no
-  // item either, and the row falls back to whatever else it offers.
-  const openUrl = offersOpen(row) ? openTarget(row) : '';
+  // OPEN — navigation to the address the row carries (`openTarget`: the PR page, or the branch on the host).
+  // Listed on every branch row; a row with no address lists it disabled.
+  const openUrl = openTarget(row);
   // RELEASE CLAIM — the domain's answer on the row's quiet kind, so no kind word
   // is read here. The act is `POST /api/release-claim`.
   const hasReleaseClaim = row.group === 'quiet' && offersReleaseClaim(row.quietKind);
@@ -703,521 +609,108 @@ export function RowActions({
   // the two conditions live (the state, and a non-empty list); this only reads
   // the answer.
   const hasChangedFiles = offersChangedFiles(row.stuck);
-  const { present: hasItems, enabled } = menuState({
-    canStart, canResolve, canWriteBrief, hasRun: Boolean(runUrl), hasLog, hasStatus,
-    hasOpen: Boolean(openUrl), hasChangedFiles, serverWillAct, implementWillAct,
-    hasReleaseClaim,
-  });
-  const reason =
-    canStart && !serverWillAct && dispatch?.reason
-      ? dispatch.reason
-      : canResolve && !serverWillAct && dispatch?.reason
-        ? dispatch.reason
-        : noActionReason(row);
+  const facts: BranchMenuFacts = {
+    kind: 'branch', branch: row.branch, card, openUrl, openLabel: openLabel(row), releaseClaim: hasReleaseClaim,
+    startable: isStartable(row), conflict: row.stuck?.state === 'conflict', needsBrief: needsBrief(row), runUrl,
+    runLabel: runLinkLabel(row), hasLog, hasStatus, changedFiles: hasChangedFiles && row.stuck ? row.stuck.changedPaths.length : null,
+    dispatch, implement,
+  };
+  const { kind: _kind, card: _card, dispatch: _dispatch, startable: _startable, ...branchFacts } = facts;
+  const view = slice === undefined
+    ? rowMenuOf(facts)
+    : rowMenuOf({ ...slice, kind: 'slice', card, dispatch, branch: branchFacts });
+  const trigger: { label: string } & Record<`data-${string}`, string> = slice === undefined
+    ? { 'data-row-actions': '', label: `Actions for ${row.branch}` }
+    : { ...sliceTrigger(slice.wave), 'data-row-actions': '' };
 
-  // Close on Escape and on any click outside. A menu that survives a click
-  // elsewhere on a view that repaints every five seconds is a menu that ends up
-  // hovering over a row it no longer belongs to.
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-    // A CLICK INSIDE THE MENU IS NOT A CLICK OUTSIDE IT, and this has to be
-    // decided by hit-testing the target rather than by the container stopping
-    // propagation.
-    //
-    // The comment here used to claim the container did stop it. It does not,
-    // and could not: the container's `onClick` is a React handler, which runs
-    // when the event BUBBLES, while this listener runs on CAPTURE — so the
-    // close always won the race. React 19 delegates to the root container, so
-    // by the time the event bubbled back up the menu had already unmounted and
-    // every handler inside it went with it.
-    //
-    // Measured on the run link the day it moved in: the click reached the `<a>`
-    // — the browser followed the href — and React's `onClick` never fired, so
-    // the cue that the click was supposed to answer went on animating. The
-    // existing items were reachable only because neither of them needed a
-    // handler of its OWN to survive the close: `StartWorkButton` fires a fetch
-    // from a handler that is itself inside the menu, and it worked because the
-    // fetch was already in flight before the unmount.
-    const onDown = (e: globalThis.MouseEvent) => {
-      if (menu.current?.contains(e.target as Node)) return;
-      setOpen(false);
-    };
-    document.addEventListener('keydown', onKey);
-    // Capture phase, so the menu closes before a click lands anywhere else.
-    document.addEventListener('click', onDown, true);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.removeEventListener('click', onDown, true);
-    };
-  }, [open]);
+  const render = (item: RowMenuItem): ReactNode => {
+    switch (item.action) {
+      case 'open':
+        return (
+          <a href={openUrl} target="_blank" rel="noreferrer" data-open-link aria-label={`${item.label} ${row.branch} on the git host`} className={ITEM_LINK}>
+            {item.label}
+          </a>
+        );
+      case 'release-claim':
+        return <ReleaseClaimButton branch={row.branch} confirmText={item.confirm ?? undefined} />;
+      case 'start-work':
+        return card && dispatch ? <StartWorkButton card={card} dispatch={dispatch} pulse={pulse} onStarting={onStarting} /> : null;
+      case 'resolve-conflict':
+        // Wrapped so the click marks the request answered whatever the dispatch then does.
+        return card && dispatch ? (
+          <span onClick={onTaken}>
+            <StartWorkButton card={card} dispatch={dispatch} pulse={pulse} onStarting={onStarting} />
+          </span>
+        ) : null;
+      case 'write-brief':
+        return card && implement ? <WriteBriefButton slug={card.slug} branch={row.branch} implement={implement} onActing={onStarting} /> : null;
+      case 'reslice':
+        return slice?.reslice ? <ResliceButton slug={slice.slug} reslice={slice.reslice} onActing={onStarting} /> : null;
+      case 'open-run':
+        return (
+          <a href={runUrl} target="_blank" rel="noreferrer" data-stuck-link onClick={onTaken} aria-label={`${item.label} for ${row.branch}`} className={ITEM_LINK}>
+            {item.label}
+          </a>
+        );
+      // The three panels only SET state the ROW owns: this menu unmounts on the capture-phase click, so a panel
+      // mounted here would be torn down by the click that opened it.
+      case 'worker-log':
+        return <button type="button" data-worker-log-open onClick={onOpenLog} aria-label={`Show the agent working on ${row.branch}`} className={ITEM_LINK}>{item.label}</button>;
+      case 'status':
+        return <button type="button" data-dispatch-log-open onClick={onOpenStatus} aria-label={`Show what the dispatcher did for ${row.branch}`} className={ITEM_LINK}>{item.label}</button>;
+      case 'changed-files':
+        return <button type="button" data-changed-files-open onClick={onOpenChangedFiles} aria-label={`Show the files changed on ${row.branch}`} className={ITEM_LINK}>{item.label}</button>;
+      default:
+        return null;
+    }
+  };
 
-  return (
-    // Fixed width whether or not anything is in it: the difference between
-    // available and not is CONTRAST, not presence, so the right edge holds
-    // still while rows gain and lose their actions. In the grid it also has a
-    // track of its own (`1.25rem`), so that stillness now holds across rows as
-    // well as across refreshes.
-    // NO `role="gridcell"` — `TupleRowView` renders the cell this sits in, and
-    // renders it whether or not a kind offers a menu, so the track holds its
-    // width either way. This keeps `relative`, which is what the popup below
-    // floats out of.
-    <div
-      className="relative w-5 shrink-0 text-right"
-      onClick={(e) => e.stopPropagation()}
-    >
-      {/* THE CELL IS UNCONDITIONAL, the button inside it is not — and that
-          split is what lets a row render no menu without the column moving.
-          The track is a fixed `1.25rem`, so the right edge holds still whether
-          or not anything is in it, which is the property the old dimmed
-          placeholder was reaching for before the track existed. */}
-      {hasItems && (
-        <button
-          type="button"
-          data-row-actions
-          aria-haspopup="menu"
-          aria-expanded={open}
-          // Never the native attribute. `aria-disabled` keeps the control
-          // focusable, so the title explaining WHY is reachable by keyboard.
-          aria-disabled={!enabled || undefined}
-          aria-label={enabled ? `Actions for ${row.branch}` : reason}
-          title={enabled ? `Actions for ${row.branch}` : reason}
-          onClick={() => { if (enabled) setOpen((v) => !v); }}
-          // 24 x 24 OF HIT AREA. Measured on the running board 2026-08-19 this
-          // button was **12 x 12 px** — half of what WCAG 2.2 asks a pointer
-          // target, and the same size as the status glyphs beside it, which are
-          // not targets at all. Two marks of equal size where one is pressable
-          // and one is not is its own confusion.
-          //
-          // `h-6 w-6` grows the TARGET; the glyph keeps `text-xs`, so the row
-          // density is untouched. `-my-1` and `-mr-0.5` absorb the growth into
-          // the row rather than letting it push the line box taller or the
-          // right edge wider: the cell is a fixed `1.25rem` track and the
-          // stillness of that edge is the property it exists for.
-          className={
-            enabled
-              ? '-my-1 -mr-0.5 inline-flex h-6 w-6 items-center justify-center rounded text-xs leading-none text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
-              : // Very dim, and this branch now means something narrower than
-                // it used to: not *a row with nothing to do* — such a row
-                // renders no button at all — but a row whose act the server
-                // has REFUSED. The reason is on the control; the dimness says
-                // not from here.
-                '-my-1 -mr-0.5 inline-flex h-6 w-6 cursor-default items-center justify-center text-xs leading-none text-slate-300 dark:text-slate-700'
-          }
-        >
-          ⋯
-        </button>
-      )}
-      {/* NO `card` GATE. It read `open && enabled && card`, and requiring a card
-          for the whole BODY is the same defect one level up that requiring
-          `dispatch` was one level down: *Open failing run* needs no card at all
-          — a row outside the walked plan directories has a run and no card, and
-          gating the body on one would render an empty menu on exactly the row
-          whose item does not need it.
-
-          Each ITEM asks for what it needs, and an item whose precondition is
-          missing simply is not there. That is now the body's only rule. */}
-      {open && enabled && (
-        <div
-          role="menu"
-          ref={menu}
-          className="absolute right-0 z-10 mt-1 min-w-max rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
-        >
-          {/* OPEN — the item that makes the menu fit every kind, and the reason
-              a plain PR row is no longer menuless. Navigation to a fact already
-              on the row (`openTarget`), so a real `<a>` with a real `href`: a
-              `cmd`-click opens it in a tab, and it needs no card, no dispatch
-              verdict and no fetch. It reads *Review* on a PR row and *Open* on a
-              bare branch (`openLabel`), because opening a PR is reviewing it. */}
-          {openUrl && (
-            <div role="menuitem" className="px-2 py-1 text-left">
-              <a
-                href={openUrl}
-                target="_blank"
-                rel="noreferrer"
-                data-open-link
-                aria-label={`${openLabel(row)} ${row.branch} on the git host`}
-                className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
-              >
-                {openLabel(row)}
-              </a>
-            </div>
-          )}
-          {hasReleaseClaim && (
-            <div role="menuitem" className="px-2 py-1 text-left">
-              <ReleaseClaimButton branch={row.branch} />
-            </div>
-          )}
-          {canStart && dispatch && card && (
-            <div role="menuitem" className="px-2 py-1 text-left">
-              <StartWorkButton
-                card={card}
-                dispatch={dispatch}
-                pulse={pulse}
-                onStarting={onStarting}
-              />
-            </div>
-          )}
-          {/* APPROVE IS NOT RENDERED HERE — it is a PLAN decision and lives on
-              the plan head (`PlanActions`), not on a branch row. A branch
-              BLOCKED by an earlier slice reads `waiting-on-you` when its plan is
-              Draft, so a gate that kept it here would put a plan-level act on a
-              row whose own available act is not its own — the very defect the
-              row-level gate chased and never caught. The plan row offers
-              Approve; the branch rows beneath keep Start work, Open/Review, the
-              conflict dispatch and the reads. */}
-          {/* THE CONFLICT DISPATCH, moved here on 2026-08-18 from the stuck
-              cell. Same route, same button, same guard — only its home changed.
-
-              Wrapped so the click marks the request answered whatever the
-              dispatch then does: the cue tracks the ASKING, and
-              `StartWorkButton` reports on the doing in its own words. The wrap
-              is why `onTaken` had to travel into this menu at all. */}
-          {canResolve && card && dispatch && (
-            <div role="menuitem" className="px-2 py-1 text-left">
-              <span onClick={onTaken}>
-                <StartWorkButton
-                  card={card}
-                  dispatch={dispatch}
-                  pulse={pulse}
-                  onStarting={onStarting}
-                />
-              </span>
-            </div>
-          )}
-          {/* WRITE BRIEF — the act that writes this branch's brief.
-
-              Shown where `needsBrief(row)` is true: the branch is otherwise
-              startable but lacks the specification a worker reads first. Calls
-              `/api/implement`, which runs `/plot-implement`, which writes the
-              brief. Same route as the plan head's Implement button — the slug
-              is the plan's, so `/plot-implement` prepares the whole slice — but
-              the label says what the click does for THIS row.
-
-              THE MENU ITEM REPLACES THE TEXT in the "needs a brief" line. The
-              row still says "needs a brief" and names the path; the menu offers
-              the action that clears it. Different roles, same fact. */}
-          {canWriteBrief && card && implement && (
-            <div role="menuitem" className="px-2 py-1 text-left">
-              <WriteBriefButton
-                slug={card.slug}
-                branch={row.branch}
-                implement={implement}
-                onActing={onStarting}
-              />
-            </div>
-          )}
-          {/* THE RUN, moved here from an inline link in the stuck cell — and
-              widened on the way: its condition is *a run URL exists*, not *this
-              row is failing*, so the last run of a GREEN branch is reachable
-              too. That widening is the plan's, proposed and flagged rather than
-              smuggled.
-
-              **The WORD *failing* went with the condition.** The plan's table
-              still names this item *Open failing run*, and that name was true
-              only under the condition the same table widened — on a green row
-              it would promise a failure that is not there. The label follows
-              what the item now does: it opens the last run, whatever that run
-              said. The row's own stuck cell is where *failing* is stated, in
-              words, and it states it only when true.
-
-              **The accessible name keeps the branch.** The menu is already
-              scoped to one row, so the branch reads as redundant from inside
-              it — but a menu item's name is announced without its opener, and
-              nothing else in the item says which of a dozen rows this run
-              belongs to. The plan left this open; redundant context costs a
-              few words and missing context costs the click. The STATE left the
-              name for the same reason the word did: it was `— CI failed`, no
-              longer true of every row that offers this.
-
-              Navigation, so it stays an `<a>` with a real `href` — a
-              `cmd`-click opens the run in a tab, and a button pretending to be
-              a link would take that away. It is in the MENU because it is an
-              errand rather than a name the row carries; see the note above. */}
-          {runUrl && (
-            <div role="menuitem" className="px-2 py-1 text-left">
-              <a
-                href={runUrl}
-                target="_blank"
-                rel="noreferrer"
-                data-stuck-link
-                onClick={onTaken}
-                aria-label={`${runLinkLabel(row)} for ${row.branch}`}
-                className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
-              >
-                {runLinkLabel(row)}
-              </a>
-            </div>
-          )}
-          {/* THE WORKER'S LOG — a read, in the menu for the reason `Open last
-              run` above it is: an errand about a process the row reports on,
-              rather than a name the row carries.
-
-              **It only SETS state the ROW owns**, and that is load-bearing
-              rather than incidental. The close-on-outside-click effect above
-              runs on CAPTURE, so this menu unmounts before React's bubbled
-              `onClick` would fire from inside it — the exact defect that comment
-              records the run link hitting. A `setState` on the parent survives
-              that: the Row still exists, and it is the Row that mounts the
-              panel. A panel mounted HERE would be unmounted by the same click
-              that opened it. */}
-          {hasLog && (
-            <div role="menuitem" className="px-2 py-1 text-left">
-              <button
-                type="button"
-                data-worker-log-open
-                onClick={onOpenLog}
-                aria-label={`Show the agent working on ${row.branch}`}
-                className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
-              >
-                Show the agent
-              </button>
-            </div>
-          )}
-          {/* THE DISPATCHER'S OWN WORDS — the durable home for what the Start
-              work button used to hand back as a transient *no change — see log*
-              string. Present whenever a dispatcher log exists for the plan
-              (`card.hasDispatchLog`); a plan nobody has dispatched has none, and
-              the item is simply not there.
-
-              Like `Show the agent` it only SETS state the ROW owns — the
-              close-on-outside-click effect runs on CAPTURE, so this menu unmounts
-              before a bubbled `onClick` from inside it would fire, and a panel
-              mounted HERE would be torn down by the same click that opened it.
-              The Row mounts the panel; this asks it to. */}
-          {hasStatus && (
-            <div role="menuitem" className="px-2 py-1 text-left">
-              <button
-                type="button"
-                data-dispatch-log-open
-                onClick={onOpenStatus}
-                aria-label={`Show what the dispatcher did for ${row.branch}`}
-                className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
-              >
-                Status
-              </button>
-            </div>
-          )}
-          {/* WHAT THE BRANCH CHANGES — the third evidence line of a failing
-              check, moved off the row on 2026-08-20. It was six wrapped paths
-              of prose in the row, which every reader scrolled past so the
-              occasional one who wanted them did not have to click.
-
-              The label COUNTS rather than lists (`changedFilesLabel`), because
-              an item that named the paths would put the dump back one click
-              away instead of removing it — and the count is itself the fact a
-              reader uses to decide whether to open it.
-
-              **The only item here that asks the server nothing at all.** The
-              two log items are reads the server answers; this one's content
-              arrived on the pulse that drew the row, so there is no route
-              behind it and none is wanted — the plan is explicit that the menu
-              shows only what the pulse already carries.
-
-              It only SETS state the ROW owns, for the reason the two items
-              above it do: the close-on-outside-click effect runs on capture, so
-              a panel mounted here would be unmounted by the click that opened
-              it. */}
-          {hasChangedFiles && row.stuck && (
-            <div role="menuitem" className="px-2 py-1 text-left">
-              <button
-                type="button"
-                data-changed-files-open
-                onClick={onOpenChangedFiles}
-                aria-label={`Show the files changed on ${row.branch}`}
-                className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
-              >
-                {changedFilesLabel(row.stuck.changedPaths.length)}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
+  return <ItemMenu view={view} trigger={trigger} render={render} />;
 }
 
+/** A slice row's own facts, which `SliceActions` and a slice row's `BranchMenu` pass to `rowMenuOf`. */
+export type SliceMenuOwn = Pick<SliceMenuFacts, 'wave' | 'slug' | 'eligible' | 'unsliced' | 'reslice'>;
+
 /**
- * The slice row's `⋯` menu — one act, `Start work`.
- *
- * BORROWED FROM `PlanActions` rather than from `RowActions`, and the reason is
- * the same one recorded there: `RowActions` is typed on `AgentRow` and asks four
- * questions about a branch (startable? resolvable? a run? a log?), none of which
- * a slice row can answer. A slice is not a branch, so it takes the pattern —
- * same glyph, same `aria-haspopup`, same close-on-outside-click, same
- * fixed-width cell — and not the component.
- *
- * `StartWorkButton` arms itself on the first click and its armed label names the
- * consequence, which is why this is a popup and not an inline control: the label
- * does not fit a cell.
- *
- * Only ever rendered for an ELIGIBLE slice — see the `menu` prop — so there is no
- * *can I* question left to ask here. What remains is whether the SERVER will
- * act, and where it refuses, `StartWorkButton` says so on itself.
+ * The trigger of a slice row's `⋯`: `data-slice-actions` names the slice, and the button carries the slice label.
  */
-export function SliceActions({
-  wave,
+const sliceTrigger = (wave: string): { label: string } & Record<`data-${string}`, string> => ({
+  'data-slice-actions': wave,
+  label: `Actions for slice ${wave}`,
+});
+
+/**
+ * Renders the `⋯` of a slice row that holds several branches or none: Start work and Slice this plan.
+ *
+ * A slice row with one branch renders `BranchMenu` with a `slice` instead, so the row has one menu that also lists
+ * the branch items.
+ */
+export const SliceActions = ({
+  slice,
   card,
   dispatch,
   pulse,
   onStarting,
 }: {
-  wave: string;
-  card: Card;
-  dispatch: DispatchInfo;
+  slice: SliceMenuOwn;
+  card: Card | null;
+  dispatch?: DispatchInfo;
   /** The pulse COUNTER, not a callback — `StartWorkButton` watches it advance. */
   pulse: number;
   onStarting?: (active: boolean) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const menu = useRef<HTMLDivElement>(null);
-  const willAct = dispatch.available;
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: globalThis.KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-    // Capture phase, so the menu closes before a click lands anywhere else —
-    // and the hazard `RowActions` records applies: a bubbled handler inside a
-    // menu that unmounts on capture never fires. `StartWorkButton` manages its
-    // own arm/run state internally, so it survives that.
-    const onDown = (e: globalThis.MouseEvent) => {
-      if (menu.current?.contains(e.target as Node)) return;
-      setOpen(false);
-    };
-    document.addEventListener('keydown', onKey);
-    document.addEventListener('click', onDown, true);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.removeEventListener('click', onDown, true);
-    };
-  }, [open]);
-
-  return (
-    // NO `role="gridcell"` — `TupleRowView` renders the cell this sits in, and
-    // renders it whether or not a kind offers a menu, so the track holds its
-    // width either way.
-    <div className="relative w-5 shrink-0 text-right" onClick={(e) => e.stopPropagation()}>
-      <button
-        type="button"
-        data-slice-actions={wave}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        // Never the native attribute — a natively disabled control leaves the
-        // tab order and takes the explanation with it.
-        aria-disabled={!willAct || undefined}
-        aria-label={willAct ? `Actions for slice ${wave}` : (dispatch.reason ?? `Cannot start ${wave} from here`)}
-        title={willAct ? `Actions for slice ${wave}` : (dispatch.reason ?? `Cannot start ${wave} from here`)}
-        onClick={() => { if (willAct) setOpen((v) => !v); }}
-        className={`inline-flex h-6 w-5 items-center justify-center leading-none ${
-          willAct
-            ? 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100'
-            : 'cursor-default text-slate-300 dark:text-slate-700'
-        }`}
-      >
-        <span aria-hidden className="text-xs">⋯</span>
-      </button>
-      {open && willAct && (
-        <div
-          role="menu"
-          ref={menu}
-          className="absolute right-0 z-10 mt-1 min-w-max rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
-        >
-          <div role="menuitem" className="px-2 py-1 text-left">
-            <StartWorkButton card={card} dispatch={dispatch} pulse={pulse} onStarting={onStarting} />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * The `⋯` menu on a slice the board reports `unsliced-wave` — the ONE act such a
- * slice offers: *Slice this plan*.
- *
- * A `⋯` of its own rather than a slot in `SliceActions`, because the two answer
- * disjoint slices. `SliceActions` is gated on `verdict === 'eligible'` — a slice
- * ready to dispatch — and an unsliced slice is precisely the slice that CANNOT be
- * dispatched (several live branches, no single one to hand a worker). They never
- * co-occur, so one row never wears both, and folding reslice into the dispatch
- * menu would put an item on `eligible` slices that can never apply to them.
- *
- * The shell is `PlanActions`', with ONE difference that is the whole point: this
- * menu opens even when `reslice` is refused. `PlanActions` gates its open on
- * `willAct` because a Draft plan has other reasons to exist and a dead `⋯`
- * there would be noise. An unsliced slice has exactly one errand — this one — so
- * a refused binding must still open to NAME the refusal, or the operator meets a
- * dead control with its explanation one hover away and unreachable by keyboard.
- * `ResliceButton` states its own refusal inside, the way every `DispatchInfo`
- * control does: a refusal is not an absence.
- */
-export function ResliceMenu({
-  wave,
-  slug,
-  reslice,
-  onActing,
-}: {
-  wave: string;
-  /** The plan slug the reslice acts on — `ResliceButton`'s POST body. */
-  slug: string;
-  reslice: DispatchInfo;
-  onActing?: (active: boolean) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const menu = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: globalThis.KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-    // Capture phase, so the menu closes before a click lands anywhere else — the
-    // same hazard `RowActions`/`PlanActions` record. `ResliceButton` manages its
-    // own arm/run state internally, so it survives the unmount on capture.
-    const onDown = (e: globalThis.MouseEvent) => {
-      if (menu.current?.contains(e.target as Node)) return;
-      setOpen(false);
-    };
-    document.addEventListener('keydown', onKey);
-    document.addEventListener('click', onDown, true);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.removeEventListener('click', onDown, true);
-    };
-  }, [open]);
-
-  return (
-    // NO `role="gridcell"` — `TupleRowView` renders the cell this sits in, and
-    // renders it whether or not a kind offers a menu, so the track holds its
-    // width either way. `relative` is what the popup below floats out of.
-    <div className="relative w-5 shrink-0 text-right" onClick={(e) => e.stopPropagation()}>
-      <button
-        type="button"
-        data-reslice-actions={wave}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        // ALWAYS enabled, unlike `SliceActions`: the item inside always applies to
-        // an uncut slice, and where the server refuses, the item — not this
-        // trigger — carries the reason.
-        aria-label={`Actions for slice ${wave}`}
-        title={`Actions for slice ${wave}`}
-        onClick={() => setOpen((v) => !v)}
-        className="inline-flex h-6 w-5 items-center justify-center leading-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"
-      >
-        <span aria-hidden className="text-xs">⋯</span>
-      </button>
-      {open && (
-        <div
-          role="menu"
-          ref={menu}
-          className="absolute right-0 z-10 mt-1 min-w-max rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
-        >
-          <div role="menuitem" className="px-2 py-1 text-left">
-            <ResliceButton slug={slug} reslice={reslice} onActing={onActing} />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+}) => {
+  const view = rowMenuOf({ ...slice, kind: 'slice', card, dispatch, branch: null });
+  const render = (item: RowMenuItem): ReactNode => {
+    if (item.action === 'start-work' && card && dispatch) {
+      return <StartWorkButton card={card} dispatch={dispatch} pulse={pulse} onStarting={onStarting} />;
+    }
+    if (item.action === 'reslice' && slice.reslice) {
+      return <ResliceButton slug={slice.slug} reslice={slice.reslice} onActing={onStarting} />;
+    }
+    return null;
+  };
+  return <ItemMenu view={view} trigger={sliceTrigger(slice.wave)} render={render} />;
+};
 
 /**
  * Whether the card has work that could be started now.
@@ -1466,194 +959,36 @@ export function PlanActions({
   pulse?: number;
   onApproving?: (active: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const menu = useRef<HTMLDivElement>(null);
-  // `isDraft(card)` rather than the group's phase word: `plot-approve.sh`
-  // accepts phase `draft` and refuses every other one, and the card's own gate
-  // is the single spelling of that rule. Two spellings drift — which is how the
-  // branch menu and the card came to disagree in the first place.
-  //
-  // Approve reads `controls.approve` (a `draft` or `design` plan), then asks
-  // its OWN binding whether the server will act, below.
-  const isDraftPlan = Boolean(card && isDraft(card));
-  const canApprove = Boolean(isDraftPlan && approve);
-  // Needs design reads `controls.needsDesign` (a `draft` plan only) and asks the
-  // Approve binding whether the server will act: both are a local, same-origin act.
-  const canNeedsDesign = Boolean(card?.controls.needsDesign && approve);
-  // Deliver's OWN gate, disjoint from the draft one: the card's `deliverable`
-  // bit, which the server sets only where it auto-bumped a fully-merged plan
-  // into Testing — never on a plan already delivered. So this is true on exactly
-  // the plans that are complete-but-not-delivered, which is where the decision
-  // to deliver lives.
-  const canDeliver = Boolean(card?.deliverable && deliver);
-  // The APPROVED acts: Implement and Dispatch. Both gate on an approved plan
-  // with eligible work. The two together are the complement of Start work, which
-  // sits on a slice row and dispatches one branch — this menu sits on the plan
-  // row and offers either *prepare one slice* (Implement) or *fan out all of it*
-  // (Dispatch).
-  const hasEligible = hasEligibleWork(card);
-  const approveWillAct = approve?.available ?? false;
-  // The DRAFT acts open the `⋯` only when one WILL act — a Draft plan with its
-  // binding refused has nothing to show but a tooltip, which is the behaviour
-  // #160 settled and this must not disturb.
-  const draftWillAct = (canApprove && approveWillAct) || (canNeedsDesign && approveWillAct);
-  // The APPROVED acts follow `DeliverButton`'s shape: the menu opens on an
-  // eligible approved plan EVEN WHEN the server refuses or the route is missing.
-  // Implement states its own refusal (no route yet); Dispatch states the server's.
-  // Both render whenever `hasEligible`, so an approved plan with work always
-  // sees its two starts.
-  const approvedWillShow = hasEligible;
-  // DELIVER is `ResliceMenu`'s shape, not the draft one: the menu opens on a
-  // deliverable plan EVEN WHEN the server refuses, because `DeliverButton` states
-  // its own refusal inside — a refusal is not an absence. So the `⋯` opens when a
-  // draft act will act OR the plan is deliverable OR it has eligible work, and
-  // the buttons below render whenever their own gate passes.
-  const canOpen = draftWillAct || canDeliver || approvedWillShow || Boolean(soleSlice);
-  // The dim button's tooltip names a refusal only when there IS one to name —
-  // an act present and declined. The reason of whichever act this plan offers
-  // leads, so the sentence points at a real binding rather than a generic one.
-  const refusalReason =
-    (canApprove ? approve?.reason : undefined) ||
-    (canDeliver ? deliver?.reason : undefined) ||
-    (hasEligible ? dispatch?.reason : undefined) ||
-    `Cannot act on ${plan} from here`;
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: globalThis.KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-    // Capture phase, so the menu closes before a click lands anywhere else —
-    // and the same hazard `RowActions` records applies: a bubbled handler
-    // inside a menu that unmounts on capture never fires. `ApproveButton`
-    // manages its own arm/run state internally, so it survives that.
-    const onDown = (e: globalThis.MouseEvent) => {
-      if (menu.current?.contains(e.target as Node)) return;
-      setOpen(false);
-    };
-    document.addEventListener('keydown', onKey);
-    document.addEventListener('click', onDown, true);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.removeEventListener('click', onDown, true);
-    };
-  }, [open]);
-
-  return (
-    // NO `role="gridcell"` — `TupleRowView` renders the cell this sits in, and
-    // renders it whether or not a kind offers a menu, so the track holds its
-    // width either way. This keeps `relative`, which is what the popup below
-    // floats out of.
-    <div
-      className="relative w-5 shrink-0 text-right"
-      onClick={(e) => e.stopPropagation()}
-    >
-      {/* `soleSlice` joins the render gate, and must: it is the row's ONLY act
-          in the ordinary sole-slice case. `hasEligible` reads
-          `card.sliceSummary.eligible`, which a payload can leave at 0 while the
-          fleet still reports one eligible slice — and before this the row's
-          trigger came from the SIBLING `SliceActions`, which had no such gate.
-          Folding the act inward without widening the gate would delete the
-          control on exactly the rows this fix is about. */}
-      {(isDraftPlan || canDeliver || hasEligible || soleSlice) && (
-        <button
-          type="button"
-          data-plan-actions={plan}
-          aria-haspopup="menu"
-          aria-expanded={open}
-          // Never the native attribute — a natively disabled control leaves the
-          // tab order and takes the explanation with it.
-          aria-disabled={!canOpen || undefined}
-          aria-label={canOpen ? `Actions for ${plan}` : refusalReason}
-          title={canOpen ? `Actions for ${plan}` : refusalReason}
-          onClick={() => { if (canOpen) setOpen((v) => !v); }}
-          className={`inline-flex h-6 w-5 items-center justify-center leading-none ${
-            canOpen
-              ? 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100'
-              : 'cursor-default text-slate-300 dark:text-slate-700'
-          }`}
-        >
-          <span aria-hidden className="text-xs">⋯</span>
-        </button>
-      )}
-      {open && canOpen && card && (
-        <div
-          role="menu"
-          ref={menu}
-          className="absolute right-0 z-10 mt-1 min-w-max rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
-        >
-          {/* Each act renders only where its OWN binding will act — one refused
-              binding leaves the other's item alone. The menu opens only when at
-              least one can act (`willAct`), so it is never empty. */}
-          {canApprove && approveWillAct && approve && (
-            <div role="menuitem" className="px-2 py-1 text-left">
-              <ApproveButton card={card} approve={approve} onApproving={onApproving} />
-            </div>
-          )}
-          {canNeedsDesign && approveWillAct && approve && (
-            <div role="menuitem" className="px-2 py-1 text-left">
-              <NeedsDesignButton card={card} availability={approve} onActing={onApproving} />
-            </div>
-          )}
-          {/* Rendered whenever the plan is deliverable, EVEN WHEN the server
-              refuses — `DeliverButton` states its own refusal inside, the way
-              every `ResliceButton` does. This is the one item that departs from
-              the draft acts above, which render only where their binding will
-              act; the departure is deliberate, so a refused delivery is a named
-              control rather than a vanished one. */}
-          {canDeliver && deliver && (
-            <div role="menuitem" className="px-2 py-1 text-left">
-              <DeliverButton slug={card.slug} deliver={deliver} onActing={onApproving} />
-            </div>
-          )}
-          {/* The approved acts: Implement and Dispatch. Rendered whenever the
-              plan has eligible work, EVEN WHEN the server refuses — each states
-              its own refusal inside. The menu opens when hasEligible, so these
-              are never alone in an empty menu. Implement posts to /api/implement
-              and reads its outcome back; Dispatch posts to /api/dispatch with no
-              cap. */}
-          {hasEligible && implement && (
-            <div role="menuitem" className="px-2 py-1 text-left">
-              <ImplementButton slug={card.slug} implement={implement} onActing={onApproving} />
-            </div>
-          )}
-          {hasEligible && dispatch && (
-            <div role="menuitem" className="px-2 py-1 text-left">
-              <DispatchAllButton
-                card={card}
-                dispatch={dispatch}
-                pulse={pulse}
-                onDispatching={onApproving}
-              />
-            </div>
-          )}
-          {/* THE SLICE SECTION — the acts of the one slice folded into this row.
-              Everything above acts on the PLAN; this acts on a SLICE, so it sits
-              under a labelled rule rather than joining the list. A reader
-              scanning the menu can see which subject each item takes without
-              opening it, which is exactly what two identical `⋯` buttons could
-              not tell them. */}
-          {soleSlice && dispatch && (
-            <>
-              <div
-                role="separator"
-                data-slice-section={soleSlice}
-                className="mt-1 border-t border-slate-200 px-2 pb-0.5 pt-1 text-[10px] uppercase tracking-wide text-slate-400 dark:border-slate-700 dark:text-slate-500"
-              >
-                Slice {soleSlice}
-              </div>
-              <div role="menuitem" className="px-2 py-1 text-left">
-                <StartWorkButton
-                  card={card}
-                  dispatch={dispatch}
-                  pulse={pulse}
-                  onStarting={onStarting}
-                />
-              </div>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
+  const view = rowMenuOf({
+    kind: 'plan', plan, card, isDraft: Boolean(card && isDraft(card)), needsDesign: Boolean(card?.controls.needsDesign),
+    deliverable: Boolean(card?.deliverable), hasEligible: hasEligibleWork(card), soleSlice: soleSlice ?? null,
+    approve, deliver, implement, dispatch,
+  });
+  const render = (item: RowMenuItem): ReactNode => {
+    if (!card) return null;
+    switch (item.action) {
+      case 'approve':
+        return approve ? <ApproveButton card={card} approve={approve} onApproving={onApproving} /> : null;
+      case 'needs-design':
+        return approve ? <NeedsDesignButton card={card} availability={approve} onActing={onApproving} /> : null;
+      case 'deliver':
+        return deliver ? <DeliverButton slug={card.slug} deliver={deliver} onActing={onApproving} /> : null;
+      case 'implement':
+        return implement ? <ImplementButton slug={card.slug} implement={implement} onActing={onApproving} /> : null;
+      case 'dispatch':
+        return dispatch ? <DispatchAllButton card={card} dispatch={dispatch} pulse={pulse} onDispatching={onApproving} /> : null;
+      case 'start-work':
+        // The item acts on the one slice folded into this row, which `data-slice-section` names.
+        return dispatch ? (
+          <span data-slice-section={soleSlice} className="block">
+            <StartWorkButton card={card} dispatch={dispatch} pulse={pulse} onStarting={onStarting} />
+          </span>
+        ) : null;
+      default:
+        return null;
+    }
+  };
+  return <ItemMenu view={view} trigger={{ 'data-plan-actions': plan, label: `Actions for ${plan}` }} render={render} />;
 }
 
 /**
@@ -1690,93 +1025,29 @@ export function IssueRowActions(
   { issue, idea, story, issueAnswer, facts }:
   { issue: IssueRow; idea: DispatchInfo; story: DispatchInfo; issueAnswer: IssueAnswer | null; facts?: CardFacts },
 ) {
-  const [open, setOpen] = useState(false);
-  const menu = useRef<HTMLDivElement>(null);
-
-  // Close on Escape and on any click outside — the same effect `RowActions`
-  // runs, on CAPTURE for the same reason: a menu that survives a click on a view
-  // repainting every few seconds ends up over a row it no longer belongs to.
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-    const onDown = (e: globalThis.MouseEvent) => {
-      if (menu.current?.contains(e.target as Node)) return;
-      setOpen(false);
-    };
-    document.addEventListener('keydown', onKey);
-    document.addEventListener('click', onDown, true);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.removeEventListener('click', onDown, true);
-    };
-  }, [open]);
-
+  const view = rowMenuOf({ kind: 'ticket', issue, idea, story, issueAnswer, facts });
+  const render = (item: RowMenuItem): ReactNode => {
+    switch (item.action) {
+      case 'create-plan':
+        return <CreatePlanButton issue={issue} idea={idea} issueAnswer={issueAnswer} factsRefusal={createPlanRefusal(facts)} />;
+      case 'create-story':
+        return <CreateStoryButton issue={issue} story={story} issueAnswer={issueAnswer} />;
+      case 'open-issue':
+        return (
+          <a href={issue.url} target="_blank" rel="noreferrer" data-issue-open aria-label={`Open issue #${issue.number} on the host`} className={ITEM_LINK}>
+            {item.label}
+          </a>
+        );
+      default:
+        return null;
+    }
+  };
   return (
-    // NO `role="gridcell"` — `TupleRowView` renders the cell this sits in, and
-    // renders it whether or not a kind offers a menu, so the track holds its
-    // width either way. This keeps `relative`, which is what the popup below
-    // floats out of.
-    <div
-      className="relative w-5 shrink-0 text-right"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <button
-        type="button"
-        data-issue-actions={issue.number}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={`Actions for issue #${issue.number}`}
-        title={`Actions for issue #${issue.number}`}
-        onClick={() => setOpen((v) => !v)}
-        className="text-xs leading-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"
-      >
-        ⋯
-      </button>
-      {open && (
-        <div
-          role="menu"
-          ref={menu}
-          className="absolute right-0 z-10 mt-1 min-w-max rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
-        >
-          {/* CREATE PLAN — the working action, unchanged. Its own arm/confirm and
-              its own refusals live inside the button; the menu only gives it a
-              home beside the other two. */}
-          <div role="menuitem" className="px-2 py-1 text-left">
-            <CreatePlanButton issue={issue} idea={idea} issueAnswer={issueAnswer} factsRefusal={createPlanRefusal(facts)} />
-          </div>
-          {/* CREATE STORY — the twin of Create plan, and no longer a control
-              that exists only to decline. Its refusals are CONDITIONAL now: the
-              binding and the tracker here, and from the route the two facts only
-              the repo knows — an unset `Story command`, or several declared story
-              homes, each named rather than guessed around.
-
-              A plan is a commitment to do work, a story a commitment to track
-              work — the one thing the old refusal got right, kept in the armed
-              label (`track #N` beside Create plan's `Draft`) rather than in a
-              block. */}
-          <div role="menuitem" className="px-2 py-1 text-left">
-            <CreateStoryButton issue={issue} story={story} issueAnswer={issueAnswer} />
-          </div>
-          {/* OPEN ON HOST — navigation to a fact the row already carries, or
-              nothing where the host gave no address (the same "" the number cell
-              already handles). No guard, no fetch. */}
-          {issue.url && (
-            <div role="menuitem" className="px-2 py-1 text-left">
-              <a
-                href={issue.url}
-                target="_blank"
-                rel="noreferrer"
-                data-issue-open
-                aria-label={`Open issue #${issue.number} on the host`}
-                className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
-              >
-                Open on host
-              </a>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+    <ItemMenu
+      view={view}
+      trigger={{ 'data-issue-actions': String(issue.number), label: `Actions for issue #${issue.number}` }}
+      render={render}
+    />
   );
 }
 

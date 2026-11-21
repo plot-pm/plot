@@ -13,6 +13,7 @@
 - **Approved:** 2026-11-20, Jan Wloka, plan-PR #3583 merged
 - **Started:** 2026-11-20, Jan Wloka, `feature/mine-means-mine-or-my-plan`
 - **Started:** 2026-11-21, Jan Wloka, `feature/delivery-row-menu-column`
+- **Started:** 2026-11-21, Jan Wloka, `feature/delivery-you-rows-verb-first`
 
 ## Changelog
 

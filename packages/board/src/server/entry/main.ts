@@ -6,8 +6,8 @@ import { scriptsFor, primeAgentSettings, refsFor, gateContractFor, type BuildBoa
 import { estateFromEnv, realEstate } from '../estate.js';
 import { leaveBoardRunsToTheBoard } from '../board-run.js';
 import { gatherReadingsAndRelease } from '../release-claim.js';
-import { baseRepairFile, repairRecordFile } from '@plot-pm/domain/adapters/repair-record/repair-record-file';
-import { baseBranchFile } from '@plot-pm/domain/adapters/default-branch/default-branch-file';
+import { stateHomeAtSync } from '@plot-pm/domain/adapters/main-checkout';
+import { baseBranchIn, baseRepairIn, repairRecordIn, stateHomeFor } from '../state-home.js';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { CALLER_ENV, fleetdStartFile, readFleetdHeartbeatSync } from '@plot-pm/domain/adapters';
 import { hostTransportStatusLine } from '@plot-pm/domain/rules/host-transport';
@@ -107,9 +107,12 @@ export interface EntryContext {
  * @returns the estate options and the configured plan directory
  */
 export const contextFrom = (here: string): EntryContext => {
+  const repoRoot = process.env.PLOT_REPO_ROOT ?? process.cwd();
   const opts: BuildBoardOptions = {
-    repoRoot: process.env.PLOT_REPO_ROOT ?? process.cwd(),
+    repoRoot,
     scriptsDir: scriptsDirFor(here),
+    // The four state files live under the main checkout, also from a linked worktree.
+    stateHome: stateHomeAtSync(repoRoot),
   };
   return { opts, planDir: planDirFor(opts) };
 };
@@ -215,9 +218,9 @@ export const run = async (
         host: estate.host,
         refs: estate.refs,
         defaultBranch: estate.defaultBranch,
-        repair: repairRecordFile(opts.repoRoot),
-        baseBranch: (base) => baseBranchFile(opts.repoRoot, base),
-        baseRepair: (base) => baseRepairFile(opts.repoRoot, base),
+        repair: repairRecordIn(stateHomeFor(opts)),
+        baseBranch: (base) => baseBranchIn(stateHomeFor(opts), base),
+        baseRepair: (base) => baseRepairIn(stateHomeFor(opts), base),
         caller: callerOf({ unattended: process.env.PLOT_UNATTENDED === '1' }),
       },
       Number(pr),

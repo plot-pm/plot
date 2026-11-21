@@ -13,6 +13,7 @@ import { mergeAt as realMergeAt } from '@plot-pm/domain/workflows/merge';
 
 import type { MergePorts } from '../../src/server/entry/merge.js';
 import { removeTree } from '../rm-tree.mjs';
+import { gitStateHome } from '../state-home-root.js';
 
 /**
  * `plot-ask.mjs merge` READS THE DEFAULT BRANCH'S REMOTE TIP.
@@ -92,7 +93,7 @@ const pr: Pr = {
 describe('plot-ask merge reads the default branch\'s remote tip', () => {
   it('merges on a fresh green settled reading of the tip', async () => {
     const { repoRoot, tip } = repoWithOrigin();
-    expect((await defaultBranchFile(repoRoot).write(greenAt(tip))).ok).toBe(true);
+    expect((await defaultBranchFile(gitStateHome(repoRoot)).write(greenAt(tip))).ok).toBe(true);
     process.env.PLOT_REPO_ROOT = repoRoot;
     process.env.PLOT_SCRIPTS_DIR = REAL_SCRIPTS;
 
