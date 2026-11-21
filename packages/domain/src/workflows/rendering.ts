@@ -220,7 +220,9 @@ export const withoutHold = (
  * @param text - the sprint file's contents.
  * @param plan - the plan slug whose item line carries the annotation.
  * @param tick - whether to tick the item's checkbox.
- * @param pr - the PR number to record, or null to leave any existing one.
+ * @param pr - the PR number to record; `'none'` to record that no plan PR was
+ *   read, which writes `pr: none` where the line has no `pr` key or reads
+ *   `pr: #0` and keeps any other number; or null to leave any existing key.
  * @param branch - the branch to record, or `''` to leave any existing one.
  * @returns the new contents, and whether the file changed.
  */
@@ -228,7 +230,7 @@ export const withSprintAnnotation = (
   text: string,
   plan: string,
   tick: boolean,
-  pr: number | null,
+  pr: number | 'none' | null,
   branch: string,
 ): { text: string; wrote: boolean } => {
   const index = memberLineIndex(text, plan);
@@ -252,42 +254,59 @@ export const withSprintAnnotation = (
 /**
  * Builds the annotation body for an item that carries none.
  *
- * @param pr - the PR number, or null to omit it.
+ * @param pr - the PR number, `'none'`, or null to omit the key.
  * @param branch - the branch, or `''` to omit it.
  * @returns the body, each key prefixed by a space and separated by commas.
  */
-const annotationBody = (pr: number | null, branch: string): string => {
+const annotationBody = (pr: number | 'none' | null, branch: string): string => {
   const parts: string[] = [];
-  if (pr !== null) parts.push(`pr: #${pr}`);
+  if (pr !== null) parts.push(prKey(pr));
   if (branch !== '') parts.push(`branch: ${branch}`);
   return ` ${parts.join(', ')}`;
 };
 
+/** The `pr` key as written: `pr: #<n>` for a number, `pr: none` for `'none'`. */
+const prKey = (pr: number | 'none'): string => (pr === 'none' ? 'pr: none' : `pr: #${pr}`);
+
+/** Any `pr` key and its value. */
+const PR_KEY = /pr:[ \t]*#?[0-9a-zA-Z]+/;
+
+/** A `pr` key that names PR 0, which no host holds. */
+const PR_ZERO = /pr:[ \t]*#?0(?![0-9a-zA-Z])/;
+
 /**
  * Rewrites the keys this write names inside an existing annotation.
  *
+ * Only the comment is edited: the text before `<!--` is kept, and the closing
+ * `-->` with the whitespace before it is split off before any key is touched,
+ * so a value pattern never reaches into it. A comment left open is closed.
+ *
  * @param line - the item line, which carries an annotation.
- * @param pr - the PR number, or null to leave the existing one.
+ * @param pr - the PR number; `'none'`, which replaces only a missing key or
+ *   `pr: #0`; or null to leave the existing key.
  * @param branch - the branch, or `''` to leave the existing one.
  * @returns the rewritten line.
  */
-const annotateExisting = (line: string, pr: number | null, branch: string): string => {
-  let next = line;
+const annotateExisting = (line: string, pr: number | 'none' | null, branch: string): string => {
+  const open = line.indexOf('<!--');
+  const prefix = line.slice(0, open + 4);
+  const rest = line.slice(open + 4);
+  const close = /[ \t]*-->/.exec(rest);
+  const tail = close ? rest.slice(close.index) : ' -->';
+  let body = close ? rest.slice(0, close.index) : rest.replace(/[ \t]+$/, '');
   if (pr !== null) {
-    next = /pr:[ \t]*#?[0-9a-z]+/.test(next)
-      ? next.replace(/pr:[ \t]*#?[0-9a-z]+/, `pr: #${pr}`)
-      : next.replace('<!--', `<!-- pr: #${pr},`);
+    if (!PR_KEY.test(body)) {
+      body = body.trim() === '' ? ` ${prKey(pr)}` : ` ${prKey(pr)},${body}`;
+    } else if (pr !== 'none' || PR_ZERO.test(body)) {
+      body = body.replace(PR_KEY, prKey(pr));
+    }
   }
   if (branch !== '') {
-    // `[^,> \t]*` AND NOT `[^,>]*`: the greedy form allows a SPACE, so a
-    // `branch:` that is the last key matches `none --` and eats the `--` of the
-    // closing `-->`, leaving `<!-- … branch: X>`. Measured 2026-09-08 against
-    // the same defect in `plot-approve.sh`'s awk.
-    next = /branch:[ \t]*[^,>]+/.test(next)
-      ? next.replace(/branch:[ \t]*[^,> \t]*[^,> \t]/, `branch: ${branch}`)
-      : next.replace('-->', `, branch: ${branch} -->`);
+    body = /branch:/.test(body)
+      ? body.replace(/branch:[ \t]*[^,]*/, `branch: ${branch}`)
+      : body.trim() === '' ? ` branch: ${branch}` : `${body}, branch: ${branch}`;
   }
-  return next;
+  return prefix + body + tail;
 };
 
 /**
