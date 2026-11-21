@@ -57,7 +57,6 @@ function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents:
   return fleet.fleetControls ?? FLEET_CONTROLS_DEFAULT;
 }
 import { DeliveryHeader } from './DeliveryHeader.js';
-import { SprintCard } from './SprintCard.js';
 import { deliveryHeaderOf } from '../lib/agent-rows/delivery-header.js';
 import { AutoDispatchSwitch, AutoSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
 import { FleetAgentHeader, FleetAgentRow } from './FleetAgentRow.js';
@@ -128,8 +127,8 @@ import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRow
 import { ActivitySpinner } from '../lib/agent-rows/marks.js';
 import { BranchMenu, BrokenAgentMenu, PlanActions } from '../lib/agent-rows/menus.js';
 import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
-import { deliveryMapping, rateLimitOf, releaseCardsOf, sprintCardViewOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
-import { ReleaseCard } from './ReleaseCard.js';
+import { deliveryMapping, rateLimitOf, releaseCardsOf, releaseGroupOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
+import { ReleaseGroup } from './ReleaseGroup.js';
 import {
   anchorOwner,
   cleanUpBranches,
@@ -460,6 +459,7 @@ export function AgentList({
   checkoutClean,
   spawnContract,
   passkey = null,
+  lastRelease = null,
 }: AgentListProps) {
   // THE BOARD'S PLAN INDEX — every card and draft plan, keyed by file
   // basename and by slug, built once here and threaded to every row builder
@@ -1236,17 +1236,20 @@ export function AgentList({
           checksUrlOf: (planFile: string, pr: number) => cardForPlanFile?.(planFile)?.prs.find((p) => p.number === pr)?.checksUrl ?? '',
         };
         const mapping = deliveryMapping(mappingInput);
-        // THE SPRINT CARD READS EVERY ROW: the Sprint filter hides rows, and a card
-        // that follows it would call an unselected sprint's reading missing.
         const cardSprintOf = (s: FleetSprint) => ({ ...s, release: s.release ?? '', end: s.end ?? '', ownerHandle: s.ownerHandle ?? '', members: s.members ?? [] });
-        const sprintCardView = sprintCardViewOf(sprintScope.sprints.map(cardSprintOf), reader, { ...mappingInput, rows: fleet.rows });
         const placement = placeDelivery(mapping.readings, mapping.input);
         const view = placeMapping(mapping, fleet.slices, activeSprints, sprintScope, new Date(Date.now()), planIndex);
         // THE RELEASE CARDS READ EVERY ROW TOO, and every reader sees the same cards.
-        // They read every Active sprint in both scopes: the to-do list's
-        // "Approve release" line reads them while the sprint card shows. A card
-        // no Active sprint names counts the section's own plans and slices.
+        // They read every Active sprint in both scopes, because the to-do list's
+        // "Approve release" line reads them. A card no Active sprint names counts
+        // the section's own plans and slices.
         const releaseCardView = releaseCardsOf(activeSprints.map(cardSprintOf), reader.directory, { ...mappingInput, rows: fleet.rows }, view.releaseCarried);
+        // THE RELEASE GROUP READS EVERY ROW over the scope's sprints: the Sprint filter hides
+        // rows, and a group that follows it would call an unselected sprint's reading missing.
+        const releaseGroupView = releaseGroupOf(
+          { kind: sprintScope.kind, sprints: sprintScope.sprints.map(cardSprintOf) },
+          reader, { ...mappingInput, rows: fleet.rows }, view.releaseCarried, lastRelease,
+        );
         unplacedForFooter = view.notPlaced;
         const unplacedFolded = isFolded('section', 'not-placed', view.notPlaced.length, collapsed);
         const youHead = youHeaderOf({
@@ -1622,17 +1625,14 @@ export function AgentList({
         const anchoredPlans = new Set<string>();
         return (
           <>
-            {/* THE TAB HEADER: one card of five groups that never folds. Until the Release group
-                lands, the release or sprint card renders in its place. `delivery-header.css` lays it out. */}
+            {/* THE TAB HEADER: one card of five groups that never folds. `delivery-header.css` lays it out. */}
             <DeliveryHeader
               header={deliveryHeaderOf({
                 mappingInput, fleet, reader, phaseMap, stories: stories ?? [], cards: cards ?? [],
                 releases: releaseCardView.cards, releaseRows: releaseCardView.rows, passkey,
                 slices: fleet.slices, sprints: activeSprints, scope: sprintScope, now: new Date(Date.now()), planIndex,
               })}
-              release={sprintScope.statusCard === 'sprint'
-                ? <SprintCard view={sprintCardView} />
-                : <ReleaseCard cards={releaseCardView.cards} rows={releaseCardView.rows} />}
+              release={<ReleaseGroup view={releaseGroupView} />}
               onJump={(anchor) => jump(anchor)}
             />
             {view.sections.map((section) => {
