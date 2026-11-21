@@ -56,10 +56,9 @@ const MachineSection = ({ machine }: { machine: MachineHealth }) => (
 function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents: number; working?: number } {
   return fleet.fleetControls ?? FLEET_CONTROLS_DEFAULT;
 }
-import { FleetCard } from './FleetCard.js';
+import { DeliveryHeader } from './DeliveryHeader.js';
 import { SprintCard } from './SprintCard.js';
-import { TodoList } from './TodoList.js';
-import { releaseTodoEntriesOf, todoListOf } from '../lib/agent-rows/todo-list.js';
+import { deliveryHeaderOf } from '../lib/agent-rows/delivery-header.js';
 import { AutoDispatchSwitch, AutoSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
 import { FleetAgentHeader, FleetAgentRow } from './FleetAgentRow.js';
 import { MasterAgentLine, RowCell, scrollToAnchor, type LinkHandlers } from './DeliveryRows.js';
@@ -1623,23 +1622,19 @@ export function AgentList({
         const anchoredPlans = new Set<string>();
         return (
           <>
-            {/* THE TAB HEADER, in two columns: the to-do list, then the release
-                or sprint card above the fleet card. `delivery-header.css` lays them out. */}
-            <div data-tab-header className="space-y-4">
-              <div data-tab-header-column="todo">
-                <TodoList todo={todoListOf(view, placement, fleet.issueAnswer ?? null, releaseTodoEntriesOf(releaseCardView.cards, releaseCardView.rows, passkey))} onJump={(anchor) => jump(anchor)} />
-              </div>
-              <div data-tab-header-column="status" className="space-y-2">
-                {sprintScope.statusCard === 'sprint'
-                  ? <SprintCard view={sprintCardView} />
-                  : <ReleaseCard cards={releaseCardView.cards} rows={releaseCardView.rows} />}
-                <FleetCard
-                  agents={placement.agents}
-                  switches={{ ...switches, autoDispatch: fleetControlsOf(fleet).autoDispatch, parallelAgents: fleetControlsOf(fleet).parallelAgents }}
-                  onJump={(anchor) => jump(anchor)}
-                />
-              </div>
-            </div>
+            {/* THE TAB HEADER: one card of five groups that never folds. Until the Release group
+                lands, the release or sprint card renders in its place. `delivery-header.css` lays it out. */}
+            <DeliveryHeader
+              header={deliveryHeaderOf({
+                mappingInput, fleet, reader, phaseMap, stories: stories ?? [], cards: cards ?? [],
+                releases: releaseCardView.cards, releaseRows: releaseCardView.rows, passkey,
+                slices: fleet.slices, sprints: activeSprints, scope: sprintScope, now: new Date(Date.now()), planIndex,
+              })}
+              release={sprintScope.statusCard === 'sprint'
+                ? <SprintCard view={sprintCardView} />
+                : <ReleaseCard cards={releaseCardView.cards} rows={releaseCardView.rows} />}
+              onJump={(anchor) => jump(anchor)}
+            />
             {view.sections.map((section) => {
               // A collapsed heading shows the pace of the rows it hides.
               const release = section.key === RELEASE_DELIVERY;

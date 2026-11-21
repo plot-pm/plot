@@ -207,7 +207,9 @@ Maintain: add on create, update status on change, move to archived when done.
 
 ### Updating Stories
 
-1. **Story file**: Update status markers, add decisions with rationale, append session summary
+1. **Story file**: Update status markers, add decisions with rationale, append session summary.
+   Give a decision or question that another place refers to a descriptive name with a short prefix for its kind (`decision-`, `question-`, `risk-`, `bug-` for a defect, `task-`), in square brackets, as inline code: `[decision-person-delivers-lone-tracer]`, not "D14".
+   A repository with its own identifier style keeps it.
 2. **Index**: Update the status marker in "Active Stories"
 3. **Changelog** (`docs/changelogs/YYYY-MM.md`): High-level entry — if the
    project routes these elsewhere (some keep a yearly summary instead), follow

@@ -1057,7 +1057,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
         ? `a person approves the spike of '${slug}' on every review channel.\n  Refusing under PLOT_UNATTENDED=1: there is nobody here to name. Approve it from a session: /plot-approve ${slug} --spike --who <handle>`
         : inSession
         ? `plan '${slug}' declares 'Review: in-session' — the reviewer is a human in the room.\n  Refusing under PLOT_UNATTENDED=1: there is nobody here to name. Approve it from a session: /plot-approve ${slug}`
-        : `plan '${slug}' is in the Design phase — a person approves it (D10), whatever its 'Review:' channel declares.\n  Refusing under PLOT_UNATTENDED=1: there is nobody here to name. Approve it from a session: /plot-approve ${slug} --who <handle>`,
+        : `plan '${slug}' is in the Design phase — a person approves it [decision-fleet-writes-design-specs], whatever its 'Review:' channel declares.\n  Refusing under PLOT_UNATTENDED=1: there is nobody here to name. Approve it from a session: /plot-approve ${slug} --who <handle>`,
     );
   }
   if (verdict.outcome === 'refused') {

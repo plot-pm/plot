@@ -1,14 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Page } from 'playwright';
-import { openCatalogue, scenario, fleet, row, type Catalogue } from '../catalogue/index.js';
+import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 
 /**
- * THE TAB HEADER'S LAYOUT AND ONE OF ITS COLOURS, IN A REAL BROWSER.
+ * THE TAB HEADER'S LAYOUT, ONE OF ITS COLOURS AND ITS JUMPS, IN A REAL BROWSER.
  *
- * `delivery-header.css` puts the to-do column beside the status column from
- * 768 px up and stacks them below, and colours a to-do verb by its marker. A
- * utility left on the element would win silently over neither, so both are read
- * as computed boxes and styles from the shipped artifact.
+ * `delivery-header.css` lays the five groups in one row with a vertical rule
+ * between them from 640 px up and stacks them below, and colours a header number
+ * by its tone. A utility left on the element would win silently over neither, so
+ * both are read as computed boxes and styles from the shipped artifact.
  */
 
 describe('the Delivery tab header (real browser renders the shipped artifact)', () => {
@@ -24,127 +24,85 @@ describe('the Delivery tab header (real browser renders the shipped artifact)', 
 
   const openAt = async (width: number): Promise<Page> => {
     const page = await cat.open('every-delivery-section', { tab: 'agents', viewport: { width, height: 900 }, colorScheme: 'dark' });
-    await page.locator('[data-tab-header-column="status"]').waitFor({ timeout: 10_000 });
+    await page.locator('[data-tab-header] [data-header-group="machine"]').waitFor({ timeout: 10_000 });
     return page;
   };
 
-  const boxes = async (page: Page) => {
-    const todo = (await page.locator('[data-tab-header-column="todo"]').boundingBox())!;
-    const status = (await page.locator('[data-tab-header-column="status"]').boundingBox())!;
-    return { todo, status };
-  };
+  const GROUPS = ['you', 'work-items', 'fleet', 'machine'] as const;
 
-  it('puts the two columns side by side at 1280 px', async () => {
+  it('puts the four reading groups side by side at 1280 px, each after a vertical rule', async () => {
     const page = await openAt(1280);
     try {
-      const { todo, status } = await boxes(page);
-      expect(status.x).toBeGreaterThanOrEqual(todo.x + todo.width);
-      expect(Math.abs(status.y - todo.y)).toBeLessThan(1);
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('stacks the status column below the to-do column at 767 px', async () => {
-    const page = await openAt(767);
-    try {
-      const { todo, status } = await boxes(page);
-      expect(status.y).toBeGreaterThanOrEqual(todo.y + todo.height);
-      expect(Math.abs(status.x - todo.x)).toBeLessThan(1);
-      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(767);
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('colours a blocks-delivery verb with --hue-red and an input verb with --hue-blue', async () => {
-    const page = await openAt(1280);
-    try {
-      for (const [marker, token] of [['blocks-delivery', '--hue-red'], ['input', '--hue-blue']] as const) {
-        const verb = page.locator(`[data-todo-line="${marker}"] [data-todo-verb]`).first();
-        await verb.waitFor({ timeout: 10_000 });
-        const [actual, expected] = await verb.evaluate((el, t) => {
-          const probe = document.createElement('span');
-          probe.style.color = `var(${t})`;
-          el.parentElement!.appendChild(probe);
-          const want = getComputedStyle(probe).color;
-          probe.remove();
-          return [getComputedStyle(el).color, want];
-        }, token);
-        expect(actual, `${marker} verb`).toBe(expected);
+      const boxes = await Promise.all(GROUPS.map(async (g) => (await page.locator(`[data-header-group="${g}"]`).boundingBox())!));
+      for (let i = 1; i < boxes.length; i++) {
+        expect(boxes[i].x, GROUPS[i]).toBeGreaterThanOrEqual(boxes[i - 1].x + boxes[i - 1].width - 1);
+        expect(Math.abs(boxes[i].y - boxes[0].y), GROUPS[i]).toBeLessThan(1);
+      }
+      for (const g of GROUPS) {
+        expect(await page.locator(`[data-header-group="${g}"]`).evaluate((el) => getComputedStyle(el).borderLeftWidth), g).toBe('1px');
       }
     } finally {
       await page.close();
     }
   });
 
-  for (const width of [1280, 320]) {
-    it(`keeps every to-do line on one grid row at ${width} px: chip, kind, link aligned`, async () => {
-      const base = scenario('every-delivery-section');
-      const loose = (branch: string) => row({
-        kind: 'branch', branch, plan: '', planFile: '', wave: '', state: 'open', group: 'not-started',
-        desk: false, worker: 'none', ageMinutes: 4000,
+  it('stacks the groups and scrolls nothing sideways at 320 px', async () => {
+    const page = await openAt(320);
+    try {
+      const boxes = await Promise.all(GROUPS.map(async (g) => (await page.locator(`[data-header-group="${g}"]`).boundingBox())!));
+      for (let i = 1; i < boxes.length; i++) expect(boxes[i].y, GROUPS[i]).toBeGreaterThanOrEqual(boxes[i - 1].y + boxes[i - 1].height - 1);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('colours a non-zero blocks-delivery number with --hue-red', async () => {
+    const page = await openAt(1280);
+    try {
+      const number = page.locator('[data-header-number="blocks-delivery"]:not([data-count="0"])');
+      await number.waitFor({ timeout: 10_000 });
+      const [actual, expected] = await number.evaluate((el) => {
+        const probe = document.createElement('span');
+        probe.style.color = 'var(--hue-red)';
+        el.parentElement!.appendChild(probe);
+        const want = getComputedStyle(probe).color;
+        probe.remove();
+        return [getComputedStyle(el).color, want];
       });
-      const page = await cat.open('every-delivery-section', {
-        tab: 'agents',
-        viewport: { width, height: 900 },
-        colorScheme: 'dark',
-        over: {
-          fleet: fleet({
-            ...base.fleet,
-            rows: [
-              ...base.fleet.rows,
-              loose('feature/a-merged-pending-check-is-asked-again'),
-              loose('plot/release-no-controller-resumes-a-claimed-slice'),
-            ],
-          }),
-        },
-      });
-      try {
-        const lines = page.locator('[data-todo-line]');
-        await lines.first().waitFor({ timeout: 10_000 });
-        const geometry = await lines.evaluateAll((els) => els.map((el) => {
-          const box = (sel: string) => el.querySelector(sel)!.getBoundingClientRect();
-          const verb = box('[data-todo-verb]');
-          const label = box('[data-todo-label]');
-          // A baseline, read exactly: a zero-height inline-block sits with its bottom on the line's baseline.
-          const baseline = (sel: string) => {
-            const probe = document.createElement('span');
-            probe.style.display = 'inline-block';
-            probe.style.height = '0';
-            el.querySelector(sel)!.appendChild(probe);
-            const y = probe.getBoundingClientRect().bottom;
-            probe.remove();
-            return y;
-          };
-          return {
-            text: el.textContent ?? '',
-            chipBottom: baseline('[data-todo-marker]'),
-            labelBottom: baseline('[data-todo-label]'),
-            verbLeft: Math.round(verb.left),
-            labelLeft: Math.round(label.left),
-            labelRight: label.right,
-            lineRight: el.getBoundingClientRect().right,
-            title: el.querySelector('[data-todo-label]')!.getAttribute('title'),
-          };
-        }));
-        expect(geometry.length).toBeGreaterThan(2);
-        // One column x for the kind word and one for the link, on every line.
-        expect(new Set(geometry.map((g) => g.verbLeft)).size).toBe(1);
-        expect(new Set(geometry.map((g) => g.labelLeft)).size).toBe(1);
-        for (const g of geometry) {
-          // The chip and the link share one baseline.
-          expect(Math.abs(g.chipBottom - g.labelBottom), g.text).toBeLessThan(1.5);
-          expect(g.labelRight, g.text).toBeLessThanOrEqual(g.lineRight + 1);
-        }
-        const long = geometry.find((g) => g.title === 'feature/a-merged-pending-check-is-asked-again');
-        expect(long).toBeDefined();
-        expect(long!.text.startsWith('clean up')).toBe(true);
-        expect(long!.text).toContain('Branch feature/a-merged');
-        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
-      } finally {
-        await page.close();
-      }
-    });
-  }
+      expect(actual).toBe(expected);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('has no fold: no aria-expanded and no section toggle inside the header', async () => {
+    const page = await openAt(1280);
+    try {
+      const header = page.locator('[data-tab-header]');
+      expect(await header.count()).toBe(1);
+      expect(await header.locator('[aria-expanded]').count()).toBe(0);
+      expect(await header.getAttribute('aria-expanded')).toBeNull();
+      expect(await header.locator('[data-section-toggle], [data-section-head]').count()).toBe(0);
+      await header.locator('[data-header-label]').first().click();
+      expect(await header.locator('[data-header-group="machine"]').isVisible()).toBe(true);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('opens a folded section from open › and marks the section as the link target', async () => {
+    const page = await openAt(1280);
+    try {
+      const toggle = page.locator('[data-section-toggle="work-items"]');
+      await toggle.waitFor({ timeout: 10_000 });
+      if (await toggle.getAttribute('aria-expanded') === 'true') await toggle.click();
+      await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('false');
+      await page.locator('[data-header-open="work-items"]').click();
+      await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('true');
+      await expect.poll(() => page.locator('#delivery-section-work-items').getAttribute('data-link-target')).toBe('');
+    } finally {
+      await page.close();
+    }
+  });
 });

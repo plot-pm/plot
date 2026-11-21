@@ -84,7 +84,7 @@ An agent that fleetd or the board starts inherits every MCP server the operator'
 
 ### Role commands
 
-- `bug/role-agents-start-no-mcp-server` — `roleCommand` passes `--strict-mcp-config`, the SDK role options set the strict MCP option, and the role-command, SDK and caller tests pin it <!-- builds: --strict-mcp-config in roleCommand and the SDK role options -->
+- `bug/role-agents-start-no-mcp-server` — `roleCommand` passes `--strict-mcp-config`, the SDK role options set the strict MCP option, and the role-command, SDK and caller tests pin it <!-- builds: --strict-mcp-config in roleCommand and the SDK role options --> → #3621
 
 ### Worker and board agents
 

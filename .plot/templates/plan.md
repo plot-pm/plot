@@ -55,7 +55,9 @@
 
 ### Open Questions
 
-- [ ] ...
+<!-- A point that another place refers to gets a name with a short prefix for its kind (decision-, question-, risk-, bug-, task-), not a number. The name follows the marker, is unique within this plan, and stays fixed once another place cites it. -->
+
+- [ ] `[question-…]` ...
 
 ## Slices
 
