@@ -11,7 +11,7 @@
 - **Story:**
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -73,10 +73,15 @@ Created unattended from issue #3586. Type, Review and Impl answered from the pro
 - [ ] [Technical] Cost: `check-shell-lines.sh pr` has zero headroom, so option 1 must remove as many shell lines as it adds. The plan states no offset. — *panel: amend, round 1*
 - [ ] [Technical] Duplicated rule: `packages/domain/src/workflows/reconcile.ts:125-130` holds `staleTally` and `sprint-tally-stale`, and the board decodes it (`entry/reconcile.ts:170`). The plan says the board reads neither. Name the domain rule and update it, or state that it is dead. — *panel: amend, round 1*
 - [ ] [Deliverable] Rewrite the Changelog and the slice to one outcome, drop "if chosen", and name both header comments of section 13. "Related: #3489" is the consumer's number; in this repo #3489 is `approve-and-deliver-run-without-a-board`. — *panel: amend, round 1*
+- [ ] [Domain] The "any HTML comment" collision is wider than `pr:`: `/plot-sprint close` step 2a writes `<!-- reconciled: <phase> -->` on every ticked item (`skills/plot-sprint/SKILL.md:553-554`), so an unticked reconciled item would read as kept open. The plan's premise that an item stays open until the release is cut also contradicts `scoreItem` and step 2a; section 17 already says a tag proves no completion. — *panel: amend, round 2*
+- [ ] [Technical] `annotateSprintItem`'s `branchPattern` stops only at a comma, so an `open:` field after `branch:` without a comma is rewritten by a later approve. Fix the field order and its terminator, and test an approve re-run over an annotated line. — *panel: amend, round 2*
+- [ ] [Deliverable] The slice's test list lacks: a kept-open item on a Closed sprint, an approved item with only `pr:`/`branch:` (stays a finding), an annotated item whose release shipped (stays a finding), a plan in two waves (one line), an empty reason, a reason containing `-->`. State whether the cases join the slow section 13 fixture or get their own file, and name the changeset. — *panel: amend, round 2*
+- [ ] [Deliverable] Section 13 has disagreeing header numbers: `plot-reconcile-scan.sh:113` and the echo at `:1835` say "13", the body comment at `:1809` says "11.", and `:1986` is a different "13. Stale interrogation rounds". Name `:113` and `:1809`, and leave `:1986`. — *panel: amend, round 2*
+- [ ] [Cost] Option 2 costs one string edit at `plot-reconcile-scan.sh:1866`: no added shell lines, no corpus pair, no domain change. Option 1 adds the shell-line offset, a corpus pair for `staleTally`, an `open:` survival test and, for the unshipped-release read, a second pass in section 17. The plan's Approach states the benefit only. — *panel: amend, round 2*
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [],
   "deferredItems": [],
   "categoriesCovered": {
