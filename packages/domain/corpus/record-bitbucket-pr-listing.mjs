@@ -181,7 +181,7 @@ const runHost = async (one, repo, bin) => {
   const ran = await new Promise((resolve) => {
     const child = spawn('bash', [HOST, 'pr-list', ...one.args], {
       cwd: repo,
-      env: { ...process.env, PATH: path, PLOT_HOST: 'bitbucket', PLOT_BUDGET_OFF: '1', PLOT_BB_SKIP_CAP_CHECK: '1', ...ci },
+      env: { ...process.env, PATH: path, PLOT_HOST: 'bitbucket', PLOT_BUDGET_OFF: '1', ...ci },
     });
     let stdout = '';
     let stderr = '';

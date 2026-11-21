@@ -80,7 +80,6 @@ const shellListing = async (dir: string, checkout: string, fixture: Fixture): Pr
     PLOT_CI: 'jenkins',
     JENKINS_INSTANCE: fixture.jenkins.instance,
     PLOT_BUDGET_OFF: '1',
-    PLOT_BB_SKIP_CAP_CHECK: '1',
   };
   const saved = Object.fromEntries(Object.keys(set).map((name) => [name, process.env[name]]));
   Object.assign(process.env, set);

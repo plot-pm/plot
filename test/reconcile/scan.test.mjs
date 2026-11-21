@@ -4380,7 +4380,6 @@ exit 0
       cwd: s6Repo,
       env: {
         ...process.env,
-        PLOT_BB_SKIP_CAP_CHECK: '1',
         PATH: `${dir}:${process.env.PATH}`,
       },
     });
@@ -4503,7 +4502,6 @@ exit 0
       // `bb pr list --help --json`, which a stub does not implement.
       env: {
         ...process.env,
-        PLOT_BB_SKIP_CAP_CHECK: '1',
         PATH: `${dir}:${process.env.PATH}`,
       },
     });
@@ -4850,7 +4848,7 @@ exit 0
     out = execFileSync('bash', [scan, '--no-fetch'], {
       encoding: 'utf8',
       cwd: s6Repo,
-      env: { ...process.env, PLOT_BB_SKIP_CAP_CHECK: '1', PATH: `${dir}:${process.env.PATH}` },
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
     });
     argv = fs.existsSync(argvLog) ? fs.readFileSync(argvLog, 'utf8') : '';
   } finally {

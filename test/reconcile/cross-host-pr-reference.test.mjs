@@ -147,7 +147,6 @@ function runScript(script, args, { cwd, path: binPath }) {
   // Skips `bb pr list --help --json` capability probing against the stub —
   // the probe is about a REAL bb's flag support, not this test's reference
   // resolution, and host.test.mjs's own bitbucket fixtures skip it the same way.
-  env.PLOT_BB_SKIP_CAP_CHECK = '1';
   ctx.push(env.TMPDIR, env.HOME, env.PLOT_PR_INDEX_HOME);
   return execFileSync('bash', [script, ...args], { encoding: 'utf8', cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
 }
