@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** delivery-ui-polish
 - **Review:** pr
@@ -13,6 +13,7 @@
 - **Approved:** 2026-11-20, Jan Wloka, plan-PR #3583 merged
 - **Started:** 2026-11-21, Jan Wloka, `feature/delivery-tab-has-one-header`
 - **Started:** 2026-11-21, Jan Wloka, `feature/delivery-header-release-group`
+- **Delivered:** 2026-11-21
 
 ## Changelog
 
