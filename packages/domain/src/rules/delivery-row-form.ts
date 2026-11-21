@@ -161,8 +161,8 @@ export interface AgentRowFacts {
   lastCommit?: string;
   /** The reviewer's head, as `<sha7>`. */
   reviewHead?: string;
-  /** What a fixer answers: a red CI run or a HIGH review finding. */
-  fixerFinding?: 'ci' | 'high';
+  /** What a fixer answers: a red CI run, a HIGH review finding, or a merge conflict with the base. */
+  fixerFinding?: 'ci' | 'high' | 'conflict';
   /** The number of the fixer's current attempt, from 1. */
   fixerAttempt?: number;
   /** The PR the agent acts on. */
@@ -632,7 +632,9 @@ const doingValue = (placement: AgentPlacement, facts: AgentRowFacts): string | n
     case 'reviewer':
       return facts.reviewHead === undefined ? 'reviewing' : `reviewing head ${facts.reviewHead}`;
     case 'fixer': {
-      const what = facts.fixerFinding === 'ci' ? 'fixing CI ✗' : facts.fixerFinding === 'high' ? 'fixing review ✗' : 'fixing';
+      const what = facts.fixerFinding === 'ci' ? 'fixing CI ✗'
+        : facts.fixerFinding === 'high' ? 'fixing review ✗'
+        : facts.fixerFinding === 'conflict' ? 'fixing conflict ✗' : 'fixing';
       return facts.fixerAttempt === undefined ? what : `${what} · attempt ${facts.fixerAttempt} of ${FIXER_ATTEMPTS_BUDGET}`;
     }
     case 'design': return 'designing';

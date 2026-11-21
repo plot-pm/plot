@@ -967,7 +967,8 @@ const EXPECTED_FILES = 101;
 // 732 → 734 on 2026-11-21: the two `it.each(` in the new `row-menu-column.browser.test.ts` (100 → 101 files): the Do cell last at one x in every section, and no horizontal scroll at 320 px, each run in light and dark. Added, not moved.
 // 734 → 737 on 2026-11-21: the three `it(` added to `release-approve.browser.test.ts` for the Release group's slot: a disabled button draws a dashed border and an enabled one a solid border, the slot keeps its place under a short and a long status line, and the page scrolls no wider than 320 px. Added, not moved.
 // 737 → 739 on 2026-11-21: the two `it(` added to `delivery-tab-sections.browser.test.ts`: a folded summary chip opens its section, and a folded Fleet heading keeps its spinner. Added, not moved.
-const EXPECTED_TESTS = 739;
+// 739 → 740 on 2026-11-21: the one `it(` that checks a conflict fixer's row names its finding on a green, review-clean PR, added to `a-fleet-row-shows-its-role-chip.browser.test.ts`. Added, not moved.
+const EXPECTED_TESTS = 740;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

@@ -334,6 +334,22 @@ describe('agent rows, the other readings', () => {
     expect(agentRowCells(agent({ actsOn: 'x' }), { commits: 1 }).doing!.value).toBe('writing code · 1 commit');
   });
 
+  it.each([
+    ['high', 'fixing review ✗'],
+    ['ci', 'fixing CI ✗'],
+    ['conflict', 'fixing conflict ✗'],
+  ] as const)('names a fixer on a %s finding, with and without its attempt', (fixerFinding, word) => {
+    const fixer = agent({ role: 'fixer', actsOn: 'x' });
+    expect(agentRowCells(fixer, { fixerFinding }).doing!.value).toBe(word);
+    expect(agentRowCells(fixer, { fixerFinding, fixerAttempt: 2 }).doing!.value).toBe(`${word} · attempt 2 of 2`);
+  });
+
+  it('names a fixer with no finding by the bare word, with and without its attempt', () => {
+    const fixer = agent({ role: 'fixer', actsOn: 'x' });
+    expect(agentRowCells(fixer, {}).doing!.value).toBe('fixing');
+    expect(agentRowCells(fixer, { fixerAttempt: 1 }).doing!.value).toBe('fixing · attempt 1 of 2');
+  });
+
   it('shows no Doing now for an agent with no item', () => {
     expect(agentRowCells(agent({}), {}).doing).toBeNull();
   });

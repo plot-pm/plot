@@ -140,3 +140,30 @@ describe('roleRuns: a fixer run\'s attempt', () => {
     ]);
   });
 });
+
+describe('roleRuns: a fixer run\'s finding', () => {
+  const flying = { inFlight: { pid: 6, startedAt: '2026-11-17T10:00:00Z' } };
+  const findings = {
+    high: { kind: 'high', hash: 'h1' },
+    ci: { kind: 'ci', runId: 'r1' },
+    conflict: { kind: 'conflict', head: 'abc', baseTip: 'def' },
+  } as const;
+  const runsOf = (kind: keyof typeof findings) =>
+    roleRuns(live({ fixers: [{ pr: 8, record: { v: 1, pr: 8, attempts: [{ headSha: 'abc', finding: findings[kind], ...flying }] } as unknown as FixerAttemptsRecord }] }));
+
+  it.each(['high', 'ci', 'conflict'] as const)('carries the in-flight attempt\'s kind %s', (kind) => {
+    expect(runsOf(kind).find((r) => r.role === 'fixer')?.finding).toBe(kind);
+  });
+
+  it('reads the kind of the attempt in flight, not of an earlier one', () => {
+    const runs = roleRuns(live({ fixers: [{ pr: 8, record: { v: 1, pr: 8, attempts: [
+      { headSha: 'abc', finding: findings.ci },
+      { headSha: 'abc', finding: findings.conflict, ...flying },
+    ] } as unknown as FixerAttemptsRecord }] }));
+    expect(runs.find((r) => r.role === 'fixer')?.finding).toBe('conflict');
+  });
+
+  it('leaves the finding absent on every other run', () => {
+    for (const run of runsOf('conflict').filter((r) => r.role !== 'fixer')) expect(run).not.toHaveProperty('finding');
+  });
+});
