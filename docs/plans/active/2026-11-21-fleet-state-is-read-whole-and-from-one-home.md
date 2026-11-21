@@ -1,0 +1,1 @@
+../2026-11-21-fleet-state-is-read-whole-and-from-one-home.md
