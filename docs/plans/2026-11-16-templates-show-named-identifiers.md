@@ -7,7 +7,7 @@
 - **State:** Draft
 - **Type:** docs
 - **Review:** pr
-- **Impl:** same branch
+- **Impl:** own branches
 - **Rounds:** 3
 
 ## Changelog
@@ -75,6 +75,7 @@ Adopters have different tastes, so Plot adds no gate, no config key and no lint 
 
 ## Notes
 
+- `Impl:` reads `own branches` since 2026-11-21: the plan reached main through its plan PR #3478, and its one slice has its own branch.
 - No parser reads a Decision cell, and `packages/domain/src/rules/story-record.ts` tests only for the heading `## Open Points`. `planOpenQuestions`, `interrogate.ts` and `contract/schema.ts` read Open Points lines (Approach step 5).
 - Four tests read the plan templates and run in the slice: `parser.test.mjs:2593-2605`, `skills-say-slices.test.mjs:63,83`, `approve-record-outside-comments.test.mjs:46` and `started-record-outside-comments.test.mjs:3`.
 - Cost: the changeset bumps six skills (`plot`, `plot-approve`, `plot-deliver`, `plot-idea`, `story-tracking` and `challenge-the-plan`), and a change under `skills/plot/templates/plan.md` selects every CI job (`ci-selection-jobs.test.mjs:128-133`).
