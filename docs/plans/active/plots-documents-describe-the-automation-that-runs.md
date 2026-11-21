@@ -1,0 +1,1 @@
+../2026-11-21-plots-documents-describe-the-automation-that-runs.md
