@@ -1,5 +1,6 @@
 import type { PersonCard } from '@plot-pm/domain';
-import { SEGMENT_CLASS, SEGMENT_WORD } from './SprintCard.js';
+import { SLICE_STATE_WORDS as SEGMENT_WORD } from '@plot-pm/domain';
+import { SEGMENT_CLASS } from '../lib/agent-rows/state-classes.js';
 
 /**
  * The person cards of one Release delivery block: one card per sprint owner with a bar per sprint.

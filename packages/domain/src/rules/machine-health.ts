@@ -99,7 +99,7 @@ const STRAINED = { dot: 'amber', word: 'strained' } as const;
 export const LOW_BUDGET_SHARE = 0.1;
 
 /** The two buckets of a host that meters GraphQL and REST apart, in the order the line names them, with their reader-facing names. */
-const SPLIT_BUCKETS: ReadonlyArray<readonly [string, string]> = [
+export const SPLIT_BUCKETS: ReadonlyArray<readonly [string, string]> = [
   ['graphql', 'GraphQL'],
   ['core', 'REST'],
 ];
@@ -121,7 +121,7 @@ const clock = (epochMs: number): string => {
 export type HostNamer = (connector: string) => string;
 
 /** A bucket's reader-facing name: `GraphQL` and `REST` for the split buckets, the record's word otherwise, nothing for `''`. */
-const bucketLabel = (bucket: string): string => SPLIT_BUCKETS.find(([word]) => word === bucket)?.[1] ?? bucket;
+export const bucketLabel = (bucket: string): string => SPLIT_BUCKETS.find(([word]) => word === bucket)?.[1] ?? bucket;
 
 /** A bucket with both a limit and a remaining count. */
 type ReadBucket = MachineBudget & { limit: number; remaining: number };

@@ -3,7 +3,7 @@ import { linkIconKind, type HeaderCountPart, type PlanLine } from '@plot-pm/doma
 import type { PlanRowView, ReleaseBlockView, ReleaseHeaderView } from '../lib/agent-rows/delivery-view.js';
 import { artifactTuple } from '../lib/tuple-row.js';
 import { TicketHrefContext } from './PlanTicketKeys.js';
-import { SEGMENT_CLASS } from './SprintCard.js';
+import { SEGMENT_CLASS } from '../lib/agent-rows/state-classes.js';
 import { LinkIcon } from './LinkIcon.js';
 import { LinkTupleView } from './TupleRow.js';
 

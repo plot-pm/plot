@@ -1,20 +1,9 @@
-import type { SliceState, SprintCardsView } from '@plot-pm/domain';
+import { SLICE_STATE_WORDS, type SprintCardsView } from '@plot-pm/domain';
+import { SEGMENT_CLASS } from '../lib/agent-rows/state-classes.js';
 
-export const SEGMENT_CLASS: Record<SliceState, string> = {
-  delivered: 'delivery-state-delivered',
-  'at-a-gate': 'delivery-state-at-a-gate',
-  'being-built': 'delivery-state-being-built',
-  blocked: 'delivery-state-blocked',
-  'not-started': 'delivery-state-not-started',
-};
-
-export const SEGMENT_WORD: Record<SliceState, string> = {
-  delivered: 'delivered',
-  'at-a-gate': 'at a gate',
-  'being-built': 'being built',
-  blocked: 'blocked',
-  'not-started': 'not started',
-};
+export { SEGMENT_CLASS } from '../lib/agent-rows/state-classes.js';
+/** The slice-state words, kept under the card's old name until the Release group replaces the card. */
+export const SEGMENT_WORD = SLICE_STATE_WORDS;
 
 /**
  * The Delivery tab header's sprint card: one block per owned Active sprint with
