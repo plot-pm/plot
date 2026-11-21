@@ -228,6 +228,18 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       .last();
 
   /**
+   * Opens the eligible row's `⋯` through its click handler, past the scrim as a keyboard reader goes, and returns
+   * its `Start work` item. A menu left open from an earlier call is closed first, so each call reads a fresh render.
+   */
+  const startItem = async (page: Page) => {
+    await page.keyboard.press('Escape');
+    await eligibleMenu(page).dispatchEvent('click');
+    const item = page.locator('[data-menu-item="start-work"]');
+    await item.waitFor({ timeout: 5_000 });
+    return item;
+  };
+
+  /**
    * How a real backgrounded tab comes back — and, here, the lever that drives
    * failures at speed.
    *
@@ -371,14 +383,13 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       await failPolls(page, DIM_AFTER_FAILURES);
       await overlay(page).waitFor({ timeout: 10_000 });
 
-      // The action control cannot be activated. Asserted three ways, because
-      // each catches a different weak implementation: the ATTRIBUTE (what a
-      // screen reader reads), the pointer being BLOCKED by the scrim, and —
-      // the one that matters most — the menu refusing to open even when its
-      // own click handler runs.
+      // The action cannot be activated. Asserted two ways, because each
+      // catches a different weak implementation: the pointer being BLOCKED by
+      // the scrim, and the menu's `Start work` item listed disabled with its
+      // reason even when the trigger's own click handler runs. The trigger
+      // itself never shows disabled: it opens, and the item names the refusal.
       const menu = eligibleMenu(page);
       await expect.poll(() => menu.count()).toBe(1);
-      expect(await menu.getAttribute('aria-disabled')).toBe('true');
 
       // The scrim covers the board, so a pointer cannot reach the control
       // underneath it at all. `trial` is the point: Playwright refuses a click
@@ -390,10 +401,10 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       expect(blocked).toBe(true);
 
       // And with the scrim bypassed entirely — which is what a keyboard reader
-      // does — the menu still refuses, so `Start work` is never reachable.
-      await menu.dispatchEvent('click');
-      await page.waitForTimeout(200);
-      expect(await page.getByRole('menu').count()).toBe(0);
+      // does — the menu opens and `Start work` is listed disabled, never a button.
+      const item = await startItem(page);
+      expect(await item.getAttribute('aria-disabled')).toBe('true');
+      expect(await item.getAttribute('data-menu-reason')).toContain('not answering');
       expect(await page.getByRole('button', { name: /Start work/ }).count()).toBe(0);
     } finally {
       await page.close();
@@ -502,8 +513,8 @@ describe('tiny-garden: a frozen board stops inviting', () => {
           return el.getBoundingClientRect().top - row.getBoundingClientRect().top;
         });
       expect(await offsetInRow()).toBe(offsetBefore);
-      // The reason travels with it, so a disabled control never reads as a bug.
-      expect(await button.getAttribute('title')).toContain('not answering');
+      // The reason travels with the item it refuses, so a disabled control never reads as a bug.
+      expect(await (await startItem(page)).getAttribute('data-menu-reason')).toContain('not answering');
     } finally {
       await page.close();
     }
@@ -701,10 +712,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       expect(page.url()).toBe(before);
       // The control is live again — the block lifted with the overlay rather
       // than outliving it.
-      await expect.poll(
-        () => eligibleMenu(page).getAttribute('aria-disabled'),
-        { timeout: 10_000 },
-      ).toBe(null);
+      await expect.poll(async () => (await startItem(page)).getAttribute('aria-disabled'), { timeout: 10_000 }).toBe(null);
     } finally {
       await page.close();
     }
@@ -884,8 +892,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       // The accessible NAME, not a title: `title` is read inconsistently and is
       // never shown on touch. A reader who cannot see the dim must still be
       // told why the control will not act.
-      const name = await eligibleMenu(page).getAttribute('aria-label');
-      expect(name).toContain('not answering');
+      expect(await (await startItem(page)).textContent()).toContain('not answering');
     } finally {
       await page.close();
     }

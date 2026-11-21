@@ -2843,12 +2843,12 @@ describe('TUPLE_TRACKS — one grid, and where its width goes', () => {
   };
 
   it('lays out the seven columns, with the marks lane before them', () => {
-    // `[marks, kind, item, where, status, do, by, age]` — the Delivery tab's
+    // `[marks, kind, item, where, status, by, age, do]` — the Delivery tab's
     // seven columns in the design's order, after the marks lane. The DO track
-    // holds the row's menu; BY sizes to who acts and holds nothing where
-    // nobody was read.
+    // is last and holds the row's menu at the shared width; BY sizes to who
+    // acts and holds nothing where nobody was read.
     expect(tracks()).toEqual(
-      ['1.5rem', '4.5rem', 'minmax(12rem,auto)', '1fr', '8rem', '1.25rem', 'minmax(0rem,auto)', '4.5rem']);
+      ['1.5rem', '4.5rem', 'minmax(12rem,auto)', '1fr', '8rem', 'minmax(0rem,auto)', '4.5rem', 'var(--delivery-menu-track)']);
   });
 
   it('flexes the LINKS track and no other', () => {
@@ -2912,7 +2912,11 @@ describe('TUPLE_TRACKS — one grid, and where its width goes', () => {
     // 12rem floor, unchanged from the fixed-12rem grid this replaced: `minmax`
     // did not move the breakpoint math, which is what let the 508/604/36 numbers
     // come out identical after the 2026-08-23 change (see `TUPLE_TRACKS`).
+    // The menu track's width is `--delivery-menu-track`, read from `delivery.css`.
+    const css = readFileSync(new URL('../../src/app/styles/delivery.css', import.meta.url), 'utf8');
+    const MENU_TRACK_REM = Number.parseFloat(/--delivery-menu-track:\s*([\d.]+)rem/.exec(css)?.[1] ?? 'NaN');
     const floorRem = (t: string) => {
+      if (t === 'var(--delivery-menu-track)') return MENU_TRACK_REM;
       const minmax = /^minmax\(([\d.]+)rem,/.exec(t);
       return minmax ? Number.parseFloat(minmax[1]) : Number.parseFloat(t);
     };

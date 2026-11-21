@@ -481,9 +481,9 @@ export function HeaderRow({ statusName = 'Status', youColumns = false }: { statu
       <span role="columnheader">Item</span>
       <span role="columnheader">Where</span>
       <span role="columnheader" data-column-header>{statusName}</span>
-      <span role="columnheader">Do</span>
       <span role="columnheader">By</span>
       <span role="columnheader">Age</span>
+      <span role="columnheader">Do</span>
     </li>
   );
 }

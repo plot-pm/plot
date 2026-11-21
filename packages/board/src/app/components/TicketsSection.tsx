@@ -1,7 +1,8 @@
-import { planItReason, ticketsSection, TICKETS_ANCHOR } from '@plot-pm/domain';
+import { ticketsSection, TICKETS_ANCHOR } from '@plot-pm/domain';
 import type { DispatchInfo, IssueAnswer, IssueRow } from '../../contract/schema.js';
+import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
 import { artifactTuple, tupleAgeText } from '../lib/tuple-row.js';
-import { CreatePlanButton } from './CreatePlanButton.js';
+import { IssueRowActions } from '../lib/agent-rows/menus.js';
 import { headerControl, SectionEmptyFrame, SectionEmptyMark, SectionHead } from './SectionHead.js';
 import { LinkTupleView } from './TupleRow.js';
 import { ticketAnchor } from '../lib/agent-rows/delivery-view.js';
@@ -14,8 +15,8 @@ const TICKET_CONTROLS = [{ extraAttr: { link: { 'data-issue-link': '', 'data-iss
 /** The button class of a fold control: a link-looking button that stays in the tab order. */
 const FOLD_CLASS = 'delivery-text-link';
 
-/** The four tracks of a ticket row from 640 px; below that the cells stack. */
-const ROW_COLUMNS = 'grid grid-cols-[4.5rem_minmax(0,1fr)_auto_4.5rem] max-sm:grid-cols-1';
+/** The four tracks of a ticket row from 640 px — Kind, Ticket, Age, and the `⋯` last at `--delivery-menu-track`; below that the cells stack. */
+const ROW_COLUMNS = 'grid grid-cols-[4.5rem_minmax(0,1fr)_4.5rem_var(--delivery-menu-track)] max-sm:grid-cols-1';
 
 export interface TicketsSectionViewProps {
   issueAnswer: IssueAnswer | null | undefined;
@@ -35,6 +36,10 @@ export interface TicketsSectionViewProps {
   /** The sentence naming why the tracker gave no tickets; `''` where it answered. */
   absence: string;
   idea: DispatchInfo;
+  /** Whether this board creates stories, and why not. */
+  story: DispatchInfo;
+  /** Each ticket's card facts, keyed by its number; a ticket with none has no entry. */
+  facts?: ReadonlyMap<string, CardFacts>;
   /** Whether the section is folded to its header line. */
   folded: boolean;
   onToggleFold: () => void;
@@ -56,14 +61,14 @@ interface TicketsFilters {
 const NO_FILTERS: TicketsFilters = { scope: { kind: 'release', sprints: [] }, mine: 'off', mineHidden: 0 };
 
 /**
- * The Delivery tab's Tickets section: the tickets no plan names, with *Plan it ›* in Do.
+ * The Delivery tab's Tickets section: the tickets no plan names, each with its `⋯` menu last.
  *
- * Every count, fold and refusal is the domain's (`ticketsSection`, `planItReason`);
+ * Every count, fold and refusal is the domain's (`ticketsSection`, `rowMenuOf`);
  * this component renders them. The section carries the `tickets` anchor that the
  * Delivery tab's triage links scroll to.
  */
 export function TicketsSectionView(props: TicketsSectionViewProps) {
-  const { idea, issueAnswer = null, foldOpen } = props;
+  const { idea, story, issueAnswer = null, foldOpen } = props;
   const section = ticketsSection<IssueRow>({
     answer: issueAnswer,
     assigned: props.assigned,
@@ -73,7 +78,6 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
     showAll: props.showAll,
     foldOpen,
   });
-  const reason = planItReason(issueAnswer, idea.available);
   const filters = props.filters ?? NO_FILTERS;
   const empty = sectionEmptyKind({
     section: 'tickets',
@@ -136,11 +140,11 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
           {props.notice !== null && <p data-waiting-notice className="delivery-text-muted px-3 text-xs">{props.notice}</p>}
           {props.hiddenSentence !== null && <p data-waiting-hidden-text className="delivery-text-muted px-3 text-xs">{props.hiddenSentence}</p>}
           <ul role="grid" aria-label="Tickets" className="delivery-grid">
-            <li role="row" className="hidden sm:grid grid-cols-[4.5rem_minmax(0,1fr)_auto_4.5rem] gap-x-3 px-3 delivery-thead">
+            <li role="row" className="hidden sm:grid grid-cols-[4.5rem_minmax(0,1fr)_4.5rem_var(--delivery-menu-track)] gap-x-3 px-3 delivery-thead">
               <span role="columnheader">Kind</span>
               <span role="columnheader">Ticket</span>
-              <span role="columnheader">Do</span>
               <span role="columnheader">Age</span>
+              <span role="columnheader">Do</span>
             </li>
             {section.rows.map((issue) => (
               <li
@@ -155,11 +159,11 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
                   <LinkTupleView segments={artifactTuple({ what: 'ticket', label: `${issue.number}`, href: issue.url }, () => undefined)} controls={TICKET_CONTROLS} />
                   <span className="delivery-truncate">{issue.title}</span>
                 </span>
-                <span role="gridcell" data-tickets-do data-plan-it-reason={reason ?? undefined} className="delivery-text-link inline-flex items-baseline">
-                  <CreatePlanButton issue={issue} idea={idea} issueAnswer={issueAnswer} label="Plan it ›" />
-                </span>
                 <span role="gridcell" className="delivery-text-muted sm:text-right">
                   {issue.ageMinutes === null ? '' : tupleAgeText(issue.ageMinutes)}
+                </span>
+                <span role="gridcell" data-row-cell="do" className="relative flex w-5 shrink-0 items-center justify-end">
+                  <IssueRowActions issue={issue} idea={idea} story={story} issueAnswer={issueAnswer} facts={props.facts?.get(String(issue.number))} />
                 </span>
               </li>
             ))}

@@ -37,8 +37,8 @@ const LINE_STATE: Readonly<Record<PlanLine['state'], { word: string; hue: string
 /** The column headers of the plan table, shown from 640 px up. */
 export const PLAN_COLUMNS = ['Plan', 'Phase', 'Slices', 'Owner'] as const;
 
-/** The plan table's tracks: Plan, Phase, Slices, Owner and the actions cell, which holds one 1.25 rem menu. */
-export const PLAN_TRACKS = 'sm:grid-cols-[minmax(0,2fr)_7rem_minmax(0,1.5fr)_6rem_1.25rem]';
+/** The plan table's tracks: Plan, Phase, Slices, Owner and the actions cell, whose width is `--delivery-menu-track`. */
+export const PLAN_TRACKS = 'sm:grid-cols-[minmax(0,2fr)_7rem_minmax(0,1.5fr)_6rem_var(--delivery-menu-track)]';
 
 /** The header bar of one Release block: its name where it has one, then each count's number in bold and its words. */
 export const ReleaseLine = ({ block }: { block: Pick<ReleaseBlockView, 'release' | 'name' | 'header' | 'counts'> }) => {

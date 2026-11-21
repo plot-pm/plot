@@ -1761,7 +1761,7 @@ export function AgentList({
                                   <span className="delivery-text-muted min-w-0">
                                     {plan.owner !== '' && <PlanOwner owner={plan.owner} />}
                                   </span>
-                                  <span className="ml-auto sm:ml-0 sm:justify-self-end">
+                                  <span data-row-cell="do" className="ml-auto sm:ml-0 sm:justify-self-end">
                                     <PlanActions
                                       plan={plan.plan}
                                       card={card}
@@ -1917,6 +1917,8 @@ export function AgentList({
               absence={fleet.issueAnswer === 'failed' ? issueNote(fleet) ?? fleet.issueError ?? '' : fleet.issueAnswer === 'unsupported' ? fleet.issueAbsence ?? '' : ''}
               filters={{ scope: emptyScope, mine: mapping.input.mine, mineHidden: hiddenCounts.tickets, onMine: toggleMineOnly, onScopeOff: onScopeOff('tickets') }}
               idea={idea ?? { available: false, reason: 'this board has not said whether it can create plans' }}
+              story={story ?? { available: false, reason: 'this board has not said whether it can create stories' }}
+              facts={ticketFacts}
               folded={collapsed.has('tickets')}
               onToggleFold={() => toggle('tickets')}
               foldOpen={ticketsFoldOpen}

@@ -44,8 +44,8 @@ describe('the Phase chip', () => {
 });
 
 describe('the plan table', () => {
-  it('gives the actions track a fixed width, so the header and the rows share every track', () => {
-    expect(PLAN_TRACKS.split('_').at(-1)).toBe('1.25rem]');
+  it('gives the actions track the shared menu width, so the header and the rows share every track', () => {
+    expect(PLAN_TRACKS.split('_').at(-1)).toBe('var(--delivery-menu-track)]');
   });
 });
 
