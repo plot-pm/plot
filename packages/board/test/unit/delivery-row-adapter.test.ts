@@ -174,6 +174,32 @@ describe('itemRowFactsOf and agentRowFactsOf', () => {
   });
 });
 
+describe('agentRowFactsOf: the finding a fixer answers', () => {
+  const fixerMapping = (prOver: Record<string, unknown>, finding?: 'high' | 'ci' | 'conflict') =>
+    deliveryMapping({
+      rows: [row({ branch: 'feature/a', plan: 'p', wave: 'A', pr: { number: 7, state: 'open', open: true, ...prOver } })],
+      slices: [slice('A')], agents: [], drafts: [], reader: { hostUser: 'me' }, mode: 'all',
+      config: { autoReview: true, correctionBudget: 2 },
+      roleRuns: [{ id: 'agent:fixer:7', role: 'fixer', pr: 7, startedAt: null, attempt: 1, ...(finding === undefined ? {} : { finding }) }],
+    });
+
+  it('reads a conflict from the run on a green, review-clean PR', () => {
+    const m = fixerMapping({ ciChecks: 'green', plotReview: 'success' }, 'conflict');
+    expect(agentRowFactsOf(m, 'agent:fixer:7', 0)).toMatchObject({ fixerFinding: 'conflict', fixerAttempt: 1, pr: { ci: 'passed', review: 'passed' } });
+  });
+
+  it('reads the run\'s finding over the PR\'s red CI', () => {
+    expect(agentRowFactsOf(fixerMapping({ ciChecks: 'failing', plotReview: 'success' }, 'conflict'), 'agent:fixer:7', 0).fixerFinding).toBe('conflict');
+    expect(agentRowFactsOf(fixerMapping({ ciChecks: 'failing', plotReview: 'failure' }, 'high'), 'agent:fixer:7', 0).fixerFinding).toBe('high');
+  });
+
+  it('infers the finding from the PR where the run carries none, as an older server sends it', () => {
+    expect(agentRowFactsOf(fixerMapping({ ciChecks: 'failing', plotReview: 'success' }), 'agent:fixer:7', 0).fixerFinding).toBe('ci');
+    expect(agentRowFactsOf(fixerMapping({ ciChecks: 'green', plotReview: 'failure' }), 'agent:fixer:7', 0).fixerFinding).toBe('high');
+    expect(agentRowFactsOf(fixerMapping({ ciChecks: 'green', plotReview: 'success' }), 'agent:fixer:7', 0)).not.toHaveProperty('fixerFinding');
+  });
+});
+
 describe('itemRowFactsOf: progress and waits', () => {
   const factsOf = (rows: AgentRow[], directory?: Record<string, string>) => {
     const m = deliveryMapping({
