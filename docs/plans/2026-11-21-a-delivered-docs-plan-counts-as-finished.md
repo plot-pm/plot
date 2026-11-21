@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3641 merged
+- **Started:** 2026-11-21, Jan Wloka, `bug/the-pulse-omission-is-one-domain-rule`
 
 ## Changelog
 
