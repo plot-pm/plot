@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { hostFixture } from '@plot-pm/domain/adapters/host/host-fixture';
 import { planStoreFixture, planRecord } from '@plot-pm/domain/adapters/plan-store/plan-store-fixture';
 import { refsFixture } from '@plot-pm/domain/adapters/refs/refs-fixture';
@@ -8,6 +8,7 @@ import type { PlanStore } from '@plot-pm/domain/ports/plan-store';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import type { Trees } from '@plot-pm/domain/ports/trees';
 import { perform, Refused, type Context } from '../../src/server/entry/approve.js';
+import type { PushLock } from '../../src/server/entry/ladder.js';
 
 const answered = <T>(value: T): PortResult<T> => ({ ok: true, value });
 const HEAD = 'a'.repeat(40);
@@ -232,6 +233,66 @@ describe('approve perform — sprint annotation by sprintOfPlan, not by director
 
     expect(files[ABS_SPRINT]).toContain(`pr: #42`);
     expect(staged.flat()).toContain(SPRINT_FILE);
+  });
+});
+
+describe('approve perform — an in-session approval of a sprint member records no PR', () => {
+  const SPRINT_FILE = 'docs/sprints/2026-10-20-w43.md';
+  const ABS_SPRINT = `/repo/${SPRINT_FILE}`;
+  // Already recorded, so the booking writes only the sprint line: the fixture store parses no text.
+  const PLAN_TEXT = '# P\n\n## Status\n\n- **State:** Approved\n- **Approved:** 2026-10-01, jwloka, in-session\n';
+
+  /** Reads and writes in the booking worktree land on the same `/repo` files. */
+  const bookedAt = (store: PlanStore): PlanStore => {
+    const inRepo = (file: string): string => file.replace(/^.*\/\.plot-approve-[^/]+/, '/repo');
+    return {
+      ...store,
+      readPlan: (file) => store.readPlan(inRepo(file)),
+      listDir: (dir) => store.listDir(inRepo(dir)),
+      readText: (file) => store.readText(inRepo(file)),
+      writeText: (file, content) => store.writeText(inRepo(file), content),
+    };
+  };
+
+  const ctxInSession = (files: Record<string, string>): Context & { lock: PushLock } => ({
+    repoRoot: '/repo',
+    scriptDir: '/repo/skills/plot/scripts',
+    host: hostFixture({ prs: [], commitStatuses: [] }),
+    planStore: bookedAt(planStoreFixture({
+      files: Object.assign(files, { [FILE]: PLAN_TEXT, [`/repo/${FILE}`]: PLAN_TEXT }),
+      plans: [FILE, `/repo/${FILE}`].map((file) => planRecord({
+        file, phase: 'approved', review: 'in-session', impl: 'own-branches', branches: ['feature/one'], sprint: '',
+        approvedRaw: '2026-10-01, jwloka, in-session',
+      })),
+    })),
+    refs: refsFixture({}),
+    scripts: scriptsStub([]),
+    trees: {
+      originHead: async () => answered('main'),
+      hasRef: async () => answered(false),
+      fetch: async () => answered(undefined),
+      mainRoot: async () => answered('/repo'),
+      excludePath: async () => answered(undefined),
+      addBranch: async () => answered(undefined),
+      stage: async () => answered(undefined),
+      hasStagedChanges: async () => answered(false),
+      removeWithBranch: async () => answered(undefined),
+    } as unknown as Trees,
+    lock: { take: async () => 'taken', release: async () => {} } as unknown as PushLock,
+  });
+
+  it('writes pr: none over pr: #0 and never names PR 0', async () => {
+    vi.stubEnv('PLOT_UNATTENDED', '');
+    const files: Record<string, string> = {
+      [ABS_SPRINT]: ['### Must Have', '', `- [ ] [${SLUG}] the plan <!-- pr: #0, branch: feature/one -->`, ''].join('\n'),
+    };
+    try {
+      await perform(ctxInSession(files), { dryRun: false, spike: false, who: 'jwloka', slug: SLUG }, () => {}, () => {});
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    expect(files[ABS_SPRINT]).toContain(`- [ ] [${SLUG}] the plan <!-- pr: none, branch: feature/one -->`);
   });
 });
 
