@@ -234,7 +234,7 @@ import {
 import type { SupervisionReportStore } from '@plot-pm/domain/ports/supervision-report';
 import { logDir, processLog, truncateInherited } from '../../shared/process-log.js';
 import { readConfig } from '../../shared/config-reader.js';
-import { continueOnDesk, type DeskContinuation, type DeskContinuationInput } from '../../shared/continuation.js';
+import { continueOnDesk, deskTranscriptHandles, recordRoleSessions, type DeskContinuation, type DeskContinuationInput } from '../../shared/continuation.js';
 import { readDeskLoop } from '../../shared/desk-loop.js';
 import type { Desk } from '@plot-pm/domain/ports/desk';
 import { randomUUID } from 'node:crypto';
@@ -1594,6 +1594,9 @@ export const unblockPortsFor = (deps: {
       const settings = agentSettingsFile(main);
       const fragment =
         settings === null ? command.command : `${command.command} --settings '${settings.replace(/'/g, `'\\''`)}'`;
+      // The run starts its own transcript in the desk's transcript directory,
+      // and the record keeps a later continuation from resuming it.
+      const before = deskTranscriptHandles(worktree);
       const result = await agentRun(fragment).run({
         worktree,
         prompt: question,
@@ -1611,6 +1614,7 @@ export const unblockPortsFor = (deps: {
         env: { PLOT_ROLE_GATE: join(main, 'skills', 'plot', 'scripts', 'board', 'plot-gate.mjs'), PLOT_ROLE_BRANCH: branch },
         logFile,
       });
+      recordRoleSessions(worktree, [...deskTranscriptHandles(worktree)].filter((handle) => !before.has(handle)));
       if (!result.ok) return { ok: false, detail: result.why };
       if (result.value.end.answer !== 'ran') return { ok: false, detail: `run ended ${result.value.end.answer}` };
       return { ok: true, output: result.value.finalText ?? '' };
