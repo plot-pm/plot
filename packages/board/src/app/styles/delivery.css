@@ -201,3 +201,48 @@
 
 /* A dot drawn as the `●` glyph, where its line reads as text. */
 .delivery-dot-glyph { color: var(--delivery-dot, var(--card-track)); }
+
+/* The folded summary: coloured chips, a 120 by 7 px segment bar and 12 px agent circles. */
+.delivery-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border: 1px solid var(--delivery-dot, var(--card-border));
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+  white-space: nowrap;
+  text-transform: none;
+  letter-spacing: normal;
+  background: var(--delivery-soft, transparent);
+  color: var(--delivery-text, var(--card-body));
+}
+.delivery-chip-zero,
+.delivery-chip-unread {
+  font-weight: 500;
+  background: transparent;
+  border-color: var(--card-border);
+  color: var(--card-meta);
+}
+.delivery-chip-unread { border-style: dashed; }
+.delivery-sumbar {
+  display: inline-flex;
+  width: 120px;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--card-track);
+}
+.delivery-sumbar > i { display: block; height: 100%; }
+.delivery-circles { display: inline-flex; gap: 5px; }
+.delivery-circle {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--card-meta);
+  border-radius: 9999px;
+}
+.delivery-circle-working { background: var(--hue-blue-dot); border-color: var(--hue-blue-dot); }
+.delivery-circle-blocked { background: var(--hue-red-dot); border-color: var(--hue-red-dot); }

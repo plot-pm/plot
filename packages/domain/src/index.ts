@@ -702,6 +702,7 @@ export * from './rules/tracker-transport.js';
 export * from './rules/plan-open-questions.js';
 export * from './rules/you-header.js';
 export * from './rules/delivery-header.js';
+export * from './rules/section-summary.js';
 export * from './rules/todo-list.js';
 export * from './rules/link-icon.js';
 export * from './rules/fleet-not-working.js';
