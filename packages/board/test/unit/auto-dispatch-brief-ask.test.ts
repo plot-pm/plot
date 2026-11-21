@@ -15,7 +15,7 @@
 // fallback and the whole ask block does nothing. Every pre-existing test in
 // `auto-dispatch-spawn.test.ts` is therefore unchanged and still passing — the
 // new path is reachable only where a test deliberately configures a command.
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -103,18 +103,26 @@ function fixture(
 
   // THE SAME WRITER, ENDING AS A HARNESS DOES AT THE ACCOUNT'S USAGE LIMIT: the
   // limit line on stdout and a non-zero status. The reset is a time of day, which
-  // the rule resolves to the next such instant within 24 hours.
-  const limited = path.join(scriptsDir, 'stub-limited-brief-writer.sh');
-  fs.writeFileSync(
-    limited,
-    `#!/usr/bin/env bash\n{ printf 'ARGC=%s\\n' "$#"; for a in "$@"; do printf 'ARG=%s\\n' "$a"; done; printf 'END\\n'; } >> ${JSON.stringify(askMarker)}\n` +
-      `echo "You've hit your session limit · resets 11pm (Europe/Berlin)"\nexit 1\n`,
-    { mode: 0o755 },
-  );
+  // the rule resolves to the next such instant within 24 hours. `@limited` resets
+  // at 1am Berlin, two hours after the usage-limit block's pinned clock;
+  // `@limited-11pm` resets at 11pm Berlin, 15 s before it.
+  const limitedAt = (file: string, reset: string) => {
+    const at = path.join(scriptsDir, file);
+    fs.writeFileSync(
+      at,
+      `#!/usr/bin/env bash\n{ printf 'ARGC=%s\\n' "$#"; for a in "$@"; do printf 'ARG=%s\\n' "$a"; done; printf 'END\\n'; } >> ${JSON.stringify(askMarker)}\n` +
+        `echo "You've hit your session limit · resets ${reset} (Europe/Berlin)"\nexit 1\n`,
+      { mode: 0o755 },
+    );
+    return at;
+  };
+  const limited = limitedAt('stub-limited-brief-writer.sh', '1am');
+  const limitedPast = limitedAt('stub-limited-11pm-brief-writer.sh', '11pm');
 
   if (opts.briefCommand !== undefined) {
     const value = opts.briefCommand === '@writer' ? writer
-      : opts.briefCommand === '@limited' ? limited : opts.briefCommand;
+      : opts.briefCommand === '@limited' ? limited
+      : opts.briefCommand === '@limited-11pm' ? limitedPast : opts.briefCommand;
     fs.writeFileSync(
       path.join(scriptsDir, 'plot-config.sh'),
       `#!/usr/bin/env bash\n` +
@@ -176,8 +184,10 @@ const settle = async (
   want: number,
   ceilingMs = 5000,
 ): Promise<void> => {
-  const deadline = Date.now() + ceilingMs;
-  while (Date.now() < deadline && got() < want) await sleep(25);
+  // `performance.now()`, not `Date.now()`: the usage-limit block freezes `Date`,
+  // and a frozen deadline never passes.
+  const deadline = performance.now() + ceilingMs;
+  while (performance.now() < deadline && got() < want) await sleep(25);
   // A FLOOR FOR THE ZERO CASE. `want: 0` is satisfied immediately, so without
   // this an assertion of "nothing spawned" would be true before a spawn could
   // possibly have landed — and would pass against an implementation that did
@@ -501,6 +511,19 @@ describe('maybeAutoDispatch — asking for the brief', () => {
 describe('maybeAutoDispatch — a brief ask that ended at the usage limit', () => {
   const BRANCH = 'feature/needs-a-brief';
   const nowEpoch = () => Math.floor(Date.now() / 1000);
+  // 2026-11-05 23:00:15 CET, the instant CI run 42117422301 failed at (#3125).
+  const PINNED = new Date('2026-11-05T22:00:15Z');
+  // 1am Berlin on the next day, which the `@limited` stub prints.
+  const RESET_1AM = Date.UTC(2026, 10, 6, 0, 0, 0) / 1000;
+
+  beforeEach(() => {
+    // `Date` only: the fixture's `sleep` and `settle` keep real timers.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(PINNED);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   it('RECORDS THE RESET EPOCH of a wait ending against the branch', async () => {
     const f = fixture([], { briefCommand: '@limited' });
@@ -510,8 +533,19 @@ describe('maybeAutoDispatch — a brief ask that ended at the usage limit', () =
     maybeAutoDispatch(f.opts, brieflessPulse(), on(5), [], new Set(), undefined, asked, waits);
     await settle(() => waits.size, 1);
 
-    expect(waits.get(BRANCH)).toBeGreaterThan(nowEpoch());
-    expect(waits.get(BRANCH)).toBeLessThanOrEqual(nowEpoch() + 24 * 3600);
+    expect(waits.get(BRANCH)).toBe(RESET_1AM);
+  });
+
+  it('A RESET INSIDE THE GRACE RESOLVES TO NOW', async () => {
+    // 11pm Berlin lies 15 s before the pinned clock, inside the 120 s grace.
+    const f = fixture([], { briefCommand: '@limited-11pm' });
+    const asked = new Set<string>();
+    const waits = new Map<string, number>();
+
+    maybeAutoDispatch(f.opts, brieflessPulse(), on(5), [], new Set(), undefined, asked, waits);
+    await settle(() => waits.size, 1);
+
+    expect(waits.get(BRANCH)).toBe(PINNED.getTime() / 1000);
   });
 
   it('A PULSE BEFORE THE RESET DOES NOT ASK AGAIN', async () => {
@@ -549,7 +583,7 @@ describe('maybeAutoDispatch — a brief ask that ended at the usage limit', () =
     maybeAutoDispatch(f.opts, brieflessPulse(), on(5), [], new Set(), undefined, asked, waits);
     await settle(() => (waits.get(BRANCH) ?? 0) > old, 1);
 
-    expect(waits.get(BRANCH)).toBeGreaterThan(nowEpoch());
+    expect(waits.get(BRANCH)).toBe(RESET_1AM);
   });
 
   it('A BRIEF THAT LANDS CLEARS THE WAIT', async () => {
