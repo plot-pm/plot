@@ -112,7 +112,7 @@ Today the tab header holds three widgets, `TodoList`, `ReleaseCard` or `SprintCa
 
 ### Release group
 
-- `feature/delivery-header-release-group` <!-- waits: feature/delivery-tab-has-one-header --> — the Release group over every active sprint and over the sprints `deliveryScope` returns under My sprint, with the five-state combined bar, the scope line, `releaseStatusLine` with the passkey read lifted out of `ReleaseApprove` and the lowest ready version in the slot, the fixed release slot with a dashed disabled state and its reason, the `lastRelease` payload field, and the removal of `ReleaseCard` and `SprintCard` <!-- builds: releaseStatusLine and lastRelease, the header's Release group -->
+- `feature/delivery-header-release-group` <!-- waits: feature/delivery-tab-has-one-header --> — the Release group over every active sprint and over the sprints `deliveryScope` returns under My sprint, with the five-state combined bar, the scope line, `releaseStatusLine` with the passkey read lifted out of `ReleaseApprove` and the lowest ready version in the slot, the fixed release slot with a dashed disabled state and its reason, the `lastRelease` payload field, and the removal of `ReleaseCard` and `SprintCard` <!-- builds: releaseStatusLine and lastRelease, the header's Release group --> → #3630
 
 ## Notes
 
