@@ -54,7 +54,7 @@ import { takeContinueLock, releaseContinueLock, continueLockPath } from './conti
 import { mainCheckout } from './main-checkout.js';
 import { roleFilesAt } from './role-files.js';
 import { commonGitDir } from './agent-log.js';
-import { hostOf, refsOf, runLogOf, type ActOptions } from './action-log.js';
+import { hostOf, refsOf, runLogOf, stateHomeOfOpts, type ActOptions } from './action-log.js';
 import { readConfigAsync } from './config-reader.js';
 
 /** What the fixer tick reads and acts through; a test replaces each. */
@@ -750,7 +750,7 @@ export interface FixerPassReading {
  *
  * @param opts - where the fleet acts.
  * @param now - epoch milliseconds.
- * @returns the reading, or `null` where the host, the index or the open rows give nothing to act on.
+ * @returns the reading, or `null` where the host, the index, the open rows or the state home give nothing to act on.
  */
 export const readFixerPass = async (opts: ActOptions, now: number): Promise<FixerPassReading | null> => {
   const host = hostOf(opts);
@@ -760,7 +760,9 @@ export const readFixerPass = async (opts: ActOptions, now: number): Promise<Fixe
   if (!store.ok || store.value === null) return null;
   const rows = store.value.rows.filter((row) => row.state === 'OPEN');
   if (rows.length === 0) return null;
-  const reading = await defaultBranchFile(opts.repoRoot).read();
+  const home = stateHomeOfOpts(opts);
+  if (home === null) return null;
+  const reading = await defaultBranchFile(home).read();
   const defaultBranch: DefaultBranchReading | null = reading.ok ? reading.value : null;
   const name = await refsOf(opts).defaultBranch();
   const claimStaleMs = claimStaleMsOf(await readConfigAsync(opts, 'Claim stale after', '24'));

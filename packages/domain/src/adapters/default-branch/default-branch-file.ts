@@ -7,20 +7,21 @@ import {
   encodeDefaultBranch,
   type DefaultBranchReading,
 } from '../../entities/default-branch.js';
+import type { StateHome } from '../../entities/state-home.js';
 import type { DefaultBranchStore } from '../../ports/default-branch.js';
 
-/** Where the reading lives under a repository root. */
-export const defaultBranchPath = (repoRoot: string): string =>
-  join(repoRoot, '.plot', 'state', 'default-branch.json');
+/** Where the reading lives under a state home. */
+export const defaultBranchPath = (home: StateHome): string =>
+  join(home, '.plot', 'state', 'default-branch.json');
 
 /**
  * Keeps the default-branch reading in `.plot/state/default-branch.json`.
  *
- * @param repoRoot - the repository the file belongs to.
+ * @param home - the state home the file lives under.
  * @returns a `DefaultBranchStore` over that one file.
  */
-export const defaultBranchFile = (repoRoot: string): DefaultBranchStore => {
-  const path = defaultBranchPath(repoRoot);
+export const defaultBranchFile = (home: StateHome): DefaultBranchStore => {
+  const path = defaultBranchPath(home);
   return {
     read: async (): Promise<PortResult<DefaultBranchReading | null>> => {
       let text: string;
@@ -63,13 +64,13 @@ export const validBase = (base: string): boolean =>
   base.split('/').every((part) => part !== '' && part !== '..' && part !== '.') &&
   !(base.split('/').pop() as string).endsWith(BASE_REPAIR_SUFFIX);
 
-/** Where the repair record for a base branch lives under a repository root. */
-export const baseRepairPath = (repoRoot: string, base: string): string =>
-  join(repoRoot, '.plot', 'state', 'base-branches', `${base}${BASE_REPAIR_SUFFIX}.json`);
+/** Where the repair record for a base branch lives under a state home. */
+export const baseRepairPath = (home: StateHome, base: string): string =>
+  join(home, '.plot', 'state', 'base-branches', `${base}${BASE_REPAIR_SUFFIX}.json`);
 
-/** Where the reading for a base branch lives under a repository root. */
-export const baseBranchPath = (repoRoot: string, base: string): string =>
-  join(repoRoot, '.plot', 'state', 'base-branches', `${base}.json`);
+/** Where the reading for a base branch lives under a state home. */
+export const baseBranchPath = (home: StateHome, base: string): string =>
+  join(home, '.plot', 'state', 'base-branches', `${base}.json`);
 
 /**
  * Keeps the reading of a PR base branch in `.plot/state/base-branches/<base>.json`.
@@ -77,18 +78,18 @@ export const baseBranchPath = (repoRoot: string, base: string): string =>
  * A base with an empty, `.` or `..` segment has no file: it reads as no reading
  * and refuses a write. A file whose `branch` is not `base` reads as no reading.
  *
- * @param repoRoot - the repository the file belongs to.
+ * @param home - the state home the file lives under.
  * @param base - the base branch the reading is kept for.
  * @returns a `DefaultBranchStore` over that one file.
  */
-export const baseBranchFile = (repoRoot: string, base: string): DefaultBranchStore => {
+export const baseBranchFile = (home: StateHome, base: string): DefaultBranchStore => {
   if (!validBase(base)) {
     return {
       read: async () => answered<DefaultBranchReading | null>(null),
       write: async () => failed<void>(),
     };
   }
-  const path = baseBranchPath(repoRoot, base);
+  const path = baseBranchPath(home, base);
   return {
     read: async (): Promise<PortResult<DefaultBranchReading | null>> => {
       let text: string;
@@ -122,12 +123,12 @@ export const baseBranchFile = (repoRoot: string, base: string): DefaultBranchSto
  * relative to it, without the extension: `sprint/x` for `sprint/x.json`.
  * Temporary `.tmp` files and `<base>.repair.json` repair records are not names.
  *
- * @param repoRoot - the repository the files belong to.
+ * @param home - the state home the files live under.
  * @returns the names, or `failed` where the directory could not be read; a
  *   missing directory answers an empty list.
  */
-export const baseBranchNames = async (repoRoot: string): Promise<PortResult<readonly string[]>> => {
-  const root = join(repoRoot, '.plot', 'state', 'base-branches');
+export const baseBranchNames = async (home: StateHome): Promise<PortResult<readonly string[]>> => {
+  const root = join(home, '.plot', 'state', 'base-branches');
   const walk = async (dir: string, prefix: string): Promise<string[]> => {
     const names: string[] = [];
     for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -150,14 +151,14 @@ export const baseBranchNames = async (repoRoot: string): Promise<PortResult<read
  * The directory that held it stays. A base with an empty, `.` or `..` segment
  * has no file and is refused.
  *
- * @param repoRoot - the repository the file belongs to.
+ * @param home - the state home the file lives under.
  * @param base - the base branch whose reading is removed.
  * @returns `answered` where the file is gone or never existed, `failed` otherwise.
  */
-export const removeBaseBranch = async (repoRoot: string, base: string): Promise<PortResult<void>> => {
+export const removeBaseBranch = async (home: StateHome, base: string): Promise<PortResult<void>> => {
   if (!validBase(base)) return failed<void>();
   try {
-    await rm(baseBranchPath(repoRoot, base), { force: true });
+    await rm(baseBranchPath(home, base), { force: true });
     return answered(undefined);
   } catch {
     return failed<void>();
@@ -167,14 +168,14 @@ export const removeBaseBranch = async (repoRoot: string, base: string): Promise<
 /**
  * Deletes the repair record of one base branch, and only that file.
  *
- * @param repoRoot - the repository the file belongs to.
+ * @param home - the state home the file lives under.
  * @param base - the base branch whose record is removed.
  * @returns `answered` where the file is gone or never existed, `failed` for an invalid base or an error.
  */
-export const removeBaseRepair = async (repoRoot: string, base: string): Promise<PortResult<void>> => {
+export const removeBaseRepair = async (home: StateHome, base: string): Promise<PortResult<void>> => {
   if (!validBase(base)) return failed<void>();
   try {
-    await rm(baseRepairPath(repoRoot, base), { force: true });
+    await rm(baseRepairPath(home, base), { force: true });
     return answered(undefined);
   } catch {
     return failed<void>();

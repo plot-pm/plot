@@ -36,7 +36,7 @@ import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { RunLogLine } from '@plot-pm/domain/ports/run-log';
 import type { RepairMergeReading } from '@plot-pm/domain/rules/repair-pr';
 import { readRepair, mergeAt } from '@plot-pm/domain/workflows/merge';
-import { refsOf, runLogOf, scriptsOf, type ActOptions } from './action-log.js';
+import { refsOf, runLogOf, scriptsOf, stateHomeOfOpts, type ActOptions } from './action-log.js';
 import { readAutoReview } from './auto-review.js';
 import { readConfig } from './config-reader.js';
 import { pidAlive } from './fleet-run.js';
@@ -346,7 +346,8 @@ export const plotPathSetOf = (opts: ActOptions): readonly string[] => {
  * @param mergerApp - holds whether the `Merger app` key is usable, and reads it
  *   again before a merge; a reader of its own by default. A caller that runs
  *   many passes passes one reader, so the check runs once per process.
- * @returns the tick's result, or `null` where nothing was read to act on.
+ * @returns the tick's result, or `null` where nothing was read to act on,
+ *   including where the state home is unread.
  */
 export const runAutoMergePass = async (
   opts: ActOptions,
@@ -367,8 +368,10 @@ export const runAutoMergePass = async (
   if (!store.ok || store.value === null) return null;
   const rows = store.value.rows.filter((row) => row.state === 'OPEN');
   if (rows.length === 0) return null;
+  const home = stateHomeOfOpts(opts);
+  if (home === null) return null;
 
-  const defaultBranches = defaultBranchFile(opts.repoRoot);
+  const defaultBranches = defaultBranchFile(home);
   const reading = await defaultBranches.read();
   const defaultBranch: DefaultBranchReading | null = reading.ok ? reading.value : null;
   if (defaultBranch === null) return null;
@@ -387,14 +390,14 @@ export const runAutoMergePass = async (
     host,
     scripts,
     defaultBranch: defaultBranches,
-    baseBranch: (base) => baseBranchFile(opts.repoRoot, base),
-    baseRepair: (base) => baseRepairFile(opts.repoRoot, base),
+    baseBranch: (base) => baseBranchFile(home, base),
+    baseRepair: (base) => baseRepairFile(home, base),
     refs: { ...refs, remoteSha: remote.remoteSha },
     checksWaitMs,
     now: () => now,
     requireReading: true,
     caller: 'fleetd',
-    repair: repairRecordFile(opts.repoRoot),
+    repair: repairRecordFile(home),
     // The composed client reads a `<workflow>/<job>` check's jobs; the script
     // reads none, so the repair exception would fold the red commit `unknown`.
     build: await buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }, apiForReads(context)),
@@ -410,7 +413,7 @@ export const runAutoMergePass = async (
   const baseReadings = new Map<string, DefaultBranchReading | null>();
   for (const base of new Set(rows.map((row) => row.base ?? ''))) {
     if (base === '' || base === defaultBranch.branch) continue;
-    const read = await baseBranchFile(opts.repoRoot, base).read();
+    const read = await baseBranchFile(home, base).read();
     baseReadings.set(base, read.ok ? read.value : null);
   }
   return mergeTick(

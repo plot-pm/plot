@@ -24,7 +24,7 @@ import type { RepairRecordStore } from '@plot-pm/domain/ports/repair-record';
 import { repairRoleOf, type RepairMergeReading } from '@plot-pm/domain/rules/repair-pr';
 import { readRepair } from '@plot-pm/domain/workflows/merge';
 import type { RunLogLine } from '@plot-pm/domain/ports/run-log';
-import { hostOf, refsOf, runLogOf, scriptsOf, type ActOptions } from './action-log.js';
+import { hostOf, refsOf, runLogOf, scriptsOf, stateHomeOfOpts, type ActOptions } from './action-log.js';
 import { commonGitDir } from './agent-log.js';
 import { type ConfigReadOptions } from './config-reader.js';
 import { readSwitch } from './fleet-settings-store.js';
@@ -203,7 +203,7 @@ export const readRepairReview = async (
  *
  * @param opts - where the fleet acts.
  * @param now - epoch milliseconds.
- * @returns the reading, or `null` where the host, the index or the open rows give nothing to act on.
+ * @returns the reading, or `null` where the host, the index, the open rows or the state home give nothing to act on.
  */
 export const readReviewPass = async (opts: ActOptions, now: number): Promise<ReviewPassReading | null> => {
   const backend = await hostOf(opts).backend();
@@ -212,11 +212,13 @@ export const readReviewPass = async (opts: ActOptions, now: number): Promise<Rev
   if (!store.ok || store.value === null) return null;
   const rows = store.value.rows.filter((row) => row.state === 'OPEN');
   if (rows.length === 0) return null;
-  const reading = await defaultBranchFile(opts.repoRoot).read();
+  const home = stateHomeOfOpts(opts);
+  if (home === null) return null;
+  const reading = await defaultBranchFile(home).read();
   const defaultBranch: DefaultBranchReading | null = reading.ok ? reading.value : null;
   const branch = defaultBranch?.branch ?? 'main';
   const scope = await sprintScopeRef(refsOf(opts), scriptsOf(opts), `origin/${branch}`);
-  const repairMerge = await readRepairReview(rows, defaultBranch, { repair: repairRecordFile(opts.repoRoot), refs: refsOf(opts) });
+  const repairMerge = await readRepairReview(rows, defaultBranch, { repair: repairRecordFile(home), refs: refsOf(opts) });
   return {
     rows,
     readings: {
