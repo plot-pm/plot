@@ -1,0 +1,582 @@
+{
+  "bb": "bb 1.15.0 (quatico-bb — brew install quatico-solutions/tap/quatico-bb)",
+  "now": 1788000123,
+  "hourStamps": [
+    {
+      "second": 1788000123,
+      "output": "2026082910 2026082909"
+    },
+    {
+      "second": 1787961600,
+      "output": "2026082900 2026082823"
+    },
+    {
+      "second": 1787961599,
+      "output": "2026082823 2026082822"
+    },
+    {
+      "second": 1788047999,
+      "output": "2026082923 2026082922"
+    },
+    {
+      "second": 0,
+      "output": "1970010100 1969123123"
+    },
+    {
+      "second": 1735689600,
+      "output": "2025010100 2024123123"
+    }
+  ],
+  "utcHms": [
+    {
+      "second": 1788000123,
+      "output": "10:42:03Z"
+    },
+    {
+      "second": 1787961600,
+      "output": "00:00:00Z"
+    },
+    {
+      "second": 1787961599,
+      "output": "23:59:59Z"
+    },
+    {
+      "second": 1788047999,
+      "output": "23:59:59Z"
+    },
+    {
+      "second": 0,
+      "output": "00:00:00Z"
+    },
+    {
+      "second": 1735689600,
+      "output": "00:00:00Z"
+    }
+  ],
+  "shownWait": [
+    {
+      "seconds": 0,
+      "output": 0
+    },
+    {
+      "seconds": 1,
+      "output": 1
+    },
+    {
+      "seconds": 428,
+      "output": 428
+    },
+    {
+      "seconds": 429,
+      "output": 430
+    },
+    {
+      "seconds": 430,
+      "output": 430
+    },
+    {
+      "seconds": 3600,
+      "output": 3600
+    }
+  ],
+  "statePath": [
+    {
+      "env": {
+        "BB_STATE_DIR": "/s/bb",
+        "XDG_STATE_HOME": "/x",
+        "HOME": "/h"
+      },
+      "output": "/s/bb"
+    },
+    {
+      "env": {
+        "BB_STATE_DIR": "",
+        "XDG_STATE_HOME": "/x",
+        "HOME": "/h"
+      },
+      "output": "/x/bb"
+    },
+    {
+      "env": {
+        "BB_STATE_DIR": "",
+        "XDG_STATE_HOME": "",
+        "HOME": "/h"
+      },
+      "output": "/h/.local/state/bb"
+    },
+    {
+      "env": {
+        "XDG_STATE_HOME": "/x"
+      },
+      "output": "/x/bb"
+    },
+    {
+      "env": {
+        "BB_STATE_DIR": "",
+        "XDG_STATE_HOME": "",
+        "HOME": ""
+      },
+      "output": null
+    },
+    {
+      "env": {},
+      "output": null
+    }
+  ],
+  "accountKey": [
+    {
+      "email": "me.name@example.com",
+      "c": "e2fb284b4fb7",
+      "utf8": "e2fb284b4fb7"
+    },
+    {
+      "email": "Me.Name@Example.COM",
+      "c": "e2fb284b4fb7",
+      "utf8": "e2fb284b4fb7"
+    },
+    {
+      "email": "ÜMLAUT@example.com",
+      "c": "c402b751590d",
+      "utf8": "cc9a9505fcdf"
+    },
+    {
+      "email": "Ärger.Öl@Straße.de",
+      "c": "b8fed1f5168f",
+      "utf8": "e339336a11f8"
+    },
+    {
+      "email": "",
+      "c": "e3b0c44298fc",
+      "utf8": "e3b0c44298fc"
+    }
+  ],
+  "hourlyLimit": [
+    {
+      "value": null,
+      "status": 0,
+      "stdout": "800",
+      "stderr": ""
+    },
+    {
+      "value": "",
+      "status": 0,
+      "stdout": "800",
+      "stderr": ""
+    },
+    {
+      "value": "0",
+      "status": 0,
+      "stdout": "0",
+      "stderr": ""
+    },
+    {
+      "value": "00",
+      "status": 0,
+      "stdout": "0",
+      "stderr": ""
+    },
+    {
+      "value": "010",
+      "status": 0,
+      "stdout": "10",
+      "stderr": ""
+    },
+    {
+      "value": "800",
+      "status": 0,
+      "stdout": "800",
+      "stderr": ""
+    },
+    {
+      "value": "999999999",
+      "status": 0,
+      "stdout": "999999999",
+      "stderr": ""
+    },
+    {
+      "value": "1234567890",
+      "status": 0,
+      "stdout": "999999999",
+      "stderr": ""
+    },
+    {
+      "value": "0001234567890",
+      "status": 0,
+      "stdout": "999999999",
+      "stderr": ""
+    },
+    {
+      "value": "abc",
+      "status": 1,
+      "stdout": "",
+      "stderr": "error: BB_HOURLY_LIMIT must be a whole number, got 'abc'"
+    },
+    {
+      "value": "-1",
+      "status": 1,
+      "stdout": "",
+      "stderr": "error: BB_HOURLY_LIMIT must be a whole number, got '-1'"
+    },
+    {
+      "value": "8 0",
+      "status": 1,
+      "stdout": "",
+      "stderr": "error: BB_HOURLY_LIMIT must be a whole number, got '8 0'"
+    },
+    {
+      "value": "1e3",
+      "status": 1,
+      "stdout": "",
+      "stderr": "error: BB_HOURLY_LIMIT must be a whole number, got '1e3'"
+    }
+  ],
+  "budgetCount": [
+    {
+      "limit": 800,
+      "prev": "",
+      "cur": "",
+      "now": 1788000123,
+      "output": "0 0"
+    },
+    {
+      "limit": 800,
+      "prev": "1787996523\n1787996524\n",
+      "cur": "1788000113\n1788000123\n",
+      "now": 1788000123,
+      "output": "3 0"
+    },
+    {
+      "limit": 3,
+      "prev": "1787997123\n",
+      "cur": "1788000103\n1788000113\n",
+      "now": 1788000123,
+      "output": "3 1788000723"
+    },
+    {
+      "limit": 2,
+      "prev": "1787997123\n",
+      "cur": "1788000103\n1788000113\n",
+      "now": 1788000123,
+      "output": "3 1788003703"
+    },
+    {
+      "limit": 1,
+      "prev": "",
+      "cur": "1788000113\n1787997123\n1788000103\n",
+      "now": 1788000123,
+      "output": "3 1788003713"
+    },
+    {
+      "limit": 2,
+      "prev": "",
+      "cur": "garbage\n1788000118 \n01788000118\n1111111111111\n1788000124\n\n1788000116\n",
+      "now": 1788000123,
+      "output": "2 1788003716"
+    },
+    {
+      "limit": 1,
+      "prev": "",
+      "cur": "1788000118",
+      "now": 1788000123,
+      "output": "1 1788003718"
+    },
+    {
+      "limit": 999999999,
+      "prev": "",
+      "cur": "1788000123\n",
+      "now": 1788000123,
+      "output": "1 0"
+    }
+  ],
+  "budgetCountMissing": "0 0",
+  "prune": {
+    "prev": "2026082909",
+    "names": [
+      "requests-aaaaaaaaaaaa-2026082908.log",
+      "requests-aaaaaaaaaaaa-2026082909.log",
+      "requests-aaaaaaaaaaaa-2026082910.log",
+      "requests-bbbbbbbbbbbb-2025123123.log",
+      "requests-x-y-2026082908.log",
+      "requests-aaaaaaaaaaaa-202608290.log",
+      "requests-aaaaaaaaaaaa-2026082908.txt",
+      "pause-aaaaaaaaaaaa",
+      "other-2026082908.log"
+    ],
+    "kept": [
+      "other-2026082908.log",
+      "pause-aaaaaaaaaaaa",
+      "requests-aaaaaaaaaaaa-202608290.log",
+      "requests-aaaaaaaaaaaa-2026082908.txt",
+      "requests-aaaaaaaaaaaa-2026082909.log",
+      "requests-aaaaaaaaaaaa-2026082910.log"
+    ]
+  },
+  "pauseRead": [
+    {
+      "text": null,
+      "output": ""
+    },
+    {
+      "text": "",
+      "output": ""
+    },
+    {
+      "text": "1788000423 300\n",
+      "output": "1788000423 300"
+    },
+    {
+      "text": "1788000423 300",
+      "output": "1788000423 300"
+    },
+    {
+      "text": "1788000423  300\n",
+      "output": "1788000423 300"
+    },
+    {
+      "text": "1788000423\t300\n",
+      "output": "1788000423 300"
+    },
+    {
+      "text": "1788000423 0\n",
+      "output": ""
+    },
+    {
+      "text": "00001788000423 00300\n",
+      "output": "1788000423 300"
+    },
+    {
+      "text": "1788000423 300 9\n",
+      "output": ""
+    },
+    {
+      "text": "1788000423\n",
+      "output": ""
+    },
+    {
+      "text": "-1 300\n",
+      "output": ""
+    },
+    {
+      "text": "1111111111111 300\n",
+      "output": ""
+    },
+    {
+      "text": "1788000423 300\nsecond line\n",
+      "output": "1788000423 300"
+    },
+    {
+      "text": " 5 5\n",
+      "output": "5 5"
+    },
+    {
+      "text": "x y\n",
+      "output": ""
+    },
+    {
+      "text": "1788000423 3a\n",
+      "output": ""
+    }
+  ],
+  "pauseIsStale": [
+    {
+      "end": 1788000423,
+      "length": 300,
+      "now": 1788000123,
+      "stale": false
+    },
+    {
+      "end": 1788000428,
+      "length": 300,
+      "now": 1788000123,
+      "stale": false
+    },
+    {
+      "end": 1788000429,
+      "length": 300,
+      "now": 1788000123,
+      "stale": true
+    },
+    {
+      "end": 1788000122,
+      "length": 300,
+      "now": 1788000123,
+      "stale": false
+    },
+    {
+      "end": 1788000123,
+      "length": 1,
+      "now": 1788000123,
+      "stale": false
+    },
+    {
+      "end": 1788003823,
+      "length": 3600,
+      "now": 1788000123,
+      "stale": true
+    }
+  ],
+  "pauseAfter429": [
+    {
+      "stored": null,
+      "retryAfter": null,
+      "now": 1788000123,
+      "tail": "bb paused until 10:47:03Z (in 300 s)",
+      "file": "1788000423 300\n"
+    },
+    {
+      "stored": null,
+      "retryAfter": "30",
+      "now": 1788000123,
+      "tail": "Bitbucket asked to wait 30 s; bb paused until 10:47:03Z (in 300 s)",
+      "file": "1788000423 300\n"
+    },
+    {
+      "stored": null,
+      "retryAfter": "900",
+      "now": 1788000123,
+      "tail": "Bitbucket asked to wait 900 s; bb paused until 10:57:03Z (in 900 s)",
+      "file": "1788001023 900\n"
+    },
+    {
+      "stored": null,
+      "retryAfter": "00429",
+      "now": 1788000123,
+      "tail": "Bitbucket asked to wait 00429 s; bb paused until 10:49:13Z (in 430 s)",
+      "file": "1788000552 429\n"
+    },
+    {
+      "stored": null,
+      "retryAfter": "soon",
+      "now": 1788000123,
+      "tail": "bb paused until 10:47:03Z (in 300 s)",
+      "file": "1788000423 300\n"
+    },
+    {
+      "stored": null,
+      "retryAfter": "1234567890",
+      "now": 1788000123,
+      "tail": "Bitbucket asked to wait 1234567890 s; bb paused until 12:28:42Z (in 999999999 s)",
+      "file": "2788000122 999999999\n"
+    },
+    {
+      "stored": "1788000023 300\n",
+      "retryAfter": null,
+      "now": 1788000123,
+      "tail": "bb paused until 10:52:03Z (in 600 s)",
+      "file": "1788000723 600\n"
+    },
+    {
+      "stored": "1788000023 2400\n",
+      "retryAfter": null,
+      "now": 1788000123,
+      "tail": "bb paused until 11:42:03Z (in 3600 s)",
+      "file": "1788003723 3600\n"
+    },
+    {
+      "stored": "1787996523 300\n",
+      "retryAfter": null,
+      "now": 1788000123,
+      "tail": "bb paused until 10:47:03Z (in 300 s)",
+      "file": "1788000423 300\n"
+    },
+    {
+      "stored": "1787996524 300\n",
+      "retryAfter": "700",
+      "now": 1788000123,
+      "tail": "Bitbucket asked to wait 700 s; bb paused until 10:53:43Z (in 700 s)",
+      "file": "1788000823 700\n"
+    },
+    {
+      "stored": "1788000223 300\n",
+      "retryAfter": null,
+      "now": 1788000123,
+      "tail": "bb paused until 10:47:03Z (in 300 s)",
+      "file": "1788000423 300\n"
+    },
+    {
+      "stored": "1788000223 300\n",
+      "retryAfter": "500",
+      "now": 1788000123,
+      "tail": "Bitbucket asked to wait 500 s; bb paused until 10:50:23Z (in 500 s)",
+      "file": "1788000623 500\n"
+    },
+    {
+      "stored": "1788000223 300\n",
+      "retryAfter": "10",
+      "now": 1788000123,
+      "tail": "Bitbucket asked to wait 10 s; bb paused until 10:43:43Z (in 100 s)",
+      "file": "1788000223 300\n"
+    },
+    {
+      "stored": "1788009123 300\n",
+      "retryAfter": null,
+      "now": 1788000123,
+      "tail": "bb paused until 10:47:03Z (in 300 s)",
+      "file": "1788000423 300\n"
+    },
+    {
+      "stored": "junk\n",
+      "retryAfter": null,
+      "now": 1788000123,
+      "tail": "bb paused until 10:47:03Z (in 300 s)",
+      "file": "1788000423 300\n"
+    }
+  ],
+  "pauseWrite": [
+    {
+      "stored": "1788002123 2400\n",
+      "end": 1788000423,
+      "length": 300,
+      "now": 1788000123,
+      "output": "1788002123 2400",
+      "file": "1788002123 2400\n",
+      "files": [
+        "pause-aaaaaaaaaaaa"
+      ]
+    },
+    {
+      "stored": "1788000323 300\n",
+      "end": 1788000723,
+      "length": 600,
+      "now": 1788000123,
+      "output": "1788000723 600",
+      "file": "1788000723 600\n",
+      "files": [
+        "pause-aaaaaaaaaaaa"
+      ]
+    },
+    {
+      "stored": "1788009123 300\n",
+      "end": 1788000423,
+      "length": 300,
+      "now": 1788000123,
+      "output": "1788000423 300",
+      "file": "1788000423 300\n",
+      "files": [
+        "pause-aaaaaaaaaaaa"
+      ]
+    },
+    {
+      "stored": "1788000523 100\n",
+      "end": 1788000423,
+      "length": 300,
+      "now": 1788000123,
+      "output": "1788000423 300",
+      "file": "1788000423 300\n",
+      "files": [
+        "pause-aaaaaaaaaaaa"
+      ]
+    },
+    {
+      "stored": null,
+      "end": 1788000423,
+      "length": 300,
+      "now": 1788000123,
+      "output": "1788000423 300",
+      "file": "1788000423 300\n",
+      "files": [
+        "pause-aaaaaaaaaaaa"
+      ]
+    }
+  ]
+}
