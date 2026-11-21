@@ -73,13 +73,29 @@
 .delivery-header-meter-grey,
 .delivery-header-meter-plain { background: var(--card-meta); }
 
-/* The release card's bar and legend, in the five-state colour map of the sprint card. */
-[data-release-card-bar] {
+/*
+ * The Release group: its text in the first column and the release slot in the second. The slot's
+ * column is as wide as the button and the slot sits at the group's top right, so no text length or
+ * state moves the button.
+ */
+.delivery-release-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 0.75rem;
+  align-items: start;
+}
+.delivery-release-slot {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+/* The Release group's bar, grey where no segment draws, and its legend, in the five-state colour map. */
+[data-release-group-bar] {
   height: 6px;
   border-radius: 3px;
   background: var(--card-track);
 }
-[data-release-card-legend] {
+[data-release-group-legend] {
   font-size: 11px;
   color: var(--card-body);
 }
@@ -92,10 +108,11 @@
   border-radius: 2px;
 }
 
-/* The Approve release button. */
+/* The Approve release button. A disabled button keeps its size and shows a dashed outline. */
 .delivery-approve {
-  padding: 5px 12px;
-  border: 0;
+  padding: 4px 11px;
+  border: 1px solid var(--card-primary);
+  white-space: nowrap;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 600;
@@ -107,7 +124,10 @@
 }
 .delivery-approve:disabled {
   cursor: not-allowed;
-  opacity: 0.5;
+  border-style: dashed;
+  border-color: var(--card-meta);
+  background: transparent;
+  color: var(--card-meta);
 }
 
 /* The filter chips: outlined when off, filled when on, dimmed when disabled. */

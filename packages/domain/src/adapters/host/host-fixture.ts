@@ -78,6 +78,11 @@ export interface HostFixture {
    */
   conversations?: Readonly<Record<number, PrConversationReading>>;
   /**
+   * What `prsOfCommit` reports, keyed by commit sha. A sha not listed is a
+   * failed read, so a test can prove an unreadable commit is named.
+   */
+  commitPrs?: Readonly<Record<string, readonly Pr[]>>;
+  /**
    * What `branchRestrictions` answers: the restriction words, `[]` for a branch
    * holding none. Absent reads as a failed read, as an unlisted review does.
    */
@@ -243,6 +248,11 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
     prConversation: async (number: number): Promise<PortResult<PrConversationReading>> => {
       const reading = fixture.conversations?.[number];
       return reading === undefined ? failed() : answered(reading);
+    },
+
+    prsOfCommit: async (sha: string): Promise<PortResult<readonly Pr[]>> => {
+      const prs = fixture.commitPrs?.[sha];
+      return prs === undefined ? failed() : answered(prs);
     },
 
     branchRestrictions: async (): Promise<PortResult<readonly string[]>> => {

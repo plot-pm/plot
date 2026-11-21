@@ -78,8 +78,14 @@ const stateOf = (row: ReleaseRowReading): string => (row.pr === null ? 'release 
 const planKeysOf = (sprint: ReleaseCardSprint): string[] =>
   sprint.members.filter((m) => m.tier !== 'deferred' && m.known !== false).map((m) => m.slug).filter((slug) => slug !== '');
 
-/** Distinct people among Owner handles, resolved through the directory; an empty handle names nobody. */
-const peopleOf = (handles: readonly string[], directory: PersonDirectory): number => {
+/**
+ * Counts the distinct people among Owner handles.
+ *
+ * @param handles - the Owner handles as written.
+ * @param directory - the declared `People` spellings, through which `resolvePerson` and `samePerson` compare.
+ * @returns the number of distinct people; an empty handle names nobody.
+ */
+export const peopleOf = (handles: readonly string[], directory: PersonDirectory): number => {
   const people: Person[] = [];
   for (const handle of handles) {
     if (handle.trim() === '') continue;

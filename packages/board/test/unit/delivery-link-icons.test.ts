@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { deliveryHeader, type LinkIconKind, type ReleaseCardView } from '@plot-pm/domain';
+import { deliveryHeader, type LinkIconKind, type ReleaseGroupView } from '@plot-pm/domain';
 import { readFileSync } from 'node:fs';
 import { IssueRowSchema } from '../../src/contract/schema.js';
 import { LinkIcon, LINK_GLYPH } from '../../src/app/components/LinkIcon.js';
 import { GLYPH_PATH } from '../../src/app/lib/glyphs.js';
 import { LinePr, LineSlice, PlanName, PlanOwner } from '../../src/app/components/ReleasePlanParts.js';
 import { DeliveryHeader } from '../../src/app/components/DeliveryHeader.js';
-import { ReleaseCard } from '../../src/app/components/ReleaseCard.js';
+import { ReleaseGroup } from '../../src/app/components/ReleaseGroup.js';
 import { TicketsSectionView } from '../../src/app/components/TicketsSection.js';
 import { MasterAgentLine, RowCell, type LinkHandlers } from '../../src/app/components/DeliveryRows.js';
 
@@ -116,16 +116,27 @@ describe('the header links', () => {
   });
 });
 
-describe('the release card', () => {
-  it('draws the card title as a release tuple of text, because the payload holds no release URL', () => {
-    const card: ReleaseCardView = {
-      key: 'v2.35.0', kind: 'planned', anchor: 'release-card-2.35.0', version: '2.35.0', title: 'Release 2.35.0', bar: null, total: 0,
-      readingMissing: false, missingText: '', people: 1, peopleText: '1 person', stateText: 'planned · no release PR yet', rowId: null,
-      unboundReason: 'no release PR yet',
-    } as ReleaseCardView;
-    const m = html(createElement(ReleaseCard, { cards: [card], rows: {} }));
-    expect(kindsAround(m, 'Release 2.35.0')).toEqual(['release']);
+describe('the Release group', () => {
+  const HEAD = 'a'.repeat(40);
+  const ready = { open: true, headSha: HEAD, checksSha: HEAD, ciChecks: 'green', plotReview: 'success', plotReviewSha: HEAD, plotReviewJudged: 'success', plotReviewCheckedSha: HEAD } as const;
+  const group: ReleaseGroupView = {
+    scope: 'my-sprint', kind: 'targeted', title: '2.35.0 · 2.36.0', scopeLine: 'my sprint · Sprint one',
+    sprints: [{ slug: 's1', title: 'Sprint one' }], bar: null, total: 0, readingMissing: false, unknownOwners: [],
+    candidates: [
+      { key: 'release:2.35.0', anchor: 'release-card-2.35.0', version: '2.35.0', rowId: 'r35', pr: 335, unboundReason: '' },
+      { key: 'release:2.36.0', anchor: 'release-card-2.36.0', version: '2.36.0', rowId: 'r36', pr: 336, unboundReason: '' },
+    ],
+  };
+  const m = html(createElement(ReleaseGroup, { view: { group, rows: {}, prReading: { r35: ready, r36: ready } } }));
+
+  it('draws the title as a release tuple of text, because the payload holds no release URL', () => {
+    expect(kindsAround(m, '2.35.0 · 2.36.0')).toEqual(['release']);
     expect(m).toContain('data-tuple-text="release"');
+  });
+
+  it('draws each sprint and each other ready PR as a tuple', () => {
+    expect(kindsAround(m, '>Sprint one<')).toEqual(['sprint']);
+    expect(kindsAround(m, '#336')).toEqual(['pr']);
   });
 });
 
@@ -133,7 +144,7 @@ describe('the Tickets section', () => {
   const issue = IssueRowSchema.parse({ number: '3468', title: 'The Delivery tab reads at a glance', url: 'https://h/issues/3468', state: 'open' });
   const m = html(createElement(TicketsSectionView, {
     issueAnswer: 'answered', assigned: [issue], others: [], unassigned: 0, hidden: 0, showAll: false, onToggleShowAll: () => {},
-    hiddenSentence: null, notice: null, absence: '', idea: { available: true, reason: '' },
+    hiddenSentence: null, notice: null, absence: '', idea: { available: true, reason: '' }, story: { available: true, reason: '' },
     folded: false, onToggleFold: () => {}, foldOpen: false, onToggleFoldOpen: () => {},
   }));
 
@@ -143,10 +154,11 @@ describe('the Tickets section', () => {
     expect(tupleAround(m, 'data-issue-link')).not.toContain('The Delivery tab reads at a glance');
   });
 
-  it('draws Plan it as an action, with no artifact icon', () => {
-    const doCell = m.slice(m.indexOf('data-tickets-do'));
-    expect(iconBefore(doCell, 'Plan it')).toBeNull();
-    expect(tupleAround(doCell, 'Plan it')).toBeNull();
+  it('draws the row\'s ⋯ menu in the last cell, with no artifact icon and no bare Plan it', () => {
+    const doCell = m.slice(m.indexOf('data-row-cell="do"'));
+    expect(doCell).toContain('data-issue-actions="3468"');
+    expect(tupleAround(doCell, 'data-issue-actions')).toBeNull();
+    expect(m).not.toContain('Plan it');
   });
 });
 
@@ -196,7 +208,7 @@ describe('the Delivery components outside a tuple', () => {
   const source = (file: string) => readFileSync(new URL(`../../src/app/components/${file}`, import.meta.url), 'utf8');
 
   it('draw no bare LinkIcon at the sites that now draw a tuple', () => {
-    for (const file of ['TicketsSection.tsx', 'ReleaseCard.tsx', 'DeliveryRows.tsx', 'AgentList.tsx']) {
+    for (const file of ['TicketsSection.tsx', 'ReleaseGroup.tsx', 'DeliveryRows.tsx', 'AgentList.tsx']) {
       expect(source(file), file).not.toContain('<LinkIcon');
     }
     const parts = source('ReleasePlanParts.tsx');

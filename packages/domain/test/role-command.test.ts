@@ -41,10 +41,23 @@ describe('roleCommand', () => {
     expect(built.read).toBe('command');
     if (built.read !== 'command') return;
     expect(words(built.command)).toEqual([
-      'claude', '-p', '--setting-sources', 'user', '--agent', 'fixer',
+      'claude', '-p', '--setting-sources', 'user', '--strict-mcp-config', '--agent', 'fixer',
       '--agents', "$(cat -- '/tmp/r/agents.json')",
       '--settings', '/tmp/r/fixer.json', '--max-turns', '80',
     ]);
+  });
+
+  it('loads no MCP server with and without --allowedTools and --max-turns', () => {
+    for (const tools of [[], ['Read', 'Bash']]) {
+      for (const maxTurns of [0, 80]) {
+        const built = roleCommand(ref(), maxTurns, tools);
+        if (built.read !== 'command') throw new Error(built.why);
+        const w = words(built.command);
+        expect(w.filter((x) => x === '--strict-mcp-config')).toHaveLength(1);
+        expect(w[w.indexOf('--strict-mcp-config') - 1]).toBe('user');
+        expect(w).not.toContain('--mcp-config');
+      }
+    }
   });
 
   it('bounds the session with --max-turns, and omits it for no limit', () => {

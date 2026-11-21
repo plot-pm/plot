@@ -11,6 +11,8 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3612 merged
+- **Started:** 2026-11-21, Jan Wloka, `bug/boardctl-and-dispatch-refuse-a-second-mode`
+- **Started:** 2026-11-21, Jan Wloka, `bug/fleetctl-restart-reads-the-bundle-and-main-checkouts`
 
 ## Changelog
 
@@ -95,7 +97,7 @@
 
 ### Mode Flags
 
-- `bug/boardctl-and-dispatch-refuse-a-second-mode` — one mode arm in `plot-boardctl.sh` and `plot-dispatch.sh` that refuses two different mode flags, and in `plot-dispatch.sh` one `mode_branch` that refuses a second, different branch, before the first side effect and with fewer shell lines, with the boardctl and dispatch contract tests <!-- builds: second-mode refusal in plot-boardctl.sh and plot-dispatch.sh -->
+- `bug/boardctl-and-dispatch-refuse-a-second-mode` — one mode arm in `plot-boardctl.sh` and `plot-dispatch.sh` that refuses two different mode flags, and in `plot-dispatch.sh` one `mode_branch` that refuses a second, different branch, before the first side effect and with fewer shell lines, with the boardctl and dispatch contract tests <!-- builds: second-mode refusal in plot-boardctl.sh and plot-dispatch.sh --> → #3628
 
 ### Restart Roots
 

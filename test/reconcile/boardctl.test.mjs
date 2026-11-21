@@ -155,6 +155,41 @@ test('boardctl: --port and --wait take numbers', () => {
   assert.match(run(ctl, ['--stop', '--wait', 'later'], root).out, /--wait needs a number/);
 });
 
+test('boardctl: --start --stop refuses, naming both, and leaves running the board a bare --stop signals', async () => {
+  const { root, ctl } = sandbox('mode-startstop');
+  const port = await freePort();
+  // The recorded pid holds the port, so the two facts agree and a bare --stop
+  // signals this child. The refusal must come before that.
+  const child = await listener(port);
+  try {
+    writePid(root, child.pid);
+    const r = run(ctl, ['--start', '--stop', '--port', String(port)], root);
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.out, /--start and --stop are different modes; give one; nothing was done/);
+    assert.doesNotThrow(() => process.kill(child.pid, 0));
+    assert.equal(fs.readFileSync(path.join(root, '.plot', 'state', 'board.pid'), 'utf8'), `${child.pid}\n`);
+  } finally {
+    stop(child);
+  }
+});
+
+test('boardctl: --stop --status refuses, naming both', () => {
+  const { root, ctl } = sandbox('mode-stopstatus');
+  const r = run(ctl, ['--stop', '--status'], root);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /--stop and --status are different modes/);
+});
+
+test('boardctl: the same mode twice, and a mode beside --port, are one mode', async () => {
+  const { root, ctl } = sandbox('mode-same');
+  const port = await freePort();
+  for (const args of [['--status', '--status', '--port', String(port)], ['--status', '--port', String(port)]]) {
+    const r = run(ctl, args, root);
+    assert.doesNotMatch(r.out, /different modes/);
+    assert.match(r.out, /nothing listening/);
+  }
+});
+
 // ── --status starts nothing, and says whose board it found ───────────────────
 
 test('status: nothing recorded and nothing listening is reported, not repaired', async () => {

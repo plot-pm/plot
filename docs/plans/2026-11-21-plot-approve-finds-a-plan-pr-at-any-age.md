@@ -12,6 +12,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3617 merged
 - **Started:** 2026-11-21, Jan Wloka, `bug/the-host-names-the-prs-of-a-commit`
+- **Started:** 2026-11-21, Jan Wloka, `bug/plot-approve-asks-the-pr-of-the-adding-merge`
 
 ## Changelog
 
@@ -91,7 +92,7 @@ The check sits in `approve` because approval is the last step before dispatch an
 
 ### Host
 
-- `bug/the-host-names-the-prs-of-a-commit` — `Host.prsOfCommit(sha)` on the port answering `readonly Pr[]`, `prs-of-commit.ts` with the GitHub and Bitbucket readers and `hostWithPrsOfCommit`, the wiring in `hostReadsFor` at both backends, Bitbucket's `unaskable` on 202 and 404, the shell's `unaskable`, the fixture, and the tests <!-- builds: Host.prsOfCommit, the PRs a host associates with one commit -->
+- `bug/the-host-names-the-prs-of-a-commit` — `Host.prsOfCommit(sha)` on the port answering `readonly Pr[]`, `prs-of-commit.ts` with the GitHub and Bitbucket readers and `hostWithPrsOfCommit`, the wiring in `hostReadsFor` at both backends, Bitbucket's `unaskable` on 202 and 404, the shell's `unaskable`, the fixture, and the tests <!-- builds: Host.prsOfCommit, the PRs a host associates with one commit --> → #3625
 
 ### Approve route
 

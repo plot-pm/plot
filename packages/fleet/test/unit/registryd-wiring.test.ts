@@ -4,7 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { clockManual, defaultBranchFile, fleetStateFile, startChannel } from '@plot-pm/domain/adapters';
+import { clockManual, defaultBranchFile, fleetStateFile, startChannel, stateHomeAtSync } from '@plot-pm/domain/adapters';
 import { DEFAULT_BRANCH_VERSION, type DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
 
 import {
@@ -702,7 +702,10 @@ describe('the queue world holds on a settled-red default branch', () => {
   const held = async (file: DefaultBranchReading | null): Promise<boolean> => {
     const dir = mkdtempSync(join(tmpdir(), 'registryd-wiring-'));
     try {
-      if (file !== null) await defaultBranchFile(dir).write(file);
+      execFileSync('git', ['init', '-q', dir], { stdio: 'ignore' });
+      const home = stateHomeAtSync(dir);
+      if (!('home' in home)) throw new Error(`no state home under ${dir}`);
+      if (file !== null) await defaultBranchFile(home.home).write(file);
       return await queueWorldForRepo(dir, dir, { calls: 0 }).defaultBranchRed();
     } finally {
       rmSync(dir, { recursive: true, force: true });

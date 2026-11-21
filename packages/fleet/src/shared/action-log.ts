@@ -1,5 +1,5 @@
-import { scriptsShell, planStoreShell, hostShell, refsGit, runLogFile } from '@plot-pm/domain/adapters';
-import type { Host, PlanStore, Refs, RunLog, Scripts } from '@plot-pm/domain';
+import { scriptsShell, planStoreShell, hostShell, refsGit, runLogFile, stateHomeAtSync } from '@plot-pm/domain/adapters';
+import type { Host, PlanStore, Refs, RunLog, Scripts, StateHome, StateHomeAnswer } from '@plot-pm/domain';
 import { agentLogPath } from './agent-log.js';
 import type { ConfigReadOptions } from './config-reader.js';
 
@@ -15,7 +15,21 @@ export interface ActOptions extends ConfigReadOptions {
   refs?: Refs;
   /** The `RunLog` port the delivery loop appends to. Absent means the file adapter over `repoRoot`. */
   runLog?: RunLog;
+  /** The state home the process resolved at start. Absent means resolved from `repoRoot` on first use. */
+  stateHome?: StateHomeAnswer;
 }
+
+/**
+ * The state home these options name, where the repair record and the
+ * default-branch and base readings live.
+ *
+ * @param opts - where the fleet acts.
+ * @returns the home, or `null` where it cannot be told; a caller then reads and writes none of those files.
+ */
+export const stateHomeOfOpts = (opts: { repoRoot: string; stateHome?: StateHomeAnswer }): StateHome | null => {
+  const answer = opts.stateHome ?? stateHomeAtSync(opts.repoRoot);
+  return 'home' in answer ? answer.home : null;
+};
 
 /**
  * The `Scripts` port these options start scripts through.

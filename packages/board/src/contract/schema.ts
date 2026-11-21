@@ -1533,6 +1533,11 @@ export const BoardSchema = z.object({
     plan: z.array(z.string()),
     story: z.array(z.string()),
   })).default([]),
+  /**
+   * The highest version a plan's `Released:` record names, and that record's date. The Delivery tab's
+   * Release group names it where no release is targeted. `null` where no record parses, and for an older server.
+   */
+  lastRelease: z.object({ tag: z.string(), date: z.string() }).nullable().default(null),
   sprints: z.array(SprintCardSchema),
   stories: z.array(StoryCardSchema),
   /**

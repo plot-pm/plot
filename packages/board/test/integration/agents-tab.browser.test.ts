@@ -908,7 +908,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // was one kind's. `Related` heads slot 4, which holds whatever a kind's
       // artifacts are and where each link states its own `what` beside itself.
       await expect.poll(() => headers.allTextContents())
-        .toEqual(['Marks', 'Kind', 'Item', 'Where', 'Gates', 'Do', 'By', 'Age']);
+        .toEqual(['Marks', 'Kind', 'Item', 'Where', 'Gates', 'By', 'Age', 'Do']);
       // The accessible name, not `textContent`: what a screen reader hears is
       // the question, and it must hear the header once and the cell's word once.
       const kindCell = li.locator('[role="gridcell"]').nth(KIND_CELL);
@@ -1130,7 +1130,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('renders NO menu on a row blocked by an earlier wave', async () => {
+  it('lists Start work disabled on a row blocked by an earlier wave', async () => {
     // **This asserted a DIMMED menu until 2026-08-18**, on the reasoning that a
     // dead `Start work` names an action that does not exist here while a dimmed
     // three-dot menu claims only *this is where actions would be*, true on
@@ -1144,6 +1144,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // The reason it was allowed — a ragged, moving right edge — was answered by
     // the fixed track this cell has since gained; see the right-edge test below,
     // which now measures exactly that.
+    //
+    // `delivery-rows-act-from-one-place` brought the menu back with a different
+    // claim: every kind lists its fixed item set, so the `⋯` opens and Start work
+    // is listed disabled with its reason. A trigger that opens a list of refused
+    // items states what the row cannot do; it no longer opens nothing.
     const page = await openAgentsWithBoard();
     try {
       const li = rowFor(page, 'feature/blocked');
@@ -1156,7 +1161,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // AND IT SAYS SO TO A SCREEN READER — the half a mark loses in silence.
       expect(await blockedMark.first().getAttribute('aria-label'))
         .toBe('Blocked by slice Truth — show it');
-      expect(await menu(page, 'feature/blocked').count()).toBe(0);
+      await openMenu(page, 'feature/blocked');
+      const item = li.locator('[data-menu-item="start-work"]');
+      expect(await item.getAttribute('aria-disabled')).toBe('true');
+      expect(await item.getAttribute('data-menu-reason')).not.toBe('');
       expect(await li.getByRole('button', { name: 'Start work' }).count()).toBe(0);
     } finally {
       await page.close();
@@ -1400,13 +1408,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expect.poll(() =>
         group(page, 'input-to-the-fleet').locator('[data-slice-blocked-by="Truth"]').count())
         .toBeGreaterThan(0);
-      expect(await menu(page, 'feature/blocked').count()).toBe(0);
       // A different row, a different reason — so the words are read from the
       // row rather than being one string for every row with nothing to do.
       await expand(page, 'queued');
       const quiet = rowFor(page, 'feature/ghost');
       await expect.poll(() => quiet.textContent()).toContain('no commit for 16 hours');
-      expect(await menu(page, 'feature/ghost').count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -1422,13 +1428,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // GRIDCELL still renders unconditionally while only the button inside it is
     // conditional. So the column holds still on its own, and the placeholder
     // was paying for something it no longer bought. This asserts that
-    // directly: a row WITH a menu and a row WITHOUT one line up.
+    // directly: a row with an enabled action and a row whose items are all
+    // refused line up. `row-menu-column.browser.test.ts` measures a Do cell
+    // with no trigger at all against the same x.
     const page = await openAgentsWithBoard();
     try {
       await expect.poll(() => menu(page, 'feature/untaken').count()).toBe(1);
-      // The row with an action, and a row with none — the exact pair whose
-      // divergence the old placeholder existed to prevent.
-      expect(await menu(page, 'feature/blocked').count()).toBe(0);
+      // The row with an action, and a row with none it can run — the exact
+      // pair whose divergence the old placeholder existed to prevent.
       const withAction = await rowFor(page, 'feature/untaken')
         .locator('[data-row-cell="do"]').boundingBox();
       const without = await rowFor(page, 'feature/blocked')
@@ -1508,15 +1515,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         expect(await rowFor(page, branch).getByRole('button', { name: 'Start work' }).count(),
           `${branch} offered Start work`).toBe(0);
       }
-      // No menu at all on the rows that are not agents, have no run to open, AND
-      // are not in WAITING ON YOU. `the-menu-fits-the-kind` gives a WAITING ON
-      // YOU row a menu whatever else it offers, because Open (Review, for a PR
-      // row like `feature/reviewed`) is always something the reader can do there
-      // — so a green PR awaiting review is no longer menuless, which was the
-      // motivating defect. The others are quiet/done/not-started and stay bare.
-      const stillBare = ['feature/landed', 'feature/ghost', 'feature/shelved'];
-      for (const branch of stillBare) {
-        expect(await menu(page, branch).count(), `${branch} rendered a menu`).toBe(0);
+      // Every kind lists its fixed item set since `delivery-rows-act-from-one-place`,
+      // so the quiet and not-started rows carry a menu too. Opened, it still holds
+      // no Start work button: the item is listed disabled.
+      for (const branch of ['feature/ghost', 'feature/shelved']) {
+        await openMenu(page, branch);
+        expect(await rowFor(page, branch).getByRole('button', { name: 'Start work' }).count(),
+          `${branch} offered Start work`).toBe(0);
+        await page.keyboard.press('Escape');
       }
       // And `feature/reviewed` DOES carry a menu now — a WAITING ON YOU PR row —
       // holding Review, and still nothing that dispatches it.
@@ -1527,6 +1533,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       expect(await rowFor(page, 'feature/reviewed').getByRole('button', { name: 'Start work' }).count())
         .toBe(0);
       // And the WORKING row's menu holds the log — a read — and nothing that acts.
+      // Every kind lists its fixed item set, so the open menu covers the rows below: close it first.
+      await page.keyboard.press('Escape');
       await menu(page, 'feature/beans-a').click();
       const working = rowFor(page, 'feature/beans-a');
       expect(await working.locator('[data-worker-log-open]').count()).toBe(1);
@@ -1551,10 +1559,12 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // The plan is reachable too, as a link in the row's own group.
       expect(await group(page, 'input-to-the-fleet').getByRole('link', { name: 'plant-tomatoes' })
         .count()).toBeGreaterThan(0);
-      // Opening the menu adds no links anywhere: what it holds is an action.
+      // Opening the menu adds one link, its Open item, and the row keeps its own
+      // anchors: the menu's Open is an item of the fixed set, not the row's name.
       const before = await li.getByRole('link').count();
       await openMenu(page, 'feature/untaken');
-      expect(await li.getByRole('link').count()).toBe(before);
+      expect(await li.getByRole('link').count()).toBe(before + 1);
+      expect(await li.locator('[role="menuitem"] a[data-open-link]').count()).toBe(1);
     } finally {
       await page.close();
     }
@@ -1565,11 +1575,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // capability have landed. A control whose outcome is unknown is worse than
     // no control — the same rule PlanCard follows.
     //
-    // This asserted a DIMMED menu until 2026-08-18. With no card and no
-    // dispatch verdict there is no item to hold, and a menu with no items now
-    // renders no button — the empty `⋯` in its purest form, on a page that
-    // knows nothing yet. The claim the old dimmed control made (*this is where
-    // actions would be*) is exactly the claim this page cannot support.
+    // With no card and no dispatch verdict, the row's fixed item set lists
+    // Start work disabled with its reason, and no Start work button renders.
     const page = await cat.browser.newPage();
     try {
       await page.route('**/api/board', (route) => route.abort('connectionrefused'));
@@ -1583,7 +1590,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // not-started BRANCH row, which now sits one click in.
       await expandPlans(page);
       await rowFor(page, 'feature/untaken').waitFor({ timeout: 10_000 });
-      expect(await menu(page, 'feature/untaken').count()).toBe(0);
+      // The `⋯` opens and lists Start work disabled: no card and no dispatch
+      // verdict leave nothing it can run.
+      await openMenu(page, 'feature/untaken');
+      const item = rowFor(page, 'feature/untaken').locator('[data-menu-item="start-work"]');
+      expect(await item.getAttribute('aria-disabled')).toBe('true');
       expect(await startButtons(page).count()).toBe(0);
     } finally {
       await page.close();
