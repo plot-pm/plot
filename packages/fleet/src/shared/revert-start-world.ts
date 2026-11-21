@@ -16,6 +16,7 @@ import {
 } from '@plot-pm/domain/adapters';
 import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import { readReviewStarts, startReview } from '@plot-pm/domain/adapters/review-start/review-start-node';
+import type { StateHome } from '@plot-pm/domain';
 import type { BuildPort } from '@plot-pm/domain/ports/build';
 import type { Tracker } from '@plot-pm/domain/ports/tracker';
 import { declaredRuns, foldRuns } from '@plot-pm/domain/rules/default-branch';
@@ -31,6 +32,8 @@ import type { RevertWorld } from './revert-start.js';
 export interface RevertWorldOptions {
   repoRoot: string;
   scriptsDir: string;
+  /** The main checkout's state home, where the repair record and the default-branch reading live. */
+  stateHome: StateHome;
   /** The CI connector fleetd already built. */
   build: BuildPort;
   /** Runs one host call inside a host slot where the CI system is GitHub Actions. */
@@ -107,10 +110,10 @@ export const revertWorldOf = (options: RevertWorldOptions): RevertWorld => {
 
   return {
     reading: async () => {
-      const read = await defaultBranchFile(options.repoRoot).read();
+      const read = await defaultBranchFile(options.stateHome).read();
       return read.ok ? read.value : null;
     },
-    repair: repairRecordFile(options.repoRoot),
+    repair: repairRecordFile(options.stateHome),
     refs,
     build: options.build,
     host,
