@@ -10,6 +10,7 @@
 - **Impl:** own branches
 - **Rounds:** 3
 - **Approved:** 2026-11-21, jwloka, in-session
+- **Started:** 2026-11-21, Jan Wloka, `docs/templates-name-their-identifiers`
 
 ## Changelog
 
