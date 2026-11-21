@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Type:** docs
+- **Sprint:** delivery-ui-polish
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 3

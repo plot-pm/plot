@@ -39,6 +39,7 @@ Design spec (outside the repo): `/Users/jwloka/Quatico/Agentic-Tools/plot/docs/s
 <!-- add items here -->
 
 ### Could Have
+- [ ] [templates-show-named-identifiers] Templates show named identifiers
 
 <!-- add items here -->
 
@@ -53,6 +54,7 @@ Design spec (outside the repo): `/Users/jwloka/Quatico/Agentic-Tools/plot/docs/s
 ## Notes
 
 ### Scope Changes
+- 2026-11-21: Added [templates-show-named-identifiers] to Could — dispatched 2026-11-21; operator added it to count it in this sprint
 
 <!-- Log scope changes here: added/removed items, tier changes, with date and reason -->
 <!-- Format: - YYYY-MM-DD: Added/Moved/Removed [slug] reason -->
