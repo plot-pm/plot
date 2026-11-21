@@ -97,7 +97,7 @@ Building is not the gap. CI builds the bundles from the pull request's source be
 
 - **The pairs live in the committed generated file.** `packages/board/build.mjs` already writes `packages/board/src/contract/bundles.generated.ts` (`:116`, `:143`) with `BOARD_ARTIFACT_PATHS`. It also writes `BOARD_BUNDLE_ENTRIES`, one `{ entry, shipped }` pair per bundle it builds from an `entryPoints` source (73 calls today), with `entry` relative to the repository root. The file is committed, so a desk that has not run `pnpm build:board` gets the same map. A shipped bundle the build cannot pair, such as a fleet artifact the board copies, is left out.
 - **The rule takes the pairs as a value.** `ciSelection` and `localChecks` take an optional `bundles` reading, which the local-checks entry imports from the generated file. A changed path equal to an `entry` adds the shipped basename (such as `plot-needs-design.mjs`) to its search terms, so the tests that execute the bundle are selected. In CI the bundles exist when those tests run, because the build step at `ci.yml:1211-1212` runs before the `test/reconcile` suites.
-- Only the direct entry source maps. A change to a module that an entry imports is Open Question 1.
+- Only the direct entry source maps (Open Questions, operator decision 2026-11-21). A change to an imported module alone, such as the domain's `needs-design.ts`, still selects no bundle test.
 - `ci.yml`'s comment at the "Build the board bundles" step (`:191-195`) names that the selection reads `BOARD_BUNDLE_ENTRIES` and that the bundles are built from the PR's source, which answers the issue's request to name the build step.
 - **Tests:**
   - `packages/domain/test/local-checks.test.ts`: a changed `packages/board/src/server/entry/needs-design.ts` with the pair `{ entry: …/needs-design.ts, shipped: …/plot-needs-design.mjs }` selects a test naming `plot-needs-design.mjs`; with no pairs it selects nothing new; a path that is not an entry gains no term.
@@ -105,7 +105,7 @@ Building is not the gap. CI builds the bundles from the pull request's source be
 
 ### Open Questions
 
-- [ ] **#3149:** does slice 5 also map the modules an entry imports, from esbuild's metafile? It would have caught a change to `packages/domain/src/workflows/needs-design.ts` alone, and it would select every test naming `board-server.mjs` for almost any source change.
+- [x] **#3149:** slice 5 maps only the direct entry source to its bundle tests and does not read esbuild's metafile for imported modules (operator decision, 2026-11-21). The cost: a change to an imported module alone, such as `packages/domain/src/workflows/needs-design.ts`, still selects no bundle test.
 
 ## Slices
 
