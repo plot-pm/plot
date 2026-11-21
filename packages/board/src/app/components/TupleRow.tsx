@@ -275,14 +275,14 @@ const SegmentLabel = ({ segment }: { segment: TupleSegment }) => (
 /**
  * The classes of one segment inside a link tuple: its padding, its tone and whether it may shrink.
  *
- * A linked ticket segment takes the violet ticket tone; every other link is blue, and a segment with no address is
+ * A segment is at least 24 px tall (`min-h-6`), the pointer target size `row-withholds.browser.test.ts` measures. A linked ticket segment takes the violet ticket tone; every other link is blue, and a segment with no address is
  * slate text.
  */
 const segmentClass = (segment: TupleSegment): string => {
   const tone = !segment.href ? 'text-slate-600 dark:text-slate-300'
     : segment.what === 'ticket' ? 'bg-(--hue-violet-soft) text-(--hue-violet) hover:underline'
       : 'text-blue-600 hover:underline dark:text-blue-400';
-  return `flex items-center gap-1 px-1.5 py-0.5 ${segment.fit === 'whole' ? 'shrink-0' : 'min-w-0'} ${tone}`;
+  return `flex min-h-6 items-center gap-1 px-1.5 py-0.5 ${segment.fit === 'whole' ? 'shrink-0' : 'min-w-0'} ${tone}`;
 };
 
 /** The hooks a ticket segment carries: `data-title-number` on either shape, and `data-ticket-link` on a link. */
@@ -291,22 +291,44 @@ const ticketAttr = (segment: TupleSegment): Record<string, string> => (
     : { 'data-title-number': '', ...(segment.href ? { 'data-ticket-link': segment.ticketKey } : {}) }
 );
 
+/** What a call site adds to one segment of a link tuple: the hooks it stamps and what a click does. */
+export interface SegmentControl {
+  /** Attributes for the segment, as `extraAttr` on `TupleLinkView`. */
+  extraAttr?: { link?: Record<string, string | undefined>; text?: Record<string, string | undefined> };
+  /** Makes a segment with no address into a button, as `onActivate` on `TupleLinkView`. */
+  onActivate?: () => void;
+  /** Replaces a plain primary click on an in-page anchor, as `onFollow` on `TupleLinkView`. */
+  onFollow?: () => void;
+}
+
 /**
  * A link tuple: one bordered pill holding its segments in order, each drawn by `TupleLinkView`.
  *
- * @param segments - one tuple from `linkTuplesOf`.
+ * The pill is 26 px tall and takes 22 px of its line (`-my-0.5`), so a one-line row stays within 40 px.
+ *
+ * @param segments - one tuple from `linkTuplesOf` or `artifactTuple`.
  * @param onOpenPlan - opens an internal plan link as a modal, as on `TupleLinkView`.
+ * @param controls - what the call site adds to each segment, by the segment's index; absent where it adds nothing.
  */
-export const LinkTupleView = ({ segments, onOpenPlan }: {
+export const LinkTupleView = ({ segments, onOpenPlan, controls }: {
   segments: readonly TupleSegment[];
   onOpenPlan?: (planFile: string) => boolean;
+  controls?: readonly (SegmentControl | undefined)[];
 }) => (
   <span
     data-link-tuple
-    className="inline-flex min-w-0 max-w-full items-stretch divide-x divide-slate-200 overflow-hidden rounded-md border border-slate-200 dark:divide-slate-700 dark:border-slate-700"
+    className="inline-flex min-w-0 max-w-full items-stretch divide-x divide-slate-200 overflow-hidden -my-0.5 rounded-md border border-slate-200 align-middle dark:divide-slate-700 dark:border-slate-700"
   >
-    {segments.map((segment) => (
-      <TupleLinkView key={`${segment.what}:${segment.label}`} link={segment} showWhat onOpenPlan={onOpenPlan} />
+    {segments.map((segment, i) => (
+      <TupleLinkView
+        key={`${segment.what}:${segment.label}`}
+        link={segment}
+        showWhat
+        onOpenPlan={onOpenPlan}
+        extraAttr={controls?.[i]?.extraAttr}
+        onActivate={controls?.[i]?.onActivate}
+        onFollow={controls?.[i]?.onFollow}
+      />
     ))}
   </span>
 );
@@ -352,7 +374,8 @@ export function linkLabel(link: TupleLink): string {
   const kind = link.what === 'pr' ? 'Pull request'
     : link.what === 'ticket' ? 'Ticket'
       : link.what === 'worktree' ? 'Worktree'
-        : link.what.charAt(0).toUpperCase() + link.what.slice(1);
+        : link.what === 'external' ? 'Link'
+          : link.what.charAt(0).toUpperCase() + link.what.slice(1);
   return link.what === 'branch' ? link.label : `${kind} ${link.label}`;
 }
 
@@ -362,6 +385,7 @@ export function TupleLinkView({
   onOpenPlan,
   extraAttr,
   onActivate,
+  onFollow,
 }: {
   /** The link, or one segment of a link tuple, which then draws with the segment's fit, tone and padding. */
   link: TupleLink | TupleSegment;
@@ -378,7 +402,7 @@ export function TupleLinkView({
    * it is building. Passed as a pair, one for each answer: the attribute for a
    * link and the attribute for the same name with no address.
    */
-  extraAttr?: { link?: Record<string, string>; text?: Record<string, string> };
+  extraAttr?: { link?: Record<string, string | undefined>; text?: Record<string, string | undefined> };
   /**
    * Makes a name with NO ADDRESS into a control.
    *
@@ -392,6 +416,13 @@ export function TupleLinkView({
    * has an address or is text.
    */
   onActivate?: () => void;
+  /**
+   * Replaces a plain primary click on an in-page anchor, such as `#delivery-…`.
+   *
+   * Given this, the anchor opens in place rather than in a new tab, and a modified click keeps the browser's own
+   * behaviour.
+   */
+  onFollow?: () => void;
 }) {
   // A plan link with ticket keys: the glyph, each key as its own link to its
   // ticket, then the plan link, which prints the slug alone.
@@ -448,8 +479,11 @@ export function TupleLinkView({
           {...valueAttr(link)}
           {...extraAttr?.text}
           onClick={(e) => { e.stopPropagation(); onActivate(); }}
+          aria-label={segment ? linkLabel(link) : undefined}
           title={`${link.what}: ${link.label}`}
-          className="flex min-w-0 items-baseline gap-1 text-left text-blue-600 hover:underline dark:text-blue-400"
+          // A segment button wears the tone of a linked segment, because it leads somewhere.
+          className={segment ? `${segmentClass({ ...segment, href: '#' })} text-left`
+            : 'flex min-w-0 items-baseline gap-1 text-left text-blue-600 hover:underline dark:text-blue-400'}
         >
           {label}
         </button>
@@ -475,8 +509,13 @@ export function TupleLinkView({
   // the property `PlanLink` established and the reason only a plain primary
   // click is ever intercepted.
   const handle = (e: MouseEvent<HTMLAnchorElement>) => {
-    if (!link.internal || !onOpenPlan || link.file === undefined) return;
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    if (onFollow) {
+      e.preventDefault();
+      onFollow();
+      return;
+    }
+    if (!link.internal || !onOpenPlan || link.file === undefined) return;
     if (!onOpenPlan(link.file)) return;
     e.preventDefault();
   };
@@ -507,7 +546,7 @@ export function TupleLinkView({
       // An EXTERNAL link opens a new tab; an internal one navigates in place,
       // because the board is what serves it and the modal is what usually
       // catches it.
-      target={link.internal ? undefined : '_blank'}
+      target={link.internal || onFollow ? undefined : '_blank'}
       rel="noreferrer"
       title={`${link.what}: ${link.label}`}
       // 24 px TALL, by padding the row absorbs — and this is the one place it
@@ -858,22 +897,13 @@ export function TupleRowView({
         data-row-cell="where"
         className="flex w-full min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1 text-xs sm:w-auto"
       >
-        {tuple.linksAsTuples
-          ? linkTuplesOf(tuple.links, ticketHref).map((segments) => (
-            <LinkTupleView
-              key={segments.map((s) => `${s.what}:${s.label}`).join('|')}
-              segments={segments}
-              onOpenPlan={onOpenPlan}
-            />
-          ))
-          : tuple.links.map((link) => (
-            <TupleLinkView
-              key={`${link.what}:${link.label}`}
-              link={link}
-              showWhat
-              onOpenPlan={onOpenPlan}
-            />
-          ))}
+        {linkTuplesOf(tuple.links, ticketHref).map((segments) => (
+          <LinkTupleView
+            key={segments.map((s) => `${s.what}:${s.label}`).join('|')}
+            segments={segments}
+            onOpenPlan={onOpenPlan}
+          />
+        ))}
         {aside}
       </span>
       {/* SLOT 5 — WHERE THIS STANDS. One slot whatever the kind: `conflicts`,

@@ -1,9 +1,11 @@
+import { useContext } from 'react';
 import { linkIconKind, type HeaderCountPart, type PlanLine } from '@plot-pm/domain';
 import type { PlanRowView, ReleaseBlockView, ReleaseHeaderView } from '../lib/agent-rows/delivery-view.js';
-import { isPlainPlanClick } from './PlanReference.js';
-import { PlanTicketKeys } from './PlanTicketKeys.js';
+import { artifactTuple } from '../lib/tuple-row.js';
+import { TicketHrefContext } from './PlanTicketKeys.js';
 import { SEGMENT_CLASS } from './SprintCard.js';
 import { LinkIcon } from './LinkIcon.js';
+import { LinkTupleView } from './TupleRow.js';
 
 /** The hue of a Release header count, by key; a key not named here takes the body colour. */
 const COUNT_HUE: Readonly<Partial<Record<HeaderCountPart['key'], string>>> = {
@@ -95,9 +97,9 @@ export const PlanTableHead = () => (
 );
 
 /**
- * The Plan cell: the ▸ toggle, which opens and closes the slice lines, then the plan name.
+ * The Plan cell: the ▸ toggle, which opens and closes the slice lines, then the plan's tuple from `artifactTuple`.
  *
- * Each of the plan's ticket keys is its own link to its ticket, and the slug after them links to `plan.href`. A plain click on
+ * Each of the plan's ticket keys is its own ticket segment, and the plan segment after them links to `plan.href`. A plain click on
  * the slug calls `onOpenPlan` and, where it answers `true`, keeps the page; a modified click or another button keeps the browser's
  * own handling. Where `href` is `''`, the slug is plain text. The `title` carries `plan.label`, the keys and the slug.
  */
@@ -106,39 +108,30 @@ export const PlanName = ({ plan, open, onToggle, onOpenPlan }: {
   open: boolean;
   onToggle: () => void;
   onOpenPlan?: ((planFile: string) => boolean) | undefined;
-}) => (
-  <span className="delivery-release-plan flex w-full min-w-0 items-baseline gap-1 sm:w-auto">
-    <button
-      type="button"
-      data-plan-toggle={plan.plan}
-      aria-expanded={open}
-      aria-label={`${open ? 'Hide' : 'Show'} the slices of ${plan.plan}`}
-      onClick={onToggle}
-      className="shrink-0"
-    >
-      <span aria-hidden="true" className={`inline-block w-4 shrink-0 text-center transition-transform ${open ? 'rotate-90' : ''}`}>▸</span>
-    </button>
-    <LinkIcon kind={linkIconKind('plan')} />
-    <PlanTicketKeys keys={plan.keys}>
-      {plan.href === ''
-        ? <span title={plan.label} className="delivery-truncate">{plan.plan}</span>
-        : (
-          <a
-            href={plan.href}
-            data-plan-link={plan.plan}
-            title={plan.label}
-            onClick={(e) => {
-              if (!isPlainPlanClick(e) || onOpenPlan?.(plan.planFile) !== true) return;
-              e.preventDefault();
-            }}
-            className="delivery-truncate delivery-text-link hover:underline"
-          >
-            {plan.plan}
-          </a>
-        )}
-    </PlanTicketKeys>
-  </span>
-);
+}) => {
+  const ticketHref = useContext(TicketHrefContext);
+  const segments = artifactTuple({ what: 'plan', label: plan.plan, href: plan.href, internal: true, file: plan.planFile, keys: plan.keys }, ticketHref);
+  const hook = { 'data-plan-link': plan.plan };
+  return (
+    <span className="delivery-release-plan flex w-full min-w-0 items-center gap-1 sm:w-auto" title={plan.label}>
+      <button
+        type="button"
+        data-plan-toggle={plan.plan}
+        aria-expanded={open}
+        aria-label={`${open ? 'Hide' : 'Show'} the slices of ${plan.plan}`}
+        onClick={onToggle}
+        className="shrink-0"
+      >
+        <span aria-hidden="true" className={`inline-block w-4 shrink-0 text-center transition-transform ${open ? 'rotate-90' : ''}`}>▸</span>
+      </button>
+      <LinkTupleView
+        segments={segments}
+        onOpenPlan={onOpenPlan}
+        controls={segments.map((segment) => (segment.what === 'plan' ? { extraAttr: { link: hook } } : undefined))}
+      />
+    </span>
+  );
+};
 
 /** The Phase cell: a chip with the phase word, or nothing where the plan has no phase. */
 export const PhaseChip = ({ plan }: { plan: Pick<PlanRowView, 'phase' | 'accent'> }) => (
@@ -180,27 +173,21 @@ export const LineState = ({ state }: { state: PlanLine['state'] }) => (
   <span data-plan-line-state={state} className={`delivery-release-state ${LINE_STATE[state].hue}`}>{LINE_STATE[state].word}</span>
 );
 
-/** A line's PR: a link where the payload holds its address, the number as text where it does not. */
-export const LinePr = ({ pr, url }: { pr: number; url: string | null }) => (
-  <span className="inline-flex items-baseline">
-    <LinkIcon kind={linkIconKind('pr')} />
-    {url === null || url === ''
-      ? <span data-plan-line-pr={pr}>#{pr}</span>
-      : <a data-plan-line-pr={pr} href={url} target="_blank" rel="noopener noreferrer" className="delivery-text-link">#{pr}</a>}
-  </span>
-);
+/** A line's PR as a PR tuple: a link where the payload holds its address, the number as text where it does not. */
+export const LinePr = ({ pr, url }: { pr: number; url: string | null }) => {
+  const hook = { 'data-plan-line-pr': `${pr}` };
+  return <LinkTupleView segments={artifactTuple({ what: 'pr', label: `${pr}`, href: url ?? '' }, () => undefined)} controls={[{ extraAttr: { link: hook, text: hook } }]} />;
+};
 
 /**
- * An opened plan line's slice: the slice icon, then the slice words, as a button that scrolls to the slice's item
- * where `onJump` is given and as text where it is not.
+ * An opened plan line's slice as a slice tuple: a button that scrolls to the slice's item where `onJump` is given,
+ * and text where it is not.
  */
 export const LineSlice = ({ line, onJump }: { line: Pick<PlanLine, 'heading' | 'slice' | 'text' | 'pr'>; onJump?: (() => void) | undefined }) => (
-  <span className="inline-flex min-w-0 items-baseline">
-    <LinkIcon kind={linkIconKind('slice')} />
-    {onJump === undefined
-      ? <span>{lineBody(line)}</span>
-      : <button type="button" data-plan-line-link onClick={onJump} className="delivery-text-link hover:underline">{lineBody(line)}</button>}
-  </span>
+  <LinkTupleView
+    segments={artifactTuple({ what: 'wave', label: lineBody(line), href: '' }, () => undefined)}
+    controls={[onJump === undefined ? undefined : { extraAttr: { text: { 'data-plan-line-link': '' } }, onActivate: onJump }]}
+  />
 );
 
 /** A plan's owner: the person icon, then the handle. */
