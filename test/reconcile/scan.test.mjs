@@ -4951,6 +4951,39 @@ test('scan: PR #60 merged before #50 but the tag misses #60 reports tag-misses-p
   }
 });
 
+test('scan: a sibling PR whose merge commit this clone lacks reports cannot resolve, not tag-misses-pr', () => {
+  // #62 merged FIRST onto a sha this clone does not hold, so `git tag
+  // --contains` fails rather than answering "no tag". #52 merged LAST onto
+  // s6Sha, tagged v9.0.0. A failed read is not an empty answer: the finding
+  // names #62 and its sha, and never claims "the first tag that does: none".
+  const absentSha = 'c0ffee'.repeat(6) + 'beef';
+  s6Write('plans/2026-03-11-siblingabsent.md', ['# siblingabsent', '', '## Status', '',
+    '- **State:** Delivered', '- **Type:** feature', '- **Delivered:** 2026-03-01', '',
+    '## Slices', '', '### first (Branch: bug/siblingabsent-first, PR: #62)', '',
+    '- `bug/siblingabsent-first` — the slice → #62', '',
+    '### second (Branch: bug/siblingabsent-second, PR: #52)', '',
+    '- `bug/siblingabsent-second` — the slice → #52', ''].join('\n'));
+  try {
+    const { out } = runSection6With({
+      101: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      102: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      103: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      62: { mergeCommit: absentSha, mergedAt: '2026-03-01T00:00:00Z' },
+      52: { mergeCommit: s6Sha, mergedAt: '2026-03-02T00:00:00Z' },
+    });
+    const sections = splitSections(out);
+    assert.match(sections['6'],
+      new RegExp(`2026-03-11-siblingabsent\\.md — delivered, PR #62 names merge commit ${absentSha}, not in this clone → cannot resolve`),
+      `a sibling whose merge commit the clone lacks must report cannot resolve:\n${sections['6']}`);
+    assert.match(sections['6'], /re-run without --no-fetch\/--offline/,
+      `the finding must carry the fetch advice:\n${sections['6']}`);
+    assert.doesNotMatch(sections['6'], /siblingabsent\.md — delivered, tag .*the first tag that does: none/,
+      `a commit the scan never read must not read as in no tag:\n${sections['6']}`);
+  } finally {
+    fs.rmSync(path.join(s6Repo, 'plans', '2026-03-11-siblingabsent.md'), { force: true });
+  }
+});
+
 test('scan: a plan whose only PR sits on a deferred branch is unresolvable, not silent', () => {
   // THE `-z "$prs"` GUARD CANNOT CATCH THIS. `plot-plan-meta.sh` documents
   // `deferred_prs` as a subset of `prs`, so #120 is in `prs`, the guard

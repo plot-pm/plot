@@ -213,7 +213,16 @@ export const resolvePlanRelease = async (
   const prRowsForTag: ReleaseTagPrRow[] = [];
   for (const pr of prs) {
     const tags = pr.number === lastPr.number ? lastTags : await ports.refs.tagsContaining(pr.mergeCommit);
-    const own = tags.ok ? tags.value : [];
+    // A failed read is not an empty answer: git could not say which tags hold
+    // this commit, so the sibling answers the way the last-merged PR does.
+    if (!tags.ok) {
+      return resolveRelease(
+        { pr: String(pr.number), mergeCommit: pr.mergeCommit, mergedAt: pr.mergedAt, base: pr.base, head: pr.head, defaultBranch, prSource, noFetch },
+        ports,
+        warn,
+      );
+    }
+    const own = tags.value;
     const carried = own.length === 0 ? await carriedRelease(pr, defaultBranch, ports, warn) : null;
     prRowsForTag.push(carried === null ? { ...pr, containingTags: own } : { ...pr, containingTags: carried.containingTags, carrier: carried.mergeCommit });
   }
