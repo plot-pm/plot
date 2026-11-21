@@ -10,6 +10,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3638 merged
+- **Started:** 2026-11-21, Jan Wloka, `infra/main-ci-cancels-an-older-head`
 
 ## Changelog
 
