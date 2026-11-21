@@ -327,23 +327,19 @@ describe('the two fleet controls (real browser renders the shipped artifact)', (
       await page.close();
     }
   });
-  it('the fleet card shows the state and counts, posts nothing on a click, and links to the controls', async () => {
+  it('the header Fleet group shows the switches as text, posts nothing, and opens the Fleet section', async () => {
     const { page, posts } = await open(fleet({ autoDispatch: false, parallelAgents: 3 }));
     try {
-      await page.locator('[data-fleet-card]').waitFor({ timeout: 10_000 });
-      const box = page.locator('[data-fleet-card-auto-dispatch]');
-      expect(await box.isChecked()).toBe(false);
-      // A forced click reaches the element though it is disabled; it must write nothing.
-      await box.click({ force: true });
-      await page.locator('[data-fleet-card-parallel-agents]').focus();
-      await page.keyboard.press('ArrowUp');
+      const group = page.locator('[data-tab-header] [data-header-group="fleet"]');
+      await group.waitFor({ timeout: 10_000 });
+      expect(await group.locator('input, [role="spinbutton"]').count()).toBe(0);
+      expect(await group.locator('[data-header-mark="dispatch"]').getAttribute('data-on')).toBe('0');
+      // One source: the header's cap equals the Fleet body's.
+      expect(await group.locator('[data-header-parallel]').innerText())
+        .toContain(String(await page.locator('[data-fleet-parallel-agents]').getAttribute('aria-valuenow')));
+      await group.locator('[data-header-open="fleet"]').click();
       await page.waitForTimeout(300);
       expect(posts).toEqual([]);
-      expect(await box.isChecked()).toBe(false);
-      // One source: the card's cap equals the Fleet body's.
-      expect(await page.locator('[data-fleet-card-parallel-agents]').getAttribute('aria-valuenow'))
-        .toBe(await page.locator('[data-fleet-parallel-agents]').getAttribute('aria-valuenow'));
-      await page.locator('[data-fleet-card-link]').click();
       expect(await page.locator('#fleet-controls').isVisible()).toBe(true);
       // 320 px: no horizontal scroll.
       await page.setViewportSize({ width: 320, height: 800 });
@@ -352,4 +348,5 @@ describe('the two fleet controls (real browser renders the shipped artifact)', (
       await page.close();
     }
   });
+
 });
