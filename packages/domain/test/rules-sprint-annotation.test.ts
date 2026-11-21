@@ -140,6 +140,18 @@ describe('annotateSprintItem with no plan PR read', () => {
   });
 });
 
+describe('withSprintAnnotation on an empty comment', () => {
+  it('writes the pr key with no stray comma', () => {
+    const { text } = withSprintAnnotation(MUST('- [ ] [slug] the plan <!-- -->'), 'slug', false, 42, '');
+    expect(text).toContain('- [ ] [slug] the plan <!-- pr: #42 -->');
+  });
+
+  it('writes the branch key with no stray comma', () => {
+    const { text } = withSprintAnnotation(MUST('- [ ] [slug] the plan <!-- -->'), 'slug', false, null, 'x');
+    expect(text).toContain('- [ ] [slug] the plan <!-- branch: x -->');
+  });
+});
+
 describe('withSprintAnnotation with pr null', () => {
   it('leaves an existing pr: #0 as it is', () => {
     const text = MUST('- [ ] [slug] the plan <!-- pr: #0, branch: x -->');
