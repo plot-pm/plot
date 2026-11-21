@@ -132,6 +132,26 @@ describe('machineHealth — other buckets and readings', () => {
   });
 });
 
+describe("machineHealth — bb's predicted Bitbucket bucket", () => {
+  const bitbucket = (remaining: number | null, resetAt: number | null): MachineReading['host'] => ({
+    connector: 'bitbucket',
+    buckets: [{ bucket: 'api', limit: 800, remaining, resetAt }],
+  });
+
+  it('shows a free bucket on the line and lists nothing', () => {
+    const h = machineHealth(machine({ host: bitbucket(712, null) }));
+    expect([h.dot, h.word]).toEqual(['green', 'healthy']);
+    expect(h.line).toBe('load 2.1 of 10 cores · bitbucket api 712 / 800 left');
+    expect(h.rows).toEqual([]);
+  });
+
+  it('lists a spent bucket with its reset', () => {
+    const h = machineHealth(machine({ host: bitbucket(0, RESET) }));
+    expect([h.dot, h.word]).toEqual(['amber', 'strained']);
+    expect(h.rows).toEqual([{ resource: 'bitbucket api', now: '0 / 800, resets 13:47', effect: 'calls wait for the reset' }]);
+  });
+});
+
 describe('machineHealth — a host that has not answered', () => {
   const spent = machine({ host: github({ bucket: 'graphql', limit: 5000, remaining: 0, resetAt: RESET }) });
 
