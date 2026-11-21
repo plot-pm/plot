@@ -689,6 +689,7 @@ export * from './rules/release-person-cards.js';
 export * from './rules/slice-states.js';
 export * from './rules/sprint-card.js';
 export * from './rules/release-card.js';
+export * from './rules/release-group.js';
 export * from './rules/delivery-scope.js';
 export * from './rules/sprint-delivery.js';
 export * from './rules/tickets-section.js';
