@@ -117,7 +117,7 @@ In both cases the pass that asked read the plan as Approved on `origin/<main>` (
 
 ### Test clock
 
-- `bug/the-brief-ask-test-owns-its-clock` — fake `Date` pinned at 2026-11-05T22:00:15Z for the usage-limit cases, a stub reset two hours later, exact epoch assertions, and a grace case at the failing instant <!-- builds: a clocked usage-limit stub for the brief-ask test -->
+- `bug/the-brief-ask-test-owns-its-clock` — fake `Date` pinned at 2026-11-05T22:00:15Z for the usage-limit cases, a stub reset two hours later, exact epoch assertions, and a grace case at the failing instant <!-- builds: a clocked usage-limit stub for the brief-ask test --> → #3620
 
 ### Brief retry
 
