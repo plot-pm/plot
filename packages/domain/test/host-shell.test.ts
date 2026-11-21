@@ -1021,13 +1021,11 @@ describe('the exit code this adapter reads is the one the script spends', () => 
     });
 
   /**
-   * A `bb` that answers every state but `merged`.
+   * A `bb` that refuses any request asking the `merged` state.
    *
-   * It imitates the call the script makes: one `bb api …?state=<S>&pagelen=50`
-   * per state, answered with a paginated `{"values": […]}` page. A stub that
-   * matched the older `bb pr list --state merged` argument never failed the
-   * merged state, and its bare array failed `jq` on every state, so the
-   * script correctly read a total outage.
+   * It imitates the call the script makes: one
+   * `bb api …?state=OPEN&state=MERGED&state=DECLINED&pagelen=50` for every
+   * state, answered with a paginated `{"values": […]}` page.
    */
   const ONE_STATE_FAILS = [
     'for a in "$@"; do',
@@ -1039,14 +1037,14 @@ describe('the exit code this adapter reads is the one the script spends', () => 
   /** A `bb` that answers nothing at all. */
   const EVERY_STATE_FAILS = 'echo "bb: down" >&2\nexit 1';
 
-  it('spends EXIT_PARTIAL when one of three states fails, and prints the rest', () => {
+  it('fails the whole listing when its one request fails, never on EXIT_PARTIAL', () => {
+    // Every state travels in one request, so a refused request leaves no
+    // state answered and no rows to print as a partial answer.
     const run = prListAll(repoWhoseBbIs(ONE_STATE_FAILS));
-    // The code the constant names, from the script itself.
-    expect(run.status).toBe(EXIT_PARTIAL);
-    // AND THE ROWS ARE THERE. A code alone would not prove this is a partial
-    // answer rather than a refusal that happens to exit 7.
-    expect(run.stdout.trim().split('\n').filter(Boolean).length).toBeGreaterThan(0);
-    expect(run.stderr).toContain('missing: merged');
+    expect(run.status).not.toBe(EXIT_PARTIAL);
+    expect(run.status).not.toBe(0);
+    expect(run.stdout.trim()).toBe('');
+    expect(run.stderr).toContain('no state answered');
   });
 
   it('keeps a total outage on its own code, never on EXIT_PARTIAL', () => {

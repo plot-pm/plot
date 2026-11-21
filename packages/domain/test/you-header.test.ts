@@ -66,7 +66,8 @@ describe('youHeader counts', () => {
 describe('youHeader release approvals', () => {
   // THE #3562 SHAPE: the to-do list held one "Approve release" line, so its header read
   // "You block 1 delivery", while the You row read "0 block delivery" from the empty group.
-  const release = { id: 'release-row:changeset-release/main', label: '2.35.1', anchor: 'release-card-2.35.1' };
+  const release = { id: 'release-row:changeset-release/main', label: '2.35.1', anchor: 'release-card-2.35.1', blocks: true, reason: '' };
+  const waiting = { ...release, blocks: false, reason: 'CI has not reported on aaaaaaaaa' };
   const empty = [
     { key: 'blocks-delivery', count: 0 },
     { key: 'input-to-the-fleet', count: 0 },
@@ -83,6 +84,18 @@ describe('youHeader release approvals', () => {
     const head = youHeader(base({ groups: empty, releases: [release] })).counts[0]!.count;
     const todo = todoList({ items: [], ticketAnswer: 'answered', tickets: [], releases: [release] });
     expect(head).toBe(todo.counts['blocks-delivery']);
+  });
+
+  it('counts no release whose approval cannot run, and agrees with the to-do list', () => {
+    const counts = youHeader(base({ groups: empty, releases: [waiting] })).counts;
+    expect(counts[0]).toMatchObject({ count: 0, text: '0 block delivery', anchor: null });
+    const todo = todoList({ items: [], ticketAnswer: 'answered', tickets: [], releases: [waiting] });
+    expect(counts[0]!.count).toBe(todo.counts['blocks-delivery']);
+  });
+
+  it('links to the first release that blocks where only releases count', () => {
+    const second = { ...release, id: 'release-row:two', anchor: 'release-card-2.36.0' };
+    expect(youHeader(base({ groups: empty, releases: [waiting, second] })).counts[0]).toMatchObject({ count: 1, anchor: 'release-card-2.36.0' });
   });
 
   it('keeps the group anchor where the group has rows', () => {

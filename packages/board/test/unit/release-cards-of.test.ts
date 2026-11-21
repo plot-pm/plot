@@ -3,7 +3,8 @@ import { describe, it, expect } from 'vitest';
 import { parsePersonDirectory, placeDelivery } from '@plot-pm/domain';
 import type { AgentRow, Slice } from '../../src/contract/schema.js';
 import { deliveryMapping, releaseCardsOf, type DeliveryMapInput } from '../../src/app/lib/agent-rows/delivery-readings.js';
-import { todoListOf } from '../../src/app/lib/agent-rows/todo-list.js';
+import { releaseTodoEntriesOf, todoListOf } from '../../src/app/lib/agent-rows/todo-list.js';
+import { youHeaderOf } from '../../src/app/lib/agent-rows/you-header.js';
 import { placeMapping } from '../../src/app/lib/agent-rows/delivery-view.js';
 
 const directory = parsePersonDirectory('jwloka = Jan Wloka');
@@ -71,8 +72,31 @@ describe('releaseCardsOf', () => {
     const placement = placeDelivery(mapping.readings, mapping.input);
     const view = placeMapping(mapping, [], []);
     expect(view.sections.flatMap((s) => s.groups.flatMap((g) => g.items))).toEqual([]);
-    const { cards } = releaseCardsOf([sprint('2.35.0')], directory, input({ rows }));
-    const todo = todoListOf(view, placement, null, cards);
-    expect(todo.lines.map((l) => [l.text, l.marker, l.anchor])).toEqual([['Approve release 2.35.0', 'blocks-delivery', 'release-card-2.35.0']]);
+    const { cards, rows: bound } = releaseCardsOf([sprint('2.35.0')], directory, input({ rows }));
+    const todo = todoListOf(view, placement, null, releaseTodoEntriesOf(cards, bound, { registered: true }));
+    expect(todo.lines.map((l) => [l.text, l.marker, l.anchor])).toEqual([['Approve release 2.35.0 · CI has not reported on aaaaaaaaa', 'waits', 'release-card-2.35.0']]);
+  });
+
+  it('marks the release line blocks delivery, in the to-do list and the You header, only where the approval can run', () => {
+    const head = 'a'.repeat(40);
+    const ready = releaseRow('2.35.0', 300);
+    ready.pr = { ...ready.pr!, checksSha: head, plotReview: 'success', plotReviewSha: head, plotReviewJudged: 'success', plotReviewCheckedSha: head } as AgentRow['pr'];
+    const rows = [ready];
+    const mapping = deliveryMapping(input({ rows }));
+    const placement = placeDelivery(mapping.readings, mapping.input);
+    const view = placeMapping(mapping, [], []);
+    const { cards, rows: bound } = releaseCardsOf([sprint('2.35.0')], directory, input({ rows }));
+    const head2 = (passkey: { registered: boolean } | null) => ({
+      todo: todoListOf(view, placement, null, releaseTodoEntriesOf(cards, bound, passkey)),
+      you: youHeaderOf({ view, placement, reader, ticketAnswer: null, phaseMap: undefined, stories: [], cards: [], releases: cards, releaseRows: bound, passkey }),
+    });
+    const enabled = head2({ registered: true });
+    expect(enabled.todo.lines.map((l) => [l.text, l.marker])).toEqual([['Approve release 2.35.0', 'blocks-delivery']]);
+    expect(enabled.you.counts.find((c) => c.key === 'blocks-delivery')?.count).toBe(1);
+    const unregistered = head2({ registered: false });
+    expect(unregistered.todo.lines.map((l) => [l.text, l.marker])).toEqual([['Approve release 2.35.0 · Register a passkey in Settings first', 'waits']]);
+    expect(unregistered.todo.header).toBe('You block nothing');
+    expect(unregistered.you.counts.find((c) => c.key === 'blocks-delivery')?.count).toBe(0);
+    expect(head2(null).todo.lines[0]!.marker).toBe('waits');
   });
 });

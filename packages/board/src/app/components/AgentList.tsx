@@ -59,7 +59,7 @@ function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents:
 import { FleetCard } from './FleetCard.js';
 import { SprintCard } from './SprintCard.js';
 import { TodoList } from './TodoList.js';
-import { todoListOf } from '../lib/agent-rows/todo-list.js';
+import { releaseTodoEntriesOf, todoListOf } from '../lib/agent-rows/todo-list.js';
 import { AutoDispatchSwitch, AutoSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
 import { FleetAgentHeader, FleetAgentRow } from './FleetAgentRow.js';
 import { MasterAgentLine, RowCell, scrollToAnchor, type LinkHandlers } from './DeliveryRows.js';
@@ -458,6 +458,7 @@ export function AgentList({
   defaultBranch,
   checkoutClean,
   spawnContract,
+  passkey = null,
 }: AgentListProps) {
   // THE BOARD'S PLAN INDEX — every card and draft plan, keyed by file
   // basename and by slug, built once here and threaded to every row builder
@@ -1249,7 +1250,8 @@ export function AgentList({
         const unplacedFolded = isFolded('section', 'not-placed', view.notPlaced.length, collapsed);
         const youHead = youHeaderOf({
           view, placement, reader, ticketAnswer: fleet.issueAnswer ?? null, phaseMap,
-          stories: stories ?? [], cards: cards ?? [], releases: releaseCardView.cards,
+          stories: stories ?? [], cards: cards ?? [],
+          releases: releaseCardView.cards, releaseRows: releaseCardView.rows, passkey,
         });
         // THE SEVEN COLUMNS' BY CELL AND THE HELD-GROUP HEADERS — domain properties, rendered here.
         const forms = rowFormsOf(mapping, placement, Date.now());
@@ -1602,7 +1604,7 @@ export function AgentList({
                 or sprint card above the fleet card. `delivery-header.css` lays them out. */}
             <div data-tab-header className="space-y-4">
               <div data-tab-header-column="todo">
-                <TodoList todo={todoListOf(view, placement, fleet.issueAnswer ?? null, releaseCardView.cards)} onJump={(anchor) => jump(anchor)} />
+                <TodoList todo={todoListOf(view, placement, fleet.issueAnswer ?? null, releaseTodoEntriesOf(releaseCardView.cards, releaseCardView.rows, passkey))} onJump={(anchor) => jump(anchor)} />
               </div>
               <div data-tab-header-column="status" className="space-y-2">
                 {sprintScope.statusCard === 'sprint'

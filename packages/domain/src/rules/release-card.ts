@@ -213,11 +213,39 @@ export const releaseCardApprovable = (
 ): ReleaseApprovable =>
   card.rowId === null ? { state: 'disabled', reason: card.unboundReason } : releaseApprovable(pr, held);
 
+/** One release approval a card owes the to-do list. */
+export interface ReleaseTodoEntry {
+  id: string;
+  /** The label after "Approve release". */
+  label: string;
+  anchor: string;
+  /** Whether the approval can run now (`releaseCardApprovable` answers `enabled`); only then it blocks delivery. */
+  blocks: boolean;
+  /** The disabled button's reason; empty where `blocks` is true. */
+  reason: string;
+}
+
 /**
  * The to-do entries the cards owe: one per card a release row binds.
  *
  * @param cards - the release cards.
- * @returns the card key, the label after "Approve release", and the card's anchor.
+ * @param prs - each bound row's PR reading, by `rowId`; a missing key reads as no reading.
+ * @param held - the passkey registration answer, `null` while unread.
+ * @returns the card key, the label, the card's anchor, and `releaseCardApprovable`'s answer as `blocks` and `reason`.
  */
-export const releaseTodoEntries = (cards: readonly ReleaseCardView[]): { id: string; label: string; anchor: string }[] =>
-  cards.flatMap((c) => (c.rowId === null ? [] : [{ id: c.key, label: c.version === '' ? `(version not read)` : c.version, anchor: c.anchor }]));
+export const releaseTodoEntries = (
+  cards: readonly ReleaseCardView[],
+  prs: Readonly<Record<string, ReleasePrReading>>,
+  held: PasskeyRegistration | null,
+): ReleaseTodoEntry[] =>
+  cards.flatMap((c) => {
+    if (c.rowId === null) return [];
+    const answer = releaseCardApprovable(c, prs[c.rowId] ?? null, held);
+    return [{
+      id: c.key,
+      label: c.version === '' ? `(version not read)` : c.version,
+      anchor: c.anchor,
+      blocks: answer.state === 'enabled',
+      reason: answer.reason,
+    }];
+  });

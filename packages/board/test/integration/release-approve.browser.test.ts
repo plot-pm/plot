@@ -65,6 +65,8 @@ describe('the release card approves the release', () => {
       await expect.poll(() => button.count(), { timeout: 10_000 }).toBe(1);
       await expect.poll(() => button.isEnabled(), { timeout: 10_000 }).toBe(true);
       expect(await ready.locator('[data-testid="passkey-panel"]').count()).toBe(0);
+      const blocking = ready.locator('[data-todo-line="blocks-delivery"]', { hasText: 'Approve release 2.7.0' });
+      await expect.poll(() => blocking.count(), { timeout: 10_000 }).toBe(1);
     } finally {
       await ready.close();
     }
@@ -74,6 +76,10 @@ describe('the release card approves the release', () => {
       await expect.poll(() => button.count(), { timeout: 10_000 }).toBe(1);
       expect(await button.isEnabled()).toBe(false);
       expect(await card(stale).locator('[data-testid="release-approve-reason"]').textContent()).toMatch(/older head/);
+      const waiting = stale.locator('[data-todo-line="waits"]', { hasText: 'Approve release 2.7.0' });
+      await expect.poll(() => waiting.count(), { timeout: 10_000 }).toBe(1);
+      expect(await waiting.locator('[data-todo-reason]').textContent()).toMatch(/older head/);
+      expect(await stale.locator('[data-todo-line="blocks-delivery"]', { hasText: 'Approve release' }).count()).toBe(0);
     } finally {
       await stale.close();
     }

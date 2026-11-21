@@ -269,7 +269,7 @@ describe('credentials', () => {
 });
 
 describe('every request charges the shared ledger', () => {
-  it('appends one entry per request: connector bitbucket, bucket api, the workspace, predicted 10000 with no headers', async () => {
+  it('appends one entry per request: connector bitbucket, bucket api, the workspace, predicted 800 with no headers', async () => {
     const stub = await stubApi((_seen, res) => json(res, 200, PAGE));
     const { api, entries } = client(stub.base);
 
@@ -283,7 +283,7 @@ describe('every request charges the shared ledger', () => {
     expect(afterSecond.at(-1)).toMatchObject({
       key: { connector: 'bitbucket', account: 'quatico', bucket: 'api' },
       spent: 1,
-      limit: 10_000,
+      limit: 800,
       remaining: null,
       resetAt: null,
       basis: 'predicted',
@@ -347,7 +347,7 @@ describe('every request charges the shared ledger', () => {
 
     await api.request(LIST);
 
-    expect((await entries()).at(-1)).toMatchObject({ limit: 10_000, remaining: null, resetAt: null, basis: 'predicted' });
+    expect((await entries()).at(-1)).toMatchObject({ limit: 800, remaining: null, resetAt: null, basis: 'predicted' });
   });
 
   it('records actual with no reset where the reply names none, and charges PLOT_BUDGET_ACCOUNT where it is set', async () => {

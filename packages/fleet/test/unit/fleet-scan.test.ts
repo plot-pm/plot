@@ -290,7 +290,7 @@ describe('the listing base is LISTING_REFRESH_MS', () => {
     const state = freshScanState();
     await scanOnce(worldWith(noShell), state, OPTIONS);
     // The stub's spend-rate is unaskable, so the interval is the unstretched base.
-    expect(state.listingIntervalMs).toBe(LISTING_REFRESH_MS * scanListingCost('github', 0, null));
+    expect(state.listingIntervalMs).toBe(LISTING_REFRESH_MS * scanListingCost('github', null, null));
   });
 
   it('reads the spend through the world\'s reader and asks no plot-host.sh spend-rate', async () => {
@@ -322,11 +322,37 @@ describe('scanListingCost on GitHub', () => {
     [101, 3],
     [1_767, 19],
   ])('prices %i rows at %i requests', (rows, cost) => {
-    expect(scanListingCost('github', 0, rows)).toBe(cost);
+    expect(scanListingCost('github', null, rows)).toBe(cost);
   });
 
   it('prices an unknown row count at 2, same as the first-page floor', () => {
-    expect(scanListingCost('github', 0, null)).toBe(2);
+    expect(scanListingCost('github', null, null)).toBe(2);
+  });
+});
+
+describe('scanListingCost on Bitbucket', () => {
+  // A Bitbucket walk pages at 50 rows. A full read walks open and all; a delta
+  // walks open and asks one window. The tracked-branch count is no input.
+  it.each([
+    [0, 0, 2],
+    [50, 3, 2],
+    [51, 3, 3],
+    [895, 60, 20],
+  ])('prices a full read that walked %i rows and %i open rows at %i requests', (all, open, cost) => {
+    expect(scanListingCost('bitbucket', { all, open }, null)).toBe(cost);
+  });
+
+  it.each([
+    [0, 2],
+    [50, 2],
+    [51, 3],
+  ])('prices a delta whose open walk read %i rows at %i requests', (open, cost) => {
+    expect(scanListingCost('bitbucket', { all: 895, open }, null, { kind: 'delta', since: '2026-10-01T00:00:00Z' })).toBe(cost);
+  });
+
+  it('prices a read with no walk behind it, or no full walk, at 2', () => {
+    expect(scanListingCost('bitbucket', null, null)).toBe(2);
+    expect(scanListingCost('bitbucket', { all: null, open: 3 }, null)).toBe(2);
   });
 });
 

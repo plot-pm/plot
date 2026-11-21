@@ -106,11 +106,11 @@ describe('the Release delivery links', () => {
 describe('the to-do list links', () => {
   const todo: TodoListFact = {
     lines: [
-      { id: 'b', text: 'Merge feature/x', verb: 'Merge', label: 'feature/x', marker: 'clean-up', markerWords: 'clean up', anchor: 'b', icon: 'branch' },
-      { id: 'p', text: 'Approve red-hold', verb: 'Approve', label: 'red-hold', marker: 'blocks-delivery', markerWords: 'blocks delivery', anchor: 'p', icon: 'plan' },
-      { id: 'r', text: 'Approve release 2.35.0', verb: 'Approve release', label: '2.35.0', marker: 'blocks-delivery', markerWords: 'blocks delivery', anchor: 'r', icon: 'release' },
+      { id: 'b', text: 'Merge feature/x', verb: 'Merge', label: 'feature/x', reason: '', marker: 'clean-up', markerWords: 'clean up', anchor: 'b', icon: 'branch' },
+      { id: 'p', text: 'Approve red-hold', verb: 'Approve', label: 'red-hold', reason: '', marker: 'blocks-delivery', markerWords: 'blocks delivery', anchor: 'p', icon: 'plan' },
+      { id: 'r', text: 'Approve release 2.35.0', verb: 'Approve release', label: '2.35.0', reason: '', marker: 'blocks-delivery', markerWords: 'blocks delivery', anchor: 'r', icon: 'release' },
     ],
-    counts: { 'blocks-delivery': 2, input: 0, 'clean-up': 1 },
+    counts: { 'blocks-delivery': 2, input: 0, 'clean-up': 1, waits: 0 },
     header: 'You block 2 deliveries · 1 to clean up',
     tickets: 1,
     triageText: '1 ticket assigned to you with no plan',

@@ -7,13 +7,15 @@ import type { Refs } from '@plot-pm/domain/ports/refs';
 
 import { emptyWalk, withWalkRefs } from './walk-fake.js';
 import { saidListingWorld } from './listing-over-said.js';
-import { freshScanState, scanOnce, type ScanOptions, type ScanWorld } from '../../src/shared/fleet-scan.js';
+import { freshScanState, scanOnce, scanPrListLimit, type ScanOptions, type ScanWorld } from '../../src/shared/fleet-scan.js';
 
 /**
  * THE PROPERTY THIS FILE EXISTS FOR: `readBitbucketListing`
  * (`docs/plans/2026-10-28-a-bitbucket-scan-reads-a-delta.md`) reads a delta
- * where the host can prove one whole, and falls back to a full branch sweep
- * where it cannot — same as `readGithubListing` already does for GitHub.
+ * where the host can prove one whole, and falls back to a full read where it
+ * cannot — same as `readGithubListing` already does for GitHub. A full read
+ * asks two unbranched listings with the scan's `--limit` and keeps the rows of
+ * the tracked branches.
  *
  * `fleet-scan-backoff.test.ts` covers the back-off these refusals feed; this
  * file covers the fold itself: what the delta's two calls look like, and the
@@ -48,12 +50,14 @@ const cleanStream: Scripts['stream'] = async (_s, _a, onLine) => {
   onLine(JSON.stringify({ kind: 'reading', reading: READING }));
 };
 
-/** A `pr-list --branch ...` full-sweep answer: one whole page, no rows. */
-const emptySweepAnswer = (state: string): HostAnswer => ({
+/** A full read's answer for one state: one whole page holding `stdout`'s rows. */
+const wholePageAnswer = (state: string, stdout = ''): HostAnswer => ({
   answer: 'answered',
-  stdout: '',
-  stderr: `plot-host: bitbucket pr-list sweep complete (0 rows across 1 branch) — every tracked branch was asked and each answered`,
+  stdout,
+  stderr: `plot-host: bitbucket pr-list state=${state} page complete (0 rows below requested limit ${scanPrListLimit()}) — this page holds every pull request the host has in this state`,
 });
+
+const LIMIT = String(scanPrListLimit());
 
 const worldOf = (branches: readonly string[], stream: Scripts['stream'], hostSaid: Scripts['hostSaid']): ScanWorld => saidListingWorld({
   repoRoot: '/repo',
@@ -71,7 +75,7 @@ const worldOf = (branches: readonly string[], stream: Scripts['stream'], hostSai
 const OPTIONS: ScanOptions = { record: false };
 
 describe('readBitbucketListing via scanOnce: a delta the host can prove whole', () => {
-  it('asks the unbranched open call capped at 49 and a windowed --since rest call', async () => {
+  it('asks the unbranched open call with the scan limit and a windowed --since rest call', async () => {
     const state = freshScanState();
     // Seed a prior complete listing recent enough, and with a watermark, that
     // scanListingWindowFor offers a delta rather than a full read.
@@ -91,7 +95,7 @@ describe('readBitbucketListing via scanOnce: a delta the host can prove whole', 
         return {
           answer: 'answered',
           stdout: OPEN_ROW('feature_a', '2026-10-01T00:00:00Z'),
-          stderr: 'plot-host: bitbucket pr-list state=open page complete (1 rows below requested limit 49) — this page holds every pull request the host has in this state',
+          stderr: 'plot-host: bitbucket pr-list state=open page complete (1 rows below requested limit 3000) — this page holds every pull request the host has in this state',
         };
       }
       return {
@@ -106,7 +110,7 @@ describe('readBitbucketListing via scanOnce: a delta the host can prove whole', 
     const openCall = seenArgs.find((call) => call.includes('open'));
     expect(openCall).toBeDefined();
     expect(openCall).toContain('--limit');
-    expect(openCall?.[openCall.indexOf('--limit') + 1]).toBe('49');
+    expect(openCall?.[openCall.indexOf('--limit') + 1]).toBe(LIMIT);
     expect(openCall).not.toContain('--branch');
 
     const restCall = seenArgs.find((call) => call.includes('all'));
@@ -121,8 +125,8 @@ describe('readBitbucketListing via scanOnce: a delta the host can prove whole', 
   });
 });
 
-describe('readBitbucketListing via scanOnce: a delta the host cannot prove whole falls back to a sweep', () => {
-  it('falls back to a full branch sweep when the open call lands exactly at the 49-row cap', async () => {
+describe('readBitbucketListing via scanOnce: a delta the host cannot prove whole falls back to a full read', () => {
+  it('folds a delta whose open walk reads 50 or more rows and reaches the last page', async () => {
     const state = freshScanState();
     state.listingHeld = {
       rows: [{ head: 'feature_a', state: 'OPEN', updatedAt: '2026-10-01T00:00:00Z' }],
@@ -135,35 +139,57 @@ describe('readBitbucketListing via scanOnce: a delta the host cannot prove whole
     const seenArgs: string[][] = [];
     const hostSaid: Scripts['hostSaid'] = async (args) => {
       seenArgs.push([...args]);
-      // The delta's open call: 49 rows at the 49-row cap. `pr_list_report_complete`
-      // requires `count < limit` to claim a page whole, so a page landing exactly
-      // at the cap carries no whole-page notice — the host cannot tell whether a
-      // 50th row exists past this page, so it prints no claim either way.
-      if (args.includes('open') && args.includes('49')) {
-        const rows = Array.from({ length: 49 }, (_, i) => OPEN_ROW(`feature_${i}`, '2026-10-01T00:00:00Z')).join('');
-        return { answer: 'answered', stdout: rows, stderr: '' };
+      if (args.includes('open')) {
+        const rows = [OPEN_ROW('feature_a', '2026-10-01T00:00:00Z'), ...Array.from({ length: 59 }, (_, i) => OPEN_ROW(`feature_${i}`, '2026-10-01T00:00:00Z'))].join('');
+        return wholePageAnswer('open', rows);
       }
-      // The delta's windowed rest call, asked alongside the open call, before
-      // the refusal is known — it is whole on its own, but the open half isn't.
-      if (args.includes('all') && args.includes('--since')) {
-        return { answer: 'answered', stdout: '', stderr: 'plot-host: bitbucket pr-list state=all window complete (0 rows) — this window holds every pull request the host has in this state since the stamp' };
-      }
-      // The fallback full sweep: one branch, both states, whole and empty.
-      return emptySweepAnswer(args[args.indexOf('--state') + 1] ?? '');
+      return { answer: 'answered', stdout: '', stderr: 'plot-host: bitbucket pr-list state=all window complete (0 rows) — this window holds every pull request the host has in this state since the stamp' };
     };
 
     await scanOnce(worldOf(['feature_a'], cleanStream, hostSaid), state, OPTIONS);
 
-    const branchCalls = seenArgs.filter((call) => call.includes('--branch'));
-    expect(branchCalls.length).toBe(2);
-    expect(branchCalls.every((call) => call.includes('feature_a'))).toBe(true);
-    // One spend-rate call, two delta-side pr-list calls (open capped at 49,
-    // since-windowed rest), plus two full-sweep calls — the retry
-    // `readBitbucketListing` makes on refusal.
+    // One spend-rate call and the delta's two pr-list calls: no full read.
+    expect(seenArgs.length).toBe(3);
+    expect(state.listingWalked).toEqual({ all: null, open: 60 });
+  });
+
+  it('falls back to a full read when the open walk makes no whole-page claim', async () => {
+    const state = freshScanState();
+    state.listingHeld = {
+      rows: [{ head: 'feature_a', state: 'OPEN', updatedAt: '2026-10-01T00:00:00Z' }],
+      complete: true,
+      fullReadAt: Date.now() - 1000,
+    };
+    state.listing = '.branches\t1\t-\t-\nfeature_a\tOPEN\tgreen\tfalse\n.list-arrived\t1\t-\t-\n';
+    state.listingAt = Date.now() - (300_000 + 1);
+
+    const seenArgs: string[][] = [];
+    let openCalls = 0;
+    const hostSaid: Scripts['hostSaid'] = async (args) => {
+      seenArgs.push([...args]);
+      // The delta's open walk stopped at its limit with a further page, so it
+      // prints no whole-page claim.
+      if (args.includes('open') && openCalls++ === 0) {
+        return { answer: 'answered', stdout: OPEN_ROW('feature_a', '2026-10-01T00:00:00Z'), stderr: '' };
+      }
+      if (args.includes('all') && args.includes('--since')) {
+        return { answer: 'answered', stdout: '', stderr: 'plot-host: bitbucket pr-list state=all window complete (0 rows) — this window holds every pull request the host has in this state since the stamp' };
+      }
+      return wholePageAnswer(args[args.indexOf('--state') + 1] ?? '');
+    };
+
+    await scanOnce(worldOf(['feature_a'], cleanStream, hostSaid), state, OPTIONS);
+
+    expect(seenArgs.some((call) => call.includes('--branch'))).toBe(false);
+    const fullCalls = seenArgs.slice(3);
+    expect(fullCalls.map((call) => call[call.indexOf('--state') + 1])).toEqual(['open', 'all']);
+    expect(fullCalls.every((call) => call[call.indexOf('--limit') + 1] === LIMIT)).toBe(true);
+    // One spend-rate call, two delta-side pr-list calls, plus the full read's
+    // two calls — the retry `readBitbucketListing` makes on refusal.
     expect(seenArgs.length).toBe(5);
   });
 
-  it('falls back to a full branch sweep when a carried OPEN row vanishes from both new answers', async () => {
+  it('falls back to a full read when a carried OPEN row vanishes from both new answers', async () => {
     const state = freshScanState();
     // Two carried OPEN rows; the delta's answers below report only one of them,
     // so `feature_gone` vanished without the delta's own window explaining why.
@@ -181,31 +207,30 @@ describe('readBitbucketListing via scanOnce: a delta the host cannot prove whole
     const seenArgs: string[][] = [];
     const hostSaid: Scripts['hostSaid'] = async (args) => {
       seenArgs.push([...args]);
-      if (args.includes('open') && !args.includes('--branch')) {
+      if (args.includes('open') && !args.includes(LIMIT)) {
         return {
           answer: 'answered',
           stdout: OPEN_ROW('feature_a', '2026-10-01T00:00:00Z'),
-          stderr: 'plot-host: bitbucket pr-list state=open page complete (1 rows below requested limit 49) — this page holds every pull request the host has in this state',
+          stderr: 'plot-host: bitbucket pr-list state=open page complete (1 rows below requested limit 3000) — this page holds every pull request the host has in this state',
         };
       }
       if (args.includes('all') && args.includes('--since')) {
         return { answer: 'answered', stdout: '', stderr: 'plot-host: bitbucket pr-list state=all window complete (0 rows) — this window holds every pull request the host has in this state since the stamp' };
       }
-      return emptySweepAnswer(args[args.indexOf('--state') + 1] ?? '');
+      return wholePageAnswer(args[args.indexOf('--state') + 1] ?? '');
     };
 
     await scanOnce(worldOf(['feature_a', 'feature_gone'], cleanStream, hostSaid), state, OPTIONS);
 
-    const branchCalls = seenArgs.filter((call) => call.includes('--branch'));
-    expect(branchCalls.length).toBe(2);
-    // One spend-rate call, two delta-side pr-list calls, plus the two
-    // full-sweep calls the retry makes on the vanished-row refusal.
+    expect(seenArgs.some((call) => call.includes('--branch'))).toBe(false);
+    // One spend-rate call, two delta-side pr-list calls, plus the full read's
+    // two calls the retry makes on the vanished-row refusal.
     expect(seenArgs.length).toBe(5);
   });
 });
 
 describe('readBitbucketListing via scanOnce: the listing is a typed host answer', () => {
-  it('asks Host.prListing for the sweep with the tracked branches and for the window with since, and never reads pr-list stdout', async () => {
+  it('asks Host.prListing unbranched with the scan limit and for the window with since, and never reads pr-list stdout', async () => {
     const queries: PrListingQuery[] = [];
     const hostSaid: Scripts['hostSaid'] = async () => ({ answer: 'failed', said: 'hostSaid must not be asked', kind: 'failed' } as unknown as HostAnswer);
     const typed = (world: ScanWorld): ScanWorld => ({
@@ -224,8 +249,8 @@ describe('readBitbucketListing via scanOnce: the listing is a typed host answer'
 
     await scanOnce(typed(worldOf(['feature_a', 'feature_b'], cleanStream, hostSaid)), freshScanState(), OPTIONS);
     expect(queries).toEqual([
-      { state: 'open', rich: true, branches: ['feature_a', 'feature_b'] },
-      { state: 'all', branches: ['feature_a', 'feature_b'] },
+      { state: 'open', rich: true, limit: scanPrListLimit() },
+      { state: 'all', limit: scanPrListLimit() },
     ]);
 
     queries.length = 0;
@@ -234,9 +259,51 @@ describe('readBitbucketListing via scanOnce: the listing is a typed host answer'
     state.listing = '.branches\t0\t-\t-\n.list-arrived\t1\t-\t-\n';
     state.listingAt = Date.now() - (300_000 + 1);
     await scanOnce(typed(worldOf(['feature_a'], cleanStream, hostSaid)), state, OPTIONS);
-    expect(queries[0]).toEqual({ state: 'open', rich: true, limit: 49 });
+    expect(queries[0]).toEqual({ state: 'open', rich: true, limit: scanPrListLimit() });
     expect(queries[1]?.state).toBe('all');
     expect(typeof queries[1]?.since).toBe('string');
     expect(queries[1]?.branches).toBeUndefined();
+  });
+});
+
+describe('readBitbucketListing via scanOnce: a full read costs the same for every tracked-branch count', () => {
+  const ROWS = 120;
+  const OPEN = 7;
+  const fullRead = async (tracked: number) => {
+    const branches = Array.from({ length: tracked }, (_, i) => `feature_${i}`);
+    const queries: PrListingQuery[] = [];
+    const rowsFor = (state: string) => Array.from({ length: state === 'open' ? OPEN : ROWS }, (_, i) => ({
+      head: `feature_${i}`, state: i < OPEN ? 'OPEN' : 'MERGED', updatedAt: '2026-10-01T00:00:00Z',
+    }));
+    const world = worldOf(branches, cleanStream, async () => ({ answer: 'failed', said: 'unused', kind: 'failed' } as unknown as HostAnswer));
+    const typed: ScanWorld = {
+      ...world,
+      walk: {
+        ...world.walk,
+        host: {
+          ...world.walk.host,
+          prListing: async (query: PrListingQuery): Promise<PrListing> => {
+            queries.push(query);
+            return { answer: 'answered', rows: rowsFor(query.state) as never, complete: { [query.state]: 'whole' }, refusal: null };
+          },
+        },
+      },
+    };
+    const state = freshScanState();
+    await scanOnce(typed, state, OPTIONS);
+    return { queries, state };
+  };
+
+  it.each([1, 53, 200])('asks two listings for %i tracked branches and walks the same rows', async (tracked) => {
+    const { queries, state } = await fullRead(tracked);
+    expect(queries).toHaveLength(2);
+    expect(queries.every((query) => query.branches === undefined)).toBe(true);
+    expect(state.listingWalked).toEqual({ all: ROWS, open: OPEN });
+  });
+
+  it('keeps only the rows of the tracked branches', async () => {
+    const { state } = await fullRead(3);
+    const heads = (state.listingHeld?.rows ?? []).map((row) => row.head).sort();
+    expect(heads).toEqual(['feature_0', 'feature_1', 'feature_2']);
   });
 });

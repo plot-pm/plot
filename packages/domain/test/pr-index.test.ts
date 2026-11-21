@@ -756,9 +756,9 @@ describe('the window one refresh asks for', () => {
     it('answers a delta for a partial store whose failure is inside its grace', () => {
       // A PARTIAL READ IS ITSELF A FAILURE READING. `complete: false` means some
       // state did not answer on the pass that produced this store — paging a
-      // full read on Bitbucket costs up to 24 requests, so repeating it every
-      // ordinary tick to re-ask a state that just failed spends a budget
-      // `PR_REQUESTS_PER_REFRESH.bitbucket` counts as 3. Inside the grace the
+      // full read on Bitbucket costs one request per 50 rows, so repeating it
+      // every ordinary tick to re-ask a state that just failed spends a budget
+      // `PR_REQUESTS_PER_REFRESH.bitbucket` counts as 1. Inside the grace the
       // next refresh asks a delta instead; once the grace expires, a full read.
       const failed = { at: now - 30 * 60 * 1000 };
       const partial = due({ complete: false });

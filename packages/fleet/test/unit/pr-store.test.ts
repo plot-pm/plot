@@ -780,9 +780,9 @@ describe('the call asks only for the delta', () => {
 
   it('a partial full read falls back to a window inside the grace, and is asked again an hour later', async () => {
     // A PARTIAL ANSWER TO A FULL-READ WINDOW IS A FULL READ THAT FAILED FOR
-    // SOME STATES. Paging a full read on Bitbucket costs up to 24 requests, so
-    // repeating it every ordinary tick to re-ask a state that just 429'd would
-    // spend the budget `PR_REQUESTS_PER_REFRESH.bitbucket` counts as 3 — the
+    // SOME STATES. Paging a full read on Bitbucket costs one request per 50
+    // rows, so repeating it every ordinary tick to re-ask a state that just
+    // 429'd would spend the budget `PR_REQUESTS_PER_REFRESH.bitbucket` counts as 1 — the
     // same cost a thrown full-read failure already stands down for.
     const home = storeHome();
     await refresh(host([line({ updatedAt: '2026-09-20T12:00:00Z' })]), home);

@@ -1,18 +1,23 @@
 import type { IssueAnswer } from '../entities/issue.js';
 import { youCaseOf, type ItemKind, type YouMarker, type YouReason, type ItemPlacement } from './delivery-placement.js';
 import { reasonVerb, youKindWord } from './delivery-row-form.js';
+import type { ReleaseTodoEntry } from './release-card.js';
 import { TICKETS_ANCHOR } from './tickets-section.js';
 import { linkIconKind, type LinkIconKind } from './link-icon.js';
 
+/** A line's marker: a You marker, or `waits` for a release approval that cannot run yet. */
+export type TodoMarker = YouMarker | 'waits';
+
 /** The marker words a line carries as text; a marker is never colour alone. */
-export const TODO_MARKER_WORDS: Record<YouMarker, string> = {
+export const TODO_MARKER_WORDS: Record<TodoMarker, string> = {
   'blocks-delivery': 'blocks delivery',
   input: 'input',
   'clean-up': 'clean up',
+  waits: 'waits',
 };
 
 /** Most urgent first: the markers' order in the list. */
-const MARKER_ORDER: readonly YouMarker[] = ['blocks-delivery', 'input', 'clean-up'];
+const MARKER_ORDER: readonly TodoMarker[] = ['blocks-delivery', 'input', 'clean-up', 'waits'];
 
 /** The fixed order of reasons within one marker, declared once. */
 const REASON_ORDER: readonly YouReason[] = [
@@ -47,18 +52,20 @@ export interface TodoListInput {
   /** The tickets the placement gave the Tickets section. */
   tickets: readonly { ownership: string }[];
   /** The releases the release cards owe an approval for (`releaseTodoEntries`); absent reads as none. */
-  releases?: readonly { id: string; label: string; anchor: string }[];
+  releases?: readonly ReleaseTodoEntry[];
 }
 
 export interface TodoLine {
   id: string;
-  /** The verb capitalised, then the label: `Approve my-plan`; always `${verb} ${label}`. */
+  /** `${verb} ${label}`, then ` · ${reason}` where `reason` is not empty: `Approve release 2.35.2 · CI is still running on abc123456`. */
   text: string;
   /** The verb alone, capitalised: `Approve`. */
   verb: string;
   /** The name the verb acts on: `my-plan`. */
   label: string;
-  marker: YouMarker;
+  /** Why a `waits` line cannot run; empty on every other line. */
+  reason: string;
+  marker: TodoMarker;
   /** The marker as words. */
   markerWords: string;
   anchor: string;
@@ -69,8 +76,8 @@ export interface TodoLine {
 export interface TodoList {
   /** One line per You item, most urgent first. */
   lines: TodoLine[];
-  /** Lines per marker; the three sum to `lines.length`. */
-  counts: Record<YouMarker, number>;
+  /** Lines per marker; the four sum to `lines.length`. */
+  counts: Record<TodoMarker, number>;
   /** `You block 1 delivery · the fleet waits for 2 inputs · 2 to clean up`, or `You block nothing`. */
   header: string;
   /** Tickets assigned to the reader with no plan; `null` where the tracker has not answered. */
@@ -93,8 +100,9 @@ const plural = (n: number, one: string, many: string): string => `${n} ${n === 1
  * A line's marker is the placement's own; no second reason-to-marker map exists. A clean-up line
  * names the item's kind (`youKindWord`) in place of a verb, because a loose item offers no single act. The order is
  * marker (blocks delivery, input, clean up), then `REASON_ORDER`, then item id, and does not read age.
- * A release a release card binds adds one `release-approval` line, sorted with the rest.
- * The header counts the three markers from the same lines and prints only non-zero parts;
+ * A release a release card binds adds one `release-approval` line. It carries the `blocks-delivery` marker
+ * only where the entry `blocks`; otherwise it carries `waits`, its text names the entry's reason, and it sorts last.
+ * The header counts the three You markers from the same lines and prints only non-zero parts; it never counts `waits`;
  * with no line it reads `You block nothing`. The triage count is the tickets with ownership `mine`,
  * the figure the Tickets section shows as "assigned to you with no plan", and is `null` unless the tracker answered.
  *
@@ -104,9 +112,12 @@ export const todoList = (input: TodoListInput): TodoList => {
   const release = youCaseOf('release-approval');
   const entries = [
     ...input.items.flatMap((i) => (i.placement.section === 'you'
-      ? [{ id: i.placement.id, reason: i.placement.reason, kind: i.placement.kind as ItemKind | undefined, marker: i.placement.marker, label: i.label, anchor: i.anchor }]
+      ? [{ id: i.placement.id, reason: i.placement.reason, kind: i.placement.kind as ItemKind | undefined, marker: i.placement.marker as TodoMarker, label: i.label, anchor: i.anchor, why: '' }]
       : [])),
-    ...(input.releases ?? []).map((r) => ({ id: r.id, reason: release.reason, kind: undefined, marker: release.marker, label: r.label, anchor: r.anchor })),
+    ...(input.releases ?? []).map((r) => ({
+      id: r.id, reason: release.reason, kind: undefined, marker: (r.blocks ? release.marker : 'waits') as TodoMarker,
+      label: r.label, anchor: r.anchor, why: r.blocks ? '' : r.reason,
+    })),
   ];
   const rank = (e: (typeof entries)[number]): [number, number] => [MARKER_ORDER.indexOf(e.marker), REASON_ORDER.indexOf(e.reason)];
   entries.sort((a, b) => {
@@ -120,15 +131,16 @@ export const todoList = (input: TodoListInput): TodoList => {
     capital(e.reason === 'loose' && e.kind !== undefined ? youKindWord(e.kind) : reasonVerb(e.reason));
   const lines: TodoLine[] = entries.map((e) => ({
     id: e.id,
-    text: `${word(e)} ${e.label}`,
+    text: e.why === '' ? `${word(e)} ${e.label}` : `${word(e)} ${e.label} · ${e.why}`,
     verb: word(e),
     label: e.label,
+    reason: e.why,
     marker: e.marker,
     markerWords: TODO_MARKER_WORDS[e.marker],
     anchor: e.anchor,
     icon: linkIconKind(e.kind ?? 'release'),
   }));
-  const counts: Record<YouMarker, number> = { 'blocks-delivery': 0, input: 0, 'clean-up': 0 };
+  const counts: Record<TodoMarker, number> = { 'blocks-delivery': 0, input: 0, 'clean-up': 0, waits: 0 };
   for (const l of lines) counts[l.marker] += 1;
   const parts = [
     counts['blocks-delivery'] > 0 ? `You block ${plural(counts['blocks-delivery'], 'delivery', 'deliveries')}` : null,

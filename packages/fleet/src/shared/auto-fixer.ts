@@ -3,7 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import {
-  slicePrNext,
+  claimStaleMsOf,
+  fixerOwner,
+  fixerPrNext,
+  fixerScopeRow,
   type DefaultBranchReading,
   type SlicePrNextReadings,
   type SlicePrStep,
@@ -22,11 +25,13 @@ import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
 import type { RunLogLine } from '@plot-pm/domain/ports/run-log';
 import type { Refs } from '@plot-pm/domain/ports/refs';
+import type { Agents } from '@plot-pm/domain/ports/agents';
 import type { Trees } from '@plot-pm/domain/ports/trees';
 import type { Host } from '@plot-pm/domain/ports/host';
 import type { Processes } from '@plot-pm/domain/ports/processes';
 import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 import {
+  agentsFs,
   boundedRunProcess,
   defaultBranchFile,
   fixerAttemptsFile,
@@ -39,7 +44,6 @@ import {
 } from '@plot-pm/domain/adapters';
 import { agentRunCommand } from '@plot-pm/domain/adapters/agent-run/agent-run-command';
 import { HARNESS_LIMIT_LINES, HARNESS_START_REFUSALS } from '@plot-pm/domain/adapters/harness/limit-lines';
-import { sprintScopeRef } from '@plot-pm/domain/adapters/sprint-scope-ref';
 import { failedStart } from '@plot-pm/domain/rules/failed-start';
 import { sameCommit } from '@plot-pm/domain/rules/same-commit';
 import type { WorkerState } from '@plot-pm/domain/entities/fleet';
@@ -48,7 +52,8 @@ import { takeContinueLock, releaseContinueLock, continueLockPath } from './conti
 import { mainCheckout } from './main-checkout.js';
 import { roleFilesAt } from './role-files.js';
 import { commonGitDir } from './agent-log.js';
-import { hostOf, refsOf, runLogOf, scriptsOf, type ActOptions } from './action-log.js';
+import { hostOf, refsOf, runLogOf, type ActOptions } from './action-log.js';
+import { readConfigAsync } from './config-reader.js';
 
 /** What the fixer tick reads and acts through; a test replaces each. */
 export interface FixerTickWorld {
@@ -59,8 +64,10 @@ export interface FixerTickWorld {
   readonly freshAgents: (opts: ActOptions) => Pick<FreshAgentRecordStore, 'rowsFor'>;
   /** Reads a desk worktree's ending file; real `fs` by default, `null` for "no file". */
   readonly readEndingFile: (worktree: string) => string | null;
-  /** The ports the role's files are read from `origin/<default>` through; the git adapter by default. */
-  readonly refs: (opts: ActOptions) => Pick<Refs, 'defaultBranch' | 'showFile'>;
+  /** The ports the role's files and a head branch's claim commits are read through; the git adapter by default. */
+  readonly refs: (opts: ActOptions) => Pick<Refs, 'defaultBranch' | 'showFile' | 'commitSubjects'>;
+  /** The registry the owner reading asks for a manifest naming the head branch; the file adapter by default. */
+  readonly agents: (opts: ActOptions) => Pick<Agents, 'declared'>;
   /** The path of the agent settings file in the main checkout, or `null` where it is absent. */
   readonly agentSettingsFile: (main: string) => string | null;
   /** Reads a review verdict file; real `fs` by default, `null` for a file that cannot be read. */
@@ -76,7 +83,9 @@ export interface FixerTickWorld {
 }
 
 /** The readings one tick hands {@link fixerTick} besides the PR's own. */
-export type FixerTickReadings = Omit<SlicePrNextReadings, 'row' | 'desk' | 'correctionsSpentExhausted' | 'fixer'> & {
+export type FixerTickReadings = Omit<SlicePrNextReadings, 'row' | 'desk' | 'correctionsSpentExhausted' | 'fixer' | 'scope'> & {
+  /** `Claim stale after`, in milliseconds; `null` where the key does not parse. */
+  readonly claimStaleMs: number | null;
   /** The queue and machine readings a start takes its slot from; `null` reads as `queue-unread`. */
   readonly slot: MachineSlot | null;
 };
@@ -339,7 +348,11 @@ const runningElsewhere = async (world: FixerTickWorld, opts: ActOptions, rows: r
  * its worktree removed and its mark cleared. It then reads the slice's own
  * worktree (if any is on this machine), its worker state (translated into a
  * {@link DeskDeadAnswer}), whether its one fresh session is already spent on
- * `corrections-spent`, and the attempts record, and asks {@link slicePrNext}.
+ * `corrections-spent`, and the attempts record, and asks {@link fixerPrNext}.
+ * A row that `fixerScopeRow` puts out of scope gets its reason and no further
+ * read. Otherwise the owner reading asks the worktree listing, the registry's
+ * manifests and the claim commits of `origin/<base>..origin/<head>`; a failed
+ * read answers `owner-unread` and starts nothing.
  * A `fixer` step goes to {@link startFixer} once `fixerAdmission` finds no other
  * fixer running and a free machine slot; otherwise it holds with that reason
  * and starts on a later pass. Each start, refusal and end is
@@ -368,14 +381,29 @@ export const fixerTick = async (
       attempts = await readAttempts(world, opts, row.number);
     }
 
+    const out = fixerScopeRow(row, readings.defaultBranchName);
+    if (out !== null) {
+      results.push({ pr: row.number, step: { step: 'none', why: out } });
+      continue;
+    }
+
     const found = await world.trees(opts).forBranch(row.head);
     const deskTree = found.ok ? found.value : null;
+    const declared = await world.agents(opts).declared();
+    const claims = await world.refs(opts).commitSubjects(`origin/${row.base}..origin/${row.head}`);
+    const owner = fixerOwner({
+      worktree: !found.ok ? 'unread' : deskTree === null ? 'absent' : 'here',
+      manifest: declared.ok ? declared.value.some((manifest) => manifest.branch === row.head) : 'unread',
+      claims: claims.ok ? claims.value : 'unread',
+      claimStaleMs: readings.claimStaleMs,
+      now: readings.now,
+    });
     const worker = deskTree === null ? null : await world.worker(opts).workerState(deskTree.path, true);
     const desk: DeskDeadAnswer = worker?.ok ? deskDeadFromWorkerState(worker.value.state) : { dead: false, why: 'elsewhere' };
     const spentExhausted = await correctionsSpentExhausted(world, opts, deskTree?.path ?? null, row.head);
     const fixer: FixerReading = fixerReadingOf(attempts, row.headSha ?? '');
 
-    const step = slicePrNext({ ...readings, row, desk, correctionsSpentExhausted: spentExhausted, fixer });
+    const step = fixerPrNext({ ...readings, row, desk, correctionsSpentExhausted: spentExhausted, fixer, owner });
     if (step.step !== 'fixer' || attempts === 'unreadable') {
       results.push({ pr: row.number, step });
       continue;
@@ -440,7 +468,7 @@ const findingFor = (evidence: FixerEvidence, head: string): FixerFinding =>
  * @param world - the fixer tick's world.
  * @param opts - the repository and scripts directory.
  * @param row - the PR's row.
- * @param step - the `fixer` step `slicePrNext` answered.
+ * @param step - the `fixer` step `fixerPrNext` answered.
  * @param index - the position the appended attempt takes in the record.
  * @param now - epoch milliseconds of the tick.
  * @returns whether a process started, and its pid, or why not.
@@ -657,7 +685,8 @@ export interface FixerPassReading {
 
 /**
  * Reads what one fixer pass acts on: the PR index's open rows, the default
- * branch reading and the active sprint's scope.
+ * branch reading, the default branch's name and `Claim stale after`. A failed
+ * name read leaves `defaultBranchName` absent, so every row answers `base-unread`.
  *
  * @param opts - where the fleet acts.
  * @param now - epoch milliseconds.
@@ -673,13 +702,14 @@ export const readFixerPass = async (opts: ActOptions, now: number): Promise<Fixe
   if (rows.length === 0) return null;
   const reading = await defaultBranchFile(opts.repoRoot).read();
   const defaultBranch: DefaultBranchReading | null = reading.ok ? reading.value : null;
-  const branch = defaultBranch?.branch ?? 'main';
-  const scope = await sprintScopeRef(refsOf(opts), scriptsOf(opts), `origin/${branch}`);
+  const name = await refsOf(opts).defaultBranch();
+  const claimStaleMs = claimStaleMsOf(await readConfigAsync(opts, 'Claim stale after', '24'));
   return {
     rows,
     readings: {
       newestMerged: null,
-      scope,
+      ...(name.ok ? { defaultBranchName: name.value } : {}),
+      claimStaleMs,
       reviewRun: null,
       reviewStarts: null,
       verdict: { read: 'absent' },
@@ -745,6 +775,7 @@ const defaultFixerTickWorld: FixerTickWorld = {
   freshAgents: (opts) => freshAgentRecordFile({ cwd: opts.repoRoot }),
   readEndingFile: readOrNull,
   refs: (opts) => refsOf(opts),
+  agents: (opts) => agentsFs({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
   readVerdictFile: readOrNull,
   readLogFile: readOrNull,
   agentSettingsFile: (main) => {
