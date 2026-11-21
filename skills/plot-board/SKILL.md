@@ -177,6 +177,65 @@ refusal to the user; each names the fact that disagrees and what to look at.
 | the recorded pid is alive and nothing holds the port | The process is alive and not serving, so its identity is unproven. Look at it before ending it. |
 | the recorded pid is alive and the port's holder does not descend from it | Two boards are involved, or the pid was recycled. Stopping either on this evidence would be a guess. |
 
+## Environment and access
+
+The variables below set where the board listens, which requests it accepts and what it serves. The board reads further variables, such as `PLOT_UNATTENDED` and `PLOT_EXIT_WITH_PARENT`, that this section does not list. `/plot-board --start` and `pnpm board` start the board with the environment of the calling shell. Export a variable before the start. Restart a running board to change one.
+
+### Variables
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `PORT` | `7777` | The port the board listens on. `0` lets the operating system choose a free port. `/plot-board --start` sets `PORT` itself from `--port N`, the `Board port` key or 7777, so an exported `PORT` does not reach a board that command starts. `pnpm board` uses an exported `PORT`, then the key, then 7777. |
+| `HOST` | unset | The address the board listens on. Unset, the board listens on `::1` and `127.0.0.1`. Set, it listens on that one address. A value other than `localhost`, `127.0.0.1` or `::1` makes the board refuse every write route with HTTP 403, unless `PLOT_BOARD_ALLOW_REMOTE_WRITES` is `i-understand`. |
+| `PLOT_BOARD_ORIGINS` | unset | A comma-separated list of origins from which the board accepts write requests, in addition to `http://localhost:<port>`, `http://127.0.0.1:<port>` and `http://[::1]:<port>`. An entry counts only when it equals the origin that a browser reports for the page: scheme and host in lower case, no port when it is the default for the scheme, no path and no trailing slash. The board ignores any other entry. The variable does not change the address the board listens on. |
+| `PLOT_BOARD_ALLOW_REMOTE_WRITES` | unset | The exact value `i-understand` lets the board serve write routes while `HOST` is not loopback. Any other value, `1` and `true` included, has no effect. A board that listens on loopback ignores it. See [Remote writes](#remote-writes). |
+| `PLOT_BOARD_MOCK` | unset | The exact value `1` makes the board serve built-in example plans and agent rows instead of the repository's. Any other value has no effect. |
+| `PLOT_REPO_ROOT` | the working directory of the board | The repository whose plans the board serves. |
+| `PLOT_SCRIPTS_DIR` | the parent of the directory that holds the board artifact | The directory of Plot's helper scripts. Development and tests override it. |
+
+### Exposure
+
+By default the board listens on loopback only, so no other machine reaches it. Every process of every user account on the machine reaches it: the board reads neither the address of the caller nor the user of the calling process.
+
+| Configuration | Who sends a write request | Who reads |
+|---------------|---------------------------|-----------|
+| `HOST` unset (default) | Every process on the machine | Every process on the machine |
+| `HOST` on loopback, behind a reverse proxy, with `PLOT_BOARD_ORIGINS` | Every process on the machine, and every client the proxy admits | The same |
+| `HOST` not loopback, no opt-in | Nobody: the board answers HTTP 403 | Every client that reaches the port |
+| `HOST` not loopback, `PLOT_BOARD_ALLOW_REMOTE_WRITES=i-understand` | Every client that reaches the port | The same |
+
+In every row, the same-origin check refuses a write request from a browser page of another site, unless `PLOT_BOARD_ORIGINS` declares the origin of that page.
+
+### Write routes
+
+A write route is a `POST` route in the `WRITE_ROUTES` table of `packages/board/src/server/index.ts`. Its routes include ones that approve, supersede and deliver plans, move plans between phases, create ideas, stories and plans, start, continue and restart agents on this machine, claim and release branches, delete a loose branch, drop a registry entry, change the fleet settings, record a release, approve a release pull request and register a passkey. Three checks apply to the caller.
+
+1. **The write gate.** The board compares `HOST` with `localhost`, `127.0.0.1` and `::1`. For any other value, it answers every write route with HTTP 403, unless `PLOT_BOARD_ALLOW_REMOTE_WRITES` is `i-understand`. The gate reads the configured address, not the address of the caller. Read routes (`GET`) have no gate, and the board checks neither `Host` nor `Origin` on them.
+2. **The same-origin check.** Every write handler runs it. It refuses a request whose `Sec-Fetch-Site` header is anything other than `same-origin`. It refuses a request whose `Origin` header is not an accepted origin (see `PLOT_BOARD_ORIGINS`). **A request with neither header passes.** A browser sets these headers on its own requests, and page JavaScript cannot change them. A client that is not a browser, such as `curl`, sends neither header and passes.
+3. **The passkey.** `POST /api/release-approve` requires a verified passkey assertion and answers `person-unproven` without one. `POST /api/release` and `POST /api/restart` verify an assertion when the request carries one. Without one, the `PLOT_UNATTENDED` setting of the board process applies. `POST /api/passkey/register` accepts the first credential without an assertion, and replacing a registered credential requires an assertion from it. `POST /api/passkey/challenge` issues a challenge when a passkey is registered and asks for no assertion. No other write route takes a passkey.
+
+### Remote access
+
+To use the board from another machine, keep it on loopback behind a reverse proxy and declare the proxy's origin in `PLOT_BOARD_ORIGINS`.
+
+1. Leave `HOST` unset, or set it to `localhost`, `127.0.0.1` or `::1`.
+2. Export `PLOT_BOARD_ORIGINS` with the origin that browsers use to open the proxy, for example `export PLOT_BOARD_ORIGINS=https://board.example.net`. Separate several origins with commas. The board ignores an entry that has a default port, a path or a trailing slash.
+3. Stop the board if it runs (`--stop`), then start it from the same shell (`--start`).
+4. Configure the proxy to forward requests to `http://localhost:<port>` and to pass the `Origin` and `Sec-Fetch-Site` request headers of the browser unchanged. A request that reaches the board without these headers passes the same-origin check.
+5. Open the proxy origin in a browser.
+
+`PLOT_BOARD_ORIGINS` restricts no caller. It lets a browser page at the declared origin pass the same-origin check. The board authenticates no client of the proxy. The proxy decides who reaches the board, and every client it admits can use every write route that needs no passkey.
+
+### Remote writes
+
+`PLOT_BOARD_ALLOW_REMOTE_WRITES=i-understand` opens the write gate. With a non-loopback `HOST`, the board then serves every write route to every client that reaches its port. **These routes carry no authentication.** Apart from the passkey routes described above, no write route verifies who the caller is. A client that sends no `Origin` header passes the same-origin check, and so does a client that sets `Origin` to an accepted origin. A caller can approve plans, claim branches and start agents on the machine that runs the board.
+
+The board does not add the address it listens on to the accepted origins. A browser page opened at that address sends an `Origin` that the same-origin check refuses, unless `PLOT_BOARD_ORIGINS` declares it. Issue [#3311](https://github.com/plot-pm/plot/issues/3311) reports that the write routes have no authentication when the opt-in is set.
+
+### Release approval
+
+`POST /api/release-approve` verifies the passkey assertion against the origin `http://localhost:<port>` and the relying-party id `localhost`. An assertion made on a page at another origin, such as the origin of a reverse proxy, fails that check. A page whose host name is not `localhost`, `127.0.0.1` included, shows a notice in its settings view and offers no passkey registration. Register the passkey and approve a release in a browser on the machine that runs the board, at `http://localhost:<port>`.
+
 ## Records line
 
 The board shows `Records: N ahead of <default> · sync PR: none|#N` where a `State branch` is declared, and a row naming the removed-key fix order where `plot/state` is stranded with no key. Both come from the domain; the view only shows them.
