@@ -6,4 +6,7 @@ An open Delivery section with no rows shows a dashed frame with one sentence and
 
 <!--
 plan: docs/plans/2026-11-20-every-delivery-section-folds.md
+bumps:
+  skills:
+    plot: patch
 -->
