@@ -327,6 +327,10 @@ export interface ReleaseDeliveryHeader {
   /** The one block's release or sprint slug, or `''` where the section holds no block, several blocks, or a block with neither. */
   readonly scope: string;
   readonly counts: ReleaseDeliveryCount[];
+  /** The slices over the section's plans per state, one segment for each of the five `SLICE_STATES` in their order, a count of 0 included. */
+  readonly bar: StripSegment[];
+  /** The plans that hold at least one blocked slice. */
+  readonly blockedPlans: number;
 }
 
 /** One block of the section as the header line reads it. */
@@ -341,7 +345,7 @@ export interface ReleaseDeliveryBlock {
  *
  * @param name - the section's name.
  * @param blocks - the section's blocks, in the order it lists them.
- * @returns the totals over the section's plans, each plan once where two blocks list it: `plans`, `delivered`, `at-a-gate`, `blocked`, and `unread` only above 0. Each figure's `target` is the first plan row, in block order, that holds a slice the figure counts (any row for `plans`), and `null` for a count of 0.
+ * @returns the totals over the section's plans, each plan once where two blocks list it: `plans`, `delivered`, `at-a-gate`, `blocked`, and `unread` only above 0. Each figure's `target` is the first plan row, in block order, that holds a slice the figure counts (any row for `plans`), and `null` for a count of 0. `bar` holds the five states over the same plans, and `blockedPlans` the plans with a blocked slice.
  */
 export const releaseDeliveryHeader = (name: string, blocks: readonly ReleaseDeliveryBlock[]): ReleaseDeliveryHeader => {
   const rows = blocks.flatMap((b) => b.rows).filter((r, i, all) => all.findIndex((x) => x.plan === r.plan) === i);
@@ -359,5 +363,7 @@ export const releaseDeliveryHeader = (name: string, blocks: readonly ReleaseDeli
     ...p,
     target: rows.find((r) => p.count > 0 && holds(r, p.key))?.plan ?? null,
   }));
-  return { name, scope: blocks.length === 1 ? blocks[0]!.scope : '', counts };
+  const bar = SLICE_STATES.map((state): StripSegment => ({ state, count: rows.reduce((n, r) => n + inState(r, state), 0) }));
+  const blockedPlans = rows.filter((r) => inState(r, 'blocked') > 0).length;
+  return { name, scope: blocks.length === 1 ? blocks[0]!.scope : '', counts, bar, blockedPlans };
 };

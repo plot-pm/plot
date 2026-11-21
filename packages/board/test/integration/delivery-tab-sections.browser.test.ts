@@ -210,4 +210,39 @@ describe('the Delivery tab renders the five sections', () => {
       await page.close();
     }
   }, 60_000);
+  it('opens a folded section on a summary chip link and marks the target group', async () => {
+    const page = await cat.open('a-full-estate', { tab: 'agents' });
+    try {
+      const toggle = page.locator('[data-section-toggle="work-items"]');
+      await toggle.waitFor({ timeout: 15_000 });
+      await toggle.click();
+      await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('false');
+      const summary = page.locator('[data-section="work-items"] [data-section-summary-parts]');
+      await summary.waitFor({ timeout: 5_000 });
+      expect(await summary.locator('[data-summary-chip]').count()).toBeGreaterThan(0);
+      const chip = summary.locator('[data-summary-chip-link]').first();
+      const key = await chip.getAttribute('data-summary-chip');
+      await chip.click();
+      await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('true');
+      await page.locator(`[data-group="${key}"][data-link-target]`).first().waitFor({ state: 'attached', timeout: 5_000 });
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+
+  it('keeps the activity spinner and shows the agent circles in a folded Fleet heading', async () => {
+    const page = await cat.open('a-full-estate', { tab: 'agents' });
+    try {
+      const toggle = page.locator('[data-section-toggle="fleet"]');
+      await toggle.waitFor({ timeout: 15_000 });
+      await toggle.click();
+      await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('false');
+      const fleetSection = page.locator('[data-section="fleet"]');
+      await fleetSection.locator('[data-summary-circles]').waitFor({ timeout: 5_000 });
+      expect(await fleetSection.locator('[data-summary-circle]').count()).toBeGreaterThan(0);
+      expect(await fleetSection.locator('h2 [data-activity-spinner]').count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
 });

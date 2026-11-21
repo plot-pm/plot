@@ -165,7 +165,9 @@ import { rowKey } from '../lib/agent-rows/row-identity.js';
 // their marks and their menus are declared next door.
 import { splitTicketRows, waitingView } from '../lib/agent-rows/waiting-view.js';
 import { TicketsSectionView } from './TicketsSection.js';
-import { headerControl, SectionEmptyFrame, SectionEmptyMark, SectionHead } from './SectionHead.js';
+import { headerControl, SectionEmptyFrame, SectionHead } from './SectionHead.js';
+import { SectionSummary } from './SectionSummary.js';
+import { sectionSummariesOf } from '../lib/agent-rows/section-summary.js';
 import { deliveryEmpties, offersScopeOff } from '../lib/agent-rows/section-empty.js';
 import { youHeaderOf } from '../lib/agent-rows/you-header.js';
 import { StartWorkButton } from './StartWorkButton.js';
@@ -1252,6 +1254,7 @@ export function AgentList({
         );
         unplacedForFooter = view.notPlaced;
         const unplacedFolded = isFolded('section', 'not-placed', view.notPlaced.length, collapsed);
+        const unplacedPace = headingPace(groupPace(view.notPlaced.flatMap((u) => u.rows), active), unplacedFolded);
         const youHead = youHeaderOf({
           view, placement, reader, ticketAnswer: fleet.issueAnswer ?? null, phaseMap,
           stories: stories ?? [], cards: cards ?? [],
@@ -1341,6 +1344,13 @@ export function AgentList({
         const unfolded = ticketsShown(false);
         const foldedTickets = new Set([...ticketsShown(true)].filter((anchor) => !unfolded.has(anchor)));
         const now = new Date(Date.now());
+        // THE FOLDED SUMMARIES — view properties over the rows each section shows, rendered here.
+        const summaries = sectionSummariesOf({
+          mappingInput, fleet, reader, phaseMap, stories: stories ?? [], cards: cards ?? [],
+          releases: releaseCardView.cards, releaseRows: releaseCardView.rows, passkey,
+          slices: fleet.slices, sprints: activeSprints, scope: sprintScope, now, planIndex,
+          tickets: { issues: filteredIssues, before: waitingView(fleet.waiting, fleet.issues, showEveryTicket, (t) => t).tickets.length, showAll: showEveryTicket },
+        });
         let wider: WiderView[] | null = null;
         const context: AnchorContext = {
           foldedTickets,
@@ -1716,11 +1726,10 @@ export function AgentList({
                   </span>
                 </h2>
               );
-              // Folded, the header keeps its counts; an empty section says so, and a loud supervisor alert stays.
+              // Folded, the header keeps its counts and adds the section's summary; a loud supervisor alert stays.
               const summary = !folded ? null
                 : section.key === 'fleet' && fleet.supervisor?.prominence === 'alert' ? <FleetAlert supervisor={fleet.supervisor} />
-                : empty !== null ? <SectionEmptyMark empty={empty} />
-                : null;
+                : <SectionSummary summary={summaries[section.key]} onJump={(anchor) => jump(anchor)} />;
               return (
                 <section key={section.key} data-section={section.key} className="delivery-card space-y-2">
                   <SectionHead section={section.key} label={section.label} folded={folded} onToggle={() => toggle(section.key)} summary={summary}>
@@ -1867,10 +1876,17 @@ export function AgentList({
             })}
             {view.notPlaced.length > 0 && (
               <section id={UNPLACED_ANCHOR} data-unplaced data-section="not-placed" className="delivery-card space-y-2">
-                <SectionHead section="not-placed" label="Not placed" folded={unplacedFolded} onToggle={() => toggle('not-placed')}>
+                <SectionHead
+                  section="not-placed"
+                  label="Not placed"
+                  folded={unplacedFolded}
+                  onToggle={() => toggle('not-placed')}
+                  summary={unplacedFolded ? <SectionSummary summary={summaries['not-placed']} onJump={(anchor) => jump(anchor)} /> : null}
+                >
                   <h2 data-unplaced-title className="delivery-title flex min-w-0 flex-1 items-baseline gap-1">
                     Not placed — agent branches
                     <span className="delivery-counts ml-2">{view.notPlaced.length}</span>
+                    {unplacedPace && <ActivitySpinner pace={unplacedPace} />}
                   </h2>
                 </SectionHead>
                 {!unplacedFolded && (
@@ -1915,6 +1931,7 @@ export function AgentList({
               story={story ?? { available: false, reason: 'this board has not said whether it can create stories' }}
               facts={ticketFacts}
               folded={collapsed.has('tickets')}
+              summary={<SectionSummary summary={summaries.tickets} onJump={(anchor) => jump(anchor)} />}
               onToggleFold={() => toggle('tickets')}
               foldOpen={ticketsFoldOpen}
               onToggleFoldOpen={() => setTicketsFoldOpen((open) => !open)}

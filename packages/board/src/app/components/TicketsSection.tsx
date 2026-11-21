@@ -1,4 +1,5 @@
 import { ticketsSection, TICKETS_ANCHOR } from '@plot-pm/domain';
+import type { ReactNode } from 'react';
 import type { DispatchInfo, IssueAnswer, IssueRow } from '../../contract/schema.js';
 import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
 import { artifactTuple, tupleAgeText } from '../lib/tuple-row.js';
@@ -42,6 +43,8 @@ export interface TicketsSectionViewProps {
   facts?: ReadonlyMap<string, CardFacts>;
   /** Whether the section is folded to its header line. */
   folded: boolean;
+  /** The header's summary while the section is folded; without one, a folded empty section shows its mark. */
+  summary?: ReactNode;
   onToggleFold: () => void;
   /** Whether the rows behind `… n more · show` show; the Delivery tab holds it, so a jump can open it. */
   foldOpen: boolean;
@@ -96,7 +99,7 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
         label="Tickets"
         folded={props.folded}
         onToggle={props.onToggleFold}
-        summary={props.folded && empty !== null ? <SectionEmptyMark empty={empty} /> : null}
+        summary={!props.folded ? null : props.summary ?? (empty !== null ? <SectionEmptyMark empty={empty} /> : null)}
       >
         <h2 data-delivery-section="tickets" className="delivery-title flex items-baseline gap-1">
           Tickets
