@@ -312,7 +312,8 @@ const limitReadingOf = (message: Extract<SDKMessage, { type: 'rate_limit_event' 
  * Reads a role's `--agents` JSON and checks its settings file.
  *
  * @param role - the role's files.
- * @returns the options that run the role, or the sentence for an `unstarted`
+ * @returns the options that run the role with user settings only and no MCP
+ *   server, or the sentence for an `unstarted`
  *   result when a file is unreadable or the JSON does not define the role.
  *   A role is never run as a plain prompt.
  */
@@ -335,6 +336,7 @@ const loadRole = async (role: RoleAgentRef): Promise<Partial<Options> | string> 
     agents: { [role.name]: own as AgentDefinition },
     settings: role.settingsFile,
     settingSources: ['user'],
+    strictMcpConfig: true,
   };
 };
 
