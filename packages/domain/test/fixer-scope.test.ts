@@ -138,7 +138,7 @@ describe('claimStaleMsOf', () => {
 });
 
 describe('fixerPrNext', () => {
-  const fresh = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, pushedHead: false } as const;
+  const fresh = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, conflictExhausted: false, conflictTried: false, pushedHead: false } as const;
   const readings = (over: Partial<FixerPrNextReadings> = {}): FixerPrNextReadings => ({
     row: row(),
     newestMerged: null,
