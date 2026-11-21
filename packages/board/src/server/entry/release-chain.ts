@@ -214,16 +214,19 @@ export const resolvePlanRelease = async (
   for (const pr of prs) {
     const tags = pr.number === lastPr.number ? lastTags : await ports.refs.tagsContaining(pr.mergeCommit);
     // A failed read is not an empty answer: git could not say which tags hold
-    // this commit, so the sibling answers the way the last-merged PR does.
-    if (!tags.ok) {
+    // this commit. A PR merged into another branch still takes the merge
+    // commit that carried it onto the default branch, and its tags join the
+    // cross-check below. Only where no carrier resolves does the sibling
+    // answer the way the last-merged PR does.
+    const own = tags.ok ? tags.value : [];
+    const carried = own.length === 0 ? await carriedRelease(pr, defaultBranch, ports, warn) : null;
+    if (!tags.ok && carried === null) {
       return resolveRelease(
         { pr: String(pr.number), mergeCommit: pr.mergeCommit, mergedAt: pr.mergedAt, base: pr.base, head: pr.head, defaultBranch, prSource, noFetch },
         ports,
         warn,
       );
     }
-    const own = tags.value;
-    const carried = own.length === 0 ? await carriedRelease(pr, defaultBranch, ports, warn) : null;
     prRowsForTag.push(carried === null ? { ...pr, containingTags: own } : { ...pr, containingTags: carried.containingTags, carrier: carried.mergeCommit });
   }
   const firstTag = prRowsForTag.find((row) => row.number === lastPr.number)?.containingTags[0];
