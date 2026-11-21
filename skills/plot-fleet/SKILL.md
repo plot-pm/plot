@@ -303,7 +303,7 @@ second: it **names them and leaves them running**.
     desk-5e49b509 (pid 71200)
 ```
 
-Stop one by pid if you mean to, or let the eight-hour `Worker bound` end it.
+Stop one by pid if you mean to, or let the `Worker bound` (default eight hours) end it.
 
 ### 7. Restart the supervisor, keep every agent
 
