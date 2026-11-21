@@ -6,7 +6,7 @@
 
 - **State:** Draft
 - **Type:** docs
-- **Review:** pr
+- **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 3
 
@@ -71,11 +71,11 @@ Adopters have different tastes, so Plot adds no gate, no config key and no lint 
 
 ### Templates and skill text
 
-- `docs/templates-show-named-identifiers` — plan and story templates, story-tracking wording, four named decision citations, one changeset
+- `docs/templates-name-their-identifiers` — plan and story templates, story-tracking wording, four named decision citations, one changeset
 
 ## Notes
 
-- `Impl:` reads `own branches` since 2026-11-21: the plan reached main through its plan PR #3478, and its one slice has its own branch.
+- `Impl:` reads `own branches` and `Review:` reads `in-session` since 2026-11-21. The plan reached main through its plan PR #3478, which merged from `docs/templates-show-named-identifiers`, so the slice takes the new branch `docs/templates-name-their-identifiers`; a slice on the merged branch would read as complete. The operator reviewed all 17 open points in session on 2026-11-21, and `plot-approve` cannot find #3478 because it reads only the newest 100 merged PRs.
 - No parser reads a Decision cell, and `packages/domain/src/rules/story-record.ts` tests only for the heading `## Open Points`. `planOpenQuestions`, `interrogate.ts` and `contract/schema.ts` read Open Points lines (Approach step 5).
 - Four tests read the plan templates and run in the slice: `parser.test.mjs:2593-2605`, `skills-say-slices.test.mjs:63,83`, `approve-record-outside-comments.test.mjs:46` and `started-record-outside-comments.test.mjs:3`.
 - Cost: the changeset bumps six skills (`plot`, `plot-approve`, `plot-deliver`, `plot-idea`, `story-tracking` and `challenge-the-plan`), and a change under `skills/plot/templates/plan.md` selects every CI job (`ci-selection-jobs.test.mjs:128-133`).
