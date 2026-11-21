@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** delivery-ui-polish
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Approved:** 2026-11-20, Jan Wloka, plan-PR #3583 merged
 - **Started:** 2026-11-20, Jan Wloka, `feature/delivery-tuple-vocabulary`
 - **Started:** 2026-11-20, Jan Wloka, `feature/delivery-tuples-in-every-row`
+- **Delivered:** 2026-11-21
 
 ## Changelog
 

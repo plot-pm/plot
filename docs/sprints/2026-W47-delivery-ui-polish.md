@@ -20,7 +20,7 @@ Users of the Delivery tab did not understand what they can do and what they must
 Design spec (outside the repo): `/Users/jwloka/Quatico/Agentic-Tools/plot/docs/superpowers/specs/2026-11-20-delivery-ui-polish-design.md`, with mockups in the folder next to it.
 
 ### Must Have
-- [ ] [delivery-link-tuples-everywhere] Every artifact on the Delivery tab is a linked tuple <!-- pr: #3583, branch: feature/delivery-tuple-vocabulary -->
+- [x] [delivery-link-tuples-everywhere] Every artifact on the Delivery tab is a linked tuple <!-- pr: #3583, branch: feature/delivery-tuple-vocabulary -->
 - [ ] [every-delivery-section-folds] Every Delivery section folds and says why it is empty <!-- pr: #3583, branch: feature/delivery-section-empty-kinds -->
 - [ ] [folded-sections-summarise-visually] A folded Delivery section shows what it holds in counters and bars <!-- pr: #3583, branch: feature/folded-sections-summarise-visually -->
 - [ ] [delivery-tab-has-one-header] The Delivery tab has one header in five groups <!-- pr: #3583, branch: feature/delivery-header-release-group -->
