@@ -1,7 +1,7 @@
 import type { WorkflowShaRun } from '../entities/build.js';
 import type { RepairAttempt, RepairRecord } from '../entities/repair-record.js';
 import { declaredRuns, foldRuns } from './default-branch.js';
-import type { RedMainStepAnswer } from './repair.js';
+import { type RedMainStepAnswer, repairBoundReached } from './repair.js';
 
 /**
  * How long after the re-run was asked a reading of the first red SHA's runs
@@ -16,9 +16,12 @@ export const RERUN_GRACE_MS = 60 * 1000;
 /** Why a re-run of the first red SHA reads `pending`. */
 export type RerunWaitReason = 'rerun-unanswered' | 'rerun-unmatched' | 'rerun-unconcluded' | 'rerun-grace';
 
-/** What {@link rerunSettledOf} answers: a settled reading, or `pending` with its reason. */
+/**
+ * What {@link rerunSettledOf} answers: a settled reading, `overdue` where the
+ * wait passed `Checks wait`, or `pending` with its reason.
+ */
 export type RerunReading =
-  | { settled: 'none' | 'green' | 'red' }
+  | { settled: 'none' | 'green' | 'red' | 'overdue' }
   | { settled: 'pending'; reason: RerunWaitReason };
 
 /**
@@ -28,26 +31,48 @@ export type RerunReading =
  * @param runs - every workflow run of `record.firstRedSha`, or null where the CI system did not answer.
  * @param checks - the declared workflow names, from `checkNamesOf`.
  * @param now - the current time, as epoch milliseconds.
+ * @param checksWaitMs - the `Checks wait` bound, in milliseconds.
  * @returns `none` while no re-run is asked; `red` or `green` as the declared runs fold
- *   once they conclude; otherwise `pending` with its reason: `rerun-grace` inside
- *   {@link RERUN_GRACE_MS} of the ask or where `record.at` does not parse,
- *   `rerun-unanswered` where CI did not answer, `rerun-unconcluded` while a declared
- *   run is still going and none failed, and `rerun-unmatched` where the declared runs
- *   fold to `unknown` (no run matched a declared check).
+ *   once they conclude; `overdue` where the answer would be `pending` and `now` is at
+ *   or past the wait's start plus `checksWaitMs`; otherwise `pending` with its reason:
+ *   `rerun-grace` inside {@link RERUN_GRACE_MS} of the ask or where `record.at` does
+ *   not parse, `rerun-unanswered` where CI did not answer, `rerun-unconcluded` while a
+ *   declared run is still going and none failed, and `rerun-unmatched` where the
+ *   declared runs fold to `unknown` (no run matched a declared check). The wait starts
+ *   at `record.at`, else at `record.redSince`; where neither parses, every `pending`
+ *   answer is `overdue`.
  */
 export const rerunSettledOf = (
   record: RepairRecord,
   runs: readonly WorkflowShaRun[] | null,
   checks: readonly string[],
   now: number,
+  checksWaitMs: number,
 ): RerunReading => {
   if (record.rerun === 'none') return { settled: 'none' };
   const askedAt = Date.parse(record.at);
-  if (Number.isNaN(askedAt) || now - askedAt < RERUN_GRACE_MS) return { settled: 'pending', reason: 'rerun-grace' };
-  if (runs === null) return { settled: 'pending', reason: 'rerun-unanswered' };
+  const pending = (reason: RerunWaitReason): RerunReading =>
+    rerunWaitOverdue(record, now, checksWaitMs) ? { settled: 'overdue' } : { settled: 'pending', reason };
+  if (Number.isNaN(askedAt) || now - askedAt < RERUN_GRACE_MS) return pending('rerun-grace');
+  if (runs === null) return pending('rerun-unanswered');
   const state = foldRuns(declaredRuns(runs, checks));
   if (state === 'red' || state === 'green') return { settled: state };
-  return { settled: 'pending', reason: state === 'pending' ? 'rerun-unconcluded' : 'rerun-unmatched' };
+  return pending(state === 'pending' ? 'rerun-unconcluded' : 'rerun-unmatched');
+};
+
+/**
+ * Whether the wait for the first red SHA's re-run passed `Checks wait`.
+ *
+ * @param record - the repair record.
+ * @param now - the current time, as epoch milliseconds.
+ * @param checksWaitMs - the `Checks wait` bound, in milliseconds.
+ * @returns true at or after `record.at + checksWaitMs`, measured from
+ *   `record.redSince` where `record.at` does not parse; true where neither parses.
+ */
+export const rerunWaitOverdue = (record: RepairRecord, now: number, checksWaitMs: number): boolean => {
+  const askedAt = Date.parse(record.at);
+  const start = Number.isNaN(askedAt) ? Date.parse(record.redSince) : askedAt;
+  return Number.isNaN(start) || now >= start + checksWaitMs;
 };
 
 /** What {@link repairStartAction} answers. */
@@ -147,18 +172,16 @@ export const lastGreenRerunSettledOf = (
  * @param now - the current time, as epoch milliseconds.
  * @param mainRepairBoundMs - the `Main repair bound`, in milliseconds.
  * @param checksWaitMs - the `Checks wait` bound, in milliseconds.
- * @returns true at or after `redSince + mainRepairBoundMs + checksWaitMs`;
- *   false before it, or where `redSince` does not parse.
+ * @returns true at or after the repair bound's start plus `mainRepairBoundMs +
+ *   checksWaitMs`, as {@link repairBoundReached} measures it; false before it, or
+ *   where the bound's start does not parse.
  */
 export const lastGreenRerunOverdue = (
   record: RepairRecord,
   now: number,
   mainRepairBoundMs: number,
   checksWaitMs: number,
-): boolean => {
-  const since = Date.parse(record.redSince);
-  return !Number.isNaN(since) && now >= since + mainRepairBoundMs + checksWaitMs;
-};
+): boolean => repairBoundReached(record, now, mainRepairBoundMs + checksWaitMs);
 
 /**
  * The `main-repair` role's run for the attempt's branch on this machine.

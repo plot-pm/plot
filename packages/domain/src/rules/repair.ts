@@ -166,8 +166,11 @@ export interface RedMainStepInput {
   descendsFromRecordedRed: Containment;
   /** The breaking-commit picker's answer for this episode, where the record holds candidates. */
   pickerAnswer: RedMainPickerAnswer;
-  /** Whether the re-run this episode asked for has settled, where `record.rerun === 'asked'`. */
-  rerunSettled: 'pending' | 'green' | 'red' | 'none';
+  /**
+   * Whether the re-run this episode asked for has settled, where `record.rerun === 'asked'`;
+   * `overdue` where the wait passed `Checks wait` with no settled answer.
+   */
+  rerunSettled: 'pending' | 'green' | 'red' | 'none' | 'overdue';
   /** Whether a repair PR is open and still in review, where `record.state === 'repairing'`. */
   repairInFlight: boolean;
   /** Whether the record's last-green re-run (before a revert) settled, and how. */
@@ -215,7 +218,7 @@ export const episodeOpen = (
  *   every later answer, `revert` included: a stale reading never reverts.
  * - `idle` or `rerun`: reads {@link RedMainStepInput.rerunSettled} for the
  *   first red SHA's re-run — `'none'`/`'pending'` holds `await-rerun`; `'red'`
- *   moves to `start-repair`. `'green'` never closes the episode: a settled green
+ *   and `'overdue'` move to `start-repair`, whichever commit settled red. `'green'` never closes the episode: a settled green
  *   closed it above, so the settled reading is red here. A settled commit
  *   after the first red SHA answers `start-repair` (a flake on the first red
  *   SHA does not clear a later red); the first red SHA itself answers
@@ -227,7 +230,7 @@ export const episodeOpen = (
  *   episode reverts once) or the pre-revert re-run of the last green SHA read
  *   red (a red re-run there points outside the repository); `await-repair`
  *   while that re-run is still pending or unasked.
- * - Once the bound passes (`now - redSince >= mainRepairBoundMs`) with the
+ * - Once the bound passes ({@link repairBoundReached}) with the
  *   episode still open: `revert` requires the head to equal the settled
  *   commit (no newer head pending); the picker answering `unknown` or
  *   `{ cancelled }` answers `exhausted` instead; a pending head holds at `hold`.
@@ -258,11 +261,11 @@ export const redMainStep = (
     if (input.rerunSettled === 'green') {
       return reading.settled.sha === record.firstRedSha ? 'await-rerun' : 'start-repair';
     }
-    if (input.rerunSettled === 'red') return 'start-repair';
+    if (input.rerunSettled === 'red' || input.rerunSettled === 'overdue') return 'start-repair';
     return 'await-rerun';
   }
 
-  const boundReached = input.now - Date.parse(record.redSince) >= input.mainRepairBoundMs;
+  const boundReached = repairBoundReached(record, input.now, input.mainRepairBoundMs);
 
   if (record.state === 'repairing') {
     if (!boundReached) return input.repairInFlight ? 'await-repair' : 'start-repair';
@@ -279,6 +282,24 @@ export const redMainStep = (
   if (input.pickerAnswer === 'unknown' || 'cancelled' in input.pickerAnswer) return 'exhausted';
 
   return 'revert';
+};
+
+/**
+ * Whether the `Main repair bound` has passed for the episode's repair.
+ *
+ * The bound runs from `record.attempt.startedAt` where it parses, else from
+ * `record.redSince`.
+ *
+ * @param record - the repair record.
+ * @param now - the current time, as epoch milliseconds.
+ * @param mainRepairBoundMs - the bound, in milliseconds.
+ * @returns true at or after the start plus `mainRepairBoundMs`; false before it,
+ *   or where neither `startedAt` nor `redSince` parses.
+ */
+export const repairBoundReached = (record: RepairRecord, now: number, mainRepairBoundMs: number): boolean => {
+  const startedAt = Date.parse(record.attempt?.startedAt ?? '');
+  const start = Number.isNaN(startedAt) ? Date.parse(record.redSince) : startedAt;
+  return !Number.isNaN(start) && now >= start + mainRepairBoundMs;
 };
 
 /** What a merged revert PR means while the episode still reads red. */
