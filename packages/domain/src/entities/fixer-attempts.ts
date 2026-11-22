@@ -79,6 +79,8 @@ export const FixerAttemptSchema = z
   .strict();
 export type FixerAttempt = z.infer<typeof FixerAttemptSchema>;
 
+// plot-state: reading — the answer of the one re-run call on a head; the tick
+//   writes `asked` before the call and rewrites it once with the call's answer.
 /** What the host answered when the tick asked it to re-run a head's failed CI jobs. */
 export const FixerRerunAnswerSchema = z.enum(['asked', 'failed', 'unaskable']);
 export type FixerRerunAnswer = z.infer<typeof FixerRerunAnswerSchema>;
