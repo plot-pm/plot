@@ -2,6 +2,7 @@ import type { PrIndex } from '../entities/pr-index.js';
 import { SLICE_STATES, type SliceState, type SliceStateCounts } from './slice-states.js';
 import { phaseAccent } from './workflow-phases.js';
 import { storyDateText } from './story-date.js';
+import { pill, type StatusPill } from './status-pill.js';
 
 /** What the PR index says about a merged slice: the PR that landed it, or a commit the plan names. */
 export interface MergedFact {
@@ -47,6 +48,8 @@ export interface PlanSliceFact {
   readonly begun: boolean;
   /** The number of the slice's open PR, where a row of the slice already carries one. Absent where none was read. */
   readonly pr?: number;
+  /** The slice's one branch. Absent where the slice names several branches or none, or no reading names one. */
+  readonly branch?: string;
 }
 
 /** The three headings of an opened plan row, plus the slices no reading reached. */
@@ -129,6 +132,8 @@ export interface PlanLine {
   readonly pr?: number;
   /** `merged <relative time>` on a Done line with a parseable merge time and a clock; absent otherwise. */
   readonly merged?: string;
+  /** The slice's one branch, the branch segment of the line's PR+branch tuple. Absent where the slice has none. */
+  readonly branch?: string;
 }
 
 /**
@@ -154,21 +159,56 @@ export const mergedWords = (mergedAt: string | undefined, now: Date | undefined)
 export const planLines = (slices: readonly PlanSliceFact[], now?: Date): PlanLine[] =>
   slices.map((s): PlanLine => {
     const heading = headingOf(s.state);
+    const branch = s.branch === undefined || s.branch === '' ? {} : { branch: s.branch };
     if (heading === 'done') {
       const merged = mergedWords(s.merged?.mergedAt, now);
       const pr = s.merged?.pr ?? s.pr;
       return {
         heading, slice: s.name, text: `✓ merged · ${s.name}${doneDetail(s.merged)}`, link: false, start: false, state: s.state,
-        ...(pr === undefined ? {} : { pr }), ...(merged === undefined ? {} : { merged }),
+        ...(pr === undefined ? {} : { pr }), ...(merged === undefined ? {} : { merged }), ...branch,
       };
     }
     const pr = s.pr === undefined ? {} : { pr: s.pr };
     if (heading === 'to-do') {
       const waits = s.startable && s.waitsFor !== '' ? ` · waits for ${s.waitsFor}` : '';
-      return { heading, slice: s.name, text: `${s.name}${waits}`, link: false, start: s.startable, state: s.state, ...pr };
+      return { heading, slice: s.name, text: `${s.name}${waits}`, link: false, start: s.startable, state: s.state, ...pr, ...branch };
     }
-    return { heading, slice: s.name, text: s.name, link: s.linked, start: false, state: s.state, ...pr };
+    return { heading, slice: s.name, text: s.name, link: s.linked, start: false, state: s.state, ...pr, ...branch };
   });
+
+/** The pill of each slice state. */
+const SLICE_PILL: Readonly<Record<PlanLine['state'], StatusPill>> = {
+  delivered: pill('merged', 'green'),
+  blocked: pill('blocked', 'red'),
+  'at-a-gate': pill('at CI', 'amber'),
+  'being-built': pill('building', 'blue'),
+  'not-started': pill('not started', 'grey'),
+  unread: pill('not read', 'grey'),
+};
+
+/**
+ * The status pill of a slice line, by the slice's state.
+ *
+ * @param state - the slice's state, or `unread` where a reading it needs is absent.
+ * @returns one pill with no link: `merged` green, `blocked` red, `at CI` amber, `building` blue, `not started` grey,
+ *   and `not read` grey for `unread`, which never reads as not started.
+ */
+export const slicePills = (state: PlanLine['state']): StatusPill[] => [{ ...SLICE_PILL[state] }];
+
+/** One slice line of an opened plan row: the line and its status pills. */
+export interface PlanSliceLine extends PlanLine {
+  /** What `slicePills` returns for the line's state. */
+  readonly pills: StatusPill[];
+}
+
+/**
+ * The slice lines of an opened Release delivery plan row: `planLines` with each line's status pills.
+ *
+ * @param slices - the plan's slices, in the plan's order.
+ * @param now - the clock reading the relative merge time measures against; absent leaves `merged` off every line.
+ */
+export const releasePlanSlices = (slices: readonly PlanSliceFact[], now?: Date): PlanSliceLine[] =>
+  planLines(slices, now).map((line) => ({ ...line, pills: slicePills(line.state) }));
 
 /** One plan as a collapsed row of the Release delivery section. */
 export interface PlanRowFacts {
@@ -177,7 +217,7 @@ export interface PlanRowFacts {
   readonly owner: string;
   readonly strip: StripSegment[];
   readonly stripText: string;
-  readonly lines: PlanLine[];
+  readonly lines: PlanSliceLine[];
   /** Slices with no reading, counted apart from the strip. */
   readonly unread: number;
   /** The plan's workflow phase name. Absent where no row of the plan names one. */
@@ -209,7 +249,7 @@ export const planRowFacts = (plan: string, owner: string, slices: readonly PlanS
     owner,
     strip: planStrip(slices),
     stripText: stripText(slices),
-    lines: planLines(slices, readings.now),
+    lines: releasePlanSlices(slices, readings.now),
     unread: slices.filter((s) => s.state === 'unread').length,
     ...(phase === undefined ? {} : { phase, accent: phaseAccent(phase) }),
   };

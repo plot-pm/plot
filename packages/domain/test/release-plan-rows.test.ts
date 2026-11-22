@@ -10,6 +10,8 @@ import {
   planStrip,
   releaseBlocks,
   releaseDeliveryHeader,
+  releasePlanSlices,
+  slicePills,
   stripText,
   type PlanSliceFact,
 } from '../src/rules/release-plan-rows.js';
@@ -268,5 +270,40 @@ describe('releaseDeliveryHeader', () => {
   it('counts a plan two blocks list once', () => {
     const head = releaseDeliveryHeader('Sprint delivery', [{ scope: 's1', rows: [done, gated] }, { scope: 's2', rows: [gated] }]);
     expect(head.counts.slice(0, 3).map((c) => c.count)).toEqual([2, 2, 1]);
+  });
+});
+
+describe('the slice pills', () => {
+  it('give every slice state its word and tone, and read unread as not read', () => {
+    const cases: [PlanSliceFact['state'], string, string][] = [
+      ['delivered', 'merged', 'green'],
+      ['blocked', 'blocked', 'red'],
+      ['at-a-gate', 'at CI', 'amber'],
+      ['being-built', 'building', 'blue'],
+      ['not-started', 'not started', 'grey'],
+      ['unread', 'not read', 'grey'],
+    ];
+    for (const [state, word, tone] of cases) expect(slicePills(state)).toEqual([{ word, tone, href: null }]);
+  });
+
+  it('carry onto every slice line of a plan row', () => {
+    expect(planRowFacts('p', '', five).lines.map((l) => l.pills[0]?.word)).toEqual(['merged', 'at CI', 'building', 'blocked', 'not started']);
+    expect(releasePlanSlices([slice('a', 'unread')])[0]?.pills).toEqual([{ word: 'not read', tone: 'grey', href: null }]);
+  });
+});
+
+describe('the branch of a slice line', () => {
+  it('names the slice\'s one branch on every heading', () => {
+    const lines = planLines([
+      slice('a', 'delivered', { branch: 'feature/a' }),
+      slice('b', 'being-built', { branch: 'feature/b' }),
+      slice('c', 'not-started', { branch: 'feature/c' }),
+    ]);
+    expect(lines.map((l) => l.branch)).toEqual(['feature/a', 'feature/b', 'feature/c']);
+  });
+
+  it('builds no branch segment for a slice with no branch or an empty one', () => {
+    const lines = planLines([slice('a', 'not-started'), slice('b', 'delivered', { branch: '' })]);
+    expect(lines.map((l) => 'branch' in l)).toEqual([false, false]);
   });
 });
