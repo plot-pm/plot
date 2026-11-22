@@ -4177,6 +4177,7 @@ export const run = async (
             checksWaitMs: checksWaitMsOf(await readConfigAsync(boardOpts, 'Checks wait', '3600')),
             mainRepairBoundMs: mainRepairBoundMsOf(await readConfigAsync(boardOpts, 'Main repair bound', '3600')),
             checks: checkNamesOf(await readConfigAsync(boardOpts, 'Default branch checks', '')),
+            jobForm: ci.system() === 'github-actions',
           }),
           warn,
         );

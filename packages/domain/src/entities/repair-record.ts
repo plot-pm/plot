@@ -149,6 +149,12 @@ export const RepairRecordSchema = z
     // plot-state: reading — the outcome of this machine's one claim push for the
     //                       revert branch, written once; read on every pass.
     revertClaim: z.enum(['won', 'lost']).optional(),
+    /**
+     * The candidate whose CI run was cancelled and that changes more than
+     * Plot's own data, where the picker named it. Written only at `exhausted`;
+     * absent otherwise.
+     */
+    cancelledSha: z.string().optional(),
     /** When fleetd wrote the file, ISO-8601. */
     at: z.string(),
   })

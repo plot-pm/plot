@@ -19,10 +19,11 @@ import { readReviewStarts, startReview } from '@plot-pm/domain/adapters/review-s
 import type { StateHome } from '@plot-pm/domain';
 import type { BuildPort } from '@plot-pm/domain/ports/build';
 import type { Tracker } from '@plot-pm/domain/ports/tracker';
-import { declaredRuns, foldRuns } from '@plot-pm/domain/rules/default-branch';
+import { candidateRunsOf } from '@plot-pm/domain/rules/default-branch';
 import { planForBranch, plansMentioning } from '@plot-pm/domain/rules/plan-for-branch';
 import { trustedReview } from '@plot-pm/domain/rules/pr-index';
 import { prNumberOf, type RedMainCandidate } from '@plot-pm/domain/rules/repair';
+import { DEFAULT_RELEASE_DIR, syncPathSet, syncPathVerdict } from '@plot-pm/domain/rules/state-sync';
 
 import { REVIEW_RUN_LIMIT } from './auto-review.js';
 import { pidAlive } from './fleet-run.js';
@@ -47,6 +48,8 @@ export interface RevertWorldOptions {
   checksWaitMs: number;
   mainRepairBoundMs: number;
   checks: readonly string[];
+  /** Whether the CI system reads `<workflow>/<job>` names; true for GitHub Actions. */
+  jobForm: boolean;
 }
 
 /**
@@ -57,7 +60,11 @@ export interface RevertWorldOptions {
  * remote tip; the desk is `<Worktree root>/desk-<branch with / as ->`, cut
  * from `origin/<branch>` after the claim. A candidate's `touchesState` is true
  * where the commit changes any file under the `Plan directory` or the
- * `Sprint directory`. The reverted PR's branch is read from the host's 100
+ * `Sprint directory`. A candidate's `runs` come from `candidateRunsOf` over
+ * every run of the commit, and its `plotDataOnly` is true where it changes at
+ * least one file and every file lies in `syncPathSet` of the `Plan directory`,
+ * `Active index`, `Delivered index`, `Sprint directory` and the release
+ * directory. The reverted PR's branch is read from the host's 100
  * newest merged PRs, and its plan is the first file under the `Plan directory`
  * whose slices name the branch (`planForBranch`). A candidate is null where its PR, its runs, its files,
  * the default branch's name or either directory could not be read.
@@ -76,13 +83,20 @@ export const revertWorldOf = (options: RevertWorldOptions): RevertWorld => {
   const deskPath = (branch: string): string =>
     join(isAbsolute(root) ? root : resolve(options.repoRoot, root), `desk-${branch.replace(/\//g, '-')}`);
 
-  const stateDirs = async (): Promise<string[] | null> => {
+  const stateDirs = async (): Promise<{ state: string[]; plotData: readonly string[] } | null> => {
     const asked = await Promise.all([
       scripts.config('Plan directory', 'docs/plans/'),
       scripts.config('Sprint directory', 'docs/sprints/'),
+      scripts.config('Active index', 'docs/plans/active/'),
+      scripts.config('Delivered index', 'docs/plans/delivered/'),
     ]);
-    if (asked.some((answer) => !answer.ok)) return null;
-    return asked.flatMap((answer) => (answer.ok && answer.value.trim() !== '' ? [answer.value.trim().replace(/\/?$/, '/')] : []));
+    const values = asked.map((answer) => (answer.ok ? answer.value.trim() : null));
+    const [planDir, sprintDir, activeIndex, deliveredIndex] = values;
+    if (planDir === null || sprintDir === null || activeIndex === null || deliveredIndex === null) return null;
+    return {
+      state: [planDir, sprintDir].flatMap((dir) => (dir !== '' ? [dir.replace(/\/?$/, '/')] : [])),
+      plotData: syncPathSet({ planDir, activeIndex, deliveredIndex, sprintDir, releaseDir: DEFAULT_RELEASE_DIR }),
+    };
   };
 
   const planOf = async (branch: string): Promise<string | undefined> => {
@@ -138,8 +152,9 @@ export const revertWorldOf = (options: RevertWorldOptions): RevertWorld => {
         ...commit,
         prMerged: found !== null && found.state === 'MERGED',
         hostMergeCommit: found !== null && found.state === 'MERGED' ? found.mergeCommit : '',
-        runs: foldRuns(declaredRuns(runs.value, options.checks)),
-        touchesState: files.value.some((file) => dirs.some((dir) => file.startsWith(dir))),
+        runs: candidateRunsOf(runs.value, options.checks, options.jobForm),
+        touchesState: files.value.some((file) => dirs.state.some((dir) => file.startsWith(dir))),
+        plotDataOnly: files.value.length > 0 && syncPathVerdict(files.value, dirs.plotData).ok,
       };
     },
     baseSha: async () => {

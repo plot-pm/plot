@@ -199,6 +199,15 @@ describe('redMainStep', () => {
     expect(answer).toBe('hold');
   });
 
+  it('the bound reached, fresh reading, head at settled, picker names a cancelled commit: exhausted', () => {
+    const answer = redMainStep(
+      reading(),
+      record({ state: 'repairing', redSince: new Date(Date.parse(AT) - 2 * BOUND).toISOString() }),
+      input({ pickerAnswer: { cancelled: 'c'.repeat(40) } }),
+    );
+    expect(answer).toBe('exhausted');
+  });
+
   it('the bound reached, fresh reading, head at settled, picker names a PR: revert', () => {
     const answer = redMainStep(
       reading(),
@@ -216,6 +225,7 @@ const candidate = (over: Partial<RedMainCandidate> = {}): RedMainCandidate => ({
   hostMergeCommit: 'c'.repeat(40),
   runs: 'red',
   touchesState: false,
+  plotDataOnly: false,
   ...over,
 });
 
@@ -254,6 +264,22 @@ describe('redMainPicker', () => {
 
   it.each(['pending', 'unknown'] as const)('holds on a first non-green candidate whose runs read %s, never skipping to a later red', (runs) => {
     expect(redMainPicker([at(2), at(1, { runs })])).toBe('hold');
+  });
+
+  it('skips a cancelled candidate that changes only Plot data and names the next red candidate', () => {
+    expect(redMainPicker([at(2), at(1, { runs: 'cancelled', plotDataOnly: true })])).toEqual({ pr: 2 });
+  });
+
+  it('answers the sha of a cancelled candidate that changes code, never a later red PR', () => {
+    expect(redMainPicker([at(2), at(1, { runs: 'cancelled', plotDataOnly: false })])).toEqual({ cancelled: '1'.repeat(40) });
+  });
+
+  it('skips a green candidate before a cancelled code candidate', () => {
+    expect(redMainPicker([at(3), at(2, { runs: 'cancelled' }), at(1, { runs: 'green' })])).toEqual({ cancelled: '2'.repeat(40) });
+  });
+
+  it.each(['pending', 'unknown'] as const)('holds where the oldest non-green candidate reads %s, before a cancelled one', (runs) => {
+    expect(redMainPicker([at(2, { runs: 'cancelled' }), at(1, { runs })])).toBe('hold');
   });
 
   it('names the PR merge, not a red bundle commit above it', () => {

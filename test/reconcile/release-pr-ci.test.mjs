@@ -148,22 +148,23 @@ test('ci.yml carries a top-level permissions: contents: read', () => {
 });
 
 /**
- * Evaluates the top-level concurrency group of a workflow for one event, with
- * the subset of Actions expression syntax the group uses: string literals,
- * `==`, `!=`, `&&`, `||`, parentheses, `format()` and dotted context reads.
- * Evaluating, not grepping, because the comment block is part of
+ * Evaluates the `${{ }}` parts of one workflow line for one event, with the
+ * subset of Actions expression syntax the concurrency block uses: string
+ * literals, `==`, `!=`, `&&`, `||`, parentheses, `format()` and dotted context
+ * reads. Evaluating, not grepping, because the comment block is part of
  * `preamble(CI)` and a regex finds `github.run_id` there as readily as in the
  * expression.
  */
-const concurrencyGroup = (yaml, ctx) => {
+const concurrencyValue = (yaml, key, ctx) => {
   const head = preamble(yaml);
   assert.notEqual(head.indexOf('\nconcurrency:'), -1, 'ci.yml must declare a top-level concurrency block');
+  const pattern = new RegExp(`^\\s*${key}:`);
   const line = head
     .slice(head.indexOf('\nconcurrency:'))
     .split('\n')
-    .find((l) => /^\s*group:/.test(l));
-  assert.ok(line, 'ci.yml must declare a top-level concurrency group');
-  const template = line.replace(/^\s*group:\s*/, '');
+    .find((l) => pattern.test(l));
+  assert.ok(line, `ci.yml must declare a top-level concurrency ${key}`);
+  const template = line.replace(new RegExp(`^\\s*${key}:\\s*`), '');
   return template.replace(/\$\{\{(.*?)\}\}/g, (_, expr) => {
     const js = expr
       .replace(/\bgithub\.[A-Za-z_.]+/g, (m) => `ctx[${JSON.stringify(m)}]`)
@@ -175,28 +176,40 @@ const concurrencyGroup = (yaml, ctx) => {
   });
 };
 
+/** Evaluates the top-level concurrency group of a workflow for one event. */
+const concurrencyGroup = (yaml, ctx) => concurrencyValue(yaml, 'group', ctx);
+
+/** Evaluates the top-level `cancel-in-progress` of a workflow for one event. */
+const concurrencyCancel = (yaml, ctx) => concurrencyValue(yaml, 'cancel-in-progress', ctx);
+
+// `github.run_attempt` is a string in Actions, and the evaluator maps `==` to
+// `===`, so the contexts carry the string `'1'` GitHub supplies.
 const PR_CTX = (n, headRef) => ({
   'github.event_name': 'pull_request',
   'github.event.pull_request.number': n,
   'github.head_ref': headRef,
   'github.run_id': 900000 + n * 7 + headRef.length,
+  'github.run_attempt': '1',
 });
-const PUSH_CTX = (runId) => ({
+const PUSH_CTX = (runId, attempt = '1') => ({
   'github.event_name': 'push',
   'github.event.pull_request.number': undefined,
   'github.head_ref': '',
   'github.run_id': runId,
+  'github.run_attempt': attempt,
 });
 const DISPATCH_CTX = (runId) => ({
   'github.event_name': 'workflow_dispatch',
   'github.event.pull_request.number': undefined,
   'github.head_ref': '',
   'github.run_id': runId,
+  'github.run_attempt': '1',
 });
 
-test('ci.yml cancels a superseded run in its group', () => {
-  const head = preamble(CI);
-  assert.match(head.slice(head.indexOf('\nconcurrency:')), /cancel-in-progress: true/);
+test('ci.yml cancels a superseded pull request or dispatched run, and never a running main push run', () => {
+  assert.equal(concurrencyCancel(CI, PR_CTX(3277, 'sprint/x')), 'true');
+  assert.equal(concurrencyCancel(CI, DISPATCH_CTX(1)), 'true');
+  assert.equal(concurrencyCancel(CI, PUSH_CTX(111)), 'false', 'a newer main push must replace the pending run, not cancel the running one');
 });
 
 test('ci.yml shares one concurrency group across dispatched runs', () => {
@@ -212,12 +225,15 @@ test('ci.yml gives every run of one pull request the same group, and another pul
   assert.notEqual(concurrencyGroup(CI, PR_CTX(3278, 'sprint/y')), first);
 });
 
-test('ci.yml gives every main push run its own group', () => {
-  const a = concurrencyGroup(CI, PUSH_CTX(111));
-  const b = concurrencyGroup(CI, PUSH_CTX(222));
-  assert.equal(a, 'ci-111');
-  assert.equal(b, 'ci-222');
-  assert.notEqual(a, b, 'a later merge must never cancel the run validating the earlier one');
+test('two first-attempt main push runs share ci-main-push', () => {
+  assert.equal(concurrencyGroup(CI, PUSH_CTX(111)), 'ci-main-push');
+  assert.equal(concurrencyGroup(CI, PUSH_CTX(222)), 'ci-main-push');
+});
+
+test('a main push re-run gets its own group', () => {
+  const rerun = concurrencyGroup(CI, PUSH_CTX(111, '2'));
+  assert.equal(rerun, 'ci-111', 'a re-run in main-push would replace the newest head pending run, or be cancelled by a later push');
+  assert.notEqual(rerun, concurrencyGroup(CI, PUSH_CTX(222)));
 });
 
 test("ci.yml gives the release PR's pull request run its own group", () => {
