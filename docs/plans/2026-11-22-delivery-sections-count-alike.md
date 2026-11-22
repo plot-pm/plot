@@ -54,7 +54,7 @@ Every count and every row label is a domain property, as the layering rule requi
 
 ### Header counts
 
-- `feature/delivery-header-counts-every-state` — the Release delivery section header and the sprint and release block headers print all five slice states, and they add up to the total <!-- builds: headerCountParts over SliceStateCounts --> <!-- tests: release-plan-rows.test.ts — the five parts sum to total, a 0 count has target null; delivery-view.test.ts and sprint-delivery-view.test.ts header strings -->
+- `feature/delivery-header-counts-every-state` — the Release delivery section header and the sprint and release block headers print all five slice states, and they add up to the total <!-- builds: headerCountParts over SliceStateCounts --> <!-- tests: release-plan-rows.test.ts — the five parts sum to total, a 0 count has target null; delivery-view.test.ts and sprint-delivery-view.test.ts header strings --> → #3662
 ### Held slices
 
 - `feature/a-held-slice-names-its-hold` <!-- waits: feature/release-delivery-plan-rows-unfold --> — the not-started count names how many slices are held, and the slice line names each hold <!-- builds: notStartedHold --> <!-- tests: slice-states.test.ts — a held queued slice still counts not-started; a needs-brief row gives no brief, a waitsOn gives waits on, neither gives none -->
