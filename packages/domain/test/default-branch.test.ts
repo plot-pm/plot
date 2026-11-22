@@ -12,6 +12,7 @@ import {
   ancestorStep,
   ancestorsToAsk,
   newerAncestors,
+  candidateRunsOf,
   checkNamesOf,
   checksWaitMsOf,
   declaredRuns,
@@ -203,6 +204,50 @@ describe('declaredRuns — only the declared workflows reach the fold', () => {
 
   it('leaves an empty checks list unaffected', () => {
     expect(declaredRuns(runs, [])).toEqual(runs);
+  });
+});
+
+describe('candidateRunsOf — a cancelled or waiting run, told apart from none', () => {
+  const CHECKS = ['CI/validate'];
+  const job = (conclusion: string | null, over: Partial<WorkflowShaRun> = {}): WorkflowShaRun =>
+    run(conclusion, { workflow: 'CI/validate', ...over });
+
+  it('answers cancelled where every declared entry concluded cancelled', () => {
+    expect(candidateRunsOf([run('cancelled'), job('cancelled')], CHECKS, true)).toBe('cancelled');
+  });
+
+  it('answers cancelled for no declared entry and a cancelled CI run', () => {
+    expect(candidateRunsOf([run('cancelled')], CHECKS, true)).toBe('cancelled');
+  });
+
+  it.each(['pending', 'queued'])('answers pending for no declared entry and a CI run that reads %s', (status) => {
+    expect(candidateRunsOf([run(null, { status })], CHECKS, true)).toBe('pending');
+  });
+
+  it('answers unknown for no runs at all', () => {
+    expect(candidateRunsOf([], CHECKS, true)).toBe('unknown');
+  });
+
+  it('answers pending for one cancelled and one queued entry', () => {
+    expect(candidateRunsOf([job('cancelled'), job(null, { status: 'queued' })], CHECKS, true)).toBe('pending');
+  });
+
+  it('answers red for one cancelled and one failed entry', () => {
+    expect(candidateRunsOf([job('cancelled'), job('failure')], CHECKS, true)).toBe('red');
+  });
+
+  it('answers green and red from the declared entries as foldRuns does', () => {
+    expect(candidateRunsOf([run(null), job('success')], CHECKS, true)).toBe('green');
+    expect(candidateRunsOf([run(null), job('failure')], CHECKS, true)).toBe('red');
+  });
+
+  it('reads the declared runs only for a whole CI/validate name with jobForm false', () => {
+    expect(candidateRunsOf([run(null, { status: 'queued' })], CHECKS, false)).toBe('unknown');
+    expect(candidateRunsOf([run('cancelled')], CHECKS, false)).toBe('unknown');
+  });
+
+  it('answers unknown where a cancelled entry sits beside a successful one', () => {
+    expect(candidateRunsOf([job('cancelled'), job('success', { workflow: 'CI/other' })], ['CI/validate', 'CI/other'], true)).toBe('unknown');
   });
 });
 

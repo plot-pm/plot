@@ -6,6 +6,7 @@ import { DEFAULT_BRANCH_VERSION, type DefaultBranchReading } from '@plot-pm/doma
 import type { Pr } from '@plot-pm/domain/entities/pr';
 import { REPAIR_RECORD_VERSION, type RepairRecord } from '@plot-pm/domain/entities/repair-record';
 import type { TicketRecord } from '@plot-pm/domain/entities/ticket-record';
+import type { CandidateRuns } from '@plot-pm/domain/rules/default-branch';
 
 import { repairRevertTick, type RevertWorld } from '../../src/shared/revert-start.js';
 
@@ -102,7 +103,9 @@ interface Rigging {
   /** Where true, every candidate read fails. */
   candidateFails: boolean;
   /** A candidate's own folded runs by sha; red where absent. */
-  candidateRuns: Map<string, 'green' | 'red' | 'pending' | 'unknown'>;
+  candidateRuns: Map<string, CandidateRuns>;
+  /** The candidates that change only Plot's data, by sha. */
+  candidatePlotData: Set<string>;
   /** Where true, the next desk is not made. */
   deskFails: boolean;
   /** Where true, a review start is refused (another review holds the one slot). */
@@ -142,6 +145,7 @@ const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
     greenRerun: 'success',
     candidateFails: false,
     candidateRuns: new Map(),
+    candidatePlotData: new Set(),
     deskFails: false,
     reviewRefused: false,
     checksWithout: 'as-set',
@@ -209,6 +213,7 @@ const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
             hostMergeCommit: commit.sha,
             runs: state.candidateRuns.get(commit.sha) ?? ('red' as const),
             touchesState: false,
+            plotDataOnly: state.candidatePlotData.has(commit.sha),
           },
     baseSha: async () => 'b'.repeat(40),
     claim: async () => {
@@ -343,6 +348,22 @@ describe('repairRevertTick — the second look at the red', () => {
     r.set({ now: r.state.now + 30 * 60_000 });
     await repairRevertTick(r.world);
     expect(asked).toEqual([OLDER]);
+  });
+
+  it('reads past a cancelled bookkeeping candidate and reverts the red one after it', async () => {
+    const BOOKING = 'k'.repeat(40);
+    const r = rig(record({ candidates: [{ sha: BREAKING, subject: SUBJECT }, { sha: BOOKING, subject: 'plot: book the brief and plan start for x' }] }));
+    r.state.candidateRuns.set(BOOKING, 'cancelled');
+    r.state.candidatePlotData.add(BOOKING);
+    const asked: string[] = [];
+    const inner = r.world.candidate;
+    r.world.candidate = async (commit) => { asked.push(commit.sha); return inner(commit); };
+    expect(await repairRevertTick(r.world)).toBe('rerun-asked');
+    expect(asked).toEqual([BOOKING, BREAKING]);
+    r.set({ now: r.state.now + 30 * 60_000 });
+    expect(await repairRevertTick(r.world)).toBe('revert-opened');
+    expect(r.stored()).toMatchObject({ revertedPr: 41, revertPr: 9 });
+    expect(r.stored()?.cancelledSha).toBeUndefined();
   });
 
   it('opens the revert PR when both SHAs read red', async () => {
@@ -520,6 +541,22 @@ describe('repairRevertTick — exhausted', () => {
     expect(await repairRevertTick(r.world)).toBe('exhausted');
     expect(r.notes).toHaveLength(1);
     expect(r.calls).not.toContain('claim');
+  });
+
+  it('ends at exhausted past the bound where a code candidate has a cancelled run, and names it', async () => {
+    const r = rig(record());
+    r.state.candidateRuns.set(BREAKING, 'cancelled');
+    expect(await repairRevertTick(r.world)).toBe('exhausted');
+    expect(r.stored()).toMatchObject({ state: 'exhausted', cancelledSha: BREAKING });
+    expect(r.notes).toHaveLength(1);
+    expect(r.notes[0]).toContain(`${BREAKING.slice(0, 12)} has a cancelled CI run`);
+    expect(r.calls).not.toContain('claim');
+  });
+
+  it('writes no cancelledSha where the picker answers unknown', async () => {
+    const r = rig(record({ candidates: [] }));
+    expect(await repairRevertTick(r.world)).toBe('exhausted');
+    expect(r.stored()?.cancelledSha).toBeUndefined();
   });
 
   it('keeps the episode open while the revert PR is open, and exhausts on a red one or a HIGH', async () => {

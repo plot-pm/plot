@@ -11,6 +11,7 @@ import {
   advanceSettled,
   ancestorStep,
   ancestorsToAsk,
+  candidateRunsOf,
   newerAncestors,
   declaredRuns,
   failingRunsOf,
@@ -332,7 +333,9 @@ export type DefaultBranchOutcome = 'skipped' | 'asked' | 'unreadable';
  * (`declaredRuns`); an empty list folds every run. A declared name matching
  * none of the head's runs is reported to `warn` ({@link unmatchedChecks}), so
  * a config typo reads differently from a quiet repository instead of folding
- * into the same `unknown`.
+ * into the same `unknown`. The head itself is read by `candidateRunsOf` over
+ * every run, so a run that waits with no jobs yet reads `pending`, and a
+ * cancelled run reads `unknown`.
  *
  * The settled part moves to the head when the head is `red` or `green`
  * (`advanceSettled`). A head that is `pending` or `unknown` moves it to the
@@ -421,7 +424,11 @@ export const refreshDefaultBranch = async (
     }
     const runs = declaredRuns(asked.value, world.checks);
     world.timing?.observe(sha, runs);
-    const head = foldRuns(runs);
+    // Every run of the head, not only the declared ones: a run that waits in
+    // the concurrency group has created no jobs, so only its run-level row
+    // reads `pending`. A cancelled run settles nothing and reads `unknown`.
+    const candidate = candidateRunsOf(asked.value, world.checks, world.build.system() === 'github-actions');
+    const head = candidate === 'cancelled' ? 'unknown' : candidate;
     const advanced = advanceSettled(carried, sha, head);
     // The failing runs belong to the settled commit: new ones when it moved
     // to this head or to an ancestor, otherwise those already held.

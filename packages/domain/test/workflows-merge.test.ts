@@ -298,6 +298,11 @@ describe('merge — the controller for a PR merge', () => {
       expect(refusalOf(readings({ defaultBranch: unknownHead(LONG), defaultBranchTip: TIP }))).toBe('decided');
     });
 
+    it('refuses a person\u2019s merge past a head that reads pending longer than Checks wait', () => {
+      // A run that waits in the concurrency group has tested nothing yet.
+      expect(refusalOf(readings({ defaultBranch: unknownHead(LONG, { head: 'pending' }), defaultBranchTip: TIP }))).toBe('default-branch-unsettled');
+    });
+
     it('keeps default-branch-unsettled for fleetd on the same reading', () => {
       expect(refusalOf(readings({ caller: 'fleetd', defaultBranch: unknownHead(LONG), defaultBranchTip: TIP }))).toBe('default-branch-unsettled');
     });

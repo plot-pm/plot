@@ -102,6 +102,49 @@ export const foldRuns = (runs: readonly WorkflowShaRun[]): RunsState => {
   return 'unknown';
 };
 
+/** What {@link candidateRunsOf} answers: a {@link RunsState}, or `cancelled`. */
+export type CandidateRuns = RunsState | 'cancelled';
+
+/**
+ * Adds up the runs of one commit, and tells a cancelled or waiting run apart
+ * from no run at all.
+ *
+ * Folds the declared entries with {@link foldRuns}; a `red`, `green` or
+ * `pending` fold is the answer. Where that fold is `unknown`:
+ * - with at least one declared entry, it answers `cancelled` where every
+ *   declared entry concluded `cancelled`;
+ * - with no declared entry, it reads the runs of the workflows the declared
+ *   names point into ({@link workflowOfCheck}): `pending` where one of them
+ *   reads a pending word, and `cancelled` where at least one exists and every
+ *   one of them concluded `cancelled`.
+ *
+ * Every other shape answers `unknown`. A run that waits in a concurrency group
+ * has created no jobs, so it carries no `<workflow>/<job>` entry; its
+ * run-level row is what reads `pending`.
+ *
+ * @param runs - every workflow run of one commit, not only the declared ones.
+ * @param checks - the declared check names, from {@link checkNamesOf}.
+ * @param jobForm - whether the CI system reads `<workflow>/<job>`; the caller decides from its connector.
+ * @returns the commit's state, or `cancelled`.
+ */
+export const candidateRunsOf = (
+  runs: readonly WorkflowShaRun[],
+  checks: readonly string[],
+  jobForm: boolean,
+): CandidateRuns => {
+  const declared = declaredRuns(runs, checks);
+  const folded = foldRuns(declared);
+  if (folded !== 'unknown') return folded;
+  if (declared.length > 0) {
+    return declared.every((run) => wordOf(run) === 'cancelled') ? 'cancelled' : 'unknown';
+  }
+  const workflows = new Set(checks.map((name) => workflowOfCheck(name, jobForm)));
+  const ofWorkflows = runs.filter((run) => workflows.has(run.workflow));
+  if (ofWorkflows.some((run) => PENDING_CONCLUSIONS.has(wordOf(run)))) return 'pending';
+  if (ofWorkflows.length > 0 && ofWorkflows.every((run) => wordOf(run) === 'cancelled')) return 'cancelled';
+  return 'unknown';
+};
+
 /**
  * Lists the runs that concluded as failures.
  *
