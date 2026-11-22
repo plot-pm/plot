@@ -35,6 +35,7 @@ Design spec (outside the repo): `/Users/jwloka/Quatico/Agentic-Tools/plot/docs/s
 
 ### Should Have
 - [ ] [delivery-activity-has-three-signals] Delivery activity shows as three signals with fixed meanings <!-- pr: #3583, branch: feature/delivery-activity-signals -->
+- [ ] [delivery-sections-count-alike] The sprint header and the Fleet section count alike
 
 <!-- add items here -->
 
@@ -55,6 +56,7 @@ Design spec (outside the repo): `/Users/jwloka/Quatico/Agentic-Tools/plot/docs/s
 
 ### Scope Changes
 - 2026-11-21: Added [templates-show-named-identifiers] to Could — dispatched 2026-11-21; operator added it to count it in this sprint
+- 2026-11-22: Added [delivery-sections-count-alike] to Should — the operator read the sprint header and the Fleet section as contradicting each other
 
 <!-- Log scope changes here: added/removed items, tier changes, with date and reason -->
 <!-- Format: - YYYY-MM-DD: Added/Moved/Removed [slug] reason -->
