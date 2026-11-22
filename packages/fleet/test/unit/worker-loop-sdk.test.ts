@@ -124,6 +124,7 @@ const rig = (
     recordRun: async () => null,
     recordLimits: async () => 0,
     sliceCostUsd: async () => null,
+    resumeHandleReadings: () => ({ roleSessions: new Set<string>(), head: null }),
   };
   const sdk: SdkRunDeps = {
     agentRun: () => ({
@@ -325,6 +326,23 @@ describe('runWorkerLoop on the SDK runner — the hand-back rows', () => {
     const r = rig([ran('checks'), ran('pushed')], async () => ({ passed: true }));
     await runWorkerLoop(r.deps);
     expect(r.read().sliceRuns).toEqual({ branch: BRANCH, runs: 2 });
+  });
+});
+
+describe('runWorkerLoop on the SDK runner — a role handle in the manifest', () => {
+  it('sends no resumeId and a minted sessionId where the manifest names a role transcript', async () => {
+    const r = rig([ran('blocked', 'which API?')], async () => ({ passed: true }));
+    Object.assign(r.deps.ports, {
+      resumeHandleReadings: () => ({ roleSessions: new Set<string>(), head: { firstLine: '{"type":"agent-setting","agentSetting":"unblocker"}', gitBranch: '' } }),
+    });
+    r.deps = {
+      ...r.deps,
+      mintHandle: () => 'H-New',
+      idle: { ...r.deps.idle, transcript: transcriptFixture({ spoken: [`${r.wt}\th-1`] }) },
+    };
+    await runWorkerLoop(r.deps);
+    expect(r.requests[0]).toMatchObject({ resumeId: '', sessionId: 'h-new' });
+    expect(r.read().resumeId).toBe('h-new');
   });
 });
 

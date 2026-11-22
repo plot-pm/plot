@@ -559,6 +559,7 @@ const loopPorts = (trees: Trees, boundedRun: BoundedRun, reexec: Reexec): Worker
   recordRun: async () => null,
   recordLimits: async () => 0,
   sliceCostUsd: async () => null,
+  resumeHandleReadings: () => ({ roleSessions: new Set<string>(), head: null }),
   reexec,
 });
 
