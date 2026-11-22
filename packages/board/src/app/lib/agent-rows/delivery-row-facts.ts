@@ -16,6 +16,7 @@ import { unnamedDeskLabel } from '@plot-pm/domain/rules/desk-manifest';
 import { isLiveState, type AgentRow } from '../../../contract/schema.js';
 import { agentLabel, ciOf, reviewOf, type DeliveryMapping } from './delivery-readings.js';
 import { shortSessionId, worktreeName } from '../tuple-row.js';
+import { activityPace } from './activity.js';
 
 const youngest = (values: readonly (number | null | undefined)[]): number | undefined => {
   const known = values.filter((v): v is number => typeof v === 'number');
@@ -130,6 +131,8 @@ export const agentRowFactsOf = (mapping: DeliveryMapping, id: string, now?: numb
     } else if (desk !== '') {
       facts.name = desk;
     }
+    if (entry.contextTokens !== undefined) facts.contextTokens = entry.contextTokens;
+    if (entry.contextSpend !== undefined) facts.contextSpend = entry.contextSpend;
     const last = entry.lastActivity ? Date.parse(entry.lastActivity) : Number.NaN;
     if (now !== undefined && Number.isFinite(last)) facts.idleMinutes = Math.max(0, Math.floor((now - last) / 60_000));
   }
@@ -150,6 +153,7 @@ export const agentRowFactsOf = (mapping: DeliveryMapping, id: string, now?: numb
   if (entry?.branch) facts.branch = entry.branch;
   if (row === undefined) return facts;
   if (row.branch !== '') facts.branch = row.branch;
+  facts.pace = activityPace(row);
   if (row.question !== null && row.question !== undefined) facts.question = row.branch;
   if (row.localAhead > 0) facts.commits = row.localAhead;
   if (row.pr !== null) {
