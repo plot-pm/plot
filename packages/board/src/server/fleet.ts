@@ -4495,6 +4495,13 @@ import {
   phaseOfPlan,
   type PhaseMap,
 } from '@plot-pm/domain';
+import { planStateOf } from '@plot-pm/domain/entities/plan';
+
+/** A plan's `State:` word as `AgentRow.planState`: the domain's reading, with `none` as null. */
+const planStateOrNull = (wire: string): AgentRow['planState'] => {
+  const state = planStateOf(wire);
+  return state === 'none' ? null : state;
+};
 import { clockSystem } from '@plot-pm/domain/adapters';
 import type { Clock } from '@plot-pm/domain/ports/clock';
 
@@ -7611,6 +7618,8 @@ export function rowsFromPulse(
           deferredReason: b.deferred_reason,
           // The row sits in its plan's column, whatever its branch state says.
           phase: phaseOfPlan(phaseMap, { state: plan.phase, tracer: plan.tracer }),
+          // The plan's own state, free of the column map and the tracer rule.
+          planState: planStateOrNull(plan.phase),
           group,
           ageMinutes: age,
           note: b.claimed ? `${rowNote} · ${b.claimed}` : rowNote,
@@ -8002,6 +8011,7 @@ export function rowsFromPulse(
       // from, and inventing one would be worse than the empty cell. Same rule as
       // `plan: ''` two lines down.
       phase: /^idea\//.test(branch) ? phaseOfPlan(phaseMap, { state: 'draft' }) : null,
+      planState: /^idea\//.test(branch) ? 'draft' : null,
       group,
       ageMinutes,
       note,
@@ -8334,6 +8344,7 @@ export function rowsFromPulse(
       // follows for every non-idea branch. `Discovery` on a branch nobody
       // planned is a confident wrong answer where nothing is the honest one.
       phase: null,
+      planState: null,
       group: placed,
       ageMinutes,
       note: shownNote,
