@@ -68,6 +68,11 @@ export interface CellPart {
 /** What a gate read as: `none` is a review nobody asked for, which differs from a gate nobody read (no part). */
 export type GateOutcome = 'pass' | 'pending' | 'fail' | 'none';
 
+/** A gate mark of `gatesCell`: a part whose `outcome` is always read. */
+export interface GatePart extends CellPart {
+  outcome: GateOutcome;
+}
+
 /** One row in the seven columns. DO is `null` outside the You section. */
 export type RowCells = Record<RowColumn, Cell | null>;
 
@@ -316,10 +321,10 @@ const REVIEW_OUTCOME = { pending: 'pending', high: 'fail', passed: 'pass', none:
  * @param number - the PR number the links point at, or `undefined` where unknown.
  * @returns the cell, or `null` where neither gate was read. Each part carries an `outcome` read from `pr`, never from the mark's glyph.
  */
-export const gatesCell = (pr: PrReading | undefined, number: number | undefined): Cell | null => {
+export const gatesCell = (pr: PrReading | undefined, number: number | undefined): (Cell & { parts: GatePart[] }) | null => {
   if (pr === undefined) return null;
   const marks = gateMarks(pr);
-  const parts: CellPart[] = [
+  const parts: GatePart[] = [
     ...(marks.ci === null || pr.ci === 'unread' ? [] : [{
       value: marks.ci,
       link: number === undefined ? null : { to: 'checks', pr: number } as const,

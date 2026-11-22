@@ -44,6 +44,15 @@ describe('the Work items columns', () => {
     expect(out.cells.by).toEqual({ value: 'eins78', links: [{ to: 'person', handle: 'eins78' }] });
   });
 
+  it.each([
+    [{ approvalOwed: 'plan', person: 'eins78', personName: 'Max Albrecht' }, { value: 'Max Albrecht', links: [{ to: 'person', handle: 'eins78' }] }],
+    [{ person: 'eins78' }, null],
+    [{ phase: 'design' }, null],
+    [{}, null],
+  ] as const)('name the person in By only where the item waits on them: %o', (facts, by) => {
+    expect(workItemCells(slice('queued'), { plan: 'p', ...facts })!.cells.by).toEqual(by);
+  });
+
   it('return nothing for an item outside Work items', () => {
     expect(workItemCells({ ...slice('queued'), section: 'fleet' } as never, {})).toBeNull();
     expect(workItemPills({ ...slice('queued'), section: 'fleet' } as never, {}, null)).toBeNull();

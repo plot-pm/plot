@@ -1,12 +1,10 @@
 import {
   ageValue,
   gatesCell,
-  itemRowCells,
-  progressCell,
   workByCell,
   type Cell,
-  type CellPart,
   type GateOutcome,
+  type GatePart,
   type ItemRowFacts,
   type LinkTarget,
 } from './delivery-row-form.js';
@@ -59,24 +57,21 @@ const claimAge = (minutes: number): string => {
 };
 
 /** The pill of one gate mark of `gatesCell`: its word, the tone its `outcome` reads, and the part's own link. */
-const gatePill = (part: CellPart): StatusPill => {
-  const outcome = part.outcome ?? 'none';
+const gatePill = (part: GatePart): StatusPill => {
+  const { outcome } = part;
   const word = part.value.startsWith('CI') && outcome !== 'none' ? CI_WORD[outcome] : REVIEW_WORD[outcome];
   return pill(word, OUTCOME_TONE[outcome], part.link);
 };
 
 const gatePills = (facts: ItemRowFacts): StatusPill[] => {
   const cell = gatesCell(facts.prReading, facts.pr);
-  return cell?.parts === undefined || cell.parts.length === 0 ? [pill('gates unread', 'grey')] : cell.parts.map(gatePill);
+  return cell === null ? [pill('gates unread', 'grey')] : cell.parts.map(gatePill);
 };
 
-const progressPills = (facts: ItemRowFacts): StatusPill[] => {
-  const [state] = progressCell(facts).parts ?? [];
-  return [
-    facts.pr === undefined ? pill('no PR yet', 'grey') : pill('PR open', 'blue', state?.link ?? { to: 'pr', pr: facts.pr }),
-    ...(facts.unpushed !== undefined && facts.unpushed > 0 ? [pill(`${plural(facts.unpushed, 'unpushed commit')}`, 'amber')] : []),
-  ];
-};
+const progressPills = (facts: ItemRowFacts): StatusPill[] => [
+  facts.pr === undefined ? pill('no PR yet', 'grey') : pill('PR open', 'blue', { to: 'pr', pr: facts.pr }),
+  ...(facts.unpushed !== undefined && facts.unpushed > 0 ? [pill(plural(facts.unpushed, 'unpushed commit'), 'amber')] : []),
+];
 
 const waitPills = (facts: ItemRowFacts, agents: readonly string[]): StatusPill[] => {
   const claim = facts.claim === undefined ? [] : [
@@ -133,7 +128,7 @@ const agentsBy = (agents: readonly string[]): Cell | null =>
  * The cells of a Work items row that the domain decides: the status pills and the By cell.
  *
  * By names the agents acting on the item through `workByCell`; with no agent it names the person whose approval or
- * plan phase the item waits on, then the cell `itemRowCells` builds.
+ * plan phase the item waits on, and is `null` otherwise.
  *
  * @param placement - what `placeDelivery` returned for the item.
  * @param facts - the item's row facts.
@@ -147,7 +142,7 @@ export const workItemCells = (
 ): { group: WorkItemGroup; holds: GroupValueKind; cells: WorkItemCells } | null => {
   const status = workItemPills(placement, facts, sprint);
   if (status === null || placement.section !== 'work-items') return null;
-  const plain = agentsBy(placement.agents) ?? personBy(facts) ?? itemRowCells(placement, facts)?.by ?? null;
+  const plain = agentsBy(placement.agents) ?? personBy(facts);
   return {
     group: placement.group,
     holds: WORK_GROUP_VALUE[placement.group],
