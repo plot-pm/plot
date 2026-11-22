@@ -14,6 +14,7 @@
 - **Started:** 2026-11-20, Jan Wloka, `feature/mine-means-mine-or-my-plan`
 - **Started:** 2026-11-21, Jan Wloka, `feature/delivery-row-menu-column`
 - **Started:** 2026-11-21, Jan Wloka, `feature/delivery-you-rows-verb-first`
+- **Started:** 2026-11-22, Jan Wloka, `feature/delivery-work-items-grid`
 
 ## Changelog
 
