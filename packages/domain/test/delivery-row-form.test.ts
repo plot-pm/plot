@@ -548,6 +548,10 @@ describe('the You row', () => {
     expect(youStatusText('review-pr', facts)).toContain('review');
   });
 
+  it('has no consequence where the reason names none and nothing aged or left the sprint', () => {
+    expect(youRowCells(you('loose', 'unblock', [], 'branch'), { branch: 'feature/x' })!.consequence).toBeNull();
+  });
+
   it('is null for a You item with no row shape, and outside You', () => {
     expect(youRowCells(you('review-pr', 'unblock', [], 'ticket'), facts)).toBeNull();
     expect(youRowCells(work('queued'), facts)).toBeNull();
@@ -567,6 +571,7 @@ describe('the grouped Unblock row', () => {
   it('spans ages below a day in their own units and leaves an unaged item out', () => {
     expect(ageRangeValue([300, 3 * 1440])).toBe('5h–3d old');
     expect(ageRangeValue([1440])).toBe('1 day old');
+    expect(ageRangeValue([2 * 1440, 2 * 1440 + 30])).toBe('2 days old');
     expect(ageRangeValue([undefined, 90, 90])).toBe('1h old');
     expect(ageRangeValue([undefined])).toBeNull();
   });
