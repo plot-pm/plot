@@ -3,8 +3,11 @@ import { DELIVERY_LAYOUT } from '@plot-pm/domain';
 /** A section or a group of `DELIVERY_LAYOUT`: the keys a collapse toggle holds. */
 export type CollapseKey = string;
 
-/** The sections the tab renders after the `DELIVERY_LAYOUT` sections: Tickets and Not placed. */
-export const EXTRA_SECTION_KEYS: readonly CollapseKey[] = ['tickets', 'not-placed'];
+/**
+ * The sections and groups the tab renders after the `DELIVERY_LAYOUT` sections: Tickets, its groups Delivered by the sprint
+ * and Found during the sprint, and Not placed.
+ */
+export const EXTRA_SECTION_KEYS: readonly CollapseKey[] = ['tickets', 'tickets-delivered', 'tickets-found', 'not-placed'];
 
 const KNOWN_KEYS: ReadonlySet<string> = new Set([
   ...DELIVERY_LAYOUT.flatMap(({ section, groups }) => [section, ...groups]),
@@ -12,7 +15,8 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The keys that start collapsed: Free agents, which fold into one line, and Not placed, which starts as one header line.
+ * The keys that start collapsed: Free agents, which fold into one line, Not placed, which starts as one header line, and the
+ * Tickets groups Delivered by the sprint and Found during the sprint.
  * The Release delivery section starts open; its one key, `release-delivery`, holds its fold under both scope toggle states.
  *
  * A free agent owes nothing, so it needs no reading on arrival. Stored keys from the earlier vocabulary (`quiet`, `done`) are not in
@@ -20,7 +24,7 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set([
  *
  * Exported for test.
  */
-export const COLLAPSED_BY_DEFAULT: CollapseKey[] = ['free', 'not-placed'];
+export const COLLAPSED_BY_DEFAULT: CollapseKey[] = ['free', 'not-placed', 'tickets-delivered', 'tickets-found'];
 
 /**
  * Where the collapse state lives.

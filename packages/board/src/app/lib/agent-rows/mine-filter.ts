@@ -355,21 +355,19 @@ export const ownedFromTicket = (row: Pick<IssueRow, 'assignees'>, source: Ticket
  * name their assignees, and the effective «Mine» mode.
  *
  * `all` returns the array untouched, for the reason {@link rowsForReader}
- * gives. Otherwise a ticket is hidden only where {@link ticketMineOwnership}
- * answers `theirs`: neither its assignees nor a plan whose `Issue:` names it
- * is the reader's, and one is another person's. An unassigned ticket, or one
- * whose owner cannot be determined because `source` is `null`, stays visible.
+ * gives. `mine-and-unknown` hides a ticket only where
+ * {@link ticketMineOwnership} answers `theirs`: neither its assignees nor a
+ * plan whose `Issue:` names it is the reader's, and one is another person's.
+ * An unassigned ticket, or one whose owner cannot be determined because
+ * `source` is `null`, stays visible in that mode.
  *
- * **This filter always uses the lenient rule, never the
- * strict one — `mine` mode does not sharpen it.** The panel decided *the box
- * wins*: this view shows every open ticket, narrowed only by the
- * `mine-and-unknown` answer, so an unassigned ticket comes back here even
- * while the stricter mode hides unknown rows everywhere else. *Waiting on
- * you*'s own inbox logic
- * (hide and count an unassigned ticket) lives separately in the domain's
- * `waitingTickets`, applied upstream by the server; this filter narrows what
- * `waitingTickets` already chose to show, the same way `rowsForReader`
- * narrows the sprint-filtered rows.
+ * `mine` keeps a ticket only where {@link isMineStrict} accepts its assignees
+ * through {@link ownedFromTicket}; a plan that names the ticket does not count.
+ * The Tickets section's scope groups read the same rule in this mode. *Waiting
+ * on you*'s own inbox logic (hide and count an unassigned ticket) lives
+ * separately in the domain's `waitingTickets`, applied upstream by the server;
+ * this filter narrows what `waitingTickets` already chose to show, the same way
+ * `rowsForReader` narrows the sprint-filtered rows.
  */
 export const ticketsForReader = <T extends Pick<IssueRow, 'assignees'> & Partial<Pick<IssueRow, 'number'>>>(
   tickets: T[],
@@ -377,9 +375,11 @@ export const ticketsForReader = <T extends Pick<IssueRow, 'assignees'> & Partial
   source: TicketSourceShape | null,
   mode: MineMode,
   planOwners?: ReadonlyMap<string, readonly PlanOwners[]>,
-): T[] => (mode === 'all'
-  ? tickets
-  : tickets.filter((t) => ticketMineOwnership(t, source, plansOfTicket(planOwners, t.number ?? ''), reader) !== 'theirs'));
+): T[] => {
+  if (mode === 'all') return tickets;
+  if (mode === 'mine') return tickets.filter((t) => isMineStrict(ownedFromTicket(t, source), reader));
+  return tickets.filter((t) => ticketMineOwnership(t, source, plansOfTicket(planOwners, t.number ?? ''), reader) !== 'theirs');
+};
 
 /**
  * The board with only the plan cards that stay in view, how many cards the

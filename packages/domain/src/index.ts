@@ -710,3 +710,4 @@ export * from './rules/section-summary.js';
 export * from './rules/todo-list.js';
 export * from './rules/link-icon.js';
 export * from './rules/fleet-not-working.js';
+export * from './rules/scope-tickets.js';

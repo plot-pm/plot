@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPlanRefusal } from '../card-presentation.js';
 import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
+import type { ScopeRowMenu } from '@plot-pm/domain/rules/scope-tickets';
 import { ACTION_TIMEOUT_MS } from '../bounded-fetch.js';
 import {
   type AgentRow,
@@ -1050,6 +1051,36 @@ export function IssueRowActions(
     />
   );
 }
+
+/**
+ * The `⋯` menu of a Delivered by the sprint or Found during the sprint row.
+ *
+ * `rowMenuOf` decides each item from the `menu` arms `scopeTickets` answered; a
+ * `tickets` arm renders the Tickets row's own button.
+ */
+export const ScopeTicketActions = (
+  { ticketKey, issue, menu, idea, story, issueAnswer, facts }:
+  { ticketKey: string; issue: IssueRow | null; menu: ScopeRowMenu; idea: DispatchInfo; story: DispatchInfo; issueAnswer: IssueAnswer | null; facts?: CardFacts },
+) => {
+  const view = rowMenuOf({ kind: 'scope-ticket', issue, menu, idea, story, issueAnswer, facts });
+  const render = (item: RowMenuItem): ReactNode => {
+    switch (item.action) {
+      case 'create-plan':
+        return issue === null ? null : <CreatePlanButton issue={issue} idea={idea} issueAnswer={issueAnswer} factsRefusal={createPlanRefusal(facts)} />;
+      case 'create-story':
+        return issue === null ? null : <CreateStoryButton issue={issue} story={story} issueAnswer={issueAnswer} />;
+      case 'open-issue':
+        return (
+          <a href={menu.openOnHost.href} target="_blank" rel="noreferrer" data-issue-open aria-label={`Open issue #${ticketKey} on the host`} className={ITEM_LINK}>
+            {item.label}
+          </a>
+        );
+      default:
+        return null;
+    }
+  };
+  return <ItemMenu view={view} trigger={{ 'data-scope-ticket-actions': ticketKey, label: `Actions for issue #${ticketKey}` }} render={render} />;
+};
 
 /**
  * The menu for a BROKEN agent row — one in `stalled` or `unknown` state,
