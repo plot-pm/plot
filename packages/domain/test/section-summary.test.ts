@@ -156,6 +156,22 @@ describe('ticketsSummary and notPlacedSummary', () => {
     ]);
   });
 
+  it('ends with the scope groups\' counts, zero at 0', () => {
+    const parts = ticketsSummary({ state: 'rows', assigned: 0, others: 0, unassigned: 0, hidden: 0, delivered: 3, found: 0 });
+    expect(chips(parts).slice(-2).map((c) => [c.key, c.text, c.count, c.tone])).toEqual([
+      ['delivered', '◎ 3 delivered by the sprint', 3, 'grey'],
+      ['found', '⚑ 0 found', 0, 'zero'],
+    ]);
+  });
+
+  it('shows the scope groups\' unread form, never 0, while the tracker gave no rows', () => {
+    expect(chips(ticketsSummary({ state: 'failed', assigned: 0, others: 0, unassigned: 0, hidden: 0, delivered: null, found: null })).map((c) => [c.text, c.count, c.tone])).toEqual([
+      ['? tickets unread', null, 'unread'],
+      ['◎ ? delivered by the sprint', null, 'unread'],
+      ['⚑ ? found', null, 'unread'],
+    ]);
+  });
+
   it('counts the not-placed entries, grey at 0', () => {
     expect(notPlacedSummary(3)).toEqual([{ kind: 'chip', key: 'not-placed', text: '3 not placed', count: 3, tone: 'amber' }]);
     expect(chipOf(notPlacedSummary(0), 'not-placed')?.tone).toBe('zero');
