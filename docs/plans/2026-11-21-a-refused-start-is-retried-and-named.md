@@ -127,7 +127,7 @@ In both cases the pass that asked read the plan as Approved on `origin/<main>` (
 
 ### Start refusal
 
-- `bug/a-start-refusal-names-its-defect` — the `defect` word on `StartCommand`'s refusal and on the entry's first answer line, the charter refusal before the runner gate, the entry's header and the shared charter reader, the shell footer and hint per word with one line removed, the performer reading every word, and the tests <!-- builds: StartCommand.defect, the refusal's footer word -->
+- `bug/a-start-refusal-names-its-defect` — the `defect` word on `StartCommand`'s refusal and on the entry's first answer line, the charter refusal before the runner gate, the entry's header and the shared charter reader, the shell footer and hint per word with one line removed, the performer reading every word, and the tests <!-- builds: StartCommand.defect, the refusal's footer word --> → #3663
 
 ### Probe and loop
 
