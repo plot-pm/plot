@@ -13,6 +13,7 @@ import type { TokenCountsRecord } from '../entities/slice-spend.js';
 import { tokenCountValue } from './agent-run-tokens.js';
 import { timeLeft, timeLeftValue } from './agent-time-left.js';
 import { FIXER_ATTEMPTS_BUDGET } from './fixer-attempts.js';
+import { TICKETS_ANCHOR } from './tickets-section.js';
 
 /** The seven columns of a Delivery row, in the order they render. */
 export const ROW_COLUMNS = ['kind', 'item', 'where', 'status', 'by', 'age', 'do'] as const;
@@ -943,4 +944,28 @@ export const looseGroupRow = (items: readonly { id: string; ageMinutes?: number 
     consequence: ageRangeValue(items.map((i) => i.ageMinutes)),
     ids: items.map((i) => i.id),
   };
+};
+
+/** The line under the You section: the triage link, or the unread notice while the tracker read failed. */
+export type YouFooter =
+  | { kind: 'triage'; count: number; text: string; anchor: string }
+  | { kind: 'unread'; sentence: string; note: string | null };
+
+/**
+ * The footer of the You section.
+ *
+ * @param input - `issueAnswer` is the fleet's tracker answer; `unplanned` counts the tickets assigned to the reader
+ *   that no plan names; `note` is the failure and the age of the last good reading.
+ * @returns the unread notice where the tracker read failed, whatever rows the section holds; the triage link to the
+ *   Tickets section where the read answered and a ticket assigned to the reader has no plan; `null` otherwise.
+ */
+export const youFooter = (input: {
+  issueAnswer: 'answered' | 'failed' | 'unsupported' | null;
+  unplanned: number;
+  note: string | null;
+}): YouFooter | null => {
+  if (input.issueAnswer === 'failed') return { kind: 'unread', sentence: 'The tracker gave no answer.', note: input.note };
+  if (input.issueAnswer !== 'answered' || input.unplanned === 0) return null;
+  const n = input.unplanned;
+  return { kind: 'triage', count: n, text: `${n} ticket${n === 1 ? '' : 's'} assigned to you ha${n === 1 ? 's' : 've'} no plan`, anchor: TICKETS_ANCHOR };
 };

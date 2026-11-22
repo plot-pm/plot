@@ -260,7 +260,7 @@ describe('the board shows which kind of quiet a row is in', () => {
           body: JSON.stringify({ branch, released: true, hadClaim: true, detail: 'claim released' }),
         });
       });
-      // No desk, manifest or worker holds the claim, so it is loose: You › Clean up.
+      // No desk, manifest or worker holds the claim, so it is loose: You › Unblock.
       const toggle = page.locator('[data-group-toggle="unblock"]');
       await toggle.waitFor({ timeout: 10_000 });
       if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();

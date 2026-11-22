@@ -374,6 +374,29 @@ export const rowMenuOf = (input: RowMenuInput): RowMenuView => {
   }
 };
 
+/** The row a You item renders as, which fixes its `⋯` item set; `null` where the item reaches no You row. */
+export type YouRowKind = 'plan' | 'slice' | 'branch' | 'ticket' | 'loose-group' | null;
+
+/**
+ * The row kind of a placed item under You, and so the fixed item set its `⋯` lists.
+ *
+ * @param placement - what `placeDelivery` returned for the item.
+ * @returns `loose-group` for the reason `loose`, `null` for `release-approval` and a release item (the header's
+ *   Release group holds them), the item's own kind otherwise, with a PR rendered as its branch row; `null` outside You.
+ */
+export const youRowKindOf = (placement: ItemPlacement): YouRowKind => {
+  if (placement.section !== 'you' || placement.reason === 'release-approval') return null;
+  if (placement.reason === 'loose') return 'loose-group';
+  switch (placement.kind) {
+    case 'plan': return 'plan';
+    case 'slice': return 'slice';
+    case 'pr':
+    case 'branch': return 'branch';
+    case 'ticket': return 'ticket';
+    case 'release': return null;
+  }
+};
+
 /** The words a loose-branch action shows: its menu label and the confirmation it asks before it acts. */
 export interface CleanUpWords {
   label: string;

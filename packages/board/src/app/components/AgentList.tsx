@@ -65,7 +65,7 @@ import { detailLines } from '../lib/agent-rows/delivery-link-targets.js';
 import { headerOf, itemRowFactsOf, rowFormsOf, switchesOf } from '../lib/agent-rows/delivery-row-facts.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { ReleasePersonCards } from './ReleasePersonCards.js';
-import { LinkTupleView, TUPLE_TRACKS, YouLeadContext, type YouLead } from './TupleRow.js';
+import { LinkTupleView, MARKS_CELL, TUPLE_TRACKS, YouLeadContext, type YouLead } from './TupleRow.js';
 import { LinePr, LineSlice, LineState, PlanOwner, PhaseChip, PlanName, PlanStrip, PlanTableHead, PLAN_TRACKS, ReleaseHeaderCounts, ReleaseLine } from './ReleasePlanParts.js';
 import { CleanUpMenu } from './CleanUpMenu.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
@@ -122,7 +122,7 @@ import {
   writeMineOnly,
   writeMineStrict,
 } from '../lib/agent-rows/mine-filter.js';
-import { deliveryScope, mineMode, placeDelivery, REASON_DO, rowSprintMembership, youRowCells, type VerbTone, ticketsSection, planIndexOf, workItemCells, YOU_GROUP_MARKERS, type DeliverySection, type YouGroup, type YouMarker } from '@plot-pm/domain';
+import { deliveryScope, mineMode, placeDelivery, REASON_DO, rowSprintMembership, youFooter, youRowCells, type VerbTone, ticketsSection, planIndexOf, workItemCells, YOU_GROUP_MARKERS, type DeliverySection, type YouGroup, type YouMarker } from '@plot-pm/domain';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace, headingPace } from '../lib/agent-rows/activity.js';
 import { ActivitySpinner } from '../lib/agent-rows/marks.js';
 import { BranchMenu, BrokenAgentMenu, PlanActions } from '../lib/agent-rows/menus.js';
@@ -168,7 +168,7 @@ import { TicketsSectionView } from './TicketsSection.js';
 import { headerControl, SectionEmptyFrame, SectionHead } from './SectionHead.js';
 import { SectionSummary } from './SectionSummary.js';
 import { sectionSummariesOf } from '../lib/agent-rows/section-summary.js';
-import { deliveryEmpties, offersScopeOff } from '../lib/agent-rows/section-empty.js';
+import { deliveryEmpties, EMPTY_MARK, offersScopeOff } from '../lib/agent-rows/section-empty.js';
 import { youHeaderOf } from '../lib/agent-rows/you-header.js';
 import { StartWorkButton } from './StartWorkButton.js';
 import { HeaderRow, IssueRowView, PlanRow, Row, SliceRow, type AgentListProps } from '../lib/agent-rows/rows.js';
@@ -1377,6 +1377,11 @@ export function AgentList({
         });
         const emptyScope = { kind: sprintScope.kind, sprints: sprintScope.sprints.map((s) => s.title || s.slug) };
         const machine = machineHealth(fleet.machine, hostAnswer(fleet));
+        const youFoot = youFooter({
+          issueAnswer: fleet.issueAnswer ?? null,
+          unplanned: ticketSplit.assigned.filter((t) => t.planned !== true).length,
+          note: issueNote(fleet) ?? fleet.issueError ?? null,
+        });
         const empties = deliveryEmpties(view, {
           hidden: hiddenCounts,
           scope: emptyScope,
@@ -1496,7 +1501,7 @@ export function AgentList({
         const looseGroupBody = (block: LooseGroupBlockView) => [
           ...block.items.map(anchorOf),
           <li key={block.key} role="row" data-delivery-row="" data-loose-group={block.items.length} className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 delivery-row delivery-row-ruled sm:grid ${TUPLE_TRACKS} sm:items-baseline sm:gap-x-3`}>
-            <span role="gridcell" />
+            <span role="gridcell" className={MARKS_CELL} />
             <span role="gridcell" data-row-cell="kind" className="delivery-kind min-w-0 shrink-0 truncate">
               <YouVerb verb={block.row.verb} tone={block.row.tone} />
             </span>
@@ -1507,7 +1512,7 @@ export function AgentList({
             </span>
             <span role="gridcell" data-row-cell="by" />
             <span role="gridcell" data-row-cell="age" />
-            <span role="gridcell" data-row-cell="menu" className="justify-self-end">
+            <span role="gridcell" data-row-cell="do" className="relative flex w-5 shrink-0 items-center justify-end">
               {block.menu.kind === 'branches' && (
                 <CleanUpMenu menu={block.menu} opens={new Map(block.items.map((i) => [i.rows[0]?.branch ?? '', openOf(i)]))} label={`Actions for ${block.row.object}`} />
               )}
@@ -1957,6 +1962,20 @@ export function AgentList({
                       </div>
                     );
                   })}
+                  {section.key === 'you' && !folded && youFoot !== null && !(youFoot.kind === 'unread' && empty !== null) && (
+                    youFoot.kind === 'triage' ? (
+                      <div data-you-footer="triage" className="text-xs delivery-text-muted">
+                        <button type="button" data-you-triage onClick={() => jump(youFoot.anchor)} className="delivery-text-link">
+                          ◎ {youFoot.text} · triage
+                        </button>
+                      </div>
+                    ) : (
+                      <div data-you-footer="unread" className="text-xs text-amber-700 dark:text-amber-400">
+                        <span aria-hidden="true">{EMPTY_MARK.unread}</span> <span data-you-footer-sentence>{youFoot.sentence}</span>
+                        {youFoot.note !== null && <span data-you-footer-note> · {youFoot.note}</span>}
+                      </div>
+                    )
+                  )}
                 </section>
               );
             })}

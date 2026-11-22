@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { DELIVERY_LAYOUT, deliveryScope, parsePersonDirectory, planIndexOf } from '@plot-pm/domain';
+import { DELIVERY_LAYOUT, deliveryScope, type ItemKind, type ItemPlacement, type YouReason, parsePersonDirectory, planIndexOf } from '@plot-pm/domain';
 import type { AgentRow, DraftPlan, Slice } from '../../src/contract/schema.js';
 import { deliveryMapping, sliceItemId, sprintCardViewOf, type RegistryAgent } from '../../src/app/lib/agent-rows/delivery-readings.js';
 import { GLYPH_PATH } from '../../src/app/lib/glyphs.js';
-import { anchorOwner, FLEET_CONTROLS_ANCHOR, itemAnchor, releasePlanAnchor, sectionAnchor, ticketAnchor, UNPLACED_ANCHOR, bulkDeleteWords, cleanUpBranches, deleteWords, releaseWords, groupAnchor, nestItems, placeMapping, planBlockShown, summarise, type PlacedItemView } from '../../src/app/lib/agent-rows/delivery-view.js';
+import { anchorOwner, FLEET_CONTROLS_ANCHOR, itemAnchor, releasePlanAnchor, sectionAnchor, ticketAnchor, UNPLACED_ANCHOR, deleteWords, releaseWords, youRowKindOf, groupAnchor, nestItems, placeMapping, planBlockShown, summarise, type PlacedItemView } from '../../src/app/lib/agent-rows/delivery-view.js';
 
 const row = (over: Record<string, unknown>): AgentRow => ({
   branch: '', plan: '', wave: '', kind: 'branch', phase: 'Development', state: 'wip',
@@ -382,44 +382,92 @@ describe('the domain fields the view passes on', () => {
   });
 });
 
-describe('the clean-up rows', () => {
+describe('the Unblock rows', () => {
   const loose = (over: Record<string, unknown>) =>
     row({ plan: '', wave: '', kind: 'branch', group: 'quiet', desk: false, worker: 'none', ...over });
-  const cleanUp = (rows: AgentRow[]) => {
+  const unblock = (rows: AgentRow[]) => {
     const v = view(rows);
     const you = v.sections.find((s) => s.key === 'you')!;
     return you.groups.find((g) => g.key === 'unblock')!;
   };
+  const menuOf = (rows: AgentRow[]) => {
+    const block = unblock(rows).blocks[0]!;
+    if (block.kind !== 'loose-group' || block.menu.kind !== 'branches') throw new Error(`expected one loose group, got ${block.kind}`);
+    return { block, branches: Object.fromEntries(block.menu.branches.map((b) => [b.branch, b.items])) };
+  };
 
-  it('titles the group Clean up', () => {
-    expect(cleanUp([]).label).toBe('Clean up');
+  it('titles the group Unblock', () => {
+    expect(unblock([]).label).toBe('Unblock');
   });
 
-  it('gives every loose row the clean-up menu, whatever the row\'s quiet kind says', () => {
-    const group = cleanUp([
+  it('groups the loose items into one row that counts them', () => {
+    const group = unblock([
+      loose({ branch: 'feature/a', state: 'wip', ageMinutes: 60 * 24 * 36 }),
+      loose({ branch: 'feature/b', state: 'wip', ageMinutes: 60 * 24 * 37 }),
+    ]);
+    expect(group.blocks).toHaveLength(1);
+    const block = group.blocks[0]!;
+    expect(block.kind).toBe('loose-group');
+    if (block.kind !== 'loose-group') return;
+    expect(block.items).toHaveLength(2);
+    expect(block.row.verb).toBe('Release or delete');
+    expect(block.row.object).toBe('2 loose branches');
+    expect(block.row.consequence).toBe('36–37 days old');
+  });
+
+  it('lists each branch with its own reason: a claimed branch and a deletable one', () => {
+    const { branches } = menuOf([
       loose({ branch: 'bug/claimed', state: 'claimed', quietKind: 'orphaned-claim', worker: 'elsewhere', branchUrl: 'https://h/bug/claimed' }),
       loose({ branch: 'feature/work', state: 'wip', quietKind: 'quiet', branchUrl: 'https://h/feature/work' }),
-      loose({ branch: 'feature/here', state: 'claimed', quietKind: 'orphaned-claim', branchUrl: '' }),
     ]);
-    const menus = Object.fromEntries(group.items.map((i) => [i.rows[0]!.branch, i.menu]));
-    expect(menus['bug/claimed']).toEqual({ kind: 'clean-up', branch: 'bug/claimed', open: 'https://h/bug/claimed', release: 'elsewhere', delete: false });
-    expect(menus['feature/work']).toEqual({ kind: 'clean-up', branch: 'feature/work', open: 'https://h/feature/work', release: null, delete: true });
-    expect(menus['feature/here']).toEqual({ kind: 'clean-up', branch: 'feature/here', open: '', release: 'here', delete: false });
+    expect(branches['bug/claimed']).toEqual([
+      { action: 'open', label: 'Open', enabled: true, reason: null, confirm: null },
+      { action: 'release-claim', label: 'Release claim (another machine)', enabled: true, reason: null, confirm: releaseWords('bug/claimed', 'elsewhere').confirm },
+      { action: 'delete-branch', label: 'Delete branch…', enabled: false, reason: 'claimed, release it first', confirm: deleteWords('bug/claimed').confirm },
+    ]);
+    expect(branches['feature/work']).toEqual([
+      { action: 'open', label: 'Open', enabled: true, reason: null, confirm: null },
+      { action: 'release-claim', label: 'Release claim', enabled: false, reason: 'carries work', confirm: releaseWords('feature/work', 'here').confirm },
+      { action: 'delete-branch', label: 'Delete branch…', enabled: true, reason: null, confirm: deleteWords('feature/work').confirm },
+    ]);
   });
 
-  it('offers the bulk delete only for rows whose menu offers Delete', () => {
-    const group = cleanUp([
-      loose({ branch: 'bug/claimed', state: 'claimed' }),
-      loose({ branch: 'feature/work', state: 'wip' }),
-      loose({ branch: 'feature/more', state: 'wip' }),
-    ]);
-    expect(cleanUpBranches(group.items)).toEqual(['feature/more', 'feature/work']);
+  it('lists Open disabled where the host gave no address', () => {
+    const { branches } = menuOf([loose({ branch: 'feature/here', state: 'claimed', quietKind: 'orphaned-claim', branchUrl: '' })]);
+    expect(branches['feature/here']![0]).toEqual({ action: 'open', label: 'Open', enabled: false, reason: 'no address', confirm: null });
   });
 
   it('keeps the row menu on an item that is not loose', () => {
     const v = view([row({ branch: 'feature/a', plan: 'p', wave: 'A' })]);
     const items = v.sections.flatMap((s) => s.groups.flatMap((g) => g.items));
     expect(items[0]!.menu).toEqual({ kind: 'row' });
+  });
+});
+
+describe('the row kind of every You reason', () => {
+  const placed = (reason: YouReason, kind: ItemKind): ItemPlacement =>
+    ({ id: 'x', kind, section: 'you', group: 'blocks-delivery', marker: 'blocks-delivery', reason, agents: [] }) as ItemPlacement;
+  const KIND_OF: Record<YouReason, [ItemKind, ReturnType<typeof youRowKindOf>]> = {
+    'draft-plan': ['plan', 'plan'],
+    'plan-approval': ['plan', 'plan'],
+    'spike-approval': ['plan', 'plan'],
+    'release-approval': ['release', null],
+    'test-delivered-plan': ['plan', 'plan'],
+    'review-pr': ['pr', 'branch'],
+    'blocked-marker': ['slice', 'slice'],
+    'fleet-stuck': ['branch', 'branch'],
+    'merge-conflict': ['pr', 'branch'],
+    'person-comment': ['pr', 'branch'],
+    'agent-died': ['slice', 'slice'],
+    loose: ['branch', 'loose-group'],
+  };
+
+  it.each(Object.entries(KIND_OF))('maps %s to its row kind', (reason, [kind, expected]) => {
+    expect(youRowKindOf(placed(reason as YouReason, kind))).toBe(expected);
+  });
+
+  it('gives release-approval no row whatever its item kind', () => {
+    expect(youRowKindOf(placed('release-approval', 'plan'))).toBeNull();
   });
 });
 
@@ -435,15 +483,6 @@ describe('the clean-up words', () => {
       label: 'Delete branch…',
       confirm: 'Delete origin/feature/x? Its tip is pinned first at refs/plot/reaped/feature/x/<sha>, and that ref restores it.',
     });
-  });
-
-  it('lists every branch in the group-wide confirmation, and offers none for no branch', () => {
-    expect(bulkDeleteWords([])).toBeNull();
-    expect(bulkDeleteWords(['a'])!.label).toBe('Delete 1 quiet branch…');
-    const w = bulkDeleteWords(['a', 'b'])!;
-    expect(w.label).toBe('Delete 2 quiet branches…');
-    expect(w.confirm).toContain('a, b');
-    expect(w.confirm).toContain('refs/plot/reaped/');
   });
 });
 

@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import { youCaseOf, type AgentPlacement, type ItemPlacement, type PrReading, type YouReason } from '../src/rules/delivery-placement.js';
 import {
+  youFooter,
   ROW_COLUMNS,
   ageValue,
   AGENT_COLUMNS,
@@ -596,5 +597,27 @@ describe('the gate-mark outcome', () => {
   it('leaves the outcome absent on the Progress cell parts, which are no gate marks', () => {
     const cell = progressCell({ pr: 3, unpushed: 2 } as never);
     expect(cell.parts!.map((p) => 'outcome' in p)).toEqual([false, false]);
+  });
+});
+
+describe('the You footer', () => {
+  it('links the unplanned tickets assigned to the reader to the Tickets section', () => {
+    expect(youFooter({ issueAnswer: 'answered', unplanned: 3, note: null })).toEqual({
+      kind: 'triage', count: 3, text: '3 tickets assigned to you have no plan', anchor: 'tickets',
+    });
+    expect(youFooter({ issueAnswer: 'answered', unplanned: 1, note: null })!.kind === 'triage'
+      && youFooter({ issueAnswer: 'answered', unplanned: 1, note: null })).toMatchObject({ text: '1 ticket assigned to you has no plan' });
+  });
+
+  it('shows the unread notice with its note while the tracker read failed, never a count', () => {
+    expect(youFooter({ issueAnswer: 'failed', unplanned: 0, note: 'last good 2h ago' })).toEqual({
+      kind: 'unread', sentence: 'The tracker gave no answer.', note: 'last good 2h ago',
+    });
+  });
+
+  it('shows nothing where every assigned ticket has a plan, or no tracker is configured', () => {
+    expect(youFooter({ issueAnswer: 'answered', unplanned: 0, note: null })).toBeNull();
+    expect(youFooter({ issueAnswer: 'unsupported', unplanned: 2, note: null })).toBeNull();
+    expect(youFooter({ issueAnswer: null, unplanned: 2, note: null })).toBeNull();
   });
 });
