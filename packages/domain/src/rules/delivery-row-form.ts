@@ -431,29 +431,6 @@ const ageCell = (minutes: number | undefined): Cell | null =>
   minutes === undefined ? null : link(ageValue(minutes));
 
 /**
- * The Progress cell of an item being built: the PR state, then the unpushed count where one was read.
- *
- * The PR state comes from `facts.pr`, the item's own open PR, and never from a stage word.
- * An absent or zero count adds no part: an unread count is not `0 unpushed`.
- *
- * @param facts - the item's row facts.
- * @returns the cell, as `no PR yet`, `PR open`, or either followed by ` · N unpushed`.
- */
-export const progressCell = (facts: ItemRowFacts): Cell => {
-  const state = facts.pr === undefined ? 'no PR yet' : 'PR open';
-  const parts: CellPart[] = [
-    { value: state, link: facts.pr === undefined ? null : { to: 'pr', pr: facts.pr } },
-    ...(facts.unpushed !== undefined && facts.unpushed > 0
-      ? [{ value: `${facts.unpushed} unpushed`, link: null } as CellPart] : []),
-  ];
-  return {
-    value: parts.map((p) => p.value).join(' · '),
-    links: parts.flatMap((p) => (p.link === null ? [] : [p.link])),
-    parts,
-  };
-};
-
-/**
  * The seven cells of a work-item row, with each cell's link targets per the
  * design's *Links by Row* table.
  *

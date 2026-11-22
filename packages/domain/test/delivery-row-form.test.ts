@@ -14,7 +14,6 @@ import {
   groupHeader,
   itemRowCells,
   gatesCell,
-  progressCell,
   REASON_DO,
   YOU_COLUMNS,
   ageRangeValue,
@@ -598,10 +597,6 @@ describe('the gate-mark outcome', () => {
     expect(gatesCell({ ci: 'unread', review: 'passed' }, 7)!.parts!.map((p) => p.value)).toEqual(['review ✓']);
     expect(gatesCell({ ci: 'passed', review: 'unread' }, 7)!.parts!.map((p) => p.value)).toEqual(['CI ✓']);
     expect(gatesCell({ ci: 'unread', review: 'unread' }, 7)).toBeNull();
-  });
-  it('leaves the outcome absent on the Progress cell parts, which are no gate marks', () => {
-    const cell = progressCell({ pr: 3, unpushed: 2 } as never);
-    expect(cell.parts!.map((p) => 'outcome' in p)).toEqual([false, false]);
   });
 });
 
