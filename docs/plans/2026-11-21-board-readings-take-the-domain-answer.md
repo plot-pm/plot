@@ -150,7 +150,7 @@ All evidence is on origin/main `b21961602`.
 
 ### Spike corpus
 
-- `bug/the-plan-store-corpus-checks-both-lists` — the proxy-recorded key list of `planOf`; `spike_approved_raw`, `design_raw` and `verified_raw` move to `FIELDS`; `COMPARED_APART` for `issues`, `rounds`, `error`, `slices` and `waves` with their own tests; the three list checks <!-- builds: the corpus key-list check over planOf -->
+- `bug/the-plan-store-corpus-checks-both-lists` — the proxy-recorded key list of `planOf`; `spike_approved_raw`, `design_raw` and `verified_raw` move to `FIELDS`; `COMPARED_APART` for `issues`, `rounds`, `error`, `slices` and `waves` with their own tests; the three list checks <!-- builds: the corpus key-list check over planOf --> → #3670
 
 ### Spike verdicts
 
