@@ -4,9 +4,9 @@ import path from 'node:path';
 
 import {
   claimStaleMsOf,
-  fixerOwner,
+  fleetOwner,
   fixerPrNext,
-  fixerScopeRow,
+  fleetScopeRow,
   MERGEABLE_CONFLICTING,
   type BaseTipReading,
   type DefaultBranchReading,
@@ -388,7 +388,7 @@ const runningElsewhere = async (world: FixerTickWorld, opts: ActOptions, rows: r
  * {@link DeskDeadAnswer}), whether its one fresh session is already spent on
  * `corrections-spent`, the attempts record and, for a conflicting row, the
  * base tip after a fetch, and asks {@link fixerPrNext}.
- * A row that `fixerScopeRow` puts out of scope gets its reason and no further
+ * A row that `fleetScopeRow` puts out of scope gets its reason and no further
  * read. Otherwise the owner reading asks the worktree listing, the registry's
  * manifests and the claim commits of `origin/<base>..origin/<head>`; a failed
  * read answers `owner-unread` and starts nothing.
@@ -420,7 +420,7 @@ export const fixerTick = async (
       attempts = await readAttempts(world, opts, row.number);
     }
 
-    const out = fixerScopeRow(row, readings.defaultBranchName);
+    const out = fleetScopeRow(row, readings.defaultBranchName);
     if (out !== null) {
       results.push({ pr: row.number, step: { step: 'none', why: out } });
       continue;
@@ -430,7 +430,7 @@ export const fixerTick = async (
     const deskTree = found.ok ? found.value : null;
     const declared = await world.agents(opts).declared();
     const claims = await world.refs(opts).commitSubjects(`origin/${row.base}..origin/${row.head}`);
-    const owner = fixerOwner({
+    const owner = fleetOwner({
       worktree: !found.ok ? 'unread' : deskTree === null ? 'absent' : 'here',
       manifest: declared.ok ? declared.value.some((manifest) => manifest.branch === row.head) : 'unread',
       claims: claims.ok ? claims.value : 'unread',

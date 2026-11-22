@@ -6,7 +6,7 @@ import { baseBranchRed, defaultBranchAgeMs, holdsApply } from './default-branch.
 import { mergeIdentity, type MergerAppReading } from './merge-identity.js';
 import { repairMergeVerdict, repairNamesPr, type RepairMergeReading } from './repair-pr.js';
 import type { DeskDeadAnswer } from './desk-dead.js';
-import { fixerScope, type FixerOwner } from './fixer-scope.js';
+import { fleetScope, type FleetOwner } from './fleet-scope.js';
 import { trustedReview } from './pr-index.js';
 import { reviewStartAllowed, type ReviewStart } from './review-run.js';
 import { settledPast, type UnsettledReading } from './settled-past.js';
@@ -545,14 +545,14 @@ export const slicePrNext = (readings: SlicePrNextReadings): SlicePrStep => {
  * of the head branch.
  */
 export type FixerPrNextReadings = Omit<SlicePrNextReadings, 'scope'> & {
-  /** The owner of the head branch, from `fixerOwner`. */
-  readonly owner: FixerOwner;
+  /** The owner of the head branch, from `fleetOwner`. */
+  readonly owner: FleetOwner;
 };
 
 /**
  * The fixer's next step for one open PR.
  *
- * Asks `fixerScope` in place of {@link guardArm}: a PR out of scope answers
+ * Asks `fleetScope` in place of {@link guardArm}: a PR out of scope answers
  * `none` with the scope's reason, and `person-pushed-recently` carries the
  * time left as `leftMs`. A PR in scope then walks {@link reviewRunArm},
  * {@link fixerInFlightArm}, {@link highArm}, {@link conflictArm} and
@@ -573,7 +573,7 @@ export type FixerPrNextReadings = Omit<SlicePrNextReadings, 'scope'> & {
  * @returns the step.
  */
 export const fixerPrNext = (readings: FixerPrNextReadings): SlicePrStep => {
-  const scope = fixerScope({
+  const scope = fleetScope({
     row: readings.row,
     defaultBranchName: readings.defaultBranchName,
     owner: readings.owner,
