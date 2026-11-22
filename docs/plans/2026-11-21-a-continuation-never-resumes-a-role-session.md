@@ -117,7 +117,7 @@ Slice 2, ending (`packages/domain/test/workflows-agent-loop.test.ts`): a row 10 
 
 ### Continuation
 
-- `bug/a-continuation-checks-every-resume-handle` — `resumeHandleUsable` in the domain, `transcriptHead` in `shared/transcript.ts`, the role-session leaf `shared/role-sessions.ts`, `continueOnDesk` running each path's candidates through the rule, and the continue command naming the session <!-- builds: resumeHandleUsable, a domain rule that rejects a role run's or another branch's resume handle -->
+- `bug/a-continuation-checks-every-resume-handle` — `resumeHandleUsable` in the domain, `transcriptHead` in `shared/transcript.ts`, the role-session leaf `shared/role-sessions.ts`, `continueOnDesk` running each path's candidates through the rule, and the continue command naming the session <!-- builds: resumeHandleUsable, a domain rule that rejects a role run's or another branch's resume handle --> → #3647
 
 ### Loop
 
