@@ -15,6 +15,7 @@
 - **Started:** 2026-11-21, Jan Wloka, `feature/delivery-row-menu-column`
 - **Started:** 2026-11-21, Jan Wloka, `feature/delivery-you-rows-verb-first`
 - **Started:** 2026-11-22, Jan Wloka, `feature/delivery-work-items-grid`
+- **Started:** 2026-11-22, Jan Wloka, `feature/release-delivery-plan-rows-unfold`
 
 ## Changelog
 
