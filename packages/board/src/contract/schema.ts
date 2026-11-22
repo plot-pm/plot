@@ -4533,6 +4533,26 @@ export const MachineBudgetSchema = z.object({
 });
 export type MachineBudget = z.infer<typeof MachineBudgetSchema>;
 
+/**
+ * One `/api/fleet` plan index entry: the plan's file, the tracker issues its
+ * `Issue:` field names, and the plan facts the counted slices read.
+ *
+ * `phase`, `type` and `slices` are optional so a client talking to an older
+ * server still validates. An entry with no `phase` or `type` reads as a plan
+ * the pulse does not omit.
+ */
+export const FleetPlanEntrySchema = z.object({
+  file: z.string(),
+  issues: z.array(z.string()).default([]),
+  /** The plan's phase, in lower case. */
+  phase: z.string().optional(),
+  /** The plan's `Type:` value, as the plan store reads it. */
+  type: z.string().optional(),
+  /** The names of the slices that hold at least one non-deferred branch, in document order. */
+  slices: z.array(z.string()).optional(),
+});
+export type FleetPlanEntry = z.infer<typeof FleetPlanEntrySchema>;
+
 /** What the Machine line reads: the headroom verdict, its context, and the host budget. */
 export const FleetMachineSchema = z.object({
   headroom: HeadroomSchema,
@@ -4889,10 +4909,7 @@ export const FleetShape = z.object({
    * `registry` precedent: metadata about a read, not a list the client always
    * needs a value for. The server emits this field unconditionally.
    */
-  plans: z.record(z.string(), z.object({
-    file: z.string(),
-    issues: z.array(z.string()).default([]),
-  })).optional(),
+  plans: z.record(z.string(), FleetPlanEntrySchema).optional(),
   /**
    * Whether anything supervises the fleet — the WORKING header's second
    * annotation, beside the registry's.

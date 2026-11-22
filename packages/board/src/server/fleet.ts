@@ -1,5 +1,5 @@
 import { withEndedDesks } from './ended-desks.js';
-import { PlanMetaSchema, RELEASE_BRANCH, issueKey, sectionKey, type FleetWaiting, type PlanMeta } from '../contract/schema.js';
+import { PlanMetaSchema, RELEASE_BRANCH, issueKey, sectionKey, type FleetPlanEntry, type FleetWaiting, type PlanMeta } from '../contract/schema.js';
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -1867,20 +1867,30 @@ const ticketPlansOver = (
  *
  * @param opts - the board's repo root and scripts directory.
  * @param entry - the cache entry holding `ideaPlans` and `prs`.
+ * Each entry also carries the plan's phase in lower case, its `Type:` value as
+ * read, and the names of the slices that hold at least one non-deferred
+ * branch, in document order.
+ *
  * @returns the plan index keyed by slug, or null when the plans cannot be read.
  */
 async function fleetPlanIndexOf(
   opts: BuildBoardOptions,
   entry: Pick<CacheEntry, 'ideaPlans' | 'prs' | 'planMetas'>,
-): Promise<Record<string, { file: string; issues: string[] }> | null> {
+): Promise<Record<string, FleetPlanEntry> | null> {
   const metas = await planMetasAtDefault(opts, entry);
   if (metas === null) return null;
   entry.planMetas = metas;
-  const plans: Record<string, { file: string; issues: string[] }> = {};
+  const plans: Record<string, FleetPlanEntry> = {};
   for (const meta of metas) {
     const base = path.basename(meta.file, '.md');
     const slug = base.replace(/^\d{4}-\d{2}-\d{2}-/, '');
-    plans[slug] = { file: meta.file, issues: meta.issues.map(issueKey) };
+    plans[slug] = {
+      file: meta.file,
+      issues: meta.issues.map(issueKey),
+      phase: meta.phase.toLowerCase(),
+      type: meta.type,
+      slices: meta.slices.filter((s) => s.branches.some((b) => !b.deferred)).map((s) => s.name),
+    };
   }
   return plans;
 }
