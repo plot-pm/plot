@@ -114,7 +114,7 @@ Today actions sit in different columns per section, some rows hold buttons and s
 
 ### Work items grid
 
-- `feature/delivery-work-items-grid` <!-- waits: feature/mine-means-mine-or-my-plan, feature/delivery-section-empty-kinds --> — one Work items grid of item tuple, plan tuple, status pills, by, age and ⋯ replacing `WORK_ITEM_COLUMNS`, `workItemPills` over the Gates, Progress and Waits-on values with linked gate pills and the grey *no sprint* pill from `rowSprintMembership`, a status column that sizes to its content and a branch segment that gives way, plan blocks with indented slice rows, and `delivery-work-columns.test.ts` rewritten <!-- builds: workItemsGrid and statusPills, the Work items columns and status pills -->
+- `feature/delivery-work-items-grid` <!-- waits: feature/mine-means-mine-or-my-plan, feature/delivery-section-empty-kinds --> — one Work items grid of item tuple, plan tuple, status pills, by, age and ⋯ replacing `WORK_ITEM_COLUMNS`, `workItemPills` over the Gates, Progress and Waits-on values with linked gate pills and the grey *no sprint* pill from `rowSprintMembership`, a status column that sizes to its content and a branch segment that gives way, plan blocks with indented slice rows, and `delivery-work-columns.test.ts` rewritten <!-- builds: workItemsGrid and statusPills, the Work items columns and status pills --> → #3660
 
 ### Release delivery unfold
 
