@@ -6,13 +6,14 @@ import { StoryStatusSchema } from './story.js';
 import { TokenCountsSchema } from './slice-spend.js';
 import { PlanStatusSchema, PlanTypeSchema } from '../rules/phase.js';
 import type { HostReach } from '../rules/branch-state.js';
+import type { SpikeUnlicensed } from '../rules/spike.js';
 import type { SpikeCardState } from '../rules/spike-confirm.js';
 import type { TicketLane } from '../rules/ticket-lane.js';
 import type { Verification } from '../rules/verification-record.js';
 import type { PlanState } from '../transitions/plan.js';
 import type { StoryStanding } from '../transitions/story.js';
 
-export type { SpikeCardState };
+export type { SpikeCardState, SpikeUnlicensed };
 
 /** Holds only when `A` and `B` are the same type; a mismatch fails to compile. */
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
@@ -43,6 +44,13 @@ same<z.infer<typeof PlanStateSchema>, Exclude<PlanState, 'none'>>(true);
 // plot-state: reading — where a Design plan stands against its spike; every board build re-reads it.
 export const SpikeCardStateSchema = z.enum(['spike-not-approved', 'spike-approved', 'spike-merged']);
 same<z.infer<typeof SpikeCardStateSchema>, SpikeCardState>(true);
+
+/** {@link SpikeUnlicensed} as a schema. */
+// plot-state: reading — why a Design plan's spike record licenses no branch; every board build re-reads it.
+export const SpikeUnlicensedSchema = z.enum([
+  'spike-record-absent', 'spike-record-branchless', 'spike-record-unparseable', 'spike-none', 'spike-marker-moved', 'spike-branch-renamed',
+]);
+same<z.infer<typeof SpikeUnlicensedSchema>, SpikeUnlicensed>(true);
 
 /** {@link StoryStanding} as a schema. */
 // plot-state: reading — the standing a story's plans prove on one board build, re-derived every build.
@@ -221,7 +229,12 @@ export const CardFactsSchema = z.object({
         .object({ unit: WorkUnitSchema, done: knownSchema(z.number()), total: z.number() })
         .nullable(),
       prs: knownSchema(z.array(CardPrSchema)),
-      design: z.object({ rounds: z.number().nullable(), spike: SpikeCardStateSchema.nullable() }).nullable(),
+      design: z.object({
+        rounds: z.number().nullable(),
+        spike: SpikeCardStateSchema.nullable(),
+        /** Why the spike record licenses no branch, on `spike-not-approved`; null otherwise, and null never means licensed. */
+        spikeUnlicensed: SpikeUnlicensedSchema.nullable(),
+      }).nullable(),
       verification: VerificationReadingSchema.nullable(),
       cost: knownSchema(CostReadingSchema),
     }),

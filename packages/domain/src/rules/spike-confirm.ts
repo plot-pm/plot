@@ -1,7 +1,14 @@
-import { licensedSpike, spikeOf, type SpikeSlice } from './spike.js';
+import { licensedSpike, spikeOf, type SpikeSlice, type SpikeUnlicensed } from './spike.js';
 
 /** Where a Design plan stands against its spike, as its card words it. */
 export type SpikeCardState = 'spike-not-approved' | 'spike-approved' | 'spike-merged';
+
+/** The answer of {@link spikeCardState}: the card's spike state and, on `spike-not-approved`, why no branch is licensed. */
+export interface SpikeCardAnswer {
+  readonly state: SpikeCardState;
+  /** {@link licensedSpike}'s reason on `spike-not-approved`; null on every other state. */
+  readonly reason: SpikeUnlicensed | null;
+}
 
 /** What `spikeCardState` reads of one plan. */
 export interface SpikeCardReadings {
@@ -23,15 +30,17 @@ export interface SpikeCardReadings {
  * once it has: the slices are then ready to confirm.
  *
  * @param readings - the plan's state, slices, spike record and spike merge reading.
- * @returns the state, or null for a plan that is not in `design` or names no
- *   single spike.
+ * @returns the state with `licensedSpike`'s reason on `spike-not-approved` and
+ *   a null reason otherwise, or null for a plan that is not in `design` or
+ *   names no single spike. `spike-none` is never a reason here.
  */
-export const spikeCardState = (readings: SpikeCardReadings): SpikeCardState | null => {
+export const spikeCardState = (readings: SpikeCardReadings): SpikeCardAnswer | null => {
   if (readings.state !== 'design') return null;
   const slices = readings.slices ?? [];
   if (spikeOf(slices) === undefined) return null;
-  if (!licensedSpike(readings.spikeApproved ?? '', slices).licensed) return 'spike-not-approved';
-  return readings.spikeMerged === true ? 'spike-merged' : 'spike-approved';
+  const licence = licensedSpike(readings.spikeApproved ?? '', slices);
+  if (!licence.licensed) return { state: 'spike-not-approved', reason: licence.reason };
+  return { state: readings.spikeMerged === true ? 'spike-merged' : 'spike-approved', reason: null };
 };
 
 /**

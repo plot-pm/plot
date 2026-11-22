@@ -55,19 +55,19 @@ describe('cardControls', () => {
 
   it('offers Approve, Interrogate and the rounds badge on a Design plan', () => {
     expect(cardControls({ state: 'design', status: 'open', started: false })).toEqual({
-      approve: true, needsDesign: false, interrogate: true, roundsBadge: true, dispatch: false, readyToStart: false, approveSpike: false, confirmSlices: false, spikeState: null,
+      approve: true, needsDesign: false, interrogate: true, roundsBadge: true, dispatch: false, readyToStart: false, approveSpike: false, confirmSlices: false, spikeState: null, spikeUnlicensed: null,
     });
   });
 
   it('offers needsDesign and the rounds badge on a Draft plan', () => {
     expect(cardControls({ state: 'draft', status: 'draft', started: false })).toEqual({
-      approve: true, needsDesign: true, interrogate: true, roundsBadge: true, dispatch: false, readyToStart: false, approveSpike: false, confirmSlices: false, spikeState: null,
+      approve: true, needsDesign: true, interrogate: true, roundsBadge: true, dispatch: false, readyToStart: false, approveSpike: false, confirmSlices: false, spikeState: null, spikeUnlicensed: null,
     });
   });
 
   it('offers nothing on a state the workflow does not know', () => {
     expect(cardControls({ state: 'weird', status: 'draft', started: false })).toEqual({
-      approve: false, needsDesign: false, interrogate: false, roundsBadge: false, dispatch: false, readyToStart: false, approveSpike: false, confirmSlices: false, spikeState: null,
+      approve: false, needsDesign: false, interrogate: false, roundsBadge: false, dispatch: false, readyToStart: false, approveSpike: false, confirmSlices: false, spikeState: null, spikeUnlicensed: null,
     });
   });
 });
