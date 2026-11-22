@@ -113,13 +113,24 @@ const missingPrompt = ({ runner, resolution, present }: PromptReading): StartCom
     return { start: 'refused', defect: 'charter-refused', why: resolution.why, repair: `fix the charter named by PLOT_AGENT` };
   }
   if (runner !== 'command' || present) return null;
-  const declared = resolution.resolve === 'declared';
   return {
     start: 'refused',
     defect: 'prompt-absent',
     why: `the 'Worker command' runs the loop on the command runner, and its prompt file ${resolution.prompt} is absent`,
-    repair: declared
-      ? `write ${resolution.prompt}, which charter '${resolution.charter}' names`
-      : 'run plot-install-prompt.sh to write .plot/worker-prompt.sh from the template',
+    repair: promptAbsentRepair(resolution),
   };
 };
+
+/**
+ * The repair for an absent prompt file, which `--start` and the worker loop both name.
+ *
+ * @param resolution - the prompt resolution whose file is absent.
+ * @returns `write <file>, which charter '<name>' names` for a declared prompt;
+ *   the `plot-install-prompt.sh` repair for the fallback prompt.
+ */
+export const promptAbsentRepair = (
+  resolution: Exclude<PromptResolution, { resolve: 'refused' }>,
+): string =>
+  resolution.resolve === 'declared'
+    ? `write ${resolution.prompt}, which charter '${resolution.charter}' names`
+    : 'run plot-install-prompt.sh to write .plot/worker-prompt.sh from the template';

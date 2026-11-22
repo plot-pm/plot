@@ -9,6 +9,8 @@ import { writeProbeShell } from '../src/adapters/write-probe/write-probe-shell.j
 import { shellContext } from '../src/adapters/scripts.js';
 import { isAnswered } from '../src/port-result.js';
 import { runProcess, type ScriptRun } from '../src/adapters/run-script.js';
+import type { ProbePrompt } from '../src/ports/write-probe.js';
+import { FALLBACK_PROMPT } from '../src/rules/prompt.js';
 
 /** The prompt template Plot ships, which `plot-init` copies to `.plot/worker-prompt.sh`. */
 const templatePath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'skills', 'plot', 'templates', 'worker-prompt.sh');
@@ -37,12 +39,119 @@ async function repoWithPrompt(text: string = MINIMAL_PROMPT): Promise<string> {
   return root;
 }
 
+/** The fallback prompt under `root`, as a caller that resolved no charter passes it. */
+const fallbackOf = (root: string): ProbePrompt[] => [{ file: join(root, FALLBACK_PROMPT), charter: null }];
+
+/** A harness stub that writes the marker its `-p` prompt names, so the probe answers `yes`. */
+const writingHarness = async (command: string, args: readonly string[]): Promise<ScriptRun> => {
+  if (command === 'bash') return { code: 0, stdout: 'claude\n', stderr: '' };
+  const prompt = String(args[args.indexOf('-p') + 1]);
+  const marker = /at (\S+),/.exec(prompt)?.[1];
+  if (marker) await writeFile(marker, 'x');
+  return { code: 0, stdout: '', stderr: '' };
+};
+
+describe('writeProbeShell — the prompts it is given', () => {
+  it('probes a declared charter\'s prompt and never reads the fallback prompt', async () => {
+    const root = await repoWithPrompt();
+    try {
+      const declared = join(root, '.plot', 'prompts', 'reviewer.sh');
+      await mkdir(dirname(declared), { recursive: true });
+      await writeFile(declared, MINIMAL_PROMPT);
+      const read: string[] = [];
+      const sourced: string[] = [];
+      const probe = writeProbeShell(shellContext(root), {
+        readText: async (path) => {
+          read.push(path);
+          return MINIMAL_PROMPT;
+        },
+        run: async (command, args, options) => {
+          if (command === 'bash') sourced.push(String(args.at(-1)));
+          return writingHarness(command, args, options);
+        },
+      });
+      const reading = await probe.check('claude -p', [{ file: declared, charter: 'reviewer' }]);
+      expect(isAnswered(reading) && reading.value).toBe('yes');
+      expect(read).toEqual([declared]);
+      expect(sourced).toEqual([declared]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('answers unaskable with the charter\'s reason for a refused charter', async () => {
+    const root = await repoWithPrompt();
+    try {
+      const probe = writeProbeShell(shellContext(root), { run: writingHarness });
+      const reading = await probe.check('claude -p', [{ refused: "charter 'reviewer' is not valid YAML" }]);
+      expect(reading).toEqual({ ok: false, why: 'unaskable', reason: "charter 'reviewer' is not valid YAML" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('names an absent declared file in its unaskable reason', async () => {
+    const root = await repoWithPrompt();
+    try {
+      const declared = join(root, '.plot', 'prompts', 'reviewer.sh');
+      const probe = writeProbeShell(shellContext(root), { run: writingHarness });
+      const reading = await probe.check('claude -p', [{ file: declared, charter: 'reviewer' }]);
+      expect(reading).toEqual({ ok: false, why: 'unaskable', reason: `no prompt file to probe at ${declared}` });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('probes each distinct file once', async () => {
+    const root = await repoWithPrompt();
+    try {
+      const sourced: string[] = [];
+      const probe = writeProbeShell(shellContext(root), {
+        run: async (command, args, options) => {
+          if (command === 'bash') sourced.push(String(args.at(-1)));
+          return writingHarness(command, args, options);
+        },
+      });
+      const file = join(root, FALLBACK_PROMPT);
+      const reading = await probe.check('claude -p', [{ file, charter: null }, { file, charter: null }]);
+      expect(isAnswered(reading) && reading.value).toBe('yes');
+      expect(sourced).toEqual([file]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('answers no where any probed file answers no, after a refused charter', async () => {
+    const root = await repoWithPrompt();
+    try {
+      const probe = writeProbeShell(shellContext(root), {
+        run: async (command): Promise<ScriptRun> =>
+          command === 'bash' ? { code: 0, stdout: 'claude\n', stderr: '' } : { code: 0, stdout: '', stderr: '' },
+      });
+      const reading = await probe.check('claude -p', [{ refused: 'bad charter' }, ...fallbackOf(root)]);
+      expect(isAnswered(reading) && reading.value).toBe('no');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('answers unaskable where no prompt is named', async () => {
+    const root = await repoWithPrompt();
+    try {
+      const reading = await writeProbeShell(shellContext(root)).check('claude -p', []);
+      expect(reading.ok).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('writeProbeShell — absent is not false', () => {
   it('answers unanswerable where the repo has no prompt file to probe', async () => {
     const root = mkdtempSync(join(tmpdir(), 'plot-write-probe-norepo-'));
     try {
       const probe = writeProbeShell(shellContext(root));
-      const reading = await probe.check('claude -p');
+      const reading = await probe.check('claude -p', fallbackOf(root));
       expect(reading.ok).toBe(false);
       expect(!reading.ok && reading.why).toBe('unaskable');
     } finally {
@@ -56,7 +165,7 @@ describe('writeProbeShell — absent is not false', () => {
       const probe = writeProbeShell(shellContext(root), {
         run: async (): Promise<ScriptRun> => ({ code: 1, stdout: '', stderr: 'bash: command not found' }),
       });
-      const reading = await probe.check('claude -p');
+      const reading = await probe.check('claude -p', fallbackOf(root));
       expect(reading.ok).toBe(false);
       expect(!reading.ok && reading.why).toBe('unaskable');
     } finally {
@@ -70,7 +179,7 @@ describe('writeProbeShell — absent is not false', () => {
       const probe = writeProbeShell(shellContext(root), {
         run: async (): Promise<ScriptRun> => ({ code: 0, stdout: '\n\n', stderr: '' }),
       });
-      const reading = await probe.check('claude -p');
+      const reading = await probe.check('claude -p', fallbackOf(root));
       expect(reading.ok).toBe(false);
       expect(!reading.ok && reading.why).toBe('unaskable');
     } finally {
@@ -89,7 +198,7 @@ describe('writeProbeShell — absent is not false', () => {
           return { code: 1, stdout: '', stderr: '', interrupted: 'timeout' };
         },
       });
-      const reading = await probe.check('claude -p');
+      const reading = await probe.check('claude -p', fallbackOf(root));
       expect(reading.ok).toBe(false);
       expect(!reading.ok && reading.why).toBe('unaskable');
     } finally {
@@ -115,7 +224,7 @@ describe('writeProbeShell — an observed outcome', () => {
           return { code: 0, stdout: '', stderr: '' };
         },
       });
-      const reading = await probe.check('claude -p');
+      const reading = await probe.check('claude -p', fallbackOf(root));
       expect(isAnswered(reading)).toBe(true);
       expect(isAnswered(reading) && reading.value).toBe('yes');
     } finally {
@@ -135,7 +244,7 @@ describe('writeProbeShell — an observed outcome', () => {
           return { code: 0, stdout: '', stderr: '' };
         },
       });
-      const reading = await probe.check('claude -p');
+      const reading = await probe.check('claude -p', fallbackOf(root));
       expect(isAnswered(reading)).toBe(true);
       expect(isAnswered(reading) && reading.value).toBe('no');
     } finally {
@@ -154,7 +263,7 @@ describe('writeProbeShell — an observed outcome', () => {
           return { code: 1, stdout: '', stderr: 'API Error: 529 overloaded' };
         },
       });
-      const reading = await probe.check('claude -p');
+      const reading = await probe.check('claude -p', fallbackOf(root));
       expect(isAnswered(reading) && reading.value).toBe('unanswerable');
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -171,7 +280,7 @@ describe('writeProbeShell — an observed outcome', () => {
           return runProcess(command, args, options);
         },
       });
-      const reading = await probe.check('claude -p');
+      const reading = await probe.check('claude -p', fallbackOf(root));
       expect(isAnswered(reading) && reading.value).toBe('unanswerable');
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -187,7 +296,7 @@ describe('writeProbeShell — an observed outcome', () => {
           return { code: 1, stdout: '', stderr: '', interrupted: 'signal' };
         },
       });
-      const reading = await probe.check('claude -p');
+      const reading = await probe.check('claude -p', fallbackOf(root));
       expect(isAnswered(reading) && reading.value).toBe('unanswerable');
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -207,7 +316,7 @@ describe('writeProbeShell — an observed outcome', () => {
           return { code: 0, stdout: '', stderr: '' };
         },
       });
-      await probe.check('claude -p');
+      await probe.check('claude -p', fallbackOf(root));
       expect(seenArgs).toHaveLength(1);
       expect(seenArgs[0]).toHaveLength(2);
       expect(seenArgs[0][0]).toBe('-p');
@@ -229,7 +338,7 @@ describe('writeProbeShell — an observed outcome', () => {
           return { code: 0, stdout: '', stderr: '' };
         },
       });
-      await probe.check('claude -p');
+      await probe.check('claude -p', fallbackOf(root));
       expect(seenArgs[0].slice(0, 4)).toEqual(['--settings', '/path/settings.json', '--model', 'opus']);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -256,7 +365,7 @@ describe('writeProbeShell — the shipped prompt template', () => {
           return { code: 0, stdout: '', stderr: '' };
         },
       });
-      await probe.check('claude -p');
+      await probe.check('claude -p', fallbackOf(root));
       expect(seen).toHaveLength(1);
       expect(seen[0].command).toBe('claude');
       const at = seen[0].args.indexOf('--permission-mode');
@@ -285,7 +394,7 @@ describe('writeProbeShell — a print that cannot be trusted is not run (#2778)'
           return { code: 0, stdout: '', stderr: '' };
         },
       });
-      return { reading: await probe.check('claude -p'), commands };
+      return { reading: await probe.check('claude -p', fallbackOf(root)), commands };
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -314,7 +423,7 @@ describe('writeProbeShell — a print that cannot be trusted is not run (#2778)'
           return { code: 0, stdout: 'claude\n', stderr: '' };
         },
       });
-      const reading = await probe.check('claude -p');
+      const reading = await probe.check('claude -p', fallbackOf(root));
       expect(!reading.ok && reading.why === 'unaskable' && reading.reason).toMatch(/^stale-print: .*no PLOT_PRINT_INVOCATION block/);
       expect(commands).toEqual([]);
     } finally {
@@ -344,7 +453,7 @@ describe('writeProbeShell — the scratch desk is not the claim', () => {
           return rm(path, opts);
         },
       });
-      await probe.check('claude -p');
+      await probe.check('claude -p', fallbackOf(root));
       expect(cutPaths).toHaveLength(1);
       expect(removedPaths).toEqual(cutPaths);
     } finally {
@@ -365,7 +474,7 @@ describe('writeProbeShell — the scratch desk is not the claim', () => {
           return rm(path, opts);
         },
       });
-      await expect(probe.check('claude -p')).rejects.toThrow('boom');
+      await expect(probe.check('claude -p', fallbackOf(root))).rejects.toThrow('boom');
       expect(removedPaths).toHaveLength(1);
     } finally {
       await rm(root, { recursive: true, force: true });

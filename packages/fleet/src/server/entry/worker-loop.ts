@@ -82,6 +82,7 @@ import type { Scripts } from '@plot-pm/domain/ports/scripts';
 
 import { answer as promptAnswer, read as readAgentCharter } from './prompt.js';
 import { resolveLaunch } from '@plot-pm/domain/rules/prompt';
+import { promptAbsentRepair } from '@plot-pm/domain/rules/start-command';
 import { performLoopWrites, type AppliedWrite, type LoopWritePorts, type LoopWrite } from './loop-writes.js';
 import { CONTINUATION_NAME } from '../../shared/continuation-name.js';
 import { roleSessions } from '../../shared/role-sessions.js';
@@ -1699,7 +1700,7 @@ const runPrompt = async (
   const sdk = deps.runner === 'sdk' ? deps.sdk : undefined;
   const resolveUnder = (root: string) => {
     const [verb, named, why] = (deps.resolvePrompt ?? promptAnswer)(root, deps.agent).split('\t');
-    return { verb, why, file: verb === 'refused' || !named ? '' : join(root, named) };
+    return { verb, named, why, file: verb === 'refused' || !named ? '' : join(root, named) };
   };
   const exists = deps.promptExists ?? existsSync;
   const main = resolveUnder(deps.repoRoot);
@@ -1709,14 +1710,18 @@ const runPrompt = async (
     sdk === undefined && main.verb !== 'refused' && main.file !== '' && !exists(main.file) && worktree !== deps.repoRoot
       ? resolveUnder(worktree)
       : undefined;
-  const { verb, why, file } = desk !== undefined && desk.verb !== 'refused' && desk.file !== '' && exists(desk.file) ? desk : main;
+  const { verb, named, why, file } = desk !== undefined && desk.verb !== 'refused' && desk.file !== '' && exists(desk.file) ? desk : main;
   // A REFUSED CHARTER REFUSES ON EITHER RUNNER; only the `command` runner
   // needs the prompt file the resolution names.
   const refusal =
     verb === 'refused' || (file === '' && sdk === undefined)
       ? (why ?? 'no prompt')
       : sdk === undefined && !exists(file)
-        ? `the prompt file ${file} is absent; run plot-install-prompt.sh to write .plot/worker-prompt.sh`
+        ? `the prompt file ${file} is absent; ${promptAbsentRepair(
+            verb === 'declared'
+              ? { resolve: 'declared', prompt: named ?? '', charter: why ?? '' }
+              : { resolve: 'fallback', prompt: named ?? '', why: why ?? '' },
+          )}`
         : undefined;
   if (refusal !== undefined) {
     deps.log(`plot-worker-loop: refusing to launch — ${refusal}`);

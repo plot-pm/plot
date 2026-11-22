@@ -2,6 +2,17 @@ import type { PortResult } from '../port-result.js';
 import type { WriteProbeReading } from '../rules/write-probe.js';
 
 /**
+ * One prompt file the probe tests, or the refusal of the charter that names it.
+ *
+ * - `file`: the absolute path of the prompt file the loop sources; `charter`
+ *   names the charter that declares it, `null` for the fallback prompt.
+ * - `refused`: the charter's resolution was refused, so no file is known.
+ */
+export type ProbePrompt =
+  | { readonly file: string; readonly charter: string | null }
+  | { readonly refused: string };
+
+/**
  * Proves that the configured `Worker command` can write, by running it once
  * in a scratch desk and checking for the file it was told to touch.
  *
@@ -19,9 +30,13 @@ export interface WriteProbe {
    *
    * @param command - the configured `Worker command` value, already checked
    *   non-empty and not `none`.
-   * @returns `yes` or `no` for an observed outcome; `unanswerable` where the
-   *   probe itself could not run to a conclusion — nothing is evidence either
-   *   way.
+   * @param prompts - the prompt files the agents being started source. Each
+   *   distinct file is probed once.
+   * @returns `no` where any probed file answers `no`; otherwise the first
+   *   result that is not `yes`, or `yes` where every file answers `yes`.
+   *   `unaskable` names the probed file in its reason, and a refused charter
+   *   answers `unaskable` with the charter's reason. An empty `prompts` answers
+   *   `unaskable`.
    */
-  check(command: string): Promise<PortResult<WriteProbeReading>>;
+  check(command: string, prompts: readonly ProbePrompt[]): Promise<PortResult<WriteProbeReading>>;
 }

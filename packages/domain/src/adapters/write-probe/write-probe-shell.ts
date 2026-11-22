@@ -4,8 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { answered, unaskable, type PortResult } from '../../port-result.js';
-import type { WriteProbe } from '../../ports/write-probe.js';
-import { FALLBACK_PROMPT } from '../../rules/prompt.js';
+import type { ProbePrompt, WriteProbe } from '../../ports/write-probe.js';
 import {
   flagMissingFromPrint,
   probeRunReading,
@@ -48,9 +47,9 @@ const parseInvocation = (stdout: string): string[] =>
  *
  * **NEVER THE `Worker command` ITSELF.** That string launches the worker
  * LOOP, which waits on the registry for a branch and never returns outside
- * one. What the loop sources on every pass is the prompt file at
- * {@link FALLBACK_PROMPT} (or a charter's own, for a named agent), and that
- * file is the harness invocation — the flags this probe exists to prove, down
+ * one. What the loop sources on every pass is the prompt file its agent's
+ * charter resolves to, which the caller passes as `prompts`, and that file is
+ * the harness invocation — the flags this probe exists to prove, down
  * to their absence. So the probe asks that file for the argv it would run,
  * under `PLOT_PRINT_INVOCATION=1`, which prints and exits 0 without
  * launching — and then runs the harness with EXACTLY those flags, substituting
@@ -78,56 +77,74 @@ export const writeProbeShell = (context: ShellContext, options: WriteProbeShellO
   const exists = options.exists ?? existsSync;
   const readText = options.readText ?? ((path: string) => readFile(path, 'utf8'));
 
+  /** Probes one prompt file, naming it in every `unaskable` reason. */
+  const probeFile = async (promptPath: string): Promise<PortResult<WriteProbeReading>> => {
+    if (!exists(promptPath)) return unaskable<WriteProbeReading>(`no prompt file to probe at ${promptPath}`);
+
+    let promptText: string;
+    try {
+      promptText = await readText(promptPath);
+    } catch {
+      return unaskable<WriteProbeReading>(`could not read the prompt file ${promptPath}`);
+    }
+    if (!promptPrintsInvocation(promptText)) {
+      return unaskable<WriteProbeReading>(stalePrintReason(`${promptPath} has no PLOT_PRINT_INVOCATION block`));
+    }
+
+    let scratch: string;
+    try {
+      scratch = await cutScratch(join(tmpdir(), 'plot-write-probe-'));
+    } catch {
+      return unaskable<WriteProbeReading>(`could not cut a scratch desk to probe ${promptPath}`);
+    }
+
+    try {
+      const printed = await run('bash', ['-c', `. "$1"`, 'bash', promptPath], {
+        cwd: scratch,
+        env: { PLOT_PRINT_INVOCATION: '1', PLOT_BRANCH: 'write-probe/scratch', PLOT_WORKTREE: scratch },
+        timeoutMs,
+      });
+      if (printed.code !== 0) return unaskable<WriteProbeReading>(`the prompt file ${promptPath} could not report its invocation`);
+
+      const [harness, ...flags] = parseInvocation(printed.stdout);
+      if (harness === undefined || harness === '') return unaskable<WriteProbeReading>(`no harness resolved from ${promptPath}`);
+      const missing = flagMissingFromPrint(promptText, flags);
+      if (missing !== undefined) {
+        return unaskable<WriteProbeReading>(
+          stalePrintReason(`${promptPath} launches with ${missing} but its PLOT_PRINT_INVOCATION block does not print it`),
+        );
+      }
+
+      const marker = join(scratch, MARKER_NAME);
+      const prompt = `Write the single character x to the file at ${marker}, creating it if it does not exist, then stop. Do nothing else.`;
+      const probed = await run(harness, [...flags, '-p', prompt], { cwd: scratch, timeoutMs });
+      if (probed.interrupted === 'timeout') return unaskable<WriteProbeReading>(`the probe run of ${promptPath} timed out`);
+      return answered<WriteProbeReading>(probeRunReading(probed, exists(marker)));
+    } finally {
+      await removeScratch(scratch, { recursive: true, force: true }).catch(() => {});
+    }
+  };
+
   return {
     // `command` names which configured role this probe stands in for, for a
-    // caller that reports it; the loop sources ONE prompt file regardless of
-    // what string is configured, so nothing here branches on it.
-    check: async (_command: string): Promise<PortResult<WriteProbeReading>> => {
-      const promptPath = join(context.repoRoot, FALLBACK_PROMPT);
-      if (!exists(promptPath)) return unaskable<WriteProbeReading>('no prompt file to probe');
-
-      let promptText: string;
-      try {
-        promptText = await readText(promptPath);
-      } catch {
-        return unaskable<WriteProbeReading>('could not read the prompt file');
-      }
-      if (!promptPrintsInvocation(promptText)) {
-        return unaskable<WriteProbeReading>(stalePrintReason(`${FALLBACK_PROMPT} has no PLOT_PRINT_INVOCATION block`));
-      }
-
-      let scratch: string;
-      try {
-        scratch = await cutScratch(join(tmpdir(), 'plot-write-probe-'));
-      } catch {
-        return unaskable<WriteProbeReading>('could not cut a scratch desk');
-      }
-
-      try {
-        const printed = await run('bash', ['-c', `. "$1"`, 'bash', promptPath], {
-          cwd: scratch,
-          env: { PLOT_PRINT_INVOCATION: '1', PLOT_BRANCH: 'write-probe/scratch', PLOT_WORKTREE: scratch },
-          timeoutMs,
-        });
-        if (printed.code !== 0) return unaskable<WriteProbeReading>('the prompt file could not report its invocation');
-
-        const [harness, ...flags] = parseInvocation(printed.stdout);
-        if (harness === undefined || harness === '') return unaskable<WriteProbeReading>('no harness resolved');
-        const missing = flagMissingFromPrint(promptText, flags);
-        if (missing !== undefined) {
-          return unaskable<WriteProbeReading>(
-            stalePrintReason(`${FALLBACK_PROMPT} launches with ${missing} but its PLOT_PRINT_INVOCATION block does not print it`),
-          );
+    // caller that reports it; the prompt files decide what is probed.
+    check: async (_command: string, prompts: readonly ProbePrompt[]): Promise<PortResult<WriteProbeReading>> => {
+      if (prompts.length === 0) return unaskable<WriteProbeReading>('no prompt file named to probe');
+      let first: PortResult<WriteProbeReading> | undefined;
+      const probed = new Set<string>();
+      for (const prompt of prompts) {
+        let result: PortResult<WriteProbeReading>;
+        if ('refused' in prompt) {
+          result = unaskable<WriteProbeReading>(prompt.refused);
+        } else {
+          if (probed.has(prompt.file)) continue;
+          probed.add(prompt.file);
+          result = await probeFile(prompt.file);
         }
-
-        const marker = join(scratch, MARKER_NAME);
-        const prompt = `Write the single character x to the file at ${marker}, creating it if it does not exist, then stop. Do nothing else.`;
-        const probed = await run(harness, [...flags, '-p', prompt], { cwd: scratch, timeoutMs });
-        if (probed.interrupted === 'timeout') return unaskable<WriteProbeReading>('the probe run timed out');
-        return answered<WriteProbeReading>(probeRunReading(probed, exists(marker)));
-      } finally {
-        await removeScratch(scratch, { recursive: true, force: true }).catch(() => {});
+        if (result.ok && result.value === 'no') return result;
+        if (first === undefined && !(result.ok && result.value === 'yes')) first = result;
       }
+      return first ?? answered<WriteProbeReading>('yes');
     },
   };
 };
