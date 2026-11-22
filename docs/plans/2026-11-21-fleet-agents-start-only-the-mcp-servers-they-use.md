@@ -12,6 +12,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3616 merged
 - **Started:** 2026-11-21, Jan Wloka, `bug/role-agents-start-no-mcp-server`
+- **Started:** 2026-11-22, Jan Wloka, `bug/workers-and-board-agents-start-no-mcp-server`
 
 ## Changelog
 
