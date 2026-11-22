@@ -97,7 +97,7 @@ Measured 2026-11-21 between 06:00 and 11:00 UTC on `plot-pm/plot`:
 
 ### Main Concurrency Group
 
-- `infra/main-ci-cancels-an-older-head` — the `main-push` group for a first push attempt with `cancel-in-progress: false`, a re-run in its own group, `candidateRunsOf` with the waiting-run fold of the head, the picker's skip of a cancelled bookkeeping commit and its `cancelled` answer, `cancelledSha` on the repair record, `jobForm` on `RevertWorldOptions`, the `ci.yml` comment, and the tests <!-- builds: candidateRunsOf, the cancelled candidate reading, the pending reading of a waiting head, and the main-push concurrency group -->
+- `infra/main-ci-cancels-an-older-head` — the `main-push` group for a first push attempt with `cancel-in-progress: false`, a re-run in its own group, `candidateRunsOf` with the waiting-run fold of the head, the picker's skip of a cancelled bookkeeping commit and its `cancelled` answer, `cancelledSha` on the repair record, `jobForm` on `RevertWorldOptions`, the `ci.yml` comment, and the tests <!-- builds: candidateRunsOf, the cancelled candidate reading, the pending reading of a waiting head, and the main-push concurrency group --> → #3654
 
 ### Bookkeeping Push Selection
 
