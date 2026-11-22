@@ -35,6 +35,7 @@ import {
   type LoopDeps,
   type SdkRunDeps,
   type WorkerLoopPorts,
+  writeManifestResumeId,
 } from '../../src/server/entry/worker-loop.js';
 
 const BRANCH = 'infra/x';
@@ -568,6 +569,23 @@ describe('raiseSliceRuns', () => {
     fs.writeFileSync(file, JSON.stringify({ branch: 7 }));
     expect(await raiseSliceRuns(file)).toBe(1);
     expect(JSON.parse(fs.readFileSync(file, 'utf8')).sliceRuns).toEqual({ branch: '', runs: 1 });
+  });
+});
+
+describe('writeManifestResumeId', () => {
+  it('replaces the handle and keeps every other field, and answers false where nothing is written', async () => {
+    const dir = tempDir('plot-resume-id-');
+    const file = path.join(dir, 'm.json');
+    fs.writeFileSync(file, JSON.stringify({ branch: 'infra/x', resumeId: 'h-role', wavesCount: 3 }));
+    expect(await writeManifestResumeId(file, 'h-new')).toBe(true);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ branch: 'infra/x', resumeId: 'h-new', wavesCount: 3 });
+    expect(await writeManifestResumeId('', 'h-new')).toBe(false);
+    expect(await writeManifestResumeId(path.join(dir, 'gone.json'), 'h-new')).toBe(false);
+    for (const text of ['null', '[]', '7']) {
+      fs.writeFileSync(file, text);
+      expect(await writeManifestResumeId(file, 'h-new')).toBe(false);
+      expect(fs.readFileSync(file, 'utf8')).toBe(text);
+    }
   });
 });
 

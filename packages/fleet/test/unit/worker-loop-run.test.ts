@@ -366,6 +366,15 @@ describe('runWorkerLoop — a prompt', () => {
       expect(r.deskCalls.endings.at(-1)?.record).toMatchObject({ reason: 'blocked', resumeId: 'h-new' });
     });
 
+    it('mints a random lowercase UUID for the rejected handle where no minter is injected', async () => {
+      const r = roleRig('h-role');
+      r.deps = { ...r.deps, mintHandle: undefined };
+      await runWorkerLoop(r.deps);
+      expect(r.runs[0].env?.PLOT_SESSION_ID).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      expect(r.runs[0].env?.PLOT_SESSION_FLAG).toBe('--session-id');
+      expect(r.read().resumeId).toBe(r.runs[0].env?.PLOT_SESSION_ID);
+    });
+
     it('resumes the implementer\'s own spoken handle', async () => {
       const r = roleRig('h-1');
       await runWorkerLoop(r.deps);
