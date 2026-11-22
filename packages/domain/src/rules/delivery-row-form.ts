@@ -184,6 +184,12 @@ export interface AgentRowFacts {
   rateLimit?: 'exhausted' | 'free' | 'unknown';
   /** Whether the agent's process runs now; a run in progress has no token reading. */
   running?: boolean;
+  /** The context size of the agent's run in progress, in tokens; absent where nobody read it. */
+  contextTokens?: number;
+  /** The tokens the agent's run in progress has spent so far; absent where nobody read it. */
+  contextSpend?: number;
+  /** The pace of the agent's desk: `fast` while it writes or holds a lock, `slow` otherwise; absent where no desk was read. */
+  pace?: AgentPace;
   /** The four counters of the agent's last finished run; `null` or absent where none is read. */
   lastRun?: TokenCountsRecord | null;
   /** Epoch milliseconds of the agent's start; `null` or absent where none is known. */
@@ -537,8 +543,34 @@ export const AGENT_COLUMN_LABELS: Record<AgentColumn, string> = {
   timeLeft: 'Time left',
 };
 
+/** The pace a running spinner turns at: `fast` for local writes, `slow` for a wait on the host. */
+export type AgentPace = 'fast' | 'slow';
+
+/**
+ * The pace of a Fleet agent's spinner: `facts.pace` for an agent in the `working`
+ * group, `slow` where no desk pace was read, and `null` for a blocked or free agent.
+ *
+ * @param placement - what `placeDelivery` returned for the agent.
+ * @param facts - the agent's readings; only `pace` is read.
+ * @returns the pace, or `null` where the agent shows no spinner.
+ */
+export const agentPace = (placement: Pick<AgentPlacement, 'group'>, facts: Pick<AgentRowFacts, 'pace'>): AgentPace | null =>
+  placement.group === 'working' ? facts.pace ?? 'slow' : null;
+
+/**
+ * The pace of a spinner that stands for several agents: `fast` where any of them
+ * is `fast`, `slow` where any other is running, `null` where none is.
+ *
+ * @param paces - each agent's {@link agentPace}.
+ * @returns the fastest pace, or `null`.
+ */
+export const fleetPace = (paces: readonly (AgentPace | null | undefined)[]): AgentPace | null =>
+  paces.includes('fast') ? 'fast' : paces.includes('slow') ? 'slow' : null;
+
 /** One Fleet agent row. A cell nobody read is `null`. */
 export interface AgentRowCells extends Record<AgentColumn, Cell | null> {
+  /** The spinner that leads the Doing now cell: its pace, or `null` where the agent does not work. */
+  doingPace: AgentPace | null;
   /** The branch the agent works on, shown beneath the Acting on cell; `null` where none is read. */
   branch: Cell | null;
   /** The last commit subject shown after a loop agent's Doing now value. */
@@ -635,15 +667,27 @@ const doingValue = (placement: AgentPlacement, facts: AgentRowFacts): string | n
 const lastFinishedRun = (facts: AgentRowFacts): TokenCountsRecord | null =>
   facts.running === true ? null : facts.lastRun ?? null;
 
+const tokenNumber = (v: number): string => v.toLocaleString('en-US');
+
+const runningContext = (facts: AgentRowFacts): number | null =>
+  facts.running === true && facts.contextTokens !== undefined ? facts.contextTokens : null;
+
 const tokensCell = (facts: AgentRowFacts): Cell | null => {
+  const context = runningContext(facts);
+  if (context !== null) return link(`${tokenCountValue(context)} ctx`);
   const run = lastFinishedRun(facts);
   return run === null ? null : link(`${tokenCountValue(run.outputTokens)} out`);
 };
 
 const tokensTitle = (facts: AgentRowFacts): string | null => {
+  const context = runningContext(facts);
+  if (context !== null) {
+    const spend = facts.contextSpend === undefined ? 'not read' : tokenNumber(facts.contextSpend);
+    return `Context of the run in progress: ${tokenNumber(context)} tokens. Spent so far: ${spend}`;
+  }
   const run = lastFinishedRun(facts);
   if (run === null) return null;
-  const n = (v: number): string => v.toLocaleString('en-US');
+  const n = tokenNumber;
   return `Output tokens of the last finished run: ${n(run.outputTokens)}. Input ${n(run.inputTokens)} · cache creation ${n(run.cacheCreationTokens)} · cache read ${n(run.cacheReadTokens)}`;
 };
 
@@ -656,9 +700,14 @@ const tokensTitle = (facts: AgentRowFacts): string | null => {
  * the gate it waits on instead ({@link agentWaitsOn}). Acting on names the
  * agent's desk while it acts on no item.
  *
- * Tokens shows the output tokens of the agent's last finished run, with input,
- * cache creation and cache read in `tokensTitle`; it is `null` for a running
- * agent and for a run nobody read. Time left is `bound − (now − start)` from
+ * A working agent's Doing now cell leads with a spinner at `doingPace`
+ * ({@link agentPace}); the cell keeps its slot while the pace is `null`.
+ *
+ * Tokens shows a running agent's context size (`143k ctx`) from
+ * `facts.contextTokens`, with `facts.contextSpend` in `tokensTitle`; a running
+ * agent with no `contextTokens` reads `null`. Otherwise it shows the output
+ * tokens of the agent's last finished run, with input, cache creation and cache
+ * read in `tokensTitle`, and `null` for a run nobody read. Time left is `bound − (now − start)` from
  * `facts.startedAt`, `facts.boundSeconds` and `facts.now`; it and its bar are
  * `null` where any of the three is absent.
  *
@@ -684,6 +733,7 @@ export const agentRowCells = (placement: AgentPlacement, facts: AgentRowFacts): 
     doing,
     doingDetail: !blocked && facts.lastCommit !== undefined && placement.role === 'loop' ? facts.lastCommit : null,
     doingLabel: blocked ? 'Waits on' : 'Doing now',
+    doingPace: agentPace(placement, facts),
     tokens: tokensCell(facts),
     timeLeft: left === null ? null : link(timeLeftValue(left.leftMs)),
     agentTitle: facts.unnamedDesk ?? null,

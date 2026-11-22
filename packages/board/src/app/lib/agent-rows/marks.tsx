@@ -3,7 +3,7 @@ import { WorkGridContext } from '../../components/TupleRow.js';
 import { type AgentRow } from '../../../contract/schema.js';
 import { sliceItemId } from './delivery-readings.js';
 import { itemAnchor, type Jump } from './delivery-view.js';
-import { ACTIVITY_MARK_PLACE, type ActivityPace } from './activity.js';
+import { ACTIVITY_MARK_PLACE, CHANGE_FADE, type ActivityPace } from './activity.js';
 import { stuckEvidence, stuckWord } from './stuck.js';
 
 /**
@@ -32,6 +32,42 @@ export const ActivitySpinner = ({ pace }: { pace: ActivityPace }) => (
     className={`activity-spinner activity-spinner-${pace} inline-block w-[1ch] shrink-0 font-mono text-emerald-600 dark:text-emerald-400`}
   />
 );
+
+/**
+ * The reserved slot before a row's status: one character wide whether or not
+ * the row runs, so the status text keeps its place when the spinner appears or
+ * goes.
+ *
+ * @param pace - the spinner's pace, from `activitySignal`; `null` leaves the slot empty.
+ */
+export const ActivitySlot = ({ pace }: { pace: ActivityPace | null }) => (
+  <span data-activity-slot className="inline-block w-[1ch] shrink-0">
+    {pace !== null && <ActivitySpinner pace={pace} />}
+  </span>
+);
+
+const REDUCED_MOTION = '(prefers-reduced-motion: reduce)';
+
+/** The media query list, or `undefined` where no window exists (server rendering, a Node test). */
+const reducedMotionList = (): MediaQueryList | undefined =>
+  typeof window === 'undefined' ? undefined : window.matchMedia?.(REDUCED_MOTION);
+
+/**
+ * Whether the reader asked for reduced motion, kept current while the page is open.
+ *
+ * @returns `true` while `prefers-reduced-motion: reduce` matches; `false` where no window exists.
+ */
+export const useReducedMotion = (): boolean => {
+  const [reduced, setReduced] = useState(() => reducedMotionList()?.matches ?? false);
+  useEffect(() => {
+    const list = reducedMotionList();
+    if (list === undefined) return;
+    const onChange = () => setReduced(list.matches);
+    list.addEventListener('change', onChange);
+    return () => list.removeEventListener('change', onChange);
+  }, []);
+  return reduced;
+};
 
 /**
  * The mark a row wears while it holds commits nobody else can see.
@@ -66,7 +102,7 @@ export function UnpushedMark({ ahead, inTrack = false }: { ahead: number; inTrac
 }
 
 /**
- * The mark a row wears for ~3 s after its PR status changed.
+ * The mark a row wears for `CHANGE_MARK_MS` after its watched state changed.
  *
  * **Deliberately NOT `LiveDot`, and the distinction is a requirement.** That dot
  * means *something is alive here, end unknown* and lives for hours; this means
@@ -83,17 +119,22 @@ export function UnpushedMark({ ahead, inTrack = false }: { ahead: number; inTrac
  * announcement on every CI transition across every row would be an interruption
  * rather than an aid.
  *
+ * The tint is the accent background, and it fades to transparent once over
+ * `CHANGE_MARK_MS` (`CHANGE_FADE`); the element unmounts as the fade ends, so a
+ * later pulse with no change lights nothing.
+ *
  * **Under `motion-reduce` the mark STAYS and only the animation stops** — a
- * static tint, the same rule `LiveDot` follows. Hiding the element under reduced
- * motion would pass a motion-only assertion and lose the information along with
- * the movement, which is the defect that rule exists to prevent.
+ * static tint for the same time, while the row's age cell reads `just now`
+ * (`activitySignal`). Hiding the element under reduced motion would pass a
+ * motion-only assertion and lose the information along with the movement.
  */
 export function ChangeMark() {
   return (
     <span
       aria-hidden
       data-change-mark
-      className="pointer-events-none absolute inset-0 animate-pulse bg-amber-300/25 motion-reduce:animate-none dark:bg-amber-400/20"
+      style={CHANGE_FADE}
+      className="change-mark pointer-events-none absolute inset-0"
     />
   );
 }

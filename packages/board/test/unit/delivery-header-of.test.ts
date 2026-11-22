@@ -78,3 +78,23 @@ describe('deliveryHeaderOf follows the scope', () => {
     expect(mySprint.machine).toEqual(release.machine);
   });
 });
+
+describe('the Fleet spinner ignores Mine', () => {
+  // The fast agent works on another person's plan, so a Mine-filtered reading would lose it.
+  // No PR, so neither loop agent waits on CI and both place as working.
+  const fastRows = [{ ...rows[0], pr: null } as AgentRow, { ...rows[1], pr: null, localDirty: true } as AgentRow];
+  const theirs = agentOn('t', 'feature/theirs', 'running');
+  const both = [agentOn('o', 'feature/ours', 'running'), theirs];
+  const withPace = (mode: MineMode, fleetAgents: RegistryAgent[] = both): DeliveryHeaderReadings => {
+    const base = readings(mode);
+    return { ...base, mappingInput: { ...base.mappingInput, rows: fastRows }, fleet: { ...base.fleet, agents: fleetAgents } };
+  };
+
+  it('turns at the fastest working pace of the whole fleet, in every Mine mode', () => {
+    for (const mode of MODES) expect(deliveryHeaderOf(withPace(mode)).fleet.pace).toBe('fast');
+  });
+
+  it('turns slower where the fast agent is filtered out, which the header must not do', () => {
+    expect(deliveryHeaderOf(withPace('mine', [both[0]!])).fleet.pace).toBe('slow');
+  });
+});

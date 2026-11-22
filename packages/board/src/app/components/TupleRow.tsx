@@ -32,6 +32,8 @@ import { splitBranch, KIND_ICON_PATH,
   statusTone,
 } from '../lib/tuple-row.js';
 import type { RowKind } from '../../contract/schema.js';
+import type { ActivityPace } from '../lib/agent-rows/activity.js';
+import { ActivitySlot } from '../lib/agent-rows/marks.js';
 
 /**
  * The tuple's tracks — the marks lane and the Delivery tab's seven columns,
@@ -698,7 +700,7 @@ export function TupleRowView({
   beside = null,
   ageTitle,
   statusExtra = null,
-  statusLead = null,
+  statusPace = null,
   onNameClick,
   iconTone,
   statusAttr,
@@ -767,8 +769,8 @@ export function TupleRowView({
   ageTitle?: string;
   /** What a kind adds beside its status word — a draft badge, a note. */
   statusExtra?: ReactNode;
-  /** What precedes the status word in slot 5 — the activity spinner. */
-  statusLead?: ReactNode;
+  /** The pace of the activity spinner in the reserved slot before the status word; `null` leaves the slot empty. */
+  statusPace?: ActivityPace | null;
   /** Makes slot 3's name a control, where it opens a panel rather than a URL. */
   onNameClick?: () => void;
   /** Colours the kind glyph, for a variant worth telling apart — see `KindIcon`. */
@@ -970,8 +972,9 @@ export function TupleRowView({
         data-tuple-status
         className={`flex items-baseline gap-2 text-xs text-slate-500 dark:text-slate-400 ${workGrid ? 'whitespace-nowrap' : 'min-w-0 truncate'}`}
       >
-        {/* THE LEAD SLOT comes first: an activity mark stands before the status, never inside it. */}
-        {statusLead}
+        {/* THE LEAD SLOT comes first and is reserved while the row is idle: an activity mark stands before the
+            status, never inside it, and the status text keeps its place when the spinner comes or goes. */}
+        <ActivitySlot pace={statusPace} />
         {tuple.status && shownStatus === undefined && (
           // COLOUR REINFORCES THE WORD, never replaces it — see `statusTone`,
           // whose palette this restores from the `PrCell` the collapse deleted.

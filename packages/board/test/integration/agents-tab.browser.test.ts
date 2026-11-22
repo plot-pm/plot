@@ -3258,7 +3258,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('marks a row whose PR status changes, and clears itself after ~3s', async () => {
+  it('marks a row whose PR status changes with one fade, and clears itself after ~2s', async () => {
     // Both halves in one run, because the clearing is what makes it a MARKER
     // rather than a state — and a mark that waits for the next pulse to clear
     // would sit lit forever on a board whose server died, which is exactly when
@@ -3270,6 +3270,13 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       swap(oneRow('failing'));
       await expect.poll(() => mark(page, 'feature/watched').count(),
         { timeout: 10_000 }).toBe(1);
+      // One fade that never repeats: a repeating animation would pass a
+      // "has an animation" check, so the iteration count is the assertion.
+      const fade = await mark(page, 'feature/watched').evaluate((el) => {
+        const s = getComputedStyle(el);
+        return { name: s.animationName, count: s.animationIterationCount };
+      });
+      expect(fade).toEqual({ name: 'change-fade', count: '1' });
       // And it goes out on its OWN timer while the payload keeps arriving
       // unchanged — no further transition clears it.
       await expect.poll(() => mark(page, 'feature/watched').count(),
@@ -3281,7 +3288,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
 
   // The RESTART rule is asserted in test/unit/agent-list.test.ts, on a fake
   // clock, and deliberately not here: `FLEET_POLL_MS` is 4s while a mark lives
-  // 3s, so two changes on consecutive polls can never overlap. A browser test
+  // 2s, so two changes on consecutive polls can never overlap. A browser test
   // claiming to watch a restart is really watching a second mark replace an
   // expired first — it passes with the restart removed, which was checked.
 

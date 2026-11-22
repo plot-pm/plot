@@ -171,12 +171,33 @@ describe('the activity spinner sits in the Status cell and cycles braille frames
     const li = rowFor(page, 'feature/writing');
     expect(await li.locator('[data-row-cell="status"] [data-activity-spinner]').count()).toBe(1);
     expect(await li.locator('[role="gridcell"]').first().locator('[data-activity-spinner]').count()).toBe(0);
-    // The spinner is the cell's first element: everything else follows it.
-    const first = await li.locator('[data-row-cell="status"]')
-      .evaluate((cell) => cell.firstElementChild?.hasAttribute('data-activity-spinner') ?? false);
+    // The spinner fills the cell's first element, the reserved slot: everything else follows it.
+    const first = await li.locator('[data-row-cell="status"]').evaluate((cell) => {
+      const slot = cell.firstElementChild;
+      return slot?.hasAttribute('data-activity-slot') === true && slot.firstElementChild?.hasAttribute('data-activity-spinner') === true;
+    });
     expect(first).toBe(true);
     // The old travelling mark is gone.
     expect(await li.locator('[data-activity-mark], [data-activity-dot], [data-activity-track]').count()).toBe(0);
+  });
+
+  it('reserves the slot on an idle row, so the status text does not shift', async () => {
+    const page = await open();
+    await expect.poll(() => spinnerIn(page, 'feature/writing').count()).toBe(1);
+    // The slot's width and the status text's offset in its cell, for one row.
+    const layoutOf = (branch: string) => rowFor(page, branch).locator('[data-row-cell="status"]').evaluate((cell) => {
+      const slot = cell.querySelector('[data-activity-slot]');
+      const next = slot?.nextElementSibling;
+      return {
+        slot: slot?.getBoundingClientRect().width ?? -1,
+        text: next ? next.getBoundingClientRect().x - cell.getBoundingClientRect().x : -1,
+      };
+    });
+    const active = await layoutOf('feature/writing');
+    const idle = await layoutOf('feature/idle');
+    expect(active.slot).toBeGreaterThan(0);
+    expect(idle.slot).toBe(active.slot);
+    expect(idle.text).toBe(active.text);
   });
 
   it('shares the status word\'s line box, so it is centred on the text', async () => {

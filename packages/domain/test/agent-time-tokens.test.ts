@@ -1,7 +1,7 @@
 // The Tokens and Time left cells of a Fleet agent row, and the two rules under them.
 import { describe, it, expect } from 'vitest';
 import type { AgentPlacement } from '../src/rules/delivery-placement.js';
-import { agentRowCells } from '../src/rules/delivery-row-form.js';
+import { agentRowCells, fleetPace } from '../src/rules/delivery-row-form.js';
 import { boundSecondsOf, timeLeft, timeLeftValue, TIME_LEFT_RED_BELOW } from '../src/rules/agent-time-left.js';
 import { lastRunIndex, lastRunTokens, runLineRoleOf, tokenCountValue } from '../src/rules/agent-run-tokens.js';
 
@@ -161,6 +161,50 @@ describe('the Tokens cell', () => {
   it('is null where no run was read', () => {
     expect(agentRowCells(agent(), {}).tokens).toBeNull();
     expect(agentRowCells(agent(), { lastRun: null }).tokens).toBeNull();
+  });
+
+  it('shows a running agent\'s context size, with the spend in the tooltip', () => {
+    const c = agentRowCells(agent(), { lastRun: big, running: true, contextTokens: 143_000, contextSpend: 2_400_000 });
+    expect(c.tokens).toEqual({ value: '143k ctx', links: [] });
+    expect(c.tokensTitle).toContain('143,000');
+    expect(c.tokensTitle).toContain('2,400,000');
+  });
+
+  it('names an unread spend in the tooltip rather than a zero', () => {
+    const c = agentRowCells(agent(), { running: true, contextTokens: 143_000 });
+    expect(c.tokens?.value).toBe('143k ctx');
+    expect(c.tokensTitle).toContain('not read');
+    expect(c.tokensTitle).not.toMatch(/: 0\b/);
+  });
+
+  it('keeps "N out" for a finished run that still carries a context reading', () => {
+    const c = agentRowCells(agent(), { lastRun: big, running: false, contextTokens: 143_000 });
+    expect(c.tokens?.value).toBe('4.3k out');
+  });
+});
+
+describe('the Doing now spinner', () => {
+  it('leads a working agent\'s cell at its desk\'s pace', () => {
+    expect(agentRowCells(agent(), { pace: 'fast' }).doingPace).toBe('fast');
+    expect(agentRowCells(agent(), { pace: 'slow' }).doingPace).toBe('slow');
+  });
+
+  it('turns slow where no desk pace was read', () => {
+    expect(agentRowCells(agent(), {}).doingPace).toBe('slow');
+  });
+
+  it('is absent for a blocked or free agent, whatever the pace', () => {
+    expect(agentRowCells(agent({ group: 'blocked', blockedOn: 'person' }), { pace: 'fast' }).doingPace).toBeNull();
+    expect(agentRowCells(agent({ group: 'free', actsOn: null }), { pace: 'fast' }).doingPace).toBeNull();
+  });
+});
+
+describe('fleetPace', () => {
+  it('takes the fastest pace, and null where none runs', () => {
+    expect(fleetPace(['slow', 'fast', null])).toBe('fast');
+    expect(fleetPace([null, 'slow', undefined])).toBe('slow');
+    expect(fleetPace([null, undefined])).toBeNull();
+    expect(fleetPace([])).toBeNull();
   });
 });
 

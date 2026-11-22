@@ -1,6 +1,7 @@
 import type { FleetGroup } from './delivery-placement.js';
 import { oldestWaitsClause } from './delivery-work-columns.js';
 import { fleetCard } from './fleet-card.js';
+import { fleetPace, type AgentPace } from './delivery-row-form.js';
 import {
   HOST_ANSWER_HINT,
   LOW_BUDGET_SHARE,
@@ -88,6 +89,8 @@ export interface FleetHeaderGroup extends HeaderGroupBase {
   marks: HeaderMark[];
   /** The parallel-agents value as text: `parallel 3`, or `parallel —` where unread. */
   parallel: string;
+  /** The spinner beside the label: the fastest pace of the working agents, `null` where none works. */
+  pace: AgentPace | null;
 }
 
 /** One Machine meter: a share of its capacity in use, or `null` with the reason in `text`. */
@@ -138,8 +141,8 @@ export interface DeliveryHeaderInput {
   };
   /** `placeDelivery`'s unplaced entries. */
   unplaced: readonly { subject: 'item' | 'agent'; reason: string }[];
-  /** `placeDelivery`'s placed agents. */
-  agents: readonly { group: FleetGroup }[];
+  /** `placeDelivery`'s placed agents, each with its `agentPace`; an absent pace reads as no spinner. */
+  agents: readonly { group: FleetGroup; pace?: AgentPace | null }[];
   /** `fleet.supervisor`; `null` where the payload carries none. */
   supervisor: HeaderSupervisor | null;
   switches: { dispatch: boolean; review: boolean; verify: boolean; design: boolean };
@@ -247,6 +250,7 @@ const fleetGroup = (input: DeliveryHeaderInput): FleetHeaderGroup => {
     status: status?.status ?? null,
     marks: MARK_KEYS.map((key) => ({ key, on: input.switches[key], text: `${input.switches[key] ? '✓' : '–'} ${key}` })),
     parallel: `parallel ${input.parallelAgents ?? '—'}`,
+    pace: fleetPace(input.agents.map((a) => a.pace)),
   };
 };
 
