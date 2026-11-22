@@ -46,7 +46,7 @@ The spec's anti-goal: *motion that does not mean anything specific (permanent fl
 
 ### Signals
 
-- `feature/delivery-activity-signals` <!-- waits: feature/delivery-work-items-grid, feature/folded-sections-summarise-visually, feature/delivery-tab-has-one-header --> — the reserved spinner slot before the status column, the once-only change fade from `changedRows` with its reduced-motion "just now", and the spinner beside the header's Fleet group label <!-- builds: activitySignal, the activity signal of a Delivery row, heading and header group -->
+- `feature/delivery-activity-signals` <!-- waits: feature/delivery-work-items-grid, feature/folded-sections-summarise-visually, feature/delivery-tab-has-one-header --> — the reserved spinner slot before the status column, the once-only change fade from `changedRows` with its reduced-motion "just now", and the spinner beside the header's Fleet group label <!-- builds: activitySignal, the activity signal of a Delivery row, heading and header group --> → #3664
 
 ## Notes
 
