@@ -70,6 +70,7 @@ export const headingOf = (n: number, assigned: boolean): string =>
  * @param issues - the payload's `issues`.
  * @param showEvery - whether the *show every ticket* control is on.
  * @param narrow - the reader's *Only my work* narrowing, applied last.
+ * @param counts - the hidden counts without the scope's findings, from `scopeTickets`; `null` or absent reads `waiting`'s own counts.
  * @returns the tickets and every text and control state the block shows.
  */
 export const waitingView = (
@@ -77,6 +78,7 @@ export const waitingView = (
   issues: IssueRow[] | null | undefined,
   showEvery: boolean,
   narrow: (tickets: IssueRow[]) => IssueRow[],
+  counts: { readonly unassigned: number; readonly assignedToOthers: number; readonly hidden: number } | null = null,
 ): WaitingView => {
   const safeIssues = issues ?? [];
   if (waiting === null || waiting === undefined) {
@@ -85,11 +87,12 @@ export const waitingView = (
   }
   const control = waiting.hidden > 0 || showEvery ? SHOW_EVERY_TICKET_LABEL : null;
   if (!showEvery) {
+    const hidden = counts ?? waiting;
     const tickets = narrow(waiting.tickets);
     return {
       tickets,
       heading: headingOf(tickets.length, waiting.notice === null),
-      hidden: waiting.hidden > 0 ? hiddenSentence(waiting.hidden, waiting.complete, waiting.unassigned, waiting.assignedToOthers) : null,
+      hidden: hidden.hidden > 0 ? hiddenSentence(hidden.hidden, waiting.complete, hidden.unassigned, hidden.assignedToOthers) : null,
       notice: waiting.notice,
       control,
       showing: null,
@@ -117,12 +120,14 @@ export const waitingView = (
  * @param tickets - the narrowed ticket list `waitingView` returned with `show all` open.
  * @param placed - `DeliveryPlacement.tickets`.
  * @param unplaced - `DeliveryPlacement.unplaced`; a ticket it holds as `filtered` (Mine mode, another reader's) stays out of the others.
+ * @param findingKeys - `scopeTickets`' finding keys; a ticket whose key it holds is in neither list, because Found during the sprint shows it.
  * @returns the reader's tickets and the others, each ordered by age ascending.
  */
 export const splitTicketRows = (
   tickets: readonly IssueRow[],
   placed: readonly TicketPlacement[],
   unplaced: readonly { id: string; reason: string }[] = [],
+  findingKeys: ReadonlySet<string> = new Set(),
 ): { assigned: IssueRow[]; others: IssueRow[] } => {
   const mine = new Set(placed.filter((t) => t.ownership === 'mine').map((t) => t.id));
   const held = new Set(placed.map((t) => t.id));
@@ -130,8 +135,9 @@ export const splitTicketRows = (
   const newest = (a: IssueRow, b: IssueRow): number =>
     (a.ageMinutes ?? Number.POSITIVE_INFINITY) - (b.ageMinutes ?? Number.POSITIVE_INFINITY);
   const open = (t: IssueRow): boolean => held.has(ticketItemId(t.number)) || (t.planned !== true && t.statusCategory !== 'Done');
+  const kept = tickets.filter((t) => !findingKeys.has(t.number.replace(/^#/, '')));
   return {
-    assigned: tickets.filter((t) => mine.has(ticketItemId(t.number))).sort(newest),
-    others: tickets.filter((t) => !mine.has(ticketItemId(t.number)) && !filtered.has(ticketItemId(t.number)) && open(t)).sort(newest),
+    assigned: kept.filter((t) => mine.has(ticketItemId(t.number))).sort(newest),
+    others: kept.filter((t) => !mine.has(ticketItemId(t.number)) && !filtered.has(ticketItemId(t.number)) && open(t)).sort(newest),
   };
 };

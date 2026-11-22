@@ -5,6 +5,7 @@ import { agentsForReader, type PlanOwners } from '../../src/app/lib/agent-rows/m
 import type { DeliveryMapInput, RegistryAgent } from '../../src/app/lib/agent-rows/delivery-readings.js';
 import { sectionSummariesOf, summaryCounts, type SectionSummaryReadings } from '../../src/app/lib/agent-rows/section-summary.js';
 import type { AgentRow } from '../../src/contract/schema.js';
+import type { ScopeTicketGroup, ScopeTicketRow, ScopeTickets } from '@plot-pm/domain/rules/scope-tickets';
 
 const me: Reader = { hostUser: 'jwloka', directory: parsePersonDirectory('jwloka = Jan Wloka; eins78 = Max Albrecht') };
 const MODES: readonly MineMode[] = ['all', 'mine-and-unknown', 'mine'];
@@ -119,5 +120,18 @@ describe('sectionSummariesOf', () => {
       expect(summary.anchors).toEqual({});
     }
     expect(summaries.tickets.empty).not.toBeNull();
+  });
+
+  it('adds the Delivered and Found chips from the scope groups, and a scope row keeps the summary from reading empty', () => {
+    const group = (key: ScopeTicketGroup<ScopeTicketRow>['key'], count: number | null): ScopeTicketGroup<ScopeTicketRow> => ({
+      key, label: key, heading: key, rows: [], count, hiddenByMine: 0, empty: '— none', incomplete: null, unread: count === null,
+    });
+    const scopeTickets: ScopeTickets<ScopeTicketRow> = {
+      delivered: group('tickets-delivered', 2), found: group('tickets-found', 0), findingKeys: new Set(), noPlan: null,
+    };
+    const summaries = sectionSummariesOf({ ...readings('all'), scopeTickets });
+    expect(summaries.tickets.empty).toBeNull();
+    expect(summaryCounts(summaries.tickets)).toMatchObject({ delivered: 2, found: 0 });
+    expect(sectionSummariesOf(readings('all')).tickets.empty).not.toBeNull();
   });
 });

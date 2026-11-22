@@ -26,6 +26,13 @@ const waitingOf = (over: Partial<FleetWaiting> = {}): FleetWaiting => ({
 const keep = (tickets: IssueRow[]): IssueRow[] => tickets;
 
 describe('waitingView', () => {
+  it('writes the hidden sentence from the counts without the scope findings', () => {
+    const waiting = waitingOf({ shown: 0, hidden: 3, unassigned: 3, assignedToOthers: 0 });
+    expect(waitingView(waiting, [], false, keep, { unassigned: 2, assignedToOthers: 0, hidden: 2 }).hidden)
+      .toBe(waitingView(waitingOf({ hidden: 2, unassigned: 2, assignedToOthers: 0 }), [], false, keep).hidden);
+    expect(waitingView(waiting, [], false, keep, { unassigned: 0, assignedToOthers: 0, hidden: 0 }).hidden).toBeNull();
+  });
+
   it('renders issues with no sentence and no control where the server sent no waiting', () => {
     const issues = [ticket('1'), ticket('2')];
     for (const waiting of [undefined, null]) {
@@ -193,5 +200,13 @@ describe('splitTicketRows', () => {
     const issues = [aged('1', 1), aged('2', 2)];
     const { others } = splitTicketRows(issues, [], [{ id: 'ticket:1', reason: 'filtered' }]);
     expect(others.map((t) => t.number)).toEqual(['2']);
+  });
+
+  it('leaves a scope finding out of both lists and keeps a ticket whose key no finding holds', () => {
+    const issues = [aged('1', 1), aged('#2', 2), aged('3', 3)];
+    const placed = [{ id: 'ticket:2', ownership: 'mine' as const }];
+    const { assigned, others } = splitTicketRows(issues, placed, [], new Set(['1', '2']));
+    expect(assigned).toEqual([]);
+    expect(others.map((t) => t.number)).toEqual(['3']);
   });
 });

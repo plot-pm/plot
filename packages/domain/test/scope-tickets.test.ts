@@ -66,6 +66,8 @@ describe('scopeTickets — Delivered by the sprint', () => {
     }));
     expect(out.delivered.rows.map((r) => [r.key, r.plan, r.phase, r.ticketState])).toEqual([['7', 'a', 'delivered', 'closed'], ['7', 'b', 'planning', 'closed']]);
     expect(out.delivered.count).toBe(2);
+    expect(out.delivered.rows.map((r) => r.stateText)).toEqual(['delivered · closed', 'planning · closed']);
+    expect(out.delivered.heading).toBe('Delivered by the sprint · 2');
     expect(out.delivered.rows[0]!.menu.createPlan).toEqual({ kind: 'disabled', reason: PLAN_NAMED_REASON, code: 'plan-named' });
     expect(out.delivered.rows[0]!.menu.createStory).toEqual({ kind: 'tickets' });
     expect(out.delivered.rows[0]!.menu.openOnHost).toEqual({ href: 'https://host/issues/7', reason: null });
@@ -74,7 +76,7 @@ describe('scopeTickets — Delivered by the sprint', () => {
   it('shows a key the rows lack as key and plan, with no state word', () => {
     const out = scopeTickets(input({ cards: [card({ slug: 'a', issues: ['PROJ-1'] })] }));
     const [only] = out.delivered.rows;
-    expect(only).toMatchObject({ key: 'PROJ-1', issue: null, ticketState: null, phase: null });
+    expect(only).toMatchObject({ key: 'PROJ-1', issue: null, ticketState: null, phase: null, stateText: '' });
     expect(only!.menu.createStory).toEqual({ kind: 'disabled', reason: NO_TICKET_ROW_REASON });
     expect(only!.menu.openOnHost).toEqual({ href: 'https://host/issues/PROJ-1', reason: null });
   });
@@ -118,6 +120,12 @@ describe('scopeTickets — Found during the sprint', () => {
     const out = scopeTickets(input({ cards: [card({ slug: 'a', refutedIssues: ['51'] })], rows: [row({ number: '51' })] }));
     expect(out.found.rows[0]!.menu.createPlan).toEqual({ kind: 'tickets' });
   });
+
+  it('disables Create plan and Create story on a key-only finding', () => {
+    const out = scopeTickets(input({ cards: [card({ slug: 'a', refutedIssues: ['52'] })] }));
+    expect(out.found.rows[0]!.menu.createPlan).toEqual({ kind: 'disabled', reason: NO_TICKET_ROW_REASON });
+    expect(out.found.rows[0]!.menu.createStory).toEqual({ kind: 'disabled', reason: NO_TICKET_ROW_REASON });
+  });
 });
 
 describe('scopeTickets — an unread tracker', () => {
@@ -132,6 +140,7 @@ describe('scopeTickets — an unread tracker', () => {
       expect(out.found.rows.map((r) => [r.key, r.kind])).toEqual([['50', 'verification-finding']]);
       expect(out.delivered.count).toBeNull();
       expect(out.found.count).toBeNull();
+      expect(out.found.heading).toBe('Found during the sprint · ?');
       expect(out.found.unread).toBe(true);
       expect(out.found.incomplete).toBeNull();
     });
@@ -178,5 +187,37 @@ describe('scopeTickets — the no-plan counts and the incomplete read', () => {
   it('reads completeness from the waiting read where no row exists', () => {
     const out = scopeTickets(input({ waiting: { unassigned: 0, assignedToOthers: 0, complete: false, unassignedKeys: [], assignedToOthersKeys: [] } }));
     expect(out.delivered.incomplete).toBe(SCOPE_INCOMPLETE);
+  });
+});
+
+describe('scopeTickets — the Mine cells', () => {
+  const cards = [
+    card({ slug: 'mine-plan', author: 'me', issues: ['1', 'K-2'], refutedIssues: ['3'] }),
+    card({ slug: 'their-plan', author: 'bob', issues: ['4'] }),
+  ];
+  const rows = [row({ number: '1', assignees: ['bob'] }), row({ number: '3' }), row({ number: '4', assignees: ['me'] })];
+  const shown = (mine: 'off' | 'mine' | 'strict', sprints: ScopeTicketsInput<ScopeTicketRow>['sprints']) => {
+    const out = scopeTickets(input({ mine, cards, rows, sprints }));
+    return { delivered: out.delivered.rows.map((r) => r.key), found: out.found.rows.map((r) => r.key) };
+  };
+  const release = [{ members: [{ slug: 'mine-plan' }] }, { members: [{ slug: 'their-plan' }] }];
+  const mySprint = [{ members: [{ slug: 'mine-plan' }] }];
+
+  it('shows another\'s ticket on my plan, an unassigned finding on my plan and a key-only ticket on my plan under mine', () => {
+    expect(shown('mine', release)).toEqual({ delivered: ['1', 'K-2', '4'], found: ['3'] });
+  });
+
+  it('keeps only my own ticket on another\'s plan under strict', () => {
+    expect(shown('strict', release)).toEqual({ delivered: ['4'], found: [] });
+  });
+
+  it('shows every scope row under off', () => {
+    expect(shown('off', release)).toEqual({ delivered: ['1', 'K-2', '4'], found: ['3'] });
+  });
+
+  it('never widens a narrower scope', () => {
+    expect(shown('off', mySprint)).toEqual({ delivered: ['1', 'K-2'], found: ['3'] });
+    expect(shown('mine', mySprint)).toEqual({ delivered: ['1', 'K-2'], found: ['3'] });
+    expect(shown('strict', mySprint)).toEqual({ delivered: [], found: [] });
   });
 });

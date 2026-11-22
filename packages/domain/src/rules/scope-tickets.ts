@@ -116,6 +116,8 @@ export interface ScopeTicketRowView<T extends ScopeTicketRow> {
   readonly phase: string | null;
   /** `open` or `closed` where the row holds the ticket; `null` for a key-only row. */
   readonly ticketState: 'open' | 'closed' | null;
+  /** The State cell: the phase word, then `closed` where the row holds a closed ticket, joined by ` · `; `''` where neither applies. */
+  readonly stateText: string;
   readonly menu: ScopeRowMenu;
 }
 
@@ -123,6 +125,8 @@ export interface ScopeTicketRowView<T extends ScopeTicketRow> {
 export interface ScopeTicketGroup<T extends ScopeTicketRow> {
   readonly key: 'tickets-delivered' | 'tickets-found';
   readonly label: string;
+  /** The fold control's text: `<label> · N`, or `<label> · ?` where the tracker is unread. */
+  readonly heading: string;
   /** The rows Mine keeps. */
   readonly rows: readonly ScopeTicketRowView<T>[];
   /** The row count, or `null` where the tracker is unread. */
@@ -201,7 +205,12 @@ const openOnHost = (row: ScopeTicketRow | null, key: string, ticketHref: (key: s
 };
 
 const TICKETS_RULE: ScopeMenuArm = { kind: 'tickets' };
+const NO_ROW: ScopeMenuArm = { kind: 'disabled', reason: NO_TICKET_ROW_REASON };
 const PLAN_NAMED: ScopeMenuArm = { kind: 'disabled', reason: PLAN_NAMED_REASON, code: 'plan-named' };
+
+/** The State cell of a row. */
+const stateTextOf = (phase: string | null, ticketState: 'open' | 'closed' | null): string =>
+  [phase, ticketState === 'closed' ? 'closed' : null].filter((w): w is string => w !== null).join(' · ');
 
 /** The empty hint of a group. */
 const emptyOf = (shown: number, hidden: number): string | null =>
@@ -236,14 +245,15 @@ export const scopeTickets = <T extends ScopeTicketRow>(input: ScopeTicketsInput<
     for (const key of new Set(card.issues.map(keyOf).filter((k) => k !== ''))) {
       const issue = read(key);
       const record = (ticketPlans[key] ?? []).find((p) => p.slug === card.slug);
+      const phase = record === undefined ? null : ticketPhase([record])?.label ?? null;
+      const ticketState = issue?.state ?? null;
       delivered.push({
         key, kind: 'delivered', kindLabel: 'Ticket', issue, plan: card.slug, pr: null,
-        phase: record === undefined ? null : ticketPhase([record])?.label ?? null,
-        ticketState: issue?.state ?? null,
+        phase, ticketState, stateText: stateTextOf(phase, ticketState),
         menu: {
           openOnHost: openOnHost(issue, key, ticketHref),
           createPlan: PLAN_NAMED,
-          createStory: issue === null ? { kind: 'disabled', reason: NO_TICKET_ROW_REASON } : TICKETS_RULE,
+          createStory: issue === null ? NO_ROW : TICKETS_RULE,
         },
       });
     }
@@ -252,8 +262,8 @@ export const scopeTickets = <T extends ScopeTicketRow>(input: ScopeTicketsInput<
   const found: ScopeTicketRowView<T>[] = [];
   const findingMenu = (issue: T | null, key: string): ScopeRowMenu => ({
     openOnHost: openOnHost(issue, key, ticketHref),
-    createPlan: deliveredKeys.has(key) ? PLAN_NAMED : TICKETS_RULE,
-    createStory: issue === null ? { kind: 'disabled', reason: NO_TICKET_ROW_REASON } : TICKETS_RULE,
+    createPlan: deliveredKeys.has(key) ? PLAN_NAMED : issue === null ? NO_ROW : TICKETS_RULE,
+    createStory: issue === null ? NO_ROW : TICKETS_RULE,
   });
   const openIssues = answered ? rows.filter((r) => r.state === 'open') : [];
   const issues = openIssues.map(issueOf);
@@ -266,7 +276,7 @@ export const scopeTickets = <T extends ScopeTicketRow>(input: ScopeTicketsInput<
       if (seen.has(key)) continue;
       seen.add(key);
       const issue = byKey.get(key) ?? null;
-      found.push({ key, kind: 'review-finding', kindLabel: 'Review finding', issue, plan: card.slug, pr, phase: null, ticketState: issue?.state ?? null, menu: findingMenu(issue, key) });
+      found.push({ key, kind: 'review-finding', kindLabel: 'Review finding', issue, plan: card.slug, pr, phase: null, ticketState: issue?.state ?? null, stateText: stateTextOf(null, issue?.state ?? null), menu: findingMenu(issue, key) });
     }
   }
   for (const card of cards) {
@@ -275,7 +285,7 @@ export const scopeTickets = <T extends ScopeTicketRow>(input: ScopeTicketsInput<
       const issue = read(key);
       if (issue !== null && issue.state === 'closed') continue;
       seen.add(key);
-      found.push({ key, kind: 'verification-finding', kindLabel: 'Verification finding', issue, plan: card.slug, pr: null, phase: null, ticketState: issue?.state ?? null, menu: findingMenu(issue, key) });
+      found.push({ key, kind: 'verification-finding', kindLabel: 'Verification finding', issue, plan: card.slug, pr: null, phase: null, ticketState: issue?.state ?? null, stateText: stateTextOf(null, issue?.state ?? null), menu: findingMenu(issue, key) });
     }
   }
 
@@ -287,7 +297,7 @@ export const scopeTickets = <T extends ScopeTicketRow>(input: ScopeTicketsInput<
   const group = (key: ScopeTicketGroup<T>['key'], label: string, all: readonly ScopeTicketRowView<T>[]): ScopeTicketGroup<T> => {
     const shown = all.filter(keep);
     const hiddenByMine = all.length - shown.length;
-    return { key, label, rows: shown, count: answered ? shown.length : null, hiddenByMine, empty: emptyOf(shown.length, hiddenByMine), incomplete, unread: !answered };
+    return { key, label, heading: `${label} · ${answered ? shown.length : '?'}`, rows: shown, count: answered ? shown.length : null, hiddenByMine, empty: emptyOf(shown.length, hiddenByMine), incomplete, unread: !answered };
   };
 
   const findingKeys: ReadonlySet<string> = seen;
