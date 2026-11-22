@@ -3,6 +3,7 @@ import {
   NO_SPRINT,
   rowInSprintSelection,
   rowIsSprintExempt,
+  rowSprintMembership,
   sanitizeSelection,
   showsSprintSlug,
   slugPassesSprintFilter,
@@ -166,5 +167,44 @@ describe('showsSprintSlug', () => {
   // This catches a rule that reads only the Active count.
   it('is false once the selection narrows to exactly one sprint', () => {
     expect(showsSprintSlug(2, ['alpha'])).toBe(false);
+  });
+});
+
+describe('rowSprintMembership', () => {
+  const active = new Map([['alpha', new Set(['in-sprint'])]]);
+  const outside = { kind: 'plan', plan: 'outside' };
+  const inside = { kind: 'plan', plan: 'in-sprint' };
+
+  it('says nothing in the release scope under Mine off, which shows every row', () => {
+    expect(rowSprintMembership(outside, active, { scope: 'release', mine: 'off' })).toBeNull();
+  });
+
+  it('says no sprint for a plan in no Active sprint in the release scope under Mine mine', () => {
+    expect(rowSprintMembership(outside, active, { scope: 'release', mine: 'mine' })).toBe('no sprint');
+    expect(rowSprintMembership(inside, active, { scope: 'release', mine: 'mine' })).toBeNull();
+  });
+
+  it('says no sprint for a plan in no Active sprint in the release scope under Mine strict', () => {
+    expect(rowSprintMembership(outside, active, { scope: 'release', mine: 'strict' })).toBe('no sprint');
+    expect(rowSprintMembership(inside, active, { scope: 'release', mine: 'strict' })).toBeNull();
+  });
+
+  it('says nothing in the my-sprint scope under Mine off', () => {
+    expect(rowSprintMembership(outside, active, { scope: 'my-sprint', mine: 'off' })).toBeNull();
+  });
+
+  it('says nothing in the my-sprint scope under Mine mine, whose rows are already narrowed to the sprint', () => {
+    expect(rowSprintMembership(outside, active, { scope: 'my-sprint', mine: 'mine' })).toBeNull();
+  });
+
+  it('says nothing in the my-sprint scope under Mine strict', () => {
+    expect(rowSprintMembership(outside, active, { scope: 'my-sprint', mine: 'strict' })).toBeNull();
+  });
+
+  it('says nothing for an exempt row, a plan-less row, or while no sprint is Active', () => {
+    const view = { scope: 'release', mine: 'mine' } as const;
+    expect(rowSprintMembership({ kind: 'release', plan: '' }, active, view)).toBeNull();
+    expect(rowSprintMembership({ kind: 'branch', plan: '' }, active, view)).toBeNull();
+    expect(rowSprintMembership(outside, new Map(), view)).toBeNull();
   });
 });

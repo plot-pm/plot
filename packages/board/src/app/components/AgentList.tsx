@@ -65,9 +65,9 @@ import { detailLines } from '../lib/agent-rows/delivery-link-targets.js';
 import { headerOf, itemRowFactsOf, rowFormsOf, switchesOf } from '../lib/agent-rows/delivery-row-facts.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { ReleasePersonCards } from './ReleasePersonCards.js';
-import { LinkTupleView } from './TupleRow.js';
+import { LinkTupleView, TUPLE_TRACKS, YouLeadContext, type YouLead } from './TupleRow.js';
 import { LinePr, LineSlice, LineState, PlanOwner, PhaseChip, PlanName, PlanStrip, PlanTableHead, PLAN_TRACKS, ReleaseHeaderCounts, ReleaseLine } from './ReleasePlanParts.js';
-import { CleanUpBulkDelete, CleanUpMenu } from './CleanUpMenu.js';
+import { CleanUpMenu } from './CleanUpMenu.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
 import { checkoutHealthStatus } from '@plot-pm/domain/rules/checkout-health';
 import {
@@ -122,7 +122,7 @@ import {
   writeMineOnly,
   writeMineStrict,
 } from '../lib/agent-rows/mine-filter.js';
-import { deliveryScope, mineMode, placeDelivery, ticketsSection, planIndexOf, workItemCells, YOU_GROUP_MARKERS, type DeliverySection, type YouGroup, type YouMarker } from '@plot-pm/domain';
+import { deliveryScope, mineMode, placeDelivery, REASON_DO, rowSprintMembership, youRowCells, type VerbTone, ticketsSection, planIndexOf, workItemCells, YOU_GROUP_MARKERS, type DeliverySection, type YouGroup, type YouMarker } from '@plot-pm/domain';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace, headingPace } from '../lib/agent-rows/activity.js';
 import { ActivitySpinner } from '../lib/agent-rows/marks.js';
 import { BranchMenu, BrokenAgentMenu, PlanActions } from '../lib/agent-rows/menus.js';
@@ -131,7 +131,6 @@ import { deliveryMapping, rateLimitOf, releaseCardsOf, releaseGroupOf, sprintRel
 import { ReleaseGroup } from './ReleaseGroup.js';
 import {
   anchorOwner,
-  cleanUpBranches,
   groupAnchor,
   placeMapping,
   planBlockShown,
@@ -150,6 +149,7 @@ import {
   type LinkView,
   type PlacedAgentView,
   type PlacedItemView,
+  type LooseGroupBlockView,
   type PlanBlockView,
   type SliceBlockView,
   type UnplacedView,
@@ -183,6 +183,36 @@ import { specRows } from '../lib/agent-rows/spec-row.js';
 export { noActionReason, offersOpen, openLabel, openTarget, runLinkLabel, showsWorkerLog, storyRefusal } from '../lib/agent-rows/menus.js';
 export { inferredPlanName, isReleaseBranch, isUnpushed, rowSubject, startableNote } from '../lib/agent-rows/rows.js';
 export type { AgentListProps };
+
+/** The colour class of a You row's verb, by its tone. */
+const VERB_TONE_CLASS: Record<VerbTone, string> = {
+  red: 'text-red-700 dark:text-red-400',
+  amber: 'text-amber-700 dark:text-amber-400',
+  grey: 'text-slate-600 dark:text-slate-400',
+};
+
+/**
+ * The Do cell of a You row: the verb as a button that opens the row's own `⋯` menu, so the verb offers the same
+ * choice and runs nothing.
+ *
+ * @param verb - the verb `youRowCells` or `looseGroupRow` gave.
+ * @param tone - the verb's tone from `REASON_DO`.
+ */
+const YouVerb = ({ verb, tone }: { verb: string; tone: VerbTone }) => (
+  <button
+    type="button"
+    data-you-verb={tone}
+    onClick={(e) => {
+      e.stopPropagation();
+      const row = e.currentTarget.closest('[data-delivery-row]');
+      const trigger = row?.querySelector<HTMLElement>('[data-row-actions], [data-row-menu] button[aria-haspopup]');
+      trigger?.click();
+    }}
+    className={`text-xs font-semibold hover:underline ${VERB_TONE_CLASS[tone]}`}
+  >
+    {verb} ›
+  </button>
+);
 
 /** The colour class of each You marker: Blocks delivery red, Input to the fleet blue, Unblock grey. */
 const YOU_MARKER_CLASS: Record<YouMarker, string> = {
@@ -1306,6 +1336,26 @@ export function AgentList({
         };
         const gatesOrGroupItem = (item: PlacedItemView) => gatesItem(item) ?? groupCellItem(item);
         const replacesStatus = (item: PlacedItemView) => groupCellItem(item) !== undefined;
+        // THE YOU ROW'S LEAD IS A DOMAIN PROPERTY: `youRowCells` decides the verb and what waits; this renders them.
+        const sprintView = { scope: sprintScope.kind === 'my-sprint' ? 'my-sprint' as const : 'release' as const, mine: mode === 'all' ? 'off' as const : mode === 'mine' ? 'strict' as const : 'mine' as const };
+        const youLead = (item: PlacedItemView): YouLead | null => {
+          const placed = item.placement;
+          if (placed === null || placed === undefined || placed.section !== 'you') return null;
+          const facts = itemRowFactsOf(mapping, placed.id);
+          const planFile = item.rows[0]?.planFile || item.draft?.planFile || '';
+          const count = planFile === '' ? undefined : cardForPlanFile?.(planFile)?.sliceSummary?.slices;
+          const sprint = rowSprintMembership({ kind: placed.kind, plan: facts.plan ?? '' }, membership, sprintView);
+          const cells = youRowCells(placed, count === undefined ? facts : { ...facts, slices: count }, sprint);
+          if (cells === null || cells.verb === null) return null;
+          return {
+            verb: <YouVerb verb={cells.verb.value} tone={REASON_DO[placed.reason].tone} />,
+            consequence: cells.consequence === null ? <span /> : <RowCell cell={cells.consequence} handlers={linkHandlers} />,
+          };
+        };
+        const withLead = (item: PlacedItemView, node: React.ReactNode, key?: string) => {
+          const lead = youLead(item);
+          return lead === null ? node : <YouLeadContext.Provider key={key} value={lead}>{node}</YouLeadContext.Provider>;
+        };
         const slices = fleet.slices;
         const issues = fleet.issueAnswer === 'answered' ? filteredIssues : [];
         const ticketSplit = splitTicketRows(issues, placement.tickets, placement.unplaced);
@@ -1429,9 +1479,44 @@ export function AgentList({
         const itemTail = (item: PlacedItemView) => [
           linkLine(`links-${item.anchor}`, item.links, '← agents:'),
         ];
+        const openOf = (item: PlacedItemView) => item.rows[0]?.pr?.url || item.rows[0]?.branchUrl || '';
+        // A loose item's `items` menu renders through the grouped row's renderer, as a one-branch group.
+        const looseMenuOf = (item: PlacedItemView) => {
+          const first = item.rows[0];
+          if (item.menu.kind !== 'items' || item.placement?.section !== 'you' || item.placement.reason !== 'loose' || first === undefined) return undefined;
+          return (
+            <CleanUpMenu
+              menu={{ kind: 'branches', branches: [{ branch: first.branch, items: item.menu.items }], trigger: item.menu.trigger }}
+              opens={new Map([[first.branch, openOf(item)]])}
+              label={`Actions for ${first.branch}`}
+            />
+          );
+        };
+        // THE GROUPED UNBLOCK ROW: `looseGroupRow` decides the verb, the count and the age span; this renders them.
+        const looseGroupBody = (block: LooseGroupBlockView) => [
+          ...block.items.map(anchorOf),
+          <li key={block.key} role="row" data-delivery-row="" data-loose-group={block.items.length} className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 delivery-row delivery-row-ruled sm:grid ${TUPLE_TRACKS} sm:items-baseline sm:gap-x-3`}>
+            <span role="gridcell" />
+            <span role="gridcell" data-row-cell="kind" className="delivery-kind min-w-0 shrink-0 truncate">
+              <YouVerb verb={block.row.verb} tone={block.row.tone} />
+            </span>
+            <span role="gridcell" data-row-cell="item" className="flex min-w-0 items-baseline gap-1.5 font-medium">{block.row.object}</span>
+            <span role="gridcell" data-row-cell="where" />
+            <span role="gridcell" data-row-cell="status" data-tuple-status className="flex min-w-0 items-baseline gap-2 truncate text-xs text-slate-500 dark:text-slate-400">
+              {block.row.consequence ?? ''}
+            </span>
+            <span role="gridcell" data-row-cell="by" />
+            <span role="gridcell" data-row-cell="age" />
+            <span role="gridcell" data-row-cell="menu" className="justify-self-end">
+              {block.menu.kind === 'branches' && (
+                <CleanUpMenu menu={block.menu} opens={new Map(block.items.map((i) => [i.rows[0]?.branch ?? '', openOf(i)]))} label={`Actions for ${block.row.object}`} />
+              )}
+            </span>
+          </li>,
+        ];
         const itemBody = (item: PlacedItemView, inPlan = false) => [
           anchorOf(item),
-          ...item.rows.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={inPlan} by={byItem(item)} gates={gatesOrGroupItem(item)} gatesReplaceStatus={replacesStatus(item)} menu={item.menu.kind === 'clean-up' ? <CleanUpMenu menu={item.menu} /> : undefined} />),
+          ...item.rows.map((r) => withLead(item, <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={inPlan} by={byItem(item)} gates={gatesOrGroupItem(item)} gatesReplaceStatus={replacesStatus(item)} menu={looseMenuOf(item)} />, rowKey(r))),
           ...(item.ticket !== null
             ? [(
                 <IssueRowView
@@ -1448,7 +1533,7 @@ export function AgentList({
               )]
             : []),
           ...(item.draft !== null
-            ? [<DraftPlanRowView key={`draft-${item.draft.plan}`} draft={item.draft} card={cardForPlanFile?.(item.draft.planFile) ?? null} onOpenPlan={onOpenPlan} planIndex={planIndex} />]
+            ? [withLead(item, <DraftPlanRowView key={`draft-${item.draft.plan}`} draft={item.draft} card={cardForPlanFile?.(item.draft.planFile) ?? null} onOpenPlan={onOpenPlan} planIndex={planIndex} />, `draft-${item.draft.plan}`)]
             : []),
           ...itemTail(item),
         ];
@@ -1462,7 +1547,7 @@ export function AgentList({
             anchorOf(s.item),
             wg === null ? null : (
               <li key={`slice-${s.item.anchor}`} className="block">
-                <SliceRow
+                {withLead(s.item, <SliceRow
                   group={wg}
                   plan={block.plan}
                   waitingDays={planWaitingDays(block)}
@@ -1491,7 +1576,7 @@ export function AgentList({
                   by={byItem(s.item)}
                   gates={gatesOrGroupItem(s.item)}
                   gatesReplaceStatus={replacesStatus(s.item)}
-                />
+                />)}
                 {many && sliceOpen && (
                   <ul
                     role="presentation"
@@ -1510,6 +1595,7 @@ export function AgentList({
         // A PLAN HEAD OVER ITS SLICES — `PlanRow`, then its slice rows nested
         // beneath. `nestItems` decided which items it holds; `planBlockShown`
         // decides whether they are on the page.
+        const headLead = (block: PlanBlockView, node: React.ReactNode) => (block.head === null ? node : withLead(block.head, node));
         const planBody = (block: PlanBlockView) => {
           const shown = planBlockShown(block, openPlans);
           const group = { plan: block.plan, planFile: block.planFile, rows: block.rows };
@@ -1523,7 +1609,7 @@ export function AgentList({
               {block.head !== null && <span id={block.head.anchor} className="block h-0" />}
               {shown === false && block.slices.map((s) => <span key={s.item.anchor} id={s.item.anchor} className="block h-0" />)}
               {shown === false && block.loose.map((item) => <span key={item.anchor} id={item.anchor} className="block h-0" />)}
-              <PlanRow
+              {headLead(block, <PlanRow
                 group={group}
                 slices={fleet.slices}
                 onOpenPlan={onOpenPlan}
@@ -1543,7 +1629,7 @@ export function AgentList({
                 soleSlice={soleSliceFor(block.plan, slices)}
                 onStarting={onStarting}
                 planIndex={planIndex}
-              />
+              />)}
               {block.head !== null && (
                 <ul role="presentation">{itemTail(block.head)}</ul>
               )}
@@ -1561,6 +1647,7 @@ export function AgentList({
           );
         };
         const blockBody = (block: BlockView) => {
+          if (block.kind === 'loose-group') return looseGroupBody(block);
           if (block.kind !== 'plan') return itemBody(block.item);
           if (block.headed) return [planBody(block)];
           return [
@@ -1850,7 +1937,6 @@ export function AgentList({
                           </span>
                         ))}
                         {groupMark && <ActivitySpinner pace={groupMark} />}
-                        {section.key === 'you' && group.key === 'unblock' && <CleanUpBulkDelete branches={cleanUpBranches(group.items)} />}
                       </h3>
                     ), fleetOpen);
                     return (

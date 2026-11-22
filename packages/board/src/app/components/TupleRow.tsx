@@ -23,7 +23,7 @@
 // hardcoded because the three call sites disagree about all four, and a
 // component that guessed would be the fourth fill site this slice exists to
 // remove.
-import { useContext, type MouseEvent, type ReactNode } from 'react';
+import { createContext, useContext, type MouseEvent, type ReactNode } from 'react';
 import { PlanTicketKeys, TicketHrefContext } from './PlanTicketKeys.js';
 import type { TupleLink, TupleRow as TupleRowData, TupleSegment } from '../lib/tuple-row.js';
 import { splitBranch, KIND_ICON_PATH,
@@ -91,6 +91,20 @@ import type { RowKind } from '../../contract/schema.js';
  * activity marks of a tuple row and of a `Row` beside it stay in one vertical
  * line — the one part of `agent-rows-line-up` this change keeps.
  */
+/** The verb and the consequence a You row shows in place of its kind word and its status. */
+export interface YouLead {
+  /** The Do cell: the verb control, in slot 2. */
+  verb: ReactNode;
+  /** The Waits cell: what the item holds up, in the status slot. */
+  consequence: ReactNode;
+}
+
+/**
+ * The lead of the You row being rendered. A `TupleRowView` inside a provider with a value shows `verb` in slot 2 and
+ * `consequence` in the status slot; `null` keeps the kind word and the status.
+ */
+export const YouLeadContext = createContext<YouLead | null>(null);
+
 export const TUPLE_TRACKS =
   'grid-cols-[1.5rem_4.5rem_minmax(12rem,auto)_1fr_8rem_minmax(0rem,auto)_4.5rem_var(--delivery-menu-track)]';
 
@@ -798,6 +812,9 @@ export function TupleRowView({
   kindChip?: ReactNode;
 }) {
   const ticketHref = useContext(TicketHrefContext);
+  const lead = useContext(YouLeadContext);
+  const shownGates = lead === null ? gates : lead.consequence;
+  const shownReplace = lead === null ? gatesReplaceStatus : true;
   return (
     <li
       role="row"
@@ -863,7 +880,7 @@ export function TupleRowView({
       >
         <span className="sr-only sm:hidden">Kind: </span>
         <span data-tuple-kind-label={tuple.kind} data-kind={tuple.kind}>
-          {kindChip ?? tuple.kindLabel}
+          {lead?.verb ?? kindChip ?? tuple.kindLabel}
         </span>
       </span>
       {/* SLOT 3 — THE ITEM'S OWN NAME: what the reader is deciding about. A PR
@@ -926,7 +943,7 @@ export function TupleRowView({
         className="flex min-w-0 items-baseline gap-2 truncate text-xs text-slate-500 dark:text-slate-400"
       >
         {statusLead}
-        {tuple.status && !(gatesReplaceStatus && gates !== undefined) && (
+        {tuple.status && !(shownReplace && shownGates !== undefined) && (
           // COLOUR REINFORCES THE WORD, never replaces it — see `statusTone`,
           // whose palette this restores from the `PrCell` the collapse deleted.
           <span
@@ -937,7 +954,7 @@ export function TupleRowView({
           </span>
         )}
         {statusExtra}
-        {gates}
+        {shownGates}
       </span>
       {/* BY — who acts on the item; for an agent, who started it. Empty where
           nobody read it, never a default word. */}
