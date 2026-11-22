@@ -249,7 +249,7 @@ describe('a writer given a branch is attributed to that branch only', () => {
 
     expect(briefReading(root, FIRST, PLAN_SLUG).askedAt).not.toBeNull();
     expect(briefReading(root, FIRST, PLAN_SLUG).writing).toBe(true);
-    expect(briefReading(root, SECOND, PLAN_SLUG)).toEqual({ askedAt: null, failed: null, writing: false });
+    expect(briefReading(root, SECOND, PLAN_SLUG)).toEqual({ askedAt: null, failed: null, writing: false, spent: null });
   });
 
   it('reads a running writer held by this board as running', () => {
@@ -261,7 +261,7 @@ describe('a writer given a branch is attributed to that branch only', () => {
     expect(briefReading(root, FIRST, PLAN_SLUG).askedAt).not.toBeNull();
     expect(briefReading(root, FIRST, PLAN_SLUG).failed).toBeNull();
     expect(briefReading(root, FIRST, PLAN_SLUG).writing).toBe(true);
-    expect(briefReading(root, SECOND, PLAN_SLUG)).toEqual({ askedAt: null, failed: null, writing: false });
+    expect(briefReading(root, SECOND, PLAN_SLUG)).toEqual({ askedAt: null, failed: null, writing: false, spent: null });
   });
 
   it('reads a run that named no branch as an ask on every brief-less sibling, never as writing', () => {
@@ -281,15 +281,15 @@ describe('a writer given a branch is attributed to that branch only', () => {
 
     expect(briefReading(root, FIRST, PLAN_SLUG).failed).toBe(path.relative(root, implementLogPath(root, PLAN_SLUG)));
     expect(briefReading(root, FIRST, PLAN_SLUG).writing).toBe(false);
-    expect(briefReading(root, SECOND, PLAN_SLUG)).toEqual({ askedAt: null, failed: null, writing: false });
+    expect(briefReading(root, SECOND, PLAN_SLUG)).toEqual({ askedAt: null, failed: null, writing: false, spent: null });
   });
 
   it('reads a recorded exit of 0 as no ask for any branch', () => {
     const root = repo();
     runGiven(root, '0');
 
-    expect(briefReading(root, FIRST, PLAN_SLUG)).toEqual({ askedAt: null, failed: null, writing: false });
-    expect(briefReading(root, SECOND, PLAN_SLUG)).toEqual({ askedAt: null, failed: null, writing: false });
+    expect(briefReading(root, FIRST, PLAN_SLUG)).toEqual({ askedAt: null, failed: null, writing: false, spent: null });
+    expect(briefReading(root, SECOND, PLAN_SLUG)).toEqual({ askedAt: null, failed: null, writing: false, spent: null });
   });
 
   it('keeps the first branch\'s failure after a later run briefed its sibling', () => {
