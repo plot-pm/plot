@@ -1700,7 +1700,7 @@ const runPrompt = async (
 ): Promise<RunOutcome> => {
   const sdk = deps.runner === 'sdk' ? deps.sdk : undefined;
   const resolveUnder = (root: string) => {
-    const [verb, named, why] = (deps.resolvePrompt ?? promptAnswer)(root, deps.agent).split('\t');
+    const [verb, named, why] = [...(deps.resolvePrompt ?? promptAnswer)(root, deps.agent).split('\t'), '', ''];
     return { verb, named, why, file: verb === 'refused' || !named ? '' : join(root, named) };
   };
   const exists = deps.promptExists ?? existsSync;
@@ -1716,12 +1716,12 @@ const runPrompt = async (
   // needs the prompt file the resolution names.
   const refusal =
     verb === 'refused' || (file === '' && sdk === undefined)
-      ? (why ?? 'no prompt')
+      ? why || 'no prompt'
       : sdk === undefined && !exists(file)
         ? `the prompt file ${file} is absent; ${promptAbsentRepair(
             verb === 'declared'
-              ? { resolve: 'declared', prompt: named ?? '', charter: why ?? '' }
-              : { resolve: 'fallback', prompt: named ?? '', why: why ?? '' },
+              ? { resolve: 'declared', prompt: named, charter: why }
+              : { resolve: 'fallback', prompt: named, why },
           )}`
         : undefined;
   if (refusal !== undefined) {
