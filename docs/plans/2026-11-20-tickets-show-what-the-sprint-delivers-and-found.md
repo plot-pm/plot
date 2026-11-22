@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** delivery-ui-polish
 - **Review:** pr
@@ -13,6 +13,7 @@
 - **Approved:** 2026-11-20, Jan Wloka, plan-PR #3583 merged
 - **Started:** 2026-11-20, Jan Wloka, `feature/scope-ticket-rows-in-the-payload`
 - **Started:** 2026-11-22, Jan Wloka, `feature/tickets-show-what-the-sprint-delivers-and-found`
+- **Delivered:** 2026-11-22
 
 ## Changelog
 
