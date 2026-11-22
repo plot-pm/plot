@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { StateHome } from '@plot-pm/domain';
 import type { BuildPort } from '@plot-pm/domain/ports/build';
 import { revertWorldOf } from '../../src/shared/revert-start-world.js';
 import { removeTree as rmTree } from '../rm-tree.mjs';
@@ -40,6 +41,7 @@ const repoWith = (): string => {
 const worldOf = (repo: string, runs: unknown[]) =>
   revertWorldOf({
     repoRoot: repo,
+    stateHome: repo as StateHome,
     scriptsDir,
     build: {
       system: () => 'github-actions',
