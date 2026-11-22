@@ -84,6 +84,9 @@ import { answer as promptAnswer, read as readAgentCharter } from './prompt.js';
 import { resolveLaunch } from '@plot-pm/domain/rules/prompt';
 import { performLoopWrites, type AppliedWrite, type LoopWritePorts, type LoopWrite } from './loop-writes.js';
 import { CONTINUATION_NAME } from '../../shared/continuation-name.js';
+import { roleSessions } from '../../shared/role-sessions.js';
+import { transcriptDir, transcriptHead } from '../../shared/transcript.js';
+import { resumeHandleUsable, type ResumeHandleReadings } from '@plot-pm/domain/rules/resume-handle';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
@@ -219,6 +222,16 @@ export interface WorkerLoopPorts extends LoopWritePorts {
   readonly sliceCostUsd: (worktree: string, branch: string) => Promise<number | null>;
   /** Replaces this process's own image — {@link runWorkerLoop}'s one path to a self-restart. */
   readonly reexec: Reexec;
+  /**
+   * What `resumeHandleUsable` reads about a handle on a desk: the desk's
+   * role-session record and the handle's transcript head.
+   *
+   * @param worktree - the desk's absolute path.
+   * @param handle - the candidate session handle.
+   * @returns the record's handles, empty where none is readable, and the
+   *   transcript head, `null` where no transcript is readable.
+   */
+  readonly resumeHandleReadings: (worktree: string, handle: string) => Pick<ResumeHandleReadings, 'roleSessions' | 'head'>;
 }
 
 /**
@@ -267,8 +280,29 @@ export const workerLoopPorts = async (
       return read.costUsd;
     },
     reexec: processExec(),
+    resumeHandleReadings: (worktree: string, handle: string) => ({
+      roleSessions: roleSessions(worktree),
+      head: transcriptHead(transcriptDir(worktree), handle),
+    }),
   };
 };
+
+/**
+ * Whether the manifest's `resumeId` may be resumed for its branch.
+ *
+ * @param ports - the loop's ports; only `resumeHandleReadings` is read.
+ * @param manifest - the manifest's worktree, branch and handle.
+ * @returns true where the handle is non-empty and `resumeHandleUsable` accepts it.
+ */
+export const manifestHandleUsable = (
+  ports: Pick<WorkerLoopPorts, 'resumeHandleReadings'>,
+  manifest: Pick<ManifestFields, 'worktree' | 'branch' | 'resumeId'>,
+): boolean =>
+  resumeHandleUsable({
+    handle: manifest.resumeId,
+    branch: manifest.branch,
+    ...ports.resumeHandleReadings(manifest.worktree, manifest.resumeId),
+  }).usable;
 
 /** The bundle's path relative to a checkout's root, as `plot-worker-loop.sh` names it beside itself. */
 export const BUNDLE_RELATIVE_PATH = join('skills', 'plot', 'scripts', 'board', 'plot-worker-loop.mjs');
@@ -541,6 +575,32 @@ export const raiseSliceRuns = async (manifestFile: string): Promise<number | nul
     return runs;
   } catch {
     return null;
+  }
+};
+
+/**
+ * Replaces the manifest's `resumeId`, atomically, and keeps every other field.
+ *
+ * NOT BEST-EFFORT, like {@link raiseSliceRuns}: the caller starts no run
+ * where this answers `false`, so a run never uses a handle the manifest does
+ * not name.
+ *
+ * @param manifestFile - the manifest's own path; `''` for a hand-started loop, which has no manifest to write.
+ * @param resumeId - the new handle.
+ * @returns true where the manifest names `resumeId` afterwards; false where
+ *   `manifestFile` is `''` or the manifest could not be read, parsed or written.
+ */
+export const writeManifestResumeId = async (manifestFile: string, resumeId: string): Promise<boolean> => {
+  if (manifestFile === '') return false;
+  try {
+    const parsed: unknown = JSON.parse(await readFile(manifestFile, 'utf8'));
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return false;
+    const tmp = `${manifestFile}.plot-resume-tmp`;
+    await writeFile(tmp, `${JSON.stringify({ ...(parsed as Record<string, unknown>), resumeId }, null, 2)}\n`, 'utf8');
+    await rename(tmp, manifestFile);
+    return true;
+  } catch {
+    return false;
   }
 };
 
@@ -915,7 +975,9 @@ export const readPass = async (
     prHeadSha: undefined,
     lastPushSha: prompt.pushedSha,
     correctionText: '',
-    resumeId: manifest.resumeId,
+    // A HANDLE THE RULE REJECTS IS NOT CARRIED: a pass that ends before any
+    // run then writes no role handle into the ending.
+    resumeId: manifest.resumeId !== '' && !manifestHandleUsable(ports, manifest) ? '' : manifest.resumeId,
     passAt,
     worktree: manifest.worktree,
     session: manifest.session,
@@ -1668,6 +1730,16 @@ const runPrompt = async (
     const minted = hopFrom === manifest.branch ? '' : (deps.mintHandle ?? randomUUID)().toLowerCase();
     await writeHop(deps.manifestFile, minted, hopFrom);
     if (minted !== '') manifest.resumeId = minted;
+  }
+  // A HANDLE THE RULE REJECTS IS REPLACED: a role session or another branch's
+  // session is never resumed, and the new handle starts `--session-id`.
+  if (manifest.resumeId !== '' && !manifestHandleUsable(deps.ports, { ...manifest, worktree })) {
+    const replaced = (deps.mintHandle ?? randomUUID)().toLowerCase();
+    if (!(await writeManifestResumeId(deps.manifestFile, replaced))) {
+      deps.log(`plot-worker-loop: could not replace the rejected session handle in ${deps.manifestFile}; no run starts`);
+      return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, permissionDenials: 'unanswerable', finalText: '', handBack: null, sessionId: '' };
+    }
+    manifest.resumeId = replaced;
   }
   const handle = manifest.resumeId !== '' ? manifest.resumeId : deps.sessionId;
   // A RUN THE MANIFEST CANNOT COUNT IS NOT STARTED: it ends `unstarted`, so

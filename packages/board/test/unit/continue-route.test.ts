@@ -2655,6 +2655,7 @@ describe('a stopped loop that removes its own manifest — #1376 review', () => 
       recordRun: async () => null,
       recordLimits: async () => 0,
       sliceCostUsd: async () => null,
+      resumeHandleReadings: () => ({ roleSessions: new Set<string>(), head: null }),
     };
     const config = { boundSeconds: 28_800, maxStartRetries: 3, checksWaitSeconds: 1_800, correctionBudget: 2, sliceMaxRuns: 12, sliceMaxSpendUsd: null, base: 'origin/main' };
     const readings = await readPass(ports, file, { running: null, exit: null, pushedSha: '' }, config, { since: null });
