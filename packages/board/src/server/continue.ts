@@ -227,6 +227,8 @@ export async function handleContinue(
     // Set only when the loop started but its manifest stamp failed afterward;
     // `JSON.stringify` drops the key entirely when this is `undefined`.
     warning: started.warning,
+    /** The session the new run starts: `{ resumed }`, or `{ fresh, rejected }`. */
+    session: started.session,
   });
 }
 

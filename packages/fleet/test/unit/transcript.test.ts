@@ -18,6 +18,8 @@ import {
   transcriptDir,
   transcriptFacts,
   transcriptFile,
+  transcriptHead,
+  TRANSCRIPT_HEAD_BYTES,
 } from '../../src/shared/transcript.js';
 import { removeTree as rmTree } from '../rm-tree.mjs';
 
@@ -311,5 +313,32 @@ describe('choosing which transcript to read', () => {
     } finally {
       rmTree(dir);
     }
+  });
+});
+
+describe('reading the head of a transcript', () => {
+  const ROLE_LINE = JSON.stringify({ type: 'agent-setting', agentSetting: 'unblocker', sessionId: 'sess-1' });
+
+  it('answers the first line and a gitBranch that appears on line 3', () => {
+    withFile(
+      [ROLE_LINE, JSON.stringify({ type: 'queue-operation' }), assistantLine({ gitBranch: 'bug/x' }), assistantLine({ gitBranch: 'bug/y' })].join('\n') + '\n',
+      (file) => {
+        assert.deepEqual(transcriptHead(path.dirname(file), 'sess-1'), { firstLine: ROLE_LINE, gitBranch: 'bug/x' });
+      },
+    );
+  });
+
+  it('answers null for a missing transcript and an empty handle', () => {
+    withFile('', (file) => {
+      assert.equal(transcriptHead(path.dirname(file), 'sess-missing'), null);
+      assert.equal(transcriptHead(path.dirname(file), ''), null);
+    });
+  });
+
+  it('answers an empty gitBranch where no line within the bound carries one', () => {
+    const filler = JSON.stringify({ type: 'user', text: 'x'.repeat(TRANSCRIPT_HEAD_BYTES) });
+    withFile([ROLE_LINE, filler, assistantLine({ gitBranch: 'bug/late' })].join('\n') + '\n', (file) => {
+      assert.deepEqual(transcriptHead(path.dirname(file), 'sess-1'), { firstLine: ROLE_LINE, gitBranch: '' });
+    });
   });
 });

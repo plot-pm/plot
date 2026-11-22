@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { contextTokensFromUsage } from '@plot-pm/domain';
+import type { TranscriptHead } from '@plot-pm/domain/rules/resume-handle';
 
 /**
  * What the session transcript can tell the panel about a live agent.
@@ -247,3 +248,63 @@ export function transcriptFacts(
   if (!file) return {};
   return readTranscriptFacts(file);
 }
+
+/** How much of a transcript's head {@link transcriptHead} reads, in bytes. */
+export const TRANSCRIPT_HEAD_BYTES = 64 * 1024;
+
+/**
+ * The head of one session's transcript: its first line and the first
+ * non-empty `gitBranch` value within the first {@link TRANSCRIPT_HEAD_BYTES}.
+ *
+ * The first line of a role run is its `agent-setting` line. The `gitBranch`
+ * field appears on a later line, so every complete line within the bound is
+ * read for it. A line that is not JSON is skipped.
+ *
+ * @param dir - the transcript directory ({@link transcriptDir}).
+ * @param handle - the session id; `<handle>.jsonl` is read.
+ * @returns the head, with `gitBranch` `''` where no line within the bound
+ *   carries one; `null` where the handle is empty or no transcript exists or
+ *   opens.
+ */
+export const transcriptHead = (dir: string, handle: string): TranscriptHead | null => {
+  if (handle === '') return null;
+  const file = transcriptFile(dir, handle);
+  if (file === null) return null;
+  let text: string;
+  let whole: boolean;
+  try {
+    const fd = fs.openSync(file, 'r');
+    try {
+      const st = fs.fstatSync(fd);
+      if (!st.isFile()) return null;
+      const length = Math.min(st.size, TRANSCRIPT_HEAD_BYTES);
+      const buf = Buffer.allocUnsafe(length);
+      const read = fs.readSync(fd, buf, 0, length, 0);
+      text = buf.subarray(0, read).toString('utf8');
+      whole = read >= st.size;
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+  const lines = text.split('\n');
+  // A line cut by the bound is not complete, so it is not parsed.
+  const complete = whole ? lines : lines.slice(0, -1);
+  let gitBranch = '';
+  for (const line of complete) {
+    if (line.trim() === '') continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const value = typeof parsed === 'object' && parsed !== null ? (parsed as { gitBranch?: unknown }).gitBranch : undefined;
+    if (typeof value === 'string' && value !== '') {
+      gitBranch = value;
+      break;
+    }
+  }
+  return { firstLine: lines[0] ?? '', gitBranch };
+};
