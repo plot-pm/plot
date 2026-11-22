@@ -50,6 +50,12 @@ Every count and every row label is a domain property, as the layering rule requi
 
 ## Slices
 
+### Header counts
+
 - `feature/delivery-header-counts-every-state` — the Release delivery section header and the sprint and release block headers print all five slice states, and they add up to the total <!-- builds: headerCountParts over SliceStateCounts --> <!-- tests: release-plan-rows.test.ts — the five parts sum to total, a 0 count has target null; delivery-view.test.ts and sprint-delivery-view.test.ts header strings -->
+### Held slices
+
 - `feature/a-held-slice-names-its-hold` <!-- waits: feature/release-delivery-plan-rows-unfold --> — the not-started count names how many slices are held, and the slice line names each hold <!-- builds: notStartedHold --> <!-- tests: slice-states.test.ts — a held queued slice still counts not-started; a needs-brief row gives no brief, a waitsOn gives waits on, neither gives none -->
+### Fleet rows
+
 - `feature/fleet-rows-name-their-plan` <!-- waits: feature/fleet-switches-in-fleet-section --> — every Fleet row, working or blocked, names its branch, plan, slice and sprint <!-- builds: agentActsOnBranch, branch then checkout for display; RoleRunSchema.branch --> <!-- tests: a board unit test — a synthesized agent with branch '' and checkout X links to X's item, plan and sprint and keeps its placement group; delivery-readings.test.ts — a stopped run with no matching row gives facts.branch -->
