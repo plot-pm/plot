@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { PersonCard, PlanLinkKey } from '@plot-pm/domain';
+import { slicePills } from '@plot-pm/domain';
 import { lineBody, LineState, PhaseChip, PlanName, PLAN_TRACKS, PlanStrip, ReleaseHeaderCounts, ReleaseLine } from '../../src/app/components/ReleasePlanParts.js';
 import { ReleasePersonCards } from '../../src/app/components/ReleasePersonCards.js';
 import { TicketHrefContext } from '../../src/app/components/PlanTicketKeys.js';
@@ -88,9 +89,12 @@ describe('the Release delivery header line', () => {
 });
 
 describe('an opened plan line', () => {
-  it('names a slice at a gate and one being built in the mockups\' words and hues', () => {
-    expect(renderToStaticMarkup(createElement(LineState, { state: 'at-a-gate' }))).toBe('<span data-plan-line-state="at-a-gate" class="delivery-release-state delivery-hue-amber">⟳ at CI</span>');
-    expect(renderToStaticMarkup(createElement(LineState, { state: 'being-built' }))).toBe('<span data-plan-line-state="being-built" class="delivery-release-state delivery-hue-blue">● building</span>');
+  it('draws a slice at a gate and one being built as their status pills', () => {
+    const at = renderToStaticMarkup(createElement(LineState, { line: { state: 'at-a-gate', pills: slicePills('at-a-gate') } }));
+    expect(at).toContain('data-plan-line-state="at-a-gate"');
+    expect(at).toContain('<span data-status-pill="at CI" data-pill-tone="amber" class="delivery-pill"><span aria-hidden="true" data-pill-dot="true" class="delivery-pill-dot"></span>at CI</span>');
+    const building = renderToStaticMarkup(createElement(LineState, { line: { state: 'being-built', pills: slicePills('being-built') } }));
+    expect(building).toContain('data-status-pill="building" data-pill-tone="blue"');
   });
 
   it('splits a Done line with a PR into the slice name and keeps the commit where there is none', () => {

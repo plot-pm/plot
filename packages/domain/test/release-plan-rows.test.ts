@@ -307,3 +307,18 @@ describe('the branch of a slice line', () => {
     expect(lines.map((l) => 'branch' in l)).toEqual([false, false]);
   });
 });
+
+describe('the prerequisite of a To do line', () => {
+  it('names the slice it waits on, whether or not the slice is startable', () => {
+    const lines = planLines([
+      slice('a', 'not-started', { waitsFor: 'base' }),
+      slice('b', 'not-started', { waitsFor: 'base', startable: true }),
+    ]);
+    expect(lines.map((l) => l.waitsFor)).toEqual(['base', 'base']);
+  });
+
+  it('names none where the slice waits on none, and none on another heading', () => {
+    const lines = planLines([slice('a', 'not-started'), slice('b', 'being-built', { waitsFor: 'base' })]);
+    expect(lines.map((l) => 'waitsFor' in l)).toEqual([false, false]);
+  });
+});

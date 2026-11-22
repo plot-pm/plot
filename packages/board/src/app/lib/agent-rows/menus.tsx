@@ -30,7 +30,7 @@ import { WriteBriefButton } from '../../components/WriteBriefButton.js';
 import { offersChangedFiles } from './stuck.js';
 import { isStartable, needsBrief } from './row-identity.js';
 import { WorkerLogModal } from '../../components/WorkerLogModal.js';
-import { rowMenuOf, type BranchMenuFacts, type RowMenuItem, type RowMenuView, type SliceMenuFacts } from './delivery-view.js';
+import { rowMenuOf, type BranchMenuFacts, type RowMenuItem, type RowMenuView, type SliceLineMenuFacts, type SliceMenuFacts } from './delivery-view.js';
 import { DispatchLogModal } from '../../components/DispatchLogModal.js';
 import { ChangedFilesModal } from '../../components/ChangedFilesModal.js';
 
@@ -675,6 +675,29 @@ export type SliceMenuOwn = Pick<SliceMenuFacts, 'wave' | 'slug' | 'eligible' | '
 /**
  * The trigger of a slice row's `⋯`: `data-slice-actions` names the slice, and the button carries the slice label.
  */
+/**
+ * Renders the `⋯` of an opened plan line on the Release tab: Start work for the line's one branch, or no item on a
+ * merged line, whose cell stays empty at the same width.
+ *
+ * @param facts - the line's state, branch, card and dispatch binding; see {@link SliceLineMenuFacts}.
+ * @param slice - the line's slice name, which the trigger carries as `data-slice-line-actions`.
+ * @param pulse - the pulse counter `StartWorkButton` watches to confirm the claim.
+ * @param onStarting - called while the start runs.
+ */
+export const SliceLineActions = ({ facts, slice, pulse, onStarting }: {
+  facts: Omit<SliceLineMenuFacts, 'kind'>;
+  slice: string;
+  pulse: number;
+  onStarting?: ((active: boolean) => void) | undefined;
+}) => {
+  const view = rowMenuOf({ kind: 'slice-line', ...facts });
+  const render = (item: RowMenuItem): ReactNode =>
+    item.action === 'start-work' && facts.card !== null && facts.dispatch !== undefined && facts.branch !== null
+      ? <StartWorkButton card={facts.card} dispatch={facts.dispatch} pulse={pulse} onStarting={onStarting} branch={facts.branch} />
+      : null;
+  return <ItemMenu view={view} trigger={{ 'data-slice-line-actions': slice, label: `Actions for slice ${slice}` }} render={render} />;
+};
+
 const sliceTrigger = (wave: string): { label: string } & Record<`data-${string}`, string> => ({
   'data-slice-actions': wave,
   label: `Actions for slice ${wave}`,

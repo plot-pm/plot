@@ -45,6 +45,33 @@
   color: var(--delivery-text, var(--card-meta));
 }
 
+/* A SLICE LINE'S STATUS PILL: a dot in the pill's tone, then its whole words, as on a Work items row. */
+[data-section="release-delivery"] .delivery-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  white-space: nowrap;
+  color: var(--card-body);
+}
+[data-section="release-delivery"] .delivery-pill-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 9999px;
+  background: var(--card-meta);
+}
+[data-section="release-delivery"] [data-pill-tone="green"] .delivery-pill-dot { background: var(--hue-green-dot); }
+[data-section="release-delivery"] [data-pill-tone="amber"] .delivery-pill-dot { background: var(--hue-amber-dot); }
+[data-section="release-delivery"] [data-pill-tone="red"] .delivery-pill-dot { background: var(--hue-red-dot); }
+[data-section="release-delivery"] [data-pill-tone="blue"] .delivery-pill-dot { background: var(--hue-blue-dot); }
+[data-section="release-delivery"] [data-pill-tone="grey"] .delivery-pill-dot { background: var(--hue-slate-dot); }
+
 /* A person card: the section card's surface, smaller. */
 .delivery-person-card {
   background: var(--card-surface);

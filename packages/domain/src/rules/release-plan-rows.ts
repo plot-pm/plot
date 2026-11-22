@@ -134,6 +134,8 @@ export interface PlanLine {
   readonly merged?: string;
   /** The slice's one branch, the branch segment of the line's PR+branch tuple. Absent where the slice has none. */
   readonly branch?: string;
+  /** The slice a To do line waits on. Absent where it waits on none, and on every other line. */
+  readonly waitsFor?: string;
 }
 
 /**
@@ -171,7 +173,8 @@ export const planLines = (slices: readonly PlanSliceFact[], now?: Date): PlanLin
     const pr = s.pr === undefined ? {} : { pr: s.pr };
     if (heading === 'to-do') {
       const waits = s.startable && s.waitsFor !== '' ? ` · waits for ${s.waitsFor}` : '';
-      return { heading, slice: s.name, text: `${s.name}${waits}`, link: false, start: s.startable, state: s.state, ...pr, ...branch };
+      const waitsFor = s.waitsFor === '' ? {} : { waitsFor: s.waitsFor };
+      return { heading, slice: s.name, text: `${s.name}${waits}`, link: false, start: s.startable, state: s.state, ...pr, ...branch, ...waitsFor };
     }
     return { heading, slice: s.name, text: s.name, link: s.linked, start: false, state: s.state, ...pr, ...branch };
   });
