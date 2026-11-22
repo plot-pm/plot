@@ -46,16 +46,21 @@ export const ActivitySlot = ({ pace }: { pace: ActivityPace | null }) => (
   </span>
 );
 
+const REDUCED_MOTION = '(prefers-reduced-motion: reduce)';
+
+/** The media query list, or `undefined` where no window exists (server rendering, a Node test). */
+const reducedMotionList = (): MediaQueryList | undefined =>
+  typeof window === 'undefined' ? undefined : window.matchMedia?.(REDUCED_MOTION);
+
 /**
  * Whether the reader asked for reduced motion, kept current while the page is open.
  *
- * @returns `true` while `prefers-reduced-motion: reduce` matches.
+ * @returns `true` while `prefers-reduced-motion: reduce` matches; `false` where no window exists.
  */
 export const useReducedMotion = (): boolean => {
-  const query = '(prefers-reduced-motion: reduce)';
-  const [reduced, setReduced] = useState(() => window.matchMedia?.(query).matches ?? false);
+  const [reduced, setReduced] = useState(() => reducedMotionList()?.matches ?? false);
   useEffect(() => {
-    const list = window.matchMedia?.(query);
+    const list = reducedMotionList();
     if (list === undefined) return;
     const onChange = () => setReduced(list.matches);
     list.addEventListener('change', onChange);
