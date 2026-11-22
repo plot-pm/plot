@@ -52,6 +52,13 @@ describe('performerShell.startFreeAgent', () => {
     expect(await performerShell(context).startFreeAgent('')).toEqual({ ok: false, why: 'unaskable' });
   });
 
+  it.each(['no-loop', 'charter-refused', 'prompt-absent'])('answers unaskable for the footer word worker=%s', async (word) => {
+    const context = dispatchThat(
+      `echo 'summary: agents=0 requested=1 running=0 headroom=clear worker=${word}'; exit 1`,
+    );
+    expect(await performerShell(context).startFreeAgent('')).toEqual({ ok: false, why: 'unaskable' });
+  });
+
   it('answers failed on any other non-zero exit', async () => {
     const context = dispatchThat('echo broken >&2; exit 1');
     expect(await performerShell(context).startFreeAgent('')).toEqual({ ok: false, why: 'failed' });

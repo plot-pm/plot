@@ -1,10 +1,10 @@
 // THROUGH THE NARROW PATH, not the package root, for the reason
 // `agent-settings.ts` gives: the root import bundles every entity and rule.
 import { startCommand, type PromptReading } from '@plot-pm/domain/rules/start-command';
-import { readCharter, charterPath, type CharterReading } from '@plot-pm/domain/entities/charter';
 import { resolvePrompt } from '@plot-pm/domain/rules/prompt';
 import { runnerChoice } from '@plot-pm/domain/rules/runner-choice';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { read } from '@plot-pm/fleet/server/entry/prompt';
+import { existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
@@ -18,8 +18,9 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * run	<the configured command>       # exit 0
  * unconfigured	<repair>               # exit 0 — the key is absent or empty
  * declined                            # exit 0 — the key is `none`
- * <why>                               # exit 3, two lines:
- * <repair>                            #   the defect, the repair
+ * <defect>	<why>                      # exit 3, two lines: the defect word
+ * <repair>                            #   (`no-loop`, `charter-refused` or
+ *                                     #   `prompt-absent`) and why, the repair
  * # exit 2 — an argument is missing or the agent is neither `free` nor `assigned`
  * ```
  *
@@ -31,8 +32,9 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * entry reads the charter and the prompt file's existence from them, because the
  * domain reads no file. A command that runs the loop on the `command` runner
  * with no prompt file refuses. The command is a stdin field, so a tab inside it survives.
- * It reads stdin, spawns nothing and opens nothing, and runs once per agent
- * start.
+ * It reads stdin, the charter `PLOT_AGENT` names through the fleet's shared
+ * reader `read`, and whether the resolved prompt file exists; it spawns nothing
+ * and writes nothing, and runs once per agent start.
  */
 
 /** The exit codes the caller reads. */
@@ -46,25 +48,6 @@ export const EXIT = {
 } as const;
 
 /**
- * Reads the charter `name` names under `root`; a missing file is `absent`, any
- * other read failure is `unreadable`.
- *
- * @param root - the repo root.
- * @param name - the agent name, or `''`.
- * @returns what the charter says, or why it cannot be read.
- */
-const readNamedCharter = (root: string, name: string): CharterReading => {
-  if (name === '') return readCharter(name, null);
-  const path = join(root, charterPath(name));
-  try {
-    return readCharter(name, readFileSync(path, 'utf8'));
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return readCharter(name, null);
-    return { read: 'unreadable', name, why: `${path}: ${(err as Error).message}` };
-  }
-};
-
-/**
  * Reads what the loop will source: the runner it will use, the prompt file the
  * charter resolves to, and whether that file exists under `root`.
  *
@@ -75,7 +58,7 @@ const readNamedCharter = (root: string, name: string): CharterReading => {
  * @returns the reading `startCommand` takes.
  */
 export const readPrompt = (root: string, agent: string, agentRunner: string, command: string): PromptReading => {
-  const reading = readNamedCharter(root, agent);
+  const reading = read(root, agent);
   const choice = runnerChoice({
     agentRunner: agentRunner === 'sdk' || agentRunner === 'command' ? agentRunner : '',
     isWorker: true,
@@ -122,7 +105,7 @@ export const run = (
       write('declined\n');
       return EXIT.ok;
     case 'refused':
-      write(`${answer.why}\n${answer.repair}\n`);
+      write(`${answer.defect}\t${answer.why}\n${answer.repair}\n`);
       return EXIT.refused;
   }
 };
