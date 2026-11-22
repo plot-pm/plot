@@ -55,6 +55,12 @@ const baseRow: PrIndexRow = {
 const highRow: PrIndexRow = { ...baseRow, plotReview: 'failure', plotReviewSha: HEAD, plotReviewJudged: 'failure', plotReviewCheckedSha: HEAD };
 const ciRedRow: PrIndexRow = { ...baseRow, ciChecks: 'failing', checksSha: HEAD, failing_checks: ['unit', 'lint'] };
 
+/** A record whose one re-run on `head` ran and was seen, so CI red goes to the fixer. */
+const rerunSeen = (head: string, record: FixerAttemptsRecord = { v: 1, pr: 7, attempts: [] }): FixerAttemptsRecord => ({
+  ...record,
+  reruns: [{ headSha: head, at: '2026-11-22T10:00:00.000Z', answer: 'asked', cleared: '2026-11-22T10:01:00.000Z' }],
+});
+
 const baseReadings: FixerTickReadings = {
   newestMerged: null,
   defaultBranchName: 'main',
@@ -121,6 +127,12 @@ interface WorldOptions {
   agentSettings?: string | null;
   /** Every request and fragment the agent run received. */
   runRequests?: { fragment: string; boundSeconds: number; env: Record<string, string> }[];
+  /** What `rerunFailed` answers; accepted by default. */
+  rerunAnswer?: 'accepted' | 'unaskable' | 'failed';
+  /** Every `rerunFailed` call, as `<branch>@<sha>`. */
+  rerunCalls?: string[];
+  /** Whether `markRerun` lands; `true` by default. */
+  rerunMarkOk?: boolean;
 }
 
 const STARTER_PID = 4100;
@@ -211,12 +223,35 @@ const world = (opts: WorldOptions = {}): FixerTickWorld => {
         records.set(pr, { ...record, attempts: record.attempts.map((a, at): FixerAttempt => (at === index ? { ...a, pushedSha: sha } : a)) });
         return { ok: true, value: undefined };
       },
+      markRerun: async (pr, rerun) => {
+        const record = recordOf(pr);
+        opts.order?.push(`rerun-${rerun.answer}`);
+        if (opts.rerunMarkOk === false || record === 'unreadable') return { ok: false, why: 'failed' };
+        const base: FixerAttemptsRecord = record === 'none' ? { v: 1, pr, attempts: [] } : record;
+        records.set(pr, { ...base, reruns: [...(base.reruns ?? []).filter((r) => r.headSha !== rerun.headSha), rerun] });
+        return { ok: true, value: undefined };
+      },
+      markRerunCleared: async (pr, head, at) => {
+        const record = recordOf(pr);
+        opts.order?.push('rerun-cleared');
+        if (record === 'none' || record === 'unreadable' || !(record.reruns ?? []).some((r) => r.headSha === head)) return { ok: false, why: 'failed' };
+        records.set(pr, { ...record, reruns: (record.reruns ?? []).map((r) => (r.headSha === head && r.cleared === undefined ? { ...r, cleared: at } : r)) });
+        return { ok: true, value: undefined };
+      },
       markStart: async (pr, index) => {
         const record = recordOf(pr);
         opts.order?.push('start-failed');
         if (record === 'none' || record === 'unreadable' || record.attempts[index] === undefined) return { ok: false, why: 'failed' };
         records.set(pr, { ...record, attempts: record.attempts.map((a, at): FixerAttempt => (at === index ? { ...a, start: 'failed' } : a)) });
         return { ok: true, value: undefined };
+      },
+    }),
+    build: () => ({
+      rerunFailed: async (branch, sha) => {
+        opts.rerunCalls?.push(`${branch}@${sha}`);
+        opts.order?.push('rerun-call');
+        const answer = opts.rerunAnswer ?? 'accepted';
+        return answer === 'accepted' ? { ok: true, value: null } : { ok: false, why: answer };
       },
     }),
     freshAgents: () => ({
@@ -335,7 +370,7 @@ describe('fixerTick', () => {
   it('starts on CI red once the desk is dead', async () => {
     const { repoRoot, scriptsDir } = fixture();
     const starts: Started[] = [];
-    const w = world({ deskPath: path.join(repoRoot, 'desk'), workerState: 'failed', agentRunStarts: starts });
+    const w = world({ deskPath: path.join(repoRoot, 'desk'), workerState: 'failed', agentRunStarts: starts, attempts: rerunSeen(HEAD) });
     const [result] = await fixerTick([ciRedRow], baseReadings, { repoRoot, scriptsDir }, w);
     expect(result!.step).toEqual({ step: 'fixer', head: HEAD, evidence: 'ci-red' });
     expect(result!.started).toEqual({ started: true, pid: 9001 });
@@ -375,6 +410,7 @@ describe('fixerTick', () => {
       endingText: ending,
       freshRows: 1,
       agentRunStarts: starts,
+      attempts: rerunSeen(HEAD),
     });
     const [result] = await fixerTick([ciRedRow], baseReadings, { repoRoot, scriptsDir }, w);
     expect(result!.step).toEqual({ step: 'fixer', head: HEAD, evidence: 'ci-red' });
@@ -407,7 +443,7 @@ describe('fixerTick', () => {
   it('starts normally on a PR with no prior fixer attempt', async () => {
     const { repoRoot, scriptsDir } = fixture();
     const starts: Started[] = [];
-    const w = world({ deskPath: path.join(repoRoot, 'desk'), workerState: 'failed', attempts: 'none', agentRunStarts: starts });
+    const w = world({ deskPath: path.join(repoRoot, 'desk'), workerState: 'failed', attempts: rerunSeen(HEAD), agentRunStarts: starts });
     const [result] = await fixerTick([ciRedRow], baseReadings, { repoRoot, scriptsDir }, w);
     expect(result!.step).toEqual({ step: 'fixer', head: HEAD, evidence: 'ci-red' });
     expect(starts).toHaveLength(1);
@@ -686,7 +722,7 @@ describe('fixerTick keeps one fixer per PR', () => {
       attempts: [{ headSha: HEAD, finding: { kind: 'ci', runId: HEAD }, inFlight: { pid: 4242, startedAt: 't' } }],
     };
     const starts: Started[] = [];
-    const w = world({ pidCheck: () => 'dead', attempts: record, workerState: 'elsewhere', agentRunStarts: starts, prState: { number: 7, state: 'OPEN', headSha: OTHER_HEAD } });
+    const w = world({ pidCheck: () => 'dead', attempts: rerunSeen(OTHER_HEAD, record), workerState: 'elsewhere', agentRunStarts: starts, prState: { number: 7, state: 'OPEN', headSha: OTHER_HEAD } });
     const pushedRed: PrIndexRow = { ...ciRedRow, headSha: OTHER_HEAD, checksSha: OTHER_HEAD };
     const [first] = await fixerTick([pushedRed], baseReadings, opts, w);
     expect(first!.step).toEqual({ step: 'fixer', head: OTHER_HEAD, evidence: 'ci-red' });
@@ -779,7 +815,7 @@ describe('fixerTick gives the fixer its evidence', () => {
     const opts = fixture();
     const starts: Started[] = [];
     const verdictFiles: string[] = [];
-    const w = world({ deskPath: path.join(opts.repoRoot, 'desk'), workerState: 'failed', agentRunStarts: starts, verdictFiles });
+    const w = world({ deskPath: path.join(opts.repoRoot, 'desk'), workerState: 'failed', agentRunStarts: starts, verdictFiles, attempts: rerunSeen(HEAD) });
     await fixerTick([ciRedRow], baseReadings, opts, w);
     expect(starts[0]!.prompt).toContain('The failing checks: unit, lint.');
     expect(verdictFiles).toEqual([]);
@@ -844,7 +880,7 @@ describe('fixerTick against a real git repository', () => {
     const row: PrIndexRow = { ...ciRedRow, headSha: head, checksSha: head };
     const opts = { repoRoot, scriptsDir: repoRoot, runLog: runLogFixture() };
     const starts: Started[] = [];
-    const w = realWorld(repoRoot, head, { deskPath: desk, workerState: 'failed', agentRunStarts: starts });
+    const w = realWorld(repoRoot, head, { deskPath: desk, workerState: 'failed', agentRunStarts: starts, attempts: rerunSeen(head) });
     const [result] = await fixerTick([row], baseReadings, opts, w);
     expect(result!.step).toEqual({ step: 'fixer', head, evidence: 'ci-red' });
     expect(result!.started).toEqual({ started: true, pid: 9001 });
@@ -1078,7 +1114,7 @@ describe('fixerTick reads the fixer scope', () => {
   it('starts a fixer on a red PR no agent owns once its head stands for an hour', async () => {
     const starts: Started[] = [];
     const claimRanges: string[] = [];
-    const [result] = await fixerTick([deskless], baseReadings, fixture(), world({ claims: [work], agentRunStarts: starts, claimRanges }));
+    const [result] = await fixerTick([deskless], baseReadings, fixture(), world({ claims: [work], agentRunStarts: starts, claimRanges, attempts: rerunSeen(HEAD) }));
     expect(result!.step).toEqual({ step: 'fixer', head: HEAD, evidence: 'ci-red' });
     expect(result!.started).toEqual({ started: true, pid: 9001 });
     expect(claimRanges).toEqual(['origin/main..origin/feature/x']);
@@ -1248,5 +1284,94 @@ describe('fixerTick on a conflicting PR', () => {
 describe('deskDeadFromWorkerState never reads elsewhere as dead', () => {
   it('answers not dead for elsewhere, so a desk on another machine never counts as gone by itself', () => {
     expect(deskDeadFromWorkerState('elsewhere')).toEqual({ dead: false, why: 'elsewhere' });
+  });
+});
+
+describe('fixerTick re-runs a red head once before a fixer starts', () => {
+  const dead = (o: WorldOptions = {}): WorldOptions => ({ deskPath: path.join(os.tmpdir(), 'desk'), workerState: 'failed', ...o });
+  const pendingRow: PrIndexRow = { ...ciRedRow, ciChecks: 'pending' };
+
+  it('writes the re-run record before it calls rerunFailed, once, with the branch and head', async () => {
+    const opts = fixture();
+    const order: string[] = [];
+    const rerunCalls: string[] = [];
+    const starts: Started[] = [];
+    const [result] = await fixerTick([ciRedRow], baseReadings, opts, world(dead({ order, rerunCalls, agentRunStarts: starts })));
+    expect(result!.step).toEqual({ step: 'rerun', head: HEAD });
+    expect(order).toEqual(['rerun-asked', 'rerun-call']);
+    expect(rerunCalls).toEqual([`feature/x@${HEAD}`]);
+    expect(starts).toHaveLength(0);
+    expect(opts.runLog.lines.map((l) => [l.step, l.outcome])).toEqual([['ci-rerun', 'moved: asked']]);
+  });
+
+  it('starts no fixer and makes no second call on a tick that reads the same stale failing row', async () => {
+    const opts = fixture();
+    const rerunCalls: string[] = [];
+    const starts: Started[] = [];
+    const w = world(dead({ rerunCalls, agentRunStarts: starts }));
+    await fixerTick([ciRedRow], baseReadings, opts, w);
+    const [second] = await fixerTick([ciRedRow], { ...baseReadings, now: NOW + 60_000 }, opts, w);
+    expect(second!.step).toEqual({ step: 'hold', reason: 'rerun-running' });
+    expect(rerunCalls).toHaveLength(1);
+    expect(starts).toHaveLength(0);
+  });
+
+  it('starts the fixer once a pending reading clears the re-run and the head reads failing again', async () => {
+    const opts = fixture();
+    const rerunCalls: string[] = [];
+    const starts: Started[] = [];
+    const w = world(dead({ rerunCalls, agentRunStarts: starts }));
+    await fixerTick([ciRedRow], baseReadings, opts, w);
+    await fixerTick([pendingRow], { ...baseReadings, now: NOW + 60_000 }, opts, w);
+    const [third] = await fixerTick([ciRedRow], { ...baseReadings, now: NOW + 120_000 }, opts, w);
+    expect(third!.step).toEqual({ step: 'fixer', head: HEAD, evidence: 'ci-red' });
+    expect(rerunCalls).toHaveLength(1);
+    expect(starts).toHaveLength(1);
+    expect(starts[0]!.prompt).toContain(`fleetd re-ran the failed jobs once on ${HEAD}, and they failed again.`);
+  });
+
+  it('starts the fixer once Checks wait passes with no cleared reading', async () => {
+    const opts = fixture();
+    const starts: Started[] = [];
+    const w = world(dead({ agentRunStarts: starts }));
+    await fixerTick([ciRedRow], baseReadings, opts, w);
+    const [late] = await fixerTick([ciRedRow], { ...baseReadings, now: NOW + baseReadings.config.checksWaitMs + 1 }, opts, w);
+    expect(late!.step).toEqual({ step: 'fixer', head: HEAD, evidence: 'ci-red' });
+    expect(starts).toHaveLength(1);
+  });
+
+  it.each(['unaskable', 'failed'] as const)('records an %s re-run and starts the fixer on the next tick without the re-ran line', async (answer) => {
+    const opts = fixture();
+    const order: string[] = [];
+    const rerunCalls: string[] = [];
+    const starts: Started[] = [];
+    const w = world(dead({ order, rerunCalls, rerunAnswer: answer, agentRunStarts: starts }));
+    await fixerTick([ciRedRow], baseReadings, opts, w);
+    expect(order).toEqual(['rerun-asked', 'rerun-call', `rerun-${answer}`]);
+    expect(opts.runLog.lines.map((l) => [l.step, l.outcome])).toEqual([['ci-rerun', `failed: ${answer}`]]);
+    const [next] = await fixerTick([ciRedRow], { ...baseReadings, now: NOW + 60_000 }, opts, w);
+    expect(next!.step).toEqual({ step: 'fixer', head: HEAD, evidence: 'ci-red' });
+    expect(rerunCalls).toHaveLength(1);
+    expect(starts[0]!.prompt).toContain(`No re-run of the failed jobs ran on ${HEAD}`);
+    expect(starts[0]!.prompt).not.toContain('fleetd re-ran the failed jobs');
+  });
+
+  it('calls no re-run where the record cannot be written', async () => {
+    const opts = fixture();
+    const rerunCalls: string[] = [];
+    await fixerTick([ciRedRow], baseReadings, opts, world(dead({ rerunCalls, rerunMarkOk: false })));
+    expect(rerunCalls).toEqual([]);
+    expect(opts.runLog.lines.map((l) => [l.step, l.outcome])).toEqual([['ci-rerun', 'failed: record-not-written']]);
+  });
+
+  it('re-runs a new head once more, and spends no fixer attempt', async () => {
+    const opts = fixture();
+    const rerunCalls: string[] = [];
+    const appendCalls: unknown[] = [];
+    const w = world(dead({ rerunCalls, appendCalls, attempts: rerunSeen(HEAD), prState: { number: 7, state: 'OPEN', headSha: OTHER_HEAD } }));
+    const [result] = await fixerTick([{ ...ciRedRow, headSha: OTHER_HEAD, checksSha: OTHER_HEAD }], baseReadings, opts, w);
+    expect(result!.step).toEqual({ step: 'rerun', head: OTHER_HEAD });
+    expect(rerunCalls).toEqual([`feature/x@${OTHER_HEAD}`]);
+    expect(appendCalls).toEqual([]);
   });
 });
