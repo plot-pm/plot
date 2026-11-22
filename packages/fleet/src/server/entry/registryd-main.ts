@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -69,7 +69,7 @@ import { removeStageDirsOnExit } from '@plot-pm/domain/adapters/stage-dirs';
 import { unpushedAfterMerge } from '@plot-pm/domain/workflows/unpushed-after-merge';
 import { FLEETD_START_VERSION, type FleetdStart } from '@plot-pm/domain/entities/fleetd-start';
 import { SPAWN_CONTRACT } from '@plot-pm/domain/rules/spawn-contract';
-import type { WriteProbe } from '@plot-pm/domain/ports/write-probe';
+import type { ProbePrompt, WriteProbe } from '@plot-pm/domain/ports/write-probe';
 import { writeProbeNeeded, writeProbeOutcome } from '@plot-pm/domain/rules/write-probe';
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
 import type { Clock } from '@plot-pm/domain/ports/clock';
@@ -164,6 +164,9 @@ import { freshScanState, planDirectory } from '../../shared/fleet-scan.js';
 import { budgetSpendReader, type SpendReader } from '../../shared/spend-reader.js';
 import { readFleetSettings } from '../../shared/fleet-settings-store.js';
 import { readConfigAsync } from '../../shared/config-reader.js';
+import { sliceAgentOf } from '../../shared/slice-agent.js';
+import { startPromptOf, type StartPromptReadings } from '../../shared/probe-prompt.js';
+import { answer as promptAnswer } from './prompt.js';
 import { markerReading, markerText } from '../../shared/worker-question.js';
 import { mainCheckout } from '../../shared/main-checkout.js';
 import { deskDeadFromWorkerState } from '../../shared/auto-fixer.js';
@@ -1944,9 +1947,8 @@ const workspacePackagesIn = async (repoRoot: string): Promise<readonly string[]>
  * Proves the configured `Worker command` can write before `startAgents` hands
  * any `worker-start` write over to it.
  *
- * **ONE PROMPT FILE GOVERNS EVERY AGENT**, so the probe asks the command
- * string itself rather than branching on it — the same reason
- * `plot-fleetctl.sh`'s `--start` probes ahead of `launchctl bootstrap`. A
+ * **EACH STARTED AGENT'S PROMPT IS PROBED**: `promptsOf` resolves one prompt
+ * per `worker-start` write, and the probe tests each distinct file once. A
  * refused write here means a dispatched agent would meet the same refusal, so
  * nothing in this tick's `worker-start` writes is handed over.
  *
@@ -1961,9 +1963,10 @@ const workspacePackagesIn = async (repoRoot: string): Promise<readonly string[]>
  * proceeds and reports its fix (`writeProbeOutcome`).
  *
  * @param report - what the tick decided.
- * @param probe - what runs the configured command once, in a scratch desk.
+ * @param probe - what runs the prompt files once, in a scratch desk.
  * @param readWorkerCommand - reads the configured `Worker command`.
  * @param warn - where a refusal is reported.
+ * @param promptsOf - resolves the prompt of each `worker-start` write, in order.
  * @returns `true` to let `startAgents` proceed, `false` to skip it entirely.
  */
 export const probeBeforeStarting = async (
@@ -1971,14 +1974,15 @@ export const probeBeforeStarting = async (
   probe: WriteProbe,
   readWorkerCommand: () => Promise<string>,
   warn: (s: string) => void,
+  promptsOf: (writes: readonly { readonly branch: string; readonly worktree: string }[]) => Promise<readonly ProbePrompt[]>,
 ): Promise<boolean> => {
-  const hasWorkerStart = (report.handOver?.writes ?? []).some((item) => item.kind === 'worker-start');
-  if (!hasWorkerStart) return true;
+  const starts = (report.handOver?.writes ?? []).flatMap((item) => (item.kind === 'worker-start' ? [item] : []));
+  if (starts.length === 0) return true;
 
   const command = await readWorkerCommand();
   if (!writeProbeNeeded(command)) return true;
 
-  const outcome = writeProbeOutcome(await probe.check(command));
+  const outcome = writeProbeOutcome(await probe.check(command, await promptsOf(starts)));
   if (outcome.message !== undefined) warn(`plot-fleetd: ${outcome.message}\n`);
   return outcome.answer === 'proceed';
 };
@@ -4054,6 +4058,18 @@ export const run = async (
         probe,
         () => readConfigAsync({ repoRoot, scriptsDir }, 'Worker command', ''),
         warn,
+        async (writes) => {
+          const planDir = writes.some((w) => w.branch !== '')
+            ? resolvePath(repoRoot, await readConfigAsync({ repoRoot, scriptsDir }, 'Plan directory', 'docs/plans/'))
+            : '';
+          const readings: StartPromptReadings = {
+            repoRoot,
+            sliceAgent: (branch) => sliceAgentOf(repoRoot, scriptsDir, planDir, branch),
+            resolvePrompt: promptAnswer,
+            exists: existsSync,
+          };
+          return writes.map((write) => startPromptOf(write, readings));
+        },
       ))
     ) {
       await startAgents(report, performer, handOverWorld, write, warn);

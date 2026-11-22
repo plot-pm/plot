@@ -69,7 +69,7 @@ const parseInvocation = (stdout: string): string[] =>
  * `unanswerable`: none of them observed a refused write. Only an exit 0
  * without the marker is `no` ({@link probeRunReading}).
  */
-export const writeProbeShell = (context: ShellContext, options: WriteProbeShellOptions = {}): WriteProbe => {
+export const writeProbeShell = (_context: ShellContext, options: WriteProbeShellOptions = {}): WriteProbe => {
   const timeoutMs = options.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
   const run = options.run ?? runProcess;
   const cutScratch = options.mkdtemp ?? mkdtemp;

@@ -1801,6 +1801,9 @@ await esbuild.build({
   minify: true,
   legalComments: 'none',
   banner: { js: '#!/usr/bin/env node' },
+  // It imports the fleet's prompt entry for its resolver, whose own run block
+  // would otherwise match this bundle's argv[1].
+  define: { PLOT_EMBEDDED: 'true' },
 });
 
 fs.copyFileSync(writeProbeArtifact, shippedWriteProbe);

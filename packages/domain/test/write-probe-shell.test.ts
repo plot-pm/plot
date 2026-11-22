@@ -65,9 +65,9 @@ describe('writeProbeShell — the prompts it is given', () => {
           read.push(path);
           return MINIMAL_PROMPT;
         },
-        run: async (command, args, options) => {
+        run: async (command, args) => {
           if (command === 'bash') sourced.push(String(args.at(-1)));
-          return writingHarness(command, args, options);
+          return writingHarness(command, args);
         },
       });
       const reading = await probe.check('claude -p', [{ file: declared, charter: 'reviewer' }]);
@@ -107,9 +107,9 @@ describe('writeProbeShell — the prompts it is given', () => {
     try {
       const sourced: string[] = [];
       const probe = writeProbeShell(shellContext(root), {
-        run: async (command, args, options) => {
+        run: async (command, args) => {
           if (command === 'bash') sourced.push(String(args.at(-1)));
-          return writingHarness(command, args, options);
+          return writingHarness(command, args);
         },
       });
       const file = join(root, FALLBACK_PROMPT);
