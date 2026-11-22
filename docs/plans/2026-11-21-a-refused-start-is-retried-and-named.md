@@ -132,7 +132,7 @@ In both cases the pass that asked read the plan as Approved on `origin/<main>` (
 
 ### Probe and loop
 
-- `bug/the-probe-and-the-loop-name-the-charter-prompt` — `promptAbsentRepair`, the write probe resolving each started agent's prompt including a slice's own charter and the desk copy, the loop's repair naming a declared file and its charter, and the attempts assertions in both charter-refusal tests <!-- builds: promptAbsentRepair and the write probe's per-agent prompt resolution -->
+- `bug/the-probe-and-the-loop-name-the-charter-prompt` — `promptAbsentRepair`, the write probe resolving each started agent's prompt including a slice's own charter and the desk copy, the loop's repair naming a declared file and its charter, and the attempts assertions in both charter-refusal tests <!-- builds: promptAbsentRepair and the write probe's per-agent prompt resolution --> → #3668
 
 ### CI re-run
 
