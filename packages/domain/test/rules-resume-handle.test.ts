@@ -44,6 +44,11 @@ describe('resumeHandleUsable', () => {
     expect(ask({ head: null })).toEqual({ usable: true });
   });
 
+  it('keeps a first line that parses to JSON null or to a scalar', () => {
+    expect(ask({ head: head('null') })).toEqual({ usable: true });
+    expect(ask({ head: head('"agent-setting"') })).toEqual({ usable: true });
+  });
+
   it('rejects a transcript recorded on another branch', () => {
     const line = JSON.stringify({ type: 'queue-operation' });
     expect(ask({ head: head(line, 'feature/the-fixer-scope-reads-every-open-pr') })).toEqual({ usable: false, why: 'other-branch' });
