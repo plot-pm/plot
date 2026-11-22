@@ -22,6 +22,7 @@ import {
   briefAskLogPaths, briefReading, DISPATCH_SCRIPT_ASK_LOG,
 } from '../../src/server/brief-ask-log.js';
 import { askForBriefLogPath } from '../../src/server/brief-ask.js';
+import { writeBriefSpent } from '@plot-pm/fleet/shared/brief-spent';
 import { markBoardRun } from '../../src/server/board-run.js';
 import {
   implementBranchRecordPath, implementBranchStatePath, implementLogPath, implementStatePath,
@@ -299,5 +300,25 @@ describe('a writer given a branch is attributed to that branch only', () => {
 
     expect(briefReading(root, FIRST, PLAN_SLUG).failed).toBe(path.relative(root, implementLogPath(root, PLAN_SLUG)));
     expect(briefReading(root, SECOND, PLAN_SLUG).failed).toBeNull();
+  });
+});
+
+describe('spent reads fleetd\'s spent file for the branch', () => {
+  it('reads a spent file as spent, with its end count and a repository-relative log', () => {
+    const root = repo();
+    const log = askForBriefLogPath(root, PLAN_SLUG);
+    writeBriefSpent(root, { branch: BRANCH, slug: PLAN_SLUG, ends: 2, log });
+    expect(briefReading(root, BRANCH, PLAN_SLUG).spent).toEqual({ ends: 2, log: path.relative(root, log) });
+  });
+
+  it('is null where no spent file exists', () => {
+    const root = repo();
+    expect(briefReading(root, BRANCH, PLAN_SLUG).spent).toBeNull();
+  });
+
+  it('is null where the file names another branch', () => {
+    const root = repo();
+    writeBriefSpent(root, { branch: 'feature/a-brief-the-fleet-writes-shows-as-asked', slug: PLAN_SLUG, ends: 2, log: '' });
+    expect(briefReading(root, BRANCH, PLAN_SLUG).spent).toBeNull();
   });
 });

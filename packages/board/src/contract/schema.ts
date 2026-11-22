@@ -3230,6 +3230,13 @@ export const AgentRowSchema = z.object({
    */
   briefWriter: BriefWriterStateSchema.default('none'),
   /**
+   * fleetd's spent record for this branch: how many brief runs ended without a
+   * brief, and the repository-relative log of the last one. Present while
+   * fleetd asks no more for the branch; `null` where no record exists, and on a
+   * pulse from a server predating this field.
+   */
+  briefSpent: z.object({ ends: z.number(), log: z.string() }).nullable().default(null),
+  /**
    * The name of the earlier slice blocking this row — `waitingOn: 'time'` only,
    * null everywhere else.
    *

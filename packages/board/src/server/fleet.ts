@@ -7737,8 +7737,12 @@ export function rowsFromPulse(
                 writing: askReading?.writing ?? false,
                 failed: askReading?.failed ?? null,
                 askedAt: askReading?.askedAt ?? null,
+                spent: askReading?.spent ?? null,
               })
             : 'none',
+          // fleetd's spent record for this branch: its brief runs ended without
+          // a brief and fleetd asks no more. Null where none exists.
+          briefSpent: askReading?.spent ?? null,
           // And by WHICH slice, where that is the answer. Only the server can
           // say: `verdict` lives on the slice, the row carries only its own
           // name. Null on every row that is not blocked, and on a blocked row
@@ -8065,6 +8069,7 @@ export function rowsFromPulse(
       // AND SO NOTHING WRITING EITHER — same absence, same reason: no plan
       // names this row, so `needsBrief` can never hold for it.
       briefWriter: 'none',
+      briefSpent: null,
       blockedBy: null,
       // NO SLICE, SO NO VERDICT — null, and for the same reason as the two
       // fields above rather than as a placeholder. This row is built from the PR
@@ -8384,6 +8389,7 @@ export function rowsFromPulse(
       briefFailed: null,
       // And so nothing writing either — same reason: no plan names this row.
       briefWriter: 'none',
+      briefSpent: null,
       blockedBy: null,
       verdict: null,
       startability: startability ?? null,
