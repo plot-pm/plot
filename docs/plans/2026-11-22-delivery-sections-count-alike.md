@@ -1,6 +1,6 @@
 # The sprint header and the Fleet section count alike
 
-> The sprint header counts every slice in one of five states that add up to its total and names the fleet hold of a slice that waits, and every Fleet row names the branch, plan and sprint it acts on.
+> The Release delivery section header counts every slice in five states that add up to its total and counts the held ones, the slice line names each hold, and every Fleet row names the branch, plan and sprint it acts on.
 
 ## Status
 
@@ -9,45 +9,47 @@
 - **Sprint:** delivery-ui-polish
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
-- The sprint header shows every slice in one of five counts: delivered, at a gate, being built, blocked and not started. The five counts add up to the slice total.
-- A not-started slice that the fleet holds is counted as held, and the count names the hold, for example "1 held: no brief".
-- Every Fleet row names the plan and the slice it acts on, and marks a sprint member with the sprint's name.
-- A blocked Fleet row names its branch. It no longer shows "…".
+- The Release delivery section header (Sprint delivery under My sprint) shows every slice in one of five counts: delivered, blocked, at a gate, being built and not started. The five counts add up to the slice total, and a count of 0 shows grey and links nowhere.
+- The not-started count says how many of its slices are held, for example "4 not started · 2 held". The slice line names each hold: "not started · no brief" or "not started · waits on Work items grid".
+- Every Fleet row names the branch, plan and slice it acts on, also for an agent on a desk whose branch the registry did not record. A row of an agent on a sprint member carries the sprint's name; a row with no sprint mark is work the sprint header does not count.
+- A blocked Fleet row names its branch in its Branch cell.
 
 <!-- Board impact: the Delivery tab only (packages/board, packages/domain). No plan format, template, helper script or docs/plans layout changes. A builder runs `pnpm build:board` locally to test a slice and commits no bundle: `scripts/check-no-bundle-diff.sh` refuses one. -->
 
 ## Motivation
 
-On 2026-11-22 the operator read the Delivery tab and saw two sections that seemed to contradict each other. The sprint header read "7 plans · 11 of 16 slices delivered · 1 at a gate · 0 blocked". The Fleet section read "5 working". Only 1 of the 5 working agents acted on a sprint slice; the other 4 acted on bug and infra plans outside the sprint. Neither section said so.
+On 2026-11-22 the operator read the Delivery tab and saw two sections that seemed to contradict each other. The Sprint delivery section header read "7 plans · 11 of 16 slices delivered · 1 at a gate · 0 blocked". The Fleet section read "5 working". Only 1 of the 5 working agents acted on a sprint slice; the other 4 acted on bug and infra plans outside the sprint. Neither section said so.
 
 Three facts were missing:
 
-1. **The header counts three of five states.** `SLICE_STATES` (`packages/domain/src/rules/slice-states.ts:9`) defines `delivered`, `blocked`, `at-a-gate`, `being-built` and `not-started`, and `countSliceStates` counts all five. `headerCountParts` (`packages/domain/src/rules/release-plan-rows.ts:299`) prints only `delivered`, `at-a-gate` and `blocked`. So 4 of the 16 slices had no count, and the header gave no answer to "is anything being built".
-2. **A held slice reads as not started.** `feature/delivery-work-items-grid` was held by fleetd on `no-brief`, and `feature/delivery-activity-signals` waited on it. Both read `not-started`, the same as a slice nobody had reached yet. The hold was visible only in `.plot/logs/fleetd.log` ("held on no-brief (4)").
-3. **The Fleet rows do not say what they act on.** In the same reading, one of 5 working rows showed an "acts on" line with its plan and slice. The `/api/fleet` agent rows carry `branch` and no plan field. Both blocked rows showed "…" with no item.
+1. **The section header names three of five states.** `SLICE_STATES` (`packages/domain/src/rules/slice-states.ts:9`) defines `delivered`, `blocked`, `at-a-gate`, `being-built` and `not-started`. The header's bar holds all five (`releaseDeliveryHeader().bar`, `release-plan-rows.ts:366`), and the tab header's Release group legend shows them (`ReleaseGroup.tsx:57-79`). The section header's text figures come from `headerCountParts` (`release-plan-rows.ts:299`), which names only `delivered`, `at-a-gate` and `blocked`, so 4 of the 16 slices had no figure. `HeaderStrip` (`release-plan-rows.ts:290`) admits only two states, and the sprint and release blocks in `delivery-view.ts` (`:989`, `:996`, `:1002`) pass only `{ blocked }`.
+2. **A held slice reads as not started, with no reason.** `feature/delivery-work-items-grid` waited for a brief, and `feature/delivery-activity-signals` waited on it. Both counted `not-started`, the same as a slice nobody had reached yet. The `/api/fleet` rows carry both facts (`brief: missing`, `blockedBy`), and the Delivery tab shows neither. fleetd's own dispatch skip reasons (`PlanSkipReason`, `auto-dispatch.ts:816`) reach only its log.
+3. **The Fleet rows do not say what they act on.** In the same reading, 28 of 29 `/api/fleet` agent entries were synthesized desks with `branch: ""` and the branch in `checkout`; `branch` stays empty for such a desk by design (#1101, `schema.ts:4075-4088`). The board's placement reads only `agent.branch` (`delivery-readings.ts:397`), so a desk agent acts on nothing, and `delivery-view.ts:855-857` drops its "acts on" line. A blocked Fleet row comes from a stopped role run, and `RoleRunSchema` (`schema.ts:4509-4523`) carries no `branch`, so the row has no branch to name.
 
 ## Design
 
 ### Approach
 
-Every count and every row label is a domain property, as the layering rule requires. The board renders what the domain returns.
+Every count and every row label is a domain property, as the layering rule requires. The board renders what the domain returns, and no slice reads a new file.
 
-- **Header counts.** `headerCountParts` returns all five states in `SLICE_STATES` order, and their sum is `total`. A state with a count of 0 still shows, so the line keeps its shape. `unread` stays outside the total and shows only above 0, as now.
-- **Held slices.** A new rule takes the fleet's hold reading for a `not-started` slice and returns the hold, or none. The header prints held slices as a part of `not started` with the hold's words, for example "4 not started (1 held: no brief, 1 waits on delivery-work-items-grid)". The rule reads only what fleetd records; it does not re-derive a hold.
-- **Fleet rows.** A new rule maps an agent's branch to its plan, slice and sprint with the existing `planForBranch` (`packages/domain/src/rules/plan-for-branch.ts`). Every Fleet row shows the result in the "acts on" line. A branch that no plan names shows "no plan".
-- **Blocked rows.** A blocked row names its branch, from the same reading as a working row.
+- **Header counts.** `headerCountParts` takes the five-state counts (`SliceStateCounts`) in place of `HeaderStrip`. It returns them in `SLICE_STATES` order (delivered, blocked, at a gate, being built, not started), the same order as the header's bar; the test at `release-plan-rows.test.ts:215` changes with it. `releaseDeliveryHeader` and the three callers in `delivery-view.ts` pass all five, summed from `PlanRowView.strip` per state as `releaseDeliveryHeader` already does; no second sum is added. A count of 0 shows grey and links nowhere (`target: null`). `unread` stays outside the total and shows only above 0. An agent on a slice whose PR waits on a gate counts under at a gate, not being built (`sliceStateOf`, `slice-states.ts:68-71`).
+- **Held slices.** A new rule, `notStartedHold`, returns the hold of a `not-started` slice from readings the board already holds: `no brief` where the slice's row reads `brief: missing` or `startability: needs-brief`, and `waits on <slice>` where its `WorkItemReading.waitsOn` names one; otherwise none. The header's not-started part gains a held count with no reasons ("4 not started · 2 held"), because the design spec keeps header text visual and not a sentence. The slice line in Release delivery and the Work items row name the hold through the pills that `feature/release-delivery-plan-rows-unfold` builds (`slicePills`, `workItemPills`). The hold is a sub-count of `not-started` and never sets `heldBy`; `sliceStateOf` stays unchanged. The existing `sliceHold` (`verdict.ts:106`) keeps its meaning.
+- **Fleet rows.** A new rule, `agentActsOnBranch`, reads an agent's `branch`, then its `checkout`, for display only. The item link, plan, slice and sprint come from the payload row with that branch, which already carries `plan` and `sprint`. The sprint mark reuses `rowSprintMembership` (`sprint-selection.ts:160`) and draws as a grey pill, as plan 5 draws "no sprint". Placement and `blockedOn` keep reading `branch` alone, as #1101 requires. A working row whose process state reads `unknown` still shows its acts-on item. The rule fills the working-on tuple that `feature/fleet-switches-in-fleet-section` draws.
+- **Blocked rows.** `RoleRunSchema` gains `branch`, the writer of the role-run state records it, and `agentRowFactsOf` (`delivery-row-facts.ts:144-149`) reads it. The Branch cell of a blocked row names the branch.
 
 ### Open Points
 
-- [ ] `[question-hold-source]` Where does the board read fleetd's holds? Today fleetd writes them only to its log, and `/api/fleet` carries `heldNote: null`. The recommendation is that fleetd writes each tick's holds to a state file under `.plot/state/` and the board reads it, the same way `last-pulse.json` reaches `plot-dispatch-command.mjs`.
-- [ ] `[question-unknown-state]` In the same reading, all 5 working agents had `state: "unknown"` and the board said it "could not read the state of 18 worktrees", while each row said "writing code". Is that a second defect for this plan, or its own bug plan? The recommendation is its own bug plan, since it is a reading failure and not a count.
-- [ ] `[decision-zero-counts]` A count of 0 still shows. The alternative hides it, but then the parts no longer add up visibly to the total.
+- [x] `[question-hold-source]` The board derives `no brief` from the row's `brief`/`startability` and `waits on` from `WorkItemReading.waitsOn`, both on `/api/fleet` today. No new state file: a per-tick hold file would be a second persisted verdict, which *Answers, never verdicts* in CLAUDE.md refuses. fleetd-only holds (`ref-held`, `in-flight`, `refused`, `no-free-agent`) stay out of the count.
+- [x] `[question-unknown-state]` The `state: "unknown"` reading of 19 worktrees is a reading failure, not a count, and gets its own bug plan. Until it lands, a working row with `state: unknown` still shows its acts-on item.
+- [x] `[decision-zero-counts]` A count of 0 shows grey and links nowhere, so the five parts sum to the total visibly. The Release group legend keeps hiding zeros, because its bar shows the proportions.
+- [x] `[decision-fleet-sprint-count]` The Fleet group shows no sprint count. The spec says Fleet and Machine take no scope; the per-row sprint mark tells which working agents the sprint header counts.
 
 ## Slices
 
-- `feature/sprint-header-counts-every-state` — the header prints all five slice states and they add up to the total <!-- builds: headerCountParts over all five SLICE_STATES -->
-- `feature/a-held-slice-names-its-hold` — fleetd records its holds per tick, and the header names the hold of a not-started slice <!-- builds: a fleet hold state file and a sliceHold rule -->
-- `feature/fleet-rows-name-their-plan` — every Fleet row, working or blocked, names its branch, plan, slice and sprint <!-- builds: an agentActsOn rule over planForBranch -->
+- `feature/delivery-header-counts-every-state` — the Release delivery section header and the sprint and release block headers print all five slice states, and they add up to the total <!-- builds: headerCountParts over SliceStateCounts --> <!-- tests: release-plan-rows.test.ts — the five parts sum to total, a 0 count has target null; delivery-view.test.ts and sprint-delivery-view.test.ts header strings -->
+- `feature/a-held-slice-names-its-hold` <!-- waits: feature/release-delivery-plan-rows-unfold --> — the not-started count names how many slices are held, and the slice line names each hold <!-- builds: notStartedHold --> <!-- tests: slice-states.test.ts — a held queued slice still counts not-started; a needs-brief row gives no brief, a waitsOn gives waits on, neither gives none -->
+- `feature/fleet-rows-name-their-plan` <!-- waits: feature/fleet-switches-in-fleet-section --> — every Fleet row, working or blocked, names its branch, plan, slice and sprint <!-- builds: agentActsOnBranch, branch then checkout for display; RoleRunSchema.branch --> <!-- tests: a board unit test — a synthesized agent with branch '' and checkout X links to X's item, plan and sprint and keeps its placement group; delivery-readings.test.ts — a stopped run with no matching row gives facts.branch -->
