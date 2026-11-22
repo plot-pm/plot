@@ -24,6 +24,8 @@ import {
   DELIVERY_LAYOUT,
   deliveryGroupAnchor,
   looseActions,
+  looseGroupRow,
+  type LooseGroupRow,
   oldestWaitsClause,
   WORK_GROUP_COLUMN,
   fleetCountText,
@@ -79,7 +81,7 @@ const SECTION_LABELS: Record<DeliverySection, { icon: GlyphKind; label: string; 
 const GROUP_LABELS: Record<string, { label: string; hint: string }> = {
   'blocks-delivery': { label: 'Blocks delivery', hint: 'delivery waits for you' },
   'input-to-the-fleet': { label: 'Input to the fleet', hint: 'a plan waits for your input' },
-  unblock: { label: 'Clean up', hint: 'branches no plan names and nobody works on' },
+  unblock: { label: 'Unblock', hint: 'branches no plan names and nobody works on' },
   'at-a-gate': { label: 'At a gate', hint: 'CI, review or another gate holds it' },
   'being-built': { label: 'Being built', hint: 'an agent works on it' },
   queued: { label: 'Queued', hint: 'nobody has taken it' },
@@ -102,25 +104,24 @@ export interface PlacedItemView {
   anchor: string;
   /** The agents acting on the item, as links. */
   links: LinkView[];
-  /** The `⋯` menu of the item's row: the clean-up menu for a loose item, the branch row's own menu otherwise. */
+  /** The `⋯` menu of the item's row: the loose items for a loose item, the branch row's own menu otherwise. */
   menu: RowMenuView;
 }
 
 /**
- * The `⋯` menu a row of an item carries. A loose item's row carries only the clean-up menu, built from
- * `looseActions`, so no Quiet-section reading of the row (`quietKind`) can add a second Release. A plan,
- * slice, branch or Tickets row carries `items`: the fixed item set of its kind.
+ * The `⋯` menu a row of an item carries. A loose item carries `items`: Open, Release claim and Delete branch,
+ * built from `looseActions`, so no Quiet-section reading of the row (`quietKind`) can add a second Release. A plan,
+ * slice, branch or Tickets row carries `items`: the fixed item set of its kind. The grouped Unblock row carries
+ * `branches`: the loose item set of each branch it counts.
  */
 export type RowMenuView =
-  | {
-    kind: 'clean-up';
-    branch: string;
-    /** The PR page or the branch on the host; `''` where the host gave no address. */
-    open: string;
-    release: LooseActions['release'];
-    delete: boolean;
-  }
   | { kind: 'row' }
+  | {
+    kind: 'branches';
+    branches: { branch: string; items: RowMenuItem[] }[];
+    /** `enabled` while a branch is listed, `none` for no branch. */
+    trigger: 'enabled' | 'none';
+  }
   | {
     kind: 'items';
     items: RowMenuItem[];
@@ -132,7 +133,7 @@ export type RowMenuView =
 export type RowMenuAction =
   | 'approve' | 'needs-design' | 'deliver' | 'implement' | 'dispatch' | 'start-work' | 'reslice'
   | 'open' | 'release-claim' | 'resolve-conflict' | 'write-brief' | 'open-run' | 'worker-log' | 'status' | 'changed-files'
-  | 'create-plan' | 'create-story' | 'open-issue';
+  | 'create-plan' | 'create-story' | 'open-issue' | 'delete-branch';
 
 /** One item of a row's `⋯` menu. */
 export interface RowMenuItem {
@@ -333,11 +334,29 @@ const ticketItems = (f: TicketMenuFacts): RowMenuItem[] => {
 const itemsView = (items: RowMenuItem[]): RowMenuView => ({ kind: 'items', items, trigger: items.length > 0 ? 'enabled' : 'none' });
 
 /**
+ * The fixed item set of one loose branch: Open, Release claim and Delete branch, each disabled with the reason
+ * `looseActions` gives.
+ *
+ * @param branch - the branch the items act on.
+ * @param open - the PR page or the branch on the host; `''` where the host gave no address.
+ * @param actions - what `looseActions` answered for the branch.
+ */
+export const looseItems = (branch: string, open: string, actions: LooseActions): RowMenuItem[] => {
+  const release = releaseWords(branch, actions.release.where ?? 'here');
+  const remove = deleteWords(branch);
+  return [
+    item('open', 'Open', open === '' ? 'no address' : null),
+    { action: 'release-claim', label: release.label, enabled: actions.release.enabled, reason: actions.release.reason, confirm: release.confirm },
+    { action: 'delete-branch', label: remove.label, enabled: actions.delete.enabled, reason: actions.delete.reason, confirm: remove.confirm },
+  ];
+};
+
+/**
  * The menu of one row.
  *
  * @param input - a placed item (`placement`, its payload `rows`, and what `looseActions` offers), or the facts of a
  *   plan, slice, branch or Tickets row.
- * @returns for a placed item, the clean-up menu under You with the reason `loose`, else `{ kind: 'row' }`; for a plan,
+ * @returns for a placed item, the loose item set under You with the reason `loose`, else `{ kind: 'row' }`; for a plan,
  *   slice, branch or Tickets row, the fixed item set of its kind, each item enabled or disabled with its reason.
  */
 export const rowMenuOf = (input: RowMenuInput): RowMenuView => {
@@ -350,19 +369,42 @@ export const rowMenuOf = (input: RowMenuInput): RowMenuView => {
       const { placement, rows, actions } = input;
       const first = rows[0];
       if (placement?.section !== 'you' || placement.reason !== 'loose' || first === undefined) return { kind: 'row' };
-      return { kind: 'clean-up', branch: first.branch, open: first.pr?.url || first.branchUrl || '', release: actions.release, delete: actions.delete };
+      return itemsView(looseItems(first.branch, first.pr?.url || first.branchUrl || '', actions));
     }
   }
 };
 
-/** The words a clean-up action shows: its menu label and the confirmation it asks before it acts. */
+/** The row a You item renders as, which fixes its `⋯` item set; `null` where the item reaches no You row. */
+export type YouRowKind = 'plan' | 'slice' | 'branch' | 'ticket' | 'loose-group' | null;
+
+/**
+ * The row kind of a placed item under You, and so the fixed item set its `⋯` lists.
+ *
+ * @param placement - what `placeDelivery` returned for the item.
+ * @returns `loose-group` for the reason `loose`, `null` for `release-approval` and a release item (the header's
+ *   Release group holds them), the item's own kind otherwise, with a PR rendered as its branch row; `null` outside You.
+ */
+export const youRowKindOf = (placement: ItemPlacement): YouRowKind => {
+  if (placement.section !== 'you' || placement.reason === 'release-approval') return null;
+  if (placement.reason === 'loose') return 'loose-group';
+  switch (placement.kind) {
+    case 'plan': return 'plan';
+    case 'slice': return 'slice';
+    case 'pr':
+    case 'branch': return 'branch';
+    case 'ticket': return 'ticket';
+    case 'release': return null;
+  }
+};
+
+/** The words a loose-branch action shows: its menu label and the confirmation it asks before it acts. */
 export interface CleanUpWords {
   label: string;
   confirm: string;
 }
 
 /**
- * The words of Release claim for one clean-up row.
+ * The words of Release claim for one loose branch.
  *
  * @param branch - the branch whose claim is released.
  * @param where - `elsewhere` where this machine holds no worktree for the claim.
@@ -383,30 +425,6 @@ export const deleteWords = (branch: string): CleanUpWords => ({
   label: 'Delete branch…',
   confirm: `Delete origin/${branch}? Its tip is pinned first at refs/plot/reaped/${branch}/<sha>, and that ref restores it.`,
 });
-
-/**
- * The words of the group-wide delete.
- *
- * @param branches - the branches it deletes, from {@link cleanUpBranches}.
- * @returns the label and the confirmation that lists every branch; `null` for no branch.
- */
-export const bulkDeleteWords = (branches: readonly string[]): CleanUpWords | null => {
-  if (branches.length === 0) return null;
-  const n = branches.length;
-  return {
-    label: `Delete ${n} quiet branch${n === 1 ? '' : 'es'}…`,
-    confirm: `Delete ${n === 1 ? 'this branch' : `these ${n} branches`} from origin? Each tip is pinned first at refs/plot/reaped/<branch>/<sha>: ${branches.join(', ')}`,
-  };
-};
-
-/**
- * The branches a group-wide delete asks `loose-delete` about: the rows whose clean-up menu offers Delete.
- *
- * @param items - the items of one group.
- * @returns the branch names, sorted.
- */
-export const cleanUpBranches = (items: readonly PlacedItemView[]): string[] =>
-  items.flatMap((i) => (i.menu.kind === 'clean-up' && i.menu.delete ? [i.menu.branch] : [])).sort();
 
 /** One agent the rule placed, with its registry entry. */
 export interface PlacedAgentView {
@@ -475,7 +493,19 @@ export interface ItemBlockView {
   item: PlacedItemView;
 }
 
-export type BlockView = PlanBlockView | ItemBlockView;
+/**
+ * The loose items of the You section as one row: the verb, the count of branches as the object, the age range as the
+ * consequence, and each branch's loose item set in the row's `⋯`.
+ */
+export interface LooseGroupBlockView {
+  kind: 'loose-group';
+  key: string;
+  items: PlacedItemView[];
+  row: LooseGroupRow;
+  menu: RowMenuView;
+}
+
+export type BlockView = PlanBlockView | ItemBlockView | LooseGroupBlockView;
 
 export interface GroupView {
   key: string;
@@ -713,7 +743,7 @@ export const nestItems = (scope: string, rawItems: readonly PlacedItemView[], sl
 
 /** How long a block has waited: its oldest row's age, or its plan clock in minutes where no branch has an age. */
 const blockWait = (block: BlockView): number => {
-  const rows = block.kind === 'plan' ? block.rows : block.item.rows;
+  const rows = block.kind === 'plan' ? block.rows : block.kind === 'loose-group' ? block.items.flatMap((i) => i.rows) : block.item.rows;
   return rows.reduce((n, r) => Math.max(n, r.ageMinutes ?? 0, (r.waitingDays ?? 0) * 1440), 0);
 };
 
@@ -722,6 +752,29 @@ const oldestFirst = (blocks: BlockView[]): BlockView[] =>
   blocks.map((b, i) => ({ b, i, wait: blockWait(b) }))
     .sort((a, b) => b.wait - a.wait || a.i - b.i)
     .map((x) => x.b);
+
+const isLoose = (item: PlacedItemView): boolean => item.placement?.section === 'you' && item.placement.reason === 'loose';
+
+/**
+ * Groups the lone loose items of a list of blocks into one row, at the place of the first; every other block keeps
+ * its place. No plan block nests a loose item, so only lone items are read.
+ *
+ * @param scope - prefix for the grouped row's key, unique per group.
+ * @param blocks - the blocks `nestItems` returned.
+ * @returns the blocks with the loose items as one `loose-group` block; the blocks unchanged where none is loose.
+ */
+export const groupLooseItems = (scope: string, blocks: readonly BlockView[]): BlockView[] => {
+  const loose = blocks.flatMap((b) => (b.kind === 'item' && isLoose(b.item) ? [b.item] : []));
+  const row = looseGroupRow(loose.map((i) => ({ id: i.placement?.id ?? i.anchor, ageMinutes: i.rows[0]?.ageMinutes ?? undefined })));
+  if (row === null) return [...blocks];
+  const branches = loose.flatMap((i) => (i.menu.kind === 'items' && i.rows[0] !== undefined ? [{ branch: i.rows[0].branch, items: i.menu.items }] : []));
+  const group: LooseGroupBlockView = {
+    kind: 'loose-group', key: `${scope}\u0000loose`, items: loose, row,
+    menu: { kind: 'branches', branches, trigger: branches.length > 0 ? 'enabled' : 'none' },
+  };
+  const at = blocks.findIndex((b) => b.kind === 'item' && isLoose(b.item));
+  return blocks.flatMap((b, i) => (i === at ? [group] : b.kind === 'item' && isLoose(b.item) ? [] : [b]));
+};
 
 /**
  * Whether a plan head's slices are on the page, or `null` where the head has no fold.
@@ -831,10 +884,11 @@ export const deliveryView = (
       const agents = agentViews.filter((v) => section === 'fleet' && v.placement.group === group);
       const meta = GROUP_LABELS[group] ?? { label: group, hint: '' };
       const rows = [...items.flatMap((v) => v.rows), ...agents.flatMap((v) => (v.row === null ? [] : [v.row]))];
-      const blocks = nestItems(group, items, slices, section === 'you');
+      const nested = nestItems(group, items, slices, section === 'you');
+      const blocks = section === 'you' ? groupLooseItems(group, nested) : nested;
       const heads = blocks.flatMap((b) => (b.kind === 'plan' ? [b] : []));
       const sliceCount = heads.reduce((n, b) => n + b.slices.length, 0);
-      const loose = blocks.length - heads.length;
+      const loose = nested.length - heads.length;
       const count = items.length + agents.length;
       const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
       const tally = heads.length > 0 && (heads.length !== sliceCount || loose > 0)

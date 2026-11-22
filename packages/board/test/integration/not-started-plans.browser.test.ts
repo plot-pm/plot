@@ -386,9 +386,10 @@ describe('NOT STARTED renders one row per plan', () => {
       // form would make this a claim about a CSS utility rather than about the
       // two rows saying what they are.
       expect((await planRowEl.locator('[data-kind]').innerText()).toLowerCase()).toBe('plan');
-      // `slice`, and this is the assertion (4) could not make: its children said
-      // `plan` too, which is why the indent was carrying the relationship alone.
-      expect((await branchRow.locator('[data-kind]').innerText()).toLowerCase()).toBe('slice');
+      // A slice row under You leads with the verb in slot 2, so it never says
+      // `plan` as its parent does: the indent does not carry the relationship alone.
+      expect((await branchRow.locator('[data-kind]').innerText()).toLowerCase()).toBe('interrogate ›');
+      expect(await branchRow.locator('[data-you-verb]').count()).toBe(1);
     } finally {
       await page.close();
     }

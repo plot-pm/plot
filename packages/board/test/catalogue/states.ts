@@ -894,7 +894,7 @@ const aBoardThatCanAct = (): Scenario => ({
  * | `feature/ready-for-review` | You › Blocks delivery | green CI, review pending, `autoReview: false` |
  * | `feature/which-mulch` | You › Blocks delivery, Fleet › Blocked | a `PLOT-BLOCKED` question and a `waiting` agent |
  * | `feature/herb-spiral` | You › Input to the fleet | a Design-phase row |
- * | `scratch/old-trellis` | You › Clean up | a loose branch: no plan, no desk, no agent |
+ * | `scratch/old-trellis` | You › Unblock | a loose branch: no plan, no desk, no agent |
  * | `feature/rain-barrel` | Work items › At a gate, Fleet › Blocked | an open PR with CI pending |
  * | `feature/seed-trays` | Work items › Being built, Fleet › Working | a claimed branch with a running agent |
  * | `feature/cold-frame` | Work items › Queued | an open, unclaimed slice |

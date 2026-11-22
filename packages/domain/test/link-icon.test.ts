@@ -32,6 +32,7 @@ describe('linkIconKind', () => {
 
   it('answers null for a target that names no kind of place', () => {
     expect(linkIconKind('action')).toBeNull();
+    expect(linkIconKind('menu')).toBeNull();
     expect(linkIconKind('question')).toBeNull();
     expect(linkIconKind('log')).toBeNull();
     expect(linkIconKind('item')).toBeNull();

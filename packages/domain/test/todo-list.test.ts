@@ -39,7 +39,7 @@ describe('todoList', () => {
   it('words each line verb first with the row DO verb', () => {
     const t = ask({ items: [you('p', 'spike-approval')] });
     expect(t.lines[0]!.text).toBe('Approve spike p');
-    expect(t.lines[0]!.text.toLowerCase().startsWith(reasonVerb('spike-approval'))).toBe(true);
+    expect(t.lines[0]!.text.startsWith(reasonVerb('spike-approval'))).toBe(true);
   });
 
   it('gives one order for any input order: marker, reason, id', () => {

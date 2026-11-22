@@ -250,8 +250,9 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       const branch = page.locator('li[data-tuple-kind="wave"]')
         .filter({ has: page.locator('[data-branch="feature/conflicted"]') });
       await branch.waitFor({ timeout: 10_000 });
-      // THE CONFLICT IS ON THE ROW, in the status slot, in a word.
-      expect(await branch.locator('[data-pr-state="conflicts"]').innerText()).toBe('conflicts');
+      // THE CONFLICT IS ON THE ROW, in a word: a conflicting branch is a You
+      // row, and its verb `Resolve` leads it in the kind slot.
+      expect(await branch.locator('[data-you-verb]').innerText()).toBe('Resolve ›');
       // AND THE ROW LEADS WITH THE BRANCH — which is where the reader must go.
       // The pairing: a row that says `conflicts` while leading with the PR
       // sends them to a page that cannot fix it.
@@ -311,8 +312,14 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // with one sub-header above the block — the row still says what it is,
       // the sub-header just says it once rather than once per row. Checked
       // below, against the heading rather than the row.
-      const words = await page.locator('li[data-tuple-kind]:not([data-tuple-kind="ticket"]) [data-kind]')
+      // A You row leads with its verb in the same slot, so it is asserted apart:
+      // its word is the verb, never a blank and never a kind.
+      const words = await page.locator('li[data-tuple-kind]:not([data-tuple-kind="ticket"]):not(:has([data-you-verb])) [data-kind]')
         .evaluateAll((els) => els.map((e) => (e as HTMLElement).innerText.trim()));
+      const verbs = await page.locator('li[data-tuple-kind] [data-kind] [data-you-verb]')
+        .evaluateAll((els) => els.map((e) => (e as HTMLElement).innerText.trim()));
+      expect(verbs.length).toBeGreaterThanOrEqual(1);
+      expect(verbs.every((v) => v.endsWith(' ›')), `verbs: ${JSON.stringify(verbs)}`).toBe(true);
       expect(words.length).toBeGreaterThanOrEqual(3);
       expect(words.every(Boolean), `blank kind among: ${JSON.stringify(words)}`).toBe(true);
       // The Tickets header replaces the per-row word, present and non-blank.

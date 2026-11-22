@@ -13,17 +13,18 @@ import type { TokenCountsRecord } from '../entities/slice-spend.js';
 import { tokenCountValue } from './agent-run-tokens.js';
 import { timeLeft, timeLeftValue } from './agent-time-left.js';
 import { FIXER_ATTEMPTS_BUDGET } from './fixer-attempts.js';
+import { TICKETS_ANCHOR } from './tickets-section.js';
 
 /** The seven columns of a Delivery row, in the order they render. */
 export const ROW_COLUMNS = ['kind', 'item', 'where', 'status', 'by', 'age', 'do'] as const;
 export type RowColumn = (typeof ROW_COLUMNS)[number];
 
-/** The five columns of a You row, in the order they render. Every You row is the reader's, so there is no By column. */
-export const YOU_COLUMNS = ['kind', 'item', 'status', 'age', 'do'] as const;
+/** The four columns of a You row, in the order they render: what to do, on what, what waits on it, and the `⋯`. */
+export const YOU_COLUMNS = ['verb', 'object', 'consequence', 'menu'] as const;
 export type YouColumn = (typeof YOU_COLUMNS)[number];
 
 /** The header of each You column. */
-export const YOU_COLUMN_LABELS: Record<YouColumn, string> = { kind: 'Kind', item: 'Item', status: 'Status', do: 'Do', age: 'Age' };
+export const YOU_COLUMN_LABELS: Record<YouColumn, string> = { verb: 'Do', object: 'Item', consequence: 'Waits', menu: 'Actions' };
 
 /** What a cell link points at. Each kind of target is one kind of place on the tab or the host. */
 export type LinkTarget =
@@ -42,7 +43,9 @@ export type LinkTarget =
   | { to: 'person'; handle: string }
   | { to: 'question'; id: string }
   | { to: 'log'; id: string }
-  | { to: 'action'; action: string; id: string };
+  | { to: 'action'; action: string; id: string }
+  /** The `⋯` menu of the row of item `id`: the link opens it and runs nothing. */
+  | { to: 'menu'; id: string };
 
 /** One cell: a value, never a sentence, and the targets it links to. A cell nobody asked for is `null`. */
 export interface Cell {
@@ -212,20 +215,45 @@ const REASON_STATUS: Record<YouReason, string> = {
   loose: 'loose',
 };
 
-/** What a You reason offers in the DO column: one verb with `›`. */
-const REASON_DO: Record<YouReason, { verb: string; action: string }> = {
-  'draft-plan': { verb: 'open', action: 'open-plan' },
-  'plan-approval': { verb: 'approve', action: 'approve' },
-  'spike-approval': { verb: 'approve spike', action: 'approve-spike' },
-  'release-approval': { verb: 'approve release', action: 'release-approve' },
-  'test-delivered-plan': { verb: 'test', action: 'deliver' },
-  'review-pr': { verb: 'review', action: 'review' },
-  'blocked-marker': { verb: 'answer', action: 'continue' },
-  'fleet-stuck': { verb: 'unblock', action: 'unblock' },
-  'merge-conflict': { verb: 'resolve', action: 'resolve-conflict' },
-  'person-comment': { verb: 'answer', action: 'answer-comment' },
-  'agent-died': { verb: 'restart', action: 'restart' },
-  loose: { verb: 'plan', action: 'create-plan' },
+/** The tone of a You row's verb: red where delivery waits, amber where the fleet waits on input, grey for clean-up. */
+export type VerbTone = 'red' | 'amber' | 'grey';
+
+/** The counts a You row's consequence reads. */
+export interface ConsequenceFacts {
+  /** How many slices the item's plan holds; `undefined` where nobody counted them. */
+  slices?: number;
+}
+
+/** What a You reason offers: the verb its row leads with, the action the Do link names, the verb's tone, and what waits. */
+export interface ReasonDo {
+  verb: string;
+  action: string;
+  tone: VerbTone;
+  /** The consequence phrase without the age; `null` where the reason has none. */
+  consequence: (facts: ConsequenceFacts) => string | null;
+}
+
+const slicesWait = ({ slices }: ConsequenceFacts): string =>
+  slices === undefined ? 'the slices wait' : slices === 1 ? '1 slice waits' : `${slices} slices wait`;
+const fixed = (text: string) => (): string => text;
+
+/**
+ * The verb, action, tone and consequence of every You reason. `release-approval` reaches no row,
+ * because `placeDelivery` sends release items to no section, so it has no consequence.
+ */
+export const REASON_DO: Record<YouReason, ReasonDo> = {
+  'draft-plan': { verb: 'Interrogate', action: 'interrogate', tone: 'amber', consequence: slicesWait },
+  'plan-approval': { verb: 'Approve', action: 'approve', tone: 'red', consequence: slicesWait },
+  'spike-approval': { verb: 'Approve spike', action: 'approve-spike', tone: 'red', consequence: fixed('the spike waits') },
+  'release-approval': { verb: 'Approve release', action: 'release-approve', tone: 'red', consequence: () => null },
+  'test-delivered-plan': { verb: 'Test', action: 'deliver', tone: 'red', consequence: fixed('the release waits') },
+  'review-pr': { verb: 'Review', action: 'review', tone: 'red', consequence: fixed('the merge waits') },
+  'blocked-marker': { verb: 'Answer', action: 'continue', tone: 'red', consequence: fixed('the agent waits') },
+  'fleet-stuck': { verb: 'Unblock', action: 'unblock', tone: 'red', consequence: fixed('the fleet waits') },
+  'merge-conflict': { verb: 'Resolve', action: 'resolve-conflict', tone: 'red', consequence: fixed('the merge waits') },
+  'person-comment': { verb: 'Answer', action: 'answer-comment', tone: 'red', consequence: fixed('the merge waits') },
+  'agent-died': { verb: 'Restart', action: 'restart', tone: 'red', consequence: fixed('the slice stopped') },
+  loose: { verb: 'Release or delete', action: 'release-or-delete', tone: 'grey', consequence: () => null },
 };
 
 /**
@@ -235,7 +263,7 @@ const REASON_DO: Record<YouReason, { verb: string; action: string }> = {
  */
 export const youKindWord = (kind: ItemKind): string => (kind === 'pr' ? 'PR' : kind);
 
-/** The verb a You reason offers in the DO column and the to-do list's lines. */
+/** The verb a You row leads with, which the DO column and the to-do list's lines also show. */
 export const reasonVerb = (reason: YouReason): string => REASON_DO[reason].verb;
 
 /** The gate readings of a PR as `CI ⟳ #3234` and `review ✗`; absent where a gate was not read. */
@@ -835,21 +863,109 @@ export const youStatusText = (reason: YouReason, facts: ItemRowFacts): string =>
   return REASON_STATUS[reason];
 };
 
+/** One mark of a consequence cell per value, none of them linked. */
+const consequenceCell = (values: readonly (string | null)[]): Cell | null => {
+  const parts = values.filter((v): v is string => v !== null && v !== '');
+  return parts.length === 0 ? null : { value: parts.join(' · '), links: [], parts: parts.map((value) => ({ value, link: null })) };
+};
+
 /**
- * The cells of a You row in `YOU_COLUMNS`. Status holds the item's state and
- * Do holds the verb with `›`.
+ * The cells of a You row in `YOU_COLUMNS`: the reason's verb, the item's tuple, the consequence and the `⋯`.
+ * The verb and the `⋯` both link to the row's menu, so the verb opens the same choice and runs nothing.
  *
  * @param placement - what `placeDelivery` returned for the item.
- * @param facts - the names and numbers the links point at.
+ * @param facts - the names and numbers the links point at; `slices` counts the plan's slices.
+ * @param sprint - `no sprint` where `rowSprintMembership` says so, appended to the consequence; `null` otherwise.
  * @returns the cells, or `null` where the item is not in You or has no row shape.
  */
-export const youRowCells = (placement: ItemPlacement, facts: ItemRowFacts): YouRowCells | null => {
+export const youRowCells = (
+  placement: ItemPlacement,
+  facts: ItemRowFacts & ConsequenceFacts,
+  sprint: string | null = null,
+): YouRowCells | null => {
   if (placement.section !== 'you') return null;
   const row = itemRowCells(placement, facts);
   if (row === null) return null;
-  const base = youStatusText(placement.reason, facts);
-  const status = row.status === null || row.status.value === REASON_STATUS[placement.reason]
-    ? { value: base, links: [] }
-    : { ...row.status, value: row.status.value.replace(REASON_STATUS[placement.reason], base) };
-  return { kind: row.kind, item: row.item, status, age: row.age, do: row.do };
+  const how = REASON_DO[placement.reason];
+  const age = facts.ageMinutes === undefined ? null : ageValue(facts.ageMinutes);
+  const menu: LinkTarget = { to: 'menu', id: placement.id };
+  return {
+    verb: { value: how.verb, links: [menu] },
+    object: row.item,
+    consequence: consequenceCell([how.consequence(facts), age, sprint]),
+    menu: { value: '⋯', links: [menu] },
+  };
+};
+
+/**
+ * The age span of a group of items: `36–37 days old` where every item is a day old or more, `5h–3d old` otherwise.
+ *
+ * @param minutes - each item's age in minutes; an item nobody aged is left out.
+ * @returns the span, one age where all are equal, or `null` where no item has an age.
+ */
+export const ageRangeValue = (minutes: readonly (number | undefined)[]): string | null => {
+  const known = minutes.filter((m): m is number => m !== undefined).map((m) => Math.max(0, Math.floor(m)));
+  if (known.length === 0) return null;
+  const lo = Math.min(...known);
+  const hi = Math.max(...known);
+  if (lo >= 1440) {
+    const [a, b] = [Math.floor(lo / 1440), Math.floor(hi / 1440)];
+    return a === b ? `${a} day${a === 1 ? '' : 's'} old` : `${a}–${b} days old`;
+  }
+  const [a, b] = [ageValue(lo), ageValue(hi)];
+  return a === b ? `${a} old` : `${a}–${b} old`;
+};
+
+/** The You row that stands for every loose item of the Unblock group. */
+export interface LooseGroupRow {
+  verb: string;
+  tone: VerbTone;
+  /** The count: `2 loose branches`. */
+  object: string;
+  /** The age span only, because the object already counts; `null` where no item has an age. */
+  consequence: string | null;
+  /** The items, in the order given; each keeps its own `⋯` items. */
+  ids: string[];
+}
+
+/**
+ * The one You row the loose items of Unblock group into.
+ *
+ * @param items - the loose items, each with its id and age in minutes.
+ * @returns the grouped row, or `null` for no item.
+ */
+export const looseGroupRow = (items: readonly { id: string; ageMinutes?: number }[]): LooseGroupRow | null => {
+  if (items.length === 0) return null;
+  const n = items.length;
+  return {
+    verb: REASON_DO.loose.verb,
+    tone: REASON_DO.loose.tone,
+    object: `${n} loose branch${n === 1 ? '' : 'es'}`,
+    consequence: ageRangeValue(items.map((i) => i.ageMinutes)),
+    ids: items.map((i) => i.id),
+  };
+};
+
+/** The line under the You section: the triage link, or the unread notice while the tracker read failed. */
+export type YouFooter =
+  | { kind: 'triage'; count: number; text: string; anchor: string }
+  | { kind: 'unread'; sentence: string; note: string | null };
+
+/**
+ * The footer of the You section.
+ *
+ * @param input - `issueAnswer` is the fleet's tracker answer; `unplanned` counts the tickets assigned to the reader
+ *   that no plan names; `note` is the failure and the age of the last good reading.
+ * @returns the unread notice where the tracker read failed, whatever rows the section holds; the triage link to the
+ *   Tickets section where the read answered and a ticket assigned to the reader has no plan; `null` otherwise.
+ */
+export const youFooter = (input: {
+  issueAnswer: 'answered' | 'failed' | 'unsupported' | null;
+  unplanned: number;
+  note: string | null;
+}): YouFooter | null => {
+  if (input.issueAnswer === 'failed') return { kind: 'unread', sentence: 'The tracker gave no answer.', note: input.note };
+  if (input.issueAnswer !== 'answered' || input.unplanned === 0) return null;
+  const n = input.unplanned;
+  return { kind: 'triage', count: n, text: `${n} ticket${n === 1 ? '' : 's'} assigned to you ha${n === 1 ? 's' : 've'} no plan`, anchor: TICKETS_ANCHOR };
 };

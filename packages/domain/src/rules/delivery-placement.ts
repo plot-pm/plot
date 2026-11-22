@@ -268,35 +268,63 @@ const looseOf = (item: WorkItemReading): 'loose' | 'not-loose' | 'unread' => {
   return 'loose';
 };
 
+/** One action of a loose item: whether its controller accepts the item, and the refusal in words where it does not. */
+export interface LooseAction {
+  enabled: boolean;
+  /** `claimed, release it first`, `carries work`, `open PR` or `unread claim`; `null` where the action is enabled. */
+  reason: string | null;
+}
+
 /** Which actions a loose item offers. */
 export interface LooseActions {
-  /** `loose-delete` accepts the item: a branch with work and no claim-only history, or a branch whose PR is closed. */
-  delete: boolean;
+  /** `loose-delete`: enabled for a branch with work and no claim-only history, or a branch whose PR is closed. */
+  delete: LooseAction;
   /**
-   * `release-claim` accepts the item: a branch that holds only its claim and no PR. `elsewhere` where this
+   * `release-claim`: enabled for a branch that holds only its claim and no PR. `where` is `elsewhere` where this
    * machine holds no worktree for the claim, so the claim belongs to another machine; `null` where release refuses.
    */
-  release: 'here' | 'elsewhere' | null;
+  release: LooseAction & { where: 'here' | 'elsewhere' | null };
 }
+
+/** The refusal words of a loose item's actions. */
+export const LOOSE_REFUSAL = {
+  claimed: 'claimed, release it first',
+  work: 'carries work',
+  openPr: 'open PR',
+  unread: 'unread claim',
+} as const;
+
+const refused = (reason: string): LooseAction => ({ enabled: false, reason });
+const accepted: LooseAction = { enabled: true, reason: null };
 
 /**
  * The actions a loose item offers, following the refusals of `loose-delete` and `release-claim`.
  *
  * `loose-delete` refuses `claimed` for a branch whose only commits are claim markers, and `release-claim`
  * refuses a branch that carries work, so a branch offers exactly one of the two. A branch whose claim
- * nobody read offers neither.
+ * nobody read offers neither, and names the unread claim as the reason.
  *
  * @param item - the item's kind and loose reading.
- * @returns Release for a claim-only branch, Delete for a branch with work or a closed PR, and neither for an
- *   open PR, an unread claim or an item with no loose reading.
+ * @returns both actions, each enabled or disabled with one reason word: Release for a claim-only branch,
+ *   Delete for a branch with work or a closed PR; `open PR` for an open PR, `unread claim` where the claim or the
+ *   loose reading was not read.
  */
 export const looseActions = (item: Pick<WorkItemReading, 'kind' | 'loose'>): LooseActions => {
-  const none: LooseActions = { delete: false, release: null };
-  if (item.loose === undefined) return none;
-  if (item.kind === 'pr') return item.loose.closed === true ? { delete: true, release: null } : none;
-  if (item.kind !== 'branch' || item.loose.claimOnly === undefined) return none;
-  if (item.loose.claimOnly) return { delete: false, release: item.loose.claimElsewhere === true ? 'elsewhere' : 'here' };
-  return { delete: true, release: null };
+  const unread: LooseActions = {
+    delete: refused(LOOSE_REFUSAL.unread),
+    release: { ...refused(LOOSE_REFUSAL.unread), where: null },
+  };
+  if (item.loose === undefined) return unread;
+  if (item.kind === 'pr') {
+    return item.loose.closed === true
+      ? { delete: accepted, release: { ...refused(LOOSE_REFUSAL.work), where: null } }
+      : { delete: refused(LOOSE_REFUSAL.openPr), release: { ...refused(LOOSE_REFUSAL.openPr), where: null } };
+  }
+  if (item.kind !== 'branch' || item.loose.claimOnly === undefined) return unread;
+  if (item.loose.claimOnly) {
+    return { delete: refused(LOOSE_REFUSAL.claimed), release: { ...accepted, where: item.loose.claimElsewhere === true ? 'elsewhere' : 'here' } };
+  }
+  return { delete: accepted, release: { ...refused(LOOSE_REFUSAL.work), where: null } };
 };
 
 /** Whether a Mine mode shows a ticket of this ownership; no other item asks it. */

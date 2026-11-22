@@ -40,6 +40,7 @@ const LINK_ICON: Readonly<Record<LinkTargetWord, LinkIconKind | null>> = {
   question: null,
   log: null,
   action: null,
+  menu: null,
 };
 
 /**

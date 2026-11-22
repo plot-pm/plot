@@ -1467,8 +1467,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // fact summarised for the group. The branch's own note is what the wave
       // replaced, so polling this row for `ELIGIBLE_NOTE` waited on a string
       // that had moved rather than on the state the test needs.
-      await expect.poll(() => group(page, 'input-to-the-fleet').innerText())
-        .toMatch(/eligible/i);
+      // Under You the consequence replaces the status, so the row states its
+      // eligibility as the approved slice nobody has taken.
+      await expect.poll(() => li.innerText()).toMatch(/nobody has taken it/i);
       // THE CLAIMS, unchanged and both still true: no menu, no Start button.
       expect(await menu(page, 'feature/ghost-ready').count()).toBe(0);
       expect(await li.getByRole('button', { name: 'Start work' }).count()).toBe(0);
@@ -3139,8 +3140,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const text = (await li.textContent()) ?? '';
       // The words `PR #158` are gone — the glyph and the number replaced them.
       expect(text).not.toContain('PR #158');
-      // And `conflicts` appears once, from the cell.
-      expect(text.match(/conflicts/g) ?? []).toHaveLength(1);
+      // A conflicting PR is a You row: the verb `Resolve` states the condition,
+      // and no state word repeats it.
+      expect(await li.locator('[data-you-verb]').textContent()).toBe('Resolve ›');
+      expect(text.match(/conflicts/g) ?? []).toHaveLength(0);
     } finally {
       await page.close();
     }
@@ -3165,19 +3168,21 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('says `conflicts` where the PR conflicts, and `no checks` where it does not', async () => {
+  it('says `Resolve` where the PR conflicts, and `no checks` where it does not', async () => {
     // The pairing that matters: one label for both is the defect, and renaming
     // all of them to `conflicts` is the same defect mirrored. The distinction
     // is settled in the FIELD by wave 1; this asserts the cell prints it.
-    for (const [state, word] of [['conflicts', 'conflicts'], ['none', 'no checks']] as const) {
+    // A conflicting PR sits under You, where the verb `Resolve` says it; a PR
+    // with no checks stays in Work items, where the cell says `no checks`.
+    for (const [state, word] of [['conflicts', 'Resolve ›'], ['none', 'no checks']] as const) {
       const page = await openAgents(withPr(
         { number: 149, url: 'https://github.com/tiny/garden/pull/149', draft: false, state },
         'awaiting review',
       ));
       try {
         const li = rowFor(page, 'feature/pr-row');
-        await expect.poll(() => li.locator(`[data-pr-state="${state}"]`).textContent())
-          .toBe(word);
+        const where = state === 'conflicts' ? li.locator('[data-you-verb]') : li.locator(`[data-pr-state="${state}"]`);
+        await expect.poll(() => where.textContent()).toBe(word);
       } finally {
         await page.close();
       }

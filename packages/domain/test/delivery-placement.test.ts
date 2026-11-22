@@ -554,30 +554,38 @@ describe('loose ends', () => {
     expect(placed(openPr({ ...nobody, closed: true }, { delivered: true })).items.map((i) => i.reason)).not.toContain('loose');
   });
 
-  it('offers Release and no Delete for a branch that holds only its claim, since loose-delete refuses a claim marker', () => {
-    expect(looseActions({ kind: 'branch', loose: { ...nobody, claimOnly: true } })).toEqual({ delete: false, release: 'here' });
+  const on = { enabled: true, reason: null };
+  const off = (reason: string) => ({ enabled: false, reason });
+
+  it('enables Release and disables Delete as claimed for a branch that holds only its claim, since loose-delete refuses a claim marker', () => {
+    expect(looseActions({ kind: 'branch', loose: { ...nobody, claimOnly: true } }))
+      .toEqual({ delete: off('claimed, release it first'), release: { ...on, where: 'here' } });
   });
 
   it('names a claim made from another machine on its Release', () => {
-    expect(looseActions({ kind: 'branch', loose: { ...nobody, claimOnly: true, claimElsewhere: true } }))
-      .toEqual({ delete: false, release: 'elsewhere' });
+    expect(looseActions({ kind: 'branch', loose: { ...nobody, claimOnly: true, claimElsewhere: true } }).release)
+      .toEqual({ ...on, where: 'elsewhere' });
   });
 
-  it('offers Delete and no Release for a branch with work, since release-claim refuses a branch that carries commits', () => {
-    expect(looseActions({ kind: 'branch', loose: { ...nobody, claimOnly: false } })).toEqual({ delete: true, release: null });
+  it('enables Delete and disables Release as carrying work for a branch with work, since release-claim refuses a branch that carries commits', () => {
+    expect(looseActions({ kind: 'branch', loose: { ...nobody, claimOnly: false } }))
+      .toEqual({ delete: on, release: { ...off('carries work'), where: null } });
   });
 
-  it('offers neither for a branch whose claim nobody read', () => {
-    expect(looseActions({ kind: 'branch', loose: nobody })).toEqual({ delete: false, release: null });
+  it('disables both as an unread claim for a branch whose claim nobody read', () => {
+    expect(looseActions({ kind: 'branch', loose: nobody }))
+      .toEqual({ delete: off('unread claim'), release: { ...off('unread claim'), where: null } });
   });
 
-  it('offers Delete only for a closed PR, and neither for an open PR or an item with no loose reading', () => {
-    expect(looseActions({ kind: 'pr', loose: { ...nobody, closed: true } })).toEqual({ delete: true, release: null });
-    expect(looseActions({ kind: 'pr', loose: { ...nobody, closed: true, claimOnly: true } })).toEqual({ delete: true, release: null });
-    expect(looseActions({ kind: 'pr', loose: { ...nobody, fixing: false } })).toEqual({ delete: false, release: null });
-    expect(looseActions({ kind: 'pr', loose: nobody })).toEqual({ delete: false, release: null });
-    expect(looseActions({ kind: 'branch' })).toEqual({ delete: false, release: null });
-    expect(looseActions({ kind: 'release', loose: nobody })).toEqual({ delete: false, release: null });
+  it('enables Delete only for a closed PR, names an open PR, and names an unread claim where no loose reading exists', () => {
+    expect(looseActions({ kind: 'pr', loose: { ...nobody, closed: true } }))
+      .toEqual({ delete: on, release: { ...off('carries work'), where: null } });
+    expect(looseActions({ kind: 'pr', loose: { ...nobody, closed: true, claimOnly: true } }).delete).toEqual(on);
+    expect(looseActions({ kind: 'pr', loose: { ...nobody, fixing: false } }))
+      .toEqual({ delete: off('open PR'), release: { ...off('open PR'), where: null } });
+    expect(looseActions({ kind: 'pr', loose: nobody }).delete).toEqual(off('open PR'));
+    expect(looseActions({ kind: 'branch' }).delete).toEqual(off('unread claim'));
+    expect(looseActions({ kind: 'release', loose: nobody }).delete).toEqual(off('unread claim'));
   });
 
   it('applies the Mine filter to a loose item as it does to any Unblock item', () => {
