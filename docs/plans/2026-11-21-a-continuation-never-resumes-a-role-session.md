@@ -122,7 +122,7 @@ Slice 2, ending (`packages/domain/test/workflows-agent-loop.test.ts`): a row 10 
 
 ### Loop
 
-- `bug/a-loop-run-never-uses-a-role-handle` — a `resumeHandleReadings` port reading, `runPrompt` replacing a rejected manifest handle before the launch, `readPass` passing `''` for one, and `end` omitting an empty handle <!-- builds: role-handle check at the worker loop's launch and readings --> <!-- waits: bug/a-continuation-checks-every-resume-handle -->
+- `bug/a-loop-run-never-uses-a-role-handle` — a `resumeHandleReadings` port reading, `runPrompt` replacing a rejected manifest handle before the launch, `readPass` passing `''` for one, and `end` omitting an empty handle <!-- builds: role-handle check at the worker loop's launch and readings --> <!-- waits: bug/a-continuation-checks-every-resume-handle --> → #3657
 
 ## Notes
 
