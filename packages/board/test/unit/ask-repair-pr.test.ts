@@ -131,6 +131,17 @@ describe('plot-ask repair-pr', () => {
     expect(await ports.repair.read()).toEqual(answered(RECORD));
   });
 
+  it('hands the workflow an unaskable state home where git names no main checkout', async () => {
+    const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-ask-nohome-')));
+    made.push(outside);
+    process.env.PLOT_REPO_ROOT = outside;
+    process.env.PLOT_SCRIPTS_DIR = REAL_SCRIPTS;
+    delete process.env.PLOT_UNATTENDED;
+    await run(['repair-pr', '7'], HERE, vi.fn());
+    expect(named).toHaveLength(1);
+    expect(named[0]!.stateHome).toBe('unaskable');
+  });
+
   it('hands the workflow the unattended caller under PLOT_UNATTENDED=1', async () => {
     await repoWithRecord();
     process.env.PLOT_UNATTENDED = '1';

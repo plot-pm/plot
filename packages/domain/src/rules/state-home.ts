@@ -18,3 +18,14 @@ export const stateHomeOf = (commonDir: string | null): StateHomeAnswer => {
   if (cut < 0 || dir.slice(cut + 1) !== '.git') return { unread: true };
   return { home: (cut === 0 ? '/' : dir.slice(0, cut)) as StateHome };
 };
+
+/** Whether a process found its state home: `read`, or `unaskable` where git could not name it. */
+export type StateHomeRead = 'read' | 'unaskable';
+
+/**
+ * The {@link StateHomeRead} of a resolved state home.
+ *
+ * @param answer - the resolved state home.
+ * @returns `read` where the answer names a home, `unaskable` where it is unread.
+ */
+export const stateHomeReadOf = (answer: StateHomeAnswer): StateHomeRead => ('home' in answer ? 'read' : 'unaskable');

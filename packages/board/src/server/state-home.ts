@@ -25,8 +25,6 @@ export interface StateHomeOptions {
  */
 export const stateHomeFor = (opts: StateHomeOptions): StateHomeAnswer => opts.stateHome ?? stateHomeAtSync(opts.repoRoot);
 
-// TODO: a merge over an unread state home refuses `unaskable` through these
-// stores; the named refusal `state-home-unread` replaces it.
 /** A default-branch store over no file: every read and write fails. */
 const unreadDefaultBranch: DefaultBranchStore = {
   read: async () => failed(),
