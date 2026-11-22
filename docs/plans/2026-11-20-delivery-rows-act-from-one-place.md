@@ -109,7 +109,7 @@ Today actions sit in different columns per section, some rows hold buttons and s
 
 ### You rows
 
-- `feature/delivery-you-rows-verb-first` <!-- waits: feature/mine-means-mine-or-my-plan, feature/delivery-section-empty-kinds --> — You rows as verb, object tuple, consequence and ⋯ from a `REASON_DO` record of verb, action, tone and consequence per `YouReason`, the loose rows under Unblock grouped into one row with each branch in the ⋯, `looseActions` with `{ enabled, reason }` and the loose row's fixed items with their unit test, `todo-list.test.ts` updated, `CleanUpBulkDelete`, `bulkDeleteWords` and `cleanUpBranches` removed with their tests, `rowSprintMembership` with the scope and Mine cells, and the triage footer linked to `#tickets` <!-- builds: youRowForm and rowSprintMembership, a verb-first You row with grouping -->
+- `feature/delivery-you-rows-verb-first` <!-- waits: feature/mine-means-mine-or-my-plan, feature/delivery-section-empty-kinds --> — You rows as verb, object tuple, consequence and ⋯ from a `REASON_DO` record of verb, action, tone and consequence per `YouReason`, the loose rows under Unblock grouped into one row with each branch in the ⋯, `looseActions` with `{ enabled, reason }` and the loose row's fixed items with their unit test, `todo-list.test.ts` updated, `CleanUpBulkDelete`, `bulkDeleteWords` and `cleanUpBranches` removed with their tests, `rowSprintMembership` with the scope and Mine cells, and the triage footer linked to `#tickets` <!-- builds: youRowForm and rowSprintMembership, a verb-first You row with grouping --> → #3648
 
 ### Work items grid
 
