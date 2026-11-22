@@ -16,6 +16,10 @@ export const CardControlsSchema = z.object({
   confirmSlices: z.boolean().default(false),
   // plot-state: reading — where a Design plan stands against its spike; every board build re-reads it from the plan record and the pulse.
   spikeState: z.enum(['spike-not-approved', 'spike-approved', 'spike-merged']).nullable().default(null),
+  // plot-state: reading — why a Design plan's spike record licenses no branch; every board build re-reads it from the plan record.
+  spikeUnlicensed: z.enum([
+    'spike-record-absent', 'spike-record-branchless', 'spike-record-unparseable', 'spike-none', 'spike-marker-moved', 'spike-branch-renamed',
+  ]).nullable().default(null),
 });
 export type CardControls = z.infer<typeof CardControlsSchema>;
 
@@ -50,14 +54,15 @@ export interface CardControlsReadings {
  * `approveSpike` holds on a `design` plan whose one `<!-- spike -->` branch is the
  * only branch of the first slice and which records no `Spike approved:` line.
  *
- * `spikeState` is the card's spike line (see {@link spikeCardState}). A
+ * `spikeState` is the card's spike line (see {@link spikeCardState}), and
+ * `spikeUnlicensed` is its reason on `spike-not-approved`, null otherwise. A
  * `design` plan whose spike has not merged offers no Approve at all
  * ({@link awaitsSpike}, the rule the approval's `spike-unmerged` refusal asks),
  * and once the spike has merged `confirmSlices` holds and the plan's Approve
  * control reads *Confirm slices and approve*.
  *
  * @param readings - the plan's state, status, started record, slices, spike record and spike merge reading.
- * @returns the control booleans and the spike state.
+ * @returns the control booleans, the spike state and its unlicensed reason.
  */
 export const cardControls = (readings: CardControlsReadings): CardControls => {
   const draft = readings.state === 'draft';
@@ -71,7 +76,8 @@ export const cardControls = (readings: CardControlsReadings): CardControls => {
     spike !== undefined &&
     spike.slice === 0 &&
     slices[0].branches.length === 1;
-  const spikeState: SpikeCardState | null = spikeCardState(readings);
+  const spikeCard = spikeCardState(readings);
+  const spikeState: SpikeCardState | null = spikeCard?.state ?? null;
   const waits = awaitsSpike(readings.state, slices, readings.spikeMerged === true);
   return {
     approve: underReview && !waits,
@@ -83,5 +89,6 @@ export const cardControls = (readings: CardControlsReadings): CardControls => {
     approveSpike,
     confirmSlices: underReview && spikeState !== null && !waits,
     spikeState,
+    spikeUnlicensed: spikeCard?.reason ?? null,
   };
 };
