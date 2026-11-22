@@ -921,6 +921,8 @@ export function TupleRowView({
             alone. `gap-1.5` rather than `gap-2`: the icon and the name are one
             unit, not two items in a row. */}
         <KindIcon kind={tuple.kind} tone={iconTone} />
+        {/* IN THE WORK GRID the icon is the only visible kind, and it is `aria-hidden`: a screen reader hears the kind word here instead. */}
+        {workGrid && <span className="sr-only" data-tuple-kind-label={tuple.kind}>{tuple.kindLabel}: </span>}
         <TupleLinkView link={tuple.name} onOpenPlan={onOpenPlan} extraAttr={nameAttr} onActivate={onNameClick} />
         {/* THE TALLY, beside the name and outside the link. `(3)` says how many
             rows this head covers — the fact a folded group otherwise withholds.

@@ -250,8 +250,9 @@ describe('a plan row shows plan status only', () => {
   it('WAITING ON YOU, a green PR: no verdict on the plan row, head open or collapsed', async () => {
     const page = await open();
     try {
+      // The Work items status pill names the gate's outcome in whole words.
       await expect.poll(() => sliceStatus(page, 'open-pr', 'Review').textContent(),
-        { timeout: 10_000 }).toContain('green');
+        { timeout: 10_000 }).toContain('CI passed');
       expect(await planVerdict(page, 'open-pr').count()).toBe(0);
       // A green PR folds to nothing, so the cell holds the phase alone.
       expect(await planFold(page, 'open-pr').count()).toBe(0);
