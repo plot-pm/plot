@@ -145,7 +145,7 @@ All evidence is on origin/main `b21961602`.
 
 ### Spike card
 
-- `bug/the-spike-card-names-its-reason` — `spikeCardState` answers the `SpikeUnlicensed` reason; `CardFacts.progress.design.spikeUnlicensed` with its `plot-state:` declaration; the card wording per reason with the *Approve spike* pointer; the pulse plan's `spikeUnlicensed` and `/plot-pulse` line; the named test updates <!-- builds: SpikeUnlicensedSchema, the spike reason on the card and the pulse -->
+- `bug/the-spike-card-names-its-reason` — `spikeCardState` answers the `SpikeUnlicensed` reason; `CardFacts.progress.design.spikeUnlicensed` with its `plot-state:` declaration; the card wording per reason with the *Approve spike* pointer; the pulse plan's `spikeUnlicensed` and `/plot-pulse` line; the named test updates <!-- builds: SpikeUnlicensedSchema, the spike reason on the card and the pulse --> → #3658
 
 ### Spike corpus
 
