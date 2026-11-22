@@ -941,10 +941,10 @@ export function AgentList({
   //
   // `fleet.waiting.tickets` IS *WAITING ON YOU*'S OWN ROW SET — the domain's
   // `waitingTickets` already applied its stricter default (hide and count an
-  // unassigned ticket) server-side. `ticketsForReader` is the separate, looser
-  // *Only my work* toggle on top of that: it hides a ticket only where it is
-  // someone else's, same as `rowsForReader` does for branch rows, and keeps an
-  // unassigned ticket or one whose source is unresolved. `fleet.waiting.source`
+  // unassigned ticket) server-side. `ticketsForReader` is the separate «Mine»
+  // filter on top of that: in `mine-and-unknown` it hides a ticket only where
+  // it is someone else's, and in `mine` it keeps a ticket only where its
+  // assignees name the reader (`isMineStrict`). `fleet.waiting.source`
   // is the wire form of the domain's `TicketSource`, resolved once server-side
   // so this call needs no second host read. `fleet.issues` stays the fallback
   // for an older server with no `waiting` field.
