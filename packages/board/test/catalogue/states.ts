@@ -199,7 +199,7 @@ const aFullEstate = (): Scenario => {
     // The ONE row a person can pick up, so the one that carries Start work.
     row({
       branch: 'feature/untaken', plan: 'plant-tomatoes', planFile: TOMS_FILE,
-      group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+      group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
       waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
       branchUrl: `${GH}feature/untaken`, waitingDays: 22, startability: 'start-work',
     }),
@@ -208,7 +208,7 @@ const aFullEstate = (): Scenario => {
     // THE FIELD, not the sentence — a grouped row drops its note by design.
     row({
       branch: 'feature/blocked', plan: 'plant-tomatoes', planFile: TOMS_FILE,
-      group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+      group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
       waitingOn: 'time', blockedBy: 'Truth', verdict: 'blocked',
       branchUrl: `${GH}feature/blocked`, waitingDays: 22, startability: null,
     }),
@@ -216,14 +216,14 @@ const aFullEstate = (): Scenario => {
     // Both halves must show — the phase has fallen back AND the badge says why.
     row({
       branch: 'feature/shelved', plan: 'beans', planFile: BEANS_FILE,
-      group: 'not-started', state: 'deferred', phase: 'Design', ageMinutes: 2,
+      group: 'not-started', state: 'deferred', phase: 'Design', planState: 'design', ageMinutes: 2,
       note: 'last commit 2 min ago', branchUrl: `${GH}feature/shelved`, startability: null,
     }),
     // A plan recording no approval date — every plan predating `Approved:`.
     // It must show no waiting age at all.
     row({
       branch: 'feature/undated', plan: 'beans', planFile: BEANS_FILE,
-      group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+      group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
       waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
       branchUrl: `${GH}feature/undated`, waitingDays: null, startability: 'start-work',
     }),
@@ -244,7 +244,7 @@ const aFullEstate = (): Scenario => {
     // `StartWorkButton` takes a Card and a row is not one, so: NO button.
     row({
       branch: 'feature/ghost-ready', plan: 'ghost-plan', planFile: GHOST_FILE,
-      group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+      group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
       waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
       branchUrl: `${GH}feature/ghost-ready`, startability: 'start-work',
     }),
@@ -534,7 +534,7 @@ const tenRowsOneKindEach = (): Scenario => ({
       // person can actually pick up, so also the one carrying Start work.
       row({
         branch: 'feature/untaken', wave: 'toms-open', plan: 'plant-tomatoes', planFile: TOMS_FILE,
-        group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+        group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
         waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
         branchUrl: `${GH}feature/untaken`, waitingDays: 22, startability: 'start-work',
       }),
@@ -543,7 +543,7 @@ const tenRowsOneKindEach = (): Scenario => ({
       // grouped row drops its note and the sentence was the sole carrier.
       row({
         branch: 'feature/blocked', wave: 'toms-open', plan: 'plant-tomatoes', planFile: TOMS_FILE,
-        group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+        group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
         waitingOn: 'time', blockedBy: 'Truth', verdict: 'blocked',
         branchUrl: `${GH}feature/blocked`, waitingDays: 22, startability: null,
       }),
@@ -552,7 +552,7 @@ const tenRowsOneKindEach = (): Scenario => ({
       // badge says someone gave it up rather than never having begun.
       row({
         branch: 'feature/shelved', wave: 'beans-open', plan: 'beans', planFile: 'p-beans.md',
-        group: 'not-started', state: 'deferred', phase: 'Design', ageMinutes: 2,
+        group: 'not-started', state: 'deferred', phase: 'Design', planState: 'design', ageMinutes: 2,
         note: 'last commit 2 min ago', branchUrl: `${GH}feature/shelved`,
         startability: null,
       }),
@@ -560,7 +560,7 @@ const tenRowsOneKindEach = (): Scenario => ({
       // It must show no waiting age at all.
       row({
         branch: 'feature/undated', wave: 'beans-open', plan: 'beans', planFile: 'p-beans.md',
-        group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+        group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
         waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
         branchUrl: `${GH}feature/undated`, waitingDays: null, startability: 'start-work',
       }),
@@ -581,7 +581,7 @@ const tenRowsOneKindEach = (): Scenario => ({
       // `StartWorkButton` takes a Card and a row is not one, so: NO button.
       row({
         branch: 'feature/ghost-ready', wave: 'ghost-open', plan: 'ghost-plan', planFile: GHOST_FILE,
-        group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+        group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
         waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
         branchUrl: `${GH}feature/ghost-ready`, startability: 'start-work',
       }),
@@ -948,7 +948,7 @@ const everyDeliverySection = (): Scenario => {
       question: { firstLine: 'Bark or straw mulch for the paths?', askedAt: new Date(Date.now() - 40 * 60_000).toISOString() },
     }),
     row({
-      branch: 'feature/herb-spiral', plan: 'herb-spiral', planFile: '2026-11-01-herb-spiral.md', wave: 'Spiral', phase: 'Design', state: 'open', group: 'not-started',
+      branch: 'feature/herb-spiral', plan: 'herb-spiral', planFile: '2026-11-01-herb-spiral.md', wave: 'Spiral', phase: 'Design', planState: 'design', state: 'open', group: 'not-started',
       branchUrl: `${GH}feature/herb-spiral`, ageMinutes: 300,
     }),
     // LOOSE: no plan names it, and `desk: false` says no worktree holds it.

@@ -9,7 +9,7 @@ const sprints = [{ slug: 'alpha', ownerHandle: 'me' }, { slug: 'beta', ownerHand
 const membership = new Map([['alpha', new Set(['plan-a'])], ['beta', new Set(['plan-b'])]]);
 
 const row = (branch: string, plan: string): AgentRow => ({
-  branch, plan, wave: 'w', kind: 'branch', phase: 'Development', state: 'wip', group: 'not-started',
+  branch, plan, wave: 'w', kind: 'branch', phase: 'Development', planState: 'approved', state: 'wip', group: 'not-started',
   pr: null, question: null, blockedBy: null, assignee: '', author: '', approver: '',
 }) as unknown as AgentRow;
 const rows = [row('feature/a', 'plan-a'), row('feature/b', 'plan-b')];

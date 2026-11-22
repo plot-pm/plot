@@ -33,7 +33,7 @@ const pr = (number: number, state: NonNullable<AgentRow['pr']>['state']) => ({
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-16-a-plan.md',
-  wave: 'w', state: 'open', phase: 'Design', group: 'not-started', ageMinutes: null,
+  wave: 'w', state: 'open', phase: 'Design', planState: 'design', group: 'not-started', ageMinutes: null,
   waitingOn: 'click' as const, note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
   localDirty: false, localLocked: false, stuck: null,
   ...over,
@@ -70,7 +70,7 @@ function fleet(): Fleet {
     row({
       plan: 'all-green', planFile: '2026-08-11-all-green.md',
       branch: 'feature/ag-one', wave: 'Only', state: 'deferred', waitingDays: 2,
-      phase: 'Testing', branchUrl: `${GH}feature/ag-one`, pr: pr(210, 'green'),
+      phase: 'Testing', planState: 'delivered', branchUrl: `${GH}feature/ag-one`, pr: pr(210, 'green'),
     }),
 
     // ── planHeads PATH: WAITING ON YOU, folded plan over open PRs ──
@@ -79,33 +79,33 @@ function fleet(): Fleet {
     row({
       plan: 'conflict-wins', planFile: '2026-08-12-conflict-wins.md',
       branch: 'feature/cw-conflict', wave: 'Rebase', group: 'waiting-on-you', state: 'wip',
-      phase: 'Development', ageMinutes: 20, waitingDays: null,
+      phase: 'Development', planState: 'approved', ageMinutes: 20, waitingDays: null,
       note: 'PR #221', branchUrl: `${GH}feature/cw-conflict`, pr: pr(221, 'conflicts'),
     }),
     row({
       plan: 'conflict-wins', planFile: '2026-08-12-conflict-wins.md',
       branch: 'feature/cw-failing', wave: 'Checks', group: 'waiting-on-you', state: 'wip',
-      phase: 'Development', ageMinutes: 25, waitingDays: null,
+      phase: 'Development', planState: 'approved', ageMinutes: 25, waitingDays: null,
       note: 'PR #222', branchUrl: `${GH}feature/cw-failing`, pr: pr(222, 'failing'),
     }),
     // A plan whose one open PR is still building — `CI running`, dimmer.
     row({
       plan: 'just-pending', planFile: '2026-08-13-just-pending.md',
       branch: 'feature/jp-a', wave: 'One', group: 'waiting-on-you', state: 'wip',
-      phase: 'Development', ageMinutes: 5, waitingDays: null,
+      phase: 'Development', planState: 'approved', ageMinutes: 5, waitingDays: null,
       note: 'PR #231', branchUrl: `${GH}feature/jp-a`, pr: pr(231, 'pending'),
     }),
     row({
       plan: 'just-pending', planFile: '2026-08-13-just-pending.md',
       branch: 'feature/jp-b', wave: 'Two', group: 'waiting-on-you', state: 'wip',
-      phase: 'Development', ageMinutes: 6, waitingDays: null,
+      phase: 'Development', planState: 'approved', ageMinutes: 6, waitingDays: null,
       note: 'PR #232', branchUrl: `${GH}feature/jp-b`, pr: pr(232, 'pending'),
     }),
     // A plan with a single failing PR — the word, and NO count.
     row({
       plan: 'lone-failure', planFile: '2026-08-14-lone-failure.md',
       branch: 'feature/lf', wave: 'Only', group: 'waiting-on-you', state: 'wip',
-      phase: 'Development', ageMinutes: 40, waitingDays: null,
+      phase: 'Development', planState: 'approved', ageMinutes: 40, waitingDays: null,
       note: 'PR #241', branchUrl: `${GH}feature/lf`, pr: pr(241, 'failing'),
     }),
   ];

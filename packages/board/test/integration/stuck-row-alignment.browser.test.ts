@@ -47,7 +47,7 @@ const stuck = (over: Partial<Stuck> = {}): Stuck => ({
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'plant-tomatoes',
   planFile: '2026-03-01-plant-tomatoes.md', wave: 'w', state: 'wip',
-  phase: 'Development', group: 'waiting-on-you', ageMinutes: 3, note: 'last commit 3 min ago',
+  phase: 'Development', planState: 'approved', group: 'waiting-on-you', ageMinutes: 3, note: 'last commit 3 min ago',
   pr: null, branchUrl: `${GH}feature/x`, waitingDays: null,
   localDirty: false, localLocked: false, stuck: null, ...over,
 });
@@ -62,7 +62,7 @@ function fleet(): Fleet {
   const rows: AgentRow[] = [
     row({
       branch: 'feature/has-phase',
-      phase: 'Development',
+      phase: 'Development', planState: 'approved',
       stuck: stuck({ state: 'conflict', conflicts: ['packages/board/src/app/App.tsx'] }),
       branchUrl: `${GH}feature/has-phase`,
     }),
@@ -71,6 +71,7 @@ function fleet(): Fleet {
       // The reported row: an EMPTY phase cell, under which the evidence used to
       // hang flush left.
       phase: null,
+      planState: null,
       stuck: stuck({ state: 'conflict', conflicts: ['packages/board/src/app/App.tsx'] }),
       branchUrl: `${GH}feature/no-phase`,
     }),

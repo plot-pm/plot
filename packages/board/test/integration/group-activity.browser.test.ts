@@ -36,7 +36,7 @@ const GH = 'https://github.com/tiny/garden/tree/';
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'plant-tomatoes',
   planFile: '2026-03-01-plant-tomatoes.md', wave: 'w', state: 'wip',
-  phase: 'Development', group: 'working', ageMinutes: 3, note: 'last commit 3 min ago',
+  phase: 'Development', planState: 'approved', group: 'working', ageMinutes: 3, note: 'last commit 3 min ago',
   pr: null, branchUrl: `${GH}feature/x`, waitingDays: null,
   localDirty: false, localLocked: false, stuck: null,
   // No PLOT-BLOCKED marker. The schema defaults this to null, and the Delivery

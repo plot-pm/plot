@@ -38,7 +38,7 @@ import { planIndexOf } from '@plot-pm/domain';
  */
 const row = (over: Partial<AgentRow> = {}): AgentRow => AgentRowSchema.parse({
   repo: 'plot', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-20-a-plan.md',
-  wave: 'w', state: 'wip', phase: 'Development', group: 'waiting-on-you',
+  wave: 'w', state: 'wip', phase: 'Development', planState: 'approved', group: 'waiting-on-you',
   ageMinutes: 30, note: '', ...over,
 });
 
@@ -654,7 +654,7 @@ describe('age is one clock, and the label marks the exception', () => {
     // the approval clock is the only one running — and it is not a change to
     // the plan, so it wears its label like every other exception.
     const t = tupleFromPlan({
-      plan: 'a-plan', planFile: '2026-08-20-a-plan.md', phase: 'Design', waitingDays: 3,
+      plan: 'a-plan', planFile: '2026-08-20-a-plan.md', phase: 'Design', planState: 'design', waitingDays: 3,
     });
     expect(t.age).toEqual({ text: '3d', label: 'waiting' });
   });
@@ -666,7 +666,7 @@ describe('a plan head carries its own PR, not just its branch', () => {
     // itself — ahead of the branch link, matching the PR-then-branch order
     // every other kind already uses.
     const t = tupleFromPlan({
-      plan: 'a-plan', planFile: '2026-08-20-a-plan.md', phase: 'Design', waitingDays: 3,
+      plan: 'a-plan', planFile: '2026-08-20-a-plan.md', phase: 'Design', planState: 'design', waitingDays: 3,
       branch: 'idea/a-plan', branchUrl: 'https://host/tree/idea/a-plan',
       pr: { number: 42, url: 'https://host/pr/42', draft: false, state: 'OPEN' },
     });
@@ -678,7 +678,7 @@ describe('a plan head carries its own PR, not just its branch', () => {
 
   it('falls back to a branch-only link when the plan has no PR', () => {
     const t = tupleFromPlan({
-      plan: 'a-plan', planFile: '2026-08-20-a-plan.md', phase: 'Design', waitingDays: 3,
+      plan: 'a-plan', planFile: '2026-08-20-a-plan.md', phase: 'Design', planState: 'design', waitingDays: 3,
       branch: 'idea/a-plan', branchUrl: 'https://host/tree/idea/a-plan',
     });
     expect(t.links).toEqual([
@@ -688,7 +688,7 @@ describe('a plan head carries its own PR, not just its branch', () => {
 
   it('renders no links at all with neither a branch nor a PR', () => {
     const t = tupleFromPlan({
-      plan: 'a-plan', planFile: '2026-08-20-a-plan.md', phase: 'Design', waitingDays: 3,
+      plan: 'a-plan', planFile: '2026-08-20-a-plan.md', phase: 'Design', planState: 'design', waitingDays: 3,
     });
     expect(t.links).toEqual([]);
   });
@@ -743,7 +743,7 @@ describe('every kind fills all six slots', () => {
     // cell, which would have discarded a genuine rule to accommodate one kind.
     ticket: () => tupleFromIssue(issue({ status: 'Internal Approving' })),
     plan: () => tupleFromPlan({
-      plan: 'a-plan', planFile: '2026-08-20-a-plan.md', phase: 'Design', waitingDays: 1,
+      plan: 'a-plan', planFile: '2026-08-20-a-plan.md', phase: 'Design', planState: 'design', waitingDays: 1,
     }),
     pr: () => tupleFromRow(row({
       kind: 'pr', pr: { number: 57, url: 'https://host/pr/57', draft: false, state: 'green' },
@@ -1203,7 +1203,7 @@ describe('slot 5 holds a value, never a sentence', () => {
     // `Testing`, 9 `Design` — a fact about the plan on a row about something
     // else. Slot 5 on the PLAN row is where that fact is true.
     expect(tupleFromPlan({
-      plan: 'p', planFile: 'f.md', phase: 'Testing', waitingDays: null,
+      plan: 'p', planFile: 'f.md', phase: 'Testing', planState: 'delivered', waitingDays: null,
     }).status).toBe('Testing');
   });
 });
@@ -1343,7 +1343,7 @@ describe('a plan row shows its phase, whichever arm projected it', () => {
     kind: 'plan', branch: 'idea/an-adopting-repo-installs-its-gates',
     plan: 'an-adopting-repo-installs-its-gates',
     planFile: '2026-09-09-an-adopting-repo-installs-its-gates.md',
-    phase: 'Discovery', branchUrl: 'https://host/tree/idea/x',
+    phase: 'Discovery', planState: 'draft', branchUrl: 'https://host/tree/idea/x',
     pr: { number: 865, url: 'https://host/pr/865', draft: true, state: 'green' },
     ageMinutes: 46, ...over,
   });
@@ -1391,10 +1391,10 @@ describe('a plan row shows its phase, whichever arm projected it', () => {
     // guess the contract's docstring refuses. An unconditional assignment would
     // blank a cell that says `green` today — a regression a reader reports —
     // and it would do so on the one branch no test covered.
-    expect(tupleFromRow(ideaRow({ phase: null })).status).toBe('green');
+    expect(tupleFromRow(ideaRow({ phase: null, planState: null })).status).toBe('green');
     // And with neither phase nor PR the branch's own git state still answers,
     // which is the arm's behaviour before this change and after it.
-    expect(tupleFromRow(ideaRow({ phase: null, pr: null })).status).toBe('in progress');
+    expect(tupleFromRow(ideaRow({ phase: null, planState: null, pr: null })).status).toBe('in progress');
   });
 
   it('leaves the CI state reachable, demoted rather than dropped', () => {
@@ -1445,7 +1445,7 @@ describe('a row resolves its plan reference through the index, not its own field
     const t = tupleFromRow(
       row({
         kind: 'plan', branch: 'idea/an-adopting-repo-installs-its-gates',
-        plan: '', planFile: '', phase: 'Discovery',
+        plan: '', planFile: '', phase: 'Discovery', planState: 'draft',
       }),
       undefined,
       index,
@@ -1464,7 +1464,7 @@ describe('a row resolves its plan reference through the index, not its own field
     // No draft card and no index means the slug alone cannot be a link — the
     // honest answer `planReference` gives, not a fabricated one.
     const t = tupleFromRow(row({
-      kind: 'plan', branch: 'idea/no-such-plan-yet', plan: '', planFile: '', phase: 'Discovery',
+      kind: 'plan', branch: 'idea/no-such-plan-yet', plan: '', planFile: '', phase: 'Discovery', planState: 'draft',
     }));
     expect(t.name.label).toBe('no-such-plan-yet');
     expect(t.name.href).toBe('');
@@ -1475,7 +1475,7 @@ describe('a row resolves its plan reference through the index, not its own field
       cards: [{ slug: 'a-plan', title: 'A Plan', issues: ['42'], path: 'docs/plans/2026-08-20-a-plan.md' }],
     });
     const t = tupleFromPlan(
-      { plan: 'a-plan', planFile: '2026-08-20-a-plan.md', issues: [], phase: 'Design', waitingDays: 3 },
+      { plan: 'a-plan', planFile: '2026-08-20-a-plan.md', issues: [], phase: 'Design', planState: 'design', waitingDays: 3 },
       index,
     );
     expect(t.name.label).toBe('a-plan');
@@ -1499,7 +1499,7 @@ describe('a row resolves its plan reference through the index, not its own field
   });
 
   it('falls through to an empty index with no caller-supplied one, resolving only what the facts themselves name', () => {
-    const t = tupleFromPlan({ plan: 'a-plan', planFile: '2026-08-20-a-plan.md', issues: ['3'], phase: 'Design', waitingDays: null });
+    const t = tupleFromPlan({ plan: 'a-plan', planFile: '2026-08-20-a-plan.md', issues: ['3'], phase: 'Design', planState: 'design', waitingDays: null });
     expect(t.name.label).toBe('a-plan');
     expect(t.name.keys).toEqual([{ key: '3', text: '#3' }]);
     expect(t.name.href).toBe('/plan/2026-08-20-a-plan.md');

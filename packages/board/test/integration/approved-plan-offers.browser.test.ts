@@ -32,7 +32,7 @@ const GH = 'https://github.com/tiny/garden';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'beans', planFile: 'p-beans.md',
-  wave: 'w1', state: 'wip', phase: 'Development', group: 'not-started', ageMinutes: 30,
+  wave: 'w1', state: 'wip', phase: 'Development', planState: 'approved', group: 'not-started', ageMinutes: 30,
   waitingOn: 'click', note: 'approved — nobody has taken it', pr: null,
   branchUrl: `${GH}/tree/feature/x`, waitingDays: null, verdict: 'eligible',
   localDirty: false, localLocked: false, stuck: null, ...over,

@@ -150,17 +150,9 @@ type PrFacts = NonNullable<WorkItemReading['pr']>;
 
 const MINE: Record<MineMode, DeliveryMine> = { all: 'off', 'mine-and-unknown': 'mine', mine: 'strict' };
 
-/** The payload's workflow phase words, and the lifecycle phase the placement rule reads for each. */
-const PHASE_OF: Readonly<Record<string, NonNullable<WorkItemReading['phase']>>> = {
-  Discovery: 'draft',
-  Design: 'design',
-  Development: 'approved',
-  Testing: 'delivered',
-  Released: 'released',
-};
-
-const phaseOf = (value: string | null): WorkItemReading['phase'] =>
-  value === null ? undefined : PHASE_OF[value];
+/** The plan state the placement rule reads; `rejected`, `superseded` and an unread state leave it unset. */
+const phaseOf = (state: AgentRow['planState']): WorkItemReading['phase'] =>
+  state === 'rejected' || state === 'superseded' || state === null ? undefined : state;
 
 export const sliceItemId = (plan: string, wave: string): string => `slice:${sliceKeyOf(plan, wave)}`;
 export const branchItemId = (branch: string): string => `branch:${branch}`;
@@ -261,7 +253,7 @@ const rowItem = (id: string, rows: readonly AgentRow[], slice: Slice | undefined
     kind: first.kind === 'release' ? 'release' : !rowInSlice(first) ? (first.pr ? 'pr' : 'branch') : 'slice',
     ownership: ownershipOfRows(rows, reader),
   };
-  const phase = phaseOf(first.phase);
+  const phase = phaseOf(first.planState);
   if (phase !== undefined) item.phase = phase;
   if (rows.some((r) => r.question !== null && r.question !== undefined)) item.blockedMarker = true;
   const merged = slice !== undefined ? slice.complete : rows.every((r) => r.state === 'merged');

@@ -25,7 +25,7 @@ const GH = 'https://github.com/tiny/garden/tree/';
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'plant-tomatoes',
   planFile: '2026-03-01-plant-tomatoes.md', wave: 'w', state: 'wip',
-  phase: 'Development', group: 'working', ageMinutes: 3, note: 'last commit 3 min ago',
+  phase: 'Development', planState: 'approved', group: 'working', ageMinutes: 3, note: 'last commit 3 min ago',
   pr: null, branchUrl: `${GH}feature/x`, waitingDays: null, ...over,
 });
 
@@ -38,7 +38,7 @@ function fleet(controls: Fleet['fleetControls']): Fleet {
     row({ branch: 'feature/working-a', plan: 'beans', group: 'working', ageMinutes: 10 }),
     row({
       branch: 'feature/untaken', plan: 'plant-tomatoes', group: 'not-started',
-      state: 'open', phase: 'Design', ageMinutes: null, waitingOn: 'click' as const,
+      state: 'open', phase: 'Design', planState: 'design', ageMinutes: null, waitingOn: 'click' as const,
       note: 'ready', branchUrl: `${GH}feature/untaken`, waitingDays: 3,
     }),
   ];

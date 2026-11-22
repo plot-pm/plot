@@ -14,7 +14,7 @@ const SLICES = ['Retry', 'Pin', 'Identities'];
 
 const row = (over: Partial<AgentRow>): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: SLUG, planFile: FILE,
-  wave: 'w', state: 'deferred', phase: 'Discovery', group: 'waiting-on-you', ageMinutes: 400,
+  wave: 'w', state: 'deferred', phase: 'Discovery', planState: 'draft', group: 'waiting-on-you', ageMinutes: 400,
   waitingOn: 'you', note: DRAFT_PLAN_NOTE, pr: null, branchUrl: '', waitingDays: 2,
   localDirty: false, localLocked: false, stuck: null, verdict: 'eligible',
   ...over,

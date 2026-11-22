@@ -20,7 +20,7 @@ const noTickets = (): undefined => undefined;
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => AgentRowSchema.parse({
   repo: 'plot', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-20-a-plan.md',
-  wave: 'w', state: 'wip', phase: 'Development', group: 'waiting-on-you',
+  wave: 'w', state: 'wip', phase: 'Development', planState: 'approved', group: 'waiting-on-you',
   ageMinutes: 30, note: '', ...over,
 });
 
@@ -43,7 +43,7 @@ describe('every row kind draws its artifacts as tuples', () => {
 
   it('plan: the plan, then its PR and branch as one tuple', () => {
     const t = tupleFromPlan({
-      plan: 'a-plan', planFile: '2026-08-20-a-plan.md', phase: 'Design', waitingDays: 3, issues: [],
+      plan: 'a-plan', planFile: '2026-08-20-a-plan.md', phase: 'Design', planState: 'design', waitingDays: 3, issues: [],
       branch: 'idea/a-plan', branchUrl: 'https://host/tree/idea/a-plan',
       pr: { number: 42, url: 'https://host/pr/42', draft: false, state: 'OPEN' },
     });
@@ -120,7 +120,7 @@ describe('every row kind draws its artifacts as tuples', () => {
 
 describe('a plan carries its ticket keys before it', () => {
   const plan = (issues: string[]): TupleRow => tupleFromPlan({
-    plan: 'red-hold', planFile: '2026-07-01-red-hold.md', phase: 'Design', waitingDays: 1, issues,
+    plan: 'red-hold', planFile: '2026-07-01-red-hold.md', phase: 'Design', planState: 'design', waitingDays: 1, issues,
   }, planIndexOf({ cards: [{ slug: 'red-hold', title: '', issues, path: 'docs/plans/2026-07-01-red-hold.md' }] }));
   const href = (key: string) => `https://host/issues/${key}`;
 

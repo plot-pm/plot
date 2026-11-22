@@ -32,7 +32,7 @@ const PR = 'https://github.com/tiny/garden/pull/';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => buildRow({
   repo: 'garden', kind: 'branch', plan: 'a-plan', planFile: '2026-09-30-a-plan.md',
-  state: 'open', phase: 'Development', ageMinutes: 30, note: '', pr: null,
+  state: 'open', phase: 'Development', planState: 'approved', ageMinutes: 30, note: '', pr: null,
   ...over,
 } as Parameters<typeof buildRow>[0]);
 
@@ -73,25 +73,25 @@ const scenario = () => {
     row({
       plan: 'unknown-pr', planFile: '2026-09-30-unknown-pr.md',
       branch: 'feature/up-one', wave: 'Only', state: 'merged', group: 'done',
-      phase: 'Testing', verdict: 'complete', branchUrl: `${GH}feature/up-one`,
+      phase: 'Testing', planState: 'delivered', verdict: 'complete', branchUrl: `${GH}feature/up-one`,
       pr: { number: 1061, url: `${PR}1061`, draft: false, state: 'unknown' },
     }),
     // ── DONE: a slice of TWO branches — `soleRowStatus` is null ──
     row({
       plan: 'two-branches', planFile: '2026-09-30-two-branches.md',
       branch: 'feature/tb-one', wave: 'Both', state: 'merged', group: 'done',
-      phase: 'Testing', verdict: 'complete', branchUrl: `${GH}feature/tb-one`,
+      phase: 'Testing', planState: 'delivered', verdict: 'complete', branchUrl: `${GH}feature/tb-one`,
     }),
     row({
       plan: 'two-branches', planFile: '2026-09-30-two-branches.md',
       branch: 'feature/tb-two', wave: 'Both', state: 'merged', group: 'done',
-      phase: 'Testing', verdict: 'complete', branchUrl: `${GH}feature/tb-two`,
+      phase: 'Testing', planState: 'delivered', verdict: 'complete', branchUrl: `${GH}feature/tb-two`,
     }),
     // ── WAITING ON YOU: an open PR, so the slice row says `green` ──
     row({
       plan: 'open-pr', planFile: '2026-09-30-open-pr.md',
       branch: 'feature/op-one', wave: 'Review', state: 'wip', group: 'waiting-on-you',
-      phase: 'Development', note: 'PR #900', verdict: 'blocked',
+      phase: 'Development', planState: 'approved', note: 'PR #900', verdict: 'blocked',
       branchUrl: `${GH}feature/op-one`,
       pr: { number: 900, url: `${PR}900`, draft: false, state: 'green' },
     }),
@@ -99,7 +99,7 @@ const scenario = () => {
     row({
       plan: 'pending-pr', planFile: '2026-09-30-pending-pr.md',
       branch: 'feature/pp-one', wave: 'Checks', state: 'wip', group: 'waiting-on-you',
-      phase: 'Development', note: 'PR #902', verdict: 'blocked',
+      phase: 'Development', planState: 'approved', note: 'PR #902', verdict: 'blocked',
       branchUrl: `${GH}feature/pp-one`,
       pr: { number: 902, url: `${PR}902`, draft: false, state: 'pending' },
     }),
@@ -111,7 +111,7 @@ const scenario = () => {
     row({
       plan: 'shut-head', planFile: '2026-09-30-shut-head.md',
       branch: 'feature/sh-one', wave: 'Folded', state: 'wip', group: 'waiting-on-you',
-      phase: 'Development', note: 'PR #901', verdict: 'blocked',
+      phase: 'Development', planState: 'approved', note: 'PR #901', verdict: 'blocked',
       branchUrl: `${GH}feature/sh-one`,
       pr: { number: 901, url: `${PR}901`, draft: false, state: 'unknown' },
     }),
@@ -119,14 +119,14 @@ const scenario = () => {
     row({
       plan: 'unbegun', planFile: '2026-09-30-unbegun.md',
       branch: 'feature/ub-one', wave: 'Start', state: 'open', group: 'not-started',
-      phase: 'Development', note: ELIGIBLE_NOTE, verdict: 'eligible',
+      phase: 'Development', planState: 'approved', note: ELIGIBLE_NOTE, verdict: 'eligible',
       waitingDays: 3, branchUrl: `${GH}feature/ub-one`,
     }),
     // ── NOT STARTED: every branch DEFERRED, so no slice row is drawn ──
     row({
       plan: 'all-deferred', planFile: '2026-09-30-all-deferred.md',
       branch: 'feature/ad-one', wave: 'Given up', state: 'deferred', group: 'not-started',
-      phase: 'Development', verdict: 'eligible', waitingDays: 4,
+      phase: 'Development', planState: 'approved', verdict: 'eligible', waitingDays: 4,
       branchUrl: `${GH}feature/ad-one`,
     }),
   ];

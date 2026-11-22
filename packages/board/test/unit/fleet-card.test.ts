@@ -10,7 +10,7 @@ import { DeliveryHeader } from '../../src/app/components/DeliveryHeader.js';
 import { AutoDispatchSwitch, AutoSwitch, ParallelAgentsStepper } from '../../src/app/components/FleetControls.js';
 
 const row = (over: Record<string, unknown>): AgentRow => ({
-  branch: '', plan: '', wave: '', kind: 'branch', phase: 'Development', state: 'wip',
+  branch: '', plan: '', wave: '', kind: 'branch', phase: 'Development', planState: 'approved', state: 'wip',
   group: 'working', pr: null, question: null, blockedBy: null,
   assignee: '', author: '', approver: '', ...over,
 }) as unknown as AgentRow;

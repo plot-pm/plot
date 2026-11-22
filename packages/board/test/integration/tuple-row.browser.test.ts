@@ -69,7 +69,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const row = (over: Partial<AgentRow> = {}): AgentRow => AgentRowSchema.parse({
   repo: 'plot', branch: 'feature/opus5-longhorizon-hardening', plan: 'fleet-scan-asks-the-host',
   planFile: '2026-08-20-fleet-scan-asks-the-host.md', wave: 'w', state: 'wip',
-  phase: 'Development', group: 'waiting-on-you', ageMinutes: 30, note: '', ...over,
+  phase: 'Development', planState: 'approved', group: 'waiting-on-you', ageMinutes: 30, note: '', ...over,
 });
 
 /** One row per kind — the seven, each with the data its kind actually has. */
@@ -85,7 +85,7 @@ const TUPLES: Record<string, TupleRow> = {
   })),
   plan: tupleFromPlan({
     plan: 'fleet-scan-asks-the-host', planFile: '2026-08-20-fleet-scan-asks-the-host.md',
-    phase: 'Design', waitingDays: 1,
+    phase: 'Design', planState: 'design', waitingDays: 1,
   }),
   pr: tupleFromRow(row({
     kind: 'pr', ageMinutes: 25 * 1440,
@@ -524,7 +524,7 @@ describe('the name track holds the name (A: a long plan slug renders in full)', 
     const planTuple = tupleFromPlan({
       plan: LONG_PLAN_SLUG,
       planFile: `2026-08-22-${LONG_PLAN_SLUG}.md`,
-      phase: 'Design', waitingDays: 1,
+      phase: 'Design', planState: 'design', waitingDays: 1,
     });
     const built = await esbuild.build({
       stdin: { contents: LONG_NAME_HARNESS, resolveDir: path.resolve(here, '../..'), loader: 'tsx' },
@@ -649,7 +649,7 @@ describe('a plan row emitted by the server leads with its phase', () => {
     branchUrl: 'https://host/tree/idea/an-adopting-repo-installs-its-gates',
     plan: 'an-adopting-repo-installs-its-gates',
     planFile: '2026-09-09-an-adopting-repo-installs-its-gates.md',
-    wave: '', state: 'wip', phase: 'Discovery', group: 'waiting-on-you',
+    wave: '', state: 'wip', phase: 'Discovery', planState: 'draft', group: 'waiting-on-you',
     ageMinutes: 46, note: '',
     pr: { number: 865, url: 'https://host/pull/865', draft: true, state: 'green' },
   }));

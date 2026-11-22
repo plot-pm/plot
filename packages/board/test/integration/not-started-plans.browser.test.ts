@@ -29,7 +29,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   // so three branches read as three waves. Each fixture row that means a
   // distinct wave now says so; rows sharing a wave name mean one wave with
   // several branches, which is the other case and equally deliberate.
-  wave: 'w', state: 'open', phase: 'Design', group: 'not-started', ageMinutes: null,
+  wave: 'w', state: 'open', phase: 'Design', planState: 'design', group: 'not-started', ageMinutes: null,
   waitingOn: 'click' as const, note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
   localDirty: false, localLocked: false, stuck: null,
   // The default is startable (open + click), so `startability: 'start-work'`. Blocked
@@ -77,14 +77,14 @@ function fleet(): Fleet {
     row({
       plan: 'reviewed-plan', planFile: '2026-08-15-reviewed-plan.md',
       branch: 'feature/needs-review', group: 'waiting-on-you', state: 'wip',
-      phase: 'Development', ageMinutes: 30, waitingDays: null,
+      phase: 'Development', planState: 'approved', ageMinutes: 30, waitingDays: null,
       note: 'PR #116 green', branchUrl: `${GH}feature/needs-review`,
       pr: { number: 116, url: 'https://github.com/tiny/garden/pull/116', draft: false, state: 'green' },
       startability: 'someone-is-on-it' as const,
     }),
     row({
       plan: 'quiet-plan', planFile: '2026-08-01-quiet-plan.md',
-      branch: 'feature/gone-still', group: 'quiet', state: 'wip', phase: 'Development',
+      branch: 'feature/gone-still', group: 'quiet', state: 'wip', phase: 'Development', planState: 'approved',
       ageMinutes: 4000, waitingDays: null, note: 'last commit 2d ago',
       branchUrl: `${GH}feature/gone-still`,
       startability: 'someone-is-on-it' as const,

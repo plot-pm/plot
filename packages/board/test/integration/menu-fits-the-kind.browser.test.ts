@@ -33,7 +33,7 @@ const stuck = (over: Partial<Stuck> = {}): Stuck => ({
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-16-a-plan.md',
-  wave: 'w', state: 'wip', phase: 'Development', group: 'waiting-on-you', ageMinutes: 30,
+  wave: 'w', state: 'wip', phase: 'Development', planState: 'approved', group: 'waiting-on-you', ageMinutes: 30,
   waitingOn: null, note: '', pr: null, branchUrl: '', waitingDays: null,
   localDirty: false, localLocked: false, stuck: null, ...over,
 });

@@ -32,7 +32,7 @@ import { ELIGIBLE_NOTE, type AgentRow } from '../../src/contract/schema.js';
  */
 const row = (over: Partial<AgentRow> = {}): AgentRow => buildRow({
   repo: 'garden', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-16-a-plan.md',
-  wave: 'w', state: 'open', phase: 'Discovery', group: 'not-started', ageMinutes: null,
+  wave: 'w', state: 'open', phase: 'Discovery', planState: 'draft', group: 'not-started', ageMinutes: null,
   waitingOn: 'click', note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
   localDirty: false, localLocked: false, stuck: null,
   ...over,
@@ -67,7 +67,7 @@ function fleet() {
     // PAST DISCOVERY, and interrogated twice. The badge must NOT appear.
     row({ plan: 'shipped', planFile: '2026-08-16-shipped.md',
           branch: 'feature/s-one', wave: 'One', group: 'not-started',
-          phase: 'Testing' }),
+          phase: 'Testing', planState: 'delivered' }),
   ];
   // THROUGH THE BUILDER, so the payload is the one the schema admits. The
   // hand-written literal this replaces carried `complete`, `summary: null`,
