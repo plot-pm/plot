@@ -235,3 +235,71 @@ describe('the Tickets card and the footer line (real browser renders the shipped
     }
   }, 60_000);
 });
+
+/**
+ * The Delivered by the sprint and Found during the sprint groups, served from `a-sprint-that-delivers-and-finds`.
+ * Rows, words and menus are asserted in `scope-tickets.test.ts`; this proves they reach the screen behind their folds.
+ */
+describe('the Tickets scope groups (real browser renders the shipped artifact)', () => {
+  let cat: Catalogue;
+
+  beforeAll(async () => {
+    cat = await openCatalogue();
+  }, 60_000);
+  afterAll(async () => {
+    await cat?.close();
+  });
+
+  const GROUPS = ['tickets-delivered', 'tickets-found'] as const;
+
+  const open = async (over: Parameters<Catalogue['open']>[1] = { tab: 'agents' }): Promise<Page> => {
+    const page = await cat.open('a-sprint-that-delivers-and-finds', over);
+    await page.locator('section#tickets [data-tickets-group]').first().waitFor({ timeout: 15_000 });
+    return page;
+  };
+
+  it('renders both groups folded with their label, and "— none" once an empty group opens', async () => {
+    const { board: served } = scenario('a-sprint-that-delivers-and-finds');
+    const page = await open({
+      tab: 'agents',
+      over: {
+        board: buildBoard({
+          ...served,
+          columns: served.columns.map((c) => ({ ...c, cards: c.cards.map((k) => ({ ...k, issues: [], prs: [], refutedIssues: [] })) })),
+        }),
+      },
+    });
+    try {
+      const section = page.locator('section#tickets');
+      const toggle = (key: string) => section.locator(`button[data-tickets-group-toggle="${key}"]`);
+      for (const key of GROUPS) await expect.poll(() => toggle(key).getAttribute('aria-expanded')).toBe('false');
+      await expect.poll(() => toggle('tickets-delivered').innerText()).toContain('Delivered by the sprint · 0');
+      await expect.poll(() => toggle('tickets-found').innerText()).toContain('Found during the sprint · 0');
+      expect(await section.locator('[data-tickets-group-empty]').count()).toBe(0);
+      for (const key of GROUPS) {
+        await toggle(key).click();
+        await expect.poll(() => section.locator(`[data-tickets-group="${key}"] [data-tickets-group-empty]`).innerText()).toBe('— none');
+      }
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+
+  it('opens Delivered on its ticket and Found on the review and the verification finding', async () => {
+    const page = await open();
+    try {
+      const section = page.locator('section#tickets');
+      for (const key of GROUPS) await section.locator(`button[data-tickets-group-toggle="${key}"]`).click();
+      const delivered = section.locator('[data-tickets-group="tickets-delivered"] li[data-scope-ticket]');
+      await expect.poll(() => delivered.count()).toBe(1);
+      expect(await delivered.first().getAttribute('data-scope-ticket')).toBe('51');
+      const found = section.locator('[data-tickets-group="tickets-found"] li[data-scope-ticket]');
+      await expect.poll(() => found.count()).toBe(2);
+      expect(await found.evaluateAll((rows) => rows.map((r) => `${r.getAttribute('data-scope-ticket')} ${r.getAttribute('data-scope-kind')}`)))
+        .toEqual(['52 review-finding', '53 verification-finding']);
+      expect(await section.locator('li[data-issue-row]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+});

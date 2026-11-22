@@ -4,13 +4,13 @@ import type { PrIndexRow } from '../src/entities/pr-index.js';
 import type { Sprint } from '../src/entities/sprint.js';
 import {
   claimStaleMsOf,
-  fixerOwner,
-  fixerScope,
+  fleetOwner,
+  fleetScope,
   PERSON_QUIET_MS,
   type ClaimCommit,
-  type FixerOwnerInput,
-  type FixerScopeInput,
-} from '../src/rules/fixer-scope.js';
+  type FleetOwnerInput,
+  type FleetScopeInput,
+} from '../src/rules/fleet-scope.js';
 import { fixerPrNext, slicePrNext, type FixerPrNextReadings } from '../src/rules/slice-pr-next.js';
 
 const HEAD = 'a'.repeat(40);
@@ -36,16 +36,16 @@ const row = (over: Partial<PrIndexRow> = {}): PrIndexRow => ({
   ...over,
 });
 
-const scope = (over: Partial<FixerScopeInput> = {}): ReturnType<typeof fixerScope> =>
-  fixerScope({ row: row(), defaultBranchName: 'main', owner: 'none', pushedHead: false, now: NOW, ...over });
+const scope = (over: Partial<FleetScopeInput> = {}): ReturnType<typeof fleetScope> =>
+  fleetScope({ row: row(), defaultBranchName: 'main', owner: 'none', pushedHead: false, now: NOW, ...over });
 
 const claim = (at: number): ClaimCommit => ({ at, subject: 'plot: claim feature/x', tree: 't', parentTree: 't' });
 const work = (at: number): ClaimCommit => ({ at, subject: 'fix: a thing', tree: 't2', parentTree: 't' });
 
-const owner = (over: Partial<FixerOwnerInput> = {}): ReturnType<typeof fixerOwner> =>
-  fixerOwner({ worktree: 'absent', manifest: false, claims: [], claimStaleMs: 24 * HOUR, now: NOW, ...over });
+const owner = (over: Partial<FleetOwnerInput> = {}): ReturnType<typeof fleetOwner> =>
+  fleetOwner({ worktree: 'absent', manifest: false, claims: [], claimStaleMs: 24 * HOUR, now: NOW, ...over });
 
-describe('fixerScope', () => {
+describe('fleetScope', () => {
   it.each([
     ['no-row', { row: null }],
     ['not-open', { row: row({ state: 'MERGED' }) }],
@@ -64,7 +64,7 @@ describe('fixerScope', () => {
     ['head-age-unread', { row: row({ headSince: undefined }) }],
     ['head-age-unread', { row: row({ headSince: 'yesterday-ish' }) }],
   ] as const)('answers %s', (why, over) => {
-    expect(scope(over as Partial<FixerScopeInput>)).toMatchObject({ in: false, why });
+    expect(scope(over as Partial<FleetScopeInput>)).toMatchObject({ in: false, why });
   });
 
   it('keeps a repair-like branch whose hex is not 12 characters in scope', () => {
@@ -98,7 +98,7 @@ describe('fixerScope', () => {
   });
 });
 
-describe('fixerOwner', () => {
+describe('fleetOwner', () => {
   it('answers desk for a manifest naming the branch', () => {
     expect(owner({ manifest: true })).toBe('desk');
   });

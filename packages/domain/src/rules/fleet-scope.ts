@@ -2,7 +2,7 @@ import type { PrIndexRow } from '../entities/pr-index.js';
 import { isEmptyClaim, type CommitReading } from './empty-claim.js';
 import { REPAIR_BRANCH_SHA_LENGTH } from './repair-pr.js';
 
-/** How long a head that no agent owns must stand before the fixer acts on it, in milliseconds. */
+/** How long a head that no agent owns must stand before the fleet's fixer and review act on it, in milliseconds. */
 export const PERSON_QUIET_MS = 3_600_000;
 
 /** The head-branch prefix of a release PR. */
@@ -18,14 +18,14 @@ const REPAIR_OWNED = [
   /^bug\/revert-[1-9][0-9]*$/,
 ];
 
-/** Who owns a PR's head branch, as {@link fixerOwner} answers it. */
-export type FixerOwner = 'desk' | 'none' | 'unread';
+/** Who owns a PR's head branch, as {@link fleetOwner} answers it. */
+export type FleetOwner = 'desk' | 'none' | 'unread';
 
 /** One claim-range commit: a {@link CommitReading} with its committer time in epoch milliseconds. */
 export type ClaimCommit = CommitReading & { readonly at: number };
 
-/** What {@link fixerOwner} reads, as values. */
-export interface FixerOwnerInput {
+/** What {@link fleetOwner} reads, as values. */
+export interface FleetOwnerInput {
   /** Whether a worktree on this machine holds the branch; `unread` where the listing failed. */
   readonly worktree: 'here' | 'absent' | 'unread';
   /** Whether a registry manifest names the branch; `unread` where the registry could not be read. */
@@ -51,7 +51,7 @@ export interface FixerOwnerInput {
  * @returns `unread` where any reading failed, `desk` where fleet evidence
  *   holds, and `none` otherwise.
  */
-export const fixerOwner = (input: FixerOwnerInput): FixerOwner => {
+export const fleetOwner = (input: FleetOwnerInput): FleetOwner => {
   const { worktree, manifest, claims, claimStaleMs, now } = input;
   if (worktree === 'unread' || manifest === 'unread' || claims === 'unread') return 'unread';
   if (manifest) return 'desk';
@@ -73,8 +73,8 @@ export const claimStaleMsOf = (hours: string): number | null => {
   return hours.trim() !== '' && Number.isFinite(value) && value > 0 ? value * 3_600_000 : null;
 };
 
-/** Why a PR is outside the fixer's scope. */
-export type FixerScopeOut =
+/** Why a PR is outside the fleet's scope. */
+export type FleetScopeOut =
   | 'no-row'
   | 'not-open'
   | 'draft'
@@ -87,20 +87,20 @@ export type FixerScopeOut =
   | 'head-age-unread'
   | 'person-pushed-recently';
 
-/** What {@link fixerScope} answers. */
-export type FixerScopeAnswer =
+/** What {@link fleetScope} answers. */
+export type FleetScopeAnswer =
   | { readonly in: true; readonly owner: 'desk' | 'none' }
-  | { readonly in: false; readonly why: Exclude<FixerScopeOut, 'person-pushed-recently'> }
+  | { readonly in: false; readonly why: Exclude<FleetScopeOut, 'person-pushed-recently'> }
   | { readonly in: false; readonly why: 'person-pushed-recently'; readonly leftMs: number };
 
-/** What {@link fixerScope} reads, as values. */
-export interface FixerScopeInput {
+/** What {@link fleetScope} reads, as values. */
+export interface FleetScopeInput {
   /** The PR's OPEN row; `null` where the store has none. */
   readonly row: PrIndexRow | null;
   /** The default branch's name; absent or `''` where it is unread. */
   readonly defaultBranchName?: string;
-  /** The owner of the head branch, from {@link fixerOwner}. */
-  readonly owner: FixerOwner;
+  /** The owner of the head branch, from {@link fleetOwner}. */
+  readonly owner: FleetOwner;
   /** Whether the fixer's attempts record proves it pushed the row's current head. */
   readonly pushedHead: boolean;
   /** Epoch milliseconds of the tick. */
@@ -108,7 +108,7 @@ export interface FixerScopeInput {
 }
 
 /**
- * The checks of {@link fixerScope} that read the row alone, before the owner.
+ * The checks of {@link fleetScope} that read the row alone, before the owner.
  *
  * In order: `no-row`, `not-open`, `draft`, `release-pr` (a head under
  * `changeset-release/`), `plan-pr` (a head under `idea/`), `repair-owned`
@@ -122,10 +122,10 @@ export interface FixerScopeInput {
  * @param defaultBranchName - the default branch's name; absent or `''` where unread.
  * @returns the first reason the row is out, or `null` where it passes.
  */
-export const fixerScopeRow = (
+export const fleetScopeRow = (
   row: PrIndexRow | null,
   defaultBranchName: string | undefined,
-): Exclude<FixerScopeOut, 'owner-unread' | 'head-age-unread' | 'person-pushed-recently'> | null => {
+): Exclude<FleetScopeOut, 'owner-unread' | 'head-age-unread' | 'person-pushed-recently'> | null => {
   if (row === null) return 'no-row';
   if (row.state !== 'OPEN') return 'not-open';
   if (row.draft) return 'draft';
@@ -138,9 +138,9 @@ export const fixerScopeRow = (
 };
 
 /**
- * Whether the fleet's fixer acts on a PR, and who owns its head.
+ * Whether the fleet's fixer and review act on a PR, and who owns its head.
  *
- * Applies {@link fixerScopeRow}, then: `owner-unread` where the owner reading
+ * Applies {@link fleetScopeRow}, then: `owner-unread` where the owner reading
  * failed. For `owner: 'none'` with a head the fixer did not push,
  * `head-age-unread` where `headSince` is absent or does not parse, and
  * `person-pushed-recently` with the time left where the head is less than
@@ -150,9 +150,9 @@ export const fixerScopeRow = (
  * @param input - the readings, as values.
  * @returns `{ in: true, owner }`, or `{ in: false, why }` with the first reason.
  */
-export const fixerScope = (input: FixerScopeInput): FixerScopeAnswer => {
+export const fleetScope = (input: FleetScopeInput): FleetScopeAnswer => {
   const { row, defaultBranchName, owner, pushedHead, now } = input;
-  const out = fixerScopeRow(row, defaultBranchName);
+  const out = fleetScopeRow(row, defaultBranchName);
   if (out !== null) return { in: false, why: out };
   if (owner === 'unread') return { in: false, why: 'owner-unread' };
   if (owner === 'desk' || pushedHead) return { in: true, owner };

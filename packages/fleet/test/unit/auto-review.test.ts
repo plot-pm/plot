@@ -15,12 +15,21 @@ import {
   AUTO_REVIEW_KEY,
   autoReview,
   readRepairReview,
+  readReviewPass,
   reviewTick,
   runAutoReviewPass,
+  type ReviewOwnerPorts,
+  type ReviewOwnerReading,
   type ReviewPassReading,
+  type ReviewPassReadings,
   type ReviewPassWorld,
   type ReviewTickReadings,
 } from '../../src/shared/auto-review.js';
+import { prIndexFile } from '@plot-pm/domain/adapters';
+import { PR_INDEX_VERSION } from '@plot-pm/domain/entities/pr-index';
+import type { Refs } from '@plot-pm/domain/ports/refs';
+import type { Scripts } from '@plot-pm/domain/ports/scripts';
+import type { Host } from '@plot-pm/domain/ports/host';
 
 const HEAD = 'a'.repeat(40);
 const NOW = 5_000_000_000;
@@ -37,6 +46,7 @@ afterEach(() => {
 const row: PrIndexRow = {
   number: 7,
   head: 'feature/x',
+  base: 'main',
   state: 'OPEN',
   draft: false,
   checks: 'green',
@@ -48,14 +58,23 @@ const row: PrIndexRow = {
   plotReview: 'absent',
 };
 
-const readings = (now: number): ReviewTickReadings => ({
+const NO_FIXER: ReviewOwnerReading['fixer'] = { read: 'record', inFlight: false, highExhausted: false, ciExhausted: false, conflictExhausted: false, conflictTried: false, pushedHead: false };
+const deskOwned = (rows: readonly PrIndexRow[]): ReadonlyMap<number, ReviewOwnerReading> =>
+  new Map(rows.map((r) => [r.number, { owner: 'desk', fixer: NO_FIXER }]));
+
+const passReadings = (now: number): ReviewPassReadings => ({
   newestMerged: null,
-  scope: { read: 'scope', sprint: {} as never, slugs: ['x'], branches: ['feature/x'] },
+  defaultBranchName: 'main',
   verdict: { read: 'absent' },
   defaultBranch: null,
   desk: { dead: false, why: 'live' },
   config: { autoReview: true, reviewBoundMs: 3_600_000, startBudget: 3, checksWaitMs: 3_600_000 },
   now,
+});
+
+const readings = (now: number, owners: ReadonlyMap<number, ReviewOwnerReading> = deskOwned([row])): ReviewTickReadings => ({
+  ...passReadings(now),
+  owners,
 });
 
 const start = () => ({
@@ -96,14 +115,20 @@ describe('reviewTick', () => {
   });
 
   it('starts nothing for a row out of scope', () => {
-    const out = reviewTick([{ ...row, head: 'feature/y' }], readings(NOW), start());
-    expect(out[0]!.step).toMatchObject({ step: 'none', why: 'out-of-scope' });
+    const out = reviewTick([{ ...row, base: 'release/1' }], readings(NOW), start());
+    expect(out[0]!.step).toMatchObject({ step: 'none', why: 'base-out-of-scope' });
+    expect(starts).toBe(0);
+  });
+
+  it('starts nothing for a row with no owner reading', () => {
+    const out = reviewTick([row], readings(NOW, new Map()), start());
+    expect(out[0]!.step).toEqual({ step: 'none', why: 'owner-unread' });
     expect(starts).toBe(0);
   });
 });
 
 describe('the fix PR of a red default branch', () => {
-  const GREEN = 'g'.repeat(40);
+  const GREEN = 'c'.repeat(40);
   const RED = 'r'.repeat(40);
   const FIX = `bug/main-repair-${GREEN.slice(0, 12)}`;
   const fixRow: PrIndexRow = { ...row, number: 9, head: FIX };
@@ -171,7 +196,7 @@ describe('the fix PR of a red default branch', () => {
 
   it('starts nothing on a machine whose record names no fix PR', async () => {
     const out = await tick([fixRow], record({ attempt: { branch: FIX, outcome: 'lost' } }));
-    expect(out[0]!.step).toMatchObject({ step: 'none', why: 'out-of-scope' });
+    expect(out[0]!.step).toMatchObject({ step: 'none', why: 'repair-owned' });
     expect(starts).toBe(0);
   });
 
@@ -191,14 +216,36 @@ describe('autoReview', () => {
 
 describe('runAutoReviewPass', () => {
   const opts = () => ({ repoRoot: root, scriptsDir: root, runLog: runLogFixture() });
+  let subjectCalls: string[];
+  beforeEach(() => {
+    subjectCalls = [];
+  });
+  const owned = (over: Partial<ReviewOwnerPorts> = {}): ReviewOwnerPorts => ({
+    trees: { forBranch: async () => ({ ok: true as const, value: null }) },
+    agents: { declared: async () => ({ ok: true as const, value: [] }) },
+    refs: {
+      commitSubjects: async (range: string) => {
+        subjectCalls.push(range);
+        return { ok: true as const, value: [] };
+      },
+    },
+    attempts: { read: async () => ({ ok: true as const, value: 'none' as const }) },
+    ...over,
+  });
   const world = (over: Partial<ReviewPassWorld> = {}): ReviewPassWorld => ({
     autoReview: () => true,
     detached: start().detached,
     pidAlive: () => true,
     readLock: () => null,
+    owners: () => owned(),
     ...over,
   });
-  const reading = (rows: readonly PrIndexRow[]): ReviewPassReading => ({ rows, readings: readings(NOW) });
+  const OLD_HEAD = new Date(NOW - 2 * 3_600_000).toISOString();
+  const reading = (rows: readonly PrIndexRow[]): ReviewPassReading => ({
+    rows: rows.map((r) => ({ headSince: OLD_HEAD, ...r })),
+    readings: passReadings(NOW),
+    claimStaleMs: 24 * 3_600_000,
+  });
 
   it('starts one review on an in-scope green head with no plot/review, and logs the start', async () => {
     const o = opts();
@@ -214,8 +261,8 @@ describe('runAutoReviewPass', () => {
     const o = opts();
     const reviewed = { ...row, plotReview: 'success' as const, plotReviewSha: HEAD, plotReviewJudged: 'success' as const, plotReviewCheckedSha: HEAD };
     const out = await runAutoReviewPass(o, new Set(), NOW, world(), async () => reading([reviewed]));
-    // The merge arm answers on a reviewed head; with no default-branch reading it holds.
-    expect(out?.[0]?.step).toEqual({ step: 'hold', reason: 'default-branch-unread' });
+    // The review walk has no merge arm: a reviewed head answers reviewed.
+    expect(out?.[0]?.step).toEqual({ step: 'none', why: 'reviewed' });
     expect(out?.[0]?.started).toBeUndefined();
     expect(starts).toBe(0);
     expect(o.runLog.lines).toEqual([]);
@@ -261,12 +308,8 @@ describe('runAutoReviewPass', () => {
     const o = opts();
     const logged = new Set<string>();
     const second: PrIndexRow = { ...row, number: 8, head: 'feature/z', url: 'u8' };
-    const scoped = (): ReviewPassReading => ({
-      rows: [row, second],
-      readings: { ...readings(NOW), scope: { read: 'scope', sprint: {} as never, slugs: ['x'], branches: ['feature/x', 'feature/z'] } },
-    });
-    await runAutoReviewPass(o, logged, NOW, world(), async () => scoped());
-    await runAutoReviewPass(o, logged, NOW + 1000, world(), async () => scoped());
+    await runAutoReviewPass(o, logged, NOW, world(), async () => reading([row, second]));
+    await runAutoReviewPass(o, logged, NOW + 1000, world(), async () => reading([row, second]));
     expect(starts).toBe(1);
     expect(o.runLog.lines.map((l) => [l.pr, l.outcome])).toEqual([
       ['7', 'moved'],
@@ -277,5 +320,130 @@ describe('runAutoReviewPass', () => {
   it('acts on nothing where the reading gives nothing', async () => {
     expect(await runAutoReviewPass(opts(), new Set(), NOW, world(), async () => null)).toBeNull();
     expect(starts).toBe(0);
+  });
+
+  it('starts a review for a deskless PR outside the sprint', async () => {
+    const outside: PrIndexRow = { ...row, head: 'feature/outside-the-sprint' };
+    const out = await runAutoReviewPass(opts(), new Set(), NOW, world(), async () => reading([outside]));
+    expect(out?.[0]?.started).toEqual({ started: true, pid: 9001 });
+    expect(subjectCalls).toEqual(['origin/main..origin/feature/outside-the-sprint']);
+  });
+
+  it('starts no review where the owner reading fails', async () => {
+    const failing = world({
+      owners: () => owned({ agents: { declared: async () => ({ ok: false as const, error: 'failed' as const, detail: 'x' }) } as never }),
+    });
+    const out = await runAutoReviewPass(opts(), new Set(), NOW, failing, async () => reading([row]));
+    expect(out?.[0]?.step).toEqual({ step: 'none', why: 'owner-unread' });
+    expect(starts).toBe(0);
+  });
+
+  it('holds a person head for the quiet hour and reviews a fixer-pushed head at once', async () => {
+    const fresh: PrIndexRow = { ...row, headSince: new Date(NOW - 5 * 60_000).toISOString() };
+    const held = await runAutoReviewPass(opts(), new Set(), NOW, world(), async () => reading([fresh]));
+    expect(held?.[0]?.step).toEqual({ step: 'none', why: 'person-pushed-recently', leftMs: 55 * 60_000 });
+    const record = {
+      v: 1,
+      pr: 7,
+      attempts: [{ finding: { kind: 'ci', runId: 'o' }, headSha: 'o'.repeat(40), startedAt: NOW - 20 * 60_000, pushedSha: HEAD }],
+    };
+    const pushed = world({ owners: () => owned({ attempts: { read: async () => ({ ok: true as const, value: record as never }) } }) });
+    const out = await runAutoReviewPass(opts(), new Set(), NOW, pushed, async () => reading([fresh]));
+    expect(out?.[0]?.started).toMatchObject({ started: true });
+  });
+
+  it('keeps the start budget over the wider set', async () => {
+    const outside: PrIndexRow = { ...row, head: 'feature/outside-the-sprint' };
+    const dead = world({ pidAlive: () => false });
+    for (let minute = 0; minute < 6 * 60; minute += 30) {
+      await runAutoReviewPass(opts(), new Set(), NOW + minute * 60_000, dead, async () => ({
+        ...reading([outside]),
+        readings: passReadings(NOW + minute * 60_000),
+      }));
+    }
+    expect(starts).toBe(3);
+    expect(readReviewStarts(root)![0]!.count).toBe(3);
+  });
+
+  it('costs no Refs call for a PR out of scope', async () => {
+    const rows: PrIndexRow[] = [
+      { ...row, number: 1, head: 'changeset-release/main' },
+      { ...row, number: 2, head: 'idea/x' },
+      { ...row, number: 3, base: 'release/1' },
+      { ...row, number: 4, base: undefined },
+      { ...row, number: 5, draft: true },
+    ];
+    const out = await runAutoReviewPass(opts(), new Set(), NOW, world(), async () => reading(rows));
+    expect(out?.map((r) => r.step)).toEqual([
+      { step: 'none', why: 'release-pr' },
+      { step: 'none', why: 'plan-pr' },
+      { step: 'none', why: 'base-out-of-scope' },
+      { step: 'none', why: 'base-unread' },
+      { step: 'none', why: 'draft' },
+    ]);
+    expect(subjectCalls).toEqual([]);
+  });
+});
+
+describe('readReviewPass', () => {
+  const ENV = 'PLOT_PR_INDEX_HOME';
+  let saved: string | undefined;
+  beforeEach(() => {
+    saved = process.env[ENV];
+    process.env[ENV] = path.join(root, 'index');
+  });
+  afterEach(() => {
+    if (saved === undefined) delete process.env[ENV];
+    else process.env[ENV] = saved;
+  });
+
+  /** A port whose every method throws, except the ones named. */
+  const only = <T extends object>(allowed: Partial<T>): T =>
+    new Proxy(allowed, {
+      get: (target, key) => {
+        if (key in target) return (target as Record<string | symbol, unknown>)[key];
+        if (key === 'then') return undefined;
+        return () => {
+          throw new Error(`unexpected read: ${String(key)}`);
+        };
+      },
+    }) as T;
+
+  const passOpts = (name: { ok: true; value: string } | { ok: false; error: 'failed'; detail: string }) => ({
+    repoRoot: root,
+    scriptsDir: root,
+    runLog: runLogFixture(),
+    stateHome: { home: root as never },
+    hostAdapter: only<Host>({ backend: async () => ({ ok: true as const, value: 'github' }) }),
+    refs: only<Refs>({ defaultBranch: async () => name as never }),
+    scripts: only<Scripts>({ config: async (_key: string, fallback: string) => ({ ok: true as const, value: fallback }) } as never),
+  });
+
+  const writeIndex = async (): Promise<void> => {
+    const now = new Date(NOW).toISOString();
+    const written = await prIndexFile({ cwd: root }).write('github', {
+      v: PR_INDEX_VERSION,
+      connector: 'github',
+      watermark: null,
+      complete: true,
+      at: now,
+      rows: [{ ...row, updatedAt: now }],
+    } as never);
+    expect(written.ok).toBe(true);
+  };
+
+  it('reads no sprint scope, the default branch name and Claim stale after', async () => {
+    await writeIndex();
+    const out = await readReviewPass(passOpts({ ok: true, value: 'trunk' }) as never, NOW);
+    expect(out?.rows.map((r) => r.number)).toEqual([7]);
+    expect(out?.readings.defaultBranchName).toBe('trunk');
+    expect(out?.claimStaleMs).toBe(24 * 3_600_000);
+    expect(out?.readings).not.toHaveProperty('scope');
+  });
+
+  it('leaves the default branch name absent where its read fails, never main', async () => {
+    await writeIndex();
+    const out = await readReviewPass(passOpts({ ok: false, error: 'failed', detail: 'x' }) as never, NOW);
+    expect(out?.readings).not.toHaveProperty('defaultBranchName');
   });
 });

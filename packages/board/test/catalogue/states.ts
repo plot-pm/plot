@@ -1007,6 +1007,52 @@ const everyDeliverySection = (): Scenario => {
 };
 
 /**
+ * A SPRINT THAT DELIVERS AND FINDS: one Active sprint whose plan `bed-c` names ticket #51, opened PR #160 and holds a
+ * refuted claim on #53. The tracker holds #51, the review finding #52 on PR #160 and #53, so the Tickets section's
+ * Delivered by the sprint group shows #51 and Found during the sprint shows #52 and #53. No ticket waits for a plan.
+ */
+const aSprintThatDeliversAndFinds = (): Scenario => {
+  const ME = 'gardener';
+  const ISSUES = 'https://github.com/tiny/garden/issues/';
+  const ticketRow = (number: number, title: string) => ({
+    kind: 'ticket' as const, number: String(number), title, url: `${ISSUES}${number}`, ageMinutes: 30,
+    status: 'open', statusCategory: 'To Do', assignees: [ME], state: 'open' as const, complete: true,
+  });
+  const summerSprint = {
+    slug: 'summer-beds', title: 'Summer beds', release: '', timebox: 'none' as const, timeboxLabel: '', ownerHandle: ME,
+    counts: { total: 1, open: 1, wip: 0, done: 0, withdrawn: 0 },
+    members: [{ slug: 'bed-c', text: '', tier: 'must' as const, checked: false, known: true }],
+  };
+  return {
+    board: board({
+      server: { restartCommand: 'pnpm board', port: 4711, branch: 'main', repo: 'garden', hostUser: ME, people: { [ME]: ME } },
+      columns: [
+        column({
+          phase: 'Development',
+          cards: [card({
+            slug: 'bed-c', title: 'Bed C', phase: 'Development', path: 'docs/plans/2026-11-01-bed-c.md',
+            issues: ['51'], prs: [{ number: 160, url: 'https://github.com/tiny/garden/pull/160' }], refutedIssues: ['53'],
+          })],
+        }),
+      ],
+    }),
+    fleet: fleet({
+      rows: [],
+      sprints: [summerSprint],
+      issueAnswer: 'answered',
+      issues: [],
+      planTicketRows: [
+        ticketRow(51, 'Water the new bed'),
+        ticketRow(52, 'plot-review: findings on PR #160'),
+        ticketRow(53, 'The bed drains too fast'),
+      ],
+      ticketPlans: { 51: [{ slug: 'bed-c', title: 'Bed C', story: '', state: 'approved', total: 1, merged: 0 }] },
+      waiting: { tickets: [], shown: 0, hidden: 0, unassigned: 0, assignedToOthers: 0, complete: true, notice: null, source: { service: 'github', match: 'host-login' } },
+    }),
+  };
+};
+
+/**
  * The catalogue itself.
  *
  * Each entry is a FUNCTION, so every `open()` gets a fresh payload and one
@@ -1043,6 +1089,7 @@ export const SCENARIOS = {
   'a-whole-small-estate': aWholeSmallEstate,
   'an-empty-estate': anEmptyEstate,
   'every-delivery-section': everyDeliverySection,
+  'a-sprint-that-delivers-and-finds': aSprintThatDeliversAndFinds,
 } satisfies Record<string, () => Scenario>;
 
 /** Every name the catalogue serves. */

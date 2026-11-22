@@ -22,6 +22,7 @@ import {
   type ReleaseRowReading,
   type WorkItemReading,
 } from '../src/index.js';
+import { countedSlicesByPlan } from '../src/rules/counted-slices.js';
 import { APPROVE_PENDING, APPROVE_REGISTER_FIRST, type ReleasePrReading } from '../src/rules/release-approvable.js';
 
 const input: DeliveryInput = { mine: 'off', autoReview: true, correctionBudget: 2 };
@@ -309,5 +310,20 @@ describe('releaseCards after the sprint closes', () => {
   it('names a release row that carries no plan as one no sprint targets', () => {
     const [card] = releaseCards([], [releaseRow()], directory, noPlans, readings, input, { approved: [], slicesByPlan: carried });
     expect(card).toMatchObject({ title: 'Release 2.35.0 · no sprint targets it', total: 0 });
+  });
+});
+
+describe('releaseCards with a delivered docs member', () => {
+  it('draws the targeted card\'s bar and no missing reading', () => {
+    const seeded = countedSlicesByPlan({
+      seen: [],
+      slices: [],
+      plans: [{ plan: 'docs-plan', phase: 'delivered', type: 'docs', sliceIds: ['slice:docs-plan\0Docs'], planId: 'slice:docs-plan\0' }],
+    });
+    const [card] = cards([sprint({ members: [member('docs-plan')] })], [releaseRow()], seeded);
+    expect(card).toMatchObject({ kind: 'targeted', readingMissing: false });
+    expect(card!.missingText).not.toBe(RELEASE_READING_MISSING);
+    expect(card!.bar).not.toBeNull();
+    expect(card!.bar!.find((s) => s.state === 'delivered')!.count).toBe(1);
   });
 });

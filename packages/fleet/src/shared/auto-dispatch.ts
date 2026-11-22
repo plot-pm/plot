@@ -1,5 +1,6 @@
 import fs from 'node:fs';
-import { askForBrief, briefAskPrompt, briefCommand } from './brief-ask.js';
+import { askForBrief, askForBriefLogPath, briefAskPrompt, briefCommand } from './brief-ask.js';
+import { readBriefSpent, removeBriefSpent, writeBriefSpent } from './brief-spent.js';
 import { recordActionReceipt } from './action-receipt.js';
 import type { FleetSettings } from './fleet-settings-store.js';
 import { refsGit, shellContext } from '@plot-pm/domain/adapters';
@@ -10,7 +11,10 @@ import {
   machineIsClear,
   dispatchDefers,
   outstandingAsks,
+  outstandingEnds,
   outstandingWaits,
+  briefAskState,
+  planSlug,
   briefAskBudget,
   planAutoDispatch,
   dispatchPhase,
@@ -71,6 +75,35 @@ export function findMissingBriefs(repoRoot: string, candidates: string[]): Set<s
   return missing;
 }
 
+
+/**
+ * The sha `origin/<main>` names, read synchronously.
+ *
+ * @param repoRoot The repository root where git is run.
+ * @param main The default branch's name.
+ * @returns The sha, or `null` where the ref database cannot be read or holds no such ref.
+ */
+const remoteMainSha = (repoRoot: string, main: string): string | null => {
+  try {
+    const read = refsGit(shellContext(repoRoot)).refStateSync('remote');
+    if (!isAnswered(read)) return null;
+    return read.value.find((r) => r.ref === `refs/remotes/origin/${main}`)?.sha ?? null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * The slug of the plan whose slices name `branch`.
+ *
+ * @param pulse The pulse this pass read.
+ * @param branch The branch to look up.
+ * @returns The plan slug, or `undefined` where no plan in the pulse names it.
+ */
+const slugOfBranch = (pulse: FleetReading, branch: string): string | undefined => {
+  const plan = pulse.plans.find((p) => p.slices.some((wave) => wave.branches.some((b) => b.branch === branch)));
+  return plan === undefined ? undefined : planSlug(plan.file);
+};
 
 /**
  * Fan out this pulse's plan of dispatches, detached, and return the branches
@@ -177,6 +210,8 @@ export function maybeAutoDispatch(
   briefsAsked: Set<string> = new Set(),
   briefWaits: Map<string, number> = new Map(),
   nowEpoch: number = Math.floor(Date.now() / 1000),
+  briefEnds: Map<string, number> = new Map(),
+  briefSpent: Set<string> = new Set(),
 ): Set<string> {
   // THE ASK RECORD IS MUTATED, NOT RETURNED, and that is the one asymmetry in
   // this signature. The in-flight set is returned because its contents are
@@ -187,9 +222,12 @@ export function maybeAutoDispatch(
   // second value would change the contract every existing caller reads, to
   // express a lifetime the caller already owns.
   //
-  // IN MEMORY AND PER-DAEMON: a restart loses it, the brief either landed or
-  // did not, and the next pass asks again. That is the same recovery `plot-registryd.mjs` relies
-  // on by holding nothing between ticks — so no state file, deliberately.
+  // The asks and waits are in memory and per daemon: a restart loses them and
+  // the next pass asks again. The end counts are in memory too, but a branch
+  // that turns `spent` gets a file under `.plot/state/brief-spent/`, which the
+  // caller reads at start into `briefEnds` and `briefSpent`, so a restart keeps
+  // the bound. `briefSpent` holds the branches whose file this daemon wrote or
+  // read, so the spent line prints once per daemon life.
   const pruned = pruneInFlight(inFlight, pulse, agents);
   const liveCount = liveAgentCount(agents, pulse);
 
@@ -362,10 +400,46 @@ export function maybeAutoDispatch(
   // wait is the third state beside asked and free: `outstandingAsks` drops the
   // branch once `nowEpoch` reaches the reset, so this pass asks again, and
   // `outstandingWaits` drops the epoch with it. In memory like `briefsAsked`.
-  const kept = outstandingAsks(briefsAsked, missingBriefs, briefWaits, nowEpoch);
+  const kept = outstandingAsks(briefsAsked, missingBriefs, briefWaits, briefEnds, nowEpoch);
   for (const branch of briefsAsked) if (!kept.has(branch)) briefsAsked.delete(branch);
   const keptWaits = outstandingWaits(briefWaits, kept);
   for (const branch of briefWaits.keys()) if (!keptWaits.has(branch)) briefWaits.delete(branch);
+  const askReadings = { asked: briefsAsked, missingBriefs, waits: briefWaits, ends: briefEnds, now: nowEpoch };
+
+  // AN END COUNT LIVES WHILE ITS BRIEF IS MISSING. Pruned only while
+  // auto-dispatch is on: with it off this pass read no brief, and an empty
+  // reading is not a landed brief. A dropped branch loses its spent file too.
+  if (controls.autoDispatch) {
+    const keptEnds = outstandingEnds(briefEnds, missingBriefs);
+    for (const branch of [...briefEnds.keys()]) if (!keptEnds.has(branch)) briefEnds.delete(branch);
+    for (const branch of [...briefSpent]) {
+      if (keptEnds.has(branch)) continue;
+      briefSpent.delete(branch);
+      removeBriefSpent(opts.repoRoot, branch);
+    }
+    for (const [branch, ends] of keptEnds) {
+      if (briefAskState(branch, askReadings) !== 'spent') continue;
+      if (briefSpent.has(branch)) {
+        // A SPENT FILE THAT IS GONE WAS CLEARED BY A PERSON — the implement
+        // route removes it before it starts a brief. The count goes with it,
+        // so the branch reads `free` again.
+        if (readBriefSpent(opts.repoRoot, branch) === null) {
+          briefSpent.delete(branch);
+          briefEnds.delete(branch);
+        }
+        continue;
+      }
+      const slug = slugOfBranch(pulse, branch);
+      const log = slug === undefined ? '' : askForBriefLogPath(opts.repoRoot, slug);
+      writeBriefSpent(opts.repoRoot, { branch, slug: slug ?? '', ends, log });
+      briefSpent.add(branch);
+      console.log(
+        `auto-dispatch: ${slug ?? branch}'s brief run ended ${ends} times without a brief ` +
+        `for ${branch} — log: ${log || '(none)'}; asking no more. Write brief on the board, ` +
+        `or /plot-implement ${slug ?? '<slug>'}`,
+      );
+    }
+  }
 
   if (controls.autoDispatch && missingBriefs.size > 0) {
     const missing = [...missingBriefs];
@@ -438,6 +512,11 @@ export function maybeAutoDispatch(
       // and this whole block does nothing — today's behaviour exactly, which is
       // Principle 5: Plot hardcodes no agent tooling.
       const command = askBudget > 0 ? briefCommand(opts) : '';
+      // THE COMMIT THE GATE READ, read once and only when an ask may start. The
+      // run reads the plan at this sha, not in the main checkout's working
+      // tree, which only an operator's fetch and merge moves. An unread sha
+      // starts no ask this pass.
+      let sha: string | null | undefined;
       for (const plan of asking) {
         if (askBudget <= 0) break;
         // ONE ASK PER BRANCH, AND NEVER A SECOND WHILE ONE IS OUTSTANDING.
@@ -450,14 +529,30 @@ export function maybeAutoDispatch(
         // A plan reported `no-brief` has one by construction; the guard is for a
         // caller that hands in a reason and a pulse that disagree.
         if (!branch) continue;
-        if (briefsAsked.has(branch)) continue;
+        // `asked` waits for its run or its reset; `spent` waits for a person.
+        if (briefAskState(branch, askReadings) !== 'free') continue;
+        if (sha === undefined) {
+          sha = remoteMainSha(opts.repoRoot, pulse.main);
+          if (sha === null) {
+            console.log(
+              `auto-dispatch: could not read origin/${pulse.main}; asking for no brief this pass`,
+            );
+          }
+        }
+        if (sha === null) break;
         const log = askForBrief(
           opts,
           command,
           plan.slug,
-          briefAskPrompt(plan.slug, branch, pulse.main),
+          briefAskPrompt(plan.slug, branch, pulse.main, sha),
           // A second wait replaces the first: the map holds one epoch per branch.
           (resetEpoch) => briefWaits.set(branch, resetEpoch),
+          // AN END WITH NO RESET SPENDS ONE ASK, whatever its code: a run that
+          // pushed its brief ends here too, and the next pass reads its brief.
+          () => {
+            briefsAsked.delete(branch);
+            briefEnds.set(branch, (briefEnds.get(branch) ?? 0) + 1);
+          },
         );
         // A HELD LOCK IS NOT MARKED. Another run for the slug holds it, and
         // `askForBrief` has logged which; that run may end without a brief, so

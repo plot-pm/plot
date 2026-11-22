@@ -82,6 +82,8 @@ export interface DeliveryMapInput {
   bounds?: AgentBounds | undefined;
   /** The checks page of a PR, from the Planning cards; absent or `''` where none is known. */
   checksUrlOf?: ((planFile: string, pr: number) => string) | undefined;
+  /** The plan facts the counted slices read, from `countedPlanFactsOf(fleet.plans)`; absent reads as none. */
+  plans?: readonly CountedPlanFacts[] | undefined;
 }
 
 /** The connector's window: `exhausted` stops a loop agent, `free` and `unknown` do not. */
@@ -143,12 +145,22 @@ export interface DeliveryMapping {
   checksUrlOf: (planFile: string, pr: number) => string;
   /** One entry per distinct target release, and the tickets the release line counts for them. */
   releases: { targets: ReleaseTarget[]; tickets: ReleaseTicketReading | null };
+  /** The plan facts the counted slices read, as `deliveryMapping` was given them; `[]` where none. */
+  plans: readonly CountedPlanFacts[];
 }
 
 /** The domain index exports a different `PrReading` from `branch-state`; this names the placement rule's. */
 type PrFacts = NonNullable<WorkItemReading['pr']>;
 
 const MINE: Record<MineMode, DeliveryMine> = { all: 'off', 'mine-and-unknown': 'mine', mine: 'strict' };
+
+/**
+ * The placement rule's Mine mode for the board's Mine mode.
+ *
+ * @param mode - the board's Mine mode.
+ * @returns `off` for `all`, `mine` for `mine-and-unknown`, `strict` for `mine`.
+ */
+export const deliveryMineOf = (mode: MineMode): DeliveryMine => MINE[mode];
 
 /** The plan state the placement rule reads; `rejected`, `superseded` and an unread state leave it unset. */
 const phaseOf = (state: AgentRow['planState']): WorkItemReading['phase'] =>
@@ -439,6 +451,7 @@ const mapReadings = (input: DeliveryMapInput): DeliveryMapping => {
     rateLimit: input.rateLimit ?? 'unknown',
     bounds: input.bounds,
     checksUrlOf: input.checksUrlOf ?? (() => ''),
+    plans: input.plans ?? [],
     releases: {
       targets: releaseTargets(input.sprints ?? []),
       tickets: input.releaseTickets == null ? null : input.releaseTickets,
@@ -506,6 +519,31 @@ export const ticketMarkFor = (sprintTexts: readonly string[], ticket: string): s
 };
 
 /**
+ * The plan facts the counted slices read, from the `/api/fleet` plan index.
+ *
+ * One entry per plan that carries both `phase` and `type`. `sliceIds` holds the
+ * work item id of each slice name in `slices`, and `planId` the plan's id with
+ * an empty slice name. An entry with no `phase` or no `type` yields nothing, so
+ * the plan keeps whatever the payload read for it.
+ *
+ * @param plans - `fleet.plans`, keyed by slug; absent reads as none.
+ * @returns the plan facts, in the index's key order.
+ */
+export const countedPlanFactsOf = (
+  plans: Readonly<Record<string, { phase?: string | undefined; type?: string | undefined; slices?: readonly string[] | undefined }>> | undefined,
+): CountedPlanFacts[] =>
+  Object.entries(plans ?? {}).flatMap(([plan, entry]) =>
+    entry.phase === undefined || entry.type === undefined
+      ? []
+      : [{
+          plan,
+          phase: entry.phase,
+          type: entry.type,
+          sliceIds: (entry.slices ?? []).map((s) => sliceItemId(plan, s)),
+          planId: sliceItemId(plan, ''),
+        }]);
+
+/**
  * The counted slices per plan, read from the slice items of one set of readings.
  *
  * A slice item's id is `slice:<plan>\0<wave>` (`sliceItemId`), so the plan is the
@@ -513,7 +551,7 @@ export const ticketMarkFor = (sprintTexts: readonly string[], ticket: string): s
  * an entry, `[]` where it holds no slice item: a Draft plan is split into
  * branches only after approval. A plan the payload read nothing for has no
  * entry: its merge answer is unread. The domain's `countedSlicesByPlan` decides
- * the entries; `input.plans`, absent here, reads as no plan facts.
+ * the entries from these readings and `input.plans`; absent reads as no plan facts.
  *
  * @param items - the work items of one set of readings.
  * @param input - the rows and Draft plans the readings were mapped from, and the plan facts.

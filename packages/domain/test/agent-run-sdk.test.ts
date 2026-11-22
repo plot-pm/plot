@@ -145,6 +145,19 @@ describe('agentRunSdk: the options it passes', () => {
     expect(options.pathToClaudeCodeExecutable).toBe('/usr/local/bin/claude');
     expect(options.permissionMode).toBe('bypassPermissions');
     expect('detached' in options).toBe(false);
+    expect('strictMcpConfig' in options).toBe(false);
+  });
+
+  it('sets strictMcpConfig on a non-role request that asks for strictMcp', async () => {
+    captured.messages = [resultMessage()];
+    await ended({ strictMcp: true });
+    expect((captured.options as Record<string, unknown>).strictMcpConfig).toBe(true);
+  });
+
+  it('leaves strictMcpConfig unset on a non-role request with strictMcp false', async () => {
+    captured.messages = [resultMessage()];
+    await ended({ strictMcp: false });
+    expect('strictMcpConfig' in (captured.options as Record<string, unknown>)).toBe(false);
   });
 
   it('spawns through the injected spawner', async () => {

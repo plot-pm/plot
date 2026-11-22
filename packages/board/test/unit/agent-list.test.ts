@@ -1380,7 +1380,7 @@ describe('isStartable — which NOT STARTED rows offer work', () => {
 
 describe('which groups start collapsed', () => {
   it('folds Free agents and Not placed, and leaves every other section and group open', () => {
-    expect([...COLLAPSED_BY_DEFAULT]).toEqual(['free', 'not-placed']);
+    expect([...COLLAPSED_BY_DEFAULT]).toEqual(['free', 'not-placed', 'tickets-delivered', 'tickets-found']);
   });
 
   it('reads Release delivery as open where nothing is stored', () => {
@@ -1394,7 +1394,7 @@ describe('which groups start collapsed', () => {
 
   it('gives a set stored under the earlier vocabulary the new default, not an empty set', () => {
     const stored = { getItem: () => JSON.stringify(['quiet', 'done']) };
-    expect([...readCollapsed(stored)]).toEqual(['free', 'not-placed']);
+    expect([...readCollapsed(stored)]).toEqual(['free', 'not-placed', 'tickets-delivered', 'tickets-found']);
   });
 
   it('keeps an empty stored set empty: a reader who opened everything', () => {
@@ -1414,18 +1414,23 @@ describe('a new default reaches a stored set once', () => {
     return { getItem: (k: string) => map.get(k) ?? null, setItem: (k: string, v: string) => { map.set(k, v); } };
   };
 
-  it('reads a stored ["free"] with no record as free and not-placed', () => {
+  it('reads a stored ["free"] with no record as free and every later default', () => {
     const s = store({ 'plot-board:agents:collapsed': '["free"]' });
-    expect([...readCollapsed(s)]).toEqual(['free', 'not-placed']);
+    expect([...readCollapsed(s)]).toEqual(['free', 'not-placed', 'tickets-delivered', 'tickets-found']);
   });
 
-  it('reads a stored ["free"] whose record holds not-placed as free only', () => {
-    const s = store({ 'plot-board:agents:collapsed': '["free"]', 'plot-board:agents:collapsed-defaults': '["free","not-placed"]' });
+  it('reads a stored ["free"] whose record holds every default as free only', () => {
+    const s = store({ 'plot-board:agents:collapsed': '["free"]', 'plot-board:agents:collapsed-defaults': JSON.stringify(COLLAPSED_BY_DEFAULT) });
     expect([...readCollapsed(s)]).toEqual(['free']);
   });
 
+  it('adds the Tickets group defaults to a set whose record holds only free and not-placed', () => {
+    const s = store({ 'plot-board:agents:collapsed': '["free"]', 'plot-board:agents:collapsed-defaults': '["free","not-placed"]' });
+    expect([...readCollapsed(s)]).toEqual(['free', 'tickets-delivered', 'tickets-found']);
+  });
+
   it('reads the default where nothing is stored', () => {
-    expect([...readCollapsed(store())]).toEqual(['free', 'not-placed']);
+    expect([...readCollapsed(store())]).toEqual(['free', 'not-placed', 'tickets-delivered', 'tickets-found']);
   });
 
   it('keeps a section open that the reader opened after the default joined', () => {
@@ -1433,7 +1438,7 @@ describe('a new default reaches a stored set once', () => {
     const first = readCollapsed(s);
     first.delete('not-placed');
     writeCollapsed(first, s);
-    expect([...readCollapsed(s)]).toEqual(['free']);
+    expect([...readCollapsed(s)]).toEqual(['free', 'tickets-delivered', 'tickets-found']);
   });
 });
 
@@ -1500,7 +1505,7 @@ describe('readCollapsed / writeCollapsed — persistence, and its default', () =
     // The load-bearing half: a first visit has no stored value, and treating
     // that as "nothing collapsed" ships the crowded view to everyone who has
     // not yet clicked a header.
-    expect([...readCollapsed(store())]).toEqual(['free', 'not-placed']);
+    expect([...readCollapsed(store())]).toEqual(['free', 'not-placed', 'tickets-delivered', 'tickets-found']);
   });
 
   it('survives a reload — what was written comes back', () => {
@@ -1525,14 +1530,14 @@ describe('readCollapsed / writeCollapsed — persistence, and its default', () =
     // were folded is a worse answer than one that simply forgets.
     for (const raw of ['not json', '{"quiet":true}', '"quiet"', '17']) {
       expect([...readCollapsed(store({ 'plot-board:agents:collapsed': raw })).values()].sort())
-        .toEqual(['free', 'not-placed']);
+        .toEqual(['free', 'not-placed', 'tickets-delivered', 'tickets-found'].sort());
     }
   });
 
   it('drops a stored key no group answers to', () => {
     // Stale state from a renamed group would fold nothing while looking like it
     // had — a set that disagrees with the rendered sections.
-    const s = store({ 'plot-board:agents:collapsed': '["you","gone-group"]', 'plot-board:agents:collapsed-defaults': '["free","not-placed"]' });
+    const s = store({ 'plot-board:agents:collapsed': '["you","gone-group"]', 'plot-board:agents:collapsed-defaults': JSON.stringify(COLLAPSED_BY_DEFAULT) });
     expect([...readCollapsed(s)]).toEqual(['you']);
   });
 

@@ -165,6 +165,7 @@ export * from './rules/agent-run-env.js';
 export * from './rules/run-limit.js';
 export * from './rules/runner-choice.js';
 export * from './rules/fragment-model.js';
+export * from './rules/fragment-strict-mcp.js';
 export * from './rules/loop-restart.js';
 export {
   limitAnswer,
@@ -682,7 +683,7 @@ export * from './rules/desk-dead.js';
 export * from './rules/review-run.js';
 export * from './rules/merge-identity.js';
 export * from './rules/slice-pr-next.js';
-export * from './rules/fixer-scope.js';
+export * from './rules/fleet-scope.js';
 export * from './rules/pulse-branch.js';
 export * from './rules/delivery-placement.js';
 export * from './rules/release-plan-rows.js';
@@ -710,3 +711,4 @@ export * from './rules/section-summary.js';
 export * from './rules/todo-list.js';
 export * from './rules/link-icon.js';
 export * from './rules/fleet-not-working.js';
+export * from './rules/scope-tickets.js';

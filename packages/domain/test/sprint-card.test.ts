@@ -11,6 +11,7 @@ import {
   type SprintCardSprint,
   type WorkItemReading,
 } from '../src/index.js';
+import { countedSlicesByPlan } from '../src/rules/counted-slices.js';
 
 const input: DeliveryInput = { mine: 'off', autoReview: true, correctionBudget: 2 };
 const reader: Reader = { hostUser: 'jwloka', directory: parsePersonDirectory('jwloka = Jan Wloka; eins78 = Max Albrecht') };
@@ -121,6 +122,19 @@ describe('sprintCards', () => {
     expect(card.readingMissing).toBe(false);
     expect(card.total).toBe(1);
     expect(card.tierLine).toBe('Must 1/2');
+  });
+
+  it('counts a delivered docs plan the pulse omits as delivered, seeded through countedSlicesByPlan', () => {
+    const byPlan = countedSlicesByPlan({
+      seen: [],
+      slices: [],
+      plans: [{ plan: 'docs-plan', phase: 'delivered', type: 'docs', sliceIds: ['slice:docs-plan\0Docs'], planId: 'slice:docs-plan\0' }],
+    });
+    const card = sprintCards([sprint({ members: [member('docs-plan', 'must')] })], reader, byPlan, none, input).cards[0]!;
+    expect(card.readingMissing).toBe(false);
+    expect(card.total).toBe(1);
+    expect(card.bar!.find((s) => s.state === 'delivered')!.count).toBe(1);
+    expect(card.tierLine).toBe('Must 1/1');
   });
 
   it('carries the end line and release, and prints none where absent', () => {

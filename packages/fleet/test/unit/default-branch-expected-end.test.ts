@@ -202,7 +202,7 @@ describe('one fold for every caller of declaredRuns', () => {
     const record = { rerun: 'asked', at: iso(T0 - 10 * MIN) } as Parameters<typeof rerunSettledOf>[0];
     expect(refreshState).toBe('green');
     expect(foldRuns(declaredRuns(runs, ['CI/validate']))).toBe(refreshState);
-    expect(rerunSettledOf(record, runs, ['CI/validate'], T0)).toBe(refreshState);
-    expect(rerunSettledOf(record, runs, ['CI'], T0)).toBe('red');
+    expect(rerunSettledOf(record, runs, ['CI/validate'], T0)).toEqual({ settled: refreshState });
+    expect(rerunSettledOf(record, runs, ['CI'], T0)).toEqual({ settled: 'red' });
   });
 });

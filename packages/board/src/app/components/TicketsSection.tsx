@@ -51,6 +51,8 @@ export interface TicketsSectionViewProps {
   onToggleFoldOpen: () => void;
   /** The filters the empty frame names: the scope, the Mine mode, the tickets Mine hides and the setters. */
   filters?: TicketsFilters;
+  /** The Delivered by the sprint and Found during the sprint groups, shown after the tickets no plan names whatever their state. */
+  groups?: ReactNode;
 }
 
 interface TicketsFilters {
@@ -64,7 +66,7 @@ interface TicketsFilters {
 const NO_FILTERS: TicketsFilters = { scope: { kind: 'release', sprints: [] }, mine: 'off', mineHidden: 0 };
 
 /**
- * The Delivery tab's Tickets section: the tickets no plan names, each with its `⋯` menu last.
+ * The Delivery tab's Tickets section: the tickets no plan names, each with its `⋯` menu last, then the scope groups.
  *
  * Every count, fold and refusal is the domain's (`ticketsSection`, `rowMenuOf`);
  * this component renders them. The section carries the `tickets` anchor that the
@@ -188,6 +190,7 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
           </ul>
         </>
       )}
+      {!props.folded && props.groups}
     </section>
   );
 }

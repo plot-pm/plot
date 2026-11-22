@@ -148,6 +148,39 @@ describe('repairStartTick — the re-run', () => {
   });
 });
 
+describe('repairStartTick — the awaiting-rerun log line', () => {
+  const asked = (over: Partial<RepairRecord> = {}): RepairRecord => record({ state: 'rerun', rerun: 'asked', ...over });
+  const later = T0 + RERUN_GRACE_MS + 1;
+  const lines = async (r: Rig): Promise<string[]> => {
+    const warned: string[] = [];
+    expect(await repairStartTick(r.world, (line) => warned.push(line))).toBe('awaiting-rerun');
+    return warned;
+  };
+
+  it('names rerun-grace inside the grace window', async () => {
+    expect(await lines(rig(asked(), T0 + RERUN_GRACE_MS - 1))).toEqual(['plot-fleetd: repair awaiting-rerun (rerun-grace)\n']);
+  });
+
+  it('names rerun-unanswered where CI did not answer', async () => {
+    const r = rig(asked(), later);
+    r.set({ runs: failed() });
+    expect(await lines(r)).toEqual(['plot-fleetd: repair awaiting-rerun (rerun-unanswered)\n']);
+  });
+
+  it('names rerun-unconcluded while a declared run is still going', async () => {
+    const r = rig(asked(), later);
+    r.set({ runs: answered([run(null)]) });
+    expect(await lines(r)).toEqual(['plot-fleetd: repair awaiting-rerun (rerun-unconcluded)\n']);
+  });
+
+  it('names rerun-unmatched where the declared checks match no run', async () => {
+    const r = rig(asked(), later);
+    r.world.checks = ['CI/validate'];
+    r.set({ runs: answered([run('success')]) });
+    expect(await lines(r)).toEqual(['plot-fleetd: repair awaiting-rerun (rerun-unmatched)\n']);
+  });
+});
+
 describe('repairStartTick — the claim', () => {
   const settledRed = (): RepairRecord => record({ state: 'rerun', rerun: 'asked' });
   const later = T0 + RERUN_GRACE_MS + 1;

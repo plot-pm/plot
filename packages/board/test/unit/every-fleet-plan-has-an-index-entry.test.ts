@@ -44,14 +44,15 @@ const FIRST_FILE = `2026-11-01-${FIRST_SLUG}.md`;
 const SECOND_SLUG = 'another-plan-with-a-wave';
 const SECOND_FILE = `2026-11-01-${SECOND_SLUG}.md`;
 
-/** A plan file the real parser reads: Approved, with the branch named. */
-const planFile = (title: string, branches: string[]) => [
+/** A plan file the real parser reads: Approved, with the branch named, and any extra slice lines. */
+const planFile = (title: string, branches: string[], extra: string[] = []) => [
   `# ${title}`, '', '## Status', '',
   '- **State:** Approved',
   '- **Type:** bug',
   '', '## Slices', '',
   '### One', '',
   ...branches.map((b) => `- \`${b}\` — a branch`),
+  ...extra,
   '', '## Changelog', '', '- a plan', '',
 ].join('\n');
 
@@ -79,7 +80,7 @@ function fixture() {
   fs.mkdirSync(scripts, { recursive: true });
 
   fs.writeFileSync(path.join(repoRoot, 'docs/plans', FIRST_FILE),
-    planFile('A plan with a wave', ['feature/a']), 'utf8');
+    planFile('A plan with a wave', ['feature/a'], ['', '### Later', '', '- `feature/later` — a branch <!-- deferred: not now -->']), 'utf8');
   fs.writeFileSync(path.join(repoRoot, 'docs/plans', SECOND_FILE),
     planFile('Another plan with a wave', ['feature/b']), 'utf8');
 
@@ -142,5 +143,11 @@ describe('every fleet plan has an index entry', () => {
     // than a repo-relative one.
     expect(path.basename(fleet.plans[FIRST_SLUG]?.file ?? '')).toBe(FIRST_FILE);
     expect(path.basename(fleet.plans[SECOND_SLUG]?.file ?? '')).toBe(SECOND_FILE);
+
+    // Each entry carries the plan facts the counted slices read: the phase in
+    // lower case, the `Type:` value, and the slices that hold a non-deferred
+    // branch — the deferred-only slice `Later` is not one of them.
+    expect(fleet.plans[FIRST_SLUG]).toMatchObject({ phase: 'approved', type: 'bug', slices: ['One'] });
+    expect(fleet.plans[SECOND_SLUG]).toMatchObject({ phase: 'approved', type: 'bug', slices: ['One'] });
   }, 60_000);
 });

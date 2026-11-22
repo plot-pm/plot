@@ -28,8 +28,8 @@ plan is right" and "someone picks it up" — and the world moves in
 between. Starting is therefore its own step, with its own check.
 
 **Input:** `$ARGUMENTS` = `<slug>` (optional if only one approved plan is
-ready — propose it per smart defaults), plus the optional flag
-`--brief-only`.
+ready — propose it per smart defaults), plus the optional flags
+`--brief-only`, `--branch <name>` and `--at <sha>`.
 
 **`--brief-only`** runs step 1 (locate), step 2 (preflight), step 4
 (brief) and step 5 (`Started:`), and **skips step 3 entirely**: no
@@ -42,11 +42,13 @@ before.
 
 **`--branch <name>`** names the integration branch the plan lives on, such as `sprint/<sprint>`. The board's Implement route adds it where only `origin/<name>` holds the plan file and `origin/<default branch>` does not (`originPlanHome`). With it, step 1 reads the plan from `origin/<name>` (`git fetch origin <name>`, then `git show origin/<name>:<plan file>`), and step 4 passes `--branch <name>` to `plot-brief-book.mjs`.
 
+**`--at <sha>`** names the commit to read the plan from. fleetd's brief ask adds it with the sha of `origin/<default branch>` that its dispatch gate read, because the ask runs in the main checkout, whose working tree can hold an older plan text than that commit. With it, step 1 runs `git cat-file -e <sha>` first and stops where the commit is missing: "Commit `<sha>` is not in this clone — run `git fetch origin` and retry." Then step 1 reads the plan with `git show <sha>:<plan file>` and runs its phase test on that text, never on the working tree. Steps 2 to 6 are unchanged.
+
 ## Model Guidance
 
 | Steps | Min. Tier | Notes |
 |-------|-----------|-------|
-| 1. Locate Plan | Small | plot-plan-meta.sh lookup; the Design spike exception reads two parsed fields, `spike_approved_raw` (its fourth field names the branch) and each branch's `spike` flag |
+| 1. Locate Plan | Small | plot-plan-meta.sh lookup; under `--at <sha>`, `git cat-file -e` and `git show <sha>:<plan file>` give the text the phase test reads; the Design spike exception reads two parsed fields, `spike_approved_raw` (its fourth field names the branch) and each branch's `spike` flag |
 | 2. Staleness Preflight | Mid–Frontier | Comparing plan assumptions against repo drift is judgment |
 | 3. Branch Setup | Small | Git commands per recorded answers; `plot-fleet-scan.sh --next` picks the branch and the ref push claims it — no judgment needed. **`--brief-only` skips this step**: no checkout, no claim push, no worktree |
 | 4. Hand-off Brief | Frontier | Interpretation, not extraction: naming which alternatives a plan rejected and which assertions a naive implementation would pass without is judgment. Smaller tiers fill the header fields and the plan's own `Done when`, then say which sections they could not write. **Under `--brief-only`, writing the already-composed text to a scratch file and booking it is Small** — the judgment is in composing the brief, not in the one call that lands it |
@@ -60,7 +62,7 @@ before.
 ### 1. Locate the Plan
 
 Parse all plans (`../plot/scripts/plot-plan-meta.sh docs/plans/*.md`) and
-find `<slug>`. Requirements:
+find `<slug>`. Under `--at <sha>`, run `git cat-file -e <sha>`, find the plan file with `git ls-tree --name-only <sha> docs/plans/`, write `git show <sha>:<plan file>` to a scratch file, and parse that file instead. Under `--branch <name>` without `--at`, read `origin/<name>` the same way. Requirements:
 
 - **Phase must be `approved`.** Draft or Design → stop, except for the approved spike below: "Plan isn't
   approved yet — review it and run `/plot-approve <slug>` first."

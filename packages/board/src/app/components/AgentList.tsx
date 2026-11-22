@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type AgentRow,
   type Fleet,
@@ -127,7 +127,7 @@ import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRow
 import { ActivitySpinner } from '../lib/agent-rows/marks.js';
 import { BranchMenu, BrokenAgentMenu, PlanActions } from '../lib/agent-rows/menus.js';
 import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
-import { deliveryMapping, rateLimitOf, releaseCardsOf, releaseGroupOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
+import { countedPlanFactsOf, deliveryMapping, deliveryMineOf, rateLimitOf, releaseCardsOf, releaseGroupOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
 import { ReleaseGroup } from './ReleaseGroup.js';
 import {
   anchorOwner,
@@ -165,6 +165,10 @@ import { rowKey } from '../lib/agent-rows/row-identity.js';
 // their marks and their menus are declared next door.
 import { splitTicketRows, waitingView } from '../lib/agent-rows/waiting-view.js';
 import { TicketsSectionView } from './TicketsSection.js';
+import { ScopeTicketGroups } from './ScopeTicketGroups.js';
+import { TicketHrefContext } from './PlanTicketKeys.js';
+import { scopeTickets } from '@plot-pm/domain/rules/scope-tickets';
+import type { PlanTicketRow } from '../../contract/schema.js';
 import { headerControl, SectionEmptyFrame, SectionHead } from './SectionHead.js';
 import { SectionSummary } from './SectionSummary.js';
 import { sectionSummariesOf } from '../lib/agent-rows/section-summary.js';
@@ -720,6 +724,7 @@ export function AgentList({
   // identity fields and its `People` directory, and nothing else — the row's
   // branch name is never consulted.
   const reader = useMemo(() => readerFrom(server), [server]);
+  const ticketHref = useContext(TicketHrefContext);
   // THE EFFECTIVE «MINE» MODE — the single value every filter below reads,
   // never the raw `mineOnly`/`mineStrict` flags. Gated on `comparableLogin`
   // inside `mineMode` itself, so a disabled chip and an emptied board can never
@@ -941,15 +946,37 @@ export function AgentList({
   //
   // `fleet.waiting.tickets` IS *WAITING ON YOU*'S OWN ROW SET — the domain's
   // `waitingTickets` already applied its stricter default (hide and count an
-  // unassigned ticket) server-side. `ticketsForReader` is the separate, looser
-  // *Only my work* toggle on top of that: it hides a ticket only where it is
-  // someone else's, same as `rowsForReader` does for branch rows, and keeps an
-  // unassigned ticket or one whose source is unresolved. `fleet.waiting.source`
+  // unassigned ticket) server-side. `ticketsForReader` is the separate «Mine»
+  // filter on top of that: in `mine-and-unknown` it hides a ticket only where
+  // it is someone else's, and in `mine` it keeps a ticket only where its
+  // assignees name the reader (`isMineStrict`). `fleet.waiting.source`
   // is the wire form of the domain's `TicketSource`, resolved once server-side
   // so this call needs no second host read. `fleet.issues` stays the fallback
   // for an older server with no `waiting` field.
+  // THE SCOPE'S TICKETS — `scopeTickets` (`@plot-pm/domain`) answers the Delivered by the sprint and Found during
+  // the sprint groups over the scope's plans, and the "no plan" counts without the finding keys.
+  const scopeTicketView = scopeTickets<PlanTicketRow>({
+    sprints: sprintScope.sprints,
+    cards: (cards ?? []).map((c) => ({ ...c, prs: c.prs.map((p) => p.number) })),
+    rows: fleet.planTicketRows ?? [],
+    ticketPlans: fleet.ticketPlans ?? {},
+    waiting: fleet.waiting === undefined || fleet.waiting === null ? null : {
+      hidden: fleet.waiting.hidden ?? 0,
+      unassigned: fleet.waiting.unassigned ?? 0,
+      assignedToOthers: fleet.waiting.assignedToOthers ?? 0,
+      complete: fleet.waiting.complete ?? true,
+      unassignedKeys: fleet.waiting.unassignedKeys ?? [],
+      assignedToOthersKeys: fleet.waiting.assignedToOthersKeys ?? [],
+    },
+    answer: fleet.issueAnswer ?? null,
+    reader,
+    source: fleet.waiting?.source ?? null,
+    mine: deliveryMineOf(mode),
+    ticketHref,
+  });
   const waitingBlock = waitingView(fleet.waiting, fleet.issues, showEveryTicket, (tickets) =>
     ticketsForReader(tickets, reader, fleet.waiting?.source ?? null, mode, ticketPlanOwners(fleet.plans ?? {}, (f) => cardForPlanFile?.(f))),
+    scopeTicketView.noPlan,
   );
   const filteredIssues = waitingBlock.tickets;
 
@@ -1273,6 +1300,7 @@ export function AgentList({
           rateLimit: rateLimitOf(fleet.machine?.host, Date.now()),
           bounds: fleet.bounds,
           checksUrlOf: (planFile: string, pr: number) => cardForPlanFile?.(planFile)?.prs.find((p) => p.number === pr)?.checksUrl ?? '',
+          plans: countedPlanFactsOf(fleet.plans),
         };
         const mapping = deliveryMapping(mappingInput);
         const cardSprintOf = (s: FleetSprint) => ({ ...s, release: s.release ?? '', end: s.end ?? '', ownerHandle: s.ownerHandle ?? '', members: s.members ?? [] });
@@ -1361,13 +1389,13 @@ export function AgentList({
         };
         const slices = fleet.slices;
         const issues = fleet.issueAnswer === 'answered' ? filteredIssues : [];
-        const ticketSplit = splitTicketRows(issues, placement.tickets, placement.unplaced);
+        const ticketSplit = splitTicketRows(issues, placement.tickets, placement.unplaced, scopeTicketView.findingKeys);
         const ticketInput = {
           answer: fleet.issueAnswer ?? null,
           assigned: ticketSplit.assigned,
           others: ticketSplit.others,
-          unassigned: fleet.waiting?.unassigned ?? null,
-          hidden: fleet.waiting?.hidden ?? 0,
+          unassigned: scopeTicketView.noPlan?.unassigned ?? fleet.waiting?.unassigned ?? null,
+          hidden: scopeTicketView.noPlan?.hidden ?? fleet.waiting?.hidden ?? 0,
           showAll: showEveryTicket,
         };
         // THE EMPTY KINDS AND THE MINE-HIDDEN COUNTS — view properties, rendered here.
@@ -1408,6 +1436,7 @@ export function AgentList({
           releases: releaseCardView.cards, releaseRows: releaseCardView.rows, passkey,
           slices: fleet.slices, sprints: activeSprints, scope: sprintScope, now, planIndex,
           tickets: { issues: filteredIssues, before: waitingView(fleet.waiting, fleet.issues, showEveryTicket, (t) => t).tickets.length, showAll: showEveryTicket },
+          scopeTickets: scopeTicketView,
         });
         let wider: WiderView[] | null = null;
         const context: AnchorContext = {
@@ -2048,8 +2077,8 @@ export function AgentList({
               issueAnswer={fleet.issueAnswer}
               assigned={ticketSplit.assigned}
               others={ticketSplit.others}
-              unassigned={fleet.waiting?.unassigned ?? null}
-              hidden={fleet.waiting?.hidden ?? 0}
+              unassigned={ticketInput.unassigned}
+              hidden={ticketInput.hidden}
               showAll={showEveryTicket}
               onToggleShowAll={() => setShowEveryTicket((on) => !on)}
               hiddenSentence={waitingBlock.hidden}
@@ -2064,6 +2093,20 @@ export function AgentList({
               onToggleFold={() => toggle('tickets')}
               foldOpen={ticketsFoldOpen}
               onToggleFoldOpen={() => setTicketsFoldOpen((open) => !open)}
+              groups={
+                <ScopeTicketGroups
+                  scope={scopeTicketView}
+                  folded={(key) => collapsed.has(key)}
+                  onToggle={toggle}
+                  planFileOf={planFileOf}
+                  prUrlOf={(pr) => (cards ?? []).flatMap((c) => c.prs).find((p) => p.number === pr)?.url ?? ''}
+                  unreadNote={issueNote(fleet) ?? fleet.issueError ?? null}
+                  idea={idea ?? { available: false, reason: 'this board has not said whether it can create plans' }}
+                  story={story ?? { available: false, reason: 'this board has not said whether it can create stories' }}
+                  issueAnswer={fleet.issueAnswer ?? null}
+                  facts={ticketFacts}
+                />
+              }
             />
             {/* THE FLEET'S HALTED LINES. A design or verify run is a Fleet row with its role chip. */}
             {(haltedLine || specHaltedLine) && (

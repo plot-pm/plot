@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Review:** pr
 - **Impl:** own branches
@@ -14,6 +14,7 @@
 - **Started:** 2026-11-21, Jan Wloka, `feature/the-fixer-merges-the-base-into-a-conflicting-pr`
 - **Started:** 2026-11-21, Jan Wloka, `feature/the-fixer-row-names-its-finding`
 - **Started:** 2026-11-22, Jan Wloka, `feature/the-review-reads-the-fixer-scope`
+- **Delivered:** 2026-11-22
 
 ## Changelog
 

@@ -4,9 +4,9 @@ import path from 'node:path';
 
 import {
   claimStaleMsOf,
-  fixerOwner,
+  fleetOwner,
   fixerPrNext,
-  fixerScopeRow,
+  fleetScopeRow,
   MERGEABLE_CONFLICTING,
   type BaseTipReading,
   type DefaultBranchReading,
@@ -14,6 +14,7 @@ import {
   type SlicePrStep,
   type DeskDeadAnswer,
   type FixerReading,
+  type FleetOwner,
 } from '@plot-pm/domain';
 import { roleCommand, type RoleAgentRef } from '@plot-pm/domain/rules/role-command';
 import type { PidCheck } from '@plot-pm/domain/rules/role-run-alive';
@@ -29,6 +30,7 @@ import type { RunLogLine } from '@plot-pm/domain/ports/run-log';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Agents } from '@plot-pm/domain/ports/agents';
 import type { Trees } from '@plot-pm/domain/ports/trees';
+import type { Worktree } from '@plot-pm/domain/entities/worktree';
 import type { Host } from '@plot-pm/domain/ports/host';
 import type { Processes } from '@plot-pm/domain/ports/processes';
 import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
@@ -378,6 +380,46 @@ const runningElsewhere = async (world: FixerTickWorld, opts: ActOptions, rows: r
   return running;
 };
 
+/** The ports {@link readHeadOwner} reads through. */
+export interface HeadOwnerPorts {
+  readonly trees: Pick<Trees, 'forBranch'>;
+  readonly agents: Pick<Agents, 'declared'>;
+  readonly refs: Pick<Refs, 'commitSubjects'>;
+}
+
+/**
+ * Reads who owns a PR's head branch, for the fixer and review passes.
+ *
+ * Asks the worktree listing for the head branch, the registry's manifests, and
+ * the claim commits of `origin/<base>..origin/<head>`, and answers through
+ * `fleetOwner`. A failed read makes the owner `unread`.
+ *
+ * @param ports - the worktree listing, the registry and the commit reader.
+ * @param row - the PR's OPEN row.
+ * @param claimStaleMs - `Claim stale after`, in milliseconds; `null` where the key does not parse.
+ * @param now - epoch milliseconds of the tick.
+ * @returns the owner, and the worktree on this machine that holds the head branch, or `null`.
+ */
+export const readHeadOwner = async (
+  ports: HeadOwnerPorts,
+  row: PrIndexRow,
+  claimStaleMs: number | null,
+  now: number,
+): Promise<{ owner: FleetOwner; deskTree: Worktree | null }> => {
+  const found = await ports.trees.forBranch(row.head);
+  const deskTree = found.ok ? found.value : null;
+  const declared = await ports.agents.declared();
+  const claims = await ports.refs.commitSubjects(`origin/${row.base}..origin/${row.head}`);
+  const owner = fleetOwner({
+    worktree: !found.ok ? 'unread' : deskTree === null ? 'absent' : 'here',
+    manifest: declared.ok ? declared.value.some((manifest) => manifest.branch === row.head) : 'unread',
+    claims: claims.ok ? claims.value : 'unread',
+    claimStaleMs,
+    now,
+  });
+  return { owner, deskTree };
+};
+
 /**
  * One tick of the fixer arm over the open rows.
  *
@@ -388,7 +430,7 @@ const runningElsewhere = async (world: FixerTickWorld, opts: ActOptions, rows: r
  * {@link DeskDeadAnswer}), whether its one fresh session is already spent on
  * `corrections-spent`, the attempts record and, for a conflicting row, the
  * base tip after a fetch, and asks {@link fixerPrNext}.
- * A row that `fixerScopeRow` puts out of scope gets its reason and no further
+ * A row that `fleetScopeRow` puts out of scope gets its reason and no further
  * read. Otherwise the owner reading asks the worktree listing, the registry's
  * manifests and the claim commits of `origin/<base>..origin/<head>`; a failed
  * read answers `owner-unread` and starts nothing.
@@ -420,23 +462,18 @@ export const fixerTick = async (
       attempts = await readAttempts(world, opts, row.number);
     }
 
-    const out = fixerScopeRow(row, readings.defaultBranchName);
+    const out = fleetScopeRow(row, readings.defaultBranchName);
     if (out !== null) {
       results.push({ pr: row.number, step: { step: 'none', why: out } });
       continue;
     }
 
-    const found = await world.trees(opts).forBranch(row.head);
-    const deskTree = found.ok ? found.value : null;
-    const declared = await world.agents(opts).declared();
-    const claims = await world.refs(opts).commitSubjects(`origin/${row.base}..origin/${row.head}`);
-    const owner = fixerOwner({
-      worktree: !found.ok ? 'unread' : deskTree === null ? 'absent' : 'here',
-      manifest: declared.ok ? declared.value.some((manifest) => manifest.branch === row.head) : 'unread',
-      claims: claims.ok ? claims.value : 'unread',
-      claimStaleMs: readings.claimStaleMs,
-      now: readings.now,
-    });
+    const { owner, deskTree } = await readHeadOwner(
+      { trees: world.trees(opts), agents: world.agents(opts), refs: world.refs(opts) },
+      row,
+      readings.claimStaleMs,
+      readings.now,
+    );
     const worker = deskTree === null ? null : await world.worker(opts).workerState(deskTree.path, true);
     const desk: DeskDeadAnswer = worker?.ok ? deskDeadFromWorkerState(worker.value.state) : { dead: false, why: 'elsewhere' };
     const spentExhausted = await correctionsSpentExhausted(world, opts, deskTree?.path ?? null, row.head);

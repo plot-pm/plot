@@ -25,7 +25,7 @@ Design spec (outside the repo): `/Users/jwloka/Quatico/Agentic-Tools/plot/docs/s
 - [x] [folded-sections-summarise-visually] A folded Delivery section shows what it holds in counters and bars <!-- pr: #3583, branch: feature/folded-sections-summarise-visually -->
 - [x] [delivery-tab-has-one-header] The Delivery tab has one header in five groups <!-- pr: #3583, branch: feature/delivery-header-release-group -->
 - [ ] [delivery-rows-act-from-one-place] Every Delivery row keeps its actions in one ⋯ menu in the last column <!-- pr: #3583, branch: feature/delivery-row-menu-column -->
-- [ ] [tickets-show-what-the-sprint-delivers-and-found] The Tickets section shows what the sprint delivers and what it found <!-- pr: #3583, branch: feature/scope-ticket-rows-in-the-payload -->
+- [x] [tickets-show-what-the-sprint-delivers-and-found] The Tickets section shows what the sprint delivers and what it found <!-- pr: #3583, branch: feature/scope-ticket-rows-in-the-payload -->
 
 <!-- An item is `- [ ] <description>`. A leading `[<plan-slug>]` names the plan
      it commits to, and only a plan slug is read as one: `- [ ] [#123](url) …`
@@ -35,6 +35,7 @@ Design spec (outside the repo): `/Users/jwloka/Quatico/Agentic-Tools/plot/docs/s
 
 ### Should Have
 - [ ] [delivery-activity-has-three-signals] Delivery activity shows as three signals with fixed meanings <!-- pr: #3583, branch: feature/delivery-activity-signals -->
+- [ ] [delivery-sections-count-alike] The sprint header and the Fleet section count alike <!-- pr: #3656, branch: feature/a-held-slice-names-its-hold -->
 
 <!-- add items here -->
 
@@ -55,6 +56,7 @@ Design spec (outside the repo): `/Users/jwloka/Quatico/Agentic-Tools/plot/docs/s
 
 ### Scope Changes
 - 2026-11-21: Added [templates-show-named-identifiers] to Could — dispatched 2026-11-21; operator added it to count it in this sprint
+- 2026-11-22: Added [delivery-sections-count-alike] to Should — the operator read the sprint header and the Fleet section as contradicting each other
 
 <!-- Log scope changes here: added/removed items, tier changes, with date and reason -->
 <!-- Format: - YYYY-MM-DD: Added/Moved/Removed [slug] reason -->

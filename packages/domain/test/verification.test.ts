@@ -10,7 +10,7 @@ import { recordCommitOf } from '../src/adapters/refs/refs-git.js';
 import { claimsOf, renderClaims } from '../src/rules/claims.js';
 import { fencedLines } from '../src/rules/fences.js';
 import { jurorPath, moderationPath } from '../src/rules/panel.js';
-import { foldVerification, refutedIssue, verificationBody, verifiedValue } from '../src/rules/verification.js';
+import { foldVerification, isRefutedIssueTitle, refutedIssue, verificationBody, verifiedValue } from '../src/rules/verification.js';
 import { refutedClaims } from '../src/rules/verification-record.js';
 import { withRecord, withSection } from '../src/workflows/rendering.js';
 
@@ -311,5 +311,21 @@ describe('verificationBody with issue notes', () => {
       { n: 1, claim: 'one', issue: id, noIssue: null },
       { n: 2, claim: 'two', issue: null, noIssue: 'a - b' },
     ]);
+  });
+});
+
+describe('isRefutedIssueTitle', () => {
+  it('accepts the title refutedIssue writes', () => {
+    const verdict = { n: 1, claim: 'the board shows it', refuted: ['user'], supported: [] } as never;
+    expect(isRefutedIssueTitle(refutedIssue('a-plan', verdict, 'abc1234def').title)).toBe(true);
+    expect(isRefutedIssueTitle('Refuted claim of a-plan: x')).toBe(true);
+  });
+
+  it('refuses a title of another form', () => {
+    expect(isRefutedIssueTitle('plot-review: findings on PR #1')).toBe(false);
+    expect(isRefutedIssueTitle('Refuted claim of : x')).toBe(false);
+    expect(isRefutedIssueTitle('Refuted claim of a plan: x')).toBe(false);
+    expect(isRefutedIssueTitle('Refuted claim of a-plan')).toBe(false);
+    expect(isRefutedIssueTitle('Re: Refuted claim of a-plan: x')).toBe(false);
   });
 });

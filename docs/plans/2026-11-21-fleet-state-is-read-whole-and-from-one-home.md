@@ -156,7 +156,7 @@ The layering rule holds in every slice: a controller or an entry calls the domai
 
 ### Repair-start decision
 
-- `bug/the-repair-start-decision-moves-into-the-domain` — `repairStartAction`, the four re-run reasons including `rerun-unmatched`, and `repairStartTick` dispatching on the answer <!-- builds: repairStartAction, the repair-start decision -->
+- `bug/the-repair-start-decision-moves-into-the-domain` — `repairStartAction`, the four re-run reasons including `rerun-unmatched`, and `repairStartTick` dispatching on the answer <!-- builds: repairStartAction, the repair-start decision --> → #3659
 
 ### Re-run bound
 

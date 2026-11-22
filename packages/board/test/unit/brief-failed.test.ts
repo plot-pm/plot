@@ -269,6 +269,18 @@ describe('briefNote chooses the note a row shows', () => {
     expect(briefNote({ briefWriter: 'asked', briefFailed: LOG, briefAskedAt: NOW - 45_000 }, NOW)?.kind).toBe('asked');
   });
 
+  it('shows the spent note, naming the end count and the log, for briefWriter spent', () => {
+    const note = briefNote(
+      { briefWriter: 'spent', briefSpent: { ends: 2, log: '.plot-brief-a-plan.log' }, briefFailed: LOG, briefAskedAt: NOW - 45_000 },
+      NOW,
+    );
+    expect(note).toEqual({
+      kind: 'spent',
+      label: 'brief spent',
+      text: 'brief run ended 2 times without a brief — see .plot-brief-a-plan.log',
+    });
+  });
+
   it('is null for briefWriter none, or for a row without the field', () => {
     expect(briefNote({ briefWriter: 'none', briefFailed: null, briefAskedAt: null }, NOW)).toBeNull();
     expect(briefNote({}, NOW)).toBeNull();
