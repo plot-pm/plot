@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type AgentRow,
   type Fleet,
@@ -60,12 +60,12 @@ import { DeliveryHeader } from './DeliveryHeader.js';
 import { deliveryHeaderOf } from '../lib/agent-rows/delivery-header.js';
 import { AutoDispatchSwitch, AutoSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
 import { FleetAgentHeader, FleetAgentRow } from './FleetAgentRow.js';
-import { MasterAgentLine, RowCell, scrollToAnchor, type LinkHandlers } from './DeliveryRows.js';
+import { MasterAgentLine, RowCell, scrollToAnchor, StatusPills, type LinkHandlers } from './DeliveryRows.js';
 import { detailLines } from '../lib/agent-rows/delivery-link-targets.js';
 import { headerOf, itemRowFactsOf, rowFormsOf, switchesOf } from '../lib/agent-rows/delivery-row-facts.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { ReleasePersonCards } from './ReleasePersonCards.js';
-import { LinkTupleView, MARKS_CELL, TUPLE_TRACKS, YouLeadContext, type YouLead } from './TupleRow.js';
+import { LinkTupleView, MARKS_CELL, TUPLE_TRACKS, WorkGridContext, YouLeadContext, type YouLead } from './TupleRow.js';
 import { LinePr, LineSlice, LineState, PlanOwner, PhaseChip, PlanName, PlanStrip, PlanTableHead, PLAN_TRACKS, ReleaseHeaderCounts, ReleaseLine } from './ReleasePlanParts.js';
 import { CleanUpMenu } from './CleanUpMenu.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
@@ -127,7 +127,7 @@ import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRow
 import { ActivitySpinner } from '../lib/agent-rows/marks.js';
 import { BranchMenu, BrokenAgentMenu, PlanActions } from '../lib/agent-rows/menus.js';
 import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
-import { countedPlanFactsOf, deliveryMapping, rateLimitOf, releaseCardsOf, releaseGroupOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
+import { countedPlanFactsOf, deliveryMapping, deliveryMineOf, rateLimitOf, releaseCardsOf, releaseGroupOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
 import { ReleaseGroup } from './ReleaseGroup.js';
 import {
   anchorOwner,
@@ -165,6 +165,10 @@ import { rowKey } from '../lib/agent-rows/row-identity.js';
 // their marks and their menus are declared next door.
 import { splitTicketRows, waitingView } from '../lib/agent-rows/waiting-view.js';
 import { TicketsSectionView } from './TicketsSection.js';
+import { ScopeTicketGroups } from './ScopeTicketGroups.js';
+import { TicketHrefContext } from './PlanTicketKeys.js';
+import { scopeTickets } from '@plot-pm/domain/rules/scope-tickets';
+import type { PlanTicketRow } from '../../contract/schema.js';
 import { headerControl, SectionEmptyFrame, SectionHead } from './SectionHead.js';
 import { SectionSummary } from './SectionSummary.js';
 import { sectionSummariesOf } from '../lib/agent-rows/section-summary.js';
@@ -720,6 +724,7 @@ export function AgentList({
   // identity fields and its `People` directory, and nothing else — the row's
   // branch name is never consulted.
   const reader = useMemo(() => readerFrom(server), [server]);
+  const ticketHref = useContext(TicketHrefContext);
   // THE EFFECTIVE «MINE» MODE — the single value every filter below reads,
   // never the raw `mineOnly`/`mineStrict` flags. Gated on `comparableLogin`
   // inside `mineMode` itself, so a disabled chip and an emptied board can never
@@ -941,15 +946,37 @@ export function AgentList({
   //
   // `fleet.waiting.tickets` IS *WAITING ON YOU*'S OWN ROW SET — the domain's
   // `waitingTickets` already applied its stricter default (hide and count an
-  // unassigned ticket) server-side. `ticketsForReader` is the separate, looser
-  // *Only my work* toggle on top of that: it hides a ticket only where it is
-  // someone else's, same as `rowsForReader` does for branch rows, and keeps an
-  // unassigned ticket or one whose source is unresolved. `fleet.waiting.source`
+  // unassigned ticket) server-side. `ticketsForReader` is the separate «Mine»
+  // filter on top of that: in `mine-and-unknown` it hides a ticket only where
+  // it is someone else's, and in `mine` it keeps a ticket only where its
+  // assignees name the reader (`isMineStrict`). `fleet.waiting.source`
   // is the wire form of the domain's `TicketSource`, resolved once server-side
   // so this call needs no second host read. `fleet.issues` stays the fallback
   // for an older server with no `waiting` field.
+  // THE SCOPE'S TICKETS — `scopeTickets` (`@plot-pm/domain`) answers the Delivered by the sprint and Found during
+  // the sprint groups over the scope's plans, and the "no plan" counts without the finding keys.
+  const scopeTicketView = scopeTickets<PlanTicketRow>({
+    sprints: sprintScope.sprints,
+    cards: (cards ?? []).map((c) => ({ ...c, prs: c.prs.map((p) => p.number) })),
+    rows: fleet.planTicketRows ?? [],
+    ticketPlans: fleet.ticketPlans ?? {},
+    waiting: fleet.waiting === undefined || fleet.waiting === null ? null : {
+      hidden: fleet.waiting.hidden ?? 0,
+      unassigned: fleet.waiting.unassigned ?? 0,
+      assignedToOthers: fleet.waiting.assignedToOthers ?? 0,
+      complete: fleet.waiting.complete ?? true,
+      unassignedKeys: fleet.waiting.unassignedKeys ?? [],
+      assignedToOthersKeys: fleet.waiting.assignedToOthersKeys ?? [],
+    },
+    answer: fleet.issueAnswer ?? null,
+    reader,
+    source: fleet.waiting?.source ?? null,
+    mine: deliveryMineOf(mode),
+    ticketHref,
+  });
   const waitingBlock = waitingView(fleet.waiting, fleet.issues, showEveryTicket, (tickets) =>
     ticketsForReader(tickets, reader, fleet.waiting?.source ?? null, mode, ticketPlanOwners(fleet.plans ?? {}, (f) => cardForPlanFile?.(f))),
+    scopeTicketView.noPlan,
   );
   const filteredIssues = waitingBlock.tickets;
 
@@ -1324,28 +1351,24 @@ export function AgentList({
           onJump: (anchor) => jump(anchor),
           hiddenReason: (anchor) => hiddenReason(anchor),
         };
-        const byCell = (cells: { by: Parameters<typeof RowCell>[0]['cell'] } | undefined) =>
-          cells?.by ? <RowCell cell={cells.by} handlers={linkHandlers} /> : undefined;
-        const byItem = (item: PlacedItemView) => byCell(forms.items.get(item.placement?.id ?? ''));
-        // THE GATES CELL IS A DOMAIN PROPERTY: `workItemCells` decides the marks and their links; this renders them.
-        const gatesItem = (item: PlacedItemView) => {
-          const placed = item.placement;
-          if (placed === null || placed === undefined) return undefined;
-          const cell = workItemCells(placed, itemRowFactsOf(mapping, placed.id))?.cells.group;
-          return placed.section === 'work-items' && placed.group === 'at-a-gate' && cell?.parts !== undefined
-            ? <RowCell cell={cell} handlers={linkHandlers} /> : undefined;
-        };
-        // Progress and Waits on replace the status word: a column holds one kind of value.
-        const groupCellItem = (item: PlacedItemView) => {
-          const placed = item.placement;
-          if (placed === null || placed === undefined || placed.section !== 'work-items' || placed.group === 'at-a-gate') return undefined;
-          const cell = workItemCells(placed, itemRowFactsOf(mapping, placed.id))?.cells.group;
-          return cell === null || cell === undefined ? undefined : <RowCell cell={cell} handlers={linkHandlers} />;
-        };
-        const gatesOrGroupItem = (item: PlacedItemView) => gatesItem(item) ?? groupCellItem(item);
-        const replacesStatus = (item: PlacedItemView) => groupCellItem(item) !== undefined;
-        // THE YOU ROW'S LEAD IS A DOMAIN PROPERTY: `youRowCells` decides the verb and what waits; this renders them.
         const sprintView = { scope: sprintScope.kind === 'my-sprint' ? 'my-sprint' as const : 'release' as const, mine: mode === 'all' ? 'off' as const : mode === 'mine' ? 'strict' as const : 'mine' as const };
+        // THE WORK ITEMS CELLS ARE A DOMAIN PROPERTY: `workItemCells` decides the status pills, their links and By; this renders them.
+        const workCellsOf = (item: PlacedItemView) => {
+          const placed = item.placement;
+          if (placed === null || placed === undefined || placed.section !== 'work-items') return null;
+          const facts = itemRowFactsOf(mapping, placed.id);
+          const sprint = rowSprintMembership({ kind: placed.kind, plan: facts.plan ?? '' }, membership, sprintView);
+          return workItemCells(placed, facts, sprint)?.cells ?? null;
+        };
+        const byItem = (item: PlacedItemView) => {
+          const by = workCellsOf(item)?.by ?? forms.items.get(item.placement?.id ?? '')?.by ?? null;
+          return by === null ? undefined : <RowCell cell={by} handlers={linkHandlers} />;
+        };
+        const pillsItem = (item: PlacedItemView) => {
+          const cells = workCellsOf(item);
+          return cells === null ? undefined : <StatusPills pills={cells.status} handlers={linkHandlers} />;
+        };
+        // THE YOU ROW'S LEAD IS A DOMAIN PROPERTY: `youRowCells` decides the verb and what waits; this renders them.
         const youLead = (item: PlacedItemView): YouLead | null => {
           const placed = item.placement;
           if (placed === null || placed === undefined || placed.section !== 'you') return null;
@@ -1366,13 +1389,13 @@ export function AgentList({
         };
         const slices = fleet.slices;
         const issues = fleet.issueAnswer === 'answered' ? filteredIssues : [];
-        const ticketSplit = splitTicketRows(issues, placement.tickets, placement.unplaced);
+        const ticketSplit = splitTicketRows(issues, placement.tickets, placement.unplaced, scopeTicketView.findingKeys);
         const ticketInput = {
           answer: fleet.issueAnswer ?? null,
           assigned: ticketSplit.assigned,
           others: ticketSplit.others,
-          unassigned: fleet.waiting?.unassigned ?? null,
-          hidden: fleet.waiting?.hidden ?? 0,
+          unassigned: scopeTicketView.noPlan?.unassigned ?? fleet.waiting?.unassigned ?? null,
+          hidden: scopeTicketView.noPlan?.hidden ?? fleet.waiting?.hidden ?? 0,
           showAll: showEveryTicket,
         };
         // THE EMPTY KINDS AND THE MINE-HIDDEN COUNTS — view properties, rendered here.
@@ -1413,6 +1436,7 @@ export function AgentList({
           releases: releaseCardView.cards, releaseRows: releaseCardView.rows, passkey,
           slices: fleet.slices, sprints: activeSprints, scope: sprintScope, now, planIndex,
           tickets: { issues: filteredIssues, before: waitingView(fleet.waiting, fleet.issues, showEveryTicket, (t) => t).tickets.length, showAll: showEveryTicket },
+          scopeTickets: scopeTicketView,
         });
         let wider: WiderView[] | null = null;
         const context: AnchorContext = {
@@ -1529,7 +1553,7 @@ export function AgentList({
         ];
         const itemBody = (item: PlacedItemView, inPlan = false) => [
           anchorOf(item),
-          ...item.rows.map((r) => withLead(item, <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={inPlan} by={byItem(item)} gates={gatesOrGroupItem(item)} gatesReplaceStatus={replacesStatus(item)} menu={looseMenuOf(item)} />, rowKey(r))),
+          ...item.rows.map((r) => withLead(item, <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={inPlan} by={byItem(item)} pills={pillsItem(item)} menu={looseMenuOf(item)} />, rowKey(r))),
           ...(item.ticket !== null
             ? [(
                 <IssueRowView
@@ -1587,8 +1611,7 @@ export function AgentList({
                   onJump={jump}
                   planIndex={planIndex}
                   by={byItem(s.item)}
-                  gates={gatesOrGroupItem(s.item)}
-                  gatesReplaceStatus={replacesStatus(s.item)}
+                  pills={pillsItem(s.item)}
                 />)}
                 {many && sliceOpen && (
                   <ul
@@ -1601,7 +1624,7 @@ export function AgentList({
                 )}
               </li>
             ),
-            ...s.loose.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={block.headed} by={byItem(s.item)} gates={gatesOrGroupItem(s.item)} gatesReplaceStatus={replacesStatus(s.item)} />),
+            ...s.loose.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={block.headed} by={byItem(s.item)} pills={pillsItem(s.item)} />),
             ...itemTail(s.item),
           ];
         };
@@ -1939,7 +1962,7 @@ export function AgentList({
                         )}
                         {group.label}
                         <span className="ml-1 font-normal normal-case tracking-normal">
-                          {group.count > 0 ? `(${group.tally})` : <><span data-group-none>— none</span> ({group.hint})</>}
+                          {group.count > 0 ? `(${group.tally})` : section.key === 'work-items' ? null : <><span data-group-none>— none</span> ({group.hint})</>}
                         </span>
                         {held.held.map((h) => (
                           <span key={h.switch} data-group-held={h.switch} className="font-normal normal-case tracking-normal">
@@ -1955,17 +1978,39 @@ export function AgentList({
                     return (
                       <div key={group.key} id={groupAnchor(group.key)} data-group={group.key} className="space-y-1">
                         {g.header}
-                        {!g.folded && group.count > 0 && (
+                        {!g.folded && group.count > 0 && section.key !== 'work-items' && (
                           <ul
                             role="grid"
                             aria-label={`${group.label} — agent branches`}
                             className="delivery-grid"
                           >
-                            <HeaderRow statusName={group.column ?? 'Status'} youColumns={section.key === 'you'} />
+                            <HeaderRow youColumns={section.key === 'you'} />
                             {group.blocks.flatMap(blockBody)}
                             {group.agents.length > 0 && <FleetAgentHeader blocked={group.key === 'blocked'} />}
                             {group.agents.flatMap(agentBody)}
                           </ul>
+                        )}
+                        {/* ONE GRID FOR EVERY WORK ITEMS GROUP: the same columns, and an empty group's "— none" row inside it. */}
+                        {!g.folded && section.key === 'work-items' && (
+                          <WorkGridContext.Provider value>
+                            <ul
+                              role="grid"
+                              aria-label={`${group.label} — agent branches`}
+                              data-work-grid={group.key}
+                              className="delivery-grid"
+                            >
+                              {group.count > 0 ? (
+                                <>
+                                  <HeaderRow workColumns />
+                                  {group.blocks.flatMap(blockBody)}
+                                </>
+                              ) : (
+                                <li role="row" data-group-none-row className="px-3 delivery-row text-xs delivery-text-muted">
+                                  <span role="gridcell"><span data-group-none>— none</span> ({group.hint})</span>
+                                </li>
+                              )}
+                            </ul>
+                          </WorkGridContext.Provider>
                         )}
                       </div>
                     );
@@ -2032,8 +2077,8 @@ export function AgentList({
               issueAnswer={fleet.issueAnswer}
               assigned={ticketSplit.assigned}
               others={ticketSplit.others}
-              unassigned={fleet.waiting?.unassigned ?? null}
-              hidden={fleet.waiting?.hidden ?? 0}
+              unassigned={ticketInput.unassigned}
+              hidden={ticketInput.hidden}
               showAll={showEveryTicket}
               onToggleShowAll={() => setShowEveryTicket((on) => !on)}
               hiddenSentence={waitingBlock.hidden}
@@ -2048,6 +2093,20 @@ export function AgentList({
               onToggleFold={() => toggle('tickets')}
               foldOpen={ticketsFoldOpen}
               onToggleFoldOpen={() => setTicketsFoldOpen((open) => !open)}
+              groups={
+                <ScopeTicketGroups
+                  scope={scopeTicketView}
+                  folded={(key) => collapsed.has(key)}
+                  onToggle={toggle}
+                  planFileOf={planFileOf}
+                  prUrlOf={(pr) => (cards ?? []).flatMap((c) => c.prs).find((p) => p.number === pr)?.url ?? ''}
+                  unreadNote={issueNote(fleet) ?? fleet.issueError ?? null}
+                  idea={idea ?? { available: false, reason: 'this board has not said whether it can create plans' }}
+                  story={story ?? { available: false, reason: 'this board has not said whether it can create stories' }}
+                  issueAnswer={fleet.issueAnswer ?? null}
+                  facts={ticketFacts}
+                />
+              }
             />
             {/* THE FLEET'S HALTED LINES. A design or verify run is a Fleet row with its role chip. */}
             {(haltedLine || specHaltedLine) && (

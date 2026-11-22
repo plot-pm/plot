@@ -21,6 +21,7 @@ import { hostAnswer, issueNote } from './host-notes.js';
 import { machineHealth } from './machine-health.js';
 import { deliveryEmpties, hiddenByMineWords, sectionEmptyKind, type SectionEmpty } from './section-empty.js';
 import { releaseTodoEntriesOf } from './todo-list.js';
+import type { ScopeTickets, ScopeTicketRow } from '@plot-pm/domain/rules/scope-tickets';
 import { splitTicketRows } from './waiting-view.js';
 import { youHeaderOf } from './you-header.js';
 
@@ -51,6 +52,8 @@ export interface SectionSummaryReadings extends DeliveryHeaderReadings {
     /** Whether *show all* is open, so the others count as shown rows. */
     showAll: boolean;
   };
+  /** The scope's Delivered and Found groups; absent where the tab computed none, and the summary then names neither. */
+  scopeTickets?: ScopeTickets<ScopeTicketRow>;
 }
 
 const view = (parts: SummaryPart[], empty: SectionEmpty | null, anchors: Record<string, string> = {}): SectionSummaryView => ({
@@ -136,13 +139,15 @@ export const sectionSummariesOf = (r: SectionSummaryReadings): Record<SummarySec
     headroom: r.fleet.machine?.headroom ?? 'unmeasured',
     health,
   });
-  const split = splitTicketRows(issues, placement.tickets, placement.unplaced);
+  const split = splitTicketRows(issues, placement.tickets, placement.unplaced, r.scopeTickets?.findingKeys);
   const ticketState = r.fleet.issueAnswer === 'answered' ? 'rows' : r.fleet.issueAnswer === null || r.fleet.issueAnswer === undefined ? 'unasked' : r.fleet.issueAnswer;
   const absence = r.fleet.issueAbsence ?? '';
   const ticketsEmpty = sectionEmptyKind({
     section: 'tickets',
     state: ticketState,
-    count: split.assigned.length + (r.tickets?.showAll === true ? split.others.length : 0),
+    // A scope group's rows keep the folded summary from reading empty, so its chips show.
+    count: split.assigned.length + (r.tickets?.showAll === true ? split.others.length : 0)
+      + (r.scopeTickets?.delivered.count ?? 0) + (r.scopeTickets?.found.count ?? 0),
     note: ticketState === 'failed' && absence !== '' ? absence : null,
     absence: ticketState === 'unsupported' && absence !== '' ? absence : null,
     scope,
@@ -162,7 +167,14 @@ export const sectionSummariesOf = (r: SectionSummaryReadings): Record<SummarySec
     fleet: view(fleetSummary(header.fleet), empties.fleet),
     machine: view(machineSummary(header.machine), empties.machine),
     tickets: view(
-      ticketsSummary({ state: ticketState, assigned: split.assigned.length, others: split.others.length, unassigned: r.fleet.waiting?.unassigned ?? null, hidden: hidden.tickets }),
+      ticketsSummary({
+        state: ticketState,
+        assigned: split.assigned.length,
+        others: split.others.length,
+        unassigned: r.scopeTickets?.noPlan?.unassigned ?? r.fleet.waiting?.unassigned ?? null,
+        hidden: hidden.tickets,
+        ...(r.scopeTickets === undefined ? {} : { delivered: r.scopeTickets.delivered.count, found: r.scopeTickets.found.count }),
+      }),
       ticketsEmpty,
     ),
     'not-placed': view(notPlacedSummary(shown.notPlaced.length), null),

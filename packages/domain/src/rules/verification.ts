@@ -136,6 +136,19 @@ export const issueReference = (note: IssueNote): string => {
   return `no issue: ${note.noIssue.replace(/\s+/g, ' ').replace(/ — /g, ' - ').trim()}`;
 };
 
+/** The prefix of a refuted-claim issue title before the slug. */
+const REFUTED_PREFIX = 'Refuted claim of ';
+
+/**
+ * Whether a title has the form {@link refutedIssue} writes: `Refuted claim of
+ * <slug>: <claim>`, with a slug of no spaces and no colon.
+ *
+ * @param title - an issue title.
+ * @returns true where the title is a refuted-claim title of some plan.
+ */
+export const isRefutedIssueTitle = (title: string): boolean =>
+  title.startsWith(REFUTED_PREFIX) && /^[^\s:]+: \S/.test(title.slice(REFUTED_PREFIX.length));
+
 /**
  * The title and body of the issue a refuted claim opens.
  *
@@ -152,7 +165,7 @@ export const refutedIssue = (
   const claim = verdict.claim.length > 80 ? `${verdict.claim.slice(0, 79)}…` : verdict.claim;
   const supported = verdict.supported.length > 0 ? `; ${verdict.supported.join(', ')} supported` : '';
   return {
-    title: `Refuted claim of ${slug}: ${claim}`,
+    title: `${REFUTED_PREFIX}${slug}: ${claim}`,
     body: `Verification of \`${slug}\` at ${short(judged)} refuted ${claimLabel(verdict.n)}.\n\n> ${verdict.claim}\n\nRefuted by ${verdict.refuted.join(', ')}${supported}.\n`,
   };
 };

@@ -103,6 +103,17 @@ describe('planTicketRows from one issue read', () => {
     expect(planTicketRowsOf(null, new Map(), new Set(['9']), Date.now())).toEqual([]);
   });
 
+  it('keeps a refuted-claim row by its title where no board build has filled the refuted keys', () => {
+    const sets = { rows: [
+      { number: '12', title: 'Refuted claim of a-plan: the board shows it', url: 'u', createdAt: '2026-10-01T00:00:00Z' },
+      { number: '13', title: 'unrelated', url: 'u', createdAt: '2026-10-01T00:00:00Z' },
+    ], complete: true };
+    const entry = freshCacheEntry();
+    expect(entry.refutedIssues.size).toBe(0);
+    const rows = planTicketRowsOf(sets as never, null, entry.refutedIssues, Date.now());
+    expect(rows.map((r) => [r.number, r.state])).toEqual([['12', 'open']]);
+  });
+
   it('lists a key once, as open, where the open and closed sets both hold it', () => {
     const row = { number: '4', title: 'plot-review: findings on PR #1', url: 'u', createdAt: '2026-10-01T00:00:00Z' };
     const rows = planTicketRowsOf({ rows: [row], closed: { rows: [row] } } as never, null, new Set(), Date.now());

@@ -257,16 +257,17 @@ describe('the activity spinner sits in the Status cell and cycles braille frames
   it('leaves the grid tracks exactly where they are', async () => {
     const page = await open();
     await expect.poll(() => spinnerIn(page, 'feature/writing').count()).toBe(1);
-    const cellX = async (branch: string, n: number) =>
-      (await rectOf(rowFor(page, branch).locator('[role="gridcell"]').nth(n))).x;
-    for (const [label, n] of [['kind', 1], ['related', 3], ['status', 4]] as const) {
-      const writing = await cellX('feature/writing', n);
-      const idle = await cellX('feature/idle', n);
+    const cellX = async (branch: string, name: string) =>
+      (await rectOf(rowFor(page, branch).locator(`[data-row-cell="${name}"]`))).x;
+    for (const label of ['item', 'plan', 'status'] as const) {
+      const writing = await cellX('feature/writing', label);
+      const idle = await cellX('feature/idle', label);
       expect(Math.abs(writing - idle), `${label} track moved`).toBeLessThan(1);
     }
     const tracks = await rowFor(page, 'feature/writing')
       .evaluate((el) => getComputedStyle(el).gridTemplateColumns);
-    expect(tracks.split(' ')).toHaveLength(8);
+    // SEVEN: the marks lane and the six Work items columns.
+    expect(tracks.split(' ')).toHaveLength(7);
   });
 
   it('keeps the unpushed mark in the marks cell, distinct from the spinner', async () => {

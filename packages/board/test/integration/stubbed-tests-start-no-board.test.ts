@@ -970,7 +970,9 @@ const EXPECTED_FILES = 101;
 // 739 → 740 on 2026-11-21: the one `it(` that checks a conflict fixer's row names its finding on a green, review-clean PR, added to `a-fleet-row-shows-its-role-chip.browser.test.ts`. Added, not moved.
 // 740 → 742 on 2026-11-22: the two `it(` added to `delivery-tab-sections.browser.test.ts`: a blocker mark opens the folded Queued group that holds its slice, and an `← agents:` link opens the folded Fleet section that holds its agent. Added, not moved.
 // 742 → 744 on 2026-11-22: `loose-ends-show-under-unblock.browser.test.ts` replaces the `it(` that bulk-deleted the quiet branches with one that groups a claimed and a deletable branch into one Unblock row, each with its own reason and no bulk control on the heading; `delivery-rows.browser.test.ts` gains two, for the triage link and the unread notice under the You rows. Two added, one replaced.
-const EXPECTED_TESTS = 744;
+// 744 → 746 on 2026-11-22: the two `it(` that check the Delivered by the sprint and Found during the sprint groups render folded with their label and "— none", and open on their rows, added to `tickets-section.browser.test.ts`. Added, not moved.
+// 746 → 754 on 2026-11-22: two `it(` added to `delivery-work-items.browser.test.ts`, one for a long status pill kept whole beside a long branch ellipsised with its full name on hover, and one for an empty group's "— none" row inside the grid. Six counted again in `agents-tab.browser.test.ts`: its line comment naming `changeset-release/*` opened a block comment for `stripComments`, which hid the six `it(` up to the next `*/`, and the rewrite of that test removed the comment. Two added, six existing ones counted, none removed.
+const EXPECTED_TESTS = 754;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

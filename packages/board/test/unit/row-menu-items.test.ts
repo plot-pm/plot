@@ -8,9 +8,11 @@ import {
   type RowMenuItem,
   type RowMenuView,
   type SliceMenuFacts,
+  type ScopeTicketMenuFacts,
   type TicketMenuFacts,
 } from '../../src/app/lib/agent-rows/delivery-view.js';
 import { SOME_FACTS } from '../fixtures/card-facts.js';
+import { NO_ADDRESS_REASON, NO_TICKET_ROW_REASON, PLAN_NAMED_REASON } from '@plot-pm/domain/rules/scope-tickets';
 
 /**
  * Each plan, slice, branch and Tickets row lists a fixed item set in its `⋯`. An item that cannot run stays listed,
@@ -226,5 +228,41 @@ describe('the Tickets row\'s items', () => {
   it('open-issue acts on one click and refuses a ticket with no address', () => {
     expect(find(rowMenuOf(ticketOn), 'open-issue')).toEqual({ action: 'open-issue', label: 'Open on host', enabled: true, reason: null, confirm: null });
     expect(find(rowMenuOf(ticketOff), 'open-issue')).toMatchObject({ enabled: false, reason: 'no address' });
+  });
+});
+
+describe('the scope group row\'s items', () => {
+  const TICKETS = { kind: 'tickets' } as const;
+  const scopeRow = (over: Partial<ScopeTicketMenuFacts>): ScopeTicketMenuFacts => ({
+    kind: 'scope-ticket', issue, idea: ON, story: ON, issueAnswer: 'answered',
+    menu: { openOnHost: { href: 'https://host/issues/228', reason: null }, createPlan: TICKETS, createStory: TICKETS },
+    ...over,
+  });
+
+  it('lists Create plan, Create story and Open on host, in that order', () => {
+    expect(actions(rowMenuOf(scopeRow({})))).toEqual(['create-plan', 'create-story', 'open-issue']);
+  });
+
+  it('a tickets arm takes the Tickets row\'s item', () => {
+    expect(find(rowMenuOf(scopeRow({})), 'create-plan')).toEqual(find(rowMenuOf(ticketOn), 'create-plan'));
+    expect(find(rowMenuOf(scopeRow({})), 'create-story')).toEqual(find(rowMenuOf(ticketOn), 'create-story'));
+  });
+
+  it('a disabled arm shows its reason', () => {
+    const named = scopeRow({ menu: { openOnHost: { href: 'u', reason: null }, createPlan: { kind: 'disabled', reason: PLAN_NAMED_REASON, code: 'plan-named' }, createStory: TICKETS } });
+    expect(find(rowMenuOf(named), 'create-plan')).toMatchObject({ enabled: false, reason: PLAN_NAMED_REASON });
+    expect(find(rowMenuOf(named), 'create-story').enabled).toBe(true);
+  });
+
+  it('a key-only row disables both create items and keeps Open on host where an address exists', () => {
+    const keyOnly = scopeRow({ issue: null });
+    expect(find(rowMenuOf(keyOnly), 'create-plan')).toMatchObject({ enabled: false, reason: NO_TICKET_ROW_REASON });
+    expect(find(rowMenuOf(keyOnly), 'create-story')).toMatchObject({ enabled: false, reason: NO_TICKET_ROW_REASON });
+    expect(find(rowMenuOf(keyOnly), 'open-issue').enabled).toBe(true);
+  });
+
+  it('Open on host refuses a row with no address', () => {
+    const noAddress = scopeRow({ menu: { openOnHost: { href: '', reason: NO_ADDRESS_REASON }, createPlan: TICKETS, createStory: TICKETS } });
+    expect(find(rowMenuOf(noAddress), 'open-issue')).toMatchObject({ enabled: false, reason: NO_ADDRESS_REASON });
   });
 });

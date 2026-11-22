@@ -154,6 +154,14 @@ type PrFacts = NonNullable<WorkItemReading['pr']>;
 
 const MINE: Record<MineMode, DeliveryMine> = { all: 'off', 'mine-and-unknown': 'mine', mine: 'strict' };
 
+/**
+ * The placement rule's Mine mode for the board's Mine mode.
+ *
+ * @param mode - the board's Mine mode.
+ * @returns `off` for `all`, `mine` for `mine-and-unknown`, `strict` for `mine`.
+ */
+export const deliveryMineOf = (mode: MineMode): DeliveryMine => MINE[mode];
+
 /** The plan state the placement rule reads; `rejected`, `superseded` and an unread state leave it unset. */
 const phaseOf = (state: AgentRow['planState']): WorkItemReading['phase'] =>
   state === 'rejected' || state === 'superseded' || state === null ? undefined : state;

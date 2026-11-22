@@ -170,23 +170,31 @@ export interface TicketsSummaryInput {
   unassigned: number | null;
   /** The tickets the filters hide. */
   hidden: number;
+  /** The rows of Delivered by the sprint; `null` where the tracker is unread; absent where the caller reads no scope. */
+  delivered?: number | null;
+  /** The rows of Found during the sprint; `null` where the tracker is unread; absent where the caller reads no scope. */
+  found?: number | null;
 }
 
 /**
  * The folded summary of Tickets: assigned to me, others, unassigned and the count the filters hide.
  *
  * @param input - the state and the counts.
- * @returns `? tickets unread` where the tracker gave no rows; otherwise `◉ N assigned to me` (blue above 0), `N others`, `N unassigned` (`? unassigned` with a `null` count where the read carries none) and `N hidden by filter`, each `zero` at 0.
+ * @returns `? tickets unread` where the tracker gave no rows; otherwise `◉ N assigned to me` (blue above 0), `N others`, `N unassigned` (`? unassigned` with a `null` count where the read carries none) and `N hidden by filter`, each `zero` at 0. Both forms end with `◎ N delivered by the sprint` and `⚑ N found` where the input carries those counts: grey above 0, `zero` at 0, and `◎ ? …`/`⚑ ? …` unread where the count is `null`.
  */
 export const ticketsSummary = (input: TicketsSummaryInput): SummaryPart[] => {
-  if (input.state !== 'rows') return [chip('tickets', '? tickets unread', null, 'unread')];
   const counted = (key: string, icon: string, n: number, words: string, tone: SummaryTone): SummaryChip =>
     chip(key, `${icon}${n} ${words}`, n, n === 0 ? 'zero' : tone);
+  const scope = (key: string, icon: string, n: number | null | undefined, words: string): SummaryChip[] =>
+    n === undefined ? [] : [n === null ? chip(key, `${icon}? ${words}`, null, 'unread') : counted(key, icon, n, words, 'grey')];
+  const scoped = [...scope('delivered', '◎ ', input.delivered, 'delivered by the sprint'), ...scope('found', '⚑ ', input.found, 'found')];
+  if (input.state !== 'rows') return [chip('tickets', '? tickets unread', null, 'unread'), ...scoped];
   return [
     counted('assigned', '◉ ', input.assigned, 'assigned to me', 'blue'),
     counted('others', '', input.others, 'others', 'grey'),
     input.unassigned === null ? chip('unassigned', '? unassigned', null, 'unread') : counted('unassigned', '', input.unassigned, 'unassigned', 'grey'),
     counted('hidden', '', input.hidden, 'hidden by filter', 'grey'),
+    ...scoped,
   ];
 };
 

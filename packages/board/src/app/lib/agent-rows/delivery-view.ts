@@ -27,10 +27,8 @@ import {
   looseGroupRow,
   type LooseGroupRow,
   oldestWaitsClause,
-  WORK_GROUP_COLUMN,
   fleetCountText,
   workGroupCountText,
-  type WorkItemGroup,
   placeDelivery,
   type AgentPlacement,
   type DeliveryPlacement,
@@ -49,6 +47,7 @@ import type { AgentRow, Card, DispatchInfo, DraftPlan, FleetSprint, IssueAnswer,
 import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
 import { countedSlicesByPlan, type PlanCountedSlice } from '@plot-pm/domain/rules/counted-slices';
 import { createFromIssueVerdict } from '@plot-pm/domain/rules/create-from-issue';
+import { NO_TICKET_ROW_REASON, type ScopeRowMenu } from '@plot-pm/domain/rules/scope-tickets';
 import { createPlanRefusal } from '../card-presentation.js';
 import { armedLabel as approveConfirm } from '../../components/ApproveButton.js';
 import { armedLabel as deliverConfirm } from '../../components/DeliverButton.js';
@@ -228,13 +227,26 @@ export interface TicketMenuFacts {
   facts?: CardFacts;
 }
 
-/** What `rowMenuOf` reads: a placed item, or the facts of one plan, slice, branch or Tickets row. */
+/** A scope group row's facts: the arms `scopeTickets` decided, and the Tickets facts its `tickets` arms read. */
+export interface ScopeTicketMenuFacts {
+  kind: 'scope-ticket';
+  /** The ticket's row; `null` for a key-only row, whose Create plan and Create story `menu` disables. */
+  issue: IssueRow | null;
+  menu: ScopeRowMenu;
+  idea: DispatchInfo;
+  story: DispatchInfo;
+  issueAnswer: IssueAnswer | null;
+  facts?: CardFacts;
+}
+
+/** What `rowMenuOf` reads: a placed item, or the facts of one plan, slice, branch, Tickets or scope group row. */
 export type RowMenuInput =
   | { kind: 'placed'; placement: ItemPlacement | null; rows: readonly AgentRow[]; actions: LooseActions }
   | PlanMenuFacts
   | SliceMenuFacts
   | BranchMenuFacts
-  | TicketMenuFacts;
+  | TicketMenuFacts
+  | ScopeTicketMenuFacts;
 
 const item = (action: RowMenuAction, label: string, reason: string | null, confirm: string | null = null): RowMenuItem =>
   ({ action, label, enabled: reason === null, reason, confirm });
@@ -331,6 +343,23 @@ const ticketItems = (f: TicketMenuFacts): RowMenuItem[] => {
   ];
 };
 
+/**
+ * The items of a scope group row: Create plan and Create story by `scopeTickets`' arm, where a `tickets` arm takes
+ * the Tickets row's answer, and Open on host at the arm's address.
+ */
+const scopeTicketItems = (f: ScopeTicketMenuFacts): RowMenuItem[] => {
+  const tickets = f.issue === null ? null : ticketItems({ kind: 'ticket', issue: f.issue, idea: f.idea, story: f.story, issueAnswer: f.issueAnswer, facts: f.facts });
+  const arm = (action: 'create-plan' | 'create-story', label: string, chosen: ScopeRowMenu['createPlan']): RowMenuItem =>
+    chosen.kind === 'disabled' || tickets === null
+      ? item(action, label, chosen.kind === 'disabled' ? chosen.reason : NO_TICKET_ROW_REASON)
+      : tickets.find((i) => i.action === action) as RowMenuItem;
+  return [
+    arm('create-plan', 'Create plan', f.menu.createPlan),
+    arm('create-story', 'Create story', f.menu.createStory),
+    item('open-issue', 'Open on host', f.menu.openOnHost.reason),
+  ];
+};
+
 const itemsView = (items: RowMenuItem[]): RowMenuView => ({ kind: 'items', items, trigger: items.length > 0 ? 'enabled' : 'none' });
 
 /**
@@ -355,7 +384,7 @@ export const looseItems = (branch: string, open: string, actions: LooseActions):
  * The menu of one row.
  *
  * @param input - a placed item (`placement`, its payload `rows`, and what `looseActions` offers), or the facts of a
- *   plan, slice, branch or Tickets row.
+ *   plan, slice, branch, Tickets or scope group row.
  * @returns for a placed item, the loose item set under You with the reason `loose`, else `{ kind: 'row' }`; for a plan,
  *   slice, branch or Tickets row, the fixed item set of its kind, each item enabled or disabled with its reason.
  */
@@ -365,6 +394,7 @@ export const rowMenuOf = (input: RowMenuInput): RowMenuView => {
     case 'slice': return itemsView(sliceItems(input));
     case 'branch': return itemsView(branchItems(input));
     case 'ticket': return itemsView(ticketItems(input));
+    case 'scope-ticket': return itemsView(scopeTicketItems(input));
     case 'placed': {
       const { placement, rows, actions } = input;
       const first = rows[0];
@@ -509,8 +539,6 @@ export type BlockView = PlanBlockView | ItemBlockView | LooseGroupBlockView;
 
 export interface GroupView {
   key: string;
-  /** The Work items column name of this group (`Gates`, `Progress`, `Waits on`); `null` for the other sections. */
-  column: string | null;
   label: string;
   hint: string;
   items: PlacedItemView[];
@@ -895,7 +923,7 @@ export const deliveryView = (
         ? [plural(heads.length, 'plan'), plural(sliceCount, 'slice'), ...(loose > 0 ? [`${loose} ${loose === 1 ? 'branch' : 'branches'}`] : [])].join(' · ')
         : String(count);
       return {
-        key: group, column: section === 'work-items' ? WORK_GROUP_COLUMN[group as WorkItemGroup].name : null, ...meta, items, agents, blocks, rows, count,
+        key: group, ...meta, items, agents, blocks, rows, count,
         tally,
       };
     });
