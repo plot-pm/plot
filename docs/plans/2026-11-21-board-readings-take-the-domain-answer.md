@@ -140,7 +140,7 @@ All evidence is on origin/main `b21961602`.
 
 ### Plan state
 
-- `bug/a-delivery-row-carries-its-plan-state` — `AgentRow.planState` from `planStateOf`, filled at `fleet.ts:7613` and `:8004`; `delivery-readings.ts` drops `PHASE_OF`; every row fixture and `mock-fleet.ts` row carries `planState`; the six phase-word tests restated; tracer and custom-map tests; two browser tests that a blocker mark and an `← agents:` link open a closed group <!-- builds: AgentRow.planState, the plan's lifecycle state on a Delivery row -->
+- `bug/a-delivery-row-carries-its-plan-state` — `AgentRow.planState` from `planStateOf`, filled at `fleet.ts:7613` and `:8004`; `delivery-readings.ts` drops `PHASE_OF`; every row fixture and `mock-fleet.ts` row carries `planState`; the six phase-word tests restated; tracer and custom-map tests; two browser tests that a blocker mark and an `← agents:` link open a closed group <!-- builds: AgentRow.planState, the plan's lifecycle state on a Delivery row --> → #3652
 
 ### Spike card
 
