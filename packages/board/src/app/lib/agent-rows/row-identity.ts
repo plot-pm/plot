@@ -290,10 +290,24 @@ export const briefFailedNote = (log: string): string => `the brief writer failed
 export const briefWriting = (row: Partial<Pick<AgentRow, 'briefWriter'>>): boolean =>
   row.briefWriter === 'writing';
 
+/**
+ * The sentence a row shows where fleetd stopped asking for its brief.
+ *
+ * @param ends - how many brief runs ended without a brief.
+ * @param log - the repository-relative log of the last run; empty where none is known.
+ * @returns the sentence, naming the count and the log.
+ */
+export const briefSpentNote = (ends: number, log: string): string =>
+  `brief run ended ${ends} ${ends === 1 ? 'time' : 'times'} without a brief${log ? ` — see ${log}` : ''}`;
+
 /** The note a row with a missing brief shows when work, an ask, or a failure is recorded. */
 export interface BriefNote {
-  /** `writing` while the writer runs, `failed` where it recorded a non-zero exit, `asked` where an ask is recorded. */
-  kind: 'writing' | 'failed' | 'asked';
+  /**
+   * `writing` while the writer runs, `spent` where fleetd asks no more after its
+   * brief runs ended without a brief, `failed` where it recorded a non-zero
+   * exit, `asked` where an ask is recorded.
+   */
+  kind: 'writing' | 'spent' | 'failed' | 'asked';
   /** The short label before the sentence. */
   label: string;
   /** The sentence itself. */
@@ -307,14 +321,14 @@ export interface BriefNote {
  * `briefWriter` and `briefAskedAt`; this function formats them. The age is
  * computed against `now`, so the caller reads the clock at render time.
  *
- * @param row - the row, with at least `briefWriter`, `briefFailed` and `briefAskedAt`.
+ * @param row - the row, with at least `briefWriter`, `briefFailed`, `briefSpent` and `briefAskedAt`.
  * @param now - the reader's clock, in epoch milliseconds.
- * @returns the `writing`, `failed` or `asked` note for that `briefWriter`, or
+ * @returns the `writing`, `spent`, `failed` or `asked` note for that `briefWriter`, or
  *          null for `none` or an absent field — the row then shows the
  *          missing-brief note.
  */
 export const briefNote = (
-  row: Partial<Pick<AgentRow, 'briefWriter' | 'briefFailed' | 'briefAskedAt'>>,
+  row: Partial<Pick<AgentRow, 'briefWriter' | 'briefFailed' | 'briefSpent' | 'briefAskedAt'>>,
   now: number,
 ): BriefNote | null => {
   const note = briefWriterNote(row.briefWriter ?? 'none', row.briefAskedAt ?? null, now);
@@ -325,6 +339,12 @@ export const briefNote = (
         kind: 'writing',
         label: 'writing brief',
         text: note.ageMs === null ? 'the brief writer is working now' : briefWritingNote(note.ageMs),
+      };
+    case 'spent':
+      return {
+        kind: 'spent',
+        label: 'brief spent',
+        text: row.briefSpent ? briefSpentNote(row.briefSpent.ends, row.briefSpent.log) : 'brief runs ended without a brief',
       };
     case 'failed':
       return {

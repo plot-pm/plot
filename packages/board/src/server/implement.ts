@@ -32,6 +32,7 @@ export {
 import { bodyBranch, briefBranchOf, nothingStartableDetail, startReadingFromPulse } from '@plot-pm/fleet/shared/dispatch-command';
 import type { DispatchReadingFor, NamedBranchRefusal } from '@plot-pm/domain/rules/auto-dispatch';
 import { originPlanHome } from '@plot-pm/fleet/shared/origin-desk';
+import { readAllBriefSpent, removeBriefSpent } from '@plot-pm/fleet/shared/brief-spent';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { pulseFor } from './fleet.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
@@ -291,6 +292,11 @@ export async function handleImplement(
     return;
   }
   const branch = briefBranchOf(reading);
+  // A PERSON'S WRITE BRIEF CLEARS FLEETD'S HOLD: the spent file goes before the
+  // brief starts, and fleetd reads the branch `free` on its next pass. A run
+  // that names no branch clears every spent file of the plan.
+  if (branch !== null) removeBriefSpent(opts.repoRoot, branch);
+  else for (const r of readAllBriefSpent(opts.repoRoot)) if (r.slug === slug) removeBriefSpent(opts.repoRoot, r.branch);
   const home = await (deps.home ?? planHomeOf)(opts, slug, branch);
   const started = startImplement(opts, slug, usable, undefined, readCfg, branch, {}, true, home);
   if ('failure' in started) {

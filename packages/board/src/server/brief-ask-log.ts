@@ -25,6 +25,7 @@ import {
   type ImplementRunState,
 } from './implement.js';
 import { askForBriefLogPath } from './brief-ask.js';
+import { readBriefSpent } from '@plot-pm/fleet/shared/brief-spent';
 
 /**
  * Where `plot-dispatch.sh` writes a branch's ask — a shell string a test
@@ -117,6 +118,12 @@ export interface BriefReading {
    * alongside `needsBrief` and `askedAt`; it is not itself a rendered answer.
    */
   writing: boolean;
+  /**
+   * The spent record fleetd wrote for this branch — how many brief runs ended
+   * without a brief, and the repository-relative log of the last one — or null
+   * where none exists.
+   */
+  spent: { ends: number; log: string } | null;
 }
 
 /**
@@ -145,7 +152,8 @@ export interface BriefReading {
  * @returns `askedAt` — the earliest counting ask, or null where none counts or
  *          none could be stat'd; `failed` — the implement log's path where the
  *          failure condition above holds, otherwise null; `writing` — whether
- *          this branch's own writer is running right now.
+ *          this branch's own writer is running right now; `spent` — fleetd's
+ *          spent record for this branch, or null.
  */
 export const briefReading = (repoRoot: string, branch: string, planSlug: string): BriefReading => {
   const branchSlug = branch.split('/').pop() ?? branch;
@@ -173,5 +181,10 @@ export const briefReading = (repoRoot: string, branch: string, planSlug: string)
     }
   }
   const times = implementAt === null ? others : [...others, implementAt];
-  return { askedAt: times.length === 0 ? null : Math.min(...times), failed, writing };
+  const record = readBriefSpent(repoRoot, branch);
+  const spent = record === null ? null : {
+    ends: record.ends,
+    log: path.isAbsolute(record.log) ? path.relative(repoRoot, record.log) : record.log,
+  };
+  return { askedAt: times.length === 0 ? null : Math.min(...times), failed, writing, spent };
 };

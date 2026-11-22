@@ -1593,7 +1593,7 @@ export function startableNote(row: AgentRow): string {
 
 /**
  * Renders a brief note `briefNote` chose: a working dot while the writer runs,
- * the failed note in amber, the asked note in the quiet tone. Decides nothing.
+ * the failed and spent notes in amber, the asked note in the quiet tone. Decides nothing.
  *
  * THE DOT REUSES THE BOARD'S ONE PULSE CONVENTION — `animate-pulse
  * motion-reduce:animate-none`, decorative and `aria-hidden`, first established
@@ -1607,10 +1607,12 @@ const BriefNoteCell = ({ note }: { note: BriefNote }) => (
       ? { 'data-brief-writing': true }
       : note.kind === 'failed'
         ? { 'data-brief-failed': true }
-        : { 'data-brief-asked': true })}
+        : note.kind === 'spent'
+          ? { 'data-brief-spent': true }
+          : { 'data-brief-asked': true })}
     className={cn(
       'flex w-full items-baseline gap-x-2 text-xs sm:col-start-3 sm:col-end-[-1]',
-      note.kind === 'failed'
+      note.kind === 'failed' || note.kind === 'spent'
         ? 'text-amber-700 dark:text-amber-400'
         : 'text-slate-500 dark:text-slate-400',
     )}
