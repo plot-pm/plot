@@ -14,6 +14,7 @@
 - **Started:** 2026-11-21, Jan Wloka, `bug/the-brief-ask-test-owns-its-clock`
 - **Started:** 2026-11-21, Jan Wloka, `bug/a-refused-brief-is-asked-again`
 - **Started:** 2026-11-22, Jan Wloka, `bug/a-start-refusal-names-its-defect`
+- **Started:** 2026-11-22, Jan Wloka, `bug/the-probe-and-the-loop-name-the-charter-prompt`
 
 ## Changelog
 
