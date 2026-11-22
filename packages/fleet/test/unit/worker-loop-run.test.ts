@@ -435,19 +435,30 @@ describe('runWorkerLoop — a prompt', () => {
     r.deps = { ...r.deps, config: { ...rigConfig(), maxStartRetries: 1 } };
     expect(await runWorkerLoop(r.deps)).toBe(1);
     expect(r.runs).toHaveLength(0);
+    expect(r.calls.attempts).toEqual([]);
     expect(r.logs.join('\n')).toContain('bad charter');
   });
 
   it('refuses a prompt file that is absent: one line naming it, no run, no attempt (row 7, refused)', async () => {
-    const r = rig(ASSIGNED, [], { promptExists: () => false });
+    const r = rig(ASSIGNED, [], { promptExists: () => false, resolvePrompt: () => 'fallback\t.plot/worker-prompt.sh\tno agent named' });
     expect(await runWorkerLoop(r.deps)).toBe(1);
     const file = path.join(r.dir, '.plot', 'worker-prompt.sh');
     expect(r.runs).toHaveLength(0);
     expect(r.calls.attempts).toEqual([]);
     expect(r.logs.filter((l) => l.includes('refusing to launch'))).toEqual([
-      `plot-worker-loop: refusing to launch — the prompt file ${file} is absent; run plot-install-prompt.sh to write .plot/worker-prompt.sh`,
+      `plot-worker-loop: refusing to launch — the prompt file ${file} is absent; run plot-install-prompt.sh to write .plot/worker-prompt.sh from the template`,
     ]);
     expect(r.logs.filter((l) => l.includes('never started') || l.includes('failed to run'))).toEqual([]);
+  });
+
+  it('names the declared file and its charter where a charter\'s prompt is absent', async () => {
+    const r = rig(ASSIGNED, [], { promptExists: () => false, resolvePrompt: () => 'declared\t.plot/prompts/reviewer.sh\treviewer' });
+    expect(await runWorkerLoop(r.deps)).toBe(1);
+    const file = path.join(r.dir, '.plot', 'prompts', 'reviewer.sh');
+    expect(r.runs).toHaveLength(0);
+    expect(r.logs.filter((l) => l.includes('refusing to launch'))).toEqual([
+      `plot-worker-loop: refusing to launch — the prompt file ${file} is absent; write .plot/prompts/reviewer.sh, which charter 'reviewer' names`,
+    ]);
   });
 
   it('reads the file system for the prompt file when no promptExists is injected', async () => {

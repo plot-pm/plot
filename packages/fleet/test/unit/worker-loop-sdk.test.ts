@@ -64,6 +64,8 @@ interface Rig {
   wt: string;
   events: string[];
   requests: AgentRunRequest[];
+  /** Every attempt count the loop raised, in order. */
+  attempts: number[];
   deskCalls: ReturnType<typeof deskFixtureCalls>;
   read: () => Record<string, unknown>;
 }
@@ -84,6 +86,7 @@ const rig = (
   write({ ...manifest, worktree: wt });
 
   const events: string[] = [];
+  const attempts: number[] = [];
   const fixture = agentRunFixture({ answers });
   const baseAgents = agentsFixture({});
   const deskCalls = deskFixtureCalls();
@@ -92,9 +95,10 @@ const rig = (
     trees: treesFixture({ quiet: { [wt]: 5000 }, commits: { [wt]: 'no' } }),
     agents: {
       ...baseAgents,
-      raiseAttempts: async (w: string, attempts: number) => {
-        write({ ...read(), attempts });
-        return baseAgents.raiseAttempts(w, attempts);
+      raiseAttempts: async (w: string, raised: number) => {
+        attempts.push(raised);
+        write({ ...read(), attempts: raised });
+        return baseAgents.raiseAttempts(w, raised);
       },
       raiseCorrections: async (w: string, correctionAttempts: number) => {
         write({ ...read(), correctionAttempts });
@@ -180,7 +184,7 @@ const rig = (
     runner: 'sdk',
     sdk,
   };
-  return { deps, wt, events, requests: fixture.requests, deskCalls, read };
+  return { deps, wt, events, requests: fixture.requests, attempts, deskCalls, read };
 };
 
 beforeEach(() => {
@@ -467,6 +471,7 @@ describe('runWorkerLoop on the SDK runner — how a run ends', () => {
     refused.deps = { ...refused.deps, resolvePrompt: () => 'refused\t\tcharter x unreadable', log: (line) => logs.push(line) };
     expect(await runWorkerLoop(refused.deps)).toBe(1);
     expect(refused.requests).toEqual([]);
+    expect(refused.attempts).toEqual([]);
     expect(logs.join('\n')).toContain('refusing to launch — charter x unreadable');
 
     const noFile = rig([ran('blocked')], async () => ({ passed: true }));
