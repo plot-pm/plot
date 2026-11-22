@@ -198,21 +198,28 @@ const VERB_TONE_CLASS: Record<VerbTone, string> = {
  * @param verb - the verb `youRowCells` or `looseGroupRow` gave.
  * @param tone - the verb's tone from `REASON_DO`.
  */
-const YouVerb = ({ verb, tone }: { verb: string; tone: VerbTone }) => (
+const YouVerb = ({ verb, tone, reason }: { verb: string; tone: VerbTone; reason: string | null }) => (
   <button
     type="button"
     data-you-verb={tone}
+    disabled={reason !== null}
+    aria-disabled={reason !== null || undefined}
+    title={reason ?? undefined}
+    data-you-verb-reason={reason ?? undefined}
     onClick={(e) => {
       e.stopPropagation();
       const row = e.currentTarget.closest('[data-delivery-row]');
       const trigger = row?.querySelector<HTMLElement>('[data-row-actions], [data-row-menu] button[aria-haspopup]');
       trigger?.click();
     }}
-    className={`text-xs font-semibold hover:underline ${VERB_TONE_CLASS[tone]}`}
+    className={`text-xs font-semibold ${reason === null ? 'hover:underline' : 'cursor-not-allowed opacity-60'} ${VERB_TONE_CLASS[tone]}`}
   >
     {verb} ›
   </button>
 );
+
+/** The reason the verb of a Draft plan row shows disabled: the row draws no ⋯ to open. */
+const DRAFT_VERB_REASON = 'no actions on a Draft plan row; open the plan';
 
 /** The colour class of each You marker: Blocks delivery red, Input to the fleet blue, Unblock grey. */
 const YOU_MARKER_CLASS: Record<YouMarker, string> = {
@@ -1348,7 +1355,7 @@ export function AgentList({
           const cells = youRowCells(placed, count === undefined ? facts : { ...facts, slices: count }, sprint);
           if (cells === null || cells.verb === null) return null;
           return {
-            verb: <YouVerb verb={cells.verb.value} tone={REASON_DO[placed.reason].tone} />,
+            verb: <YouVerb verb={cells.verb.value} tone={REASON_DO[placed.reason].tone} reason={item.draft === null ? null : DRAFT_VERB_REASON} />,
             consequence: cells.consequence === null ? <span /> : <RowCell cell={cells.consequence} handlers={linkHandlers} />,
           };
         };
@@ -1503,7 +1510,7 @@ export function AgentList({
           <li key={block.key} role="row" data-delivery-row="" data-loose-group={block.items.length} className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 delivery-row delivery-row-ruled sm:grid ${TUPLE_TRACKS} sm:items-baseline sm:gap-x-3`}>
             <span role="gridcell" className={MARKS_CELL} />
             <span role="gridcell" data-row-cell="kind" className="delivery-kind min-w-0 shrink-0 truncate">
-              <YouVerb verb={block.row.verb} tone={block.row.tone} />
+              <YouVerb verb={block.row.verb} tone={block.row.tone} reason={null} />
             </span>
             <span role="gridcell" data-row-cell="item" className="flex min-w-0 items-baseline gap-1.5 font-medium">{block.row.object}</span>
             <span role="gridcell" data-row-cell="where" />

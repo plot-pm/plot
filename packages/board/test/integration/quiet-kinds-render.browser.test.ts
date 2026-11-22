@@ -265,13 +265,14 @@ describe('the board shows which kind of quiet a row is in', () => {
       await toggle.waitFor({ timeout: 10_000 });
       if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
       await expandAgentFolds(page);
-      const li = rowFor(page, branch);
-      await expect.poll(() => li.textContent()).toContain('claimed elsewhere');
-      // The row carries one menu, the clean-up menu, and Release claim is in it.
+      const li = page.locator('[data-section="you"] li[data-loose-group]');
+      await expect.poll(() => li.textContent()).toContain('1 loose branch');
+      // The grouped Unblock row carries one menu, and the branch's Release claim is in it.
       expect(await li.locator('[data-row-actions]').count()).toBe(1);
       await li.locator('[data-row-actions]').click();
-      const release = page.locator('[role="menu"] [data-release-claim]');
+      const release = page.locator(`[role="menu"] [data-menu-branch="${branch}"] [data-release-claim]`);
       await release.waitFor({ timeout: 5_000 });
+      expect(await release.innerText()).toContain('another machine');
       await release.click();
       await release.click();
       await page.locator('[data-release-claim-done]').waitFor({ timeout: 5_000 });

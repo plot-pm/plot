@@ -70,8 +70,11 @@ describe('a Draft plan asks for a decision (real browser renders the shipped art
       expect(absentShape.italic).toBe('italic');
       expect(absentShape.fill).toBe('rgba(0, 0, 0, 0)');
 
-      // No action: the row says a decision is owed and offers none.
-      expect(await zucchini.locator('button').count()).toBe(0);
+      // No action: the row says a decision is owed and offers none. Its verb shows, disabled with the reason.
+      expect(await zucchini.locator('button:not([disabled])').count()).toBe(0);
+      const verb = zucchini.locator('[data-you-verb]');
+      expect(await verb.textContent()).toBe('Interrogate ›');
+      expect(await verb.getAttribute('data-you-verb-reason')).toBe('no actions on a Draft plan row; open the plan');
     } finally {
       await page.close();
     }
@@ -107,7 +110,7 @@ describe('a Draft plan asks for a decision (real browser renders the shipped art
       expect(await row.locator('[data-draft-plan-first-question]').textContent()).toContain('Which wire gauge?');
       expect(await row.locator('[data-draft-plan-more]').textContent()).toBe('+2 more');
       const headers = await page.locator('[data-you-header] [role="columnheader"]').allTextContents();
-      expect(headers.slice(0, 5)).toEqual(['Kind', 'Item', 'Status', 'Age', 'Do']);
+      expect(headers).toEqual(['Do', 'Item', 'Waits', 'Actions']);
     } finally {
       await page.close();
     }
