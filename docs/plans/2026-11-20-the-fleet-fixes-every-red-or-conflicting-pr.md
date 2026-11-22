@@ -97,7 +97,7 @@ No arm acts on a conflict. The fixer knows two finding kinds, `high` and `ci` (`
 
 ### Review
 
-- `feature/the-review-reads-the-fixer-scope` — `reviewPrNext`: `repairNamesPr` first, as `guardArm` does today, then the fixer's scope rule (renamed for both roles), then `reviewRunArm`, `restatusArm` and `reviewArm`; auto-review calls it instead of `slicePrNext`, the merge arm keeps `slicePrNext` and the sprint scope, with a test that proves merge still answers `out-of-scope`; the domain and fleet test cells the testability verdict names <!-- builds: reviewPrNext, the review arm walk over the fixer scope --> <!-- waits: feature/the-fixer-scope-reads-every-open-pr -->
+- `feature/the-review-reads-the-fixer-scope` — `reviewPrNext`: `repairNamesPr` first, as `guardArm` does today, then the fixer's scope rule (renamed for both roles), then `reviewRunArm`, `restatusArm` and `reviewArm`; auto-review calls it instead of `slicePrNext`, the merge arm keeps `slicePrNext` and the sprint scope, with a test that proves merge still answers `out-of-scope`; the domain and fleet test cells the testability verdict names <!-- builds: reviewPrNext, the review arm walk over the fixer scope --> <!-- waits: feature/the-fixer-scope-reads-every-open-pr --> → #3646
 
 ## Notes
 
