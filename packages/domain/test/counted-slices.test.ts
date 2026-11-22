@@ -33,6 +33,11 @@ describe('countedSlicesByPlan', () => {
     expect(byPlan.get('row-plan')).toEqual([]);
   });
 
+  it('gives an empty plan key no entry and a repeated plan key one entry', () => {
+    const byPlan = countedSlicesByPlan({ seen: ['', 'row-plan', 'row-plan'], slices: [] });
+    expect([...byPlan.entries()]).toEqual([['row-plan', []]]);
+  });
+
   it('gives a plan with no slice item and no reading no entry', () => {
     const byPlan = countedSlicesByPlan({ seen: ['other'], slices: [] });
     expect(byPlan.has('unread')).toBe(false);
