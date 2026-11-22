@@ -40,7 +40,7 @@ describe('the Release delivery section under the My sprint scope', () => {
     expect(label).toBe('Sprint delivery · Title alpha');
     expect(v.releaseBlocks).toHaveLength(1);
     expect(v.releaseBlocks[0]!.plans.map((p) => p.plan)).toEqual(['p1', 'p2']);
-    expect(v.releaseBlocks[0]!.header).toBe('2 plans · 2 of 2 slices delivered · 0 blocked');
+    expect(v.releaseBlocks[0]!.header).toBe('2 plans · 2 of 2 slices delivered · 0 blocked · 0 at a gate · 0 being built · 0 not started');
     expect(v.releaseBlocks[0]!.cards).toEqual([]);
   });
 
@@ -48,8 +48,8 @@ describe('the Release delivery section under the My sprint scope', () => {
     const { v, label } = place(['alpha', 'beta']);
     expect(label).toBe('Sprint delivery');
     expect(v.releaseBlocks.map((b) => [b.sprint, b.plans.map((p) => p.plan), b.header])).toEqual([
-      ['alpha', ['p1', 'p2'], 'Title alpha · 2 plans · 2 of 2 slices delivered · 0 blocked'],
-      ['beta', ['p2', 'p3'], 'Title beta · 2 plans · 2 of 2 slices delivered · 0 blocked'],
+      ['alpha', ['p1', 'p2'], 'Title alpha · 2 plans · 2 of 2 slices delivered · 0 blocked · 0 at a gate · 0 being built · 0 not started'],
+      ['beta', ['p2', 'p3'], 'Title beta · 2 plans · 2 of 2 slices delivered · 0 blocked · 0 at a gate · 0 being built · 0 not started'],
     ]);
     expect(v.releasePlanCount).toBe(3);
   });
@@ -57,12 +57,14 @@ describe('the Release delivery section under the My sprint scope', () => {
   it('gives the header line the one sprint as its scope and links each non-zero count to a plan row', () => {
     const { v } = place(['alpha'], [alpha, theirs]);
     expect(v.releaseHeader.scope).toBe('alpha');
-    expect(v.releaseHeader.title).toBe('2 plans · 2 of 2 slices delivered · 0 blocked');
+    expect(v.releaseHeader.title).toBe('2 plans · 2 of 2 slices delivered · 0 blocked · 0 at a gate · 0 being built · 0 not started');
     expect(v.releaseHeader.counts.map((c) => [c.key, c.count, c.anchor])).toEqual([
       ['plans', 2, 'delivery-plan-p1'],
       ['delivered', 2, 'delivery-plan-p1'],
-      ['at-a-gate', 0, null],
       ['blocked', 0, null],
+      ['at-a-gate', 0, null],
+      ['being-built', 0, null],
+      ['not-started', 0, null],
     ]);
   });
 
