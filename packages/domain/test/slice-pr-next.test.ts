@@ -7,7 +7,7 @@ import type { DefaultBranchReading } from '../src/entities/default-branch.js';
 import type { RepairMergeReading } from '../src/rules/repair-pr.js';
 import type { FixerAttemptsRecord } from '../src/entities/fixer-attempts.js';
 import { fixerReadingOf } from '../src/rules/fixer-attempts.js';
-import { ciRedArm, conflictArm, fixerPrNext, highArm, mergeArm, nextMerge, restatusArm, reviewArm, reviewPrNext, slicePrNext, type ReviewPrNextReadings, type SlicePrNextReadings } from '../src/rules/slice-pr-next.js';
+import { ciRedArm, conflictArm, fixerPrNext, highArm, mergeArm, nextMerge, repairAdmits, restatusArm, reviewArm, reviewPrNext, slicePrNext, type ReviewPrNextReadings, type SlicePrNextReadings } from '../src/rules/slice-pr-next.js';
 
 const HEAD = 'a'.repeat(40);
 const OLD = 'b'.repeat(40);
@@ -973,6 +973,14 @@ describe('reviewPrNext', () => {
       step: 'review',
       head: HEAD,
     });
+  });
+
+  it('admits no repair PR that is absent, closed or a draft', () => {
+    const repairHead = `bug/main-repair-${LAST_GREEN.slice(0, 12)}`;
+    expect(repairAdmits({ row: outside({ head: repairHead }), repairMerge: repairMerge() })).toBe(true);
+    expect(repairAdmits({ row: null, repairMerge: repairMerge() })).toBe(false);
+    expect(repairAdmits({ row: outside({ head: repairHead, state: 'CLOSED' }), repairMerge: repairMerge() })).toBe(false);
+    expect(repairAdmits({ row: outside({ head: repairHead, draft: true }), repairMerge: repairMerge() })).toBe(false);
   });
 
   it('answers owner-unread for an unread owner', () => {
