@@ -211,6 +211,10 @@ describe('planPrOf — a plan the default branch holds', () => {
     expect(planPrOf(landed({ addition: { sha: 's', secondParent: '' } }))).toEqual({ outcome: 'none' });
   });
 
+  it('answers none for the empty addition the interrogate route pre-fills, and never asks by commit', () => {
+    expect(planPrOf(landed({ addition: { sha: '', secondParent: '' }, byCommit: undefined, merged: undefined, confirmed: undefined }))).toEqual({ outcome: 'none' });
+  });
+
   it('asks the host by commit after the addition', () => {
     expect(planPrOf(landed({ byCommit: undefined, merged: undefined, confirmed: undefined }))).toEqual({ outcome: 'ask', ask: 'commit' });
   });

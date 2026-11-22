@@ -3,6 +3,7 @@ import { hostFixture } from '@plot-pm/domain/adapters/host/host-fixture';
 import { planStoreFixture, planRecord } from '@plot-pm/domain/adapters/plan-store/plan-store-fixture';
 import { refsFixture } from '@plot-pm/domain/adapters/refs/refs-fixture';
 import type { CommitStatusWrite, Host, HostRefusal } from '@plot-pm/domain/ports/host';
+import type { Pr } from '@plot-pm/domain/entities/pr';
 import type { PortResult } from '@plot-pm/domain';
 import type { PlanStore } from '@plot-pm/domain/ports/plan-store';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
@@ -516,5 +517,135 @@ describe('approve perform — an open PR the host named with no head commit is n
     expect(message).toContain('no plan found');
     expect(message).toContain('#975');
     expect(message).toContain('the host named no head commit');
+  });
+});
+
+describe('approve perform — a plan the default branch holds, found by its adding merge', () => {
+  const MERGE = '1d814d0a1'.padEnd(40, '1');
+  const SECOND = '0835e43b7'.padEnd(40, '2');
+  const PLAN_PR = 3478;
+
+  /** A merged row as the host answers it by commit or in a listing. */
+  const mergedRow = (number: number, head: string, headSha: string, mergeCommit: string): Pr => ({
+    number, repo: '', head, base: 'main', state: 'MERGED', mergedAt: '2026-11-17T10:00:00Z', mergeCommit,
+    draft: false, mergeable: 'unknown', review: '', checks: 'unknown', failingChecks: [], url: '', author: '', headSha,
+  });
+
+  /** The newest 100 merged PRs, none of them the plan PR. */
+  const newer = Array.from({ length: 100 }, (_, i) => mergedRow(3600 - i, `feature/other-${i}`, `${i}`.padStart(40, 'f'), `${i}`.padStart(40, 'e')));
+
+  interface Asked { commit: string[]; merged: number }
+
+  /**
+   * A host whose PR of `idea/<slug>` is absent, which answers `prsOfCommit`
+   * from `commitPrs` (or `unaskable` where it is null), and counts the asks.
+   */
+  const hostOf = (asked: Asked, commitPrs: Record<string, readonly Pr[]> | null, listed: readonly Pr[] = newer): Host => {
+    const base = hostFixture({ prs: [...listed], ...(commitPrs === null ? {} : { commitPrs }) });
+    return {
+      ...base,
+      prsOfCommit: async (sha) => {
+        asked.commit.push(sha);
+        return commitPrs === null ? { ok: false, why: 'unaskable', reason: 'shell transport' } : base.prsOfCommit(sha);
+      },
+      prList: async (state, limit) => {
+        if (state === 'merged') asked.merged += 1;
+        return base.prList(state, limit);
+      },
+    };
+  };
+
+  /** A plan in the checkout at its real path, which the default branch also holds, added by `MERGE` (or a squash where `squash`). */
+  const ctxOnMain = (host: Host, impl: string, opts: { squash?: boolean; onMain?: boolean } = {}): Context => ({
+    repoRoot: '/repo',
+    scriptDir: '/repo/skills/plot/scripts',
+    host,
+    planStore: planStoreFixture({
+      files: { [REAL_FILE]: 'placeholder' },
+      plans: [planRecord({ file: REAL_FILE, phase: 'draft', review: 'pr', impl, branches: ['feature/one'] })],
+    }),
+    refs: refsFixture({
+      trees: opts.onMain === false ? {} : { [`origin/main`]: [{ mode: '100644', sha: 'b'.repeat(40), path: REAL_FILE }] },
+      firstParentAdditions: { [`origin/main:${REAL_FILE}`]: MERGE },
+      shas: {
+        ...(opts.squash === true ? {} : { [`${MERGE}^2`]: SECOND }),
+        [`origin/main:${REAL_FILE}`]: 'b'.repeat(40),
+      },
+    }),
+    scripts: scriptsStub([]),
+    trees: treesStub(),
+  });
+
+  const run = async (ctx: Context): Promise<{ out: string; error: string }> => {
+    let out = '';
+    try {
+      await perform(ctx, { dryRun: true, spike: false, who: 'jwloka', slug: SLUG }, (s) => { out += s; }, () => {});
+      return { out, error: '' };
+    } catch (err) {
+      return { out, error: err instanceof Error ? err.message : String(err) };
+    }
+  };
+
+  it('approves through prsOfCommit a plan PR absent from the newest 100 merged PRs, and never lists them', async () => {
+    const asked: Asked = { commit: [], merged: 0 };
+    const host = hostOf(asked, { [SECOND]: [mergedRow(PLAN_PR, `idea/${SLUG}-v2`, SECOND, MERGE)] });
+    const { out, error } = await run(ctxOnMain(host, 'own-branches'));
+
+    expect(error).toBe('');
+    expect(out).toContain(`pr=#${PLAN_PR}(MERGED)`);
+    expect(asked.commit).toEqual([SECOND]);
+    expect(asked.merged).toBe(0);
+  });
+
+  it('approves a same-branch plan on the default branch whose plan PR merged from docs/<slug>, with no prefixed ref', async () => {
+    const asked: Asked = { commit: [], merged: 0 };
+    const host = hostOf(asked, { [SECOND]: [mergedRow(PLAN_PR, `docs/${SLUG}`, SECOND, MERGE)] });
+    const { out, error } = await run(ctxOnMain(host, 'same-branch'));
+
+    expect(error).toBe('');
+    expect(out).toContain(`pr=#${PLAN_PR}(MERGED)`);
+    expect(asked.commit).toEqual([SECOND]);
+  });
+
+  it('still refuses pr-absent for the bare slug of a same-branch plan the default branch does not hold', async () => {
+    const asked: Asked = { commit: [], merged: 0 };
+    const host = hostOf(asked, {});
+    const { error } = await run(ctxOnMain(host, 'same-branch', { onMain: false }));
+
+    expect(error).toContain(`no PR found for branch '${SLUG}'.`);
+    expect(asked.commit).toEqual([]);
+  });
+
+  it('refuses pr-absent as before for a plan a squash added', async () => {
+    const asked: Asked = { commit: [], merged: 0 };
+    const host = hostOf(asked, {});
+    const { error } = await run(ctxOnMain(host, 'own-branches', { squash: true }));
+
+    expect(error).toContain(`no PR found for branch 'idea/${SLUG}'.`);
+    expect(asked.commit).toEqual([]);
+  });
+
+  it('refuses pr-merge-unnamed by commit where the host names no PR for the merge', async () => {
+    const asked: Asked = { commit: [], merged: 0 };
+    const host = hostOf(asked, { [SECOND]: [] });
+    const { error } = await run(ctxOnMain(host, 'own-branches'));
+
+    expect(error.split('\n')).toEqual([
+      `the merge commit ${MERGE} added ${REAL_FILE}, and the host could not name its PR.`,
+      `  Check the merge commit on the host, or approve in session: plot-approve-command.mjs --who <handle> ${SLUG}. Nothing was merged and the phase is unchanged.`,
+    ]);
+    expect(asked.merged).toBe(0);
+  });
+
+  it('refuses pr-merge-unnamed by list where the host has no answer by commit and the newest 100 merged PRs miss it', async () => {
+    const asked: Asked = { commit: [], merged: 0 };
+    const host = hostOf(asked, null);
+    const { error } = await run(ctxOnMain(host, 'own-branches'));
+
+    expect(error.split('\n')).toEqual([
+      `the merge commit ${MERGE} added ${REAL_FILE}, and the host could only search its newest 100 merged PRs.`,
+      `  Set a host credential so plot-approve can ask the host by commit, or approve in session: plot-approve-command.mjs --who <handle> ${SLUG}. Nothing was merged and the phase is unchanged.`,
+    ]);
+    expect(asked.merged).toBe(1);
   });
 });

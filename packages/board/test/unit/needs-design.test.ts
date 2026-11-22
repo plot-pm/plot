@@ -206,3 +206,37 @@ describe('needs-design perform — origin/<head> moved between the read and the 
     expect(pushed).toHaveLength(0);
   });
 });
+
+describe('needs-design perform — a plan the default branch holds through a merge whose PR the host cannot name', () => {
+  it('refuses as a plan with no plan PR, as a squash-added plan does', async () => {
+    const MERGE = 'c'.repeat(40);
+    const SECOND = 'd'.repeat(40);
+    const REAL = `docs/plans/2026-10-17-${SLUG}.md`;
+    const asked: string[] = [];
+    const base = hostFixture({ prs: [], commitPrs: { [SECOND]: [] } });
+    const ctx: Context = {
+      repoRoot: '/repo',
+      scriptDir: '/repo/skills/plot/scripts',
+      host: { ...base, prsOfCommit: async (sha) => { asked.push(sha); return base.prsOfCommit(sha); } },
+      planStore: planStoreFixture({ files: { [REAL]: PLAN_TEXT }, plans: [planRecordFor(REAL)] }),
+      refs: refsFixture({
+        trees: { 'origin/main': [{ mode: '100644', sha: 'e'.repeat(40), path: REAL }] },
+        firstParentAdditions: { [`origin/main:${REAL}`]: MERGE },
+        shas: { [`${MERGE}^2`]: SECOND, [`origin/main:${REAL}`]: 'e'.repeat(40) },
+      }),
+      scripts: scriptsStub(),
+      trees: treesStub({
+        addBranch: async () => { throw new Error('stop at the booking worktree'); },
+      }),
+    };
+
+    let out = '';
+    let error = '';
+    await perform(ctx, { who: 'jwloka', slug: SLUG, channel: 'board' }, (s) => { out += s; }, () => {})
+      .catch((err: unknown) => { error = err instanceof Error ? err.message : String(err); });
+
+    expect(asked).toEqual([SECOND]);
+    expect(error.split('\n')[0]).toBe(`plan '${SLUG}' declares 'Review: pr' and has no plan PR — open one before moving it to Design.`);
+    expect(out).toBe('');
+  });
+});
