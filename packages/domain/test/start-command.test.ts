@@ -92,6 +92,19 @@ describe('startCommand', () => {
     });
   });
 
+  describe('the defect word', () => {
+    const LOOPING = 'PLOT_UNATTENDED=1 plot-worker-loop.sh';
+    const defectOf = (answer: ReturnType<typeof startCommand>) => (answer.start === 'refused' ? answer.defect : answer.start);
+
+    it.each([
+      ['a free agent on a command that is not the loop', PLAIN, PRESENT, 'no-loop'],
+      ['a refused charter', LOOPING, { ...PRESENT, resolution: { resolve: 'refused', why: 'w' } } as PromptReading, 'charter-refused'],
+      ['an absent prompt file on the command runner', LOOPING, { ...PRESENT, present: false }, 'prompt-absent'],
+    ] as const)('names %s %j', (_label, configured, prompt, defect) => {
+      expect(defectOf(startCommand(configured, LOOP, 'free', prompt))).toBe(defect);
+    });
+  });
+
   describe('the prompt file', () => {
     const LOOPING = 'PLOT_UNATTENDED=1 plot-worker-loop.sh';
     const absent: PromptReading = { ...PRESENT, present: false };
@@ -133,6 +146,20 @@ describe('startCommand', () => {
         present: true,
       });
       expect(answer.start === 'refused' && answer.why).toBe("charter 'x' not JSON");
+    });
+
+    it('refuses a refused charter on the sdk runner too, as charter-refused', () => {
+      const answer = startCommand(LOOPING, LOOP, 'free', {
+        runner: 'sdk',
+        resolution: { resolve: 'refused', why: "charter 'x' not JSON" },
+        present: false,
+      });
+      expect(answer).toEqual({
+        start: 'refused',
+        defect: 'charter-refused',
+        why: "charter 'x' not JSON",
+        repair: 'fix the charter named by PLOT_AGENT',
+      });
     });
 
     it('reads no prompt for an absent key, `none`, or an assigned command that is not the loop', () => {

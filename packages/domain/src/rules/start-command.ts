@@ -47,14 +47,27 @@ export interface PromptReading {
  * - `unconfigured`: the key is absent or empty, so nothing starts; `repair`
  *   names the value to set.
  * - `declined`: the repository answered `none`, so nothing starts.
- * - `refused`: the command cannot run this agent; `why` names the defect and
- *   `repair` the fix.
+ * - `refused`: the command cannot run this agent; `defect` names which defect
+ *   (`no-loop`, `charter-refused` or `prompt-absent`), `why` describes it and
+ *   `repair` names the fix.
  */
 export type StartCommand =
   | { readonly start: 'run'; readonly command: string }
   | { readonly start: 'unconfigured'; readonly repair: string }
   | { readonly start: 'declined' }
-  | { readonly start: 'refused'; readonly why: string; readonly repair: string };
+  | {
+      readonly start: 'refused';
+      readonly defect: StartDefect;
+      readonly why: string;
+      readonly repair: string;
+    };
+
+/**
+ * Why a start is refused: the command does not run the loop for a free agent
+ * (`no-loop`), the agent's charter is refused (`charter-refused`), or the
+ * prompt file the `command` runner sources is absent (`prompt-absent`).
+ */
+export type StartDefect = 'no-loop' | 'charter-refused' | 'prompt-absent';
 
 /**
  * Answers which command starts an agent.
@@ -65,9 +78,10 @@ export type StartCommand =
  *   runs it.
  * @param agent - `free` for an agent holding no branch, `assigned` for one
  *   started on a branch.
- * @param prompt - the prompt file reading. A command that runs the loop on the
- *   `command` runner is refused when the resolution is `refused` or the file is
- *   absent; the `sdk` runner is never refused for the file.
+ * @param prompt - the prompt file reading. A command that runs the loop is
+ *   refused first when the resolution is `refused`, on either runner; on the
+ *   `command` runner it is then refused when the file is absent. The `sdk`
+ *   runner is never refused for the file.
  * @returns the command to run, `unconfigured`, `declined`, or the refusal.
  */
 export const startCommand = (
@@ -87,21 +101,22 @@ export const startCommand = (
   if (agent === 'assigned') return { start: 'run', command: value };
   return {
     start: 'refused',
+    defect: 'no-loop',
     why: `the 'Worker command' does not run ${loop.name}, so a free agent starts with an empty PLOT_BRANCH, runs at once and exits`,
     repair: `${setIt}, and move the harness call into .plot/worker-prompt.sh — plot-install-prompt.sh writes one from the template`,
   };
 };
 
-/** The refusal for a loop on the `command` runner with no usable prompt file, else null. */
+/** The refusal for a loop with a refused charter, or on the `command` runner with no prompt file, else null. */
 const missingPrompt = ({ runner, resolution, present }: PromptReading): StartCommand | null => {
-  if (runner !== 'command') return null;
   if (resolution.resolve === 'refused') {
-    return { start: 'refused', why: resolution.why, repair: `fix the charter named by PLOT_AGENT` };
+    return { start: 'refused', defect: 'charter-refused', why: resolution.why, repair: `fix the charter named by PLOT_AGENT` };
   }
-  if (present) return null;
+  if (runner !== 'command' || present) return null;
   const declared = resolution.resolve === 'declared';
   return {
     start: 'refused',
+    defect: 'prompt-absent',
     why: `the 'Worker command' runs the loop on the command runner, and its prompt file ${resolution.prompt} is absent`,
     repair: declared
       ? `write ${resolution.prompt}, which charter '${resolution.charter}' names`
