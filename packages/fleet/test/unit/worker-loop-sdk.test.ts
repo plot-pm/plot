@@ -138,6 +138,7 @@ const rig = (
     maxTurns: 150,
     maxSpendUsd: 0,
     contextWindow: 200_000,
+    strictMcp: true,
     capabilities: [],
     runChecks: async (worktree) => {
       events.push('checks');
@@ -275,7 +276,7 @@ describe('runWorkerLoop on the SDK runner — the hand-back rows', () => {
     expect(await runWorkerLoop(r.deps)).toBe(124);
     expect(r.events).toEqual(['model', 'checks', 'model']);
     expect(r.requests).toHaveLength(2);
-    expect(r.requests[0]).toMatchObject({ prompt: `implement ${BRANCH}`, resumeId: '', sessionId: 'h-1', model: 'sonnet', maxTurns: 150, contextWindow: 200_000, role: 'worker' });
+    expect(r.requests[0]).toMatchObject({ prompt: `implement ${BRANCH}`, resumeId: '', sessionId: 'h-1', model: 'sonnet', maxTurns: 150, contextWindow: 200_000, strictMcp: true, role: 'worker' });
     expect(r.requests[0]!.env.PLOT_BRANCH).toBe(BRANCH);
     expect(r.requests[1]).toMatchObject({ prompt: 'local checks passed: tests added', resumeId: 'h-1' });
     // A `checks` resume is not a CI correction: nothing is written to the desk.
@@ -626,6 +627,13 @@ describe('runnerDeps', () => {
     expect(out.sdk).toMatchObject({ model: 'sonnet', maxTurns: 150, contextWindow: 200_000, capabilities: [] });
     expect(logs.join('\n')).toContain("reads Plot's shipped");
     expect(logs.join('\n')).toContain('model sonnet (worker-command)');
+  });
+
+  it('sets strictMcp from Worker command', async () => {
+    const strict = await deps(setup(), { 'Agent runner': 'sdk', 'Worker command': 'PLOT_MODEL=sonnet plot-worker-loop.sh --strict-mcp-config' });
+    expect(strict.sdk).toMatchObject({ strictMcp: true });
+    const loose = await deps(setup(), { 'Agent runner': 'sdk', 'Worker command': 'PLOT_MODEL=sonnet plot-worker-loop.sh' });
+    expect(loose.sdk).toMatchObject({ strictMcp: false });
   });
 
   it("fills the shipped template's placeholders, and reads the project's .md over it", async () => {

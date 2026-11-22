@@ -468,6 +468,7 @@ export const agentRunSdk = (deps: AgentRunSdkDeps): AgentRun => ({
       // settings object beside the project's `Agent settings`, never as `env`.
       settings: Object.keys(settings).length > 0 ? (settings as Options['settings']) : undefined,
       settingSources: ['user', 'project', 'local'],
+      ...(request.strictMcp === true ? { strictMcpConfig: true } : {}),
       // A ROLE RUN LOADS USER SETTINGS ONLY, as the command runner's
       // `--setting-sources user` does: nothing from the reviewed or fixed tree
       // applies. Its settings file replaces the inline object.
