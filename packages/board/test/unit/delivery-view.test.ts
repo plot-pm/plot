@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DELIVERY_LAYOUT, deliveryScope, parsePersonDirectory, planIndexOf } from '@plot-pm/domain';
 import type { AgentRow, DraftPlan, Slice } from '../../src/contract/schema.js';
-import { deliveryMapping, sliceItemId, sprintCardViewOf, type RegistryAgent } from '../../src/app/lib/agent-rows/delivery-readings.js';
+import { countedPlanFactsOf, deliveryMapping, sliceItemId, sprintCardViewOf, type RegistryAgent } from '../../src/app/lib/agent-rows/delivery-readings.js';
 import { GLYPH_PATH } from '../../src/app/lib/glyphs.js';
 import { anchorOwner, FLEET_CONTROLS_ANCHOR, itemAnchor, releasePlanAnchor, sectionAnchor, ticketAnchor, UNPLACED_ANCHOR, bulkDeleteWords, cleanUpBranches, deleteWords, releaseWords, groupAnchor, nestItems, placeMapping, planBlockShown, summarise, type PlacedItemView } from '../../src/app/lib/agent-rows/delivery-view.js';
 
@@ -185,6 +185,30 @@ describe('delivery view nesting', () => {
       const sprintCard = sprintCardViewOf([sprint], input.reader, input).cards[0]!;
       const personBar = placeMapping(deliveryMapping(input), slices, [sprint] as never[]).releaseBlocks[0]!.cards[0]!.sprints[0]!;
       expect(sprintCard.bar).not.toBeNull();
+      expect(personBar.readingMissing).toBe(false);
+      expect(personBar.bar).toEqual(sprintCard.bar);
+    });
+
+    it('draws the same bar on the person card as on the sprint card for a sprint with a Delivered docs member', () => {
+      const slices = [mergedSlice('p1', 'a')];
+      const input = {
+        rows: slices.map((s) => merged(s.plan, s.name)),
+        slices,
+        agents: [],
+        drafts: [],
+        reader: { hostUser: 'jwloka', directory: parsePersonDirectory('jwloka = Jan Wloka') },
+        mode: 'all' as const,
+        config: { autoReview: true, correctionBudget: 2 },
+        plans: countedPlanFactsOf({ 'docs-plan': { file: 'docs/plans/2026-11-01-docs-plan.md', issues: [], phase: 'delivered', type: 'docs', slices: ['Docs'] } }),
+      };
+      const sprint = {
+        slug: 's1', title: 'One', release: '2.0', end: '', ownerHandle: 'jwloka',
+        members: [{ slug: 'p1', tier: 'must' as const, checked: false, known: true }, { slug: 'docs-plan', tier: 'must' as const, checked: false, known: true }],
+      };
+      const sprintCard = sprintCardViewOf([sprint], input.reader, input).cards[0]!;
+      const personBar = placeMapping(deliveryMapping(input), slices, [sprint] as never[]).releaseBlocks[0]!.cards[0]!.sprints[0]!;
+      expect(sprintCard.readingMissing).toBe(false);
+      expect(sprintCard.bar!.find((s) => s.state === 'delivered')!.count).toBe(2);
       expect(personBar.readingMissing).toBe(false);
       expect(personBar.bar).toEqual(sprintCard.bar);
     });
