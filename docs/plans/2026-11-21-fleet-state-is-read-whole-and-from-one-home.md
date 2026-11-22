@@ -166,7 +166,7 @@ The layering rule holds in every slice: a controller or an entry calls the domai
 
 ### Unfound state home
 
-- `bug/merge-refuses-an-unfound-state-home` — `MergeReadings.stateHome`, the `state-home-unread` refusal in `mergeAt` and `repair-pr`, and the `PLOT_REPO_ROOT` seam tests <!-- builds: state-home-unread, the merge refusal for an unfound state home -->
+- `bug/merge-refuses-an-unfound-state-home` — `MergeReadings.stateHome`, the `state-home-unread` refusal in `mergeAt` and `repair-pr`, and the `PLOT_REPO_ROOT` seam tests <!-- builds: state-home-unread, the merge refusal for an unfound state home --> → #3669
 
 ### One state home
 
