@@ -119,7 +119,7 @@ Today actions sit in different columns per section, some rows hold buttons and s
 
 ### Release delivery unfold
 
-- `feature/release-delivery-plan-rows-unfold` <!-- waits: feature/every-delivery-section-folds --> — each Release delivery plan row with plan 2's fold control, opening to `PlanLine` slice lines with name, PR+branch tuple, a status pill from `slicePills` with `LINE_STATE` moved into it, and a ⋯ that holds Start work with the slice line's item unit test <!-- builds: releasePlanSlices, the unfolded slice lines of a release plan row -->
+- `feature/release-delivery-plan-rows-unfold` <!-- waits: feature/every-delivery-section-folds --> — each Release delivery plan row with plan 2's fold control, opening to `PlanLine` slice lines with name, PR+branch tuple, a status pill from `slicePills` with `LINE_STATE` moved into it, and a ⋯ that holds Start work with the slice line's item unit test <!-- builds: releasePlanSlices, the unfolded slice lines of a release plan row --> → #3665
 
 ### Fleet switches
 

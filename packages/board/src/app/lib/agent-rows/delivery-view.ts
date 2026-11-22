@@ -9,6 +9,7 @@ import {
   planRowFacts,
   releaseBlocks,
   releaseDeliveryHeader,
+  stripStateCounts,
   type ReleaseDeliveryCount,
   type ReleaseDeliveryHeader,
   releasePersonCards,
@@ -1050,22 +1051,21 @@ export const deliveryView = (
   const sprintGroups = sprintDeliveryGroups(scopeFacts, approved);
   const sectionTitle = sprintDeliveryTitle(scopeFacts);
   for (const section of sections) if (section.key === 'release-delivery') section.label = sectionTitle;
-  const blockedOf = (plans: readonly PlanRowView[]): number => plans.reduce((n, p) => n + (p.strip.find((x) => x.state === 'blocked')?.count ?? 0), 0);
   const sprintBlocks = sprintGroups.map((g): ReleaseBlockView => {
     const plans = g.plans.map(planRow);
-    const strip = { blocked: blockedOf(plans) };
+    const strip = stripStateCounts(plans);
     const header = sprintGroupHeader(g.name, sprintGroups.length > 1, headerText(headerCounts(plans), '', strip));
     return { release: '', sprint: g.sprint, name: sprintGroups.length > 1 ? g.name : '', header, counts: headerCountParts(headerCounts(plans), strip), plans, cards: [] };
   });
   const releaseScoped = releaseBlocks(sprints.map((sp) => ({ release: sp.release, members: sp.members.map((m) => m.slug) })), approved).map((b): ReleaseBlockView => {
     const plans = b.plans.filter((p) => approved.includes(p)).map(planRow);
-    const blocked = blockedOf(plans);
+    const strip = stripStateCounts(plans);
     const target = mapping.releases.targets.find((t) => t.release === b.release);
     const tickets = mapping.releases.tickets;
     const wording = target === undefined || tickets === null ? null : releaseTicketWording(tickets, target.release, target.started);
-    const header = headerText(headerCounts(plans), b.release, { blocked });
+    const header = headerText(headerCounts(plans), b.release, strip);
     const cards = releasePersonCards(sprints.map((sp) => ({ slug: sp.slug, title: sp.title ?? '', release: sp.release ?? '', ownerHandle: sp.ownerHandle ?? '', members: sp.members ?? [] })), b.release, mapping.directory ?? {}, slicesByPlan, mapping.wholeReadings, mapping.input);
-    return { release: b.release, sprint: '', name: '', plans, counts: headerCountParts(headerCounts(plans), { blocked }), header: wording === null ? header : `${header} · ${wording}`, cards };
+    return { release: b.release, sprint: '', name: '', plans, counts: headerCountParts(headerCounts(plans), strip), header: wording === null ? header : `${header} · ${wording}`, cards };
   });
   const blocks = scope.kind === 'my-sprint' ? sprintBlocks : releaseScoped;
   const releasePlanCount = new Set(blocks.flatMap((b) => b.plans.map((p) => p.plan))).size;

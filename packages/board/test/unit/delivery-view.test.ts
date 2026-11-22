@@ -91,7 +91,7 @@ describe('delivery view nesting', () => {
       const v = planView(rows, slices);
       expect(v.releaseBlocks).toHaveLength(1);
       expect(v.releaseBlocks[0]!.plans).toHaveLength(8);
-      expect(v.releaseBlocks[0]!.header).toBe('8 plans · 40 of 40 slices delivered · 0 blocked');
+      expect(v.releaseBlocks[0]!.header).toBe('8 plans · 40 of 40 slices delivered · 0 blocked · 0 at a gate · 0 being built · 0 not started');
       expect(v.releaseBlocks[0]!.plans[0]!.stripText).toBe('5 / 5 delivered');
     });
 
@@ -355,8 +355,19 @@ describe('the domain fields the view passes on', () => {
     const slices = [sliceOf('p', 'A', { merge: 'merged', complete: true }), sliceOf('p', 'B')];
     const v = place([row({ branch: 'feature/b', plan: 'p', wave: 'B', phase: 'Development', planState: 'approved' })], slices);
     const b = v.releaseBlocks[0]!;
-    expect(b.counts.map((c) => c.key)).toEqual(['plans', 'delivered', 'blocked']);
+    expect(b.counts.map((c) => c.key)).toEqual(['plans', 'delivered', 'blocked', 'at-a-gate', 'being-built', 'not-started']);
     expect(b.header).toBe(figures(b).join(' · '));
+  });
+
+  it('prints being built and not started in a release block header and its counts', () => {
+    const slices = [sliceOf('p', 'A', { merge: 'merged', complete: true }), sliceOf('p', 'B'), sliceOf('p', 'C')];
+    const v = place([
+      row({ branch: 'feature/b', plan: 'p', wave: 'B', phase: 'Development', planState: 'approved' }),
+      row({ branch: 'feature/c', plan: 'p', wave: 'C', phase: 'Development', planState: 'approved', state: 'eligible', group: 'queued' }),
+    ], slices);
+    const b = v.releaseBlocks[0]!;
+    expect(b.header).toBe('1 plan · 1 of 3 slices delivered · 0 blocked · 0 at a gate · 1 being built · 1 not started');
+    expect(figures(b)).toEqual(['1 plan', '1 of 3 slices delivered', '0 blocked', '0 at a gate', '1 being built', '1 not started']);
   });
 
   it('sets counts on a sprint block under the my-sprint scope, equal to its header figures', () => {
@@ -367,7 +378,7 @@ describe('the domain fields the view passes on', () => {
     const v = place([row({ branch: 'feature/p-a', plan: 'p', wave: 'A', phase: 'Testing', planState: 'delivered', state: 'merged', group: 'done' })], slices, [sprint] as never[], scope as never);
     const b = v.releaseBlocks[0]!;
     expect(b.sprint).toBe('s');
-    expect(figures(b)).toEqual(['1 plan', '1 of 1 slices delivered', '0 blocked']);
+    expect(figures(b)).toEqual(['1 plan', '1 of 1 slices delivered', '0 blocked', '0 at a gate', '0 being built', '0 not started']);
     expect(b.header).toContain(figures(b).join(' · '));
   });
 

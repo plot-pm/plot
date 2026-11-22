@@ -1,5 +1,5 @@
 import type { PrIndex } from '../entities/pr-index.js';
-import { SLICE_STATES, type SliceState, type SliceStateCounts } from './slice-states.js';
+import { SLICE_STATES, SLICE_STATE_WORDS, type SliceState, type SliceStateCounts } from './slice-states.js';
 import { phaseAccent } from './workflow-phases.js';
 import { storyDateText } from './story-date.js';
 import { pill, type StatusPill } from './status-pill.js';
@@ -323,27 +323,44 @@ export const headerCounts = (rows: readonly PlanRowFacts[]): ReleaseHeaderCounts
 
 /** One figure of the header: its key, its number and the words that follow the number. */
 export interface HeaderCountPart {
-  readonly key: 'plans' | 'delivered' | 'at-a-gate' | 'blocked' | 'unread';
+  readonly key: 'plans' | SliceState | 'unread';
   readonly count: number;
   /** What follows the number; `${count} ${words}` is the figure as `headerText` prints it. */
   readonly words: string;
 }
 
-/** The five-state counts the header prints: `blocked` always, `at-a-gate` where the caller gives it. */
-export type HeaderStrip = Pick<SliceStateCounts, 'blocked'> & Partial<Pick<SliceStateCounts, 'at-a-gate'>>;
+/**
+ * The slices of a block's plans per state, summed over each row's strip.
+ *
+ * @param rows - the block's plan rows.
+ * @returns the five states, `total` as their sum, and `unread` as the rows' unread slices outside it.
+ */
+export const stripStateCounts = (rows: readonly PlanRowFacts[]): SliceStateCounts => {
+  const inState = (state: SliceState): number => rows.reduce((n, r) => n + (r.strip.find((s) => s.state === state)?.count ?? 0), 0);
+  return {
+    delivered: inState('delivered'),
+    blocked: inState('blocked'),
+    'at-a-gate': inState('at-a-gate'),
+    'being-built': inState('being-built'),
+    'not-started': inState('not-started'),
+    total: SLICE_STATES.reduce((n, state) => n + inState(state), 0),
+    unread: rows.reduce((n, r) => n + r.unread, 0),
+  };
+};
 
 /**
  * The figures of the header, one per part `headerText` prints after the release.
  *
  * @param counts - the block's counts.
- * @param strip - the five-state counts of the block; without it no `blocked` part is returned, and without its `at-a-gate` no `at-a-gate` part.
- * @returns `plans`, `delivered`, `at-a-gate` and `blocked` only where `strip` gives them, and `unread` only above 0, so it agrees with `headerText` for the same arguments.
+ * @param strip - the five-state counts of the block; without it no state part other than `delivered` is returned.
+ * @returns `plans`, then the five states in `SLICE_STATES` order where `strip` is given (`delivered` alone without it), a count of 0 included, then `unread` only above 0, so it agrees with `headerText` for the same arguments.
  */
-export const headerCountParts = (counts: ReleaseHeaderCounts, strip?: HeaderStrip): HeaderCountPart[] => [
+export const headerCountParts = (counts: ReleaseHeaderCounts, strip?: SliceStateCounts): HeaderCountPart[] => [
   { key: 'plans', count: counts.plans, words: counts.plans === 1 ? 'plan' : 'plans' },
-  { key: 'delivered', count: counts.delivered, words: `of ${counts.total} slices delivered` },
-  ...(strip?.['at-a-gate'] === undefined ? [] : [{ key: 'at-a-gate' as const, count: strip['at-a-gate'], words: 'at a gate' }]),
-  ...(strip === undefined ? [] : [{ key: 'blocked' as const, count: strip.blocked, words: 'blocked' }]),
+  ...SLICE_STATES.flatMap((state): HeaderCountPart[] => {
+    if (state === 'delivered') return [{ key: state, count: counts.delivered, words: `of ${counts.total} slices delivered` }];
+    return strip === undefined ? [] : [{ key: state, count: strip[state], words: SLICE_STATE_WORDS[state] }];
+  }),
   ...(counts.unread > 0 ? [{ key: 'unread' as const, count: counts.unread, words: 'not read' }] : []),
 ];
 
@@ -352,9 +369,9 @@ export const headerCountParts = (counts: ReleaseHeaderCounts, strip?: HeaderStri
  *
  * @param counts - the block's counts.
  * @param release - the target release, or `''`.
- * @param strip - the five-state counts of the block, for the at-a-gate and blocked figures.
+ * @param strip - the five-state counts of the block, for the state figures after `delivered`.
  */
-export const headerText = (counts: ReleaseHeaderCounts, release: string, strip?: HeaderStrip): string =>
+export const headerText = (counts: ReleaseHeaderCounts, release: string, strip?: SliceStateCounts): string =>
   [...(release === '' ? [] : [release]), ...headerCountParts(counts, strip).map((p) => `${p.count} ${p.words}`)].join(' · ');
 
 /** One figure of the Release delivery section's header line, with the plan row its link leads to. */
@@ -388,7 +405,7 @@ export interface ReleaseDeliveryBlock {
  *
  * @param name - the section's name.
  * @param blocks - the section's blocks, in the order it lists them.
- * @returns the totals over the section's plans, each plan once where two blocks list it: `plans`, `delivered`, `at-a-gate`, `blocked`, and `unread` only above 0. Each figure's `target` is the first plan row, in block order, that holds a slice the figure counts (any row for `plans`), and `null` for a count of 0. `bar` holds the five states over the same plans, and `blockedPlans` the plans with a blocked slice.
+ * @returns the totals over the section's plans, each plan once where two blocks list it: `plans`, the five states in `SLICE_STATES` order, and `unread` only above 0. Each figure's `target` is the first plan row, in block order, that holds a slice the figure counts (any row for `plans`), and `null` for a count of 0. `bar` holds the five states over the same plans, and `blockedPlans` the plans with a blocked slice.
  */
 export const releaseDeliveryHeader = (name: string, blocks: readonly ReleaseDeliveryBlock[]): ReleaseDeliveryHeader => {
   const rows = blocks.flatMap((b) => b.rows).filter((r, i, all) => all.findIndex((x) => x.plan === r.plan) === i);
@@ -398,15 +415,12 @@ export const releaseDeliveryHeader = (name: string, blocks: readonly ReleaseDeli
     if (key === 'unread') return r.unread > 0;
     return inState(r, key) > 0;
   };
-  const strip = {
-    blocked: rows.reduce((n, r) => n + inState(r, 'blocked'), 0),
-    'at-a-gate': rows.reduce((n, r) => n + inState(r, 'at-a-gate'), 0),
-  };
+  const strip = stripStateCounts(rows);
   const counts = headerCountParts(headerCounts(rows), strip).map((p): ReleaseDeliveryCount => ({
     ...p,
     target: rows.find((r) => p.count > 0 && holds(r, p.key))?.plan ?? null,
   }));
-  const bar = SLICE_STATES.map((state): StripSegment => ({ state, count: rows.reduce((n, r) => n + inState(r, state), 0) }));
+  const bar = SLICE_STATES.map((state): StripSegment => ({ state, count: strip[state] }));
   const blockedPlans = rows.filter((r) => inState(r, 'blocked') > 0).length;
   return { name, scope: blocks.length === 1 ? blocks[0]!.scope : '', counts, bar, blockedPlans };
 };
