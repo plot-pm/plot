@@ -47,6 +47,7 @@ import type { DetachedProcess } from '@plot-pm/domain/ports/detached';
 import { electReader, HEARTBEAT_STALE_MS, type ReaderClaim, type ReaderVerdict } from '@plot-pm/domain/rules/reader-election';
 import { PR_READ_BEAT_MS } from '@plot-pm/domain/rules/pr-status';
 import { isReviewIssueTitle } from '@plot-pm/domain/rules/review-issue';
+import { isRefutedIssueTitle } from '@plot-pm/domain/rules/verification';
 import type { ReaderLock } from '@plot-pm/domain/ports/reader-lock';
 import type { ProcessProbe } from '@plot-pm/domain/ports/process-probe';
 import { claimOnly, CLAIM_SUBJECT_PREFIX } from '@plot-pm/domain/rules/empty-claim';
@@ -2238,7 +2239,7 @@ const inboxOf = (rows: readonly IssueIndexRow[], referenced: ReadonlySet<string>
 /**
  * The rows the Tickets section's scope groups read: every open and closed row
  * of `sets` whose key a plan names, whose title {@link isReviewIssueTitle}
- * accepts, or whose key `refuted` holds. No {@link ISSUE_LIMIT} cut applies.
+ * or {@link isRefutedIssueTitle} accepts, or whose key `refuted` holds. No {@link ISSUE_LIMIT} cut applies.
  *
  * An open row comes first, and a closed row with the same key is left out.
  * Each row carries `complete` from the open set; a set with no `complete`
@@ -2260,7 +2261,7 @@ export const planTicketRowsOf = (
   const complete = sets.complete ?? true;
   const kept = (row: IssueIndexRow): boolean => {
     const key = issueKey(row.number);
-    return plans?.has(key) === true || isReviewIssueTitle(row.title) || refuted.has(key);
+    return plans?.has(key) === true || isReviewIssueTitle(row.title) || isRefutedIssueTitle(row.title) || refuted.has(key);
   };
   const seen = new Set<string>();
   const out: PlanTicketRow[] = [];
