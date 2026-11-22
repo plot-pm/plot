@@ -60,12 +60,12 @@ import { DeliveryHeader } from './DeliveryHeader.js';
 import { deliveryHeaderOf } from '../lib/agent-rows/delivery-header.js';
 import { AutoDispatchSwitch, AutoSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
 import { FleetAgentHeader, FleetAgentRow } from './FleetAgentRow.js';
-import { MasterAgentLine, RowCell, scrollToAnchor, type LinkHandlers } from './DeliveryRows.js';
+import { MasterAgentLine, RowCell, scrollToAnchor, StatusPills, type LinkHandlers } from './DeliveryRows.js';
 import { detailLines } from '../lib/agent-rows/delivery-link-targets.js';
 import { headerOf, itemRowFactsOf, rowFormsOf, switchesOf } from '../lib/agent-rows/delivery-row-facts.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { ReleasePersonCards } from './ReleasePersonCards.js';
-import { LinkTupleView, MARKS_CELL, TUPLE_TRACKS, YouLeadContext, type YouLead } from './TupleRow.js';
+import { LinkTupleView, MARKS_CELL, TUPLE_TRACKS, WorkGridContext, YouLeadContext, type YouLead } from './TupleRow.js';
 import { LinePr, LineSlice, LineState, PlanOwner, PhaseChip, PlanName, PlanStrip, PlanTableHead, PLAN_TRACKS, ReleaseHeaderCounts, ReleaseLine } from './ReleasePlanParts.js';
 import { CleanUpMenu } from './CleanUpMenu.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
@@ -1323,28 +1323,24 @@ export function AgentList({
           onJump: (anchor) => jump(anchor),
           hiddenReason: (anchor) => hiddenReason(anchor),
         };
-        const byCell = (cells: { by: Parameters<typeof RowCell>[0]['cell'] } | undefined) =>
-          cells?.by ? <RowCell cell={cells.by} handlers={linkHandlers} /> : undefined;
-        const byItem = (item: PlacedItemView) => byCell(forms.items.get(item.placement?.id ?? ''));
-        // THE GATES CELL IS A DOMAIN PROPERTY: `workItemCells` decides the marks and their links; this renders them.
-        const gatesItem = (item: PlacedItemView) => {
-          const placed = item.placement;
-          if (placed === null || placed === undefined) return undefined;
-          const cell = workItemCells(placed, itemRowFactsOf(mapping, placed.id))?.cells.group;
-          return placed.section === 'work-items' && placed.group === 'at-a-gate' && cell?.parts !== undefined
-            ? <RowCell cell={cell} handlers={linkHandlers} /> : undefined;
-        };
-        // Progress and Waits on replace the status word: a column holds one kind of value.
-        const groupCellItem = (item: PlacedItemView) => {
-          const placed = item.placement;
-          if (placed === null || placed === undefined || placed.section !== 'work-items' || placed.group === 'at-a-gate') return undefined;
-          const cell = workItemCells(placed, itemRowFactsOf(mapping, placed.id))?.cells.group;
-          return cell === null || cell === undefined ? undefined : <RowCell cell={cell} handlers={linkHandlers} />;
-        };
-        const gatesOrGroupItem = (item: PlacedItemView) => gatesItem(item) ?? groupCellItem(item);
-        const replacesStatus = (item: PlacedItemView) => groupCellItem(item) !== undefined;
-        // THE YOU ROW'S LEAD IS A DOMAIN PROPERTY: `youRowCells` decides the verb and what waits; this renders them.
         const sprintView = { scope: sprintScope.kind === 'my-sprint' ? 'my-sprint' as const : 'release' as const, mine: mode === 'all' ? 'off' as const : mode === 'mine' ? 'strict' as const : 'mine' as const };
+        // THE WORK ITEMS CELLS ARE A DOMAIN PROPERTY: `workItemCells` decides the status pills, their links and By; this renders them.
+        const workCellsOf = (item: PlacedItemView) => {
+          const placed = item.placement;
+          if (placed === null || placed === undefined || placed.section !== 'work-items') return null;
+          const facts = itemRowFactsOf(mapping, placed.id);
+          const sprint = rowSprintMembership({ kind: placed.kind, plan: facts.plan ?? '' }, membership, sprintView);
+          return workItemCells(placed, facts, sprint)?.cells ?? null;
+        };
+        const byItem = (item: PlacedItemView) => {
+          const by = workCellsOf(item)?.by ?? forms.items.get(item.placement?.id ?? '')?.by ?? null;
+          return by === null ? undefined : <RowCell cell={by} handlers={linkHandlers} />;
+        };
+        const pillsItem = (item: PlacedItemView) => {
+          const cells = workCellsOf(item);
+          return cells === null ? undefined : <StatusPills pills={cells.status} handlers={linkHandlers} />;
+        };
+        // THE YOU ROW'S LEAD IS A DOMAIN PROPERTY: `youRowCells` decides the verb and what waits; this renders them.
         const youLead = (item: PlacedItemView): YouLead | null => {
           const placed = item.placement;
           if (placed === null || placed === undefined || placed.section !== 'you') return null;
@@ -1528,7 +1524,7 @@ export function AgentList({
         ];
         const itemBody = (item: PlacedItemView, inPlan = false) => [
           anchorOf(item),
-          ...item.rows.map((r) => withLead(item, <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={inPlan} by={byItem(item)} gates={gatesOrGroupItem(item)} gatesReplaceStatus={replacesStatus(item)} menu={looseMenuOf(item)} />, rowKey(r))),
+          ...item.rows.map((r) => withLead(item, <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={inPlan} by={byItem(item)} pills={pillsItem(item)} menu={looseMenuOf(item)} />, rowKey(r))),
           ...(item.ticket !== null
             ? [(
                 <IssueRowView
@@ -1586,8 +1582,7 @@ export function AgentList({
                   onJump={jump}
                   planIndex={planIndex}
                   by={byItem(s.item)}
-                  gates={gatesOrGroupItem(s.item)}
-                  gatesReplaceStatus={replacesStatus(s.item)}
+                  pills={pillsItem(s.item)}
                 />)}
                 {many && sliceOpen && (
                   <ul
@@ -1600,7 +1595,7 @@ export function AgentList({
                 )}
               </li>
             ),
-            ...s.loose.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={block.headed} by={byItem(s.item)} gates={gatesOrGroupItem(s.item)} gatesReplaceStatus={replacesStatus(s.item)} />),
+            ...s.loose.map((r) => <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={block.headed} by={byItem(s.item)} pills={pillsItem(s.item)} />),
             ...itemTail(s.item),
           ];
         };
@@ -1938,7 +1933,7 @@ export function AgentList({
                         )}
                         {group.label}
                         <span className="ml-1 font-normal normal-case tracking-normal">
-                          {group.count > 0 ? `(${group.tally})` : <><span data-group-none>— none</span> ({group.hint})</>}
+                          {group.count > 0 ? `(${group.tally})` : section.key === 'work-items' ? null : <><span data-group-none>— none</span> ({group.hint})</>}
                         </span>
                         {held.held.map((h) => (
                           <span key={h.switch} data-group-held={h.switch} className="font-normal normal-case tracking-normal">
@@ -1954,17 +1949,39 @@ export function AgentList({
                     return (
                       <div key={group.key} id={groupAnchor(group.key)} data-group={group.key} className="space-y-1">
                         {g.header}
-                        {!g.folded && group.count > 0 && (
+                        {!g.folded && group.count > 0 && section.key !== 'work-items' && (
                           <ul
                             role="grid"
                             aria-label={`${group.label} — agent branches`}
                             className="delivery-grid"
                           >
-                            <HeaderRow statusName={group.column ?? 'Status'} youColumns={section.key === 'you'} />
+                            <HeaderRow youColumns={section.key === 'you'} />
                             {group.blocks.flatMap(blockBody)}
                             {group.agents.length > 0 && <FleetAgentHeader blocked={group.key === 'blocked'} />}
                             {group.agents.flatMap(agentBody)}
                           </ul>
+                        )}
+                        {/* ONE GRID FOR EVERY WORK ITEMS GROUP: the same columns, and an empty group's "— none" row inside it. */}
+                        {!g.folded && section.key === 'work-items' && (
+                          <WorkGridContext.Provider value>
+                            <ul
+                              role="grid"
+                              aria-label={`${group.label} — agent branches`}
+                              data-work-grid={group.key}
+                              className="delivery-grid"
+                            >
+                              {group.count > 0 ? (
+                                <>
+                                  <HeaderRow workColumns />
+                                  {group.blocks.flatMap(blockBody)}
+                                </>
+                              ) : (
+                                <li role="row" data-group-none-row className="px-3 delivery-row text-xs delivery-text-muted">
+                                  <span role="gridcell"><span data-group-none>— none</span> ({group.hint})</span>
+                                </li>
+                              )}
+                            </ul>
+                          </WorkGridContext.Provider>
                         )}
                       </div>
                     );

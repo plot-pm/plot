@@ -80,6 +80,8 @@ export const itemRowFactsOf = (mapping: DeliveryMapping, id: string): ItemRowFac
   if (age !== undefined) facts.ageMinutes = age;
   const merged = rows.filter((r) => r.state === 'merged' && r.pr !== null).map((r) => r.pr!.number);
   if (merged.length > 0) facts.mergedPrs = merged;
+  const claim = rows.find((r) => r.quietKind === 'orphaned-claim');
+  if (claim !== undefined) facts.claim = { elsewhere: claim.worker === 'elsewhere' };
   const agents = mapping.readings.agents.filter((a) => a.actsOn === id).map((a): ItemAgentFacts => {
     const attempt = mapping.runsById[a.id]?.attempt;
     return {

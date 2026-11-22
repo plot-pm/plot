@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
+import { WorkGridContext } from '../../components/TupleRow.js';
 import { type AgentRow } from '../../../contract/schema.js';
 import { sliceItemId } from './delivery-readings.js';
 import { itemAnchor, type Jump } from './delivery-view.js';
@@ -176,6 +177,8 @@ export function StuckCell({
 
   const word = stuckWord(stuck.state);
   const evidence = stuckEvidence(stuck);
+  // The Work items grid has no kind track, so the row's content starts at track 2 there.
+  const start = useContext(WorkGridContext) ? 'sm:col-start-2' : 'sm:col-start-3';
 
   return (
     <span
@@ -206,7 +209,7 @@ export function StuckCell({
       // change with it: the span still starts past the marks, because it is the
       // row's own content it must line up with, and a full cell above an
       // indented line is exactly as misaligned as an empty one.
-      className="flex w-full flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs sm:col-start-3 sm:col-end-[-1]"
+      className={`flex w-full flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs ${start} sm:col-end-[-1]`}
     >
       {/* The state as a WORD, in amber, and the word is the carrier — the
           colour only reinforces it. `title` names the state's own terms so a

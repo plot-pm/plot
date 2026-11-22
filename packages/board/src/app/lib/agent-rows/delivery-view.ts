@@ -27,10 +27,8 @@ import {
   looseGroupRow,
   type LooseGroupRow,
   oldestWaitsClause,
-  WORK_GROUP_COLUMN,
   fleetCountText,
   workGroupCountText,
-  type WorkItemGroup,
   placeDelivery,
   type AgentPlacement,
   type DeliveryPlacement,
@@ -509,8 +507,6 @@ export type BlockView = PlanBlockView | ItemBlockView | LooseGroupBlockView;
 
 export interface GroupView {
   key: string;
-  /** The Work items column name of this group (`Gates`, `Progress`, `Waits on`); `null` for the other sections. */
-  column: string | null;
   label: string;
   hint: string;
   items: PlacedItemView[];
@@ -895,7 +891,7 @@ export const deliveryView = (
         ? [plural(heads.length, 'plan'), plural(sliceCount, 'slice'), ...(loose > 0 ? [`${loose} ${loose === 1 ? 'branch' : 'branches'}`] : [])].join(' · ')
         : String(count);
       return {
-        key: group, column: section === 'work-items' ? WORK_GROUP_COLUMN[group as WorkItemGroup].name : null, ...meta, items, agents, blocks, rows, count,
+        key: group, ...meta, items, agents, blocks, rows, count,
         tally,
       };
     });

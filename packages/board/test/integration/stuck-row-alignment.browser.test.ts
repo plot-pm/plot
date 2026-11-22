@@ -122,16 +122,13 @@ describe('the stuck line begins where the row does', () => {
   it('starts the evidence where the row content starts, not at the grid edge', async () => {
     const page = await open();
     try {
-      // The claim, stated in geometry: the stuck line begins at the PLAN track,
-      // which is where a row's own content begins — never under the phase.
+      // The claim, stated in geometry: the stuck line begins where the row's own content begins, past the marks
+      // lane, and never at the row's edge.
       const stuckX = await leftOf(page, 'feature/no-phase', '[data-stuck]');
       const rowX = (await rowFor(page, 'feature/no-phase').boundingBox())!.x;
-
-      // Strictly right of the row's left edge, by about the phase track's
-      // `6rem` (96 px). A tolerant lower bound rather than an exact number:
-      // the assertion is *not at the edge*, and pinning the pixel would make
-      // this fail on an unrelated padding change.
-      expect(stuckX - rowX).toBeGreaterThan(50);
+      const marks = await rowFor(page, 'feature/no-phase').locator('[role="gridcell"]').first().boundingBox();
+      expect(stuckX).toBeGreaterThan(rowX);
+      expect(stuckX).toBeGreaterThanOrEqual(marks!.x + marks!.width - 1);
     } finally {
       await page.close();
     }
@@ -150,26 +147,17 @@ describe('the stuck line begins where the row does', () => {
     }
   });
 
-  it('starts the evidence past slot 2, not under it', async () => {
-    // Read off the rendered row rather than assumed from the track list: the
-    // stuck line begins at or after slot 2's right edge, which is what
-    // "column 2" means in pixels.
-    //
-    // Anchored on `[data-kind]`, which is what slot 2 holds — it was
-    // `[data-phase]` until the plan phase moved to the plan heading, and the
-    // cell the defect hid the line beneath is the same cell either way. The row
-    // named `feature/has-phase` keeps its name: the fixture still SETS a phase,
-    // and that the row no longer prints it is another test's claim, not this
-    // one's.
+  it('starts the evidence where the item cell starts, past the marks lane', async () => {
+    // Read off the rendered row rather than assumed from the track list: in the Work items grid the row's own content
+    // starts at the item cell, so the stuck line begins at that cell's left edge, and never under the marks lane.
     const page = await open();
     try {
-      const slot2 = await rowFor(page, 'feature/has-phase')
-        .locator('[data-kind]').first().boundingBox();
+      const li = rowFor(page, 'feature/has-phase');
+      const item = await li.locator('[data-row-cell="item"]').first().boundingBox();
+      const marks = await li.locator('[role="gridcell"]').first().boundingBox();
       const stuckX = await leftOf(page, 'feature/has-phase', '[data-stuck]');
-      // `>=` rather than `>`: the cell's own text may be narrower than its
-      // 5rem track, so the line starts at the TRACK boundary, which is at or
-      // beyond where the text ends.
-      expect(stuckX).toBeGreaterThanOrEqual(slot2!.x + slot2!.width - 1);
+      expect(Math.abs(stuckX - item!.x)).toBeLessThan(1);
+      expect(stuckX).toBeGreaterThanOrEqual(marks!.x + marks!.width - 1);
     } finally {
       await page.close();
     }

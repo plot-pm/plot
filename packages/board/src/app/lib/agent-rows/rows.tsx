@@ -21,7 +21,7 @@ import {
   RELEASE_BRANCH,
 } from '../../../contract/schema.js';
 import { tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromSlice, planPrAggregate, statusTone, tupleAgeText } from '../tuple-row.js';
-import { TICKET_TRACKS, TUPLE_TRACKS, TupleLinkView, TupleRowView } from '../../components/TupleRow.js';
+import { TICKET_TRACKS, TUPLE_TRACKS, TupleLinkView, TupleRowView, WORK_GRID_TRACKS } from '../../components/TupleRow.js';
 import { activityPace } from './activity.js';
 import { soleRowStatus, exceptionSummary } from './stuck.js';
 import { type PlanGroup, elsewhereNote, planWaitingDays, sliceSummaryFor } from './sections.js';
@@ -33,7 +33,7 @@ import { type BriefNote, briefGapNote, briefNote, needsBrief, waitingTone } from
 
 /** An index with no entries — a plan reference still links from its own file. */
 const EMPTY_PLAN_INDEX: PlanIndex = planIndexOf({});
-import { noteShown, YOU_COLUMNS, YOU_COLUMN_LABELS } from '@plot-pm/domain';
+import { noteShown, WORK_ITEM_COLUMNS, WORK_ITEM_COLUMN_LABELS, YOU_COLUMNS, YOU_COLUMN_LABELS } from '@plot-pm/domain';
 import { type SliceGroup, groupedNote, sliceDissent } from './slices.js';
 import { sliceRowReading } from './slice-reading.js';
 import { ActivitySpinner, BlockedByMark, ChangeMark, StuckCell, UnpushedMark } from './marks.js';
@@ -451,7 +451,20 @@ export function PlanLink({
  * slot 1's kind ICON as well, which is a fact about the row rather than an
  * ornament on it.
  */
-export function HeaderRow({ statusName = 'Status', youColumns = false }: { statusName?: string; youColumns?: boolean } = {}) {
+export function HeaderRow({ statusName = 'Status', youColumns = false, workColumns = false }: { statusName?: string; youColumns?: boolean; workColumns?: boolean } = {}) {
+  if (workColumns) {
+    // The Work items column set, one name per `WORK_ITEM_COLUMNS` entry on `WORK_GRID_TRACKS`.
+    return (
+      <li role="row" data-work-header className={`hidden sm:grid ${WORK_GRID_TRACKS} gap-x-3 px-3 delivery-thead`}>
+        <span role="columnheader"><span className="sr-only">Marks</span></span>
+        {WORK_ITEM_COLUMNS.map((c) => (
+          c === 'menu'
+            ? <span key={c} role="columnheader" data-column-header={c} aria-label={WORK_ITEM_COLUMN_LABELS[c]}>⋯</span>
+            : <span key={c} role="columnheader" data-column-header={c}>{WORK_ITEM_COLUMN_LABELS[c]}</span>
+        ))}
+      </li>
+    );
+  }
   if (youColumns) {
     // The You section's own column set: no Where, no By — every row there is the reader's.
     return (
@@ -1031,14 +1044,13 @@ export function SliceRow({
   onJump,
   planIndex,
   by,
-  gates,
-  gatesReplaceStatus,
+  pills,
   details,
 }: {
   /** The BY cell: who acts on the item. */
   by?: ReactNode;
-  gates?: ReactNode;
-  gatesReplaceStatus?: boolean;
+  /** The Work items status pills; where set they stand instead of the status word. */
+  pills?: ReactNode;
   /** The details popover's lines. */
   details?: readonly string[];
   group: SliceGroup;
@@ -1208,8 +1220,7 @@ export function SliceRow({
   return (
     <TupleRowView
       by={by}
-      gates={gates}
-      gatesReplaceStatus={gatesReplaceStatus}
+      pills={pills}
       details={details}
       tuple={tupleFromSlice({
         name: group.wave,
@@ -1705,8 +1716,7 @@ export function Row({
   highlighted = false,
   planIndex,
   by,
-  gates,
-  gatesReplaceStatus,
+  pills,
   details,
   menu,
 }: {
@@ -1714,8 +1724,8 @@ export function Row({
   menu?: ReactNode;
   /** The BY cell: who acts on the item. */
   by?: ReactNode;
-  gates?: ReactNode;
-  gatesReplaceStatus?: boolean;
+  /** The Work items status pills; where set they stand instead of the status word. */
+  pills?: ReactNode;
   /** The details popover's lines. */
   details?: readonly string[];
   row: AgentRow;
@@ -1994,8 +2004,7 @@ export function Row({
   return (
     <TupleRowView
       by={by}
-      gates={gates}
-      gatesReplaceStatus={gatesReplaceStatus}
+      pills={pills}
       details={details}
       tuple={tuple}
       onOpenPlan={onOpenPlan}

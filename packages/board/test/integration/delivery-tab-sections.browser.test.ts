@@ -95,7 +95,7 @@ describe('the Delivery tab renders the five sections', () => {
     }
   }, 60_000);
 
-  it('shows Work items counts that link to their group, and a column name under each group', async () => {
+  it('shows Work items counts that link to their group, and the one column header every group shares', async () => {
     const page = await cat.open('a-full-estate', { tab: 'agents' });
     try {
       const header = page.locator('h2[data-delivery-section="work-items"]');
@@ -106,39 +106,45 @@ describe('the Delivery tab renders the five sections', () => {
       const key = await link.getAttribute('data-summary-link');
       await link.click();
       await page.locator(`[data-group="${key}"][data-link-target]`).waitFor({ timeout: 5_000 });
-      const names = await page.locator('[data-section="work-items"] [data-column-header]').allTextContents();
-      expect(names.length).toBeGreaterThan(0);
-      for (const n of names) expect(['Gates', 'Progress', 'Waits on']).toContain(n);
+      const headers = await page.locator('[data-section="work-items"] [data-work-header]').evaluateAll((rows) =>
+        rows.map((r) => [...r.querySelectorAll('[data-column-header]')].map((c) => c.textContent)));
+      expect(headers.length).toBeGreaterThan(0);
+      for (const names of headers) expect(names).toEqual(['Item', 'Plan', 'Status', 'By', 'Age', '⋯']);
     } finally {
       await page.close();
     }
   }, 60_000);
 
-  it('shows the At a gate cell as one mark per gate', async () => {
+  it('shows the At a gate cell as one pill per gate, each reading its outcome', async () => {
     const page = await cat.open('a-full-estate', { tab: 'agents' });
     try {
       await page.locator('[data-delivery-section="work-items"]').waitFor({ timeout: 15_000 });
-      const cells = page.locator('[data-section="work-items"] [data-group="at-a-gate"] [data-row-cell="status"]');
-      await cells.first().waitFor({ timeout: 15_000 });
-      const texts = await cells.allInnerTexts();
-      const marked = texts.filter((t) => /CI [✓⟳✗]|review [✓⟳✗–]/.test(t));
-      expect(marked.length, `a gate mark among ${JSON.stringify(texts)}`).toBeGreaterThan(0);
-      for (const t of marked) expect(t).toMatch(/(CI [✓⟳✗])?( · )?(review [✓⟳✗–])?$/);
+      const pills = page.locator('[data-section="work-items"] [data-group="at-a-gate"] [data-status-pill]');
+      await pills.first().waitFor({ timeout: 15_000 });
+      const read = await pills.evaluateAll((all) => all.map((p) => ({ word: p.getAttribute('data-status-pill'), tone: p.getAttribute('data-pill-tone'), text: p.textContent })));
+      const gates = read.filter((p) => /^(CI|review) /.test(p.word ?? ''));
+      expect(gates.length, `a gate pill among ${JSON.stringify(read)}`).toBeGreaterThan(0);
+      const tone: Record<string, string> = { passed: 'green', running: 'amber', failed: 'red', 'not asked': 'grey' };
+      for (const p of gates) {
+        expect(p.text).toBe(p.word);
+        expect(p.word).toMatch(/^(CI (passed|running|failed)|review (passed|running|failed|not asked))$/);
+        expect(p.tone).toBe(tone[p.word!.replace(/^(CI|review) /, '')]);
+      }
     } finally {
       await page.close();
     }
   }, 60_000);
 
-  it('shows a Progress cell and a Waits on cell', async () => {
+  it('shows Progress pills and Waits on pills in whole words', async () => {
     const page = await cat.open('a-full-estate', { tab: 'agents' });
     try {
       await page.locator('[data-delivery-section="work-items"]').waitFor({ timeout: 15_000 });
-      const cell = (group: string) => page.locator(`[data-section="work-items"] [data-group="${group}"] [data-row-cell="status"]`);
-      const built = (await cell('being-built').allInnerTexts()).map((t) => t.trim()).filter((t) => t !== '');
-      const queued = (await cell('queued').allInnerTexts()).map((t) => t.trim()).filter((t) => t !== '');
-      expect(built.length + queued.length, `cells ${JSON.stringify({ built, queued })}`).toBeGreaterThan(0);
-      for (const t of built) expect(t).toMatch(/^(no PR yet|PR open)( · \d+ unpushed)?$/);
-      for (const t of queued) expect(t).not.toMatch(/^waits on /);
+      const words = (group: string) => page.locator(`[data-section="work-items"] [data-group="${group}"] [data-status-pill]`).allTextContents();
+      const built = await words('being-built');
+      const queued = await words('queued');
+      expect(built.length + queued.length, `pills ${JSON.stringify({ built, queued })}`).toBeGreaterThan(0);
+      for (const t of built) expect(t).toMatch(/^(no PR yet|PR open|\d+ unpushed commits?|no sprint)$/);
+      for (const t of queued) expect(t).toMatch(/^(claimed .*no work committed|claimed on another machine|(plan|spike|release) approval|plan in (Draft|Design)|waits on .+|no agent assigned|agent assigned|no sprint)$/);
     } finally {
       await page.close();
     }

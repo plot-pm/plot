@@ -109,6 +109,23 @@ export const TUPLE_TRACKS =
   'grid-cols-[1.5rem_4.5rem_minmax(12rem,auto)_1fr_8rem_minmax(0rem,auto)_4.5rem_var(--delivery-menu-track)]';
 
 /**
+ * A WORK ITEMS ROW's tracks, one per `WORK_ITEM_COLUMNS` entry after the marks: item, plan, status, by, age, menu.
+ *
+ * The item track is the one that gives way (`minmax(6rem, 1fr)`), so the branch segment of its PR+branch tuple
+ * ellipsises first. The plan track grows to 12rem. The status track is at least its content (`max-content`), so no
+ * pill is cut, and grows to 16rem where the row has room, so rows whose pills fit 16rem keep one column edge.
+ */
+export const WORK_GRID_TRACKS =
+  'grid-cols-[1.5rem_minmax(6rem,1fr)_minmax(0rem,12rem)_minmax(max-content,16rem)_8rem_4.5rem_var(--delivery-menu-track)]';
+
+/**
+ * `true` inside the Work items section. A `TupleRowView` inside it lays its cells on `WORK_GRID_TRACKS`: no kind
+ * cell, the PR+branch tuples beside the item's name, the plan tuples in their own cell, and the status cell at its
+ * content's width.
+ */
+export const WorkGridContext = createContext(false);
+
+/**
  * A TICKET ROW's tracks: the title gives way, the plan name keeps a floor.
  *
  * Slot 3 of `TUPLE_TRACKS` grows to the name's full width, so a long ticket
@@ -692,8 +709,7 @@ export function TupleRowView({
   bordered = true,
   tracks = TUPLE_TRACKS,
   by,
-  gates,
-  gatesReplaceStatus = false,
+  pills,
   details,
   kindChip,
 }: {
@@ -802,10 +818,8 @@ export function TupleRowView({
   tracks?: string;
   /** The BY cell: who acts on the item, or for an agent who started it. Empty where nobody read it. */
   by?: ReactNode;
-  /** The Gates cell of a work item at a gate. Where set it renders in slot 5 after the status word and what a kind adds beside it. */
-  gates?: ReactNode;
-  /** Where set, `gates` is the group's own cell (Progress, Waits on) and the shared status word is not drawn beside it. */
-  gatesReplaceStatus?: boolean;
+  /** The status pills of a Work items row. Where set, they stand in the status cell instead of the status word. */
+  pills?: ReactNode;
   /** The details popover's lines — pids, desk paths, extra branches. No popover where there are none. */
   details?: readonly string[];
   /** The chip that stands in slot 2 for the kind word, where the kind has a role to show. */
@@ -813,8 +827,17 @@ export function TupleRowView({
 }) {
   const ticketHref = useContext(TicketHrefContext);
   const lead = useContext(YouLeadContext);
-  const shownGates = lead === null ? gates : lead.consequence;
-  const shownReplace = lead === null ? gatesReplaceStatus : true;
+  const workGrid = useContext(WorkGridContext) && lead === null;
+  const shownStatus = lead === null ? pills : lead.consequence;
+  const tupleViews = (keep: (what: TupleLink['what']) => boolean) => linkTuplesOf(tuple.links, ticketHref)
+    .filter((segments) => keep(segments[0]?.what ?? 'external'))
+    .map((segments) => (
+      <LinkTupleView
+        key={segments.map((s) => `${s.what}:${s.label}`).join('|')}
+        segments={segments}
+        onOpenPlan={onOpenPlan}
+      />
+    ));
   return (
     <li
       role="row"
@@ -826,7 +849,7 @@ export function TupleRowView({
       // The ring is `-inset` so it hugs the row without a track of its own, and
       // it is the same blue the board's highlighted card wears — one arrival
       // colour across both tabs.
-      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 delivery-row sm:grid ${tracks} sm:items-baseline sm:gap-x-3 ${
+      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 delivery-row sm:grid ${workGrid ? WORK_GRID_TRACKS : tracks} sm:items-baseline sm:gap-x-3 ${
         bordered ? 'delivery-row-ruled' : ''
       } ${highlighted ? 'rounded-sm ring-2 ring-inset ring-blue-500' : ''} data-[link-target]:bg-amber-100 dark:data-[link-target]:bg-amber-900/40`}
     >
@@ -873,21 +896,25 @@ export function TupleRowView({
           stylesheet had loaded rather than on whether the kind was visible.
           The two are different statements to two different readers; only one
           of them is what the hook names. */}
-      <span
-        role="gridcell"
-        data-row-cell="kind"
-        className="delivery-kind min-w-0 shrink-0 truncate"
-      >
-        <span className="sr-only sm:hidden">Kind: </span>
-        <span data-tuple-kind-label={tuple.kind} data-kind={tuple.kind}>
-          {lead?.verb ?? kindChip ?? tuple.kindLabel}
+      {!workGrid && (
+        <span
+          role="gridcell"
+          data-row-cell="kind"
+          className="delivery-kind min-w-0 shrink-0 truncate"
+        >
+          <span className="sr-only sm:hidden">Kind: </span>
+          <span data-tuple-kind-label={tuple.kind} data-kind={tuple.kind}>
+            {lead?.verb ?? kindChip ?? tuple.kindLabel}
+          </span>
         </span>
-      </span>
+      )}
       {/* SLOT 3 — THE ITEM'S OWN NAME: what the reader is deciding about. A PR
           leads with the PR, a branch with the branch, a ticket with its title.
           `showWhat` is off here — the kind slot immediately left has already
           said what this is, and repeating it would be the same word twice. */}
-      <span role="gridcell" data-row-cell="item" className="flex min-w-0 items-baseline gap-1.5 font-medium">
+      {/* IN THE WORK GRID the icon says the kind, so there is no kind cell, and the PR+branch tuple sits beside the
+          name: its branch segment is the part of the row that gives way. */}
+      <span role="gridcell" data-row-cell="item" className={`flex min-w-0 items-baseline gap-1.5 font-medium${workGrid ? ' overflow-hidden' : ''}`}>
         {/* THE ICON MARKS THE NAME, which is where a mark on a thing belongs and
             how `⑂240` and `⊙228` already read elsewhere on this board. It left
             the marks track on 2026-08-20 so that track could hold activity
@@ -906,6 +933,11 @@ export function TupleRowView({
           </span>
         ) : null}
         {beside}
+        {workGrid && (
+          <span data-item-links className="flex min-w-0 items-baseline gap-x-2 text-xs font-normal">
+            {tupleViews((what) => what !== 'plan')}
+          </span>
+        )}
       </span>
       {/* SLOT 4 — THE ARTIFACT LINKS, zero or more. Each says what it points at,
           which is what keeps a PR row's two from reading as interchangeable
@@ -914,16 +946,10 @@ export function TupleRowView({
           with no PR. */}
       <span
         role="gridcell"
-        data-row-cell="where"
+        data-row-cell={workGrid ? 'plan' : 'where'}
         className="flex w-full min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1 text-xs sm:w-auto"
       >
-        {linkTuplesOf(tuple.links, ticketHref).map((segments) => (
-          <LinkTupleView
-            key={segments.map((s) => `${s.what}:${s.label}`).join('|')}
-            segments={segments}
-            onOpenPlan={onOpenPlan}
-          />
-        ))}
+        {tupleViews((what) => !workGrid || what === 'plan')}
         {aside}
       </span>
       {/* SLOT 5 — WHERE THIS STANDS. One slot whatever the kind: `conflicts`,
@@ -940,10 +966,11 @@ export function TupleRowView({
         role="gridcell"
         data-row-cell="status"
         data-tuple-status
-        className="flex min-w-0 items-baseline gap-2 truncate text-xs text-slate-500 dark:text-slate-400"
+        className={`flex items-baseline gap-2 text-xs text-slate-500 dark:text-slate-400 ${workGrid ? 'whitespace-nowrap' : 'min-w-0 truncate'}`}
       >
+        {/* THE LEAD SLOT comes first: an activity mark stands before the status, never inside it. */}
         {statusLead}
-        {tuple.status && !(shownReplace && shownGates !== undefined) && (
+        {tuple.status && shownStatus === undefined && (
           // COLOUR REINFORCES THE WORD, never replaces it — see `statusTone`,
           // whose palette this restores from the `PrCell` the collapse deleted.
           <span
@@ -954,7 +981,7 @@ export function TupleRowView({
           </span>
         )}
         {statusExtra}
-        {shownGates}
+        {shownStatus}
       </span>
       {/* BY — who acts on the item; for an agent, who started it. Empty where
           nobody read it, never a default word. */}

@@ -260,17 +260,15 @@ describe('section header summary', () => {
 describe('Work items header and group columns', () => {
   const work = (v: ReturnType<typeof view>) => v.sections.find((s) => s.key === 'work-items')!;
 
-  it('names the three groups and their columns, one column name per group', () => {
+  it('names the three groups, which share one set of columns and carry no column name of their own', () => {
     const w = work(view([]));
-    expect(w.groups.map((g) => [g.key, g.column])).toEqual([
-      ['at-a-gate', 'Gates'], ['being-built', 'Progress'], ['queued', 'Waits on'],
-    ]);
+    expect(w.groups.map((g) => g.key)).toEqual(['at-a-gate', 'being-built', 'queued']);
+    for (const g of w.groups) expect(g).not.toHaveProperty('column');
     expect(w.summary.map((c) => c.text)).toEqual(['0 at a gate', '0 being built', '0 queued']);
   });
 
-  it('gives the other sections no group column, and Fleet the header line wording', () => {
+  it('gives Fleet the header line wording', () => {
     const v = view([], [agent({ session: 'x', branch: '' })]);
-    for (const g of v.sections.find((s) => s.key === 'fleet')!.groups) expect(g.column).toBeNull();
     expect(v.sections.find((s) => s.key === 'fleet')!.summary.map((c) => c.text)).toEqual(['0 working', '0 blocked', '1 free']);
   });
 
