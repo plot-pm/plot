@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { Pr } from '../src/entities/pr.js';
 import {
   isPlanFile,
   namesPlan,
@@ -32,15 +33,50 @@ const unmerged = (over: Partial<PlanPrReadings> = {}): PlanPrReadings => ({
   ...over,
 });
 
-/** A plan the default branch holds, which merge `m` with second parent `h` added. */
+/**
+ * A plan the default branch holds, which merge `m` with second parent `h`
+ * added, where the host has no answer by commit and the merged listing is read.
+ */
 const landed = (over: Partial<PlanPrReadings> = {}): PlanPrReadings => ({
   slug: 'second-plan',
   planDir: DIR,
   onMain: true,
   named: null,
   addition: { sha: 'm', secondParent: 'h' },
-  merged: [{ number: 70, headSha: 'other' }, { number: 77, headSha: 'h' }],
+  byCommit: 'unaskable',
+  merged: [{ number: 70, headSha: 'other', head: 'idea/other' }, { number: 77, headSha: 'h', head: 'docs/second-plan' }],
   confirmed: { state: 'MERGED', mergeCommit: 'm' },
+  ...over,
+});
+
+/** A row the host answers by commit. */
+const row = (over: Partial<Pr> = {}): Pr => ({
+  number: 77,
+  repo: '',
+  head: 'docs/second-plan',
+  base: 'main',
+  state: 'MERGED',
+  mergedAt: '2026-11-17T10:00:00Z',
+  mergeCommit: 'm',
+  draft: false,
+  mergeable: 'unknown',
+  review: '',
+  checks: 'unknown',
+  failingChecks: [],
+  url: '',
+  author: '',
+  headSha: 'h',
+  ...over,
+});
+
+/** A plan the default branch holds, read through the host's answer by commit. */
+const byCommit = (rows: readonly Pr[], over: Partial<PlanPrReadings> = {}): PlanPrReadings => ({
+  slug: 'second-plan',
+  planDir: DIR,
+  onMain: true,
+  named: null,
+  addition: { sha: 'm', secondParent: 'h' },
+  byCommit: rows,
   ...over,
 });
 
@@ -166,7 +202,7 @@ describe('planPrOf — a plan the default branch does not hold', () => {
 
 describe('planPrOf — a plan the default branch holds', () => {
   it('never takes an open PR that changes the plan, and asks for the addition instead', () => {
-    const readings = landed({ addition: undefined, merged: undefined, confirmed: undefined, open: [batch({ changed: [SECOND] })] });
+    const readings = landed({ addition: undefined, byCommit: undefined, merged: undefined, confirmed: undefined, open: [batch({ changed: [SECOND] })] });
     expect(planPrOf(readings)).toEqual({ outcome: 'ask', ask: 'addition' });
   });
 
@@ -175,49 +211,75 @@ describe('planPrOf — a plan the default branch holds', () => {
     expect(planPrOf(landed({ addition: { sha: 's', secondParent: '' } }))).toEqual({ outcome: 'none' });
   });
 
-  it('asks for the merged PRs, then for the one whose head the merge brought in', () => {
+  it('asks the host by commit after the addition', () => {
+    expect(planPrOf(landed({ byCommit: undefined, merged: undefined, confirmed: undefined }))).toEqual({ outcome: 'ask', ask: 'commit' });
+  });
+
+  it('answers the row whose head is the second parent and whose merge commit is the merge, with its branch and no confirm ask', () => {
+    const rows = [
+      row({ number: 70, head: 'feature/elsewhere', headSha: 'h', mergeCommit: 'other-merge' }),
+      row({ number: 77 }),
+    ];
+    expect(planPrOf(byCommit(rows))).toEqual({
+      outcome: 'found', number: 77, state: 'MERGED', draft: false, headSha: 'h', branch: 'docs/second-plan', rivals: [], carried: [],
+      route: 'merged', read: { at: 'default' },
+    });
+  });
+
+  it('answers unnamed by commit for an empty answer, and asks no merged listing', () => {
+    expect(planPrOf(byCommit([]))).toEqual({ outcome: 'unnamed', mergeCommit: 'm', via: 'commit' });
+  });
+
+  it('answers unnamed by commit where the row names another merge commit, another head, or is not MERGED', () => {
+    expect(planPrOf(byCommit([row({ mergeCommit: 'elsewhere' })]))).toEqual({ outcome: 'unnamed', mergeCommit: 'm', via: 'commit' });
+    expect(planPrOf(byCommit([row({ headSha: 'other' })]))).toEqual({ outcome: 'unnamed', mergeCommit: 'm', via: 'commit' });
+    expect(planPrOf(byCommit([row({ state: 'OPEN' })]))).toEqual({ outcome: 'unnamed', mergeCommit: 'm', via: 'commit' });
+  });
+
+  it('asks the merged listing where the host has no answer by commit, then the one whose head the merge brought in', () => {
     expect(planPrOf(landed({ merged: undefined, confirmed: undefined }))).toEqual({ outcome: 'ask', ask: 'merged' });
     expect(planPrOf(landed({ confirmed: undefined }))).toEqual({ outcome: 'ask', ask: 'confirm', number: 77 });
   });
 
-  it('answers none where no merged PR has that head', () => {
-    expect(planPrOf(landed({ merged: [{ number: 70, headSha: 'other' }] }))).toEqual({ outcome: 'none' });
+  it('answers unnamed by list where no merged PR has that head', () => {
+    expect(planPrOf(landed({ merged: [{ number: 70, headSha: 'other', head: 'idea/other' }] }))).toEqual({ outcome: 'unnamed', mergeCommit: 'm', via: 'list' });
   });
 
-  it('answers none where a merged PR names no head at all', () => {
-    expect(planPrOf(landed({ merged: [{ number: 70, headSha: '' }] }))).toEqual({ outcome: 'none' });
+  it('answers unnamed by list where a merged PR names no head at all', () => {
+    expect(planPrOf(landed({ merged: [{ number: 70, headSha: '', head: '' }] }))).toEqual({ outcome: 'unnamed', mergeCommit: 'm', via: 'list' });
   });
 
   it('takes a case-insensitive prefix of at least 7 hex characters as the same head', () => {
     const readings = landed({
       addition: { sha: 'm', secondParent: '0123456789abcdef' },
-      merged: [{ number: 70, headSha: 'other' }, { number: 81, headSha: '0123456789AB' }],
+      merged: [{ number: 70, headSha: 'other', head: 'idea/other' }, { number: 81, headSha: '0123456789AB', head: 'idea/x' }],
       confirmed: undefined,
     });
     expect(planPrOf(readings)).toEqual({ outcome: 'ask', ask: 'confirm', number: 81 });
   });
 
-  it('answers none where a merged head is shorter than 7 hex characters', () => {
+  it('answers unnamed by list where a merged head is shorter than 7 hex characters', () => {
     const readings = landed({
       addition: { sha: 'm', secondParent: '0123456789abcdef' },
-      merged: [{ number: 81, headSha: '012345' }],
+      merged: [{ number: 81, headSha: '012345', head: 'idea/x' }],
       confirmed: undefined,
     });
-    expect(planPrOf(readings)).toEqual({ outcome: 'none' });
+    expect(planPrOf(readings)).toEqual({ outcome: 'unnamed', mergeCommit: 'm', via: 'list' });
   });
 
-  it('answers the merged PR the host confirms at that merge commit', () => {
+  it('answers the listed merged PR the host confirms at that merge commit, naming its branch', () => {
     expect(planPrOf(landed())).toEqual({
-      outcome: 'found', number: 77, state: 'MERGED', draft: false, headSha: 'h', branch: '', rivals: [], carried: [],
+      outcome: 'found', number: 77, state: 'MERGED', draft: false, headSha: 'h', branch: 'docs/second-plan', rivals: [], carried: [],
       route: 'merged', read: { at: 'default' },
     });
     const unnamed = planPrOf(landed({ confirmed: { state: 'MERGED', mergeCommit: '' } }));
     expect(unnamed.outcome).toBe('found');
   });
 
-  it('answers none where the host holds no such PR, does not say MERGED, or names another merge commit', () => {
-    expect(planPrOf(landed({ confirmed: null }))).toEqual({ outcome: 'none' });
-    expect(planPrOf(landed({ confirmed: { state: 'CLOSED', mergeCommit: '' } }))).toEqual({ outcome: 'none' });
-    expect(planPrOf(landed({ confirmed: { state: 'MERGED', mergeCommit: 'elsewhere' } }))).toEqual({ outcome: 'none' });
+  it('answers unnamed by list where the host holds no such PR, does not say MERGED, or names another merge commit', () => {
+    const unnamed = { outcome: 'unnamed', mergeCommit: 'm', via: 'list' };
+    expect(planPrOf(landed({ confirmed: null }))).toEqual(unnamed);
+    expect(planPrOf(landed({ confirmed: { state: 'CLOSED', mergeCommit: '' } }))).toEqual(unnamed);
+    expect(planPrOf(landed({ confirmed: { state: 'MERGED', mergeCommit: 'elsewhere' } }))).toEqual(unnamed);
   });
 });

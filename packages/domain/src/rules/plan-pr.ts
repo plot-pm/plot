@@ -1,3 +1,5 @@
+import type { Pr } from '../entities/pr.js';
+
 /**
  * What the host answered for the PR of `idea/<slug>`.
  */
@@ -49,6 +51,8 @@ export interface MergedPr {
   number: number;
   /** The head commit the host reported for it; `''` where it named none. */
   headSha: string;
+  /** The PR's branch; `''` where the host named none. */
+  head: string;
 }
 
 /** What the host answered when asked for one merged PR by number. */
@@ -81,6 +85,11 @@ export interface PlanPrReadings {
   open?: readonly OpenPr[];
   /** The commit that brought the plan file onto the default branch. */
   addition?: PlanAddition;
+  /**
+   * The PRs the host associates with the adding merge's second parent, or
+   * `'unaskable'` where the host has no answer by commit.
+   */
+  byCommit?: readonly Pr[] | 'unaskable';
   /** The merged PRs, newest first. */
   merged?: readonly MergedPr[];
   /** The host's answer for the merged PR the listing matched; null where it holds none. */
@@ -112,14 +121,26 @@ export interface PlanPrFound {
 
 /** The reading {@link planPrOf} needs next. */
 export type PlanPrAsk =
-  | { outcome: 'ask'; ask: 'named' | 'named-head' | 'open' | 'addition' | 'merged' }
+  | { outcome: 'ask'; ask: 'named' | 'named-head' | 'open' | 'addition' | 'commit' | 'merged' }
   | { outcome: 'ask'; ask: 'confirm'; number: number };
 
 /** Why {@link planPrOf} refused, naming the PR it refused about. */
 export type PlanPrRefusal = { outcome: 'refused'; reason: 'pr-head-unheld' | 'pr-carries-no-plan'; number: number };
 
+/**
+ * A merge added the plan file to the default branch, and the host named no PR
+ * for it: by commit, or in the merged PRs it listed.
+ */
+export interface PlanPrUnnamed {
+  outcome: 'unnamed';
+  /** The merge commit that added the plan file. */
+  mergeCommit: string;
+  /** Which reading found no PR: the answer by commit, or the merged listing. */
+  via: 'commit' | 'list';
+}
+
 /** The answer of {@link planPrOf}. */
-export type PlanPrAnswer = PlanPrFound | PlanPrAsk | PlanPrRefusal | { outcome: 'none' };
+export type PlanPrAnswer = PlanPrFound | PlanPrAsk | PlanPrRefusal | PlanPrUnnamed | { outcome: 'none' };
 
 /** One open PR that changes the plan a slug names. */
 export interface PlanPrMatch {
@@ -235,13 +256,20 @@ const shaMatches = (headSha: string, secondParent: string): boolean => {
  *    is the plan PR, read at its own head; the others are rivals.
  * 3. Where the default branch holds it, an open PR is never the plan PR. The
  *    plan PR is the merged PR whose head is the second parent of the merge
- *    that added the file, and the host confirms it MERGED at that merge
- *    commit. A file that arrived by squash or by a direct push has no such
- *    merge. Read at the default branch's tip, as before.
+ *    that added the file and whose merge commit is that merge. The host is
+ *    asked by commit first (`commit`): a MERGED row with that head and that
+ *    merge commit is the plan PR, with no further reading. Where the host has
+ *    no answer by commit, the merged listing is read (`merged`) and the host
+ *    confirms the matched PR MERGED at that merge commit (`confirm`). Where
+ *    neither names a PR the answer is `unnamed`, never `none`: absence from an
+ *    answer does not prove there is no PR. A file that arrived by squash or by
+ *    a direct push has no such merge and answers `none`. Read at the default
+ *    branch's tip, as before.
  *
  * @param readings - what has been read so far.
  * @returns the plan PR with its route and where it was read, the reading
- *   needed next, a refusal naming the PR it is about, or `none`.
+ *   needed next, a refusal naming the PR it is about, `unnamed` for a merge
+ *   whose PR the host did not name, or `none`.
  */
 export const planPrOf = (readings: PlanPrReadings): PlanPrAnswer => {
   const { named } = readings;
@@ -306,20 +334,40 @@ export const planPrOf = (readings: PlanPrReadings): PlanPrAnswer => {
   const { addition } = readings;
   if (addition === undefined) return { outcome: 'ask', ask: 'addition' };
   if (addition.sha === '' || addition.secondParent === '') return { outcome: 'none' };
+  const { byCommit } = readings;
+  if (byCommit === undefined) return { outcome: 'ask', ask: 'commit' };
+  if (byCommit !== 'unaskable') {
+    const row = byCommit.find((pr) =>
+      pr.state === 'MERGED' && shaMatches(pr.headSha ?? '', addition.secondParent) && pr.mergeCommit === addition.sha);
+    if (row === undefined) return { outcome: 'unnamed', mergeCommit: addition.sha, via: 'commit' };
+    return {
+      outcome: 'found',
+      number: row.number,
+      state: 'MERGED',
+      draft: false,
+      headSha: row.headSha ?? '',
+      branch: row.head,
+      rivals: [],
+      carried: [],
+      route: 'merged',
+      read: { at: 'default' },
+    };
+  }
+  const unnamed: PlanPrUnnamed = { outcome: 'unnamed', mergeCommit: addition.sha, via: 'list' };
   if (readings.merged === undefined) return { outcome: 'ask', ask: 'merged' };
   const candidate = readings.merged.find((pr) => shaMatches(pr.headSha, addition.secondParent));
-  if (candidate === undefined) return { outcome: 'none' };
+  if (candidate === undefined) return unnamed;
   const { confirmed } = readings;
   if (confirmed === undefined) return { outcome: 'ask', ask: 'confirm', number: candidate.number };
-  if (confirmed === null || confirmed.state !== 'MERGED') return { outcome: 'none' };
-  if (confirmed.mergeCommit !== '' && confirmed.mergeCommit !== addition.sha) return { outcome: 'none' };
+  if (confirmed === null || confirmed.state !== 'MERGED') return unnamed;
+  if (confirmed.mergeCommit !== '' && confirmed.mergeCommit !== addition.sha) return unnamed;
   return {
     outcome: 'found',
     number: candidate.number,
     state: 'MERGED',
     draft: false,
     headSha: candidate.headSha,
-    branch: '',
+    branch: candidate.head,
     rivals: [],
     carried: [],
     route: 'merged',

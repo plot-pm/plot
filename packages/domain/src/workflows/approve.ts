@@ -32,6 +32,7 @@ export type ApproveRefusal =
   | 'spike-unmerged'
   | 'slices-unpushed'
   | 'pr-closed'
+  | 'pr-merge-unnamed'
   | 'pr-absent'
   | 'pr-ambiguous'
   | 'pr-copies-differ'
@@ -136,7 +137,21 @@ export interface ApprovePrReading {
    * read at the default branch rather than at its own head.
    */
   copies?: { checkout: string; head: string };
+  /**
+   * The merge commit that added the plan file to the default branch, where
+   * the host named no PR for it, and which reading found none: the answer by
+   * commit, or the newest merged PRs listed. Absent where no such merge was
+   * read.
+   */
+  unnamedMerge?: { sha: string; via: 'commit' | 'list' };
 }
+
+/**
+ * The detail of `pr-merge-unnamed`: the merge commit that added the plan file,
+ * and the plan file it added.
+ */
+const unnamedMergeDetail = (readings: ApproveReadings): string =>
+  `the merge commit ${readings.pr.unnamedMerge?.sha ?? ''} added ${readings.file}, and the host named no PR for it.`;
 
 /** What `approve` records beyond the plan. */
 export interface ApproveInput {
@@ -213,7 +228,7 @@ export interface ApproveDetail {
  *   fired: `plan-not-found`, `plan-unparseable`, `state-terminal`,
  *   `state-unreadable`, `state-wrong`, `slice-unnamed`, `review-human`,
  *   `reviewer-undeclared`, `review-unrecognised`, `spike-unmerged`,
- *   `slices-unpushed`, `pr-closed`, `pr-absent`, `pr-ambiguous`,
+ *   `slices-unpushed`, `pr-closed`, `pr-merge-unnamed`, `pr-absent`, `pr-ambiguous`,
  *   `pr-copies-differ`, `pr-head-unheld`, `pr-carries-no-plan` or
  *   `checkout-copy-differs`.
  */
@@ -356,6 +371,9 @@ export const approve = (
           `the plan PR for '${slug}' (#${readings.pr.number}) is closed. Reopen it or create a new one.`,
         );
       default:
+        if (readings.pr.unnamedMerge !== undefined) {
+          return no('pr-merge-unnamed', unnamedMergeDetail(readings));
+        }
         return no(
           'pr-absent',
           `no PR found for branch '${readings.pr.branch}'. Run /plot-idea first, or push the branch.`,
@@ -502,7 +520,8 @@ const stagedPaths = (readings: ApproveReadings): string[] => {
  * @returns a decision naming every write, or a refusal: `plan-not-found`,
  *   `plan-unparseable`, `state-unreadable`, `state-wrong`, `spike-approved`,
  *   `spike-none`, `spike-not-first`, `review-unrecognised`, `review-human`,
- *   `reviewer-undeclared`, `pr-closed`, `pr-absent` or `pr-ambiguous`.
+ *   `reviewer-undeclared`, `pr-closed`, `pr-merge-unnamed`, `pr-absent` or
+ *   `pr-ambiguous`.
  */
 export const approveSpike = (
   readings: ApproveReadings,
@@ -566,6 +585,9 @@ export const approveSpike = (
           `the plan PR for '${slug}' (#${readings.pr.number}) is closed. Reopen it or create a new one.`,
         );
       default:
+        if (readings.pr.unnamedMerge !== undefined) {
+          return no('pr-merge-unnamed', unnamedMergeDetail(readings));
+        }
         return no(
           'pr-absent',
           `no PR found for branch '${readings.pr.branch}'. Run /plot-idea first, or push the branch.`,

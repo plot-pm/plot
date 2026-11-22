@@ -1,6 +1,7 @@
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { canPinMerge } from '@plot-pm/domain/workflows/merge';
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
+import { hostReadsFor } from '@plot-pm/domain/adapters';
 import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
@@ -467,6 +468,8 @@ interface RefusalContext {
   prNumber: number | null;
   /** The own-repo open rows that could not be read while looking for the plan. */
   unreadOpen: readonly UnreadPr[];
+  /** The merge that added the plan file where the host named no PR for it. */
+  unnamedMerge?: { sha: string; via: 'commit' | 'list' };
 }
 
 /**
@@ -511,6 +514,10 @@ const refusalText = (reason: ApproveRefusal, detail: string, c: RefusalContext):
       return `the plan PR for '${slug}' (#${c.prNumber}) is closed.\n  Reopen it on the host, or push '${c.prBranch}' again and open a new one.`;
     case 'pr-ambiguous':
       return `${detail}\n  Close the PR that should not carry the plan, then re-run. Nothing was merged and the phase is unchanged.`;
+    case 'pr-merge-unnamed':
+      return c.unnamedMerge?.via === 'list'
+        ? `the merge commit ${c.unnamedMerge.sha} added ${planFile}, and the host could only search its newest 100 merged PRs.\n  Set a host credential so plot-approve can ask the host by commit, or approve in session: plot-approve-command.mjs --who <handle> ${slug}. Nothing was merged and the phase is unchanged.`
+        : `the merge commit ${c.unnamedMerge?.sha ?? ''} added ${planFile}, and the host could not name its PR.\n  Check the merge commit on the host, or approve in session: plot-approve-command.mjs --who <handle> ${slug}. Nothing was merged and the phase is unchanged.`;
     case 'pr-absent':
       return `no PR found for branch '${c.prBranch}'.\n  Push the branch: git push -u origin ${c.prBranch}\n  Then open its PR — or run /plot-idea, which does both.`;
     case 'pr-copies-differ':
@@ -742,6 +749,21 @@ const stageApproval = async (ctx: Context, root: string, rel: string, report: Wr
 };
 
 /**
+ * The host the approve entry reads through: the shell host for every
+ * operation, with only `prsOfCommit` taken from the host `hostReadsFor`
+ * composes in-process.
+ *
+ * @param shell - the shell host; answers the listing, the status write and
+ *   every other operation.
+ * @param composed - the host `hostReadsFor` composed; answers `prsOfCommit`.
+ * @returns the host the entry hands to `perform`.
+ */
+export const approveHostOf = (shell: Host, composed: Host): Host => ({
+  ...shell,
+  prsOfCommit: (sha) => composed.prsOfCommit(sha),
+});
+
+/**
  * Parses argv, reads the plan and the PR, and performs the approval.
  *
  * @param argv - the arguments after the script name.
@@ -775,13 +797,21 @@ export const run = async (
   }
   const repoRoot = probe.value;
   const context = { repoRoot, scriptDir };
+  const shell = hostShell(context);
+  const scripts = scriptsShell(context);
+  const backend = await shell.backend();
+  const { host: composed } = await hostReadsFor(
+    context,
+    { backend: backend.ok ? backend.value : null, ci: await configured(scripts, 'CI', '') },
+    { shell },
+  );
   const ctx: Context = {
     repoRoot,
     scriptDir,
-    host: hostShell(context),
+    host: approveHostOf(shell, composed),
     planStore: planStoreShell(context),
     refs: refsGit(context),
-    scripts: scriptsShell(context),
+    scripts,
     trees: treesGit(context),
   };
 
@@ -897,6 +927,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
   let prRivals: readonly { number: number; file: string; blob: string }[] = [];
   let carried: readonly string[] = [];
   let prRefused: PlanPrRefusal['reason'] | undefined;
+  let unnamedMerge: { sha: string; via: 'commit' | 'list' } | undefined;
   let copies: { checkout: string; head: string } | undefined;
   let hostRefusal: Refused | undefined;
   const blobAt = async (sha: string, file: string): Promise<string> => {
@@ -905,7 +936,12 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
   };
   if (plan === undefined || !inSession) {
     try {
-      if (inCheckout && sameBranch) {
+      // A same-branch plan the default branch holds is found by its adding
+      // merge, like any other plan there: `sameBranchOf` may name a bare slug
+      // that never had a PR.
+      const sameBranchOnMain = inCheckout && sameBranch
+        && (await plansOnMain()).includes(realPlanPath(ctx.repoRoot, planFile) ?? planFile);
+      if (inCheckout && sameBranch && !sameBranchOnMain) {
         pr = await readPlanPr(ctx, prBranch);
         if (pr.state === 'OPEN' && pr.headSha !== undefined) {
           const head = await readHeadOf(ctx, prBranch, pr.headSha);
@@ -944,7 +980,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
         if (found !== undefined && found.outcome === 'refused') {
           prRefused = found.reason;
           pr = { number: found.number, state: 'OPEN', draft: false };
-        } else if (found !== undefined) {
+        } else if (found !== undefined && found.outcome === 'found') {
           pr = { number: found.number, state: found.state, draft: found.draft, headSha: found.headSha || undefined };
           if (found.branch !== '') prBranch = found.branch;
           carried = found.carried;
@@ -980,7 +1016,9 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
               copies = { checkout: checkoutText.value, head: headShown.value };
             }
           }
-        } else if (!inCheckout && onMain) {
+        } else {
+          if (found !== undefined) unnamedMerge = { sha: found.mergeCommit, via: found.via };
+          if (!inCheckout && onMain) {
           // No PR carries the plan at all — it reached the default branch by a
           // direct push or a squash merge `planPrOf` cannot trace to a PR. It is
           // still read, from `origin/<main>`, with no PR to pin a merge to.
@@ -994,6 +1032,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
           inSession = review === 'in-session';
           sameBranch = !inSession && impl === 'same-branch';
           write(`step: plan ${readFile} is not in this checkout — read it from origin/${main}\n`);
+          }
         }
       }
     } catch (err) {
@@ -1038,6 +1077,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
       ...(prBlob === '' ? {} : { blob: prBlob }),
       ...(prRefused === undefined ? {} : { refused: prRefused }),
       ...(copies === undefined ? {} : { copies }),
+      ...(unnamedMerge === undefined ? {} : { unnamedMerge }),
     },
   };
   // A spike approval records the channel it rode: the plan PR's merge, or the room.
@@ -1071,7 +1111,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
         : `${verdict.detail}\n  Name the reviewer: plot-approve.mjs --spike --who <handle> ${slug}`);
     }
     throw new Refused(refusalText(verdict.reason, verdict.detail, {
-      slug, planFile, scriptDir: ctx.scriptDir, dirs, phase, review, prBranch, prNumber: pr.number, unreadOpen,
+      slug, planFile, scriptDir: ctx.scriptDir, dirs, phase, review, prBranch, prNumber: pr.number, unreadOpen, unnamedMerge,
     }));
   }
   if (hostRefusal !== undefined) throw hostRefusal;
@@ -1136,7 +1176,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
   let merged = 'already';
   if (inSession) {
     merged = 'skipped-in-session';
-  } else if (sameBranch) {
+  } else if (sameBranch && pr.state !== 'MERGED') {
     merged = 'skipped-same-branch';
     write(`step: merge skipped — 'Impl: same branch' keeps PR #${pr.number} open for the implementation\n`);
   } else if (pr.state === 'MERGED') {
