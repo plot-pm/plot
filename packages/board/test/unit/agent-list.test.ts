@@ -18,7 +18,7 @@ import {
 } from '../../src/app/components/AgentList.js';
 import { CARD_BELOW_PX, COLLAPSED_BY_DEFAULT, isCollapsible, isFoldable, isFolded, readCollapsed, writeCollapsed } from '../../src/app/lib/agent-rows/collapse.js';
 import { MINE_ONLY_BY_DEFAULT, readMineOnly, rowsForReader, writeMineOnly } from '../../src/app/lib/agent-rows/mine-filter.js';
-import { ACTIVITY_MARK_PLACE, ActivityEcho, CHANGE_MARK_MS, ChangeMarks, LOCK_ECHO_MS, activeRowKeys, activityPace, changedRows, groupPace, headingPace, isUnreadable, sameWatched, type WatchedState, watchedState } from '../../src/app/lib/agent-rows/activity.js';
+import { ACTIVITY_MARK_PLACE, ActivityEcho, CHANGE_FADE, CHANGE_MARK_MS, JUST_NOW, activitySignal, signalAge, ChangeMarks, LOCK_ECHO_MS, activeRowKeys, activityPace, changedRows, groupPace, headingPace, isUnreadable, sameWatched, type WatchedState, watchedState } from '../../src/app/lib/agent-rows/activity.js';
 import { isActive, isLive, soleRowStatus } from '../../src/app/lib/agent-rows/stuck.js';
 import { elsewhereNote, groupByPlan, planGroupShape, rowsBySection, sectionTally, showPlanHeading, tallyLabel, unfilteredNote, type PlanGroup, type SectionTally, sliceKeyOf, sliceSection, slicesElsewhere } from '../../src/app/lib/agent-rows/sections.js';
 import { countdown } from '../../src/app/lib/agent-rows/actions.js';
@@ -1006,7 +1006,9 @@ describe('the activity marker leaves the other marks alone', () => {
   it('renders the spinner and the change mark as two distinct elements', () => {
     expect(source).toMatch(/^\s*data-change-mark$/m);
     expect(source).toMatch(/^\s*data-activity-spinner$/m);
-    expect(source).toContain('absolute inset-0 animate-pulse bg-amber-300/25');
+    expect(source).toContain('change-mark pointer-events-none absolute inset-0');
+    // One fade, never a repeating pulse: the three signals keep one meaning each.
+    expect(source).not.toContain('animate-pulse');
     expect(source).not.toMatch(/^\s*data-live-dot$/m);
     // The travelling dot and its track are gone with the old mark.
     expect(source).not.toMatch(/data-activity-(mark|track|dot)/);
@@ -2744,7 +2746,7 @@ describe('ChangeMarks — how long each mark stays lit', () => {
     // another's with it.
     const { marks, clock, lit } = marksOnFakeClock();
     marks.mark(['plot/a']);
-    clock.advance(2_000);
+    clock.advance(CHANGE_MARK_MS - 1_000);
     marks.mark(['plot/b']);
     expect(lit()).toEqual(['plot/a', 'plot/b']);
     // `a` goes out on its own schedule; `b` is still only 1s old.
@@ -2772,16 +2774,43 @@ describe('ChangeMarks — how long each mark stays lit', () => {
 });
 
 describe('CHANGE_MARK_MS — the marker outlives a glance, not the change', () => {
-  it('is about three seconds, tied to neither poll interval', () => {
+  it('is about two seconds, tied to neither poll interval', () => {
     // Measured, not chosen: the watched value comes from the 60s PR refresh
     // (120s under backoff), not the 4s fleet pulse, so a transition is a RARE
     // event and a 300ms flash would be missed nearly every time. It is
     // deliberately not equal to either clock — a marker cleared by the next
     // pulse would live 4s or 60s depending on which one cleared it, and would
     // stay lit forever on a board whose server died.
-    expect(CHANGE_MARK_MS).toBe(3_000);
+    expect(CHANGE_MARK_MS).toBe(2_000);
     expect(CHANGE_MARK_MS).toBeGreaterThan(1_000);
     expect(CHANGE_MARK_MS).toBeLessThan(4_000);
+  });
+
+  it('is the length of the fade, which runs once', () => {
+    // The marker unmounts when its fade ends: a longer life would leave a
+    // transparent mark, a shorter one would cut the fade off.
+    expect(CHANGE_FADE.animationDuration).toBe(`${CHANGE_MARK_MS}ms`);
+    expect(CHANGE_FADE.animationIterationCount).toBe(1);
+    expect(CHANGE_FADE.animationFillMode).toBe('forwards');
+  });
+});
+
+describe('activitySignal — which of the three signals a row shows', () => {
+  it('passes the running pace to the spinner slot', () => {
+    expect(activitySignal('fast', false, false)).toEqual({ spinner: 'fast', changed: false, age: null });
+    expect(activitySignal(null, false, false)).toEqual({ spinner: null, changed: false, age: null });
+  });
+
+  it('marks a changed row, and reads "just now" in its age under reduced motion only', () => {
+    expect(activitySignal(null, true, false)).toEqual({ spinner: null, changed: true, age: null });
+    expect(activitySignal('slow', true, true)).toEqual({ spinner: 'slow', changed: true, age: JUST_NOW });
+    expect(activitySignal(null, false, true).age).toBeNull();
+  });
+
+  it('replaces the age cell only where the signal names one', () => {
+    const age = { text: '3h', label: 'since claim' };
+    expect(signalAge(age, activitySignal(null, true, false))).toBe(age);
+    expect(signalAge(age, activitySignal(null, true, true))).toEqual({ text: 'just now', label: '' });
   });
 });
 

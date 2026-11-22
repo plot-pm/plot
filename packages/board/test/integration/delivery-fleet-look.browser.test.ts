@@ -111,6 +111,26 @@ describe('the Fleet section in the mockup look (real browser renders the shipped
     }
   });
 
+  it('leads a working agent\'s Doing now with the spinner, and turns one beside the header\'s Fleet label', async () => {
+    const page = await open('light');
+    try {
+      const doing = (group: string) => page.locator(`[data-section="fleet"] [data-group="${group}"] [data-agent-cell="doing"]`).first();
+      await expect.poll(() => doing('working').locator('[data-activity-spinner]').count()).toBe(1);
+      const spinner = doing('working').locator('[data-activity-spinner]');
+      expect(await spinner.isVisible()).toBe(true);
+      expect(await spinner.evaluate((el) => getComputedStyle(el, '::before').animationName)).toBe('activity-spinner');
+      // A blocked agent keeps the slot, empty, so its text starts where a working one's does.
+      expect(await doing('blocked').locator('[data-activity-spinner]').count()).toBe(0);
+      const slotWidth = (group: string) => doing(group).locator('[data-activity-slot]').evaluate((el) => el.getBoundingClientRect().width);
+      expect(await slotWidth('blocked')).toBe(await slotWidth('working'));
+      const label = page.locator('[data-tab-header] [data-header-group="fleet"] [data-activity-spinner]');
+      await expect.poll(() => label.count()).toBe(1);
+      expect(await label.isVisible()).toBe(true);
+    } finally {
+      await page.close();
+    }
+  });
+
   it('renders one row per agent, says a free loop waits for a slice, and lists the agents not working', async () => {
     const base = fleetWithBars();
     const stopped = (session: string, branch: string, state: string) =>
