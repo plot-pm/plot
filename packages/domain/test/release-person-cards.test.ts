@@ -13,6 +13,7 @@ import {
   type PersonCardSprint,
   type Reader,
 } from '../src/index.js';
+import { countedSlicesByPlan } from '../src/rules/counted-slices.js';
 
 const input: DeliveryInput = { mine: 'off', autoReview: true, correctionBudget: 2 };
 const directory = parsePersonDirectory('jwloka = Jan Wloka; eins78 = Max Albrecht');
@@ -95,5 +96,20 @@ describe('releasePersonCards', () => {
     const reader: Reader = { hostUser: 'jwloka', directory };
     const card = sprintCards([{ ...s, end: '' }], reader, plans, none, input).cards[0]!;
     expect(cards([s])[0]!.sprints[0]!.bar).toEqual(card.bar);
+  });
+
+  it('agrees with the sprint card on the bar of a sprint whose member is a delivered docs plan', () => {
+    const seeded = countedSlicesByPlan({
+      seen: ['a'],
+      slices: [{ plan: 'a', id: 'slice:a\0one', merge: 'merged' }],
+      plans: [{ plan: 'docs-plan', phase: 'delivered', type: 'docs', sliceIds: ['slice:docs-plan\0Docs'], planId: 'slice:docs-plan\0' }],
+    });
+    const s = sprint({ members: [member('a'), member('docs-plan')] });
+    const reader: Reader = { hostUser: 'jwloka', directory };
+    const card = sprintCards([{ ...s, end: '' }], reader, seeded, none, input).cards[0]!;
+    const person = cards([s], '2.32.0', seeded)[0]!.sprints[0]!;
+    expect(person.readingMissing).toBe(false);
+    expect(person.bar).not.toBeNull();
+    expect(person.bar).toEqual(card.bar);
   });
 });

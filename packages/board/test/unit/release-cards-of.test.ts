@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { NO_RELEASE_TARGETED, parsePersonDirectory, placeDelivery, releaseStatusLine } from '@plot-pm/domain';
 import type { AgentRow, Slice } from '../../src/contract/schema.js';
-import { deliveryMapping, releaseCardsOf, releaseGroupOf, type DeliveryMapInput } from '../../src/app/lib/agent-rows/delivery-readings.js';
+import { countedPlanFactsOf, deliveryMapping, releaseCardsOf, releaseGroupOf, type DeliveryMapInput } from '../../src/app/lib/agent-rows/delivery-readings.js';
 import { releaseTodoEntriesOf, todoListOf } from '../../src/app/lib/agent-rows/todo-list.js';
 import { youHeaderOf } from '../../src/app/lib/agent-rows/you-header.js';
 import { placeMapping } from '../../src/app/lib/agent-rows/delivery-view.js';
@@ -122,6 +122,15 @@ describe('releaseGroupOf', () => {
     const theirs = releaseGroupOf(scope, { hostUser: 'eins78' }, input({ ...over, mode: 'strict', reader: { hostUser: 'eins78' } }), undefined, null);
     expect(mine.group.bar).toEqual(theirs.group.bar);
     expect(mine.group.total).toBe(2);
+  });
+
+  it('draws the Release group\'s bar with no missing reading for a Delivered docs plan with no row', () => {
+    const plans = countedPlanFactsOf({ 'docs-plan': { file: 'docs/plans/2026-11-01-docs-plan.md', issues: [], phase: 'delivered', type: 'docs', slices: ['Docs'] } });
+    const scope = { kind: 'release' as const, sprints: [groupSprint('2.35.0', ['docs-plan'])] };
+    const { group } = releaseGroupOf(scope, reader, input({ plans }), undefined, null);
+    expect(group.readingMissing).toBe(false);
+    expect(group.bar).not.toBeNull();
+    expect(group.bar!.find((s) => s.state === 'delivered')!.count).toBe(1);
   });
 
   it('names the last release where no release is targeted', () => {

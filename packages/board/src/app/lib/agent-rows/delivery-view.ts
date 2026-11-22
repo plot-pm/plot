@@ -978,6 +978,7 @@ export const deliveryView = (
       const delivered = mapping.wholeReadings.items.find((i) => i.id === id)?.delivered === true;
       return { plan: s.plan, id, merge: s.merge === 'none' ? 'open' : s.merge ?? (s.complete || delivered ? 'merged' : 'open') };
     }),
+    plans: mapping.plans,
   });
   const scopeFacts = { kind: scope.kind, sprints: scope.sprints.map((sp) => ({ slug: sp.slug, title: sp.title, members: (sp.members ?? []).map((m) => m.slug) })) };
   const sprintGroups = sprintDeliveryGroups(scopeFacts, approved);

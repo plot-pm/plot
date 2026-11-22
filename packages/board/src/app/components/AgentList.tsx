@@ -127,7 +127,7 @@ import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRow
 import { ActivitySpinner } from '../lib/agent-rows/marks.js';
 import { BranchMenu, BrokenAgentMenu, PlanActions } from '../lib/agent-rows/menus.js';
 import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
-import { deliveryMapping, rateLimitOf, releaseCardsOf, releaseGroupOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
+import { countedPlanFactsOf, deliveryMapping, rateLimitOf, releaseCardsOf, releaseGroupOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
 import { ReleaseGroup } from './ReleaseGroup.js';
 import {
   anchorOwner,
@@ -1273,6 +1273,7 @@ export function AgentList({
           rateLimit: rateLimitOf(fleet.machine?.host, Date.now()),
           bounds: fleet.bounds,
           checksUrlOf: (planFile: string, pr: number) => cardForPlanFile?.(planFile)?.prs.find((p) => p.number === pr)?.checksUrl ?? '',
+          plans: countedPlanFactsOf(fleet.plans),
         };
         const mapping = deliveryMapping(mappingInput);
         const cardSprintOf = (s: FleetSprint) => ({ ...s, release: s.release ?? '', end: s.end ?? '', ownerHandle: s.ownerHandle ?? '', members: s.members ?? [] });
