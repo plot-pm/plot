@@ -252,6 +252,17 @@ describe('merge — the controller for a PR merge', () => {
       expect(refusalOf(readings({ stateHome: 'unaskable', pr: pr({ base: 'feature/y' }) }))).toBe('state-home-unread');
     });
 
+    it('names the PR into its base where the base is unread', () => {
+      const out = merge(readings({ stateHome: 'unaskable', defaultBranchName: 'main', pr: pr({ base: '' }) }), { pr: 42, sha: HEAD, ...CLOCK });
+      expect(out.outcome === 'refused' && out.reason).toBe('state-home-unread');
+      expect(out.outcome === 'refused' && out.detail).toContain('PR #42 into its base needs');
+    });
+
+    it('names the base branch of the PR in the refusal', () => {
+      const out = merge(readings({ stateHome: 'unaskable', defaultBranchName: 'main', pr: pr({ base: 'sprint/x' }) }), { pr: 42, sha: HEAD, ...CLOCK });
+      expect(out.outcome === 'refused' && out.detail).toContain('PR #42 into sprint/x needs');
+    });
+
     it('leaves a PR into another base to the other refusals', () => {
       expect(refusalOf(readings({ stateHome: 'unaskable', defaultBranchName: 'main', pr: pr({ base: 'feature/y' }), defaultBranch: null }))).toBe('decided');
     });

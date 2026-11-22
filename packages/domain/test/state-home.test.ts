@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import { repairRecordFile } from '../src/adapters/repair-record/repair-record-file.js';
-import { stateHomeOf } from '../src/rules/state-home.js';
+import { stateHomeOf, stateHomeReadOf } from '../src/rules/state-home.js';
+
+describe('stateHomeReadOf', () => {
+  it('answers read for a found home', () => {
+    expect(stateHomeReadOf(stateHomeOf('/r/.git'))).toBe('read');
+  });
+
+  it('answers unaskable for an unread home', () => {
+    expect(stateHomeReadOf(stateHomeOf(null))).toBe('unaskable');
+  });
+});
 
 describe('stateHomeOf', () => {
   it('answers the main checkout for a `.git` common directory', () => {
