@@ -96,7 +96,7 @@ The check sits in `approve` because approval is the last step before dispatch an
 
 ### Approve route
 
-- `bug/plot-approve-asks-the-pr-of-the-adding-merge` — `planPrOf`'s `commit` ask with the list fallback and the `unnamed` outcome, `choosePlanPr`'s answer, the entry's `approveHostOf` with only `prsOfCommit` in-process, the same-branch route on the default branch, `pr-merge-unnamed` in `approve` and `approveSpike` with its two texts, `SKILL.md:273`, a changeset, and the tests <!-- builds: pr-merge-unnamed, the plan-PR lookup by commit --> <!-- waits: bug/the-host-names-the-prs-of-a-commit -->
+- `bug/plot-approve-asks-the-pr-of-the-adding-merge` — `planPrOf`'s `commit` ask with the list fallback and the `unnamed` outcome, `choosePlanPr`'s answer, the entry's `approveHostOf` with only `prsOfCommit` in-process, the same-branch route on the default branch, `pr-merge-unnamed` in `approve` and `approveSpike` with its two texts, `SKILL.md:273`, a changeset, and the tests <!-- builds: pr-merge-unnamed, the plan-PR lookup by commit --> <!-- waits: bug/the-host-names-the-prs-of-a-commit --> → #3653
 
 ### Slice branch
 
