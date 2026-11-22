@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-11-22, Jan Wloka, plan-PR #3656 merged
+- **Started:** 2026-11-22, Jan Wloka, `feature/delivery-header-counts-every-state`
 
 ## Changelog
 
