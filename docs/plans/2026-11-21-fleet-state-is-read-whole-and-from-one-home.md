@@ -13,6 +13,7 @@
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3609 merged
 - **Started:** 2026-11-21, Jan Wloka, `bug/merge-reads-the-main-checkouts-state`
 - **Started:** 2026-11-22, Jan Wloka, `bug/the-repair-start-decision-moves-into-the-domain`
+- **Started:** 2026-11-22, Jan Wloka, `bug/the-first-red-rerun-wait-ends-at-checks-wait`
 
 ## Changelog
 
