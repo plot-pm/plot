@@ -75,7 +75,7 @@ The Delivery tab shows "The merge reading for this sprint is missing." and "The 
 
 ### Counting
 
-- `bug/a-delivered-docs-member-counts-as-finished` — `phase`, `type` and `slices` on the `/api/fleet` `plans` entries, passed through `DeliveryMapInput` to `countedSlicesByPlan`, so the sprint, release and person cards count a delivered docs or infra member as delivered, with the unit tests <!-- builds: the plan facts on the fleet payload's plans index --> <!-- waits: bug/the-pulse-omission-is-one-domain-rule -->
+- `bug/a-delivered-docs-member-counts-as-finished` — `phase`, `type` and `slices` on the `/api/fleet` `plans` entries, passed through `DeliveryMapInput` to `countedSlicesByPlan`, so the sprint, release and person cards count a delivered docs or infra member as delivered, with the unit tests <!-- builds: the plan facts on the fleet payload's plans index --> <!-- waits: bug/the-pulse-omission-is-one-domain-rule --> → #3655
 
 ## Notes
 
