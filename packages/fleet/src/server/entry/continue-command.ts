@@ -5,7 +5,7 @@ import { fleetStateVouched } from '@plot-pm/domain/adapters/fleet-state/fleet-st
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { callerOf, type Caller, type DeskMonitors, type FleetReading } from '@plot-pm/domain';
 import { continueBranch } from '../../shared/continue-command.js';
-import { ANSWER_MAX } from '../../shared/continuation.js';
+import { ANSWER_MAX, type ContinuationSession } from '../../shared/continuation.js';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
@@ -129,8 +129,18 @@ export const run = async (
     warn(`plot-continue-command: ${started.error}\n`);
     return 1;
   }
-  write(`continued ${branch}: pid ${started.pid} (replaces ${started.previousPid || 'none'})\nlog ${started.log}\n`);
+  write(`continued ${branch}: pid ${started.pid} (replaces ${started.previousPid || 'none'})\n${sessionLine(started.session)}\nlog ${started.log}\n`);
   return 0;
+};
+
+/**
+ * The output line that names a continuation's session: `resumes <handle>`, or
+ * `fresh session <handle>` followed by each rejected candidate and its reason.
+ */
+const sessionLine = (session: ContinuationSession): string => {
+  if ('resumed' in session) return `resumes ${session.resumed}`;
+  const rejected = session.rejected.map((r) => `${r.handle}: ${r.why}`).join(', ');
+  return rejected === '' ? `fresh session ${session.fresh}` : `fresh session ${session.fresh} (${rejected})`;
 };
 
 // Only when RUN, never when imported; see `dispatch-command.ts` for why.

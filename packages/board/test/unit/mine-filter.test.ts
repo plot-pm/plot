@@ -158,7 +158,7 @@ describe('the lenient Mine mode reads a row\'s own arm and its plan\'s arm', () 
   const mineOf = (assignee: string): PlanOwners => ({ assignee, author: '', approver: '' });
 
   const branchRow = (branch: string, prAuthor: string, plan: PlanOwners): AgentRow => ({
-    branch, plan: 'p', wave: branch, kind: 'branch', phase: 'Development', state: 'wip', group: 'working',
+    branch, plan: 'p', wave: branch, kind: 'branch', phase: 'Development', planState: 'approved', state: 'wip', group: 'working',
     worker: 'running', question: null, blockedBy: null,
     pr: { number: branch.length, author: prAuthor, state: 'pending', open: true, ciChecks: 'pending' },
     ...plan,

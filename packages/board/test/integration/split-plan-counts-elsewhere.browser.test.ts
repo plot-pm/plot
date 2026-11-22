@@ -41,7 +41,7 @@ const SPLIT_FILE = '2026-08-16-harvest-plan.md';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: SPLIT, planFile: SPLIT_FILE,
-  wave: 'w', state: 'open', phase: 'Development', group: 'not-started', ageMinutes: null,
+  wave: 'w', state: 'open', phase: 'Development', planState: 'approved', group: 'not-started', ageMinutes: null,
   waitingOn: 'click', note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
   localDirty: false, localLocked: false, stuck: null, verdict: 'eligible',
   // The default is startable (open + click + eligible), so `startability: 'start-work'`.

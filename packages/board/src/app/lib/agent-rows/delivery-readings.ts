@@ -28,6 +28,7 @@ import {
   type WorkItemReading,
 } from '@plot-pm/domain';
 import type { PersonDirectory } from '@plot-pm/domain/entities/person';
+import { countedSlicesByPlan as domainCountedSlicesByPlan, type CountedPlanFacts, type PlanCountedSlice } from '@plot-pm/domain/rules/counted-slices';
 import type { ReleasePrReading } from '@plot-pm/domain/rules/release-approvable';
 import { personCommentHolds } from '@plot-pm/domain/rules/person-comment';
 import { ticketMarkOf, ticketRecordOf } from '@plot-pm/domain/rules/sprint-ticket-record';
@@ -149,17 +150,9 @@ type PrFacts = NonNullable<WorkItemReading['pr']>;
 
 const MINE: Record<MineMode, DeliveryMine> = { all: 'off', 'mine-and-unknown': 'mine', mine: 'strict' };
 
-/** The payload's workflow phase words, and the lifecycle phase the placement rule reads for each. */
-const PHASE_OF: Readonly<Record<string, NonNullable<WorkItemReading['phase']>>> = {
-  Discovery: 'draft',
-  Design: 'design',
-  Development: 'approved',
-  Testing: 'delivered',
-  Released: 'released',
-};
-
-const phaseOf = (value: string | null): WorkItemReading['phase'] =>
-  value === null ? undefined : PHASE_OF[value];
+/** The plan state the placement rule reads; `rejected`, `superseded` and an unread state leave it unset. */
+const phaseOf = (state: AgentRow['planState']): WorkItemReading['phase'] =>
+  state === 'rejected' || state === 'superseded' || state === null ? undefined : state;
 
 export const sliceItemId = (plan: string, wave: string): string => `slice:${sliceKeyOf(plan, wave)}`;
 export const branchItemId = (branch: string): string => `branch:${branch}`;
@@ -260,7 +253,7 @@ const rowItem = (id: string, rows: readonly AgentRow[], slice: Slice | undefined
     kind: first.kind === 'release' ? 'release' : !rowInSlice(first) ? (first.pr ? 'pr' : 'branch') : 'slice',
     ownership: ownershipOfRows(rows, reader),
   };
-  const phase = phaseOf(first.phase);
+  const phase = phaseOf(first.planState);
   if (phase !== undefined) item.phase = phase;
   if (rows.some((r) => r.question !== null && r.question !== undefined)) item.blockedMarker = true;
   const merged = slice !== undefined ? slice.complete : rows.every((r) => r.state === 'merged');
@@ -519,28 +512,27 @@ export const ticketMarkFor = (sprintTexts: readonly string[], ticket: string): s
  * part before the NUL. Every plan the payload read a row or a Draft card for has
  * an entry, `[]` where it holds no slice item: a Draft plan is split into
  * branches only after approval. A plan the payload read nothing for has no
- * entry: its merge answer is unread.
+ * entry: its merge answer is unread. The domain's `countedSlicesByPlan` decides
+ * the entries; `input.plans`, absent here, reads as no plan facts.
  *
  * @param items - the work items of one set of readings.
- * @param input - the rows and Draft plans the readings were mapped from.
+ * @param input - the rows and Draft plans the readings were mapped from, and the plan facts.
  */
 export const countedSlicesByPlan = (
   items: readonly WorkItemReading[],
-  input: Pick<DeliveryMapInput, 'rows' | 'drafts'> = { rows: [], drafts: [] },
-): Map<string, CountedSlice[]> => {
-  const byPlan = new Map<string, CountedSlice[]>();
-  for (const plan of [...input.rows.map((r) => r.plan), ...input.drafts.map((d) => d.plan)]) {
-    if (plan !== '' && !byPlan.has(plan)) byPlan.set(plan, []);
-  }
-  for (const item of items) {
-    if (!item.id.startsWith('slice:')) continue;
-    const plan = item.id.slice('slice:'.length).split('\0')[0]!;
-    const list = byPlan.get(plan) ?? [];
-    list.push({ id: item.id, merge: item.delivered === true ? 'merged' : 'open' });
-    byPlan.set(plan, list);
-  }
-  return byPlan;
-};
+  input: Pick<DeliveryMapInput, 'rows' | 'drafts'> & { readonly plans?: readonly CountedPlanFacts[] } = { rows: [], drafts: [] },
+): Map<string, CountedSlice[]> =>
+  domainCountedSlicesByPlan({
+    seen: [...input.rows.map((r) => r.plan), ...input.drafts.map((d) => d.plan)],
+    slices: items
+      .filter((item) => item.id.startsWith('slice:'))
+      .map((item): PlanCountedSlice => ({
+        plan: item.id.slice('slice:'.length).split('\0')[0]!,
+        id: item.id,
+        merge: item.delivered === true ? 'merged' : 'open',
+      })),
+    plans: input.plans ?? [],
+  });
 
 /**
  * The sprint card's view, read from every row the payload carries.

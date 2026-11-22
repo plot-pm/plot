@@ -236,7 +236,8 @@ import {
 import type { SupervisionReportStore } from '@plot-pm/domain/ports/supervision-report';
 import { logDir, processLog, truncateInherited } from '../../shared/process-log.js';
 import { readConfig } from '../../shared/config-reader.js';
-import { continueOnDesk, deskTranscriptHandles, recordRoleSessions, type DeskContinuation, type DeskContinuationInput } from '../../shared/continuation.js';
+import { continueOnDesk, deskTranscriptHandles, type DeskContinuation, type DeskContinuationInput } from '../../shared/continuation.js';
+import { recordRoleSessions } from '../../shared/role-sessions.js';
 import { readDeskLoop } from '../../shared/desk-loop.js';
 import type { Desk } from '@plot-pm/domain/ports/desk';
 import { randomUUID } from 'node:crypto';

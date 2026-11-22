@@ -1955,7 +1955,7 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
 
   const watched = (over: Partial<WatchedState> = {}): WatchedState => ({
     pr: null, prNumber: null, prDraft: false, state: 'wip', group: 'working',
-    wave: 'One', phase: 'Development', localDirty: false, localLocked: false,
+    wave: 'One', phase: 'Development', planState: 'approved', localDirty: false, localLocked: false,
     localAhead: 0, stuck: null, ...over,
   });
 

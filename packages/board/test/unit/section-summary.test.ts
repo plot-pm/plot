@@ -12,7 +12,7 @@ const SCOPES = ['release', 'my-sprint'] as const;
 const owners = (assignee: string): PlanOwners => ({ assignee, author: '', approver: '' });
 
 const branchRow = (plan: string, branch: string, prAuthor: string, assignee: string): AgentRow => ({
-  branch, plan, wave: branch, kind: 'branch', phase: 'Development', state: 'wip', group: 'working',
+  branch, plan, wave: branch, kind: 'branch', phase: 'Development', planState: 'approved', state: 'wip', group: 'working',
   worker: 'running', question: null, blockedBy: null,
   pr: { number: branch.length, author: prAuthor, state: 'pending', open: true, ciChecks: 'pending' },
   ...owners(assignee),

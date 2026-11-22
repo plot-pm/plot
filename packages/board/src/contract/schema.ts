@@ -22,7 +22,7 @@ import {
   type SprintState,
 } from '@plot-pm/domain';
 import { AgentStateSchema, AgentIdentitySchema, type AgentState, type AgentIdentity } from '@plot-pm/fleet/shared/agent-wire';
-import { CardFactsSchema, knownSchema, RefSchema } from '@plot-pm/domain/entities/card-facts';
+import { CardFactsSchema, knownSchema, PlanStateSchema, RefSchema } from '@plot-pm/domain/entities/card-facts';
 
 /**
  * The contract between Plot's plan-format helper (`plot-plan-meta.sh`) and the
@@ -2789,6 +2789,15 @@ export const AgentRowSchema = z.object({
    * empty rather than guessing a column.
    */
   phase: z.string().nullable().default(null),
+  /**
+   * The lifecycle state of the plan this row belongs to, as the domain's
+   * `planStateOf` reads the plan's `State:` word — `draft` for an `idea/`
+   * branch. `phase` above names a column and depends on the `Workflow phases`
+   * map and the tracer rule; this field does not, and the Delivery tab places
+   * a row by it. null where no state can be read: a planless branch, an
+   * unrecognised word, or a row from a server that predates the field.
+   */
+  planState: PlanStateSchema.nullable().default(null),
   /**
    * The section this row renders under — or `null` for UNPLACED, a row the
    * board is currently unable to place.

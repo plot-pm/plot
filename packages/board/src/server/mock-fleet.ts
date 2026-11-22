@@ -46,7 +46,7 @@ const minutesAgo = (m: number) => new Date(now - m * 60_000).toISOString();
 function row(over: Partial<AgentRow> & Pick<AgentRow, 'kind'>): AgentRow {
   return {
     repo: '.', plan: '', planFile: '', wave: '', state: 'open',
-    phase: null, group: 'waiting-on-you', ageMinutes: 60, note: '',
+    phase: null, planState: null, group: 'waiting-on-you', ageMinutes: 60, note: '',
     branch: '', branchUrl: '', pr: null, waitingDays: null,
     localDirty: false, localLocked: false, localAhead: 0,
     waitingOn: null, blockedBy: null, verdict: null, startability: null, worker: 'none',
@@ -78,7 +78,7 @@ export function mockFleet(): Fleet {
       planFile: 'docs/plans/2026-08-20-fleet-scan-asks-the-host.md',
       // `Tracer`, so the SPIKE marking is visible in the mock — the slice whose
       // outcome may be a refined plan rather than merged work.
-      phase: 'Design', wave: 'Tracer', waitingDays: 1, ageMinutes: 1440,
+      phase: 'Design', planState: 'approved', wave: 'Tracer', waitingDays: 1, ageMinutes: 1440,
       branch: 'feature/the-scan-asks-once',
       branchUrl: 'https://example.invalid/tree/feature/the-scan-asks-once',
       verdict: 'eligible',
@@ -90,7 +90,7 @@ export function mockFleet(): Fleet {
       kind: 'branch', group: 'not-started',
       plan: 'fleet-scan-asks-the-host',
       planFile: 'docs/plans/2026-08-20-fleet-scan-asks-the-host.md',
-      phase: 'Design', wave: 'Relocated', waitingDays: 1, ageMinutes: 1440,
+      phase: 'Design', planState: 'approved', wave: 'Relocated', waitingDays: 1, ageMinutes: 1440,
       branch: 'feature/the-wave-finds-its-owner',
       branchUrl: 'https://example.invalid/tree/feature/the-wave-finds-its-owner',
       verdict: 'blocked', blockedBy: 'Tracer',
@@ -105,7 +105,7 @@ export function mockFleet(): Fleet {
       kind: 'branch', group: 'not-started',
       plan: 'fleet-scan-asks-the-host',
       planFile: 'docs/plans/2026-08-20-fleet-scan-asks-the-host.md',
-      phase: 'Design', wave: 'Moved', waitingDays: 1, ageMinutes: 1440,
+      phase: 'Design', planState: 'approved', wave: 'Moved', waitingDays: 1, ageMinutes: 1440,
       branch: 'bug/the-old-column-goes',
       branchUrl: 'https://example.invalid/tree/bug/the-old-column-goes',
       verdict: 'blocked', blockedBy: 'Relocated',
@@ -115,7 +115,7 @@ export function mockFleet(): Fleet {
       kind: 'branch', group: 'not-started',
       plan: 'fleet-scan-asks-the-host',
       planFile: 'docs/plans/2026-08-20-fleet-scan-asks-the-host.md',
-      phase: 'Design', wave: 'Moved', waitingDays: 1, ageMinutes: 1440,
+      phase: 'Design', planState: 'approved', wave: 'Moved', waitingDays: 1, ageMinutes: 1440,
       branch: 'bug/the-badge-goes-too',
       branchUrl: 'https://example.invalid/tree/bug/the-badge-goes-too',
       verdict: 'blocked', blockedBy: 'Relocated',
@@ -329,7 +329,7 @@ export function mockFleet(): Fleet {
       branchUrl: 'https://example.invalid/tree/idea/a-wave-is-a-thing-not-a-label',
       plan: 'a-wave-is-a-thing-not-a-label',
       planFile: 'docs/plans/2026-08-20-a-wave-is-a-thing-not-a-label.md',
-      wave: '', state: 'wip', phase: IDEA_PHASE,
+      wave: '', state: 'wip', phase: IDEA_PHASE, planState: 'draft',
       ageMinutes: 90, note: 'PR #305, draft — waiting on its author',
       pr: {
         number: 305, url: 'https://example.invalid/pull/305', draft: true,
@@ -348,7 +348,7 @@ export function mockFleet(): Fleet {
       branchUrl: 'https://example.invalid/tree/idea/the-row-is-legible',
       plan: 'the-row-is-legible',
       planFile: 'docs/plans/2026-08-20-the-row-is-legible.md',
-      wave: '', state: 'wip', phase: IDEA_PHASE,
+      wave: '', state: 'wip', phase: IDEA_PHASE, planState: 'draft',
       ageMinutes: 240, note: 'PR #306, green — ready for approval',
       pr: {
         number: 306, url: 'https://example.invalid/pull/306', draft: false,

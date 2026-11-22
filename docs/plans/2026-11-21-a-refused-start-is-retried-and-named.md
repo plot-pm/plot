@@ -122,7 +122,7 @@ In both cases the pass that asked read the plan as Approved on `origin/<main>` (
 
 ### Brief retry
 
-- `bug/a-refused-brief-is-asked-again` — the `--at <sha>` prompt and its `/plot-implement` flag, `onEnd` from `askForBrief`, `briefAskState`, `outstandingEnds` and `BRIEF_ASK_RETRIES`, `briefEnds` held across passes, the spent file and the `spent` brief-writer state on the row, and the domain and board tests <!-- builds: briefAskState and outstandingEnds, the brief ask's asked/free/spent state -->
+- `bug/a-refused-brief-is-asked-again` — the `--at <sha>` prompt and its `/plot-implement` flag, `onEnd` from `askForBrief`, `briefAskState`, `outstandingEnds` and `BRIEF_ASK_RETRIES`, `briefEnds` held across passes, the spent file and the `spent` brief-writer state on the row, and the domain and board tests <!-- builds: briefAskState and outstandingEnds, the brief ask's asked/free/spent state --> → #3649
 
 ### Start refusal
 

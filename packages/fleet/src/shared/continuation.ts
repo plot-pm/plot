@@ -23,6 +23,9 @@ import { agentCapabilitiesSystem } from '@plot-pm/domain/adapters/agent-capabili
 import type { CapabilityReading } from '@plot-pm/domain/ports/agent-capabilities';
 import { takeContinueLock, releaseContinueLock } from './continue-lock.js';
 import { CONTINUATION_NAME } from './continuation-name.js';
+import { roleSessions } from './role-sessions.js';
+import { transcriptHead } from './transcript.js';
+import { resumeHandleUsable, type ResumeHandleRejection } from '@plot-pm/domain/rules/resume-handle';
 import { runLimitRefusal, DEFAULT_SLICE_MAX_RUNS } from '@plot-pm/domain/rules/run-limit';
 import { sliceSpendRefusal } from '@plot-pm/domain/rules/slice-spend-refusal';
 import { readSliceSpend } from '@plot-pm/domain/workflows/slice-spend';
@@ -415,6 +418,8 @@ export type DeskContinuation =
       log: string;
       /** Set when the loop started but its manifest does not name the new pid within the bound; the registry row may still name the previous run. */
       warning?: string;
+      /** The session the new run starts: the handle it resumes, or the new handle and each candidate the rule rejected. */
+      session: ContinuationSession;
     }
   | { kind: 'refused'; status: number; reason: ContinueRefusal; detail: string }
   | { kind: 'failed'; error: string };
@@ -551,36 +556,6 @@ const deskEnding = (worktree: string): ReturnType<typeof readEnding> => {
   return readEnding(text);
 };
 
-/** The file in a desk's own gitdir that lists the transcript handles role runs started there. */
-const ROLE_SESSIONS_FILENAME = 'plot-role-sessions';
-
-/**
- * The desk's role-session record: a file in the desk's own gitdir, outside
- * the tree, so it never reads as unlanded work. `undefined` where the desk
- * has no `.git`.
- */
-const roleSessionsFile = (worktree: string): string | undefined => {
-  const dotGit = path.join(worktree, '.git');
-  try {
-    if (fs.statSync(dotGit).isDirectory()) return path.join(dotGit, ROLE_SESSIONS_FILENAME);
-    const named = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(dotGit, 'utf8'));
-    return named === null ? undefined : path.join(path.resolve(worktree, named[1].trim()), ROLE_SESSIONS_FILENAME);
-  } catch {
-    return undefined;
-  }
-};
-
-/** The handles a role run started on this desk, read from its record; empty where none is readable. */
-const roleSessions = (worktree: string): Set<string> => {
-  const file = roleSessionsFile(worktree);
-  if (file === undefined) return new Set();
-  try {
-    return new Set(fs.readFileSync(file, 'utf8').split('\n').filter((line) => line !== ''));
-  } catch {
-    return new Set();
-  }
-};
-
 /** The transcripts in this desk's transcript directory, `agent-*` excluded, with their mtimes. */
 const deskTranscripts = (worktree: string): { handle: string; mtimeMs: number }[] => {
   const home = process.env[TRANSCRIPT_HOME_ENV] ?? os.homedir();
@@ -606,7 +581,7 @@ const deskTranscripts = (worktree: string): { handle: string; mtimeMs: number }[
 /**
  * The transcript handles in this desk's transcript directory now, `agent-*`
  * excluded. A role run reads it before and after it runs, and records the
- * difference with {@link recordRoleSessions}.
+ * difference with `recordRoleSessions` (`role-sessions.ts`).
  *
  * @param worktree - the desk's absolute path.
  * @returns the handles; empty where the directory does not exist.
@@ -615,48 +590,66 @@ export const deskTranscriptHandles = (worktree: string): Set<string> =>
   new Set(deskTranscripts(worktree).map((t) => t.handle));
 
 /**
- * Appends the handles a role run started on this desk to the desk's
- * role-session record, so {@link resumeIdFromTranscript} never answers one.
- * A record that cannot be written is skipped: the continuation then falls
- * back as it would with no record.
- *
- * @param worktree - the desk's absolute path.
- * @param handles - the transcript handles the role run started.
- */
-export const recordRoleSessions = (worktree: string, handles: Iterable<string>): void => {
-  const lines = [...handles].map((handle) => `${handle}\n`).join('');
-  const file = roleSessionsFile(worktree);
-  if (lines === '' || file === undefined) return;
-  try {
-    fs.appendFileSync(file, lines);
-  } catch {
-    /* an unwritable record leaves the fallback as it was */
-  }
-};
-
-/**
- * The newest transcript's own handle for this desk that neither a subagent
- * nor a role run wrote, or `''`.
+ * This desk's transcript handles, newest first by mtime, `agent-*` excluded.
  *
  * A blocked desk's manifest is gone — the whole premise of a `write` verdict
  * — so the conversation to resume cannot be read off it. The runtime still
  * keeps the transcript under `~/.claude/projects/<slug>/<handle>.jsonl`, named
  * by `transcriptDirFor`. A subagent's own file (`agent-*`) is excluded for
- * the reason `Transcript.quietSeconds` excludes it, and a handle the desk's
- * role-session record names is excluded because a role run (the unblocker)
- * runs with the desk as its working directory and is not the asking agent.
- * `''` makes the caller start a new conversation.
+ * the reason `Transcript.quietSeconds` excludes it. The handles are
+ * candidates only: {@link chooseResumeHandle} asks `resumeHandleUsable` about
+ * each.
  */
-const resumeIdFromTranscript = (worktree: string): string => {
+const resumeIdsFromTranscript = (worktree: string): string[] =>
+  deskTranscripts(worktree)
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .map((t) => t.handle);
+
+/** The session a continuation starts: an existing handle it resumes, or a new one and the candidates the rule rejected. */
+export type ContinuationSession =
+  | { resumed: string }
+  | { fresh: string; rejected: { handle: string; why: ResumeHandleRejection }[] };
+
+/**
+ * The first handle among `first` and this desk's transcript handles that
+ * `resumeHandleUsable` accepts for `branch`, or a new handle.
+ *
+ * @param worktree - the desk's absolute path.
+ * @param branch - the branch the continuation runs for.
+ * @param first - the path's own candidate: the manifest's `resumeId` on the
+ *   stamp path, the ending's on the write path; `''` for none.
+ * @param mint - makes the new handle.
+ * @returns the chosen handle and the session it names.
+ */
+const chooseResumeHandle = (
+  worktree: string,
+  branch: string,
+  first: string,
+  mint: () => string = randomUUID,
+): { handle: string; session: ContinuationSession } => {
+  const dir = transcriptDirFor(worktree, process.env[TRANSCRIPT_HOME_ENV] ?? os.homedir());
   const roles = roleSessions(worktree);
-  let newest = '';
-  let newestMs = -1;
-  for (const { handle, mtimeMs } of deskTranscripts(worktree)) {
-    if (roles.has(handle) || mtimeMs <= newestMs) continue;
-    newestMs = mtimeMs;
-    newest = handle;
+  const rejected: { handle: string; why: ResumeHandleRejection }[] = [];
+  const seen = new Set<string>();
+  for (const handle of [first, ...resumeIdsFromTranscript(worktree)]) {
+    if (seen.has(handle)) continue;
+    seen.add(handle);
+    const verdict = resumeHandleUsable({ handle, branch, roleSessions: roles, head: transcriptHead(dir, handle) });
+    if (verdict.usable) return { handle, session: { resumed: handle } };
+    if (handle !== '') rejected.push({ handle, why: verdict.why });
   }
-  return newest;
+  const handle = mint();
+  return { handle, session: { fresh: handle, rejected } };
+};
+
+/** The `resumeId` a manifest file names, or `''` where it names none or does not read. */
+const manifestResumeId = (manifestPath: string): string => {
+  try {
+    const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as { resumeId?: unknown } | null;
+    return m !== null && typeof m.resumeId === 'string' ? m.resumeId : '';
+  } catch {
+    return '';
+  }
 };
 
 /** What {@link stopAndAwaitExit} answers: the pid is gone, or why it is not. */
@@ -1203,10 +1196,9 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     // THE MANIFEST THIS RUN USES, FROM HERE ON — either the one `continueTarget`
     // found, stamped in place, or a new one written because the desk's ending
     // record says it is waiting for exactly this answer and none names it yet.
-    // `resumeId` is the handle the ending itself recorded (#1788) where one was
-    // written; the transcript scan is a fallback for an ending with none, never
-    // the first source — see `resumeIdFromTranscript`'s own doc comment for why
-    // the newest-by-mtime file is not reliably this conversation's.
+    // `resumeId` is the first handle `resumeHandleUsable` accepts among the
+    // path's own candidate and the desk's transcripts newest first; see
+    // `chooseResumeHandle`.
     //
     // WRITTEN LAST, AFTER THE PROMPT AND THE LOG (#1373): both of those already
     // succeeded by this point, so a `failed` return from here never leaves a
@@ -1225,6 +1217,8 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     }
 
     let manifestPath: string;
+    // Assigned on every path below: the write path, the `fresh` write, or the stamp path's choice.
+    let session!: ContinuationSession;
     if (target.manifest === 'stamp') {
       manifestPath = target.path;
     } else {
@@ -1239,12 +1233,13 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       // so the loop's idle watch could never see this conversation as spoken,
       // and could never publish `idle`. Minting here, where the manifest is
       // being written for the first time, gives every run a real handle.
-      const resumeId = recorded !== '' ? recorded : resumeIdFromTranscript(worktree) || randomUUID();
+      const chosen = chooseResumeHandle(worktree, branch, recorded);
+      session = chosen.session;
       const written = writeDeskManifest(resolveManifestDir(opts.repoRoot, opts), {
         worktree,
         branch,
         command: cmd,
-        resumeId,
+        resumeId: chosen.handle,
         // THIS CONTINUATION IS RUN 1 — see DeskManifestFields.sliceRuns. With no
         // previous manifest to carry a count forward from, leaving the field
         // absent would read as `0` forever and this path would never count
@@ -1272,9 +1267,25 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     // exists for it; a new id has no transcript, so the loop creates a session.
     // A manifest that cannot take the new id would resume the spent session, so
     // the start does not happen.
-    if (input.fresh === true && !writeResumeId(manifestPath, randomUUID())) {
-      fs.closeSync(out);
-      return failed(`cannot replace the resume id in ${manifestPath}; a start now would resume the previous session`);
+    if (input.fresh === true) {
+      const handle = randomUUID();
+      if (!writeResumeId(manifestPath, handle)) {
+        fs.closeSync(out);
+        return failed(`cannot replace the resume id in ${manifestPath}; a start now would resume the previous session`);
+      }
+      session = { fresh: handle, rejected: [] };
+    } else if (target.manifest === 'stamp') {
+      // THE STAMPED MANIFEST'S OWN HANDLE IS A CANDIDATE, NOT A GIVEN. A role
+      // handle or another branch's handle in it is replaced before the start,
+      // and a manifest that cannot take the replacement refuses the start for
+      // the reason the `fresh` write above does.
+      const stamped = manifestResumeId(manifestPath);
+      const chosen = chooseResumeHandle(worktree, branch, stamped);
+      if (chosen.handle !== stamped && !writeResumeId(manifestPath, chosen.handle)) {
+        fs.closeSync(out);
+        return failed(`cannot replace the resume id in ${manifestPath}; a start now would resume a session this branch does not own`);
+      }
+      session = chosen.session;
     }
 
     // A NEW RUN, and every part of this says so. The previous `.plot-worker.exit`
@@ -1447,7 +1458,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
         warning = warning ?? line;
       }
     }
-    return { kind: 'started', pid: String(pid), previousPid: input.previousPid, prompt: promptPath, log, warning };
+    return { kind: 'started', pid: String(pid), previousPid: input.previousPid, prompt: promptPath, log, warning, session };
   } finally {
     release();
   }

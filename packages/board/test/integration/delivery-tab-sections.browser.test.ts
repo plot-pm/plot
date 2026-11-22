@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import type { Page } from 'playwright';
 import { openCatalogue, scenario, fleet, row, type Catalogue } from '../catalogue/index.js';
 
 /**
@@ -245,4 +246,78 @@ describe('the Delivery tab renders the five sections', () => {
       await page.close();
     }
   }, 60_000);
+
+  /** Folds a group by its toggle and waits for the fold. */
+  const foldGroup = async (page: Page, key: string) => {
+    const toggle = page.locator(`[data-group-toggle="${key}"]`);
+    await toggle.waitFor({ timeout: 15_000 });
+    if (await toggle.getAttribute('aria-expanded') === 'true') await toggle.click();
+    await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('false');
+    return toggle;
+  };
+
+  /** Whether an element lies inside the viewport; a zero-height anchor counts by its top. */
+  const inViewport = (page: Page, selector: string) => page.locator(selector).first().evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return r.bottom >= 0 && r.top <= window.innerHeight;
+  });
+
+  it('opens the folded group that holds a blocking slice on a click on the blocker mark', async () => {
+    const plan = 'netting';
+    const planFile = '2026-11-21-netting.md';
+    const rows = [
+      // The blocker: an approved plan's eligible slice, so Work items › Queued holds it.
+      row({
+        branch: 'feature/net-posts', plan, planFile, wave: 'Posts', group: 'not-started', state: 'open',
+        phase: 'Development', planState: 'approved', ageMinutes: null, verdict: 'eligible', waitingOn: 'click', pr: null,
+      }),
+      // The blocked slice asks a question, so it sits under You with its mark in view.
+      row({
+        branch: 'feature/net-mesh', plan, planFile, wave: 'Mesh', group: 'not-started', state: 'open',
+        phase: 'Development', planState: 'approved', ageMinutes: null, verdict: 'blocked', blockedBy: 'Posts',
+        waitingOn: 'time', question: { firstLine: 'which mesh?', askedAt: '2026-11-21T09:00:00.000Z' }, pr: null,
+      }),
+    ];
+    const slices = [
+      { plan, name: 'Posts', branches: ['feature/net-posts'], verdict: 'eligible', section: 'not-started', complete: false, planSliceCount: 2 },
+      { plan, name: 'Mesh', branches: ['feature/net-mesh'], verdict: 'blocked', section: 'not-started', complete: false, planSliceCount: 2 },
+    ];
+    const page = await cat.open('an-empty-estate', { tab: 'agents', over: { fleet: fleet({ rows, slices } as never) } });
+    try {
+      const toggle = await foldGroup(page, 'queued');
+      expect(await page.locator('[data-slice-row="Posts"]').count()).toBe(0);
+      const mark = page.locator('[data-section="you"] [data-slice-blocked-by="Posts"]');
+      await mark.first().waitFor({ timeout: 15_000 });
+      await mark.first().click();
+      await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('true');
+      await page.locator('[data-slice-row="Posts"]').first().waitFor({ timeout: 5_000 });
+      await expect.poll(() => inViewport(page, '[data-slice-row="Posts"]')).toBe(true);
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+
+  // An agent acting on an item sits in Fleet › Working or Blocked, and neither group folds
+  // (`ALWAYS_OPEN_GROUPS`), so the fold that can hide the link's target is the Fleet section.
+  it('opens the folded Fleet section that holds an agent on a click on an agents link', async () => {
+    const page = await cat.open('a-full-estate', { tab: 'agents' });
+    try {
+      const line = page.locator('li[data-delivery-link]').filter({ hasText: '← agents:' }).first();
+      await line.waitFor({ timeout: 15_000 });
+      const anchor = await line.evaluate((el) => el.querySelector('a[href^="#"]')?.getAttribute('href')?.slice(1) ?? null);
+      expect(anchor, 'an agents link with an anchor').not.toBeNull();
+      expect(await page.evaluate((id) => document.getElementById(id)?.closest('[data-section]')?.getAttribute('data-section') ?? null, anchor!)).toBe('fleet');
+      const toggle = page.locator('[data-section-toggle="fleet"]');
+      await toggle.click();
+      await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('false');
+      expect(await page.locator(`[id="${anchor}"]`).count()).toBe(0);
+      await line.locator(`a[href="#${anchor}"]`).click();
+      await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('true');
+      await page.locator(`[id="${anchor}"]`).waitFor({ state: 'attached', timeout: 5_000 });
+      await expect.poll(() => inViewport(page, `[id="${anchor}"]`)).toBe(true);
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
 });
+

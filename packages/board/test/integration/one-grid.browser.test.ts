@@ -41,7 +41,7 @@ const GH = 'https://github.com/tiny/garden/tree/';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-16-a-plan.md',
-  wave: 'w', state: 'open', phase: 'Design', group: 'not-started', ageMinutes: null,
+  wave: 'w', state: 'open', phase: 'Design', planState: 'design', group: 'not-started', ageMinutes: null,
   waitingOn: 'click' as const, note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
   localDirty: false, localLocked: false, stuck: null, deferredReason: '',
   kind: 'branch' as const,
@@ -68,7 +68,7 @@ function fleet(): Fleet {
     // because no PR resolves a conflict. The 67-of-80 case the plan measured.
     row({
       branch: 'feature/conflicted', branchUrl: `${GH}feature/conflicted`,
-      group: 'waiting-on-you', state: 'wip', phase: 'Development',
+      group: 'waiting-on-you', state: 'wip', phase: 'Development', planState: 'approved',
       ageMinutes: 25 * 1440, waitingDays: null, waitingOn: 'you' as const,
       note: 'conflict — rebase needed', kind: 'branch' as const,
       pr: { number: 57, url: 'https://github.com/tiny/garden/pull/57', draft: false, state: 'conflicts' },
@@ -76,7 +76,7 @@ function fleet(): Fleet {
     // A PR row — anything with an open PR that is NOT conflicting.
     row({
       branch: 'feature/reviewed', branchUrl: `${GH}feature/reviewed`,
-      group: 'waiting-on-you', state: 'wip', phase: 'Development',
+      group: 'waiting-on-you', state: 'wip', phase: 'Development', planState: 'approved',
       ageMinutes: 3 * 1440, waitingDays: null, waitingOn: 'you' as const,
       note: 'awaiting review', kind: 'pr' as const,
       pr: { number: 58, url: 'https://github.com/tiny/garden/pull/58', draft: false, state: 'green' },
@@ -85,7 +85,7 @@ function fleet(): Fleet {
     // draws a PLAN ROW above the branches it groups.
     row({
       plan: 'plant-tomatoes', planFile: '2026-03-01-plant-tomatoes.md',
-      branch: 'feature/sow-seedlings', phase: 'Discovery', waitingDays: 5,
+      branch: 'feature/sow-seedlings', phase: 'Discovery', planState: 'draft', waitingDays: 5,
       waitingOn: 'you' as const, note: 'plan not approved yet — still in review',
     }),
   ];

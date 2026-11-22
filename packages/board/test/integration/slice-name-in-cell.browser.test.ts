@@ -41,7 +41,7 @@ const LONG_SLICE = 'the-implementation-that-hardens-the-long-horizon-scan';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-16-a-plan.md',
-  wave: 'w', state: 'open', phase: 'Design', group: 'not-started', ageMinutes: null,
+  wave: 'w', state: 'open', phase: 'Design', planState: 'design', group: 'not-started', ageMinutes: null,
   waitingOn: 'click' as const, note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
   localDirty: false, localLocked: false, stuck: null, deferredReason: '',
   ...over,
