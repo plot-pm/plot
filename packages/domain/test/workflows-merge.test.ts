@@ -242,6 +242,28 @@ describe('merge — the controller for a PR merge', () => {
     expect(out.outcome === 'refused' && out.reason).toBe('default-branch-red');
   });
 
+  describe('an unread state home', () => {
+    it('refuses state-home-unread for a PR into the default branch and into sprint/x', () => {
+      expect(refusalOf(readings({ stateHome: 'unaskable', defaultBranchName: 'main' }))).toBe('state-home-unread');
+      expect(refusalOf(readings({ stateHome: 'unaskable', defaultBranchName: 'main', pr: pr({ base: 'sprint/x' }) }))).toBe('state-home-unread');
+    });
+
+    it('refuses state-home-unread where the default branch name is unread', () => {
+      expect(refusalOf(readings({ stateHome: 'unaskable', pr: pr({ base: 'feature/y' }) }))).toBe('state-home-unread');
+    });
+
+    it('leaves a PR into another base to the other refusals', () => {
+      expect(refusalOf(readings({ stateHome: 'unaskable', defaultBranchName: 'main', pr: pr({ base: 'feature/y' }), defaultBranch: null }))).toBe('decided');
+    });
+
+    it('answers a found home with no reading as before', () => {
+      const out = merge(readings({ stateHome: 'read', defaultBranch: null }), { pr: 42, sha: HEAD, ...CLOCK });
+      expect(out.outcome).toBe('decided');
+      if (out.outcome === 'refused') return;
+      expect(out.detail.defaultBranchRead).toBe(false);
+    });
+  });
+
   it('refuses unaskable when the default-branch read failed', () => {
     expect(refusalOf(readings({ defaultBranch: 'unaskable' }))).toBe('unaskable');
   });
@@ -481,6 +503,32 @@ describe('mergeAt — the workflow wired to its ports', () => {
     } as unknown as MergePorts;
     return { p, calls };
   };
+
+  it('refuses state-home-unread over an unread home and reads no store and no review', async () => {
+    const throwing = { read: async () => { throw new Error('store read'); } };
+    const asked: string[] = [];
+    for (const base of ['main', 'sprint/x']) {
+      const unread = ports(prFixture({ base }));
+      unread.p.stateHome = 'unaskable';
+      unread.p.defaultBranch = throwing as never;
+      unread.p.repair = throwing as never;
+      unread.p.baseBranch = () => throwing as never;
+      unread.p.baseRepair = () => throwing as never;
+      unread.p.host.prReview = async () => { asked.push('prReview'); throw new Error('review'); };
+      expect(await mergeAt(unread.p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'state-home-unread' });
+      expect(unread.calls).toEqual([]);
+    }
+    expect(asked).toEqual([]);
+  });
+
+  it('merges a PR into another base over an unread home, reading no store', async () => {
+    const throwing = { read: async () => { throw new Error('store read'); } };
+    const other = ports(prFixture({ base: 'feature/y' }));
+    other.p.stateHome = 'unaskable';
+    other.p.defaultBranch = throwing as never;
+    other.p.baseBranch = () => throwing as never;
+    expect(await mergeAt(other.p, 7, HEAD2)).toMatchObject({ merged: true, defaultBranchRead: false });
+  });
 
   it('reads the diff only for a PR from the state branch to the default branch', async () => {
     const target = { kind: 'state', pushRef: 'refs/heads/plot/state', trackRef: 'origin/plot/state', defaultRef: 'origin/main', isBranch: true } as unknown as import('../src/rules/write-target.js').StateWriteTarget;

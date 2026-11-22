@@ -8,6 +8,7 @@ import { callerOf, type Caller } from '@plot-pm/domain/workflows/decision';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import type { MergePorts } from './merge.js';
 import { stateSyncGateFor } from './state-sync-gate.js';
+import { stateHomeReadOf } from '@plot-pm/domain';
 import { repairRecordIn, stateHomeFor } from '../state-home.js';
 import type { FinishContext } from './release-finish.js';
 
@@ -32,6 +33,7 @@ export const mergePortsFor = async (
   caller: Caller = callerOf({ unattended: process.env.PLOT_UNATTENDED === '1' }),
 ): Promise<MergePorts> => {
   const estate = realEstate(opts);
+  const home = stateHomeFor(opts);
   // The conversation read is in-process only, so the host is the composed one:
   // on the shell transport (no credential, or `PLOT_HOST_TRANSPORT=shell`) it
   // is the shell host, and the merge refuses `human-comment-unread`.
@@ -59,7 +61,11 @@ export const mergePortsFor = async (
     // CI connector that asks the red commit's runs again. It reads through the
     // composed client, which lists a `<workflow>/<job>` check's jobs; the
     // script lists none, and the red commit would fold `unknown`.
-    repair: repairRecordIn(stateHomeFor(opts)),
+    repair: repairRecordIn(home),
+    // Where git names no main checkout, `mergeAt` reads none of the stores
+    // above and refuses `state-home-unread` for a PR into the default branch
+    // or a `sprint/*` base.
+    stateHome: stateHomeReadOf(home),
     build: await buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }, api ?? undefined),
     checks: checkNamesOf(await readConfigAsync(opts, 'Default branch checks', '')),
     mergeChecks: checkNamesOf(await readConfigAsync(opts, 'Merge checks', '')),
