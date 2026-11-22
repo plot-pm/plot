@@ -1,10 +1,11 @@
-/** The four answers {@link briefWriterState} gives, in a fixed order. */
-export const BRIEF_WRITER_STATES = ['writing', 'failed', 'asked', 'none'] as const;
+/** The five answers {@link briefWriterState} gives, in a fixed order. */
+export const BRIEF_WRITER_STATES = ['writing', 'spent', 'failed', 'asked', 'none'] as const;
 
 /**
  * What one branch's brief writer is doing: `writing` while its own writer
- * runs, `failed` where that writer recorded a failure, `asked` where an ask is
- * recorded and nothing runs, `none` otherwise.
+ * runs, `spent` where fleetd stopped asking after its brief runs ended without
+ * a brief, `failed` where that writer recorded a failure, `asked` where an ask
+ * is recorded and nothing runs, `none` otherwise.
  */
 export type BriefWriterState = (typeof BRIEF_WRITER_STATES)[number];
 
@@ -29,14 +30,21 @@ export interface BriefWriterReadings {
   failed: string | null;
   /** Epoch milliseconds of the earliest counting ask, or `null` where none is recorded. */
   askedAt: number | null;
+  /**
+   * The spent record fleetd wrote for the branch — how many brief runs ended
+   * without a brief, and the log of the last one — or `null` where none exists.
+   * Absent reads as `null`.
+   */
+  spent?: { ends: number; log: string } | null;
 }
 
 /**
  * What a branch's brief writer is doing, from the readings alone.
  *
  * `needsBrief` false gives `none` whatever the other readings say. Otherwise
- * `writing` gives `writing`, then a recorded `failed` gives `failed`, then a
- * recorded `askedAt` gives `asked`, and no reading gives `none`.
+ * `writing` gives `writing`, then a spent record gives `spent`, then a
+ * recorded `failed` gives `failed`, then a recorded `askedAt` gives `asked`,
+ * and no reading gives `none`.
  *
  * @param readings - what was measured of the branch.
  * @returns the writer's state for this branch.
@@ -44,6 +52,7 @@ export interface BriefWriterReadings {
 export const briefWriterState = (readings: BriefWriterReadings): BriefWriterState => {
   if (!readings.needsBrief) return 'none';
   if (readings.writing) return 'writing';
+  if ((readings.spent ?? null) !== null) return 'spent';
   if (readings.failed !== null) return 'failed';
   return readings.askedAt === null ? 'none' : 'asked';
 };
@@ -54,7 +63,7 @@ export interface BriefWriterNote {
   kind: Exclude<BriefWriterState, 'none'>;
   /**
    * Milliseconds from the ask to `now` for `writing` and `asked`; `null` for
-   * `failed`, and `null` where no ask is recorded.
+   * `spent` and `failed`, and `null` where no ask is recorded.
    */
   ageMs: number | null;
 }
@@ -74,6 +83,6 @@ export const briefWriterNote = (
   now: number,
 ): BriefWriterNote | null => {
   if (state === 'none') return null;
-  const ageMs = state === 'failed' || askedAt === null ? null : now - askedAt;
+  const ageMs = state === 'failed' || state === 'spent' || askedAt === null ? null : now - askedAt;
   return { kind: state, ageMs };
 };
