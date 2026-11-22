@@ -193,14 +193,19 @@ describe('scopeTickets — the no-plan counts and the incomplete read', () => {
     const out = scopeTickets(input({
       cards: [card({ slug: 'a', refutedIssues: ['51', '52'] })],
       rows: [row({ number: '51' }), row({ number: '52' })],
-      waiting: { unassigned: 3, assignedToOthers: 2, complete: true, unassignedKeys: ['51', '60', '61'], assignedToOthersKeys: ['#52', '62'] },
+      waiting: { hidden: 5, unassigned: 3, assignedToOthers: 2, complete: true, unassignedKeys: ['51', '60', '61'], assignedToOthersKeys: ['#52', '62'] },
     }));
     expect(out.noPlan).toEqual({ unassigned: 2, assignedToOthers: 1, hidden: 3 });
   });
 
   it('keeps the counts where an older server sends no keys', () => {
-    const out = scopeTickets(input({ cards: [card({ slug: 'a', refutedIssues: ['51'] })], waiting: { unassigned: 3, assignedToOthers: 2, complete: true, unassignedKeys: [], assignedToOthersKeys: [] } }));
+    const out = scopeTickets(input({ cards: [card({ slug: 'a', refutedIssues: ['51'] })], waiting: { hidden: 5, unassigned: 3, assignedToOthers: 2, complete: true, unassignedKeys: [], assignedToOthersKeys: [] } }));
     expect(out.noPlan).toEqual({ unassigned: 3, assignedToOthers: 2, hidden: 5 });
+  });
+
+  it('keeps the hidden count where a payload carries no split of it', () => {
+    const out = scopeTickets(input({ waiting: { hidden: 126, unassigned: 0, assignedToOthers: 0, complete: true, unassignedKeys: [], assignedToOthersKeys: [] } }));
+    expect(out.noPlan).toEqual({ unassigned: 0, assignedToOthers: 0, hidden: 126 });
   });
 
   it('names an incomplete read on an answered tracker', () => {
@@ -210,7 +215,7 @@ describe('scopeTickets — the no-plan counts and the incomplete read', () => {
   });
 
   it('reads completeness from the waiting read where no row exists', () => {
-    const out = scopeTickets(input({ waiting: { unassigned: 0, assignedToOthers: 0, complete: false, unassignedKeys: [], assignedToOthersKeys: [] } }));
+    const out = scopeTickets(input({ waiting: { hidden: 0, unassigned: 0, assignedToOthers: 0, complete: false, unassignedKeys: [], assignedToOthersKeys: [] } }));
     expect(out.delivered.incomplete).toBe(SCOPE_INCOMPLETE);
   });
 });

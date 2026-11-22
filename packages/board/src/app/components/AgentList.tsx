@@ -961,6 +961,7 @@ export function AgentList({
     rows: fleet.planTicketRows ?? [],
     ticketPlans: fleet.ticketPlans ?? {},
     waiting: fleet.waiting === undefined || fleet.waiting === null ? null : {
+      hidden: fleet.waiting.hidden ?? 0,
       unassigned: fleet.waiting.unassigned ?? 0,
       assignedToOthers: fleet.waiting.assignedToOthers ?? 0,
       complete: fleet.waiting.complete ?? true,

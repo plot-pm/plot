@@ -68,6 +68,8 @@ export interface ScopeTicketsInput<T extends ScopeTicketRow> {
   readonly ticketPlans: Readonly<Record<string, readonly TicketPlan[]>>;
   /** The waiting read's hidden counts and the keys behind them; `null` where the payload carries no waiting read. */
   readonly waiting: {
+    /** The read's hidden count; on the current server the sum of `unassigned` and `assignedToOthers`. */
+    readonly hidden: number;
     readonly unassigned: number;
     readonly assignedToOthers: number;
     readonly complete: boolean;
@@ -303,7 +305,8 @@ export const scopeTickets = <T extends ScopeTicketRow>(input: ScopeTicketsInput<
   const noPlan = waiting === null ? null : (() => {
     const unassigned = less(waiting.unassigned, waiting.unassignedKeys);
     const assignedToOthers = less(waiting.assignedToOthers, waiting.assignedToOthersKeys);
-    return { unassigned, assignedToOthers, hidden: unassigned + assignedToOthers };
+    const hidden = less(waiting.hidden, [...waiting.unassignedKeys, ...waiting.assignedToOthersKeys]);
+    return { unassigned, assignedToOthers, hidden };
   })();
 
   return {
