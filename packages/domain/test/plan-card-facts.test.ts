@@ -182,7 +182,7 @@ describe('planCardFacts: progress', () => {
 
   it('carries rounds only while the plan is under review', () => {
     const draft = facts({ status: 'draft', controls: controls({ state: 'draft', status: 'draft' }), rounds: 2 });
-    expect(draft.progress.design).toEqual({ rounds: 2, spike: null });
+    expect(draft.progress.design).toEqual({ rounds: 2, spike: null, spikeUnlicensed: null });
     expect(facts({ rounds: 2 }).progress.design).toBeNull();
   });
 
@@ -359,7 +359,14 @@ describe('planCardFacts: the remaining arms', () => {
 
   it('a spike line on a plan not under review carries no rounds', () => {
     const f = facts({ rounds: 3, controls: { ...controls(), roundsBadge: false, spikeState: 'spike-merged' } });
-    expect(f.progress.design).toEqual({ rounds: null, spike: 'spike-merged' });
+    expect(f.progress.design).toEqual({ rounds: null, spike: 'spike-merged', spikeUnlicensed: null });
+  });
+
+  it('a spike record that names a branch no slice names reaches design.spikeUnlicensed', () => {
+    const spikeSlices = [{ branches: [{ branch: 'feature/spike', spike: true }] }, { branches: [{ branch: 'feature/b', spike: false }] }];
+    const c = controls({ state: 'design', status: 'draft', slices: spikeSlices, spikeApproved: '2026-11-06, a, b, feature/gone' });
+    expect(facts({ controls: c, spike: { branch: 'feature/spike', pr: null } }).progress.design)
+      .toMatchObject({ spike: 'spike-not-approved', spikeUnlicensed: 'spike-branch-renamed' });
   });
 });
 

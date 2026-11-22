@@ -1,7 +1,7 @@
-import { deliveryHeader, placeDelivery, type DeliveryHeader, type PlanIndex } from '@plot-pm/domain';
+import { agentPace, deliveryHeader, placeDelivery, type DeliveryHeader, type PlanIndex } from '@plot-pm/domain';
 import { FLEET_CONTROLS_DEFAULT, type Fleet, type FleetSprint, type Slice } from '../../../contract/schema.js';
 import { deliveryMapping, type DeliveryMapInput } from './delivery-readings.js';
-import { itemRowFactsOf, switchesOf } from './delivery-row-facts.js';
+import { agentRowFactsOf, itemRowFactsOf, switchesOf } from './delivery-row-facts.js';
 import { deliveryView, type DeliveryViewScope } from './delivery-view.js';
 import { hostAnswer, issueNote } from './host-notes.js';
 import { releaseTodoEntriesOf } from './todo-list.js';
@@ -24,7 +24,7 @@ export interface DeliveryHeaderReadings extends Omit<YouHeaderReadings, 'view' |
  * The Delivery tab header's facts: `deliveryHeader` over a placement that ignores Mine.
  *
  * The placement reads `mappingInput` with every agent of `fleet.agents` and mode `all`, so the
- * reader's Mine mode changes no fact. The scope narrows You and Work items through
+ * reader's Mine mode changes no fact, the Fleet group's spinner included. The scope narrows You and Work items through
  * `mappingInput.rows`; Fleet and Machine read the whole machine.
  *
  * @param r - the mapping input, the fleet payload, and the You header's readings.
@@ -49,7 +49,7 @@ export const deliveryHeaderOf = (r: DeliveryHeaderReadings): DeliveryHeader => {
     },
     work: { groups: section('work-items')?.groups.map((g) => ({ key: g.key, count: g.count })) ?? [], ages: agesOf('work-items') },
     unplaced: placement.unplaced,
-    agents: placement.agents,
+    agents: placement.agents.map((a) => ({ group: a.group, pace: agentPace(a, agentRowFactsOf(mapping, a.id)) })),
     supervisor: r.fleet.supervisor ?? null,
     switches: {
       dispatch: (controls ?? FLEET_CONTROLS_DEFAULT).autoDispatch,

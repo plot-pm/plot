@@ -299,7 +299,11 @@ export const planCardFacts = (readings: PlanCardFactsReadings, directory: Person
         },
       prs: 'unknown' in readings.prs ? { unknown: readings.prs.unknown } : { value: [...readings.prs.value] },
       design: underReview || readings.controls.spikeState !== null
-        ? { rounds: underReview ? readings.rounds : null, spike: readings.controls.spikeState }
+        ? {
+          rounds: underReview ? readings.rounds : null,
+          spike: readings.controls.spikeState,
+          spikeUnlicensed: readings.controls.spikeUnlicensed,
+        }
         : null,
       verification: readings.verification,
       cost: readings.cost ?? { value: { tokens: null, measured: 0, absent: 0, unreadable: 0, fromRuns: 0, slices: 0 } },

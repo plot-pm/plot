@@ -28,6 +28,8 @@ import { readUnsettled } from './unsettled-line.js';
 import { isSyncPr, mayBeSyncPr, syncPathVerdict, type UnreadSyncGate } from '../rules/state-sync.js';
 import type { StateWriteTarget } from '../rules/write-target.js';
 import { RELEASE_BRANCH } from '../rules/release-branch.js';
+import { SPRINT_BRANCH_PREFIX } from '../rules/slice-base.js';
+import type { StateHomeRead } from '../rules/state-home.js';
 import { type Caller, type Outcome, decide, refuse } from './decision.js';
 
 /**
@@ -47,6 +49,7 @@ export type MergeRefusal =
   | 'default-branch-stale'
   | 'default-branch-unsettled'
   | 'default-branch-unread'
+  | 'state-home-unread'
   | 'review-not-passed'
   | 'review-foreign-writer'
   | 'review-writer-unread'
@@ -62,6 +65,12 @@ export type MergeRefusal =
 export interface MergeReadings {
   /** Who is asking for the merge; an unattended caller is refused before anything else is read. */
   readonly caller: Caller;
+  /**
+   * Whether the state home the default-branch and base readings live under was
+   * found. `'unaskable'` refuses `state-home-unread` for a PR into the default
+   * branch or a `sprint/*` base (see {@link stateHomeGuards}). Absent reads as `'read'`.
+   */
+  readonly stateHome?: StateHomeRead;
   /**
    * The PR as the host answers now; null where the host holds none, and
    * `'unaskable'` where the host did not answer.
@@ -211,6 +220,19 @@ const unknownHeadBound = (
 
 export { holdsApply };
 
+/**
+ * Whether a PR's merge reads a state file under the state home.
+ *
+ * @param base - the PR's base branch; `''` where unread.
+ * @param defaultBranchName - the repository's default branch name, or `'unaskable'`.
+ * @returns true where the default-branch holds apply ({@link holdsApply}) or the base is a `sprint/*` branch.
+ */
+export const stateHomeGuards = (base: string, defaultBranchName: string | 'unaskable' | undefined): boolean =>
+  holdsApply(base, defaultBranchName) || base.startsWith(SPRINT_BRANCH_PREFIX);
+
+const homeUnread = (pr: number, base: string) => refuse('merge', 'state-home-unread',
+  `git could not name the main checkout, so the state files PR #${pr} into ${base === '' ? 'its base' : base} needs cannot be found. An unfound home is not an empty one; nothing was merged.`);
+
 const short = (sha: string | undefined): string =>
   sha === undefined || sha === '' ? 'none' : sha.slice(0, 12);
 
@@ -300,6 +322,9 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
   }
   if (pr === null || pr.state !== 'OPEN') {
     return no('pr-not-open', `PR #${input.pr} is ${pr === null ? 'unknown to the host' : pr.state}. Only an open PR merges.`);
+  }
+  if (readings.stateHome === 'unaskable' && stateHomeGuards(pr.base, readings.defaultBranchName)) {
+    return homeUnread(input.pr, pr.base);
   }
   if (pr.head === '') {
     return no('unaskable', `the host named no head branch for PR #${input.pr}, so neither the release-PR check nor the repair-branch check can read it. Nothing was merged.`);
@@ -459,6 +484,12 @@ export interface MergePorts {
   requireReading?: boolean;
   /** Who is asking for this merge; an unattended caller is refused before any read. */
   caller: Caller;
+  /**
+   * Whether the state home the stores read under was found. `'unaskable'`
+   * reads none of `defaultBranch`, `repair`, `baseBranch` and `baseRepair`.
+   * Absent reads as `'read'`.
+   */
+  stateHome?: StateHomeRead;
   /** The repair record's file. Absent reads as no record, so a red default branch admits no PR. */
   repair?: RepairRecordStore;
   /**
@@ -544,6 +575,10 @@ export type MergeResult =
  * read that fails refuses as `unaskable`; an absent reading holds nothing
  * unless `ports.requireReading`. A PR into another branch skips every
  * default-branch hold and reads no repair record.
+ * Where `ports.stateHome` is `'unaskable'` it reads no store: after `prState`
+ * and the default branch's name it refuses `state-home-unread` for an open PR
+ * a person asks to merge into the default branch or a `sprint/*` base, with no
+ * review, conversation or backend call; any other PR goes on with no reading.
  * On a settled red reading it reads the repair record last; where the record
  * names the PR it walks the settled commit's first-parent line and asks the
  * settled commit's runs again through `ports.build`, folding the declared
@@ -563,7 +598,8 @@ export const mergeAt = async (
   sha: string,
   viaReleaseApprove = false,
 ): Promise<MergeResult> => {
-  const reading = await ports.defaultBranch.read();
+  const unread = ports.stateHome === 'unaskable';
+  const reading: PortResult<DefaultBranchReading | null> = unread ? { ok: true, value: null } : await ports.defaultBranch.read();
   const settledReading = reading.ok && reading.value !== null && reading.value.settled !== undefined ? reading.value : null;
   const tip = settledReading !== null ? await ports.refs.remoteSha(settledReading.branch) : null;
   const tipSha = tip === null ? 'unaskable' : tip.ok && tip.value !== 'unknown' ? tip.value.sha : 'unaskable';
@@ -572,6 +608,11 @@ export const mergeAt = async (
   const named = base === '' ? null : await ports.refs.defaultBranch();
   const defaultBranchName = named === null ? 'unaskable' : named.ok ? named.value : 'unaskable';
   const holds = holdsApply(base, defaultBranchName);
+  if (unread && ports.caller !== 'unattended' && lookup.ok && lookup.value !== null && lookup.value.state === 'OPEN'
+    && stateHomeGuards(base, defaultBranchName)) {
+    const out = homeUnread(pr, base);
+    return { merged: false, reason: out.reason, detail: out.detail };
+  }
   const settledSha = settledReading?.settled?.state === 'green' ? settledReading.settled.sha : undefined;
   const plotPaths = ports.plotPaths;
   let line: { readonly unsettled: UnsettledReading; readonly pathSet: readonly string[] } | undefined;
@@ -592,7 +633,7 @@ export const mergeAt = async (
       };
     }
   }
-  const baseRead = !holds && ports.baseBranch !== undefined ? await ports.baseBranch(base).read() : undefined;
+  const baseRead = !holds && !unread && ports.baseBranch !== undefined ? await ports.baseBranch(base).read() : undefined;
   const backend = await ports.host.backend();
   const [review, writer] = await Promise.all([
     ports.host.prReview(pr),
@@ -625,6 +666,7 @@ export const mergeAt = async (
   const outcome = merge(
     {
       caller: ports.caller,
+      ...(ports.stateHome ? { stateHome: ports.stateHome } : {}),
       ...(sync ? { sync } : {}),
       pr: lookup.ok ? lookup.value : 'unaskable',
       defaultBranch: reading.ok ? reading.value : 'unaskable',

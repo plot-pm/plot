@@ -989,11 +989,11 @@ resolve_launch() { # $1 = repo root, $2 = agent name ('' when none)
 #
 # It sets `start_cmd_verb` (`run`, `unconfigured`, `declined`, `refused` or
 # `unaskable`), `start_cmd_run`, and `start_cmd_why` / `start_cmd_repair` where
-# they apply. `unaskable` is a bundle that could not answer, which starts
+# they apply; a refusal also sets `start_cmd_defect`, the rule's word. `unaskable` is a bundle that could not answer, which starts
 # nothing.
 ask_start_command() { # $1 = free | assigned
   local answer rc
-  start_cmd_verb="" start_cmd_run="" start_cmd_why="" start_cmd_repair=""
+  start_cmd_verb="" start_cmd_run="" start_cmd_why="" start_cmd_repair="" start_cmd_defect=""
   start_cmd_configured=$("$script_dir/plot-config.sh" get "Worker command" "")
   start_cmd_bundle="$script_dir/board/plot-start-command.mjs"
   answer=$(printf '%s' "$start_cmd_configured" | node "$start_cmd_bundle" "$1" \
@@ -1009,7 +1009,7 @@ ask_start_command() { # $1 = free | assigned
     0:declined) start_cmd_verb=declined ;;
     3:*)
       start_cmd_verb=refused
-      start_cmd_why=${answer%%$'\n'*}
+      IFS=$'\t' read -r start_cmd_defect start_cmd_why <<<"${answer%%$'\n'*}"
       start_cmd_repair=${answer#*$'\n'}
       ;;
     *) start_cmd_verb=unaskable; start_cmd_why="the rule's bundle $start_cmd_bundle answered exit $rc" ;;
@@ -2112,17 +2112,16 @@ if [ "$mode" = "start" ]; then
   # THE DECISION IS THE DOMAIN'S: `ask_start_command` asks `startCommand`
   # through its bundle. A refusal names the defect and the repair; a bundle that
   # cannot answer starts nothing, as the fleet-size ask above does.
-  # `worker=no-loop` is the footer word the performer reads, the way it reads
-  # `unconfigured` and `declined`.
+  # `worker=<defect>` (`no-loop`, `charter-refused` or `prompt-absent`, the
+  # rule's word) is the footer word the performer reads, the way it reads
+  # `unconfigured` and `declined`; only `no-loop` takes the --restart hint.
   ask_start_command free
   case "$start_cmd_verb" in
     run|declined|unconfigured) ;;
     refused)
-      echo "plot-dispatch: --start refuses — ${start_cmd_why}." >&2
-      echo "  configured: $start_cmd_configured" >&2
-      echo "  Repair: ${start_cmd_repair}." >&2
-      echo "  A branch dispatch (--restart <branch>) starts a worker on any command." >&2
-      echo "summary: agents=0 requested=${start_count:-default} running=$start_running headroom=$start_headroom worker=no-loop"
+      printf 'plot-dispatch: --start refuses — %s.\n  configured: %s\n  Repair: %s.\n' "$start_cmd_why" "$start_cmd_configured" "$start_cmd_repair" >&2
+      [ "$start_cmd_defect" != no-loop ] || echo "  A branch dispatch (--restart <branch>) starts a worker on any command." >&2
+      echo "summary: agents=0 requested=${start_count:-default} running=$start_running headroom=$start_headroom worker=${start_cmd_defect}"
       exit 1
       ;;
     *)

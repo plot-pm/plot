@@ -1849,6 +1849,17 @@ test('scan: section 13 footer counter matches the number of findings', () => {
   assert.match(footer, /\bstale_tally=2\b/);
 });
 
+test('scan: section 13 hint names only the tick', () => {
+  // The loop reads nothing after the slug, so no annotation clears the finding:
+  // the hint names only the action the scan honours (#3586).
+  const hints = stSections['13'].split('\n').filter((l) => l.includes('fix:'));
+  assert.equal(hints.length, 2, `expected 2 hints, got ${hints.length}`);
+  for (const h of hints) {
+    assert.match(h, /fix: tick the item/);
+    assert.doesNotMatch(h, /annotation/);
+  }
+});
+
 test('scan: a stale tally leaves attention= unchanged — the section does NOT gate', () => {
   // THE property a naive implementation breaks. A stale tally is wrong, not
   // broken — rewriting history automatically is worse than reporting it.

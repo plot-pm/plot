@@ -53,7 +53,8 @@ import type { PortResult } from '@plot-pm/domain';
 import { whyNotReady } from '@plot-pm/domain/rules/queue';
 import { readQueue, type QueueWorld, type HandOverWorld } from '../../src/shared/queue-reading.js';
 import type { Performer } from '@plot-pm/domain/ports/performer';
-import type { WriteProbe } from '@plot-pm/domain/ports/write-probe';
+import type { ProbePrompt, WriteProbe } from '@plot-pm/domain/ports/write-probe';
+import { startPromptOf, type StartPromptReadings } from '../../src/shared/probe-prompt.js';
 import type { HostAnswer, Scripts } from '@plot-pm/domain/ports/scripts';
 import { QUEUE_HOLDS, type HeldSlice } from '@plot-pm/domain/rules/queue';
 import { answered, failed, unaskable, PR_INDEX_VERSION } from '@plot-pm/domain';
@@ -1181,13 +1182,18 @@ describe('probeBeforeStarting — a refused write never reaches startAgents', ()
     },
   });
 
-  const probeAnswering = (answer: unknown, asked: string[] = []): WriteProbe =>
+  const probeAnswering = (answer: unknown, asked: string[] = [], prompts: ProbePrompt[][] = []): WriteProbe =>
     ({
-      check: async (command: string) => {
+      check: async (command: string, given: readonly ProbePrompt[]) => {
         asked.push(command);
+        prompts.push([...given]);
         return answer;
       },
     }) as unknown as WriteProbe;
+
+  /** Every start resolves the main checkout's fallback prompt. */
+  const promptsOf = async (writes: readonly unknown[]): Promise<readonly ProbePrompt[]> =>
+    writes.map(() => ({ file: '/repo/.plot/worker-prompt.sh', charter: null }));
 
   it('never reads the configured command when the tick starts nothing', async () => {
     let readCalls = 0;
@@ -1199,6 +1205,7 @@ describe('probeBeforeStarting — a refused write never reaches startAgents', ()
         return 'claude -p';
       },
       () => {},
+      promptsOf,
     );
     expect(proceed).toBe(true);
     expect(readCalls).toBe(0);
@@ -1211,6 +1218,7 @@ describe('probeBeforeStarting — a refused write never reaches startAgents', ()
       probeAnswering({ ok: true, value: 'no' }, asked),
       async () => 'none',
       () => {},
+      promptsOf,
     );
     expect(proceed).toBe(true);
     expect(asked).toHaveLength(0);
@@ -1224,6 +1232,7 @@ describe('probeBeforeStarting — a refused write never reaches startAgents', ()
       probeAnswering({ ok: false, why: 'unaskable', reason }),
       async () => 'claude -p',
       (s) => warned.push(s),
+      promptsOf,
     );
     expect(proceed).toBe(true);
     expect(warned.join('')).toMatch(/^plot-fleetd: The write probe did not run/);
@@ -1237,6 +1246,7 @@ describe('probeBeforeStarting — a refused write never reaches startAgents', ()
       probeAnswering({ ok: true, value: 'yes' }, asked),
       async () => '',
       () => {},
+      promptsOf,
     );
     expect(proceed).toBe(true);
     expect(asked).toHaveLength(0);
@@ -1249,6 +1259,7 @@ describe('probeBeforeStarting — a refused write never reaches startAgents', ()
       probeAnswering({ ok: true, value: 'yes' }, asked),
       async () => 'claude -p',
       () => {},
+      promptsOf,
     );
     expect(proceed).toBe(true);
     expect(asked).toEqual(['claude -p']);
@@ -1261,6 +1272,7 @@ describe('probeBeforeStarting — a refused write never reaches startAgents', ()
       probeAnswering({ ok: true, value: 'no' }),
       async () => 'claude -p',
       (s) => warnings.push(s),
+      promptsOf,
     );
     expect(proceed).toBe(false);
     expect(warnings.join('')).toMatch(/refused every write/);
@@ -1272,8 +1284,73 @@ describe('probeBeforeStarting — a refused write never reaches startAgents', ()
       probeAnswering({ ok: false, why: 'unaskable' }),
       async () => 'claude -p',
       () => {},
+      promptsOf,
     );
     expect(proceed).toBe(true);
+  });
+
+  describe('the prompt each start sources', () => {
+    /** A tick whose hand-over starts the given writes. */
+    const startingWrites = (writes: { branch: string; worktree: string }[]): TickReport => {
+      const base = withStarts(0);
+      return {
+        ...base,
+        handOver: { ...base.handOver!, writes: writes.map((w) => ({ kind: 'worker-start' as const, ...w })) },
+      } as TickReport;
+    };
+
+    /** The prompt entry's answer: `reviewer` declares its own file, `ghost` is refused, every other name falls back. */
+    const resolvePrompt = (root: string, name: string): string =>
+      name === 'reviewer'
+        ? 'declared\t.plot/prompts/reviewer.sh\treviewer\n'
+        : name === 'ghost'
+          ? "refused\t\tno agent 'ghost' in the registry\n"
+          : 'fallback\t.plot/worker-prompt.sh\tno charter\n';
+
+    const readings = (overrides: Partial<StartPromptReadings> = {}): StartPromptReadings => ({
+      repoRoot: '/repo',
+      sliceAgent: (branch) => (branch === 'feature/review' ? 'reviewer' : branch === 'feature/ghost' ? 'ghost' : null),
+      resolvePrompt,
+      exists: () => true,
+      ...overrides,
+    });
+
+    const probedFor = async (writes: { branch: string; worktree: string }[], r: StartPromptReadings) => {
+      const prompts: ProbePrompt[][] = [];
+      await probeBeforeStarting(
+        startingWrites(writes),
+        probeAnswering({ ok: true, value: 'yes' }, [], prompts),
+        async () => 'claude -p',
+        () => {},
+        async (ws) => ws.map((w) => startPromptOf(w, r)),
+      );
+      return prompts;
+    };
+
+    it("probes a chartered slice's declared file and never the fallback prompt", async () => {
+      const prompts = await probedFor([{ branch: 'feature/review', worktree: '/repo/.worktrees/desk-1' }], readings());
+      expect(prompts).toEqual([[{ file: '/repo/.plot/prompts/reviewer.sh', charter: 'reviewer' }]]);
+      expect(JSON.stringify(prompts)).not.toContain('worker-prompt.sh');
+    });
+
+    it('probes the desk copy where the main checkout lacks the prompt', async () => {
+      const desk = '/repo/.worktrees/desk-1';
+      const prompts = await probedFor(
+        [{ branch: 'feature/review', worktree: desk }],
+        readings({ exists: (path) => path.startsWith(desk) }),
+      );
+      expect(prompts).toEqual([[{ file: `${desk}/.plot/prompts/reviewer.sh`, charter: 'reviewer' }]]);
+    });
+
+    it("probes the fallback prompt for a free agent's start", async () => {
+      const prompts = await probedFor([{ branch: '', worktree: '' }], readings());
+      expect(prompts).toEqual([[{ file: '/repo/.plot/worker-prompt.sh', charter: null }]]);
+    });
+
+    it("hands a refused charter's reason to the probe", async () => {
+      const prompts = await probedFor([{ branch: 'feature/ghost', worktree: '' }], readings());
+      expect(prompts).toEqual([[{ refused: "no agent 'ghost' in the registry" }]]);
+    });
   });
 });
 

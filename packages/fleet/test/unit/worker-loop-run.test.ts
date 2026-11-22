@@ -28,6 +28,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { transcriptDir } from '../../src/shared/transcript.js';
 import {
   PASS_INTERVAL_MS,
   count,
@@ -182,6 +183,7 @@ const rig = (
     recordRun: async () => null,
     recordLimits: async () => 0,
     sliceCostUsd: async () => null,
+    resumeHandleReadings: () => ({ roleSessions: new Set<string>(), head: null }),
     ...portOver,
   };
 
@@ -338,6 +340,63 @@ describe('runWorkerLoop — a prompt', () => {
     expect(r.runs[0].env).toMatchObject({ PLOT_SESSION_FLAG: '--resume', PLOT_SESSION_ID: 'h-1' });
   });
 
+  describe('a rejected handle in the manifest', () => {
+    const ROLE_HEAD = { firstLine: '{"type":"agent-setting","agentSetting":"unblocker"}', gitBranch: '' };
+    const roleRig = (resumeId: string) => {
+      const r = rig(
+        { ...ASSIGNED, resumeId },
+        [{ during: () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: q\n') }],
+        { mintHandle: () => 'H-New' },
+        { resumeHandleReadings: (_wt: string, handle: string) => ({ roleSessions: new Set<string>(), head: handle === 'h-role' ? ROLE_HEAD : null }) },
+      );
+      r.deps = { ...r.deps, idle: { ...r.deps.idle, transcript: transcriptFixture({ spoken: [`${r.wt}\th-role`, `${r.wt}\th-1`] }) } };
+      return r;
+    };
+
+    it('runs --session-id on a minted handle where the manifest names a role transcript, and writes it to the manifest', async () => {
+      const r = roleRig('h-role');
+      await runWorkerLoop(r.deps);
+      expect(r.runs[0].env).toMatchObject({ PLOT_SESSION_ID: 'h-new', PLOT_SESSION_FLAG: '--session-id' });
+      expect(r.read().resumeId).toBe('h-new');
+    });
+
+    it('ends with the minted handle, never the role handle, in the loop-end', async () => {
+      const r = roleRig('h-role');
+      await runWorkerLoop(r.deps);
+      expect(r.deskCalls.endings.at(-1)?.record).toMatchObject({ reason: 'blocked', resumeId: 'h-new' });
+    });
+
+    it('mints a random lowercase UUID for the rejected handle where no minter is injected', async () => {
+      const r = roleRig('h-role');
+      r.deps = { ...r.deps, mintHandle: undefined };
+      await runWorkerLoop(r.deps);
+      expect(r.runs[0].env?.PLOT_SESSION_ID).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      expect(r.runs[0].env?.PLOT_SESSION_FLAG).toBe('--session-id');
+      expect(r.read().resumeId).toBe(r.runs[0].env?.PLOT_SESSION_ID);
+    });
+
+    it('resumes the implementer\'s own spoken handle', async () => {
+      const r = roleRig('h-1');
+      await runWorkerLoop(r.deps);
+      expect(r.runs[0].env).toMatchObject({ PLOT_SESSION_ID: 'h-1', PLOT_SESSION_FLAG: '--resume' });
+      expect(r.read().resumeId).toBe('h-1');
+    });
+
+    it('starts no process and ends unstarted where the new handle cannot be written', async () => {
+      const r = roleRig('h-role');
+      // A READ-ONLY REGISTRY DIRECTORY: the manifest reads, the atomic rename into it fails.
+      fs.chmodSync(r.dir, 0o555);
+      try {
+        await runWorkerLoop(r.deps);
+      } finally {
+        fs.chmodSync(r.dir, 0o755);
+      }
+      expect(r.runs).toHaveLength(0);
+      expect(r.logs.join('\n')).toContain(`could not replace the rejected session handle in ${r.manifestFile}`);
+      expect(r.read().resumeId).toBe('h-role');
+    });
+  });
+
   it('runs the prompt with the background gate: the switch and the disallowed tools (#1322)', async () => {
     const r = rig(ASSIGNED, [{ during: () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: q\n') }]);
     await runWorkerLoop(r.deps);
@@ -376,19 +435,30 @@ describe('runWorkerLoop — a prompt', () => {
     r.deps = { ...r.deps, config: { ...rigConfig(), maxStartRetries: 1 } };
     expect(await runWorkerLoop(r.deps)).toBe(1);
     expect(r.runs).toHaveLength(0);
+    expect(r.calls.attempts).toEqual([]);
     expect(r.logs.join('\n')).toContain('bad charter');
   });
 
   it('refuses a prompt file that is absent: one line naming it, no run, no attempt (row 7, refused)', async () => {
-    const r = rig(ASSIGNED, [], { promptExists: () => false });
+    const r = rig(ASSIGNED, [], { promptExists: () => false, resolvePrompt: () => 'fallback\t.plot/worker-prompt.sh\tno agent named' });
     expect(await runWorkerLoop(r.deps)).toBe(1);
     const file = path.join(r.dir, '.plot', 'worker-prompt.sh');
     expect(r.runs).toHaveLength(0);
     expect(r.calls.attempts).toEqual([]);
     expect(r.logs.filter((l) => l.includes('refusing to launch'))).toEqual([
-      `plot-worker-loop: refusing to launch — the prompt file ${file} is absent; run plot-install-prompt.sh to write .plot/worker-prompt.sh`,
+      `plot-worker-loop: refusing to launch — the prompt file ${file} is absent; run plot-install-prompt.sh to write .plot/worker-prompt.sh from the template`,
     ]);
     expect(r.logs.filter((l) => l.includes('never started') || l.includes('failed to run'))).toEqual([]);
+  });
+
+  it('names the declared file and its charter where a charter\'s prompt is absent', async () => {
+    const r = rig(ASSIGNED, [], { promptExists: () => false, resolvePrompt: () => 'declared\t.plot/prompts/reviewer.sh\treviewer' });
+    expect(await runWorkerLoop(r.deps)).toBe(1);
+    const file = path.join(r.dir, '.plot', 'prompts', 'reviewer.sh');
+    expect(r.runs).toHaveLength(0);
+    expect(r.logs.filter((l) => l.includes('refusing to launch'))).toEqual([
+      `plot-worker-loop: refusing to launch — the prompt file ${file} is absent; write .plot/prompts/reviewer.sh, which charter 'reviewer' names`,
+    ]);
   });
 
   it('reads the file system for the prompt file when no promptExists is injected', async () => {
@@ -2011,6 +2081,29 @@ describe('readPass — unreadable host readings', () => {
 });
 
 describe('workerLoopPorts and main', () => {
+  it('reads the desk\'s role-session record and the handle\'s transcript head', async () => {
+    const r = rig(null, []);
+    execFileSync('git', ['init', '--quiet'], { cwd: r.wt });
+    fs.writeFileSync(path.join(r.wt, '.git', 'plot-role-sessions'), 'h-role\n');
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-worker-loop-home-'));
+    made.push(home);
+    const was = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      const dir = transcriptDir(r.wt);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'h-1.jsonl'), `${JSON.stringify({ type: 'user', gitBranch: BRANCH })}\n`);
+      const ports = await workerLoopPorts({ repoRoot: r.wt, scriptDir: r.dir });
+      const read = ports.resumeHandleReadings(r.wt, 'h-1');
+      expect([...read.roleSessions]).toEqual(['h-role']);
+      expect(read.head).toEqual({ firstLine: JSON.stringify({ type: 'user', gitBranch: BRANCH }), gitBranch: BRANCH });
+      expect(ports.resumeHandleReadings(r.wt, 'h-absent').head).toBeNull();
+    } finally {
+      if (was === undefined) delete process.env.HOME;
+      else process.env.HOME = was;
+    }
+  });
+
   it('composes the real ports, and answers a transcript reading', async () => {
     const r = rig(null, []);
     const ports = await workerLoopPorts({ repoRoot: r.wt, scriptDir: r.dir });

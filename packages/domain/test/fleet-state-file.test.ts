@@ -42,6 +42,7 @@ const PULSE: FleetReading = {
     tracer: false,
     slices: SLICES,
     unreadBranchItems: [],
+    spikeUnlicensed: null,
   }],
   summary: {
     plans: 1, waves: 1, branches: 1, claimed: 1, eligible: 0, blocked: 0, deferred: 0,

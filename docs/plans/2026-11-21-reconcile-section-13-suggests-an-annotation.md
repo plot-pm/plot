@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:**
 - **Issue:** #3586
@@ -13,6 +13,8 @@
 - **Impl:** own branches
 - **Rounds:** 2
 - **Approved:** 2026-11-22, Jan Wloka, plan-PR #3606 merged
+- **Started:** 2026-11-22, Jan Wloka, `feature/reconcile-13-hint-names-only-the-tick`
+- **Delivered:** 2026-11-23
 
 ## Changelog
 
@@ -63,7 +65,7 @@ No test asserts the hint text today (`git grep 'add an annotation explaining'` f
 
 ### Scan
 
-- `feature/reconcile-13-hint-names-only-the-tick` — section 13's fix hint at `plot-reconcile-scan.sh:1866` reads `fix: tick the item`, and the body comment at `:1809` reads "13." in place of "11."; a `plot` patch changeset <!-- builds: section 13 fix hint text --> <!-- tests: test/reconcile/scan.test.mjs — the section 13 finding's hint reads "fix: tick the item" and names no annotation -->
+- `feature/reconcile-13-hint-names-only-the-tick` — section 13's fix hint at `plot-reconcile-scan.sh:1866` reads `fix: tick the item`, and the body comment at `:1809` reads "13." in place of "11."; a `plot` patch changeset <!-- builds: section 13 fix hint text --> <!-- tests: test/reconcile/scan.test.mjs — the section 13 finding's hint reads "fix: tick the item" and names no annotation --> → #3667
 
 ## Notes
 

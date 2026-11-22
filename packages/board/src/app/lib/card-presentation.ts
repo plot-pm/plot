@@ -9,6 +9,7 @@ import type {
   Reason,
   Ref,
   SpikeCardState,
+  SpikeUnlicensed,
   UnknownReach,
 } from '@plot-pm/domain/entities/card-facts';
 
@@ -251,6 +252,19 @@ const SPIKE: Readonly<Record<SpikeCardState, string>> = {
   'spike-approved': 'spike approved — waiting for its PR to merge',
   'spike-merged': 'spike merged — confirm the slices to approve',
 };
+
+/** The line a `spike-not-approved` card shows for each reason its record licenses no branch; `spike-none` never reaches a card. */
+const SPIKE_UNLICENSED: Readonly<Record<Exclude<SpikeUnlicensed, 'spike-none'>, string>> = {
+  'spike-record-absent': 'spike not approved yet',
+  'spike-record-branchless': 'spike record names no branch — use Approve spike',
+  'spike-record-unparseable': 'spike record does not parse — use Approve spike',
+  'spike-marker-moved': 'spike approved for a branch the spike marker no longer marks — use Approve spike',
+  'spike-branch-renamed': 'spike approved for a branch no slice names — use Approve spike',
+};
+
+/** The spike line for a state and its unlicensed reason; a null or `spike-none` reason shows the state's own line. */
+const spikeLine = (state: SpikeCardState, reason: SpikeUnlicensed | null): string =>
+  state === 'spike-not-approved' && reason !== null && reason !== 'spike-none' ? SPIKE_UNLICENSED[reason] : SPIKE[state];
 
 const KIND_LABEL: Readonly<Record<IconKind, string>> = {
   ticket: 'Ticket',
@@ -630,7 +644,7 @@ export const presentCard = (facts: CardFacts, board: CardBoard, options: Present
   const signals: Part[] = [...prParts(prs, identity.id)];
   if (design !== null) {
     if (design.spike !== null) {
-      signals.push(one(piece(SPIKE[design.spike], { tone: 'muted', data: { 'spike-state': design.spike } })));
+      signals.push(one(piece(spikeLine(design.spike, design.spikeUnlicensed), { tone: 'muted', data: { 'spike-state': design.spike } })));
     }
     signals.push(one(design.rounds === null
       ? piece('not interrogated', { tone: 'muted', detail: 'No Rounds: field — nobody has interrogated this plan', data: { rounds: 'absent' } })

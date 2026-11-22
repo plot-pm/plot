@@ -7,6 +7,7 @@ import { estateFromEnv, realEstate } from '../estate.js';
 import { leaveBoardRunsToTheBoard } from '../board-run.js';
 import { gatherReadingsAndRelease } from '../release-claim.js';
 import { stateHomeAtSync } from '@plot-pm/domain/adapters/main-checkout';
+import { stateHomeReadOf } from '@plot-pm/domain';
 import { baseBranchIn, baseRepairIn, repairRecordIn, stateHomeFor } from '../state-home.js';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { CALLER_ENV, fleetdStartFile, readFleetdHeartbeatSync } from '@plot-pm/domain/adapters';
@@ -213,14 +214,16 @@ export const run = async (
     const { opts } = contextFrom(here);
     // The real estate, as for `merge`: the record names a PR that `merge` admits on the real host.
     const estate = realEstate(opts);
+    const home = stateHomeFor(opts);
     const result = await nameRepairPrAt(
       {
         host: estate.host,
         refs: estate.refs,
         defaultBranch: estate.defaultBranch,
-        repair: repairRecordIn(stateHomeFor(opts)),
-        baseBranch: (base) => baseBranchIn(stateHomeFor(opts), base),
-        baseRepair: (base) => baseRepairIn(stateHomeFor(opts), base),
+        repair: repairRecordIn(home),
+        baseBranch: (base) => baseBranchIn(home, base),
+        baseRepair: (base) => baseRepairIn(home, base),
+        stateHome: stateHomeReadOf(home),
         caller: callerOf({ unattended: process.env.PLOT_UNATTENDED === '1' }),
       },
       Number(pr),

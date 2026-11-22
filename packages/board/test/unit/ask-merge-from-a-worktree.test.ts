@@ -111,6 +111,18 @@ describe('plot-ask run from a linked worktree', () => {
     expect(merged).toHaveLength(1);
     expect(await merged[0]!.defaultBranch.read()).toEqual(answered(RED));
     expect(await merged[0]!.repair!.read()).toEqual(answered(RECORD));
+    expect(merged[0]!.stateHome).toBe('read');
+  });
+
+  it('merge hands mergeAt an unaskable state home where git names no main checkout', async () => {
+    const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-ask-nohome-')));
+    made.push(outside);
+    process.env.PLOT_REPO_ROOT = outside;
+    process.env.PLOT_SCRIPTS_DIR = REAL_SCRIPTS;
+    delete process.env.PLOT_UNATTENDED;
+    expect(await run(['merge', '7', SHA], HERE, vi.fn())).toBe(1);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]!.stateHome).toBe('unaskable');
   });
 
   it('repair-pr reads the main checkout\'s repair record', async () => {
@@ -118,5 +130,6 @@ describe('plot-ask run from a linked worktree', () => {
     await run(['repair-pr', '2942'], HERE, vi.fn());
     expect(named).toHaveLength(1);
     expect(await named[0]!.repair.read()).toEqual(answered(RECORD));
+    expect(named[0]!.stateHome).toBe('read');
   });
 });

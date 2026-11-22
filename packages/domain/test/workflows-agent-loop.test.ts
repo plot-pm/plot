@@ -759,6 +759,13 @@ describe('agentLoop — a blocked ending records the asking session', () => {
     const result = agentLoop({ ...asked, exit: { answer: 'spend-limit' } });
     expect(endWrite(result.writes)).toMatchObject({ reason: 'spend-limit', resumeId: 'sess-the-asking-agent' });
   });
+
+  it('row 10: an empty readings.resumeId writes no resumeId key', () => {
+    const result = agentLoop({ ...asked, resumeId: '', exit: { answer: 'ran' }, markerWritten: true, markerText: 'PLOT-BLOCKED: which API?' });
+    const ending = endWrite(result.writes);
+    expect(ending).toMatchObject({ reason: 'blocked' });
+    expect(ending).not.toHaveProperty('resumeId');
+  });
 });
 
 describe('agentLoop — row 10c: the turn ended with its background work dropped', () => {

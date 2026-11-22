@@ -1222,8 +1222,9 @@ fs.chmodSync(shippedAgentSettings, 0o755);
 // free agent whose command does not run the loop.
 //
 // Its own bundle for the reason the ones above give: plot-ask.mjs runs the
-// fleet scan to answer anything. This asks startCommand, spawns nothing and
-// opens nothing — the command arrives on stdin. It runs once per agent start,
+// fleet scan to answer anything. This asks startCommand and spawns nothing;
+// it reads the charter and the prompt file's existence, and the command
+// arrives on stdin. It runs once per agent start,
 // which the cost rule permits.
 const startCommandArtifact = path.join(here, 'dist/plot-start-command.mjs');
 // ONE LINE, for the bundle-set derivation's reason above.
@@ -1239,6 +1240,9 @@ await esbuild.build({
   minify: true,
   legalComments: 'none',
   banner: { js: '#!/usr/bin/env node' },
+  // It imports the fleet's prompt entry for its charter reader, whose own run
+  // block would otherwise match this bundle's argv[1].
+  define: { PLOT_EMBEDDED: 'true' },
 });
 
 fs.copyFileSync(startCommandArtifact, shippedStartCommand);
@@ -1797,6 +1801,9 @@ await esbuild.build({
   minify: true,
   legalComments: 'none',
   banner: { js: '#!/usr/bin/env node' },
+  // It imports the fleet's prompt entry for its resolver, whose own run block
+  // would otherwise match this bundle's argv[1].
+  define: { PLOT_EMBEDDED: 'true' },
 });
 
 fs.copyFileSync(writeProbeArtifact, shippedWriteProbe);

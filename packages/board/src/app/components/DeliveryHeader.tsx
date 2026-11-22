@@ -1,16 +1,19 @@
 import type { ReactNode } from 'react';
 import { TICKETS_ANCHOR, type DeliveryHeader as DeliveryHeaderFacts, type HeaderGroupBase, type HeaderNumber } from '@plot-pm/domain';
+import type { ActivityPace } from '../lib/agent-rows/activity.js';
 import { sectionAnchor } from '../lib/agent-rows/delivery-view.js';
+import { ActivitySpinner } from '../lib/agent-rows/marks.js';
 import { TONE_CLASS } from '../lib/agent-rows/state-classes.js';
 import { LinkIcon } from './LinkIcon.js';
 
 type OnJump = (anchor: string) => void;
 
-/** One group's frame: its label, its `open ›` link to the section, the unread clause and the clear sentence. */
-const Group = ({ group, onJump, children }: { group: HeaderGroupBase; onJump: OnJump; children?: ReactNode }) => (
+/** One group's frame: its label, the spinner of hidden activity where `pace` is set, its `open ›` link to the section, the unread clause and the clear sentence. */
+const Group = ({ group, onJump, pace = null, children }: { group: HeaderGroupBase; onJump: OnJump; pace?: ActivityPace | null; children?: ReactNode }) => (
   <div data-header-group={group.section} data-header-kind={group.kind} className="delivery-header-group min-w-0 space-y-1">
     <p className="flex items-baseline gap-2">
       <span data-header-label className="delivery-header-label">{group.label}</span>
+      {pace !== null && <ActivitySpinner pace={pace} />}
       <button type="button" data-header-open={group.section} onClick={() => onJump(sectionAnchor(group.section))} className="delivery-text-link ml-auto text-[12px]">
         open ›
       </button>
@@ -63,7 +66,7 @@ export const DeliveryHeader = ({ header, release, onJump }: { header: DeliveryHe
       <Group group={work} onJump={onJump}>
         {work.kind !== 'clear' && <Numbers numbers={work.numbers} oldest={work.oldest} />}
       </Group>
-      <Group group={fleet} onJump={onJump}>
+      <Group group={fleet} onJump={onJump} pace={fleet.pace}>
         {fleet.status !== null && <p data-header-status className={fleet.kind === 'stopped' ? 'delivery-hue-red font-semibold' : 'delivery-hue-amber font-semibold'}>{fleet.status}</p>}
         {fleet.circles.length > 0 && (
           <p data-header-circles aria-hidden="true" className="flex flex-wrap gap-1">

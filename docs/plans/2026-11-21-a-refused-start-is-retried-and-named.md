@@ -14,6 +14,8 @@
 - **Started:** 2026-11-21, Jan Wloka, `bug/the-brief-ask-test-owns-its-clock`
 - **Started:** 2026-11-21, Jan Wloka, `bug/a-refused-brief-is-asked-again`
 - **Started:** 2026-11-22, Jan Wloka, `bug/a-start-refusal-names-its-defect`
+- **Started:** 2026-11-22, Jan Wloka, `bug/the-probe-and-the-loop-name-the-charter-prompt`
+- **Started:** 2026-11-23, Jan Wloka, `bug/a-red-pr-is-re-run-once-per-head`
 
 ## Changelog
 
@@ -131,7 +133,7 @@ In both cases the pass that asked read the plan as Approved on `origin/<main>` (
 
 ### Probe and loop
 
-- `bug/the-probe-and-the-loop-name-the-charter-prompt` — `promptAbsentRepair`, the write probe resolving each started agent's prompt including a slice's own charter and the desk copy, the loop's repair naming a declared file and its charter, and the attempts assertions in both charter-refusal tests <!-- builds: promptAbsentRepair and the write probe's per-agent prompt resolution -->
+- `bug/the-probe-and-the-loop-name-the-charter-prompt` — `promptAbsentRepair`, the write probe resolving each started agent's prompt including a slice's own charter and the desk copy, the loop's repair naming a declared file and its charter, and the attempts assertions in both charter-refusal tests <!-- builds: promptAbsentRepair and the write probe's per-agent prompt resolution --> → #3668
 
 ### CI re-run
 

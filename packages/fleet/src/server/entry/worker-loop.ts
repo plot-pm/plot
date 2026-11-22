@@ -1,5 +1,5 @@
 import { readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { closeSync, constants as fsConstants, existsSync, fstatSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, constants as fsConstants, existsSync, fstatSync, openSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants, homedir, tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -82,8 +82,13 @@ import type { Scripts } from '@plot-pm/domain/ports/scripts';
 
 import { answer as promptAnswer, read as readAgentCharter } from './prompt.js';
 import { resolveLaunch } from '@plot-pm/domain/rules/prompt';
+import { promptAbsentRepair } from '@plot-pm/domain/rules/start-command';
+import { sliceAgentOf } from '../../shared/slice-agent.js';
 import { performLoopWrites, type AppliedWrite, type LoopWritePorts, type LoopWrite } from './loop-writes.js';
 import { CONTINUATION_NAME } from '../../shared/continuation-name.js';
+import { roleSessions } from '../../shared/role-sessions.js';
+import { transcriptDir, transcriptHead } from '../../shared/transcript.js';
+import { resumeHandleUsable, type ResumeHandleReadings } from '@plot-pm/domain/rules/resume-handle';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
@@ -219,6 +224,16 @@ export interface WorkerLoopPorts extends LoopWritePorts {
   readonly sliceCostUsd: (worktree: string, branch: string) => Promise<number | null>;
   /** Replaces this process's own image — {@link runWorkerLoop}'s one path to a self-restart. */
   readonly reexec: Reexec;
+  /**
+   * What `resumeHandleUsable` reads about a handle on a desk: the desk's
+   * role-session record and the handle's transcript head.
+   *
+   * @param worktree - the desk's absolute path.
+   * @param handle - the candidate session handle.
+   * @returns the record's handles, empty where none is readable, and the
+   *   transcript head, `null` where no transcript is readable.
+   */
+  readonly resumeHandleReadings: (worktree: string, handle: string) => Pick<ResumeHandleReadings, 'roleSessions' | 'head'>;
 }
 
 /**
@@ -267,8 +282,29 @@ export const workerLoopPorts = async (
       return read.costUsd;
     },
     reexec: processExec(),
+    resumeHandleReadings: (worktree: string, handle: string) => ({
+      roleSessions: roleSessions(worktree),
+      head: transcriptHead(transcriptDir(worktree), handle),
+    }),
   };
 };
+
+/**
+ * Whether the manifest's `resumeId` may be resumed for its branch.
+ *
+ * @param ports - the loop's ports; only `resumeHandleReadings` is read.
+ * @param manifest - the manifest's worktree, branch and handle.
+ * @returns true where the handle is non-empty and `resumeHandleUsable` accepts it.
+ */
+export const manifestHandleUsable = (
+  ports: Pick<WorkerLoopPorts, 'resumeHandleReadings'>,
+  manifest: Pick<ManifestFields, 'worktree' | 'branch' | 'resumeId'>,
+): boolean =>
+  resumeHandleUsable({
+    handle: manifest.resumeId,
+    branch: manifest.branch,
+    ...ports.resumeHandleReadings(manifest.worktree, manifest.resumeId),
+  }).usable;
 
 /** The bundle's path relative to a checkout's root, as `plot-worker-loop.sh` names it beside itself. */
 export const BUNDLE_RELATIVE_PATH = join('skills', 'plot', 'scripts', 'board', 'plot-worker-loop.mjs');
@@ -541,6 +577,32 @@ export const raiseSliceRuns = async (manifestFile: string): Promise<number | nul
     return runs;
   } catch {
     return null;
+  }
+};
+
+/**
+ * Replaces the manifest's `resumeId`, atomically, and keeps every other field.
+ *
+ * NOT BEST-EFFORT, like {@link raiseSliceRuns}: the caller starts no run
+ * where this answers `false`, so a run never uses a handle the manifest does
+ * not name.
+ *
+ * @param manifestFile - the manifest's own path; `''` for a hand-started loop, which has no manifest to write.
+ * @param resumeId - the new handle.
+ * @returns true where the manifest names `resumeId` afterwards; false where
+ *   `manifestFile` is `''` or the manifest could not be read, parsed or written.
+ */
+export const writeManifestResumeId = async (manifestFile: string, resumeId: string): Promise<boolean> => {
+  if (manifestFile === '') return false;
+  try {
+    const parsed: unknown = JSON.parse(await readFile(manifestFile, 'utf8'));
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return false;
+    const tmp = `${manifestFile}.plot-resume-tmp`;
+    await writeFile(tmp, `${JSON.stringify({ ...(parsed as Record<string, unknown>), resumeId }, null, 2)}\n`, 'utf8');
+    await rename(tmp, manifestFile);
+    return true;
+  } catch {
+    return false;
   }
 };
 
@@ -915,7 +977,9 @@ export const readPass = async (
     prHeadSha: undefined,
     lastPushSha: prompt.pushedSha,
     correctionText: '',
-    resumeId: manifest.resumeId,
+    // A HANDLE THE RULE REJECTS IS NOT CARRIED: a pass that ends before any
+    // run then writes no role handle into the ending.
+    resumeId: manifest.resumeId !== '' && !manifestHandleUsable(ports, manifest) ? '' : manifest.resumeId,
     passAt,
     worktree: manifest.worktree,
     session: manifest.session,
@@ -1636,8 +1700,8 @@ const runPrompt = async (
 ): Promise<RunOutcome> => {
   const sdk = deps.runner === 'sdk' ? deps.sdk : undefined;
   const resolveUnder = (root: string) => {
-    const [verb, named, why] = (deps.resolvePrompt ?? promptAnswer)(root, deps.agent).split('\t');
-    return { verb, why, file: verb === 'refused' || !named ? '' : join(root, named) };
+    const [verb, named, why] = [...(deps.resolvePrompt ?? promptAnswer)(root, deps.agent).split('\t'), '', ''];
+    return { verb, named, why, file: verb === 'refused' || !named ? '' : join(root, named) };
   };
   const exists = deps.promptExists ?? existsSync;
   const main = resolveUnder(deps.repoRoot);
@@ -1647,14 +1711,18 @@ const runPrompt = async (
     sdk === undefined && main.verb !== 'refused' && main.file !== '' && !exists(main.file) && worktree !== deps.repoRoot
       ? resolveUnder(worktree)
       : undefined;
-  const { verb, why, file } = desk !== undefined && desk.verb !== 'refused' && desk.file !== '' && exists(desk.file) ? desk : main;
+  const { verb, named, why, file } = desk !== undefined && desk.verb !== 'refused' && desk.file !== '' && exists(desk.file) ? desk : main;
   // A REFUSED CHARTER REFUSES ON EITHER RUNNER; only the `command` runner
   // needs the prompt file the resolution names.
   const refusal =
     verb === 'refused' || (file === '' && sdk === undefined)
-      ? (why ?? 'no prompt')
+      ? why || 'no prompt'
       : sdk === undefined && !exists(file)
-        ? `the prompt file ${file} is absent; run plot-install-prompt.sh to write .plot/worker-prompt.sh`
+        ? `the prompt file ${file} is absent; ${promptAbsentRepair(
+            verb === 'declared'
+              ? { resolve: 'declared', prompt: named, charter: why }
+              : { resolve: 'fallback', prompt: named, why },
+          )}`
         : undefined;
   if (refusal !== undefined) {
     deps.log(`plot-worker-loop: refusing to launch — ${refusal}`);
@@ -1668,6 +1736,16 @@ const runPrompt = async (
     const minted = hopFrom === manifest.branch ? '' : (deps.mintHandle ?? randomUUID)().toLowerCase();
     await writeHop(deps.manifestFile, minted, hopFrom);
     if (minted !== '') manifest.resumeId = minted;
+  }
+  // A HANDLE THE RULE REJECTS IS REPLACED: a role session or another branch's
+  // session is never resumed, and the new handle starts `--session-id`.
+  if (manifest.resumeId !== '' && !manifestHandleUsable(deps.ports, { ...manifest, worktree })) {
+    const replaced = (deps.mintHandle ?? randomUUID)().toLowerCase();
+    if (!(await writeManifestResumeId(deps.manifestFile, replaced))) {
+      deps.log(`plot-worker-loop: could not replace the rejected session handle in ${deps.manifestFile}; no run starts`);
+      return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, permissionDenials: 'unanswerable', finalText: '', handBack: null, sessionId: '' };
+    }
+    manifest.resumeId = replaced;
   }
   const handle = manifest.resumeId !== '' ? manifest.resumeId : deps.sessionId;
   // A RUN THE MANIFEST CANNOT COUNT IS NOT STARTED: it ends `unstarted`, so
@@ -2356,84 +2434,7 @@ export const runnerDeps = async (input: RunnerInput): Promise<{ runner: 'command
   };
 };
 
-/**
- * Which plan files might name `branch` at all — a cheap textual prefilter,
- * never the answer. Mirrors `plan_declared_agent`'s own `grep -lF` in
- * `plot-dispatch.sh`, which the parser call below exists to narrow: the
- * ANNOTATION'S OWNER is decided by `plot-plan-meta.sh` alone, since a
- * substring match cannot tell a branch's own line from prose that mentions it
- * or from a different branch's annotation in the same file.
- *
- * @param planDir - the configured plan directory, absolute.
- * @param branch - the branch to search for.
- * @returns the `.md` paths under `planDir` whose text contains `branch`.
- */
-export const plansMentioning = (planDir: string, branch: string): readonly string[] => {
-  let names: readonly string[];
-  try {
-    names = readdirSync(planDir).filter((n) => n.endsWith('.md'));
-  } catch {
-    return [];
-  }
-  return names.map((n) => join(planDir, n)).filter((path) => (readOrNull(path) ?? '').includes(branch));
-};
-
-/**
- * One branch's row inside `plot-plan-meta.sh`'s `waves[].branches[]`, read
- * verbatim off the parser's JSON — the shape `agent_set`/`agent_of` emit.
- */
-interface RawPlanBranch {
-  readonly branch?: string;
-  readonly agent?: string;
-}
-
-/** One plan document, as `plot-plan-meta.sh` emits it — only the field this reads. */
-interface RawPlanMeta {
-  readonly waves?: readonly { readonly branches?: readonly RawPlanBranch[] }[];
-}
-
-/**
- * Resolves a slice's own `agent:` charter name from the plan that declares it.
- *
- * READS THE PRESENCE OF THE KEY, NOT ITS TRUTHINESS, the same contract
- * `plan_declared_agent` reads: `plot-plan-meta.sh` emits no `agent` key at all
- * for a branch that names none, so `'agent' in row` is what tells *no
- * annotation* apart from an annotation whose value happens to be `''`.
- *
- * THE PARSER ANSWERS, NEVER A GREP OF THE PLAN FILE. {@link plansMentioning}
- * only narrows which files are worth asking; the branch-to-annotation binding
- * is `plot-plan-meta.sh`'s alone to make, since it alone knows which `###`
- * wave and which line the branch belongs to.
- *
- * @param repoRoot - the repo root the plan directory is relative to.
- * @param scriptDir - where the helper scripts live.
- * @param planDir - the configured plan directory, absolute.
- * @param branch - the branch a fresh take-up just assigned.
- * @returns the declared agent name, or `null` where the branch names none or
- *   cannot be found.
- */
-export const sliceAgentOf = (repoRoot: string, scriptDir: string, planDir: string, branch: string): string | null => {
-  const candidates = plansMentioning(planDir, branch);
-  if (candidates.length === 0) return null;
-  const read = scriptsShell({ repoRoot, scriptDir }).planMetaSync(candidates);
-  if (!read.ok) return null;
-  for (const line of read.value.split('\n')) {
-    const trimmed = line.trim();
-    if (trimmed === '') continue;
-    let meta: RawPlanMeta;
-    try {
-      meta = JSON.parse(trimmed) as RawPlanMeta;
-    } catch {
-      continue;
-    }
-    for (const wave of meta.waves ?? []) {
-      for (const row of wave.branches ?? []) {
-        if (row.branch === branch && 'agent' in row) return row.agent ?? '';
-      }
-    }
-  }
-  return null;
-};
+export { plansMentioning, sliceAgentOf } from '../../shared/slice-agent.js';
 
 /** A thrown value's message, or its text where it is not an `Error`. */
 const reasonOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));

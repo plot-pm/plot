@@ -329,7 +329,7 @@ const wait = (branch: string, note: string): Decision<AgentLoopDetail> =>
  * @param resumeId - the handle the loop was resuming or about to resume;
  *   carried by every ending a later continuation resumes, so the
  *   continuation resumes that conversation rather than whichever
- *   transcript file is newest on disk.
+ *   transcript file is newest on disk. Omitted from the write where `undefined` or `''`.
  */
 const end = (
   worktree: string,
@@ -354,7 +354,7 @@ const end = (
         actor,
         detail,
         exitCode,
-        ...(resumeId !== undefined ? { resumeId } : {}),
+        ...(resumeId !== undefined && resumeId !== '' ? { resumeId } : {}),
         ...(idle !== undefined ? { idle } : {}),
       },
     ],

@@ -14,6 +14,7 @@ import {
   prNumberOf,
   redMainPicker,
   redMainStep,
+  repairBoundReached,
   type RedMainCandidate,
   type RedMainPickerAnswer,
 } from '@plot-pm/domain/rules/repair';
@@ -187,7 +188,7 @@ export const repairRevertTick = async (
     descends = asked.ok ? asked.value : 'unknown';
   }
 
-  const boundReached = now - Date.parse(record.redSince) >= world.mainRepairBoundMs;
+  const boundReached = repairBoundReached(record, now, world.mainRepairBoundMs);
   const inRevertWindow =
     boundReached &&
     (record.state === 'repairing' || record.state === 'reverting') &&

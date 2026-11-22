@@ -67,6 +67,10 @@ behaves exactly as before. This is the backwards-compatibility guarantee, and
 override (prior wave *green and ready*) that trades rebase risk for throughput
 and requires a stated reason — not implemented in Stage 1.
 
+## The spike reason
+
+A Design plan's waves read `unapproved` for every fault in its `Spike approved:` record. The domain's `licensedSpike` tells five of them apart, and the plan walk (`packages/domain/src/workflows/plan-walk-assembly.ts`) puts that reason on the pulse plan as `spikeUnlicensed`. `SKILL.md` step 2b names the reason and `plot-approve-command.mjs --spike --who <handle> <slug>`, the board-free command. The gated bundle `plot-approve.mjs` is not named, because the controller gate refuses it with no receipt. `spikeUnlicensed` is `null` for a licensed record, a plan not in Design and a plan with no single spike, so `null` never reads as licensed.
+
 ## Claim detection
 
 A branch whose only commits beyond main are **empty `plot: claim …` markers**

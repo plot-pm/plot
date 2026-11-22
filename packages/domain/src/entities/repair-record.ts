@@ -54,6 +54,14 @@ export const RepairAttemptSchema = z
     // plot-state: reading — what ended this machine's attempt, written once by
     //                       `repairAttemptStep`'s caller; read on every pass.
     outcome: z.enum(['lost', 'ended', 'start-failed']).optional(),
+    /**
+     * When fleetd first recorded the attempt, ISO-8601, this machine's clock.
+     * The `Main repair bound` runs from it; absent on records written before it
+     * existed, which measure the bound from `redSince`.
+     */
+    // plot-state: reading — when the attempt was first recorded, written once by
+    //                       `startRepair` before the claim; read on every pass.
+    startedAt: z.string().optional(),
     /** True once a run that crashed with no ending record was resumed; a run resumes at most once. */
     resumed: z.literal(true).optional(),
   })

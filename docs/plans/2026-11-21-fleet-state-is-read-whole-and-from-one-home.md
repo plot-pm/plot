@@ -13,6 +13,9 @@
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3609 merged
 - **Started:** 2026-11-21, Jan Wloka, `bug/merge-reads-the-main-checkouts-state`
 - **Started:** 2026-11-22, Jan Wloka, `bug/the-repair-start-decision-moves-into-the-domain`
+- **Started:** 2026-11-22, Jan Wloka, `bug/the-first-red-rerun-wait-ends-at-checks-wait`
+- **Started:** 2026-11-22, Jan Wloka, `bug/merge-refuses-an-unfound-state-home`
+- **Started:** 2026-11-23, Jan Wloka, `bug/every-state-reader-asks-one-state-home`
 
 ## Changelog
 
@@ -160,11 +163,11 @@ The layering rule holds in every slice: a controller or an entry calls the domai
 
 ### Re-run bound
 
-- `bug/the-first-red-rerun-wait-ends-at-checks-wait` — `overdue` past `Checks wait`, `redMainStep` reading it as `start-repair`, `attempt.startedAt` and `repairBoundReached`, and the 2026-11-06 cells <!-- builds: repairBoundReached, the repair bound from the attempt's start -->
+- `bug/the-first-red-rerun-wait-ends-at-checks-wait` — `overdue` past `Checks wait`, `redMainStep` reading it as `start-repair`, `attempt.startedAt` and `repairBoundReached`, and the 2026-11-06 cells <!-- builds: repairBoundReached, the repair bound from the attempt's start --> → #3666
 
 ### Unfound state home
 
-- `bug/merge-refuses-an-unfound-state-home` — `MergeReadings.stateHome`, the `state-home-unread` refusal in `mergeAt` and `repair-pr`, and the `PLOT_REPO_ROOT` seam tests <!-- builds: state-home-unread, the merge refusal for an unfound state home -->
+- `bug/merge-refuses-an-unfound-state-home` — `MergeReadings.stateHome`, the `state-home-unread` refusal in `mergeAt` and `repair-pr`, and the `PLOT_REPO_ROOT` seam tests <!-- builds: state-home-unread, the merge refusal for an unfound state home --> → #3669
 
 ### One state home
 

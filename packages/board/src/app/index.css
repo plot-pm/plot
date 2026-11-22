@@ -44,6 +44,29 @@
   }
 }
 
+/*
+ * The change marker (`ChangeMark`, `[data-change-mark]`): the accent
+ * background a changed row starts with. The `change-fade` keyframes take it to
+ * transparent once; `CHANGE_FADE` in `activity.ts` sets the duration, the
+ * single iteration and the held end state inline. Under
+ * `prefers-reduced-motion: reduce` the animation does not run and the tint
+ * stays static until the marker unmounts.
+ */
+.change-mark {
+  background: rgb(122 167 255 / 0.28);
+}
+
+@keyframes change-fade {
+  from { background: rgb(122 167 255 / 0.28); }
+  to { background: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .change-mark {
+    animation: none !important;
+  }
+}
+
 :root {
   color-scheme: light dark;
 }

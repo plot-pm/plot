@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { startCommand as ask, type LoopScript, type PromptReading, type StartingAgent } from '../src/rules/start-command.js';
+import { promptAbsentRepair, startCommand as ask, type LoopScript, type PromptReading, type StartingAgent } from '../src/rules/start-command.js';
 
 /** The loop as `plot-dispatch.sh` names it; the rule itself names no script. */
 const LOOP: LoopScript = {
@@ -92,6 +92,19 @@ describe('startCommand', () => {
     });
   });
 
+  describe('the defect word', () => {
+    const LOOPING = 'PLOT_UNATTENDED=1 plot-worker-loop.sh';
+    const defectOf = (answer: ReturnType<typeof startCommand>) => (answer.start === 'refused' ? answer.defect : answer.start);
+
+    it.each([
+      ['a free agent on a command that is not the loop', PLAIN, PRESENT, 'no-loop'],
+      ['a refused charter', LOOPING, { ...PRESENT, resolution: { resolve: 'refused', why: 'w' } } as PromptReading, 'charter-refused'],
+      ['an absent prompt file on the command runner', LOOPING, { ...PRESENT, present: false }, 'prompt-absent'],
+    ] as const)('names %s %j', (_label, configured, prompt, defect) => {
+      expect(defectOf(startCommand(configured, LOOP, 'free', prompt))).toBe(defect);
+    });
+  });
+
   describe('the prompt file', () => {
     const LOOPING = 'PLOT_UNATTENDED=1 plot-worker-loop.sh';
     const absent: PromptReading = { ...PRESENT, present: false };
@@ -135,10 +148,38 @@ describe('startCommand', () => {
       expect(answer.start === 'refused' && answer.why).toBe("charter 'x' not JSON");
     });
 
+    it('refuses a refused charter on the sdk runner too, as charter-refused', () => {
+      const answer = startCommand(LOOPING, LOOP, 'free', {
+        runner: 'sdk',
+        resolution: { resolve: 'refused', why: "charter 'x' not JSON" },
+        present: false,
+      });
+      expect(answer).toEqual({
+        start: 'refused',
+        defect: 'charter-refused',
+        why: "charter 'x' not JSON",
+        repair: 'fix the charter named by PLOT_AGENT',
+      });
+    });
+
     it('reads no prompt for an absent key, `none`, or an assigned command that is not the loop', () => {
       expect(startCommand('', LOOP, 'free', absent).start).toBe('unconfigured');
       expect(startCommand('none', LOOP, 'free', absent).start).toBe('declined');
       expect(startCommand(PLAIN, LOOP, 'assigned', absent)).toEqual({ start: 'run', command: PLAIN });
     });
+  });
+});
+
+describe('promptAbsentRepair', () => {
+  it('names the declared file and the charter that names it', () => {
+    expect(promptAbsentRepair({ resolve: 'declared', prompt: '.plot/prompts/x.sh', charter: 'x' })).toBe(
+      "write .plot/prompts/x.sh, which charter 'x' names",
+    );
+  });
+
+  it('names the installer for the fallback prompt', () => {
+    expect(promptAbsentRepair({ resolve: 'fallback', prompt: '.plot/worker-prompt.sh', why: 'no agent named' })).toBe(
+      'run plot-install-prompt.sh to write .plot/worker-prompt.sh from the template',
+    );
   });
 });

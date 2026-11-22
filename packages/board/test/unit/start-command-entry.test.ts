@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { read } from '@plot-pm/fleet/server/entry/prompt';
+import { resolvePrompt } from '@plot-pm/domain/rules/prompt';
 import { EXIT, run } from '../../src/server/entry/start-command.js';
 
 const LOOP = 'plot-worker-loop.sh';
@@ -23,11 +25,12 @@ describe('start-command entry', () => {
     return { code, out };
   };
 
-  it('exits 3 with the why and the repair when the prompt file is absent', () => {
+  it('exits 3 with the defect and why, then the repair, when the prompt file is absent', () => {
     const { code, out } = ask('');
     expect(code).toBe(EXIT.refused);
     const lines = out.trimEnd().split('\n');
     expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(/^prompt-absent\t/);
     expect(lines[0]).toContain('.plot/worker-prompt.sh');
     expect(lines[1]).toContain('plot-install-prompt.sh');
   });
@@ -49,7 +52,20 @@ describe('start-command entry', () => {
     writeFileSync(join(root, '.plot', 'worker-prompt.sh'), '');
     const { code, out } = ask('', { PLOT_AGENT: 'x' });
     expect(code).toBe(EXIT.refused);
+    expect(out).toMatch(/^prompt-absent\t/);
     expect(out).toContain('.plot/prompts/x.sh');
+  });
+
+  it('reads an unreadable charter through the shared reader and refuses it as charter-refused', () => {
+    mkdirSync(join(root, '.plot', 'charters', 'x.json'), { recursive: true });
+    const shared = resolvePrompt(read(root, 'x'));
+    expect(shared.resolve).toBe('refused');
+    const { code, out } = ask('sdk', { PLOT_AGENT: 'x' });
+    expect(code).toBe(EXIT.refused);
+    const [first, repair] = out.trimEnd().split('\n');
+    expect(first).toBe(`charter-refused\t${shared.resolve === 'refused' ? shared.why : ''}`);
+    expect(first).toContain('EISDIR');
+    expect(repair).toBe('fix the charter named by PLOT_AGENT');
   });
 
   it('exits 2 when the repo root is missing', () => {

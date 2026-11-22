@@ -4246,6 +4246,7 @@ test('dispatch: --start refuses a Worker command that does not run the loop', ()
     assert.match(res.stderr, /Repair: set 'Worker command' to 'PLOT_UNATTENDED=1 plot-worker-loop\.sh', and move the harness call into \.plot\/worker-prompt\.sh/, res.stderr);
     assert.match(res.stderr, /\.plot\/worker-prompt\.sh/, res.stderr);
     assert.match(res.stderr, /plot-install-prompt\.sh/, res.stderr);
+    assert.match(res.stderr, /--restart <branch>\) starts a worker on any command/, res.stderr);
     assert.equal(fs.existsSync(path.join(checkout, '.worktrees')), false, 'no desk is cut');
     assert.equal(fs.existsSync(path.join(checkout, '.plot', 'agents')), false, 'no manifest is written');
     const trees = execFileSync('git', ['worktree', 'list', '--porcelain'],
@@ -4267,6 +4268,8 @@ test('dispatch: --start refuses a loop whose prompt file is absent, before any d
     assert.equal(res.status, 1, res.stdout + res.stderr);
     assert.match(res.stderr, /prompt file \.plot\/worker-prompt\.sh is absent/, res.stderr);
     assert.match(res.stderr, /plot-install-prompt\.sh/, res.stderr);
+    assert.match(res.stdout, /summary: agents=0 .*worker=prompt-absent/, res.stdout);
+    assert.doesNotMatch(res.stderr, /--restart <branch>/, 'the --restart hint repairs no-loop only');
     assert.equal(fs.existsSync(path.join(checkout, '.worktrees')), false, 'no desk is cut');
     const refs = execFileSync('git', ['for-each-ref', 'refs/plot/'],
       { cwd: path.join(root, 'origin.git'), encoding: 'utf8' });

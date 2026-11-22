@@ -35,6 +35,7 @@ import {
   type LoopDeps,
   type SdkRunDeps,
   type WorkerLoopPorts,
+  writeManifestResumeId,
 } from '../../src/server/entry/worker-loop.js';
 
 const BRANCH = 'infra/x';
@@ -63,6 +64,8 @@ interface Rig {
   wt: string;
   events: string[];
   requests: AgentRunRequest[];
+  /** Every attempt count the loop raised, in order. */
+  attempts: number[];
   deskCalls: ReturnType<typeof deskFixtureCalls>;
   read: () => Record<string, unknown>;
 }
@@ -83,6 +86,7 @@ const rig = (
   write({ ...manifest, worktree: wt });
 
   const events: string[] = [];
+  const attempts: number[] = [];
   const fixture = agentRunFixture({ answers });
   const baseAgents = agentsFixture({});
   const deskCalls = deskFixtureCalls();
@@ -91,9 +95,10 @@ const rig = (
     trees: treesFixture({ quiet: { [wt]: 5000 }, commits: { [wt]: 'no' } }),
     agents: {
       ...baseAgents,
-      raiseAttempts: async (w: string, attempts: number) => {
-        write({ ...read(), attempts });
-        return baseAgents.raiseAttempts(w, attempts);
+      raiseAttempts: async (w: string, raised: number) => {
+        attempts.push(raised);
+        write({ ...read(), attempts: raised });
+        return baseAgents.raiseAttempts(w, raised);
       },
       raiseCorrections: async (w: string, correctionAttempts: number) => {
         write({ ...read(), correctionAttempts });
@@ -124,6 +129,7 @@ const rig = (
     recordRun: async () => null,
     recordLimits: async () => 0,
     sliceCostUsd: async () => null,
+    resumeHandleReadings: () => ({ roleSessions: new Set<string>(), head: null }),
   };
   const sdk: SdkRunDeps = {
     agentRun: () => ({
@@ -178,7 +184,7 @@ const rig = (
     runner: 'sdk',
     sdk,
   };
-  return { deps, wt, events, requests: fixture.requests, deskCalls, read };
+  return { deps, wt, events, requests: fixture.requests, attempts, deskCalls, read };
 };
 
 beforeEach(() => {
@@ -329,6 +335,23 @@ describe('runWorkerLoop on the SDK runner — the hand-back rows', () => {
   });
 });
 
+describe('runWorkerLoop on the SDK runner — a role handle in the manifest', () => {
+  it('sends no resumeId and a minted sessionId where the manifest names a role transcript', async () => {
+    const r = rig([ran('blocked', 'which API?')], async () => ({ passed: true }));
+    Object.assign(r.deps.ports, {
+      resumeHandleReadings: () => ({ roleSessions: new Set<string>(), head: { firstLine: '{"type":"agent-setting","agentSetting":"unblocker"}', gitBranch: '' } }),
+    });
+    r.deps = {
+      ...r.deps,
+      mintHandle: () => 'H-New',
+      idle: { ...r.deps.idle, transcript: transcriptFixture({ spoken: [`${r.wt}\th-1`] }) },
+    };
+    await runWorkerLoop(r.deps);
+    expect(r.requests[0]).toMatchObject({ resumeId: '', sessionId: 'h-new' });
+    expect(r.read().resumeId).toBe('h-new');
+  });
+});
+
 describe('runWorkerLoop on the SDK runner — a continuation resumes the blocked session', () => {
   /** A desk on `BRANCH` holding a marker and `.plot-worker.continue.md`, whose transcripts are `spoken`. */
   const continued = (r: Rig, spoken: readonly string[]): string => {
@@ -448,6 +471,7 @@ describe('runWorkerLoop on the SDK runner — how a run ends', () => {
     refused.deps = { ...refused.deps, resolvePrompt: () => 'refused\t\tcharter x unreadable', log: (line) => logs.push(line) };
     expect(await runWorkerLoop(refused.deps)).toBe(1);
     expect(refused.requests).toEqual([]);
+    expect(refused.attempts).toEqual([]);
     expect(logs.join('\n')).toContain('refusing to launch — charter x unreadable');
 
     const noFile = rig([ran('blocked')], async () => ({ passed: true }));
@@ -551,6 +575,23 @@ describe('raiseSliceRuns', () => {
     fs.writeFileSync(file, JSON.stringify({ branch: 7 }));
     expect(await raiseSliceRuns(file)).toBe(1);
     expect(JSON.parse(fs.readFileSync(file, 'utf8')).sliceRuns).toEqual({ branch: '', runs: 1 });
+  });
+});
+
+describe('writeManifestResumeId', () => {
+  it('replaces the handle and keeps every other field, and answers false where nothing is written', async () => {
+    const dir = tempDir('plot-resume-id-');
+    const file = path.join(dir, 'm.json');
+    fs.writeFileSync(file, JSON.stringify({ branch: 'infra/x', resumeId: 'h-role', wavesCount: 3 }));
+    expect(await writeManifestResumeId(file, 'h-new')).toBe(true);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ branch: 'infra/x', resumeId: 'h-new', wavesCount: 3 });
+    expect(await writeManifestResumeId('', 'h-new')).toBe(false);
+    expect(await writeManifestResumeId(path.join(dir, 'gone.json'), 'h-new')).toBe(false);
+    for (const text of ['null', '[]', '7']) {
+      fs.writeFileSync(file, text);
+      expect(await writeManifestResumeId(file, 'h-new')).toBe(false);
+      expect(fs.readFileSync(file, 'utf8')).toBe(text);
+    }
   });
 });
 

@@ -204,7 +204,8 @@ describe('a group heading carries the activity of the rows behind it', () => {
     // HEAD, so it follows the component that renders one.
     const source = readFileSync(
       new URL('../../src/app/lib/agent-rows/rows.tsx', import.meta.url), 'utf8');
-    expect(source).toContain('marked && expanded === false ? <ChangeMark /> : null');
+    expect(source).toContain('activitySignal(active ? \'fast\' : null, marked && expanded === false, reducedMotion)');
+    expect(source).toContain('signal.changed ? <ChangeMark /> : null');
   });
 
   // ── The reported case ──────────────────────────────────────────────────────

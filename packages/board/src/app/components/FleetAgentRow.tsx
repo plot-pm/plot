@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { AGENT_COLUMN_LABELS, type AgentRole, type AgentRowCells, type RoleRun } from '@plot-pm/domain';
 import type { FleetRowFacts } from '../lib/agent-rows/working-agents.js';
+import { ActivitySlot } from '../lib/agent-rows/marks.js';
 import { RoleChip } from './RoleChip.js';
 import { RowCell, type LinkHandlers } from './DeliveryRows.js';
 
@@ -73,6 +74,8 @@ export const FleetAgentRow = ({ id, cells, handlers, role, facts, run = null, hi
       )}
     </span>
     <span role="gridcell" data-agent-cell="doing" data-doing-label={cells.doingLabel} className="delivery-truncate">
+      {/* The slot is reserved while the agent is idle, so the Doing now text keeps its place when the spinner comes. */}
+      <span className="mr-1 inline-block"><ActivitySlot pace={cells.doingPace} /></span>
       <RowCell cell={cells.doing} handlers={handlers} />
       {cells.doingDetail !== null && (
         <span data-agent-detail className="delivery-truncate delivery-text-muted block" title={cells.doingDetail}>{cells.doingDetail}</span>
