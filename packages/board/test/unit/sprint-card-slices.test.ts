@@ -35,7 +35,7 @@ describe('countedSlicesByPlan', () => {
 describe('sprintCardViewOf', () => {
   const reader = { hostUser: 'jwloka', directory: parsePersonDirectory('jwloka = Jan Wloka') };
   const row = (plan: string, wave: string, branch: string): AgentRow => ({
-    branch, plan, wave, kind: 'branch', phase: 'Testing', state: 'merged', group: 'done', pr: null,
+    branch, plan, wave, kind: 'branch', phase: 'Testing', planState: 'delivered', state: 'merged', group: 'done', pr: null,
     question: null, blockedBy: null, assignee: '', author: '', approver: '',
   }) as unknown as AgentRow;
   const slice = (plan: string, name: string): Slice => ({

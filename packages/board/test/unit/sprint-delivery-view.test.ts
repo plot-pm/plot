@@ -19,7 +19,7 @@ const mergedSlice = (plan: string): Slice =>
 const unreadSlice = (plan: string): Slice =>
   ({ plan, name: 'a', branches: [], verdict: 'eligible', section: 'building', complete: false, planSliceCount: 1 }) as unknown as Slice;
 const mergedRow = (plan: string): AgentRow => ({
-  branch: `feature/${plan}-a`, plan, wave: 'a', kind: 'branch', phase: 'Testing', state: 'merged', group: 'done',
+  branch: `feature/${plan}-a`, plan, wave: 'a', kind: 'branch', phase: 'Testing', planState: 'delivered', state: 'merged', group: 'done',
   pr: null, question: null, blockedBy: null, assignee: '', author: '', approver: '',
 }) as unknown as AgentRow;
 

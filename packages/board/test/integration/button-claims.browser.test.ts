@@ -281,7 +281,7 @@ const baseURLHolder: { url: string } = { url: '' };
 
 const statusRow = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/dispatched', plan: STATUS_SLUG,
-  planFile: STATUS_PLAN_FILE, wave: 'w', state: 'wip', phase: 'Development',
+  planFile: STATUS_PLAN_FILE, wave: 'w', state: 'wip', phase: 'Development', planState: 'approved',
   group: 'working', ageMinutes: 3, note: 'last commit 3 min ago',
   pr: null, branchUrl: 'https://x/feature/dispatched', waitingDays: null,
   localDirty: false, localLocked: false, ...over,

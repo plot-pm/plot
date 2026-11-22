@@ -32,7 +32,7 @@ const agent = (over: Partial<AgentEntry> = {}): AgentEntry =>
 const row = (over: Partial<AgentRow> = {}): AgentRow =>
   AgentRowSchema.parse({
     repo: 'plot', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-24-a-plan.md',
-    wave: 'w', state: 'wip', phase: 'Development', group: 'working', ageMinutes: 3,
+    wave: 'w', state: 'wip', phase: 'Development', planState: 'approved', group: 'working', ageMinutes: 3,
     note: '', ...over,
   });
 

@@ -15,7 +15,7 @@ const releaseRow = (version: string, number: number): AgentRow => ({
   question: null, blockedBy: null, assignee: '', author: '', approver: '', desk: false, fixerInFlight: false,
 }) as unknown as AgentRow;
 const row = (plan: string, branch: string): AgentRow => ({
-  branch, plan, wave: 'One', kind: 'branch', phase: 'Testing', state: 'merged', group: 'done', pr: null,
+  branch, plan, wave: 'One', kind: 'branch', phase: 'Testing', planState: 'delivered', state: 'merged', group: 'done', pr: null,
   question: null, blockedBy: null, assignee: '', author: '', approver: '',
 }) as unknown as AgentRow;
 const slice = (plan: string): Slice => ({

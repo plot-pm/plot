@@ -88,7 +88,7 @@ function localFleet(over: Partial<Fleet> = {}): Fleet {
     row({
       repo: 'garden', branch: 'feature/beans-a', plan: 'beans',
       planFile: '2026-03-01-beans.md', wave: 'w', state: 'wip',
-      phase: 'Development', group: 'working', ageMinutes: 200,
+      phase: 'Development', planState: 'approved', group: 'working', ageMinutes: 200,
       note: 'last commit 200 min ago', branchUrl: `${GH}feature/beans-a`,
     }),
     // The row that carries a Start work button: the control whose invitation
@@ -105,7 +105,7 @@ function localFleet(over: Partial<Fleet> = {}): Fleet {
       // builder's `wip` default renders no wave row at all and every assertion
       // against it times out, indistinguishable from a selector typo.
       kind: 'wave', wave: WAVE, state: 'open', group: 'not-started',
-      phase: 'Design', ageMinutes: null, waitingOn: 'click',
+      phase: 'Design', planState: 'design', ageMinutes: null, waitingOn: 'click',
       // `verdict: 'eligible'`, said in the FIELD and not only in the note. The
       // menu is gated on the wave's VERDICT, and a wave with no verdict offers
       // no control at all (`isStartable`'s rule: a button whose usual state is

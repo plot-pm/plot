@@ -49,7 +49,7 @@ const GH = 'https://github.com/tiny/garden';
  */
 const row = (over: Partial<AgentRow> = {}): AgentRow => buildRow({
   repo: 'garden', branch: 'feature/x', plan: 'landed', planFile: 'p-landed.md',
-  wave: 'Implementation', state: 'merged', phase: 'Development', group: 'done',
+  wave: 'Implementation', state: 'merged', phase: 'Development', planState: 'approved', group: 'done',
   // `waitingOn: null` — the schema's own spelling of "nothing is waiting".
   // This fixture said `'nobody'`, which the enum does not admit; the client
   // CAST its payload, so it reached the renderer as a word no branch reads.

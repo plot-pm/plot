@@ -14,7 +14,7 @@ import { ELIGIBLE_NOTE, type AgentRow, type Card, type DraftPlan, type Fleet } f
  */
 const row = (plan: string): AgentRow => buildRow({
   repo: 'garden', branch: `feature/${plan}`, plan, planFile: `2026-09-30-${plan}.md`,
-  wave: 'One', state: 'open', phase: 'Development', group: 'not-started', ageMinutes: null,
+  wave: 'One', state: 'open', phase: 'Development', planState: 'approved', group: 'not-started', ageMinutes: null,
   waitingOn: 'click', note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
   localDirty: false, localLocked: false, stuck: null,
 });

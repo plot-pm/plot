@@ -33,7 +33,7 @@ const ROW_PLAN_FILE = `2026-10-19-${ROW_PLAN}.md`;
 const fleetWithPlanRow = (): Fleet => buildFleet({
   rows: [buildRow({
     repo: 'garden', branch: `feature/${ROW_PLAN}`, plan: ROW_PLAN, planFile: ROW_PLAN_FILE,
-    wave: 'One', state: 'open', phase: 'Development', group: 'not-started', ageMinutes: null,
+    wave: 'One', state: 'open', phase: 'Development', planState: 'approved', group: 'not-started', ageMinutes: null,
     waitingOn: 'click', note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
     localDirty: false, localLocked: false, stuck: null,
   })],

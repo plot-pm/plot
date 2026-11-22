@@ -943,7 +943,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgentsAt(1280, fleet({
       rows: [
         row({ branch: 'feature/has-pr', plan: 'beans', group: 'waiting-on-you',
-              phase: 'Development', ageMinutes: 20, kind: 'pr',
+              phase: 'Development', planState: 'approved', ageMinutes: 20, kind: 'pr',
               note: 'awaiting review', branchUrl: `${GH}feature/has-pr`,
               pr: { number: 41, url: `${GH}../pull/41`, draft: false, state: 'green' } }),
         // A DIFFERENT PLAN, so the two rows do not group into one wave. Sharing
@@ -952,7 +952,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         // was unreachable. Two kinds cannot read differently in one column if
         // one of them is not rendered.
         row({ branch: 'feature/no-pr', plan: 'plant-tomatoes', group: 'waiting-on-you',
-              phase: 'Development', ageMinutes: 25, kind: 'branch',
+              phase: 'Development', planState: 'approved', ageMinutes: 25, kind: 'branch',
               note: 'awaiting review', branchUrl: `${GH}feature/no-pr` }),
       ],
     }));
@@ -999,7 +999,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // A plan that is rejected, superseded or simply unknown has no column, and
     // the row says nothing rather than guessing one.
     const page = await openAgents(
-      fleet({ rows: fleet().rows.map((r) => ({ ...r, phase: null })) }),
+      fleet({ rows: fleet().rows.map((r) => ({ ...r, phase: null, planState: null })) }),
     );
     try {
       const li = rowFor(page, 'feature/reviewed');
@@ -1201,7 +1201,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         row({
           branch: 'feature/cs-moved', plan: blockerPlan,
           planFile: '2026-08-23-cross-section.md', wave: 'Moved',
-          group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+          group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
           waitingOn: 'time' as const, verdict: 'blocked', blockedBy: 'Shaped',
           branchUrl: `${GH}feature/cs-moved`, waitingDays: 3,
         }),
@@ -1265,7 +1265,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         row({
           branch: 'feature/spoken', plan: blockerPlan,
           planFile: '2026-08-24-live-worker.md', wave: 'Spoken',
-          group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+          group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
           waitingOn: 'time' as const, verdict: 'blocked', blockedBy: 'Named',
           branchUrl: `${GH}feature/spoken`, waitingDays: 1,
           kind: 'wave' as const,
@@ -1324,7 +1324,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         }),
         row({
           branch: `feature/${prefix}-spoken`, plan, planFile: file, wave: 'Spoken',
-          group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+          group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
           waitingOn: 'time' as const, verdict: 'blocked', blockedBy: 'Named',
           branchUrl: `${GH}feature/${prefix}-spoken`, waitingDays: 1,
           kind: 'wave' as const,
@@ -2583,10 +2583,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents(fleet({
       rows: [
         row({ branch: 'feature/reviewed', plan: 'beans', group: 'waiting-on-you',
-              phase: 'Development', ageMinutes: 20, note: 'awaiting review',
+              phase: 'Development', planState: 'approved', ageMinutes: 20, note: 'awaiting review',
               branchUrl: `${GH}feature/reviewed` }),
         row({ branch: 'feature/nophase', plan: 'beans', group: 'waiting-on-you',
-              phase: null, ageMinutes: 30, note: 'awaiting review',
+              phase: null, planState: null, ageMinutes: 30, note: 'awaiting review',
               branchUrl: `${GH}feature/nophase` }),
       ],
     }));
@@ -2731,11 +2731,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
               group: 'working', ageMinutes: 5, note: 'last commit 5 min ago',
               branchUrl: `${GH}feature/truth-a` }),
         row({ branch: 'feature/fold-a', plan: 'layered', wave: 'Fold',
-              group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+              group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
               waitingOn: 'time' as const, note: 'blocked by Truth',
               branchUrl: `${GH}feature/fold-a`, startability: null }),
         row({ branch: 'feature/fold-b', plan: 'layered', wave: 'Fold',
-              group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+              group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
               waitingOn: 'time' as const, note: 'blocked by Truth',
               branchUrl: `${GH}feature/fold-b`, startability: null }),
         // Single-wave plan `flat`, with a NAMED wave. The trap: it has a name and
@@ -3562,7 +3562,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgentsAt(375, fleet({
       rows: [row({
         branch: 'feature/phone', plan: 'lonely-plan', group: 'waiting-on-you',
-        phase: 'Development', ageMinutes: 20, note: 'awaiting review',
+        phase: 'Development', planState: 'approved', ageMinutes: 20, note: 'awaiting review',
         pr: { number: 158, url: 'https://github.com/tiny/garden/pull/158',
               draft: false, state: 'green' },
         branchUrl: `${GH}feature/phone`,
@@ -3672,7 +3672,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgentsAt(375, fleet({
       rows: [row({
         branch: 'feature/phone', plan: 'lonely-plan', group: 'waiting-on-you',
-        phase: 'Development', ageMinutes: 20, note: 'awaiting review',
+        phase: 'Development', planState: 'approved', ageMinutes: 20, note: 'awaiting review',
         branchUrl: `${GH}feature/phone`,
       })],
     }));
@@ -3723,7 +3723,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgentsAt(375, fleet({
       rows: [row({
         branch: 'feature/phone', plan: 'lonely-plan', group: 'waiting-on-you',
-        phase: 'Development', ageMinutes: 20, note: 'awaiting review',
+        phase: 'Development', planState: 'approved', ageMinutes: 20, note: 'awaiting review',
         branchUrl: `${GH}feature/phone`,
       })],
     }));
@@ -3764,7 +3764,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgentsAt(1280, fleet({
       rows: [row({
         branch: 'feature/desk', plan: 'lonely-plan', group: 'waiting-on-you',
-        phase: 'Development', ageMinutes: 20, note: 'awaiting review',
+        phase: 'Development', planState: 'approved', ageMinutes: 20, note: 'awaiting review',
         branchUrl: `${GH}feature/desk`,
       })],
     }));
@@ -4462,7 +4462,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       ...scenario('ten-rows-one-kind-each').fleet.rows,
       row({
         branch, wave: 'only-slice', plan: 'brief-sole', planFile: '2026-10-05-brief-sole.md',
-        group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+        group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
         waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
         brief: 'missing', startability: 'needs-brief',
         branchUrl: '', waitingDays: 3,
@@ -4526,14 +4526,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         row({
           branch: 'feature/brief-writing-sole', wave: 'writing-slice', plan: 'brief-sole',
           planFile: '2026-10-05-brief-sole.md', group: 'not-started', state: 'open',
-          phase: 'Design', ageMinutes: null, waitingOn: 'click', note: ELIGIBLE_NOTE,
+          phase: 'Design', planState: 'design', ageMinutes: null, waitingOn: 'click', note: ELIGIBLE_NOTE,
           verdict: 'eligible', brief: 'missing', startability: 'needs-brief',
           branchUrl: '', waitingDays: 3, briefWriter: 'writing',
         }),
         row({
           branch: 'feature/brief-writing-sibling', wave: 'sibling-slice', plan: 'brief-sole',
           planFile: '2026-10-05-brief-sole.md', group: 'not-started', state: 'open',
-          phase: 'Design', ageMinutes: null, waitingOn: 'click', note: ELIGIBLE_NOTE,
+          phase: 'Design', planState: 'design', ageMinutes: null, waitingOn: 'click', note: ELIGIBLE_NOTE,
           verdict: 'eligible', brief: 'missing', startability: 'needs-brief',
           branchUrl: '', waitingDays: 3, briefWriter: 'none',
         }),

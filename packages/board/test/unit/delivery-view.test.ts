@@ -6,7 +6,7 @@ import { GLYPH_PATH } from '../../src/app/lib/glyphs.js';
 import { anchorOwner, FLEET_CONTROLS_ANCHOR, itemAnchor, releasePlanAnchor, sectionAnchor, ticketAnchor, UNPLACED_ANCHOR, bulkDeleteWords, cleanUpBranches, deleteWords, releaseWords, groupAnchor, nestItems, placeMapping, planBlockShown, summarise, type PlacedItemView } from '../../src/app/lib/agent-rows/delivery-view.js';
 
 const row = (over: Record<string, unknown>): AgentRow => ({
-  branch: '', plan: '', wave: '', kind: 'branch', phase: 'Development', state: 'wip',
+  branch: '', plan: '', wave: '', kind: 'branch', phase: 'Development', planState: 'approved', state: 'wip',
   group: 'working', pr: null, question: null, blockedBy: null,
   assignee: '', author: '', approver: '', ...over,
 }) as unknown as AgentRow;
@@ -68,7 +68,7 @@ describe('delivery view nesting', () => {
   });
 
   it('puts a delivered slice under Release delivery, not in a work group', () => {
-    const v = view([row({ branch: 'feature/a', plan: 'p', wave: 'A', phase: 'Testing', state: 'merged', group: 'done' })]);
+    const v = view([row({ branch: 'feature/a', plan: 'p', wave: 'A', phase: 'Testing', planState: 'delivered', state: 'merged', group: 'done' })]);
     expect(v.sections.flatMap((s) => s.groups.flatMap((g) => g.blocks))).toEqual([]);
     expect(v.releaseBlocks).toHaveLength(1);
     expect(v.releaseBlocks[0]!.plans).toHaveLength(1);
@@ -76,7 +76,7 @@ describe('delivery view nesting', () => {
   });
 
   describe('Release delivery plan rows', () => {
-    const merged = (plan: string, name: string) => row({ branch: `feature/${plan}-${name}`, plan, wave: name, phase: 'Testing', state: 'merged', group: 'done' });
+    const merged = (plan: string, name: string) => row({ branch: `feature/${plan}-${name}`, plan, wave: name, phase: 'Testing', planState: 'delivered', state: 'merged', group: 'done' });
     const mergedSlice = (plan: string, name: string): Slice => ({ ...slice(name), plan, complete: true, merge: 'merged' }) as Slice;
     const planView = (rows: AgentRow[], slices: Slice[], sprints: never[] = []) =>
       placeMapping(deliveryMapping({
@@ -331,7 +331,7 @@ describe('the domain fields the view passes on', () => {
 
   it('sets counts on a release block equal to the figures its header prints', () => {
     const slices = [sliceOf('p', 'A', { merge: 'merged', complete: true }), sliceOf('p', 'B')];
-    const v = place([row({ branch: 'feature/b', plan: 'p', wave: 'B', phase: 'Development' })], slices);
+    const v = place([row({ branch: 'feature/b', plan: 'p', wave: 'B', phase: 'Development', planState: 'approved' })], slices);
     const b = v.releaseBlocks[0]!;
     expect(b.counts.map((c) => c.key)).toEqual(['plans', 'delivered', 'blocked']);
     expect(b.header).toBe(figures(b).join(' · '));
@@ -342,7 +342,7 @@ describe('the domain fields the view passes on', () => {
     const sprint = { slug: 's', title: 'Title s', release: '', ownerHandle: 'me', members: [{ slug: 'p' }] };
     const reader = { hostUser: 'me', directory: parsePersonDirectory('me = Me') };
     const scope = deliveryScope(['s'], reader, [sprint]);
-    const v = place([row({ branch: 'feature/p-a', plan: 'p', wave: 'A', phase: 'Testing', state: 'merged', group: 'done' })], slices, [sprint] as never[], scope as never);
+    const v = place([row({ branch: 'feature/p-a', plan: 'p', wave: 'A', phase: 'Testing', planState: 'delivered', state: 'merged', group: 'done' })], slices, [sprint] as never[], scope as never);
     const b = v.releaseBlocks[0]!;
     expect(b.sprint).toBe('s');
     expect(figures(b)).toEqual(['1 plan', '1 of 1 slices delivered', '0 blocked']);
@@ -352,8 +352,8 @@ describe('the domain fields the view passes on', () => {
   it('gives a plan row the phase and accent of its rows, and none where no row names one', () => {
     const slices = [sliceOf('p', 'A'), sliceOf('q', 'A')];
     const v = place([
-      row({ branch: 'feature/p-a', plan: 'p', wave: 'A', phase: 'Development' }),
-      row({ branch: 'feature/q-a', plan: 'q', wave: 'A', phase: null }),
+      row({ branch: 'feature/p-a', plan: 'p', wave: 'A', phase: 'Development', planState: 'approved' }),
+      row({ branch: 'feature/q-a', plan: 'q', wave: 'A', phase: null, planState: null }),
     ], slices);
     const plans = v.releaseBlocks[0]!.plans;
     expect(plans.find((p) => p.plan === 'p')).toMatchObject({ phase: 'Development', accent: 'Development' });
@@ -364,7 +364,7 @@ describe('the domain fields the view passes on', () => {
 
   it('reads the relative merge time against the clock it is given, and none without one', () => {
     const slices = [sliceOf('p', 'A', { merge: 'merged', complete: true, mergedFact: { pr: 4, mergedAt: '2026-11-17T12:00:00Z' } })];
-    const rows = [row({ branch: 'feature/p-a', plan: 'p', wave: 'A', phase: 'Testing', state: 'merged', group: 'done' })];
+    const rows = [row({ branch: 'feature/p-a', plan: 'p', wave: 'A', phase: 'Testing', planState: 'delivered', state: 'merged', group: 'done' })];
     const at = (now?: Date) => place(rows, slices, [], undefined, now).releaseBlocks[0]!.plans[0]!.lines[0]!;
     expect(at(new Date('2026-11-19T12:00:00Z'))).toMatchObject({ state: 'delivered', pr: 4, merged: 'merged 2 days ago' });
     expect(at().merged).toBeUndefined();
@@ -485,7 +485,7 @@ describe('anchorOwner — which section and group a jump opens', () => {
   });
 
   it('answers a delivered slice and a plan row anchor with the Release delivery plan row', () => {
-    const delivered = view([row({ branch: 'feature/a', plan: 'p', wave: 'A', phase: 'Testing', state: 'merged', group: 'done' })]);
+    const delivered = view([row({ branch: 'feature/a', plan: 'p', wave: 'A', phase: 'Testing', planState: 'delivered', state: 'merged', group: 'done' })]);
     expect(anchorOwner(releasePlanAnchor('p'), delivered)).toEqual({ section: 'release-delivery', group: null, plan: 'p', hidden: null, reason: null });
     expect(anchorOwner(itemAnchor(sliceItemId('p', 'A')), delivered)).toMatchObject({ section: 'release-delivery', plan: 'p' });
   });
