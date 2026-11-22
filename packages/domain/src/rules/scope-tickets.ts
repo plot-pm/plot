@@ -266,17 +266,15 @@ export const scopeTickets = <T extends ScopeTicketRow>(input: ScopeTicketsInput<
     createStory: issue === null ? NO_ROW : TICKETS_RULE,
   });
   const openIssues = answered ? rows.filter((r) => r.state === 'open') : [];
-  const issues = openIssues.map(issueOf);
   const seen = new Set<string>();
   for (const card of cards) {
     for (const pr of card.prs) {
-      const match = findOpenReviewIssue(issues, pr);
-      if (match === null) continue;
-      const key = keyOf(match.id);
+      const issue = openIssues.find((r) => findOpenReviewIssue([issueOf(r)], pr) !== null);
+      if (issue === undefined) continue;
+      const key = keyOf(issue.number);
       if (seen.has(key)) continue;
       seen.add(key);
-      const issue = byKey.get(key) ?? null;
-      found.push({ key, kind: 'review-finding', kindLabel: 'Review finding', issue, plan: card.slug, pr, phase: null, ticketState: issue?.state ?? null, stateText: stateTextOf(null, issue?.state ?? null), menu: findingMenu(issue, key) });
+      found.push({ key, kind: 'review-finding', kindLabel: 'Review finding', issue, plan: card.slug, pr, phase: null, ticketState: issue.state, stateText: stateTextOf(null, issue.state), menu: findingMenu(issue, key) });
     }
   }
   for (const card of cards) {
@@ -289,9 +287,8 @@ export const scopeTickets = <T extends ScopeTicketRow>(input: ScopeTicketsInput<
     }
   }
 
-  const cardBySlug = new Map(cards.map((c) => [c.slug, c]));
   const keep = (row: ScopeTicketRowView<T>): boolean =>
-    ticketIsMine({ assignees: row.issue?.assignees ?? [] }, source, [cardBySlug.get(row.plan) ?? {}], reader, mine);
+    ticketIsMine({ assignees: row.issue?.assignees ?? [] }, source, cards.filter((c) => c.slug === row.plan), reader, mine);
   const complete = rows.length > 0 ? rows.every((r) => r.complete) : input.waiting?.complete ?? true;
   const incomplete = answered && !complete ? SCOPE_INCOMPLETE : null;
   const group = (key: ScopeTicketGroup<T>['key'], label: string, all: readonly ScopeTicketRowView<T>[]): ScopeTicketGroup<T> => {

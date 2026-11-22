@@ -209,4 +209,9 @@ describe('splitTicketRows', () => {
     expect(assigned).toEqual([]);
     expect(others.map((t) => t.number)).toEqual(['3']);
   });
+
+  it('reads a ticket number served as a JSON number, which no schema parse turned into a string', () => {
+    const issues = [{ ...aged('1', 1), number: 1 as unknown as string }, aged('3', 3)];
+    expect(splitTicketRows(issues, [], [], new Set(['1'])).others.map((t) => t.number)).toEqual(['3']);
+  });
 });

@@ -86,6 +86,15 @@ describe('scopeTickets — Delivered by the sprint', () => {
     expect(out.delivered.rows[0]!.menu.openOnHost.reason).not.toBeNull();
   });
 
+  it('shows no phase where the scope plan is in a state no phase word places', () => {
+    const out = scopeTickets(input({
+      cards: [card({ slug: 'a', issues: ['7'] })],
+      rows: [row({ number: '7' })],
+      ticketPlans: { '7': [{ slug: 'a', title: 'A', story: '', state: 'superseded', total: 0, merged: null }] },
+    }));
+    expect(out.delivered.rows.map((r) => [r.key, r.phase, r.stateText])).toEqual([['7', null, '']]);
+  });
+
   it('leaves out a deferred member\'s plan', () => {
     const out = scopeTickets(input({ sprints: [{ members: [{ slug: 'a', tier: 'deferred' }] }], cards: [card({ slug: 'a', issues: ['7'] })] }));
     expect(out.delivered.rows).toEqual([]);
@@ -101,6 +110,22 @@ describe('scopeTickets — Found during the sprint', () => {
     }));
     expect(out.found.rows.map((r) => [r.key, r.kind, r.plan, r.pr])).toEqual([['40', 'review-finding', 'a', 12]]);
     expect([...out.findingKeys]).toEqual(['40']);
+  });
+
+  it('lists a review finding once where two scope plans name its PR', () => {
+    const out = scopeTickets(input({
+      cards: [card({ slug: 'a', prs: [12] }), card({ slug: 'b', prs: [12] })],
+      rows: [row({ number: '40', title: reviewIssueTitle(12) })],
+    }));
+    expect(out.found.rows.map((r) => [r.key, r.kind, r.plan, r.ticketState])).toEqual([['40', 'review-finding', 'a', 'open']]);
+  });
+
+  it('lists a refuted key that is also a review finding once, as the review finding', () => {
+    const out = scopeTickets(input({
+      cards: [card({ slug: 'a', prs: [12], refutedIssues: ['40'] })],
+      rows: [row({ number: '40', title: reviewIssueTitle(12) })],
+    }));
+    expect(out.found.rows.map((r) => [r.key, r.kind])).toEqual([['40', 'review-finding']]);
   });
 
   it('omits a closed refuted key and shows a missing one as key and plan', () => {

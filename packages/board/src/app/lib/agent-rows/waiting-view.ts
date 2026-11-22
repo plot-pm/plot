@@ -135,7 +135,7 @@ export const splitTicketRows = (
   const newest = (a: IssueRow, b: IssueRow): number =>
     (a.ageMinutes ?? Number.POSITIVE_INFINITY) - (b.ageMinutes ?? Number.POSITIVE_INFINITY);
   const open = (t: IssueRow): boolean => held.has(ticketItemId(t.number)) || (t.planned !== true && t.statusCategory !== 'Done');
-  const kept = tickets.filter((t) => !findingKeys.has(t.number.replace(/^#/, '')));
+  const kept = tickets.filter((t) => !findingKeys.has(String(t.number).replace(/^#/, '')));
   return {
     assigned: kept.filter((t) => mine.has(ticketItemId(t.number))).sort(newest),
     others: kept.filter((t) => !mine.has(ticketItemId(t.number)) && !filtered.has(ticketItemId(t.number)) && open(t)).sort(newest),
