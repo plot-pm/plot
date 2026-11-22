@@ -150,8 +150,8 @@ export interface ApprovePrReading {
  * The detail of `pr-merge-unnamed`: the merge commit that added the plan file,
  * and the plan file it added.
  */
-const unnamedMergeDetail = (readings: ApproveReadings): string =>
-  `the merge commit ${readings.pr.unnamedMerge?.sha ?? ''} added ${readings.file}, and the host named no PR for it.`;
+const unnamedMergeDetail = (sha: string, file: string): string =>
+  `the merge commit ${sha} added ${file}, and the host named no PR for it.`;
 
 /** What `approve` records beyond the plan. */
 export interface ApproveInput {
@@ -372,7 +372,7 @@ export const approve = (
         );
       default:
         if (readings.pr.unnamedMerge !== undefined) {
-          return no('pr-merge-unnamed', unnamedMergeDetail(readings));
+          return no('pr-merge-unnamed', unnamedMergeDetail(readings.pr.unnamedMerge.sha, readings.file));
         }
         return no(
           'pr-absent',
@@ -586,7 +586,7 @@ export const approveSpike = (
         );
       default:
         if (readings.pr.unnamedMerge !== undefined) {
-          return no('pr-merge-unnamed', unnamedMergeDetail(readings));
+          return no('pr-merge-unnamed', unnamedMergeDetail(readings.pr.unnamedMerge.sha, readings.file));
         }
         return no(
           'pr-absent',
