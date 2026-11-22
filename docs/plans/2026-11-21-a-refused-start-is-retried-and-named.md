@@ -137,7 +137,7 @@ In both cases the pass that asked read the plan as Approved on `origin/<main>` (
 
 ### CI re-run
 
-- `bug/a-red-pr-is-re-run-once-per-head` — `ciRerunArm` between `conflictArm` and `ciRedArm` with its `rerun-running` hold, the `reruns` field and its two store methods, the `rerun` step, the tick's `rerunFailed` call with its `failed` and `unaskable` paths, the fixer brief's re-run line for `asked` only, and the tests <!-- builds: ciRerunArm, one CI re-run per head before a fixer -->
+- `bug/a-red-pr-is-re-run-once-per-head` — `ciRerunArm` between `conflictArm` and `ciRedArm` with its `rerun-running` hold, the `reruns` field and its two store methods, the `rerun` step, the tick's `rerunFailed` call with its `failed` and `unaskable` paths, the fixer brief's re-run line for `asked` only, and the tests <!-- builds: ciRerunArm, one CI re-run per head before a fixer --> → #3671
 
 ## Notes
 
