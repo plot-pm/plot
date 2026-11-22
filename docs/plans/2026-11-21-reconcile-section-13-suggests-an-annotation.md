@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 2
 - **Approved:** 2026-11-22, Jan Wloka, plan-PR #3606 merged
+- **Started:** 2026-11-22, Jan Wloka, `feature/reconcile-13-hint-names-only-the-tick`
 
 ## Changelog
 
