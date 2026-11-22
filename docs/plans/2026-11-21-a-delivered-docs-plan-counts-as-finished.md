@@ -70,7 +70,7 @@ The Delivery tab shows "The merge reading for this sprint is missing." and "The 
 
 ### Rule
 
-- `bug/the-pulse-omission-is-one-domain-rule` — `pulseOmitsPlan` and `liveOnMerge` in `rules/pulse-omits-plan.ts`, called from `plan-walk-assembly.ts:300-301` and `release.ts:296`, and `countedSlicesByPlan` in `rules/counted-slices.ts` replacing the two board seeding loops with no change to any rendered state, with the unit tests <!-- builds: pulseOmitsPlan and countedSlicesByPlan, the pulse omission rule and the domain's slice seeding -->
+- `bug/the-pulse-omission-is-one-domain-rule` — `pulseOmitsPlan` and `liveOnMerge` in `rules/pulse-omits-plan.ts`, called from `plan-walk-assembly.ts:300-301` and `release.ts:296`, and `countedSlicesByPlan` in `rules/counted-slices.ts` replacing the two board seeding loops with no change to any rendered state, with the unit tests <!-- builds: pulseOmitsPlan and countedSlicesByPlan, the pulse omission rule and the domain's slice seeding --> → #3645
 
 ### Counting
 
