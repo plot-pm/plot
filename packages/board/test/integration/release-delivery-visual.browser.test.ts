@@ -5,8 +5,8 @@ import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 /**
  * THE RELEASE SECTION'S COLOURS AND TABLE, READ FROM THE SHIPPED ARTIFACT.
  *
- * `every-delivery-section` opens at 1280, 639 and 320 px. A Done line's state word
- * takes `--hue-green` and a blocked count takes `--hue-red`, each resolved on the
+ * `every-delivery-section` opens at 1280, 639 and 320 px. A Done line's status pill
+ * takes a `--hue-green-dot` dot and a blocked count takes `--hue-red`, each resolved on the
  * page; the plan table's header row shows from 640 px up and is hidden below, where
  * a row's cells stack; and the page has no horizontal scroll at 320 px.
  */
@@ -44,10 +44,12 @@ describe('the Release section matches its mockups (real browser renders the ship
     const page = await openAt(1280);
     try {
       await page.locator(`${RELEASE} [data-plan-toggle="bed-a"]`).click();
-      const word = page.locator(`${RELEASE} [data-plan-row="bed-a"] [data-plan-line="done"] [data-plan-line-state]`).first();
+      const word = page.locator(`${RELEASE} [data-plan-row="bed-a"] [data-plan-line="done"] [data-plan-line-state] [data-status-pill]`).first();
       await word.waitFor({ timeout: 5_000 });
-      expect(await word.textContent()).toBe('✓ merged');
-      expect(await word.evaluate((n) => getComputedStyle(n).color)).toBe(await tokenColour(page, '--hue-green'));
+      expect(await word.textContent()).toBe('merged');
+      expect(await word.getAttribute('data-pill-tone')).toBe('green');
+      const dot = word.locator('[data-pill-dot]');
+      expect(await dot.evaluate((n) => getComputedStyle(n).backgroundColor)).toBe(await tokenColour(page, '--hue-green-dot'));
       const blocked = page.locator(`${RELEASE} [data-release-header-count="blocked"] b`).first();
       expect(await blocked.evaluate((n) => getComputedStyle(n).color)).toBe(await tokenColour(page, '--hue-red'));
     } finally {

@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { IssueRowSchema } from '../../src/contract/schema.js';
 import { LinkIcon, LINK_GLYPH } from '../../src/app/components/LinkIcon.js';
 import { GLYPH_PATH } from '../../src/app/lib/glyphs.js';
-import { LinePr, LineSlice, PlanName, PlanOwner } from '../../src/app/components/ReleasePlanParts.js';
+import { LineLinks, LineSlice, PlanName, PlanOwner } from '../../src/app/components/ReleasePlanParts.js';
 import { DeliveryHeader } from '../../src/app/components/DeliveryHeader.js';
 import { ReleaseGroup } from '../../src/app/components/ReleaseGroup.js';
 import { TicketsSectionView } from '../../src/app/components/TicketsSection.js';
@@ -90,12 +90,24 @@ describe('the Release delivery links', () => {
   });
 
   it('draws the line\'s PR as a PR tuple, linked or not', () => {
-    const linked = html(createElement(LinePr, { pr: 3478, url: 'https://h/pull/3478' }));
+    const linked = html(createElement(LineLinks, { line: { pr: 3478 }, prUrl: 'https://h/pull/3478', branchUrlBase: '' }));
     expect(kindsAround(linked, 'data-plan-line-pr')).toEqual(['pr']);
     expect(linked).toMatch(/<a [^>]*data-plan-line-pr="3478"/);
-    const text = html(createElement(LinePr, { pr: 3478, url: null }));
+    const text = html(createElement(LineLinks, { line: { pr: 3478 }, prUrl: null, branchUrlBase: '' }));
     expect(kindsAround(text, 'data-plan-line-pr')).toEqual(['pr']);
     expect(text).not.toContain('<a ');
+  });
+
+  it('draws the line\'s PR and branch as one PR+branch tuple, and no branch segment where the line has none', () => {
+    const both = html(createElement(LineLinks, { line: { pr: 3478, branch: 'feature/beds' }, prUrl: 'https://h/pull/3478', branchUrlBase: 'https://h/tree/' }));
+    expect(kindsAround(both, 'data-plan-line-pr')).toEqual(['pr', 'branch']);
+    expect(both).toContain('href="https://h/tree/feature%2Fbeds"');
+    expect(both).toContain('data-plan-line-branch="feature/beds"');
+    const branchOnly = html(createElement(LineLinks, { line: { branch: 'feature/beds' }, prUrl: null, branchUrlBase: '' }));
+    expect(branchOnly).toContain('data-plan-line-branch="feature/beds"');
+    expect(branchOnly).not.toContain('<a ');
+    const none = html(createElement(LineLinks, { line: { pr: 3478 }, prUrl: null, branchUrlBase: 'https://h/tree/' }));
+    expect(none).not.toContain('data-plan-line-branch');
   });
 
   it('leads the owner with the person icon', () => {

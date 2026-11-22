@@ -7,6 +7,7 @@ import {
   type PlanMenuFacts,
   type RowMenuItem,
   type RowMenuView,
+  type SliceLineMenuFacts,
   type SliceMenuFacts,
   type ScopeTicketMenuFacts,
   type TicketMenuFacts,
@@ -264,5 +265,44 @@ describe('the scope group row\'s items', () => {
   it('Open on host refuses a row with no address', () => {
     const noAddress = scopeRow({ menu: { openOnHost: { href: '', reason: NO_ADDRESS_REASON }, createPlan: TICKETS, createStory: TICKETS } });
     expect(find(rowMenuOf(noAddress), 'open-issue')).toMatchObject({ enabled: false, reason: NO_ADDRESS_REASON });
+  });
+});
+
+describe('the ⋯ of an opened Release plan line', () => {
+  const line: SliceLineMenuFacts = {
+    kind: 'slice-line', state: 'not-started', start: true, waitsFor: '', branch: 'feature/one', card, dispatch: ON,
+  };
+  const startOf = (f: SliceLineMenuFacts) => find(rowMenuOf(f), 'start-work');
+
+  it('lists Start work alone, enabled, on a startable slice with one branch', () => {
+    expect(actions(rowMenuOf(line))).toEqual(['start-work']);
+    expect(startOf(line)).toMatchObject({ enabled: true, reason: null });
+    expect(rowMenuOf(line)).toMatchObject({ trigger: 'enabled' });
+  });
+
+  it('lists Start work disabled with the prerequisite on a slice that waits', () => {
+    expect(startOf({ ...line, start: false, waitsFor: 'Base' })).toMatchObject({ enabled: false, reason: 'the slice waits for Base' });
+    expect(startOf({ ...line, start: false })).toMatchObject({ enabled: false, reason: 'the slice is not eligible to start' });
+  });
+
+  it('lists Start work disabled on a slice with no plan card', () => {
+    expect(startOf({ ...line, card: null })).toMatchObject({ enabled: false, reason: 'no plan card for this row' });
+  });
+
+  it('lists Start work disabled with the refusal of a dispatch the server refuses', () => {
+    expect(startOf({ ...line, dispatch: OFF })).toMatchObject({ enabled: false, reason: 'the board runs read-only' });
+  });
+
+  it('lists Start work disabled where the line names no single branch, so it never starts another one', () => {
+    expect(startOf({ ...line, branch: null })).toMatchObject({ enabled: false, reason: 'the slice has no single branch' });
+  });
+
+  it('lists Start work disabled on a slice under way and on one not read', () => {
+    expect(startOf({ ...line, state: 'being-built', start: false })).toMatchObject({ enabled: false, reason: 'the slice is already under way' });
+    expect(startOf({ ...line, state: 'unread', start: false })).toMatchObject({ enabled: false, reason: 'the slice\'s state is not read' });
+  });
+
+  it('lists no item on a merged slice, so its trigger is absent', () => {
+    expect(rowMenuOf({ ...line, state: 'delivered', start: false })).toEqual({ kind: 'items', items: [], trigger: 'none' });
   });
 });

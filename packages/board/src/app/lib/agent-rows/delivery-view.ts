@@ -20,6 +20,7 @@ import {
   type PersonCard,
   sliceStateIn,
   type PlanRowFacts,
+  type PlanLine,
   type PlanSliceFact,
   type ReleaseCarried,
   DELIVERY_LAYOUT,
@@ -217,6 +218,21 @@ export interface SliceMenuFacts {
   branch: Omit<BranchMenuFacts, 'kind' | 'card' | 'dispatch' | 'startable'> | null;
 }
 
+/** A Release delivery slice line's facts: what its one item, Start work, reads. */
+export interface SliceLineMenuFacts {
+  kind: 'slice-line';
+  /** The line's slice state, or `unread` where a reading it needs is absent. */
+  state: PlanLine['state'];
+  /** Whether the line carries Start (`PlanLine.start`). */
+  start: boolean;
+  /** The slice the line waits on, or `''` where it waits on none. */
+  waitsFor: string;
+  /** The slice's one branch, which Start work posts; `null` where the line names none. */
+  branch: string | null;
+  card: Card | null;
+  dispatch?: DispatchInfo;
+}
+
 /** The Tickets row's facts. */
 export interface TicketMenuFacts {
   kind: 'ticket';
@@ -240,11 +256,12 @@ export interface ScopeTicketMenuFacts {
   facts?: CardFacts;
 }
 
-/** What `rowMenuOf` reads: a placed item, or the facts of one plan, slice, branch, Tickets or scope group row. */
+/** What `rowMenuOf` reads: a placed item, or the facts of one plan, slice, Release slice line, branch, Tickets or scope group row. */
 export type RowMenuInput =
   | { kind: 'placed'; placement: ItemPlacement | null; rows: readonly AgentRow[]; actions: LooseActions }
   | PlanMenuFacts
   | SliceMenuFacts
+  | SliceLineMenuFacts
   | BranchMenuFacts
   | TicketMenuFacts
   | ScopeTicketMenuFacts;
@@ -330,6 +347,22 @@ const sliceItems = (f: SliceMenuFacts): RowMenuItem[] => [
   ...branchTail(f.branch, f.card, f.branch?.implement, f.dispatch),
 ];
 
+/** Why a slice line's state keeps Start work from acting, or `null` where the state lets it act. */
+const sliceLineReason = (f: SliceLineMenuFacts): string | null => {
+  switch (f.state) {
+    case 'unread': return 'the slice\'s state is not read';
+    case 'not-started':
+      if (f.start) return null;
+      return f.waitsFor === '' ? 'the slice is not eligible to start' : `the slice waits for ${f.waitsFor}`;
+    default: return 'the slice is already under way';
+  }
+};
+
+/** A merged slice has no act left, so its line lists no item; every other line lists Start work. */
+const sliceLineItems = (f: SliceLineMenuFacts): RowMenuItem[] => (f.state === 'delivered' ? [] : [
+  item('start-work', 'Start work', firstReason(sliceLineReason(f), f.branch === null && NO_BRANCH, startReason(f.card, f.dispatch))),
+]);
+
 const ticketItems = (f: TicketMenuFacts): RowMenuItem[] => {
   const verdict = createFromIssueVerdict(f.idea, f.issueAnswer, 'plan');
   const story = createFromIssueVerdict(f.story, f.issueAnswer, 'story');
@@ -387,12 +420,15 @@ export const looseItems = (branch: string, open: string, actions: LooseActions):
  * @param input - a placed item (`placement`, its payload `rows`, and what `looseActions` offers), or the facts of a
  *   plan, slice, branch, Tickets or scope group row.
  * @returns for a placed item, the loose item set under You with the reason `loose`, else `{ kind: 'row' }`; for a plan,
- *   slice, branch or Tickets row, the fixed item set of its kind, each item enabled or disabled with its reason.
+ *   slice, Release slice line, branch or Tickets row, the fixed item set of its kind, each item enabled or disabled with
+ *   its reason. A Release slice line lists Start work alone, which posts the line's branch, and a merged
+ *   slice's line lists none.
  */
 export const rowMenuOf = (input: RowMenuInput): RowMenuView => {
   switch (input.kind) {
     case 'plan': return itemsView(planItems(input));
     case 'slice': return itemsView(sliceItems(input));
+    case 'slice-line': return itemsView(sliceLineItems(input));
     case 'branch': return itemsView(branchItems(input));
     case 'ticket': return itemsView(ticketItems(input));
     case 'scope-ticket': return itemsView(scopeTicketItems(input));
@@ -957,6 +993,7 @@ export const deliveryView = (
     const rows = mapping.rowsByItem[id] ?? [];
     const first = rows.find((r) => r.blockedBy !== null && r.blockedBy !== undefined);
     const open = rows.find((r) => r.pr !== null && r.state !== 'merged' && r.pr.state !== 'closed' && r.pr.open !== false);
+    const named = slice.branches.length > 0 ? slice.branches : [...new Set(rows.map((r) => r.branch).filter((b) => b !== ''))];
     return {
       name: slice.name,
       state,
@@ -966,6 +1003,7 @@ export const deliveryView = (
       waitsFor: first?.blockedBy ?? '',
       begun: rows.some((r) => !(isUnbegun(r) && r.branch === '')),
       ...(open?.pr ? { pr: open.pr.number } : {}),
+      ...(named.length === 1 ? { branch: named[0]! } : {}),
     };
   };
   // A delivered slice the pulse did not carry is still a slice of its plan: its row names both.

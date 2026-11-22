@@ -66,7 +66,7 @@ import { headerOf, itemRowFactsOf, rowFormsOf, switchesOf } from '../lib/agent-r
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { ReleasePersonCards } from './ReleasePersonCards.js';
 import { LinkTupleView, MARKS_CELL, TUPLE_TRACKS, WorkGridContext, YouLeadContext, type YouLead } from './TupleRow.js';
-import { LinePr, LineSlice, LineState, PlanOwner, PhaseChip, PlanName, PlanStrip, PlanTableHead, PLAN_TRACKS, ReleaseHeaderCounts, ReleaseLine } from './ReleasePlanParts.js';
+import { LINE_TRACKS, LineLinks, LineSlice, LineState, PlanOwner, PhaseChip, PlanName, PlanStrip, PlanTableHead, PLAN_TRACKS, ReleaseHeaderCounts, ReleaseLine } from './ReleasePlanParts.js';
 import { CleanUpMenu } from './CleanUpMenu.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
 import { checkoutHealthStatus } from '@plot-pm/domain/rules/checkout-health';
@@ -125,7 +125,7 @@ import {
 import { deliveryScope, mineMode, placeDelivery, REASON_DO, rowSprintMembership, youFooter, youRowCells, type VerbTone, ticketsSection, planIndexOf, workItemCells, YOU_GROUP_MARKERS, type DeliverySection, type YouGroup, type YouMarker } from '@plot-pm/domain';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace, headingPace } from '../lib/agent-rows/activity.js';
 import { ActivitySpinner } from '../lib/agent-rows/marks.js';
-import { BranchMenu, BrokenAgentMenu, PlanActions } from '../lib/agent-rows/menus.js';
+import { BranchMenu, BrokenAgentMenu, PlanActions, SliceLineActions } from '../lib/agent-rows/menus.js';
 import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
 import { countedPlanFactsOf, deliveryMapping, deliveryMineOf, rateLimitOf, releaseCardsOf, releaseGroupOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
 import { ReleaseGroup } from './ReleaseGroup.js';
@@ -174,7 +174,6 @@ import { SectionSummary } from './SectionSummary.js';
 import { sectionSummariesOf } from '../lib/agent-rows/section-summary.js';
 import { deliveryEmpties, EMPTY_MARK, offersScopeOff } from '../lib/agent-rows/section-empty.js';
 import { youHeaderOf } from '../lib/agent-rows/you-header.js';
-import { StartWorkButton } from './StartWorkButton.js';
 import { HeaderRow, IssueRowView, PlanRow, Row, SliceRow, type AgentListProps } from '../lib/agent-rows/rows.js';
 import { workingAgentRows, draftPlanRows, fleetRowFacts, notWorkingEntries } from '../lib/agent-rows/working-agents.js';
 import { DraftPlanRowView } from '../lib/agent-rows/draft-plan-row.js';
@@ -1903,20 +1902,36 @@ export function AgentList({
                                   </span>
                                 </div>
                                 {open && (
-                                  <ul data-plan-lines className="mt-1 space-y-0.5 pl-6">
+                                  <ul data-plan-lines className="mt-1 space-y-0.5">
                                     {plan.lines.map((line) => (
-                                      <li key={line.slice} data-plan-line={line.heading} title={line.text} className="flex flex-wrap items-baseline gap-x-2">
-                                        <span className="delivery-release-heading">{line.heading.replace('-', ' ')}</span>
-                                        <LineState state={line.state} />
-                                        <LineSlice
-                                          line={line}
-                                          onJump={line.link && plan.anchors[line.slice] !== undefined ? () => jump(plan.anchors[line.slice]!) : undefined}
-                                        />
-                                        {line.pr !== undefined && <LinePr pr={line.pr} url={cardPrOf(line.pr)?.url ?? null} />}
-                                        {line.merged !== undefined && <span data-plan-line-merged className="delivery-text-muted">{line.merged}</span>}
-                                        {line.start && card !== null && dispatch && (
-                                          <StartWorkButton card={card} dispatch={dispatch} pulse={pulse} onStarting={onStarting} />
-                                        )}
+                                      <li key={line.slice} data-plan-line={line.heading} title={line.text} className={`flex flex-wrap items-baseline gap-x-3 gap-y-1 sm:grid sm:items-center ${LINE_TRACKS}`}>
+                                        <span data-plan-line-slice className="flex min-w-0 items-baseline gap-x-2 pl-6">
+                                          <span className="delivery-release-heading">{line.heading.replace('-', ' ')}</span>
+                                          <LineSlice
+                                            line={line}
+                                            onJump={line.link && plan.anchors[line.slice] !== undefined ? () => jump(plan.anchors[line.slice]!) : undefined}
+                                          />
+                                        </span>
+                                        <LineLinks line={line} prUrl={line.pr === undefined ? null : cardPrOf(line.pr)?.url ?? null} branchUrlBase={fleet.branchUrlBase ?? ''} />
+                                        <LineState line={line} />
+                                        <span className="delivery-text-muted min-w-0">
+                                          {line.merged !== undefined && <span data-plan-line-merged>{line.merged}</span>}
+                                        </span>
+                                        <span data-row-cell="do" className="ml-auto sm:ml-0 sm:justify-self-end">
+                                          <SliceLineActions
+                                            slice={line.slice}
+                                            facts={{
+                                              state: line.state,
+                                              start: line.start,
+                                              waitsFor: line.waitsFor ?? '',
+                                              branch: line.branch ?? null,
+                                              card,
+                                              ...(dispatch === undefined ? {} : { dispatch }),
+                                            }}
+                                            pulse={pulse}
+                                            onStarting={onStarting}
+                                          />
+                                        </span>
                                       </li>
                                     ))}
                                   </ul>
