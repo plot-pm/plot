@@ -113,7 +113,7 @@ export const repairStartTick = async (
   let rerun: RerunReading = { settled: 'none' };
   if (reading !== null && record.rerun === 'asked') {
     const asked = await world.slot(() => world.build.runsForSha(reading.branch, record.firstRedSha, world.checks));
-    rerun = rerunSettledOf(record, asked.ok ? asked.value : null, world.checks, now);
+    rerun = rerunSettledOf(record, asked.ok ? asked.value : null, world.checks, now, world.checksWaitMs);
   }
 
   const attempt = record.attempt?.branch;
@@ -196,7 +196,7 @@ const startRepair = async (
   }
   const desk = await world.hasDesk(branch);
   const next = repairAttemptStep(record.attempt, desk, run);
-  const attempt = record.attempt ?? { branch };
+  const attempt = record.attempt ?? { branch, startedAt: stamp };
 
   switch (next) {
     case 'lost':

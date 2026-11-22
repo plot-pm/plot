@@ -484,6 +484,16 @@ describe('repairRevertTick — the revert PR', () => {
 describe('repairRevertTick — the bounds and the claim', () => {
   const PAST = T0 + HOUR + 100 * HOUR;
 
+  it('measures the repair bound from the attempt’s startedAt, not from redSince', async () => {
+    const startedAt = T0 + 90 * 60_000;
+    const r = rig(record({ attempt: { branch: 'bug/main-repair-gggggggggggg', startedAt: new Date(startedAt).toISOString() } }));
+    r.set({ reading: reading({ askedAt: new Date(r.state.now).toISOString() }) });
+    expect(await repairRevertTick(r.world)).not.toBe('rerun-asked');
+    expect(r.stored()).toMatchObject({ state: 'repairing', preRevertRerun: 'none' });
+    r.set({ now: startedAt + HOUR, reading: reading({ askedAt: new Date(startedAt + HOUR).toISOString() }) });
+    expect(await repairRevertTick(r.world)).toBe('rerun-asked');
+  });
+
   it('exhausts once, with one notification, where the last green re-run never shows a new attempt within Checks wait', async () => {
     const r = rig(record({ state: 'reverting', preRevertRerun: 'asked' }));
     r.set({ now: PAST - 60_000, reading: reading({ askedAt: new Date(PAST - 60_000).toISOString() }) });

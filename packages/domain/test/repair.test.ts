@@ -7,6 +7,7 @@ import {
   mergedRevertStep,
   redMainPicker,
   redMainStep,
+  repairBoundReached,
   type RedMainCandidate,
   type RedMainStepInput,
 } from '../src/rules/repair.js';
@@ -152,6 +153,40 @@ describe('redMainStep', () => {
     expect(answer).toBe('exhausted');
   });
 
+  it('an overdue re-run answers start-repair in idle and rerun, on the first red SHA and on a later one', () => {
+    const later = reading({ headSha: 'l'.repeat(40), settled: { sha: 'l'.repeat(40), state: 'red' } });
+    for (const state of ['idle', 'rerun'] as const) {
+      expect(redMainStep(reading(), record({ state }), input({ rerunSettled: 'overdue' }))).toBe('start-repair');
+      expect(redMainStep(later, record({ state }), input({ rerunSettled: 'overdue' }))).toBe('start-repair');
+    }
+  });
+
+  it('an overdue re-run on a stale reading holds', () => {
+    const stale = reading({ askedAt: new Date(Date.parse(AT) - 2 * WAIT).toISOString() });
+    expect(redMainStep(stale, record({ state: 'rerun' }), input({ rerunSettled: 'overdue' }))).toBe('hold');
+  });
+
+  it('a repairing record whose attempt started recently awaits the repair after redSince + bound', () => {
+    const started = new Date(Date.parse(AT) - 60_000).toISOString();
+    const rec = record({
+      state: 'repairing',
+      redSince: new Date(Date.parse(AT) - 2 * BOUND).toISOString(),
+      attempt: { branch: 'bug/main-repair-gggggggggggg', startedAt: started },
+    });
+    expect(redMainStep(reading(), rec, input({ repairInFlight: true, pickerAnswer: { pr: 9 } }))).toBe('await-repair');
+    const atBound = input({ now: Date.parse(started) + BOUND, repairInFlight: true, pickerAnswer: { pr: 9 } });
+    expect(redMainStep(reading({ askedAt: new Date(atBound.now).toISOString() }), rec, atBound)).toBe('revert');
+  });
+
+  it('a repairing record whose attempt has no startedAt measures the bound from redSince', () => {
+    const rec = record({
+      state: 'repairing',
+      redSince: new Date(Date.parse(AT) - BOUND).toISOString(),
+      attempt: { branch: 'bug/main-repair-gggggggggggg' },
+    });
+    expect(redMainStep(reading(), rec, input({ repairInFlight: true, pickerAnswer: { pr: 9 } }))).toBe('revert');
+  });
+
   it('a red re-run read on the first red SHA moves to start-repair', () => {
     expect(redMainStep(reading(), record({ state: 'idle' }), input({ rerunSettled: 'red' }))).toBe('start-repair');
   });
@@ -227,6 +262,28 @@ const candidate = (over: Partial<RedMainCandidate> = {}): RedMainCandidate => ({
   touchesState: false,
   plotDataOnly: false,
   ...over,
+});
+
+describe('repairBoundReached', () => {
+  const start = Date.parse(AT);
+  const attempt = (startedAt?: string) => ({ branch: 'bug/main-repair-gggggggggggg', ...(startedAt ? { startedAt } : {}) });
+
+  it('measures from attempt.startedAt where it parses', () => {
+    const rec = record({ redSince: new Date(start - BOUND).toISOString(), attempt: attempt(AT) });
+    expect(repairBoundReached(rec, start + BOUND - 1, BOUND)).toBe(false);
+    expect(repairBoundReached(rec, start + BOUND, BOUND)).toBe(true);
+  });
+
+  it('measures from redSince where the attempt has no startedAt, or one that does not parse', () => {
+    for (const rec of [record({ attempt: attempt() }), record({ attempt: attempt('x') }), record()]) {
+      expect(repairBoundReached(rec, start + BOUND - 1, BOUND)).toBe(false);
+      expect(repairBoundReached(rec, start + BOUND, BOUND)).toBe(true);
+    }
+  });
+
+  it('is never reached where neither time parses', () => {
+    expect(repairBoundReached(record({ redSince: 'x', attempt: attempt('y') }), start * 2, BOUND)).toBe(false);
+  });
 });
 
 describe('redMainPicker', () => {

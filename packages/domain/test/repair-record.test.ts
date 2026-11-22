@@ -36,6 +36,15 @@ describe('the repair record file', () => {
     expect(decodeRepairRecord(encodeRepairRecord(original))).toEqual(original);
   });
 
+  it('round-trips an attempt that names when it started', () => {
+    const original = record({
+      state: 'repairing',
+      attempt: { branch: 'bug/main-repair-aaaaaaaaaaaa', startedAt: '2026-11-06T11:21:00.000Z' },
+    });
+    expect(decodeRepairRecord(encodeRepairRecord(original))?.attempt?.startedAt).toBe('2026-11-06T11:21:00.000Z');
+    expect(decodeRepairRecord(encodeRepairRecord(original))).toEqual(original);
+  });
+
   it('terminates the rendered text with a newline', () => {
     expect(encodeRepairRecord(record()).endsWith('}\n')).toBe(true);
   });
