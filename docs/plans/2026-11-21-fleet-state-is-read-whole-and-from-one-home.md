@@ -161,7 +161,7 @@ The layering rule holds in every slice: a controller or an entry calls the domai
 
 ### Re-run bound
 
-- `bug/the-first-red-rerun-wait-ends-at-checks-wait` — `overdue` past `Checks wait`, `redMainStep` reading it as `start-repair`, `attempt.startedAt` and `repairBoundReached`, and the 2026-11-06 cells <!-- builds: repairBoundReached, the repair bound from the attempt's start -->
+- `bug/the-first-red-rerun-wait-ends-at-checks-wait` — `overdue` past `Checks wait`, `redMainStep` reading it as `start-repair`, `attempt.startedAt` and `repairBoundReached`, and the 2026-11-06 cells <!-- builds: repairBoundReached, the repair bound from the attempt's start --> → #3666
 
 ### Unfound state home
 
