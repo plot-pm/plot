@@ -157,7 +157,18 @@ export interface StartWorkButtonProps {
    * decides nothing about rates.
    */
   onStarting?: (active: boolean) => void;
+  /** The branch the dispatch starts. Absent, the dispatch starts the plan's next eligible branch. */
+  branch?: string | undefined;
 }
+
+/**
+ * The body of the button's `POST /api/dispatch`.
+ *
+ * @param slug - the plan's slug.
+ * @param branch - the branch to start; absent or `''` leaves `branch` out, so the dispatch takes the next eligible one.
+ */
+export const dispatchBody = (slug: string, branch?: string): string =>
+  JSON.stringify(branch === undefined || branch === '' ? { slug } : { slug, branch });
 
 type State =
   | { kind: 'idle' }
@@ -174,7 +185,7 @@ type State =
  * and a native `disabled`, so *starting…* is a real disabled control rather
  * than a simulated one.
  */
-export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWorkButtonProps) {
+export function StartWorkButton({ card, dispatch, pulse, onStarting, branch }: StartWorkButtonProps) {
   const [state, setState] = useState<State>({ kind: 'idle' });
   const starting = state.kind === 'starting';
   // Inside a card, the card's own message row shows the dispatched notice (see
@@ -261,7 +272,7 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
       const res = await fetch('/api/dispatch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug: card.slug }),
+        body: dispatchBody(card.slug, branch),
         signal: AbortSignal.timeout(ACTION_TIMEOUT_MS),
       });
       // `dispatchLog`, not `log` — renamed by `a-dispatch-promises-a-worker`,
@@ -339,7 +350,7 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
         // will not act.
         aria-disabled={blocked || undefined}
         aria-busy={starting}
-        title={refusal === undefined ? `Dispatch the next eligible branch of ${card.slug}` : undefined}
+        title={refusal !== undefined ? undefined : branch ? `Dispatch ${branch} of ${card.slug}` : `Dispatch the next eligible branch of ${card.slug}`}
         // Dimmed while in flight, on the SAME state that drives the label —
         // `starting`, never a timer of its own — so the contrast comes back
         // exactly when the pulse resolves the click. The refused styling stays
