@@ -277,6 +277,7 @@ export const startBoardRun = async (
       role: spec.role,
       harness: '',
       model: choice.model,
+      strictMcp: choice.strictMcp,
       effort: '',
       maxTurns: 0,
       maxSpendUsd: 0,

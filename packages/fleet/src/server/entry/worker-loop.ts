@@ -44,6 +44,7 @@ import {
 } from '@plot-pm/domain/rules/checks-verdict';
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
 import { promptExit } from '@plot-pm/domain/rules/prompt-exit';
+import { fragmentStrictMcp } from '@plot-pm/domain/rules/fragment-strict-mcp';
 import { backgroundGateEnv } from '@plot-pm/domain/rules/agent-run-env';
 import { sliceBaseRef } from '@plot-pm/domain/rules/slice-base';
 import { spawnContractEnv } from '@plot-pm/domain/rules/spawn-contract';
@@ -1453,6 +1454,8 @@ export interface SdkRunDeps {
   readonly maxSpendUsd: number;
   /** `Agent context window`, capped by the charter. */
   readonly contextWindow: number;
+  /** Whether `Worker command` names `--strict-mcp-config`, so the run starts no MCP server. */
+  readonly strictMcp: boolean;
   /** The charter's capabilities. */
   readonly capabilities: readonly string[];
   /** Runs the commands `plot-local-checks.mjs` prints for a `checks` hand-back. */
@@ -1735,6 +1738,7 @@ const runPrompt = async (
       maxSpendUsd: sdk.maxSpendUsd,
       boundSeconds: deps.config.boundSeconds,
       contextWindow: sdk.contextWindow,
+      strictMcp: sdk.strictMcp,
       capabilities: sdk.capabilities,
       env,
       logFile: deps.outFile,
@@ -2345,6 +2349,7 @@ export const runnerDeps = async (input: RunnerInput): Promise<{ runner: 'command
       maxTurns: positive(cfg('Agent max turns'), DEFAULT_AGENT_MAX_TURNS),
       maxSpendUsd: dollarsOrFallback(dollarsOrUnset(cfg('Agent max spend')), 0),
       contextWindow: settings.contextWindow,
+      strictMcp: fragmentStrictMcp(cfg('Worker command')),
       capabilities: charter?.capabilities ?? [],
       runChecks: localChecksRunner(input.ports.boundedRun, input.scriptDir, input.boundSeconds, input.checksOutFile),
     },

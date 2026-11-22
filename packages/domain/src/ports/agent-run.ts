@@ -57,6 +57,12 @@ export interface AgentRunRequest {
   readonly harness: string;
   /** The model this run is asked to use; `''` when unstated. */
   readonly model: string;
+  /**
+   * Whether this run starts no MCP server, as `--strict-mcp-config` with no
+   * `--mcp-config` does; absent reads as `false`. A role run starts none
+   * whatever this field says.
+   */
+  readonly strictMcp?: boolean;
   /** The reasoning effort this run is asked for; `''` when unstated. */
   readonly effort: string;
   /** The turn limit for this one run; `0` for no limit. */

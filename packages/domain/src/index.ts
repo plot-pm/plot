@@ -165,6 +165,7 @@ export * from './rules/agent-run-env.js';
 export * from './rules/run-limit.js';
 export * from './rules/runner-choice.js';
 export * from './rules/fragment-model.js';
+export * from './rules/fragment-strict-mcp.js';
 export * from './rules/loop-restart.js';
 export {
   limitAnswer,
