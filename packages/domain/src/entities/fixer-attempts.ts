@@ -79,6 +79,31 @@ export const FixerAttemptSchema = z
   .strict();
 export type FixerAttempt = z.infer<typeof FixerAttemptSchema>;
 
+/** What the host answered when the tick asked it to re-run a head's failed CI jobs. */
+export const FixerRerunAnswerSchema = z.enum(['asked', 'failed', 'unaskable']);
+export type FixerRerunAnswer = z.infer<typeof FixerRerunAnswerSchema>;
+
+/**
+ * One re-run of a head's failed CI jobs, recorded once per head.
+ *
+ * Written with `answer: 'asked'` before the call, and rewritten as `failed` or
+ * `unaskable` where the call answers so. `cleared` is the time the tick first
+ * read `pending` or `green` on `headSha` after `at`. A re-run spends no fixer
+ * attempt.
+ */
+export const FixerRerunSchema = z
+  .object({
+    /** The head whose failed jobs were re-run. */
+    headSha: z.string().min(1),
+    /** ISO-8601, this machine's clock: when the tick asked for the re-run. */
+    at: z.string().min(1),
+    answer: FixerRerunAnswerSchema,
+    /** ISO-8601: the first `pending` or `green` reading on `headSha` after `at`. */
+    cleared: z.string().min(1).optional(),
+  })
+  .strict();
+export type FixerRerun = z.infer<typeof FixerRerunSchema>;
+
 /**
  * One PR's fixer attempts, keyed by PR NUMBER rather than by head.
  *
@@ -92,6 +117,8 @@ export const FixerAttemptsRecordSchema = z
     v: z.literal(FIXER_ATTEMPTS_VERSION),
     pr: z.number().int().positive(),
     attempts: z.array(FixerAttemptSchema),
+    /** The CI re-runs, at most one per head; absent where none was recorded. */
+    reruns: z.array(FixerRerunSchema).optional(),
   })
   .strict();
 export type FixerAttemptsRecord = z.infer<typeof FixerAttemptsRecordSchema>;

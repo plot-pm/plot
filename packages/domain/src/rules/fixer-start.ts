@@ -1,5 +1,5 @@
 import { CI_WORKFLOW_DIR } from '../adapters/ci-workflow-path.js';
-import type { FixerAttemptsRecord } from '../entities/fixer-attempts.js';
+import type { FixerAttemptsRecord, FixerRerunAnswer } from '../entities/fixer-attempts.js';
 import { roleRunAlive, type PidCheck } from './role-run-alive.js';
 
 /** The most characters of review findings a fixer prompt carries; the rest is cut with a note. */
@@ -8,10 +8,13 @@ export const FIXER_FINDINGS_MAX = 60_000;
 /**
  * What the fixer is started to answer: the review's findings, the failing CI
  * checks, or a conflict with the base branch `base` at the tip `baseTip`.
+ *
+ * A CI-red start carries the answer of the head's re-run in `rerun`; absent
+ * or `'none'` where no re-run was recorded.
  */
 export type FixerEvidence =
   | { readonly kind: 'high'; readonly findings: string }
-  | { readonly kind: 'ci-red'; readonly failingChecks: readonly string[] }
+  | { readonly kind: 'ci-red'; readonly failingChecks: readonly string[]; readonly rerun?: FixerRerunAnswer | 'none' }
   | { readonly kind: 'conflict'; readonly base: string; readonly baseTip: string };
 
 /** The PR a fixer works on and the evidence it answers. */
@@ -39,7 +42,10 @@ export type FixerPrompt =
  * detached checkout of that head, and says to push with
  * `git push origin HEAD:<branch>` and never with force. A HIGH run carries the
  * review findings verbatim, cut at {@link FIXER_FINDINGS_MAX} characters with
- * a note; a CI-red run names the failing checks, or says the index named none.
+ * a note; a CI-red run names the failing checks, or says the index named none,
+ * and says the failed jobs were re-run once and failed again where the head's
+ * re-run answered `asked`, or that no re-run ran where it answered `failed` or
+ * `unaskable`.
  * A conflict run names the base and its tip, says to merge `origin/<base>`
  * into the head and never to rebase, to restore a generated bundle from
  * `git merge-base origin/<base> HEAD MERGE_HEAD` rather than rebuild it, and to stop and
@@ -99,6 +105,13 @@ export const fixerPrompt = (input: FixerPromptInput): FixerPrompt => {
         : `CI is red on ${head}. The failing checks: ${named.join(', ')}. Read their logs with \`gh pr checks ${pr}\`.`,
       'Fix the cause on the branch, not the check.',
     );
+    if (evidence.rerun === 'asked') {
+      lines.push(`fleetd re-ran the failed jobs once on ${head}, and they failed again. Do not name a re-run as the next step.`);
+    } else if (evidence.rerun === 'failed' || evidence.rerun === 'unaskable') {
+      lines.push(
+        `No re-run of the failed jobs ran on ${head}: the CI system ${evidence.rerun === 'failed' ? 'refused it' : 'cannot re-run them from fleetd'}. Where the failure is not caused by the branch, name a re-run as the next step for a person.`,
+      );
+    }
   }
   return { read: 'prompt', text: `${lines.join('\n')}\n` };
 };

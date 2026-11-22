@@ -21,7 +21,8 @@ import type { PidCheck } from '@plot-pm/domain/rules/role-run-alive';
 import { fixerPrompt, endedFixerAttempts, type FixerEvidence } from '@plot-pm/domain/rules/fixer-start';
 import type { FixerAttemptsRecord, FixerFinding, FixerInFlight } from '@plot-pm/domain/entities/fixer-attempts';
 import type { FixerAttemptsStore } from '@plot-pm/domain/ports/fixer-attempts';
-import { fixerReadingOf, FIXER_BOUND_SECONDS } from '@plot-pm/domain/rules/fixer-attempts';
+import { fixerReadingOf, fixerRerunAnswer, rerunOnHead, FIXER_BOUND_SECONDS } from '@plot-pm/domain/rules/fixer-attempts';
+import type { BuildPort } from '@plot-pm/domain/ports/build';
 import { fixerAdmission, fixerRanToBound, runningFixers } from '@plot-pm/domain/rules/fixer-concurrency';
 import { askWithHeadroom, type MachineSlot } from './machine-reading.js';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
@@ -37,6 +38,7 @@ import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 import {
   agentsFs,
   boundedRunProcess,
+  buildShell,
   defaultBranchFile,
   fixerAttemptsFile,
   freshAgentRecordFile,
@@ -64,7 +66,11 @@ export interface FixerTickWorld {
   readonly trees: (opts: ActOptions) => Pick<Trees, 'forBranch' | 'add' | 'fetch' | 'prune' | 'removeOnly'>;
   readonly host: (opts: ActOptions) => Pick<Host, 'prState'>;
   readonly worker: (opts: ActOptions) => Pick<Processes, 'workerState'>;
-  readonly attempts: (opts: ActOptions) => Pick<FixerAttemptsStore, 'read' | 'append' | 'markInFlight' | 'markStart' | 'markPushed'>;
+  readonly attempts: (
+    opts: ActOptions,
+  ) => Pick<FixerAttemptsStore, 'read' | 'append' | 'markInFlight' | 'markStart' | 'markPushed' | 'markRerun' | 'markRerunCleared'>;
+  /** The CI connector a `rerun` step asks; the repository's declared connector by default. */
+  readonly build: (opts: ActOptions) => Pick<BuildPort, 'rerunFailed'>;
   readonly freshAgents: (opts: ActOptions) => Pick<FreshAgentRecordStore, 'rowsFor'>;
   /** Reads a desk worktree's ending file; real `fs` by default, `null` for "no file". */
   readonly readEndingFile: (worktree: string) => string | null;
@@ -265,7 +271,7 @@ const failedStartHolds = (
   );
 
 /** One run-log line for a PR's fixer step. */
-const fixerLine = (row: PrIndexRow, head: string, step: 'fixer-start' | 'fixer-end', outcome: string, now: number): RunLogLine => ({
+const fixerLine = (row: PrIndexRow, head: string, step: 'fixer-start' | 'ci-rerun' | 'fixer-end', outcome: string, now: number): RunLogLine => ({
   plan: '',
   branch: row.head,
   pr: String(row.number),
@@ -479,7 +485,9 @@ export const fixerTick = async (
     const spentExhausted = await correctionsSpentExhausted(world, opts, deskTree?.path ?? null, row.head);
     const baseTip = await readBaseTip(world, opts, row);
     const tip = baseTip?.read === 'tip' ? baseTip.sha : '';
-    const fixer: FixerReading = fixerReadingOf(attempts, row.headSha ?? '', tip);
+    const clock = { now: readings.now, checksWaitMs: readings.config.checksWaitMs };
+    if (await clearSeenRerun(world, opts, row, attempts, clock)) attempts = await readAttempts(world, opts, row.number);
+    const fixer: FixerReading = fixerReadingOf(attempts, row.headSha ?? '', tip, clock);
 
     const step = fixerPrNext({
       ...readings,
@@ -490,6 +498,11 @@ export const fixerTick = async (
       owner,
       ...(baseTip === undefined ? {} : { baseTip }),
     });
+    if (step.step === 'rerun' && attempts !== 'unreadable') {
+      await rerunFailedJobs(world, opts, row, step.head, readings.now);
+      results.push({ pr: row.number, step });
+      continue;
+    }
     if (step.step !== 'fixer' || attempts === 'unreadable') {
       results.push({ pr: row.number, step });
       continue;
@@ -518,6 +531,49 @@ export const fixerTick = async (
     results.push({ pr: row.number, step, started });
   }
   return results;
+};
+
+/**
+ * Marks the head's re-run cleared where the row reads `pending` or `green` on
+ * that head and the re-run answered `asked` and is not cleared yet.
+ *
+ * @returns whether a mark was written, so the caller reads the record again.
+ */
+const clearSeenRerun = async (
+  world: FixerTickWorld,
+  opts: ActOptions,
+  row: PrIndexRow,
+  attempts: FixerAttemptsRecord | 'none' | 'unreadable',
+  clock: { now: number; checksWaitMs: number },
+): Promise<boolean> => {
+  const head = row.headSha ?? '';
+  if (row.checksSha !== head || (row.ciChecks !== 'pending' && row.ciChecks !== 'green')) return false;
+  const state = rerunOnHead(attempts, head, clock);
+  if (state !== 'running' && state !== 'unseen') return false;
+  const marked = await world.attempts(opts).markRerunCleared(row.number, head, new Date(clock.now).toISOString());
+  return marked.ok;
+};
+
+/**
+ * Carries out a `rerun` step: records the re-run as `asked`, then asks the CI
+ * system to re-run the head's failed jobs once.
+ *
+ * A record that does not land asks nothing, so a crash or a failed write never
+ * leads to a second call. An `unaskable` answer rewrites the entry as
+ * `unaskable` and a failed call as `failed`. Each re-run is logged with the PR,
+ * the head and the answer.
+ */
+const rerunFailedJobs = async (world: FixerTickWorld, opts: ActOptions, row: PrIndexRow, head: string, now: number): Promise<void> => {
+  const at = new Date(now).toISOString();
+  const store = world.attempts(opts);
+  if (!(await store.markRerun(row.number, { headSha: head, at, answer: 'asked' })).ok) {
+    await runLogOf(opts).append(fixerLine(row, head, 'ci-rerun', 'failed: record-not-written', now));
+    return;
+  }
+  const asked = await world.build(opts).rerunFailed(row.head, head);
+  const answer = asked.ok ? 'asked' : asked.why === 'unaskable' ? 'unaskable' : 'failed';
+  if (answer !== 'asked') await store.markRerun(row.number, { headSha: head, at, answer });
+  await runLogOf(opts).append(fixerLine(row, head, 'ci-rerun', answer === 'asked' ? 'moved: asked' : `failed: ${answer}`, now));
 };
 
 /**
@@ -601,7 +657,8 @@ const startFixer = async (
   } else if (step.evidence === 'conflict') {
     evidence = { kind: 'conflict', base: row.base ?? '', baseTip };
   } else {
-    evidence = { kind: 'ci-red', failingChecks: row.failing_checks ?? [] };
+    const attempts = await readAttempts(world, opts, row.number);
+    evidence = { kind: 'ci-red', failingChecks: row.failing_checks ?? [], rerun: fixerRerunAnswer(attempts, step.head) };
   }
   const prompt = fixerPrompt({ pr: row.number, url: row.url, branch: row.head, head: step.head, evidence });
   if (prompt.read !== 'prompt') return { started: false, why: prompt.why };
@@ -871,6 +928,10 @@ const defaultFixerTickWorld: FixerTickWorld = {
   host: (opts) => hostShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
   worker: (opts) => processesFiles({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
   attempts: (opts) => fixerAttemptsFile(opts.repoRoot),
+  build: (opts) => ({
+    rerunFailed: async (branch, sha) =>
+      (await buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir })).rerunFailed(branch, sha),
+  }),
   freshAgents: (opts) => freshAgentRecordFile({ cwd: opts.repoRoot }),
   readEndingFile: readOrNull,
   refs: (opts) => refsOf(opts),
