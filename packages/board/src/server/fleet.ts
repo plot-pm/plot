@@ -4497,9 +4497,9 @@ import {
 } from '@plot-pm/domain';
 import { planStateOf } from '@plot-pm/domain/entities/plan';
 
-/** A plan's `State:` word as `AgentRow.planState`: the domain's reading, with `none` as null. */
-const planStateOrNull = (wire: string): AgentRow['planState'] => {
-  const state = planStateOf(wire);
+/** A plan's `State:` word as `AgentRow.planState`: the domain's reading, with an absent word and `none` as null. */
+const planStateOrNull = (wire: string | undefined): AgentRow['planState'] => {
+  const state = planStateOf(wire ?? '');
   return state === 'none' ? null : state;
 };
 import { clockSystem } from '@plot-pm/domain/adapters';

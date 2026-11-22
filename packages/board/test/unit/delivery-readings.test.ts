@@ -13,7 +13,7 @@ import {
 const reader = { hostUser: 'me' };
 
 const row = (over: Record<string, unknown>): AgentRow => ({
-  branch: '', plan: '', wave: '', kind: 'branch', phase: 'Development', state: 'wip',
+  branch: '', plan: '', wave: '', kind: 'branch', phase: 'Development', planState: 'approved', state: 'wip',
   group: 'working', pr: null, question: null, blockedBy: null,
   assignee: '', author: '', approver: '', ...over,
 }) as unknown as AgentRow;
@@ -127,41 +127,63 @@ describe('absent config keys', () => {
   });
 });
 
-describe('deliveryMapping phase words', () => {
-  const placed = (phase: string) => {
+describe('deliveryMapping plan states', () => {
+  const placed = (planState: string | null, phase: string | null = 'Development') => {
     const m = deliveryMapping(input({
-      rows: [row({ branch: 'feature/x', plan: 'p', wave: 'X', phase, state: 'wip', pr: pr({ ciChecks: 'green', plotReview: 'success' }) })],
+      rows: [row({ branch: 'feature/x', plan: 'p', wave: 'X', phase, planState, state: 'wip', pr: pr({ ciChecks: 'green', plotReview: 'success' }) })],
       slices: [slice('X')],
     }));
     return place(m);
   };
 
-  it('reads Discovery as a plan waiting for input to the fleet', () => {
-    expect(placed('Discovery').items[0]).toMatchObject({ section: 'you', group: 'input-to-the-fleet', reason: 'draft-plan' });
+  it('reads draft as a plan waiting for input to the fleet', () => {
+    expect(placed('draft').items[0]).toMatchObject({ section: 'you', group: 'input-to-the-fleet', reason: 'draft-plan' });
   });
 
-  it('reads Design as a plan waiting for input to the fleet', () => {
-    expect(placed('Design').items[0]).toMatchObject({ section: 'you', group: 'input-to-the-fleet', reason: 'draft-plan' });
+  it('reads design as a plan waiting for input to the fleet', () => {
+    expect(placed('design').items[0]).toMatchObject({ section: 'you', group: 'input-to-the-fleet', reason: 'draft-plan' });
   });
 
-  it('reads Development as a work item', () => {
-    expect(placed('Development').items[0]).toMatchObject({ section: 'work-items' });
-  });
-
-  it('reads Testing as delivered', () => {
-    const p = placed('Testing');
-    expect(p.items).toEqual([]);
-    expect(p.unplaced).toContainEqual({ id: sliceItemId('p', 'X'), subject: 'item', reason: 'delivered' });
-  });
-
-  it('reads Released as delivered', () => {
-    const p = placed('Released');
-    expect(p.items).toEqual([]);
-    expect(p.unplaced).toContainEqual({ id: sliceItemId('p', 'X'), subject: 'item', reason: 'delivered' });
-  });
-
-  it('leaves an unknown phase word absent', () => {
+  it('reads approved as a work item', () => {
     expect(placed('approved').items[0]).toMatchObject({ section: 'work-items' });
+  });
+
+  it('reads delivered as delivered', () => {
+    const p = placed('delivered');
+    expect(p.items).toEqual([]);
+    expect(p.unplaced).toContainEqual({ id: sliceItemId('p', 'X'), subject: 'item', reason: 'delivered' });
+  });
+
+  it('reads released as delivered', () => {
+    const p = placed('released');
+    expect(p.items).toEqual([]);
+    expect(p.unplaced).toContainEqual({ id: sliceItemId('p', 'X'), subject: 'item', reason: 'delivered' });
+  });
+
+  it('leaves the phase unset for a row with no plan state, never defaulting it to design', () => {
+    const m = deliveryMapping(input({
+      rows: [row({ branch: 'feature/x', plan: 'p', wave: 'X', phase: 'Design', planState: null })],
+      slices: [slice('X')],
+    }));
+    expect(m.readings.items[0]!.phase).toBeUndefined();
+    expect(placed(null, 'Design').items[0]).toMatchObject({ section: 'work-items' });
+  });
+
+  it('places an approved tracer plan\'s slice under Work items although its column is Design', () => {
+    expect(placed('approved', 'Design').items[0]).toMatchObject({ section: 'work-items' });
+  });
+
+  it('places an idea/ PR row under You where a custom map names its column', () => {
+    const m = deliveryMapping(input({
+      rows: [row({ branch: 'idea/x', kind: 'pr', phase: 'Ideas', planState: 'draft', pr: pr({ ciChecks: 'green', plotReview: 'success' }) })],
+    }));
+    expect(place(m).items[0]).toMatchObject({ section: 'you', group: 'input-to-the-fleet', reason: 'draft-plan' });
+  });
+
+  it('counts a delivered plan\'s row as delivered where a custom map names its column', () => {
+    const p = placed('delivered', 'Shipped');
+    expect(p.items).toEqual([]);
+    expect(p.unplaced).toContainEqual({ id: sliceItemId('p', 'X'), subject: 'item', reason: 'delivered' });
   });
 });
 

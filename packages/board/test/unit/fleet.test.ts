@@ -2299,6 +2299,26 @@ describe('rowsFromPulse', () => {
       expect(rows('approved').find((r) => r.branch === 'idea/some-slug')!.phase).toBe('Idea');
     });
 
+    it('reads a row\'s plan state from the plan while the declared map names its column', () => {
+      const parsed = parsePhaseMap('Idea = plan:draft, plan:design; Build = plan:approved; Done = plan:delivered, plan:released');
+      if (!parsed.ok) throw new Error('fixture map must parse');
+      const prs = new Map([['idea/some-slug', pr({ head: 'idea/some-slug' })]]);
+      const rows = rowsFromPulse(
+        withPhase('delivered'), ages, 'plot', QUIET, prs,
+        ...Array(14).fill(undefined) as [], parsed.map,
+      );
+      const feature = rows.filter((r) => r.branch.startsWith('feature/'));
+      expect(feature.every((r) => r.phase === 'Done' && r.planState === 'delivered')).toBe(true);
+      const idea = rows.find((r) => r.branch === 'idea/some-slug')!;
+      expect([idea.phase, idea.planState]).toEqual(['Idea', 'draft']);
+    });
+
+    it('gives a row no plan state where the plan\'s phase is no lifecycle word', () => {
+      const rows = rowsFromPulse(withPhase('pondering'), ages, 'plot', QUIET);
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every((r) => r.planState === null)).toBe(true);
+    });
+
     it('gives a deferred branch the phase AND the fact, not one or the other', () => {
       // Both halves on the row: the phase is read from the plan (Development for
       // an approved plan, git ignored), and `state` still says `deferred` so the
@@ -5190,5 +5210,9 @@ describe('the fleet row reads the plan\'s Tracer line, as the card does', () => 
     expect(phaseOf('feature/t')).toBe('Design');
     expect(phaseOf('feature/m')).toBe(phaseOfPlan(DEFAULT_PHASE_MAP, { state: 'approved' }));
     expect(phaseOf('feature/t')).toBe(phaseOfPlan(DEFAULT_PHASE_MAP, { state: 'approved', tracer: true }));
+    // The column follows the tracer rule; the plan state does not.
+    const stateOf = (name: string) => rows.find((r) => r.branch === name)!.planState;
+    expect(stateOf('feature/t')).toBe('approved');
+    expect(stateOf('feature/m')).toBe('approved');
   });
 });
