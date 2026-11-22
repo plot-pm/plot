@@ -119,6 +119,11 @@ export interface ItemRowFacts {
   mergedPrs?: number[];
   /** The agents acting on the item, in `placement.agents` order; absent where none were read. */
   agents?: ItemAgentFacts[];
+  /**
+   * A claim that holds no work: the branch carries only its claim commit. `elsewhere` is `true` where this machine
+   * holds no worktree for the claim. Absent where the branch carries work or nobody read it.
+   */
+  claim?: { elsewhere: boolean };
 }
 
 /** One agent acting on an item, as its By cell names it. */
