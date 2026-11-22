@@ -7,7 +7,7 @@ import type { DefaultBranchReading } from '../src/entities/default-branch.js';
 import type { RepairMergeReading } from '../src/rules/repair-pr.js';
 import type { FixerAttemptsRecord } from '../src/entities/fixer-attempts.js';
 import { fixerReadingOf } from '../src/rules/fixer-attempts.js';
-import { ciRedArm, conflictArm, fixerPrNext, highArm, mergeArm, nextMerge, restatusArm, reviewArm, slicePrNext, type SlicePrNextReadings } from '../src/rules/slice-pr-next.js';
+import { ciRedArm, conflictArm, fixerPrNext, highArm, mergeArm, nextMerge, restatusArm, reviewArm, reviewPrNext, slicePrNext, type ReviewPrNextReadings, type SlicePrNextReadings } from '../src/rules/slice-pr-next.js';
 
 const HEAD = 'a'.repeat(40);
 const OLD = 'b'.repeat(40);
@@ -894,5 +894,102 @@ describe('nextMerge', () => {
   it('answers null where no row merges', () => {
     expect(nextMerge([{ pr: 2, step: { step: 'none', why: 'x' } }])).toBeNull();
     expect(nextMerge([])).toBeNull();
+  });
+});
+
+describe('reviewPrNext', () => {
+  const MIN = 60_000;
+  const iso = (ms: number): string => new Date(ms).toISOString();
+  const OUTSIDE = 'feature/outside-the-sprint';
+  const LAST_GREEN = 'e'.repeat(40);
+  const outside = (over: Partial<PrIndexRow> = {}): PrIndexRow =>
+    row({ head: OUTSIDE, base: 'main', headSince: iso(NOW - 2 * 60 * MIN), ...over });
+  const asReview = (over: Partial<ReviewPrNextReadings> = {}): ReviewPrNextReadings => {
+    const { scope: _scope, ...rest } = readings();
+    return { ...rest, row: outside(), defaultBranchName: 'main', owner: 'none', ...over };
+  };
+  const pushed = (head: string) =>
+    fixerReadingOf(
+      {
+        v: 1,
+        pr: 7,
+        attempts: [{ finding: { kind: 'ci', runId: OLD }, headSha: OLD, startedAt: NOW - 20 * MIN, pushedSha: head }],
+      } as unknown as FixerAttemptsRecord,
+      head,
+    );
+  const repairMerge = (over: Partial<RepairMergeReading> = {}): RepairMergeReading => ({
+    record: {
+      v: 1, branch: 'main', state: 'repairing', lastGreenSha: LAST_GREEN, firstRedSha: 'f'.repeat(40),
+      redSince: '2026-10-10T00:00:00Z', candidates: [], rerun: 'asked', preRevertRerun: 'none',
+      repairPr: 7, at: '2026-10-10T00:00:00Z',
+    },
+    episode: 'open',
+    redRuns: 'red',
+    ...over,
+  });
+
+  it('reviews a deskless green PR into main outside the sprint', () => {
+    expect(reviewPrNext(asReview())).toEqual({ step: 'review', head: HEAD });
+  });
+
+  it('holds a person head for the quiet hour, to the millisecond', () => {
+    expect(reviewPrNext(asReview({ row: outside({ headSince: iso(NOW - 59 * MIN) }) }))).toEqual({
+      step: 'none',
+      why: 'person-pushed-recently',
+      leftMs: MIN,
+    });
+    expect(reviewPrNext(asReview({ row: outside({ headSince: iso(NOW - 60 * MIN) }) }))).toEqual({ step: 'review', head: HEAD });
+    expect(reviewPrNext(asReview({ row: outside({ headSince: iso(NOW - 61 * MIN) }) }))).toEqual({ step: 'review', head: HEAD });
+  });
+
+  it('reviews a head the fixer pushed 5 minutes ago', () => {
+    const fixer = pushed(HEAD);
+    expect(fixer).toMatchObject({ read: 'record', pushedHead: true });
+    expect(reviewPrNext(asReview({ row: outside({ headSince: iso(NOW - 5 * MIN) }), fixer }))).toEqual({ step: 'review', head: HEAD });
+  });
+
+  it('takes a PR into a sprint branch and leaves one into a release branch out', () => {
+    expect(reviewPrNext(asReview({ row: outside({ base: 'sprint/x' }) }))).toEqual({ step: 'review', head: HEAD });
+    expect(reviewPrNext(asReview({ row: outside({ base: 'release/1' }) }))).toEqual({ step: 'none', why: 'base-out-of-scope' });
+  });
+
+  it('leaves a release PR, a plan PR and an unnamed repair-branch PR out', () => {
+    expect(reviewPrNext(asReview({ row: outside({ head: 'changeset-release/main' }) }))).toEqual({ step: 'none', why: 'release-pr' });
+    expect(reviewPrNext(asReview({ row: outside({ head: 'idea/x' }) }))).toEqual({ step: 'none', why: 'plan-pr' });
+    const repairHead = `bug/main-repair-${LAST_GREEN.slice(0, 12)}`;
+    expect(reviewPrNext(asReview({ row: outside({ head: repairHead }) }))).toEqual({ step: 'none', why: 'repair-owned' });
+    expect(reviewPrNext(asReview({ row: outside({ head: repairHead, number: 8 }), repairMerge: repairMerge() }))).toEqual({
+      step: 'none',
+      why: 'repair-owned',
+    });
+  });
+
+  it('reviews the repair PR the repair record names, and the one a base repair record names', () => {
+    const repairHead = `bug/main-repair-${LAST_GREEN.slice(0, 12)}`;
+    expect(reviewPrNext(asReview({ row: outside({ head: repairHead }), repairMerge: repairMerge() }))).toEqual({ step: 'review', head: HEAD });
+    const sprintHead = `bug/sprint-repair-${LAST_GREEN.slice(0, 12)}`;
+    const base = repairMerge({ scope: 'base', record: { ...(repairMerge().record as object), branch: 'sprint/x' } as RepairMergeReading['record'] });
+    expect(reviewPrNext(asReview({ row: outside({ head: sprintHead, base: 'sprint/x' }), baseRepairMerge: base }))).toEqual({
+      step: 'review',
+      head: HEAD,
+    });
+  });
+
+  it('answers owner-unread for an unread owner', () => {
+    expect(reviewPrNext(asReview({ owner: 'unread' }))).toEqual({ step: 'none', why: 'owner-unread' });
+  });
+
+  it('answers base-unread for a row with no base', () => {
+    expect(reviewPrNext(asReview({ row: outside({ base: undefined }) }))).toEqual({ step: 'none', why: 'base-unread' });
+  });
+
+  it('leaves slicePrNext answering out-of-scope for the PR it takes, so merge keeps the sprint scope', () => {
+    expect(reviewPrNext(asReview())).toEqual({ step: 'review', head: HEAD });
+    expect(slicePrNext(readings({ row: outside(), defaultBranchName: 'main' }))).toEqual({ step: 'none', why: 'out-of-scope' });
+  });
+
+  it('walks no merge arm: a reviewed head answers reviewed', () => {
+    const reviewed = outside({ plotReview: 'success', plotReviewSha: HEAD });
+    expect(reviewPrNext(asReview({ row: reviewed }))).toEqual({ step: 'none', why: 'reviewed' });
   });
 });
