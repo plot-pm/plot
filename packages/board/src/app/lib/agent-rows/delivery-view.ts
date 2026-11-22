@@ -16,7 +16,6 @@ import {
   sprintDeliveryTitle,
   sprintGroupHeader,
   type DeliveryScopeKind,
-  type CountedSlice,
   type PersonCard,
   sliceStateIn,
   type PlanRowFacts,
@@ -46,6 +45,7 @@ import {
 } from '@plot-pm/domain';
 import type { AgentRow, Card, DispatchInfo, DraftPlan, FleetSprint, IssueAnswer, IssueRow, Slice } from '../../../contract/schema.js';
 import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
+import { countedSlicesByPlan, type PlanCountedSlice } from '@plot-pm/domain/rules/counted-slices';
 import { createFromIssueVerdict } from '@plot-pm/domain/rules/create-from-issue';
 import { createPlanRefusal } from '../card-presentation.js';
 import { armedLabel as approveConfirm } from '../../components/ApproveButton.js';
@@ -917,17 +917,14 @@ export const deliveryView = (
   // A plan with a row, a Draft card or a slice the pulse carries has an entry, `[]` where it holds no counted
   // slice. A plan the payload read nothing for has no entry, so its bar reads missing.
   const draftPlans = mapping.wholeReadings.items.filter((i) => i.id.startsWith(DRAFT_ID_PREFIX)).map((i) => i.id.slice(DRAFT_ID_PREFIX.length));
-  const slicesByPlan = new Map<string, CountedSlice[]>();
-  for (const plan of [...Object.values(mapping.rowsByItem).flat().map((r) => r.plan), ...draftPlans, ...(slices ?? []).map((s) => s.plan)]) {
-    if (plan !== '' && !slicesByPlan.has(plan)) slicesByPlan.set(plan, []);
-  }
-  for (const s of counted) {
-    const id = sliceItemId(s.plan, s.name);
-    const delivered = mapping.wholeReadings.items.find((i) => i.id === id)?.delivered === true;
-    const list = slicesByPlan.get(s.plan) ?? [];
-    list.push({ id, merge: s.merge === 'none' ? 'open' : s.merge ?? (s.complete || delivered ? 'merged' : 'open') });
-    slicesByPlan.set(s.plan, list);
-  }
+  const slicesByPlan = countedSlicesByPlan({
+    seen: [...Object.values(mapping.rowsByItem).flat().map((r) => r.plan), ...draftPlans, ...(slices ?? []).map((s) => s.plan)],
+    slices: counted.map((s): PlanCountedSlice => {
+      const id = sliceItemId(s.plan, s.name);
+      const delivered = mapping.wholeReadings.items.find((i) => i.id === id)?.delivered === true;
+      return { plan: s.plan, id, merge: s.merge === 'none' ? 'open' : s.merge ?? (s.complete || delivered ? 'merged' : 'open') };
+    }),
+  });
   const scopeFacts = { kind: scope.kind, sprints: scope.sprints.map((sp) => ({ slug: sp.slug, title: sp.title, members: (sp.members ?? []).map((m) => m.slug) })) };
   const sprintGroups = sprintDeliveryGroups(scopeFacts, approved);
   const sectionTitle = sprintDeliveryTitle(scopeFacts);

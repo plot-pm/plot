@@ -8,7 +8,7 @@ import type { PlanRecord } from '../ports/plan-store.js';
 import type { BranchReading, BranchStageReadings, PrDetail } from './plan-walk-branches.js';
 import type { DeskReading, DeskStageReadings } from './plan-walk-desks.js';
 import type { Estate } from './plan-walk-estate.js';
-import { planIsFinished } from '../rules/plan-names-branch.js';
+import { pulseOmitsPlan } from '../rules/pulse-omits-plan.js';
 
 /** The wire key the shell scan still emits for the per-plan slice list; the name belongs to that foreign process. */
 const WAVES_KEY = 'waves';
@@ -297,8 +297,7 @@ export const planWalkAssembler = (estate: Estate, input: AssemblyInput): PlanWal
   };
 
   const add: PlanWalkAssembler['add'] = (record, readingOf, deskOf) => {
-    if (planIsFinished(record.phase)) return answered(null);
-    if (record.phase === 'delivered' && (record.type === 'docs' || record.type === 'infra')) return answered(null);
+    if (pulseOmitsPlan(record.phase, record.type)) return answered(null);
     summary.plans += 1;
 
     const lines = record.slices.flatMap((slice, sliceIndex) => slice.branches.map((line) => ({ slice, sliceIndex, line })));
