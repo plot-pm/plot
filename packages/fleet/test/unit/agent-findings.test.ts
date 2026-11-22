@@ -8,7 +8,8 @@ import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { agentsFs, refsGit, treesGit } from '@plot-pm/domain/adapters';
-import { fleetdHeartbeatFile } from '@plot-pm/domain/adapters/fleetd-heartbeat/fleetd-heartbeat-file';
+import { stateHomeAtSync } from '@plot-pm/domain/adapters/main-checkout';
+import { fleetdHeartbeatIn } from '@plot-pm/domain/adapters/fleetd-heartbeat/fleetd-heartbeat-file';
 import { FLEETD_HEARTBEAT_VERSION } from '@plot-pm/domain/entities/fleetd-heartbeat';
 import type { WorkerState } from '@plot-pm/domain/entities/fleet';
 import { answered } from '@plot-pm/domain';
@@ -141,7 +142,7 @@ describe('the worker wrapper final pass', () => {
   };
 
   const beat = async (repo: string, beatAt: number): Promise<void> => {
-    const written = await fleetdHeartbeatFile({ repoRoot: repo }).write({
+    const written = await fleetdHeartbeatIn(stateHomeAtSync(repo)).write({
       version: FLEETD_HEARTBEAT_VERSION,
       pid: process.pid,
       startedAt: beatAt,

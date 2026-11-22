@@ -1,9 +1,11 @@
+import { execFileSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { clockManual, fleetStateFile } from '@plot-pm/domain/adapters';
+import { clockManual, fleetStateIn } from '@plot-pm/domain/adapters';
+import { stateHomeAtSync } from '@plot-pm/domain/adapters/main-checkout';
 import type { FleetReading } from '@plot-pm/domain/entities/fleet';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
@@ -32,6 +34,8 @@ const scriptsFake = (): Scripts => ({
 let repo: string;
 beforeEach(() => {
   repo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-scan-clock-'));
+  // The bridge lives under the state home, so the directory is a repository.
+  execFileSync('git', ['init', '-q', '-b', 'main', repo], { stdio: 'ignore' });
 });
 afterEach(() => {
   rmTree(repo);
@@ -48,12 +52,12 @@ const worldOver = (refs: Refs = refsFake): ScanWorld => saidListingWorld({
 /** Refs whose branch tips cannot be read, so the estate stage — and the beat — fails. */
 const brokenRefs = withWalkRefs({ branchTips: async () => ({ ok: false as const }) } as unknown as Partial<Refs>);
 
-const scan = (state: ReturnType<typeof fleetStateFile>, opts: { refs?: Refs; now?: () => number; warn?: (l: string) => void; prError?: () => string | null; after?: (pulse: FleetReading) => Promise<void> } = {}) =>
+const scan = (state: ReturnType<typeof fleetStateIn>, opts: { refs?: Refs; now?: () => number; warn?: (l: string) => void; prError?: () => string | null; after?: (pulse: FleetReading) => Promise<void> } = {}) =>
   fleetScan(worldOver(opts.refs), state, freshScanState(), opts.now ?? (() => Date.now()), opts.warn ?? (() => {}), opts.prError ?? (() => null), opts.after);
 
 describe('the fleet writes the whole bridge', () => {
   it('carries the pulse, the branch ages and the URL base, non-empty', async () => {
-    const state = fleetStateFile({ repoRoot: repo });
+    const state = fleetStateIn(stateHomeAtSync(repo));
     await scan(state)();
     const read = await state.read();
     expect(read.ok && read.value).toBeTruthy();
@@ -65,7 +69,7 @@ describe('the fleet writes the whole bridge', () => {
   });
 
   it('keeps the previous pulse and records the failed attempt when the walk throws', async () => {
-    const state = fleetStateFile({ repoRoot: repo });
+    const state = fleetStateIn(stateHomeAtSync(repo));
     await scan(state)();
     const first = await state.read();
     const warned: string[] = [];
@@ -81,7 +85,7 @@ describe('the fleet writes the whole bridge', () => {
   });
 
   it('records a started attempt on the last good bridge before the scan returns', async () => {
-    const state = fleetStateFile({ repoRoot: repo });
+    const state = fleetStateIn(stateHomeAtSync(repo));
     await scan(state)();
     const startedAt = Date.now();
     let during: unknown;
@@ -102,14 +106,14 @@ describe('the fleet writes the whole bridge', () => {
 
 describe('the fleet bridges its PR reader\'s last failure', () => {
   it('writes the sentence a failing PR reader holds beside the pulse', async () => {
-    const state = fleetStateFile({ repoRoot: repo });
+    const state = fleetStateIn(stateHomeAtSync(repo));
     await scan(state, { prError: () => 'gh: HTTP 502' })();
     const read = await state.read();
     expect(read.ok && read.value?.prError).toBe('gh: HTTP 502');
   });
 
   it('writes null once the PR reader holds no failure', async () => {
-    const state = fleetStateFile({ repoRoot: repo });
+    const state = fleetStateIn(stateHomeAtSync(repo));
     let held: string | null = 'gh: HTTP 502';
     const again = scan(state, { prError: () => held });
     await again();
@@ -122,7 +126,7 @@ describe('the fleet bridges its PR reader\'s last failure', () => {
 
 describe('the automatic writes run on the scan the fleet just wrote', () => {
   it('hands the pass the pulse the scan wrote, after the bridge write', async () => {
-    const state = fleetStateFile({ repoRoot: repo });
+    const state = fleetStateIn(stateHomeAtSync(repo));
     const seen: Array<{ head: string; bridged: boolean }> = [];
     await scan(state, {
       after: async (pulse) => {
@@ -134,7 +138,7 @@ describe('the automatic writes run on the scan the fleet just wrote', () => {
   });
 
   it('never runs the pass when the scan threw', async () => {
-    const state = fleetStateFile({ repoRoot: repo });
+    const state = fleetStateIn(stateHomeAtSync(repo));
     let passes = 0;
     await scan(state, { refs: brokenRefs, after: async () => { passes += 1; } })();
     expect(passes).toBe(0);

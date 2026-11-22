@@ -5,7 +5,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync, spawn } from 'node:child_process';
 import { rmTree } from '../helpers.mjs';
-import { fleetStateFile, BRIDGE_MAX_AGE_MS } from '@plot-pm/domain/adapters';
+import { fleetStateIn, BRIDGE_MAX_AGE_MS } from '@plot-pm/domain/adapters';
+import { stateHomeAtSync } from '@plot-pm/domain/adapters/main-checkout';
 import { FleetReadingSchema } from '../../src/contract/schema.js';
 
 /**
@@ -92,7 +93,7 @@ const scan = (repo: string, ...args: string[]): string =>
 
 /** The bridge as the board reads it now: through the `FleetState` port. */
 const readBridge = async (repo: string) => {
-  const read = await fleetStateFile({ repoRoot: repo }).read();
+  const read = await fleetStateIn(stateHomeAtSync(repo)).read();
   return read.ok ? read.value : null;
 };
 

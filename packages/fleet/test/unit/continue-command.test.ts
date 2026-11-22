@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { FleetReadingSchema } from '@plot-pm/domain/entities/fleet';
-import { fleetStateFile } from '@plot-pm/domain/adapters/fleet-state/fleet-state-file';
+import { fleetStateIn } from '@plot-pm/domain/adapters/fleet-state/fleet-state-file';
+import { stateHomeAtSync } from '@plot-pm/domain/adapters/main-checkout';
 import { answerRecordFile, ANSWER_RECORD_HOME_ENV, transcriptDirFor, TRANSCRIPT_HOME_ENV } from '@plot-pm/domain/adapters';
 import { isAnswered, type FleetReading } from '@plot-pm/domain';
 import { run } from '../../src/server/entry/continue-command.js';
@@ -199,7 +200,7 @@ describe('the continue entry on a desk holding PLOT-BLOCKED', () => {
       summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
       plans: [{ file: 'docs/plans/p.md', phase: 'Approved', slices: [{ name: 'S', verdict: 'eligible', branches: [{ branch, local_worktree: desk, worker: 'waiting', worker_pid: '424242', state: 'wip', deferred: false, claimed: '' }] }] }],
     });
-    const wrote = await fleetStateFile({ repoRoot: repo }).write({
+    const wrote = await fleetStateIn(stateHomeAtSync(repo)).write({
       at: Date.now(),
       pulse: reading,
       ages: new Map(),
@@ -273,7 +274,7 @@ describe('the continue entry on a desk holding PLOT-BLOCKED', () => {
       summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
       plans: [{ file: 'docs/plans/p.md', phase: 'Approved', slices: [{ name: 'S', verdict: 'eligible', branches: [{ branch, local_worktree: desk, worker: 'waiting', worker_pid: '424242', state: 'wip', deferred: false, claimed: '' }] }] }],
     });
-    const wrote = await fleetStateFile({ repoRoot: repo }).write({
+    const wrote = await fleetStateIn(stateHomeAtSync(repo)).write({
       at: Date.now(),
       pulse: reading,
       ages: new Map(),
