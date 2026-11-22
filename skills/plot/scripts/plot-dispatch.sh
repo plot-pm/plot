@@ -1007,8 +1007,9 @@ ask_start_command() { # $1 = free | assigned
       start_cmd_repair=${answer#unconfigured$'\t'}
       ;;
     0:declined) start_cmd_verb=declined ;;
-    3:*) start_cmd_verb=refused start_cmd_defect=${answer%%$'\t'*}; answer=${answer#*$'\t'}
-      start_cmd_why=${answer%%$'\n'*}
+    3:*)
+      start_cmd_verb=refused
+      IFS=$'\t' read -r start_cmd_defect start_cmd_why <<<"${answer%%$'\n'*}"
       start_cmd_repair=${answer#*$'\n'}
       ;;
     *) start_cmd_verb=unaskable; start_cmd_why="the rule's bundle $start_cmd_bundle answered exit $rc" ;;
@@ -2118,9 +2119,7 @@ if [ "$mode" = "start" ]; then
   case "$start_cmd_verb" in
     run|declined|unconfigured) ;;
     refused)
-      echo "plot-dispatch: --start refuses — ${start_cmd_why}." >&2
-      echo "  configured: $start_cmd_configured" >&2
-      echo "  Repair: ${start_cmd_repair}." >&2
+      printf 'plot-dispatch: --start refuses — %s.\n  configured: %s\n  Repair: %s.\n' "$start_cmd_why" "$start_cmd_configured" "$start_cmd_repair" >&2
       [ "$start_cmd_defect" != no-loop ] || echo "  A branch dispatch (--restart <branch>) starts a worker on any command." >&2
       echo "summary: agents=0 requested=${start_count:-default} running=$start_running headroom=$start_headroom worker=${start_cmd_defect}"
       exit 1
