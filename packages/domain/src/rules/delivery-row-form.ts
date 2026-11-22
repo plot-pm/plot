@@ -68,6 +68,11 @@ export interface CellPart {
 /** What a gate read as: `none` is a review nobody asked for, which differs from a gate nobody read (no part). */
 export type GateOutcome = 'pass' | 'pending' | 'fail' | 'none';
 
+/** A gate mark of `gatesCell`: a part whose `outcome` is always read. */
+export interface GatePart extends CellPart {
+  outcome: GateOutcome;
+}
+
 /** One row in the seven columns. DO is `null` outside the You section. */
 export type RowCells = Record<RowColumn, Cell | null>;
 
@@ -119,6 +124,11 @@ export interface ItemRowFacts {
   mergedPrs?: number[];
   /** The agents acting on the item, in `placement.agents` order; absent where none were read. */
   agents?: ItemAgentFacts[];
+  /**
+   * A claim that holds no work: the branch carries only its claim commit. `elsewhere` is `true` where this machine
+   * holds no worktree for the claim. Absent where the branch carries work or nobody read it.
+   */
+  claim?: { elsewhere: boolean };
 }
 
 /** One agent acting on an item, as its By cell names it. */
@@ -311,10 +321,10 @@ const REVIEW_OUTCOME = { pending: 'pending', high: 'fail', passed: 'pass', none:
  * @param number - the PR number the links point at, or `undefined` where unknown.
  * @returns the cell, or `null` where neither gate was read. Each part carries an `outcome` read from `pr`, never from the mark's glyph.
  */
-export const gatesCell = (pr: PrReading | undefined, number: number | undefined): Cell | null => {
+export const gatesCell = (pr: PrReading | undefined, number: number | undefined): (Cell & { parts: GatePart[] }) | null => {
   if (pr === undefined) return null;
   const marks = gateMarks(pr);
-  const parts: CellPart[] = [
+  const parts: GatePart[] = [
     ...(marks.ci === null || pr.ci === 'unread' ? [] : [{
       value: marks.ci,
       link: number === undefined ? null : { to: 'checks', pr: number } as const,
@@ -419,57 +429,6 @@ const byAgents = (agents: readonly string[], person: string | undefined): Cell |
 
 const ageCell = (minutes: number | undefined): Cell | null =>
   minutes === undefined ? null : link(ageValue(minutes));
-
-const PHASE_WORD = { draft: 'Draft', design: 'Design' } as const;
-const APPROVAL_WORD = { plan: 'plan approval', spike: 'spike approval', release: 'release approval' } as const;
-
-/**
- * The Progress cell of an item being built: the PR state, then the unpushed count where one was read.
- *
- * The PR state comes from `facts.pr`, the item's own open PR, and never from a stage word.
- * An absent or zero count adds no part: an unread count is not `0 unpushed`.
- *
- * @param facts - the item's row facts.
- * @returns the cell, as `no PR yet`, `PR open`, or either followed by ` · N unpushed`.
- */
-export const progressCell = (facts: ItemRowFacts): Cell => {
-  const state = facts.pr === undefined ? 'no PR yet' : 'PR open';
-  const parts: CellPart[] = [
-    { value: state, link: facts.pr === undefined ? null : { to: 'pr', pr: facts.pr } },
-    ...(facts.unpushed !== undefined && facts.unpushed > 0
-      ? [{ value: `${facts.unpushed} unpushed`, link: null } as CellPart] : []),
-  ];
-  return {
-    value: parts.map((p) => p.value).join(' · '),
-    links: parts.flatMap((p) => (p.link === null ? [] : [p.link])),
-    parts,
-  };
-};
-
-/**
- * The Waits on cell of a queued item.
- *
- * Another person's phase or approval comes first, with the person; then the earlier
- * slice, or `an earlier slice` where the server names none; then `no agent assigned`
- * where no agent acts on the item.
- *
- * @param facts - the item's row facts.
- * @param agents - the agents acting on the item.
- * @returns the cell, or `null` where nothing is read to wait on and an agent acts.
- */
-export const waitsOnCell = (facts: ItemRowFacts, agents: readonly string[]): Cell | null => {
-  const what = facts.approvalOwed !== undefined ? APPROVAL_WORD[facts.approvalOwed]
-    : facts.phase !== undefined ? PHASE_WORD[facts.phase] : undefined;
-  if (what !== undefined) {
-    const who = facts.personName || facts.person;
-    return who === undefined || who === ''
-      ? link(what)
-      : link(`${what} · ${who}`, ...(facts.person === undefined ? [] : [{ to: 'person', handle: facts.person } as const]));
-  }
-  if (facts.waitsOn === '') return link('an earlier slice');
-  if (facts.waitsOn !== undefined) return link(facts.waitsOn, { to: 'slice', id: facts.waitsOn });
-  return agents.length === 0 ? link('no agent assigned') : null;
-};
 
 /**
  * The seven cells of a work-item row, with each cell's link targets per the

@@ -143,6 +143,7 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       const templates = await page.locator('li[data-tuple-kind]').evaluateAll(
         (els) => els.map((e) => ({
           kind: e.getAttribute('data-tuple-kind'),
+          work: e.closest('[data-section="work-items"]') !== null,
           cols: getComputedStyle(e).gridTemplateColumns,
         })));
       // Every board-emitted kind is present, so the agreement below is about a
@@ -175,19 +176,25 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       //
       // What a second grid smuggled in under another name would still fail:
       // the track COUNT, and the FIVE genuinely-fixed tracks, both checked below.
-      const tracks = templates.map((t) => ({ kind: t.kind, cols: t.cols.split(' ') }));
+      // TWO GRIDS, one per kind of section: the Work items grid has SEVEN tracks (the marks lane and its six
+      // columns), and every other section keeps EIGHT. Each is checked against its own fixed tracks below.
+      const tracks = templates.map((t) => ({ kind: t.kind, work: t.work, cols: t.cols.split(' ') }));
+      expect(tracks.some((t) => t.work), 'no Work items row rendered').toBe(true);
       for (const t of tracks) {
-        expect(t.cols, `${t.kind} lays out on eight tracks`).toHaveLength(8);
+        expect(t.cols, `${t.kind} lays out on ${t.work ? 'seven' : 'eight'} tracks`).toHaveLength(t.work ? 7 : 8);
       }
       // And the fixed tracks agree EXACTLY — every track but the two flexible
       // ones (column 3 the name, column 4 the links). This is the pixel-level
       // agreement the assertion above was reaching for, asked of the columns
       // that carry it.
-      // Column 7 (BY) sizes to who acts, like the name, so it joins the per-row tracks.
-      const FLEXIBLE_COLS = new Set([2, 3, 6]);
-      const fixed = new Set(
-        tracks.map((t) => t.cols.filter((_, i) => !FLEXIBLE_COLS.has(i)).join(' ')));
-      expect([...fixed], `kinds: ${tracks.map((t) => t.kind).join()}`).toHaveLength(1);
+      // Column 7 (BY) sizes to who acts, like the name, so it joins the per-row tracks. In the Work items grid the
+      // item (column 1) takes the indent and the status (column 3) grows past its bound where its pills need it.
+      for (const work of [true, false]) {
+        const flexible = new Set(work ? [1, 3] : [2, 3, 6]);
+        const grid = tracks.filter((t) => t.work === work);
+        const fixed = new Set(grid.map((t) => t.cols.filter((_, i) => !flexible.has(i)).join(' ')));
+        expect(fixed.size, `kinds: ${grid.map((t) => t.kind).join()}`).toBeLessThanOrEqual(1);
+      }
     } finally {
       await page.close();
     }
@@ -212,15 +219,15 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
     try {
       const pr = page.locator('li[data-tuple-kind="pr"]');
       await pr.waitFor({ timeout: 10_000 });
-      // SLOT 3 IS THE ITEM. A PR's name is its number and its vehicle is the
+      // THE ITEM CELL LEADS. A PR's name is its number and its vehicle is the
       // branch — the row leads with what the reader is deciding about.
-      const name = pr.locator('[role="gridcell"]').nth(2);
+      const name = pr.locator('[data-row-cell="item"]');
       expect(await name.innerText()).toContain('58');
       expect(await name.locator('a[data-tuple-link="pr"]').count()).toBe(1);
-      // SLOT 4 IS THE VEHICLE, and the branch is IN it — an artifact link, not
-      // the subject. Paired against the weaker implementation that drops the
-      // branch entirely to make the PR lead.
-      const links = pr.locator('[role="gridcell"]').nth(3);
+      // THE ITEM'S LINKS HOLD THE VEHICLE, and the branch is IN them — an artifact
+      // link, not the subject. Paired against the weaker implementation that drops
+      // the branch entirely to make the PR lead.
+      const links = pr.locator('[data-item-links]');
       expect(await links.locator('a[data-tuple-link="branch"]').count()).toBe(1);
       expect(await links.locator('[data-branch="feature/reviewed"]').count()).toBe(1);
       // THREE DESTINATIONS, all different — the PR, the branch and the plan.
@@ -314,13 +321,19 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // below, against the heading rather than the row.
       // A You row leads with its verb in the same slot, so it is asserted apart:
       // its word is the verb, never a blank and never a kind.
+      // A Work items row names no kind: its item cell leads it, so it is asserted apart, and must name its item.
+      const items = await page.locator('[data-section="work-items"] li[data-tuple-kind] [data-row-cell="item"]')
+        .evaluateAll((els) => els.map((e) => (e as HTMLElement).innerText.trim()));
+      expect(items.length).toBeGreaterThanOrEqual(1);
+      expect(items.every(Boolean), `blank item among: ${JSON.stringify(items)}`).toBe(true);
+      expect(await page.locator('[data-section="work-items"] li[data-tuple-kind] [data-kind]').count()).toBe(0);
       const words = await page.locator('li[data-tuple-kind]:not([data-tuple-kind="ticket"]):not(:has([data-you-verb])) [data-kind]')
         .evaluateAll((els) => els.map((e) => (e as HTMLElement).innerText.trim()));
       const verbs = await page.locator('li[data-tuple-kind] [data-kind] [data-you-verb]')
         .evaluateAll((els) => els.map((e) => (e as HTMLElement).innerText.trim()));
       expect(verbs.length).toBeGreaterThanOrEqual(1);
       expect(verbs.every((v) => v.endsWith(' ›')), `verbs: ${JSON.stringify(verbs)}`).toBe(true);
-      expect(words.length).toBeGreaterThanOrEqual(3);
+      expect(words.length).toBeGreaterThanOrEqual(1);
       expect(words.every(Boolean), `blank kind among: ${JSON.stringify(words)}`).toBe(true);
       // The Tickets header replaces the per-row word, present and non-blank.
       await expect.poll(() =>

@@ -129,7 +129,7 @@ describe('the Delivery tab in each theme and at 320 px (real browser renders the
     try {
       const header = wide.locator('[data-section="work-items"] [role="row"]').filter({ has: wide.getByRole('columnheader') }).first();
       await expect.poll(() => header.isVisible()).toBe(true);
-      expect(await wide.locator('[data-section="work-items"]').getByRole('columnheader', { name: 'Kind' }).first().isVisible()).toBe(true);
+      expect(await wide.locator('[data-section="work-items"]').getByRole('columnheader', { name: 'Plan' }).first().isVisible()).toBe(true);
     } finally {
       await wide.close();
     }
