@@ -1228,7 +1228,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
     }
     approvedPlan = { file: path.join(ctx.repoRoot, rel), link: pr.url || `#${pr.number}`, dispose: () => {} };
   } else {
-    const mainRoot = await mainRootOf(ctx);
+    const mainRoot = await mainCheckoutOrRepoRoot(ctx);
     const outcome = await bookApproval(ctx, { mainRoot, main, request, args, inSession, prNumber: pr.number, who }, write, warn);
     if (outcome.exit !== undefined) {
       write(summary(outcome.report, 'rejected', 'skipped'));
@@ -1243,7 +1243,8 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
   if (person && push !== 'nothing-to-commit' && push !== 'n/a') {
     const entry = process.env.PLOT_APPROVE_ENTRY === 'board' ? 'board' : 'script';
     const mode = args.spike ? '\tspike' : '';
-    const logDir = path.join(await mainRootOf(ctx), '.plot', 'state');
+    // Falls back to `repoRoot`: `in-session-approvals.tsv` is read by no gate.
+    const logDir = path.join(await mainCheckoutOrRepoRoot(ctx), '.plot', 'state');
     try {
       mkdirSync(logDir, { recursive: true });
       appendFileSync(path.join(logDir, 'in-session-approvals.tsv'), `${today}\t${slug}\t${who}\t${entry}${mode}\n`);
@@ -1390,8 +1391,13 @@ const bookApproval = async (
   }
 };
 
-/** The main checkout's root, which `.plot/state/` and the desk root hang from; the caller's checkout where git cannot say. */
-const mainRootOf = async (ctx: Context): Promise<string> => {
+/**
+ * The main checkout's root, which the desk root and `in-session-approvals.tsv` hang from.
+ *
+ * @param ctx - the approval's context.
+ * @returns `Trees.mainRoot`, or `ctx.repoRoot` where git cannot say: neither the desk nor the log is read by a gate.
+ */
+const mainCheckoutOrRepoRoot = async (ctx: Context): Promise<string> => {
   const root = await ctx.trees.mainRoot(ctx.repoRoot);
   return root.ok ? root.value : ctx.repoRoot;
 };

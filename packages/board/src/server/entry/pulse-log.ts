@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { mainRootOf } from '@plot-pm/domain/adapters/main-checkout';
+import { stateHomeAtSync } from '@plot-pm/domain/adapters/main-checkout';
 import { answer, held } from './delta-core.js';
 
 /**
@@ -63,24 +63,28 @@ export const logToPlan = (file: string, line: string): boolean => {
  * Writes the bridge unless the fleet's writer holds it, and renders the delta
  * against what was on disk when the scan started.
  *
- * @param root - the repository root.
+ * @param root - a main checkout or a linked worktree; the bridge lives under its state home.
  * @param reading - the scan's reading document.
  * @param now - epoch ms.
  * @param respectHold - whether a held bridge is left unwritten; `--stream` passes false and always writes.
  * @returns the delta lines for stdout, `''` where the delta could not be read.
  *   A bridge that cannot be written (a read-only `.plot`, a full disk) is
  *   left as it was, with no temporary file beside it, and the pulse goes on.
+ *   Where the state home is unread, the delta reads no previous pulse and
+ *   nothing is written.
  */
 export const recordBridge = (root: string, reading: Record<string, unknown>, now: number, respectHold = true): string => {
-  const stateDir = join(mainRootOf(root), '.plot', 'state');
-  const file = join(stateDir, 'last-pulse.json');
-  const previous = existsSync(file) ? readFileSync(file, 'utf8').replace(/\n/g, '') : '';
+  const home = stateHomeAtSync(root);
+  const stateDir = 'home' in home ? join(home.home, '.plot', 'state') : null;
+  const file = stateDir === null ? null : join(stateDir, 'last-pulse.json');
+  const previous = file !== null && existsSync(file) ? readFileSync(file, 'utf8').replace(/\n/g, '') : '';
   let delta = '';
   try {
     delta = answer(`${previous}\n${JSON.stringify(reading)}`, now);
   } catch {
     delta = '';
   }
+  if (stateDir === null || file === null) return delta;
   if (respectHold && previous !== '' && held(previous, now)) return delta;
   const tmp = `${file}.${process.pid}.tmp`;
   try {

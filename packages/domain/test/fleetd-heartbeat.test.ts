@@ -11,7 +11,9 @@ import {
   type FleetdHeartbeat,
 } from '../src/entities/fleetd-heartbeat.js';
 import { bridgeVouched, fleetdReadsIssues, fleetdReadsPrs, lateLoopNote, fleetdLiveness, lateLoops, observerFresh } from '../src/rules/fleetd-live.js';
-import { fleetdHeartbeatFile, fleetdHeartbeatPath, readFleetdHeartbeatSync } from '../src/adapters/fleetd-heartbeat/fleetd-heartbeat-file.js';
+import { fleetdHeartbeatFile, fleetdHeartbeatIn, fleetdHeartbeatPath, readFleetdHeartbeatSync } from '../src/adapters/fleetd-heartbeat/fleetd-heartbeat-file.js';
+import { stateHomeAtSync } from '../src/adapters/main-checkout.js';
+import type { StateHome } from '../src/entities/state-home.js';
 
 const T0 = 1_700_000_000_000;
 
@@ -139,12 +141,12 @@ describe('observerFresh', () => {
 });
 
 describe('fleetdHeartbeatFile', () => {
-  const sandbox = (): string => mkdtempSync(join(tmpdir(), 'plot-fleetd-heartbeat-'));
+  const sandbox = (): StateHome => mkdtempSync(join(tmpdir(), 'plot-fleetd-heartbeat-')) as StateHome;
 
   it('writes under .plot/state/fleetd.json and reads it back', async () => {
     const dir = sandbox();
     try {
-      const store = fleetdHeartbeatFile({ repoRoot: dir });
+      const store = fleetdHeartbeatFile({ home: dir });
       const beat = heartbeat();
       expect((await store.write(beat)).ok).toBe(true);
       expect(fleetdHeartbeatPath(dir)).toBe(join(dir, '.plot', 'state', 'fleetd.json'));
@@ -159,7 +161,7 @@ describe('fleetdHeartbeatFile', () => {
   it('leaves no temp file after a write', async () => {
     const dir = sandbox();
     try {
-      const store = fleetdHeartbeatFile({ repoRoot: dir });
+      const store = fleetdHeartbeatFile({ home: dir });
       await store.write(heartbeat());
       await store.write(heartbeat({ beatAt: T0 + 10_000 }));
       expect(readdirSync(join(dir, '.plot', 'state'))).toEqual(['fleetd.json']);
@@ -171,7 +173,7 @@ describe('fleetdHeartbeatFile', () => {
   it('answers null for a missing or unparseable file', async () => {
     const dir = sandbox();
     try {
-      const store = fleetdHeartbeatFile({ repoRoot: dir });
+      const store = fleetdHeartbeatFile({ home: dir });
       const missing = await store.read();
       expect(missing.ok && missing.value).toBeNull();
       mkdirSync(join(dir, '.plot', 'state'), { recursive: true });
@@ -186,7 +188,7 @@ describe('fleetdHeartbeatFile', () => {
   it('fails a read that is not a missing file, and a write that cannot land', async () => {
     const dir = sandbox();
     try {
-      const store = fleetdHeartbeatFile({ repoRoot: dir });
+      const store = fleetdHeartbeatFile({ home: dir });
       mkdirSync(fleetdHeartbeatPath(dir), { recursive: true });
       expect((await store.read()).ok).toBe(false);
       expect((await store.write(heartbeat())).ok).toBe(false);
@@ -236,10 +238,10 @@ describe('fleetdReadsPrs', () => {
 
 describe('readFleetdHeartbeatSync', () => {
   it('reads what the file adapter wrote and reads null where there is none', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'plot-hb-sync-'));
+    const root = mkdtempSync(join(tmpdir(), 'plot-hb-sync-')) as StateHome;
     try {
       expect(readFleetdHeartbeatSync(root)).toBeNull();
-      await fleetdHeartbeatFile({ repoRoot: root }).write(heartbeat());
+      await fleetdHeartbeatFile({ home: root }).write(heartbeat());
       expect(readFleetdHeartbeatSync(root)).toEqual(heartbeat());
     } finally {
       rmSync(root, { recursive: true });
@@ -260,13 +262,33 @@ describe('the heartbeat of a linked worktree', () => {
       git('init', '--quiet', '-b', 'main');
       git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '--allow-empty', '-m', 'seed');
       git('worktree', 'add', '--quiet', linked, '-b', 'side');
-      await fleetdHeartbeatFile({ repoRoot: main }).write(heartbeat());
-      expect(fleetdHeartbeatPath(linked)).toBe(fleetdHeartbeatPath(main));
-      expect(readFleetdHeartbeatSync(linked)).toEqual(heartbeat());
-      await fleetdHeartbeatFile({ repoRoot: linked }).write(heartbeat({ pid: 7 }));
-      expect(readFleetdHeartbeatSync(main)?.pid).toBe(7);
+      const fromMain = stateHomeAtSync(main);
+      const fromLinked = stateHomeAtSync(linked);
+      expect(fromLinked).toEqual(fromMain);
+      await fleetdHeartbeatIn(fromMain).write(heartbeat());
+      const read = await fleetdHeartbeatIn(fromLinked).read();
+      expect(read.ok && read.value).toEqual(heartbeat());
+      await fleetdHeartbeatIn(fromLinked).write(heartbeat({ pid: 7 }));
+      const again = await fleetdHeartbeatIn(fromMain).read();
+      expect(again.ok && again.value?.pid).toBe(7);
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('the heartbeat of an unread state home', () => {
+  it('reads no heartbeat, fails the write, and writes no file under the input path', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-hb-unread-'));
+    try {
+      const answer = stateHomeAtSync(dir);
+      expect(answer).toEqual({ unread: true });
+      const store = fleetdHeartbeatIn(answer);
+      expect(await store.read()).toEqual({ ok: true, value: null });
+      expect((await store.write(heartbeat())).ok).toBe(false);
+      expect(readdirSync(dir)).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });
