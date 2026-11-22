@@ -89,7 +89,7 @@ An agent that fleetd or the board starts inherits every MCP server the operator'
 
 ### Worker and board agents
 
-- `bug/workers-and-board-agents-start-no-mcp-server` — `.plot/worker-prompt.sh` adds `--strict-mcp-config` through `head_args`, the seven `## Plot Config` agent commands carry it, `AGENTS.md` is regenerated, the SDK runner sets `strictMcpConfig` where the run's fragment carries the flag (`fragmentStrictMcp`), and `agent-commands-strict-mcp.test.mjs` and `charter-reaches-launch.test.mjs:196` pin it <!-- builds: --strict-mcp-config in the worker prompt and the Plot Config agent commands, and fragmentStrictMcp -->
+- `bug/workers-and-board-agents-start-no-mcp-server` — `.plot/worker-prompt.sh` adds `--strict-mcp-config` through `head_args`, the seven `## Plot Config` agent commands carry it, `AGENTS.md` is regenerated, the SDK runner sets `strictMcpConfig` where the run's fragment carries the flag (`fragmentStrictMcp`), and `agent-commands-strict-mcp.test.mjs` and `charter-reaches-launch.test.mjs:196` pin it <!-- builds: --strict-mcp-config in the worker prompt and the Plot Config agent commands, and fragmentStrictMcp --> → #3651
 
 ## Notes
 
