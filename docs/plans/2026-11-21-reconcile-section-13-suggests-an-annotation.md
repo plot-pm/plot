@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:**
 - **Issue:** #3586
@@ -15,6 +15,7 @@
 - **Approved:** 2026-11-22, Jan Wloka, plan-PR #3606 merged
 - **Started:** 2026-11-22, Jan Wloka, `feature/reconcile-13-hint-names-only-the-tick`
 - **Delivered:** 2026-11-23
+- **Released:** 2026-11-23, v2.36.0
 
 ## Changelog
 
