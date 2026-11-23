@@ -1,0 +1,1 @@
+../2026-11-23-the-checklist-badge-reads-the-newest-release.md

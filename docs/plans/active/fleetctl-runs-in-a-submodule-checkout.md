@@ -1,0 +1,1 @@
+../2026-11-23-fleetctl-runs-in-a-submodule-checkout.md
