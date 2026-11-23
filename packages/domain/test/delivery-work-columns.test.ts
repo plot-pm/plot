@@ -129,6 +129,19 @@ describe('the wait pills', () => {
     expect(pills('queued', { waitsOn: 'first' })).toEqual([{ word: 'waits on first', tone: 'grey', href: { to: 'slice', id: 'first' } }]);
   });
 
+  it('read no brief where the item needs a brief', () => {
+    expect(pills('queued', { needsBrief: true })).toEqual([{ word: 'no brief', tone: 'grey', href: null }]);
+  });
+
+  it('print no brief and the earlier slice, and the wait once', () => {
+    const out = pills('queued', { needsBrief: true, waitsOn: 'first' });
+    expect(out).toEqual([
+      { word: 'no brief', tone: 'grey', href: null },
+      { word: 'waits on first', tone: 'grey', href: { to: 'slice', id: 'first' } },
+    ]);
+    expect(out.filter((p) => p.word.startsWith('waits on'))).toHaveLength(1);
+  });
+
   it('read an earlier slice where the server names none', () => {
     expect(pills('queued', { waitsOn: '' })).toEqual([{ word: 'waits on an earlier slice', tone: 'grey', href: null }]);
   });
