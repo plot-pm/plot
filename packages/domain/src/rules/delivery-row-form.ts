@@ -102,6 +102,8 @@ export interface ItemRowFacts {
   prReading?: PrReading;
   /** The slice an earlier slice must finish first; `''` where the item waits and the server names no slice. */
   waitsOn?: string;
+  /** The item's brief must be written before anyone can start it, as `WorkItemReading.needsBrief` reads. Set only where true. */
+  needsBrief?: boolean;
   /** The person the item waits on, as a handle. */
   person?: string;
   /** The display name of `person`, resolved through `People`; absent where the directory declares none. */

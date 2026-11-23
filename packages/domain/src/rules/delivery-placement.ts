@@ -72,6 +72,8 @@ export interface WorkItemReading {
   heldBy?: Exclude<DeliveryGate, 'person' | 'ci' | 'review'>;
   /** The slice an earlier slice must finish first. */
   waitsOn?: string;
+  /** The slice's brief must be written before anyone can start it. Set only where true; absent where nobody read it. */
+  needsBrief?: boolean;
   /** A ticket that a plan names: the plan places it, so no section of its own holds it. */
   planned?: boolean;
   /** A ticket's planned release versions: `[]` where the tracker was asked and named none, absent where it was not asked. */

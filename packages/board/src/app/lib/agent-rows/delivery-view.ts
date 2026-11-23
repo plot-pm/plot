@@ -18,6 +18,7 @@ import {
   sprintGroupHeader,
   type DeliveryScopeKind,
   type PersonCard,
+  notStartedHold,
   sliceStateIn,
   type PlanRowFacts,
   type PlanLine,
@@ -990,6 +991,7 @@ export const deliveryView = (
     const delivered = mapping.wholeReadings.items.find((i) => i.id === id)?.delivered === true;
     const merge = slice.merge === 'none' ? 'open' : slice.merge ?? (slice.complete || delivered ? 'merged' : 'open');
     const state = sliceStateIn({ id, merge }, mapping.wholeReadings, mapping.input);
+    const hold = notStartedHold(state, mapping.wholeReadings.items.find((i) => i.id === id));
     const rows = mapping.rowsByItem[id] ?? [];
     const first = rows.find((r) => r.blockedBy !== null && r.blockedBy !== undefined);
     const open = rows.find((r) => r.pr !== null && r.state !== 'merged' && r.pr.state !== 'closed' && r.pr.open !== false);
@@ -1004,6 +1006,7 @@ export const deliveryView = (
       begun: rows.some((r) => !(isUnbegun(r) && r.branch === '')),
       ...(open?.pr ? { pr: open.pr.number } : {}),
       ...(named.length === 1 ? { branch: named[0]! } : {}),
+      ...(hold === null ? {} : { hold }),
     };
   };
   // A delivered slice the pulse did not carry is still a slice of its plan: its row names both.

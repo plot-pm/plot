@@ -64,6 +64,7 @@ export const itemRowFactsOf = (mapping: DeliveryMapping, id: string): ItemRowFac
   const blockedBy = rows.find((r) => r.blockedBy !== null && r.blockedBy !== undefined)?.blockedBy;
   if (blockedBy !== undefined && blockedBy !== null) facts.waitsOn = blockedBy;
   else if (reading?.waitsOn !== undefined) facts.waitsOn = reading.waitsOn;
+  if (reading?.needsBrief === true) facts.needsBrief = true;
   if (reading?.phase === 'draft' || reading?.phase === 'design') facts.phase = reading.phase;
   if (reading?.approvalOwed !== undefined) facts.approvalOwed = reading.approvalOwed;
   if (draft?.rounds !== undefined) facts.rounds = draft.rounds;
