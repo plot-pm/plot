@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** delivery-ui-polish
 - **Review:** pr
@@ -18,6 +18,7 @@
 - **Started:** 2026-11-22, Jan Wloka, `feature/release-delivery-plan-rows-unfold`
 - **Started:** 2026-11-23, Jan Wloka, `feature/fleet-switches-in-fleet-section`
 - **Delivered:** 2026-11-23
+- **Released:** 2026-11-23, v2.36.0
 
 ## Changelog
 
