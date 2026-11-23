@@ -5,6 +5,7 @@ import path from 'node:path';
 import { rmTree } from '../helpers.mjs';
 import {
   readTail,
+  workerLog,
   worktreeForBranch,
   TAIL_BYTES,
   WORKER_LOG_NAME,
@@ -284,9 +285,11 @@ describe('the panel tells the three misses apart', () => {
       missWord('no-worktree'),
       missWord('no-log'),
       missWord('unreadable'),
+      missWord('pulse-partial'),
+      missWord('no-pulse'),
       EMPTY_LOG_WORD,
     ];
-    expect(new Set(said).size).toBe(4);
+    expect(new Set(said).size).toBe(6);
     for (const s of said) expect(s.length).toBeGreaterThan(0);
   });
 
@@ -305,5 +308,38 @@ describe('sizeLabel — the truncation notice can name what is missing', () => {
     [5 * 1024 * 1024, '5.0 MB'],
   ])('renders %i as %s', (bytes, want) => {
     expect(sizeLabel(bytes)).toBe(want);
+  });
+});
+
+describe('workerLog over a partial pulse', () => {
+  const opts = { repoRoot: '/nowhere' } as Parameters<typeof workerLog>[0];
+
+  it('answers pulse-partial, not no-worktree, where neither pulse lists the branch', () => {
+    const log = workerLog(opts, 'feature/late', {
+      pulse: () => pulse([{ branch: 'feature/other', local_worktree: tmp }]),
+      pulseComplete: () => false,
+      lastComplete: () => null,
+    });
+    expect(log).toEqual({ ok: false, branch: 'feature/late', reason: 'pulse-partial', path: null });
+  });
+
+  it('reads the desk from the last finished pulse where the partial one misses the branch', () => {
+    fs.writeFileSync(path.join(tmp, WORKER_LOG_NAME), 'hello\n');
+    const log = workerLog(opts, 'feature/late', {
+      pulse: () => pulse([{ branch: 'feature/other', local_worktree: '' }]),
+      pulseComplete: () => false,
+      lastComplete: () => pulse([{ branch: 'feature/late', local_worktree: tmp }]),
+    });
+    expect(log).toMatchObject({ ok: true, branch: 'feature/late', text: 'hello\n' });
+  });
+
+  it('answers no-pulse on a cold cache and no-worktree for a finished pulse without the branch', () => {
+    expect(workerLog(opts, 'feature/late', { pulse: () => null, pulseComplete: () => false, lastComplete: () => null })).toMatchObject({
+      ok: false,
+      reason: 'no-pulse',
+    });
+    expect(
+      workerLog(opts, 'feature/late', { pulse: () => pulse([]), pulseComplete: () => true, lastComplete: () => null }),
+    ).toMatchObject({ ok: false, reason: 'no-worktree' });
   });
 });
