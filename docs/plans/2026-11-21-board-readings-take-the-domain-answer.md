@@ -17,6 +17,7 @@
 - **Started:** 2026-11-23, Jan Wloka, `bug/the-plan-store-corpus-checks-both-lists`
 - **Started:** 2026-11-23, Jan Wloka, `bug/the-verdict-line-drops-the-spike-columns`
 - **Started:** 2026-11-23, Jan Wloka, `bug/plot-implement-asks-for-the-spike`
+- **Started:** 2026-11-23, Jan Wloka, `bug/the-quiet-invariant-reads-the-placement`
 
 ## Changelog
 
