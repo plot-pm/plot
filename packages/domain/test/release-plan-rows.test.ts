@@ -372,6 +372,8 @@ describe('the held sub-count of not started', () => {
   it('prints nothing after not started where no slice is held', () => {
     const rows = [planRowFacts('p', '', five)];
     expect(headerText(headerCounts(rows), '', stripStateCounts(rows))).not.toContain('held');
+    const { held: _held, ...unheld } = stripStateCounts(rows);
+    expect(headerText(headerCounts(rows), '', unheld)).toBe(headerText(headerCounts(rows), '', stripStateCounts(rows)));
   });
 
   it('sums the held count over the plan rows, as the five states are summed', () => {
