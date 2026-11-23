@@ -806,59 +806,34 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  // ── Slot 2 holds the KIND ─────────────────────────────────────────────────
+  // ── A Work items row leads with its item ──────────────────────────────────
   //
-  // This block tested the PHASE in this cell, and every assertion it made is
-  // kept — retargeted at the word that now lives here rather than deleted. What
-  // it was really pinning is a property of the COLUMN, not of the phase: the
-  // word is spelled out, it is not truncated at its longest, it is named by the
-  // header rather than by a per-row prefix, and it is not also stated in a
-  // tooltip. All four still have to hold, and the fourth is the one this branch
-  // is about — the phase cell said which of its four meanings it held ONLY in
-  // its `title`, which is a tooltip doing a label's job.
+  // This block tested the KIND in slot 2, which `delivery-work-items-grid` drops from Work items: every group shares
+  // one grid of item, plan, status, by, age and menu, and the item tuple's own segment labels say what each link is.
+  // What the block pinned and still has to hold is kept: the header names each column once, the row repeats no name
+  // in a tooltip, and the plan's phase and the repo stay off a branch row.
 
-  it('shows the KIND spelled out, and not truncated at its longest', async () => {
-    // Initials cannot carry this any more than they could carry the phase, and
-    // the collision is worse: `Plan`, `PR` and... nothing else starts with P,
-    // but `Branch` and `Build` both start with B, and those two are the pair a
-    // reader most needs to tell apart — one is a ref to go and fix, the other a
-    // CI run to go and read. So the assertion is the full word, and that the
-    // cell is wide enough for the longest of the seven (`Release`, 7 chars).
+  it('leads a Work items row with its item, and gives it no kind cell', async () => {
     const page = await openAgents();
     try {
       const li = rowFor(page, 'feature/reviewed');
-      // `Wave`, and the comment here read *"a branch with no PR is Branch"* —
-      // wrong about this row twice over. It carries PR #130, and it carries the
-      // fixture's default `wave: 'w'` under plan `beans`, so it was never the
-      // no-PR no-plan case that yields `Branch`. Since 2026-08-21 the wave
-      // outranks the PR as well: the wave carries the plan forward and the PR is
-      // an event at its branch. The word is what this test is about, and it is
-      // still spelled in full.
-      await expect.poll(() => li.locator('[data-kind]').textContent()).toBe('Slice');
-      const cell = li.locator('[data-kind]');
-      const fits = await cell.evaluate(
-        (el) => el.scrollWidth <= (el.parentElement as HTMLElement).clientWidth,
-      );
-      expect(fits).toBe(true);
+      await expect.poll(() => li.locator('[data-row-cell="item"]').count()).toBe(1);
+      expect(await li.locator('[data-kind]').count()).toBe(0);
+      expect(await li.locator('[data-row-cell="kind"]').count()).toBe(0);
+      const first = await li.locator('[role="gridcell"]').nth(1).getAttribute('data-row-cell');
+      expect(first).toBe('item');
     } finally {
       await page.close();
     }
   });
 
   it('prints NO plan phase on a branch row, in any section', async () => {
-    // THE RELOCATION, asserted as an absence — which is the only way it can be
-    // asserted, and the reason it is a test of its own. 71 rows printed their
-    // plan's phase (36 `Development`, 26 `Testing`, 9 `Design`): a fact about
-    // the plan, on a row about a branch.
-    //
-    // `feature/reviewed` carries `phase: 'Development'` in the fixture, so the
-    // fact REACHES the row and is declined by the renderer rather than being
-    // absent from the data. A fixture with no phase would pass this test while
-    // the defect stood.
+    // THE RELOCATION, asserted as an absence. `feature/reviewed` carries `phase: 'Development'` in the fixture, so
+    // the fact REACHES the row and is declined by the renderer rather than being absent from the data.
     const page = await openAgents();
     try {
       const li = rowFor(page, 'feature/reviewed');
-      await expect.poll(() => li.locator('[data-kind]').count()).toBe(1);
+      await expect.poll(() => li.locator('[data-row-cell="item"]').count()).toBe(1);
       expect(await li.locator('[data-phase]').count()).toBe(0);
       expect(await li.textContent()).not.toContain('Development');
     } finally {
@@ -866,104 +841,56 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('drops the repo column — the kind holds the track the phase held', async () => {
-    // Unchanged in substance and kept for its absence: a seventh cell would
-    // wrap a row that already wraps on long branch names, so the repo stays
-    // given up. Asserted as an absence because adding the kind BESIDE the repo
-    // passes every other test in this file.
+  it('drops the repo column', async () => {
+    // Asserted as an absence because adding the repo beside the plan passes every other test in this file.
     const page = await openAgents();
     try {
       const li = rowFor(page, 'feature/reviewed');
-      await expect.poll(() => li.locator('[data-kind]').count()).toBe(1);
+      await expect.poll(() => li.locator('[data-row-cell="item"]').count()).toBe(1);
       expect(await li.textContent()).not.toContain('garden');
     } finally {
       await page.close();
     }
   });
 
-  it('names the kind by its COLUMN, and states it in no tooltip', async () => {
-    // Three halves, and the third is what `the-kind-is-labelled-not-hovered`
-    // asks for.
-    //
-    // 1. The header names the column once for the whole grid — `Kind`, where it
-    //    read `Phase`.
-    // 2. The row does not say it again: no `sr-only` prefix above `sm`, because
-    //    the header is the structure that replaced it.
-    // 3. NO `title` ANYWHERE ON THE CELL. The old phase cell carried
-    //    `title={sliceName ? "Wave: …" : "Phase: …"}` — hover-only text that was
-    //    the ONLY place the cell said which of its four facts it was showing.
-    //    A single-meaning cell has nothing to disambiguate, so the attribute is
-    //    gone rather than reworded, and this asserts that it is gone.
+  it('names every Work items column once in the header, and states none in a tooltip', async () => {
     const page = await openAgents();
     try {
       const li = rowFor(page, 'feature/reviewed');
-      // `Wave` since 2026-08-21 — this row carries PR #130 and a plan, and the
-      // wave now outranks the PR. What this test is about is unaffected: the kind
-      // is named by its COLUMN and stated in no tooltip, whichever word it holds.
-      await expect.poll(() => li.locator('[data-kind]').textContent()).toBe('Slice');
+      await expect.poll(() => li.locator('[data-row-cell="item"]').count()).toBe(1);
       const headers = group(page, 'at-a-gate').getByRole('columnheader');
-      // THE TUPLE'S SEVEN, and two of the old six could not be true of every
-      // row beneath them: a plan has no branch and a ticket has no pull
-      // request, and the header said both anyway because the grid it described
-      // was one kind's. `Related` heads slot 4, which holds whatever a kind's
-      // artifacts are and where each link states its own `what` beside itself.
+      // The marks track keeps its name for a screen reader; the menu track prints `⋯` and is named `Actions`.
       await expect.poll(() => headers.allTextContents())
-        .toEqual(['Marks', 'Kind', 'Item', 'Where', 'Gates', 'Do', 'By', 'Age']);
-      // The accessible name, not `textContent`: what a screen reader hears is
-      // the question, and it must hear the header once and the cell's word once.
-      const kindCell = li.locator('[role="gridcell"]').nth(KIND_CELL);
-      const name = await kindCell.evaluate((el) => (el as HTMLElement).innerText);
-      // LOWERCASED: slot 2 wears Tailwind's `uppercase`, and the accessible
-      // name is what is RENDERED. Asserting `Branch` would make this a claim
-      // about a CSS utility rather than about the column naming the kind.
-      //
-      // `slice`, because this row's branch belongs to a plan. What the test is
-      // about — the column NAMES the kind, in full and in no tooltip — does not
-      // depend on which kind that is.
-      expect(name.trim().toLowerCase()).toBe('slice');
-      // The word is visible, and it is the label — not a tooltip.
-      const word = li.locator('[data-kind]');
-      expect((await word.boundingBox())?.width ?? 0).toBeGreaterThan(1);
-      expect(await kindCell.getAttribute('title')).toBeNull();
-      expect(await word.getAttribute('title')).toBeNull();
+        .toEqual(['Marks', 'Item', 'Plan', 'Status', 'By', 'Age', '⋯']);
+      expect(await group(page, 'at-a-gate').getByRole('columnheader', { name: 'Actions' }).count()).toBe(1);
+      for (const cell of ['item', 'plan', 'status']) {
+        expect(await li.locator(`[data-row-cell="${cell}"]`).getAttribute('title'), cell).toBeNull();
+      }
     } finally {
       await page.close();
     }
   });
 
-  it('gives a PR row the word PR, so two kinds read differently in one column', async () => {
-    // The claim the four-meanings column could not make: two rows in one
-    // section, same column, and the word DIFFERS because the rows are different
-    // kinds of thing. The phase could never do this — both rows' plans share a
-    // phase, so both printed the same word.
-    //
-    // `kind` is the SERVER's judgement and this fixture states it; the renderer
-    // reading it rather than sniffing `row.pr` is what makes a release (a PR on
-    // a `changeset-release/*` branch) classifiable at all.
+  it('tells a PR row from a branch row by the PR link beside the item name', async () => {
+    // Two rows in one section, and what tells them apart is the PR link the item cell carries: the row with a PR
+    // links it, and the row without one links none.
     const page = await openAgentsAt(1280, fleet({
       rows: [
         row({ branch: 'feature/has-pr', plan: 'beans', group: 'waiting-on-you',
-              phase: 'Development', ageMinutes: 20, kind: 'pr',
+              phase: 'Development', planState: 'approved', ageMinutes: 20, kind: 'pr',
               note: 'awaiting review', branchUrl: `${GH}feature/has-pr`,
               pr: { number: 41, url: `${GH}../pull/41`, draft: false, state: 'green' } }),
-        // A DIFFERENT PLAN, so the two rows do not group into one wave. Sharing
-        // `beans` put both under a single wave row, which stands in for ONE
-        // branch — measured, only `feature/no-pr` reached the DOM and the PR row
-        // was unreachable. Two kinds cannot read differently in one column if
-        // one of them is not rendered.
+        // A DIFFERENT PLAN, so the two rows do not group into one slice row that stands in for one branch.
         row({ branch: 'feature/no-pr', plan: 'plant-tomatoes', group: 'waiting-on-you',
-              phase: 'Development', ageMinutes: 25, kind: 'branch',
+              phase: 'Development', planState: 'approved', ageMinutes: 25, kind: 'branch',
               note: 'awaiting review', branchUrl: `${GH}feature/no-pr` }),
       ],
     }));
     try {
-      // A PR row says PR; a branch that is the only branch of its slice is that slice's row, and says Slice.
-      await expect.poll(() => rowFor(page, 'feature/has-pr').locator('[data-kind]')
-        .textContent()).toBe('PR');
-      expect(await rowFor(page, 'feature/no-pr').locator('[data-kind]').textContent())
-        .toBe('Slice');
-      // And NEITHER is given the phase both their plans have — the same fixture
-      // phase on both rows, printed on neither.
+      await expect.poll(() => rowFor(page, 'feature/has-pr').locator('[data-row-cell="item"] [data-pr-link]').count())
+        .toBe(1);
+      expect(await rowFor(page, 'feature/no-pr').locator('[data-row-cell="item"] [data-pr-link]').count()).toBe(0);
+      // And NEITHER is given the phase both their plans have.
       expect(await rowFor(page, 'feature/has-pr').locator('[data-phase]').count()).toBe(0);
       expect(await rowFor(page, 'feature/no-pr').locator('[data-phase]').count()).toBe(0);
     } finally {
@@ -972,15 +899,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   });
 
   it('shows the column names from 640 px up and hides them below', async () => {
-    // The mockups draw a visible header row above every table. Below `sm` a row
-    // wraps into a card with its own `Kind:` prefix, so the header row is gone
-    // there rather than naming tracks the card does not have.
+    // Below `sm` a row wraps into a card, so the header row is gone there rather than naming tracks the card does
+    // not have.
     const wide = await openAgentsAt(1280);
     try {
       const header = group(wide, 'at-a-gate').getByRole('row').first();
       await expect.poll(() => header.count()).toBe(1);
       await expect.poll(() => header.isVisible()).toBe(true);
-      expect(await header.getByRole('columnheader', { name: 'Kind' }).isVisible()).toBe(true);
+      expect(await header.getByRole('columnheader', { name: 'Item' }).isVisible()).toBe(true);
       // The marks track keeps its name for a screen reader and prints none.
       expect(await header.getByRole('columnheader', { name: 'Marks' }).count()).toBe(1);
     } finally {
@@ -999,7 +925,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // A plan that is rejected, superseded or simply unknown has no column, and
     // the row says nothing rather than guessing one.
     const page = await openAgents(
-      fleet({ rows: fleet().rows.map((r) => ({ ...r, phase: null })) }),
+      fleet({ rows: fleet().rows.map((r) => ({ ...r, phase: null, planState: null })) }),
     );
     try {
       const li = rowFor(page, 'feature/reviewed');
@@ -1130,7 +1056,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('renders NO menu on a row blocked by an earlier wave', async () => {
+  it('lists Start work disabled on a row blocked by an earlier wave', async () => {
     // **This asserted a DIMMED menu until 2026-08-18**, on the reasoning that a
     // dead `Start work` names an action that does not exist here while a dimmed
     // three-dot menu claims only *this is where actions would be*, true on
@@ -1144,6 +1070,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // The reason it was allowed — a ragged, moving right edge — was answered by
     // the fixed track this cell has since gained; see the right-edge test below,
     // which now measures exactly that.
+    //
+    // `delivery-rows-act-from-one-place` brought the menu back with a different
+    // claim: every kind lists its fixed item set, so the `⋯` opens and Start work
+    // is listed disabled with its reason. A trigger that opens a list of refused
+    // items states what the row cannot do; it no longer opens nothing.
     const page = await openAgentsWithBoard();
     try {
       const li = rowFor(page, 'feature/blocked');
@@ -1156,7 +1087,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // AND IT SAYS SO TO A SCREEN READER — the half a mark loses in silence.
       expect(await blockedMark.first().getAttribute('aria-label'))
         .toBe('Blocked by slice Truth — show it');
-      expect(await menu(page, 'feature/blocked').count()).toBe(0);
+      await openMenu(page, 'feature/blocked');
+      const item = li.locator('[data-menu-item="start-work"]');
+      expect(await item.getAttribute('aria-disabled')).toBe('true');
+      expect(await item.getAttribute('data-menu-reason')).not.toBe('');
       expect(await li.getByRole('button', { name: 'Start work' }).count()).toBe(0);
     } finally {
       await page.close();
@@ -1193,7 +1127,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         row({
           branch: 'feature/cs-moved', plan: blockerPlan,
           planFile: '2026-08-23-cross-section.md', wave: 'Moved',
-          group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+          group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
           waitingOn: 'time' as const, verdict: 'blocked', blockedBy: 'Shaped',
           branchUrl: `${GH}feature/cs-moved`, waitingDays: 3,
         }),
@@ -1257,7 +1191,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         row({
           branch: 'feature/spoken', plan: blockerPlan,
           planFile: '2026-08-24-live-worker.md', wave: 'Spoken',
-          group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+          group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
           waitingOn: 'time' as const, verdict: 'blocked', blockedBy: 'Named',
           branchUrl: `${GH}feature/spoken`, waitingDays: 1,
           kind: 'wave' as const,
@@ -1316,7 +1250,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         }),
         row({
           branch: `feature/${prefix}-spoken`, plan, planFile: file, wave: 'Spoken',
-          group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+          group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
           waitingOn: 'time' as const, verdict: 'blocked', blockedBy: 'Named',
           branchUrl: `${GH}feature/${prefix}-spoken`, waitingDays: 1,
           kind: 'wave' as const,
@@ -1400,13 +1334,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expect.poll(() =>
         group(page, 'input-to-the-fleet').locator('[data-slice-blocked-by="Truth"]').count())
         .toBeGreaterThan(0);
-      expect(await menu(page, 'feature/blocked').count()).toBe(0);
       // A different row, a different reason — so the words are read from the
       // row rather than being one string for every row with nothing to do.
       await expand(page, 'queued');
       const quiet = rowFor(page, 'feature/ghost');
       await expect.poll(() => quiet.textContent()).toContain('no commit for 16 hours');
-      expect(await menu(page, 'feature/ghost').count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -1422,13 +1354,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // GRIDCELL still renders unconditionally while only the button inside it is
     // conditional. So the column holds still on its own, and the placeholder
     // was paying for something it no longer bought. This asserts that
-    // directly: a row WITH a menu and a row WITHOUT one line up.
+    // directly: a row with an enabled action and a row whose items are all
+    // refused line up. `row-menu-column.browser.test.ts` measures a Do cell
+    // with no trigger at all against the same x.
     const page = await openAgentsWithBoard();
     try {
       await expect.poll(() => menu(page, 'feature/untaken').count()).toBe(1);
-      // The row with an action, and a row with none — the exact pair whose
-      // divergence the old placeholder existed to prevent.
-      expect(await menu(page, 'feature/blocked').count()).toBe(0);
+      // The row with an action, and a row with none it can run — the exact
+      // pair whose divergence the old placeholder existed to prevent.
       const withAction = await rowFor(page, 'feature/untaken')
         .locator('[data-row-cell="do"]').boundingBox();
       const without = await rowFor(page, 'feature/blocked')
@@ -1460,8 +1393,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // fact summarised for the group. The branch's own note is what the wave
       // replaced, so polling this row for `ELIGIBLE_NOTE` waited on a string
       // that had moved rather than on the state the test needs.
-      await expect.poll(() => group(page, 'input-to-the-fleet').innerText())
-        .toMatch(/eligible/i);
+      // Under You the consequence replaces the status, so the row states its
+      // eligibility as the approved slice nobody has taken.
+      await expect.poll(() => li.innerText()).toMatch(/nobody has taken it/i);
       // THE CLAIMS, unchanged and both still true: no menu, no Start button.
       expect(await menu(page, 'feature/ghost-ready').count()).toBe(0);
       expect(await li.getByRole('button', { name: 'Start work' }).count()).toBe(0);
@@ -1508,15 +1442,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         expect(await rowFor(page, branch).getByRole('button', { name: 'Start work' }).count(),
           `${branch} offered Start work`).toBe(0);
       }
-      // No menu at all on the rows that are not agents, have no run to open, AND
-      // are not in WAITING ON YOU. `the-menu-fits-the-kind` gives a WAITING ON
-      // YOU row a menu whatever else it offers, because Open (Review, for a PR
-      // row like `feature/reviewed`) is always something the reader can do there
-      // — so a green PR awaiting review is no longer menuless, which was the
-      // motivating defect. The others are quiet/done/not-started and stay bare.
-      const stillBare = ['feature/landed', 'feature/ghost', 'feature/shelved'];
-      for (const branch of stillBare) {
-        expect(await menu(page, branch).count(), `${branch} rendered a menu`).toBe(0);
+      // Every kind lists its fixed item set since `delivery-rows-act-from-one-place`,
+      // so the quiet and not-started rows carry a menu too. Opened, it still holds
+      // no Start work button: the item is listed disabled.
+      for (const branch of ['feature/ghost', 'feature/shelved']) {
+        await openMenu(page, branch);
+        expect(await rowFor(page, branch).getByRole('button', { name: 'Start work' }).count(),
+          `${branch} offered Start work`).toBe(0);
+        await page.keyboard.press('Escape');
       }
       // And `feature/reviewed` DOES carry a menu now — a WAITING ON YOU PR row —
       // holding Review, and still nothing that dispatches it.
@@ -1527,6 +1460,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       expect(await rowFor(page, 'feature/reviewed').getByRole('button', { name: 'Start work' }).count())
         .toBe(0);
       // And the WORKING row's menu holds the log — a read — and nothing that acts.
+      // Every kind lists its fixed item set, so the open menu covers the rows below: close it first.
+      await page.keyboard.press('Escape');
       await menu(page, 'feature/beans-a').click();
       const working = rowFor(page, 'feature/beans-a');
       expect(await working.locator('[data-worker-log-open]').count()).toBe(1);
@@ -1551,10 +1486,12 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // The plan is reachable too, as a link in the row's own group.
       expect(await group(page, 'input-to-the-fleet').getByRole('link', { name: 'plant-tomatoes' })
         .count()).toBeGreaterThan(0);
-      // Opening the menu adds no links anywhere: what it holds is an action.
+      // Opening the menu adds one link, its Open item, and the row keeps its own
+      // anchors: the menu's Open is an item of the fixed set, not the row's name.
       const before = await li.getByRole('link').count();
       await openMenu(page, 'feature/untaken');
-      expect(await li.getByRole('link').count()).toBe(before);
+      expect(await li.getByRole('link').count()).toBe(before + 1);
+      expect(await li.locator('[role="menuitem"] a[data-open-link]').count()).toBe(1);
     } finally {
       await page.close();
     }
@@ -1565,11 +1502,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // capability have landed. A control whose outcome is unknown is worse than
     // no control — the same rule PlanCard follows.
     //
-    // This asserted a DIMMED menu until 2026-08-18. With no card and no
-    // dispatch verdict there is no item to hold, and a menu with no items now
-    // renders no button — the empty `⋯` in its purest form, on a page that
-    // knows nothing yet. The claim the old dimmed control made (*this is where
-    // actions would be*) is exactly the claim this page cannot support.
+    // With no card and no dispatch verdict, the row's fixed item set lists
+    // Start work disabled with its reason, and no Start work button renders.
     const page = await cat.browser.newPage();
     try {
       await page.route('**/api/board', (route) => route.abort('connectionrefused'));
@@ -1583,7 +1517,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // not-started BRANCH row, which now sits one click in.
       await expandPlans(page);
       await rowFor(page, 'feature/untaken').waitFor({ timeout: 10_000 });
-      expect(await menu(page, 'feature/untaken').count()).toBe(0);
+      // The `⋯` opens and lists Start work disabled: no card and no dispatch
+      // verdict leave nothing it can run.
+      await openMenu(page, 'feature/untaken');
+      const item = rowFor(page, 'feature/untaken').locator('[data-menu-item="start-work"]');
+      expect(await item.getAttribute('aria-disabled')).toBe('true');
       expect(await startButtons(page).count()).toBe(0);
     } finally {
       await page.close();
@@ -1764,7 +1702,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('renders an EMPTY group no heading and no body, and keeps its 0 in the header line', async () => {
+  it('renders an EMPTY group its heading with "— none" and no body, and keeps its 0 in the header line', async () => {
     const page = await openAgents();
     try {
       // Fleet › Blocked holds no agent in this fixture.
@@ -1772,8 +1710,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expect.poll(() => count.count()).toBe(1);
       expect(await count.textContent()).toContain('0');
       expect(await count.locator('[data-summary-link]').count()).toBe(0);
-      expect(await group(page, 'blocked').count()).toBe(0);
-      expect(await heading(page, 'blocked').count()).toBe(0);
+      expect(await heading(page, 'blocked').count()).toBe(1);
+      expect(await heading(page, 'blocked').locator('[data-group-none]').textContent()).toBe('— none');
+      expect(await group(page, 'blocked').locator('ul').count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -1964,7 +1903,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // 2000 became 2100 on 2026-11-18, when the release cards (64px) joined the
       // Delivery header and the footer's bottom read 2013px on CI.
       // 2100 became 2400 on 2026-11-19, when the Delivery sections took card padding and visible header rows and the footer's bottom read 2282px on CI.
-      await page.setViewportSize({ width: 1280, height: 2400 });
+      // 2400 became 2600 on 2026-11-20, when empty groups took a "— none" heading and empty sections took a dashed frame (+151px measured on macOS) and the footer's bottom read 2404px on CI.
+      await page.setViewportSize({ width: 1280, height: 2600 });
       await page.route('**/api/fleet', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(many) }));
       await page.goto(`${cat.mock.baseURL}?tab=agents`);
@@ -2522,9 +2462,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   // to the right edge, and the branch started wherever the plan cell before it
   // happened to end.
 
-  /** The x of one cell of one row, by the cell's index in the track list. */
-  async function cellX(page: Page, branch: string, index: number): Promise<number> {
-    const cell = rowFor(page, branch).locator('[role="gridcell"]').nth(index);
+  /** The x of one cell of one row, by the cell's `data-row-cell` name. */
+  async function cellX(page: Page, branch: string, name: string): Promise<number> {
+    const cell = rowFor(page, branch).locator(`[data-row-cell="${name}"]`);
     const box = await cell.boundingBox();
     return Math.round(box!.x);
   }
@@ -2557,10 +2497,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   // column while claiming to measure the age. That is precisely the stale
   // `nth()` the comment above warns about — passing while pointing at a
   // different column — and it was sitting in the constants meant to prevent it.
-  const KIND_CELL = 1;
-  const BRANCH_CELL = 2;
-  const STATUS_CELL = 4;
-  const AGE_CELL = 7;
+  //
+  // SINCE `delivery-work-items-grid` A CELL IS FOUND BY ITS NAME. A Work items row has no kind cell, so its
+  // indices differ from a You or Fleet row's by one; `data-row-cell` names the same column in both.
+  const STATUS_CELL = 'status';
+  const AGE_CELL = 'age';
 
   it('starts every branch cell at the same x, with a phase and without one', async () => {
     // The first of the three defects, and the reason the row became a grid at
@@ -2570,10 +2511,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents(fleet({
       rows: [
         row({ branch: 'feature/reviewed', plan: 'beans', group: 'waiting-on-you',
-              phase: 'Development', ageMinutes: 20, note: 'awaiting review',
+              phase: 'Development', planState: 'approved', ageMinutes: 20, note: 'awaiting review',
               branchUrl: `${GH}feature/reviewed` }),
         row({ branch: 'feature/nophase', plan: 'beans', group: 'waiting-on-you',
-              phase: null, ageMinutes: 30, note: 'awaiting review',
+              phase: null, planState: null, ageMinutes: 30, note: 'awaiting review',
               branchUrl: `${GH}feature/nophase` }),
       ],
     }));
@@ -2589,9 +2530,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const offsets = await page.evaluate(() => ['feature/nophase', 'feature/reviewed']
         .map((b) => {
           const li = document.querySelector(`[data-branch="${b}"]`)?.closest('li');
-          const cells = [...(li?.querySelectorAll('[role="gridcell"]') ?? [])];
           const row = li?.getBoundingClientRect().x ?? 0;
-          const cell = cells[2]?.getBoundingClientRect().x ?? 0;
+          const cell = li?.querySelector('[data-row-cell="item"]')?.getBoundingClientRect().x ?? 0;
           return Math.round(cell - row);
         }));
       expect(offsets[0], 'a phaseless row indents its branch cell like any other')
@@ -2644,9 +2584,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const offsets = await page.evaluate(() => ['feature/solo', 'feature/beans-1']
         .map((b) => {
           const li = document.querySelector(`[data-branch="${b}"]`)?.closest('li');
-          const cells = [...(li?.querySelectorAll('[role="gridcell"]') ?? [])];
           const row = li?.getBoundingClientRect().x ?? 0;
-          return Math.round((cells[2]?.getBoundingClientRect().x ?? 0) - row);
+          return Math.round((li?.querySelector('[data-row-cell="item"]')?.getBoundingClientRect().x ?? 0) - row);
         }));
       expect(offsets[0], `offsets ${offsets.join()}`).toBe(offsets[1]);
       // And the fixture really is mixed: two plans, one with two branches and
@@ -2718,11 +2657,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
               group: 'working', ageMinutes: 5, note: 'last commit 5 min ago',
               branchUrl: `${GH}feature/truth-a` }),
         row({ branch: 'feature/fold-a', plan: 'layered', wave: 'Fold',
-              group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+              group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
               waitingOn: 'time' as const, note: 'blocked by Truth',
               branchUrl: `${GH}feature/fold-a`, startability: null }),
         row({ branch: 'feature/fold-b', plan: 'layered', wave: 'Fold',
-              group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+              group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
               waitingOn: 'time' as const, note: 'blocked by Truth',
               branchUrl: `${GH}feature/fold-b`, startability: null }),
         // Single-wave plan `flat`, with a NAMED wave. The trap: it has a name and
@@ -2859,11 +2798,13 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const cols = await page.locator('li[data-tuple-kind]').evaluateAll(
         (els) => els.map((e) => ({
           kind: e.getAttribute('data-tuple-kind'),
+          work: e.closest('[data-section="work-items"]') !== null,
           n: getComputedStyle(e).gridTemplateColumns.split(' ').length,
         })));
       expect(cols.length).toBeGreaterThanOrEqual(4);
+      // A Work items row lies on the shared grid's seven tracks: marks, item, plan, status, by, age, menu.
       for (const c of cols) {
-        expect(c.n, `${c.kind} has ${c.n} tracks`).toBe(8);
+        expect(c.n, `${c.kind} has ${c.n} tracks`).toBe(c.work ? 7 : 8);
       }
       // NOT COMPARED ACROSS DEPTHS, and that is what this pair stopped being
       // able to say. `truth-a` names a wave and `plain-a` does not, so a named
@@ -2879,9 +2820,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const offsets = await page.evaluate(() => ['feature/truth-a', 'feature/plain-a']
         .map((b) => {
           const li = document.querySelector(`[data-branch="${b}"]`)?.closest('li');
-          const cells = [...(li?.querySelectorAll('[role="gridcell"]') ?? [])];
           const row = li?.getBoundingClientRect().x ?? 0;
-          return Math.round((cells[2]?.getBoundingClientRect().x ?? 0) - row);
+          return Math.round((li?.querySelector('[data-row-cell="item"]')?.getBoundingClientRect().x ?? 0) - row);
         }));
       expect(offsets[0], `offsets ${offsets.join()}`).toBe(offsets[1]);
     } finally {
@@ -2889,7 +2829,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('bounds the status cell at 8rem and lets a long name take the links slack', async () => {
+  it('sizes the status cell to its pills and lets a long name give way', async () => {
     // The reported defect, measured in the browser rather than off the class
     // name: the PR cell held `⑂116 no checks` at 9rem and nothing wider, while
     // the window's slack sat in the branch's `1fr` drawing nothing. The status
@@ -2909,69 +2849,28 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         row({ branch: 'feature/x', plan: 'beans', group: 'waiting-on-you',
               ageMinutes: 20, note: 'awaiting review', branchUrl: `${GH}feature/x`,
               pr: { number: 116, url: `${GH}../pull/116`, draft: false, state: 'none' } }),
-        row({ branch: long, plan: 'beans', group: 'waiting-on-you', ageMinutes: 30,
+        // A DIFFERENT PLAN, so each branch is its own Work item with its own pills rather than a branch of one slice.
+        row({ branch: long, plan: 'plant-tomatoes', group: 'waiting-on-you', ageMinutes: 30,
               note: 'awaiting review', branchUrl: `${GH}feature/long` }),
       ],
     }));
     try {
       await expect.poll(() => rowFor(page, long).count()).toBe(1);
-      // 8rem = 128px, and the reduction is what the collapse bought. `14rem`
-      // was the PR cell's width because it held a number, a glyph, a draft
-      // badge, a state word AND the row's whole note — five things in the track
-      // the old layout had pushed right with `ml-auto`. Slot 5 holds ONE value
-      // a reader scans down a column, so it is bounded by the longest status
-      // word rather than by a sentence, and the 96px it gave up went to slot 4
-      // — the links track, which is the one that varies and therefore the one
-      // that must absorb the slack.
-      const cell = rowFor(page, 'feature/x').locator('[role="gridcell"]').nth(STATUS_CELL);
-      expect(Math.round((await cell.boundingBox())!.width)).toBe(128);
-      // The long branch elides — it did not widen the row or shove the PR cell.
-      // Measured as a CLIP rather than as a shorter string: `splitBranch` hands
-      // the browser two spans and lets `truncate` fold them, so the ellipsis is
-      // painted and `innerText` still reports the whole name. The fact that
-      // matters is that the head's content outgrew the box it was given.
-      // Asserted through `[data-branch]` rather than a Tailwind class name: the
-      // clip belongs to the head span, and the row's own stable hook is the
-      // anchor around it.
-      // THE LONG NAME NOW RENDERS IN FULL by consuming the links slack — the
-      // point of `the-name-track-holds-the-name` (2026-08-23). Slot 3 became
-      // `minmax(12rem, auto)`, so on this occupied branch row `auto` grows the
-      // name track INTO slot 4's `1fr` rather than clipping: measured, slot 3
-      // goes to 497px on the long row while the short row stays at its 192px
-      // (12rem) floor, and no span in the branch head overflows its box.
-      //
-      // This was asserted as a CLIP before that change — `⑂116`'s row held the
-      // window's slack in a `1fr` slot 4 while the branch's fixed 12rem name
-      // track ellipsised. The clip was the defect, not the design; the name
-      // getting the room is the fix.
-      // Under its slice row the branch row is indented, so the long name no longer fits whole: it may clip.
-      // What must hold is that the row does not outgrow its grid or the page.
+      // The status track is as wide as its pills, so no pill is cut, and a long name takes no width from it.
+      const cell = rowFor(page, 'feature/x').locator('[data-row-cell="status"]');
       const overflows = await rowFor(page, long).evaluate(
         (el) => el.scrollWidth > el.clientWidth + 1 || document.documentElement.scrollWidth > document.documentElement.clientWidth,
       );
       expect(overflows, 'the long branch name widened its row').toBe(false);
-      // AND THE STATUS COLUMN STAYS PUT. The growth is absorbed by slot 4's
-      // `1fr`, not by the fixed downstream tracks — so slot 5's x is identical on
-      // the long row and the short one. This is the half of `agent-rows-line-up`
-      // the 2026-08-23 override KEEPS: where slot 4 has slack to give, the name
-      // grows into it and the columns past it do not move. (Edges misalign only
-      // where slot 4 is empty — a plan head — which is a different row shape and a
-      // cost the operator accepted; see `TUPLE_TRACKS`.)
       expect(await cellX(page, long, STATUS_CELL)).toBe(await cellX(page, 'feature/x', STATUS_CELL));
-      // And `⑂116 no checks` — the widest cell in the reported screenshot, the
-      // one 9rem could not hold — now fits inside its track rather than being
-      // clipped by it.
-      const fits = await cell.evaluate(
-        (el) => Array.from(el.querySelectorAll('span'))
-          .every((s) => s.scrollWidth <= s.clientWidth + 1),
-      );
-      expect(fits).toBe(true);
-      // THE NUMBER IS IN SLOT 4, and the status slot keeps its word alone.
-      // `Row` records why: a PR is *"a second destination worth reaching rather
-      // than a fact to read"*, which is what an artifact link is — and keeping
-      // it here rendered `no checks 240`, a number wedged into the one slot
-      // whose purpose is a single word scanned down a column.
-      expect(await cell.innerText()).toContain('no checks');
+      const pills = await cell.locator('[data-status-pill]').evaluateAll((all) => all.map((p) => ({
+        word: p.getAttribute('data-status-pill'), text: p.textContent, cut: p.scrollWidth > p.clientWidth + 1,
+      })));
+      expect(pills.length).toBeGreaterThan(0);
+      for (const p of pills) {
+        expect(p.text).toBe(p.word);
+        expect(p.cut, p.word ?? '').toBe(false);
+      }
     } finally {
       await page.close();
     }
@@ -3054,8 +2953,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         // asserts the six fixed tracks match exactly, per track.)
         const counts = await rows.evaluateAll((els) => els.map(
           (e) => getComputedStyle(e).gridTemplateColumns.split(' ').length));
+        const work = await group(page, label).evaluate((g) => g.closest('[data-section="work-items"]') !== null);
         for (const n of counts) {
-          expect(n, `${label} lays a row on ${n} tracks`).toBe(8);
+          expect(n, `${label} lays a row on ${n} tracks`).toBe(work ? 7 : 8);
         }
       }
     } finally {
@@ -3088,7 +2988,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const link = li.getByRole('link', { name: 'Pull request 158' });
       expect(await link.count()).toBe(1);
       expect(await link.getAttribute('href')).toBe('https://github.com/tiny/garden/pull/158');
-      expect(await li.textContent()).toContain('green');
+      // At a gate the PR's checks read as the CI pill, in the tone of its outcome.
+      expect(await li.locator('[data-status-pill="CI passed"]').getAttribute('data-pill-tone')).toBe('green');
     } finally {
       await page.close();
     }
@@ -3126,8 +3027,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const text = (await li.textContent()) ?? '';
       // The words `PR #158` are gone — the glyph and the number replaced them.
       expect(text).not.toContain('PR #158');
-      // And `conflicts` appears once, from the cell.
-      expect(text.match(/conflicts/g) ?? []).toHaveLength(1);
+      // A conflicting PR is a You row: the verb `Resolve` states the condition,
+      // and no state word repeats it.
+      expect(await li.locator('[data-you-verb]').textContent()).toBe('Resolve ›');
+      expect(text.match(/conflicts/g) ?? []).toHaveLength(0);
     } finally {
       await page.close();
     }
@@ -3146,25 +3049,27 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     try {
       const li = rowFor(page, 'feature/pr-row');
       await expect.poll(() => li.locator('[data-pr-draft]').count()).toBe(1);
-      expect(await li.locator('[data-pr-state="pending"]').textContent()).toBe('CI running');
+      expect(await li.locator('[data-status-pill="CI running"]').textContent()).toBe('CI running');
     } finally {
       await page.close();
     }
   });
 
-  it('says `conflicts` where the PR conflicts, and `no checks` where it does not', async () => {
+  it('says `Resolve` where the PR conflicts, and `CI passed` At a gate where it has no checks', async () => {
     // The pairing that matters: one label for both is the defect, and renaming
     // all of them to `conflicts` is the same defect mirrored. The distinction
     // is settled in the FIELD by wave 1; this asserts the cell prints it.
-    for (const [state, word] of [['conflicts', 'conflicts'], ['none', 'no checks']] as const) {
+    // A conflicting PR sits under You, where the verb `Resolve` says it; a PR
+    // with no checks has passed its CI gate (`ciOf`), so At a gate its pill says `CI passed`.
+    for (const [state, word] of [['conflicts', 'Resolve ›'], ['none', 'CI passed']] as const) {
       const page = await openAgents(withPr(
         { number: 149, url: 'https://github.com/tiny/garden/pull/149', draft: false, state },
         'awaiting review',
       ));
       try {
         const li = rowFor(page, 'feature/pr-row');
-        await expect.poll(() => li.locator(`[data-pr-state="${state}"]`).textContent())
-          .toBe(word);
+        const where = state === 'conflicts' ? li.locator('[data-you-verb]') : li.locator(`[data-status-pill="${word}"]`);
+        await expect.poll(() => where.textContent()).toBe(word);
       } finally {
         await page.close();
       }
@@ -3243,7 +3148,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expect.poll(() => group(page, 'you').locator('[data-branch="feature/ci-running"]').count())
         .toBe(0);
       const li = rowFor(page, 'feature/ci-running');
-      expect(await li.locator('[data-pr-state="pending"]').textContent()).toBe('CI running');
+      expect(await li.locator('[data-status-pill="CI running"]').textContent()).toBe('CI running');
     } finally {
       await page.close();
     }
@@ -3261,23 +3166,12 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     try {
       const li = rowFor(page, 'feature/pr-row');
       await expect.poll(() => li.textContent()).toContain('157');
-      expect(await li.textContent()).toContain('checks failing');
-      // THE GLYPH IS DECORATIVE AND THE WORD CARRIES THE FACT — which is the
-      // rule this test is named for, asserted where the tuple states it.
-      //
-      // It read `getByRole('img', { name: 'Pull request' })`, a labelled glyph
-      // that no longer exists: `KindIcon` renders every icon `aria-hidden`, and
-      // the accessible half is `[data-tuple-kind-label]` beside it. That is not
-      // a weakening — a labelled icon AND a word is the same fact announced
-      // twice, which is what `aria-hidden` on a decorative glyph prevents.
-      //
-      // Both halves still asserted: the icon is present for a sighted reader,
-      // and it announces nothing, so the word is the sole accessible carrier.
-      const icon = li.locator('[data-tuple-icon]').first();
-      expect(await icon.count()).toBe(1);
-      expect(await icon.getAttribute('aria-hidden')).toBe('true');
-      expect(await li.locator('[data-tuple-kind-label]').first().innerText())
-        .not.toBe('');
+      expect(await li.locator('[data-status-pill]').allTextContents()).toContain('CI failed');
+      // THE GLYPH IS DECORATIVE AND THE LABEL CARRIES THE FACT: the PR glyph announces nothing, and the PR link's
+      // accessible name says what the number is.
+      const link = li.locator('[data-pr-link="157"]');
+      expect(await link.locator('svg').first().getAttribute('aria-hidden')).toBe('true');
+      expect(await link.getAttribute('aria-label')).toBe('Pull request 157');
       // And the NUMBER is on the row as its own hook, not only inside a
       // sentence — `data-pr-number` is how a test asks *which PR* whether or
       // not this one had an address to link.
@@ -3364,7 +3258,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('marks a row whose PR status changes, and clears itself after ~3s', async () => {
+  it('marks a row whose PR status changes with one fade, and clears itself after ~2s', async () => {
     // Both halves in one run, because the clearing is what makes it a MARKER
     // rather than a state — and a mark that waits for the next pulse to clear
     // would sit lit forever on a board whose server died, which is exactly when
@@ -3376,6 +3270,13 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       swap(oneRow('failing'));
       await expect.poll(() => mark(page, 'feature/watched').count(),
         { timeout: 10_000 }).toBe(1);
+      // One fade that never repeats: a repeating animation would pass a
+      // "has an animation" check, so the iteration count is the assertion.
+      const fade = await mark(page, 'feature/watched').evaluate((el) => {
+        const s = getComputedStyle(el);
+        return { name: s.animationName, count: s.animationIterationCount };
+      });
+      expect(fade).toEqual({ name: 'change-fade', count: '1' });
       // And it goes out on its OWN timer while the payload keeps arriving
       // unchanged — no further transition clears it.
       await expect.poll(() => mark(page, 'feature/watched').count(),
@@ -3387,7 +3288,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
 
   // The RESTART rule is asserted in test/unit/agent-list.test.ts, on a fake
   // clock, and deliberately not here: `FLEET_POLL_MS` is 4s while a mark lives
-  // 3s, so two changes on consecutive polls can never overlap. A browser test
+  // 2s, so two changes on consecutive polls can never overlap. A browser test
   // claiming to watch a restart is really watching a second mark replace an
   // expired first — it passes with the restart removed, which was checked.
 
@@ -3549,7 +3450,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgentsAt(375, fleet({
       rows: [row({
         branch: 'feature/phone', plan: 'lonely-plan', group: 'waiting-on-you',
-        phase: 'Development', ageMinutes: 20, note: 'awaiting review',
+        phase: 'Development', planState: 'approved', ageMinutes: 20, note: 'awaiting review',
         pr: { number: 158, url: 'https://github.com/tiny/garden/pull/158',
               draft: false, state: 'green' },
         branchUrl: `${GH}feature/phone`,
@@ -3573,15 +3474,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const card = (await group(page, 'at-a-gate').innerText()) ?? '';
       expect(card).toContain('lonely-plan');   // plan — on the head
       expect(card).toContain('158');           // PR
-      expect(card).toContain('green');         // PR state
+      expect(card).toContain('CI passed');     // the CI gate's pill
       expect(card).toContain('20m');           // age
-      // THE KIND SURVIVES THE CARD, with its `sr-only` prefix. Below `sm` there
-      // is no header row to name the column, so the word comes back here and
-      // only here — which is why this asserts the word rather than only the
-      // attribute. `WAVE` rather than `Branch`: the row carrying this branch is
-      // its wave, and the kind a card must state is the kind it actually is.
-      expect(text.toLowerCase()).toContain('kind:');
-      expect(text.toLowerCase()).toContain('wave');
+      // A Work items row names no kind, in the card as in the grid: the item tuple leads it.
+      expect(text.toLowerCase()).not.toContain('kind:');
       // The phase is not on the BRANCH's row — the relocation is not a
       // wide-viewport-only rule. A row that kept it would state a fact about
       // the plan on a row about a branch at exactly the width where the reader
@@ -3659,7 +3555,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgentsAt(375, fleet({
       rows: [row({
         branch: 'feature/phone', plan: 'lonely-plan', group: 'waiting-on-you',
-        phase: 'Development', ageMinutes: 20, note: 'awaiting review',
+        phase: 'Development', planState: 'approved', ageMinutes: 20, note: 'awaiting review',
         branchUrl: `${GH}feature/phone`,
       })],
     }));
@@ -3667,25 +3563,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const li = rowFor(page, 'feature/phone');
       await expect.poll(() => li.count()).toBe(1);
       const branch = await li.locator('[data-branch]').boundingBox();
-      // Anchored on the KIND, which is what slot 2 holds — it was the phase, and
-      // the phase is no longer on this row at all, so a `[data-phase]` locator
-      // here would resolve to nothing and `boundingBox()` would throw.
-      //
-      // NOT STRICTLY ABOVE any more, and the difference is one line. Under the
-      // seven branch tracks the kind was slot 2 of six wrapped items and the
-      // branch took `w-full`, so the branch always started a line of its own
-      // BELOW it. In the tuple the branch is slot 3 — the item's own name — and
-      // at 375px the kind and the name wrap onto the same line, with the
-      // artifact links and the rest beneath. Measured: kind at y=97, branch at
-      // y=90, seven pixels apart on one wrapped line rather than two.
-      //
-      // So the claim becomes what it was always about: the kind LEADS. It is at
-      // or above the branch and never below it, and the row still stacks rather
-      // than ranging — which is the assertion below, and the one a card form is
-      // actually for.
-      const kind = await li.locator('[data-kind]').boundingBox();
-      expect(kind!.y).toBeLessThanOrEqual(branch!.y + branch!.height);
-      expect(kind!.x).toBeLessThanOrEqual(branch!.x);
+      // A Work items row has no kind: the item cell leads it, and the status cell stacks beneath the branch's line.
+      const status = await li.locator('[data-row-cell="status"]').boundingBox();
+      expect(status!.y).toBeGreaterThanOrEqual(branch!.y + branch!.height - 1);
       // The row is taller than one line: it stacked rather than ranged.
       const box = await li.boundingBox();
       expect(box!.height).toBeGreaterThan(branch!.height * 1.5);
@@ -3700,45 +3580,25 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('names the KIND in the card, where there is no column to name it', async () => {
-    // The other half of dropping the `sr-only` prefix, and it survives the
-    // relocation intact because it is a claim about the CELL and not about the
-    // phase. The header goes with the columns below `sm`, so a card reader would
-    // otherwise hear `Branch` with nothing saying what it is — exactly the
-    // defect the prefix was written for. It is gone from the GRID, where the
-    // header replaced it, not gone from the app.
+  it('names no kind in the card, and announces no column header there', async () => {
+    // A Work items row has no kind in its grid, so its card names none either: the item cell leads it.
     const page = await openAgentsAt(375, fleet({
       rows: [row({
         branch: 'feature/phone', plan: 'lonely-plan', group: 'waiting-on-you',
-        phase: 'Development', ageMinutes: 20, note: 'awaiting review',
+        phase: 'Development', planState: 'approved', ageMinutes: 20, note: 'awaiting review',
         branchUrl: `${GH}feature/phone`,
       })],
     }));
     try {
       const li = rowFor(page, 'feature/phone');
       await expect.poll(() => li.count()).toBe(1);
-      // NOT `.first()` — that is the marks cell now. The phase is the second,
-      // read by the named constant so this stays in step with the geometry
-      // constants above.
-      const kindCell = li.locator('[role="gridcell"]').nth(KIND_CELL);
-      // `innerText` reports the sr-only span as its own line, so the assertion
-      // is on the words rather than on the exact spacing between them.
-      // LOWERCASED before matching: slot 2 wears Tailwind's `uppercase`, so
-      // `innerText` — which reports what is RENDERED — reads `KIND:\nBRANCH`.
-      // Asserting the authored casing would make this a claim about a CSS
-      // utility rather than about a reader on a phone hearing what the row is.
-      const heard = (await kindCell.evaluate((el) => (el as HTMLElement).innerText))
-        .toLowerCase();
-      expect(heard).toContain('kind:');
-      // `wave` for the same reason as the desktop assertion: this row's branch
-      // is a plan's work. The card must NAME its kind where no column does,
-      // which is what this asserts and is unaffected by which word it is.
-      expect(heard).toContain('slice');
-      // And NOT the plan's phase, which the fixture still carries — the card is
-      // where a relocation is most tempting to skip, because the row is already
-      // a stack of everything and one more word looks free.
+      expect(await li.locator('[data-kind]').count()).toBe(0);
+      expect(await li.locator('[data-row-cell="item"] [data-branch]').count()).toBe(1);
+      const heard = (await li.evaluate((el) => (el as HTMLElement).innerText)).toLowerCase();
+      expect(heard).not.toContain('kind:');
+      // And NOT the plan's phase, which the fixture still carries.
       expect(heard).not.toContain('development');
-      // And the header is not also announcing it — there are no columns.
+      // And the header is not announcing columns below `sm`.
       expect(await group(page, 'queued').getByRole('columnheader').count()).toBe(0);
     } finally {
       await page.close();
@@ -3751,7 +3611,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgentsAt(1280, fleet({
       rows: [row({
         branch: 'feature/desk', plan: 'lonely-plan', group: 'waiting-on-you',
-        phase: 'Development', ageMinutes: 20, note: 'awaiting review',
+        phase: 'Development', planState: 'approved', ageMinutes: 20, note: 'awaiting review',
         branchUrl: `${GH}feature/desk`,
       })],
     }));
@@ -3759,14 +3619,13 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const li = rowFor(page, 'feature/desk');
       await expect.poll(() => li.count()).toBe(1);
       const branch = await li.locator('[data-branch]').boundingBox();
-      const kind = await li.locator('[data-kind]').boundingBox();
-      // Same line: slot 2 is to the LEFT of the branch, not above it.
-      expect(kind!.x).toBeLessThan(branch!.x);
-      expect(Math.abs(kind!.y - branch!.y)).toBeLessThan(branch!.height);
-      // And it really is a grid with six tracks.
+      const status = await li.locator('[data-row-cell="status"]').boundingBox();
+      // Same line: the status stands to the RIGHT of the branch, not beneath it.
+      expect(status!.x).toBeGreaterThan(branch!.x);
+      expect(Math.abs(status!.y - branch!.y)).toBeLessThan(branch!.height);
       const tracks = await li.evaluate((el) => getComputedStyle(el).gridTemplateColumns);
-      // EIGHT: the marks lane and the seven Delivery columns.
-      expect(tracks.split(' ')).toHaveLength(8);
+      // SEVEN: the marks lane and the six Work items columns.
+      expect(tracks.split(' ')).toHaveLength(7);
     } finally {
       await page.close();
     }
@@ -4449,7 +4308,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       ...scenario('ten-rows-one-kind-each').fleet.rows,
       row({
         branch, wave: 'only-slice', plan: 'brief-sole', planFile: '2026-10-05-brief-sole.md',
-        group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+        group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
         waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
         brief: 'missing', startability: 'needs-brief',
         branchUrl: '', waitingDays: 3,
@@ -4513,14 +4372,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         row({
           branch: 'feature/brief-writing-sole', wave: 'writing-slice', plan: 'brief-sole',
           planFile: '2026-10-05-brief-sole.md', group: 'not-started', state: 'open',
-          phase: 'Design', ageMinutes: null, waitingOn: 'click', note: ELIGIBLE_NOTE,
+          phase: 'Design', planState: 'design', ageMinutes: null, waitingOn: 'click', note: ELIGIBLE_NOTE,
           verdict: 'eligible', brief: 'missing', startability: 'needs-brief',
           branchUrl: '', waitingDays: 3, briefWriter: 'writing',
         }),
         row({
           branch: 'feature/brief-writing-sibling', wave: 'sibling-slice', plan: 'brief-sole',
           planFile: '2026-10-05-brief-sole.md', group: 'not-started', state: 'open',
-          phase: 'Design', ageMinutes: null, waitingOn: 'click', note: ELIGIBLE_NOTE,
+          phase: 'Design', planState: 'design', ageMinutes: null, waitingOn: 'click', note: ELIGIBLE_NOTE,
           verdict: 'eligible', brief: 'missing', startability: 'needs-brief',
           branchUrl: '', waitingDays: 3, briefWriter: 'none',
         }),

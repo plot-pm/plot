@@ -54,7 +54,7 @@ on:
 permissions:
   contents: read
 
-# THREE GROUPS, ONE PER KIND OF RUN.
+# FOUR GROUPS, ONE PER KIND OF RUN.
 #
 # A DISPATCHED RUN SHARES `release-dispatch`, so a regeneration cancels the
 # superseded release run. Measured 2026-10-01: the branch regenerated five
@@ -68,16 +68,30 @@ permissions:
 # runs by hand. The group keys on the pull request number and never on
 # `github.ref`.
 #
-# EVERY OTHER RUN GETS ITS OWN GROUP — `github.run_id` is unique. That covers a
-# `main` push run, which a later merge must never cancel, and the release PR's
-# `pull_request` run: `release.yml` force-pushes `changeset-release/main` on
-# every regeneration, and the `validate` of that run is the one the ruleset
-# counts once a person approves it (2.31.0, #3080). `github.head_ref` is empty
-# on `push` and `workflow_dispatch`, so the exception can only match inside the
-# `pull_request` arm.
+# A FIRST ATTEMPT OF A `main` PUSH RUN SHARES `main-push`, with
+# `cancel-in-progress: false`. GitHub keeps the running run and one pending
+# run in the group, and a newer push cancels the pending one before it
+# starts, so one run finishes and the newest head runs next. Measured
+# 2026-11-21: 22 `main` runs queued at once, 21 were cancelled by hand, and
+# the default-branch reading stayed on one commit for 3 h. `true` would
+# cancel the running run: the median gap between two pushes was 1.9 min, a
+# full run took at least 19.9 min, and only 2 gaps in 5 h reached 20 min, so
+# a head would conclude almost never. The `on.push` trigger lists only
+# `main`, so the arm matches no other branch.
+#
+# EVERY OTHER RUN GETS ITS OWN GROUP — `github.run_id` is unique. That covers
+# a re-run of a `main` push run (`github.run_attempt` above `'1'`): fleetd
+# re-runs CI once per red episode, and in `main-push` the re-run would
+# replace the newest head's pending run, or a later push would cancel the
+# re-run, which fleetd reads as pending with no bound. It also covers the
+# release PR's `pull_request` run: `release.yml` force-pushes
+# `changeset-release/main` on every regeneration, and the `validate` of that
+# run is the one the ruleset counts once a person approves it (2.31.0,
+# #3080). `github.head_ref` is empty on `push` and `workflow_dispatch`, so the
+# exception can only match inside the `pull_request` arm.
 concurrency:
-  group: ci-${{ github.event_name == 'workflow_dispatch' && 'release-dispatch' || (github.event_name == 'pull_request' && github.head_ref != 'changeset-release/main') && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'workflow_dispatch' && 'release-dispatch' || (github.event_name == 'pull_request' && github.head_ref != 'changeset-release/main') && format('pr-{0}', github.event.pull_request.number) || (github.event_name == 'push' && github.run_attempt == '1') && 'main-push' || github.run_id }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 jobs:
   # ── The selection: which jobs and tests this change needs. ─────────────────

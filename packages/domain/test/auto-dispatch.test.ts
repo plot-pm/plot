@@ -3,6 +3,7 @@ import { firstBrieflessBranch, skippedClaimedBranches, planAutoDispatch, startab
 import { measureMachine, ceilingFor, HEADROOM_THRESHOLDS, type Machine as MachineEntity } from '../src/index.js';
 import { FleetReadingSchema, type FleetReading } from '../src/entities/fleet.js';
 import { dispatchReading, dispatchReadingFor } from '../src/rules/auto-dispatch.js';
+import { dispatchReadingForPulses } from '../src/rules/pulse-branch.js';
 import { sliceHold } from '../src/rules/verdict.js';
 type AgentEntry = AutoDispatchAgent & { checkout?: string; [k: string]: unknown };
 
@@ -1880,5 +1881,44 @@ describe('dispatchReadingFor — a dispatch that names its branch', () => {
       const named = dispatchReadingFor(wave4, 'p', b).kind === 'branch';
       expect(named).toBe(startableBranches(wave4, 'p', new Set()).includes(b));
     }
+  });
+});
+
+describe('dispatchReadingForPulses — the start reading over a partial pulse', () => {
+  const read = (slugs: string[]) =>
+    FleetReadingSchema.parse({
+      main: 'main', head: 'abc1234',
+      plans: slugs.map((slug) => ({
+        file: `2026-11-21-${slug}.md`,
+        phase: 'approved',
+        slices: [{ name: 'w', verdict: 'eligible', branches: [{ branch: `feature/${slug}`, state: 'open', waits_on: [], held: false, deferred: false, claimed: '', ref_held: false }] }],
+      })),
+      summary: { plans: slugs.length, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+    });
+  const detail = 'the fleet scan has not reached plan p yet; ask again after the scan finishes';
+
+  it('refuses pulse-partial where neither the partial pulse nor the last finished one lists the plan', () => {
+    expect(dispatchReadingForPulses(read(['other']), false, null, 'p')).toEqual({ kind: 'pulse-partial', detail });
+    expect(dispatchReadingForPulses(read(['other']), false, read(['another']), 'p', 'feature/p')).toEqual({
+      kind: 'branch-refused', reason: 'pulse-partial', branch: 'feature/p', detail,
+    });
+  });
+
+  it('reads the last finished pulse where it lists the plan', () => {
+    expect(dispatchReadingForPulses(read(['other']), false, read(['p']), 'p')).toEqual({ kind: 'branch', branch: 'feature/p' });
+    expect(dispatchReadingForPulses(read(['other']), false, read(['p']), 'p', 'feature/p')).toEqual({ kind: 'branch', branch: 'feature/p' });
+  });
+
+  it('answers as today for a complete pulse without the plan, and for no pulse', () => {
+    expect(dispatchReadingForPulses(read(['other']), true, read(['p']), 'p')).toEqual({ kind: 'no-reading' });
+    expect(dispatchReadingForPulses(read(['other']), true, read(['p']), 'p', 'feature/p')).toEqual({
+      kind: 'branch-refused', reason: 'no-pulse-reading', branch: 'feature/p', detail: 'the pulse holds no dispatchable reading of plan p',
+    });
+    expect(dispatchReadingForPulses(null, false, read(['p']), 'p')).toEqual({ kind: 'no-reading' });
+  });
+
+  it('answers as dispatchReadingFor over the live pulse where it lists the plan', () => {
+    const live = read(['p']);
+    expect(dispatchReadingForPulses(live, false, null, 'p')).toEqual(dispatchReadingFor(live, 'p'));
   });
 });

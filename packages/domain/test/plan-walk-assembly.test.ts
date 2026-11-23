@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { answered, failed } from '../src/port-result.js';
+import { PlanSchema } from '../src/entities/fleet.js';
 import type { PlanRecord } from '../src/ports/plan-store.js';
 import type { BranchReadings, PrReading, WaitsReading } from '../src/rules/branch-state.js';
 import {
@@ -286,6 +287,30 @@ describe('offerAnswer', () => {
     );
     expect(value.takenInEligible).toBe(1);
     expect(offerAnswer(value, true).err).toContain('1 branch(es)');
+  });
+});
+
+describe('the pulse plan names why its spike record licenses no branch', () => {
+  const spikePlan = (spikeApprovedRaw: string, phase = 'design'): PlanRecord =>
+    ({ ...planOf('docs/plans/p.md', phase, [[{ branch: 'feature/s', spike: true }], [{ branch: 'feature/b' }]]), spikeApprovedRaw }) as PlanRecord;
+  const pulsePlan = (record: PlanRecord) => {
+    const value = assembled(estateOf(record), branchesOf(['docs/plans/p.md', 'feature/s', open()], ['docs/plans/p.md', 'feature/b', open()]));
+    const row = (fleetReading(value, header) as any).plans[0];
+    return { assembled: value.plans[0]!.spikeUnlicensed, parsed: PlanSchema.parse(row).spikeUnlicensed };
+  };
+
+  it('carries spike-marker-moved for a record that names the unmarked branch', () => {
+    expect(pulsePlan(spikePlan('2026-11-03, jwloka, in-session, feature/b'))).toEqual({
+      assembled: 'spike-marker-moved', parsed: 'spike-marker-moved',
+    });
+  });
+
+  it('carries null for a record that licenses the spike', () => {
+    expect(pulsePlan(spikePlan('2026-11-03, jwloka, in-session, feature/s'))).toEqual({ assembled: null, parsed: null });
+  });
+
+  it('carries null for a plan that is not in Design', () => {
+    expect(pulsePlan(spikePlan('', 'approved'))).toEqual({ assembled: null, parsed: null });
   });
 });
 

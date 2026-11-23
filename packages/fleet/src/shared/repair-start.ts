@@ -6,7 +6,13 @@ import type { RepairRecordStore } from '@plot-pm/domain/ports/repair-record';
 import type { Containment, Refs } from '@plot-pm/domain/ports/refs';
 import { mainRepairBranchOf } from '@plot-pm/domain/rules/repair-pr';
 import { redMainStep } from '@plot-pm/domain/rules/repair';
-import { repairAttemptStep, rerunSettledOf, type RoleRunReading } from '@plot-pm/domain/rules/repair-start';
+import {
+  repairAttemptStep,
+  repairStartAction,
+  rerunSettledOf,
+  type RerunReading,
+  type RoleRunReading,
+} from '@plot-pm/domain/rules/repair-start';
 
 /** What one repair-start pass did, for the log and the tests. */
 export type RepairStartOutcome =
@@ -63,14 +69,15 @@ export interface RepairStartWorld {
  * Takes the next repair step for a red default branch: the re-run, the claim
  * and start of the repair role, and the record of the fix PR.
  *
- * Reads the record and the reading, asks `redMainStep`, and acts on three of
- * its answers; `revert`, `close-prs` and `exhausted` are left to their own
+ * Reads the record and the reading, asks `redMainStep` and then
+ * `repairStartAction`, and acts on three of `redMainStep`'s answers; `revert`, `close-prs` and `exhausted` are left to their own
  * callers. A held host answer (`unaskable` or `failed`) ends the pass with
  * `held` and writes nothing. A record whose state is `done` or `exhausted`
  * answers `none` before any host, CI or ref read.
  *
  * - `await-rerun`: re-runs the first red SHA's failed jobs once, then records
- *   `rerun: 'asked'`.
+ *   `rerun: 'asked'`. While the re-run is asked, it writes one
+ *   `repair awaiting-rerun (<reason>)` line to `warn` per pass.
  * - `start-repair`: acts on `repairAttemptStep`'s answer. It claims
  *   `bug/main-repair-<lastGreenSha first 12 hex>` before any worktree exists,
  *   records the attempt, and starts the role on a won claim only. A lost claim
@@ -103,10 +110,10 @@ export const repairStartTick = async (
     descends = asked.ok ? asked.value : 'unknown';
   }
 
-  let rerunSettled: 'pending' | 'green' | 'red' | 'none' = 'none';
+  let rerun: RerunReading = { settled: 'none' };
   if (reading !== null && record.rerun === 'asked') {
     const asked = await world.slot(() => world.build.runsForSha(reading.branch, record.firstRedSha, world.checks));
-    rerunSettled = rerunSettledOf(record, asked.ok ? asked.value : null, world.checks, now);
+    rerun = rerunSettledOf(record, asked.ok ? asked.value : null, world.checks, now, world.checksWaitMs);
   }
 
   const attempt = record.attempt?.branch;
@@ -127,32 +134,46 @@ export const repairStartTick = async (
     mainRepairBoundMs: world.mainRepairBoundMs,
     descendsFromRecordedRed: descends,
     pickerAnswer: 'unknown',
-    rerunSettled,
+    rerunSettled: rerun.settled,
     repairInFlight,
     lastGreenRerunSettled: 'none',
   });
 
-  if (step === 'await-rerun') {
-    if (record.rerun !== 'none' || reading === null) return 'awaiting-rerun';
-    const asked = await world.slot(() => world.build.rerunFailed(reading.branch, record.firstRedSha));
-    if (!asked.ok) {
-      warn(`plot-fleetd: repair-start held — the re-run of ${record.firstRedSha} was not accepted`);
-      return 'held';
+  const action = repairStartAction({ step, record, hasReading: reading !== null, openPr: prOpen?.number ?? null, rerun });
+  switch (action.action) {
+    case 'awaiting-rerun':
+      warn(`plot-fleetd: repair awaiting-rerun (${waitReasonOf(action.rerun)})\n`);
+      return 'awaiting-rerun';
+    case 'ask-rerun': {
+      if (reading === null) return 'awaiting-rerun';
+      const asked = await world.slot(() => world.build.rerunFailed(reading.branch, record.firstRedSha));
+      if (!asked.ok) {
+        warn(`plot-fleetd: repair-start held — the re-run of ${record.firstRedSha} was not accepted`);
+        return 'held';
+      }
+      await world.repair.write({ ...record, state: 'rerun', rerun: 'asked', at: stamp });
+      return 'rerun-asked';
     }
-    await world.repair.write({ ...record, state: 'rerun', rerun: 'asked', at: stamp });
-    return 'rerun-asked';
+    case 'start-repair':
+      return startRepair(world, record, run, stamp, warn);
+    case 'record-pr':
+      await world.repair.write({ ...record, repairPr: action.pr, at: stamp });
+      return 'pr-recorded';
+    case 'awaiting-repair':
+      return 'awaiting-repair';
+    case 'none':
+      return 'none';
+    default:
+      return action satisfies never;
   }
-
-  if (step === 'start-repair') return startRepair(world, record, run, stamp, warn);
-
-  if (step === 'await-repair') {
-    if (prOpen === null || record.attempt?.outcome === 'lost' || record.repairPr === prOpen.number) return 'awaiting-repair';
-    await world.repair.write({ ...record, repairPr: prOpen.number, at: stamp });
-    return 'pr-recorded';
-  }
-
-  return 'none';
 };
+
+/**
+ * The words the `awaiting-rerun` log line names: the pending reason, or the
+ * settled reading where `redMainStep` still waits on a settled re-run.
+ */
+const waitReasonOf = (rerun: RerunReading): string =>
+  rerun.settled === 'pending' ? rerun.reason : `rerun-settled-${rerun.settled}`;
 
 /**
  * The `start-repair` step: acts on {@link repairAttemptStep}'s answer.
@@ -175,7 +196,7 @@ const startRepair = async (
   }
   const desk = await world.hasDesk(branch);
   const next = repairAttemptStep(record.attempt, desk, run);
-  const attempt = record.attempt ?? { branch };
+  const attempt = record.attempt ?? { branch, startedAt: stamp };
 
   switch (next) {
     case 'lost':

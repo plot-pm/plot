@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { fleetdHeartbeatFile, gateContractFile } from '@plot-pm/domain/adapters';
+import { fleetdHeartbeatIn, gateContractFile } from '@plot-pm/domain/adapters';
+import { stateHomeAtSync } from '@plot-pm/domain/adapters/main-checkout';
 import { FLEETD_HEARTBEAT_VERSION } from '@plot-pm/domain';
 import type { RepoSnapshot } from '@plot-pm/domain/entities/snapshot';
 import { freshWalkCache } from '@plot-pm/domain/workflows/plan-walk-cache';
@@ -223,7 +224,7 @@ const differences = (own: unknown, served: unknown, at = ''): string[] => {
 /** A live heartbeat, so the board's source is `snapshot` while a stream is attached. */
 const liveHeartbeat = async (repoRoot: string): Promise<void> => {
   const now = Date.now();
-  await fleetdHeartbeatFile({ repoRoot }).write({
+  await fleetdHeartbeatIn(stateHomeAtSync(repoRoot)).write({
     version: FLEETD_HEARTBEAT_VERSION,
     pid: process.pid,
     startedAt: now - 600_000,

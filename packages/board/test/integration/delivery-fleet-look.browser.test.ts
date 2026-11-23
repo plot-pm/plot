@@ -97,17 +97,35 @@ describe('the Fleet section in the mockup look (real browser renders the shipped
     });
   }
 
-  it('keeps the fleet card switches disabled and faded, and the Fleet header switches live', async () => {
+  it('shows the header Fleet marks as text, and the Fleet section switches live', async () => {
     const page = await open('light');
     try {
-      await page.locator('[data-fleet-card]').waitFor({ timeout: 10_000 });
-      const card = page.locator('[data-fleet-card-auto-switch]').first();
+      await page.locator('[data-tab-header] [data-header-marks]').waitFor({ timeout: 10_000 });
+      expect(await page.locator('[data-tab-header] [data-header-mark]').count()).toBeGreaterThan(0);
+      expect(await page.locator('[data-tab-header] input, [data-tab-header] [role="spinbutton"]').count()).toBe(0);
       const live = page.locator('[data-fleet-auto-switch]').first();
-      expect(await card.isDisabled()).toBe(true);
       expect(await live.isDisabled()).toBe(false);
-      const opacity = (sel: string) => page.locator(sel).first().evaluate((el) => getComputedStyle(el).opacity);
-      expect(Number(await opacity('[data-fleet-card-auto-switch]'))).toBeLessThan(1);
-      expect(await opacity('[data-fleet-auto-switch]')).toBe('1');
+      expect(await live.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('leads a working agent\'s Doing now with the spinner, and turns one beside the header\'s Fleet label', async () => {
+    const page = await open('light');
+    try {
+      const doing = (group: string) => page.locator(`[data-section="fleet"] [data-group="${group}"] [data-agent-cell="doing"]`).first();
+      await expect.poll(() => doing('working').locator('[data-activity-spinner]').count()).toBe(1);
+      const spinner = doing('working').locator('[data-activity-spinner]');
+      expect(await spinner.isVisible()).toBe(true);
+      expect(await spinner.evaluate((el) => getComputedStyle(el, '::before').animationName)).toBe('activity-spinner');
+      // A blocked agent keeps the slot, empty, so its text starts where a working one's does.
+      expect(await doing('blocked').locator('[data-activity-spinner]').count()).toBe(0);
+      const slotWidth = (group: string) => doing(group).locator('[data-activity-slot]').evaluate((el) => el.getBoundingClientRect().width);
+      expect(await slotWidth('blocked')).toBe(await slotWidth('working'));
+      const label = page.locator('[data-tab-header] [data-header-group="fleet"] [data-activity-spinner]');
+      await expect.poll(() => label.count()).toBe(1);
+      expect(await label.isVisible()).toBe(true);
     } finally {
       await page.close();
     }
@@ -192,7 +210,7 @@ describe('the Fleet section in the mockup look (real browser renders the shipped
     }
   });
 
-  it('wraps the Fleet header switches at 320 px with no horizontal scroll', async () => {
+  it('wraps the Fleet switch row at 320 px with no horizontal scroll', async () => {
     const page = await cat.open('every-delivery-section', {
       tab: 'agents',
       over: { fleet: fleetWithBars() },
@@ -200,8 +218,9 @@ describe('the Fleet section in the mockup look (real browser renders the shipped
       colorScheme: 'dark',
     });
     try {
-      const column = page.locator('[data-fleet-control-column]');
+      const column = page.locator('[data-section="fleet"] [data-fleet-switch-row][data-fleet-control-column]');
       await column.waitFor({ timeout: 10_000 });
+      expect(await column.evaluate((el) => el.closest('h2'))).toBeNull();
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
       const tops = await column.evaluate((el) => [...el.children].map((c) => Math.round(c.getBoundingClientRect().top)));
       expect(new Set(tops).size).toBeGreaterThan(1);

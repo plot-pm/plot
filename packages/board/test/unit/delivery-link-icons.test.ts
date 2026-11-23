@@ -1,19 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { LinkIconKind, ReleaseCardView, TodoList as TodoListFact } from '@plot-pm/domain';
+import { deliveryHeader, type LinkIconKind, type ReleaseGroupView } from '@plot-pm/domain';
+import { readFileSync } from 'node:fs';
 import { IssueRowSchema } from '../../src/contract/schema.js';
 import { LinkIcon, LINK_GLYPH } from '../../src/app/components/LinkIcon.js';
 import { GLYPH_PATH } from '../../src/app/lib/glyphs.js';
-import { LinePr, LineSlice, PlanName, PlanOwner } from '../../src/app/components/ReleasePlanParts.js';
-import { TodoList } from '../../src/app/components/TodoList.js';
-import { ReleaseCard } from '../../src/app/components/ReleaseCard.js';
+import { LineLinks, LineSlice, PlanName, PlanOwner } from '../../src/app/components/ReleasePlanParts.js';
+import { DeliveryHeader } from '../../src/app/components/DeliveryHeader.js';
+import { ReleaseGroup } from '../../src/app/components/ReleaseGroup.js';
 import { TicketsSectionView } from '../../src/app/components/TicketsSection.js';
 import { MasterAgentLine, RowCell, type LinkHandlers } from '../../src/app/components/DeliveryRows.js';
 
 /**
- * Every Delivery-tab link that names a place is led by the icon of that place's kind:
- * an `aria-hidden` Octicon from `glyphs.ts`, `data-link-icon` naming the kind, placed before the link.
+ * Every Delivery-tab artifact draws as a link tuple: a bordered `data-link-tuple` pill whose segments each name their
+ * kind in `data-tuple-what`. The to-do list and a plan's owner keep the bare `LinkIcon`.
  */
 const html = (el: Parameters<typeof renderToStaticMarkup>[0]): string => renderToStaticMarkup(el);
 
@@ -29,6 +30,29 @@ const iconBefore = (markup: string, marker: string): string | null => {
   if (last === undefined) return null;
   const between = before.slice(last.index + last[0].length).replace(/<[^>]+>/g, '');
   return between.trim() === '' ? last[1]! : null;
+};
+
+/** The markup of the `data-link-tuple` pill that holds the first match of `marker`, or `null` where none holds it. */
+const tupleAround = (markup: string, marker: string): string | null => {
+  const at = markup.indexOf(marker);
+  if (at < 0) throw new Error(`no ${marker} in ${markup}`);
+  const open = markup.lastIndexOf('<span data-link-tuple', at);
+  if (open < 0) return null;
+  let depth = 0;
+  for (const tag of markup.slice(open).matchAll(/<(\/?)span\b[^>]*>/g)) {
+    depth += tag[1] === '/' ? -1 : 1;
+    if (depth === 0) {
+      const end = open + tag.index + tag[0].length;
+      return end > at ? markup.slice(open, end) : null;
+    }
+  }
+  return null;
+};
+
+/** The segment kinds of the tuple holding `marker`, in order: each segment's glyph names its kind. */
+const kindsAround = (markup: string, marker: string): string[] | null => {
+  const tuple = tupleAround(markup, marker);
+  return tuple === null ? null : [...tuple.matchAll(/data-tuple-what="([a-z]+)"/g)].map((m) => m[1]!);
 };
 
 describe('LinkIcon', () => {
@@ -48,20 +72,42 @@ describe('LinkIcon', () => {
 });
 
 describe('the Release delivery links', () => {
-  it('leads the plan name with the plan icon', () => {
-    const m = html(createElement(PlanName, { plan: { plan: 'red-hold', label: 'red-hold', keys: [], planFile: 'x.md', href: '/plan/x.md' }, open: false, onToggle: () => {} }));
-    expect(iconBefore(m, 'data-plan-link')).toBe('plan');
+  it('draws the plan name as a plan tuple, its ticket keys first', () => {
+    const plain = html(createElement(PlanName, { plan: { plan: 'red-hold', label: 'red-hold', keys: [], planFile: 'x.md', href: '/plan/x.md' }, open: false, onToggle: () => {} }));
+    expect(kindsAround(plain, 'data-plan-link')).toEqual(['plan']);
+    const keyed = html(createElement(PlanName, {
+      plan: { plan: 'red-hold', label: 'EKP-77 EKP-78 red-hold', keys: [{ key: 'EKP-77', text: 'EKP-77' }, { key: 'EKP-78', text: 'EKP-78' }], planFile: 'x.md', href: '/plan/x.md' },
+      open: false, onToggle: () => {},
+    }));
+    expect(tupleAround(keyed, 'data-plan-link')).toContain('EKP-78');
+    expect(kindsAround(keyed, 'data-plan-link')).toEqual(['ticket', 'plan']);
   });
 
-  it('leads an opened line\'s slice with the slice icon, linked or not', () => {
+  it('draws an opened line\'s slice as a slice tuple, linked or not', () => {
     const line = { heading: 'done' as const, slice: 'Beds', text: '✓ merged · Beds · #12', pr: 12 };
-    expect(iconBefore(html(createElement(LineSlice, { line, onJump: () => {} })), 'data-plan-line-link')).toBe('slice');
-    expect(iconBefore(html(createElement(LineSlice, { line })), 'Beds')).toBe('slice');
+    expect(kindsAround(html(createElement(LineSlice, { line, onJump: () => {} })), 'data-plan-line-link')).toEqual(['wave']);
+    expect(kindsAround(html(createElement(LineSlice, { line })), 'Beds')).toEqual(['wave']);
   });
 
-  it('leads the line\'s PR with the PR icon, linked or not', () => {
-    expect(iconBefore(html(createElement(LinePr, { pr: 3478, url: 'https://h/pull/3478' })), 'data-plan-line-pr')).toBe('pr');
-    expect(iconBefore(html(createElement(LinePr, { pr: 3478, url: null })), 'data-plan-line-pr')).toBe('pr');
+  it('draws the line\'s PR as a PR tuple, linked or not', () => {
+    const linked = html(createElement(LineLinks, { line: { pr: 3478 }, prUrl: 'https://h/pull/3478', branchUrlBase: '' }));
+    expect(kindsAround(linked, 'data-plan-line-pr')).toEqual(['pr']);
+    expect(linked).toMatch(/<a [^>]*data-plan-line-pr="3478"/);
+    const text = html(createElement(LineLinks, { line: { pr: 3478 }, prUrl: null, branchUrlBase: '' }));
+    expect(kindsAround(text, 'data-plan-line-pr')).toEqual(['pr']);
+    expect(text).not.toContain('<a ');
+  });
+
+  it('draws the line\'s PR and branch as one PR+branch tuple, and no branch segment where the line has none', () => {
+    const both = html(createElement(LineLinks, { line: { pr: 3478, branch: 'feature/beds' }, prUrl: 'https://h/pull/3478', branchUrlBase: 'https://h/tree/' }));
+    expect(kindsAround(both, 'data-plan-line-pr')).toEqual(['pr', 'branch']);
+    expect(both).toContain('href="https://h/tree/feature%2Fbeds"');
+    expect(both).toContain('data-plan-line-branch="feature/beds"');
+    const branchOnly = html(createElement(LineLinks, { line: { branch: 'feature/beds' }, prUrl: null, branchUrlBase: '' }));
+    expect(branchOnly).toContain('data-plan-line-branch="feature/beds"');
+    expect(branchOnly).not.toContain('<a ');
+    const none = html(createElement(LineLinks, { line: { pr: 3478 }, prUrl: null, branchUrlBase: 'https://h/tree/' }));
+    expect(none).not.toContain('data-plan-line-branch');
   });
 
   it('leads the owner with the person icon', () => {
@@ -69,41 +115,40 @@ describe('the Release delivery links', () => {
   });
 });
 
-describe('the to-do list links', () => {
-  const todo: TodoListFact = {
-    lines: [
-      { id: 'b', text: 'Merge feature/x', verb: 'Merge', label: 'feature/x', reason: '', marker: 'clean-up', markerWords: 'clean up', anchor: 'b', icon: 'branch' },
-      { id: 'p', text: 'Approve red-hold', verb: 'Approve', label: 'red-hold', reason: '', marker: 'blocks-delivery', markerWords: 'blocks delivery', anchor: 'p', icon: 'plan' },
-      { id: 'r', text: 'Approve release 2.35.0', verb: 'Approve release', label: '2.35.0', reason: '', marker: 'blocks-delivery', markerWords: 'blocks delivery', anchor: 'r', icon: 'release' },
-    ],
-    counts: { 'blocks-delivery': 2, input: 0, 'clean-up': 1, waits: 0 },
-    header: 'You block 2 deliveries · 1 to clean up',
-    tickets: 1,
-    triageText: '1 ticket assigned to you with no plan',
-    triageAnchor: 'tickets',
-    triageIcon: 'ticket',
-  };
-  const m = html(createElement(TodoList, { todo, onJump: () => {} }));
-
-  it('leads each line\'s name with the icon of the item it names', () => {
-    expect(iconBefore(m, 'title="feature/x"')).toBe('branch');
-    expect(iconBefore(m, 'title="red-hold"')).toBe('plan');
-    expect(iconBefore(m, 'title="2.35.0"')).toBe('release');
+describe('the header links', () => {
+  const header = deliveryHeader({
+    you: { counts: [{ key: 'tickets', count: 1 }], ages: [], releases: [], ticketNote: null }, work: { groups: [], ages: [] }, unplaced: [],
+    agents: [], supervisor: null, switches: { dispatch: false, review: false, verify: false, design: false }, parallelAgents: null,
+    machine: null, hostAnswer: 'unasked',
   });
+  const m = html(createElement(DeliveryHeader, { header, release: null, onJump: () => {} }));
 
-  it('leads the triage link with the ticket icon', () => {
+  it('leads the You group\'s triage link with the ticket icon', () => {
     expect(iconBefore(m, 'triage ›')).toBe('ticket');
   });
 });
 
-describe('the release card', () => {
-  it('leads the card title with the release icon', () => {
-    const card: ReleaseCardView = {
-      key: 'v2.35.0', kind: 'planned', anchor: 'release-card-2.35.0', version: '2.35.0', title: 'Release 2.35.0', bar: null, total: 0,
-      readingMissing: false, missingText: '', people: 1, peopleText: '1 person', stateText: 'planned · no release PR yet', rowId: null,
-      unboundReason: 'no release PR yet',
-    } as ReleaseCardView;
-    expect(iconBefore(html(createElement(ReleaseCard, { cards: [card], rows: {} })), 'data-release-card-title')).toBe('release');
+describe('the Release group', () => {
+  const HEAD = 'a'.repeat(40);
+  const ready = { open: true, headSha: HEAD, checksSha: HEAD, ciChecks: 'green', plotReview: 'success', plotReviewSha: HEAD, plotReviewJudged: 'success', plotReviewCheckedSha: HEAD } as const;
+  const group: ReleaseGroupView = {
+    scope: 'my-sprint', kind: 'targeted', title: '2.35.0 · 2.36.0', scopeLine: 'my sprint · Sprint one',
+    sprints: [{ slug: 's1', title: 'Sprint one' }], bar: null, total: 0, readingMissing: false, unknownOwners: [],
+    candidates: [
+      { key: 'release:2.35.0', anchor: 'release-card-2.35.0', version: '2.35.0', rowId: 'r35', pr: 335, unboundReason: '' },
+      { key: 'release:2.36.0', anchor: 'release-card-2.36.0', version: '2.36.0', rowId: 'r36', pr: 336, unboundReason: '' },
+    ],
+  };
+  const m = html(createElement(ReleaseGroup, { view: { group, rows: {}, prReading: { r35: ready, r36: ready } } }));
+
+  it('draws the title as a release tuple of text, because the payload holds no release URL', () => {
+    expect(kindsAround(m, '2.35.0 · 2.36.0')).toEqual(['release']);
+    expect(m).toContain('data-tuple-text="release"');
+  });
+
+  it('draws each sprint and each other ready PR as a tuple', () => {
+    expect(kindsAround(m, '>Sprint one<')).toEqual(['sprint']);
+    expect(kindsAround(m, '#336')).toEqual(['pr']);
   });
 });
 
@@ -111,16 +156,21 @@ describe('the Tickets section', () => {
   const issue = IssueRowSchema.parse({ number: '3468', title: 'The Delivery tab reads at a glance', url: 'https://h/issues/3468', state: 'open' });
   const m = html(createElement(TicketsSectionView, {
     issueAnswer: 'answered', assigned: [issue], others: [], unassigned: 0, hidden: 0, showAll: false, onToggleShowAll: () => {},
-    hiddenSentence: null, notice: null, absence: '', idea: { available: true, reason: '' },
+    hiddenSentence: null, notice: null, absence: '', idea: { available: true, reason: '' }, story: { available: true, reason: '' },
     folded: false, onToggleFold: () => {}, foldOpen: false, onToggleFoldOpen: () => {},
   }));
 
-  it('leads each ticket link with the ticket icon', () => {
-    expect(iconBefore(m, 'data-issue-link')).toBe('ticket');
+  it('draws each ticket as a ticket tuple linked to its issue, its title after it', () => {
+    expect(kindsAround(m, 'data-issue-link')).toEqual(['ticket']);
+    expect(m).toMatch(/<a href="https:\/\/h\/issues\/3468"[^>]*data-issue-link=""[^>]*data-issue-number=""/);
+    expect(tupleAround(m, 'data-issue-link')).not.toContain('The Delivery tab reads at a glance');
   });
 
-  it('leads Plan it with the plan icon', () => {
-    expect(iconBefore(m.slice(m.indexOf('data-tickets-do')), 'Plan it')).toBe('plan');
+  it('draws the row\'s ⋯ menu in the last cell, with no artifact icon and no bare Plan it', () => {
+    const doCell = m.slice(m.indexOf('data-row-cell="do"'));
+    expect(doCell).toContain('data-issue-actions="3468"');
+    expect(tupleAround(doCell, 'data-issue-actions')).toBeNull();
+    expect(m).not.toContain('Plan it');
   });
 });
 
@@ -141,22 +191,40 @@ describe('the cell links and the Master Agent line', () => {
   };
   const cell = (c: Parameters<typeof RowCell>[0]['cell']) => html(createElement(RowCell, { cell: c, handlers }));
 
-  it('leads each cell link with the icon of its target', () => {
-    expect(iconBefore(cell({ value: 'feature/x', links: [{ to: 'branch', branch: 'feature/x' }] }), 'feature/x')).toBe('branch');
-    expect(iconBefore(cell({ value: 'p', links: [{ to: 'plan', plan: 'p', slice: null }] }), 'data-row-link')).toBe('plan');
+  it('draws each cell link as the tuple of its target', () => {
+    expect(kindsAround(cell({ value: 'feature/x', links: [{ to: 'branch', branch: 'feature/x' }] }), 'data-row-link')).toEqual(['branch']);
+    expect(kindsAround(cell({ value: 'p', links: [{ to: 'plan', plan: 'p', slice: null }] }), 'data-row-link')).toEqual(['plan']);
     const both = cell({ value: 'feature/x', links: [{ to: 'branch', branch: 'feature/x' }, { to: 'pr', pr: 7 }] });
-    expect(iconBefore(both, '#7')).toBe('pr');
+    expect(kindsAround(both, '#7')).toEqual(['pr']);
   });
 
-  it('draws no icon for a Do verb, a gate mark, a link that goes nowhere, or a role-chipped agent', () => {
-    expect(cell({ value: 'Approve', links: [{ to: 'action', action: 'approve', id: 'p' }] })).not.toContain('data-link-icon');
-    expect(cell({ value: 'CI ⟳', links: [], parts: [{ value: 'CI ⟳', link: { to: 'checks', pr: 7 } }] })).not.toContain('data-link-icon');
-    expect(cell({ value: 'x', links: [{ to: 'url', url: '' }] })).not.toContain('data-link-icon');
-    expect(cell({ value: 'a1', links: [{ to: 'agent', id: 'a1' }], agent: { role: 'loop', attempt: null } })).not.toContain('data-link-icon');
+  it('draws no tuple for a Do verb or a gate mark, a text segment for a link that goes nowhere, and no glyph for a role-chipped agent', () => {
+    expect(cell({ value: 'Approve', links: [{ to: 'action', action: 'approve', id: 'p' }] })).not.toContain('data-link-tuple');
+    expect(cell({ value: 'CI ⟳', links: [], parts: [{ value: 'CI ⟳', link: { to: 'checks', pr: 7 } }] })).not.toContain('data-link-tuple');
+    const nowhere = cell({ value: 'x', links: [{ to: 'url', url: '' }] });
+    expect(nowhere).toContain('data-tuple-text="external"');
+    expect(nowhere).not.toContain('<a ');
+    const agent = cell({ value: 'a1', links: [{ to: 'agent', id: 'a1' }], agent: { role: 'loop', attempt: null } });
+    expect(agent).toContain('data-link-tuple');
+    expect(agent).not.toContain('data-tuple-what');
   });
 
-  it('leads the Master Agent branch with the branch icon, linked or not', () => {
-    expect(iconBefore(html(createElement(MasterAgentLine, { branch: 'main', branchUrlBase: 'https://h/tree/' })), '>main<')).toBe('branch');
-    expect(iconBefore(html(createElement(MasterAgentLine, { branch: 'main', branchUrlBase: '' })), '>main<')).toBe('branch');
+  it('draws the Master Agent branch as a branch tuple, linked or not', () => {
+    const linked = html(createElement(MasterAgentLine, { branch: 'main', branchUrlBase: 'https://h/tree/' }));
+    expect(kindsAround(linked, 'href="https://h/tree/main"')).toEqual(['branch']);
+    expect(kindsAround(html(createElement(MasterAgentLine, { branch: 'main', branchUrlBase: '' })), 'data-tuple-text="branch"')).toEqual(['branch']);
+  });
+});
+
+describe('the Delivery components outside a tuple', () => {
+  const source = (file: string) => readFileSync(new URL(`../../src/app/components/${file}`, import.meta.url), 'utf8');
+
+  it('draw no bare LinkIcon at the sites that now draw a tuple', () => {
+    for (const file of ['TicketsSection.tsx', 'ReleaseGroup.tsx', 'DeliveryRows.tsx', 'AgentList.tsx']) {
+      expect(source(file), file).not.toContain('<LinkIcon');
+    }
+    const parts = source('ReleasePlanParts.tsx');
+    expect(parts.match(/<LinkIcon/g)).toHaveLength(1);
+    expect(parts.slice(parts.indexOf('export const PlanOwner'))).toContain('<LinkIcon');
   });
 });

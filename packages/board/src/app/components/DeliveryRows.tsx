@@ -1,7 +1,8 @@
-import { linkIconKind, type Cell, type LinkTarget } from '@plot-pm/domain';
-import { LinkIcon } from './LinkIcon.js';
+import type { Cell, LinkTarget, StatusPill } from '@plot-pm/domain';
 import { RoleChip } from './RoleChip.js';
-import { linkLabel, resolveLink, type LinkContext, type ResolvedLink } from '../lib/agent-rows/delivery-link-targets.js';
+import { LinkTupleView, type SegmentControl } from './TupleRow.js';
+import { artifactTuple } from '../lib/tuple-row.js';
+import { cellArtifact, linkLabel, resolveLink, type LinkContext, type ResolvedLink } from '../lib/agent-rows/delivery-link-targets.js';
 
 /** What the tab does when a link is clicked. */
 export interface LinkHandlers {
@@ -69,19 +70,55 @@ const Linked = ({ resolved, handlers, children }: { resolved: ResolvedLink; hand
 };
 
 /**
+ * What a click on a cell's tuple segment does, by where `resolveLink` placed it; the hook is `data-row-link`.
+ *
+ * A cell's branch segment carries no `data-branch`: that hook names the row a branch belongs to, and a cell that only
+ * mentions a branch is not that row.
+ */
+const cellControl = (resolved: ResolvedLink, handlers: LinkHandlers): SegmentControl => {
+  const attrs = { 'data-row-link': '', 'data-branch': undefined };
+  const hook = { link: attrs, text: attrs };
+  switch (resolved.kind) {
+    case 'href':
+      return { extraAttr: hook };
+    case 'anchor':
+      return { extraAttr: hook, onFollow: () => handlers.onJump(resolved.id) };
+    case 'plan':
+      return { extraAttr: hook, onActivate: () => handlers.onPlan(resolved.planFile) };
+    case 'reveal':
+      return { extraAttr: hook, onActivate: () => handlers.onReveal(resolved.branch) };
+    default:
+      return { extraAttr: { link: { 'data-branch': undefined }, text: { 'data-branch': undefined } } };
+  }
+};
+
+/**
+ * A cell link: the tuple of its artifact from `cellArtifact`, or the plain link where the target names no kind of
+ * place, the click is an action, or a filter hides the anchor (the disabled button says why). With `bare`, the
+ * segment draws no glyph.
+ */
+const CellLink = ({ target, label, handlers, bare }: { target: LinkTarget; label: string; handlers: LinkHandlers; bare: boolean }) => {
+  const resolved = resolveLink(target, handlers.context);
+  const artifact = cellArtifact(target, resolved, label);
+  const hidden = resolved.kind === 'anchor' && (handlers.hiddenReason?.(resolved.id) ?? null) !== null;
+  if (artifact === null || hidden) return <Linked resolved={resolved} handlers={handlers}>{label}</Linked>;
+  const segments = artifactTuple(artifact, () => undefined).map((s) => (bare ? { ...s, icon: false } : s));
+  return <LinkTupleView segments={segments} controls={[cellControl(resolved, handlers)]} />;
+};
+
+/**
  * One cell's content: the value, linked where it has one target, with a chip
  * per further target. Renders nothing for a cell nobody read.
  *
- * Each link that leads somewhere is led by the icon of its target's kind. A gate mark draws none, and neither does a
- * cell whose role chip already names the agent.
+ * Each link to a kind of place draws as that artifact's tuple. A gate mark draws none, and a cell whose role chip
+ * already names the agent draws its tuple with no glyph.
  *
  * @param cell - the cell the domain computed, or `null`.
  * @param handlers - what a click on a link does.
  */
 export const RowCell = ({ cell, handlers }: { cell: Cell | null; handlers: LinkHandlers }) => {
   if (cell === null) return null;
-  const icon = (target: LinkTarget, resolved: ResolvedLink) =>
-    cell.agent !== undefined || resolved.kind === 'none' || resolved.kind === 'act' ? null : <LinkIcon kind={linkIconKind(target)} />;
+  const bare = cell.agent !== undefined;
   if (cell.parts !== undefined) {
     return (
       <>
@@ -99,52 +136,51 @@ export const RowCell = ({ cell, handlers }: { cell: Cell | null; handlers: LinkH
     );
   }
   const [first, ...rest] = cell.links;
-  const firstResolved = first === undefined ? null : resolveLink(first, handlers.context);
   return (
     <>
       {cell.agent === undefined ? null : <><RoleChip role={cell.agent.role} />{' '}</>}
-      {first === undefined || firstResolved === null ? cell.value : (
-        <>{icon(first, firstResolved)}<Linked resolved={firstResolved} handlers={handlers}>{cell.value}</Linked></>
-      )}
+      {first === undefined ? cell.value : <CellLink target={first} label={cell.value} handlers={handlers} bare={bare} />}
       {cell.agent?.attempt == null ? null : <span data-agent-attempt>{' '}{cell.agent.attempt}</span>}
-      {rest.map((target) => {
-        const resolved = resolveLink(target, handlers.context);
-        return (
-          <span key={`${target.to}-${JSON.stringify(target)}`}>
-            {' '}
-            {icon(target, resolved)}
-            <Linked resolved={resolved} handlers={handlers}>{linkLabel(target)}</Linked>
-          </span>
-        );
-      })}
+      {rest.map((target) => (
+        <span key={`${target.to}-${JSON.stringify(target)}`}>
+          {' '}
+          <CellLink target={target} label={linkLabel(target)} handlers={handlers} bare={bare} />
+        </span>
+      ))}
     </>
   );
 };
 
 /**
- * The Master Agent line: the branch icon, then the branch, linked to the host where `branchUrlBase` is known and as
- * plain text where it is empty.
+ * A row's status pills, in the domain's order: a dot in the pill's tone, then its whole words, linked where the
+ * pill's `href` resolves to a place. The hooks are `data-status-pill` (the words) and `data-pill-tone`.
+ *
+ * @param pills - what `workItemPills` returned for the row.
+ * @param handlers - what a click on a linked pill does.
+ */
+export const StatusPills = ({ pills, handlers }: { pills: readonly StatusPill[]; handlers: LinkHandlers }) => (
+  <span data-status-pills className="flex items-baseline gap-1.5 whitespace-nowrap">
+    {pills.map((p) => (
+      <span key={p.word} data-status-pill={p.word} data-pill-tone={p.tone} className="delivery-pill">
+        <span aria-hidden data-pill-dot className="delivery-pill-dot" />
+        {p.href === null ? p.word : <Linked resolved={resolveLink(p.href, handlers.context)} handlers={handlers}>{p.word}</Linked>}
+      </span>
+    ))}
+  </span>
+);
+
+/**
+ * The Master Agent line: the branch tuple, linked to the host where `branchUrlBase` is known and as text where it is
+ * empty.
  *
  * @param branch - the branch the master agent works on.
  * @param branchUrlBase - the base of a branch URL on the host; `''` where the host is unknown.
  */
 export const MasterAgentLine = ({ branch, branchUrlBase }: { branch: string; branchUrlBase: string }) => (
-  <div className="flex items-center gap-2 px-3 py-2 text-sm" data-master-agent>
-    <span className="text-slate-500 dark:text-slate-400">Master Agent:</span>
-    <span className="flex items-center">
-      <LinkIcon kind={linkIconKind('branch')} />
-      {branchUrlBase !== '' ? (
-        <a
-          href={`${branchUrlBase}${encodeURIComponent(branch)}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-mono text-sm text-blue-600 hover:underline dark:text-blue-400"
-        >
-          {branch}
-        </a>
-      ) : (
-        <span className="font-mono text-sm text-slate-700 dark:text-slate-300">{branch}</span>
-      )}
-    </span>
+  <div className="flex min-w-0 items-center gap-2 px-3 py-2 text-sm" data-master-agent>
+    <span className="shrink-0 text-slate-500 dark:text-slate-400">Master Agent:</span>
+    <LinkTupleView
+      segments={artifactTuple({ what: 'branch', label: branch, href: branchUrlBase === '' ? '' : `${branchUrlBase}${encodeURIComponent(branch)}` }, () => undefined)}
+    />
   </div>
 );

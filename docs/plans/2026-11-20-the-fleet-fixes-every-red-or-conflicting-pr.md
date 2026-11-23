@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Review:** pr
 - **Impl:** own branches
@@ -12,6 +12,9 @@
 - **Approved:** 2026-11-20, Jan Wloka, plan-PR #3597 merged
 - **Started:** 2026-11-20, Jan Wloka, `feature/the-fixer-scope-reads-every-open-pr`
 - **Started:** 2026-11-21, Jan Wloka, `feature/the-fixer-merges-the-base-into-a-conflicting-pr`
+- **Started:** 2026-11-21, Jan Wloka, `feature/the-fixer-row-names-its-finding`
+- **Started:** 2026-11-22, Jan Wloka, `feature/the-review-reads-the-fixer-scope`
+- **Delivered:** 2026-11-22
 
 ## Changelog
 
@@ -91,11 +94,11 @@ No arm acts on a conflict. The fixer knows two finding kinds, `high` and `ci` (`
 
 ### Board
 
-- `feature/the-fixer-row-names-its-finding` — `RoleRun.finding` from the in-flight attempt, `agentRowFactsOf` reading it before the PR-state inference, and "fixing conflict ✗" <!-- builds: RoleRun.finding, the fixer kind on the Delivery row --> <!-- waits: feature/the-fixer-merges-the-base-into-a-conflicting-pr -->
+- `feature/the-fixer-row-names-its-finding` — `RoleRun.finding` from the in-flight attempt, `agentRowFactsOf` reading it before the PR-state inference, and "fixing conflict ✗" <!-- builds: RoleRun.finding, the fixer kind on the Delivery row --> <!-- waits: feature/the-fixer-merges-the-base-into-a-conflicting-pr --> → #3618
 
 ### Review
 
-- `feature/the-review-reads-the-fixer-scope` — `reviewPrNext`: `repairNamesPr` first, as `guardArm` does today, then the fixer's scope rule (renamed for both roles), then `reviewRunArm`, `restatusArm` and `reviewArm`; auto-review calls it instead of `slicePrNext`, the merge arm keeps `slicePrNext` and the sprint scope, with a test that proves merge still answers `out-of-scope`; the domain and fleet test cells the testability verdict names <!-- builds: reviewPrNext, the review arm walk over the fixer scope --> <!-- waits: feature/the-fixer-scope-reads-every-open-pr -->
+- `feature/the-review-reads-the-fixer-scope` — `reviewPrNext`: `repairNamesPr` first, as `guardArm` does today, then the fixer's scope rule (renamed for both roles), then `reviewRunArm`, `restatusArm` and `reviewArm`; auto-review calls it instead of `slicePrNext`, the merge arm keeps `slicePrNext` and the sprint scope, with a test that proves merge still answers `out-of-scope`; the domain and fleet test cells the testability verdict names <!-- builds: reviewPrNext, the review arm walk over the fixer scope --> <!-- waits: feature/the-fixer-scope-reads-every-open-pr --> → #3646
 
 ## Notes
 

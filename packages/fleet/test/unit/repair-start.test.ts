@@ -148,6 +148,71 @@ describe('repairStartTick — the re-run', () => {
   });
 });
 
+describe('repairStartTick — the awaiting-rerun log line', () => {
+  const asked = (over: Partial<RepairRecord> = {}): RepairRecord => record({ state: 'rerun', rerun: 'asked', ...over });
+  const later = T0 + RERUN_GRACE_MS + 1;
+  const lines = async (r: Rig): Promise<string[]> => {
+    const warned: string[] = [];
+    expect(await repairStartTick(r.world, (line) => warned.push(line))).toBe('awaiting-rerun');
+    return warned;
+  };
+
+  it('names rerun-grace inside the grace window', async () => {
+    expect(await lines(rig(asked(), T0 + RERUN_GRACE_MS - 1))).toEqual(['plot-fleetd: repair awaiting-rerun (rerun-grace)\n']);
+  });
+
+  it('names rerun-unanswered where CI did not answer', async () => {
+    const r = rig(asked(), later);
+    r.set({ runs: failed() });
+    expect(await lines(r)).toEqual(['plot-fleetd: repair awaiting-rerun (rerun-unanswered)\n']);
+  });
+
+  it('names rerun-unconcluded while a declared run is still going', async () => {
+    const r = rig(asked(), later);
+    r.set({ runs: answered([run(null)]) });
+    expect(await lines(r)).toEqual(['plot-fleetd: repair awaiting-rerun (rerun-unconcluded)\n']);
+  });
+
+  it('names rerun-unmatched where the declared checks match no run', async () => {
+    const r = rig(asked(), later);
+    r.world.checks = ['CI/validate'];
+    r.set({ runs: answered([run('success')]) });
+    expect(await lines(r)).toEqual(['plot-fleetd: repair awaiting-rerun (rerun-unmatched)\n']);
+  });
+});
+
+describe('repairStartTick — the re-run bound', () => {
+  const WAIT = 3_600_000;
+  const asked = (): RepairRecord =>
+    record({ state: 'rerun', rerun: 'asked', redSince: new Date(T0 - WAIT - 120_000).toISOString(), at: new Date(T0 - WAIT).toISOString() });
+
+  it('waits one millisecond before Checks wait of the ask, with CI not answering', async () => {
+    const r = rig(asked(), T0 - 1);
+    r.set({ runs: failed() });
+    const warned: string[] = [];
+    expect(await repairStartTick(r.world, (line) => warned.push(line))).toBe('awaiting-rerun');
+    expect(warned).toEqual(['plot-fleetd: repair awaiting-rerun (rerun-unanswered)\n']);
+  });
+
+  it('starts the repair at Checks wait of the ask, logging no awaiting-rerun line', async () => {
+    const r = rig(asked(), T0);
+    r.set({ runs: failed() });
+    const warned: string[] = [];
+    expect(await repairStartTick(r.world, (line) => warned.push(line))).toBe('role-started');
+    expect(warned).toEqual([]);
+    expect(r.stored()?.attempt).toEqual({ branch: BRANCH, startedAt: new Date(T0).toISOString() });
+  });
+
+  it('awaits the started repair on the next pass rather than reaching the bound from redSince', async () => {
+    const r = rig(asked(), T0);
+    r.set({ runs: failed() });
+    expect(await repairStartTick(r.world)).toBe('role-started');
+    r.set({ now: T0 + 60_000, run: 'alive' });
+    expect(await repairStartTick(r.world)).toBe('awaiting-repair');
+    expect(r.calls.filter((c) => c === 'role')).toHaveLength(1);
+  });
+});
+
 describe('repairStartTick — the claim', () => {
   const settledRed = (): RepairRecord => record({ state: 'rerun', rerun: 'asked' });
   const later = T0 + RERUN_GRACE_MS + 1;
@@ -157,6 +222,26 @@ describe('repairStartTick — the claim', () => {
     expect(await repairStartTick(r.world)).toBe('role-started');
     expect(r.calls).toEqual(['write', 'claim', 'role']);
     expect(r.stored()).toMatchObject({ state: 'repairing', attempt: { branch: BRANCH } });
+  });
+
+  it('writes when the attempt started, before the claim', async () => {
+    const r = rig(settledRed(), later);
+    const written: (RepairRecord | null)[] = [];
+    const write = r.world.repair.write;
+    r.world.repair.write = async (next) => {
+      written.push(next);
+      return write(next);
+    };
+    expect(await repairStartTick(r.world)).toBe('role-started');
+    expect(written[0]?.attempt).toEqual({ branch: BRANCH, startedAt: new Date(later).toISOString() });
+  });
+
+  it('keeps the first startedAt when a later pass resumes the attempt', async () => {
+    const started = '2026-10-30T09:59:00.000Z';
+    const r = rig(record({ state: 'repairing', rerun: 'asked', attempt: { branch: BRANCH, startedAt: started } }), later);
+    r.set({ run: 'crashed' });
+    expect(await repairStartTick(r.world)).toBe('role-resumed');
+    expect(r.stored()?.attempt?.startedAt).toBe(started);
   });
 
   it('starts nothing where the claim is lost', async () => {
@@ -260,7 +345,7 @@ describe('repairStartTick — one attempt per episode', () => {
     const r = rig(record({ state: 'rerun', rerun: 'asked' }), later);
     r.set({ claim: 'lost' });
     expect(await repairStartTick(r.world)).toBe('claim-lost');
-    expect(r.stored()?.attempt).toEqual({ branch: BRANCH, outcome: 'lost' });
+    expect(r.stored()?.attempt).toEqual({ branch: BRANCH, startedAt: new Date(later).toISOString(), outcome: 'lost' });
     expect(await repairStartTick(r.world)).toBe('claim-lost');
     expect(r.calls.filter((c) => c === 'claim')).toHaveLength(1);
     expect(r.calls).not.toContain('role');

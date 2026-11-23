@@ -1,9 +1,11 @@
-import { linkIconKind, type HeaderCountPart, type PlanLine } from '@plot-pm/domain';
+import { useContext } from 'react';
+import { linkIconKind, type HeaderCountPart, type PlanLine, type PlanSliceLine } from '@plot-pm/domain';
 import type { PlanRowView, ReleaseBlockView, ReleaseHeaderView } from '../lib/agent-rows/delivery-view.js';
-import { isPlainPlanClick } from './PlanReference.js';
-import { PlanTicketKeys } from './PlanTicketKeys.js';
-import { SEGMENT_CLASS } from './SprintCard.js';
+import { artifactTuple, linkTuplesOf, type TupleLink } from '../lib/tuple-row.js';
+import { TicketHrefContext } from './PlanTicketKeys.js';
+import { SEGMENT_CLASS } from '../lib/agent-rows/state-classes.js';
 import { LinkIcon } from './LinkIcon.js';
+import { LinkTupleView } from './TupleRow.js';
 
 /** The hue of a Release header count, by key; a key not named here takes the body colour. */
 const COUNT_HUE: Readonly<Partial<Record<HeaderCountPart['key'], string>>> = {
@@ -22,21 +24,11 @@ const PHASE_HUE: Readonly<Record<string, string>> = {
   Released: 'delivery-hue-orange',
 };
 
-/** The state word of an opened plan line and its hue, by the slice's state. */
-const LINE_STATE: Readonly<Record<PlanLine['state'], { word: string; hue: string }>> = {
-  delivered: { word: '✓ merged', hue: 'delivery-hue-green' },
-  blocked: { word: '✕ blocked', hue: 'delivery-hue-red' },
-  'at-a-gate': { word: '⟳ at CI', hue: 'delivery-hue-amber' },
-  'being-built': { word: '● building', hue: 'delivery-hue-blue' },
-  'not-started': { word: '○ not started', hue: '' },
-  unread: { word: '○ not read', hue: '' },
-};
-
 /** The column headers of the plan table, shown from 640 px up. */
 export const PLAN_COLUMNS = ['Plan', 'Phase', 'Slices', 'Owner'] as const;
 
-/** The plan table's tracks: Plan, Phase, Slices, Owner and the actions cell, which holds one 1.25 rem menu. */
-export const PLAN_TRACKS = 'sm:grid-cols-[minmax(0,2fr)_7rem_minmax(0,1.5fr)_6rem_1.25rem]';
+/** The plan table's tracks: Plan, Phase, Slices, Owner and the actions cell, whose width is `--delivery-menu-track`. */
+export const PLAN_TRACKS = 'sm:grid-cols-[minmax(0,2fr)_7rem_minmax(0,1.5fr)_6rem_var(--delivery-menu-track)]';
 
 /** The header bar of one Release block: its name where it has one, then each count's number in bold and its words. */
 export const ReleaseLine = ({ block }: { block: Pick<ReleaseBlockView, 'release' | 'name' | 'header' | 'counts'> }) => {
@@ -95,9 +87,9 @@ export const PlanTableHead = () => (
 );
 
 /**
- * The Plan cell: the ▸ toggle, which opens and closes the slice lines, then the plan name.
+ * The Plan cell: the ▸ toggle, which opens and closes the slice lines, then the plan's tuple from `artifactTuple`.
  *
- * Each of the plan's ticket keys is its own link to its ticket, and the slug after them links to `plan.href`. A plain click on
+ * Each of the plan's ticket keys is its own ticket segment, and the plan segment after them links to `plan.href`. A plain click on
  * the slug calls `onOpenPlan` and, where it answers `true`, keeps the page; a modified click or another button keeps the browser's
  * own handling. Where `href` is `''`, the slug is plain text. The `title` carries `plan.label`, the keys and the slug.
  */
@@ -106,39 +98,30 @@ export const PlanName = ({ plan, open, onToggle, onOpenPlan }: {
   open: boolean;
   onToggle: () => void;
   onOpenPlan?: ((planFile: string) => boolean) | undefined;
-}) => (
-  <span className="delivery-release-plan flex w-full min-w-0 items-baseline gap-1 sm:w-auto">
-    <button
-      type="button"
-      data-plan-toggle={plan.plan}
-      aria-expanded={open}
-      aria-label={`${open ? 'Hide' : 'Show'} the slices of ${plan.plan}`}
-      onClick={onToggle}
-      className="shrink-0"
-    >
-      <span aria-hidden="true" className={`inline-block w-4 shrink-0 text-center transition-transform ${open ? 'rotate-90' : ''}`}>▸</span>
-    </button>
-    <LinkIcon kind={linkIconKind('plan')} />
-    <PlanTicketKeys keys={plan.keys}>
-      {plan.href === ''
-        ? <span title={plan.label} className="delivery-truncate">{plan.plan}</span>
-        : (
-          <a
-            href={plan.href}
-            data-plan-link={plan.plan}
-            title={plan.label}
-            onClick={(e) => {
-              if (!isPlainPlanClick(e) || onOpenPlan?.(plan.planFile) !== true) return;
-              e.preventDefault();
-            }}
-            className="delivery-truncate delivery-text-link hover:underline"
-          >
-            {plan.plan}
-          </a>
-        )}
-    </PlanTicketKeys>
-  </span>
-);
+}) => {
+  const ticketHref = useContext(TicketHrefContext);
+  const segments = artifactTuple({ what: 'plan', label: plan.plan, href: plan.href, internal: true, file: plan.planFile, keys: plan.keys }, ticketHref);
+  const hook = { 'data-plan-link': plan.plan };
+  return (
+    <span className="delivery-release-plan flex w-full min-w-0 items-center gap-1 sm:w-auto" title={plan.label}>
+      <button
+        type="button"
+        data-plan-toggle={plan.plan}
+        aria-expanded={open}
+        aria-label={`${open ? 'Hide' : 'Show'} the slices of ${plan.plan}`}
+        onClick={onToggle}
+        className="shrink-0"
+      >
+        <span aria-hidden="true" className={`inline-block w-4 shrink-0 text-center transition-transform ${open ? 'rotate-90' : ''}`}>▸</span>
+      </button>
+      <LinkTupleView
+        segments={segments}
+        onOpenPlan={onOpenPlan}
+        controls={segments.map((segment) => (segment.what === 'plan' ? { extraAttr: { link: hook } } : undefined))}
+      />
+    </span>
+  );
+};
 
 /** The Phase cell: a chip with the phase word, or nothing where the plan has no phase. */
 export const PhaseChip = ({ plan }: { plan: Pick<PlanRowView, 'phase' | 'accent'> }) => (
@@ -175,32 +158,73 @@ export const PlanStrip = ({ plan }: { plan: Pick<PlanRowView, 'strip' | 'stripTe
   );
 };
 
-/** The state word of an opened plan line, coloured by the slice's state. */
-export const LineState = ({ state }: { state: PlanLine['state'] }) => (
-  <span data-plan-line-state={state} className={`delivery-release-state ${LINE_STATE[state].hue}`}>{LINE_STATE[state].word}</span>
-);
+/** The plan table's tracks a slice line takes: Slice, PR and branch, State, Merged and the actions cell, whose width is `--delivery-menu-track`. */
+export const LINE_TRACKS = 'sm:grid-cols-[minmax(0,2fr)_minmax(0,1.5fr)_7rem_6rem_var(--delivery-menu-track)]';
 
-/** A line's PR: a link where the payload holds its address, the number as text where it does not. */
-export const LinePr = ({ pr, url }: { pr: number; url: string | null }) => (
-  <span className="inline-flex items-baseline">
-    <LinkIcon kind={linkIconKind('pr')} />
-    {url === null || url === ''
-      ? <span data-plan-line-pr={pr}>#{pr}</span>
-      : <a data-plan-line-pr={pr} href={url} target="_blank" rel="noopener noreferrer" className="delivery-text-link">#{pr}</a>}
+/** The State cell of an opened plan line: the line's status pills, each a dot in its tone and its word. */
+export const LineState = ({ line }: { line: Pick<PlanSliceLine, 'state' | 'pills'> }) => (
+  <span data-plan-line-state={line.state} className="delivery-release-state flex items-baseline gap-1.5">
+    {line.pills.map((p) => (
+      <span key={p.word} data-status-pill={p.word} data-pill-tone={p.tone} className="delivery-pill">
+        <span aria-hidden data-pill-dot className="delivery-pill-dot" />
+        {p.word}
+      </span>
+    ))}
   </span>
 );
 
 /**
- * An opened plan line's slice: the slice icon, then the slice words, as a button that scrolls to the slice's item
- * where `onJump` is given and as text where it is not.
+ * The links of an opened plan line: its PR, then its branch, in the order `linkTuplesOf` pairs them.
+ *
+ * @param line - the line's PR and branch; either may be absent.
+ * @param prUrl - the PR's address, or `null` where the payload holds none.
+ * @param branchUrlBase - the base of a branch URL on the host; `''` where the host is unknown.
+ * @returns the PR link where the line has a PR, then the branch link where it has a branch.
+ */
+export const lineLinks = (
+  line: Pick<PlanLine, 'pr' | 'branch'>,
+  prUrl: string | null,
+  branchUrlBase: string,
+): TupleLink[] => [
+  ...(line.pr === undefined ? [] : [{ what: 'pr' as const, label: `${line.pr}`, href: prUrl ?? '' }]),
+  ...(line.branch === undefined
+    ? []
+    : [{ what: 'branch' as const, label: line.branch, href: branchUrlBase === '' ? '' : `${branchUrlBase}${encodeURIComponent(line.branch)}` }]),
+];
+
+/**
+ * The PR and branch cell of an opened plan line: one PR+branch tuple, or the one link the line has, or nothing.
+ *
+ * The PR segment carries `data-plan-line-pr` and the branch segment `data-plan-line-branch`.
+ */
+export const LineLinks = ({ line, prUrl, branchUrlBase }: {
+  line: Pick<PlanLine, 'pr' | 'branch'>;
+  prUrl: string | null;
+  branchUrlBase: string;
+}) => (
+  <span data-plan-line-links className="flex min-w-0 items-baseline gap-2">
+    {linkTuplesOf(lineLinks(line, prUrl, branchUrlBase), () => undefined).map((segments) => (
+      <LinkTupleView
+        key={segments.map((s) => s.label).join(' ')}
+        segments={segments}
+        controls={segments.map((s) => {
+          const hook = s.what === 'pr' ? { 'data-plan-line-pr': s.label } : { 'data-plan-line-branch': s.label };
+          return { extraAttr: { link: hook, text: hook } };
+        })}
+      />
+    ))}
+  </span>
+);
+
+/**
+ * An opened plan line's slice as a slice tuple: a button that scrolls to the slice's item where `onJump` is given,
+ * and text where it is not.
  */
 export const LineSlice = ({ line, onJump }: { line: Pick<PlanLine, 'heading' | 'slice' | 'text' | 'pr'>; onJump?: (() => void) | undefined }) => (
-  <span className="inline-flex min-w-0 items-baseline">
-    <LinkIcon kind={linkIconKind('slice')} />
-    {onJump === undefined
-      ? <span>{lineBody(line)}</span>
-      : <button type="button" data-plan-line-link onClick={onJump} className="delivery-text-link hover:underline">{lineBody(line)}</button>}
-  </span>
+  <LinkTupleView
+    segments={artifactTuple({ what: 'wave', label: lineBody(line), href: '' }, () => undefined)}
+    controls={[onJump === undefined ? undefined : { extraAttr: { text: { 'data-plan-line-link': '' } }, onActivate: onJump }]}
+  />
 );
 
 /** A plan's owner: the person icon, then the handle. */

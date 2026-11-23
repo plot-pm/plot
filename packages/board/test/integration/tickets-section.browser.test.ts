@@ -149,13 +149,25 @@ describe('the Tickets card and the footer line (real browser renders the shipped
     return colour;
   }, token);
 
-  it('draws the Do cell in --hue-blue and the footer rule in --card-border', async () => {
+  it('draws each row\'s ⋯ menu in the last cell and the footer rule in --card-border', async () => {
     const page = await open(1280);
     try {
-      const doCell = page.locator('section#tickets [data-tickets-do]').first();
-      await doCell.waitFor({ timeout: 10_000 });
-      expect(await doCell.evaluate((el) => getComputedStyle(el).color)).toBe(await tokenColour(page, '--hue-blue'));
-      expect(await doCell.evaluate((el) => getComputedStyle(el).fontWeight)).toBe('600');
+      const row = page.locator('section#tickets [data-issue-row]').first();
+      await row.waitFor({ timeout: 10_000 });
+      expect(await page.locator('section#tickets [data-tickets-do]').count()).toBe(0);
+      expect(await row.evaluate((el) => el.lastElementChild?.getAttribute('data-row-cell'))).toBe('do');
+      const trigger = row.locator('[data-row-cell="do"] [data-issue-actions]');
+      expect(await trigger.count()).toBe(1);
+      expect(await trigger.getAttribute('aria-disabled')).toBe(null);
+      // An item that cannot run stays listed, its reason on `data-menu-reason`: this board cannot create plans.
+      await trigger.click();
+      const createPlan = row.locator('[data-menu-item="create-plan"]');
+      await createPlan.waitFor({ timeout: 10_000 });
+      expect(await createPlan.getAttribute('aria-disabled')).toBe('true');
+      expect(await createPlan.getAttribute('data-menu-reason')).toBe('this board cannot create plans');
+      const openIssue = row.locator('[data-menu-item="open-issue"]');
+      expect(await openIssue.getAttribute('aria-disabled')).toBe(null);
+      expect(await openIssue.locator('a').getAttribute('href')).toBe('https://github.com/tiny/garden/issues/41');
       const footer = page.locator('[data-footer-line]');
       expect(await footer.evaluate((el) => getComputedStyle(el).borderTopColor)).toBe(await tokenColour(page, '--card-border'));
       expect(await footer.evaluate((el) => getComputedStyle(el).display)).toBe('flex');
@@ -218,6 +230,74 @@ describe('the Tickets card and the footer line (real browser renders the shipped
       expect(await section.locator('[data-tickets-absent]').count()).toBe(1);
       expect(await section.locator('ul').count()).toBe(0);
       expect(await section.locator('[data-tickets-header]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+});
+
+/**
+ * The Delivered by the sprint and Found during the sprint groups, served from `a-sprint-that-delivers-and-finds`.
+ * Rows, words and menus are asserted in `scope-tickets.test.ts`; this proves they reach the screen behind their folds.
+ */
+describe('the Tickets scope groups (real browser renders the shipped artifact)', () => {
+  let cat: Catalogue;
+
+  beforeAll(async () => {
+    cat = await openCatalogue();
+  }, 60_000);
+  afterAll(async () => {
+    await cat?.close();
+  });
+
+  const GROUPS = ['tickets-delivered', 'tickets-found'] as const;
+
+  const open = async (over: Parameters<Catalogue['open']>[1] = { tab: 'agents' }): Promise<Page> => {
+    const page = await cat.open('a-sprint-that-delivers-and-finds', over);
+    await page.locator('section#tickets [data-tickets-group]').first().waitFor({ timeout: 15_000 });
+    return page;
+  };
+
+  it('renders both groups folded with their label, and "— none" once an empty group opens', async () => {
+    const { board: served } = scenario('a-sprint-that-delivers-and-finds');
+    const page = await open({
+      tab: 'agents',
+      over: {
+        board: buildBoard({
+          ...served,
+          columns: served.columns.map((c) => ({ ...c, cards: c.cards.map((k) => ({ ...k, issues: [], prs: [], refutedIssues: [] })) })),
+        }),
+      },
+    });
+    try {
+      const section = page.locator('section#tickets');
+      const toggle = (key: string) => section.locator(`button[data-tickets-group-toggle="${key}"]`);
+      for (const key of GROUPS) await expect.poll(() => toggle(key).getAttribute('aria-expanded')).toBe('false');
+      await expect.poll(() => toggle('tickets-delivered').innerText()).toContain('Delivered by the sprint · 0');
+      await expect.poll(() => toggle('tickets-found').innerText()).toContain('Found during the sprint · 0');
+      expect(await section.locator('[data-tickets-group-empty]').count()).toBe(0);
+      for (const key of GROUPS) {
+        await toggle(key).click();
+        await expect.poll(() => section.locator(`[data-tickets-group="${key}"] [data-tickets-group-empty]`).innerText()).toBe('— none');
+      }
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+
+  it('opens Delivered on its ticket and Found on the review and the verification finding', async () => {
+    const page = await open();
+    try {
+      const section = page.locator('section#tickets');
+      for (const key of GROUPS) await section.locator(`button[data-tickets-group-toggle="${key}"]`).click();
+      const delivered = section.locator('[data-tickets-group="tickets-delivered"] li[data-scope-ticket]');
+      await expect.poll(() => delivered.count()).toBe(1);
+      expect(await delivered.first().getAttribute('data-scope-ticket')).toBe('51');
+      const found = section.locator('[data-tickets-group="tickets-found"] li[data-scope-ticket]');
+      await expect.poll(() => found.count()).toBe(2);
+      expect(await found.evaluateAll((rows) => rows.map((r) => `${r.getAttribute('data-scope-ticket')} ${r.getAttribute('data-scope-kind')}`)))
+        .toEqual(['52 review-finding', '53 verification-finding']);
+      expect(await section.locator('li[data-issue-row]').count()).toBe(0);
     } finally {
       await page.close();
     }

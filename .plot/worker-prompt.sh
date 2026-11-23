@@ -167,6 +167,13 @@ settings_args=()
 # reason `--settings` is.
 [ -n "${PLOT_BACKGROUND_DENY:-}" ] && [ "$harness" = "claude" ] && settings_args+=(--disallowedTools "$PLOT_BACKGROUND_DENY")
 
+# NO MCP SERVER STARTS. `--strict-mcp-config` with no `--mcp-config` makes the
+# agent ignore every MCP server the operator's user settings and plugins
+# declare; Plot's agents reach hosts through `plot-host.sh` and call no MCP
+# tool. Guarded on the harness for the reason `--settings` is.
+mcp_args=()
+[ "$harness" = "claude" ] && mcp_args=(--strict-mcp-config)
+
 # WHAT IT RUNS, ON REQUEST. Under `PLOT_PRINT_INVOCATION=1` this file prints
 # the harness and every flag of the launch line below, one per line, and exits
 # 0 without launching. It leaves out `-p` and the prompt body only.
@@ -184,7 +191,7 @@ settings_args=()
 # runs: a print without `--permission-mode bypassPermissions` cannot approve a
 # Write, and the probe then refuses every start.
 head_args=(${model_args[@]+"${model_args[@]}"} ${effort_args[@]+"${effort_args[@]}"} \
-  ${settings_args[@]+"${settings_args[@]}"} ${cap_args[@]+"${cap_args[@]}"})
+  ${settings_args[@]+"${settings_args[@]}"} ${mcp_args[@]+"${mcp_args[@]}"} ${cap_args[@]+"${cap_args[@]}"})
 tail_args=(${session_args[@]+"${session_args[@]}"} ${cap_args[@]+"${cap_args[@]}"} --permission-mode bypassPermissions)
 if [ -n "${PLOT_PRINT_INVOCATION:-}" ]; then
   printf '%s\n' "$harness" ${head_args[@]+"${head_args[@]}"} "${tail_args[@]}"

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { PlanMetaSchema } from '../../src/contract/schema.js';
-import { answer, slicesFrom } from '../../src/server/entry/verdicts.js';
+import { run, slicesFrom } from '../../src/server/entry/verdicts.js';
 import { PlanSchema } from '@plot-pm/domain';
 
 describe('PlanMetaSchema — spike readings', () => {
@@ -37,49 +37,26 @@ describe('PlanSchema — tracer', () => {
   });
 });
 
-describe('slicesFrom — the three spike columns', () => {
-  it('leaves both unread on a three-column line', () => {
-    const [s] = slicesFrom('1\tapproved\topen\n');
-    expect(s.spike).toBe(undefined);
-    expect(s.spikeApproved).toBe(undefined);
+describe('slicesFrom — exactly three columns', () => {
+  it('parses a three-column line', () => {
+    expect(slicesFrom('1\tapproved\topen\n')).toEqual([
+      { outstanding: 1, phase: 'approved', states: ['open'], branches: 1 },
+    ]);
   });
 
-  it('leaves spike unread without the plan count, so a bare 1 admits nothing', () => {
-    const [a] = slicesFrom('1\tdesign\topen\t1\t1\n');
-    expect(a.spike).toBe(undefined);
-    expect(a.spikeApproved).toBe(true);
+  it('parses a line whose states field is empty', () => {
+    expect(slicesFrom('0\tapproved\t\n')).toEqual([
+      { outstanding: 0, phase: 'approved', states: [], branches: 0 },
+    ]);
   });
 
-  it('reads six columns as the plan\'s spike slice and the approval', () => {
-    const [a, b] = slicesFrom('1\tapproved\topen\t0\t0\t1\n0\tapproved\tmerged\t1\t0\t1\n');
-    expect(a.spike).toBe(false);
-    expect(a.spikeApproved).toBe(false);
-    expect(b.spike).toBe(true);
-    expect(b.spikeApproved).toBe(false);
+  it('refuses a six-column line', () => {
+    expect(() => slicesFrom('1\tdesign\topen\t1\t1\t1\n')).toThrow(/line 1: expected/);
   });
 
-  it('marks no slice where the plan holds two annotations', () => {
-    const slices = slicesFrom('1\tdesign\topen\t1\t1\t2\n1\tdesign\topen\t1\t1\t2\n');
-    expect(slices.map((s) => s.spike)).toEqual([false, false]);
-  });
-});
-
-describe('answer — what the scan offers for a Design plan with an approved spike', () => {
-  it('offers the spike when it stands alone in its slice', () => {
-    expect(answer('1\tdesign\topen\t1\t1\t1\n1\tdesign\topen\t0\t1\t1\n'))
-      .toBe('eligible\t1\nunapproved\t0\n');
-  });
-
-  it('offers neither branch of a slice holding the spike and a sibling', () => {
-    expect(answer('2\tdesign\topen|open\t1\t1\t1\n')).toBe('unapproved\t00\n');
-  });
-
-  it('offers nothing where the plan holds two annotations', () => {
-    expect(answer('1\tdesign\topen\t1\t1\t2\n1\tdesign\topen\t1\t1\t2\n'))
-      .toBe('unapproved\t0\nunapproved\t0\n');
-  });
-
-  it('offers nothing where the second annotation sits in a slice the scan does not show', () => {
-    expect(answer('1\tdesign\topen\t1\t1\t2\n')).toBe('unapproved\t0\n');
+  it('refuses the whole batch through the bundle when one line has extra columns', () => {
+    let out = '';
+    expect(run('1\tapproved\topen\n1\tdesign\topen\t1\t1\t1\n', (s) => { out += s; })).toBe(2);
+    expect(out).toBe('');
   });
 });

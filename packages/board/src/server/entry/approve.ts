@@ -1,6 +1,7 @@
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { canPinMerge } from '@plot-pm/domain/workflows/merge';
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
+import { hostReadsFor } from '@plot-pm/domain/adapters';
 import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
@@ -185,7 +186,8 @@ interface WriteReport {
 
 /** The three outcomes of asking the host for the plan PR. */
 interface PlanPr {
-  number: number;
+  /** The PR's number; null where no plan PR was read. */
+  number: number | null;
   state: string;
   draft: boolean;
   /** The head the host reported; absent where it named none. */
@@ -333,7 +335,7 @@ const readPlanPr = async (ctx: Context, branch: string): Promise<PlanPr> => {
   }
   const pr = lookup.value;
   if (pr === null || (pr.state !== 'MERGED' && pr.state !== 'OPEN' && pr.state !== 'CLOSED')) {
-    return { number: 0, state: 'NONE', draft: false };
+    return { number: null, state: 'NONE', draft: false };
   }
   const head = pr.state === 'OPEN' ? await readHeadOf(ctx, branch, pr.headSha ?? '') : null;
   return { number: pr.number, state: pr.state, draft: pr.draft, headSha: head?.sha ?? pr.headSha, url: pr.url };
@@ -462,9 +464,12 @@ interface RefusalContext {
   phase: string;
   review: string;
   prBranch: string;
-  prNumber: number;
+  /** The plan PR's number; null where no plan PR was read. */
+  prNumber: number | null;
   /** The own-repo open rows that could not be read while looking for the plan. */
   unreadOpen: readonly UnreadPr[];
+  /** The merge that added the plan file where the host named no PR for it. */
+  unnamedMerge?: { sha: string; via: 'commit' | 'list' };
 }
 
 /**
@@ -509,6 +514,10 @@ const refusalText = (reason: ApproveRefusal, detail: string, c: RefusalContext):
       return `the plan PR for '${slug}' (#${c.prNumber}) is closed.\n  Reopen it on the host, or push '${c.prBranch}' again and open a new one.`;
     case 'pr-ambiguous':
       return `${detail}\n  Close the PR that should not carry the plan, then re-run. Nothing was merged and the phase is unchanged.`;
+    case 'pr-merge-unnamed':
+      return c.unnamedMerge?.via === 'list'
+        ? `the merge commit ${c.unnamedMerge.sha} added ${planFile}, and the host could only search its newest 100 merged PRs.\n  Set a host credential so plot-approve can ask the host by commit, or approve in session: plot-approve-command.mjs --who <handle> ${slug}. Nothing was merged and the phase is unchanged.`
+        : `the merge commit ${c.unnamedMerge?.sha ?? ''} added ${planFile}, and the host could not name its PR.\n  Check the merge commit on the host, or approve in session: plot-approve-command.mjs --who <handle> ${slug}. Nothing was merged and the phase is unchanged.`;
     case 'pr-absent':
       return `no PR found for branch '${c.prBranch}'.\n  Push the branch: git push -u origin ${c.prBranch}\n  Then open its PR — or run /plot-idea, which does both.`;
     case 'pr-copies-differ':
@@ -531,7 +540,8 @@ interface WriteRequest {
   today: string;
   channel: string;
   people: readonly string[];
-  prNumber: number;
+  /** The plan PR's number; null where no plan PR was read, which annotates `pr: none`. */
+  prNumber: number | null;
   dirs: Dirs;
   /** Records `Spike approved:` and clears the spike branch's hold instead of approving the plan. */
   spike?: boolean;
@@ -739,6 +749,21 @@ const stageApproval = async (ctx: Context, root: string, rel: string, report: Wr
 };
 
 /**
+ * The host the approve entry reads through: the shell host for every
+ * operation, with only `prsOfCommit` taken from the host `hostReadsFor`
+ * composes in-process.
+ *
+ * @param shell - the shell host; answers the listing, the status write and
+ *   every other operation.
+ * @param composed - the host `hostReadsFor` composed; answers `prsOfCommit`.
+ * @returns the host the entry hands to `perform`.
+ */
+export const approveHostOf = (shell: Host, composed: Host): Host => ({
+  ...shell,
+  prsOfCommit: (sha) => composed.prsOfCommit(sha),
+});
+
+/**
  * Parses argv, reads the plan and the PR, and performs the approval.
  *
  * @param argv - the arguments after the script name.
@@ -772,13 +797,21 @@ export const run = async (
   }
   const repoRoot = probe.value;
   const context = { repoRoot, scriptDir };
+  const shell = hostShell(context);
+  const scripts = scriptsShell(context);
+  const backend = await shell.backend();
+  const { host: composed } = await hostReadsFor(
+    context,
+    { backend: backend.ok ? backend.value : null, ci: await configured(scripts, 'CI', '') },
+    { shell },
+  );
   const ctx: Context = {
     repoRoot,
     scriptDir,
-    host: hostShell(context),
+    host: approveHostOf(shell, composed),
     planStore: planStoreShell(context),
     refs: refsGit(context),
-    scripts: scriptsShell(context),
+    scripts,
     trees: treesGit(context),
   };
 
@@ -888,12 +921,13 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
   // sha it settles on is the ONE sha that serves the record read below, the
   // `plot/review` status write and the merge's `--match-head` pin.
   let prBranch = sameBranch ? await sameBranchOf(ctx, slug) : `idea/${slug}`;
-  let pr: PlanPr = { number: 0, state: 'NONE', draft: false };
+  let pr: PlanPr = { number: null, state: 'NONE', draft: false };
   let prRoute: 'named' | 'open' | 'merged' | undefined;
   let prBlob = '';
   let prRivals: readonly { number: number; file: string; blob: string }[] = [];
   let carried: readonly string[] = [];
   let prRefused: PlanPrRefusal['reason'] | undefined;
+  let unnamedMerge: { sha: string; via: 'commit' | 'list' } | undefined;
   let copies: { checkout: string; head: string } | undefined;
   let hostRefusal: Refused | undefined;
   const blobAt = async (sha: string, file: string): Promise<string> => {
@@ -902,7 +936,12 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
   };
   if (plan === undefined || !inSession) {
     try {
-      if (inCheckout && sameBranch) {
+      // A same-branch plan the default branch holds is found by its adding
+      // merge, like any other plan there: `sameBranchOf` may name a bare slug
+      // that never had a PR.
+      const sameBranchOnMain = inCheckout && sameBranch
+        && (await plansOnMain()).includes(realPlanPath(ctx.repoRoot, planFile) ?? planFile);
+      if (inCheckout && sameBranch && !sameBranchOnMain) {
         pr = await readPlanPr(ctx, prBranch);
         if (pr.state === 'OPEN' && pr.headSha !== undefined) {
           const head = await readHeadOf(ctx, prBranch, pr.headSha);
@@ -941,8 +980,12 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
         if (found !== undefined && found.outcome === 'refused') {
           prRefused = found.reason;
           pr = { number: found.number, state: 'OPEN', draft: false };
-        } else if (found !== undefined) {
+        } else if (found !== undefined && found.outcome === 'found') {
           pr = { number: found.number, state: found.state, draft: found.draft, headSha: found.headSha || undefined };
+          // A same-branch plan whose plan PR already merged into the default
+          // branch has no work branch left to carry its record, so it is booked
+          // on `origin/<main>` and records the merge, like any merged plan PR.
+          if (sameBranchOnMain && found.state === 'MERGED') sameBranch = false;
           if (found.branch !== '') prBranch = found.branch;
           carried = found.carried;
           prRoute = found.route;
@@ -977,7 +1020,9 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
               copies = { checkout: checkoutText.value, head: headShown.value };
             }
           }
-        } else if (!inCheckout && onMain) {
+        } else {
+          if (found !== undefined) unnamedMerge = { sha: found.mergeCommit, via: found.via };
+          if (!inCheckout && onMain) {
           // No PR carries the plan at all — it reached the default branch by a
           // direct push or a squash merge `planPrOf` cannot trace to a PR. It is
           // still read, from `origin/<main>`, with no PR to pin a merge to.
@@ -991,6 +1036,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
           inSession = review === 'in-session';
           sameBranch = !inSession && impl === 'same-branch';
           write(`step: plan ${readFile} is not in this checkout — read it from origin/${main}\n`);
+          }
         }
       }
     } catch (err) {
@@ -1002,7 +1048,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
       // reads the host to pin its PR, so that failure waits on the verdict.
       if (!inCheckout) throw err;
       hostRefusal = err;
-      pr = { number: 0, state: 'OPEN', draft: false };
+      pr = { number: null, state: 'OPEN', draft: false };
     }
   }
   const person = args.spike || approvalArm({ phase, review }) === 'person';
@@ -1024,7 +1070,8 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
     sprintFile: '',
     approvedRecord: plan?.approvedRaw ?? '',
     pr: {
-      number: pr.number,
+      // The domain's reading names no PR with 0, and its state says which.
+      number: pr.number ?? 0,
       state: pr.state === 'MERGED' || pr.state === 'OPEN' || pr.state === 'CLOSED' ? pr.state : 'NONE',
       draft: pr.draft,
       branch: prBranch,
@@ -1034,6 +1081,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
       ...(prBlob === '' ? {} : { blob: prBlob }),
       ...(prRefused === undefined ? {} : { refused: prRefused }),
       ...(copies === undefined ? {} : { copies }),
+      ...(unnamedMerge === undefined ? {} : { unnamedMerge }),
     },
   };
   // A spike approval records the channel it rode: the plan PR's merge, or the room.
@@ -1057,7 +1105,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
         ? `a person approves the spike of '${slug}' on every review channel.\n  Refusing under PLOT_UNATTENDED=1: there is nobody here to name. Approve it from a session: /plot-approve ${slug} --spike --who <handle>`
         : inSession
         ? `plan '${slug}' declares 'Review: in-session' — the reviewer is a human in the room.\n  Refusing under PLOT_UNATTENDED=1: there is nobody here to name. Approve it from a session: /plot-approve ${slug}`
-        : `plan '${slug}' is in the Design phase — a person approves it (D10), whatever its 'Review:' channel declares.\n  Refusing under PLOT_UNATTENDED=1: there is nobody here to name. Approve it from a session: /plot-approve ${slug} --who <handle>`,
+        : `plan '${slug}' is in the Design phase — a person approves it [decision-fleet-writes-design-specs], whatever its 'Review:' channel declares.\n  Refusing under PLOT_UNATTENDED=1: there is nobody here to name. Approve it from a session: /plot-approve ${slug} --who <handle>`,
     );
   }
   if (verdict.outcome === 'refused') {
@@ -1067,7 +1115,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
         : `${verdict.detail}\n  Name the reviewer: plot-approve.mjs --spike --who <handle> ${slug}`);
     }
     throw new Refused(refusalText(verdict.reason, verdict.detail, {
-      slug, planFile, scriptDir: ctx.scriptDir, dirs, phase, review, prBranch, prNumber: pr.number, unreadOpen,
+      slug, planFile, scriptDir: ctx.scriptDir, dirs, phase, review, prBranch, prNumber: pr.number, unreadOpen, unnamedMerge,
     }));
   }
   if (hostRefusal !== undefined) throw hostRefusal;
@@ -1081,7 +1129,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
   }
   // The merge is irreversible, so a PR that would land on another branch than
   // the one the approval books on refuses before it.
-  if (!inSession && !sameBranch && pr.state === 'OPEN') {
+  if (!inSession && !sameBranch && pr.state === 'OPEN' && pr.number !== null) {
     await refuseForeignBase(ctx, pr.number, main, target);
   }
 
@@ -1132,7 +1180,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
   let merged = 'already';
   if (inSession) {
     merged = 'skipped-in-session';
-  } else if (sameBranch) {
+  } else if (sameBranch && pr.state !== 'MERGED') {
     merged = 'skipped-same-branch';
     write(`step: merge skipped — 'Impl: same branch' keeps PR #${pr.number} open for the implementation\n`);
   } else if (pr.state === 'MERGED') {
@@ -1224,7 +1272,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
     }
     approvedPlan = { file: path.join(ctx.repoRoot, rel), link: pr.url || `#${pr.number}`, dispose: () => {} };
   } else {
-    const mainRoot = await mainRootOf(ctx);
+    const mainRoot = await mainCheckoutOrRepoRoot(ctx);
     const outcome = await bookApproval(ctx, { mainRoot, main, request, args, inSession, prNumber: pr.number, who }, write, warn);
     if (outcome.exit !== undefined) {
       write(summary(outcome.report, 'rejected', 'skipped'));
@@ -1239,7 +1287,8 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
   if (person && push !== 'nothing-to-commit' && push !== 'n/a') {
     const entry = process.env.PLOT_APPROVE_ENTRY === 'board' ? 'board' : 'script';
     const mode = args.spike ? '\tspike' : '';
-    const logDir = path.join(await mainRootOf(ctx), '.plot', 'state');
+    // Falls back to `repoRoot`: `in-session-approvals.tsv` is read by no gate.
+    const logDir = path.join(await mainCheckoutOrRepoRoot(ctx), '.plot', 'state');
     try {
       mkdirSync(logDir, { recursive: true });
       appendFileSync(path.join(logDir, 'in-session-approvals.tsv'), `${today}\t${slug}\t${who}\t${entry}${mode}\n`);
@@ -1320,7 +1369,7 @@ const bookApproval = async (
     request: (root: string) => WriteRequest;
     args: Args;
     inSession: boolean;
-    prNumber: number;
+    prNumber: number | null;
     who: string;
   },
   write: Printer,
@@ -1386,8 +1435,13 @@ const bookApproval = async (
   }
 };
 
-/** The main checkout's root, which `.plot/state/` and the desk root hang from; the caller's checkout where git cannot say. */
-const mainRootOf = async (ctx: Context): Promise<string> => {
+/**
+ * The main checkout's root, which the desk root and `in-session-approvals.tsv` hang from.
+ *
+ * @param ctx - the approval's context.
+ * @returns `Trees.mainRoot`, or `ctx.repoRoot` where git cannot say: neither the desk nor the log is read by a gate.
+ */
+const mainCheckoutOrRepoRoot = async (ctx: Context): Promise<string> => {
   const root = await ctx.trees.mainRoot(ctx.repoRoot);
   return root.ok ? root.value : ctx.repoRoot;
 };

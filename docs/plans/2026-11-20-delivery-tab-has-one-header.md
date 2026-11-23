@@ -4,13 +4,16 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** delivery-ui-polish
 - **Review:** pr
 - **Impl:** own branches
 - **Rounds:** 3
 - **Approved:** 2026-11-20, Jan Wloka, plan-PR #3583 merged
+- **Started:** 2026-11-21, Jan Wloka, `feature/delivery-tab-has-one-header`
+- **Started:** 2026-11-21, Jan Wloka, `feature/delivery-header-release-group`
+- **Delivered:** 2026-11-21
 
 ## Changelog
 
@@ -106,11 +109,11 @@ Today the tab header holds three widgets, `TodoList`, `ReleaseCard` or `SprintCa
 
 ### Header
 
-- `feature/delivery-tab-has-one-header` <!-- waits: feature/delivery-tuples-in-every-row, feature/every-delivery-section-folds --> — the header card with the You, Work items, Fleet and Machine groups from domain properties that ignore Mine, replacing `TodoList` and `FleetCard` and the `readOnly` switch branches, "open ›" and the triage link through plan 2's reachability rule, the clear, unread and stopped form of each group with the amber "! N not read" clause from `unplaced`, the header placement over `deliveryMapping` in mode `all` with its board unit test across the `MineMode` values, the Machine meters for a one-pool host, today's `ReleaseCard` or `SprintCard` in the Release position until slice 2, and the read-only Fleet marks with the parallel-agents value <!-- builds: deliveryHeader, the Delivery tab header's frame and four groups -->
+- `feature/delivery-tab-has-one-header` <!-- waits: feature/delivery-tuples-in-every-row, feature/every-delivery-section-folds --> — the header card with the You, Work items, Fleet and Machine groups from domain properties that ignore Mine, replacing `TodoList` and `FleetCard` and the `readOnly` switch branches, "open ›" and the triage link through plan 2's reachability rule, the clear, unread and stopped form of each group with the amber "! N not read" clause from `unplaced`, the header placement over `deliveryMapping` in mode `all` with its board unit test across the `MineMode` values, the Machine meters for a one-pool host, today's `ReleaseCard` or `SprintCard` in the Release position until slice 2, and the read-only Fleet marks with the parallel-agents value <!-- builds: deliveryHeader, the Delivery tab header's frame and four groups --> → #3607
 
 ### Release group
 
-- `feature/delivery-header-release-group` <!-- waits: feature/delivery-tab-has-one-header --> — the Release group over every active sprint and over the sprints `deliveryScope` returns under My sprint, with the five-state combined bar, the scope line, `releaseStatusLine` with the passkey read lifted out of `ReleaseApprove` and the lowest ready version in the slot, the fixed release slot with a dashed disabled state and its reason, the `lastRelease` payload field, and the removal of `ReleaseCard` and `SprintCard` <!-- builds: releaseStatusLine and lastRelease, the header's Release group -->
+- `feature/delivery-header-release-group` <!-- waits: feature/delivery-tab-has-one-header --> — the Release group over every active sprint and over the sprints `deliveryScope` returns under My sprint, with the five-state combined bar, the scope line, `releaseStatusLine` with the passkey read lifted out of `ReleaseApprove` and the lowest ready version in the slot, the fixed release slot with a dashed disabled state and its reason, the `lastRelease` payload field, and the removal of `ReleaseCard` and `SprintCard` <!-- builds: releaseStatusLine and lastRelease, the header's Release group --> → #3630
 
 ## Notes
 

@@ -1,155 +1,189 @@
 import { describe, it, expect } from 'vitest';
 import { placeDelivery, type ItemPlacement, type WorkItemReading } from '../src/rules/delivery-placement.js';
 import { FIXER_ATTEMPTS_BUDGET } from '../src/rules/fixer-attempts.js';
-import { ROW_COLUMNS, itemRowCells, workByCell, type ItemRowFacts } from '../src/rules/delivery-row-form.js';
+import { itemRowCells, workByCell, type ItemRowFacts } from '../src/rules/delivery-row-form.js';
 import {
-  WORK_GROUP_COLUMN,
+  WORK_GROUP_VALUE,
   WORK_ITEM_COLUMNS,
+  WORK_ITEM_COLUMN_LABELS,
   oldestWaitsClause,
   workGroupCountText,
   workItemCells,
+  workItemPills,
 } from '../src/rules/delivery-work-columns.js';
+import type { StatusPill } from '../src/rules/status-pill.js';
 
-const slice = (group: 'at-a-gate' | 'being-built' | 'queued'): ItemPlacement =>
-  ({ id: `slice:${group}`, kind: 'slice', section: 'work-items', group, reason: null, agents: [] });
+const slice = (group: 'at-a-gate' | 'being-built' | 'queued', agents: string[] = []): ItemPlacement =>
+  ({ id: `slice:${group}`, kind: 'slice', section: 'work-items', group, reason: null, agents });
 
-describe('the Gates cell', () => {
-  const gates = (prReading: ItemRowFacts['prReading'], facts: Partial<ItemRowFacts> = { pr: 4 }) =>
-    workItemCells(slice('at-a-gate'), { plan: 'p', branch: 'feature/x', prReading, ...facts })!.cells.group;
+const pills = (group: 'at-a-gate' | 'being-built' | 'queued', facts: ItemRowFacts, agents: string[] = []): StatusPill[] =>
+  workItemPills(slice(group, agents), { plan: 'p', branch: 'feature/x', ...facts }, null)!;
 
-  it('shows both gates at once, each linked to its own page', () => {
-    const cell = gates({ ci: 'passed', review: 'high' });
-    expect(cell?.value).toBe('CI ✓ · review ✗');
-    expect(cell?.parts).toEqual([
-      { value: 'CI ✓', link: { to: 'checks', pr: 4 }, outcome: 'pass' },
-      { value: 'review ✗', link: { to: 'review', pr: 4 }, outcome: 'fail' },
-    ]);
+describe('the Work items columns', () => {
+  it('are one grid for every group, with no kind and no where column', () => {
+    expect([...WORK_ITEM_COLUMNS]).toEqual(['item', 'plan', 'status', 'by', 'age', 'menu']);
+    expect(WORK_ITEM_COLUMNS).not.toContain('kind');
+    expect(WORK_ITEM_COLUMNS).not.toContain('where');
+    expect(WORK_ITEM_COLUMNS.map((c) => WORK_ITEM_COLUMN_LABELS[c])).toEqual(['Item', 'Plan', 'Status', 'By', 'Age', 'Actions']);
   });
 
-  it('marks CI failed beside a review nobody asked, and links only the CI mark', () => {
-    const cell = gates({ ci: 'failed', review: 'none' });
-    expect(cell?.value).toBe('CI ✗ · review –');
-    expect(cell?.parts).toEqual([
-      { value: 'CI ✗', link: { to: 'checks', pr: 4 }, outcome: 'fail' },
-      { value: 'review –', link: null, outcome: 'none' },
-    ]);
-    expect(cell?.links).toEqual([{ to: 'checks', pr: 4 }]);
+  it('give every group one value kind for its pills', () => {
+    expect(WORK_GROUP_VALUE).toEqual({ 'at-a-gate': 'gate', 'being-built': 'progress', queued: 'wait' });
+  });
+
+  it('put the status pills and the By cell in the cells', () => {
+    const out = workItemCells(slice('being-built', ['a1']), { plan: 'p', pr: 4 })!;
+    expect(out).toMatchObject({ group: 'being-built', holds: 'progress' });
+    expect(Object.keys(out.cells)).toEqual(['status', 'by']);
+    expect(out.cells.status.map((p) => p.word)).toEqual(['PR open']);
+  });
+
+  it('give a plan item cells too, where it has no row shape', () => {
+    const out = workItemCells({ ...slice('queued'), kind: 'plan' }, { plan: 'p', phase: 'draft', person: 'eins78' })!;
+    expect(out.cells.status).toEqual([{ word: 'plan in Draft', tone: 'amber', href: null }]);
+    expect(out.cells.by).toEqual({ value: 'eins78', links: [{ to: 'person', handle: 'eins78' }] });
   });
 
   it.each([
-    ['pending', 'review ⟳', 'pending'],
-    ['high', 'review ✗', 'fail'],
-    ['passed', 'review ✓', 'pass'],
-  ] as const)('reads review %s as %s linked to the PR', (review, mark, outcome) => {
-    expect(gates({ ci: 'unread', review })?.parts).toEqual([{ value: mark, link: { to: 'review', pr: 4 }, outcome }]);
+    [{ approvalOwed: 'plan', person: 'eins78', personName: 'Max Albrecht' }, { value: 'Max Albrecht', links: [{ to: 'person', handle: 'eins78' }] }],
+    [{ person: 'eins78' }, null],
+    [{ phase: 'design' }, null],
+    [{}, null],
+  ] as const)('name the person in By only where the item waits on them: %o', (facts, by) => {
+    expect(workItemCells(slice('queued'), { plan: 'p', ...facts })!.cells.by).toEqual(by);
   });
 
-  it('renders no review mark for an unread review and no CI mark for an unread CI', () => {
-    expect(gates({ ci: 'running', review: 'unread' })?.parts).toEqual([{ value: 'CI ⟳', link: { to: 'checks', pr: 4 }, outcome: 'pending' }]);
-    expect(gates({ ci: 'unread', review: 'unread' })).toBeNull();
+  it('return nothing for an item outside Work items', () => {
+    expect(workItemCells({ ...slice('queued'), section: 'fleet' } as never, {})).toBeNull();
+    expect(workItemPills({ ...slice('queued'), section: 'fleet' } as never, {}, null)).toBeNull();
+  });
+});
+
+describe('the gate pills', () => {
+  it('keep each gate\'s link and read each outcome, with a link and without one', () => {
+    expect(pills('at-a-gate', { pr: 4, prReading: { ci: 'failed', review: 'none' } })).toEqual([
+      { word: 'CI failed', tone: 'red', href: { to: 'checks', pr: 4 } },
+      { word: 'review not asked', tone: 'grey', href: null },
+    ]);
   });
 
-  it('renders no cell where no gate reading exists', () => {
-    expect(gates(undefined)).toBeNull();
+  it('link both gates to their own pages', () => {
+    expect(pills('at-a-gate', { pr: 4, prReading: { ci: 'passed', review: 'high' } })).toEqual([
+      { word: 'CI passed', tone: 'green', href: { to: 'checks', pr: 4 } },
+      { word: 'review failed', tone: 'red', href: { to: 'review', pr: 4 } },
+    ]);
   });
 
-  it('links nothing where the PR number is unknown', () => {
-    expect(gates({ ci: 'passed', review: 'passed' }, {})?.links).toEqual([]);
+  it.each([
+    ['running', 'unread', [{ word: 'CI running', tone: 'amber', href: { to: 'checks', pr: 4 } }]],
+    ['unread', 'pending', [{ word: 'review running', tone: 'amber', href: { to: 'review', pr: 4 } }]],
+    ['unread', 'passed', [{ word: 'review passed', tone: 'green', href: { to: 'review', pr: 4 } }]],
+  ] as const)('read CI %s and review %s', (ci, review, expected) => {
+    expect(pills('at-a-gate', { pr: 4, prReading: { ci, review } })).toEqual(expected);
   });
 
-  it('keeps the single status string for the You rows', () => {
+  it('link nothing where the PR number is unknown', () => {
+    expect(pills('at-a-gate', { prReading: { ci: 'passed', review: 'passed' } }).map((p) => p.href)).toEqual([null, null]);
+  });
+
+  it('read gates unread where no gate was read, never an empty list', () => {
+    expect(pills('at-a-gate', {})).toEqual([{ word: 'gates unread', tone: 'grey', href: null }]);
+    expect(pills('at-a-gate', { prReading: { ci: 'unread', review: 'unread' } })).toEqual([{ word: 'gates unread', tone: 'grey', href: null }]);
+  });
+
+  it('leave the You rows their single status string', () => {
     const you: ItemPlacement = { id: 's', kind: 'slice', section: 'you', group: 'blocks-delivery', marker: 'blocks-delivery', reason: 'review-pr', agents: [] };
     expect(itemRowCells(you, { pr: 4, prReading: { ci: 'passed', review: 'high' } })!.status?.value).toBe('review · CI ✓');
   });
 });
 
-describe('the Work items columns', () => {
-  it('name one column per group and none of them is status', () => {
-    expect([...WORK_ITEM_COLUMNS]).toEqual(['kind', 'item', 'where', 'group', 'by', 'age']);
-    expect(WORK_ITEM_COLUMNS).not.toContain('status');
-    expect(ROW_COLUMNS).toContain('status');
-    expect(WORK_GROUP_COLUMN).toEqual({
-      'at-a-gate': { name: 'Gates', holds: 'gate' },
-      'being-built': { name: 'Progress', holds: 'progress' },
-      queued: { name: 'Waits on', holds: 'wait' },
-    });
+describe('the progress pills', () => {
+  it('read no PR yet where the item has no open PR', () => {
+    expect(pills('being-built', {})).toEqual([{ word: 'no PR yet', tone: 'grey', href: null }]);
   });
 
-  it('give three groups three column names and three kinds of value', () => {
-    const facts: ItemRowFacts = { plan: 'p', branch: 'feature/x', pr: 4, prReading: { ci: 'passed', review: 'pending' }, waitsOn: 'first' };
-    const gate = workItemCells(slice('at-a-gate'), facts)!;
-    const built = workItemCells(slice('being-built'), facts)!;
-    const queued = workItemCells(slice('queued'), facts)!;
-    expect([gate.column, built.column, queued.column]).toEqual(['Gates', 'Progress', 'Waits on']);
-    expect(gate.cells.group?.value).toMatch(/CI|review/);
-    expect(built.cells.group?.value).toBe('PR open');
-    expect(queued.cells.group?.value).toBe('first');
-    expect(Object.keys(gate.cells)).toEqual([...WORK_ITEM_COLUMNS]);
+  it('read PR open, linked to the PR', () => {
+    expect(pills('being-built', { pr: 4 })).toEqual([{ word: 'PR open', tone: 'blue', href: { to: 'pr', pr: 4 } }]);
   });
 
-  it('return nothing for a Work items item with no row shape', () => {
-    expect(workItemCells({ ...slice('queued'), kind: 'plan' }, {})).toBeNull();
+  it('name the unpushed count in whole words', () => {
+    expect(pills('being-built', { pr: 4, unpushed: 2 }).map((p) => p.word)).toEqual(['PR open', '2 unpushed commits']);
+    expect(pills('being-built', { unpushed: 1 })[1]).toEqual({ word: '1 unpushed commit', tone: 'amber', href: null });
   });
 
-  it('return nothing for an item outside Work items', () => {
-    expect(workItemCells({ ...slice('queued'), section: 'fleet' } as never, {})).toBeNull();
+  it.each([[0], [undefined]])('print no count for a pushed or unread branch (%s)', (unpushed) => {
+    expect(pills('being-built', { pr: 4, ...(unpushed === undefined ? {} : { unpushed }) })).toHaveLength(1);
   });
 });
 
-describe('the Progress cell', () => {
-  const progress = (facts: ItemRowFacts) => workItemCells(slice('being-built'), { plan: 'p', branch: 'feature/x', ...facts })!.cells.group;
+describe('the wait pills', () => {
+  it('read no agent assigned where nothing is waited on and no agent acts', () => {
+    expect(pills('queued', {})).toEqual([{ word: 'no agent assigned', tone: 'grey', href: null }]);
+  });
 
-  it('reads no PR yet where the item has no open PR', () => {
-    expect(progress({})?.value).toBe('no PR yet');
+  it('read agent assigned where an agent acts and nothing is read', () => {
+    expect(pills('queued', {}, ['a1'])).toEqual([{ word: 'agent assigned', tone: 'grey', href: null }]);
   });
-  it('reads PR open where it has one, linked to the PR', () => {
-    expect(progress({ pr: 4 })).toMatchObject({ value: 'PR open', links: [{ to: 'pr', pr: 4 }] });
+
+  it('name the earlier slice, linked', () => {
+    expect(pills('queued', { waitsOn: 'first' })).toEqual([{ word: 'waits on first', tone: 'grey', href: { to: 'slice', id: 'first' } }]);
   });
-  it('names the unpushed count as unpushed beside the PR state', () => {
-    expect(progress({ pr: 4, unpushed: 2 })?.value).toBe('PR open · 2 unpushed');
-    expect(progress({ unpushed: 1 })?.value).toBe('no PR yet · 1 unpushed');
+
+  it('read no brief where the item needs a brief', () => {
+    expect(pills('queued', { needsBrief: true })).toEqual([{ word: 'no brief', tone: 'grey', href: null }]);
   });
-  it.each([[0], [undefined]])('prints no count for a pushed or unread branch (%s)', (unpushed) => {
-    const cell = progress({ pr: 4, ...(unpushed === undefined ? {} : { unpushed }) });
-    expect(cell?.value).toBe('PR open');
-    expect(cell?.value).not.toContain('unpushed');
+
+  it('print no brief and the earlier slice, and the wait once', () => {
+    const out = pills('queued', { needsBrief: true, waitsOn: 'first' });
+    expect(out).toEqual([
+      { word: 'no brief', tone: 'grey', href: null },
+      { word: 'waits on first', tone: 'grey', href: { to: 'slice', id: 'first' } },
+    ]);
+    expect(out.filter((p) => p.word.startsWith('waits on'))).toHaveLength(1);
+  });
+
+  it('read an earlier slice where the server names none', () => {
+    expect(pills('queued', { waitsOn: '' })).toEqual([{ word: 'waits on an earlier slice', tone: 'grey', href: null }]);
+  });
+
+  it.each([
+    [{ approvalOwed: 'plan' }, 'plan approval'],
+    [{ approvalOwed: 'spike' }, 'spike approval'],
+    [{ approvalOwed: 'release' }, 'release approval'],
+    [{ phase: 'draft' }, 'plan in Draft'],
+    [{ phase: 'design' }, 'plan in Design'],
+  ] as const)('name %o as %s and never the person', (facts, word) => {
+    const out = pills('queued', { ...facts, person: 'eins78', personName: 'Max Albrecht' });
+    expect(out).toEqual([{ word, tone: 'amber', href: null }]);
+    expect(out.map((p) => p.word).join(' ')).not.toMatch(/eins78|Max/);
+  });
+
+  it('read a claim with no work as claimed <age> ago, no work committed', () => {
+    expect(pills('queued', { claim: { elsewhere: false }, ageMinutes: 2 * 24 * 60 + 5 })).toEqual([
+      { word: 'claimed 2 days ago, no work committed', tone: 'amber', href: null },
+    ]);
+    expect(pills('queued', { claim: { elsewhere: false }, ageMinutes: 90 })[0].word).toBe('claimed 1 hour ago, no work committed');
+    expect(pills('queued', { claim: { elsewhere: false } })[0].word).toBe('claimed, no work committed');
+  });
+
+  it('add the quiet claimed on another machine pill where the claim is held elsewhere', () => {
+    expect(pills('queued', { claim: { elsewhere: true }, ageMinutes: 30 })).toEqual([
+      { word: 'claimed 30 minutes ago, no work committed', tone: 'amber', href: null },
+      { word: 'claimed on another machine', tone: 'quiet', href: null },
+    ]);
   });
 });
 
-describe('the Waits on cell', () => {
-  const waits = (facts: ItemRowFacts, agents: string[] = []) =>
-    workItemCells({ ...slice('queued'), agents }, facts)!.cells.group;
+describe('the no sprint pill', () => {
+  it('is grey and last, in every group', () => {
+    for (const group of ['at-a-gate', 'being-built', 'queued'] as const) {
+      const out = workItemPills(slice(group), { pr: 4 }, 'no sprint')!;
+      expect(out.at(-1)).toEqual({ word: 'no sprint', tone: 'grey', href: null });
+    }
+  });
 
-  it('reads no agent assigned where nothing is waited on and no agent acts', () => {
-    expect(waits({ plan: 'p' })?.value).toBe('no agent assigned');
-  });
-  it('is null where an agent acts and nothing is read', () => {
-    expect(waits({ plan: 'p' }, ['a1'])).toBeNull();
-  });
-  it('names the earlier slice, linked, including a slice of another plan', () => {
-    expect(waits({ waitsOn: 'first' })).toMatchObject({ value: 'first', links: [{ to: 'slice', id: 'first' }] });
-    expect(waits({ waitsOn: 'other-plan/first' })?.value).toBe('other-plan/first');
-  });
-  it('reads an earlier slice where the server names none', () => {
-    expect(waits({ waitsOn: '' })).toMatchObject({ value: 'an earlier slice', links: [] });
-  });
-  it("names another person's Draft plan with the display name", () => {
-    expect(waits({ phase: 'draft', person: 'eins78', personName: 'Max Albrecht' })?.value).toBe('Draft · Max Albrecht');
-    expect(waits({ phase: 'design', person: 'eins78', personName: 'Max Albrecht' })?.value).toBe('Design · Max Albrecht');
-  });
-  it('names the phase alone where no person is read, and the handle where no display name is declared', () => {
-    expect(waits({ phase: 'draft' })).toMatchObject({ value: 'Draft', links: [] });
-    expect(waits({ phase: 'draft', person: '' })?.value).toBe('Draft');
-    expect(waits({ phase: 'draft', person: 'eins78' })).toMatchObject({ value: 'Draft · eins78', links: [{ to: 'person', handle: 'eins78' }] });
-    expect(waits({ phase: 'draft', personName: 'Max Albrecht' })).toMatchObject({ value: 'Draft · Max Albrecht', links: [] });
-  });
-  it('names the spike and release approvals', () => {
-    expect(waits({ approvalOwed: 'spike' })?.value).toBe('spike approval');
-    expect(waits({ approvalOwed: 'release' })?.value).toBe('release approval');
-  });
-  it('names an owed approval with the person', () => {
-    const cell = waits({ approvalOwed: 'plan', person: 'eins78', personName: 'Max Albrecht' });
-    expect(cell).toMatchObject({ value: 'plan approval · Max Albrecht', links: [{ to: 'person', handle: 'eins78' }] });
+  it('is absent where the item is in a sprint', () => {
+    expect(workItemPills(slice('queued'), {}, null)!.map((p) => p.word)).not.toContain('no sprint');
   });
 });
 

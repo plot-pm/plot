@@ -9,7 +9,8 @@ import { lanesForReader, ownership, parsePersonDirectory, placeDelivery, type Mi
 
 /**
  * `ticketsForReader` is a thin wrapper around the lenient
- * `ownership(...) !== 'theirs'` test over `OwnedRow`'s `ticket` arm — this
+ * `ownership(...) !== 'theirs'` test, and `isMineStrict` in the `mine` mode,
+ * over `OwnedRow`'s `ticket` arm — this
  * file asserts the wrapping, not `ticketOwnership` itself, which
  * `packages/domain/test/ownership.test.ts` already covers.
  */
@@ -64,19 +65,22 @@ describe('ticketsForReader — a null source cannot be resolved, so nothing is h
   });
 });
 
-// CONTRACT CHANGE (feature/mine-mode-control): the plan's "the box wins"
-// decision — this ticket box stays lenient (`ownership(...) !== 'theirs'`)
-// even in `mine` mode, unlike every other `mine`-mode call site, which
-// switches to `isMineStrict`.
-describe('ticketsForReader — stays lenient under `mine` mode', () => {
+// `ticketsForReader` reads `isMineStrict` over the ticket's assignees in the
+// `mine` mode, the rule the Tickets section's scope groups read there too.
+describe('ticketsForReader — strict under `mine` mode', () => {
   const reader: Reader = { hostUser: 'jwloka' };
 
-  it('keeps an unassigned ticket even in `mine` mode', () => {
+  it('hides an unassigned ticket in `mine` mode', () => {
     const unassigned = ticket({ assignees: [] });
-    expect(ticketsForReader([unassigned], reader, hostLoginSource, 'mine')).toEqual([unassigned]);
+    expect(ticketsForReader([unassigned], reader, hostLoginSource, 'mine')).toEqual([]);
   });
 
-  it('still hides a ticket assigned to somebody else in `mine` mode', () => {
+  it('keeps a ticket assigned to the reader in `mine` mode', () => {
+    const mine = ticket({ assignees: ['jwloka'] });
+    expect(ticketsForReader([mine], reader, hostLoginSource, 'mine')).toEqual([mine]);
+  });
+
+  it('hides a ticket assigned to somebody else in `mine` mode', () => {
     const theirs = ticket({ assignees: ['eins78'] });
     expect(ticketsForReader([theirs], reader, hostLoginSource, 'mine')).toEqual([]);
   });
@@ -158,7 +162,7 @@ describe('the lenient Mine mode reads a row\'s own arm and its plan\'s arm', () 
   const mineOf = (assignee: string): PlanOwners => ({ assignee, author: '', approver: '' });
 
   const branchRow = (branch: string, prAuthor: string, plan: PlanOwners): AgentRow => ({
-    branch, plan: 'p', wave: branch, kind: 'branch', phase: 'Development', state: 'wip', group: 'working',
+    branch, plan: 'p', wave: branch, kind: 'branch', phase: 'Development', planState: 'approved', state: 'wip', group: 'working',
     worker: 'running', question: null, blockedBy: null,
     pr: { number: branch.length, author: prAuthor, state: 'pending', open: true, ciChecks: 'pending' },
     ...plan,
@@ -247,12 +251,12 @@ describe('the lenient Mine mode reads a row\'s own arm and its plan\'s arm', () 
       '2026-ours.md': mineOf('jwloka'), '2026-theirs.md': mineOf('eins78'), '2026-nobodys.md': mineOf(''),
     };
     const planOwners = ticketPlanOwners(plans, (file) => cards[file]);
-    // `ticketsForReader` keeps its lenient answer in the strict mode; the
-    // Delivery ticket reading keeps the assignees' arm alone there.
+    // `ticketsForReader` and the Delivery ticket reading both keep the
+    // assignees' arm alone in the strict mode.
     const ticketCases = [
-      { name: 'a ticket of another person on a plan of the reader', t: ticket({ number: '#11', assignees: ['eins78'] }), tickets: { all: true, 'mine-and-unknown': true, mine: true }, delivery: { all: true, 'mine-and-unknown': true, mine: false } },
+      { name: 'a ticket of another person on a plan of the reader', t: ticket({ number: '#11', assignees: ['eins78'] }), tickets: { all: true, 'mine-and-unknown': true, mine: false }, delivery: { all: true, 'mine-and-unknown': true, mine: false } },
       { name: 'a ticket of the reader on a plan of another person', t: ticket({ number: '12', assignees: ['jwloka'] }), tickets: { all: true, 'mine-and-unknown': true, mine: true }, delivery: { all: true, 'mine-and-unknown': true, mine: true } },
-      { name: 'a ticket of unknown owner on a plan of unknown owner', t: ticket({ number: '13', assignees: [] }), tickets: { all: true, 'mine-and-unknown': true, mine: true }, delivery: { all: true, 'mine-and-unknown': true, mine: false } },
+      { name: 'a ticket of unknown owner on a plan of unknown owner', t: ticket({ number: '13', assignees: [] }), tickets: { all: true, 'mine-and-unknown': true, mine: false }, delivery: { all: true, 'mine-and-unknown': true, mine: false } },
       { name: 'a ticket of another person on a plan of another person', t: ticket({ number: '14', assignees: ['eins78'] }), tickets: { all: true, 'mine-and-unknown': false, mine: false }, delivery: { all: true, 'mine-and-unknown': false, mine: false } },
     ] as const;
 

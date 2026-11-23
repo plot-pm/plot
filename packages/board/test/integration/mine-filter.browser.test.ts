@@ -22,7 +22,7 @@ const THEM = 'neighbour';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-16-a-plan.md',
-  wave: 'w', state: 'wip', phase: 'Development', group: 'waiting-on-you', ageMinutes: 10,
+  wave: 'w', state: 'wip', phase: 'Development', planState: 'approved', group: 'waiting-on-you', ageMinutes: 10,
   waitingOn: 'you', note: 'PR green', pr: null, branchUrl: '', waitingDays: null,
   localDirty: false, localLocked: false, stuck: null, deferredReason: '',
   ...over,
@@ -575,8 +575,8 @@ describe('the ticket block says what it hides', () => {
   const OLD_MINE = ticket(127, 'Old ticket assigned to me', [ME]);
   const newest = Array.from({ length: 50 }, (_, i) => ticket(i + 1, `Unassigned ticket ${i + 1}`));
   const source = { service: 'github', match: 'host-login' as const };
-  // A ticket row's name is `<number>: <title>`, so an exact match needs the number.
-  const FIRST_NEWEST = '1: Unassigned ticket 1';
+  // A ticket row draws its number as a tuple segment and its title beside it, so the row is found by its number.
+  const firstNewest = (page: Page) => page.locator('section#tickets [data-issue-row="1"]');
 
   const withWaiting = (waiting: Record<string, unknown>, issues: unknown[]): Fleet =>
     ({ ...fleet(), issues, waiting } as unknown as Fleet);
@@ -609,7 +609,7 @@ describe('the ticket block says what it hides', () => {
       await expect.poll(() => page.locator('[data-waiting-hidden-text]').textContent())
         .toBe('126 open tickets are not assigned to you');
       await expect.poll(() => page.getByText('Old ticket assigned to me').count()).toBe(1);
-      expect(await page.getByText(FIRST_NEWEST, { exact: true }).count()).toBe(0);
+      expect(await firstNewest(page).count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -637,11 +637,11 @@ describe('the ticket block says what it hides', () => {
       await everyTicketControl(page).click();
       await expect.poll(() => everyTicketControl(page).getAttribute('aria-expanded')).toBe('true');
       expect(await page.getByText('Old ticket assigned to me').count()).toBe(1);
-      expect(await page.getByText(FIRST_NEWEST, { exact: true }).count()).toBe(1);
+      expect(await firstNewest(page).count()).toBe(1);
 
       await everyTicketControl(page).click();
       await expect.poll(() => everyTicketControl(page).getAttribute('aria-expanded')).toBe('false');
-      await expect.poll(() => page.getByText(FIRST_NEWEST, { exact: true }).count()).toBe(0);
+      await expect.poll(() => firstNewest(page).count()).toBe(0);
     } finally {
       await page.close();
     }

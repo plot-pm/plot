@@ -4,6 +4,7 @@ import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { runProcess } from '@plot-pm/domain/adapters/run-script';
 import { processAnswers } from '@plot-pm/domain/adapters/git-dirs/git-dirs';
+import { stateHomeAt } from '@plot-pm/domain/adapters/state-home/state-home-git';
 import { processesShell } from '@plot-pm/domain/adapters/processes/processes-shell';
 import { boundedRunProcess } from '@plot-pm/domain/adapters/bounded-run/bounded-run-process';
 import { agentRunCommand } from '@plot-pm/domain/adapters/agent-run/agent-run-command';
@@ -664,7 +665,9 @@ const machineDeps = async (cwd: string, scriptDir: string): Promise<ReviewDeps |
   const common = await processAnswers.absoluteCommonDir(cwd, cwd);
   const commonDir = common.stdout.trim();
   if (common.code !== 0 || commonDir === '') return null;
-  const repoRoot = path.basename(commonDir) === '.git' ? path.dirname(commonDir) : cwd;
+  // Where the state home is unread, the checkout itself is the root.
+  const home = await stateHomeAt(cwd);
+  const repoRoot = 'home' in home ? home.home : cwd;
   const context = { repoRoot, scriptDir };
   const host = hostShell(context);
   const branch = await git(cwd, ['branch', '--show-current']);

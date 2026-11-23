@@ -383,6 +383,9 @@ describe('answering starts a NEW run', () => {
     assert.notEqual(body.pid, '', 'a continuation must report the pid it started');
     assert.notEqual(body.pid, body.previousPid, 'the previous pid must not be reused');
     assert.equal(body.previousPid, '424242', 'and the reply names the one it replaced');
+    // The reply names the session the new run starts, resumed or fresh.
+    const session = (out.body as { session?: { resumed?: unknown; fresh?: unknown } }).session;
+    assert.ok(session !== undefined && (typeof session.resumed === 'string' || typeof session.fresh === 'string'), 'the reply names the session');
 
     // The record on disk is the new run's too — the scan reads this file, so a
     // stale pid here would show the row as the dead worker.
@@ -2167,7 +2170,9 @@ describe('a free-waiting loop is stopped, then the continuation starts — #1373
       // looks for the two-space-indented `"pid": "...",` shape — a compact
       // `JSON.stringify` has no line the stamp can find, so it would silently
       // no-op rather than ever touching the file.
-      `${JSON.stringify({ session: 'sess', branch: BRANCH, worktree: wt, pid, wrapperPid: '' }, null, 2)}\n`,
+      // A RESUME HANDLE THE CONTINUATION KEEPS: it has no transcript, so the
+      // start writes no new handle into a directory a test made read-only.
+      `${JSON.stringify({ session: 'sess', branch: BRANCH, worktree: wt, pid, wrapperPid: '', resumeId: 'sess' }, null, 2)}\n`,
     );
     return dir;
   }
@@ -2650,6 +2655,7 @@ describe('a stopped loop that removes its own manifest — #1376 review', () => 
       recordRun: async () => null,
       recordLimits: async () => 0,
       sliceCostUsd: async () => null,
+      resumeHandleReadings: () => ({ roleSessions: new Set<string>(), head: null }),
     };
     const config = { boundSeconds: 28_800, maxStartRetries: 3, checksWaitSeconds: 1_800, correctionBudget: 2, sliceMaxRuns: 12, sliceMaxSpendUsd: null, base: 'origin/main' };
     const readings = await readPass(ports, file, { running: null, exit: null, pushedSha: '' }, config, { since: null });

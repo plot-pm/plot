@@ -62,7 +62,7 @@ const APPROVED_FILE = 'p-approved-and-waiting.md';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: APPROVED_SLUG, planFile: APPROVED_FILE,
-  wave: 'w', state: 'open', phase: 'Design', group: 'not-started', ageMinutes: null,
+  wave: 'w', state: 'open', phase: 'Design', planState: 'design', group: 'not-started', ageMinutes: null,
   waitingOn: 'click', note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
   localDirty: false, localLocked: false, stuck: null, verdict: 'eligible',
   // No PLOT-BLOCKED marker. The schema defaults this to null, and the Delivery
@@ -123,7 +123,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     row({
       plan: APPROVED_SLUG, planFile: APPROVED_FILE,
       branch: 'feature/approved-w1', wave: 'Sown', waitingDays: 3,
-      group: 'not-started', state: 'open', phase: 'Development', waitingOn: 'click',
+      group: 'not-started', state: 'open', phase: 'Development', planState: 'approved', waitingOn: 'click',
       note: ELIGIBLE_NOTE, verdict: 'eligible', startability: 'start-work',
     }),
     // The Draft plan's shelved branch — under You, never Queued.

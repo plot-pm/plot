@@ -51,7 +51,6 @@ describe('a PR and its branch are one tuple with two links', () => {
       ],
       outstanding: 2, ageMinutes: null, waitingDays: null,
     });
-    expect(t.linksAsTuples).toBe(true);
     expect(linkTuplesOf(t.links, noTickets).map((tuple) => tuple.map((s) => s.label))).toEqual([['feature/a'], ['feature/b']]);
   });
 });
@@ -107,7 +106,7 @@ describe('a number never truncates; a branch folds in the middle', () => {
 
 describe('every link kind has its glyph', () => {
   const kinds: readonly TupleLink['what'][] = [
-    'plan', 'branch', 'pr', 'ticket', 'wave', 'worktree', 'release', 'story', 'sprint',
+    'plan', 'branch', 'pr', 'ticket', 'wave', 'worktree', 'release', 'story', 'sprint', 'agent', 'build', 'external',
   ];
 
   it('has an entry in LINK_ICON_PATH for every kind', () => {

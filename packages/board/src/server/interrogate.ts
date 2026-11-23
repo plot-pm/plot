@@ -202,9 +202,9 @@ export const resolveInterrogatePlanPr = async (opts: BuildBoardOptions, slug: st
   const main = head.ok && head.value.trim() !== '' ? head.value.trim() : 'main';
   const onMainFile = (await planFilesAt(refs, planDir, `origin/${main}`)).find((f) => namesPlan(slug, f)) ?? '';
   let unread: readonly UnreadPr[] = [];
-  let found: Awaited<ReturnType<typeof choosePlanPr>>;
+  let asked: Awaited<ReturnType<typeof choosePlanPr>>;
   try {
-    found = await choosePlanPr(
+    asked = await choosePlanPr(
       ctx,
       { slug, planDir, onMain: onMainFile !== '', ...(onMainFile !== '' ? { addition: { sha: '', secondParent: '' } } : {}) },
       main,
@@ -216,6 +216,8 @@ export const resolveInterrogatePlanPr = async (opts: BuildBoardOptions, slug: st
     const said = ctx.host.lastRefusal()?.said ?? '';
     return { kind: 'refused', detail: `${err instanceof Error ? err.message : String(err)}${said ? ` ${said}` : ''}` };
   }
+  // A merge whose PR the host could not name reads as no PR, as `undefined` does.
+  const found = asked?.outcome === 'unnamed' ? undefined : asked;
   const atHead = found !== undefined && found.outcome === 'found' && found.read.at === 'head' ? found.read : undefined;
   const answer = planSourceOf({
     slug,

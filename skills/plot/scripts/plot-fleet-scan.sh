@@ -219,7 +219,7 @@
 #    of asking what to work on; /plot-fleet, the human-facing command, passes it
 #    every run.
 #
-# 2. `.plot/state/last-pulse.json` — the bridge, written by `write_bridge` on
+# 2. `.plot/state/last-pulse.json` — the bridge, written by `writeScan` on
 #    the success path of `--stream` (unless PLOT_SCAN_RECORD=0) and `--log-pulse`
 #    (what /plot-pulse passes; not while the fleet's writer holds the bridge). Those are the two callers that produce a pulse
 #    for somebody to READ; plain `--json` is a query and records nothing. That

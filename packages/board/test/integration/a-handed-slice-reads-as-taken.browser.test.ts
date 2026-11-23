@@ -27,7 +27,7 @@ const GH = 'https://github.com/tiny/garden/tree/';
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', kind: 'branch', branch: BRANCH, plan: 'a-handed-slice-reads-as-taken',
   planFile: '2026-10-01-a-handed-slice-reads-as-taken.md', wave: 'The row',
-  state: 'claimed', phase: 'Development', group: 'working', ageMinutes: 0,
+  state: 'claimed', phase: 'Development', planState: 'approved', group: 'working', ageMinutes: 0,
   note: HANDED, pr: null, branchUrl: `${GH}${BRANCH}`, verdict: 'eligible',
   startability: 'someone-is-on-it',
   // THE SCAN HAS NOT SEEN THE WORKER YET — that is the whole case. No worktree

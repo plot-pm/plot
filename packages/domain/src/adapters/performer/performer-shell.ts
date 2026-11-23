@@ -105,11 +105,12 @@ export const performerShell = (context: ShellContext, options: { manifestDir?: s
       timeoutMs: START_TIMEOUT_MS,
     });
 
-    // A `Worker command` THAT IS NOT THE LOOP IS `unaskable` TOO. The script
-    // refuses with exit 1 and `worker=no-loop` (#1124): a free agent on any
-    // other command runs at once with an empty branch and exits, so this
-    // repository has no way to start one until a person changes the config.
-    if (/(?:^|\n)summary: .*worker=no-loop/.test(run.stdout)) return unaskable<number>();
+    // A REFUSED START IS `unaskable` TOO. The script refuses with exit 1 and
+    // `worker=<defect>`: `no-loop` (#1124), a free agent on a command that is
+    // not the loop; `charter-refused`, the agent's charter is refused; or
+    // `prompt-absent`, the command runner's prompt file is absent. This
+    // repository has no way to start one until a person repairs it.
+    if (/(?:^|\n)summary: .*worker=(?:no-loop|charter-refused|prompt-absent)\b/.test(run.stdout)) return unaskable<number>();
 
     if (run.code !== 0) return failed<number>();
 

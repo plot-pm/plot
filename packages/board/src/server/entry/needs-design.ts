@@ -355,7 +355,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, _warn: P
     const onMain = inCheckout
       ? (await planFilesAt(ctx, dirs, `origin/${main}`)).includes(realFile)
       : (await planFilesAt(ctx, dirs, `origin/${main}`)).some((f) => namesPlan(slug, f));
-    const found = await choosePlanPr(
+    const asked = await choosePlanPr(
       ctx,
       { slug, planDir: dirs.planDir, onMain },
       main,
@@ -363,6 +363,8 @@ export const perform = async (ctx: Context, args: Args, write: Printer, _warn: P
       (unread) => { unreadOpen = unread; },
       () => refuseOpenList(ctx),
     );
+    // A merge whose PR the host could not name reads as no PR, as `undefined` does.
+    const found = asked?.outcome === 'unnamed' ? undefined : asked;
     if (found !== undefined && found.outcome === 'refused') {
       prRefused = found.reason;
       pr = { number: found.number, state: 'OPEN', head: '' };

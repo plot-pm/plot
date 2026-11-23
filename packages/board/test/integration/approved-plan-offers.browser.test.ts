@@ -32,7 +32,7 @@ const GH = 'https://github.com/tiny/garden';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'beans', planFile: 'p-beans.md',
-  wave: 'w1', state: 'wip', phase: 'Development', group: 'not-started', ageMinutes: 30,
+  wave: 'w1', state: 'wip', phase: 'Development', planState: 'approved', group: 'not-started', ageMinutes: 30,
   waitingOn: 'click', note: 'approved — nobody has taken it', pr: null,
   branchUrl: `${GH}/tree/feature/x`, waitingDays: null, verdict: 'eligible',
   localDirty: false, localLocked: false, stuck: null, ...over,
@@ -310,10 +310,11 @@ describe('an approved plan offers Implement and Dispatch', () => {
     try {
       await openPlanMenu(page, 'beans');
       const menu = planHead(page, 'beans').locator('[role="menu"]');
-      const implement = menu.getByRole('button', { name: 'Implement' });
+      // A disabled item is listed without a button, its reason on `data-menu-reason`.
+      const implement = menu.locator('[data-menu-item="implement"]');
       await expect.poll(() => implement.count()).toBe(1);
-      expect(await implement.getAttribute('aria-disabled')).toBeTruthy();
-      expect(await implement.getAttribute('title')).toContain('0.0.0.0');
+      expect(await implement.getAttribute('aria-disabled')).toBe('true');
+      expect(await implement.getAttribute('data-menu-reason')).toContain('0.0.0.0');
     } finally {
       await page.close();
     }
@@ -327,13 +328,11 @@ describe('an approved plan offers Implement and Dispatch', () => {
     try {
       await openPlanMenu(page, 'beans');
       const menu = planHead(page, 'beans').locator('[role="menu"]');
-      const dispatch = menu.getByRole('button', { name: 'Dispatch' });
+      const dispatch = menu.locator('[data-menu-item="dispatch"]');
       await expect.poll(() => dispatch.count()).toBe(1);
-      // When dispatch is unavailable, the button should be disabled with reason.
-      const isDisabled = await dispatch.getAttribute('aria-disabled');
-      expect(isDisabled).toBeTruthy();
-      const title = await dispatch.getAttribute('title');
-      expect(title).toContain('0.0.0.0');
+      // When dispatch is unavailable, the item is listed disabled with its reason.
+      expect(await dispatch.getAttribute('aria-disabled')).toBe('true');
+      expect(await dispatch.getAttribute('data-menu-reason')).toContain('0.0.0.0');
     } finally {
       await page.close();
     }

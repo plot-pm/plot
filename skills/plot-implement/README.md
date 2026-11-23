@@ -51,6 +51,7 @@ distinction.
   finally handed to (#1151). Run by a person without the flag, step 3 is
   unchanged: that claim is legitimate, it belongs to the session that
   pushed it, and a supervisor never works it.
+- **`--at <sha>` reads the plan at a commit.** fleetd's brief ask passes the sha of `origin/<default branch>` that its dispatch gate read, and step 1 reads the plan with `git show <sha>:<plan file>` after `git cat-file -e <sha>`. The ask runs in the main checkout, and only an operator's fetch and merge moves that working tree. Measured on origin/main: `jenkins-sha-runs-build-status-fails` (approved 2026-11-03 16:33:41Z) and `plot-fleetctl-stop-ignores-dry-run` (approved 2026-11-04 18:08:38Z) each got a brief run that read the plan as not approved, and each stayed `held on no-brief` for hours.
 - Reads the plan's recorded `Review:`/`Impl:` answers via
   `plot-plan-meta.sh`; never re-decides them.
 - Requires phase `approved`; refuses Draft with a pointer to

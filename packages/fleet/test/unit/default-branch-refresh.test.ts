@@ -484,6 +484,22 @@ describe('refreshDefaultBranch', () => {
     expect(r.stored()).toEqual(before);
   });
 
+  it('stores head pending for a CI run that waits with no CI/validate entry', async () => {
+    const r = rig(null, ['CI/validate']);
+    r.runs('a1', [run('CI', null, 'pending')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.stored()).toMatchObject({ head: 'pending' });
+    expect(r.stored()?.settled).toBeUndefined();
+  });
+
+  it('stores head unknown for a CI run that concluded cancelled with no CI/validate entry', async () => {
+    const r = rig(null, ['CI/validate']);
+    r.runs('a1', [run('CI', 'cancelled')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.stored()).toMatchObject({ head: 'unknown' });
+    expect(r.stored()?.settled).toBeUndefined();
+  });
+
   it('reads no runs as unknown without settling', async () => {
     const r = rig();
     await refreshDefaultBranch(r.world);

@@ -15,7 +15,7 @@
 // fallback and the whole ask block does nothing. Every pre-existing test in
 // `auto-dispatch-spawn.test.ts` is therefore unchanged and still passing — the
 // new path is reachable only where a test deliberately configures a command.
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -23,6 +23,7 @@ import path from 'node:path';
 
 import { firstBrieflessBranch } from '@plot-pm/domain';
 import { maybeAutoDispatch } from '@plot-pm/fleet/shared/auto-dispatch';
+import { briefSpentPath, readAllBriefSpent, readBriefSpent } from '@plot-pm/fleet/shared/brief-spent';
 import { releaseImplementLock, takeImplementLock } from '@plot-pm/fleet/shared/implement-run';
 import { askForBriefLogPath, briefAskPrompt } from '../../src/server/brief-ask.js';
 import { boardRunsSettled, leaveBoardRunsToTheBoard } from '../../src/server/board-run.js';
@@ -33,7 +34,12 @@ import type { FleetSettings } from '../../src/server/fleet-settings.js';
 import { rmTree } from '../helpers.mjs';
 
 const made: string[] = [];
-afterEach(() => {
+const releases: Array<() => void> = [];
+afterEach(async () => {
+  // A `@writer` run waits for its release file; every run ends before its
+  // fixture is removed.
+  while (releases.length) releases.pop()?.();
+  await boardRunsSettled();
   while (made.length) {
     const dir = made.pop();
     if (dir) rmTree(dir);
@@ -57,6 +63,9 @@ function fixture(
   asks: () => string[];
   askArgv: () => string[][];
   land: (branch: string) => void;
+  release: () => void;
+  hold: () => void;
+  originMain: () => string;
 } {
   // Nested one level down: the board writes a repo's agent logs into its parent.
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-ask-repo-'));
@@ -94,27 +103,68 @@ function fixture(
   // ONE argument rather than as several words. `"$*"` would join them and hide
   // exactly the defect the shape exists to prevent.
   const askMarker = path.join(scriptsDir, 'brief-asked.txt');
+  const record = `{ printf 'ARGC=%s\\n' "$#"; for a in "$@"; do printf 'ARG=%s\\n' "$a"; done; printf 'END\\n'; } >> ${JSON.stringify(askMarker)}\n`;
+  // `@writer` RUNS UNTIL ITS RELEASE FILE EXISTS, as a real session that has
+  // not finished yet: an end spends one ask, so a stub that exited at once
+  // would race every assertion about an outstanding ask.
+  const gate = path.join(scriptsDir, 'writer-release');
   const writer = path.join(scriptsDir, 'stub-brief-writer.sh');
   fs.writeFileSync(
     writer,
-    `#!/usr/bin/env bash\n{ printf 'ARGC=%s\\n' "$#"; for a in "$@"; do printf 'ARG=%s\\n' "$a"; done; printf 'END\\n'; } >> ${JSON.stringify(askMarker)}\n`,
+    `#!/usr/bin/env bash\n${record}while [ ! -e ${JSON.stringify(gate)} ]; do sleep 0.05; done\n`,
+    { mode: 0o755 },
+  );
+  const release = () => fs.writeFileSync(gate, '');
+  releases.push(release);
+
+  // `@ends-briefless` ENDS AT ONCE, WITH CODE 0 AND NO BRIEF, as a run that
+  // read no approved plan and wrote nothing.
+  const briefless = path.join(scriptsDir, 'stub-ends-briefless.sh');
+  fs.writeFileSync(briefless, `#!/usr/bin/env bash\n${record}exit 0\n`, { mode: 0o755 });
+
+  // `@reads-plan-at` READS THE PLAN AT THE PINNED SHA, as `/plot-implement
+  // --at <sha>` does, and writes, commits and lands the brief only where that
+  // text says `State: Approved`. It never reads the working tree.
+  const readsPlanAt = path.join(scriptsDir, 'stub-reads-plan-at.sh');
+  fs.writeFileSync(
+    readsPlanAt,
+    `#!/usr/bin/env bash\n${record}` +
+      `prompt="\${@: -1}"\n` +
+      `slug=$(printf '%s' "$prompt" | sed -n 's|^/plot-implement \\([^ ]*\\) --at \\([0-9a-f]*\\) .*|\\1|p')\n` +
+      `sha=$(printf '%s' "$prompt" | sed -n 's|^/plot-implement \\([^ ]*\\) --at \\([0-9a-f]*\\) .*|\\2|p')\n` +
+      `brief=$(printf '%s' "$prompt" | grep -o '\\.plot/briefs/[^ ]*\\.md' | head -1)\n` +
+      `git cat-file -e "$sha" || exit 3\n` +
+      `plan=$(git ls-tree -r --name-only "$sha" docs/plans | grep -- "-$slug.md$" | head -1)\n` +
+      `git show "$sha:$plan" | grep -q '^State: Approved' || exit 0\n` +
+      `printf '# Brief\\n' > "$brief"\n` +
+      `git add "$brief" && git commit -q -m brief -- "$brief" && git update-ref refs/remotes/origin/main HEAD\n`,
     { mode: 0o755 },
   );
 
   // THE SAME WRITER, ENDING AS A HARNESS DOES AT THE ACCOUNT'S USAGE LIMIT: the
   // limit line on stdout and a non-zero status. The reset is a time of day, which
-  // the rule resolves to the next such instant within 24 hours.
-  const limited = path.join(scriptsDir, 'stub-limited-brief-writer.sh');
-  fs.writeFileSync(
-    limited,
-    `#!/usr/bin/env bash\n{ printf 'ARGC=%s\\n' "$#"; for a in "$@"; do printf 'ARG=%s\\n' "$a"; done; printf 'END\\n'; } >> ${JSON.stringify(askMarker)}\n` +
-      `echo "You've hit your session limit · resets 11pm (Europe/Berlin)"\nexit 1\n`,
-    { mode: 0o755 },
-  );
+  // the rule resolves to the next such instant within 24 hours. `@limited` resets
+  // at 1am Berlin, two hours after the usage-limit block's pinned clock;
+  // `@limited-11pm` resets at 11pm Berlin, 15 s before it.
+  const limitedAt = (file: string, reset: string) => {
+    const at = path.join(scriptsDir, file);
+    fs.writeFileSync(
+      at,
+      `#!/usr/bin/env bash\n{ printf 'ARGC=%s\\n' "$#"; for a in "$@"; do printf 'ARG=%s\\n' "$a"; done; printf 'END\\n'; } >> ${JSON.stringify(askMarker)}\n` +
+        `echo "You've hit your session limit · resets ${reset} (Europe/Berlin)"\nexit 1\n`,
+      { mode: 0o755 },
+    );
+    return at;
+  };
+  const limited = limitedAt('stub-limited-brief-writer.sh', '1am');
+  const limitedPast = limitedAt('stub-limited-11pm-brief-writer.sh', '11pm');
 
   if (opts.briefCommand !== undefined) {
     const value = opts.briefCommand === '@writer' ? writer
-      : opts.briefCommand === '@limited' ? limited : opts.briefCommand;
+      : opts.briefCommand === '@ends-briefless' ? briefless
+      : opts.briefCommand === '@reads-plan-at' ? readsPlanAt
+      : opts.briefCommand === '@limited' ? limited
+      : opts.briefCommand === '@limited-11pm' ? limitedPast : opts.briefCommand;
     fs.writeFileSync(
       path.join(scriptsDir, 'plot-config.sh'),
       `#!/usr/bin/env bash\n` +
@@ -140,6 +190,9 @@ function fixture(
   return {
     opts: { repoRoot, scriptsDir },
     land,
+    release,
+    hold: () => fs.rmSync(gate, { force: true }),
+    originMain: () => execSync('git rev-parse refs/remotes/origin/main', { cwd: repoRoot, encoding: 'utf8' }).trim(),
     runs: () => lines(marker),
     asks: () => lines(askMarker),
     // One inner array per invocation, holding that invocation's arguments.
@@ -176,8 +229,10 @@ const settle = async (
   want: number,
   ceilingMs = 5000,
 ): Promise<void> => {
-  const deadline = Date.now() + ceilingMs;
-  while (Date.now() < deadline && got() < want) await sleep(25);
+  // `performance.now()`, not `Date.now()`: the usage-limit block freezes `Date`,
+  // and a frozen deadline never passes.
+  const deadline = performance.now() + ceilingMs;
+  while (performance.now() < deadline && got() < want) await sleep(25);
   // A FLOOR FOR THE ZERO CASE. `want: 0` is satisfied immediately, so without
   // this an assertion of "nothing spawned" would be true before a spawn could
   // possibly have landed — and would pass against an implementation that did
@@ -249,8 +304,11 @@ describe('maybeAutoDispatch — asking for the brief', () => {
     expect(argv[0]).toHaveLength(1);
     // And it is the prompt the module composes, byte for byte.
     expect(argv[0]![0]).toBe(
-      briefAskPrompt('needs-a-brief', 'feature/needs-a-brief', 'main'),
+      briefAskPrompt('needs-a-brief', 'feature/needs-a-brief', 'main', f.originMain()),
     );
+    // The commit the gate read, so the run reads the plan there and not in the
+    // working tree.
+    expect(argv[0]![0]).toContain(`/plot-implement needs-a-brief --at ${f.originMain()} `);
     // The wording the shell's `brief_prompt()` uses, because both ask the same
     // thing of the same skill: /plot-implement, and commit-and-push because the
     // gate reads origin/<main>.
@@ -313,6 +371,7 @@ describe('maybeAutoDispatch — asking for the brief', () => {
     await settle(() => f.askArgv().length, 1);
     expect(f.askArgv()).toHaveLength(1);
     expect(asked.has('feature/needs-a-brief')).toBe(true);
+    f.release();
     await boardRunsSettled();
   });
 
@@ -471,7 +530,9 @@ describe('maybeAutoDispatch — asking for the brief', () => {
     // until its run records an end. The marker is written before the writer
     // exits, so a second pass started earlier finds the lock held and asks
     // nothing.
+    f.release();
     await boardRunsSettled();
+    f.hold();
 
     // Slice one's brief landed and the slice merged; slice two turns eligible.
     f.land('feature/slice-one');
@@ -498,9 +559,226 @@ describe('maybeAutoDispatch — asking for the brief', () => {
   });
 });
 
+describe('maybeAutoDispatch — a brief run that ended without a brief', () => {
+  const BRANCH = 'feature/needs-a-brief';
+  const PLAN = 'docs/plans/2026-09-12-needs-a-brief.md';
+
+  /** One pass with every brief-ask record handed in, so the test owns them. */
+  const pass = (
+    f: ReturnType<typeof fixture>,
+    asked: Set<string>,
+    ends: Map<string, number>,
+    spent: Set<string>,
+    waits: Map<string, number> = new Map(),
+  ) => maybeAutoDispatch(
+    f.opts, brieflessPulse(), on(5), [], new Set(), undefined, asked, waits, undefined, ends, spent,
+  );
+
+  it('THE RUN READS THE PLAN AT THE PINNED SHA, not in the working tree', async () => {
+    // origin/main holds the plan Approved; the main checkout's working tree
+    // still holds it Draft, as a checkout nobody has merged into. The run must
+    // get its brief on the first ask.
+    const f = fixture([], { briefCommand: '@reads-plan-at' });
+    const root = f.opts.repoRoot;
+    fs.mkdirSync(path.join(root, 'docs/plans'), { recursive: true });
+    fs.writeFileSync(path.join(root, PLAN), '# Needs a brief\n\nState: Approved\n');
+    execSync(`git add ${PLAN} && git commit -q -m approve`, { cwd: root });
+    execSync('git update-ref refs/remotes/origin/main HEAD', { cwd: root });
+    fs.writeFileSync(path.join(root, PLAN), '# Needs a brief\n\nState: Draft\n');
+    const asked = new Set<string>();
+    const ends = new Map<string, number>();
+
+    pass(f, asked, ends, new Set());
+    await settle(() => f.askArgv().length, 1);
+    await boardRunsSettled();
+
+    expect(f.askArgv()).toHaveLength(1);
+    expect(() => execSync(`git cat-file -e refs/remotes/origin/main:.plot/briefs/needs-a-brief.md`, { cwd: root, stdio: 'ignore' }))
+      .not.toThrow();
+    // The next pass reads the landed brief and dispatches rather than asking.
+    const next = pass(f, asked, ends, new Set());
+    await settle(() => f.runs().length, 1);
+    expect(next.has(BRANCH)).toBe(true);
+    expect(f.askArgv()).toHaveLength(1);
+    expect(ends.size).toBe(0);
+  });
+
+  it('A REFUSED RUN IS ASKED ONCE MORE, AND A SECOND IS NOT ASKED A THIRD TIME', async () => {
+    const f = fixture([], { briefCommand: '@ends-briefless' });
+    const asked = new Set<string>();
+    const ends = new Map<string, number>();
+    const spent = new Set<string>();
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    pass(f, asked, ends, spent);
+    await settle(() => f.askArgv().length, 1);
+    await boardRunsSettled();
+    expect(ends.get(BRANCH)).toBe(1);
+    expect(asked.has(BRANCH)).toBe(false);
+
+    pass(f, asked, ends, spent);
+    await settle(() => f.askArgv().length, 2);
+    await boardRunsSettled();
+    expect(f.askArgv()).toHaveLength(2);
+    expect(ends.get(BRANCH)).toBe(2);
+
+    pass(f, asked, ends, spent);
+    pass(f, asked, ends, spent);
+    await settle(() => f.askArgv().length, 0);
+    expect(f.askArgv()).toHaveLength(2);
+
+    const lines = log.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('times without a brief'));
+    log.mockRestore();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain(`ended 2 times without a brief for ${BRANCH}`);
+    expect(lines[0]).toContain(askForBriefLogPath(f.opts.repoRoot, 'needs-a-brief'));
+    expect(readBriefSpent(f.opts.repoRoot, BRANCH)).toEqual({
+      branch: BRANCH,
+      slug: 'needs-a-brief',
+      ends: 2,
+      log: askForBriefLogPath(f.opts.repoRoot, 'needs-a-brief'),
+    });
+  });
+
+  it('A RESTART KEEPS THE BOUND: the spent file is read at start', async () => {
+    const f = fixture([], { briefCommand: '@ends-briefless' });
+    const asked = new Set<string>();
+    const ends = new Map<string, number>();
+    const spent = new Set<string>();
+    for (let i = 1; i <= 2; i += 1) {
+      pass(f, asked, ends, spent);
+      await settle(() => f.askArgv().length, i);
+      await boardRunsSettled();
+    }
+    pass(f, asked, ends, spent);
+    expect(fs.existsSync(briefSpentPath(f.opts.repoRoot, BRANCH))).toBe(true);
+
+    // A new daemon: empty memory, seeded from the files as `fleetAutoWrites` does.
+    const freshEnds = new Map<string, number>();
+    const freshSpent = new Set<string>();
+    for (const r of readAllBriefSpent(f.opts.repoRoot)) {
+      freshEnds.set(r.branch, r.ends);
+      freshSpent.add(r.branch);
+    }
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    pass(f, new Set(), freshEnds, freshSpent);
+    await settle(() => f.askArgv().length, 0);
+    const lines = log.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('times without a brief'));
+    log.mockRestore();
+    expect(f.askArgv()).toHaveLength(2);
+    expect(lines).toHaveLength(0);
+  });
+
+  it('A PERSON WHO REMOVES THE SPENT FILE frees the branch for the next pass', async () => {
+    const f = fixture([], { briefCommand: '@ends-briefless' });
+    const asked = new Set<string>();
+    const ends = new Map<string, number>();
+    const spent = new Set<string>();
+    for (let i = 1; i <= 2; i += 1) {
+      pass(f, asked, ends, spent);
+      await settle(() => f.askArgv().length, i);
+      await boardRunsSettled();
+    }
+    pass(f, asked, ends, spent);
+    fs.rmSync(briefSpentPath(f.opts.repoRoot, BRANCH));
+
+    pass(f, asked, ends, spent);
+    expect(ends.has(BRANCH)).toBe(false);
+    pass(f, asked, ends, spent);
+    await settle(() => f.askArgv().length, 3);
+    expect(f.askArgv()).toHaveLength(3);
+  });
+
+  it('A SUCCESSFUL RUN READ AS MISSING COSTS AT MOST ONE MORE ASK', async () => {
+    // The first run pushed its brief, and the next pulse read origin/main
+    // before the push landed. The second run finds the brief and ends; once
+    // it is on origin/main the branch is dispatched, and no third ask starts.
+    const f = fixture([], { briefCommand: '@ends-briefless' });
+    const asked = new Set<string>();
+    const ends = new Map<string, number>();
+    const spent = new Set<string>();
+    pass(f, asked, ends, spent);
+    await settle(() => f.askArgv().length, 1);
+    await boardRunsSettled();
+    pass(f, asked, ends, spent);
+    await settle(() => f.askArgv().length, 2);
+    await boardRunsSettled();
+
+    f.land(BRANCH);
+    const next = pass(f, asked, ends, spent);
+    await settle(() => f.runs().length, 1);
+    expect(f.askArgv()).toHaveLength(2);
+    expect(next.has(BRANCH)).toBe(true);
+    expect(ends.size).toBe(0);
+    expect(fs.existsSync(briefSpentPath(f.opts.repoRoot, BRANCH))).toBe(false);
+  });
+
+  it('A USAGE-LIMIT END WAITS AND SPENDS NO RETRY', async () => {
+    const f = fixture([], { briefCommand: '@limited' });
+    const asked = new Set<string>();
+    const ends = new Map<string, number>();
+    const waits = new Map<string, number>();
+    pass(f, asked, ends, new Set(), waits);
+    await settle(() => waits.size, 1);
+    await boardRunsSettled();
+    expect(waits.has(BRANCH)).toBe(true);
+    expect(asked.has(BRANCH)).toBe(true);
+    expect(ends.size).toBe(0);
+  });
+
+  it('A START THAT COULD NOT OPEN ITS LOG STAYS MARKED and spends no retry', async () => {
+    // A broken start must not start a process per pulse.
+    const f = fixture([], { briefCommand: '@ends-briefless' });
+    fs.mkdirSync(askForBriefLogPath(f.opts.repoRoot, 'needs-a-brief'), { recursive: true });
+    const asked = new Set<string>();
+    const ends = new Map<string, number>();
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    pass(f, asked, ends, new Set());
+    pass(f, asked, ends, new Set());
+    await settle(() => f.askArgv().length, 0);
+    await boardRunsSettled();
+    log.mockRestore();
+    expect(f.askArgv()).toEqual([]);
+    expect(asked.has(BRANCH)).toBe(true);
+    expect(ends.size).toBe(0);
+  });
+
+  it('A `refused` RUNNER CHOICE STAYS MARKED and spends no retry', async () => {
+    const f = fixture([], { briefCommand: '@ends-briefless' });
+    const asked = new Set<string>();
+    const ends = new Map<string, number>();
+    leaveBoardRunsToTheBoard(true);
+    try {
+      pass(f, asked, ends, new Set());
+      await boardRunsSettled();
+      await settle(() => f.askArgv().length, 0);
+      pass(f, asked, ends, new Set());
+      await boardRunsSettled();
+    } finally {
+      leaveBoardRunsToTheBoard(false);
+    }
+    expect(f.askArgv()).toEqual([]);
+    expect(asked.has(BRANCH)).toBe(true);
+    expect(ends.size).toBe(0);
+  });
+});
+
 describe('maybeAutoDispatch — a brief ask that ended at the usage limit', () => {
   const BRANCH = 'feature/needs-a-brief';
   const nowEpoch = () => Math.floor(Date.now() / 1000);
+  // 2026-11-05 23:00:15 CET, the instant CI run 42117422301 failed at (#3125).
+  const PINNED = new Date('2026-11-05T22:00:15Z');
+  // 1am Berlin on the next day, which the `@limited` stub prints.
+  const RESET_1AM = Date.UTC(2026, 10, 6, 0, 0, 0) / 1000;
+
+  beforeEach(() => {
+    // `Date` only: the fixture's `sleep` and `settle` keep real timers.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(PINNED);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   it('RECORDS THE RESET EPOCH of a wait ending against the branch', async () => {
     const f = fixture([], { briefCommand: '@limited' });
@@ -510,8 +788,19 @@ describe('maybeAutoDispatch — a brief ask that ended at the usage limit', () =
     maybeAutoDispatch(f.opts, brieflessPulse(), on(5), [], new Set(), undefined, asked, waits);
     await settle(() => waits.size, 1);
 
-    expect(waits.get(BRANCH)).toBeGreaterThan(nowEpoch());
-    expect(waits.get(BRANCH)).toBeLessThanOrEqual(nowEpoch() + 24 * 3600);
+    expect(waits.get(BRANCH)).toBe(RESET_1AM);
+  });
+
+  it('A RESET INSIDE THE GRACE RESOLVES TO NOW', async () => {
+    // 11pm Berlin lies 15 s before the pinned clock, inside the 120 s grace.
+    const f = fixture([], { briefCommand: '@limited-11pm' });
+    const asked = new Set<string>();
+    const waits = new Map<string, number>();
+
+    maybeAutoDispatch(f.opts, brieflessPulse(), on(5), [], new Set(), undefined, asked, waits);
+    await settle(() => waits.size, 1);
+
+    expect(waits.get(BRANCH)).toBe(PINNED.getTime() / 1000);
   });
 
   it('A PULSE BEFORE THE RESET DOES NOT ASK AGAIN', async () => {
@@ -549,7 +838,7 @@ describe('maybeAutoDispatch — a brief ask that ended at the usage limit', () =
     maybeAutoDispatch(f.opts, brieflessPulse(), on(5), [], new Set(), undefined, asked, waits);
     await settle(() => (waits.get(BRANCH) ?? 0) > old, 1);
 
-    expect(waits.get(BRANCH)).toBeGreaterThan(nowEpoch());
+    expect(waits.get(BRANCH)).toBe(RESET_1AM);
   });
 
   it('A BRIEF THAT LANDS CLEARS THE WAIT', async () => {

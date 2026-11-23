@@ -42,6 +42,23 @@ describe('fixerPrompt', () => {
     expect(text).not.toContain('review findings');
   });
 
+  it('names the answer of the head\'s re-run of the failed jobs', () => {
+    const asked = textOf(fixerPrompt({ ...base, evidence: { kind: 'ci-red', failingChecks: ['test'], rerun: 'asked' } }));
+    expect(asked).toContain('re-ran the failed jobs once');
+    expect(asked).toContain('Do not name a re-run as the next step.');
+    const refused = textOf(fixerPrompt({ ...base, evidence: { kind: 'ci-red', failingChecks: ['test'], rerun: 'failed' } }));
+    expect(refused).toContain('the CI system refused it');
+    const unaskable = textOf(fixerPrompt({ ...base, evidence: { kind: 'ci-red', failingChecks: ['test'], rerun: 'unaskable' } }));
+    expect(unaskable).toContain('the CI system cannot re-run them from fleetd');
+    const nothing = textOf(fixerPrompt({ ...base, evidence: { kind: 'ci-red', failingChecks: ['test'], rerun: 'no-failed-run' } }));
+    expect(nothing).toContain('No re-run of the failed jobs ran on');
+    expect(nothing).toContain('no CI run on it concluded as a failure the CI system re-runs');
+    expect(nothing).not.toContain('Do not name a re-run');
+    for (const rerun of [undefined, 'none'] as const) {
+      expect(textOf(fixerPrompt({ ...base, evidence: { kind: 'ci-red', failingChecks: ['test'], rerun } }))).not.toContain('re-run');
+    }
+  });
+
   it('says the index named no failing check where none is named', () => {
     const text = textOf(fixerPrompt({ ...base, evidence: { kind: 'ci-red', failingChecks: [] } }));
     expect(text).toContain('the index named no failing check');
@@ -56,6 +73,40 @@ describe('fixerPrompt', () => {
     expect(fixerPrompt({ ...base, branch: ' ', evidence: { kind: 'ci-red', failingChecks: [] } })).toEqual({ read: 'refused', why: 'no-branch' });
     expect(fixerPrompt({ ...base, head: '', evidence: { kind: 'ci-red', failingChecks: [] } })).toEqual({ read: 'refused', why: 'no-head' });
     expect(fixerPrompt({ ...base, evidence: { kind: 'high', findings: ' \n' } })).toEqual({ read: 'refused', why: 'findings-empty' });
+  });
+});
+
+describe('fixerPrompt for a conflict', () => {
+  const TIP = 'c'.repeat(40);
+  const conflict = { kind: 'conflict', base: 'main', baseTip: TIP } as const;
+
+  it('names the base and its tip, the merge, and the push as a fast-forward', () => {
+    const text = textOf(fixerPrompt({ ...base, evidence: conflict }));
+    expect(text).toContain(`conflicts with the base branch \`main\` at ${TIP}`);
+    expect(text).toContain('`git fetch origin main`');
+    expect(text).toContain('`git merge origin/main`');
+    expect(text).toContain('Never rebase');
+    expect(text).toContain('`git push origin HEAD:feature/x`');
+  });
+
+  it('names the restore of a generated bundle from the merge base', () => {
+    const text = textOf(fixerPrompt({ ...base, evidence: conflict }));
+    expect(text).toContain('`git restore --staged --worktree --source="$(git merge-base origin/main HEAD MERGE_HEAD)" -- <path>`');
+    expect(text).not.toContain('git merge-base HEAD MERGE_HEAD');
+    expect(text).toContain('never commit a rebuild');
+    expect(text).toContain('Resolving a board artifact conflict');
+  });
+
+  it('names the stop on a protected path, a refused push and a State: line', () => {
+    const text = textOf(fixerPrompt({ ...base, evidence: conflict }));
+    expect(text).toContain('`.github/workflows/`, `.claude/`, `scripts/check-*.sh`');
+    expect(text).toContain('`rolePushViolation`');
+    expect(text).toContain('plot-state-gate.sh refuses the commit');
+  });
+
+  it('refuses a conflict with no base or no base tip', () => {
+    expect(fixerPrompt({ ...base, evidence: { ...conflict, base: '' } })).toEqual({ read: 'refused', why: 'no-base' });
+    expect(fixerPrompt({ ...base, evidence: { ...conflict, baseTip: ' ' } })).toEqual({ read: 'refused', why: 'no-base' });
   });
 });
 

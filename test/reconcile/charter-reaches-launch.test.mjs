@@ -193,7 +193,12 @@ for (const [label, file] of [['template', template], ["this repo's file", localP
     const pm = printed.indexOf('--permission-mode');
     assert.notEqual(pm, -1, `the print carries the permission mode\n${printed.join(' ')}`);
     assert.equal(printed[pm + 1], 'bypassPermissions', printed.join(' '));
-    assert.deepEqual(argv(file, {}).slice(1), ['--permission-mode', 'bypassPermissions'],
+    // This repository's file also passes `--strict-mcp-config`; the shipped
+    // template does not.
+    const bare = file === localPrompt
+      ? ['--strict-mcp-config', '--permission-mode', 'bypassPermissions']
+      : ['--permission-mode', 'bypassPermissions'];
+    assert.deepEqual(argv(file, {}).slice(1), bare,
       'and a charter-less print still carries it');
   });
 
@@ -298,8 +303,17 @@ test("this repo's prompt file matches the template but for its prompt text", () 
   // raw text. A raw diff says the files differ and says nothing about how; this
   // says the difference is EXACTLY the licensed one.
   const elide = (s) => s.replace(/-p ".*?" "\$\{tail_args/s, '-p "<PROMPT>" "${tail_args');
+  // THE SECOND LICENSED DIFFERENCE is `--strict-mcp-config`: this repository
+  // passes it and the shipped template does not. The block and its expansion
+  // are removed from the local file before the comparison, and each must be
+  // present, so the comparison licenses exactly that and no other drift.
+  const mcpBlock = /\n# NO MCP SERVER STARTS\.[^\n]*\n(?:#[^\n]*\n)*mcp_args=\(\)\n\[ "\$harness" = "claude" \] && mcp_args=\(--strict-mcp-config\)\n\n/;
+  const mcpUse = ' ${mcp_args[@]+"${mcp_args[@]}"}';
+  const raw = fs.readFileSync(localPrompt, 'utf8');
+  assert.match(raw, mcpBlock, "this repo's file declares mcp_args");
+  assert.ok(raw.includes(mcpUse), "this repo's file expands mcp_args into head_args");
   const t = fs.readFileSync(template, 'utf8').split('\n');
-  const l = fs.readFileSync(localPrompt, 'utf8').split('\n');
+  const l = raw.replace(mcpBlock, '\n').replace(mcpUse, '').split('\n');
   assert.equal(l.length, t.length,
     `the local file must be a template instance, not a patched ancestor\n`
     + `template ${t.length} lines, local ${l.length}`);

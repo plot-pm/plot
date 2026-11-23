@@ -15,7 +15,7 @@ import { expandAgentFolds } from '../helpers.mjs';
  * `index.css` imports reached the built CSS. Where `PLOT_SCREENSHOT_DIR` is set,
  * it writes `<section>-light.png`, `<section>-dark.png` and `<section>-320.png`
  * there, and renders each mockup the section names to `<section>-mock-<n>.png`.
- * The sprint card shows only under the «My sprint» chip, which also narrows You,
+ * The Release group names the sprint only under the «My sprint» chip, which also narrows You,
  * Work items and the release section to the sprint, so the 1280 px runs shoot
  * every section unfiltered and then `header-my-sprint-<theme>.png` with the chip on.
  */
@@ -106,7 +106,7 @@ describe('the Delivery tab in each theme and at 320 px (real browser renders the
       try {
         for (const section of SECTIONS) await shoot(page, section, `${section.name}-${scheme}.png`);
         await page.locator('[data-chip="My sprint"]').click();
-        await page.locator('[data-sprint-card]').waitFor({ timeout: 10_000 });
+        await page.locator('[data-release-group-scope="my-sprint"]').waitFor({ timeout: 10_000 });
         await shoot(page, SECTIONS[0], `header-my-sprint-${scheme}.png`);
       } finally {
         await page.close();
@@ -129,7 +129,7 @@ describe('the Delivery tab in each theme and at 320 px (real browser renders the
     try {
       const header = wide.locator('[data-section="work-items"] [role="row"]').filter({ has: wide.getByRole('columnheader') }).first();
       await expect.poll(() => header.isVisible()).toBe(true);
-      expect(await wide.locator('[data-section="work-items"]').getByRole('columnheader', { name: 'Kind' }).first().isVisible()).toBe(true);
+      expect(await wide.locator('[data-section="work-items"]').getByRole('columnheader', { name: 'Plan' }).first().isVisible()).toBe(true);
     } finally {
       await wide.close();
     }

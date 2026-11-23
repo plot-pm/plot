@@ -1,5 +1,5 @@
 import type { Host, Refs, Trees } from '@plot-pm/domain';
-import { planPrOf, type NamedPr, type OpenPr, type PlanPrFound, type PlanPrReadings, type PlanPrRefusal } from '@plot-pm/domain/rules/plan-pr';
+import { planPrOf, type NamedPr, type OpenPr, type PlanPrFound, type PlanPrReadings, type PlanPrRefusal, type PlanPrUnnamed } from '@plot-pm/domain/rules/plan-pr';
 
 /** How many open PRs a listing reads at most. */
 export const PRS_LISTED = 100;
@@ -156,7 +156,8 @@ export const readHeadOf = async (
  * @param against - the branch a PR head's changed paths are read against; the
  *   default branch where absent.
  * @returns the PR {@link planPrOf} found, its own refusal passed through
- *   unevaluated, or `undefined` where the plan has no PR to find.
+ *   unevaluated, `unnamed` where a merge added the plan and the host named no
+ *   PR for it, or `undefined` where the plan has no PR to find.
  */
 export const choosePlanPr = async (
   ctx: OpenPrsContext,
@@ -166,13 +167,14 @@ export const choosePlanPr = async (
   onUnread: (unread: readonly UnreadPr[]) => void,
   refuseOnHostFailure: (detail: string) => Error,
   against?: string,
-): Promise<PlanPrFound | PlanPrRefusal | undefined> => {
+): Promise<PlanPrFound | PlanPrRefusal | PlanPrUnnamed | undefined> => {
   let current = readings;
   for (;;) {
     const answer = planPrOf(current);
     if (answer.outcome === 'none') return undefined;
     if (answer.outcome === 'found') return answer;
     if (answer.outcome === 'refused') return answer;
+    if (answer.outcome === 'unnamed') return answer;
     switch (answer.ask) {
       case 'named': {
         const lookup = await ctx.host.prState(`idea/${current.slug}`);
@@ -207,12 +209,21 @@ export const choosePlanPr = async (
         current = { ...current, addition: { sha, secondParent: second?.ok ? second.value : '' } };
         break;
       }
+      case 'commit': {
+        const second = current.addition?.secondParent ?? '';
+        const asked = await ctx.host.prsOfCommit(second);
+        if (!asked.ok && asked.why === 'failed') {
+          throw refuseOnHostFailure(`the host could not be asked for the PRs of commit ${second}, the head of the merge that brought the plan onto the default branch.`);
+        }
+        current = { ...current, byCommit: asked.ok ? asked.value : 'unaskable' };
+        break;
+      }
       case 'merged': {
         const listed = await ctx.host.prList('merged', PRS_LISTED);
         if (!listed.ok) {
           throw refuseOnHostFailure("the host could not list its merged PRs to find the one that brought the plan onto the default branch (plot-host.sh pr-list refused the call).");
         }
-        current = { ...current, merged: listed.value.map((pr) => ({ number: pr.number, headSha: pr.headSha ?? '' })) };
+        current = { ...current, merged: listed.value.map((pr) => ({ number: pr.number, headSha: pr.headSha ?? '', head: pr.head })) };
         break;
       }
       case 'confirm': {

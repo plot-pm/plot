@@ -10,6 +10,15 @@ export const SLICE_STATES = ['delivered', 'blocked', 'at-a-gate', 'being-built',
 
 export type SliceState = (typeof SLICE_STATES)[number];
 
+/** The words a bar, a legend or a strip shows for each slice state. */
+export const SLICE_STATE_WORDS: Readonly<Record<SliceState, string>> = {
+  delivered: 'delivered',
+  'at-a-gate': 'at a gate',
+  'being-built': 'being built',
+  blocked: 'blocked',
+  'not-started': 'not started',
+};
+
 /** One counted slice: the id of its work item and the merge answer of the pulse. */
 export interface CountedSlice {
   readonly id: string;
@@ -62,6 +71,27 @@ export const sliceStateOf = (
   if (item.stage === 'pr') return item.pr === undefined || item.pr.ci === 'unread' ? 'unread' : 'at-a-gate';
   if (item.stage === 'building' || live > 0) return 'being-built';
   return item.stage === 'queued' ? 'not-started' : 'unread';
+};
+
+/** What holds a not-started slice back: its brief is missing, or it waits on another slice. */
+export type NotStartedHold = { readonly kind: 'no-brief' } | { readonly kind: 'waits-on'; readonly slice: string };
+
+/**
+ * What holds a not-started slice back, for display. It is a sub-count of `not-started` and does not change the
+ * slice's state.
+ *
+ * `no brief` is tested first, so a slice that both needs a brief and waits on another slice reads `no brief`: the
+ * agent needs the brief before the wait matters.
+ *
+ * @param state - the slice's state, as `sliceStateOf` answers it.
+ * @param item - the slice's work item, or `undefined` where none was read.
+ * @returns `{ kind: 'no-brief' }` where the item needs a brief, `{ kind: 'waits-on', slice }` where it waits on a
+ *   slice, and `null` where the state is not `not-started`, no item was read, or neither fact holds.
+ */
+export const notStartedHold = (state: SliceState | 'unread', item: WorkItemReading | undefined): NotStartedHold | null => {
+  if (state !== 'not-started' || item === undefined) return null;
+  if (item.needsBrief === true) return { kind: 'no-brief' };
+  return item.waitsOn === undefined || item.waitsOn === '' ? null : { kind: 'waits-on', slice: item.waitsOn };
 };
 
 /**

@@ -35,6 +35,7 @@ import {
   type LoopDeps,
   type SdkRunDeps,
   type WorkerLoopPorts,
+  writeManifestResumeId,
 } from '../../src/server/entry/worker-loop.js';
 
 const BRANCH = 'infra/x';
@@ -63,6 +64,8 @@ interface Rig {
   wt: string;
   events: string[];
   requests: AgentRunRequest[];
+  /** Every attempt count the loop raised, in order. */
+  attempts: number[];
   deskCalls: ReturnType<typeof deskFixtureCalls>;
   read: () => Record<string, unknown>;
 }
@@ -83,6 +86,7 @@ const rig = (
   write({ ...manifest, worktree: wt });
 
   const events: string[] = [];
+  const attempts: number[] = [];
   const fixture = agentRunFixture({ answers });
   const baseAgents = agentsFixture({});
   const deskCalls = deskFixtureCalls();
@@ -91,9 +95,10 @@ const rig = (
     trees: treesFixture({ quiet: { [wt]: 5000 }, commits: { [wt]: 'no' } }),
     agents: {
       ...baseAgents,
-      raiseAttempts: async (w: string, attempts: number) => {
-        write({ ...read(), attempts });
-        return baseAgents.raiseAttempts(w, attempts);
+      raiseAttempts: async (w: string, raised: number) => {
+        attempts.push(raised);
+        write({ ...read(), attempts: raised });
+        return baseAgents.raiseAttempts(w, raised);
       },
       raiseCorrections: async (w: string, correctionAttempts: number) => {
         write({ ...read(), correctionAttempts });
@@ -124,6 +129,7 @@ const rig = (
     recordRun: async () => null,
     recordLimits: async () => 0,
     sliceCostUsd: async () => null,
+    resumeHandleReadings: () => ({ roleSessions: new Set<string>(), head: null }),
   };
   const sdk: SdkRunDeps = {
     agentRun: () => ({
@@ -138,6 +144,7 @@ const rig = (
     maxTurns: 150,
     maxSpendUsd: 0,
     contextWindow: 200_000,
+    strictMcp: true,
     capabilities: [],
     runChecks: async (worktree) => {
       events.push('checks');
@@ -177,7 +184,7 @@ const rig = (
     runner: 'sdk',
     sdk,
   };
-  return { deps, wt, events, requests: fixture.requests, deskCalls, read };
+  return { deps, wt, events, requests: fixture.requests, attempts, deskCalls, read };
 };
 
 beforeEach(() => {
@@ -275,7 +282,7 @@ describe('runWorkerLoop on the SDK runner — the hand-back rows', () => {
     expect(await runWorkerLoop(r.deps)).toBe(124);
     expect(r.events).toEqual(['model', 'checks', 'model']);
     expect(r.requests).toHaveLength(2);
-    expect(r.requests[0]).toMatchObject({ prompt: `implement ${BRANCH}`, resumeId: '', sessionId: 'h-1', model: 'sonnet', maxTurns: 150, contextWindow: 200_000, role: 'worker' });
+    expect(r.requests[0]).toMatchObject({ prompt: `implement ${BRANCH}`, resumeId: '', sessionId: 'h-1', model: 'sonnet', maxTurns: 150, contextWindow: 200_000, strictMcp: true, role: 'worker' });
     expect(r.requests[0]!.env.PLOT_BRANCH).toBe(BRANCH);
     expect(r.requests[1]).toMatchObject({ prompt: 'local checks passed: tests added', resumeId: 'h-1' });
     // A `checks` resume is not a CI correction: nothing is written to the desk.
@@ -325,6 +332,23 @@ describe('runWorkerLoop on the SDK runner — the hand-back rows', () => {
     const r = rig([ran('checks'), ran('pushed')], async () => ({ passed: true }));
     await runWorkerLoop(r.deps);
     expect(r.read().sliceRuns).toEqual({ branch: BRANCH, runs: 2 });
+  });
+});
+
+describe('runWorkerLoop on the SDK runner — a role handle in the manifest', () => {
+  it('sends no resumeId and a minted sessionId where the manifest names a role transcript', async () => {
+    const r = rig([ran('blocked', 'which API?')], async () => ({ passed: true }));
+    Object.assign(r.deps.ports, {
+      resumeHandleReadings: () => ({ roleSessions: new Set<string>(), head: { firstLine: '{"type":"agent-setting","agentSetting":"unblocker"}', gitBranch: '' } }),
+    });
+    r.deps = {
+      ...r.deps,
+      mintHandle: () => 'H-New',
+      idle: { ...r.deps.idle, transcript: transcriptFixture({ spoken: [`${r.wt}\th-1`] }) },
+    };
+    await runWorkerLoop(r.deps);
+    expect(r.requests[0]).toMatchObject({ resumeId: '', sessionId: 'h-new' });
+    expect(r.read().resumeId).toBe('h-new');
   });
 });
 
@@ -447,6 +471,7 @@ describe('runWorkerLoop on the SDK runner — how a run ends', () => {
     refused.deps = { ...refused.deps, resolvePrompt: () => 'refused\t\tcharter x unreadable', log: (line) => logs.push(line) };
     expect(await runWorkerLoop(refused.deps)).toBe(1);
     expect(refused.requests).toEqual([]);
+    expect(refused.attempts).toEqual([]);
     expect(logs.join('\n')).toContain('refusing to launch — charter x unreadable');
 
     const noFile = rig([ran('blocked')], async () => ({ passed: true }));
@@ -553,6 +578,23 @@ describe('raiseSliceRuns', () => {
   });
 });
 
+describe('writeManifestResumeId', () => {
+  it('replaces the handle and keeps every other field, and answers false where nothing is written', async () => {
+    const dir = tempDir('plot-resume-id-');
+    const file = path.join(dir, 'm.json');
+    fs.writeFileSync(file, JSON.stringify({ branch: 'infra/x', resumeId: 'h-role', wavesCount: 3 }));
+    expect(await writeManifestResumeId(file, 'h-new')).toBe(true);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ branch: 'infra/x', resumeId: 'h-new', wavesCount: 3 });
+    expect(await writeManifestResumeId('', 'h-new')).toBe(false);
+    expect(await writeManifestResumeId(path.join(dir, 'gone.json'), 'h-new')).toBe(false);
+    for (const text of ['null', '[]', '7']) {
+      fs.writeFileSync(file, text);
+      expect(await writeManifestResumeId(file, 'h-new')).toBe(false);
+      expect(fs.readFileSync(file, 'utf8')).toBe(text);
+    }
+  });
+});
+
 describe('the manifest across a hop, and a run it cannot count', () => {
   it('writeHop resets the correction count on a hop from another branch, and keeps it on the same branch', async () => {
     const r = rig([], async () => ({ passed: true }), { ...ASSIGNED, correctionAttempts: 2 });
@@ -626,6 +668,13 @@ describe('runnerDeps', () => {
     expect(out.sdk).toMatchObject({ model: 'sonnet', maxTurns: 150, contextWindow: 200_000, capabilities: [] });
     expect(logs.join('\n')).toContain("reads Plot's shipped");
     expect(logs.join('\n')).toContain('model sonnet (worker-command)');
+  });
+
+  it('sets strictMcp from Worker command', async () => {
+    const strict = await deps(setup(), { 'Agent runner': 'sdk', 'Worker command': 'PLOT_MODEL=sonnet plot-worker-loop.sh --strict-mcp-config' });
+    expect(strict.sdk).toMatchObject({ strictMcp: true });
+    const loose = await deps(setup(), { 'Agent runner': 'sdk', 'Worker command': 'PLOT_MODEL=sonnet plot-worker-loop.sh' });
+    expect(loose.sdk).toMatchObject({ strictMcp: false });
   });
 
   it("fills the shipped template's placeholders, and reads the project's .md over it", async () => {

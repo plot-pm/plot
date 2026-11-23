@@ -112,6 +112,27 @@ describe('presentCard: three sections', () => {
   });
 });
 
+describe('presentCard: the spike line names why no branch is licensed', () => {
+  const spikeSlices = [{ branches: [{ branch: 'feature/s', spike: true }] }, { branches: [{ branch: 'feature/b', spike: false }] }];
+  const spikeWords = (spikeApproved: string): string[] => {
+    const s = sections({
+      status: 'draft', state: 'design',
+      controls: cardControls({ state: 'design', status: 'draft', slices: spikeSlices, spikeApproved }),
+    });
+    return allWords(s).filter((w) => w.startsWith('spike'));
+  };
+
+  it.each([
+    ['', 'spike not approved yet'],
+    ['2026-11-03, jwloka, in-session', 'spike record names no branch — use Approve spike'],
+    ['2026-11-03, jwloka, in-session, feature/s extra', 'spike record does not parse — use Approve spike'],
+    ['2026-11-03, jwloka, in-session, feature/b', 'spike approved for a branch the spike marker no longer marks — use Approve spike'],
+    ['2026-11-03, jwloka, in-session, feature/gone', 'spike approved for a branch no slice names — use Approve spike'],
+  ])('the record %j reads %j', (record, line) => {
+    expect(spikeWords(record)).toEqual([line]);
+  });
+});
+
 describe('presentCard: every fact the plan card shows still shows', () => {
   it('type, rounds, spike, verification, not-pushed and the PR list', () => {
     const spikeSlices = [{ branches: [{ branch: 'feature/s', spike: true }] }, { branches: [{ branch: 'feature/b', spike: false }] }];

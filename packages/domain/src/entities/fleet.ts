@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { SpikeUnlicensedSchema } from "./card-facts.js";
+
 /**
  * PLOT'S ENTITY GRAPH — the plans, slices and branches the fleet is about.
  *
@@ -12,7 +14,7 @@ import { z } from "zod";
  * A MOVE, NOT A COPY. There is no second implementation and no window in which
  * two answers exist — the board resolves these from here or not at all.
  *
- * The one import is `zod`, and that is the boundary the purity gate pins: a
+ * The imports are `zod` and a sibling entity schema, and that is the boundary the purity gate pins: a
  * schema and its type are ONE fact, so the validator moves with the shape
  * rather than being split from it. Nothing under `src/` may reach a disk, a
  * process or a network.
@@ -744,6 +746,14 @@ export const PlanSchema = z.preprocess(readEitherSpelling, z.object({
     branch: z.string(),
     line: z.string(),
   })).default([]),
+  /**
+   * Why a Design plan's `Spike approved:` record licenses no branch.
+   *
+   * Null for a licensed record, a plan not in Design and a plan with no
+   * single spike; a consumer reads null as no reason to show, never as
+   * licensed. Defaults to null so a pulse from an older scan still validates.
+   */
+  spikeUnlicensed: SpikeUnlicensedSchema.nullable().default(null),
 }));
 
 /** The raw `plot-fleet-scan.sh --json` document, parsed. */

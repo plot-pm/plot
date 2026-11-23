@@ -13,17 +13,20 @@ import type { TokenCountsRecord } from '../entities/slice-spend.js';
 import { tokenCountValue } from './agent-run-tokens.js';
 import { timeLeft, timeLeftValue } from './agent-time-left.js';
 import { FIXER_ATTEMPTS_BUDGET } from './fixer-attempts.js';
+import { TICKETS_ANCHOR } from './tickets-section.js';
+import { NO_SPRINT_WORD } from './sprint-selection.js';
+import { pill, type StatusPill } from './status-pill.js';
 
 /** The seven columns of a Delivery row, in the order they render. */
-export const ROW_COLUMNS = ['kind', 'item', 'where', 'status', 'do', 'by', 'age'] as const;
+export const ROW_COLUMNS = ['kind', 'item', 'where', 'status', 'by', 'age', 'do'] as const;
 export type RowColumn = (typeof ROW_COLUMNS)[number];
 
-/** The five columns of a You row, in the order they render. Every You row is the reader's, so there is no By column. */
-export const YOU_COLUMNS = ['kind', 'item', 'status', 'do', 'age'] as const;
+/** The four columns of a You row, in the order they render: what to do, on what, what waits on it, and the `⋯`. */
+export const YOU_COLUMNS = ['verb', 'object', 'consequence', 'menu'] as const;
 export type YouColumn = (typeof YOU_COLUMNS)[number];
 
 /** The header of each You column. */
-export const YOU_COLUMN_LABELS: Record<YouColumn, string> = { kind: 'Kind', item: 'Item', status: 'Status', do: 'Do', age: 'Age' };
+export const YOU_COLUMN_LABELS: Record<YouColumn, string> = { verb: 'Do', object: 'Item', consequence: 'Waits', menu: 'Actions' };
 
 /** What a cell link points at. Each kind of target is one kind of place on the tab or the host. */
 export type LinkTarget =
@@ -42,7 +45,9 @@ export type LinkTarget =
   | { to: 'person'; handle: string }
   | { to: 'question'; id: string }
   | { to: 'log'; id: string }
-  | { to: 'action'; action: string; id: string };
+  | { to: 'action'; action: string; id: string }
+  /** The `⋯` menu of the row of item `id`: the link opens it and runs nothing. */
+  | { to: 'menu'; id: string };
 
 /** One cell: a value, never a sentence, and the targets it links to. A cell nobody asked for is `null`. */
 export interface Cell {
@@ -64,6 +69,11 @@ export interface CellPart {
 
 /** What a gate read as: `none` is a review nobody asked for, which differs from a gate nobody read (no part). */
 export type GateOutcome = 'pass' | 'pending' | 'fail' | 'none';
+
+/** A gate mark of `gatesCell`: a part whose `outcome` is always read. */
+export interface GatePart extends CellPart {
+  outcome: GateOutcome;
+}
 
 /** One row in the seven columns. DO is `null` outside the You section. */
 export type RowCells = Record<RowColumn, Cell | null>;
@@ -94,6 +104,8 @@ export interface ItemRowFacts {
   prReading?: PrReading;
   /** The slice an earlier slice must finish first; `''` where the item waits and the server names no slice. */
   waitsOn?: string;
+  /** The item's brief must be written before anyone can start it, as `WorkItemReading.needsBrief` reads. Set only where true. */
+  needsBrief?: boolean;
   /** The person the item waits on, as a handle. */
   person?: string;
   /** The display name of `person`, resolved through `People`; absent where the directory declares none. */
@@ -116,6 +128,11 @@ export interface ItemRowFacts {
   mergedPrs?: number[];
   /** The agents acting on the item, in `placement.agents` order; absent where none were read. */
   agents?: ItemAgentFacts[];
+  /**
+   * A claim that holds no work: the branch carries only its claim commit. `elsewhere` is `true` where this machine
+   * holds no worktree for the claim. Absent where the branch carries work or nobody read it.
+   */
+  claim?: { elsewhere: boolean };
 }
 
 /** One agent acting on an item, as its By cell names it. */
@@ -153,6 +170,19 @@ export interface AgentRowFacts {
   idleMinutes?: number;
   /** The name of the work item the agent acts on. */
   itemName?: string;
+  /**
+   * The placed work item the agent's displayed branch belongs to, where the placement names none: a desk
+   * agent whose branch the registry left empty acts on nothing, and its row still names this item.
+   */
+  actsOnItem?: string;
+  /** The plan slug of the payload row of the agent's branch. */
+  plan?: string;
+  /** The slice name of the payload row of the agent's branch. */
+  slice?: string;
+  /** The Active sprint the payload row of the agent's branch belongs to. */
+  sprint?: string;
+  /** `rowSprintMembership`'s `no sprint` for the payload row of the agent's branch. */
+  noSprint?: true;
   /** The branch the agent works on. */
   branch?: string;
   /** Commits the local branch carries beyond its base. */
@@ -161,8 +191,8 @@ export interface AgentRowFacts {
   lastCommit?: string;
   /** The reviewer's head, as `<sha7>`. */
   reviewHead?: string;
-  /** What a fixer answers: a red CI run or a HIGH review finding. */
-  fixerFinding?: 'ci' | 'high';
+  /** What a fixer answers: a red CI run, a HIGH review finding, or a merge conflict with the base. */
+  fixerFinding?: 'ci' | 'high' | 'conflict';
   /** The number of the fixer's current attempt, from 1. */
   fixerAttempt?: number;
   /** The PR the agent acts on. */
@@ -171,6 +201,12 @@ export interface AgentRowFacts {
   rateLimit?: 'exhausted' | 'free' | 'unknown';
   /** Whether the agent's process runs now; a run in progress has no token reading. */
   running?: boolean;
+  /** The context size of the agent's run in progress, in tokens; absent where nobody read it. */
+  contextTokens?: number;
+  /** The tokens the agent's run in progress has spent so far; absent where nobody read it. */
+  contextSpend?: number;
+  /** The pace of the agent's desk: `fast` while it writes or holds a lock, `slow` otherwise; absent where no desk was read. */
+  pace?: AgentPace;
   /** The four counters of the agent's last finished run; `null` or absent where none is read. */
   lastRun?: TokenCountsRecord | null;
   /** Epoch milliseconds of the agent's start; `null` or absent where none is known. */
@@ -212,20 +248,45 @@ const REASON_STATUS: Record<YouReason, string> = {
   loose: 'loose',
 };
 
-/** What a You reason offers in the DO column: one verb with `›`. */
-const REASON_DO: Record<YouReason, { verb: string; action: string }> = {
-  'draft-plan': { verb: 'open', action: 'open-plan' },
-  'plan-approval': { verb: 'approve', action: 'approve' },
-  'spike-approval': { verb: 'approve spike', action: 'approve-spike' },
-  'release-approval': { verb: 'approve release', action: 'release-approve' },
-  'test-delivered-plan': { verb: 'test', action: 'deliver' },
-  'review-pr': { verb: 'review', action: 'review' },
-  'blocked-marker': { verb: 'answer', action: 'continue' },
-  'fleet-stuck': { verb: 'unblock', action: 'unblock' },
-  'merge-conflict': { verb: 'resolve', action: 'resolve-conflict' },
-  'person-comment': { verb: 'answer', action: 'answer-comment' },
-  'agent-died': { verb: 'restart', action: 'restart' },
-  loose: { verb: 'plan', action: 'create-plan' },
+/** The tone of a You row's verb: red where delivery waits, amber where the fleet waits on input, grey for clean-up. */
+export type VerbTone = 'red' | 'amber' | 'grey';
+
+/** The counts a You row's consequence reads. */
+export interface ConsequenceFacts {
+  /** How many slices the item's plan holds; `undefined` where nobody counted them. */
+  slices?: number;
+}
+
+/** What a You reason offers: the verb its row leads with, the action the Do link names, the verb's tone, and what waits. */
+export interface ReasonDo {
+  verb: string;
+  action: string;
+  tone: VerbTone;
+  /** The consequence phrase without the age; `null` where the reason has none. */
+  consequence: (facts: ConsequenceFacts) => string | null;
+}
+
+const slicesWait = ({ slices }: ConsequenceFacts): string =>
+  slices === undefined ? 'the slices wait' : slices === 1 ? '1 slice waits' : `${slices} slices wait`;
+const fixed = (text: string) => (): string => text;
+
+/**
+ * The verb, action, tone and consequence of every You reason. `release-approval` reaches no row,
+ * because `placeDelivery` sends release items to no section, so it has no consequence.
+ */
+export const REASON_DO: Record<YouReason, ReasonDo> = {
+  'draft-plan': { verb: 'Interrogate', action: 'interrogate', tone: 'amber', consequence: slicesWait },
+  'plan-approval': { verb: 'Approve', action: 'approve', tone: 'red', consequence: slicesWait },
+  'spike-approval': { verb: 'Approve spike', action: 'approve-spike', tone: 'red', consequence: fixed('the spike waits') },
+  'release-approval': { verb: 'Approve release', action: 'release-approve', tone: 'red', consequence: () => null },
+  'test-delivered-plan': { verb: 'Test', action: 'deliver', tone: 'red', consequence: fixed('the release waits') },
+  'review-pr': { verb: 'Review', action: 'review', tone: 'red', consequence: fixed('the merge waits') },
+  'blocked-marker': { verb: 'Answer', action: 'continue', tone: 'red', consequence: fixed('the agent waits') },
+  'fleet-stuck': { verb: 'Unblock', action: 'unblock', tone: 'red', consequence: fixed('the fleet waits') },
+  'merge-conflict': { verb: 'Resolve', action: 'resolve-conflict', tone: 'red', consequence: fixed('the merge waits') },
+  'person-comment': { verb: 'Answer', action: 'answer-comment', tone: 'red', consequence: fixed('the merge waits') },
+  'agent-died': { verb: 'Restart', action: 'restart', tone: 'red', consequence: fixed('the slice stopped') },
+  loose: { verb: 'Release or delete', action: 'release-or-delete', tone: 'grey', consequence: () => null },
 };
 
 /**
@@ -235,7 +296,7 @@ const REASON_DO: Record<YouReason, { verb: string; action: string }> = {
  */
 export const youKindWord = (kind: ItemKind): string => (kind === 'pr' ? 'PR' : kind);
 
-/** The verb a You reason offers in the DO column and the to-do list's lines. */
+/** The verb a You row leads with, which the DO column and the to-do list's lines also show. */
 export const reasonVerb = (reason: YouReason): string => REASON_DO[reason].verb;
 
 /** The gate readings of a PR as `CI ⟳ #3234` and `review ✗`; absent where a gate was not read. */
@@ -283,10 +344,10 @@ const REVIEW_OUTCOME = { pending: 'pending', high: 'fail', passed: 'pass', none:
  * @param number - the PR number the links point at, or `undefined` where unknown.
  * @returns the cell, or `null` where neither gate was read. Each part carries an `outcome` read from `pr`, never from the mark's glyph.
  */
-export const gatesCell = (pr: PrReading | undefined, number: number | undefined): Cell | null => {
+export const gatesCell = (pr: PrReading | undefined, number: number | undefined): (Cell & { parts: GatePart[] }) | null => {
   if (pr === undefined) return null;
   const marks = gateMarks(pr);
-  const parts: CellPart[] = [
+  const parts: GatePart[] = [
     ...(marks.ci === null || pr.ci === 'unread' ? [] : [{
       value: marks.ci,
       link: number === undefined ? null : { to: 'checks', pr: number } as const,
@@ -392,57 +453,6 @@ const byAgents = (agents: readonly string[], person: string | undefined): Cell |
 const ageCell = (minutes: number | undefined): Cell | null =>
   minutes === undefined ? null : link(ageValue(minutes));
 
-const PHASE_WORD = { draft: 'Draft', design: 'Design' } as const;
-const APPROVAL_WORD = { plan: 'plan approval', spike: 'spike approval', release: 'release approval' } as const;
-
-/**
- * The Progress cell of an item being built: the PR state, then the unpushed count where one was read.
- *
- * The PR state comes from `facts.pr`, the item's own open PR, and never from a stage word.
- * An absent or zero count adds no part: an unread count is not `0 unpushed`.
- *
- * @param facts - the item's row facts.
- * @returns the cell, as `no PR yet`, `PR open`, or either followed by ` · N unpushed`.
- */
-export const progressCell = (facts: ItemRowFacts): Cell => {
-  const state = facts.pr === undefined ? 'no PR yet' : 'PR open';
-  const parts: CellPart[] = [
-    { value: state, link: facts.pr === undefined ? null : { to: 'pr', pr: facts.pr } },
-    ...(facts.unpushed !== undefined && facts.unpushed > 0
-      ? [{ value: `${facts.unpushed} unpushed`, link: null } as CellPart] : []),
-  ];
-  return {
-    value: parts.map((p) => p.value).join(' · '),
-    links: parts.flatMap((p) => (p.link === null ? [] : [p.link])),
-    parts,
-  };
-};
-
-/**
- * The Waits on cell of a queued item.
- *
- * Another person's phase or approval comes first, with the person; then the earlier
- * slice, or `an earlier slice` where the server names none; then `no agent assigned`
- * where no agent acts on the item.
- *
- * @param facts - the item's row facts.
- * @param agents - the agents acting on the item.
- * @returns the cell, or `null` where nothing is read to wait on and an agent acts.
- */
-export const waitsOnCell = (facts: ItemRowFacts, agents: readonly string[]): Cell | null => {
-  const what = facts.approvalOwed !== undefined ? APPROVAL_WORD[facts.approvalOwed]
-    : facts.phase !== undefined ? PHASE_WORD[facts.phase] : undefined;
-  if (what !== undefined) {
-    const who = facts.personName || facts.person;
-    return who === undefined || who === ''
-      ? link(what)
-      : link(`${what} · ${who}`, ...(facts.person === undefined ? [] : [{ to: 'person', handle: facts.person } as const]));
-  }
-  if (facts.waitsOn === '') return link('an earlier slice');
-  if (facts.waitsOn !== undefined) return link(facts.waitsOn, { to: 'slice', id: facts.waitsOn });
-  return agents.length === 0 ? link('no agent assigned') : null;
-};
-
 /**
  * The seven cells of a work-item row, with each cell's link targets per the
  * design's *Links by Row* table.
@@ -530,9 +540,9 @@ export const itemRowCells = (placement: ItemPlacement, facts: ItemRowFacts): Row
     item: itemCell,
     where,
     status,
-    do: doCell,
     by,
     age: ageCell(facts.ageMinutes),
+    do: doCell,
   };
 };
 
@@ -550,10 +560,40 @@ export const AGENT_COLUMN_LABELS: Record<AgentColumn, string> = {
   timeLeft: 'Time left',
 };
 
+/** The pace a running spinner turns at: `fast` for local writes, `slow` for a wait on the host. */
+export type AgentPace = 'fast' | 'slow';
+
+/**
+ * The pace of a Fleet agent's spinner: `facts.pace` for an agent in the `working`
+ * group, `slow` where no desk pace was read, and `null` for a blocked or free agent.
+ *
+ * @param placement - what `placeDelivery` returned for the agent.
+ * @param facts - the agent's readings; only `pace` is read.
+ * @returns the pace, or `null` where the agent shows no spinner.
+ */
+export const agentPace = (placement: Pick<AgentPlacement, 'group'>, facts: Pick<AgentRowFacts, 'pace'>): AgentPace | null =>
+  placement.group === 'working' ? facts.pace ?? 'slow' : null;
+
+/**
+ * The pace of a spinner that stands for several agents: `fast` where any of them
+ * is `fast`, `slow` where any other is running, `null` where none is.
+ *
+ * @param paces - each agent's {@link agentPace}.
+ * @returns the fastest pace, or `null`.
+ */
+export const fleetPace = (paces: readonly (AgentPace | null | undefined)[]): AgentPace | null =>
+  paces.includes('fast') ? 'fast' : paces.includes('slow') ? 'slow' : null;
+
 /** One Fleet agent row. A cell nobody read is `null`. */
 export interface AgentRowCells extends Record<AgentColumn, Cell | null> {
+  /** The spinner that leads the Doing now cell: its pace, or `null` where the agent does not work. */
+  doingPace: AgentPace | null;
   /** The branch the agent works on, shown beneath the Acting on cell; `null` where none is read. */
   branch: Cell | null;
+  /** The plan of the agent's branch, linked to its slice, shown beneath the branch; `null` where none is read. */
+  plan: Cell | null;
+  /** The sprint mark: the sprint's name, or a grey `no sprint`; `null` where the row says nothing about a sprint. */
+  sprint: StatusPill | null;
   /** The last commit subject shown after a loop agent's Doing now value. */
   doingDetail: string | null;
   /** The header word of the `doing` column for this row. */
@@ -624,7 +664,9 @@ const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' 
 
 /** What an agent does now, as a value; `null` for an agent that holds no work. */
 const doingValue = (placement: AgentPlacement, facts: AgentRowFacts): string | null => {
-  if (placement.actsOn === null) return placement.role === 'loop' && facts.running === true ? 'waiting for a slice' : null;
+  if (placement.actsOn === null && facts.actsOnItem === undefined) {
+    return placement.role === 'loop' && facts.running === true ? 'waiting for a slice' : null;
+  }
   switch (placement.role) {
     case 'loop':
       return facts.commits !== undefined && facts.commits > 0
@@ -632,7 +674,9 @@ const doingValue = (placement: AgentPlacement, facts: AgentRowFacts): string | n
     case 'reviewer':
       return facts.reviewHead === undefined ? 'reviewing' : `reviewing head ${facts.reviewHead}`;
     case 'fixer': {
-      const what = facts.fixerFinding === 'ci' ? 'fixing CI ✗' : facts.fixerFinding === 'high' ? 'fixing review ✗' : 'fixing';
+      const what = facts.fixerFinding === 'ci' ? 'fixing CI ✗'
+        : facts.fixerFinding === 'high' ? 'fixing review ✗'
+        : facts.fixerFinding === 'conflict' ? 'fixing conflict ✗' : 'fixing';
       return facts.fixerAttempt === undefined ? what : `${what} · attempt ${facts.fixerAttempt} of ${FIXER_ATTEMPTS_BUDGET}`;
     }
     case 'design': return 'designing';
@@ -646,15 +690,27 @@ const doingValue = (placement: AgentPlacement, facts: AgentRowFacts): string | n
 const lastFinishedRun = (facts: AgentRowFacts): TokenCountsRecord | null =>
   facts.running === true ? null : facts.lastRun ?? null;
 
+const tokenNumber = (v: number): string => v.toLocaleString('en-US');
+
+const runningContext = (facts: AgentRowFacts): number | null =>
+  facts.running === true && facts.contextTokens !== undefined ? facts.contextTokens : null;
+
 const tokensCell = (facts: AgentRowFacts): Cell | null => {
+  const context = runningContext(facts);
+  if (context !== null) return link(`${tokenCountValue(context)} ctx`);
   const run = lastFinishedRun(facts);
   return run === null ? null : link(`${tokenCountValue(run.outputTokens)} out`);
 };
 
 const tokensTitle = (facts: AgentRowFacts): string | null => {
+  const context = runningContext(facts);
+  if (context !== null) {
+    const spend = facts.contextSpend === undefined ? 'not read' : tokenNumber(facts.contextSpend);
+    return `Context of the run in progress: ${tokenNumber(context)} tokens. Spent so far: ${spend}`;
+  }
   const run = lastFinishedRun(facts);
   if (run === null) return null;
-  const n = (v: number): string => v.toLocaleString('en-US');
+  const n = tokenNumber;
   return `Output tokens of the last finished run: ${n(run.outputTokens)}. Input ${n(run.inputTokens)} · cache creation ${n(run.cacheCreationTokens)} · cache read ${n(run.cacheReadTokens)}`;
 };
 
@@ -665,11 +721,19 @@ const tokensTitle = (facts: AgentRowFacts): string | null => {
  * Doing now is the activity the role names. A running loop agent that acts on
  * no item reads `waiting for a slice`. A blocked agent's Doing now cell holds
  * the gate it waits on instead ({@link agentWaitsOn}). Acting on names the
- * agent's desk while it acts on no item.
+ * agent's desk while it acts on no item. Where the placement names no item and
+ * `facts.actsOnItem` does, Acting on links that item instead, for display only.
+ * The plan line names `facts.plan`, and the sprint mark is a grey `no sprint`
+ * where `facts.noSprint` holds, else a quiet pill with `facts.sprint`.
  *
- * Tokens shows the output tokens of the agent's last finished run, with input,
- * cache creation and cache read in `tokensTitle`; it is `null` for a running
- * agent and for a run nobody read. Time left is `bound − (now − start)` from
+ * A working agent's Doing now cell leads with a spinner at `doingPace`
+ * ({@link agentPace}); the cell keeps its slot while the pace is `null`.
+ *
+ * Tokens shows a running agent's context size (`143k ctx`) from
+ * `facts.contextTokens`, with `facts.contextSpend` in `tokensTitle`; a running
+ * agent with no `contextTokens` reads `null`. Otherwise it shows the output
+ * tokens of the agent's last finished run, with input, cache creation and cache
+ * read in `tokensTitle`, and `null` for a run nobody read. Time left is `bound − (now − start)` from
  * `facts.startedAt`, `facts.boundSeconds` and `facts.now`; it and its bar are
  * `null` where any of the three is absent.
  *
@@ -679,7 +743,7 @@ const tokensTitle = (facts: AgentRowFacts): string | null => {
  */
 export const agentRowCells = (placement: AgentPlacement, facts: AgentRowFacts): AgentRowCells => {
   const blocked = placement.group === 'blocked';
-  const on = placement.linked ? placement.actsOn : null;
+  const on = placement.linked ? placement.actsOn : placement.actsOn === null ? facts.actsOnItem ?? null : null;
   const left = facts.now === undefined ? null : timeLeft(facts.startedAt, facts.boundSeconds, facts.now);
   const doing = blocked ? agentWaitsOn(placement, facts)?.cell ?? null : ((): Cell | null => {
     const value = doingValue(placement, facts);
@@ -692,9 +756,12 @@ export const agentRowCells = (placement: AgentPlacement, facts: AgentRowFacts): 
       ? link(facts.itemName ?? on, { to: 'item', id: on })
       : placement.actsOn === null && facts.desk !== undefined ? link(facts.desk) : null,
     branch: facts.branch !== undefined ? link(facts.branch, { to: 'branch', branch: facts.branch }) : null,
+    plan: facts.plan === undefined ? null : link(facts.plan, { to: 'plan', plan: facts.plan, slice: facts.slice ?? null }),
+    sprint: facts.noSprint === true ? pill(NO_SPRINT_WORD, 'grey') : facts.sprint === undefined ? null : pill(facts.sprint, 'quiet'),
     doing,
     doingDetail: !blocked && facts.lastCommit !== undefined && placement.role === 'loop' ? facts.lastCommit : null,
     doingLabel: blocked ? 'Waits on' : 'Doing now',
+    doingPace: agentPace(placement, facts),
     tokens: tokensCell(facts),
     timeLeft: left === null ? null : link(timeLeftValue(left.leftMs)),
     agentTitle: facts.unnamedDesk ?? null,
@@ -833,21 +900,109 @@ export const youStatusText = (reason: YouReason, facts: ItemRowFacts): string =>
   return REASON_STATUS[reason];
 };
 
+/** One mark of a consequence cell per value, none of them linked. */
+const consequenceCell = (values: readonly (string | null)[]): Cell | null => {
+  const parts = values.filter((v): v is string => v !== null && v !== '');
+  return parts.length === 0 ? null : { value: parts.join(' · '), links: [], parts: parts.map((value) => ({ value, link: null })) };
+};
+
 /**
- * The cells of a You row in `YOU_COLUMNS`. Status holds the item's state and
- * Do holds the verb with `›`.
+ * The cells of a You row in `YOU_COLUMNS`: the reason's verb, the item's tuple, the consequence and the `⋯`.
+ * The verb and the `⋯` both link to the row's menu, so the verb opens the same choice and runs nothing.
  *
  * @param placement - what `placeDelivery` returned for the item.
- * @param facts - the names and numbers the links point at.
+ * @param facts - the names and numbers the links point at; `slices` counts the plan's slices.
+ * @param sprint - `no sprint` where `rowSprintMembership` says so, appended to the consequence; `null` otherwise.
  * @returns the cells, or `null` where the item is not in You or has no row shape.
  */
-export const youRowCells = (placement: ItemPlacement, facts: ItemRowFacts): YouRowCells | null => {
+export const youRowCells = (
+  placement: ItemPlacement,
+  facts: ItemRowFacts & ConsequenceFacts,
+  sprint: string | null = null,
+): YouRowCells | null => {
   if (placement.section !== 'you') return null;
   const row = itemRowCells(placement, facts);
   if (row === null) return null;
-  const base = youStatusText(placement.reason, facts);
-  const status = row.status === null || row.status.value === REASON_STATUS[placement.reason]
-    ? { value: base, links: [] }
-    : { ...row.status, value: row.status.value.replace(REASON_STATUS[placement.reason], base) };
-  return { kind: row.kind, item: row.item, status, do: row.do, age: row.age };
+  const how = REASON_DO[placement.reason];
+  const age = facts.ageMinutes === undefined ? null : ageValue(facts.ageMinutes);
+  const menu: LinkTarget = { to: 'menu', id: placement.id };
+  return {
+    verb: { value: how.verb, links: [menu] },
+    object: row.item,
+    consequence: consequenceCell([how.consequence(facts), age, sprint]),
+    menu: { value: '⋯', links: [menu] },
+  };
+};
+
+/**
+ * The age span of a group of items: `36–37 days old` where every item is a day old or more, `5h–3d old` otherwise.
+ *
+ * @param minutes - each item's age in minutes; an item nobody aged is left out.
+ * @returns the span, one age where all are equal, or `null` where no item has an age.
+ */
+export const ageRangeValue = (minutes: readonly (number | undefined)[]): string | null => {
+  const known = minutes.filter((m): m is number => m !== undefined).map((m) => Math.max(0, Math.floor(m)));
+  if (known.length === 0) return null;
+  const lo = Math.min(...known);
+  const hi = Math.max(...known);
+  if (lo >= 1440) {
+    const [a, b] = [Math.floor(lo / 1440), Math.floor(hi / 1440)];
+    return a === b ? `${a} day${a === 1 ? '' : 's'} old` : `${a}–${b} days old`;
+  }
+  const [a, b] = [ageValue(lo), ageValue(hi)];
+  return a === b ? `${a} old` : `${a}–${b} old`;
+};
+
+/** The You row that stands for every loose item of the Unblock group. */
+export interface LooseGroupRow {
+  verb: string;
+  tone: VerbTone;
+  /** The count: `2 loose branches`. */
+  object: string;
+  /** The age span only, because the object already counts; `null` where no item has an age. */
+  consequence: string | null;
+  /** The items, in the order given; each keeps its own `⋯` items. */
+  ids: string[];
+}
+
+/**
+ * The one You row the loose items of Unblock group into.
+ *
+ * @param items - the loose items, each with its id and age in minutes.
+ * @returns the grouped row, or `null` for no item.
+ */
+export const looseGroupRow = (items: readonly { id: string; ageMinutes?: number }[]): LooseGroupRow | null => {
+  if (items.length === 0) return null;
+  const n = items.length;
+  return {
+    verb: REASON_DO.loose.verb,
+    tone: REASON_DO.loose.tone,
+    object: `${n} loose branch${n === 1 ? '' : 'es'}`,
+    consequence: ageRangeValue(items.map((i) => i.ageMinutes)),
+    ids: items.map((i) => i.id),
+  };
+};
+
+/** The line under the You section: the triage link, or the unread notice while the tracker read failed. */
+export type YouFooter =
+  | { kind: 'triage'; count: number; text: string; anchor: string }
+  | { kind: 'unread'; sentence: string; note: string | null };
+
+/**
+ * The footer of the You section.
+ *
+ * @param input - `issueAnswer` is the fleet's tracker answer; `unplanned` counts the tickets assigned to the reader
+ *   that no plan names; `note` is the failure and the age of the last good reading.
+ * @returns the unread notice where the tracker read failed, whatever rows the section holds; the triage link to the
+ *   Tickets section where the read answered and a ticket assigned to the reader has no plan; `null` otherwise.
+ */
+export const youFooter = (input: {
+  issueAnswer: 'answered' | 'failed' | 'unsupported' | null;
+  unplanned: number;
+  note: string | null;
+}): YouFooter | null => {
+  if (input.issueAnswer === 'failed') return { kind: 'unread', sentence: 'The tracker gave no answer.', note: input.note };
+  if (input.issueAnswer !== 'answered' || input.unplanned === 0) return null;
+  const n = input.unplanned;
+  return { kind: 'triage', count: n, text: `${n} ticket${n === 1 ? '' : 's'} assigned to you ha${n === 1 ? 's' : 've'} no plan`, anchor: TICKETS_ANCHOR };
 };

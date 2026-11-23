@@ -1,4 +1,4 @@
-import type { FixerAttemptsRecord, FixerFinding } from '../entities/fixer-attempts.js';
+import type { FixerAttemptsRecord, FixerFinding, FixerRerunAnswer } from '../entities/fixer-attempts.js';
 import type { FixerReading } from './slice-pr-next.js';
 
 /** How many fixer attempts a PR may spend before the HIGH goes to a ticket instead. */
@@ -7,7 +7,7 @@ export const FIXER_ATTEMPTS_BUDGET = 2;
 /** How many seconds one fixer run may take before the process runner ends it. */
 export const FIXER_BOUND_SECONDS = 3600;
 
-/** The two findings a fixer attempt answers, each with its own budget. */
+/** The three findings a fixer attempt answers, each with its own budget. */
 export type FixerKind = FixerFinding['kind'];
 
 type AttemptsReading = FixerAttemptsRecord | 'none' | 'unreadable';
@@ -16,8 +16,8 @@ type AttemptsReading = FixerAttemptsRecord | 'none' | 'unreadable';
  * How many attempts a PR has spent on one kind of finding, for the budget check.
  *
  * An attempt with `start: 'failed'` spent nothing: the CLI refused the run
- * before any agent started. HIGH and CI-red attempts count apart, so two
- * attempts on red CI leave the HIGH budget whole.
+ * before any agent started. HIGH, CI-red and conflict attempts count apart, so
+ * two attempts on red CI leave the HIGH and conflict budgets whole.
  *
  * **A MISSING OR UNREADABLE RECORD READS AS ZERO.** Zero is the SAFE
  * direction for a budget: reading "no record" as "budget exhausted" would
@@ -60,6 +60,31 @@ export const fixerPushedHead = (record: AttemptsReading, head: string): boolean 
   record !== 'none' && record !== 'unreadable' && record.attempts.some((attempt) => attempt.pushedSha === head);
 
 /**
+ * Whether the record holds a conflict attempt on this head and this base tip.
+ *
+ * An attempt with `start: 'failed'` does not count: it spent nothing, and the
+ * fixer tick holds a failed start on the same head and base tip by its own reason.
+ *
+ * @param record - the decoded record, or `'none'`/`'unreadable'`.
+ * @param head - the PR's current head SHA.
+ * @param baseTip - the base branch's tip SHA.
+ * @returns whether a `conflict` attempt names both; false for a missing or
+ *   unreadable record, or an empty `head` or `baseTip`.
+ */
+export const fixerConflictTried = (record: AttemptsReading, head: string, baseTip: string): boolean =>
+  record !== 'none' &&
+  record !== 'unreadable' &&
+  head !== '' &&
+  baseTip !== '' &&
+  record.attempts.some(
+    (attempt) =>
+      attempt.start !== 'failed' &&
+      attempt.finding.kind === 'conflict' &&
+      attempt.finding.head === head &&
+      attempt.finding.baseTip === baseTip,
+  );
+
+/**
  * Whether a fixer is currently running on this PR, for the "no second fixer"
  * check.
  *
@@ -81,15 +106,61 @@ export const fixerInFlight = (record: FixerAttemptsRecord | 'none' | 'unreadable
   return record.attempts.some((attempt) => attempt.inFlight !== undefined);
 };
 
+/** Where a head's CI re-run stands, as `ciRerunArm` reads it. */
+export type RerunOnHead = 'none' | 'running' | 'done' | 'unseen';
+
+/** The clock {@link rerunOnHead} reads: the tick's time and `Checks wait`, both in milliseconds. */
+export interface RerunClock {
+  readonly now: number;
+  readonly checksWaitMs: number;
+}
+
+/**
+ * What the record holds for the re-run of one head's failed CI jobs.
+ *
+ * @param record - the decoded record, or `'none'`/`'unreadable'`.
+ * @param head - the PR's current head SHA.
+ * @returns the entry's answer; `'none'` where no entry names `head`, `head` is
+ *   empty, or the record is missing or unreadable.
+ */
+export const fixerRerunAnswer = (record: AttemptsReading, head: string): FixerRerunAnswer | 'none' => {
+  if (record === 'none' || record === 'unreadable' || head === '') return 'none';
+  return record.reruns?.find((entry) => entry.headSha === head)?.answer ?? 'none';
+};
+
+/**
+ * Where the re-run of one head's failed CI jobs stands.
+ *
+ * @param record - the decoded record, or `'none'`/`'unreadable'`.
+ * @param head - the PR's current head SHA.
+ * @param clock - the tick's time and `Checks wait`.
+ * @returns `none` where no entry names `head`; `done` where the entry is
+ *   cleared or answered `failed` or `unaskable`; `unseen` where it answered
+ *   `asked`, is not cleared, and `Checks wait` has passed since its `at` or
+ *   `at` does not parse; `running` otherwise.
+ */
+export const rerunOnHead = (record: AttemptsReading, head: string, clock: RerunClock): RerunOnHead => {
+  if (record === 'none' || record === 'unreadable' || head === '') return 'none';
+  const entry = record.reruns?.find((rerun) => rerun.headSha === head);
+  if (entry === undefined) return 'none';
+  if (entry.cleared !== undefined || entry.answer !== 'asked') return 'done';
+  const at = Date.parse(entry.at);
+  return Number.isNaN(at) || clock.now - at > clock.checksWaitMs ? 'unseen' : 'running';
+};
+
 /**
  * Reads a PR's attempts record down to the {@link FixerReading} the arms take.
  *
  * @param record - the decoded record, or `'none'`/`'unreadable'`.
  * @param head - the PR's current head SHA; `''` where the row carries none.
+ * @param baseTip - the base branch's tip SHA; `''` where it was not read.
+ * @param clock - the clock {@link rerunOnHead} reads; absent, the reading carries no `rerun`.
  * @returns `unread` for an unreadable record, otherwise the in-flight answer,
- *   both exhaustion answers and whether the record proves the fixer pushed `head`.
+ *   the three exhaustion answers, whether a conflict attempt exists on `head`
+ *   and `baseTip`, whether the record proves the fixer pushed `head`, and,
+ *   with a clock, where the re-run of `head` stands.
  */
-export const fixerReadingOf = (record: AttemptsReading, head: string): FixerReading =>
+export const fixerReadingOf = (record: AttemptsReading, head: string, baseTip = '', clock?: RerunClock): FixerReading =>
   record === 'unreadable'
     ? { read: 'unread' }
     : {
@@ -97,5 +168,8 @@ export const fixerReadingOf = (record: AttemptsReading, head: string): FixerRead
         inFlight: fixerInFlight(record),
         highExhausted: fixerAttemptsExhausted(record, 'high'),
         ciExhausted: fixerAttemptsExhausted(record, 'ci'),
+        conflictExhausted: fixerAttemptsExhausted(record, 'conflict'),
+        conflictTried: fixerConflictTried(record, head, baseTip),
         pushedHead: head !== '' && fixerPushedHead(record, head),
+        ...(clock === undefined ? {} : { rerun: rerunOnHead(record, head, clock) }),
       };

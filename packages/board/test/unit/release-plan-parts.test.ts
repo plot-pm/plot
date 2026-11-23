@@ -2,10 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { PersonCard, PlanLinkKey } from '@plot-pm/domain';
+import { slicePills } from '@plot-pm/domain';
 import { lineBody, LineState, PhaseChip, PlanName, PLAN_TRACKS, PlanStrip, ReleaseHeaderCounts, ReleaseLine } from '../../src/app/components/ReleasePlanParts.js';
 import { ReleasePersonCards } from '../../src/app/components/ReleasePersonCards.js';
 import { TicketHrefContext } from '../../src/app/components/PlanTicketKeys.js';
-import { SEGMENT_CLASS } from '../../src/app/components/SprintCard.js';
+import { SEGMENT_CLASS } from '../../src/app/lib/agent-rows/state-classes.js';
 
 const strip = (over: Partial<Parameters<typeof PlanStrip>[0]['plan']> = {}) =>
   renderToStaticMarkup(createElement(PlanStrip, { plan: { strip: [], stripText: '', unread: 0, ...over } }));
@@ -44,8 +45,8 @@ describe('the Phase chip', () => {
 });
 
 describe('the plan table', () => {
-  it('gives the actions track a fixed width, so the header and the rows share every track', () => {
-    expect(PLAN_TRACKS.split('_').at(-1)).toBe('1.25rem]');
+  it('gives the actions track the shared menu width, so the header and the rows share every track', () => {
+    expect(PLAN_TRACKS.split('_').at(-1)).toBe('var(--delivery-menu-track)]');
   });
 });
 
@@ -88,9 +89,12 @@ describe('the Release delivery header line', () => {
 });
 
 describe('an opened plan line', () => {
-  it('names a slice at a gate and one being built in the mockups\' words and hues', () => {
-    expect(renderToStaticMarkup(createElement(LineState, { state: 'at-a-gate' }))).toBe('<span data-plan-line-state="at-a-gate" class="delivery-release-state delivery-hue-amber">⟳ at CI</span>');
-    expect(renderToStaticMarkup(createElement(LineState, { state: 'being-built' }))).toBe('<span data-plan-line-state="being-built" class="delivery-release-state delivery-hue-blue">● building</span>');
+  it('draws a slice at a gate and one being built as their status pills', () => {
+    const at = renderToStaticMarkup(createElement(LineState, { line: { state: 'at-a-gate', pills: slicePills('at-a-gate') } }));
+    expect(at).toContain('data-plan-line-state="at-a-gate"');
+    expect(at).toContain('<span data-status-pill="at CI" data-pill-tone="amber" class="delivery-pill"><span aria-hidden="true" data-pill-dot="true" class="delivery-pill-dot"></span>at CI</span>');
+    const building = renderToStaticMarkup(createElement(LineState, { line: { state: 'being-built', pills: slicePills('being-built') } }));
+    expect(building).toContain('data-status-pill="building" data-pill-tone="blue"');
   });
 
   it('splits a Done line with a PR into the slice name and keeps the commit where there is none', () => {
@@ -117,25 +121,26 @@ describe('the Plan cell', () => {
   ));
   const keys = [{ key: '3489', text: '#3489' }, { key: '2531', text: '#2531' }];
 
-  it('links each ticket key to its ticket before the plan link, which prints the slug alone', () => {
+  it('draws each ticket key as a ticket segment before the plan segment, which prints the slug alone', () => {
     const html = cell('/plan/2026-11-09-red-hold.md', false, '#3489 #2531 red-hold', keys);
-    expect(html).toContain('<a href="https://github.com/o/r/issues/3489" target="_blank" rel="noreferrer" data-title-number="true" data-ticket-link="3489"');
-    expect(html).toContain('<a href="https://github.com/o/r/issues/2531" target="_blank" rel="noreferrer" data-title-number="true" data-ticket-link="2531"');
-    expect(html).toContain('data-plan-link="red-hold" title="#3489 #2531 red-hold"');
-    expect(html).toMatch(/data-plan-link="red-hold"[^>]*>red-hold<\/a>/);
+    expect(html).toContain('title="#3489 #2531 red-hold"');
+    expect(html).toMatch(/<a href="https:\/\/github\.com\/o\/r\/issues\/3489" data-tuple-link="ticket"[^>]*data-ticket-link="3489"/);
+    expect(html).toMatch(/<a href="https:\/\/github\.com\/o\/r\/issues\/2531" data-tuple-link="ticket"[^>]*data-ticket-link="2531"/);
+    expect(html).toMatch(/data-plan-link="red-hold"[^>]*>.*<span class="min-w-0 truncate">red-hold<\/span><\/a>/);
     expect(html.indexOf('data-ticket-link="2531"')).toBeLessThan(html.indexOf('data-plan-link'));
   });
 
-  it('prints a key with no address as muted text, never as a link', () => {
+  it('prints a key with no address as a text segment, never as a link', () => {
     const html = cell('', false, 'ABC-123 red-hold', [{ key: 'ABC-123', text: 'ABC-123' }]);
-    expect(html).toContain('<span class="font-normal tabular-nums text-(--card-meta)" data-title-number="true">ABC-123</span>');
+    expect(html).toMatch(/<span data-tuple-text="ticket"[^>]*>.*ABC-123<\/span><\/span>/);
     expect(html).not.toContain('data-ticket-link');
-    expect(html).toContain('<span title="ABC-123 red-hold" class="delivery-truncate">red-hold</span>');
+    expect(html).toContain('<span data-tuple-text="plan"');
   });
 
   it('links the plan name to its route and keeps the toggle on the chevron alone', () => {
     const html = cell('/plan/2026-11-09-red-hold.md');
-    expect(html).toContain('<a href="/plan/2026-11-09-red-hold.md" data-plan-link="red-hold"');
+    expect(html).toContain('<a href="/plan/2026-11-09-red-hold.md" data-tuple-link="plan"');
+    expect(html).toContain('data-plan-link="red-hold"');
     expect(html).toMatch(/<button type="button" data-plan-toggle="red-hold" aria-expanded="false" aria-label="Show the slices of red-hold"[^>]*><span aria-hidden="true"[^>]*>▸<\/span><\/button>/);
   });
 
@@ -143,9 +148,9 @@ describe('the Plan cell', () => {
     expect(cell('/plan/x.md', true)).toContain('aria-label="Hide the slices of red-hold"');
   });
 
-  it('shows a plain name where the row has no plan file', () => {
+  it('shows the plan as a text segment where the row has no plan file', () => {
     const html = cell('');
     expect(html).not.toContain('<a ');
-    expect(html).toContain('<span title="red-hold" class="delivery-truncate">red-hold</span>');
+    expect(html).toMatch(/<span data-tuple-text="plan"[^>]*>.*red-hold<\/span><\/span>/);
   });
 });

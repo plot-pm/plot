@@ -9,6 +9,7 @@ import {
   type FixerAttempt,
   type FixerAttemptsRecord,
   type FixerInFlight,
+  type FixerRerun,
 } from '../../entities/fixer-attempts.js';
 import type { FixerAttemptsStore } from '../../ports/fixer-attempts.js';
 
@@ -135,6 +136,34 @@ export const fixerAttemptsFile = (repoRoot: string): FixerAttemptsStore => {
       return write(pr, { ...existing, attempts });
     },
 
+    markRerun: async (pr: number, rerun: FixerRerun): Promise<PortResult<void>> => {
+      let existing: FixerAttemptsRecord | 'none' | 'unreadable';
+      try {
+        existing = decodeFixerAttempts(await readFile(pathFor(pr), 'utf8'));
+      } catch (error) {
+        if (!isMissing(error)) return failed<void>();
+        existing = 'none';
+      }
+      if (existing === 'unreadable') return failed<void>();
+      const record: FixerAttemptsRecord = existing === 'none' ? { v: FIXER_ATTEMPTS_VERSION, pr, attempts: [] } : existing;
+      const kept = (record.reruns ?? []).filter((entry) => entry.headSha !== rerun.headSha);
+      return write(pr, { ...record, reruns: [...kept, rerun] });
+    },
+
+    markRerunCleared: async (pr: number, head: string, at: string): Promise<PortResult<void>> => {
+      let existing: FixerAttemptsRecord | 'none' | 'unreadable';
+      try {
+        existing = decodeFixerAttempts(await readFile(pathFor(pr), 'utf8'));
+      } catch {
+        return failed<void>();
+      }
+      if (existing === 'none' || existing === 'unreadable') return failed<void>();
+      const reruns = existing.reruns ?? [];
+      if (!reruns.some((entry) => entry.headSha === head)) return failed<void>();
+      const changed = reruns.map((entry): FixerRerun => (entry.headSha === head && entry.cleared === undefined ? { ...entry, cleared: at } : entry));
+      return write(pr, { ...existing, reruns: changed });
+    },
+
     append: async (pr: number, attempt: FixerAttempt): Promise<PortResult<void>> => {
       const path = pathFor(pr);
       let existing: FixerAttemptsRecord | 'none' | 'unreadable';
@@ -151,8 +180,8 @@ export const fixerAttemptsFile = (repoRoot: string): FixerAttemptsStore => {
       // to be recorded would read success while the budget it depends on
       // still holds whatever the unreadable file held.
       if (existing === 'unreadable') return failed<void>();
-      const attempts = existing === 'none' ? [] : existing.attempts;
-      return write(pr, { v: FIXER_ATTEMPTS_VERSION, pr, attempts: [...attempts, attempt] });
+      const record: FixerAttemptsRecord = existing === 'none' ? { v: FIXER_ATTEMPTS_VERSION, pr, attempts: [] } : existing;
+      return write(pr, { ...record, attempts: [...record.attempts, attempt] });
     },
   };
 };

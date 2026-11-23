@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { bridgePath, fleetStateFile } from '../src/adapters/fleet-state/fleet-state-file.js';
-import { mainRootOf } from '../src/adapters/main-checkout.js';
+import { bridgePath, fleetStateIn } from '../src/adapters/fleet-state/fleet-state-file.js';
+import { stateHomeAtSync } from '../src/adapters/main-checkout.js';
 import type { BridgedPulse } from '../src/ports/fleet-state.js';
 
 let sandbox = '';
@@ -50,27 +50,28 @@ afterAll(() => {
 
 describe('the fleet bridge at the main checkout', () => {
   it('resolves a linked worktree to the main checkout and a main checkout to itself', () => {
-    expect(mainRootOf(linked)).toBe(main);
-    expect(mainRootOf(main)).toBe(main);
-    expect(bridgePath(linked)).toBe(join(main, '.plot', 'state', 'last-pulse.json'));
+    expect(stateHomeAtSync(linked)).toEqual({ home: main });
+    expect(stateHomeAtSync(main)).toEqual({ home: main });
+    const home = stateHomeAtSync(linked);
+    expect('home' in home && bridgePath(home.home)).toBe(join(main, '.plot', 'state', 'last-pulse.json'));
   });
 
-  it('keeps a directory that is not a repository as its own root', () => {
-    expect(mainRootOf(plain)).toBe(plain);
-    expect(bridgePath(plain)).toBe(join(plain, '.plot', 'state', 'last-pulse.json'));
+  it('answers no home for a directory that is not a repository', async () => {
+    expect(stateHomeAtSync(plain)).toEqual({ unread: true });
+    expect((await fleetStateIn(stateHomeAtSync(plain)).write(pulse(Date.now()))).ok).toBe(false);
   });
 
   it('reads from a linked worktree the bridge written from the main checkout', async () => {
     const at = Date.now();
-    await fleetStateFile({ repoRoot: main }).write(pulse(at));
-    const read = await fleetStateFile({ repoRoot: linked }).read();
+    await fleetStateIn(stateHomeAtSync(main)).write(pulse(at));
+    const read = await fleetStateIn(stateHomeAtSync(linked)).read();
     expect(read.ok && read.value?.at).toBe(at);
   });
 
   it('reads from the main checkout the bridge written from a linked worktree', async () => {
     const at = Date.now() - 1_000;
-    await fleetStateFile({ repoRoot: linked }).write(pulse(at));
-    const read = await fleetStateFile({ repoRoot: main }).readSync();
+    await fleetStateIn(stateHomeAtSync(linked)).write(pulse(at));
+    const read = fleetStateIn(stateHomeAtSync(main)).readSync();
     expect(read.ok && read.value?.at).toBe(at);
   });
 });

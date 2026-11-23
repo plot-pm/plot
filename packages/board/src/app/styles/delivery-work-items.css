@@ -1,5 +1,5 @@
 /*
- * WORK ITEMS — the gate marks, the Where and By cells and the group columns.
+ * WORK ITEMS — the one grid every group shares: item, plan, status pills, by, age, menu.
  *
  * The rule below marks the file as loaded:
  * the screenshot test reads `--delivery-section` from `[data-section="work-items"]`.
@@ -12,48 +12,71 @@
   --delivery-section: work-items;
 }
 
-/* THE GROUP COLUMN: Gates, Progress and Waits on, at row size in the body colour. */
+/* THE STATUS CELL: at row size in the body colour, as wide as its pills. */
 [data-section="work-items"] [data-row-cell="status"] {
   font-size: 13px;
   color: var(--card-body);
 }
-[data-section="work-items"] [data-group="queued"] [data-row-cell="status"] {
-  color: var(--card-meta);
-}
 
-/* THE GATE MARKS: one colour per `CellPart.outcome`; a part with no outcome keeps the body colour. */
-[data-section="work-items"] [data-gate-mark] {
+/* A STATUS PILL: a dot in the pill's tone, then its whole words. A pill never wraps and never truncates. */
+[data-section="work-items"] .delivery-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 18px;
   white-space: nowrap;
+  color: var(--card-body);
 }
-[data-section="work-items"] [data-gate-separator] {
+[data-section="work-items"] .delivery-pill-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 9999px;
+  background: var(--card-meta);
+}
+[data-section="work-items"] [data-pill-tone="green"] .delivery-pill-dot { background: var(--hue-green-dot); }
+[data-section="work-items"] [data-pill-tone="amber"] .delivery-pill-dot { background: var(--hue-amber-dot); }
+[data-section="work-items"] [data-pill-tone="red"] .delivery-pill-dot { background: var(--hue-red-dot); }
+[data-section="work-items"] [data-pill-tone="blue"] .delivery-pill-dot { background: var(--hue-blue-dot); }
+[data-section="work-items"] [data-pill-tone="grey"] .delivery-pill-dot { background: var(--hue-slate-dot); }
+/* The quiet pill is a fact beside the state: no border, no dot colour, the meta colour. */
+[data-section="work-items"] [data-pill-tone="quiet"] {
+  border-color: transparent;
   color: var(--card-meta);
 }
-[data-section="work-items"] [data-gate-outcome="pass"] { color: var(--hue-green); }
-[data-section="work-items"] [data-gate-outcome="pending"] { color: var(--hue-amber); }
-[data-section="work-items"] [data-gate-outcome="fail"] { color: var(--hue-red); }
-[data-section="work-items"] [data-gate-outcome="none"] { color: var(--card-meta); }
-/* A linked mark reads in its outcome's colour; the underline on hover says it is a link. */
-[data-section="work-items"] [data-gate-outcome] [data-row-link] {
+[data-section="work-items"] [data-pill-tone="quiet"] .delivery-pill-dot { background: transparent; border: 1px solid var(--card-meta); }
+/* A linked pill reads in the body colour; the underline on hover says it is a link. */
+[data-section="work-items"] .delivery-pill [data-row-link] {
   color: inherit;
 }
+[data-section="work-items"] .delivery-pill [data-row-link]:hover {
+  text-decoration: underline;
+}
 
-/* THE WHERE CELL: one link tuple per line, the branch segment in the muted colour. */
-[data-section="work-items"] [data-row-cell="where"] {
-  flex-direction: column;
-  align-items: flex-start;
-  row-gap: 0;
+/* THE ITEM CELL'S TUPLES: the PR+branch tuple beside the name; the branch segment is what gives way. */
+[data-section="work-items"] [data-item-links] {
+  flex: 1 1 0;
 }
-[data-section="work-items"] [data-row-cell="where"] > * {
-  max-width: 100%;
-}
-[data-section="work-items"] [data-row-cell="where"] [data-tuple-link] {
+[data-section="work-items"] [data-item-links] [data-tuple-link] {
   color: var(--hue-blue);
 }
-[data-section="work-items"] [data-row-cell="where"] [data-tuple-link="branch"],
-[data-section="work-items"] [data-row-cell="where"] [data-tuple-text="branch"] {
+[data-section="work-items"] [data-item-links] [data-tuple-link="branch"],
+[data-section="work-items"] [data-item-links] [data-tuple-text="branch"] {
   color: var(--card-meta);
 }
-[data-section="work-items"] [data-row-cell="where"] [data-tuple-what] {
+[data-section="work-items"] [data-item-links] [data-tuple-what],
+[data-section="work-items"] [data-row-cell="plan"] [data-tuple-what] {
+  color: var(--card-meta);
+}
+
+/* AN EMPTY GROUP: its "— none" row stands inside the grid, in the meta colour. */
+[data-section="work-items"] [data-group-none-row] {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
   color: var(--card-meta);
 }
 

@@ -577,7 +577,7 @@ Print:
 
 A plan with `Tracer: yes` whose every non-deferred slice merged reads `proven` on the board, not `deliverable`. The status only keeps the **automatic** path from delivering it alone. The fleet does not name a proven tracer plan in the pass that delivers a plan that `waits:` on one of its branches. It names the tracer plan on a later pass, after that dependent reads delivered, and retries it from there.
 
-A proven tracer plan with no undelivered dependent is delivered by a person (decision D14). After step 2 resolves `$PLAN_FILE` and before step 3, list the plans that wait on this plan, with their phases:
+A proven tracer plan with no undelivered dependent is delivered by a person (`[decision-person-delivers-lone-tracer]` in the Decisions table of the archived story `plot-works-in-five-phases`). After step 2 resolves `$PLAN_FILE` and before step 3, list the plans that wait on this plan, with their phases:
 
 ```bash
 own=$(../plot/scripts/plot-plan-meta.sh "$PLAN_FILE" | python3 -c 'import json,sys; print("\n".join(b["branch"] for w in json.load(sys.stdin)["waves"] for b in w["branches"]))')
@@ -609,7 +609,7 @@ Resolve the slug to its plan file as step 2 does, then read the file's phase wit
 
 ### V2. Refuse a tracer plan
 
-A plan with `Tracer: yes` is never verified (decisions D5 and D14); `verificationOf` reads it as `unverified` whatever it carries. Stop here, before `prepare`, so the preparer does not make the same check a second time:
+A plan with `Tracer: yes` is never verified (`[decision-tracer-is-a-full-plan]` and `[decision-person-delivers-lone-tracer]`); `verificationOf` reads it as `unverified` whatever it carries. Stop here, before `prepare`, so the preparer does not make the same check a second time:
 
 ```bash
 ../plot/scripts/plot-plan-meta.sh "$PLAN_FILE" | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("tracer") else 1)' && echo "tracer: not verified"

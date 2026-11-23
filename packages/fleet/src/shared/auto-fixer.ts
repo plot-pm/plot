@@ -4,21 +4,25 @@ import path from 'node:path';
 
 import {
   claimStaleMsOf,
-  fixerOwner,
+  fleetOwner,
   fixerPrNext,
-  fixerScopeRow,
+  fleetScopeRow,
+  MERGEABLE_CONFLICTING,
+  type BaseTipReading,
   type DefaultBranchReading,
   type SlicePrNextReadings,
   type SlicePrStep,
   type DeskDeadAnswer,
   type FixerReading,
+  type FleetOwner,
 } from '@plot-pm/domain';
 import { roleCommand, type RoleAgentRef } from '@plot-pm/domain/rules/role-command';
 import type { PidCheck } from '@plot-pm/domain/rules/role-run-alive';
 import { fixerPrompt, endedFixerAttempts, type FixerEvidence } from '@plot-pm/domain/rules/fixer-start';
-import type { FixerAttemptsRecord, FixerFinding, FixerInFlight } from '@plot-pm/domain/entities/fixer-attempts';
+import type { FixerAttemptsRecord, FixerFinding, FixerInFlight, FixerRerunAnswer } from '@plot-pm/domain/entities/fixer-attempts';
 import type { FixerAttemptsStore } from '@plot-pm/domain/ports/fixer-attempts';
-import { fixerReadingOf, FIXER_BOUND_SECONDS } from '@plot-pm/domain/rules/fixer-attempts';
+import { fixerReadingOf, fixerRerunAnswer, rerunOnHead, FIXER_BOUND_SECONDS } from '@plot-pm/domain/rules/fixer-attempts';
+import type { BuildPort } from '@plot-pm/domain/ports/build';
 import { fixerAdmission, fixerRanToBound, runningFixers } from '@plot-pm/domain/rules/fixer-concurrency';
 import { askWithHeadroom, type MachineSlot } from './machine-reading.js';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
@@ -27,12 +31,14 @@ import type { RunLogLine } from '@plot-pm/domain/ports/run-log';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Agents } from '@plot-pm/domain/ports/agents';
 import type { Trees } from '@plot-pm/domain/ports/trees';
+import type { Worktree } from '@plot-pm/domain/entities/worktree';
 import type { Host } from '@plot-pm/domain/ports/host';
 import type { Processes } from '@plot-pm/domain/ports/processes';
 import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 import {
   agentsFs,
   boundedRunProcess,
+  buildShell,
   defaultBranchFile,
   fixerAttemptsFile,
   freshAgentRecordFile,
@@ -52,7 +58,7 @@ import { takeContinueLock, releaseContinueLock, continueLockPath } from './conti
 import { mainCheckout } from './main-checkout.js';
 import { roleFilesAt } from './role-files.js';
 import { commonGitDir } from './agent-log.js';
-import { hostOf, refsOf, runLogOf, type ActOptions } from './action-log.js';
+import { hostOf, refsOf, runLogOf, stateHomeOfOpts, type ActOptions } from './action-log.js';
 import { readConfigAsync } from './config-reader.js';
 
 /** What the fixer tick reads and acts through; a test replaces each. */
@@ -60,12 +66,16 @@ export interface FixerTickWorld {
   readonly trees: (opts: ActOptions) => Pick<Trees, 'forBranch' | 'add' | 'fetch' | 'prune' | 'removeOnly'>;
   readonly host: (opts: ActOptions) => Pick<Host, 'prState'>;
   readonly worker: (opts: ActOptions) => Pick<Processes, 'workerState'>;
-  readonly attempts: (opts: ActOptions) => Pick<FixerAttemptsStore, 'read' | 'append' | 'markInFlight' | 'markStart' | 'markPushed'>;
+  readonly attempts: (
+    opts: ActOptions,
+  ) => Pick<FixerAttemptsStore, 'read' | 'append' | 'markInFlight' | 'markStart' | 'markPushed' | 'markRerun' | 'markRerunCleared'>;
+  /** The CI connector a `rerun` step reads and asks; the repository's declared connector by default. */
+  readonly build: (opts: ActOptions) => Pick<BuildPort, 'runsForSha' | 'rerunFailed'>;
   readonly freshAgents: (opts: ActOptions) => Pick<FreshAgentRecordStore, 'rowsFor'>;
   /** Reads a desk worktree's ending file; real `fs` by default, `null` for "no file". */
   readonly readEndingFile: (worktree: string) => string | null;
   /** The ports the role's files and a head branch's claim commits are read through; the git adapter by default. */
-  readonly refs: (opts: ActOptions) => Pick<Refs, 'defaultBranch' | 'showFile' | 'commitSubjects'>;
+  readonly refs: (opts: ActOptions) => Pick<Refs, 'defaultBranch' | 'showFile' | 'commitSubjects' | 'resolve'>;
   /** The registry the owner reading asks for a manifest naming the head branch; the file adapter by default. */
   readonly agents: (opts: ActOptions) => Pick<Agents, 'declared'>;
   /** The path of the agent settings file in the main checkout, or `null` where it is absent. */
@@ -83,7 +93,10 @@ export interface FixerTickWorld {
 }
 
 /** The readings one tick hands {@link fixerTick} besides the PR's own. */
-export type FixerTickReadings = Omit<SlicePrNextReadings, 'row' | 'desk' | 'correctionsSpentExhausted' | 'fixer' | 'scope'> & {
+export type FixerTickReadings = Omit<
+  SlicePrNextReadings,
+  'row' | 'desk' | 'correctionsSpentExhausted' | 'fixer' | 'baseTip' | 'scope'
+> & {
   /** `Claim stale after`, in milliseconds; `null` where the key does not parse. */
   readonly claimStaleMs: number | null;
   /** The queue and machine readings a start takes its slot from; `null` reads as `queue-unread`. */
@@ -101,6 +114,7 @@ export type FixerStartRefusal =
   | 'lock-held'
   | 'pr-not-open'
   | 'head-moved'
+  | 'not-conflicting'
   | 'unaskable'
   | 'worktree-leftover'
   | 'worktree-failed'
@@ -224,8 +238,40 @@ const readAttempts = async (
   return asked.ok ? asked.value : 'unreadable';
 };
 
+/**
+ * Reads the tip of a conflicting row's base branch: fetches the base, then
+ * resolves `origin/<base>`. A row that is not conflicting gets no read, since
+ * `conflictArm` answers before it reads a tip. A row with no base, a failed
+ * fetch, a failed resolve or an empty answer reads `unread`.
+ */
+const readBaseTip = async (world: FixerTickWorld, opts: ActOptions, row: PrIndexRow): Promise<BaseTipReading | undefined> => {
+  if (row.mergeable !== MERGEABLE_CONFLICTING) return undefined;
+  if (row.base === undefined || row.base === '') return { read: 'unread' };
+  const fetched = await world.trees(opts).fetch(opts.repoRoot, row.base);
+  if (!fetched.ok) return { read: 'unread' };
+  const tip = await world.refs(opts).resolve(`origin/${row.base}`);
+  return tip.ok && tip.value.trim() !== '' ? { read: 'tip', sha: tip.value.trim() } : { read: 'unread' };
+};
+
+/**
+ * Whether an attempt the CLI refused to start holds this step: one on the same
+ * head and, for a conflict step, on the same base tip too.
+ */
+const failedStartHolds = (
+  attempts: FixerAttemptsRecord | 'none',
+  step: { readonly head: string; readonly evidence: string },
+  baseTip: string,
+): boolean =>
+  attempts !== 'none' &&
+  attempts.attempts.some(
+    (attempt) =>
+      attempt.start === 'failed' &&
+      attempt.headSha === step.head &&
+      (step.evidence !== 'conflict' || (attempt.finding.kind === 'conflict' && attempt.finding.baseTip === baseTip)),
+  );
+
 /** One run-log line for a PR's fixer step. */
-const fixerLine = (row: PrIndexRow, head: string, step: 'fixer-start' | 'fixer-end', outcome: string, now: number): RunLogLine => ({
+const fixerLine = (row: PrIndexRow, head: string, step: 'fixer-start' | 'ci-rerun' | 'fixer-end', outcome: string, now: number): RunLogLine => ({
   plan: '',
   branch: row.head,
   pr: String(row.number),
@@ -340,6 +386,46 @@ const runningElsewhere = async (world: FixerTickWorld, opts: ActOptions, rows: r
   return running;
 };
 
+/** The ports {@link readHeadOwner} reads through. */
+export interface HeadOwnerPorts {
+  readonly trees: Pick<Trees, 'forBranch'>;
+  readonly agents: Pick<Agents, 'declared'>;
+  readonly refs: Pick<Refs, 'commitSubjects'>;
+}
+
+/**
+ * Reads who owns a PR's head branch, for the fixer and review passes.
+ *
+ * Asks the worktree listing for the head branch, the registry's manifests, and
+ * the claim commits of `origin/<base>..origin/<head>`, and answers through
+ * `fleetOwner`. A failed read makes the owner `unread`.
+ *
+ * @param ports - the worktree listing, the registry and the commit reader.
+ * @param row - the PR's OPEN row.
+ * @param claimStaleMs - `Claim stale after`, in milliseconds; `null` where the key does not parse.
+ * @param now - epoch milliseconds of the tick.
+ * @returns the owner, and the worktree on this machine that holds the head branch, or `null`.
+ */
+export const readHeadOwner = async (
+  ports: HeadOwnerPorts,
+  row: PrIndexRow,
+  claimStaleMs: number | null,
+  now: number,
+): Promise<{ owner: FleetOwner; deskTree: Worktree | null }> => {
+  const found = await ports.trees.forBranch(row.head);
+  const deskTree = found.ok ? found.value : null;
+  const declared = await ports.agents.declared();
+  const claims = await ports.refs.commitSubjects(`origin/${row.base}..origin/${row.head}`);
+  const owner = fleetOwner({
+    worktree: !found.ok ? 'unread' : deskTree === null ? 'absent' : 'here',
+    manifest: declared.ok ? declared.value.some((manifest) => manifest.branch === row.head) : 'unread',
+    claims: claims.ok ? claims.value : 'unread',
+    claimStaleMs,
+    now,
+  });
+  return { owner, deskTree };
+};
+
 /**
  * One tick of the fixer arm over the open rows.
  *
@@ -348,8 +434,9 @@ const runningElsewhere = async (world: FixerTickWorld, opts: ActOptions, rows: r
  * its worktree removed and its mark cleared. It then reads the slice's own
  * worktree (if any is on this machine), its worker state (translated into a
  * {@link DeskDeadAnswer}), whether its one fresh session is already spent on
- * `corrections-spent`, and the attempts record, and asks {@link fixerPrNext}.
- * A row that `fixerScopeRow` puts out of scope gets its reason and no further
+ * `corrections-spent`, the attempts record and, for a conflicting row, the
+ * base tip after a fetch, and asks {@link fixerPrNext}.
+ * A row that `fleetScopeRow` puts out of scope gets its reason and no further
  * read. Otherwise the owner reading asks the worktree listing, the registry's
  * manifests and the claim commits of `origin/<base>..origin/<head>`; a failed
  * read answers `owner-unread` and starts nothing.
@@ -381,34 +468,46 @@ export const fixerTick = async (
       attempts = await readAttempts(world, opts, row.number);
     }
 
-    const out = fixerScopeRow(row, readings.defaultBranchName);
+    const out = fleetScopeRow(row, readings.defaultBranchName);
     if (out !== null) {
       results.push({ pr: row.number, step: { step: 'none', why: out } });
       continue;
     }
 
-    const found = await world.trees(opts).forBranch(row.head);
-    const deskTree = found.ok ? found.value : null;
-    const declared = await world.agents(opts).declared();
-    const claims = await world.refs(opts).commitSubjects(`origin/${row.base}..origin/${row.head}`);
-    const owner = fixerOwner({
-      worktree: !found.ok ? 'unread' : deskTree === null ? 'absent' : 'here',
-      manifest: declared.ok ? declared.value.some((manifest) => manifest.branch === row.head) : 'unread',
-      claims: claims.ok ? claims.value : 'unread',
-      claimStaleMs: readings.claimStaleMs,
-      now: readings.now,
-    });
+    const { owner, deskTree } = await readHeadOwner(
+      { trees: world.trees(opts), agents: world.agents(opts), refs: world.refs(opts) },
+      row,
+      readings.claimStaleMs,
+      readings.now,
+    );
     const worker = deskTree === null ? null : await world.worker(opts).workerState(deskTree.path, true);
     const desk: DeskDeadAnswer = worker?.ok ? deskDeadFromWorkerState(worker.value.state) : { dead: false, why: 'elsewhere' };
     const spentExhausted = await correctionsSpentExhausted(world, opts, deskTree?.path ?? null, row.head);
-    const fixer: FixerReading = fixerReadingOf(attempts, row.headSha ?? '');
+    const baseTip = await readBaseTip(world, opts, row);
+    const tip = baseTip?.read === 'tip' ? baseTip.sha : '';
+    const clock = { now: readings.now, checksWaitMs: readings.config.checksWaitMs };
+    if (await clearSeenRerun(world, opts, row, attempts, clock)) attempts = await readAttempts(world, opts, row.number);
+    const fixer: FixerReading = fixerReadingOf(attempts, row.headSha ?? '', tip, clock);
 
-    const step = fixerPrNext({ ...readings, row, desk, correctionsSpentExhausted: spentExhausted, fixer, owner });
+    const step = fixerPrNext({
+      ...readings,
+      row,
+      desk,
+      correctionsSpentExhausted: spentExhausted,
+      fixer,
+      owner,
+      ...(baseTip === undefined ? {} : { baseTip }),
+    });
+    if (step.step === 'rerun' && attempts !== 'unreadable') {
+      await rerunFailedJobs(world, opts, row, step.head, readings.now);
+      results.push({ pr: row.number, step });
+      continue;
+    }
     if (step.step !== 'fixer' || attempts === 'unreadable') {
       results.push({ pr: row.number, step });
       continue;
     }
-    if (attempts !== 'none' && attempts.attempts.some((attempt) => attempt.start === 'failed' && attempt.headSha === step.head)) {
+    if (failedStartHolds(attempts, step, tip)) {
       const held: FixerStartOutcome = { started: false, why: 'fixer-start-failed' };
       await logStart(opts, row, step.head, held, logged, readings.now);
       results.push({ pr: row.number, step, started: held });
@@ -426,7 +525,7 @@ export const fixerTick = async (
             (answer) => answer.admit,
           );
     const started: FixerStartOutcome = admission.admit
-      ? await startFixer(world, opts, row, step, index, readings.now, logged)
+      ? await startFixer(world, opts, row, step, tip, index, readings.now, logged)
       : { started: false, why: admission.why };
     await logStart(opts, row, step.head, started, logged, readings.now);
     results.push({ pr: row.number, step, started });
@@ -435,23 +534,90 @@ export const fixerTick = async (
 };
 
 /**
+ * Marks the head's re-run cleared where the row reads `pending` or `green` on
+ * that head and the re-run answered `asked` and is not cleared yet.
+ *
+ * @returns whether a mark was written, so the caller reads the record again.
+ */
+const clearSeenRerun = async (
+  world: FixerTickWorld,
+  opts: ActOptions,
+  row: PrIndexRow,
+  attempts: FixerAttemptsRecord | 'none' | 'unreadable',
+  clock: { now: number; checksWaitMs: number },
+): Promise<boolean> => {
+  const head = row.headSha ?? '';
+  if (row.checksSha !== head || (row.ciChecks !== 'pending' && row.ciChecks !== 'green')) return false;
+  const state = rerunOnHead(attempts, head, clock);
+  if (state !== 'running' && state !== 'unseen') return false;
+  const marked = await world.attempts(opts).markRerunCleared(row.number, head, new Date(clock.now).toISOString());
+  return marked.ok;
+};
+
+/**
+ * Carries out a `rerun` step: reads the head's CI runs, records the re-run as
+ * `asked`, then asks the CI system to re-run the head's failed jobs once.
+ *
+ * The CI system re-runs only a run that concluded `failure`. A run on the head
+ * that has not concluded holds the step with no record, so the next tick asks
+ * again once every run has ended. Where no run concluded `failure`, the entry
+ * is written as `no-failed-run` and no call is made, so the fixer starts on
+ * the next tick. A read that fails or cannot be asked writes `failed` or
+ * `unaskable`, with no call.
+ *
+ * A record that does not land asks nothing, so a crash or a failed write never
+ * leads to a second call. An `unaskable` answer rewrites the entry as
+ * `unaskable` and a failed call as `failed`. Each re-run is logged with the PR,
+ * the head and the answer.
+ */
+const rerunFailedJobs = async (world: FixerTickWorld, opts: ActOptions, row: PrIndexRow, head: string, now: number): Promise<void> => {
+  const at = new Date(now).toISOString();
+  const store = world.attempts(opts);
+  const build = world.build(opts);
+  const runs = await build.runsForSha(row.head, head);
+  if (runs.ok && runs.value.some((run) => run.conclusion === null)) {
+    await runLogOf(opts).append(fixerLine(row, head, 'ci-rerun', 'held: run-not-concluded', now));
+    return;
+  }
+  let unrerunnable: FixerRerunAnswer | null = null;
+  if (!runs.ok) unrerunnable = runs.why === 'unaskable' ? 'unaskable' : 'failed';
+  else if (!runs.value.some((run) => run.conclusion === 'failure')) unrerunnable = 'no-failed-run';
+  if (unrerunnable !== null) {
+    const written = await store.markRerun(row.number, { headSha: head, at, answer: unrerunnable });
+    await runLogOf(opts).append(fixerLine(row, head, 'ci-rerun', written.ok ? `failed: ${unrerunnable}` : 'failed: record-not-written', now));
+    return;
+  }
+  if (!(await store.markRerun(row.number, { headSha: head, at, answer: 'asked' })).ok) {
+    await runLogOf(opts).append(fixerLine(row, head, 'ci-rerun', 'failed: record-not-written', now));
+    return;
+  }
+  const asked = await build.rerunFailed(row.head, head);
+  const answer = asked.ok ? 'asked' : asked.why === 'unaskable' ? 'unaskable' : 'failed';
+  if (answer !== 'asked') await store.markRerun(row.number, { headSha: head, at, answer });
+  await runLogOf(opts).append(fixerLine(row, head, 'ci-rerun', answer === 'asked' ? 'moved: asked' : `failed: ${answer}`, now));
+};
+
+/**
  * The finding a fixer attempt records: the SHA-256 of the review findings for
- * a HIGH, and the head SHA for a CI-red run, since the PR index carries no CI
- * run id.
+ * a HIGH, the head SHA for a CI-red run, since the PR index carries no CI run
+ * id, and the head and base tip for a conflict.
  */
 const findingFor = (evidence: FixerEvidence, head: string): FixerFinding =>
   evidence.kind === 'high'
     ? { kind: 'high', hash: createHash('sha256').update(evidence.findings).digest('hex') }
-    : { kind: 'ci', runId: head };
+    : evidence.kind === 'conflict'
+      ? { kind: 'conflict', head, baseTip: evidence.baseTip }
+      : { kind: 'ci', runId: head };
 
 /**
  * Carries out a `fixer` step.
  *
  * In order: reads the role file and builds its command; reads the evidence
  * (the review verdict of this head for a HIGH, the row's failing checks for a
- * CI-red run) and builds the prompt with `fixerPrompt`; takes the PR's start
- * lock in {@link fixerLockDir}; re-asks the host and refuses `pr-not-open` or
- * `head-moved`; creates the fixer's worktree at {@link fixerRunDir} DETACHED
+ * CI-red run, the row's base and `baseTip` for a conflict) and builds the
+ * prompt with `fixerPrompt`; takes the PR's start lock in {@link fixerLockDir};
+ * re-asks the host and refuses `pr-not-open`, `head-moved`, or for a conflict
+ * `not-conflicting` where the host's answer is not `conflicting`; creates the fixer's worktree at {@link fixerRunDir} DETACHED
  * at the head; appends the attempt with an in-flight mark naming
  * {@link FixerTickWorld.starterPid}; and launches the role. Once the process
  * runs, the mark names the fixer's own pid. Every refusal before the append
@@ -469,6 +635,7 @@ const findingFor = (evidence: FixerEvidence, head: string): FixerFinding =>
  * @param opts - the repository and scripts directory.
  * @param row - the PR's row.
  * @param step - the `fixer` step `fixerPrNext` answered.
+ * @param baseTip - the base tip the tick read; the conflict attempt's finding records it.
  * @param index - the position the appended attempt takes in the record.
  * @param now - epoch milliseconds of the tick.
  * @returns whether a process started, and its pid, or why not.
@@ -477,7 +644,8 @@ const startFixer = async (
   world: FixerTickWorld,
   opts: ActOptions,
   row: PrIndexRow,
-  step: { readonly head: string; readonly evidence: 'high' | 'ci-red' },
+  step: { readonly head: string; readonly evidence: 'high' | 'ci-red' | 'conflict' },
+  baseTip: string,
   index: number,
   now: number,
   logged: Set<string>,
@@ -507,8 +675,11 @@ const startFixer = async (
     const findings = world.readVerdictFile(reviewVerdictPath(opts.repoRoot, row.number, step.head));
     if (findings === null) return { started: false, why: 'findings-unread' };
     evidence = { kind: 'high', findings };
+  } else if (step.evidence === 'conflict') {
+    evidence = { kind: 'conflict', base: row.base ?? '', baseTip };
   } else {
-    evidence = { kind: 'ci-red', failingChecks: row.failing_checks ?? [] };
+    const attempts = await readAttempts(world, opts, row.number);
+    evidence = { kind: 'ci-red', failingChecks: row.failing_checks ?? [], rerun: fixerRerunAnswer(attempts, step.head) };
   }
   const prompt = fixerPrompt({ pr: row.number, url: row.url, branch: row.head, head: step.head, evidence });
   if (prompt.read !== 'prompt') return { started: false, why: prompt.why };
@@ -527,6 +698,10 @@ const startFixer = async (
     if (pr === null || pr.state !== 'OPEN') return (outcome = { started: false, why: 'pr-not-open' });
     if (pr.headSha === undefined || pr.headSha === '') return (outcome = { started: false, why: 'unaskable' });
     if (!sameCommit(pr.headSha, step.head)) return (outcome = { started: false, why: 'head-moved' });
+    // GitHub answers `unknown` for a while after a base moves; a start on that answer would spend an attempt on no conflict.
+    if (step.evidence === 'conflict' && pr.mergeable !== MERGEABLE_CONFLICTING) {
+      return (outcome = { started: false, why: 'not-conflicting' });
+    }
 
     if (!clearRunDirRemnants(worktree)) return (outcome = { started: false, why: 'worktree-leftover' });
     fs.mkdirSync(path.dirname(worktree), { recursive: true });
@@ -690,7 +865,7 @@ export interface FixerPassReading {
  *
  * @param opts - where the fleet acts.
  * @param now - epoch milliseconds.
- * @returns the reading, or `null` where the host, the index or the open rows give nothing to act on.
+ * @returns the reading, or `null` where the host, the index, the open rows or the state home give nothing to act on.
  */
 export const readFixerPass = async (opts: ActOptions, now: number): Promise<FixerPassReading | null> => {
   const host = hostOf(opts);
@@ -700,7 +875,9 @@ export const readFixerPass = async (opts: ActOptions, now: number): Promise<Fixe
   if (!store.ok || store.value === null) return null;
   const rows = store.value.rows.filter((row) => row.state === 'OPEN');
   if (rows.length === 0) return null;
-  const reading = await defaultBranchFile(opts.repoRoot).read();
+  const home = stateHomeOfOpts(opts);
+  if (home === null) return null;
+  const reading = await defaultBranchFile(home).read();
   const defaultBranch: DefaultBranchReading | null = reading.ok ? reading.value : null;
   const name = await refsOf(opts).defaultBranch();
   const claimStaleMs = claimStaleMsOf(await readConfigAsync(opts, 'Claim stale after', '24'));
@@ -772,6 +949,11 @@ const defaultFixerTickWorld: FixerTickWorld = {
   host: (opts) => hostShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
   worker: (opts) => processesFiles({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
   attempts: (opts) => fixerAttemptsFile(opts.repoRoot),
+  build: (opts) => ({
+    runsForSha: async (branch, sha) => (await buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir })).runsForSha(branch, sha),
+    rerunFailed: async (branch, sha) =>
+      (await buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir })).rerunFailed(branch, sha),
+  }),
   freshAgents: (opts) => freshAgentRecordFile({ cwd: opts.repoRoot }),
   readEndingFile: readOrNull,
   refs: (opts) => refsOf(opts),

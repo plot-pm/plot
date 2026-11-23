@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { parsePersonDirectory } from '@plot-pm/domain';
 import type { AgentRow, DraftPlan, Slice } from '../../src/contract/schema.js';
-import { countedSlicesByPlan, sliceItemId, sprintCardViewOf, type DeliveryMapInput } from '../../src/app/lib/agent-rows/delivery-readings.js';
+import { countedPlanFactsOf, countedSlicesByPlan, releaseCardsOf, sliceItemId, sprintCardViewOf, type DeliveryMapInput } from '../../src/app/lib/agent-rows/delivery-readings.js';
 
 describe('countedSlicesByPlan', () => {
   it('groups slice items by the plan before the NUL and reads delivered as merged', () => {
@@ -35,7 +35,7 @@ describe('countedSlicesByPlan', () => {
 describe('sprintCardViewOf', () => {
   const reader = { hostUser: 'jwloka', directory: parsePersonDirectory('jwloka = Jan Wloka') };
   const row = (plan: string, wave: string, branch: string): AgentRow => ({
-    branch, plan, wave, kind: 'branch', phase: 'Testing', state: 'merged', group: 'done', pr: null,
+    branch, plan, wave, kind: 'branch', phase: 'Testing', planState: 'delivered', state: 'merged', group: 'done', pr: null,
     question: null, blockedBy: null, assignee: '', author: '', approver: '',
   }) as unknown as AgentRow;
   const slice = (plan: string, name: string): Slice => ({
@@ -76,5 +76,32 @@ describe('sprintCardViewOf', () => {
       }),
     );
     expect(view.cards.map((c) => [c.readingMissing, c.tierLine])).toEqual([[false, 'Must 1/1'], [false, 'Must 1/1']]);
+  });
+
+  describe('with a Delivered docs plan the pulse omits and no row', () => {
+    const entry = { file: 'docs/plans/2026-11-01-docs-plan.md', issues: [], phase: 'delivered', type: 'docs', slices: ['Docs'] };
+    const sprints = [sprint('s1', [{ slug: 'docs-plan', tier: 'must' }])];
+
+    it('draws a bar with the plan delivered from its plans entry', () => {
+      const card = sprintCardViewOf(sprints, reader, input({ plans: countedPlanFactsOf({ 'docs-plan': entry }) })).cards[0]!;
+      expect(card.readingMissing).toBe(false);
+      expect(card.bar!.find((s) => s.state === 'delivered')!.count).toBe(1);
+      expect(card.tierLine).toBe('Must 1/1');
+    });
+
+    it('still reads missing where the entry carries no phase and no type', () => {
+      const card = sprintCardViewOf(sprints, reader, input({ plans: countedPlanFactsOf({ 'docs-plan': { file: entry.file, issues: [], slices: ['Docs'] } }) })).cards[0]!;
+      expect(card.bar).toBeNull();
+      expect(card.readingMissing).toBe(true);
+    });
+
+    it('draws the release card\'s bar from the same entry, and reads missing without phase and type', () => {
+      const releaseSprints = [{ ...sprints[0]!, release: '2.35.0' }];
+      const seeded = releaseCardsOf(releaseSprints, reader.directory, input({ plans: countedPlanFactsOf({ 'docs-plan': entry }) })).cards[0]!;
+      expect(seeded.readingMissing).toBe(false);
+      expect(seeded.bar!.find((s) => s.state === 'delivered')!.count).toBe(1);
+      const bare = releaseCardsOf(releaseSprints, reader.directory, input({ plans: countedPlanFactsOf({ 'docs-plan': { file: entry.file, issues: [] } }) })).cards[0]!;
+      expect(bare.readingMissing).toBe(true);
+    });
   });
 });

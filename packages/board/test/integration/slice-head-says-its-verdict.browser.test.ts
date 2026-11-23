@@ -38,7 +38,7 @@ const GH = 'https://github.com/tiny/garden/tree/';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-16-a-plan.md',
-  wave: 'w', state: 'open', phase: 'Discovery', group: 'waiting-on-you', ageMinutes: null,
+  wave: 'w', state: 'open', phase: 'Discovery', planState: 'draft', group: 'waiting-on-you', ageMinutes: null,
   waitingOn: 'time' as const, note: DRAFT_PLAN_NOTE, pr: null, branchUrl: '', waitingDays: 3,
   localDirty: false, localLocked: false, stuck: null,
   ...over,

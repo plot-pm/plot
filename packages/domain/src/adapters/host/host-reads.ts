@@ -18,6 +18,7 @@ import { githubApi, type GithubApi, type GithubApiOptions } from './github-api.j
 import { githubPrListing, type GithubPrListing } from './github-pr-listing.js';
 import { hostShell, prOf } from './host-shell.js';
 import { bitbucketPrConversation, githubPrConversation, hostWithConversation } from './pr-conversation.js';
+import { bitbucketPrsOfCommit, githubPrsOfCommit, hostWithPrsOfCommit } from './prs-of-commit.js';
 import { bitbucketProtection, githubProtection, type HostProtection } from './host-protection.js';
 import { recordHostReads } from './process-host-reads.js';
 
@@ -247,9 +248,12 @@ export const hostReadsFor = async (
     const picked = hostTransportOf({ ...reading, tokenSource: source, noCredential: BITBUCKET_NO_CREDENTIAL });
     if (picked.transport === 'shell') return { choice: picked, api: null, host: shell };
     const richOnShell = options.jenkins === undefined && SHELL_RICH_CI.includes(basis.ci.trim().toLowerCase());
-    const host = hostWithConversation(
-      hostWithListing(shell, bitbucketPrListing(bitbucket, refsGit(context), ci), { states: BITBUCKET_LISTED_STATES, richOnShell }, bitbucketProtection(bitbucket)),
-      bitbucketPrConversation(bitbucket),
+    const host = hostWithPrsOfCommit(
+      hostWithConversation(
+        hostWithListing(shell, bitbucketPrListing(bitbucket, refsGit(context), ci), { states: BITBUCKET_LISTED_STATES, richOnShell }, bitbucketProtection(bitbucket)),
+        bitbucketPrConversation(bitbucket),
+      ),
+      bitbucketPrsOfCommit(bitbucket),
     );
     recordHostReads(context.repoRoot, host);
     const reason = richOnShell ? `${picked.reason}; CI is jenkins, so the rich open read stays on the shell` : picked.reason;
@@ -258,7 +262,10 @@ export const hostReadsFor = async (
   const api = (options.client ?? githubApi)({ origin: await originOf(), env, observe: (observed) => shell.observe(observed) });
   const choice = hostTransportOf({ ...reading, tokenSource: await api.tokenSource() });
   if (choice.transport === 'shell') return { choice, api: null, host: shell };
-  const host = hostWithConversation(hostWithListing(shell, githubPrListing(api, ci), {}, githubProtection(api)), githubPrConversation(api));
+  const host = hostWithPrsOfCommit(
+    hostWithConversation(hostWithListing(shell, githubPrListing(api, ci), {}, githubProtection(api)), githubPrConversation(api)),
+    githubPrsOfCommit(api),
+  );
   recordHostReads(context.repoRoot, host, api);
   return { choice, api, host };
 };

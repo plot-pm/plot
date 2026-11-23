@@ -4,12 +4,14 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** delivery-ui-polish
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-20, Jan Wloka, plan-PR #3583 merged
+- **Started:** 2026-11-22, Jan Wloka, `feature/delivery-activity-signals`
+- **Delivered:** 2026-11-22
 
 ## Changelog
 
@@ -45,7 +47,7 @@ The spec's anti-goal: *motion that does not mean anything specific (permanent fl
 
 ### Signals
 
-- `feature/delivery-activity-signals` <!-- waits: feature/delivery-work-items-grid, feature/folded-sections-summarise-visually, feature/delivery-tab-has-one-header --> — the reserved spinner slot before the status column, the once-only change fade from `changedRows` with its reduced-motion "just now", and the spinner beside the header's Fleet group label <!-- builds: activitySignal, the activity signal of a Delivery row, heading and header group -->
+- `feature/delivery-activity-signals` <!-- waits: feature/delivery-work-items-grid, feature/folded-sections-summarise-visually, feature/delivery-tab-has-one-header --> — the reserved spinner slot before the status column, the once-only change fade from `changedRows` with its reduced-motion "just now", and the spinner beside the header's Fleet group label <!-- builds: activitySignal, the activity signal of a Delivery row, heading and header group --> → #3664
 
 ## Notes
 

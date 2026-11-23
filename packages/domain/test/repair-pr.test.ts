@@ -339,6 +339,19 @@ describe('nameRepairPrAt — the workflow wired to its ports', () => {
     expect(writes).toEqual([]);
   });
 
+  it('refuses state-home-unread over an unread home, reads nothing and writes nothing', async () => {
+    const throwing = { read: async () => { throw new Error('store read'); }, write: async () => { throw new Error('store write'); } } as never;
+    const { p } = ports(record(), {
+      stateHome: 'unaskable',
+      repair: throwing,
+      defaultBranch: throwing,
+      baseBranch: () => throwing,
+      baseRepair: () => throwing,
+      host: { prState: async () => { throw new Error('prState'); } } as never,
+    });
+    expect(await nameRepairPrAt(p, 2942)).toMatchObject({ named: false, reason: 'state-home-unread' });
+  });
+
   it('refuses no-open-episode with no record, without reading the default branch', async () => {
     const { p } = ports(null, { defaultBranch: { read: async () => { throw new Error('read'); } } as never });
     expect(await nameRepairPrAt(p, 2942)).toMatchObject({ named: false, reason: 'no-open-episode' });

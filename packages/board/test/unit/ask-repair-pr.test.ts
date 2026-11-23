@@ -5,12 +5,13 @@ import { fileURLToPath } from 'node:url';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { answered } from '@plot-pm/domain';
+import { answered, type StateHome } from '@plot-pm/domain';
 import { baseRepairFile, repairRecordFile } from '@plot-pm/domain/adapters';
 import { REPAIR_RECORD_VERSION, type RepairRecord } from '@plot-pm/domain/entities/repair-record';
 
 import type { MergePorts, NameRepairPrPorts } from '../../src/server/entry/merge.js';
 import { removeTree } from '../rm-tree.mjs';
+import { gitStateHome } from '../state-home-root.js';
 
 /**
  * `plot-ask.mjs repair-pr <pr>` and the repair ports `plot-ask.mjs merge`
@@ -70,14 +71,15 @@ afterEach(() => {
   for (const dir of made.splice(0)) removeTree(dir);
 });
 
-const repoWithRecord = async (): Promise<string> => {
+const repoWithRecord = async (): Promise<StateHome> => {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-ask-repair-pr-'));
   made.push(repoRoot);
-  expect((await repairRecordFile(repoRoot).write(RECORD)).ok).toBe(true);
+  const home = gitStateHome(repoRoot);
+  expect((await repairRecordFile(home).write(RECORD)).ok).toBe(true);
   process.env.PLOT_REPO_ROOT = repoRoot;
   process.env.PLOT_SCRIPTS_DIR = REAL_SCRIPTS;
   delete process.env.PLOT_UNATTENDED;
-  return repoRoot;
+  return home;
 };
 
 describe('plot-ask repair-pr argv', () => {
@@ -118,15 +120,26 @@ describe('plot-ask repair-pr', () => {
   });
 
   it('hands the workflow factories that read the base\'s own record, not the default branch\'s', async () => {
-    const repoRoot = await repoWithRecord();
+    const home = await repoWithRecord();
     const baseRecord: RepairRecord = { ...RECORD, branch: 'sprint/x', lastGreenSha: 'c'.repeat(40) };
-    expect((await baseRepairFile(repoRoot, 'sprint/x').write(baseRecord)).ok).toBe(true);
+    expect((await baseRepairFile(home, 'sprint/x').write(baseRecord)).ok).toBe(true);
     await run(['repair-pr', '2942'], HERE, vi.fn());
     const ports = named[0]!;
     expect(await ports.baseRepair!('sprint/x').read()).toEqual(answered(baseRecord));
     expect(await ports.baseRepair!('sprint/y').read()).toEqual(answered(null));
     expect(typeof ports.baseBranch).toBe('function');
     expect(await ports.repair.read()).toEqual(answered(RECORD));
+  });
+
+  it('hands the workflow an unaskable state home where git names no main checkout', async () => {
+    const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-ask-nohome-')));
+    made.push(outside);
+    process.env.PLOT_REPO_ROOT = outside;
+    process.env.PLOT_SCRIPTS_DIR = REAL_SCRIPTS;
+    delete process.env.PLOT_UNATTENDED;
+    await run(['repair-pr', '7'], HERE, vi.fn());
+    expect(named).toHaveLength(1);
+    expect(named[0]!.stateHome).toBe('unaskable');
   });
 
   it('hands the workflow the unattended caller under PLOT_UNATTENDED=1', async () => {

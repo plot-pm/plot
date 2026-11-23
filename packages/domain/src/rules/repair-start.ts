@@ -1,6 +1,7 @@
 import type { WorkflowShaRun } from '../entities/build.js';
 import type { RepairAttempt, RepairRecord } from '../entities/repair-record.js';
 import { declaredRuns, foldRuns } from './default-branch.js';
+import { type RedMainStepAnswer, repairBoundReached } from './repair.js';
 
 /**
  * How long after the re-run was asked a reading of the first red SHA's runs
@@ -12,6 +13,17 @@ import { declaredRuns, foldRuns } from './default-branch.js';
  */
 export const RERUN_GRACE_MS = 60 * 1000;
 
+/** Why a re-run of the first red SHA reads `pending`. */
+export type RerunWaitReason = 'rerun-unanswered' | 'rerun-unmatched' | 'rerun-unconcluded' | 'rerun-grace';
+
+/**
+ * What {@link rerunSettledOf} answers: a settled reading, `overdue` where the
+ * wait passed `Checks wait`, or `pending` with its reason.
+ */
+export type RerunReading =
+  | { settled: 'none' | 'green' | 'red' | 'overdue' }
+  | { settled: 'pending'; reason: RerunWaitReason };
+
 /**
  * Reads the first red SHA's re-run as `redMainStep`'s `rerunSettled` input.
  *
@@ -19,21 +31,100 @@ export const RERUN_GRACE_MS = 60 * 1000;
  * @param runs - every workflow run of `record.firstRedSha`, or null where the CI system did not answer.
  * @param checks - the declared workflow names, from `checkNamesOf`.
  * @param now - the current time, as epoch milliseconds.
- * @returns `none` while no re-run is asked; `pending` inside {@link RERUN_GRACE_MS} of
- *   the ask, with no answer from CI, or while any run is unconcluded; `red` or `green`
- *   as the declared runs fold once they conclude.
+ * @param checksWaitMs - the `Checks wait` bound, in milliseconds.
+ * @returns `none` while no re-run is asked; `red` or `green` as the declared runs fold
+ *   once they conclude; `overdue` where the answer would be `pending` and `now` is at
+ *   or past the wait's start plus `checksWaitMs`; otherwise `pending` with its reason:
+ *   `rerun-grace` inside {@link RERUN_GRACE_MS} of the ask or where `record.at` does
+ *   not parse, `rerun-unanswered` where CI did not answer, `rerun-unconcluded` while a
+ *   declared run is still going and none failed, and `rerun-unmatched` where the
+ *   declared runs fold to `unknown` (no run matched a declared check). The wait starts
+ *   at `record.at`, else at `record.redSince`; where neither parses, every `pending`
+ *   answer is `overdue`.
  */
 export const rerunSettledOf = (
   record: RepairRecord,
   runs: readonly WorkflowShaRun[] | null,
   checks: readonly string[],
   now: number,
-): 'pending' | 'green' | 'red' | 'none' => {
-  if (record.rerun === 'none') return 'none';
+  checksWaitMs: number,
+): RerunReading => {
+  if (record.rerun === 'none') return { settled: 'none' };
   const askedAt = Date.parse(record.at);
-  if (Number.isNaN(askedAt) || now - askedAt < RERUN_GRACE_MS || runs === null) return 'pending';
+  const pending = (reason: RerunWaitReason): RerunReading =>
+    rerunWaitOverdue(record, now, checksWaitMs) ? { settled: 'overdue' } : { settled: 'pending', reason };
+  if (Number.isNaN(askedAt) || now - askedAt < RERUN_GRACE_MS) return pending('rerun-grace');
+  if (runs === null) return pending('rerun-unanswered');
   const state = foldRuns(declaredRuns(runs, checks));
-  return state === 'red' || state === 'green' ? state : 'pending';
+  if (state === 'red' || state === 'green') return { settled: state };
+  return pending(state === 'pending' ? 'rerun-unconcluded' : 'rerun-unmatched');
+};
+
+/**
+ * Whether the wait for the first red SHA's re-run passed `Checks wait`.
+ *
+ * @param record - the repair record.
+ * @param now - the current time, as epoch milliseconds.
+ * @param checksWaitMs - the `Checks wait` bound, in milliseconds.
+ * @returns true at or after `record.at + checksWaitMs`, measured from
+ *   `record.redSince` where `record.at` does not parse; true where neither parses.
+ */
+export const rerunWaitOverdue = (record: RepairRecord, now: number, checksWaitMs: number): boolean => {
+  const askedAt = Date.parse(record.at);
+  const start = Number.isNaN(askedAt) ? Date.parse(record.redSince) : askedAt;
+  return Number.isNaN(start) || now >= start + checksWaitMs;
+};
+
+/** What {@link repairStartAction} answers. */
+export type RepairStartAction =
+  | { action: 'ask-rerun' }
+  | { action: 'awaiting-rerun'; rerun: RerunReading }
+  | { action: 'start-repair' }
+  | { action: 'record-pr'; pr: number }
+  | { action: 'awaiting-repair' }
+  | { action: 'none' };
+
+/** What {@link repairStartAction} reads. */
+export interface RepairStartActionInput {
+  /** `redMainStep`'s answer for this pass. */
+  step: RedMainStepAnswer;
+  /** The repair record. */
+  record: RepairRecord;
+  /** Whether a default-branch reading exists. */
+  hasReading: boolean;
+  /** The number of the open PR for the attempt's branch, or null where none is open or no attempt is recorded. */
+  openPr: number | null;
+  /** The first red SHA's re-run, as {@link rerunSettledOf} reads it. */
+  rerun: RerunReading;
+}
+
+/**
+ * The repair-start pass's next action, from `redMainStep`'s answer.
+ *
+ * - `await-rerun`: `ask-rerun` where no re-run is recorded and a reading exists
+ *   to name the branch; otherwise `awaiting-rerun` with the re-run reading.
+ * - `start-repair`: `start-repair`.
+ * - `await-repair`: `record-pr` where a PR is open for the attempt's branch, this
+ *   machine did not lose the claim, and the record does not already name that PR;
+ *   otherwise `awaiting-repair`.
+ * - Every other step: `none`.
+ *
+ * @param input - the step, the record and the readings.
+ * @returns the action.
+ */
+export const repairStartAction = (input: RepairStartActionInput): RepairStartAction => {
+  const { step, record } = input;
+  if (step === 'await-rerun') {
+    if (record.rerun !== 'none' || !input.hasReading) return { action: 'awaiting-rerun', rerun: input.rerun };
+    return { action: 'ask-rerun' };
+  }
+  if (step === 'start-repair') return { action: 'start-repair' };
+  if (step === 'await-repair') {
+    const pr = input.openPr;
+    if (pr === null || record.attempt?.outcome === 'lost' || record.repairPr === pr) return { action: 'awaiting-repair' };
+    return { action: 'record-pr', pr };
+  }
+  return { action: 'none' };
 };
 
 /**
@@ -81,18 +172,16 @@ export const lastGreenRerunSettledOf = (
  * @param now - the current time, as epoch milliseconds.
  * @param mainRepairBoundMs - the `Main repair bound`, in milliseconds.
  * @param checksWaitMs - the `Checks wait` bound, in milliseconds.
- * @returns true at or after `redSince + mainRepairBoundMs + checksWaitMs`;
- *   false before it, or where `redSince` does not parse.
+ * @returns true at or after the repair bound's start plus `mainRepairBoundMs +
+ *   checksWaitMs`, as {@link repairBoundReached} measures it; false before it, or
+ *   where the bound's start does not parse.
  */
 export const lastGreenRerunOverdue = (
   record: RepairRecord,
   now: number,
   mainRepairBoundMs: number,
   checksWaitMs: number,
-): boolean => {
-  const since = Date.parse(record.redSince);
-  return !Number.isNaN(since) && now >= since + mainRepairBoundMs + checksWaitMs;
-};
+): boolean => repairBoundReached(record, now, mainRepairBoundMs + checksWaitMs);
 
 /**
  * The `main-repair` role's run for the attempt's branch on this machine.

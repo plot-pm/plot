@@ -649,6 +649,11 @@ export const hostShell = (context: ShellContext, answers: FixedAnswers = process
     prConversation: async (): Promise<PortResult<PrConversationReading>> =>
       unaskable('the conversation read is in-process only and needs a host credential'),
 
+    // The shell has no commit-to-PR read, for the same reason as the
+    // conversation read: `hostReadsFor` composes the in-process one.
+    prsOfCommit: async (): Promise<PortResult<readonly Pr[]>> =>
+      unaskable('the PRs-of-a-commit read is in-process only and needs a host credential'),
+
     // BITBUCKET KEEPS NO WRITER, so it answers `''` without reading config:
     // `checkedReview` reads that as unchecked. `plot-review-writer.mjs` reads
     // `Review app` from `origin/<default>` and never from the working tree.

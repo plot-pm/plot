@@ -22,7 +22,7 @@ import {
   type SprintState,
 } from '@plot-pm/domain';
 import { AgentStateSchema, AgentIdentitySchema, type AgentState, type AgentIdentity } from '@plot-pm/fleet/shared/agent-wire';
-import { CardFactsSchema, knownSchema, RefSchema } from '@plot-pm/domain/entities/card-facts';
+import { CardFactsSchema, knownSchema, PlanStateSchema, RefSchema } from '@plot-pm/domain/entities/card-facts';
 
 /**
  * The contract between Plot's plan-format helper (`plot-plan-meta.sh`) and the
@@ -1533,6 +1533,11 @@ export const BoardSchema = z.object({
     plan: z.array(z.string()),
     story: z.array(z.string()),
   })).default([]),
+  /**
+   * The highest version a plan's `Released:` record names, and that record's date. The Delivery tab's
+   * Release group names it where no release is targeted. `null` where no record parses, and for an older server.
+   */
+  lastRelease: z.object({ tag: z.string(), date: z.string() }).nullable().default(null),
   sprints: z.array(SprintCardSchema),
   stories: z.array(StoryCardSchema),
   /**
@@ -2785,6 +2790,15 @@ export const AgentRowSchema = z.object({
    */
   phase: z.string().nullable().default(null),
   /**
+   * The lifecycle state of the plan this row belongs to, as the domain's
+   * `planStateOf` reads the plan's `State:` word — `draft` for an `idea/`
+   * branch. `phase` above names a column and depends on the `Workflow phases`
+   * map and the tracer rule; this field does not, and the Delivery tab places
+   * a row by it. null where no state can be read: a planless branch, an
+   * unrecognised word, or a row from a server that predates the field.
+   */
+  planState: PlanStateSchema.nullable().default(null),
+  /**
    * The section this row renders under — or `null` for UNPLACED, a row the
    * board is currently unable to place.
    *
@@ -3224,6 +3238,13 @@ export const AgentRowSchema = z.object({
    * field existed.
    */
   briefWriter: BriefWriterStateSchema.default('none'),
+  /**
+   * fleetd's spent record for this branch: how many brief runs ended without a
+   * brief, and the repository-relative log of the last one. Present while
+   * fleetd asks no more for the branch; `null` where no record exists, and on a
+   * pulse from a server predating this field.
+   */
+  briefSpent: z.object({ ends: z.number(), log: z.string() }).nullable().default(null),
   /**
    * The name of the earlier slice blocking this row — `waitingOn: 'time'` only,
    * null everywhere else.
@@ -4499,12 +4520,16 @@ export const RoleRunSchema = z.object({
   pr: z.number().optional(),
   /** The plan the run acts on; absent for a reviewer or fixer run. */
   plan: z.string().optional(),
+  /** The branch a design run claims; absent for every other run and from an older server. */
+  branch: z.string().optional(),
   /** Epoch milliseconds; `null` where the source carries no start. */
   startedAt: z.number().nullable(),
   /** Present on a design or verify run that stopped or failed. */
   stopped: z.object({ reason: z.string(), restart: z.string(), log: z.string() }).optional(),
   /** A fixer run's attempt on the finding it answers, from 1; absent from an older server and from every other role. */
   attempt: z.number().int().positive().optional(),
+  /** A fixer run's kind of finding, read from its in-flight attempt; absent from an older server and from every other role. */
+  finding: z.enum(['high', 'ci', 'conflict']).optional(),
 });
 export type RoleRunPayload = z.infer<typeof RoleRunSchema>;
 
@@ -4516,6 +4541,26 @@ export const MachineBudgetSchema = z.object({
   resetAt: z.number().nullable(),
 });
 export type MachineBudget = z.infer<typeof MachineBudgetSchema>;
+
+/**
+ * One `/api/fleet` plan index entry: the plan's file, the tracker issues its
+ * `Issue:` field names, and the plan facts the counted slices read.
+ *
+ * `phase`, `type` and `slices` are optional so a client talking to an older
+ * server still validates. An entry with no `phase` or `type` reads as a plan
+ * the pulse does not omit.
+ */
+export const FleetPlanEntrySchema = z.object({
+  file: z.string(),
+  issues: z.array(z.string()).default([]),
+  /** The plan's phase, in lower case. */
+  phase: z.string().optional(),
+  /** The plan's `Type:` value, as the plan store reads it. */
+  type: z.string().optional(),
+  /** The names of the slices that hold at least one non-deferred branch, in document order. */
+  slices: z.array(z.string()).optional(),
+});
+export type FleetPlanEntry = z.infer<typeof FleetPlanEntrySchema>;
 
 /** What the Machine line reads: the headroom verdict, its context, and the host budget. */
 export const FleetMachineSchema = z.object({
@@ -4873,10 +4918,7 @@ export const FleetShape = z.object({
    * `registry` precedent: metadata about a read, not a list the client always
    * needs a value for. The server emits this field unconditionally.
    */
-  plans: z.record(z.string(), z.object({
-    file: z.string(),
-    issues: z.array(z.string()).default([]),
-  })).optional(),
+  plans: z.record(z.string(), FleetPlanEntrySchema).optional(),
   /**
    * Whether anything supervises the fleet — the WORKING header's second
    * annotation, beside the registry's.

@@ -4,6 +4,7 @@ import { agentRunCommand } from '@plot-pm/domain/adapters/agent-run/agent-run-co
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
 import { boardAgentModel } from '@plot-pm/domain/rules/board-agent-models';
 import { runnerChoice } from '@plot-pm/domain/rules/runner-choice';
+import { fragmentStrictMcp } from '@plot-pm/domain/rules/fragment-strict-mcp';
 import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 import type { DetachedRun } from '@plot-pm/domain/ports/agent-run';
 import { agentRunDetached } from '@plot-pm/domain/adapters/agent-run/agent-run-detached';
@@ -23,6 +24,8 @@ export interface AgentRunChoice {
   readonly detachedRun?: DetachedRun;
   /** The role's command fragment, as read; `''` where the role has none. */
   readonly fragment: string;
+  /** Whether the fragment names `--strict-mcp-config`, so the request starts no MCP server; `false` where it has none. */
+  readonly strictMcp: boolean;
 }
 
 /** Builds the SDK connector a board role on `Agent runner: sdk` runs on. */
@@ -74,6 +77,7 @@ export const agentRunFor = async (
   readCfg: (opts: ConfigReadOptions, key: string, fallback: string) => string = readConfigKey,
 ): Promise<AgentRunChoice> => {
   const fragment = readCfg(opts, fragmentKey, '');
+  const strictMcp = fragmentStrictMcp(fragment);
   const agentRunner = readCfg(opts, 'Agent runner', '');
   const choice = runnerChoice({
     agentRunner: agentRunner === 'sdk' || agentRunner === 'command' ? agentRunner : '',
@@ -82,7 +86,7 @@ export const agentRunFor = async (
     charterHarness: '',
     defaultsToSdkWhenNamed: false,
   });
-  if (choice.runner === 'refused') return { runner: 'refused', reason: choice.reason, model: '', fragment };
+  if (choice.runner === 'refused') return { runner: 'refused', reason: choice.reason, model: '', fragment, strictMcp };
 
   if (choice.runner === 'command') {
     const processes = processesShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
@@ -94,6 +98,7 @@ export const agentRunFor = async (
       // `request.model`, so the request carries none.
       model: '',
       fragment,
+      strictMcp,
       agentRun: agentRunCommand({ boundedRun, fragment, limitPatterns: HARNESS_LIMIT_LINES.claude, now: Date.now }),
       detachedRun: agentRunDetached({ scriptDir: opts.scriptsDir, harness: 'claude' }),
     };
@@ -107,8 +112,9 @@ export const agentRunFor = async (
       reason: `${choice.reason}, and this process does not carry the SDK runner; the board's own process starts SDK runs`,
       model: '',
       fragment,
+      strictMcp,
     };
   }
-  return { runner: 'sdk', reason, model: settings.model, fragment, agentRun: await sdkConnector(opts) };
+  return { runner: 'sdk', reason, model: settings.model, fragment, strictMcp, agentRun: await sdkConnector(opts) };
 };
 

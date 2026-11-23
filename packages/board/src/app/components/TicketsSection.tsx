@@ -1,16 +1,23 @@
-import { linkIconKind, planItReason, ticketsSection, TICKETS_ANCHOR } from '@plot-pm/domain';
+import { ticketsSection, TICKETS_ANCHOR } from '@plot-pm/domain';
+import type { ReactNode } from 'react';
 import type { DispatchInfo, IssueAnswer, IssueRow } from '../../contract/schema.js';
-import { tupleAgeText } from '../lib/tuple-row.js';
-import { CreatePlanButton } from './CreatePlanButton.js';
-import { LinkIcon } from './LinkIcon.js';
-import { headerControl, SectionHead } from './SectionHead.js';
+import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
+import { artifactTuple, tupleAgeText } from '../lib/tuple-row.js';
+import { IssueRowActions } from '../lib/agent-rows/menus.js';
+import { headerControl, SectionEmptyFrame, SectionEmptyMark, SectionHead } from './SectionHead.js';
+import { LinkTupleView } from './TupleRow.js';
 import { ticketAnchor } from '../lib/agent-rows/delivery-view.js';
+import { sectionEmptyKind, type EmptyScope } from '../lib/agent-rows/section-empty.js';
+import type { DeliveryMine } from '@plot-pm/domain';
+
+/** The hooks a Tickets row's ticket segment carries, the same on an anchor and on text. */
+const TICKET_CONTROLS = [{ extraAttr: { link: { 'data-issue-link': '', 'data-issue-number': '' }, text: { 'data-issue-number': '' } } }];
 
 /** The button class of a fold control: a link-looking button that stays in the tab order. */
 const FOLD_CLASS = 'delivery-text-link';
 
-/** The four tracks of a ticket row from 640 px; below that the cells stack. */
-const ROW_COLUMNS = 'grid grid-cols-[4.5rem_minmax(0,1fr)_auto_4.5rem] max-sm:grid-cols-1';
+/** The four tracks of a ticket row from 640 px — Kind, Ticket, Age, and the `⋯` last at `--delivery-menu-track`; below that the cells stack. */
+const ROW_COLUMNS = 'grid grid-cols-[4.5rem_minmax(0,1fr)_4.5rem_var(--delivery-menu-track)] max-sm:grid-cols-1';
 
 export interface TicketsSectionViewProps {
   issueAnswer: IssueAnswer | null | undefined;
@@ -30,23 +37,43 @@ export interface TicketsSectionViewProps {
   /** The sentence naming why the tracker gave no tickets; `''` where it answered. */
   absence: string;
   idea: DispatchInfo;
+  /** Whether this board creates stories, and why not. */
+  story: DispatchInfo;
+  /** Each ticket's card facts, keyed by its number; a ticket with none has no entry. */
+  facts?: ReadonlyMap<string, CardFacts>;
   /** Whether the section is folded to its header line. */
   folded: boolean;
+  /** The header's summary while the section is folded; without one, a folded empty section shows its mark. */
+  summary?: ReactNode;
   onToggleFold: () => void;
   /** Whether the rows behind `… n more · show` show; the Delivery tab holds it, so a jump can open it. */
   foldOpen: boolean;
   onToggleFoldOpen: () => void;
+  /** The filters the empty frame names: the scope, the Mine mode, the tickets Mine hides and the setters. */
+  filters?: TicketsFilters;
+  /** The Delivered by the sprint and Found during the sprint groups, shown after the tickets no plan names whatever their state. */
+  groups?: ReactNode;
 }
 
+interface TicketsFilters {
+  scope: EmptyScope;
+  mine: DeliveryMine;
+  mineHidden: number;
+  onMine?: () => void;
+  onScopeOff?: () => void;
+}
+
+const NO_FILTERS: TicketsFilters = { scope: { kind: 'release', sprints: [] }, mine: 'off', mineHidden: 0 };
+
 /**
- * The Delivery tab's Tickets section: the tickets no plan names, with *Plan it ›* in Do.
+ * The Delivery tab's Tickets section: the tickets no plan names, each with its `⋯` menu last, then the scope groups.
  *
- * Every count, fold and refusal is the domain's (`ticketsSection`, `planItReason`);
+ * Every count, fold and refusal is the domain's (`ticketsSection`, `rowMenuOf`);
  * this component renders them. The section carries the `tickets` anchor that the
  * Delivery tab's triage links scroll to.
  */
 export function TicketsSectionView(props: TicketsSectionViewProps) {
-  const { idea, issueAnswer = null, foldOpen } = props;
+  const { idea, story, issueAnswer = null, foldOpen } = props;
   const section = ticketsSection<IssueRow>({
     answer: issueAnswer,
     assigned: props.assigned,
@@ -56,7 +83,17 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
     showAll: props.showAll,
     foldOpen,
   });
-  const reason = planItReason(issueAnswer, idea.available);
+  const filters = props.filters ?? NO_FILTERS;
+  const empty = sectionEmptyKind({
+    section: 'tickets',
+    state: section.state,
+    count: section.rows.length,
+    note: section.state === 'failed' && props.absence !== '' ? props.absence : null,
+    absence: section.state === 'unsupported' && props.absence !== '' ? props.absence : null,
+    scope: filters.scope,
+    mine: filters.mine,
+    hidden: filters.mineHidden,
+  });
   return (
     <section id={TICKETS_ANCHOR} data-section="tickets" data-tickets-state={section.state} className="delivery-card space-y-2">
       <SectionHead
@@ -64,7 +101,7 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
         label="Tickets"
         folded={props.folded}
         onToggle={props.onToggleFold}
-        summary={props.folded && section.state === 'rows' && section.rows.length === 0 ? <span data-section-empty className="delivery-text-muted">— none</span> : null}
+        summary={!props.folded ? null : props.summary ?? (empty !== null ? <SectionEmptyMark empty={empty} /> : null)}
       >
         <h2 data-delivery-section="tickets" className="delivery-title flex items-baseline gap-1">
           Tickets
@@ -90,20 +127,29 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
           </p>
         )}
       </SectionHead>
-      {props.folded ? null : section.state !== 'rows' ? (
-        <p data-tickets-absent={section.state} data-issue-error={section.state === 'failed' ? '' : undefined} data-issue-absence={section.state === 'unsupported' ? '' : undefined} className="delivery-text-muted px-3 text-[13px]">
-          {props.absence !== '' ? props.absence : section.state === 'unasked' ? 'the tracker has not been read yet' : 'the tracker gave no answer'}
-        </p>
+      {props.folded ? null : empty !== null ? (
+        <>
+          {section.state === 'rows' && props.notice !== null && <p data-waiting-notice className="delivery-text-muted px-3 text-xs">{props.notice}</p>}
+          {section.state === 'rows' && props.hiddenSentence !== null && <p data-waiting-hidden-text className="delivery-text-muted px-3 text-xs">{props.hiddenSentence}</p>}
+          <SectionEmptyFrame
+            section="tickets"
+            empty={empty}
+            onMine={filters.onMine}
+            onScopeOff={filters.onScopeOff}
+            attrs={section.state === 'rows' ? {} : { 'data-tickets-absent': section.state }}
+            noteAttrs={section.state === 'failed' ? { 'data-issue-error': '' } : section.state === 'unsupported' ? { 'data-issue-absence': '' } : {}}
+          />
+        </>
       ) : (
         <>
           {props.notice !== null && <p data-waiting-notice className="delivery-text-muted px-3 text-xs">{props.notice}</p>}
           {props.hiddenSentence !== null && <p data-waiting-hidden-text className="delivery-text-muted px-3 text-xs">{props.hiddenSentence}</p>}
           <ul role="grid" aria-label="Tickets" className="delivery-grid">
-            <li role="row" className="hidden sm:grid grid-cols-[4.5rem_minmax(0,1fr)_auto_4.5rem] gap-x-3 px-3 delivery-thead">
+            <li role="row" className="hidden sm:grid grid-cols-[4.5rem_minmax(0,1fr)_4.5rem_var(--delivery-menu-track)] gap-x-3 px-3 delivery-thead">
               <span role="columnheader">Kind</span>
               <span role="columnheader">Ticket</span>
-              <span role="columnheader">Do</span>
               <span role="columnheader">Age</span>
+              <span role="columnheader">Do</span>
             </li>
             {section.rows.map((issue) => (
               <li
@@ -114,22 +160,15 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
                 className={`${ROW_COLUMNS} delivery-row delivery-row-ruled items-baseline gap-x-3 px-3`}
               >
                 <span role="gridcell" className="delivery-kind">Ticket</span>
-                <span role="gridcell" className="flex min-w-0 items-baseline" title={`${issue.number}: ${issue.title}`}>
-                  <LinkIcon kind={linkIconKind('ticket')} />
-                  {issue.url !== '' ? (
-                    <a href={issue.url} target="_blank" rel="noreferrer" data-issue-link className="delivery-text-link inline-block min-h-6 min-w-0 max-w-full truncate align-middle leading-6">
-                      <span data-issue-number>{issue.number}</span>: {issue.title}
-                    </a>
-                  ) : (
-                    <span className="delivery-truncate"><span data-issue-number>{issue.number}</span>: {issue.title}</span>
-                  )}
-                </span>
-                <span role="gridcell" data-tickets-do data-plan-it-reason={reason ?? undefined} className="delivery-text-link inline-flex items-baseline">
-                  <LinkIcon kind={linkIconKind('plan')} />
-                  <CreatePlanButton issue={issue} idea={idea} issueAnswer={issueAnswer} label="Plan it ›" />
+                <span role="gridcell" className="flex min-w-0 items-center gap-1.5" title={`${issue.number}: ${issue.title}`}>
+                  <LinkTupleView segments={artifactTuple({ what: 'ticket', label: `${issue.number}`, href: issue.url }, () => undefined)} controls={TICKET_CONTROLS} />
+                  <span className="delivery-truncate">{issue.title}</span>
                 </span>
                 <span role="gridcell" className="delivery-text-muted sm:text-right">
                   {issue.ageMinutes === null ? '' : tupleAgeText(issue.ageMinutes)}
+                </span>
+                <span role="gridcell" data-row-cell="do" className="relative flex w-5 shrink-0 items-center justify-end">
+                  <IssueRowActions issue={issue} idea={idea} story={story} issueAnswer={issueAnswer} facts={props.facts?.get(String(issue.number))} />
                 </span>
               </li>
             ))}
@@ -151,6 +190,7 @@ export function TicketsSectionView(props: TicketsSectionViewProps) {
           </ul>
         </>
       )}
+      {!props.folded && props.groups}
     </section>
   );
 }

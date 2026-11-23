@@ -199,7 +199,7 @@ const aFullEstate = (): Scenario => {
     // The ONE row a person can pick up, so the one that carries Start work.
     row({
       branch: 'feature/untaken', plan: 'plant-tomatoes', planFile: TOMS_FILE,
-      group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+      group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
       waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
       branchUrl: `${GH}feature/untaken`, waitingDays: 22, startability: 'start-work',
     }),
@@ -208,7 +208,7 @@ const aFullEstate = (): Scenario => {
     // THE FIELD, not the sentence — a grouped row drops its note by design.
     row({
       branch: 'feature/blocked', plan: 'plant-tomatoes', planFile: TOMS_FILE,
-      group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+      group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
       waitingOn: 'time', blockedBy: 'Truth', verdict: 'blocked',
       branchUrl: `${GH}feature/blocked`, waitingDays: 22, startability: null,
     }),
@@ -216,14 +216,14 @@ const aFullEstate = (): Scenario => {
     // Both halves must show — the phase has fallen back AND the badge says why.
     row({
       branch: 'feature/shelved', plan: 'beans', planFile: BEANS_FILE,
-      group: 'not-started', state: 'deferred', phase: 'Design', ageMinutes: 2,
+      group: 'not-started', state: 'deferred', phase: 'Design', planState: 'design', ageMinutes: 2,
       note: 'last commit 2 min ago', branchUrl: `${GH}feature/shelved`, startability: null,
     }),
     // A plan recording no approval date — every plan predating `Approved:`.
     // It must show no waiting age at all.
     row({
       branch: 'feature/undated', plan: 'beans', planFile: BEANS_FILE,
-      group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+      group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
       waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
       branchUrl: `${GH}feature/undated`, waitingDays: null, startability: 'start-work',
     }),
@@ -244,7 +244,7 @@ const aFullEstate = (): Scenario => {
     // `StartWorkButton` takes a Card and a row is not one, so: NO button.
     row({
       branch: 'feature/ghost-ready', plan: 'ghost-plan', planFile: GHOST_FILE,
-      group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+      group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
       waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
       branchUrl: `${GH}feature/ghost-ready`, startability: 'start-work',
     }),
@@ -534,7 +534,7 @@ const tenRowsOneKindEach = (): Scenario => ({
       // person can actually pick up, so also the one carrying Start work.
       row({
         branch: 'feature/untaken', wave: 'toms-open', plan: 'plant-tomatoes', planFile: TOMS_FILE,
-        group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+        group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
         waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
         branchUrl: `${GH}feature/untaken`, waitingDays: 22, startability: 'start-work',
       }),
@@ -543,7 +543,7 @@ const tenRowsOneKindEach = (): Scenario => ({
       // grouped row drops its note and the sentence was the sole carrier.
       row({
         branch: 'feature/blocked', wave: 'toms-open', plan: 'plant-tomatoes', planFile: TOMS_FILE,
-        group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+        group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
         waitingOn: 'time', blockedBy: 'Truth', verdict: 'blocked',
         branchUrl: `${GH}feature/blocked`, waitingDays: 22, startability: null,
       }),
@@ -552,7 +552,7 @@ const tenRowsOneKindEach = (): Scenario => ({
       // badge says someone gave it up rather than never having begun.
       row({
         branch: 'feature/shelved', wave: 'beans-open', plan: 'beans', planFile: 'p-beans.md',
-        group: 'not-started', state: 'deferred', phase: 'Design', ageMinutes: 2,
+        group: 'not-started', state: 'deferred', phase: 'Design', planState: 'design', ageMinutes: 2,
         note: 'last commit 2 min ago', branchUrl: `${GH}feature/shelved`,
         startability: null,
       }),
@@ -560,7 +560,7 @@ const tenRowsOneKindEach = (): Scenario => ({
       // It must show no waiting age at all.
       row({
         branch: 'feature/undated', wave: 'beans-open', plan: 'beans', planFile: 'p-beans.md',
-        group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+        group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
         waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
         branchUrl: `${GH}feature/undated`, waitingDays: null, startability: 'start-work',
       }),
@@ -581,7 +581,7 @@ const tenRowsOneKindEach = (): Scenario => ({
       // `StartWorkButton` takes a Card and a row is not one, so: NO button.
       row({
         branch: 'feature/ghost-ready', wave: 'ghost-open', plan: 'ghost-plan', planFile: GHOST_FILE,
-        group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+        group: 'not-started', state: 'open', phase: 'Design', planState: 'design', ageMinutes: null,
         waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
         branchUrl: `${GH}feature/ghost-ready`, startability: 'start-work',
       }),
@@ -885,16 +885,16 @@ const aBoardThatCanAct = (): Scenario => ({
 
 /**
  * EVERY DELIVERY SECTION, EACH WITH CONTENT — the state the Delivery tab's
- * screenshot test opens, so one page shows every section, group and header card.
+ * screenshot test opens, so one page shows every section and header group.
  *
  * | what | fills | from |
  * |---|---|---|
- * | `changeset-release/main` | the ReleaseCard and the *Approve release* to-do | a `release` row |
+ * | `changeset-release/main` | the Release group's slot and the *Approve release* to-do | a `release` row |
  * | `bed-a`, `bed-b` | Release delivery | merged one-slice plans in the reader's Active sprint |
  * | `feature/ready-for-review` | You › Blocks delivery | green CI, review pending, `autoReview: false` |
  * | `feature/which-mulch` | You › Blocks delivery, Fleet › Blocked | a `PLOT-BLOCKED` question and a `waiting` agent |
  * | `feature/herb-spiral` | You › Input to the fleet | a Design-phase row |
- * | `scratch/old-trellis` | You › Clean up | a loose branch: no plan, no desk, no agent |
+ * | `scratch/old-trellis` | You › Unblock | a loose branch: no plan, no desk, no agent |
  * | `feature/rain-barrel` | Work items › At a gate, Fleet › Blocked | an open PR with CI pending |
  * | `feature/seed-trays` | Work items › Being built, Fleet › Working | a claimed branch with a running agent |
  * | `feature/cold-frame` | Work items › Queued | an open, unclaimed slice |
@@ -902,8 +902,8 @@ const aBoardThatCanAct = (): Scenario => ({
  * | `machine` | the Machine line, amber | `tight` headroom and a host bucket at 8% |
  * | tickets 41, 42 | Tickets | `issueAnswer: 'answered'`, both assigned to the reader |
  *
- * The header shows the ReleaseCard and not the SprintCard: the SprintCard needs
- * the *My sprint* chip, which is a click and not a payload. The bucket keeps 400
+ * The header's Release group reads the release scope and not the my-sprint scope:
+ * the my-sprint scope needs the *My sprint* chip, which is a click and not a payload. The bucket keeps 400
  * requests rather than 0, because an exhausted window blocks every running loop
  * agent on the rate limit and empties Fleet › Working.
  */
@@ -948,7 +948,7 @@ const everyDeliverySection = (): Scenario => {
       question: { firstLine: 'Bark or straw mulch for the paths?', askedAt: new Date(Date.now() - 40 * 60_000).toISOString() },
     }),
     row({
-      branch: 'feature/herb-spiral', plan: 'herb-spiral', planFile: '2026-11-01-herb-spiral.md', wave: 'Spiral', phase: 'Design', state: 'open', group: 'not-started',
+      branch: 'feature/herb-spiral', plan: 'herb-spiral', planFile: '2026-11-01-herb-spiral.md', wave: 'Spiral', phase: 'Design', planState: 'design', state: 'open', group: 'not-started',
       branchUrl: `${GH}feature/herb-spiral`, ageMinutes: 300,
     }),
     // LOOSE: no plan names it, and `desk: false` says no worktree holds it.
@@ -1007,6 +1007,52 @@ const everyDeliverySection = (): Scenario => {
 };
 
 /**
+ * A SPRINT THAT DELIVERS AND FINDS: one Active sprint whose plan `bed-c` names ticket #51, opened PR #160 and holds a
+ * refuted claim on #53. The tracker holds #51, the review finding #52 on PR #160 and #53, so the Tickets section's
+ * Delivered by the sprint group shows #51 and Found during the sprint shows #52 and #53. No ticket waits for a plan.
+ */
+const aSprintThatDeliversAndFinds = (): Scenario => {
+  const ME = 'gardener';
+  const ISSUES = 'https://github.com/tiny/garden/issues/';
+  const ticketRow = (number: number, title: string) => ({
+    kind: 'ticket' as const, number: String(number), title, url: `${ISSUES}${number}`, ageMinutes: 30,
+    status: 'open', statusCategory: 'To Do', assignees: [ME], state: 'open' as const, complete: true,
+  });
+  const summerSprint = {
+    slug: 'summer-beds', title: 'Summer beds', release: '', timebox: 'none' as const, timeboxLabel: '', ownerHandle: ME,
+    counts: { total: 1, open: 1, wip: 0, done: 0, withdrawn: 0 },
+    members: [{ slug: 'bed-c', text: '', tier: 'must' as const, checked: false, known: true }],
+  };
+  return {
+    board: board({
+      server: { restartCommand: 'pnpm board', port: 4711, branch: 'main', repo: 'garden', hostUser: ME, people: { [ME]: ME } },
+      columns: [
+        column({
+          phase: 'Development',
+          cards: [card({
+            slug: 'bed-c', title: 'Bed C', phase: 'Development', path: 'docs/plans/2026-11-01-bed-c.md',
+            issues: ['51'], prs: [{ number: 160, url: 'https://github.com/tiny/garden/pull/160' }], refutedIssues: ['53'],
+          })],
+        }),
+      ],
+    }),
+    fleet: fleet({
+      rows: [],
+      sprints: [summerSprint],
+      issueAnswer: 'answered',
+      issues: [],
+      planTicketRows: [
+        ticketRow(51, 'Water the new bed'),
+        ticketRow(52, 'plot-review: findings on PR #160'),
+        ticketRow(53, 'The bed drains too fast'),
+      ],
+      ticketPlans: { 51: [{ slug: 'bed-c', title: 'Bed C', story: '', state: 'approved', total: 1, merged: 0 }] },
+      waiting: { tickets: [], shown: 0, hidden: 0, unassigned: 0, assignedToOthers: 0, complete: true, notice: null, source: { service: 'github', match: 'host-login' } },
+    }),
+  };
+};
+
+/**
  * The catalogue itself.
  *
  * Each entry is a FUNCTION, so every `open()` gets a fresh payload and one
@@ -1043,6 +1089,7 @@ export const SCENARIOS = {
   'a-whole-small-estate': aWholeSmallEstate,
   'an-empty-estate': anEmptyEstate,
   'every-delivery-section': everyDeliverySection,
+  'a-sprint-that-delivers-and-finds': aSprintThatDeliversAndFinds,
 } satisfies Record<string, () => Scenario>;
 
 /** Every name the catalogue serves. */

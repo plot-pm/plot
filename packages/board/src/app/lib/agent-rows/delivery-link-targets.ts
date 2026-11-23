@@ -1,4 +1,5 @@
-import type { LinkTarget } from '@plot-pm/domain';
+import { linkIconKind, type LinkTarget } from '@plot-pm/domain';
+import { tupleWhatOf, type TupleLink } from '../tuple-row.js';
 import type { AgentRow } from '../../../contract/schema.js';
 import type { RegistryAgent } from './delivery-readings.js';
 import { sliceItemId } from './delivery-readings.js';
@@ -11,6 +12,7 @@ export type ResolvedLink =
   | { kind: 'plan'; planFile: string }
   | { kind: 'reveal'; branch: string }
   | { kind: 'act'; action: string; id: string }
+  | { kind: 'menu'; id: string }
   | { kind: 'none' };
 
 /** What the resolver needs to turn a target into a place. */
@@ -74,12 +76,32 @@ export const resolveLink = (target: LinkTarget, ctx: LinkContext): ResolvedLink 
     }
     case 'action':
       return { kind: 'act', action: target.action, id: target.id };
+    case 'menu':
+      return { kind: 'menu', id: target.id };
     case 'url':
       return target.url === '' ? { kind: 'none' } : { kind: 'href', href: target.url };
     case 'ci-run':
     case 'person':
       return { kind: 'none' };
   }
+};
+
+/**
+ * The artifact a cell link draws as a tuple: the target's kind, the label, and the address `resolveLink` found.
+ *
+ * An `href` arm keeps its address and an `anchor` arm links `#<id>`. A `plan`, `reveal` or `none` arm has no address,
+ * so its segment is text; the call site makes the first two a button.
+ *
+ * @param target - the target the domain named.
+ * @param resolved - where `resolveLink` placed it.
+ * @param label - the words the link shows.
+ * @returns the artifact, or `null` where the target names no kind of place or the click is an action or opens a menu.
+ */
+export const cellArtifact = (target: LinkTarget, resolved: ResolvedLink, label: string): TupleLink | null => {
+  const what = tupleWhatOf(linkIconKind(target));
+  if (what === null || resolved.kind === 'act' || resolved.kind === 'menu') return null;
+  const href = resolved.kind === 'href' ? resolved.href : resolved.kind === 'anchor' ? `#${resolved.id}` : '';
+  return { what, label, href };
 };
 
 /** The short label a second or later link of one cell shows. */

@@ -1,5 +1,6 @@
 import { FLEETD_HEARTBEAT_VERSION, type FleetdHeartbeat } from '@plot-pm/domain/entities/fleetd-heartbeat';
-import { fleetdHeartbeatFile } from '@plot-pm/domain/adapters';
+import { fleetdHeartbeatIn } from '@plot-pm/domain/adapters';
+import { stateHomeAtSync } from '@plot-pm/domain/adapters/main-checkout';
 
 /**
  * Writes fleetd's heartbeat file under `repoRoot`, as a running fleetd does.
@@ -10,7 +11,7 @@ import { fleetdHeartbeatFile } from '@plot-pm/domain/adapters';
  */
 export const writeFleetdHeartbeat = async (repoRoot: string, ageMs = 0, over: Partial<FleetdHeartbeat> = {}): Promise<void> => {
   const beatAt = Date.now() - ageMs;
-  await fleetdHeartbeatFile({ repoRoot }).write({
+  await fleetdHeartbeatIn(stateHomeAtSync(repoRoot)).write({
     version: FLEETD_HEARTBEAT_VERSION,
     pid: process.ppid,
     startedAt: beatAt - 600_000,

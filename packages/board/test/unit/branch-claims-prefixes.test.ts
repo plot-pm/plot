@@ -39,19 +39,31 @@ describe('plot-slice-claims', () => {
 });
 
 describe('plot-release-chain release', () => {
-  const planFor = (text: string): ReleasePorts => {
+  const planFor = (
+    text: string,
+    prs: Readonly<Record<number, { mergeCommit: string; mergedAt: string; base: string }>> = {},
+    tags: Readonly<Record<string, readonly string[]>> = {},
+    dests: Readonly<Record<string, readonly { number: number; base: string; mergeCommit: string; mergedAt: string }[]>> = {},
+  ): ReleasePorts => {
     const asked: number[] = [];
     return {
       planStore: { readPlan: async () => ({ ok: false }), readText: async () => answered(text) },
       host: {
         prState: async (n: number) => {
           asked.push(n);
-          return { ok: false };
+          const pr = prs[n];
+          return pr === undefined ? { ok: false } : answered({ ...pr, head: `bug/pr-${n}` });
         },
-        prMergeDests: async () => ({ ok: false }),
+        prMergeDests: async (branch: string) => (dests[branch] === undefined ? { ok: false } : answered(dests[branch])),
         lastRefusal: () => null,
+        backend: async () => answered('github'),
       },
-      refs: { contains: async () => answered('unknown' as const), tagsContaining: async () => ({ ok: false }) },
+      refs: {
+        contains: async () => answered('unknown' as const),
+        tagsContaining: async (sha: string) => (tags[sha] === undefined ? { ok: false } : answered(tags[sha])),
+        commitSubjects: async () => answered([]),
+        remoteUrl: async () => answered('git@github.com:plot-pm/plot.git'),
+      },
     } as unknown as ReleasePorts;
   };
   const input = { planFile: 'p.md', defaultBranch: 'main', prSource: '', noFetch: true };
@@ -64,6 +76,57 @@ describe('plot-release-chain release', () => {
     const text = slices('- `zz/x` — work → #7');
     expect(await resolvePlanRelease(input, planFor(text), () => {})).toBe('none');
     expect(await resolvePlanRelease({ ...input, branchPrefixes: ['zz'] }, planFor(text), () => {})).not.toBe('none');
+  });
+
+  describe('a sibling PR whose merge commit the clone cannot read', () => {
+    const sibling = 'a'.repeat(40);
+    const last = 'b'.repeat(40);
+    const text = slices('- `bug/one` — work → #50', '- `bug/two` — work → #60');
+    const prs = {
+      50: { mergeCommit: last, mergedAt: '2026-11-02T00:00:00Z', base: 'main' },
+      60: { mergeCommit: sibling, mergedAt: '2026-11-01T00:00:00Z', base: 'main' },
+    };
+    const ports = planFor(text, prs, { [last]: ['v1.0.0'] });
+
+    it.each([
+      { noFetch: false, advice: 'git fetch --tags origin' },
+      { noFetch: true, advice: 're-run without --no-fetch/--offline' },
+    ])('names the sibling and its sha with noFetch $noFetch', async ({ noFetch, advice }) => {
+      const out = await resolvePlanRelease({ ...input, noFetch }, ports, () => {});
+      expect(out).toContain(`delivered, PR #60 names merge commit ${sibling}, not in this clone → cannot resolve`);
+      expect(out).toContain(advice);
+      expect(out).not.toContain('none');
+    });
+  });
+
+  describe('a sibling PR merged into another branch whose merge commit the clone cannot read', () => {
+    const sibling = 'a'.repeat(40);
+    const last = 'b'.repeat(40);
+    const carrier = 'c'.repeat(40);
+    const text = slices('- `bug/one` — work → #50', '- `bug/two` — work → #60');
+    const prs = {
+      50: { mergeCommit: last, mergedAt: '2026-11-02T00:00:00Z', base: 'main' },
+      60: { mergeCommit: sibling, mergedAt: '2026-11-01T00:00:00Z', base: 'feature/x' },
+    };
+    const dests = { 'feature/x': [{ number: 70, base: 'main', mergeCommit: carrier, mergedAt: '2026-11-01T12:00:00Z' }] };
+
+    it('answers the last-merged PR\'s tag where the carrier is in that tag', async () => {
+      const ports = planFor(text, prs, { [last]: ['v1.1.0'], [carrier]: ['v1.0.0', 'v1.1.0'] }, dests);
+      expect(await resolvePlanRelease(input, ports, () => {})).toBe('shipped\tv1.1.0');
+    });
+
+    it('reports the tag that misses the sibling\'s carrier, not the sibling\'s own tag', async () => {
+      const ports = planFor(text, prs, { [last]: ['v1.1.0'], [carrier]: [] }, dests);
+      const out = await resolvePlanRelease(input, ports, () => {});
+      expect(out).toContain(`tag 'v1.1.0' does not contain PR #60's merge commit`);
+      expect(out).not.toBe('unreleased');
+    });
+
+    it('answers cannot tell where no carrier resolves', async () => {
+      const ports = planFor(text, prs, { [last]: ['v1.1.0'] }, {});
+      const out = await resolvePlanRelease(input, ports, () => {});
+      expect(out).toMatch(/^finding\tdelivered, PR #60 merged into 'feature\/x' → cannot tell/);
+    });
   });
 });
 

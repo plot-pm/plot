@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Page } from 'playwright';
 import { expandAgentFolds } from '../helpers.mjs';
-import { openCatalogue, type Catalogue } from '../catalogue/index.js';
+import { openCatalogue, board as buildBoard, type Catalogue } from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet } from '../../src/contract/schema.js';
 
 /**
@@ -18,7 +18,7 @@ const GH = 'https://github.com/tiny/garden/tree/';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-16-a-plan.md',
-  wave: 'w', state: 'open', phase: 'Design', group: 'not-started', ageMinutes: null,
+  wave: 'w', state: 'open', phase: 'Design', planState: 'design', group: 'not-started', ageMinutes: null,
   waitingOn: 'click' as const, note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
   localDirty: false, localLocked: false, stuck: null, deferredReason: '',
   kind: 'branch' as const,
@@ -29,7 +29,7 @@ const fleet = (): Fleet => {
   const rows: AgentRow[] = [
     row({
       branch: 'feature/running', branchUrl: `${GH}feature/running`, group: 'working',
-      state: 'wip', phase: 'Development', ageMinutes: 90, waitingDays: null,
+      state: 'wip', phase: 'Development', planState: 'approved', ageMinutes: 90, waitingDays: null,
       processes: [{ pid: '99253', kind: 'worker' }],
     } as Partial<AgentRow>),
     row({ branch: 'feature/queued', branchUrl: `${GH}feature/queued`, wave: 'second' }),
@@ -72,9 +72,17 @@ describe('the Delivery tab rows', () => {
     const page = await open();
     try {
       const orders = await page.locator('li[data-delivery-row]').evaluateAll((els) =>
-        els.map((e) => [...e.querySelectorAll(':scope > [data-row-cell]')].map((c) => c.getAttribute('data-row-cell'))));
+        els.map((e) => ({
+          work: e.closest('[data-section="work-items"]') !== null,
+          cells: [...e.querySelectorAll(':scope > [data-row-cell]')].map((c) => c.getAttribute('data-row-cell')),
+        })));
       expect(orders.length).toBeGreaterThan(0);
-      for (const o of orders) expect(o).toEqual(['kind', 'item', 'where', 'status', 'do', 'by', 'age']);
+      // A Work items row carries the one Work items grid; every other section keeps its seven cells.
+      for (const o of orders) {
+        expect(o.cells).toEqual(o.work
+          ? ['item', 'plan', 'status', 'by', 'age', 'do']
+          : ['kind', 'item', 'where', 'status', 'by', 'age', 'do']);
+      }
     } finally {
       await page.close();
     }
@@ -112,6 +120,56 @@ describe('the Delivery tab rows', () => {
       await page.close();
     }
   });
+
+  /** Opens the tab with `over` merged into the fleet, read by the host user `gardener`, and waits for a You row. */
+  const openYou = async (over: Partial<Fleet>): Promise<Page> => {
+    const page = await cat.open('an-empty-estate', {
+      tab: 'agents',
+      over: {
+        fleet: { ...fleet(), ...over } as Fleet,
+        board: buildBoard({ server: { restartCommand: 'pnpm board', port: 4711, branch: 'main', repo: 'garden', hostUser: 'gardener', people: { gardener: 'gardener' } } }),
+      },
+      viewport: { width: 1480, height: 1200 },
+    });
+    await page.locator('[data-section="you"] li[data-delivery-row]').first().waitFor({ timeout: 15_000 });
+    return page;
+  };
+
+  it('ends the You rows with a triage link to the tickets assigned to the reader that no plan names', async () => {
+    const mine = (n: number) => ({
+      kind: 'ticket', number: String(n), title: `Mine ${n}`, url: '', ageMinutes: n, status: 'open', statusCategory: 'To Do', assignees: ['gardener'],
+    });
+    const tickets = [mine(1), mine(2)];
+    const page = await openYou({
+      issueAnswer: 'answered', issues: tickets,
+      waiting: { tickets, shown: 2, hidden: 0, unassigned: 0, assignedToOthers: 0, complete: true, notice: null, source: { service: 'github', match: 'host-login' } },
+    } as unknown as Partial<Fleet>);
+    try {
+      const footer = page.locator('[data-section="you"] [data-you-footer="triage"]');
+      await footer.waitFor({ timeout: 10_000 });
+      expect(await footer.innerText()).toContain('2 tickets assigned to you have no plan');
+      await footer.locator('button[data-you-triage]').click();
+      await expect.poll(() => page.evaluate(() => {
+        const t = document.getElementById('tickets')?.getBoundingClientRect().top ?? Infinity;
+        return t >= -1 && t < window.innerHeight;
+      })).toBe(true);
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+
+  it('states the unread tracker under the You rows while You still holds rows', async () => {
+    const page = await openYou({ issueAnswer: 'failed', issues: [], issueError: 'gh: 503 Service Unavailable' } as unknown as Partial<Fleet>);
+    try {
+      const footer = page.locator('[data-section="you"] [data-you-footer="unread"]');
+      await footer.waitFor({ timeout: 10_000 });
+      expect(await footer.locator('[data-you-footer-sentence]').innerText()).toBe('The tracker gave no answer.');
+      expect(await page.locator('[data-section="you"] li[data-delivery-row]').count()).toBeGreaterThan(0);
+      expect(await page.locator('[data-you-footer="triage"]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
 
   it('does not scroll sideways at 320 px', async () => {
     const page = await open(320);

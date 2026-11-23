@@ -10,7 +10,10 @@ import {
   type MineMode,
   type Ownership,
   releaseCards,
+  releaseGroup,
   releaseTargets,
+  type LastRelease,
+  type ReleaseGroupView,
   type ReleaseCardSprint,
   type ReleaseCarried,
   type ReleaseCardView,
@@ -25,11 +28,15 @@ import {
   type WorkItemReading,
 } from '@plot-pm/domain';
 import type { PersonDirectory } from '@plot-pm/domain/entities/person';
+import { countedSlicesByPlan as domainCountedSlicesByPlan, type CountedPlanFacts, type PlanCountedSlice } from '@plot-pm/domain/rules/counted-slices';
+import type { ReleasePrReading } from '@plot-pm/domain/rules/release-approvable';
 import { personCommentHolds } from '@plot-pm/domain/rules/person-comment';
 import { ticketMarkOf, ticketRecordOf } from '@plot-pm/domain/rules/sprint-ticket-record';
 import type { AgentEntry, AgentRow, DraftPlan, IssueRow, ReleaseTickets, Slice, TicketSourceShape } from '../../../contract/schema.js';
 import { ownedFromCard, ownedFromRow, ownedFromTicket, plansOfTicket, rowMineOwnership, ticketMineOwnership, type PlanOwners } from './mine-filter.js';
+import { releaseReadingOf } from '../release-approve.js';
 import { sliceKeyOf } from './sections.js';
+import { needsBrief } from './row-identity.js';
 import { SLICE_LINKING_KINDS } from './slices.js';
 
 /** The two `## Plot Config` keys the rule reads, as the server carried them. */
@@ -76,6 +83,8 @@ export interface DeliveryMapInput {
   bounds?: AgentBounds | undefined;
   /** The checks page of a PR, from the Planning cards; absent or `''` where none is known. */
   checksUrlOf?: ((planFile: string, pr: number) => string) | undefined;
+  /** The plan facts the counted slices read, from `countedPlanFactsOf(fleet.plans)`; absent reads as none. */
+  plans?: readonly CountedPlanFacts[] | undefined;
 }
 
 /** The connector's window: `exhausted` stops a loop agent, `free` and `unknown` do not. */
@@ -137,6 +146,8 @@ export interface DeliveryMapping {
   checksUrlOf: (planFile: string, pr: number) => string;
   /** One entry per distinct target release, and the tickets the release line counts for them. */
   releases: { targets: ReleaseTarget[]; tickets: ReleaseTicketReading | null };
+  /** The plan facts the counted slices read, as `deliveryMapping` was given them; `[]` where none. */
+  plans: readonly CountedPlanFacts[];
 }
 
 /** The domain index exports a different `PrReading` from `branch-state`; this names the placement rule's. */
@@ -144,17 +155,17 @@ type PrFacts = NonNullable<WorkItemReading['pr']>;
 
 const MINE: Record<MineMode, DeliveryMine> = { all: 'off', 'mine-and-unknown': 'mine', mine: 'strict' };
 
-/** The payload's workflow phase words, and the lifecycle phase the placement rule reads for each. */
-const PHASE_OF: Readonly<Record<string, NonNullable<WorkItemReading['phase']>>> = {
-  Discovery: 'draft',
-  Design: 'design',
-  Development: 'approved',
-  Testing: 'delivered',
-  Released: 'released',
-};
+/**
+ * The placement rule's Mine mode for the board's Mine mode.
+ *
+ * @param mode - the board's Mine mode.
+ * @returns `off` for `all`, `mine` for `mine-and-unknown`, `strict` for `mine`.
+ */
+export const deliveryMineOf = (mode: MineMode): DeliveryMine => MINE[mode];
 
-const phaseOf = (value: string | null): WorkItemReading['phase'] =>
-  value === null ? undefined : PHASE_OF[value];
+/** The plan state the placement rule reads; `rejected`, `superseded` and an unread state leave it unset. */
+const phaseOf = (state: AgentRow['planState']): WorkItemReading['phase'] =>
+  state === 'rejected' || state === 'superseded' || state === null ? undefined : state;
 
 export const sliceItemId = (plan: string, wave: string): string => `slice:${sliceKeyOf(plan, wave)}`;
 export const branchItemId = (branch: string): string => `branch:${branch}`;
@@ -255,7 +266,7 @@ const rowItem = (id: string, rows: readonly AgentRow[], slice: Slice | undefined
     kind: first.kind === 'release' ? 'release' : !rowInSlice(first) ? (first.pr ? 'pr' : 'branch') : 'slice',
     ownership: ownershipOfRows(rows, reader),
   };
-  const phase = phaseOf(first.phase);
+  const phase = phaseOf(first.planState);
   if (phase !== undefined) item.phase = phase;
   if (rows.some((r) => r.question !== null && r.question !== undefined)) item.blockedMarker = true;
   const merged = slice !== undefined ? slice.complete : rows.every((r) => r.state === 'merged');
@@ -274,6 +285,7 @@ const rowItem = (id: string, rows: readonly AgentRow[], slice: Slice | undefined
   }
   const blockedBy = rows.find((r) => r.blockedBy !== null)?.blockedBy;
   if (blockedBy) item.waitsOn = blockedBy;
+  if (rows.some(needsBrief)) item.needsBrief = true;
   if (item.kind === 'pr' || item.kind === 'branch') {
     const loose = looseOf(rows, held);
     if (loose !== undefined) item.loose = loose;
@@ -441,6 +453,7 @@ const mapReadings = (input: DeliveryMapInput): DeliveryMapping => {
     rateLimit: input.rateLimit ?? 'unknown',
     bounds: input.bounds,
     checksUrlOf: input.checksUrlOf ?? (() => ''),
+    plans: input.plans ?? [],
     releases: {
       targets: releaseTargets(input.sprints ?? []),
       tickets: input.releaseTickets == null ? null : input.releaseTickets,
@@ -508,34 +521,58 @@ export const ticketMarkFor = (sprintTexts: readonly string[], ticket: string): s
 };
 
 /**
+ * The plan facts the counted slices read, from the `/api/fleet` plan index.
+ *
+ * One entry per plan that carries both `phase` and `type`. `sliceIds` holds the
+ * work item id of each slice name in `slices`, and `planId` the plan's id with
+ * an empty slice name. An entry with no `phase` or no `type` yields nothing, so
+ * the plan keeps whatever the payload read for it.
+ *
+ * @param plans - `fleet.plans`, keyed by slug; absent reads as none.
+ * @returns the plan facts, in the index's key order.
+ */
+export const countedPlanFactsOf = (
+  plans: Readonly<Record<string, { phase?: string | undefined; type?: string | undefined; slices?: readonly string[] | undefined }>> | undefined,
+): CountedPlanFacts[] =>
+  Object.entries(plans ?? {}).flatMap(([plan, entry]) =>
+    entry.phase === undefined || entry.type === undefined
+      ? []
+      : [{
+          plan,
+          phase: entry.phase,
+          type: entry.type,
+          sliceIds: (entry.slices ?? []).map((s) => sliceItemId(plan, s)),
+          planId: sliceItemId(plan, ''),
+        }]);
+
+/**
  * The counted slices per plan, read from the slice items of one set of readings.
  *
  * A slice item's id is `slice:<plan>\0<wave>` (`sliceItemId`), so the plan is the
  * part before the NUL. Every plan the payload read a row or a Draft card for has
  * an entry, `[]` where it holds no slice item: a Draft plan is split into
  * branches only after approval. A plan the payload read nothing for has no
- * entry: its merge answer is unread.
+ * entry: its merge answer is unread. The domain's `countedSlicesByPlan` decides
+ * the entries from these readings and `input.plans`; absent reads as no plan facts.
  *
  * @param items - the work items of one set of readings.
- * @param input - the rows and Draft plans the readings were mapped from.
+ * @param input - the rows and Draft plans the readings were mapped from, and the plan facts.
  */
 export const countedSlicesByPlan = (
   items: readonly WorkItemReading[],
-  input: Pick<DeliveryMapInput, 'rows' | 'drafts'> = { rows: [], drafts: [] },
-): Map<string, CountedSlice[]> => {
-  const byPlan = new Map<string, CountedSlice[]>();
-  for (const plan of [...input.rows.map((r) => r.plan), ...input.drafts.map((d) => d.plan)]) {
-    if (plan !== '' && !byPlan.has(plan)) byPlan.set(plan, []);
-  }
-  for (const item of items) {
-    if (!item.id.startsWith('slice:')) continue;
-    const plan = item.id.slice('slice:'.length).split('\0')[0]!;
-    const list = byPlan.get(plan) ?? [];
-    list.push({ id: item.id, merge: item.delivered === true ? 'merged' : 'open' });
-    byPlan.set(plan, list);
-  }
-  return byPlan;
-};
+  input: Pick<DeliveryMapInput, 'rows' | 'drafts'> & { readonly plans?: readonly CountedPlanFacts[] } = { rows: [], drafts: [] },
+): Map<string, CountedSlice[]> =>
+  domainCountedSlicesByPlan({
+    seen: [...input.rows.map((r) => r.plan), ...input.drafts.map((d) => d.plan)],
+    slices: items
+      .filter((item) => item.id.startsWith('slice:'))
+      .map((item): PlanCountedSlice => ({
+        plan: item.id.slice('slice:'.length).split('\0')[0]!,
+        id: item.id,
+        merge: item.delivered === true ? 'merged' : 'open',
+      })),
+    plans: input.plans ?? [],
+  });
 
 /**
  * The sprint card's view, read from every row the payload carries.
@@ -594,4 +631,59 @@ export const releaseCardsOf = (
   });
   const cards = releaseCards(sprints, readings, directory ?? {}, countedSlicesByPlan(whole.readings.items, input), whole.readings, whole.input, carried);
   return { cards, rows };
+};
+
+/** The Release group, the release rows it binds, and each bound row's PR reading. */
+export interface ReleaseGroupOf {
+  group: ReleaseGroupView;
+  /** By work item id. */
+  rows: Record<string, AgentRow>;
+  /** Each release row's PR reading, by work item id, for `releaseStatusLine`. */
+  prReading: Record<string, ReleasePrReading | null>;
+}
+
+/**
+ * The Delivery tab header's Release group over the sprints in scope, read from every row the payload carries.
+ *
+ * Maps `input` in mode `all`, as `releaseCardsOf` does, so the group ignores the Mine mode. The
+ * unknown-owner warnings are `sprintCards`' over the same sprints.
+ *
+ * @param scope - the scope kind and its sprints: every Active sprint for `release`, the reader's selected ones for `my-sprint`.
+ * @param reader - who is reading.
+ * @param input - the payload's rows, unfiltered by the Sprint filter, and the rest of the Delivery tab's mapping input.
+ * @param carried - the Release delivery section's plans and counted slices (`DeliveryView.releaseCarried`).
+ * @param last - the payload's `lastRelease`.
+ * @returns the group, its rows and their PR readings.
+ */
+export const releaseGroupOf = (
+  scope: { kind: 'release' | 'my-sprint'; sprints: readonly (ReleaseCardSprint & SprintCardSprint)[] },
+  reader: Reader,
+  input: DeliveryMapInput,
+  carried: ReleaseCarried | undefined,
+  last: LastRelease | null,
+): ReleaseGroupOf => {
+  const whole = deliveryMapping({ ...input, mode: 'all' });
+  const rows: Record<string, AgentRow> = {};
+  const prReading: Record<string, ReleasePrReading | null> = {};
+  const readings = whole.readings.items.filter((item) => item.kind === 'release').map((item) => {
+    const row = whole.rowsByItem[item.id]?.[0];
+    if (row !== undefined) rows[item.id] = row;
+    prReading[item.id] = releaseReadingOf(row?.pr ?? null);
+    return { id: item.id, version: row?.version ?? '', pr: row?.pr?.number ?? null };
+  });
+  const directory = reader.directory ?? {};
+  const slicesByPlan = countedSlicesByPlan(whole.readings.items, input);
+  const group = releaseGroup({
+    scope: scope.kind,
+    sprints: scope.sprints,
+    cards: releaseCards(scope.sprints, readings, directory, slicesByPlan, whole.readings, whole.input, carried),
+    rows: readings,
+    directory,
+    slicesByPlan,
+    readings: whole.readings,
+    input: whole.input,
+    unknownOwners: sprintCards(scope.sprints, reader, slicesByPlan, whole.readings, whole.input).unknownOwners,
+    lastRelease: last,
+  });
+  return { group, rows, prReading };
 };

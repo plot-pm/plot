@@ -31,7 +31,7 @@ const MIN_TARGET = 24;
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-16-a-plan.md',
-  wave: 'w', state: 'open', phase: 'Design', group: 'not-started', ageMinutes: null,
+  wave: 'w', state: 'open', phase: 'Design', planState: 'design', group: 'not-started', ageMinutes: null,
   waitingOn: 'click' as const, note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
   localDirty: false, localLocked: false, stuck: null, deferredReason: '',
   ...over,
@@ -59,7 +59,7 @@ function fleet(): Fleet {
     // for a person to approve it*, and the row that offered nothing to click.
     row({
       plan: 'plant-tomatoes', planFile: '2026-03-01-plant-tomatoes.md',
-      branch: 'feature/sow-seedlings', phase: 'Discovery', waitingDays: 5,
+      branch: 'feature/sow-seedlings', phase: 'Discovery', planState: 'draft', waitingDays: 5,
       waitingOn: 'you' as const, note: 'plan not approved yet — still in review',
     }),
     // A plan with three branches, so the section has a group with real members
@@ -79,14 +79,14 @@ function fleet(): Fleet {
     row({
       plan: 'fix-leaky-hose', planFile: '2026-03-05-fix-leaky-hose.md',
       branch: 'feature/replace-washer', group: 'waiting-on-you', state: 'wip',
-      phase: 'Development', ageMinutes: 30, waitingDays: null,
+      phase: 'Development', planState: 'approved', ageMinutes: 30, waitingDays: null,
       note: 'PR #116 green', branchUrl: `${GH}feature/replace-washer`,
       pr: { number: 116, url: 'https://github.com/tiny/garden/pull/116', draft: false, state: 'green' },
     }),
     row({
       plan: 'fix-leaky-hose', planFile: '2026-03-05-fix-leaky-hose.md',
       branch: 'feature/clamp-the-joint', group: 'waiting-on-you', state: 'wip',
-      phase: 'Development', ageMinutes: 45, waitingDays: null,
+      phase: 'Development', planState: 'approved', ageMinutes: 45, waitingDays: null,
       note: 'PR #117 green', branchUrl: `${GH}feature/clamp-the-joint`,
       pr: { number: 117, url: 'https://github.com/tiny/garden/pull/117', draft: false, state: 'green' },
     }),
@@ -500,11 +500,17 @@ describe('the row says what it knows', () => {
       // The other half, and the one an over-eager implementation loses: approve
       // is the plan's act only while the plan is Draft. `plot-approve.sh`
       // refuses every other phase, so a row offering it would be inviting a
-      // refusal.
+      // refusal. The row lists its kind's fixed items, so Approve is there,
+      // disabled with a reason, and no Approve button exists.
       for (const plan of ['strawberry-netting']) {
         const planRow = grid(page, 'Input to the fleet').locator(`li[data-plan-row="${plan}"]`);
         await expect.poll(() => planRow.count()).toBe(1);
-        await expect.poll(() => planRow.locator('[data-plan-actions]').count()).toBe(0);
+        await planRow.locator('[data-plan-actions]').click();
+        const approve = planRow.locator('[role="menu"] [data-menu-item="approve"]');
+        await expect.poll(() => approve.count()).toBe(1);
+        expect(await approve.getAttribute('aria-disabled')).toBe('true');
+        expect(await approve.getAttribute('data-menu-reason')).not.toBe('');
+        expect(await planRow.locator('[role="menu"]').getByRole('button', { name: /approve/i }).count()).toBe(0);
       }
     } finally {
       await page.close();

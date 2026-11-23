@@ -20,9 +20,9 @@ import {
   isSpikeSlice,
   RELEASE_BRANCH,
 } from '../../../contract/schema.js';
-import { tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromSlice, planPrAggregate, statusTone, tupleAgeText } from '../tuple-row.js';
-import { TICKET_TRACKS, TUPLE_TRACKS, TupleLinkView, TupleRowView } from '../../components/TupleRow.js';
-import { activityPace } from './activity.js';
+import { tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromSlice, planPrAggregate, statusTone, tupleAgeText, type TupleAge } from '../tuple-row.js';
+import { TICKET_TRACKS, TUPLE_TRACKS, TupleLinkView, TupleRowView, WORK_GRID_TRACKS } from '../../components/TupleRow.js';
+import { activityPace, activitySignal, signalAge, type ActivitySignal } from './activity.js';
 import { soleRowStatus, exceptionSummary } from './stuck.js';
 import { type PlanGroup, elsewhereNote, planWaitingDays, sliceSummaryFor } from './sections.js';
 import type { Jump } from './delivery-view.js';
@@ -33,11 +33,11 @@ import { type BriefNote, briefGapNote, briefNote, needsBrief, waitingTone } from
 
 /** An index with no entries — a plan reference still links from its own file. */
 const EMPTY_PLAN_INDEX: PlanIndex = planIndexOf({});
-import { noteShown, YOU_COLUMNS, YOU_COLUMN_LABELS } from '@plot-pm/domain';
+import { noteShown, WORK_ITEM_COLUMNS, WORK_ITEM_COLUMN_LABELS, YOU_COLUMNS, YOU_COLUMN_LABELS } from '@plot-pm/domain';
 import { type SliceGroup, groupedNote, sliceDissent } from './slices.js';
 import { sliceRowReading } from './slice-reading.js';
-import { ActivitySpinner, BlockedByMark, ChangeMark, StuckCell, UnpushedMark } from './marks.js';
-import { BranchMenu, IssueRowActions, PlanActions, ResliceMenu, SliceActions } from './menus.js';
+import { BlockedByMark, ChangeMark, StuckCell, UnpushedMark, useReducedMotion } from './marks.js';
+import { BranchMenu, IssueRowActions, PlanActions, SliceActions, type SliceMenuOwn } from './menus.js';
 import { WorkerLogModal } from '../../components/WorkerLogModal.js';
 import { PlanTicketKeys } from '../../components/PlanTicketKeys.js';
 import { DispatchLogModal } from '../../components/DispatchLogModal.js';
@@ -54,6 +54,9 @@ import { ChangedFilesModal } from '../../components/ChangedFilesModal.js';
  * where an implementation checking the two in sequence loses whichever it tests
  * second.
  */
+/** A tuple whose age cell shows what the row's activity signals say (`signalAge`). */
+const withSignalAge = <T extends { age: TupleAge }>(tuple: T, signal: ActivitySignal): T => ({ ...tuple, age: signalAge(tuple.age, signal) });
+
 export function isUnpushed(row: AgentRow): boolean {
   return (row.localAhead ?? 0) > 0;
 }
@@ -368,6 +371,8 @@ export interface AgentListProps {
    * while unread. The to-do list's release lines read it to decide whether an approval can run.
    */
   passkey?: PasskeyRegistration | null;
+  /** The board payload's `lastRelease`; `null` or absent where no record parses or no board has landed. */
+  lastRelease?: { tag: string; date: string } | null;
 }
 
 /**
@@ -449,7 +454,20 @@ export function PlanLink({
  * slot 1's kind ICON as well, which is a fact about the row rather than an
  * ornament on it.
  */
-export function HeaderRow({ statusName = 'Status', youColumns = false }: { statusName?: string; youColumns?: boolean } = {}) {
+export function HeaderRow({ statusName = 'Status', youColumns = false, workColumns = false }: { statusName?: string; youColumns?: boolean; workColumns?: boolean } = {}) {
+  if (workColumns) {
+    // The Work items column set, one name per `WORK_ITEM_COLUMNS` entry on `WORK_GRID_TRACKS`.
+    return (
+      <li role="row" data-work-header className={`hidden sm:grid ${WORK_GRID_TRACKS} gap-x-3 px-3 delivery-thead`}>
+        <span role="columnheader"><span className="sr-only">Marks</span></span>
+        {WORK_ITEM_COLUMNS.map((c) => (
+          c === 'menu'
+            ? <span key={c} role="columnheader" data-column-header={c} aria-label={WORK_ITEM_COLUMN_LABELS[c]}>⋯</span>
+            : <span key={c} role="columnheader" data-column-header={c}>{WORK_ITEM_COLUMN_LABELS[c]}</span>
+        ))}
+      </li>
+    );
+  }
   if (youColumns) {
     // The You section's own column set: no Where, no By — every row there is the reader's.
     return (
@@ -481,9 +499,9 @@ export function HeaderRow({ statusName = 'Status', youColumns = false }: { statu
       <span role="columnheader">Item</span>
       <span role="columnheader">Where</span>
       <span role="columnheader" data-column-header>{statusName}</span>
-      <span role="columnheader">Do</span>
       <span role="columnheader">By</span>
       <span role="columnheader">Age</span>
+      <span role="columnheader">Do</span>
     </li>
   );
 }
@@ -638,6 +656,7 @@ export function PlanRow({
   /** The board's plan index — see `AgentListProps.planIndex`. */
   planIndex?: PlanIndex;
 }) {
+  const reducedMotion = useReducedMotion();
   const waiting = planWaitingDays(group);
   // THE SECTION'S OWN SLICES, then how many are ELSEWHERE. `sliceSummaryFor` counts
   // what this section holds — from the server's `slices` where the payload
@@ -700,6 +719,9 @@ export function PlanRow({
   // Its fields feed the head's links; it is not counted in the tally below,
   // because it IS the head rather than one of the things the head heads.
   const planOwnRow = group.rows.find((r) => r.kind === 'plan');
+  // The FAST pace: a plan row runs only where one of its branches, folded or not, is in `active`. It marks a
+  // change only while folded: open, its branches mark their own.
+  const signal = activitySignal(active ? 'fast' : null, marked && expanded === false, reducedMotion);
   return (
     <TupleRowView
       by={by}
@@ -725,9 +747,10 @@ export function PlanRow({
         // The BRANCH clock overrides the approval one where the caller has it and
         // the approval clock is absent — see `ageMinutes`. Unlabelled, because
         // *since last change* is the rule and this is a change.
-        return ageMinutes !== undefined && Number.isFinite(ageMinutes) && waiting === null
+        const own = ageMinutes !== undefined && Number.isFinite(ageMinutes) && waiting === null
           ? { ...t, age: { text: tupleAgeText(ageMinutes), label: '' } }
           : t;
+        return { ...own, age: signalAge(own.age, signal) };
       })()}
       onOpenPlan={onOpenPlan}
       rowAttr={{ 'data-plan-row': group.plan }}
@@ -762,11 +785,9 @@ export function PlanRow({
         // `expanded === false`, not `!expanded`: the prop is `boolean | null`
         // and null means *this plan has no fold* — a head with nothing to hide
         // hides nothing, so its branch is right there flashing.
-        marked && expanded === false ? <ChangeMark /> : null
+        signal.changed ? <ChangeMark /> : null
       }
-      // The FAST pace: a plan row shows a spinner only where one of its
-      // branches, folded or not, is in `active`.
-      statusLead={active ? <ActivitySpinner pace="fast" /> : null}
+      statusPace={signal.spinner}
       marks={
         <>
           {foldable ? (
@@ -1029,14 +1050,13 @@ export function SliceRow({
   onJump,
   planIndex,
   by,
-  gates,
-  gatesReplaceStatus,
+  pills,
   details,
 }: {
   /** The BY cell: who acts on the item. */
   by?: ReactNode;
-  gates?: ReactNode;
-  gatesReplaceStatus?: boolean;
+  /** The Work items status pills; where set they stand instead of the status word. */
+  pills?: ReactNode;
   /** The details popover's lines. */
   details?: readonly string[];
   group: SliceGroup;
@@ -1123,6 +1143,7 @@ export function SliceRow({
   /** The board's plan index — see `AgentListProps.planIndex`. */
   planIndex?: PlanIndex;
 }) {
+  const reducedMotion = useReducedMotion();
   const foldable = expanded !== null;
   // The slice's own age is the freshest of its branches — a slice has no tip, so
   // its clock is the clock of the work in it. `null` where none of them has one,
@@ -1152,6 +1173,13 @@ export function SliceRow({
   // `you` is the amber tone the board uses for *this needs a decision*, which is
   // exactly what an eligible slice is.
   const reading = sliceRowReading(group.verdict, group.rows);
+  const sliceOwn: SliceMenuOwn = {
+    wave: group.wave || '(unnamed)',
+    slug: plan,
+    eligible: reading.dispatch,
+    unsliced: group.rows[0]?.stuck?.state === 'unsliced-wave',
+    reslice,
+  };
   // A HELD SLICE SPEAKS FIRST, ahead of the sole row and the grouped count: its
   // branches all wait on an open `waits:`, so neither a count nor a verdict
   // sentence about starting is true of it.
@@ -1196,13 +1224,14 @@ export function SliceRow({
         ? groupedNote(groupedWord, sliceDissent(group.rows))
         : '')
         || reading.note;
+  // The FAST pace: a slice row runs only where one of its branches is in `active`.
+  const signal = activitySignal(active ? 'fast' : null, marked, reducedMotion);
   return (
     <TupleRowView
       by={by}
-      gates={gates}
-      gatesReplaceStatus={gatesReplaceStatus}
+      pills={pills}
       details={details}
-      tuple={tupleFromSlice({
+      tuple={withSignalAge(tupleFromSlice({
         name: group.wave,
         plan,
         verdict: group.verdict,
@@ -1291,7 +1320,7 @@ export function SliceRow({
         ).length,
         ageMinutes: ages.length ? Math.min(...ages) : null,
         waitingDays,
-      }, planIndex)}
+      }, planIndex), signal)}
       rowAttr={{
         'data-slice-row': group.wave || UNNAMED_SLICE,
         // A slice of one branch is the only row that branch gets, so it is an agent row too.
@@ -1443,7 +1472,7 @@ export function SliceRow({
               a PR turning red, a row moving section — and said nothing about it.
               `extra` is the slot whose positioning parent is the row itself,
               which is what `inset-0` needs to tint the whole line. */}
-          {marked && <ChangeMark />}
+          {signal.changed && <ChangeMark />}
           {(soleRow ?? group.rows[0])?.stuck?.state === 'unsliced-wave'
             ? <StuckCell row={group.rows[0]} />
             : soleRow?.stuck ? <StuckCell row={soleRow} /> : null}
@@ -1455,80 +1484,29 @@ export function SliceRow({
           {briefRow ? <BriefLine row={briefRow} /> : null}
         </>
       }
-      // START WORK, ON THE SLICE THAT CAN BE STARTED — and it went missing when
-      // the branch rows did.
-      //
-      // The control lived in a branch row's `RowActions`, so replacing those
-      // rows with slice rows took the action with them: NOT STARTED offered
-      // nothing to click. Reported from a screenshot.
-      //
-      // The plan warned that a dispatch control on a PLAN row *"would have to
-      // guess which of the plan's slices it meant"*, and one level down the same
-      // worry does not apply — because `StartWorkButton` takes a **`Card`** and
-      // a `dispatch` binding, NOT a branch. Dispatch is a plan-level act:
-      // `plot-dispatch.sh` fans out the eligible slice, which is this row. There
-      // is nothing to guess.
-      //
-      // ONLY where the verdict is `eligible`. A blocked slice offers no control
-      // at all rather than a disabled one — `isStartable`'s own rule: *"a button
-      // whose usual state is 'you cannot' teaches people to ignore buttons"*,
-      // and the note beside it already says an earlier slice has to land first.
-      // AND THE BRANCH'S MENU WHERE THIS ROW IS A BRANCH'S ROW.
-      //
-      // `SliceActions` above dispatches the SLICE and is gated on
-      // `verdict === 'eligible'` for its own good reason. That gate was also,
-      // accidentally, the gate on whether this row had ANY menu — so a slice of
-      // one branch, which is what most plans are, lost Review, Open and the
-      // worker log entirely. Measured: every slice row had zero menus of any
-      // kind while every branch row had one.
-      //
-      // Only for a SOLE branch. Where a slice holds several, each keeps its own
-      // row and its own menu, and a branch menu here would have to guess which
-      // branch it meant — the same argument that keeps dispatch off the plan
-      // row one level up.
+      // ONE MENU PER SLICE ROW. A slice with one branch renders that branch's menu with the slice's own acts
+      // (Start work, Slice this plan) at its head; any other slice renders the slice's acts alone. Each item that
+      // cannot run is listed disabled with its reason (`rowMenuOf`).
       menu={
-        <>
-          {reading.dispatch && card && dispatch ? (
-            <SliceActions
-              wave={group.wave || '(unnamed)'}
-              card={card}
-              dispatch={dispatch}
-              pulse={pulse}
-              onStarting={onStarting}
-            />
-          ) : null}
-          {/* THE UNSLICED SLICE'S ONE ACT — the menu this row had none of before.
-              A slice the scan reports `unsliced-wave` is `blocked` (several live
-              branches, no single one to dispatch) and holds more than one branch
-              (so no `soleRow`), which left it with neither of the two menus
-              above. It gets its OWN, because the errand it offers — spawn
-              `/plot-reslice` — belongs to no other slice. The state lives on the
-              slice's rows, read from `rows[0]` where its `StuckCell` reads it. */}
-          {group.rows[0]?.stuck?.state === 'unsliced-wave' && reslice ? (
-            <ResliceMenu
-              wave={group.wave || '(unnamed)'}
-              slug={plan}
-              reslice={reslice}
-              onActing={onStarting}
-            />
-          ) : null}
-          {soleRow ? (
-            <BranchMenu
-              row={soleRow}
-              card={menuCard ?? card ?? null}
-              dispatch={menuDispatch ?? dispatch}
-              implement={implement}
-              pulse={pulse}
-              onStarting={onStarting}
-              continueWith={continueWith}
-              restartWith={restartWith}
-              onOpenPlan={onOpenPlan}
-              onRevealBranch={onRevealBranch}
-            />
-          ) : null}
-        </>
+        soleRow ? (
+          <BranchMenu
+            row={soleRow}
+            card={menuCard ?? card ?? null}
+            dispatch={menuDispatch ?? dispatch}
+            implement={implement}
+            pulse={pulse}
+            onStarting={onStarting}
+            continueWith={continueWith}
+            restartWith={restartWith}
+            onOpenPlan={onOpenPlan}
+            onRevealBranch={onRevealBranch}
+            slice={sliceOwn}
+          />
+        ) : (
+          <SliceActions slice={sliceOwn} card={card ?? null} dispatch={dispatch} pulse={pulse} onStarting={onStarting} />
+        )
       }
-      statusLead={active ? <ActivitySpinner pace="fast" /> : null}
+      statusPace={signal.spinner}
       marks={
         <>
           {foldable ? (
@@ -1635,7 +1613,7 @@ export function startableNote(row: AgentRow): string {
 
 /**
  * Renders a brief note `briefNote` chose: a working dot while the writer runs,
- * the failed note in amber, the asked note in the quiet tone. Decides nothing.
+ * the failed and spent notes in amber, the asked note in the quiet tone. Decides nothing.
  *
  * THE DOT REUSES THE BOARD'S ONE PULSE CONVENTION — `animate-pulse
  * motion-reduce:animate-none`, decorative and `aria-hidden`, first established
@@ -1649,10 +1627,12 @@ const BriefNoteCell = ({ note }: { note: BriefNote }) => (
       ? { 'data-brief-writing': true }
       : note.kind === 'failed'
         ? { 'data-brief-failed': true }
-        : { 'data-brief-asked': true })}
+        : note.kind === 'spent'
+          ? { 'data-brief-spent': true }
+          : { 'data-brief-asked': true })}
     className={cn(
       'flex w-full items-baseline gap-x-2 text-xs sm:col-start-3 sm:col-end-[-1]',
-      note.kind === 'failed'
+      note.kind === 'failed' || note.kind === 'spent'
         ? 'text-amber-700 dark:text-amber-400'
         : 'text-slate-500 dark:text-slate-400',
     )}
@@ -1747,8 +1727,7 @@ export function Row({
   highlighted = false,
   planIndex,
   by,
-  gates,
-  gatesReplaceStatus,
+  pills,
   details,
   menu,
 }: {
@@ -1756,8 +1735,8 @@ export function Row({
   menu?: ReactNode;
   /** The BY cell: who acts on the item. */
   by?: ReactNode;
-  gates?: ReactNode;
-  gatesReplaceStatus?: boolean;
+  /** The Work items status pills; where set they stand instead of the status word. */
+  pills?: ReactNode;
   /** The details popover's lines. */
   details?: readonly string[];
   row: AgentRow;
@@ -1865,6 +1844,7 @@ export function Row({
   /** The board's plan index — see `AgentListProps.planIndex`. */
   planIndex?: PlanIndex;
 }) {
+  const reducedMotion = useReducedMotion();
   // What the note still has to say once slot 5 carries the PR's own condition —
   // see `noteWithoutPr`. IN THE MACHINE SECTION THE SENTENCE IS THE PROCESS'S.
   const note = noteWithoutPr(
@@ -2032,14 +2012,15 @@ export function Row({
       ? { links: base.links.filter((l) => l.what !== 'plan' && l.what !== 'wave') }
       : {}),
   };
+  // A branch row runs at its own pace: `fast` while its desk writes, `slow` otherwise.
+  const signal = activitySignal(active ? activityPace(row) : null, marked, reducedMotion);
 
   return (
     <TupleRowView
       by={by}
-      gates={gates}
-      gatesReplaceStatus={gatesReplaceStatus}
+      pills={pills}
       details={details}
-      tuple={tuple}
+      tuple={withSignalAge(tuple, signal)}
       onOpenPlan={onOpenPlan}
       // AN AGENT'S NAME OPENS THE PANEL, which is what the name is FOR: the
       // session has no address — the transcript is a local file — so the name
@@ -2067,7 +2048,7 @@ export function Row({
           ? 'Approved this long ago, and nobody has started it'
           : undefined
       }
-      statusLead={active ? <ActivitySpinner pace={activityPace(row)} /> : null}
+      statusPace={signal.spinner}
       marks={
         <>
           {/* THE CHANGE MARK IS NOT HERE ANY MORE — it is passed as `extra`,
@@ -2296,7 +2277,7 @@ export function Row({
               line. It hung in the marks track until 2026-08-20 and tinted a
               24x20 cell instead; see the note there. Absolutely positioned, so
               its place among these siblings costs no layout. */}
-          {marked && <ChangeMark />}
+          {signal.changed && <ChangeMark />}
           {/* Why this branch cannot MOVE — a different question from where it
               is waiting, and the one nothing in the six slots could answer. It
               renders BENEATH them rather than inside one: the evidence is three

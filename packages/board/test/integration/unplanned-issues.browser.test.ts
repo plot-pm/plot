@@ -23,7 +23,7 @@ const GH = 'https://github.com/tiny/garden/tree/';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-16-a-plan.md',
-  wave: 'w', state: 'wip', phase: 'Development', group: 'waiting-on-you', ageMinutes: 30,
+  wave: 'w', state: 'wip', phase: 'Development', planState: 'approved', group: 'waiting-on-you', ageMinutes: 30,
   waitingOn: 'click' as const, note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: null,
   localDirty: false, localLocked: false, stuck: null,
   ...over,
@@ -248,5 +248,21 @@ describe('an unplanned issue appears in the ticket list', () => {
     }
   });
 
-
+  it('frames an empty section and names an empty group inside a section with rows', async () => {
+    // `sectionEmptyKind` decides the kind; this proves the frame and the group line are seen.
+    // The fixture carries no supervisor, so Fleet is stopped rather than clear.
+    const page = await open();
+    try {
+      const frame = page.locator('[data-section="fleet"] [data-section-empty-frame]');
+      await expect.poll(() => frame.count()).toBe(1);
+      await expect.poll(() => frame.getAttribute('data-empty-kind')).toBe('stopped');
+      await expect.poll(() => frame.locator('[data-empty-mark]').textContent()).toBe('■');
+      const workItems = page.locator('[data-section="work-items"]');
+      await expect.poll(() => workItems.locator('[data-section-empty-frame]').count()).toBe(0);
+      await expect.poll(() => workItems.locator('[data-group-none]').count()).toBeGreaterThan(0);
+      await expect.poll(() => workItems.locator('[data-group-none]').first().textContent()).toBe('— none');
+    } finally {
+      await page.close();
+    }
+  });
 });

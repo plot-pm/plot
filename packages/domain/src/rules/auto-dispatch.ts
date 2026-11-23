@@ -667,11 +667,17 @@ export const dispatchReading = (pulse: FleetReading | null, slug: string): Dispa
 };
 
 /** Why a dispatch that names its branch refuses it: see {@link dispatchReadingFor}. */
-export type NamedBranchRefusal = 'no-pulse-reading' | 'branch-not-in-plan' | 'branch-not-startable';
+export type NamedBranchRefusal = 'no-pulse-reading' | 'branch-not-in-plan' | 'branch-not-startable' | 'pulse-partial';
 
-/** What a pulse says about starting a plan, refusals of a named branch included. */
+/**
+ * What a pulse says about starting a plan, refusals of a named branch included.
+ *
+ * `pulse-partial` and the `branch-refused` reason of that name come only from
+ * `dispatchReadingForPulses`: the live scan is unfinished and no pulse lists the plan.
+ */
 export type DispatchReadingFor =
   | DispatchReading
+  | { kind: 'pulse-partial'; detail: string }
   | { kind: 'branch-refused'; reason: NamedBranchRefusal; branch: string; detail: string };
 
 /** A list of names as prose: `a`, `a and b`, `a, b and c`. */

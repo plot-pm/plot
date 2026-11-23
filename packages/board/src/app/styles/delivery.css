@@ -26,6 +26,14 @@
 .delivery-tone-warn { --delivery-text: var(--hue-amber); --delivery-dot: var(--hue-amber-dot); --delivery-soft: var(--hue-amber-soft); }
 .delivery-tone-alert { --delivery-text: var(--hue-red); --delivery-dot: var(--hue-red-dot); --delivery-soft: var(--hue-red-soft); }
 
+/*
+ * The `⋯` track: the last track of every Delivery grid has this width, so the
+ * row menu sits at one x in every section. A row with no action keeps the cell.
+ */
+:root {
+  --delivery-menu-track: 1.25rem;
+}
+
 /* The section card. */
 .delivery-card {
   background: var(--card-surface);
@@ -145,11 +153,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* The You header names five of the row's eight tracks: Kind, Item, Status, Do, Age. */
+/* The You header names five of the row's eight tracks: Kind, Item, Status, Age, Do. */
 .delivery-thead[data-you-header] > :nth-child(1) { grid-column: 2; }
 .delivery-thead[data-you-header] > :nth-child(2) { grid-column: 3 / 5; }
-.delivery-thead[data-you-header] > :nth-child(3) { grid-column: 5; }
-.delivery-thead[data-you-header] > :nth-child(4) { grid-column: 6 / 8; }
+.delivery-thead[data-you-header] > :nth-child(3) { grid-column: 5 / 7; }
+.delivery-thead[data-you-header] > :nth-child(4) { grid-column: 7; }
 .delivery-thead[data-you-header] > :nth-child(5) { grid-column: 8; }
 .delivery-row {
   padding-top: 0.5rem;
@@ -177,6 +185,20 @@
 .delivery-text-alert { color: var(--hue-red); }
 .delivery-text-link:hover { text-decoration: underline; }
 
+/* The frame an open section with no rows shows: a dashed border, a mark and one sentence. */
+.delivery-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin: 6px 12px 0;
+  padding: 12px;
+  border: 1px dashed var(--card-border);
+  border-radius: 8px;
+  color: var(--card-meta);
+  font-size: 12.5px;
+}
+
 /* A cell that cannot hold its text cuts it at the end; the full text is its `title`. */
 .delivery-truncate {
   min-width: 0;
@@ -187,3 +209,48 @@
 
 /* A dot drawn as the `●` glyph, where its line reads as text. */
 .delivery-dot-glyph { color: var(--delivery-dot, var(--card-track)); }
+
+/* The folded summary: coloured chips, a 120 by 7 px segment bar and 12 px agent circles. */
+.delivery-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border: 1px solid var(--delivery-dot, var(--card-border));
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+  white-space: nowrap;
+  text-transform: none;
+  letter-spacing: normal;
+  background: var(--delivery-soft, transparent);
+  color: var(--delivery-text, var(--card-body));
+}
+.delivery-chip-zero,
+.delivery-chip-unread {
+  font-weight: 500;
+  background: transparent;
+  border-color: var(--card-border);
+  color: var(--card-meta);
+}
+.delivery-chip-unread { border-style: dashed; }
+.delivery-sumbar {
+  display: inline-flex;
+  width: 120px;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--card-track);
+}
+.delivery-sumbar > i { display: block; height: 100%; }
+.delivery-circles { display: inline-flex; gap: 5px; }
+.delivery-circle {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--card-meta);
+  border-radius: 9999px;
+}
+.delivery-circle-working { background: var(--hue-blue-dot); border-color: var(--hue-blue-dot); }
+.delivery-circle-blocked { background: var(--hue-red-dot); border-color: var(--hue-red-dot); }

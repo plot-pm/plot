@@ -65,13 +65,18 @@ export const briefCommand = (opts: ActOptions): string =>
  * left in a working tree is invisible to the gate that asked for it, so the next
  * pass would ask again — writing a file every pulse and never starting a worker.
  *
+ * **IT PINS THE PLAN AT A SHA.** `--at <sha>` makes `/plot-implement` read
+ * the plan from that commit of `origin/<main>`, the commit the gate read, and
+ * not from the working tree of the checkout the run starts in.
+ *
  * @param slug - the plan slug, as `/plot-implement` takes it.
  * @param branch - the branch whose brief is missing.
  * @param main - the default branch's name, as the pulse reports it.
+ * @param sha - the commit `origin/<main>` named when the pass read it.
  * @returns the prompt, as one argument.
  */
-export const briefAskPrompt = (slug: string, branch: string, main: string): string =>
-  `/plot-implement ${slug} — write the hand-off brief for branch \`${branch}\` at ` +
+export const briefAskPrompt = (slug: string, branch: string, main: string, sha: string): string =>
+  `/plot-implement ${slug} --at ${sha} — write the hand-off brief for branch \`${branch}\` at ` +
   `${briefPath(branch)}, then commit and push it to ${main}. The dispatch gate reads ` +
   `that path on origin/${main}, so a brief left uncommitted is invisible to it.`;
 
@@ -115,6 +120,8 @@ export const askForBriefLogPath = briefLogPath;
  * @param slug - the plan slug, for the prompt and the log path.
  * @param prompt - the assembled prompt, passed as one argument.
  * @param onLimit - called with the reset epoch (seconds) when the run ends at the account's usage limit.
+ * @param onEnd - called when the run ends with no usage-limit reset, whatever its code. A start that
+ *   returns no runner, a start that throws and a run left to the board call neither callback.
  * @param lockDeps - the implement lock's test seams.
  * @returns the log path the session writes to, `null` when another run holds the lock, or `''` when the lock or the log cannot be opened.
  */
@@ -124,6 +131,7 @@ export const askForBrief = (
   slug: string,
   prompt: string,
   onLimit?: (resetEpoch: number) => void,
+  onEnd?: () => void,
   lockDeps: ImplementLockDeps = {},
 ): string | null => {
   const log = askForBriefLogPath(opts.repoRoot, slug);
@@ -169,6 +177,7 @@ export const askForBrief = (
       release();
       if (record.code !== 0) console.log(`auto-dispatch: the brief command for ${slug} ended: ${record.line || `code ${record.code}`}`);
       if (record.resetEpoch !== undefined) onLimit?.(record.resetEpoch);
+      else onEnd?.();
     },
   ).then(
     (runner) => {

@@ -28,7 +28,7 @@ const GH = 'https://github.com/tiny/garden/tree/';
 const row =(over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'plant-tomatoes',
   planFile: '2026-03-01-plant-tomatoes.md', wave: 'w', state: 'wip',
-  phase: 'Development', group: 'working', ageMinutes: 3, note: 'last commit 3 min ago',
+  phase: 'Development', planState: 'approved', group: 'working', ageMinutes: 3, note: 'last commit 3 min ago',
   pr: null, branchUrl: `${GH}feature/x`, waitingDays: null,
   // A RUNNING WORKER BY DEFAULT, because that is what this suite is about.
   //
@@ -171,12 +171,33 @@ describe('the activity spinner sits in the Status cell and cycles braille frames
     const li = rowFor(page, 'feature/writing');
     expect(await li.locator('[data-row-cell="status"] [data-activity-spinner]').count()).toBe(1);
     expect(await li.locator('[role="gridcell"]').first().locator('[data-activity-spinner]').count()).toBe(0);
-    // The spinner is the cell's first element: everything else follows it.
-    const first = await li.locator('[data-row-cell="status"]')
-      .evaluate((cell) => cell.firstElementChild?.hasAttribute('data-activity-spinner') ?? false);
+    // The spinner fills the cell's first element, the reserved slot: everything else follows it.
+    const first = await li.locator('[data-row-cell="status"]').evaluate((cell) => {
+      const slot = cell.firstElementChild;
+      return slot?.hasAttribute('data-activity-slot') === true && slot.firstElementChild?.hasAttribute('data-activity-spinner') === true;
+    });
     expect(first).toBe(true);
     // The old travelling mark is gone.
     expect(await li.locator('[data-activity-mark], [data-activity-dot], [data-activity-track]').count()).toBe(0);
+  });
+
+  it('reserves the slot on an idle row, so the status text does not shift', async () => {
+    const page = await open();
+    await expect.poll(() => spinnerIn(page, 'feature/writing').count()).toBe(1);
+    // The slot's width and the status text's offset in its cell, for one row.
+    const layoutOf = (branch: string) => rowFor(page, branch).locator('[data-row-cell="status"]').evaluate((cell) => {
+      const slot = cell.querySelector('[data-activity-slot]');
+      const next = slot?.nextElementSibling;
+      return {
+        slot: slot?.getBoundingClientRect().width ?? -1,
+        text: next ? next.getBoundingClientRect().x - cell.getBoundingClientRect().x : -1,
+      };
+    });
+    const active = await layoutOf('feature/writing');
+    const idle = await layoutOf('feature/idle');
+    expect(active.slot).toBeGreaterThan(0);
+    expect(idle.slot).toBe(active.slot);
+    expect(idle.text).toBe(active.text);
   });
 
   it('shares the status word\'s line box, so it is centred on the text', async () => {
@@ -257,16 +278,17 @@ describe('the activity spinner sits in the Status cell and cycles braille frames
   it('leaves the grid tracks exactly where they are', async () => {
     const page = await open();
     await expect.poll(() => spinnerIn(page, 'feature/writing').count()).toBe(1);
-    const cellX = async (branch: string, n: number) =>
-      (await rectOf(rowFor(page, branch).locator('[role="gridcell"]').nth(n))).x;
-    for (const [label, n] of [['kind', 1], ['related', 3], ['status', 4]] as const) {
-      const writing = await cellX('feature/writing', n);
-      const idle = await cellX('feature/idle', n);
+    const cellX = async (branch: string, name: string) =>
+      (await rectOf(rowFor(page, branch).locator(`[data-row-cell="${name}"]`))).x;
+    for (const label of ['item', 'plan', 'status'] as const) {
+      const writing = await cellX('feature/writing', label);
+      const idle = await cellX('feature/idle', label);
       expect(Math.abs(writing - idle), `${label} track moved`).toBeLessThan(1);
     }
     const tracks = await rowFor(page, 'feature/writing')
       .evaluate((el) => getComputedStyle(el).gridTemplateColumns);
-    expect(tracks.split(' ')).toHaveLength(8);
+    // SEVEN: the marks lane and the six Work items columns.
+    expect(tracks.split(' ')).toHaveLength(7);
   });
 
   it('keeps the unpushed mark in the marks cell, distinct from the spinner', async () => {

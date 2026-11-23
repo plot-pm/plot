@@ -15,12 +15,18 @@ export const FIXER_ATTEMPTS_VERSION = 1;
  * finding can be told from two on different ones.
  *
  * A HIGH review carries the findings' hash; a CI-red start carries the run id
- * it answered. Neither is derived here — the caller computes it and the
- * record only keeps what it was given.
+ * it answered; a conflict start carries the PR's head and the base tip it
+ * conflicted with, because a conflict is a fact about those two commits. None
+ * is derived here — the caller computes it and the record only keeps what it
+ * was given.
+ *
+ * A build that predates the `conflict` arm reads a record holding one as
+ * unreadable, and holds every fixer on that PR.
  */
 export const FixerFindingSchema = z.union([
   z.object({ kind: z.literal('high'), hash: z.string().min(1) }).strict(),
   z.object({ kind: z.literal('ci'), runId: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal('conflict'), head: z.string().min(1), baseTip: z.string().min(1) }).strict(),
 ]);
 export type FixerFinding = z.infer<typeof FixerFindingSchema>;
 
@@ -74,6 +80,38 @@ export const FixerAttemptSchema = z
 export type FixerAttempt = z.infer<typeof FixerAttemptSchema>;
 
 /**
+ * What the host answered when the tick asked it to re-run a head's failed CI
+ * jobs; `no-failed-run` where the head had no concluded `failure` run to re-run.
+ */
+// plot-state: reading — the answer of the one re-run call on a head; the tick
+//   writes `asked` before the call and rewrites it once with the call's answer,
+//   or writes `no-failed-run` with no call where no run concluded `failure`.
+export const FixerRerunAnswerSchema = z.enum(['asked', 'failed', 'unaskable', 'no-failed-run']);
+export type FixerRerunAnswer = z.infer<typeof FixerRerunAnswerSchema>;
+
+/**
+ * One re-run of a head's failed CI jobs, recorded once per head.
+ *
+ * Written with `answer: 'asked'` before the call, and rewritten as `failed` or
+ * `unaskable` where the call answers so. Written as `no-failed-run`, with no
+ * call, where no run on `headSha` concluded `failure`. `cleared` is the time the tick first
+ * read `pending` or `green` on `headSha` after `at`. A re-run spends no fixer
+ * attempt.
+ */
+export const FixerRerunSchema = z
+  .object({
+    /** The head whose failed jobs were re-run. */
+    headSha: z.string().min(1),
+    /** ISO-8601, this machine's clock: when the tick asked for the re-run. */
+    at: z.string().min(1),
+    answer: FixerRerunAnswerSchema,
+    /** ISO-8601: the first `pending` or `green` reading on `headSha` after `at`. */
+    cleared: z.string().min(1).optional(),
+  })
+  .strict();
+export type FixerRerun = z.infer<typeof FixerRerunSchema>;
+
+/**
  * One PR's fixer attempts, keyed by PR NUMBER rather than by head.
  *
  * **PER PR, NOT PER HEAD.** The plan's budget is two attempts across every
@@ -86,6 +124,8 @@ export const FixerAttemptsRecordSchema = z
     v: z.literal(FIXER_ATTEMPTS_VERSION),
     pr: z.number().int().positive(),
     attempts: z.array(FixerAttemptSchema),
+    /** The CI re-runs, at most one per head; absent where none was recorded. */
+    reruns: z.array(FixerRerunSchema).optional(),
   })
   .strict();
 export type FixerAttemptsRecord = z.infer<typeof FixerAttemptsRecordSchema>;

@@ -1806,7 +1806,7 @@ echo "== 12. Index drift (convenience — nothing depends on these) =="
 echo
 
 # ---------------------------------------------------------------------------
-# 11. Stale sprint tally
+# 13. Stale sprint tally
 #
 # Sprint items left unchecked whose plan is delivered or released — in CLOSED
 # sprints as well as active ones. A closed sprint's tally is never recomputed
@@ -1863,7 +1863,7 @@ if [ -d "$SPRINT_DIR" ]; then
       case "$plan_phase" in
         delivered|released)
           stale_tally_out+="  $sf_base → [$local_slug] — unchecked but plan is $plan_phase\n"
-          stale_tally_out+="    fix: tick the item, or add an annotation explaining why it stays unchecked\n"
+          stale_tally_out+="    fix: tick the item\n"
           n_stale_tally=$((n_stale_tally + 1))
           ;;
       esac

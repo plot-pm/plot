@@ -33,38 +33,10 @@
   overflow-wrap: anywhere;
 }
 
-/*
- * THE TICKETS CARD. From 640 px the list is one grid and each row a subgrid of it,
- * so the header row and every ticket row share one width for the auto Do track.
- */
-@media (min-width: 640px) {
-  [data-section="tickets"] [role="grid"] {
-    display: grid;
-    grid-template-columns: 4.5rem minmax(0, 1fr) auto 4.5rem;
-    column-gap: 0.75rem;
-  }
-  [data-section="tickets"] [role="grid"] > [role="row"] {
-    grid-column: 1 / -1;
-  }
-  [data-section="tickets"] .delivery-thead,
-  [data-section="tickets"] [data-issue-row] {
-    grid-template-columns: subgrid;
-  }
-}
+/* THE TICKETS CARD. Each row carries its own fixed tracks (`TicketsSection.tsx`), Do last. */
 /* The header row carries the rule above the first ticket. */
 [data-section="tickets"] .delivery-thead + .delivery-row-ruled {
   border-top: 0;
-}
-/* The Do cell: the link colour at weight 600 on one line. */
-[data-tickets-do] {
-  font-weight: 600;
-  white-space: nowrap;
-}
-/* An enabled Plan it button takes the cell's colour; armed and refused keep their own. */
-[data-tickets-do] [data-create-plan]:not([aria-disabled]):not([aria-pressed="true"]) {
-  color: inherit;
-  font-size: 13px;
-  font-weight: inherit;
 }
 
 /* THE FOOTER: one wrapping row over a rule, a 7 px dot before each freshness entry. */
