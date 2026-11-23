@@ -1186,14 +1186,14 @@ export const runWorktreeKind = async (
       counters.cleared += 1;
       const base = path.basename(match[1]);
       if (!acts(mode)) {
-        write(row('would', base, 'orphaned manifest — worktree absent'));
+        print(row('would', base, 'orphaned manifest — worktree absent'));
       } else {
         try {
           unlinkSync(file);
         } catch {
           // Best effort.
         }
-        write(row('cleared', base, 'orphaned manifest — worktree absent'));
+        print(row('cleared', base, 'orphaned manifest — worktree absent'));
       }
     }
   }
