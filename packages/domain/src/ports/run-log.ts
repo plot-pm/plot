@@ -16,7 +16,9 @@ import type { PortResult } from '../port-result.js';
  * `fixer-start` — fleetd started a fixer on a slice PR, or refused the start;
  *   the outcome names the evidence and the pid, or the refusal.
  * `ci-rerun` — fleetd asked the CI system to re-run a slice PR's failed jobs
- *   on its head; the outcome names the answer (`asked`, `failed`, `unaskable`).
+ *   on its head; the outcome names the answer (`asked`, `failed`, `unaskable`,
+ *   `no-failed-run`), or `held: run-not-concluded` while a run on the head is
+ *   still going.
  * `fixer-end` — fleetd found a fixer's process gone, removed its worktree and
  *   cleared its in-flight mark.
  * `review-start` — fleetd started `plot-review` on a slice PR's head, or

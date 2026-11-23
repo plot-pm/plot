@@ -133,6 +133,8 @@ interface WorldOptions {
   rerunCalls?: string[];
   /** Whether `markRerun` lands; `true` by default. */
   rerunMarkOk?: boolean;
+  /** What `runsForSha` answers: the runs' conclusions, or a refusal; one `failure` run by default. */
+  shaRuns?: readonly (string | null)[] | 'unaskable' | 'failed';
 }
 
 const STARTER_PID = 4100;
@@ -247,6 +249,12 @@ const world = (opts: WorldOptions = {}): FixerTickWorld => {
       },
     }),
     build: () => ({
+      runsForSha: async (_branch, sha) => {
+        opts.order?.push('runs-read');
+        const runs = opts.shaRuns ?? ['failure'];
+        if (runs === 'unaskable' || runs === 'failed') return { ok: false, why: runs };
+        return { ok: true, value: runs.map((conclusion) => ({ sha, status: conclusion === null ? 'in_progress' : 'completed', conclusion, url: '', startedAt: '', workflow: 'CI' })) };
+      },
       rerunFailed: async (branch, sha) => {
         opts.rerunCalls?.push(`${branch}@${sha}`);
         opts.order?.push('rerun-call');
@@ -1298,7 +1306,7 @@ describe('fixerTick re-runs a red head once before a fixer starts', () => {
     const starts: Started[] = [];
     const [result] = await fixerTick([ciRedRow], baseReadings, opts, world(dead({ order, rerunCalls, agentRunStarts: starts })));
     expect(result!.step).toEqual({ step: 'rerun', head: HEAD });
-    expect(order).toEqual(['rerun-asked', 'rerun-call']);
+    expect(order).toEqual(['runs-read', 'rerun-asked', 'rerun-call']);
     expect(rerunCalls).toEqual([`feature/x@${HEAD}`]);
     expect(starts).toHaveLength(0);
     expect(opts.runLog.lines.map((l) => [l.step, l.outcome])).toEqual([['ci-rerun', 'moved: asked']]);
@@ -1347,11 +1355,49 @@ describe('fixerTick re-runs a red head once before a fixer starts', () => {
     const starts: Started[] = [];
     const w = world(dead({ order, rerunCalls, rerunAnswer: answer, agentRunStarts: starts }));
     await fixerTick([ciRedRow], baseReadings, opts, w);
-    expect(order).toEqual(['rerun-asked', 'rerun-call', `rerun-${answer}`]);
+    expect(order).toEqual(['runs-read', 'rerun-asked', 'rerun-call', `rerun-${answer}`]);
     expect(opts.runLog.lines.map((l) => [l.step, l.outcome])).toEqual([['ci-rerun', `failed: ${answer}`]]);
     const [next] = await fixerTick([ciRedRow], { ...baseReadings, now: NOW + 60_000 }, opts, w);
     expect(next!.step).toEqual({ step: 'fixer', head: HEAD, evidence: 'ci-red' });
     expect(rerunCalls).toHaveLength(1);
+    expect(starts[0]!.prompt).toContain(`No re-run of the failed jobs ran on ${HEAD}`);
+    expect(starts[0]!.prompt).not.toContain('fleetd re-ran the failed jobs');
+  });
+
+  it('holds with no record and no call while a run on the head has not concluded, and asks once it has', async () => {
+    const opts = fixture();
+    const order: string[] = [];
+    const rerunCalls: string[] = [];
+    const starts: Started[] = [];
+    const going = { order, rerunCalls, agentRunStarts: starts, shaRuns: ['failure', null] as const };
+    const [first] = await fixerTick([ciRedRow], baseReadings, opts, world(dead(going)));
+    expect(first!.step).toEqual({ step: 'rerun', head: HEAD });
+    expect(order).toEqual(['runs-read']);
+    expect(rerunCalls).toEqual([]);
+    expect(opts.runLog.lines.map((l) => [l.step, l.outcome])).toEqual([['ci-rerun', 'held: run-not-concluded']]);
+    const [second] = await fixerTick([ciRedRow], { ...baseReadings, now: NOW + 60_000 }, opts, world(dead({ ...going, shaRuns: ['failure', 'success'] })));
+    expect(second!.step).toEqual({ step: 'rerun', head: HEAD });
+    expect(rerunCalls).toEqual([`feature/x@${HEAD}`]);
+    expect(starts).toHaveLength(0);
+  });
+
+  it.each([
+    ['no run concluded failure', ['timed_out', 'success'], 'no-failed-run'],
+    ['no run at all', [], 'no-failed-run'],
+    ['an unaskable read', 'unaskable', 'unaskable'],
+    ['a failed read', 'failed', 'failed'],
+  ] as const)('records %s without a call and starts the fixer on the next tick without the re-ran line', async (_name, shaRuns, answer) => {
+    const opts = fixture();
+    const order: string[] = [];
+    const rerunCalls: string[] = [];
+    const starts: Started[] = [];
+    const w = world(dead({ order, rerunCalls, shaRuns, agentRunStarts: starts }));
+    await fixerTick([ciRedRow], baseReadings, opts, w);
+    expect(order).toEqual(['runs-read', `rerun-${answer}`]);
+    expect(rerunCalls).toEqual([]);
+    expect(opts.runLog.lines.map((l) => [l.step, l.outcome])).toEqual([['ci-rerun', `failed: ${answer}`]]);
+    const [next] = await fixerTick([ciRedRow], { ...baseReadings, now: NOW + 60_000 }, opts, w);
+    expect(next!.step).toEqual({ step: 'fixer', head: HEAD, evidence: 'ci-red' });
     expect(starts[0]!.prompt).toContain(`No re-run of the failed jobs ran on ${HEAD}`);
     expect(starts[0]!.prompt).not.toContain('fleetd re-ran the failed jobs');
   });

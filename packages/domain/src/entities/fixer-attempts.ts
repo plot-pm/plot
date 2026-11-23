@@ -79,17 +79,22 @@ export const FixerAttemptSchema = z
   .strict();
 export type FixerAttempt = z.infer<typeof FixerAttemptSchema>;
 
+/**
+ * What the host answered when the tick asked it to re-run a head's failed CI
+ * jobs; `no-failed-run` where the head had no concluded `failure` run to re-run.
+ */
 // plot-state: reading — the answer of the one re-run call on a head; the tick
-//   writes `asked` before the call and rewrites it once with the call's answer.
-/** What the host answered when the tick asked it to re-run a head's failed CI jobs. */
-export const FixerRerunAnswerSchema = z.enum(['asked', 'failed', 'unaskable']);
+//   writes `asked` before the call and rewrites it once with the call's answer,
+//   or writes `no-failed-run` with no call where no run concluded `failure`.
+export const FixerRerunAnswerSchema = z.enum(['asked', 'failed', 'unaskable', 'no-failed-run']);
 export type FixerRerunAnswer = z.infer<typeof FixerRerunAnswerSchema>;
 
 /**
  * One re-run of a head's failed CI jobs, recorded once per head.
  *
  * Written with `answer: 'asked'` before the call, and rewritten as `failed` or
- * `unaskable` where the call answers so. `cleared` is the time the tick first
+ * `unaskable` where the call answers so. Written as `no-failed-run`, with no
+ * call, where no run on `headSha` concluded `failure`. `cleared` is the time the tick first
  * read `pending` or `green` on `headSha` after `at`. A re-run spends no fixer
  * attempt.
  */

@@ -19,7 +19,7 @@ import {
 import { roleCommand, type RoleAgentRef } from '@plot-pm/domain/rules/role-command';
 import type { PidCheck } from '@plot-pm/domain/rules/role-run-alive';
 import { fixerPrompt, endedFixerAttempts, type FixerEvidence } from '@plot-pm/domain/rules/fixer-start';
-import type { FixerAttemptsRecord, FixerFinding, FixerInFlight } from '@plot-pm/domain/entities/fixer-attempts';
+import type { FixerAttemptsRecord, FixerFinding, FixerInFlight, FixerRerunAnswer } from '@plot-pm/domain/entities/fixer-attempts';
 import type { FixerAttemptsStore } from '@plot-pm/domain/ports/fixer-attempts';
 import { fixerReadingOf, fixerRerunAnswer, rerunOnHead, FIXER_BOUND_SECONDS } from '@plot-pm/domain/rules/fixer-attempts';
 import type { BuildPort } from '@plot-pm/domain/ports/build';
@@ -69,8 +69,8 @@ export interface FixerTickWorld {
   readonly attempts: (
     opts: ActOptions,
   ) => Pick<FixerAttemptsStore, 'read' | 'append' | 'markInFlight' | 'markStart' | 'markPushed' | 'markRerun' | 'markRerunCleared'>;
-  /** The CI connector a `rerun` step asks; the repository's declared connector by default. */
-  readonly build: (opts: ActOptions) => Pick<BuildPort, 'rerunFailed'>;
+  /** The CI connector a `rerun` step reads and asks; the repository's declared connector by default. */
+  readonly build: (opts: ActOptions) => Pick<BuildPort, 'runsForSha' | 'rerunFailed'>;
   readonly freshAgents: (opts: ActOptions) => Pick<FreshAgentRecordStore, 'rowsFor'>;
   /** Reads a desk worktree's ending file; real `fs` by default, `null` for "no file". */
   readonly readEndingFile: (worktree: string) => string | null;
@@ -555,8 +555,15 @@ const clearSeenRerun = async (
 };
 
 /**
- * Carries out a `rerun` step: records the re-run as `asked`, then asks the CI
- * system to re-run the head's failed jobs once.
+ * Carries out a `rerun` step: reads the head's CI runs, records the re-run as
+ * `asked`, then asks the CI system to re-run the head's failed jobs once.
+ *
+ * The CI system re-runs only a run that concluded `failure`. A run on the head
+ * that has not concluded holds the step with no record, so the next tick asks
+ * again once every run has ended. Where no run concluded `failure`, the entry
+ * is written as `no-failed-run` and no call is made, so the fixer starts on
+ * the next tick. A read that fails or cannot be asked writes `failed` or
+ * `unaskable`, with no call.
  *
  * A record that does not land asks nothing, so a crash or a failed write never
  * leads to a second call. An `unaskable` answer rewrites the entry as
@@ -566,11 +573,25 @@ const clearSeenRerun = async (
 const rerunFailedJobs = async (world: FixerTickWorld, opts: ActOptions, row: PrIndexRow, head: string, now: number): Promise<void> => {
   const at = new Date(now).toISOString();
   const store = world.attempts(opts);
+  const build = world.build(opts);
+  const runs = await build.runsForSha(row.head, head);
+  if (runs.ok && runs.value.some((run) => run.conclusion === null)) {
+    await runLogOf(opts).append(fixerLine(row, head, 'ci-rerun', 'held: run-not-concluded', now));
+    return;
+  }
+  let unrerunnable: FixerRerunAnswer | null = null;
+  if (!runs.ok) unrerunnable = runs.why === 'unaskable' ? 'unaskable' : 'failed';
+  else if (!runs.value.some((run) => run.conclusion === 'failure')) unrerunnable = 'no-failed-run';
+  if (unrerunnable !== null) {
+    const written = await store.markRerun(row.number, { headSha: head, at, answer: unrerunnable });
+    await runLogOf(opts).append(fixerLine(row, head, 'ci-rerun', written.ok ? `failed: ${unrerunnable}` : 'failed: record-not-written', now));
+    return;
+  }
   if (!(await store.markRerun(row.number, { headSha: head, at, answer: 'asked' })).ok) {
     await runLogOf(opts).append(fixerLine(row, head, 'ci-rerun', 'failed: record-not-written', now));
     return;
   }
-  const asked = await world.build(opts).rerunFailed(row.head, head);
+  const asked = await build.rerunFailed(row.head, head);
   const answer = asked.ok ? 'asked' : asked.why === 'unaskable' ? 'unaskable' : 'failed';
   if (answer !== 'asked') await store.markRerun(row.number, { headSha: head, at, answer });
   await runLogOf(opts).append(fixerLine(row, head, 'ci-rerun', answer === 'asked' ? 'moved: asked' : `failed: ${answer}`, now));
@@ -929,6 +950,7 @@ const defaultFixerTickWorld: FixerTickWorld = {
   worker: (opts) => processesFiles({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
   attempts: (opts) => fixerAttemptsFile(opts.repoRoot),
   build: (opts) => ({
+    runsForSha: async (branch, sha) => (await buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir })).runsForSha(branch, sha),
     rerunFailed: async (branch, sha) =>
       (await buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir })).rerunFailed(branch, sha),
   }),

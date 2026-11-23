@@ -50,6 +50,10 @@ describe('fixerPrompt', () => {
     expect(refused).toContain('the CI system refused it');
     const unaskable = textOf(fixerPrompt({ ...base, evidence: { kind: 'ci-red', failingChecks: ['test'], rerun: 'unaskable' } }));
     expect(unaskable).toContain('the CI system cannot re-run them from fleetd');
+    const nothing = textOf(fixerPrompt({ ...base, evidence: { kind: 'ci-red', failingChecks: ['test'], rerun: 'no-failed-run' } }));
+    expect(nothing).toContain('No re-run of the failed jobs ran on');
+    expect(nothing).toContain('no CI run on it concluded as a failure the CI system re-runs');
+    expect(nothing).not.toContain('Do not name a re-run');
     for (const rerun of [undefined, 'none'] as const) {
       expect(textOf(fixerPrompt({ ...base, evidence: { kind: 'ci-red', failingChecks: ['test'], rerun } }))).not.toContain('re-run');
     }
