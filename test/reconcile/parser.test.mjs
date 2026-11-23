@@ -4,6 +4,10 @@
 // states exactly what the parser must extract from it. Changing the plan
 // format means changing a fixture + expectation here, in the same commit as
 // the parser change.
+//
+// Four tests read every plan in the repository (see `estateReaders`), so a
+// plan PR selects this file:
+// plot-reads: docs/plans
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
