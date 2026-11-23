@@ -1,5 +1,5 @@
 import type { PrIndex } from '../entities/pr-index.js';
-import { SLICE_STATES, SLICE_STATE_WORDS, type SliceState, type SliceStateCounts } from './slice-states.js';
+import { SLICE_STATES, SLICE_STATE_WORDS, type NotStartedHold, type SliceState, type SliceStateCounts } from './slice-states.js';
 import { phaseAccent } from './workflow-phases.js';
 import { storyDateText } from './story-date.js';
 import { pill, type StatusPill } from './status-pill.js';
@@ -50,6 +50,8 @@ export interface PlanSliceFact {
   readonly pr?: number;
   /** The slice's one branch. Absent where the slice names several branches or none, or no reading names one. */
   readonly branch?: string;
+  /** What `notStartedHold` answers for a not-started slice. Absent where it answers `null`. */
+  readonly hold?: NotStartedHold;
 }
 
 /** The three headings of an opened plan row, plus the slices no reading reached. */
@@ -136,6 +138,8 @@ export interface PlanLine {
   readonly branch?: string;
   /** The slice a To do line waits on. Absent where it waits on none, and on every other line. */
   readonly waitsFor?: string;
+  /** The hold of a To do line's slice. Absent where it has none, and on every other line. */
+  readonly hold?: NotStartedHold;
 }
 
 /**
@@ -174,7 +178,8 @@ export const planLines = (slices: readonly PlanSliceFact[], now?: Date): PlanLin
     if (heading === 'to-do') {
       const waits = s.startable && s.waitsFor !== '' ? ` · waits for ${s.waitsFor}` : '';
       const waitsFor = s.waitsFor === '' ? {} : { waitsFor: s.waitsFor };
-      return { heading, slice: s.name, text: `${s.name}${waits}`, link: false, start: s.startable, state: s.state, ...pr, ...branch, ...waitsFor };
+      const hold = s.hold === undefined ? {} : { hold: s.hold };
+      return { heading, slice: s.name, text: `${s.name}${waits}`, link: false, start: s.startable, state: s.state, ...pr, ...branch, ...waitsFor, ...hold };
     }
     return { heading, slice: s.name, text: s.name, link: s.linked, start: false, state: s.state, ...pr, ...branch };
   });
@@ -190,17 +195,29 @@ const SLICE_PILL: Readonly<Record<PlanLine['state'], StatusPill>> = {
 };
 
 /**
- * The status pill of a slice line, by the slice's state.
+ * The words of a not-started slice's hold: `no brief`, or `waits on <slice>`.
+ *
+ * @param hold - what `notStartedHold` answered.
+ */
+export const holdWords = (hold: NotStartedHold): string => (hold.kind === 'no-brief' ? 'no brief' : `waits on ${hold.slice}`);
+
+/**
+ * The status pill of a slice line, by the slice's state and its hold.
  *
  * @param state - the slice's state, or `unread` where a reading it needs is absent.
+ * @param hold - the slice's hold; read for a `not-started` slice only.
  * @returns one pill with no link: `merged` green, `blocked` red, `at CI` amber, `building` blue, `not started` grey,
- *   and `not read` grey for `unread`, which never reads as not started.
+ *   and `not read` grey for `unread`, which never reads as not started. A held `not-started` slice reads
+ *   `not started · <hold words>`.
  */
-export const slicePills = (state: PlanLine['state']): StatusPill[] => [{ ...SLICE_PILL[state] }];
+export const slicePills = (state: PlanLine['state'], hold?: NotStartedHold): StatusPill[] => {
+  const base = SLICE_PILL[state];
+  return state === 'not-started' && hold !== undefined ? [{ ...base, word: `${base.word} · ${holdWords(hold)}` }] : [{ ...base }];
+};
 
 /** One slice line of an opened plan row: the line and its status pills. */
 export interface PlanSliceLine extends PlanLine {
-  /** What `slicePills` returns for the line's state. */
+  /** What `slicePills` returns for the line's state and hold. */
   readonly pills: StatusPill[];
 }
 
@@ -211,7 +228,7 @@ export interface PlanSliceLine extends PlanLine {
  * @param now - the clock reading the relative merge time measures against; absent leaves `merged` off every line.
  */
 export const releasePlanSlices = (slices: readonly PlanSliceFact[], now?: Date): PlanSliceLine[] =>
-  planLines(slices, now).map((line) => ({ ...line, pills: slicePills(line.state) }));
+  planLines(slices, now).map((line) => ({ ...line, pills: slicePills(line.state, line.hold) }));
 
 /** One plan as a collapsed row of the Release delivery section. */
 export interface PlanRowFacts {
@@ -223,6 +240,8 @@ export interface PlanRowFacts {
   readonly lines: PlanSliceLine[];
   /** Slices with no reading, counted apart from the strip. */
   readonly unread: number;
+  /** Not-started slices that carry a hold: a sub-count of the strip's `not-started` segment. */
+  readonly held: number;
   /** The plan's workflow phase name. Absent where no row of the plan names one. */
   readonly phase?: string;
   /** The phase's accent: its own name for a default phase, `neutral` otherwise. Absent where `phase` is. */
@@ -254,6 +273,7 @@ export const planRowFacts = (plan: string, owner: string, slices: readonly PlanS
     stripText: stripText(slices),
     lines: releasePlanSlices(slices, readings.now),
     unread: slices.filter((s) => s.state === 'unread').length,
+    held: slices.filter((s) => s.state === 'not-started' && s.hold !== undefined).length,
     ...(phase === undefined ? {} : { phase, accent: phaseAccent(phase) }),
   };
 };
@@ -329,13 +349,20 @@ export interface HeaderCountPart {
   readonly words: string;
 }
 
+/** The five-state counts of a block, with the held sub-count of `not-started`. */
+export interface StripStateCounts extends SliceStateCounts {
+  /** Not-started slices that carry a hold; counted inside `not-started`, so never above it. */
+  readonly held?: number;
+}
+
 /**
  * The slices of a block's plans per state, summed over each row's strip.
  *
  * @param rows - the block's plan rows.
- * @returns the five states, `total` as their sum, and `unread` as the rows' unread slices outside it.
+ * @returns the five states, `total` as their sum, `unread` as the rows' unread slices outside it, and `held` as the
+ *   rows' held slices inside `not-started`.
  */
-export const stripStateCounts = (rows: readonly PlanRowFacts[]): SliceStateCounts => {
+export const stripStateCounts = (rows: readonly PlanRowFacts[]): StripStateCounts & { readonly held: number } => {
   const inState = (state: SliceState): number => rows.reduce((n, r) => n + (r.strip.find((s) => s.state === state)?.count ?? 0), 0);
   return {
     delivered: inState('delivered'),
@@ -345,6 +372,7 @@ export const stripStateCounts = (rows: readonly PlanRowFacts[]): SliceStateCount
     'not-started': inState('not-started'),
     total: SLICE_STATES.reduce((n, state) => n + inState(state), 0),
     unread: rows.reduce((n, r) => n + r.unread, 0),
+    held: rows.reduce((n, r) => n + r.held, 0),
   };
 };
 
@@ -353,13 +381,15 @@ export const stripStateCounts = (rows: readonly PlanRowFacts[]): SliceStateCount
  *
  * @param counts - the block's counts.
  * @param strip - the five-state counts of the block; without it no state part other than `delivered` is returned.
- * @returns `plans`, then the five states in `SLICE_STATES` order where `strip` is given (`delivered` alone without it), a count of 0 included, then `unread` only above 0, so it agrees with `headerText` for the same arguments.
+ * @returns `plans`, then the five states in `SLICE_STATES` order where `strip` is given (`delivered` alone without it), a count of 0 included, then `unread` only above 0, so it agrees with `headerText` for the same arguments. The `not-started` part's words end in ` · N held` where `strip.held` is above 0, and name no reason.
  */
-export const headerCountParts = (counts: ReleaseHeaderCounts, strip?: SliceStateCounts): HeaderCountPart[] => [
+export const headerCountParts = (counts: ReleaseHeaderCounts, strip?: StripStateCounts): HeaderCountPart[] => [
   { key: 'plans', count: counts.plans, words: counts.plans === 1 ? 'plan' : 'plans' },
   ...SLICE_STATES.flatMap((state): HeaderCountPart[] => {
     if (state === 'delivered') return [{ key: state, count: counts.delivered, words: `of ${counts.total} slices delivered` }];
-    return strip === undefined ? [] : [{ key: state, count: strip[state], words: SLICE_STATE_WORDS[state] }];
+    if (strip === undefined) return [];
+    const held = state === 'not-started' && (strip.held ?? 0) > 0 ? ` · ${strip.held} held` : '';
+    return [{ key: state, count: strip[state], words: `${SLICE_STATE_WORDS[state]}${held}` }];
   }),
   ...(counts.unread > 0 ? [{ key: 'unread' as const, count: counts.unread, words: 'not read' }] : []),
 ];
@@ -371,7 +401,7 @@ export const headerCountParts = (counts: ReleaseHeaderCounts, strip?: SliceState
  * @param release - the target release, or `''`.
  * @param strip - the five-state counts of the block, for the state figures after `delivered`.
  */
-export const headerText = (counts: ReleaseHeaderCounts, release: string, strip?: SliceStateCounts): string =>
+export const headerText = (counts: ReleaseHeaderCounts, release: string, strip?: StripStateCounts): string =>
   [...(release === '' ? [] : [release]), ...headerCountParts(counts, strip).map((p) => `${p.count} ${p.words}`)].join(' · ');
 
 /** One figure of the Release delivery section's header line, with the plan row its link leads to. */

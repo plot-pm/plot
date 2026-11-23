@@ -204,7 +204,7 @@ describe('the phase of a plan row', () => {
 describe('stripStateCounts', () => {
   it('sums each state over the rows, keeps unread outside the total', () => {
     const rows = [planRowFacts('p', '', five), planRowFacts('q', '', [slice('x', 'unread'), slice('y', 'delivered')])];
-    expect(stripStateCounts(rows)).toEqual({ delivered: 2, blocked: 1, 'at-a-gate': 1, 'being-built': 1, 'not-started': 1, total: 6, unread: 1 });
+    expect(stripStateCounts(rows)).toEqual({ delivered: 2, blocked: 1, 'at-a-gate': 1, 'being-built': 1, 'not-started': 1, total: 6, unread: 1, held: 0 });
     expect(stripStateCounts(rows).total).toBe(headerCounts(rows).total);
   });
 });
@@ -343,5 +343,57 @@ describe('the prerequisite of a To do line', () => {
   it('names none where the slice waits on none, and none on another heading', () => {
     const lines = planLines([slice('a', 'not-started'), slice('b', 'being-built', { waitsFor: 'base' })]);
     expect(lines.map((l) => 'waitsFor' in l)).toEqual([false, false]);
+  });
+});
+
+describe('the held sub-count of not started', () => {
+  const waits = { kind: 'waits-on', slice: 'Work items grid' } as const;
+  const held = [
+    slice('a', 'delivered'),
+    slice('b', 'not-started', { hold: { kind: 'no-brief' } }),
+    slice('c', 'not-started', { hold: waits }),
+    slice('d', 'not-started'),
+    slice('e', 'not-started'),
+    slice('f', 'being-built'),
+  ];
+
+  it('prints 4 not started · 2 held and keeps the five states summing to the total', () => {
+    const rows = [planRowFacts('p', '', held)];
+    const counts = headerCounts(rows);
+    const strip = stripStateCounts(rows);
+    expect(strip.held).toBe(2);
+    expect(strip['not-started']).toBe(4);
+    const parts = headerCountParts(counts, strip);
+    expect(parts.find((p) => p.key === 'not-started')).toEqual({ key: 'not-started', count: 4, words: 'not started · 2 held' });
+    expect(parts.filter((p) => p.key !== 'plans' && p.key !== 'unread').reduce((n, p) => n + p.count, 0)).toBe(counts.total);
+    expect(headerText(counts, '', strip)).toBe('1 plan · 1 of 6 slices delivered · 0 blocked · 0 at a gate · 1 being built · 4 not started · 2 held');
+  });
+
+  it('prints nothing after not started where no slice is held', () => {
+    const rows = [planRowFacts('p', '', five)];
+    expect(headerText(headerCounts(rows), '', stripStateCounts(rows))).not.toContain('held');
+    const { held: _held, ...unheld } = stripStateCounts(rows);
+    expect(headerText(headerCounts(rows), '', unheld)).toBe(headerText(headerCounts(rows), '', stripStateCounts(rows)));
+  });
+
+  it('sums the held count over the plan rows, as the five states are summed', () => {
+    const rows = [planRowFacts('p', '', held), planRowFacts('q', '', [slice('x', 'not-started', { hold: waits })])];
+    expect(rows.map((r) => r.held)).toEqual([2, 1]);
+    expect(stripStateCounts(rows).held).toBe(3);
+    const head = releaseDeliveryHeader('Sprint delivery', [{ scope: '', rows }]);
+    expect(head.counts.find((c) => c.key === 'not-started')?.words).toBe('not started · 3 held');
+  });
+
+  it('counts a hold on a slice that is not not-started as no held slice', () => {
+    expect(planRowFacts('p', '', [slice('b', 'being-built', { hold: waits })]).held).toBe(0);
+  });
+
+  it('names the hold on the slice line pill', () => {
+    const lines = releasePlanSlices(held);
+    expect(lines.map((l) => l.pills[0]?.word)).toEqual([
+      'merged', 'not started · no brief', 'not started · waits on Work items grid', 'not started', 'not started', 'building',
+    ]);
+    expect(lines[1]?.hold).toEqual({ kind: 'no-brief' });
+    expect(slicePills('being-built', waits)).toEqual([{ word: 'building', tone: 'blue', href: null }]);
   });
 });

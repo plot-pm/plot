@@ -36,6 +36,7 @@ import type { AgentEntry, AgentRow, DraftPlan, IssueRow, ReleaseTickets, Slice, 
 import { ownedFromCard, ownedFromRow, ownedFromTicket, plansOfTicket, rowMineOwnership, ticketMineOwnership, type PlanOwners } from './mine-filter.js';
 import { releaseReadingOf } from '../release-approve.js';
 import { sliceKeyOf } from './sections.js';
+import { needsBrief } from './row-identity.js';
 import { SLICE_LINKING_KINDS } from './slices.js';
 
 /** The two `## Plot Config` keys the rule reads, as the server carried them. */
@@ -284,6 +285,7 @@ const rowItem = (id: string, rows: readonly AgentRow[], slice: Slice | undefined
   }
   const blockedBy = rows.find((r) => r.blockedBy !== null)?.blockedBy;
   if (blockedBy) item.waitsOn = blockedBy;
+  if (rows.some(needsBrief)) item.needsBrief = true;
   if (item.kind === 'pr' || item.kind === 'branch') {
     const loose = looseOf(rows, held);
     if (loose !== undefined) item.loose = loose;

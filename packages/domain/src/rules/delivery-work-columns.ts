@@ -83,8 +83,9 @@ const waitPills = (facts: ItemRowFacts, agents: readonly string[]): StatusPill[]
     : facts.waitsOn === '' ? pill('waits on an earlier slice', 'grey')
     : facts.waitsOn !== undefined ? pill(`waits on ${facts.waitsOn}`, 'grey', { to: 'slice', id: facts.waitsOn })
     : null;
-  if (what !== null) return [...claim, what];
-  if (claim.length > 0) return claim;
+  const brief = facts.needsBrief === true ? [pill('no brief', 'grey')] : [];
+  if (what !== null) return [...claim, ...brief, what];
+  if (claim.length > 0 || brief.length > 0) return [...claim, ...brief];
   return [agents.length === 0 ? pill('no agent assigned', 'grey') : pill('agent assigned', 'grey')];
 };
 
@@ -95,8 +96,8 @@ const waitPills = (facts: ItemRowFacts, agents: readonly string[]): StatusPill[]
  *   link to the checks or review page; `gates unread` where no gate was read.
  * - `progress`: `PR open` (linked to the PR) or `no PR yet`, then `N unpushed commits` where a count was read.
  * - `wait`: a claim that holds no work as `claimed <age> ago, no work committed`, with the quiet `claimed on another
- *   machine` where it is held elsewhere; then the owed approval, the plan's phase or the earlier slice; else
- *   `no agent assigned` or `agent assigned`.
+ *   machine` where it is held elsewhere; then `no brief` where the item needs a brief; then the owed approval, the
+ *   plan's phase or the earlier slice, printed once; else `no agent assigned` or `agent assigned`.
  *
  * No pill names a person: the By cell does. `sprint` adds a grey `no sprint` pill last.
  *

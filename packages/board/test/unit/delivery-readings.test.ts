@@ -528,3 +528,18 @@ describe('deliveryMapping under a Mine mode', () => {
     expect(shown('mine')).toContain(sliceItemId('p', 'A'));
   });
 });
+
+describe('deliveryMapping briefs', () => {
+  it('reads needs-brief on a row as needsBrief, and leaves it absent otherwise', () => {
+    const m = deliveryMapping(input({
+      rows: [
+        row({ branch: '', plan: 'p', wave: 'A', state: 'eligible', group: 'queued', startability: 'needs-brief' }),
+        row({ branch: '', plan: 'p', wave: 'B', state: 'eligible', group: 'queued', startability: 'start-work' }),
+      ],
+      slices: [slice('A'), slice('B')],
+    }));
+    const of = (name: string) => m.readings.items.find((i) => i.id === sliceItemId('p', name));
+    expect(of('A')?.needsBrief).toBe(true);
+    expect(of('B')).not.toHaveProperty('needsBrief');
+  });
+});

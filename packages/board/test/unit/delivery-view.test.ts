@@ -370,6 +370,20 @@ describe('the domain fields the view passes on', () => {
     expect(figures(b)).toEqual(['1 plan', '1 of 3 slices delivered', '0 blocked', '0 at a gate', '1 being built', '1 not started']);
   });
 
+  it('counts held not-started slices in the header and names each hold on its slice line', () => {
+    const slices = [sliceOf('p', 'A', { merge: 'merged', complete: true }), sliceOf('p', 'B'), sliceOf('p', 'C'), sliceOf('p', 'D')];
+    const queued = { plan: 'p', phase: 'Development', planState: 'approved', state: 'eligible', group: 'queued' };
+    const v = place([
+      row({ ...queued, branch: '', wave: 'B', startability: 'needs-brief', blockedBy: 'C' }),
+      row({ ...queued, branch: '', wave: 'C', startability: 'start-work', blockedBy: 'A' }),
+      row({ ...queued, branch: '', wave: 'D', startability: 'start-work' }),
+    ], slices);
+    const b = v.releaseBlocks[0]!;
+    expect(b.header).toBe('1 plan · 1 of 4 slices delivered · 0 blocked · 0 at a gate · 0 being built · 3 not started · 2 held');
+    expect(b.header).toBe(figures(b).join(' · '));
+    expect(b.plans[0]!.lines.map((l) => l.pills[0]?.word)).toEqual(['merged', 'not started · no brief', 'not started · waits on A', 'not started']);
+  });
+
   it('sets counts on a sprint block under the my-sprint scope, equal to its header figures', () => {
     const slices = [sliceOf('p', 'A', { merge: 'merged', complete: true })];
     const sprint = { slug: 's', title: 'Title s', release: '', ownerHandle: 'me', members: [{ slug: 'p' }] };
