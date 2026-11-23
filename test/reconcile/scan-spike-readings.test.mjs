@@ -1,11 +1,7 @@
-// The scan carries the spike readings: `plot-fleet-scan.sh` reads `tracer`,
-// `spike_approved_raw` and each branch's `spike` flag from plot-plan-meta.sh
-// into its widened `P` row, puts `tracer` on the pulse plan, and appends three
-// columns to each slice's verdict line: the slice's annotated branches, the
-// `Spike approved:` record (1/0) and the plan's annotated branches. The verdict
-// lines go to `plot-verdicts.mjs` on stdin and nowhere else, so a `node` shim
-// on PATH records that stdin and hands it on unchanged. `--list-eligible` then
-// shows what a Design plan with an approved spike offers: the spike alone.
+// The scan carries the spike readings: `plot-fleet-scan.sh` puts `tracer` on
+// the pulse plan, and its widened `P` row still reads the phase.
+// `--list-eligible` offers the approved spike of a Design plan alone, and
+// nothing where the spike shares its slice or the plan holds two annotations.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -17,7 +13,7 @@ import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scan = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-fleet-scan.sh');
 
-let tmp, repo, json, calls, env;
+let tmp, repo, json, env;
 
 const git = (cwd, ...args) => execFileSync('git', args, { encoding: 'utf8', cwd });
 const write = (rel, content) => {
@@ -112,33 +108,13 @@ ${slices}
   git(repo, 'commit', '-qm', 'plans');
   git(repo, 'push', '-q', 'origin', 'main');
 
-  const bin = path.join(tmp, 'bin');
-  const log = path.join(tmp, 'verdict-input.log');
-  fs.mkdirSync(bin);
-  fs.writeFileSync(path.join(bin, 'node'), `#!/bin/bash
-case "$1" in
-  */plot-verdicts.mjs)
-    if [ $# -eq 1 ]; then
-      printf '%s\\n' '--' >> '${log}'
-      tee -a '${log}' | '${process.execPath}' "$@"
-      exit
-    fi ;;
-esac
-exec '${process.execPath}' "$@"
-`, { mode: 0o755 });
-
-  env = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+  env = { ...process.env };
   delete env.PLOT_REPO_ROOT;
   delete env.PLOT_UNATTENDED;
   json = JSON.parse(execFileSync('bash', [scan, '--offline', '--json'], { encoding: 'utf8', cwd: repo, env }));
-  // The domain walk never pipes rows into plot-verdicts.mjs, so it leaves no tap log.
-  calls = (fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '').split('--\n').filter(Boolean)
-    .map((call) => call.split('\n').filter(Boolean).map((line) => line.split('\t')));
 });
 
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
-
-const viaShell = { skip: 'asserts the shell-to-plot-verdicts pipe, which the domain walk does not have; the spike outcome is asserted by the --list-eligible tests below' };
 
 const planOf = (slug) => json.plans.find((p) => p.file.includes(slug));
 
@@ -150,22 +126,6 @@ test('scan: the pulse plan carries tracer for a Tracer: yes plan and omits it ot
 test('scan: the widened P row still reads the phase', () => {
   assert.equal(planOf('tracer-plan').phase, 'approved');
   assert.equal(planOf('plain-plan').phase, 'approved');
-});
-
-test('scan: spike reads 1 only on the slice holding the annotated branch', viaShell, () => {
-  const tracer = calls.find((lines) => lines.length === 3);
-  assert.ok(tracer, `no three-slice verdict call in ${JSON.stringify(calls)}`);
-  assert.deepEqual(tracer.map((cols) => cols.length), [6, 6, 6]);
-  assert.deepEqual(tracer.map((cols) => cols[1]), ['approved', 'approved', 'approved']);
-  assert.deepEqual(tracer.map((cols) => cols[3]), ['0', '1', '0']);
-  assert.deepEqual(tracer.map((cols) => cols[5]), ['1', '1', '1']);
-});
-
-test('scan: spike_approved reads 1 for a plan with the record and 0 without', viaShell, () => {
-  const tracer = calls.find((lines) => lines.length === 3);
-  const plain = calls.find((lines) => lines.length === 1 && lines[0][1] === 'approved');
-  assert.deepEqual(tracer.map((cols) => cols[4]), ['1', '1', '1']);
-  assert.deepEqual(plain.map((cols) => cols.slice(3)), [['0', '0', '0']]);
 });
 
 const offered = (slug) => {
