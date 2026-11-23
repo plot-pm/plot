@@ -2752,9 +2752,12 @@ if [ "$group" = job ] && [ "$sub" = list ]; then
   printf '%s' '${jobsJson.replace(/'/g, `'\\''`)}'
   exit ${jobListExit}
 fi
+${apiMissing ? `if [ "$group" = api ]; then
+  printf '%s\\n' 'error: unknown command: api' >&2
+  exit 1
+fi` : ''}
 if [ "$group" = api ]; then
   ${apiSleep ? `sleep ${apiSleep}` : ':'}
-  ${apiMissing ? `printf '%s\\n' 'error: unknown command: api' >&2; exit 1` : ''}
   _apipath="\${sub%%\\?*}"
   case "$_apipath" in
 ${apiCases}
@@ -4441,6 +4444,71 @@ test('host: run-for-sha answers the older FAILURE when a newer NOT_BUILT build s
   assert.equal(JSON.parse(singular.stdout.trim()).conclusion, 'FAILURE',
     'the newer NOT_BUILT must not hide the older FAILURE of the same sha');
 });
+
+// --- the sha read's refusal names its cause (#3160) --------------------------
+
+const jenkinsShaRead = ({ apiAnswers, apiSleep, extraEnv = {} }) => {
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS, apiAnswers, apiSleep });
+  const budgetHome = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-shabudget-')));
+  const started = Date.now();
+  const res = runJenkinsAllowFail(['run-for-sha', 'feature/red', 'sha-x'],
+    { repo, hostStubs, jen, extraEnv: { PLOT_BUDGET_HOME: budgetHome, ...extraEnv } });
+  const ledger = path.join(budgetHome, 'budget.tsv');
+  const jenkinsRows = existsSync(ledger)
+    ? readFileSync(ledger, 'utf8').split('\n').filter((l) => l.split('\t').includes('jenkins')).length
+    : 0;
+  return { ...res, elapsedMs: Date.now() - started, jenkinsRows, jen };
+};
+
+test('host: a Jenkins sha read that times out names the bound, not jen auth login', () => {
+  const res = jenkinsShaRead({ apiSleep: 5, extraEnv: { PLOT_JENKINS_SHA_BOUND_S: '1' } });
+  assert.equal(res.code, 4, res.stderr);
+  assert.match(res.stderr, /no answer within 1 s/);
+  assert.match(res.stderr, /PLOT_JENKINS_SHA_BOUND_S/);
+  assert.doesNotMatch(res.stderr, /jen auth login/);
+  assert.ok(res.elapsedMs < 4000, `the read waited ${res.elapsedMs} ms, past 2 × bound + 2 s`);
+  assert.ok(res.elapsedMs >= 2000, `two killed calls take at least 2 s, measured ${res.elapsedMs} ms`);
+  assert.equal(res.jenkinsRows, 2, 'each killed call writes one ledger row');
+});
+
+test('host: a Jenkins sha read shows the branch path error before the root path one', () => {
+  const sso = 'error: SSO session expired, redirected to https://sso.test/login';
+  const res = jenkinsShaRead({ apiAnswers: {
+    [jenkinsBranchPath('feature/red')]: { exit: 1, stderr: sso },
+    [JENKINS_ROOT_PATH]: { exit: 1, stderr: 'error: HTTP 404' },
+  } });
+  assert.equal(res.code, 4, res.stderr);
+  assert.match(res.stderr, /did not answer/);
+  assert.ok(res.stderr.includes(sso), res.stderr);
+  assert.ok(res.stderr.indexOf(sso) < res.stderr.indexOf('error: HTTP 404'), res.stderr);
+});
+
+test('host: a Jenkins sha read proxied to a 302 refuses as did not answer with jen\'s own line', () => {
+  const redirect = 'error: HTTP 302 Found (redirected to https://proxy.test/login)';
+  const answer = { exit: 1, stderr: redirect };
+  const res = jenkinsShaRead({ apiAnswers: { [jenkinsBranchPath('feature/red')]: answer, [JENKINS_ROOT_PATH]: answer } });
+  assert.equal(res.code, 4, res.stderr);
+  assert.match(res.stderr, /did not answer/);
+  assert.ok(res.stderr.includes(redirect), res.stderr);
+});
+
+for (const [status, exit] of [['200', 0], ['401', 1]]) {
+  test(`host: a Jenkins sha read answered with HTML and ${status} refuses as did not answer`, () => {
+    const answer = { body: '<html><body>Sign in</body></html>', exit, stderr: exit ? `error: HTTP ${status}` : '' };
+    const res = jenkinsShaRead({ apiAnswers: { [jenkinsBranchPath('feature/red')]: answer, [JENKINS_ROOT_PATH]: answer } });
+    assert.equal(res.code, 4, res.stderr);
+    assert.match(res.stderr, /did not answer/);
+  });
+}
+
+test('host: a failed Jenkins sha read writes one ledger row per path', () => {
+  const res = jenkinsShaRead({ apiAnswers: {} });
+  assert.equal(res.code, 4, res.stderr);
+  assert.equal(res.jenkinsRows, 2);
+});
+
 
 test('host: runs on Jenkins carries conclusion host-neutral, raw from .result, matching the GitHub arm\'s convention', () => {
   // The raw host value, uninterpreted, as in the GitHub arm — not the `checks`
