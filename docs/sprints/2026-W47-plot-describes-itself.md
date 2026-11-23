@@ -39,6 +39,7 @@ The sprint delivers two plans. One plan makes the documents describe the automat
 
 - [ ] [the-default-runner-has-a-spend-cap] The default runner has a spend cap (plan PR #3698)
 - [ ] [delivery-is-measured-from-the-plan-files] Delivery is measured from the plan files (plan PR #3698)
+- [ ] [#3311](https://github.com/plot-pm/plot/issues/3311) With `PLOT_BOARD_ALLOW_REMOTE_WRITES`, the board's write routes have no authentication
 
 ### Could Have
 - [ ] [fleet-state-is-read-whole-and-from-one-home] Fleet state is read whole and from one home (#3207) <!-- pr: #3609, branch: bug/a-new-failure-on-main-starts-a-repair -->
@@ -47,6 +48,12 @@ The sprint delivers two plans. One plan makes the documents describe the automat
 - [ ] [github-refuses-a-merge-into-a-red-main] GitHub refuses a merge into a red main <!-- pr: #3691, branch: docs/the-repository-requires-plot-main -->
 
 <!-- add items here -->
+- [ ] [#3043](https://github.com/plot-pm/plot/issues/3043) `plot-fleetctl` refuses a submodule checkout
+- [ ] [#2533](https://github.com/plot-pm/plot/issues/2533) `/plot-init` on Bitbucket checks for the `bb` CLI
+- [ ] [#3689](https://github.com/plot-pm/plot/issues/3689) `bitbucket-api.ts` sends a Bitbucket access token
+- [ ] [#3690](https://github.com/plot-pm/plot/issues/3690) A `bb` call that `bb` refused unsent writes no `budget.tsv` row
+- [ ] [#3551](https://github.com/plot-pm/plot/issues/3551) A held board shows the tickets of a current issue index
+- [ ] [#1839](https://github.com/plot-pm/plot/issues/1839) The release gate and the release checklist
 
 ### Deferred
 
