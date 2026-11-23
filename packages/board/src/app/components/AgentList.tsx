@@ -7,7 +7,6 @@ import {
   UNNAMED_SLICE,
   isOneSlicePlan,
   FLEET_CONTROLS_DEFAULT,
-  isBrokenState,
 } from '../../contract/schema.js';
 
 const MACHINE_DOT_CLASS: Record<MachineDot, string> = {
@@ -122,10 +121,10 @@ import {
   writeMineOnly,
   writeMineStrict,
 } from '../lib/agent-rows/mine-filter.js';
-import { deliveryScope, mineMode, placeDelivery, REASON_DO, rowSprintMembership, youFooter, youRowCells, type VerbTone, ticketsSection, planIndexOf, workItemCells, YOU_GROUP_MARKERS, type DeliverySection, type YouGroup, type YouMarker } from '@plot-pm/domain';
+import { deliveryScope, mineMode, placeDelivery, REASON_DO, rowSprintMembership, youFooter, youRowCells, type VerbTone, ticketsSection, planIndexOf, workItemCells, YOU_GROUP_MARKERS, fleetSwitchRow, type DeliverySection, type YouGroup, type YouMarker } from '@plot-pm/domain';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace, headingPace } from '../lib/agent-rows/activity.js';
 import { ActivitySpinner } from '../lib/agent-rows/marks.js';
-import { BranchMenu, BrokenAgentMenu, PlanActions, SliceLineActions } from '../lib/agent-rows/menus.js';
+import { FleetAgentMenu, fleetAgentMenuFacts, PlanActions, SliceLineActions } from '../lib/agent-rows/menus.js';
 import { planWaitingDays, sliceKeyOf } from '../lib/agent-rows/sections.js';
 import { countedPlanFactsOf, deliveryMapping, deliveryMineOf, rateLimitOf, releaseCardsOf, releaseGroupOf, sprintReleases } from '../lib/agent-rows/delivery-readings.js';
 import { ReleaseGroup } from './ReleaseGroup.js';
@@ -1706,22 +1705,18 @@ export function AgentList({
               run={agent.entry === null ? mapping.runsById[agent.placement.id] ?? null : null}
               highlighted={agent.entry !== null && agent.entry.branch !== '' && agent.entry.branch === highlightBranch}
               details={agent.entry === null ? [] : detailLines(agent.row === null ? [] : [agent.row], agent.entry)}
-              menu={agent.entry !== null && isBrokenState(agent.entry.state) ? (
-                <BrokenAgentMenu agent={agent.entry} drop={drop} onActing={onStarting} />
-              ) : agent.row !== null ? (
-                <BranchMenu
-                  row={agent.row}
-                  card={cardForPlanFile?.(agent.row.planFile) ?? null}
-                  dispatch={dispatch}
-                  implement={implement}
-                  pulse={pulse}
-                  onStarting={onStarting}
-                  continueWith={continueWith}
-                  restartWith={restartWith}
+              pills={agent.pills}
+              menu={
+                <FleetAgentMenu
+                  facts={fleetAgentMenuFacts(agent.entry, agent.row, agent.state, {
+                    continueWith, restartWith, drop, canOpenPlan: onOpenPlan !== undefined, canReveal: onRevealBranch !== undefined,
+                  })}
+                  agent={agent.entry}
+                  onActing={onStarting}
                   onOpenPlan={onOpenPlan}
                   onRevealBranch={onRevealBranch}
                 />
-              ) : null}
+              }
             />
           ),
           linkLine(`links-${agent.anchor}`, agent.links, '→ acts on:'),
@@ -1835,17 +1830,6 @@ export function AgentList({
                   )}
                   {release && <ReleaseHeaderCounts head={view.releaseHeader} onJump={(anchor) => jump(anchor)} />}
                   {sectionPace && <ActivitySpinner pace={sectionPace} />}
-                  <span {...headerControl} data-section-controls className="ml-auto">
-                    {section.key === 'fleet' && (
-                      <span id={FLEET_CONTROLS_ANCHOR} data-fleet-control-column className="flex flex-wrap items-center gap-3 text-[13px] font-normal">
-                        <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
-                        <AutoSwitch name="autoReview" value={switches.autoReview} />
-                        <AutoSwitch name="autoVerify" value={switches.autoVerify} />
-                        <AutoSwitch name="autoDesign" value={switches.autoDesign} />
-                        <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} />
-                      </span>
-                    )}
-                  </span>
                 </h2>
               );
               // Folded, the header keeps its counts and adds the section's summary; a loud supervisor alert stays.
@@ -1857,6 +1841,15 @@ export function AgentList({
                   <SectionHead section={section.key} label={section.label} folded={folded} onToggle={() => toggle(section.key)} summary={summary}>
                     {heading}
                   </SectionHead>
+                  {section.key === 'fleet' && !folded && fleetSwitchRow(fleet?.supervisor ?? null).shows && (
+                    <div id={FLEET_CONTROLS_ANCHOR} data-fleet-control-column data-fleet-switch-row className="flex flex-wrap items-center gap-3 px-3 text-[13px] font-normal">
+                      <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
+                      <AutoSwitch name="autoReview" value={switches.autoReview} />
+                      <AutoSwitch name="autoVerify" value={switches.autoVerify} />
+                      <AutoSwitch name="autoDesign" value={switches.autoDesign} />
+                      <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} />
+                    </div>
+                  )}
                   {!folded && empty !== null && (
                     <SectionEmptyFrame
                       section={section.key}

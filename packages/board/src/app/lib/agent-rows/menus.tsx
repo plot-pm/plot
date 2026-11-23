@@ -4,11 +4,13 @@ import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
 import type { ScopeRowMenu } from '@plot-pm/domain/rules/scope-tickets';
 import { ACTION_TIMEOUT_MS } from '../bounded-fetch.js';
 import {
+  type AgentEntry,
   type AgentRow,
   type Card,
   type DispatchInfo,
   type IssueAnswer,
   type IssueRow,
+  isBrokenState,
 } from '../../../contract/schema.js';
 import { offersReleaseClaim } from '@plot-pm/domain/rules/quiet';
 import { ReleaseClaimButton } from '../../components/ReleaseClaimButton.js';
@@ -30,7 +32,7 @@ import { WriteBriefButton } from '../../components/WriteBriefButton.js';
 import { offersChangedFiles } from './stuck.js';
 import { isStartable, needsBrief } from './row-identity.js';
 import { WorkerLogModal } from '../../components/WorkerLogModal.js';
-import { rowMenuOf, type BranchMenuFacts, type RowMenuItem, type RowMenuView, type SliceLineMenuFacts, type SliceMenuFacts } from './delivery-view.js';
+import { rowMenuOf, type BranchMenuFacts, type FleetAgentMenuFacts, type RowMenuItem, type RowMenuView, type SliceLineMenuFacts, type SliceMenuFacts } from './delivery-view.js';
 import { DispatchLogModal } from '../../components/DispatchLogModal.js';
 import { ChangedFilesModal } from '../../components/ChangedFilesModal.js';
 
@@ -1106,96 +1108,88 @@ export const ScopeTicketActions = (
 };
 
 /**
- * The menu for a BROKEN agent row — one in `stalled` or `unknown` state,
- * rendered in WAITING ON YOU as a problem report.
+ * The facts of a Fleet agent row's `⋯`, from its registry entry and its branch row.
  *
- * THE ONE ACTION IT OFFERS IS DROP. A broken agent has no PR to open, no work
- * to start, no story to create — the worker stopped and the entry remains. The
- * drop action removes the manifest so the row disappears, the board's manual
- * reconciliation for entries the automatic resolver cannot clear.
- *
- * The endpoint refuses a live worker regardless of what this menu says, so the
- * control renders even for `unknown` — asking gives a clear answer, and a
- * refusal names the reason.
- *
- * RENDERS NOTHING WHERE THE ENTRY HAS NO SESSION. A manifest without a session
- * id has no file to remove; the row is a synthesized worktree with no dispatch,
- * and it drains when the worktree does.
+ * @param entry - the registry entry; `null` for a role run.
+ * @param row - the row of the branch the agent acts on; `null` where the payload holds none.
+ * @param state - the agent's state word (`PlacedAgentView.state`).
+ * @param bindings - the board's Continue, Restart and Drop answers, and whether the view opens plans and reveals branches.
+ * @returns the `fleet-agent` facts `rowMenuOf` reads.
  */
-export function BrokenAgentMenu({
-  agent,
-  drop,
-  onActing,
-  onDropped,
-}: {
-  /** The broken agent entry. */
-  agent: import('../../../contract/schema.js').AgentEntry;
-  /** Whether this server will act on Drop, and why not. */
-  drop?: import('../../../contract/schema.js').DispatchInfo;
-  /** Reports that a click is outstanding (true) or has settled (false). */
-  onActing?: (active: boolean) => void;
-  /** Called when the drop succeeds — the row can remove itself from the list. */
-  onDropped?: () => void;
-}) {
-  const [open, setOpen] = useState(false);
+export const fleetAgentMenuFacts = (
+  entry: AgentEntry | null,
+  row: AgentRow | null,
+  state: string,
+  bindings: { continueWith?: DispatchInfo; restartWith?: DispatchInfo; drop?: DispatchInfo; canOpenPlan: boolean; canReveal: boolean },
+): FleetAgentMenuFacts => ({
+  kind: 'fleet-agent',
+  state,
+  broken: entry !== null && isBrokenState(entry.state),
+  branch: entry?.branch || row?.branch || '',
+  session: entry?.session ?? '',
+  openUrl: row === null ? '' : openTarget(row),
+  openLabel: row === null ? 'Open' : openLabel(row),
+  planFile: row?.planFile ?? '',
+  ...bindings,
+});
 
-  // No session = no manifest = nothing to drop. The row should not get a menu
-  // at all; this gate is the second line, and it is the one that fires where
-  // the caller forgot the first.
-  if (!agent.session) return null;
-
-  // No drop availability means the server never told us — hide the menu rather
-  // than show one whose only item is unavailable.
-  if (!drop) return null;
-
+/**
+ * Renders the `⋯` of a Fleet agent row from `rowMenuOf`'s `fleet-agent` item set, and mounts the agent panel its
+ * items open. Show the agent, Continue and Restart open the agent panel, where Continue and Restart run; Drop agent
+ * arms and confirms through `DropAgentButton`. The renderer decides nothing: every item's `enabled`, `reason` and
+ * `confirm` comes from the view.
+ *
+ * @param facts - the agent's facts; see {@link FleetAgentMenuFacts}.
+ * @param agent - the registry entry Drop agent posts; `null` for a role run.
+ * @param onActing - called while a drop runs.
+ * @param onOpenPlan - opens a plan's card by its file.
+ * @param onRevealBranch - reveals a branch's row.
+ */
+export const FleetAgentMenu = ({ facts, agent, onActing, onOpenPlan, onRevealBranch }: {
+  facts: FleetAgentMenuFacts;
+  agent: AgentEntry | null;
+  onActing?: ((active: boolean) => void) | undefined;
+  onOpenPlan?: ((planFile: string) => boolean) | undefined;
+  onRevealBranch?: ((branch: string) => void) | undefined;
+}) => {
+  const [panelOpen, setPanelOpen] = useState(false);
+  const view = rowMenuOf(facts);
+  const render = (item: RowMenuItem): ReactNode => {
+    switch (item.action) {
+      case 'worker-log':
+        return <button type="button" data-worker-log-open onClick={() => setPanelOpen(true)} aria-label={`Show the agent working on ${facts.branch}`} className={ITEM_LINK}>{item.label}</button>;
+      case 'continue':
+      case 'restart':
+        return <button type="button" {...{ [`data-agent-${item.action}`]: '' }} onClick={() => setPanelOpen(true)} className={ITEM_LINK}>{item.label}</button>;
+      case 'open':
+        return (
+          <a href={facts.openUrl} target="_blank" rel="noreferrer" data-open-link aria-label={`${item.label} ${facts.branch} on the git host`} className={ITEM_LINK}>
+            {item.label}
+          </a>
+        );
+      case 'open-plan':
+        return <button type="button" data-agent-open-plan onClick={() => onOpenPlan?.(facts.planFile)} className={ITEM_LINK}>{item.label}</button>;
+      case 'reveal-branch':
+        return <button type="button" data-agent-reveal-branch onClick={() => onRevealBranch?.(facts.branch)} className={ITEM_LINK}>{item.label}</button>;
+      case 'drop-agent':
+        return agent !== null && facts.drop !== undefined ? <DropAgentButton agent={agent} drop={facts.drop} onActing={onActing} /> : null;
+      default:
+        return null;
+    }
+  };
   return (
-    <div className="relative">
-      <button
-        type="button"
-        aria-label="Agent actions"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        // THE SAME TRIGGER AS EVERY OTHER ROW'S MENU. This drew its own SVG of
-        // three circles until 2026-08-27 while the other four menus in this
-        // file used the `⋯` glyph — so a broken agent's row carried a control
-        // that looked like a different KIND of control, in the one place a
-        // reader is already unsure what is wrong. An operator reported it as
-        // *"why do we use a new type of menu for these broken workers"*.
-        //
-        // A menu is a menu: the row it sits on says what is exceptional, and
-        // the trigger says only *there are acts here*.
-        className="inline-flex h-6 w-5 items-center justify-center leading-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"
-      >
-        <span aria-hidden className="text-xs">⋯</span>
-      </button>
-      {open && (
-        <div
-          role="menu"
-          aria-label="Agent actions"
-          // THE SAME PANEL AS EVERY OTHER MENU, byte for byte. This diverged on
-          // five properties — `min-w-[160px]` vs `min-w-max`, `rounded` vs
-          // `rounded-md`, `py-1` vs `p-1`, and `dark:bg-slate-800` vs
-          // `dark:bg-slate-900` — so it sat at a different width, corner radius
-          // and shade than the four menus beside it. Each difference is small
-          // and together they read as a different component.
-          className="absolute right-0 z-10 mt-1 min-w-max rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
-          onBlur={(e) => {
-            if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false);
-          }}
-        >
-          <div role="menuitem" className="px-2 py-1 text-left">
-            <DropAgentButton
-              agent={agent}
-              drop={drop}
-              onActing={onActing}
-              onDropped={() => {
-                setOpen(false);
-                onDropped?.();
-              }}
-            />
-          </div>
-        </div>
+    <>
+      <ItemMenu view={view} trigger={{ 'data-row-actions': '', 'data-agent-actions': facts.branch, label: `Actions for agent ${facts.branch || facts.session}` }} render={render} />
+      {panelOpen && facts.branch !== '' && (
+        <WorkerLogModal
+          branch={facts.branch}
+          onClose={() => setPanelOpen(false)}
+          canContinue={facts.continueWith}
+          canRestart={facts.restartWith}
+          onOpenPlan={onOpenPlan}
+          onRevealBranch={onRevealBranch}
+        />
       )}
-    </div>
+    </>
   );
-}
+};

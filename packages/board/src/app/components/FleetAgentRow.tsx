@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react';
-import { AGENT_COLUMN_LABELS, type AgentRole, type AgentRowCells, type RoleRun } from '@plot-pm/domain';
+import { AGENT_COLUMN_LABELS, type AgentRole, type AgentRowCells, type RoleRun, type StatusPill } from '@plot-pm/domain';
 import type { FleetRowFacts } from '../lib/agent-rows/working-agents.js';
 import { ActivitySlot } from '../lib/agent-rows/marks.js';
 import { RoleChip } from './RoleChip.js';
-import { RowCell, type LinkHandlers } from './DeliveryRows.js';
+import { RowCell, StatusPills, type LinkHandlers } from './DeliveryRows.js';
 
 /** The column header of a Fleet group's agent rows; `doing` reads `Waits on` in Blocked. */
 export const FleetAgentHeader = ({ blocked }: { blocked: boolean }) => (
@@ -35,10 +35,11 @@ const DASH = '—';
  * @param facts - the row's anchor, availability, identity and note (`fleetRowFacts`).
  * @param run - the state-file run the row stands for, where the registry holds none.
  * @param highlighted - the row is the one an agent panel just revealed.
- * @param menu - the row's actions, or nothing where the agent offers none.
+ * @param pills - the agent's state pills (`agentPills`), shown after the spinner slot in the Doing now cell.
+ * @param menu - the row's `⋯` (`FleetAgentMenu`).
  * @param details - the details popover's lines: pid, manifest counts and the like.
  */
-export const FleetAgentRow = ({ id, cells, handlers, role, facts, run = null, highlighted = false, menu = null, details = [] }: {
+export const FleetAgentRow = ({ id, cells, handlers, role, facts, run = null, highlighted = false, pills = [], menu = null, details = [] }: {
   id: string;
   cells: AgentRowCells;
   handlers: LinkHandlers;
@@ -46,6 +47,7 @@ export const FleetAgentRow = ({ id, cells, handlers, role, facts, run = null, hi
   facts: FleetRowFacts;
   run?: RoleRun | null;
   highlighted?: boolean;
+  pills?: readonly StatusPill[];
   menu?: ReactNode;
   details?: readonly string[];
 }) => (
@@ -76,6 +78,7 @@ export const FleetAgentRow = ({ id, cells, handlers, role, facts, run = null, hi
     <span role="gridcell" data-agent-cell="doing" data-doing-label={cells.doingLabel} className="delivery-truncate">
       {/* The slot is reserved while the agent is idle, so the Doing now text keeps its place when the spinner comes. */}
       <span className="mr-1 inline-block"><ActivitySlot pace={cells.doingPace} /></span>
+      {pills.length > 0 && <span data-agent-pills className="mr-1 inline-flex"><StatusPills pills={pills} handlers={handlers} /></span>}
       <RowCell cell={cells.doing} handlers={handlers} />
       {cells.doingDetail !== null && (
         <span data-agent-detail className="delivery-truncate delivery-text-muted block" title={cells.doingDetail}>{cells.doingDetail}</span>
