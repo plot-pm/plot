@@ -35,7 +35,7 @@ Design spec (outside the repo): `/Users/jwloka/Quatico/Agentic-Tools/plot/docs/s
 
 ### Should Have
 - [x] [delivery-activity-has-three-signals] Delivery activity shows as three signals with fixed meanings <!-- pr: #3583, branch: feature/delivery-activity-signals -->
-- [ ] [delivery-sections-count-alike] The sprint header and the Fleet section count alike <!-- pr: #3656, branch: feature/a-held-slice-names-its-hold -->
+- [x] [delivery-sections-count-alike] The sprint header and the Fleet section count alike <!-- pr: #3656, branch: feature/a-held-slice-names-its-hold -->
 
 <!-- add items here -->
 

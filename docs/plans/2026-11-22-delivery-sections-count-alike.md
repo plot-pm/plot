@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** delivery-ui-polish
 - **Review:** pr
@@ -14,6 +14,7 @@
 - **Started:** 2026-11-22, Jan Wloka, `feature/delivery-header-counts-every-state`
 - **Started:** 2026-11-23, Jan Wloka, `feature/a-held-slice-names-its-hold`
 - **Started:** 2026-11-23, Jan Wloka, `feature/fleet-rows-name-their-plan`
+- **Delivered:** 2026-11-23
 
 ## Changelog
 
