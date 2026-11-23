@@ -146,7 +146,7 @@ Counted from the code on `origin/main` at `21ae2c638`, for a repository with N =
 
 ### Shell reading
 
-- `bug/plot-host-reads-bb-rate-limit` <!-- waits: bug/fleetd-counts-in-the-bb-ledger, bug/bitbucket-lists-all-states-in-one-request --> — `plot-host.sh` maps `bb` exit 75 to exit 5 by its code, the `limit` op hands `command bb rate-limit --json`'s fields to `bbLimitReading`, and one identity check on `command bb --version` replaces the craftamap probe, with a net reduction on the shell-lines ratchet <!-- builds: the bb rate-limit reading in plot-host.sh limit -->
+- `bug/plot-host-reads-bb-rate-limit` <!-- waits: bug/fleetd-counts-in-the-bb-ledger, bug/bitbucket-lists-all-states-in-one-request --> — `plot-host.sh` maps `bb` exit 75 to exit 5 by its code, the `limit` op hands `command bb rate-limit --json`'s fields to `bbLimitReading`, and one identity check on `command bb --version` replaces the craftamap probe, with a net reduction on the shell-lines ratchet <!-- builds: the bb rate-limit reading in plot-host.sh limit --> → #3688
 
 ## Notes
 

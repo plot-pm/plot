@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ciSuiteRefusal, controllerInvocation, programWords, withoutComments, withoutQuotes } from '../src/rules/ci-suite.js';
+import { ciSuiteRefusal, controllerHttpAction, controllerInvocation, programWords, withoutComments, withoutQuotes } from '../src/rules/ci-suite.js';
 import { unpinnedMerges } from '../src/rules/controller-gate.js';
 
 const SUITES = [
@@ -341,6 +341,7 @@ describe('a word list is data only when every body command is a reader (#1341)',
     'for f in plot-deliver.sh; do [ -f $f ] && test -x $f && stat $f; done',
     'for f in plot-deliver.sh; do diff $f x; shasum $f; sha256sum $f; tail -1 $f; grep -c x $f; ls $f; cat $f; done',
     'for f in plot-deliver.sh; do cmp $f x; done; echo ok',
+    'for f in plot-deliver.sh; do while cat x; do cat $f; done; done',
   ])('%s answers null', (command) => {
     expect(controllerInvocation(command)).toBeNull();
   });
@@ -365,6 +366,10 @@ describe('a word list is data only when every body command is a reader (#1341)',
     ['for f in plot-deliver.sh; do git diff --ext-diff -- $f; done', 'deliver'],
     ['for f in plot-deliver.sh; do git log --textconv -- $f; done', 'deliver'],
     ['for f in plot-deliver.sh; do X=1 cat $f; done', 'deliver'],
+    ['for f in plot-deliver.sh; do until cat README.md; do cat x; done; bash skills/plot/scripts/$f; done', 'deliver'],
+    ['for f in plot-deliver.sh; do while cat README.md; do cat x; done; bash skills/plot/scripts/$f; done', 'deliver'],
+    ['for f in plot-deliver.sh; do for g in a; do cat $g; done; bash $f s; done', 'deliver'],
+    ['for f in plot-deliver.sh\ndo\n  while cat x\n  do\n    cat y\n  done\n  bash $f s\ndone', 'deliver'],
   ])('%s answers %s', (command, action) => {
     expect(controllerInvocation(command)).toBe(action);
   });
@@ -563,5 +568,49 @@ describe('a script glued behind a quoted separator is a run', () => {
 
   it('keeps a read that names the script after a quoted separator a read', () => {
     expect(controllerInvocation("grep -n 'a;plot-deliver.sh' README.md")).toBeNull();
+  });
+});
+
+describe('a reserved word does not hide the program', () => {
+  const R = 'http://localhost:4000/api/release';
+  it.each([
+    `for i in 1; do curl -X POST ${R}; done`,
+    `while curl -X POST ${R}; do break; done`,
+    `if curl -X POST ${R}; then :; fi`,
+    `! curl -X POST ${R}`,
+    `(curl -X POST ${R})`,
+    `time curl -X POST ${R}`,
+    `time -p curl -X POST ${R}`,
+    `while X=ps curl -X POST ${R}; do break; done`,
+  ])('%s is a release call', (command) => {
+    expect(controllerInvocation(command)).toBe('release');
+    expect(controllerHttpAction(command)).toBe('release');
+  });
+
+  it.each([
+    'if true; then cat plot-deliver.sh; fi',
+    'while true; do cat plot-deliver.sh; done',
+    '{ cat plot-deliver.sh; }',
+    'if [ -f skills/plot/scripts/plot-deliver.sh ]; then echo yes; fi',
+    'if git -C . grep -q x -- plot-dispatch.sh; then :; fi',
+  ])('%s is a read', (command) => {
+    expect(controllerInvocation(command)).toBeNull();
+  });
+
+  it.each([
+    ['until ! pgrep -f "plot-deliver.mjs x"; do sleep 1; done', 'deliver'],
+    ['if pgrep -f plot-deliver.mjs; then :; fi', 'deliver'],
+  ] as const)('%s stays a run', (command, action) => {
+    expect(controllerInvocation(command)).toBe(action);
+  });
+
+  it.each([
+    'for i in 1; do pnpm run test:e2e; done',
+    'if true; then pnpm run test:e2e; fi',
+    '! pnpm run test:e2e',
+    'time pnpm run test:e2e',
+    'time -p pnpm run test:e2e',
+  ])('%s runs the suite', (command) => {
+    expect(ciSuiteRefusal(command, SUITES)).toEqual({ suite: 'pnpm run test:e2e' });
   });
 });

@@ -9,6 +9,8 @@
  * change, and whether the change runs the corpus tier.
  */
 
+import { syncPathSet, syncPathVerdict, type SyncPathKeys } from './state-sync.js';
+
 /** One `glob = command` pair from `Local checks`. */
 export interface LocalCheck {
   /** The path glob: `*` within one segment, `**` across segments, `?` one character. */
@@ -189,6 +191,8 @@ export interface SelectionReadings {
    * they share. A changed path one of them names selects the tier.
    */
   readonly corpusFiles: readonly TestFile[];
+  /** The config values that name the paths Plot writes as plan data (see {@link syncPathSet}). */
+  readonly sync: SyncPathKeys;
   /** The repository root; when given, placeholders are filled with absolute paths. */
   readonly root?: string;
 }
@@ -214,6 +218,12 @@ export interface Selection {
   readonly corpusTests: readonly string[];
   /** Changed paths that no path-selected check and no corpus glob reaches. */
   readonly untested: readonly string[];
+  /**
+   * True when at least one changed path is not generated and every such path
+   * lies in {@link syncPathSet}. A `.plot/panels/` path is plan data for
+   * `corpus` and is not in the set, so it answers false here.
+   */
+  readonly planDataOnly: boolean;
 }
 
 /** The suite name {@link ciSelection} gives the corpus tier. */
@@ -443,6 +453,10 @@ export const localChecks = (readings: LocalChecksReadings): LocalChecksAnswer =>
  * - A changed corpus file, or a changed path a corpus file names by one of
  *   its {@link searchTerms}, adds {@link CORPUS_SUITE}: a corpus test file
  *   goes into `corpusTests`, and a shared corpus module sets `corpus`.
+ * - `planDataOnly` answers whether every changed path that is not generated
+ *   lies in {@link syncPathSet} over `readings.sync`. An empty change, or one
+ *   of generated paths only, answers false. A `main` push run maps as a pull
+ *   request only where this is true.
  *
  * The references are derived here from the test files' text by
  * {@link testsNaming}, so CI and the local run read one map.
@@ -480,6 +494,7 @@ export const ciSelection = (readings: SelectionReadings): Selection => {
     corpus,
     corpusTests: tier.tests,
     untested: decided.untested.filter((path) => !reached.has(path)),
+    planDataOnly: changed.length > 0 && syncPathVerdict(changed, syncPathSet(readings.sync)).ok,
   };
 };
 

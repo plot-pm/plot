@@ -181,7 +181,7 @@ The layering rule holds in every slice: a controller or an entry calls the domai
 
 ### Domain pulse lookup
 
-- `bug/the-pulse-lookup-moves-into-the-domain` — `lookupBranch`, `branchFromPulse` and `ContinueRefusal` in the domain, `worktreeForBranch` and the agent panel as mappers, and the import test <!-- builds: lookupBranch in the domain, the one pulse walk -->
+- `bug/the-pulse-lookup-moves-into-the-domain` — `lookupBranch`, `branchFromPulse` and `ContinueRefusal` in the domain, `worktreeForBranch` and the agent panel as mappers, and the import test <!-- builds: lookupBranch in the domain, the one pulse walk --> → #3687
 
 ### New main failure
 

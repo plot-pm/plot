@@ -222,6 +222,7 @@ describe('gitWriteDirs', () => {
     ['cd /repo && git -C main commit -m x', ['/repo/main']],
     ['cd /repo && git -C /desk commit -m x', ['/desk']],
     ['git commit -m x && cd /repo/main', [null]],
+    ['if true; then cd /repo/main; fi; git commit -m x', ['/repo/main']],
   ])('judges a call after a literal cd in that directory: %s', (command, dirs) => expect(gitWriteDirs(command)).toEqual(dirs));
 
   it.each([
