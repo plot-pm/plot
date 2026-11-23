@@ -230,6 +230,14 @@ describe('planPrOf — a plan the default branch holds', () => {
     });
   });
 
+  it('answers the row whose merge commit is the short form of the merge, as Bitbucket reports it', () => {
+    const merge = '4bd76dacb1028234cdaf0611ac6baef1260b3dd7';
+    const head = '8b44905bbaa3dc73fc4478b4189aed00a089c54a';
+    const readings = byCommit([row({ mergeCommit: merge.slice(0, 12), headSha: head.slice(0, 12) })],
+      { addition: { sha: merge, secondParent: head } });
+    expect(planPrOf(readings)).toMatchObject({ outcome: 'found', number: 77, route: 'merged' });
+  });
+
   it('answers unnamed by commit for an empty answer, and asks no merged listing', () => {
     expect(planPrOf(byCommit([]))).toEqual({ outcome: 'unnamed', mergeCommit: 'm', via: 'commit' });
   });
