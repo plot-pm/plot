@@ -1,1 +1,0 @@
-../2026-11-21-a-delivered-docs-plan-counts-as-finished.md

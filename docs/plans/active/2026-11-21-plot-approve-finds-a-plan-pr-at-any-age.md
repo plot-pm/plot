@@ -1,1 +1,0 @@
-../2026-11-21-plot-approve-finds-a-plan-pr-at-any-age.md
