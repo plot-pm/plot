@@ -155,7 +155,7 @@ All evidence is on origin/main `b21961602`.
 
 ### Spike verdicts
 
-- `bug/the-verdict-line-drops-the-spike-columns` — `slicesFrom` parses three columns and rejects more; the `:40` and `:67-86` describes of `a-slice-is-marked-spike.test.ts` and the skipped column tests of `scan-spike-readings.test.mjs` go <!-- builds: slicesFrom without spike columns -->
+- `bug/the-verdict-line-drops-the-spike-columns` — `slicesFrom` parses three columns and rejects more; the `:40` and `:67-86` describes of `a-slice-is-marked-spike.test.ts` and the skipped column tests of `scan-spike-readings.test.mjs` go <!-- builds: slicesFrom without spike columns --> → #3674
 
 ### Spike implement
 
