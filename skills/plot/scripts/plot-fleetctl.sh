@@ -1099,7 +1099,7 @@ if [ "$mode" = "start" ] || [ "$mode" = "restart" ]; then
   # `--restart` asks with the `stop` verb: `start` refuses a unit that is loaded
   # whatever it serves, and a restart's unit is loaded by definition. `stop`
   # proceeds for `this` and refuses `another` and `unknown`.
-  ! old_label_refuses "${mode/restart/stop}" || exit 1
+  ! old_label_refuses "${mode/restart/stop}" "$(plot_repo_root)" || exit 1
   [ "$LABEL" = com.plot-pm.fleetd ] || { ! LABEL=com.plot-pm.fleetd UNIT_NAME=plot-fleetd old_label_refuses start-default || exit 1; }
 
   # REFUSAL 5 — the worker command cannot write. One `-p` run of the project's
@@ -1117,7 +1117,13 @@ if [ "$mode" = "start" ] || [ "$mode" = "restart" ]; then
   # `--restart` refuses an unloaded unit here, after the refusals it shares
   # with `--start` and before the probe, and a dry run stops here with the
   # unit, the pid and the commit (`restartPlan`).
-  [ "$mode" = start ] || node "$script_dir/board/plot-fleetctl-start.mjs" restart "$LABEL" "$plat" "$(supervisor_loaded && echo loaded)" "$(supervisor_pid)" "$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null)" "$dry_run" "$agents" "${PLOT_UNATTENDED:-0}" || exit 1
+  # THE COMMIT IS THE UNIT'S BUNDLE CHECKOUT'S, read from the loaded job's argv
+  # rather than `$repo_root` or `$plot_root` (#3367). The ceiling stops git at
+  # the checkout's parent, so a plugin directory with no `.git` answers empty
+  # and the report prints `unknown`; the trailing `/.` keeps an unread bundle
+  # path from naming the current directory.
+  unit_bundle=$(supervisor_bundle_path)
+  [ "$mode" = start ] || node "$script_dir/board/plot-fleetctl-start.mjs" restart "$LABEL" "$plat" "$(supervisor_loaded && echo loaded)" "$(supervisor_pid)" "$(GIT_CEILING_DIRECTORIES="${unit_bundle%/*/skills/plot/scripts/board/*}" git -C "${unit_bundle%/skills/plot/scripts/board/*}/." rev-parse --short HEAD 2>/dev/null)" "$dry_run" "$agents" "${PLOT_UNATTENDED:-0}" || exit 1
   [ "$mode" = start ] || [ "$dry_run" = 0 ] || { [ "$agents" = 0 ] || agents_pass; exit 0; }
   if [ "$dry_run" = 1 ]; then
     printf "state: %s\nwould fill and load %s (%s)\n  node:      %s (major %s, pinned %s)\n  harness:   %s (on the unit's PATH after node's directory: %s)\n  fleetd:    %s\n  repo:      %s\nwould probe: node %s/board/plot-write-probe.mjs '%s'\nwould then start agents: plot-dispatch.sh --start %s\n" "$(fleet_install_state)" "$LABEL" "$plat" "$node_bin" "$have" "$want" "$harness_bin" "$harness_dir" "$fleetd" "$repo_root" "$script_dir" "$("$script_dir/plot-config.sh" get "Worker command" "" 2>/dev/null)" "${start_count:-(default)}"
@@ -1138,7 +1144,7 @@ if [ "$mode" = "start" ] || [ "$mode" = "restart" ]; then
     $reload || exec node "$script_dir/board/plot-fleetctl-start.mjs" reload-failed "$LABEL" "$?" "$reload" "$(read_cmd)"
     pid_unchanged() { new_pid=$(supervisor_pid); [ "${new_pid:-$old_pid}" = "$old_pid" ]; }
     poll_while pid_unchanged
-    node "$script_dir/board/plot-fleetctl-start.mjs" restarted "$LABEL" "$old_pid" "$new_pid" "$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null)" "$wait_bound" "$(read_cmd)" || exit 1
+    node "$script_dir/board/plot-fleetctl-start.mjs" restarted "$LABEL" "$old_pid" "$new_pid" "$(GIT_CEILING_DIRECTORIES="${unit_bundle%/*/skills/plot/scripts/board/*}" git -C "${unit_bundle%/skills/plot/scripts/board/*}/." rev-parse --short HEAD 2>/dev/null)" "$wait_bound" "$(read_cmd)" || exit 1
     [ "$agents" = 0 ] || agents_pass
     exit 0
   fi
