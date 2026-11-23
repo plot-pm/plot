@@ -354,10 +354,10 @@ Commit the initial sprint skeleton directly to main:
 ```bash
 git add docs/sprints/${WEEK_PREFIX}-<slug>.md
 git commit -m "sprint: create <slug>"
-node skills/plot/scripts/board/plot-state-cut.mjs --land || { [ $? -eq 4 ] && git push; }
+node skills/plot/scripts/board/plot-state-cut.mjs --land
 ```
 
-Where `State branch` is declared in `## Plot Config`, `plot-state-cut.mjs --land` merges the state ref and the default branch into HEAD and pushes the record at the state ref. Exit 4 means no key is declared, and the plain `git push` runs.
+`plot-state-cut.mjs --land` merges the default branch into HEAD and pushes the record at the default branch through `plot-push-main.sh`, which takes the push lock and pushes as the `Writer app` on a GitHub origin where one is declared. Where `State branch` is declared in `## Plot Config`, it also merges the state ref and pushes the record at the state ref instead. It runs on a default-branch checkout, as steps 7 and 4b, the start commit and the close commit do, and refuses with exit 1 where HEAD is on any other branch. A non-zero exit means nothing landed, and the reason is on stderr.
 
 The plan paths are already staged by step 6.
 
@@ -425,7 +425,7 @@ Run `gh pr list --head sprint/<slug> --json number,state,isDraft --jq '.[]'`.
 
 #### 4a. PR-Aware Commit
 
-Update phase **on the PR branch**, push, mark ready, merge:
+Update phase **on the PR branch**, push, mark ready, merge. The push is a plain `git push` of `sprint/<slug>` to its own PR branch; the commit reaches the default branch through the PR merge, so it needs no `plot-state-cut.mjs --land`, which refuses any branch but the default branch:
 
 ```bash
 # Should already be on sprint/<slug> branch — confirm with: git branch --show-current
@@ -438,7 +438,8 @@ bash skills/plot/scripts/plot-sprint-state.sh <slug> Committed
 
 git add docs/sprints/*-<slug>.md
 git commit -m "sprint: commit <slug>"
-node skills/plot/scripts/board/plot-state-cut.mjs --land || { [ $? -eq 4 ] && git push; }
+# A PR branch push, not a default-branch landing: --land refuses sprint/<slug>.
+git push
 
 gh pr ready <number>          # if currently draft
 # Pin the merge to the head you reviewed; the controller gate refuses an unpinned one.
@@ -463,7 +464,7 @@ bash skills/plot/scripts/plot-sprint-state.sh <slug> Committed
 
 git add docs/sprints/*-<slug>.md
 git commit -m "sprint: commit <slug>"
-node skills/plot/scripts/board/plot-state-cut.mjs --land || { [ $? -eq 4 ] && git push; }
+node skills/plot/scripts/board/plot-state-cut.mjs --land
 ```
 
 #### 5. Summary
@@ -509,7 +510,7 @@ on 2026-09-08 with a state no rule admits.
 ```bash
 git add docs/sprints/*-<slug>.md docs/sprints/active/<slug>.md
 git commit -m "sprint: start <slug>"
-node skills/plot/scripts/board/plot-state-cut.mjs --land || { [ $? -eq 4 ] && git push; }
+node skills/plot/scripts/board/plot-state-cut.mjs --land
 ```
 
 #### 5. Summary
@@ -736,7 +737,7 @@ disagree.
 ```bash
 git add -A docs/sprints
 git commit -m "sprint: close <slug>"
-node skills/plot/scripts/board/plot-state-cut.mjs --land || { [ $? -eq 4 ] && git push; }
+node skills/plot/scripts/board/plot-state-cut.mjs --land
 ```
 
 #### 5. Summary

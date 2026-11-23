@@ -315,10 +315,10 @@ RC: v<version>-rc.<n> (YYYY-MM-DD)
 ```bash
 git add docs/releases/vnext-checklist.md
 git commit -m "release: v<version>-rc.<n> checklist"
-node ../plot/scripts/board/plot-state-cut.mjs --land || { [ $? -eq 4 ] && git push; }
+node ../plot/scripts/board/plot-state-cut.mjs --land
 ```
 
-Where `State branch` is declared in `## Plot Config`, `plot-state-cut.mjs --land` merges the state ref and the default branch into HEAD and pushes the record at the state ref. Exit 4 means no key is declared, and the plain `git push` runs.
+`plot-state-cut.mjs --land` merges the default branch into HEAD and pushes the record at the default branch through `plot-push-main.sh`, which takes the push lock and pushes as the `Writer app` on a GitHub origin where one is declared. Where `State branch` is declared in `## Plot Config`, it also merges the state ref and pushes the record at the state ref instead. This commit is made on a default-branch checkout; `--land` refuses with exit 1 where HEAD is on any other branch. A non-zero exit means nothing landed, and the reason is on stderr.
 
 **Summary (RC):**
 - RC tag: `v<version>-rc.<n>`
