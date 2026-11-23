@@ -607,6 +607,35 @@ describe('approve perform — a plan the default branch holds, found by its addi
     expect(asked.commit).toEqual([SECOND]);
   });
 
+  it('books a same-branch plan whose plan PR merged on origin/main, and commits nothing in the checkout', async () => {
+    const asked: Asked = { commit: [], merged: 0 };
+    const host = hostOf(asked, { [SECOND]: [mergedRow(PLAN_PR, `docs/${SLUG}`, SECOND, MERGE)] });
+    const ctx = ctxOnMain(host, 'same-branch');
+    const committedIn: string[] = [];
+    const booking = new Error('the booking worktree was asked for');
+    ctx.trees = {
+      ...ctx.trees,
+      mainRoot: async () => answered('/repo'),
+      excludePath: async () => answered(undefined),
+      fetchRef: async () => answered(false),
+      addBranch: async () => { throw booking; },
+      stage: async () => answered(undefined),
+      hasStagedChanges: async () => answered(true),
+      commitStaged: async (root: string) => { committedIn.push(root); return answered(undefined); },
+    } as unknown as Trees;
+    let out = '';
+    let error: unknown;
+    try {
+      await perform(ctx, { dryRun: false, spike: false, who: 'jwloka', slug: SLUG }, (s) => { out += s; }, () => {});
+    } catch (err) {
+      error = err;
+    }
+
+    expect(error).toBe(booking);
+    expect(committedIn).toEqual([]);
+    expect(out).toContain(`PR #${PLAN_PR} is already merged`);
+  });
+
   it('still refuses pr-absent for the bare slug of a same-branch plan the default branch does not hold', async () => {
     const asked: Asked = { commit: [], merged: 0 };
     const host = hostOf(asked, {});

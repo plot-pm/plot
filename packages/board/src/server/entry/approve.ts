@@ -982,6 +982,10 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
           pr = { number: found.number, state: 'OPEN', draft: false };
         } else if (found !== undefined && found.outcome === 'found') {
           pr = { number: found.number, state: found.state, draft: found.draft, headSha: found.headSha || undefined };
+          // A same-branch plan whose plan PR already merged into the default
+          // branch has no work branch left to carry its record, so it is booked
+          // on `origin/<main>` and records the merge, like any merged plan PR.
+          if (sameBranchOnMain && found.state === 'MERGED') sameBranch = false;
           if (found.branch !== '') prBranch = found.branch;
           carried = found.carried;
           prRoute = found.route;
