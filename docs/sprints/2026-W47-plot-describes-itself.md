@@ -1,6 +1,6 @@
 # Sprint: Plot describes itself
 
-> Plot's own documents describe what runs, and a second operator can follow them.
+> Plot can take over the software development part of the operator's home automation: a second operator follows Plot's own documents to an unattended run, and that run has a spend cap and a delivery measure.
 
 ## Status
 
@@ -16,6 +16,8 @@
 ## Sprint Goal
 
 A reader who did not build Plot finds in Plot's own documents what the automation does. The same reader follows the documents from install to the first autonomous run without help.
+
+The operator hands the software development part of the home automation to Plot instead of building more infrastructure for it. Two conditions come before that hand-off: a run that nobody watches has a ceiling, and the delivery is measured so that the hand-off can be judged. The research dossier "Plot as a factory" of 2026-11-20 names both (`gap-spend-cap`, `gap-delivery-metrics`).
 
 The sprint delivers two plans. One plan makes the documents describe the automation that runs. The other plan adds a guide from install to the first autonomous run. Three smaller changes keep the claims in the documents true. The configuration comments match the code. A gate lists the entries the repository root may hold. The board environment documentation covers the environment and remote access.
 
@@ -35,7 +37,8 @@ The sprint delivers two plans. One plan makes the documents describe the automat
 
 ### Should Have
 
-<!-- add items here -->
+- [ ] [the-default-runner-has-a-spend-cap] The default runner has a spend cap (plan PR #3698)
+- [ ] [delivery-is-measured-from-the-plan-files] Delivery is measured from the plan files (plan PR #3698)
 
 ### Could Have
 
