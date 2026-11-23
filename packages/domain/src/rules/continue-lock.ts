@@ -14,6 +14,14 @@ export interface ContinueHolder extends LockedProcess {
   at: number;
 }
 
+/**
+ * What a desk's continue lock says now: held by a live call, with its pid and
+ * the milliseconds left before the lock expires, or holding nothing. A missing
+ * file, an unparseable or empty body, an expired lock and a dead holder all
+ * hold nothing.
+ */
+export type ContinueLockReading = { held: true; pid: number; expiresInMs: number } | { held: false };
+
 /** The readings {@link continueLockHeld} decides from. */
 export interface ContinueHolderReadings {
   /** The holder's pid. */

@@ -29,6 +29,7 @@ export type WorktreeState = z.infer<typeof WorktreeStateSchema>;
 //                              they are reasons rather than stages.
 export const ReapRefusalSchema = z.enum([
   'live-worker',
+  'continue-lock-held',
   'uncommitted-changes',
   'unpushed-commits',
   'blocked-marker',

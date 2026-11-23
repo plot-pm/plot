@@ -7,6 +7,7 @@ import { refsRemoteGit } from '@plot-pm/domain/adapters/refs/refs-remote-git';
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
+import { continueLockHolder } from '@plot-pm/fleet/shared/continue-lock';
 import { isStateRef } from '@plot-pm/domain/rules/write-target';
 import { processesFiles } from '@plot-pm/domain/adapters/processes/processes-files';
 import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
@@ -22,6 +23,7 @@ import {
   firstBranchRefusal,
   firstClaimRefusal,
   dirtyTreeOwner,
+  dirtyTreeRow,
   type LocalBranchReadings,
 } from '@plot-pm/domain/rules/sweepable';
 import {
@@ -824,11 +826,11 @@ export const runWorktreeKind = async (
   defaultBranch: string,
   manifestDir: string,
   wtRoot: string,
-  write: Printer,
+  print: Printer,
   planDir = '',
   activeDir = '',
-): Promise<ReapCounters & { rows: ReapRecordRow[] }> => {
-  const counters: ReapCounters & { rows: ReapRecordRow[] } = {
+): Promise<ReapCounters & { rows: ReapRecordRow[]; reported: Set<string> }> => {
+  const counters: ReapCounters & { rows: ReapRecordRow[]; reported: Set<string> } = {
     reap: 0,
     kept: 0,
     removed: 0,
@@ -836,12 +838,13 @@ export const runWorktreeKind = async (
     unplaced: 0,
     cleared: 0,
     rows: [],
+    reported: new Set(),
   };
-  write('verdict  branch                                               why\n');
+  print('verdict  branch                                               why\n');
 
   const listed = await ctx.trees.list();
   if (!listed.ok) {
-    write('plot-reap: could not list worktrees\n');
+    print('plot-reap: could not list worktrees\n');
     return counters;
   }
 
@@ -849,6 +852,11 @@ export const runWorktreeKind = async (
 
   for (const tree of listed.value) {
     if (tree.isMain || tree.path === ctx.invokedFrom) continue;
+    // Every row this tree prints records its path, so the dirty-tree kind prints no second row for it.
+    const write: Printer = (text) => {
+      counters.reported.add(tree.path);
+      print(text);
+    };
     const short = tree.branch;
     const label = short !== '' ? short : `(detached) ${path.basename(tree.path)}`;
 
@@ -891,6 +899,8 @@ export const runWorktreeKind = async (
 
     const markers = await ctx.trees.markers(tree.path, 'PLOT-BLOCKED');
     const dirtyPaths = await ctx.trees.dirtyPathsWithStatus(tree.path);
+    const lockRead = await ctx.trees.continueLock(tree.path);
+    const continueLock = lockRead.ok ? lockRead.value : 'unread';
     if (!markers.ok || !dirtyPaths.ok) {
       write(row('keep', label, unaskable));
       counters.kept += 1;
@@ -978,6 +988,7 @@ export const runWorktreeKind = async (
       defaultBranch,
       isMain: false,
       workerPid: pid === '' ? null : pid,
+      continueLock,
       dirtyPath: dirty,
       blockedMarker: marker,
       markerRecordsWork,
@@ -993,6 +1004,14 @@ export const runWorktreeKind = async (
         case 'live-worker':
           reason = `worker alive (pid ${problem.detail})`;
           break;
+        case 'continue-lock-held': {
+          const [lockPid, seconds] = problem.detail.split(' ');
+          reason =
+            problem.detail === 'unread'
+              ? 'continue lock unread'
+              : `continue lock held by pid ${lockPid}, expires in ${seconds} s`;
+          break;
+        }
         case 'blocked-marker':
           reason = 'PLOT-BLOCKED marker — needs a person';
           break;
@@ -1035,6 +1054,7 @@ export const runWorktreeKind = async (
         defaultBranch,
         isMain: false,
         workerPid: pid === '' ? null : pid,
+        continueLock,
         dirtyPath: dirty,
         blockedMarker: marker,
         markerRecordsWork,
@@ -1166,14 +1186,14 @@ export const runWorktreeKind = async (
       counters.cleared += 1;
       const base = path.basename(match[1]);
       if (!acts(mode)) {
-        write(row('would', base, 'orphaned manifest — worktree absent'));
+        print(row('would', base, 'orphaned manifest — worktree absent'));
       } else {
         try {
           unlinkSync(file);
         } catch {
           // Best effort.
         }
-        write(row('cleared', base, 'orphaned manifest — worktree absent'));
+        print(row('cleared', base, 'orphaned manifest — worktree absent'));
       }
     }
   }
@@ -1514,12 +1534,21 @@ const runClaimKind = async (
 // KIND 4 — DIRTY TREES NOBODY OWNS (reported, never deleted)
 // ===========================================================================
 
-export const runDirtyKind = async (ctx: Context, manifestDir: string, write: Printer): Promise<number> => {
-  write('\n-- dirty trees nobody owns --\n');
+export const runDirtyKind = async (
+  ctx: Context,
+  manifestDir: string,
+  write: Printer,
+  reported: ReadonlySet<string>,
+): Promise<number> => {
   let dirtyTrees = 0;
+  const owned: string[] = [];
+  const leftovers: string[] = [];
 
   const listed = await ctx.trees.list();
-  if (!listed.ok) return 0;
+  if (!listed.ok) {
+    write('\n-- dirty trees nobody owns --\n');
+    return 0;
+  }
 
   for (const tree of listed.value) {
     // The main checkout is a person's desk, and its dirt is work in progress.
@@ -1542,8 +1571,10 @@ export const runDirtyKind = async (ctx: Context, manifestDir: string, write: Pri
       workerPid: pid === '' ? null : pid,
       manifest,
     });
-    if (owner !== 'nobody') {
-      write(
+    const shown = dirtyTreeRow(owner, reported.has(tree.path));
+    if (shown === 'skip') continue;
+    if (shown === 'owned') {
+      owned.push(
         row(
           'keep',
           tree.branch !== '' ? tree.branch : '(detached)',
@@ -1554,7 +1585,7 @@ export const runDirtyKind = async (ctx: Context, manifestDir: string, write: Pri
     }
 
     dirtyTrees += 1;
-    write(
+    leftovers.push(
       row(
         'LEFTOVER',
         tree.branch !== '' ? tree.branch : '(detached)',
@@ -1562,6 +1593,13 @@ export const runDirtyKind = async (ctx: Context, manifestDir: string, write: Pri
       ),
     );
   }
+
+  if (owned.length > 0) {
+    write('\n-- dirty trees with an owner --\n');
+    for (const line of owned) write(line);
+  }
+  write('\n-- dirty trees nobody owns --\n');
+  for (const line of leftovers) write(line);
 
   if (dirtyTrees > 0) {
     write('  ^ ' + `${dirtyTrees} dirty tree(s) nobody owns. Nothing was deleted from them,\n`);
@@ -1643,7 +1681,7 @@ const runReap = async (ctx: Context, args: Args, write: Printer, warn: Printer):
   const wt = await runWorktreeKind(ctx, args, mode, defaultBranch, manifestDir, wtRoot, write, planDir, activeDir);
   const br = await runBranchKind(ctx, args, mode, defaultBranch, write);
   const cl = await runClaimKind(ctx, args, mode, defaultBranch, planDir, activeDir, write);
-  const dirtyTrees = await runDirtyKind(ctx, manifestDir, write);
+  const dirtyTrees = await runDirtyKind(ctx, manifestDir, write, wt.reported);
 
   if (acts(mode)) await ctx.pinnedTips.prune(PIN_MAX_AGE_MS, new Date());
 
@@ -1720,7 +1758,7 @@ export const run = async (
     refs: refsGit(context),
     host: hostShell(context),
     scripts: scriptsShell(context),
-    trees: treesGit(context),
+    trees: treesGit(context, undefined, undefined, continueLockHolder),
     processes: processesFiles(context),
     plans: planStoreShell(context),
     pinnedTips: pinnedTipsFile({ cwd: repoRoot }),

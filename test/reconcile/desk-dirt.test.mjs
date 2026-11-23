@@ -187,6 +187,9 @@ const WORKER_FILES = [
   '.plot-worker.monitor.agent.jsonl',
   '.plot-worker.monitor.build.jsonl',
   '.plot-worker.pass',
+  '.plot-worker.limited',
+  '.plot-worker.log.1',
+  '.plot-worker.continue.lock',
 ];
 
 for (const name of WORKER_FILES) {
@@ -214,15 +217,45 @@ test('desk_dirt: a liveness token FIFO is no git status line, so it needs no exc
 
 test('desk_dirt: the full file set of a dead worker reads clean', () => {
   const dir = repo();
-  for (const name of ['.plot-worker.ending.json', '.plot-worker.envelope.json', '.plot-worker.exit',
+  // A global ignore file must not hide the files and pass this test with nothing checked.
+  execFileSync('git', ['-C', dir, 'config', 'core.excludesFile', '/dev/null']);
+  const names = ['.plot-worker.ending.json', '.plot-worker.envelope.json', '.plot-worker.exit',
     '.plot-worker.monitor.worker.jsonl', '.plot-worker.monitor.agent.jsonl', '.plot-worker.continue.md',
-    '.plot-worker.pid', '.plot-worker.pass']) {
-    writeFileSync(path.join(dir, name), 'x\n');
-  }
+    '.plot-worker.pid', '.plot-worker.pass', '.plot-worker.limited', '.plot-worker.log.1',
+    '.plot-worker.continue.lock'];
+  for (const name of names) writeFileSync(path.join(dir, name), 'x\n');
+  const porcelain = execFileSync('git', ['-C', dir, 'status', '--porcelain', '--untracked-files=all'], { encoding: 'utf8' });
+  assert.deepEqual(porcelain.trim().split('\n').sort(), names.map((name) => `?? ${name}`).sort(),
+    `precondition: git reports every file as untracked:\n${porcelain}`);
   const r = call('desk_dirt', dir);
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout.trim(), '', `a dead worker's own files are not unlanded work:\n${r.stdout}`);
 });
+
+test('desk_dirt: a nested docs/.plot-worker.limited still reads dirty', () => {
+  const dir = repo();
+  execFileSync('git', ['-C', dir, 'config', 'core.excludesFile', '/dev/null']);
+  mkdirSync(path.join(dir, 'docs'));
+  writeFileSync(path.join(dir, 'docs', 'a.md'), 'a\n');
+  execFileSync('git', ['-C', dir, 'add', '-A']);
+  execFileSync('git', ['-C', dir, 'commit', '-qm', 'docs']);
+  writeFileSync(path.join(dir, 'docs', '.plot-worker.limited'), 'x\n');
+  const r = call('desk_dirt', dir);
+  assert.match(r.stdout, /docs\/\.plot-worker\.limited/, `a nested copy must still be named:\n${r.stdout}`);
+});
+
+for (const name of ['.plot-worker.continue.lock.guard', '.plot-worker.continue.lock.4242.tmp',
+  '.plot-worker.continue.lock.guard.4242.stale']) {
+  test(`desk_dirt: the continue lock's leftover ${name} still reads dirty`, () => {
+    const dir = repo();
+    execFileSync('git', ['-C', dir, 'config', 'core.excludesFile', '/dev/null']);
+    writeFileSync(path.join(dir, '.plot-worker.continue.lock'), 'x\n');
+    writeFileSync(path.join(dir, name), 'x\n');
+    const r = call('desk_dirt', dir);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout.trim(), `?? ${name}`, `a crashed take is a case for a person:\n${r.stdout}`);
+  });
+}
 
 test('desk_dirt: a nested docs/.plot-worker.exit still reads dirty', () => {
   const dir = repo();
